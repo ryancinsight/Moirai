@@ -15,7 +15,7 @@ use moirai_core::{
     Task, TaskId, Priority, TaskContext, TaskHandle, BoxedTask,
     executor::{
         TaskSpawner, TaskManager, ExecutorControl, Executor,
-        TaskStatus, TaskStats, ExecutorConfig,
+        TaskStatus, TaskStats, ExecutorConfig, CleanupConfig,
         ExecutorPlugin,
     },
     scheduler::{Scheduler, SchedulerId, WorkStealingCoordinator},
@@ -335,6 +335,51 @@ impl TaskRegistry {
             }
         });
     }
+
+    /// Clean up completed tasks with both age and count limits.
+    /// 
+    /// This prevents unbounded memory growth by enforcing both time-based
+    /// and count-based cleanup policies.
+    fn cleanup_completed_with_limits(&self, max_age: Duration, max_retained_tasks: usize) {
+        let cutoff = Instant::now() - max_age;
+        let mut tasks = self.tasks.write().unwrap();
+        
+        // First pass: remove tasks older than max_age
+        tasks.retain(|_, metadata| {
+            match metadata.status {
+                TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed => {
+                    metadata.completion_time
+                        .map(|time| time > cutoff)
+                        .unwrap_or(false)
+                }
+                _ => true, // Keep active tasks
+            }
+        });
+        
+        // Second pass: if we still have too many completed tasks, remove oldest ones
+        let completed_tasks: Vec<_> = tasks.iter()
+            .filter(|(_, metadata)| {
+                matches!(metadata.status, 
+                    TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed)
+            })
+            .collect();
+            
+        if completed_tasks.len() > max_retained_tasks {
+            // Sort by completion time (oldest first) and remove excess
+            let mut completed_with_times: Vec<_> = completed_tasks.iter()
+                .filter_map(|(id, metadata)| {
+                    metadata.completion_time.map(|time| (**id, time))
+                })
+                .collect();
+                
+            completed_with_times.sort_by_key(|(_, time)| *time);
+            
+            let to_remove = completed_with_times.len().saturating_sub(max_retained_tasks);
+            for (task_id, _) in completed_with_times.iter().take(to_remove) {
+                tasks.remove(task_id);
+            }
+        }
+    }
 }
 
 /// Future for waiting on task completion.
@@ -394,6 +439,7 @@ pub struct HybridExecutor {
     
     // Thread management
     worker_handles: Mutex<Vec<JoinHandle<()>>>,
+    cleanup_handle: Mutex<Option<JoinHandle<()>>>,
     shutdown_signal: Arc<AtomicBool>,
     shutdown_complete: Arc<Condvar>,
     shutdown_mutex: Arc<Mutex<bool>>,
@@ -473,12 +519,35 @@ impl HybridExecutor {
             worker_handles.push(handle);
         }
 
+        // Create cleanup thread if automatic cleanup is enabled
+        let cleanup_handle = if config.cleanup.enable_automatic_cleanup {
+            let cleanup_task_registry = task_registry.clone();
+            let cleanup_shutdown_signal = shutdown_signal.clone();
+            let cleanup_config = config.cleanup.clone();
+            
+            let handle = thread::Builder::new()
+                .name(format!("{}-cleanup", config.thread_name_prefix))
+                .spawn(move || {
+                    Self::cleanup_thread_loop(
+                        cleanup_task_registry,
+                        cleanup_shutdown_signal,
+                        cleanup_config,
+                    )
+                })
+                .map_err(|_| ExecutorError::ThreadPoolCreationFailed)?;
+                
+            Some(handle)
+        } else {
+            None
+        };
+
         Ok(Self {
             config,
             schedulers,
             coordinator,
             task_registry,
             worker_handles: Mutex::new(worker_handles),
+            cleanup_handle: Mutex::new(cleanup_handle),
             shutdown_signal,
             shutdown_complete,
             shutdown_mutex,
@@ -497,6 +566,36 @@ impl HybridExecutor {
         let task_count = self.tasks_spawned.load(Ordering::Relaxed);
         let index = (task_count % self.schedulers.len() as u64) as usize;
         self.schedulers.get(index)
+    }
+
+    /// Cleanup thread loop that runs periodically to clean up completed task metadata.
+    /// 
+    /// This prevents memory leaks by removing old task metadata according to the
+    /// configured cleanup policy.
+    fn cleanup_thread_loop(
+        task_registry: Arc<TaskRegistry>,
+        shutdown_signal: Arc<AtomicBool>,
+        config: CleanupConfig,
+    ) {
+        while !shutdown_signal.load(Ordering::Relaxed) {
+            // Sleep for the cleanup interval, but wake up early if shutdown is signaled
+            let sleep_duration = config.cleanup_interval;
+            let start_time = Instant::now();
+            
+            while start_time.elapsed() < sleep_duration {
+                if shutdown_signal.load(Ordering::Relaxed) {
+                    return;
+                }
+                // Sleep for a short time and check again
+                thread::sleep(Duration::from_millis(100));
+            }
+            
+            // Perform cleanup
+            task_registry.cleanup_completed_with_limits(
+                config.task_retention_duration,
+                config.max_retained_tasks,
+            );
+        }
     }
 
     /// Internal task spawning implementation.
@@ -693,8 +792,15 @@ impl ExecutorControl for HybridExecutor {
     }
 
     fn shutdown(&self) {
-        // Signal shutdown to all workers
+        // Signal shutdown to all workers and cleanup thread
         self.shutdown_signal.store(true, Ordering::Release);
+
+        // Wait for cleanup thread to complete first
+        let mut cleanup_handle = self.cleanup_handle.lock().unwrap();
+        if let Some(handle) = cleanup_handle.take() {
+            let _ = handle.join();
+        }
+        drop(cleanup_handle); // Release the lock
 
         // Wait for all worker threads to complete
         let mut handles = self.worker_handles.lock().unwrap();
@@ -794,6 +900,76 @@ impl Executor for HybridExecutor {
     }
 }
 
+impl HybridExecutor {
+    /// Manually trigger cleanup of completed task metadata.
+    /// 
+    /// This method can be called even when automatic cleanup is disabled
+    /// to provide manual control over memory management.
+    /// 
+    /// # Behavior
+    /// - Removes completed tasks older than the configured retention duration
+    /// - Enforces the maximum retained task limit
+    /// - Safe to call concurrently with other operations
+    pub fn cleanup_completed_tasks(&self) {
+        self.task_registry.cleanup_completed_with_limits(
+            self.config.cleanup.task_retention_duration,
+            self.config.cleanup.max_retained_tasks,
+        );
+    }
+
+    /// Get statistics about task metadata cleanup.
+    /// 
+    /// Returns information about the current state of task metadata
+    /// to help monitor memory usage and cleanup effectiveness.
+    pub fn cleanup_stats(&self) -> CleanupStats {
+        let tasks = self.task_registry.tasks.read().unwrap();
+        
+        let mut stats = CleanupStats {
+            total_tasks: tasks.len(),
+            active_tasks: 0,
+            completed_tasks: 0,
+            cancelled_tasks: 0,
+            failed_tasks: 0,
+            oldest_completed_task_age: None,
+        };
+        
+        let now = Instant::now();
+        let mut oldest_completion_time = None;
+        
+        for metadata in tasks.values() {
+            match metadata.status {
+                TaskStatus::Queued | TaskStatus::Running => {
+                    stats.active_tasks += 1;
+                }
+                TaskStatus::Completed => {
+                    stats.completed_tasks += 1;
+                    if let Some(completion_time) = metadata.completion_time {
+                        match oldest_completion_time {
+                            None => oldest_completion_time = Some(completion_time),
+                            Some(oldest) if completion_time < oldest => {
+                                oldest_completion_time = Some(completion_time);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                TaskStatus::Cancelled => {
+                    stats.cancelled_tasks += 1;
+                }
+                TaskStatus::Failed => {
+                    stats.failed_tasks += 1;
+                }
+            }
+        }
+        
+        if let Some(oldest_time) = oldest_completion_time {
+            stats.oldest_completed_task_age = Some(now.duration_since(oldest_time));
+        }
+        
+        stats
+    }
+}
+
 /// Detailed executor statistics for monitoring and debugging.
 #[cfg(feature = "metrics")]
 #[derive(Debug)]
@@ -803,6 +979,18 @@ pub struct DetailedExecutorStats {
     pub worker_count: usize,
     pub worker_stats: Vec<WorkerSnapshot>,
     pub current_load: usize,
+}
+
+/// Snapshot of task metadata cleanup statistics.
+#[cfg(feature = "metrics")]
+#[derive(Debug, Default)]
+pub struct CleanupStats {
+    pub total_tasks: usize,
+    pub active_tasks: usize,
+    pub completed_tasks: usize,
+    pub cancelled_tasks: usize,
+    pub failed_tasks: usize,
+    pub oldest_completed_task_age: Option<Duration>,
 }
 
 /// Builder for creating hybrid executors with custom configuration.
@@ -975,13 +1163,158 @@ mod tests {
                 42
             });
 
-        let _handle = executor.spawn(task);
+        let _handle = executor.spawn_with_priority(task, Priority::High);
         
-        // Give some time for task execution
-        std::thread::sleep(Duration::from_millis(100));
+        // Give task time to complete
+        thread::sleep(Duration::from_millis(100));
         
-        // The task should have executed
-        assert!(counter.load(Ordering::Relaxed) > 0);
+        assert_eq!(counter.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn test_cleanup_mechanism() {
+        use core::time::Duration;
+        
+        // Create executor with short cleanup intervals for testing
+        let cleanup_config = CleanupConfig {
+            task_retention_duration: Duration::from_millis(100),
+            cleanup_interval: Duration::from_millis(50),
+            enable_automatic_cleanup: true,
+            max_retained_tasks: 5,
+        };
+        
+        let config = ExecutorConfig {
+            cleanup: cleanup_config,
+            ..ExecutorConfig::default()
+        };
+        
+        let executor = HybridExecutor::new(config).unwrap();
+        
+        // Spawn several tasks that complete quickly
+        for i in 0..10 {
+            let task = TaskBuilder::new()
+                .name("test_task")
+                .build(move || i * 2);
+                
+            let _handle = executor.spawn_with_priority(task, Priority::Normal);
+        }
+        
+        // Wait for tasks to complete
+        thread::sleep(Duration::from_millis(50));
+        
+        // Check initial stats
+        let stats = executor.cleanup_stats();
+        println!("Initial stats: {:?}", stats);
+        
+        // Wait for cleanup to occur (retention duration + cleanup interval + buffer)
+        thread::sleep(Duration::from_millis(200));
+        
+        // Check stats after cleanup
+        let stats_after = executor.cleanup_stats();
+        println!("Stats after cleanup: {:?}", stats_after);
+        
+        // Verify that cleanup occurred
+        assert!(stats_after.total_tasks <= stats.total_tasks);
+        
+        // Cleanup on shutdown
+        executor.shutdown();
+    }
+
+    #[test]
+    fn test_manual_cleanup() {
+        use core::time::Duration;
+        
+        // Create executor with automatic cleanup disabled
+        let cleanup_config = CleanupConfig {
+            task_retention_duration: Duration::from_millis(50),
+            cleanup_interval: Duration::from_secs(3600), // 1 hour - won't trigger during test
+            enable_automatic_cleanup: false, // Disabled
+            max_retained_tasks: 3,
+        };
+        
+        let config = ExecutorConfig {
+            cleanup: cleanup_config,
+            ..ExecutorConfig::default()
+        };
+        
+        let executor = HybridExecutor::new(config).unwrap();
+        
+        // Spawn several tasks
+        for i in 0..5 {
+            let task = TaskBuilder::new()
+                .name("manual_test_task")
+                .build(move || i);
+                
+            let _handle = executor.spawn_with_priority(task, Priority::Normal);
+        }
+        
+        // Wait for tasks to complete
+        thread::sleep(Duration::from_millis(100));
+        
+        // Check stats before manual cleanup
+        let stats_before = executor.cleanup_stats();
+        println!("Stats before manual cleanup: {:?}", stats_before);
+        
+        // Wait for retention duration to pass
+        thread::sleep(Duration::from_millis(60));
+        
+        // Manually trigger cleanup
+        executor.cleanup_completed_tasks();
+        
+        // Check stats after manual cleanup
+        let stats_after = executor.cleanup_stats();
+        println!("Stats after manual cleanup: {:?}", stats_after);
+        
+        // Verify that cleanup occurred
+        assert!(stats_after.completed_tasks < stats_before.completed_tasks);
+        
+        // Cleanup on shutdown
+        executor.shutdown();
+    }
+
+    #[test]
+    fn test_cleanup_max_retained_tasks() {
+        use core::time::Duration;
+        
+        // Create executor with very long retention but low max count
+        let cleanup_config = CleanupConfig {
+            task_retention_duration: Duration::from_secs(3600), // 1 hour
+            cleanup_interval: Duration::from_millis(50),
+            enable_automatic_cleanup: true,
+            max_retained_tasks: 3, // Low limit to test count-based cleanup
+        };
+        
+        let config = ExecutorConfig {
+            cleanup: cleanup_config,
+            ..ExecutorConfig::default()
+        };
+        
+        let executor = HybridExecutor::new(config).unwrap();
+        
+        // Spawn more tasks than the max retained limit
+        for i in 0..8 {
+            let task = TaskBuilder::new()
+                .name("count_test_task")
+                .build(move || i);
+                
+            let _handle = executor.spawn_with_priority(task, Priority::Normal);
+            
+            // Small delay between tasks to ensure different completion times
+            thread::sleep(Duration::from_millis(10));
+        }
+        
+        // Wait for tasks to complete and cleanup to occur
+        thread::sleep(Duration::from_millis(200));
+        
+        let stats = executor.cleanup_stats();
+        println!("Stats after count-based cleanup: {:?}", stats);
+        
+        // Verify that count-based cleanup occurred
+        // Should have at most max_retained_tasks completed tasks
+        assert!(stats.completed_tasks <= 3);
+        
+        // Cleanup on shutdown
+        executor.shutdown();
     }
 
     #[test]

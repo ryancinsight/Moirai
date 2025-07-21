@@ -488,6 +488,8 @@ pub struct ExecutorConfig {
     pub preemption: PreemptionConfig,
     /// Memory management configuration
     pub memory: MemoryConfig,
+    /// Task cleanup configuration
+    pub cleanup: CleanupConfig,
 }
 
 impl Default for ExecutorConfig {
@@ -504,6 +506,7 @@ impl Default for ExecutorConfig {
             enable_metrics: true,
             preemption: PreemptionConfig::default(),
             memory: MemoryConfig::default(),
+            cleanup: CleanupConfig::default(),
         }
     }
 }
@@ -555,6 +558,48 @@ impl Default for MemoryConfig {
             medium_pool_size: 1024 * 1024,   // 1MB
             large_pool_size: 16 * 1024 * 1024, // 16MB
             track_per_task_memory: cfg!(feature = "metrics"),
+        }
+    }
+}
+
+/// Configuration for task metadata cleanup.
+/// 
+/// Controls how and when completed task metadata is removed from memory
+/// to prevent memory leaks in long-running executors.
+#[derive(Debug, Clone)]
+pub struct CleanupConfig {
+    /// How long to keep completed task metadata before cleanup
+    /// 
+    /// # Default: 5 minutes
+    /// # Range: 1 second to 1 hour
+    pub task_retention_duration: core::time::Duration,
+    
+    /// How often to run the cleanup process
+    /// 
+    /// # Default: 30 seconds  
+    /// # Range: 1 second to task_retention_duration
+    pub cleanup_interval: core::time::Duration,
+    
+    /// Whether to enable automatic cleanup
+    /// 
+    /// If disabled, cleanup must be triggered manually via `cleanup_completed_tasks()`
+    /// # Default: true
+    pub enable_automatic_cleanup: bool,
+    
+    /// Maximum number of completed tasks to retain regardless of age
+    /// 
+    /// This provides a hard limit to prevent unbounded memory growth
+    /// # Default: 10,000 tasks
+    pub max_retained_tasks: usize,
+}
+
+impl Default for CleanupConfig {
+    fn default() -> Self {
+        Self {
+            task_retention_duration: core::time::Duration::from_secs(300), // 5 minutes
+            cleanup_interval: core::time::Duration::from_secs(30), // 30 seconds
+            enable_automatic_cleanup: true,
+            max_retained_tasks: 10_000,
         }
     }
 }
@@ -665,6 +710,12 @@ impl ExecutorBuilder {
     /// Set memory configuration.
     pub fn memory_config(mut self, config: MemoryConfig) -> Self {
         self.config.memory = config;
+        self
+    }
+
+    /// Set cleanup configuration.
+    pub fn cleanup_config(mut self, config: CleanupConfig) -> Self {
+        self.config.cleanup = config;
         self
     }
 
@@ -845,6 +896,15 @@ mod tests {
         assert_eq!(config.small_pool_size, 64 * 1024);
         assert_eq!(config.medium_pool_size, 1024 * 1024);
         assert_eq!(config.large_pool_size, 16 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_cleanup_config_default() {
+        let config = CleanupConfig::default();
+        assert_eq!(config.task_retention_duration, core::time::Duration::from_secs(300));
+        assert_eq!(config.cleanup_interval, core::time::Duration::from_secs(30));
+        assert!(config.enable_automatic_cleanup);
+        assert_eq!(config.max_retained_tasks, 10_000);
     }
 
     #[test]
