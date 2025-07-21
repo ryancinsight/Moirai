@@ -456,7 +456,7 @@ mod tests {
         });
         
         // Verify the handle was created (task ID should be valid, not necessarily 0)
-        assert!(handle.id().get() < 100); // Reasonable upper bound for task IDs in tests
+        assert_eq!(handle.id().get(), 0);
         
         // In std environments, we can actually get the result
         #[cfg(feature = "std")]
