@@ -755,8 +755,8 @@ mod tests {
         assert_ne!(process_addr, remote_addr);
     }
 
-    #[tokio::test]
-    async fn test_transport_manager_creation() {
+    #[test]
+    fn test_transport_manager_creation() {
         let transport_manager = TransportManager::new().unwrap();
         assert_eq!(transport_manager.scheduler_id, SchedulerId::new(0));
     }
