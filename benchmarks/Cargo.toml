@@ -1,14 +1,14 @@
 [package]
-name = "stellaris-benchmarks"
+name = "moirai-benchmarks"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 publish = false
-description = "Benchmarks for Stellaris concurrency library"
+description = "Benchmarks for Moirai concurrency library"
 
 [dependencies]
-stellaris = { workspace = true, features = ["full"] }
+moirai = { workspace = true, features = ["full"] }
 criterion = { workspace = true, features = ["html_reports"] }
 
 [[bench]]

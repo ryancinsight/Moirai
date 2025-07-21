@@ -1,13 +1,13 @@
 # Product Requirements Document (PRD)
-## Rust Hybrid Concurrency Library - "Stellaris"
+## Rust Hybrid Concurrency Library - "Moirai"
 
 ### 1. Executive Summary
 
-**Project Name:** Stellaris  
+**Project Name:** Moirai  
 **Version:** 1.0.0  
 **Type:** Pure Standard Library Rust Concurrency Framework  
 
-Stellaris is a next-generation concurrency library that synthesizes the best principles from async task scheduling (Tokio-inspired) and parallel work-stealing (Rayon-inspired) into a unified, zero-cost abstraction framework. Built entirely on Rust's standard library, it leverages Rust's ownership model, zero-cost abstractions, and iterator combinators to deliver unprecedented performance and memory efficiency.
+Moirai is a next-generation concurrency library that synthesizes the best principles from async task scheduling (Tokio-inspired) and parallel work-stealing (Rayon-inspired) into a unified, zero-cost abstraction framework. Named after the Greek Fates who controlled the threads of life, Moirai weaves together async and parallel execution models. Built entirely on Rust's standard library, it leverages Rust's ownership model, zero-cost abstractions, and iterator combinators to deliver unprecedented performance and memory efficiency.
 
 ### 2. Vision & Objectives
 
@@ -103,7 +103,7 @@ Stellaris is a next-generation concurrency library that synthesizes the best pri
 **Executor API:**
 ```rust
 // Unified executor for hybrid workloads
-let executor = Stellaris::builder()
+let executor = Moirai::builder()
     .worker_threads(8)
     .async_threads(4)
     .build();
@@ -296,4 +296,4 @@ data.into_par_iter()
 
 ---
 
-*This PRD serves as the foundational document for the Stellaris concurrency library development. It will be updated as requirements evolve and new insights are gained during implementation.*
+*This PRD serves as the foundational document for the Moirai concurrency library development. It will be updated as requirements evolve and new insights are gained during implementation.*

@@ -1,4 +1,4 @@
-# Stellaris Development Checklist
+# Moirai Development Checklist
 
 ## Phase 1: Foundation (Months 1-2)
 
@@ -322,4 +322,4 @@
 
 ---
 
-*This checklist serves as a comprehensive roadmap for the Stellaris concurrency library development. Items should be checked off as they are completed, with regular reviews to ensure quality and progress.*
+*This checklist serves as a comprehensive roadmap for the Moirai concurrency library development. Items should be checked off as they are completed, with regular reviews to ensure quality and progress.*

@@ -1,13 +1,13 @@
 [package]
-name = "stellaris-tests"
+name = "moirai-tests"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 publish = false
-description = "Integration tests for Stellaris concurrency library"
+description = "Integration tests for Moirai concurrency library"
 
 [dependencies]
-stellaris = { workspace = true, features = ["full"] }
+moirai = { workspace = true, features = ["full"] }
 proptest = { workspace = true }
 quickcheck = { workspace = true }

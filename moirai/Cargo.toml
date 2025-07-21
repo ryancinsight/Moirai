@@ -1,0 +1,40 @@
+[package]
+name = "moirai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "High-performance hybrid concurrency library for Rust - weaving the threads of fate"
+
+[dependencies]
+moirai-core = { workspace = true }
+moirai-executor = { workspace = true }
+moirai-scheduler = { workspace = true }
+moirai-channel = { workspace = true }
+moirai-sync = { workspace = true }
+moirai-async = { workspace = true, optional = true }
+moirai-iter = { workspace = true }
+moirai-ipc = { workspace = true, optional = true }
+moirai-metrics = { workspace = true, optional = true }
+moirai-utils = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = ["async", "iter"]
+full = ["async", "iter", "ipc", "metrics", "numa", "futex"]
+async = ["moirai-async"]
+iter = ["moirai-iter"]
+ipc = ["moirai-ipc"]
+metrics = ["moirai-metrics", "moirai-core/metrics"]
+numa = ["moirai-executor/numa", "moirai-scheduler/numa", "moirai-utils/numa"]
+futex = ["moirai-sync/futex"]
+no-std = ["moirai-core/no-std", "moirai-utils/no-std"]
