@@ -24,7 +24,8 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = ["metrics", "async"]
+default = ["std", "metrics", "async"]
+std = []
 async = ["tokio"]
 numa = []
 metrics = ["moirai-core/metrics"]

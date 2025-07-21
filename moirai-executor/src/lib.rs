@@ -514,8 +514,16 @@ impl HybridExecutor {
             plugin.before_task_spawn(task_id, priority);
         }
 
-        // Create task wrapper for uniform execution
+        // Create result communication channel
+        #[cfg(feature = "std")]
+        let (result_sender, result_receiver) = std::sync::mpsc::channel::<T::Output>();
+        
+        // Create task wrapper with result sender
+        #[cfg(feature = "std")]
+        let task_wrapper = TaskWrapper::with_result_sender(task, result_sender);
+        #[cfg(not(feature = "std"))]
         let task_wrapper = TaskWrapper::new(task);
+        
         let boxed_task: Box<dyn BoxedTask> = Box::new(task_wrapper);
 
         // Schedule task
@@ -532,44 +540,28 @@ impl HybridExecutor {
                 }
 
                 // Create handle with proper result communication
-                return self.create_task_handle_with_result(task_id);
+                #[cfg(feature = "std")]
+                return TaskHandle::new_with_receiver(task_id, result_receiver);
+                #[cfg(not(feature = "std"))]
+                return TaskHandle::new_detached(task_id);
             }
         }
 
         // If scheduling failed, mark task as failed
         self.task_registry.update_status(task_id, TaskStatus::Failed);
-        self.create_task_handle_with_result(task_id)
-    }
-
-    /// Create a task handle for the given task ID.
-    fn create_task_handle<T>(&self, task_id: TaskId) -> TaskHandle<T> {
+        
+        // Return a handle even if scheduling failed (it will return None on join)
         #[cfg(feature = "std")]
         {
-            // Create a channel for result communication
-            let (sender, receiver) = std::sync::mpsc::channel();
-            TaskHandle::new_with_receiver(task_id, receiver)
+            TaskHandle::new_with_receiver(task_id, result_receiver)
         }
-        
         #[cfg(not(feature = "std"))]
         {
             TaskHandle::new_detached(task_id)
         }
     }
 
-    /// Create a task handle with result communication setup.
-    fn create_task_handle_with_result<T>(&self, task_id: TaskId) -> TaskHandle<T> {
-        // For now, we'll create a detached handle since we need to properly implement
-        // result communication between the executor and the task handles
-        #[cfg(feature = "std")]
-        {
-            TaskHandle::new_detached(task_id)
-        }
-        
-        #[cfg(not(feature = "std"))]
-        {
-            TaskHandle::new_detached(task_id)
-        }
-    }
+
 
     /// Get comprehensive statistics about the executor.
     #[cfg(feature = "metrics")]
@@ -616,7 +608,18 @@ impl TaskSpawner for HybridExecutor {
         // TODO: Implement async task spawning
         // For now, create a placeholder handle
         let task_id = self.task_registry.register_task(Priority::Normal);
-        self.create_task_handle(task_id)
+        
+        #[cfg(feature = "std")]
+        {
+            // Create a dummy channel for now - this will be properly implemented
+            // when async task execution is added
+            let (_sender, receiver) = std::sync::mpsc::channel();
+            TaskHandle::new_with_receiver(task_id, receiver)
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            TaskHandle::new_detached(task_id)
+        }
     }
 
     fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>
