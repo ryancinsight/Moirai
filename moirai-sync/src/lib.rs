@@ -437,8 +437,12 @@ impl<T> SpinLock<T> {
     pub fn lock(&self) -> SpinLockGuard<'_, T> {
         while !self.try_lock_fast() {
             // Reduce memory contention by reading before attempting CAS
+            let mut backoff = 1;
             while self.locked.load(Ordering::Relaxed) {
-                hint::spin_loop();
+                for _ in 0..backoff {
+                    hint::spin_loop();
+                }
+                backoff = std::cmp::min(backoff * 2, 64); // Exponential backoff, capped at 64 iterations
             }
         }
         
