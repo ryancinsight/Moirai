@@ -544,7 +544,7 @@ pub mod io {
         type Output = io::Result<R>;
 
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-            let this = unsafe { self.get_unchecked_mut() };
+            let this = self.get_mut();
             if let Some(op) = this.operation.take() {
                 // In a real implementation, this would check if the operation would block
                 Poll::Ready(op())
