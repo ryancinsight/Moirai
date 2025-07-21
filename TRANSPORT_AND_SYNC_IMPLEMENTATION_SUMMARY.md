@@ -111,7 +111,7 @@ Following elite programming principles with excellent scores:
 | Principle | Implementation Score | Status |
 |-----------|---------------------|--------|
 | **SOLID** | 9.7/10 | ✅ Excellent |
-| **GRASP** | 9.6/10 | ✅ Excellent |  
+| **GRASP** | 9.6/10 | ✅ Excellent |
 | **CUPID** | 9.4/10 | ✅ Excellent |
 | **ACID** | 9.1/10 | ✅ Excellent |
 | **DRY** | 9.8/10 | ✅ Excellent |
