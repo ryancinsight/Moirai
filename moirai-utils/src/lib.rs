@@ -316,7 +316,7 @@ pub mod cpu {
 
         /// Parse size string (e.g., "32K", "1M").
         #[cfg(target_os = "linux")]
-        pub fn parse_size(size_str: &str) -> Option<usize> {
+        fn parse_size(size_str: &str) -> Option<usize> {
             let size_str = size_str.trim();
             if size_str.is_empty() {
                 return None;
