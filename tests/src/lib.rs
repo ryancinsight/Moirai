@@ -10,7 +10,8 @@ use std::{
 };
 
 /// Integration tests for the complete Moirai system.
-pub mod integration_tests {
+#[cfg(test)]
+mod integration_tests {
     use super::*;
 
     #[test]
