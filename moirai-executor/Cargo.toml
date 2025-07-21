@@ -17,12 +17,14 @@ moirai-core = { workspace = true }
 moirai-scheduler = { workspace = true }
 moirai-utils = { workspace = true }
 futures = "0.3"
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync"], optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = ["metrics"]
+default = ["metrics", "async"]
+async = ["tokio"]
 numa = []
 metrics = ["moirai-core/metrics"]
