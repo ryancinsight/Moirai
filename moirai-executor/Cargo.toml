@@ -23,6 +23,6 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = []
+default = ["metrics"]
 numa = []
 metrics = ["moirai-core/metrics"]

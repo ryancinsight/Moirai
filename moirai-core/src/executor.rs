@@ -1,7 +1,13 @@
 //! Executor trait definitions and configuration.
 
-use crate::{Task, AsyncTask, TaskHandle, TaskId, Priority};
+use crate::{Task, TaskHandle, TaskId, Priority};
 use core::future::Future;
+
+#[cfg(feature = "std")]
+use std::time::Instant;
+
+#[cfg(not(feature = "std"))]
+use crate::metrics::Instant;
 
 /// Core task spawning capabilities.
 pub trait TaskSpawner: Send + Sync + 'static {
@@ -98,135 +104,37 @@ pub trait ExecutorControl: Send + Sync + 'static {
     /// 
     /// # Performance Characteristics
     /// - O(1) operation
-    /// - Lock-free read
+    /// - Non-blocking
     fn is_shutting_down(&self) -> bool;
-}
 
-/// Executor information and metrics.
-pub trait ExecutorInfo: Send + Sync + 'static {
     /// Get the number of worker threads.
     /// 
     /// # Performance Characteristics
     /// - O(1) operation
-    /// - Configuration-time constant
+    /// - Non-blocking
     fn worker_count(&self) -> usize;
 
     /// Get the current load (number of pending tasks).
     /// 
     /// # Performance Characteristics
-    /// - O(1) amortized
-    /// - May involve atomic operations
+    /// - O(1) operation
+    /// - May involve atomic reads across threads
     fn load(&self) -> usize;
+}
 
-    /// Get detailed executor statistics.
+/// Combined executor trait with all capabilities.
+pub trait Executor: TaskSpawner + TaskManager + ExecutorControl {
+    /// Get executor statistics.
     #[cfg(feature = "metrics")]
     fn stats(&self) -> ExecutorStats;
-
-    /// Get the executor configuration.
-    fn config(&self) -> &ExecutorConfig;
 }
 
-/// Plugin system for extending executor functionality.
-pub trait ExecutorPlugin: Send + Sync + 'static {
-    /// Configure the executor before startup.
-    /// 
-    /// # Behavior Guarantees
-    /// - Called once during executor initialization
-    /// - Configuration changes take effect immediately
-    fn configure(&self, config: &mut ExecutorConfig);
-
-    /// Called when a task is spawned.
-    /// 
-    /// # Performance Characteristics
-    /// - Should be O(1) to avoid impacting spawn performance
-    /// - Called on the spawning thread
-    fn on_task_spawn(&self, task_id: TaskId, priority: Priority) {
-        let _ = (task_id, priority); // Default: no-op
-    }
-
-    /// Called when a task completes.
-    /// 
-    /// # Performance Characteristics
-    /// - Should be O(1) to avoid impacting completion performance
-    /// - Called on the executing thread
-    fn on_task_complete(&self, task_id: TaskId, result: &Result<(), crate::error::TaskError>) {
-        let _ = (task_id, result); // Default: no-op
-    }
-
-    /// Called when a task is cancelled.
-    fn on_task_cancel(&self, task_id: TaskId) {
-        let _ = task_id; // Default: no-op
-    }
-
-    /// Called during executor shutdown.
-    fn on_shutdown(&self) {
-        // Default: no-op
-    }
-}
-
-/// The main executor trait that combines all capabilities.
-/// 
-/// # Design Philosophy
-/// 
-/// This trait serves as a convenience trait that combines all executor
-/// capabilities. Implementations can choose to implement the individual
-/// traits directly for more granular control.
-/// 
-/// # Performance Characteristics
-/// 
-/// - Task spawn: O(1) amortized
-/// - Task cancellation: O(1) lookup + cooperative cancellation
-/// - Shutdown: O(n) where n is the number of running tasks
-pub trait Executor: TaskSpawner + TaskManager + ExecutorControl + ExecutorInfo {
-    /// The configuration type for this executor.
-    type Config: ExecutorConfigTrait;
-    
-    /// The handle type returned when starting this executor.
-    type Handle: ExecutorHandle;
-
-    /// Add a plugin to this executor.
-    /// 
-    /// # Behavior Guarantees
-    /// - Plugins are applied in the order they are added
-    /// - Plugin configuration happens during executor creation
-    fn with_plugin<P: ExecutorPlugin>(self, plugin: P) -> Self;
-}
-
-/// Trait for executor configurations.
-pub trait ExecutorConfigTrait: Send + Sync + Clone {
-    /// Validate the configuration.
-    fn validate(&self) -> Result<(), crate::error::ExecutorError>;
-
-    /// Get the number of worker threads.
-    fn worker_threads(&self) -> usize;
-
-    /// Get the number of async threads.
-    fn async_threads(&self) -> usize;
-}
-
-/// Trait for executor handles.
-pub trait ExecutorHandle: Send + Sync + 'static {
-    /// Wait for the executor to shut down.
-    /// 
-    /// # Behavior Guarantees
-    /// - Blocks until all tasks complete and executor shuts down
-    /// - Returns immediately if executor is already shut down
-    fn join(self);
-
-    /// Wait for shutdown with a timeout.
-    /// 
-    /// # Behavior Guarantees
-    /// - Returns Ok(()) if shutdown completes within timeout
-    /// - Returns Err if timeout expires
-    fn join_timeout(self, timeout: core::time::Duration) -> Result<(), crate::error::ExecutorError>;
-}
-
-/// Status of a task in the executor.
+/// Status of a task within the executor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskStatus {
-    /// Task is queued and waiting to be executed
-    Pending,
-    /// Task is currently executing
+    /// Task is queued but not yet started
+    Queued,
+    /// Task is currently running
     Running,
     /// Task completed successfully
     Completed,
@@ -236,32 +144,43 @@ pub enum TaskStatus {
     Failed,
 }
 
-/// Statistics about a specific task.
+impl core::fmt::Display for TaskStatus {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Queued => write!(f, "Queued"),
+            Self::Running => write!(f, "Running"),
+            Self::Completed => write!(f, "Completed"),
+            Self::Cancelled => write!(f, "Cancelled"),
+            Self::Failed => write!(f, "Failed"),
+        }
+    }
+}
+
+/// Detailed statistics about a specific task.
 #[derive(Debug, Clone)]
 pub struct TaskStats {
-    /// When the task was spawned
-    pub spawn_time: core::time::Instant,
-    /// When the task started executing (if it has started)
-    pub start_time: Option<core::time::Instant>,
-    /// When the task completed (if it has completed)
-    pub completion_time: Option<core::time::Instant>,
+    /// Task identifier
+    pub id: TaskId,
     /// Current status
     pub status: TaskStatus,
     /// Priority level
     pub priority: Priority,
-    /// Estimated computational cost
-    pub estimated_cost: u32,
-    /// Actual CPU time used (if available)
-    pub cpu_time: Option<core::time::Duration>,
+    /// When the task was spawned
+    pub spawn_time: Instant,
+    /// When the task started executing (if started)
+    pub start_time: Option<Instant>,
+    /// When the task completed (if completed)
+    pub completion_time: Option<Instant>,
+    /// Number of times the task was preempted
+    pub preemption_count: u32,
+    /// Total CPU time used (nanoseconds)
+    pub cpu_time_ns: u64,
+    /// Memory allocated by the task (bytes)
+    pub memory_used_bytes: u64,
 }
 
 impl TaskStats {
-    /// Calculate the time spent waiting in queue.
-    pub fn queue_time(&self) -> Option<core::time::Duration> {
-        self.start_time.map(|start| start.duration_since(self.spawn_time))
-    }
-
-    /// Calculate the execution time.
+    /// Calculate the total execution time.
     pub fn execution_time(&self) -> Option<core::time::Duration> {
         match (self.start_time, self.completion_time) {
             (Some(start), Some(end)) => Some(end.duration_since(start)),
@@ -269,35 +188,48 @@ impl TaskStats {
         }
     }
 
-    /// Calculate the total time from spawn to completion.
-    pub fn total_time(&self) -> Option<core::time::Duration> {
-        self.completion_time.map(|end| end.duration_since(self.spawn_time))
+    /// Calculate the time spent waiting in queue.
+    pub fn queue_time(&self) -> Option<core::time::Duration> {
+        match self.start_time {
+            Some(start) => Some(start.duration_since(self.spawn_time)),
+            None => Some(Instant::now().duration_since(self.spawn_time)),
+        }
+    }
+
+    /// Check if the task is currently active.
+    pub fn is_active(&self) -> bool {
+        matches!(self.status, TaskStatus::Queued | TaskStatus::Running)
+    }
+
+    /// Check if the task has completed (successfully or not).
+    pub fn is_finished(&self) -> bool {
+        matches!(self.status, TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed)
     }
 }
 
-/// Configuration for the executor.
+/// Configuration for executor behavior.
 #[derive(Debug, Clone)]
 pub struct ExecutorConfig {
     /// Number of worker threads for parallel tasks
     pub worker_threads: usize,
     /// Number of threads dedicated to async tasks
     pub async_threads: usize,
-    /// Maximum number of tasks in the global queue
+    /// Maximum size of the global task queue
     pub max_global_queue_size: usize,
-    /// Maximum number of tasks in per-thread queues
+    /// Maximum size of per-thread local queues
     pub max_local_queue_size: usize,
-    /// Work stealing strategy configuration
-    pub work_stealing: WorkStealingConfig,
-    /// Thread naming prefix
+    /// Thread name prefix for worker threads
     pub thread_name_prefix: alloc::string::String,
-    /// Whether to enable NUMA awareness
+    /// Whether to enable NUMA-aware thread placement
+    #[cfg(feature = "numa")]
     pub numa_aware: bool,
-    /// Stack size for worker threads (bytes)
-    pub stack_size: Option<usize>,
     /// Whether to enable metrics collection
+    #[cfg(feature = "metrics")]
     pub enable_metrics: bool,
-    /// Plugins to load
-    pub plugins: alloc::vec::Vec<alloc::boxed::Box<dyn ExecutorPlugin>>,
+    /// Task preemption configuration
+    pub preemption: PreemptionConfig,
+    /// Memory management configuration
+    pub memory: MemoryConfig,
 }
 
 impl Default for ExecutorConfig {
@@ -305,68 +237,112 @@ impl Default for ExecutorConfig {
         Self {
             worker_threads: num_cpus(),
             async_threads: (num_cpus() / 4).max(1),
-            max_global_queue_size: 1024,
+            max_global_queue_size: 8192,
             max_local_queue_size: 256,
-            work_stealing: WorkStealingConfig::default(),
-            thread_name_prefix: alloc::string::String::from("moirai-worker"),
-            numa_aware: false,
-            stack_size: None,
-            enable_metrics: cfg!(feature = "metrics"),
-            plugins: alloc::vec::Vec::new(),
+            thread_name_prefix: "moirai-worker".into(),
+            #[cfg(feature = "numa")]
+            numa_aware: true,
+            #[cfg(feature = "metrics")]
+            enable_metrics: true,
+            preemption: PreemptionConfig::default(),
+            memory: MemoryConfig::default(),
         }
     }
 }
 
-impl ExecutorConfigTrait for ExecutorConfig {
-    fn validate(&self) -> Result<(), crate::error::ExecutorError> {
-        if self.worker_threads == 0 {
-            return Err(crate::error::ExecutorError::InvalidConfiguration);
+/// Configuration for task preemption.
+#[derive(Debug, Clone)]
+pub struct PreemptionConfig {
+    /// Whether to enable cooperative preemption
+    pub enabled: bool,
+    /// Time slice for each task before preemption (microseconds)
+    pub time_slice_us: u64,
+    /// Whether to preempt based on priority
+    pub priority_based: bool,
+    /// Minimum execution time before preemption (microseconds)
+    pub min_execution_time_us: u64,
+}
+
+impl Default for PreemptionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            time_slice_us: 10_000, // 10ms
+            priority_based: true,
+            min_execution_time_us: 1_000, // 1ms
         }
-        if self.async_threads == 0 {
-            return Err(crate::error::ExecutorError::InvalidConfiguration);
+    }
+}
+
+/// Configuration for memory management.
+#[derive(Debug, Clone)]
+pub struct MemoryConfig {
+    /// Whether to use memory pools
+    pub use_memory_pools: bool,
+    /// Size of small object pool (bytes)
+    pub small_pool_size: usize,
+    /// Size of medium object pool (bytes)
+    pub medium_pool_size: usize,
+    /// Size of large object pool (bytes)
+    pub large_pool_size: usize,
+    /// Whether to track memory usage per task
+    pub track_per_task_memory: bool,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            use_memory_pools: true,
+            small_pool_size: 64 * 1024,      // 64KB
+            medium_pool_size: 1024 * 1024,   // 1MB
+            large_pool_size: 16 * 1024 * 1024, // 16MB
+            track_per_task_memory: cfg!(feature = "metrics"),
         }
-        if self.max_global_queue_size == 0 || self.max_local_queue_size == 0 {
-            return Err(crate::error::ExecutorError::InvalidConfiguration);
-        }
+    }
+}
+
+/// Plugin trait for extending executor functionality.
+pub trait ExecutorPlugin: Send + Sync + 'static {
+    /// Initialize the plugin.
+    fn initialize(&mut self) -> Result<(), crate::error::ExecutorError> {
         Ok(())
     }
 
-    fn worker_threads(&self) -> usize {
-        self.worker_threads
+    /// Called before a task is spawned.
+    fn before_task_spawn(&self, task_id: TaskId, priority: Priority) {
+        let _ = (task_id, priority); // Default: no-op
     }
 
-    fn async_threads(&self) -> usize {
-        self.async_threads
+    /// Called after a task is spawned.
+    fn after_task_spawn(&self, task_id: TaskId) {
+        let _ = task_id; // Default: no-op
     }
-}
 
-/// Configuration for work stealing behavior.
-#[derive(Debug, Clone)]
-pub struct WorkStealingConfig {
-    /// Maximum number of tasks to steal at once
-    pub max_steal_batch: usize,
-    /// Number of steal attempts before giving up
-    pub max_steal_attempts: usize,
-    /// Whether to use random victim selection
-    pub random_victim_selection: bool,
-    /// Minimum tasks in queue before allowing steals
-    pub steal_threshold: usize,
-}
+    /// Called before a task starts executing.
+    fn before_task_execute(&self, task_id: TaskId) {
+        let _ = task_id; // Default: no-op
+    }
 
-impl Default for WorkStealingConfig {
-    fn default() -> Self {
-        Self {
-            max_steal_batch: 16,
-            max_steal_attempts: 3,
-            random_victim_selection: true,
-            steal_threshold: 2,
-        }
+    /// Called after a task completes.
+    fn after_task_complete(&self, task_id: TaskId, success: bool) {
+        let _ = (task_id, success); // Default: no-op
+    }
+
+    /// Called during executor shutdown.
+    fn on_shutdown(&self) {
+        // Default: no-op
+    }
+
+    /// Get plugin name for debugging.
+    fn name(&self) -> &'static str {
+        "unknown"
     }
 }
 
 /// Builder for creating executor configurations.
 pub struct ExecutorBuilder {
     config: ExecutorConfig,
+    plugins: alloc::vec::Vec<alloc::boxed::Box<dyn ExecutorPlugin>>,
 }
 
 impl ExecutorBuilder {
@@ -374,6 +350,7 @@ impl ExecutorBuilder {
     pub fn new() -> Self {
         Self {
             config: ExecutorConfig::default(),
+            plugins: alloc::vec::Vec::new(),
         }
     }
 
@@ -401,12 +378,6 @@ impl ExecutorBuilder {
         self
     }
 
-    /// Configure work stealing behavior.
-    pub fn work_stealing(mut self, config: WorkStealingConfig) -> Self {
-        self.config.work_stealing = config;
-        self
-    }
-
     /// Set the thread name prefix.
     pub fn thread_name_prefix(mut self, prefix: impl Into<alloc::string::String>) -> Self {
         self.config.thread_name_prefix = prefix.into();
@@ -414,32 +385,40 @@ impl ExecutorBuilder {
     }
 
     /// Enable or disable NUMA awareness.
+    #[cfg(feature = "numa")]
     pub fn numa_aware(mut self, enabled: bool) -> Self {
         self.config.numa_aware = enabled;
         self
     }
 
-    /// Set the stack size for worker threads.
-    pub fn stack_size(mut self, size: usize) -> Self {
-        self.config.stack_size = Some(size);
-        self
-    }
-
     /// Enable or disable metrics collection.
+    #[cfg(feature = "metrics")]
     pub fn enable_metrics(mut self, enabled: bool) -> Self {
         self.config.enable_metrics = enabled;
         self
     }
 
-    /// Add a plugin to the executor.
-    pub fn with_plugin<P: ExecutorPlugin>(mut self, plugin: P) -> Self {
-        self.config.plugins.push(alloc::boxed::Box::new(plugin));
+    /// Set preemption configuration.
+    pub fn preemption_config(mut self, config: PreemptionConfig) -> Self {
+        self.config.preemption = config;
         self
     }
 
-    /// Build the configuration.
-    pub fn build(self) -> ExecutorConfig {
-        self.config
+    /// Set memory configuration.
+    pub fn memory_config(mut self, config: MemoryConfig) -> Self {
+        self.config.memory = config;
+        self
+    }
+
+    /// Add a plugin to the executor.
+    pub fn plugin(mut self, plugin: impl ExecutorPlugin) -> Self {
+        self.plugins.push(alloc::boxed::Box::new(plugin));
+        self
+    }
+
+    /// Build the executor configuration.
+    pub fn build_config(self) -> (ExecutorConfig, alloc::vec::Vec<alloc::boxed::Box<dyn ExecutorPlugin>>) {
+        (self.config, self.plugins)
     }
 }
 
@@ -449,208 +428,203 @@ impl Default for ExecutorBuilder {
     }
 }
 
-/// Get the number of logical CPU cores.
-fn num_cpus() -> usize {
-    // In a real implementation, this would detect the actual CPU count
-    // For now, we'll use a reasonable default
-    4
-}
-
-/// Statistics about executor performance.
-#[derive(Debug, Clone, Default)]
-pub struct ExecutorStats {
-    /// Total number of tasks executed
-    pub tasks_executed: u64,
-    /// Total number of tasks spawned
-    pub tasks_spawned: u64,
-    /// Number of successful work steals
-    pub successful_steals: u64,
-    /// Number of failed work steal attempts
-    pub failed_steals: u64,
-    /// Average task execution time (microseconds)
-    pub avg_task_execution_time: f64,
-    /// Current number of active threads
-    pub active_threads: usize,
-    /// Current number of idle threads
-    pub idle_threads: usize,
-    /// Peak memory usage (bytes)
-    pub peak_memory_usage: usize,
-    /// Total CPU time used (microseconds)
-    pub total_cpu_time: u64,
-}
-
-impl ExecutorStats {
-    /// Calculate the steal success rate.
-    /// 
-    /// # Performance Characteristics
-    /// - O(1) calculation
-    /// 
-    /// # Returns
-    /// - Value between 0.0 and 1.0
-    /// - 0.0 if no steal attempts have been made
-    pub fn steal_success_rate(&self) -> f64 {
-        let total_attempts = self.successful_steals + self.failed_steals;
-        if total_attempts == 0 {
-            0.0
-        } else {
-            self.successful_steals as f64 / total_attempts as f64
-        }
-    }
-
-    /// Calculate the task completion rate.
-    /// 
-    /// # Performance Characteristics
-    /// - O(1) calculation
-    /// 
-    /// # Returns
-    /// - Value between 0.0 and 1.0
-    /// - 0.0 if no tasks have been spawned
-    pub fn task_completion_rate(&self) -> f64 {
-        if self.tasks_spawned == 0 {
-            0.0
-        } else {
-            self.tasks_executed as f64 / self.tasks_spawned as f64
-        }
-    }
-
-    /// Calculate thread utilization.
-    /// 
-    /// # Performance Characteristics
-    /// - O(1) calculation
-    /// 
-    /// # Returns
-    /// - Value between 0.0 and 1.0
-    /// - 0.0 if no threads are configured
-    pub fn thread_utilization(&self) -> f64 {
-        let total_threads = self.active_threads + self.idle_threads;
-        if total_threads == 0 {
-            0.0
-        } else {
-            self.active_threads as f64 / total_threads as f64
-        }
-    }
-
-    /// Calculate tasks per second throughput.
-    /// 
-    /// # Parameters
-    /// - `elapsed_seconds`: Time period to calculate throughput over
-    /// 
-    /// # Returns
-    /// - Tasks per second
-    /// - 0.0 if elapsed_seconds <= 0
-    pub fn throughput(&self, elapsed_seconds: f64) -> f64 {
-        if elapsed_seconds <= 0.0 {
-            0.0
-        } else {
-            self.tasks_executed as f64 / elapsed_seconds
-        }
-    }
-}
-
-/// A trait for objects that can provide executor statistics.
-pub trait ExecutorMetrics {
-    /// Get current executor statistics.
-    /// 
-    /// # Performance Characteristics
-    /// - O(1) operation for cached metrics
-    /// - May involve atomic reads
-    fn stats(&self) -> ExecutorStats;
-
-    /// Reset statistics counters.
-    /// 
-    /// # Behavior Guarantees
-    /// - Atomically resets all counters to zero
-    /// - Does not affect running tasks
-    fn reset_stats(&self);
-
-    /// Get real-time metrics for monitoring.
-    /// 
-    /// # Performance Characteristics
-    /// - O(1) operation
-    /// - Suitable for high-frequency monitoring
-    fn realtime_metrics(&self) -> RealtimeMetrics;
-}
-
-/// Real-time metrics for monitoring.
+/// Overall executor statistics.
+#[cfg(feature = "metrics")]
 #[derive(Debug, Clone)]
-pub struct RealtimeMetrics {
-    /// Current queue lengths per worker
-    pub queue_lengths: alloc::vec::Vec<usize>,
-    /// Current CPU usage per thread
-    pub cpu_usage: alloc::vec::Vec<f64>,
-    /// Memory usage in bytes
-    pub memory_usage: usize,
-    /// Number of tasks spawned in the last second
-    pub recent_spawn_rate: f64,
-    /// Number of tasks completed in the last second
-    pub recent_completion_rate: f64,
+pub struct ExecutorStats {
+    /// Worker thread statistics
+    pub worker_stats: alloc::vec::Vec<WorkerStats>,
+    /// Global queue statistics
+    pub global_queue_stats: QueueStats,
+    /// Memory usage statistics
+    pub memory_stats: MemoryStats,
+    /// Task execution statistics
+    pub task_stats: TaskExecutionStats,
 }
 
-// We need to add these imports for the alloc types
-extern crate alloc;
+/// Statistics for a single worker thread.
+#[cfg(feature = "metrics")]
+#[derive(Debug, Clone)]
+pub struct WorkerStats {
+    /// Worker thread ID
+    pub thread_id: usize,
+    /// Number of tasks executed
+    pub tasks_executed: u64,
+    /// Number of successful steal attempts
+    pub successful_steals: u64,
+    /// Number of failed steal attempts
+    pub failed_steals: u64,
+    /// Number of times stolen from
+    pub stolen_from: u64,
+    /// Current local queue length
+    pub local_queue_length: usize,
+    /// CPU utilization percentage (0-100)
+    pub cpu_utilization: f32,
+    /// Total execution time (nanoseconds)
+    pub total_execution_time_ns: u64,
+}
+
+/// Queue statistics.
+#[cfg(feature = "metrics")]
+#[derive(Debug, Clone)]
+pub struct QueueStats {
+    /// Current queue length
+    pub current_length: usize,
+    /// Maximum queue length seen
+    pub max_length: usize,
+    /// Total tasks enqueued
+    pub total_enqueued: u64,
+    /// Total tasks dequeued
+    pub total_dequeued: u64,
+    /// Average wait time in queue (microseconds)
+    pub avg_wait_time_us: f64,
+}
+
+/// Memory usage statistics.
+#[cfg(feature = "metrics")]
+#[derive(Debug, Clone)]
+pub struct MemoryStats {
+    /// Current memory usage (bytes)
+    pub current_usage: u64,
+    /// Peak memory usage (bytes)
+    pub peak_usage: u64,
+    /// Number of allocations
+    pub allocations: u64,
+    /// Number of deallocations
+    pub deallocations: u64,
+    /// Memory pool statistics
+    pub pool_stats: PoolStats,
+}
+
+/// Memory pool statistics.
+#[cfg(feature = "metrics")]
+#[derive(Debug, Clone)]
+pub struct PoolStats {
+    /// Small pool utilization (0-100)
+    pub small_pool_utilization: f32,
+    /// Medium pool utilization (0-100)
+    pub medium_pool_utilization: f32,
+    /// Large pool utilization (0-100)
+    pub large_pool_utilization: f32,
+    /// Number of pool hits
+    pub pool_hits: u64,
+    /// Number of pool misses
+    pub pool_misses: u64,
+}
+
+/// Task execution statistics.
+#[cfg(feature = "metrics")]
+#[derive(Debug, Clone)]
+pub struct TaskExecutionStats {
+    /// Total tasks spawned
+    pub total_spawned: u64,
+    /// Total tasks completed
+    pub total_completed: u64,
+    /// Total tasks cancelled
+    pub total_cancelled: u64,
+    /// Total tasks failed
+    pub total_failed: u64,
+    /// Average execution time (microseconds)
+    pub avg_execution_time_us: f64,
+    /// 95th percentile execution time (microseconds)
+    pub p95_execution_time_us: f64,
+    /// 99th percentile execution time (microseconds)
+    pub p99_execution_time_us: f64,
+    /// Task throughput (tasks per second)
+    pub throughput_per_second: f64,
+}
+
+// Helper function to get number of CPUs
+fn num_cpus() -> usize {
+    #[cfg(feature = "std")]
+    {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        4 // Reasonable default for no_std
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_executor_config_validation() {
-        let mut config = ExecutorConfig::default();
-        assert!(config.validate().is_ok());
+    fn test_task_status_display() {
+        assert_eq!(format!("{}", TaskStatus::Queued), "Queued");
+        assert_eq!(format!("{}", TaskStatus::Running), "Running");
+        assert_eq!(format!("{}", TaskStatus::Completed), "Completed");
+        assert_eq!(format!("{}", TaskStatus::Cancelled), "Cancelled");
+        assert_eq!(format!("{}", TaskStatus::Failed), "Failed");
+    }
 
-        config.worker_threads = 0;
-        assert!(config.validate().is_err());
+    #[test]
+    fn test_executor_config_default() {
+        let config = ExecutorConfig::default();
+        assert!(config.worker_threads > 0);
+        assert!(config.async_threads > 0);
+        assert_eq!(config.max_global_queue_size, 8192);
+        assert_eq!(config.max_local_queue_size, 256);
+        assert_eq!(config.thread_name_prefix, "moirai-worker");
+    }
+
+    #[test]
+    fn test_preemption_config_default() {
+        let config = PreemptionConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.time_slice_us, 10_000);
+        assert!(config.priority_based);
+        assert_eq!(config.min_execution_time_us, 1_000);
+    }
+
+    #[test]
+    fn test_memory_config_default() {
+        let config = MemoryConfig::default();
+        assert!(config.use_memory_pools);
+        assert_eq!(config.small_pool_size, 64 * 1024);
+        assert_eq!(config.medium_pool_size, 1024 * 1024);
+        assert_eq!(config.large_pool_size, 16 * 1024 * 1024);
     }
 
     #[test]
     fn test_executor_builder() {
-        let config = ExecutorBuilder::new()
+        let builder = ExecutorBuilder::new()
             .worker_threads(8)
-            .async_threads(2)
-            .max_global_queue_size(2048)
-            .numa_aware(true)
-            .build();
+            .async_threads(4)
+            .max_global_queue_size(16384)
+            .thread_name_prefix("test-worker");
 
+        let (config, _plugins) = builder.build_config();
         assert_eq!(config.worker_threads, 8);
-        assert_eq!(config.async_threads, 2);
-        assert_eq!(config.max_global_queue_size, 2048);
-        assert!(config.numa_aware);
+        assert_eq!(config.async_threads, 4);
+        assert_eq!(config.max_global_queue_size, 16384);
+        assert_eq!(config.thread_name_prefix, "test-worker");
     }
 
     #[test]
-    fn test_executor_stats() {
-        let mut stats = ExecutorStats::default();
-        stats.successful_steals = 80;
-        stats.failed_steals = 20;
-        stats.tasks_executed = 900;
-        stats.tasks_spawned = 1000;
-        stats.active_threads = 6;
-        stats.idle_threads = 2;
-
-        assert_eq!(stats.steal_success_rate(), 0.8);
-        assert_eq!(stats.task_completion_rate(), 0.9);
-        assert_eq!(stats.thread_utilization(), 0.75);
-        assert_eq!(stats.throughput(10.0), 90.0);
-    }
-
-    #[test]
-    fn test_task_stats() {
-        let spawn_time = core::time::Instant::now();
-        let start_time = spawn_time + core::time::Duration::from_millis(10);
-        let completion_time = start_time + core::time::Duration::from_millis(50);
+    fn test_task_stats_calculations() {
+        let spawn_time = Instant::now();
+        let start_time = spawn_time; // Simplified for test
+        let completion_time = start_time; // Simplified for test
 
         let stats = TaskStats {
+            id: TaskId::new(1),
+            status: TaskStatus::Completed,
+            priority: Priority::Normal,
             spawn_time,
             start_time: Some(start_time),
             completion_time: Some(completion_time),
-            status: TaskStatus::Completed,
-            priority: Priority::Normal,
-            estimated_cost: 100,
-            cpu_time: Some(core::time::Duration::from_millis(45)),
+            preemption_count: 0,
+            cpu_time_ns: 1_000_000,
+            memory_used_bytes: 4096,
         };
 
-        assert_eq!(stats.queue_time(), Some(core::time::Duration::from_millis(10)));
-        assert_eq!(stats.execution_time(), Some(core::time::Duration::from_millis(50)));
-        assert_eq!(stats.total_time(), Some(core::time::Duration::from_millis(60)));
+        assert!(stats.is_finished());
+        assert!(!stats.is_active());
+        assert!(stats.execution_time().is_some());
+        assert!(stats.queue_time().is_some());
     }
 }

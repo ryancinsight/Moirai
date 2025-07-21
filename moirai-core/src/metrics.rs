@@ -1,281 +1,460 @@
-//! Metrics and observability traits for Moirai.
-//!
-//! This module provides the foundational traits and types for collecting
-//! performance metrics and observability data across the Moirai runtime.
+//! Performance metrics and monitoring for Moirai.
 
-use crate::{TaskId, Priority};
-use core::time::{Duration, Instant};
+use crate::scheduler::SchedulerId;
+use alloc::collections::BTreeMap;
+use core::sync::atomic::{AtomicU64, Ordering};
 
-/// Core trait for collecting metrics.
-pub trait MetricsCollector: Send + Sync + 'static {
-    /// Record when a task is spawned.
-    /// 
-    /// # Performance Characteristics
-    /// - Should be O(1) to avoid impacting spawn performance
-    /// - Called on the spawning thread
-    fn record_task_spawn(&self, task_id: TaskId, priority: Priority, spawn_time: Instant) {
-        let _ = (task_id, priority, spawn_time); // Default: no-op
+#[cfg(feature = "std")]
+use std::time::Instant;
+
+#[cfg(not(feature = "std"))]
+pub struct Instant {
+    // Minimal fallback implementation for no_std
+    // In a real implementation, this would use a monotonic timer
+    timestamp: u64,
+}
+
+#[cfg(not(feature = "std"))]
+impl Instant {
+    pub fn now() -> Self {
+        Self { timestamp: 0 }
     }
 
-    /// Record when a task starts executing.
-    /// 
-    /// # Performance Characteristics
-    /// - Should be O(1) to avoid impacting task startup
-    /// - Called on the executing thread
-    fn record_task_start(&self, task_id: TaskId, start_time: Instant) {
-        let _ = (task_id, start_time); // Default: no-op
-    }
-
-    /// Record when a task completes.
-    /// 
-    /// # Performance Characteristics
-    /// - Should be O(1) to avoid impacting task completion
-    /// - Called on the executing thread
-    fn record_task_complete(&self, task_id: TaskId, completion_time: Instant, success: bool) {
-        let _ = (task_id, completion_time, success); // Default: no-op
-    }
-
-    /// Record a work steal attempt.
-    /// 
-    /// # Performance Characteristics
-    /// - Should be O(1) to avoid impacting steal performance
-    /// - Called on the stealing thread
-    fn record_steal_attempt(&self, stealer_id: usize, victim_id: usize, success: bool, items_stolen: usize) {
-        let _ = (stealer_id, victim_id, success, items_stolen); // Default: no-op
-    }
-
-    /// Record message send operation.
-    /// 
-    /// # Performance Characteristics
-    /// - Should be O(1) to avoid impacting message performance
-    /// - Called on the sending thread
-    fn record_message_send(&self, size_bytes: usize, transport_type: &str, latency: Duration) {
-        let _ = (size_bytes, transport_type, latency); // Default: no-op
-    }
-
-    /// Record memory allocation.
-    /// 
-    /// # Performance Characteristics
-    /// - Should be O(1) to avoid impacting allocation performance
-    /// - May be called very frequently
-    fn record_allocation(&self, size_bytes: usize, allocation_type: &str) {
-        let _ = (size_bytes, allocation_type); // Default: no-op
-    }
-
-    /// Record memory deallocation.
-    /// 
-    /// # Performance Characteristics
-    /// - Should be O(1) to avoid impacting deallocation performance
-    /// - May be called very frequently
-    fn record_deallocation(&self, size_bytes: usize, allocation_type: &str) {
-        let _ = (size_bytes, allocation_type); // Default: no-op
-    }
-
-    /// Flush any pending metrics.
-    /// 
-    /// # Behavior Guarantees
-    /// - Ensures all recorded metrics are persisted/transmitted
-    /// - May block briefly for I/O operations
-    fn flush(&self) {
-        // Default: no-op
+    pub fn elapsed(&self) -> core::time::Duration {
+        core::time::Duration::from_secs(0)
     }
 }
 
-/// A no-op metrics collector that does nothing.
-/// 
-/// This is useful as a default implementation when metrics are disabled.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NoOpMetricsCollector;
-
-impl MetricsCollector for NoOpMetricsCollector {
-    // All methods use default implementations (no-op)
+/// Performance counter that tracks events.
+#[derive(Debug)]
+pub struct Counter {
+    value: AtomicU64,
 }
 
-/// Metrics configuration.
-#[derive(Debug, Clone)]
-pub struct MetricsConfig {
-    /// Whether to enable task-level metrics
-    pub enable_task_metrics: bool,
-    /// Whether to enable work-stealing metrics
-    pub enable_steal_metrics: bool,
-    /// Whether to enable transport metrics
-    pub enable_transport_metrics: bool,
-    /// Whether to enable memory metrics
-    pub enable_memory_metrics: bool,
-    /// How often to flush metrics (in milliseconds)
-    pub flush_interval_ms: u64,
-    /// Maximum number of metrics to buffer before flushing
-    pub buffer_size: usize,
-}
-
-impl Default for MetricsConfig {
-    fn default() -> Self {
+impl Counter {
+    /// Create a new counter starting at zero.
+    pub const fn new() -> Self {
         Self {
-            enable_task_metrics: true,
-            enable_steal_metrics: true,
-            enable_transport_metrics: true,
-            enable_memory_metrics: false, // Can be expensive
-            flush_interval_ms: 1000,
-            buffer_size: 10000,
+            value: AtomicU64::new(0),
+        }
+    }
+
+    /// Increment the counter by one.
+    pub fn increment(&self) {
+        self.add(1);
+    }
+
+    /// Add a value to the counter.
+    pub fn add(&self, value: u64) {
+        self.value.fetch_add(value, Ordering::Relaxed);
+    }
+
+    /// Get the current value.
+    pub fn get(&self) -> u64 {
+        self.value.load(Ordering::Relaxed)
+    }
+
+    /// Reset the counter to zero.
+    pub fn reset(&self) {
+        self.value.store(0, Ordering::Relaxed);
+    }
+}
+
+impl Default for Counter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Gauge that tracks a current value that can go up or down.
+#[derive(Debug)]
+pub struct Gauge {
+    value: AtomicU64,
+}
+
+impl Gauge {
+    /// Create a new gauge starting at zero.
+    pub const fn new() -> Self {
+        Self {
+            value: AtomicU64::new(0),
+        }
+    }
+
+    /// Set the gauge to a specific value.
+    pub fn set(&self, value: u64) {
+        self.value.store(value, Ordering::Relaxed);
+    }
+
+    /// Increment the gauge by one.
+    pub fn increment(&self) {
+        self.add(1);
+    }
+
+    /// Decrement the gauge by one.
+    pub fn decrement(&self) {
+        self.subtract(1);
+    }
+
+    /// Add a value to the gauge.
+    pub fn add(&self, value: u64) {
+        self.value.fetch_add(value, Ordering::Relaxed);
+    }
+
+    /// Subtract a value from the gauge.
+    pub fn subtract(&self, value: u64) {
+        self.value.fetch_sub(value, Ordering::Relaxed);
+    }
+
+    /// Get the current value.
+    pub fn get(&self) -> u64 {
+        self.value.load(Ordering::Relaxed)
+    }
+
+    /// Reset the gauge to zero.
+    pub fn reset(&self) {
+        self.value.store(0, Ordering::Relaxed);
+    }
+}
+
+impl Default for Gauge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Histogram that tracks the distribution of values.
+#[derive(Debug)]
+pub struct Histogram {
+    buckets: [AtomicU64; 16], // Simple fixed-size buckets
+    sum: AtomicU64,
+    count: AtomicU64,
+}
+
+impl Histogram {
+    /// Create a new histogram.
+    pub const fn new() -> Self {
+        const ATOMIC_ZERO: AtomicU64 = AtomicU64::new(0);
+        Self {
+            buckets: [ATOMIC_ZERO; 16],
+            sum: AtomicU64::new(0),
+            count: AtomicU64::new(0),
+        }
+    }
+
+    /// Record a value in the histogram.
+    pub fn record(&self, value: u64) {
+        // Simple bucket assignment - in a real implementation this would be more sophisticated
+        let bucket_index = if value == 0 {
+            0
+        } else {
+            ((64 - value.leading_zeros()) as usize).min(15)
+        };
+
+        self.buckets[bucket_index].fetch_add(1, Ordering::Relaxed);
+        self.sum.fetch_add(value, Ordering::Relaxed);
+        self.count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Get the total count of recorded values.
+    pub fn count(&self) -> u64 {
+        self.count.load(Ordering::Relaxed)
+    }
+
+    /// Get the sum of all recorded values.
+    pub fn sum(&self) -> u64 {
+        self.sum.load(Ordering::Relaxed)
+    }
+
+    /// Calculate the average of recorded values.
+    pub fn average(&self) -> f64 {
+        let count = self.count();
+        if count == 0 {
+            0.0
+        } else {
+            self.sum() as f64 / count as f64
+        }
+    }
+
+    /// Get the count for a specific bucket.
+    pub fn bucket_count(&self, bucket: usize) -> u64 {
+        if bucket < self.buckets.len() {
+            self.buckets[bucket].load(Ordering::Relaxed)
+        } else {
+            0
+        }
+    }
+
+    /// Reset all counters.
+    pub fn reset(&self) {
+        for bucket in &self.buckets {
+            bucket.store(0, Ordering::Relaxed);
+        }
+        self.sum.store(0, Ordering::Relaxed);
+        self.count.store(0, Ordering::Relaxed);
+    }
+}
+
+impl Default for Histogram {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Task execution metrics.
+#[derive(Debug)]
+pub struct TaskMetrics {
+    /// Number of tasks spawned
+    pub spawned: Counter,
+    /// Number of tasks completed
+    pub completed: Counter,
+    /// Number of tasks cancelled
+    pub cancelled: Counter,
+    /// Task execution time histogram (microseconds)
+    pub execution_time: Histogram,
+    /// Task queue wait time histogram (microseconds)
+    pub wait_time: Histogram,
+}
+
+impl TaskMetrics {
+    /// Create new task metrics.
+    pub const fn new() -> Self {
+        Self {
+            spawned: Counter::new(),
+            completed: Counter::new(),
+            cancelled: Counter::new(),
+            execution_time: Histogram::new(),
+            wait_time: Histogram::new(),
+        }
+    }
+
+    /// Record task spawn.
+    pub fn record_spawn(&self) {
+        self.spawned.increment();
+    }
+
+    /// Record task completion with execution time.
+    pub fn record_completion(&self, execution_time: core::time::Duration) {
+        self.completed.increment();
+        self.execution_time.record(execution_time.as_micros() as u64);
+    }
+
+    /// Record task cancellation.
+    pub fn record_cancellation(&self) {
+        self.cancelled.increment();
+    }
+
+    /// Record task wait time.
+    pub fn record_wait_time(&self, wait_time: core::time::Duration) {
+        self.wait_time.record(wait_time.as_micros() as u64);
+    }
+
+    /// Get completion rate (0.0 to 1.0).
+    pub fn completion_rate(&self) -> f64 {
+        let spawned = self.spawned.get();
+        if spawned == 0 {
+            0.0
+        } else {
+            self.completed.get() as f64 / spawned as f64
+        }
+    }
+
+    /// Reset all metrics.
+    pub fn reset(&self) {
+        self.spawned.reset();
+        self.completed.reset();
+        self.cancelled.reset();
+        self.execution_time.reset();
+        self.wait_time.reset();
+    }
+}
+
+impl Default for TaskMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Scheduler metrics.
+#[derive(Debug)]
+pub struct SchedulerMetrics {
+    /// Current queue length
+    pub queue_length: Gauge,
+    /// Number of steal attempts
+    pub steal_attempts: Counter,
+    /// Number of successful steals
+    pub successful_steals: Counter,
+    /// Number of times stolen from
+    pub stolen_from: Counter,
+    /// CPU utilization gauge (0-100)
+    pub cpu_utilization: Gauge,
+}
+
+impl SchedulerMetrics {
+    /// Create new scheduler metrics.
+    pub const fn new() -> Self {
+        Self {
+            queue_length: Gauge::new(),
+            steal_attempts: Counter::new(),
+            successful_steals: Counter::new(),
+            stolen_from: Counter::new(),
+            cpu_utilization: Gauge::new(),
+        }
+    }
+
+    /// Record a steal attempt.
+    pub fn record_steal_attempt(&self, successful: bool) {
+        self.steal_attempts.increment();
+        if successful {
+            self.successful_steals.increment();
+        }
+    }
+
+    /// Record being stolen from.
+    pub fn record_stolen_from(&self) {
+        self.stolen_from.increment();
+    }
+
+    /// Update queue length.
+    pub fn update_queue_length(&self, length: usize) {
+        self.queue_length.set(length as u64);
+    }
+
+    /// Update CPU utilization.
+    pub fn update_cpu_utilization(&self, utilization: f32) {
+        self.cpu_utilization.set((utilization * 100.0) as u64);
+    }
+
+    /// Get steal success rate.
+    pub fn steal_success_rate(&self) -> f64 {
+        let attempts = self.steal_attempts.get();
+        if attempts == 0 {
+            0.0
+        } else {
+            self.successful_steals.get() as f64 / attempts as f64
+        }
+    }
+
+    /// Reset all metrics.
+    pub fn reset(&self) {
+        self.queue_length.reset();
+        self.steal_attempts.reset();
+        self.successful_steals.reset();
+        self.stolen_from.reset();
+        self.cpu_utilization.reset();
+    }
+}
+
+impl Default for SchedulerMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Global metrics collector.
+#[derive(Debug)]
+pub struct Metrics {
+    /// Task metrics
+    pub tasks: TaskMetrics,
+    /// Scheduler metrics by ID
+    pub schedulers: BTreeMap<SchedulerId, SchedulerMetrics>,
+}
+
+impl Metrics {
+    /// Create a new metrics collector.
+    pub fn new() -> Self {
+        Self {
+            tasks: TaskMetrics::new(),
+            schedulers: BTreeMap::new(),
+        }
+    }
+
+    /// Get or create scheduler metrics.
+    pub fn scheduler(&mut self, id: SchedulerId) -> &mut SchedulerMetrics {
+        self.schedulers.entry(id).or_insert_with(SchedulerMetrics::new)
+    }
+
+    /// Reset all metrics.
+    pub fn reset(&mut self) {
+        self.tasks.reset();
+        for metrics in self.schedulers.values() {
+            metrics.reset();
+        }
+    }
+
+    /// Get a snapshot of current metrics.
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        MetricsSnapshot {
+            tasks_spawned: self.tasks.spawned.get(),
+            tasks_completed: self.tasks.completed.get(),
+            tasks_cancelled: self.tasks.cancelled.get(),
+            avg_execution_time_us: self.tasks.execution_time.average(),
+            avg_wait_time_us: self.tasks.wait_time.average(),
+            total_steal_attempts: self.schedulers.values()
+                .map(|s| s.steal_attempts.get())
+                .sum(),
+            total_successful_steals: self.schedulers.values()
+                .map(|s| s.successful_steals.get())
+                .sum(),
+            avg_queue_length: if self.schedulers.is_empty() {
+                0.0
+            } else {
+                self.schedulers.values()
+                    .map(|s| s.queue_length.get())
+                    .sum::<u64>() as f64 / self.schedulers.len() as f64
+            },
         }
     }
 }
 
-/// Aggregated metrics for a time period.
-#[derive(Debug, Clone, Default)]
-pub struct AggregatedMetrics {
-    /// Time period these metrics cover
-    pub period_start: Option<Instant>,
-    /// End of the time period
-    pub period_end: Option<Instant>,
-    
-    // Task metrics
+impl Default for Metrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Snapshot of metrics at a point in time.
+#[derive(Debug, Clone)]
+pub struct MetricsSnapshot {
     /// Total tasks spawned
     pub tasks_spawned: u64,
     /// Total tasks completed
     pub tasks_completed: u64,
-    /// Total tasks failed
-    pub tasks_failed: u64,
-    /// Average task execution time (microseconds)
-    pub avg_task_execution_time_us: f64,
-    /// 95th percentile task execution time (microseconds)
-    pub p95_task_execution_time_us: f64,
-    /// Maximum task execution time (microseconds)
-    pub max_task_execution_time_us: u64,
-    
-    // Work stealing metrics
-    /// Total steal attempts
-    pub steal_attempts: u64,
-    /// Successful steal attempts
-    pub successful_steals: u64,
-    /// Total items stolen
-    pub items_stolen: u64,
-    
-    // Transport metrics
-    /// Total messages sent
-    pub messages_sent: u64,
-    /// Total bytes transmitted
-    pub bytes_transmitted: u64,
-    /// Average message latency (microseconds)
-    pub avg_message_latency_us: f64,
-    
-    // Memory metrics
-    /// Total allocations
-    pub allocations: u64,
-    /// Total deallocations
-    pub deallocations: u64,
-    /// Peak memory usage (bytes)
-    pub peak_memory_usage: u64,
-    /// Current memory usage (bytes)
-    pub current_memory_usage: u64,
+    /// Total tasks cancelled
+    pub tasks_cancelled: u64,
+    /// Average execution time in microseconds
+    pub avg_execution_time_us: f64,
+    /// Average wait time in microseconds
+    pub avg_wait_time_us: f64,
+    /// Total steal attempts across all schedulers
+    pub total_steal_attempts: u64,
+    /// Total successful steals across all schedulers
+    pub total_successful_steals: u64,
+    /// Average queue length across all schedulers
+    pub avg_queue_length: f64,
 }
 
-impl AggregatedMetrics {
-    /// Calculate the steal success rate.
-    pub fn steal_success_rate(&self) -> f64 {
-        if self.steal_attempts == 0 {
-            0.0
-        } else {
-            self.successful_steals as f64 / self.steal_attempts as f64
-        }
-    }
-
-    /// Calculate the task completion rate.
-    pub fn task_completion_rate(&self) -> f64 {
-        if self.tasks_spawned == 0 {
-            0.0
-        } else {
-            self.tasks_completed as f64 / self.tasks_spawned as f64
-        }
-    }
-
-    /// Calculate the task failure rate.
-    pub fn task_failure_rate(&self) -> f64 {
-        if self.tasks_spawned == 0 {
-            0.0
-        } else {
-            self.tasks_failed as f64 / self.tasks_spawned as f64
-        }
-    }
-
-    /// Calculate the average items stolen per successful steal.
-    pub fn avg_items_per_steal(&self) -> f64 {
-        if self.successful_steals == 0 {
-            0.0
-        } else {
-            self.items_stolen as f64 / self.successful_steals as f64
-        }
-    }
-
-    /// Calculate throughput in tasks per second.
-    pub fn task_throughput_per_second(&self) -> f64 {
-        if let (Some(start), Some(end)) = (self.period_start, self.period_end) {
-            let duration_secs = end.duration_since(start).as_secs_f64();
-            if duration_secs > 0.0 {
-                self.tasks_completed as f64 / duration_secs
+impl core::fmt::Display for MetricsSnapshot {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        writeln!(f, "Moirai Metrics Snapshot:")?;
+        writeln!(f, "  Tasks:")?;
+        writeln!(f, "    Spawned: {}", self.tasks_spawned)?;
+        writeln!(f, "    Completed: {}", self.tasks_completed)?;
+        writeln!(f, "    Cancelled: {}", self.tasks_cancelled)?;
+        writeln!(f, "    Avg Execution Time: {:.2}μs", self.avg_execution_time_us)?;
+        writeln!(f, "    Avg Wait Time: {:.2}μs", self.avg_wait_time_us)?;
+        writeln!(f, "  Work Stealing:")?;
+        writeln!(f, "    Total Attempts: {}", self.total_steal_attempts)?;
+        writeln!(f, "    Successful: {}", self.total_successful_steals)?;
+        writeln!(f, "    Success Rate: {:.2}%", 
+            if self.total_steal_attempts > 0 {
+                (self.total_successful_steals as f64 / self.total_steal_attempts as f64) * 100.0
             } else {
                 0.0
-            }
-        } else {
-            0.0
-        }
+            })?;
+        writeln!(f, "  Scheduling:")?;
+        writeln!(f, "    Avg Queue Length: {:.2}", self.avg_queue_length)?;
+        Ok(())
     }
-
-    /// Calculate message throughput in messages per second.
-    pub fn message_throughput_per_second(&self) -> f64 {
-        if let (Some(start), Some(end)) = (self.period_start, self.period_end) {
-            let duration_secs = end.duration_since(start).as_secs_f64();
-            if duration_secs > 0.0 {
-                self.messages_sent as f64 / duration_secs
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        }
-    }
-
-    /// Calculate bandwidth in bytes per second.
-    pub fn bandwidth_bytes_per_second(&self) -> f64 {
-        if let (Some(start), Some(end)) = (self.period_start, self.period_end) {
-            let duration_secs = end.duration_since(start).as_secs_f64();
-            if duration_secs > 0.0 {
-                self.bytes_transmitted as f64 / duration_secs
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        }
-    }
-}
-
-/// Trait for objects that can provide aggregated metrics.
-pub trait MetricsProvider: Send + Sync {
-    /// Get metrics for the specified time period.
-    /// 
-    /// # Parameters
-    /// - `start`: Start of the time period (None for all-time)
-    /// - `end`: End of the time period (None for up to now)
-    /// 
-    /// # Performance Characteristics
-    /// - May involve aggregation computation
-    /// - Suitable for periodic reporting
-    fn get_metrics(&self, start: Option<Instant>, end: Option<Instant>) -> AggregatedMetrics;
-
-    /// Get real-time metrics (last few seconds).
-    /// 
-    /// # Performance Characteristics
-    /// - O(1) operation for cached metrics
-    /// - Suitable for dashboards and monitoring
-    fn get_realtime_metrics(&self) -> AggregatedMetrics;
-
-    /// Reset all metrics counters.
-    /// 
-    /// # Behavior Guarantees
-    /// - Atomically resets all counters
-    /// - Does not affect ongoing operations
-    fn reset_metrics(&self);
 }
 
 #[cfg(test)]
@@ -283,61 +462,86 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_metrics_config_default() {
-        let config = MetricsConfig::default();
-        assert!(config.enable_task_metrics);
-        assert!(config.enable_steal_metrics);
-        assert!(config.enable_transport_metrics);
-        assert!(!config.enable_memory_metrics);
-        assert_eq!(config.flush_interval_ms, 1000);
-        assert_eq!(config.buffer_size, 10000);
-    }
-
-    #[test]
-    fn test_aggregated_metrics_calculations() {
-        let mut metrics = AggregatedMetrics::default();
-        metrics.tasks_spawned = 1000;
-        metrics.tasks_completed = 950;
-        metrics.tasks_failed = 50;
-        metrics.steal_attempts = 200;
-        metrics.successful_steals = 150;
-        metrics.items_stolen = 300;
-
-        assert_eq!(metrics.steal_success_rate(), 0.75);
-        assert_eq!(metrics.task_completion_rate(), 0.95);
-        assert_eq!(metrics.task_failure_rate(), 0.05);
-        assert_eq!(metrics.avg_items_per_steal(), 2.0);
-    }
-
-    #[test]
-    fn test_throughput_calculations() {
-        let start = Instant::now();
-        let end = start + Duration::from_secs(10);
+    fn test_counter() {
+        let counter = Counter::new();
+        assert_eq!(counter.get(), 0);
         
-        let mut metrics = AggregatedMetrics::default();
-        metrics.period_start = Some(start);
-        metrics.period_end = Some(end);
-        metrics.tasks_completed = 1000;
-        metrics.messages_sent = 500;
-        metrics.bytes_transmitted = 1024000;
-
-        assert_eq!(metrics.task_throughput_per_second(), 100.0);
-        assert_eq!(metrics.message_throughput_per_second(), 50.0);
-        assert_eq!(metrics.bandwidth_bytes_per_second(), 102400.0);
+        counter.increment();
+        assert_eq!(counter.get(), 1);
+        
+        counter.add(5);
+        assert_eq!(counter.get(), 6);
+        
+        counter.reset();
+        assert_eq!(counter.get(), 0);
     }
 
     #[test]
-    fn test_no_op_metrics_collector() {
-        let collector = NoOpMetricsCollector;
+    fn test_gauge() {
+        let gauge = Gauge::new();
+        assert_eq!(gauge.get(), 0);
         
-        // These should all be no-ops and not panic
-        collector.record_task_spawn(TaskId::new(1), Priority::Normal, Instant::now());
-        collector.record_task_start(TaskId::new(1), Instant::now());
-        collector.record_task_complete(TaskId::new(1), Instant::now(), true);
-        collector.record_steal_attempt(0, 1, true, 5);
-        collector.record_message_send(1024, "tcp", Duration::from_millis(10));
-        collector.record_allocation(4096, "task");
-        collector.record_deallocation(4096, "task");
-        collector.flush();
+        gauge.set(10);
+        assert_eq!(gauge.get(), 10);
+        
+        gauge.increment();
+        assert_eq!(gauge.get(), 11);
+        
+        gauge.decrement();
+        assert_eq!(gauge.get(), 10);
+        
+        gauge.add(5);
+        assert_eq!(gauge.get(), 15);
+        
+        gauge.subtract(3);
+        assert_eq!(gauge.get(), 12);
+    }
+
+    #[test]
+    fn test_histogram() {
+        let histogram = Histogram::new();
+        assert_eq!(histogram.count(), 0);
+        assert_eq!(histogram.sum(), 0);
+        assert_eq!(histogram.average(), 0.0);
+        
+        histogram.record(10);
+        histogram.record(20);
+        histogram.record(30);
+        
+        assert_eq!(histogram.count(), 3);
+        assert_eq!(histogram.sum(), 60);
+        assert_eq!(histogram.average(), 20.0);
+    }
+
+    #[test]
+    fn test_task_metrics() {
+        let metrics = TaskMetrics::new();
+        
+        metrics.record_spawn();
+        metrics.record_spawn();
+        assert_eq!(metrics.spawned.get(), 2);
+        
+        metrics.record_completion(core::time::Duration::from_millis(1));
+        assert_eq!(metrics.completed.get(), 1);
+        assert_eq!(metrics.completion_rate(), 0.5);
+        
+        metrics.record_cancellation();
+        assert_eq!(metrics.cancelled.get(), 1);
+    }
+
+    #[test]
+    fn test_scheduler_metrics() {
+        let metrics = SchedulerMetrics::new();
+        
+        metrics.update_queue_length(5);
+        assert_eq!(metrics.queue_length.get(), 5);
+        
+        metrics.record_steal_attempt(false);
+        metrics.record_steal_attempt(true);
+        metrics.record_steal_attempt(true);
+        
+        assert_eq!(metrics.steal_attempts.get(), 3);
+        assert_eq!(metrics.successful_steals.get(), 2);
+        assert_eq!(metrics.steal_success_rate(), 2.0 / 3.0);
     }
 }

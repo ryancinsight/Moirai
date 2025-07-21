@@ -19,7 +19,8 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = []
+default = ["std"]
 no-std = []
+std = []
 metrics = []
 numa = []
