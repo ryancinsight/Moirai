@@ -22,6 +22,8 @@ pub struct ChaseLevDeque<T> {
     top: AtomicIsize,
     /// Array of task pointers
     array: AtomicPtr<Array<T>>,
+    /// Old arrays pending deallocation
+    old_arrays: Mutex<Vec<*mut Array<T>>>,
 }
 
 /// Array wrapper for the deque with atomic operations
@@ -74,6 +76,7 @@ impl<T> ChaseLevDeque<T> {
             bottom: AtomicIsize::new(0),
             top: AtomicIsize::new(0),
             array: AtomicPtr::new(Box::into_raw(array)),
+            old_arrays: Mutex::new(Vec::new()),
         }
     }
 
@@ -220,7 +223,7 @@ impl<T> ChaseLevDeque<T> {
         for array_ptr in old_arrays.drain(..) {
             unsafe {
                 // Deallocate the old array
-                Box::from_raw(array_ptr);
+                drop(Box::from_raw(array_ptr));
             }
         }
     }

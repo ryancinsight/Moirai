@@ -1,13 +1,5 @@
 //! Integration tests for Moirai concurrency library.
 
-use moirai::{Moirai, Priority, TaskId, Task};
-use std::{
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
 
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]
