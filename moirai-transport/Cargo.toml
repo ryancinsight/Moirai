@@ -21,6 +21,7 @@ crossbeam-channel = "0.5"
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
+tokio = { version = "1.0", features = ["full"] }
 
 [features]
 default = ["local"]

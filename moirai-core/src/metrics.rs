@@ -1,43 +1,27 @@
 //! Performance metrics and monitoring for Moirai.
 
-use crate::{TaskId, scheduler::SchedulerId};
-use core::{
-    fmt,
-    time::Duration,
-    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
-};
+use crate::scheduler::SchedulerId;
+use alloc::collections::BTreeMap;
+use core::sync::atomic::{AtomicU64, Ordering};
 
-// Use std::time::Instant when available, otherwise provide a minimal fallback
 #[cfg(feature = "std")]
 use std::time::Instant;
 
 #[cfg(not(feature = "std"))]
-/// Minimal Instant implementation for no_std environments
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Instant {
-    // In a real no_std implementation, this might use a platform-specific timer
-    // For now, we'll use a simple counter
-    ticks: u64,
+    // Minimal fallback implementation for no_std
+    // In a real implementation, this would use a monotonic timer
+    timestamp: u64,
 }
 
 #[cfg(not(feature = "std"))]
 impl Instant {
-    /// Get the current instant
     pub fn now() -> Self {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        Self {
-            ticks: COUNTER.fetch_add(1, Ordering::Relaxed),
-        }
+        Self { timestamp: 0 }
     }
 
-    /// Calculate the duration since another instant
-    pub fn duration_since(self, earlier: Self) -> Duration {
-        Duration::from_nanos(self.ticks.saturating_sub(earlier.ticks))
-    }
-
-    /// Calculate the elapsed time since this instant
-    pub fn elapsed(self) -> Duration {
-        Self::now().duration_since(self)
+    pub fn elapsed(&self) -> core::time::Duration {
+        core::time::Duration::from_secs(0)
     }
 }
 
@@ -249,7 +233,7 @@ impl TaskMetrics {
     }
 
     /// Record task completion with execution time.
-    pub fn record_completion(&self, execution_time: Duration) {
+    pub fn record_completion(&self, execution_time: core::time::Duration) {
         self.completed.increment();
         self.execution_time.record(execution_time.as_micros() as u64);
     }
@@ -260,7 +244,7 @@ impl TaskMetrics {
     }
 
     /// Record task wait time.
-    pub fn record_wait_time(&self, wait_time: Duration) {
+    pub fn record_wait_time(&self, wait_time: core::time::Duration) {
         self.wait_time.record(wait_time.as_micros() as u64);
     }
 
@@ -372,7 +356,7 @@ pub struct Metrics {
     /// Task metrics
     pub tasks: TaskMetrics,
     /// Scheduler metrics by ID
-    pub schedulers: alloc::collections::BTreeMap<SchedulerId, SchedulerMetrics>,
+    pub schedulers: BTreeMap<SchedulerId, SchedulerMetrics>,
 }
 
 impl Metrics {
@@ -380,7 +364,7 @@ impl Metrics {
     pub fn new() -> Self {
         Self {
             tasks: TaskMetrics::new(),
-            schedulers: alloc::collections::BTreeMap::new(),
+            schedulers: BTreeMap::new(),
         }
     }
 
@@ -449,8 +433,8 @@ pub struct MetricsSnapshot {
     pub avg_queue_length: f64,
 }
 
-impl fmt::Display for MetricsSnapshot {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl core::fmt::Display for MetricsSnapshot {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "Moirai Metrics Snapshot:")?;
         writeln!(f, "  Tasks:")?;
         writeln!(f, "    Spawned: {}", self.tasks_spawned)?;
@@ -537,7 +521,7 @@ mod tests {
         metrics.record_spawn();
         assert_eq!(metrics.spawned.get(), 2);
         
-        metrics.record_completion(Duration::from_millis(1));
+        metrics.record_completion(core::time::Duration::from_millis(1));
         assert_eq!(metrics.completed.get(), 1);
         assert_eq!(metrics.completion_rate(), 0.5);
         

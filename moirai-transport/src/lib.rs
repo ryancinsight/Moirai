@@ -4,8 +4,8 @@
 //! threads, processes, and machines. All communication is coordinated through
 //! the Moirai scheduler for optimal performance and resource management.
 
-use moirai_core::{TaskId, scheduler::SchedulerId, error::TaskResult};
-use std::{fmt, future::Future, pin::Pin, task::{Context, Poll}};
+use moirai_core::{TaskId, scheduler::SchedulerId};
+use std::{fmt};
 
 /// A multi-producer, multi-consumer channel.
 pub struct Channel<T> {
@@ -457,7 +457,14 @@ impl TransportManager {
             TransportType::Distributed => {
                 self.network_transports.distributed.send(address, message).await
             }
-            _ => Err(TransportError::NoTransportAvailable),
+            #[cfg(not(feature = "network"))]
+            TransportType::Tcp | TransportType::Udp => {
+                Err(TransportError::NoTransportAvailable)
+            }
+            #[cfg(all(not(feature = "distributed"), feature = "network"))]
+            TransportType::Distributed => {
+                Err(TransportError::NoTransportAvailable)
+            }
         }
     }
 
@@ -502,7 +509,7 @@ impl TransportManager {
     }
 
     /// Receive a message.
-    pub async fn receive_message<T>(&self, address: Address) -> TransportResult<(Address, T)>
+    pub async fn receive_message<T>(&self, _address: Address) -> TransportResult<(Address, T)>
     where
         T: Send + Sync + 'static,
     {
@@ -703,7 +710,16 @@ pub mod channel {
 
     /// Create a local thread channel.
     pub fn local<T>() -> TransportResult<(UniversalSender<T>, UniversalReceiver<T>)> {
-        UniversalChannel::new(Address::Thread(ThreadId(std::thread::current().id().as_u64().get() as u32)))
+        // Use a simple hash of the thread ID instead of the unstable as_u64()
+        let thread_id = std::thread::current().id();
+        let thread_id_hash = {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            thread_id.hash(&mut hasher);
+            hasher.finish() as u32
+        };
+        UniversalChannel::new(Address::Thread(ThreadId(thread_id_hash)))
     }
 
     /// Create a process-local channel.
