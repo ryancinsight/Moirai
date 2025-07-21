@@ -1,0 +1,67 @@
+[workspace]
+members = [
+    "moirai-core",
+    "moirai-executor",
+    "moirai-scheduler", 
+    "moirai-transport",
+    "moirai-sync",
+    "moirai-async",
+    "moirai-iter",
+    "moirai-metrics",
+    "moirai-utils",
+    "moirai",
+    "benchmarks",
+    "tests"
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Moirai Team"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/moirai-rs/moirai"
+homepage = "https://moirai-rs.github.io"
+documentation = "https://docs.rs/moirai"
+keywords = ["concurrency", "async", "parallel", "zero-cost", "performance"]
+categories = ["concurrency", "asynchronous"]
+rust-version = "1.75.0"
+
+[workspace.dependencies]
+# Internal dependencies
+moirai-core = { path = "moirai-core", version = "0.1.0" }
+moirai-executor = { path = "moirai-executor", version = "0.1.0" }
+moirai-scheduler = { path = "moirai-scheduler", version = "0.1.0" }
+moirai-transport = { path = "moirai-transport", version = "0.1.0" }
+moirai-sync = { path = "moirai-sync", version = "0.1.0" }
+moirai-async = { path = "moirai-async", version = "0.1.0" }
+moirai-iter = { path = "moirai-iter", version = "0.1.0" }
+moirai-metrics = { path = "moirai-metrics", version = "0.1.0" }
+moirai-utils = { path = "moirai-utils", version = "0.1.0" }
+
+# External dependencies (stdlib only - these are for dev/test purposes)
+criterion = "0.5"
+proptest = "1.4"
+quickcheck = "1.0"
+futures = "0.3"
+crossbeam-channel = "0.5"
+tokio = "1.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = 3
+
+[profile.bench]
+inherits = "release"
+debug = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+split-debuginfo = "unpacked"
+
+[profile.test]
+opt-level = 1
+debug = true

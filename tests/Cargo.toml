@@ -1,0 +1,14 @@
+[package]
+name = "moirai-tests"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "Integration tests for Moirai concurrency library"
+
+[dependencies]
+moirai = { path = "../moirai", features = ["full"] }
+proptest = { workspace = true }
+quickcheck = { workspace = true }
+tokio = { version = "1.0", features = ["full"] }

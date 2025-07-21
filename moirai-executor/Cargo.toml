@@ -1,0 +1,28 @@
+[package]
+name = "moirai-executor"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "Hybrid executor implementation for Moirai concurrency library"
+
+[dependencies]
+moirai-core = { workspace = true }
+moirai-scheduler = { workspace = true }
+moirai-utils = { workspace = true }
+futures = "0.3"
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = []
+numa = []
+metrics = ["moirai-core/metrics"]

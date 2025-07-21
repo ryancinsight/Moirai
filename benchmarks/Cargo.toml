@@ -1,0 +1,15 @@
+[package]
+name = "moirai-benchmarks"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "Benchmarks for Moirai concurrency library"
+
+[dependencies]
+moirai = { path = "../moirai", features = ["full"] }
+criterion = { workspace = true, features = ["html_reports"] }
+tokio = { version = "1.0", features = ["full"] }
+
+# Benchmarks will be added as development progresses
