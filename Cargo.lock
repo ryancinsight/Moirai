@@ -569,6 +569,7 @@ dependencies = [
  "moirai-scheduler",
  "moirai-utils",
  "proptest",
+ "tokio",
 ]
 
 [[package]]

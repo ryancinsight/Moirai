@@ -154,6 +154,47 @@ pub trait Task: Send + 'static {
     }
 }
 
+/// A trait for tasks that can be executed from a Box<dyn ...>
+pub trait BoxedTask: Send + 'static {
+    /// Execute this task and return a boxed result.
+    fn execute_boxed(self: Box<Self>);
+
+    /// Get the task context for scheduling and debugging.
+    fn context(&self) -> &TaskContext;
+
+    /// Check if this task can be stolen by another thread.
+    fn is_stealable(&self) -> bool {
+        true
+    }
+
+    /// Estimate the computational cost of this task (for load balancing).
+    fn estimated_cost(&self) -> u32 {
+        1
+    }
+}
+
+// Implement BoxedTask for any Task that returns ()
+impl<T> BoxedTask for T 
+where 
+    T: Task<Output = ()> + Send + 'static,
+{
+    fn execute_boxed(self: Box<Self>) {
+        (*self).execute();
+    }
+
+    fn context(&self) -> &TaskContext {
+        Task::context(self)
+    }
+
+    fn is_stealable(&self) -> bool {
+        Task::is_stealable(self)
+    }
+
+    fn estimated_cost(&self) -> u32 {
+        Task::estimated_cost(self)
+    }
+}
+
 /// A task that can be polled to completion (async task).
 pub trait AsyncTask: Send + 'static {
     /// The output type produced by this task.

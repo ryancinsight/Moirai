@@ -1,18 +1,18 @@
 //! Scheduler trait definitions and work-stealing abstractions.
 
-use crate::{Task, error::SchedulerResult, Box, Vec};
+use crate::{Task, BoxedTask, error::SchedulerResult, Box, Vec};
 use core::fmt;
 
 /// The core trait for task schedulers in the Moirai runtime.
 pub trait Scheduler: Send + Sync + 'static {
     /// Schedule a task for execution.
-    fn schedule_task(&self, task: Box<dyn Task<Output = ()>>) -> SchedulerResult<()>;
+    fn schedule_task(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()>;
 
     /// Try to get the next task to execute.
-    fn next_task(&self) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>>;
+    fn next_task(&self) -> SchedulerResult<Option<Box<dyn BoxedTask>>>;
 
     /// Try to steal work from another scheduler.
-    fn try_steal(&self, victim: &dyn Scheduler) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>>;
+    fn try_steal(&self, victim: &dyn Scheduler) -> SchedulerResult<Option<Box<dyn BoxedTask>>>;
 
     /// Get the current load (number of pending tasks).
     fn load(&self) -> usize;
@@ -216,7 +216,7 @@ impl WorkStealingCoordinator {
     }
 
     /// Attempt to steal work for the given scheduler.
-    pub fn try_steal_for(&self, thief_id: SchedulerId) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>> {
+    pub fn try_steal_for(&self, thief_id: SchedulerId) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
         match &self.strategy {
             WorkStealingStrategy::Random { max_attempts } => {
                 self.random_steal(thief_id, *max_attempts)
@@ -243,7 +243,7 @@ impl WorkStealingCoordinator {
         }
     }
 
-    fn random_steal(&self, thief_id: SchedulerId, max_attempts: usize) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>> {
+    fn random_steal(&self, thief_id: SchedulerId, max_attempts: usize) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
         use core::num::Wrapping;
         
         // Simple pseudo-random selection based on scheduler ID
@@ -269,7 +269,7 @@ impl WorkStealingCoordinator {
         Ok(None)
     }
 
-    fn round_robin_steal(&self, thief_id: SchedulerId, max_attempts: usize) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>> {
+    fn round_robin_steal(&self, thief_id: SchedulerId, max_attempts: usize) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
         let start_idx = thief_id.get() % self.schedulers.len().max(1);
         
         for i in 0..max_attempts.min(self.schedulers.len()) {
@@ -286,7 +286,7 @@ impl WorkStealingCoordinator {
         Ok(None)
     }
 
-    fn locality_aware_steal(&self, thief_id: SchedulerId, max_attempts: usize, locality_factor: f32) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>> {
+    fn locality_aware_steal(&self, thief_id: SchedulerId, max_attempts: usize, locality_factor: f32) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
         // Simplified locality-aware stealing
         // In a real implementation, this would consider CPU topology
         let candidates: Vec<_> = self.schedulers.iter()
@@ -313,7 +313,7 @@ impl WorkStealingCoordinator {
         Ok(None)
     }
 
-    fn load_based_steal(&self, thief_id: SchedulerId, max_attempts: usize, min_load_diff: usize) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>> {
+    fn load_based_steal(&self, thief_id: SchedulerId, max_attempts: usize, min_load_diff: usize) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
         let thief_load = self.schedulers.iter()
             .find(|s| s.id() == thief_id)
             .map(|s| s.load())
