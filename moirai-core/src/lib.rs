@@ -12,7 +12,7 @@
 //! - **Composability**: Small, focused components that work together
 //! - **Performance**: Designed for maximum throughput and minimal latency
 
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![warn(clippy::all)]
@@ -96,7 +96,7 @@ impl fmt::Display for Priority {
 }
 
 /// Task execution context and metadata.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TaskContext {
     /// Unique identifier for this task
     pub id: TaskId,
@@ -279,11 +279,11 @@ impl<F> TaskBuilder<F> {
     }
 
     /// Build the task.
-          #[must_use]
-      pub fn build(self) -> impl Task<Output = R>
-      where
-         F: FnOnce() -> R + Send + 'static,
-          R: Send + 'static,
+    #[must_use]
+    pub fn build<R>(self) -> impl Task<Output = R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
     {
         ClosureTask {
             func: Some(self.func),

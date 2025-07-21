@@ -1,14 +1,12 @@
 //! Scheduler trait definitions and work-stealing abstractions.
 
-use crate::{Task, TaskId, Priority, error::SchedulerResult};
+use crate::{Task, error::SchedulerResult, Box, Vec};
 use core::fmt;
 
 /// The core trait for task schedulers in the Moirai runtime.
 pub trait Scheduler: Send + Sync + 'static {
     /// Schedule a task for execution.
-    fn schedule<T>(&self, task: T) -> SchedulerResult<()>
-    where
-        T: Task;
+    fn schedule_task(&self, task: Box<dyn Task<Output = ()>>) -> SchedulerResult<()>;
 
     /// Try to get the next task to execute.
     fn next_task(&self) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>>;
@@ -33,8 +31,16 @@ pub trait Scheduler: Send + Sync + 'static {
     }
 }
 
+/// A generic scheduler trait for type-safe task scheduling.
+pub trait GenericScheduler: Send + Sync + 'static {
+    /// Schedule a task for execution.
+    fn schedule<T>(&self, task: T) -> SchedulerResult<()>
+    where
+        T: Task;
+}
+
 /// A unique identifier for schedulers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SchedulerId(usize);
 
 impl SchedulerId {
@@ -99,6 +105,20 @@ pub enum WorkStealingStrategy {
         /// Locality preference factor (0.0 = no preference, 1.0 = strong preference)
         locality_factor: f32,
     },
+    /// Load-based stealing (steal from most loaded)
+    LoadBased {
+        /// Maximum number of steal attempts
+        max_attempts: usize,
+        /// Minimum load difference to trigger steal
+        min_load_diff: usize,
+    },
+    /// Adaptive strategy that changes based on runtime conditions
+    Adaptive {
+        /// Base strategy to start with
+        base_strategy: Box<WorkStealingStrategy>,
+        /// Adaptation period in milliseconds
+        adaptation_period_ms: u64,
+    },
 }
 
 impl Default for WorkStealingStrategy {
@@ -107,193 +127,229 @@ impl Default for WorkStealingStrategy {
     }
 }
 
-/// Types of task queues available.
+/// Queue implementation types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueueType {
     /// Chase-Lev work-stealing deque
     ChaseLev,
-    /// FIFO queue
-    Fifo,
-    /// LIFO stack
-    Lifo,
+    /// Simple FIFO queue with locks
+    SimpleFifo,
     /// Priority queue
     Priority,
+    /// Segmented queue for better cache locality
+    Segmented,
 }
 
-/// Statistics about scheduler performance.
-#[derive(Debug, Clone, Default)]
-pub struct SchedulerStats {
-    /// Total number of tasks scheduled
-    pub tasks_scheduled: u64,
-    /// Total number of tasks executed
-    pub tasks_executed: u64,
+/// Work stealing context for tracking steal attempts.
+#[derive(Debug, Clone)]
+pub struct StealContext {
+    /// Number of steal attempts made
+    pub attempts: usize,
     /// Number of successful steals
-    pub successful_steals: u64,
-    /// Number of failed steal attempts
-    pub failed_steals: u64,
-    /// Number of times this scheduler was stolen from
-    pub stolen_from: u64,
+    pub successes: usize,
+    /// Total items stolen
+    pub items_stolen: usize,
+    /// Average steal latency in nanoseconds
+    pub avg_steal_latency_ns: u64,
+}
+
+impl Default for StealContext {
+    fn default() -> Self {
+        Self {
+            attempts: 0,
+            successes: 0,
+            items_stolen: 0,
+            avg_steal_latency_ns: 0,
+        }
+    }
+}
+
+/// Scheduler statistics for monitoring and debugging.
+#[derive(Debug, Clone)]
+pub struct SchedulerStats {
+    /// Scheduler identifier
+    pub id: SchedulerId,
     /// Current queue length
-    pub current_queue_length: usize,
-    /// Maximum queue length seen
-    pub max_queue_length: usize,
-    /// Average task wait time (microseconds)
-    pub avg_wait_time: f64,
+    pub queue_length: usize,
+    /// Total tasks scheduled
+    pub tasks_scheduled: u64,
+    /// Total tasks completed
+    pub tasks_completed: u64,
+    /// Work stealing statistics
+    pub steal_context: StealContext,
+    /// Average task execution time in microseconds
+    pub avg_task_execution_us: f64,
+    /// CPU utilization percentage
+    pub cpu_utilization: f32,
 }
 
-impl SchedulerStats {
-    /// Calculate the steal success rate.
-    pub fn steal_success_rate(&self) -> f64 {
-        let total_attempts = self.successful_steals + self.failed_steals;
-        if total_attempts == 0 {
-            0.0
-        } else {
-            self.successful_steals as f64 / total_attempts as f64
-        }
-    }
-
-    /// Calculate the task throughput (tasks per second).
-    pub fn throughput(&self, elapsed_seconds: f64) -> f64 {
-        if elapsed_seconds <= 0.0 {
-            0.0
-        } else {
-            self.tasks_executed as f64 / elapsed_seconds
-        }
-    }
-
-    /// Calculate the queue utilization.
-    pub fn queue_utilization(&self, max_capacity: usize) -> f64 {
-        if max_capacity == 0 {
-            0.0
-        } else {
-            self.current_queue_length as f64 / max_capacity as f64
-        }
-    }
+/// Work stealing coordinator that manages steal attempts across schedulers.
+pub struct WorkStealingCoordinator {
+    schedulers: Vec<Box<dyn Scheduler>>,
+    strategy: WorkStealingStrategy,
+    stats: Vec<SchedulerStats>,
 }
 
-/// A trait for objects that can provide scheduler statistics.
-pub trait SchedulerMetrics {
-    /// Get current scheduler statistics.
-    fn stats(&self) -> SchedulerStats;
-
-    /// Reset statistics counters.
-    fn reset_stats(&self);
-}
-
-/// Work stealing victim selection strategy.
-pub trait VictimSelector: Send + Sync {
-    /// Select a victim scheduler to steal from.
-    fn select_victim(&self, schedulers: &[SchedulerId], current: SchedulerId) -> Option<SchedulerId>;
-
-    /// Update victim selection state after a steal attempt.
-    fn update_after_steal(&self, victim: SchedulerId, success: bool);
-}
-
-/// Random victim selector.
-#[derive(Debug)]
-pub struct RandomVictimSelector {
-    /// Random number generator state
-    state: core::sync::atomic::AtomicU64,
-}
-
-impl RandomVictimSelector {
-    /// Create a new random victim selector.
-    pub fn new() -> Self {
+impl WorkStealingCoordinator {
+    /// Create a new work stealing coordinator.
+    pub fn new(strategy: WorkStealingStrategy) -> Self {
         Self {
-            state: core::sync::atomic::AtomicU64::new(1),
+            schedulers: Vec::new(),
+            strategy,
+            stats: Vec::new(),
         }
     }
 
-    /// Generate a pseudo-random number using xorshift.
-    fn next_random(&self) -> u64 {
-        use core::sync::atomic::Ordering;
+    /// Register a scheduler with the coordinator.
+    pub fn register_scheduler(&mut self, scheduler: Box<dyn Scheduler>) {
+        let id = scheduler.id();
+        self.schedulers.push(scheduler);
+        self.stats.push(SchedulerStats {
+            id,
+            queue_length: 0,
+            tasks_scheduled: 0,
+            tasks_completed: 0,
+            steal_context: StealContext::default(),
+            avg_task_execution_us: 0.0,
+            cpu_utilization: 0.0,
+        });
+    }
+
+    /// Attempt to steal work for the given scheduler.
+    pub fn try_steal_for(&self, thief_id: SchedulerId) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>> {
+        match &self.strategy {
+            WorkStealingStrategy::Random { max_attempts } => {
+                self.random_steal(thief_id, *max_attempts)
+            }
+            WorkStealingStrategy::RoundRobin { max_attempts } => {
+                self.round_robin_steal(thief_id, *max_attempts)
+            }
+            WorkStealingStrategy::LocalityAware { max_attempts, locality_factor } => {
+                self.locality_aware_steal(thief_id, *max_attempts, *locality_factor)
+            }
+            WorkStealingStrategy::LoadBased { max_attempts, min_load_diff } => {
+                self.load_based_steal(thief_id, *max_attempts, *min_load_diff)
+            }
+            WorkStealingStrategy::Adaptive { base_strategy, .. } => {
+                // For now, use the base strategy
+                // In a full implementation, this would adapt based on runtime metrics
+                match base_strategy.as_ref() {
+                    WorkStealingStrategy::Random { max_attempts } => {
+                        self.random_steal(thief_id, *max_attempts)
+                    }
+                    _ => Ok(None), // Simplified for now
+                }
+            }
+        }
+    }
+
+    fn random_steal(&self, thief_id: SchedulerId, max_attempts: usize) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>> {
+        use core::num::Wrapping;
         
-        let current = self.state.load(Ordering::Relaxed);
-        let mut x = current;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.state.store(x, Ordering::Relaxed);
-        x
-    }
-}
-
-impl Default for RandomVictimSelector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl VictimSelector for RandomVictimSelector {
-    fn select_victim(&self, schedulers: &[SchedulerId], current: SchedulerId) -> Option<SchedulerId> {
-        if schedulers.len() <= 1 {
-            return None;
+        // Simple pseudo-random selection based on scheduler ID
+        let mut seed = Wrapping(thief_id.get() as u32);
+        
+        for _ in 0..max_attempts {
+            if self.schedulers.is_empty() {
+                return Ok(None);
+            }
+            
+            // Simple LCG for pseudo-random selection
+            seed = seed * Wrapping(1103515245) + Wrapping(12345);
+            let victim_idx = (seed.0 as usize) % self.schedulers.len();
+            
+            let victim = &self.schedulers[victim_idx];
+            if victim.id() != thief_id && victim.can_be_stolen_from() {
+                if let Some(task) = victim.try_steal(&**victim)? {
+                    return Ok(Some(task));
+                }
+            }
         }
+        
+        Ok(None)
+    }
 
-        let candidates: Vec<_> = schedulers.iter()
-            .filter(|&&id| id != current)
-            .copied()
+    fn round_robin_steal(&self, thief_id: SchedulerId, max_attempts: usize) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>> {
+        let start_idx = thief_id.get() % self.schedulers.len().max(1);
+        
+        for i in 0..max_attempts.min(self.schedulers.len()) {
+            let victim_idx = (start_idx + i) % self.schedulers.len();
+            let victim = &self.schedulers[victim_idx];
+            
+            if victim.id() != thief_id && victim.can_be_stolen_from() {
+                if let Some(task) = victim.try_steal(&**victim)? {
+                    return Ok(Some(task));
+                }
+            }
+        }
+        
+        Ok(None)
+    }
+
+    fn locality_aware_steal(&self, thief_id: SchedulerId, max_attempts: usize, locality_factor: f32) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>> {
+        // Simplified locality-aware stealing
+        // In a real implementation, this would consider CPU topology
+        let candidates: Vec<_> = self.schedulers.iter()
+            .enumerate()
+            .filter(|(_, s)| s.id() != thief_id && s.can_be_stolen_from())
+            .map(|(idx, s)| {
+                // Calculate locality score (simplified)
+                let distance = ((idx as i32) - (thief_id.get() as i32)).abs() as f32;
+                let locality_score = 1.0 / (1.0 + distance * locality_factor);
+                (idx, s, locality_score)
+            })
             .collect();
 
-        if candidates.is_empty() {
-            return None;
+        // Sort by locality score (higher is better)
+        let mut sorted_candidates = candidates;
+        sorted_candidates.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(core::cmp::Ordering::Equal));
+
+        for (_, victim, _) in sorted_candidates.iter().take(max_attempts) {
+            if let Some(task) = victim.try_steal(&***victim)? {
+                return Ok(Some(task));
+            }
         }
 
-        let index = (self.next_random() as usize) % candidates.len();
-        Some(candidates[index])
+        Ok(None)
     }
 
-    fn update_after_steal(&self, _victim: SchedulerId, _success: bool) {
-        // Random selection doesn't need to update state
-    }
-}
+    fn load_based_steal(&self, thief_id: SchedulerId, max_attempts: usize, min_load_diff: usize) -> SchedulerResult<Option<Box<dyn Task<Output = ()>>>> {
+        let thief_load = self.schedulers.iter()
+            .find(|s| s.id() == thief_id)
+            .map(|s| s.load())
+            .unwrap_or(0);
 
-/// Round-robin victim selector.
-#[derive(Debug)]
-pub struct RoundRobinVictimSelector {
-    /// Current position in the round-robin
-    position: core::sync::atomic::AtomicUsize,
-}
-
-impl RoundRobinVictimSelector {
-    /// Create a new round-robin victim selector.
-    pub fn new() -> Self {
-        Self {
-            position: core::sync::atomic::AtomicUsize::new(0),
-        }
-    }
-}
-
-impl Default for RoundRobinVictimSelector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl VictimSelector for RoundRobinVictimSelector {
-    fn select_victim(&self, schedulers: &[SchedulerId], current: SchedulerId) -> Option<SchedulerId> {
-        if schedulers.len() <= 1 {
-            return None;
-        }
-
-        use core::sync::atomic::Ordering;
-
-        let candidates: Vec<_> = schedulers.iter()
-            .filter(|&&id| id != current)
-            .copied()
+        let candidates: Vec<_> = self.schedulers.iter()
+            .filter(|s| {
+                s.id() != thief_id && 
+                s.can_be_stolen_from() && 
+                s.load() > thief_load + min_load_diff
+            })
             .collect();
 
-        if candidates.is_empty() {
-            return None;
+        // Sort by load (highest first)
+        let mut sorted_candidates = candidates;
+        sorted_candidates.sort_by(|a, b| b.load().cmp(&a.load()));
+
+        for victim in sorted_candidates.iter().take(max_attempts) {
+            if let Some(task) = victim.try_steal(&***victim)? {
+                return Ok(Some(task));
+            }
         }
 
-        let pos = self.position.fetch_add(1, Ordering::Relaxed);
-        let index = pos % candidates.len();
-        Some(candidates[index])
+        Ok(None)
     }
 
-    fn update_after_steal(&self, _victim: SchedulerId, _success: bool) {
-        // Round-robin doesn't need to update state based on success
+    /// Get statistics for all schedulers.
+    pub fn get_stats(&self) -> &[SchedulerStats] {
+        &self.stats
+    }
+
+    /// Update statistics for a scheduler.
+    pub fn update_stats(&mut self, id: SchedulerId, stats: SchedulerStats) {
+        if let Some(existing_stats) = self.stats.iter_mut().find(|s| s.id == id) {
+            *existing_stats = stats;
+        }
     }
 }
 
@@ -309,49 +365,25 @@ mod tests {
     }
 
     #[test]
-    fn test_scheduler_stats() {
-        let mut stats = SchedulerStats::default();
-        stats.successful_steals = 80;
-        stats.failed_steals = 20;
-        stats.tasks_executed = 1000;
-        stats.current_queue_length = 50;
-
-        assert_eq!(stats.steal_success_rate(), 0.8);
-        assert_eq!(stats.throughput(10.0), 100.0);
-        assert_eq!(stats.queue_utilization(100), 0.5);
+    fn test_work_stealing_strategy_default() {
+        let strategy = WorkStealingStrategy::default();
+        matches!(strategy, WorkStealingStrategy::Random { max_attempts: 3 });
     }
 
     #[test]
-    fn test_random_victim_selector() {
-        let selector = RandomVictimSelector::new();
-        let schedulers = vec![
-            SchedulerId::new(0),
-            SchedulerId::new(1),
-            SchedulerId::new(2),
-        ];
-        let current = SchedulerId::new(0);
-
-        let victim = selector.select_victim(&schedulers, current);
-        assert!(victim.is_some());
-        assert_ne!(victim.unwrap(), current);
+    fn test_scheduler_config_default() {
+        let config = SchedulerConfig::default();
+        assert_eq!(config.max_queue_size, 1024);
+        assert!(config.priority_scheduling);
+        assert_eq!(config.queue_type, QueueType::ChaseLev);
     }
 
     #[test]
-    fn test_round_robin_victim_selector() {
-        let selector = RoundRobinVictimSelector::new();
-        let schedulers = vec![
-            SchedulerId::new(0),
-            SchedulerId::new(1),
-            SchedulerId::new(2),
-        ];
-        let current = SchedulerId::new(0);
-
-        let victim1 = selector.select_victim(&schedulers, current);
-        let victim2 = selector.select_victim(&schedulers, current);
-        
-        assert!(victim1.is_some());
-        assert!(victim2.is_some());
-        assert_ne!(victim1.unwrap(), current);
-        assert_ne!(victim2.unwrap(), current);
+    fn test_steal_context_default() {
+        let ctx = StealContext::default();
+        assert_eq!(ctx.attempts, 0);
+        assert_eq!(ctx.successes, 0);
+        assert_eq!(ctx.items_stolen, 0);
+        assert_eq!(ctx.avg_steal_latency_ns, 0);
     }
 }

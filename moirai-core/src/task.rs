@@ -1,232 +1,11 @@
-//! Task abstractions and utilities.
+//! Task abstractions and utilities for the Moirai runtime.
 
-use crate::{TaskId, TaskContext, Priority, Task, AsyncTask};
+use crate::{TaskId, TaskContext, Task, Box};
 use core::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
-    fmt,
 };
-
-/// A trait for objects that can spawn tasks.
-pub trait TaskSpawner {
-    /// Spawn a task for execution.
-    fn spawn<T>(&self, task: T) -> crate::TaskHandle<T::Output>
-    where
-        T: Task;
-
-    /// Spawn an async task for execution.
-    fn spawn_async<F>(&self, future: F) -> crate::TaskHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static;
-
-    /// Spawn a blocking task that may block the current thread.
-    fn spawn_blocking<F, R>(&self, func: F) -> crate::TaskHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static;
-}
-
-/// A trait for objects that can schedule tasks.
-pub trait TaskScheduler {
-    /// Schedule a task for execution.
-    fn schedule<T>(&self, task: T) -> crate::error::SchedulerResult<()>
-    where
-        T: Task;
-
-    /// Try to steal work from another scheduler.
-    fn try_steal(&self) -> crate::error::SchedulerResult<Option<Box<dyn Task<Output = ()>>>>;
-
-    /// Get the current load of this scheduler.
-    fn load(&self) -> usize;
-
-    /// Check if the scheduler is idle.
-    fn is_idle(&self) -> bool {
-        self.load() == 0
-    }
-}
-
-/// A task that yields control periodically to allow other tasks to run.
-pub struct YieldingTask<T> {
-    inner: T,
-    yield_count: usize,
-    yield_interval: usize,
-    context: TaskContext,
-}
-
-impl<T> YieldingTask<T>
-where
-    T: Task,
-{
-    /// Create a new yielding task that yields every `yield_interval` iterations.
-    pub fn new(task: T, yield_interval: usize) -> Self {
-        let context = TaskContext::new(TaskId::new(0)); // Will be assigned by scheduler
-        Self {
-            inner: task,
-            yield_count: 0,
-            yield_interval,
-            context,
-        }
-    }
-
-    /// Set the task context.
-    pub fn with_context(mut self, context: TaskContext) -> Self {
-        self.context = context;
-        self
-    }
-}
-
-impl<T> Task for YieldingTask<T>
-where
-    T: Task,
-{
-    type Output = T::Output;
-
-    fn execute(self) -> Self::Output {
-        // For now, just execute the inner task
-        // In a real implementation, this would yield periodically
-        self.inner.execute()
-    }
-
-    fn context(&self) -> &TaskContext {
-        &self.context
-    }
-
-    fn is_stealable(&self) -> bool {
-        self.inner.is_stealable()
-    }
-
-    fn estimated_cost(&self) -> u32 {
-        self.inner.estimated_cost()
-    }
-}
-
-/// A task that can be cancelled.
-pub struct CancellableTask<T> {
-    inner: Option<T>,
-    cancelled: bool,
-    context: TaskContext,
-}
-
-impl<T> CancellableTask<T>
-where
-    T: Task,
-{
-    /// Create a new cancellable task.
-    pub fn new(task: T) -> Self {
-        let context = TaskContext::new(TaskId::new(0)); // Will be assigned by scheduler
-        Self {
-            inner: Some(task),
-            cancelled: false,
-            context,
-        }
-    }
-
-    /// Cancel this task.
-    pub fn cancel(&mut self) {
-        self.cancelled = true;
-        self.inner = None;
-    }
-
-    /// Check if this task is cancelled.
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled
-    }
-
-    /// Set the task context.
-    pub fn with_context(mut self, context: TaskContext) -> Self {
-        self.context = context;
-        self
-    }
-}
-
-impl<T> Task for CancellableTask<T>
-where
-    T: Task,
-{
-    type Output = Result<T::Output, crate::error::TaskError>;
-
-    fn execute(mut self) -> Self::Output {
-        if self.cancelled {
-            return Err(crate::error::TaskError::Cancelled);
-        }
-
-        match self.inner.take() {
-            Some(task) => Ok(task.execute()),
-            None => Err(crate::error::TaskError::Cancelled),
-        }
-    }
-
-    fn context(&self) -> &TaskContext {
-        &self.context
-    }
-
-    fn is_stealable(&self) -> bool {
-        !self.cancelled && self.inner.as_ref().map_or(false, |t| t.is_stealable())
-    }
-
-    fn estimated_cost(&self) -> u32 {
-        if self.cancelled {
-            0
-        } else {
-            self.inner.as_ref().map_or(0, |t| t.estimated_cost())
-        }
-    }
-}
-
-/// A task that times out after a specified duration.
-pub struct TimedTask<T> {
-    inner: T,
-    timeout_micros: u64,
-    context: TaskContext,
-}
-
-impl<T> TimedTask<T>
-where
-    T: Task,
-{
-    /// Create a new timed task with the specified timeout in microseconds.
-    pub fn new(task: T, timeout_micros: u64) -> Self {
-        let context = TaskContext::new(TaskId::new(0)); // Will be assigned by scheduler
-        Self {
-            inner: task,
-            timeout_micros,
-            context,
-        }
-    }
-
-    /// Set the task context.
-    pub fn with_context(mut self, context: TaskContext) -> Self {
-        self.context = context;
-        self
-    }
-}
-
-impl<T> Task for TimedTask<T>
-where
-    T: Task,
-{
-    type Output = Result<T::Output, crate::error::TaskError>;
-
-    fn execute(self) -> Self::Output {
-        // For now, just execute the inner task
-        // In a real implementation, this would enforce timeouts
-        Ok(self.inner.execute())
-    }
-
-    fn context(&self) -> &TaskContext {
-        &self.context
-    }
-
-    fn is_stealable(&self) -> bool {
-        self.inner.is_stealable()
-    }
-
-    fn estimated_cost(&self) -> u32 {
-        self.inner.estimated_cost()
-    }
-}
 
 /// A future that wraps a task for async execution.
 pub struct TaskFuture<T> {
@@ -239,126 +18,441 @@ where
     T: Task,
 {
     /// Create a new task future.
-    pub fn new(task: T) -> Self {
-        let context = TaskContext::new(TaskId::new(0)); // Will be assigned by scheduler
+    pub fn new(task: T, context: TaskContext) -> Self {
         Self {
             task: Some(task),
             context,
         }
     }
 
-    /// Set the task context.
-    pub fn with_context(mut self, context: TaskContext) -> Self {
-        self.context = context;
-        self
+    /// Get the task context.
+    pub fn context(&self) -> &TaskContext {
+        &self.context
     }
 }
 
 impl<T> Future for TaskFuture<T>
 where
-    T: Task,
+    T: Task + Unpin,
 {
     type Output = T::Output;
 
-    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.task.take() {
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Get a mutable reference to the task option
+        let task_opt = &mut self.get_mut().task;
+        
+        match task_opt.take() {
             Some(task) => Poll::Ready(task.execute()),
-            None => panic!("TaskFuture polled after completion"),
+            None => Poll::Pending, // Task already executed
         }
     }
 }
 
-impl<T> AsyncTask for TaskFuture<T>
+/// Extension trait for tasks to provide additional functionality.
+pub trait TaskExt: Task {
+    /// Convert this task into a future.
+    fn into_future(self) -> TaskFuture<Self>
+    where
+        Self: Sized + Unpin,
+    {
+        let context = self.context().clone();
+        TaskFuture::new(self, context)
+    }
+
+    /// Create a boxed version of this task.
+    fn boxed(self) -> Box<dyn Task<Output = Self::Output>>
+    where
+        Self: Sized + 'static,
+        Self::Output: 'static,
+    {
+        Box::new(self)
+    }
+
+    /// Chain this task with another task.
+    fn then<F, U>(self, func: F) -> ChainedTask<Self, F>
+    where
+        Self: Sized,
+        F: FnOnce(Self::Output) -> U + Send + 'static,
+        U: Send + 'static,
+    {
+        ChainedTask::new(self, func)
+    }
+
+    /// Map the output of this task.
+    fn map<F, U>(self, func: F) -> MappedTask<Self, F>
+    where
+        Self: Sized,
+        F: FnOnce(Self::Output) -> U + Send + 'static,
+        U: Send + 'static,
+    {
+        MappedTask::new(self, func)
+    }
+
+    /// Add error handling to this task.
+    fn catch<F>(self, handler: F) -> CatchTask<Self, F>
+    where
+        Self: Sized,
+        F: FnOnce() -> Self::Output + Send + 'static,
+    {
+        CatchTask::new(self, handler)
+    }
+}
+
+// Implement TaskExt for all types that implement Task
+impl<T: Task> TaskExt for T {}
+
+
+
+/// A task that chains two operations together.
+pub struct ChainedTask<T, F> {
+    task: Option<T>,
+    func: Option<F>,
+    context: TaskContext,
+}
+
+impl<T, F> ChainedTask<T, F> {
+    /// Create a new chained task.
+    pub fn new(task: T, func: F) -> Self
+    where
+        T: Task,
+    {
+        let context = task.context().clone();
+        Self {
+            task: Some(task),
+            func: Some(func),
+            context,
+        }
+    }
+}
+
+impl<T, F, U> Task for ChainedTask<T, F>
 where
     T: Task,
+    F: FnOnce(T::Output) -> U + Send + 'static,
+    U: Send + 'static,
 {
-    type Output = T::Output;
+    type Output = U;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Future::poll(self, cx)
+    fn execute(mut self) -> Self::Output {
+        let task = self.task.take().expect("Task already executed");
+        let func = self.func.take().expect("Function already used");
+        let result = task.execute();
+        func(result)
     }
 
     fn context(&self) -> &TaskContext {
         &self.context
     }
 
-    fn is_ready(&self) -> bool {
-        self.task.is_some()
+    fn is_stealable(&self) -> bool {
+        self.task.as_ref().map_or(false, |t| t.is_stealable())
+    }
+
+    fn estimated_cost(&self) -> u32 {
+        self.task.as_ref().map_or(1, |t| t.estimated_cost())
     }
 }
 
-impl<T> fmt::Debug for TaskFuture<T>
+/// A task that maps the output of another task.
+pub struct MappedTask<T, F> {
+    task: Option<T>,
+    func: Option<F>,
+    context: TaskContext,
+}
+
+impl<T, F> MappedTask<T, F> {
+    /// Create a new mapped task.
+    pub fn new(task: T, func: F) -> Self
+    where
+        T: Task,
+    {
+        let context = task.context().clone();
+        Self {
+            task: Some(task),
+            func: Some(func),
+            context,
+        }
+    }
+}
+
+impl<T, F, U> Task for MappedTask<T, F>
 where
-    T: fmt::Debug,
+    T: Task,
+    F: FnOnce(T::Output) -> U + Send + 'static,
+    U: Send + 'static,
 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TaskFuture")
-            .field("task", &self.task)
-            .field("context", &self.context)
-            .finish()
+    type Output = U;
+
+    fn execute(mut self) -> Self::Output {
+        let task = self.task.take().expect("Task already executed");
+        let func = self.func.take().expect("Function already used");
+        let result = task.execute();
+        func(result)
+    }
+
+    fn context(&self) -> &TaskContext {
+        &self.context
+    }
+
+    fn is_stealable(&self) -> bool {
+        self.task.as_ref().map_or(false, |t| t.is_stealable())
+    }
+
+    fn estimated_cost(&self) -> u32 {
+        self.task.as_ref().map_or(1, |t| t.estimated_cost())
     }
 }
 
-/// Extension trait for tasks to add common functionality.
-pub trait TaskExt: Task + Sized {
-    /// Make this task cancellable.
-    fn cancellable(self) -> CancellableTask<Self> {
-        CancellableTask::new(self)
-    }
+/// A task that provides error handling.
+pub struct CatchTask<T, F> {
+    task: Option<T>,
+    handler: Option<F>,
+    context: TaskContext,
+}
 
-    /// Add a timeout to this task.
-    fn timeout(self, timeout_micros: u64) -> TimedTask<Self> {
-        TimedTask::new(self, timeout_micros)
-    }
-
-    /// Make this task yield periodically.
-    fn yielding(self, yield_interval: usize) -> YieldingTask<Self> {
-        YieldingTask::new(self, yield_interval)
-    }
-
-    /// Convert this task to a future.
-    fn into_future(self) -> TaskFuture<Self> {
-        TaskFuture::new(self)
+impl<T, F> CatchTask<T, F> {
+    /// Create a new catch task.
+    pub fn new(task: T, handler: F) -> Self
+    where
+        T: Task,
+    {
+        let context = task.context().clone();
+        Self {
+            task: Some(task),
+            handler: Some(handler),
+            context,
+        }
     }
 }
 
-impl<T: Task> TaskExt for T {}
+impl<T, F> Task for CatchTask<T, F>
+where
+    T: Task,
+    F: FnOnce() -> T::Output + Send + 'static,
+{
+    type Output = T::Output;
+
+    fn execute(mut self) -> Self::Output {
+        let task = self.task.take().expect("Task already executed");
+        let handler = self.handler.take().expect("Handler already used");
+        
+        // For no_std compatibility, we'll just execute the task normally
+        // In a std environment, this could catch panics
+        #[cfg(feature = "std")]
+        {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| task.execute())) {
+                Ok(result) => result,
+                Err(_) => handler(),
+            }
+        }
+        
+        #[cfg(not(feature = "std"))]
+        {
+            // In no_std, we can't catch panics, so just execute normally
+            task.execute()
+        }
+    }
+
+    fn context(&self) -> &TaskContext {
+        &self.context
+    }
+
+    fn is_stealable(&self) -> bool {
+        self.task.as_ref().map_or(false, |t| t.is_stealable())
+    }
+
+    fn estimated_cost(&self) -> u32 {
+        self.task.as_ref().map_or(1, |t| t.estimated_cost())
+    }
+}
+
+/// A task that can be spawned multiple times with different inputs.
+pub struct ParameterizedTask<F, P> {
+    func: F,
+    params: P,
+    context: TaskContext,
+}
+
+impl<F, P> ParameterizedTask<F, P> {
+    /// Create a new parameterized task.
+    pub fn new(func: F, params: P, context: TaskContext) -> Self {
+        Self {
+            func,
+            params,
+            context,
+        }
+    }
+}
+
+impl<F, P, R> Task for ParameterizedTask<F, P>
+where
+    F: FnOnce(P) -> R + Send + 'static,
+    P: Send + 'static,
+    R: Send + 'static,
+{
+    type Output = R;
+
+    fn execute(self) -> Self::Output {
+        (self.func)(self.params)
+    }
+
+    fn context(&self) -> &TaskContext {
+        &self.context
+    }
+}
+
+/// A collection of tasks that can be executed together.
+pub struct TaskGroup {
+    tasks: alloc::vec::Vec<Box<dyn FnOnce() + Send + 'static>>,
+    context: TaskContext,
+}
+
+impl TaskGroup {
+    /// Create a new task group.
+    pub fn new(id: TaskId) -> Self {
+        Self {
+            tasks: alloc::vec::Vec::new(),
+            context: TaskContext::new(id),
+        }
+    }
+
+    /// Add a task to the group.
+    pub fn add_task<T>(&mut self, task: T)
+    where
+        T: Task<Output = ()> + 'static,
+    {
+        self.tasks.push(Box::new(move || {
+            task.execute();
+        }));
+    }
+
+    /// Get the number of tasks in the group.
+    pub fn len(&self) -> usize {
+        self.tasks.len()
+    }
+
+    /// Check if the group is empty.
+    pub fn is_empty(&self) -> bool {
+        self.tasks.is_empty()
+    }
+}
+
+impl Task for TaskGroup {
+    type Output = ();
+
+    fn execute(self) -> Self::Output {
+        // Execute each task function
+        for task_fn in self.tasks.into_iter() {
+            task_fn();
+        }
+    }
+
+    fn context(&self) -> &TaskContext {
+        &self.context
+    }
+
+    fn estimated_cost(&self) -> u32 {
+        // Estimate based on number of tasks
+        self.tasks.len() as u32
+    }
+}
+
+/// A task that spawns other tasks.
+pub struct SpawnerTask<F> {
+    spawner: Option<F>,
+    context: TaskContext,
+}
+
+impl<F> SpawnerTask<F> {
+    /// Create a new spawner task.
+    pub fn new(spawner: F, context: TaskContext) -> Self {
+        Self {
+            spawner: Some(spawner),
+            context,
+        }
+    }
+}
+
+impl<F> Task for SpawnerTask<F>
+where
+    F: FnOnce() + Send + 'static,
+{
+    type Output = ();
+
+    fn execute(mut self) -> Self::Output {
+        if let Some(spawner) = self.spawner.take() {
+            spawner();
+        }
+    }
+
+    fn context(&self) -> &TaskContext {
+        &self.context
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TaskBuilder, TaskId};
-
-    #[test]
-    fn test_cancellable_task() {
-        let task = TaskBuilder::new(|| 42, TaskId::new(1)).build();
-        let mut cancellable = task.cancellable();
-        
-        assert!(!cancellable.is_cancelled());
-        assert!(cancellable.is_stealable());
-        
-        cancellable.cancel();
-        assert!(cancellable.is_cancelled());
-        assert!(!cancellable.is_stealable());
-        
-        let result = cancellable.execute();
-        assert!(matches!(result, Err(crate::error::TaskError::Cancelled)));
-    }
-
-    #[test]
-    fn test_timed_task() {
-        let task = TaskBuilder::new(|| 42, TaskId::new(1)).build();
-        let timed = task.timeout(1000);
-        
-        let result = timed.execute();
-        assert_eq!(result.unwrap(), 42);
-    }
+    use crate::{Priority, TaskBuilder};
 
     #[test]
     fn test_task_future() {
-        let task = TaskBuilder::new(|| 42, TaskId::new(1)).build();
-        let future = task.into_future();
+        let id = TaskId::new(1);
+        let task = TaskBuilder::new(|| 42, id).build();
+        let future = TaskFuture::new(task, TaskContext::new(id));
         
-        assert!(future.is_ready());
+        assert_eq!(future.context().id, id);
+    }
+
+    #[test]
+    fn test_chained_task() {
+        let id = TaskId::new(1);
+        let task = TaskBuilder::new(|| 10, id).build();
+        let chained = task.then(|x| x * 2);
+        
+        assert_eq!(chained.execute(), 20);
+    }
+
+    #[test]
+    fn test_mapped_task() {
+        let id = TaskId::new(1);
+        let task = TaskBuilder::new(|| 5, id).build();
+        let mapped = task.map(|x| x.to_string());
+        
+        assert_eq!(mapped.execute(), "5");
+    }
+
+    #[test]
+    fn test_task_group() {
+        let mut group = TaskGroup::new(TaskId::new(1));
+        
+        let task1 = TaskBuilder::new(|| (), TaskId::new(2)).build();
+        let task2 = TaskBuilder::new(|| (), TaskId::new(3)).build();
+        
+        group.add_task(task1);
+        group.add_task(task2);
+        
+        assert_eq!(group.len(), 2);
+        assert!(!group.is_empty());
+        
+        group.execute(); // Should not panic
+    }
+
+    #[test]
+    fn test_parameterized_task() {
+        let id = TaskId::new(1);
+        let task = ParameterizedTask::new(|x: i32| x * 3, 7, TaskContext::new(id));
+        
+        assert_eq!(task.execute(), 21);
+    }
+
+    #[test]
+    fn test_spawner_task() {
+        let id = TaskId::new(1);
+        let spawner = SpawnerTask::new(|| {
+            // This would spawn other tasks in a real implementation
+        }, TaskContext::new(id));
+        
+        spawner.execute(); // Should not panic
     }
 }

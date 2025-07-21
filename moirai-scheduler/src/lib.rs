@@ -2,7 +2,7 @@
 
 use moirai_core::{
     Task, scheduler::{Scheduler, SchedulerId, SchedulerConfig},
-    error::SchedulerResult,
+    error::SchedulerResult, Box,
 };
 
 /// A work-stealing scheduler implementation.
@@ -19,10 +19,7 @@ impl WorkStealingScheduler {
 }
 
 impl Scheduler for WorkStealingScheduler {
-    fn schedule<T>(&self, _task: T) -> SchedulerResult<()>
-    where
-        T: Task,
-    {
+    fn schedule_task(&self, _task: Box<dyn Task<Output = ()>>) -> SchedulerResult<()> {
         // Placeholder implementation
         Ok(())
     }
@@ -60,10 +57,7 @@ impl LocalScheduler {
 }
 
 impl Scheduler for LocalScheduler {
-    fn schedule<T>(&self, _task: T) -> SchedulerResult<()>
-    where
-        T: Task,
-    {
+    fn schedule_task(&self, _task: Box<dyn Task<Output = ()>>) -> SchedulerResult<()> {
         // Placeholder implementation
         Ok(())
     }
