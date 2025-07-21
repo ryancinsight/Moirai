@@ -632,9 +632,20 @@ impl InMemoryTransport {
         Self
     }
 
-    async fn send<T>(&self, _address: Address, _message: T) -> TransportResult<()> {
-        // Placeholder implementation
-        Ok(())
+    async fn send<T>(&self, address: Address, message: T) -> TransportResult<()> 
+    where
+        T: Send + 'static,
+    {
+        // For in-memory transport, we'll use a simple global registry
+        // In a real implementation, this would be more sophisticated
+        match address {
+            Address::Thread(_) | Address::Task(_) | Address::Scheduler(_) => {
+                // For now, just succeed - actual message delivery would require
+                // a proper message queue system
+                Ok(())
+            }
+            _ => Err(TransportError::AddressNotFound(address)),
+        }
     }
 }
 
@@ -643,9 +654,15 @@ impl SharedMemoryTransport {
         Ok(Self)
     }
 
-    async fn send<T>(&self, _address: Address, _message: T) -> TransportResult<()> {
-        // Placeholder implementation
-        Ok(())
+    async fn send<T>(&self, address: Address, message: T) -> TransportResult<()> 
+    where
+        T: Send + 'static,
+    {
+        // Placeholder for shared memory implementation
+        match address {
+            Address::Process(_) => Ok(()),
+            _ => Err(TransportError::AddressNotFound(address)),
+        }
     }
 }
 
@@ -702,6 +719,11 @@ fn generate_message_id() -> u64 {
 /// Convenience functions for creating channels.
 pub mod channel {
     use super::*;
+
+    /// Create a channel with a specific address.
+    pub fn new<T>(address: Address) -> TransportResult<(UniversalSender<T>, UniversalReceiver<T>)> {
+        UniversalChannel::new(address)
+    }
 
     /// Create a universal channel with automatic addressing.
     pub fn universal<T>() -> TransportResult<(UniversalSender<T>, UniversalReceiver<T>)> {

@@ -22,64 +22,43 @@
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 
-// Re-export core types and traits
+// Re-export core functionality
 pub use moirai_core::{
-    Task, AsyncTask, TaskHandle, TaskId, TaskContext, Priority, TaskConfig,
-    TaskBuilder, error::*, task::*, executor::*, scheduler::*,
+    Task, AsyncTask, TaskId, TaskHandle, Priority, TaskContext, TaskBuilder,
+    error::*, task::*, executor::*, scheduler::*,
 };
 
-// Re-export executor types
-pub use moirai_executor::{HybridExecutor, ExecutorHandle};
+// Re-export executor functionality  
+pub use moirai_executor::HybridExecutor;
 
-// Re-export scheduler types
+// Re-export scheduler functionality
 pub use moirai_scheduler::{WorkStealingScheduler, LocalScheduler};
 
-// Re-export unified transport types
+// Re-export transport functionality
 pub use moirai_transport::{
-    UniversalSender, UniversalReceiver, UniversalChannel,
-    Address, ThreadId, ProcessId, RemoteAddress, BroadcastScope,
-    TransportManager, TransportResult, TransportError,
-    channel,
+    Address, TransportManager, TransportResult, TransportError,
+    UniversalChannel, UniversalSender, UniversalReceiver, RemoteAddress,
+    InMemoryTransport, TcpTransport, UdpTransport, channel,
 };
 
-// Re-export sync types
+// Re-export synchronization primitives
 pub use moirai_sync::{
-    Mutex, RwLock, Condvar, Barrier, Once, 
-    AtomicCounter, WaitGroup,
+    Mutex, RwLock, Condvar, Barrier, Once,
+    AtomicCounter,
 };
 
-// Optional async support
-#[cfg(feature = "async")]
-pub use moirai_async::{
-    AsyncExecutor, AsyncHandle, Timer, Timeout,
-    io, net, fs,
-};
-
-// Optional iterator support
-#[cfg(feature = "iter")]
-pub use moirai_iter::{
-    ParallelIterator, AsyncIterator, IntoParallelIterator,
-    par_iter, async_iter,
-};
-
-// Optional distributed computing support
-#[cfg(feature = "distributed")]
-pub use moirai_transport::{
-    NetworkTopology, PeerNode, NodeCapabilities,
-    DeliveryReceipt,
-};
-
-// Optional metrics support
+// Re-export metrics functionality
 #[cfg(feature = "metrics")]
-pub use moirai_metrics::{
-    Metrics, Counter, Gauge, Histogram,
-    MetricsCollector, PrometheusExporter,
-};
+pub use moirai_metrics::MetricsCollector;
 
-use moirai_core::{
-    executor::{ExecutorConfig},
-    error::{ExecutorResult},
-};
+// Re-export async functionality
+#[cfg(feature = "async")]
+pub use moirai_async::*;
+
+// Re-export iterator functionality
+#[cfg(feature = "iter")]
+pub use moirai_iter::*;
+
 use std::{
     future::Future,
     sync::Arc,
@@ -91,6 +70,43 @@ use std::{
 /// This is the primary entry point for using Moirai. It provides methods for spawning
 /// both async and parallel tasks, managing their execution, and coordinating between
 /// different execution models.
+///
+/// # Examples
+///
+/// ```
+/// use moirai::Moirai;
+/// use std::sync::atomic::{AtomicU32, Ordering};
+/// use std::sync::Arc;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// // Create a new runtime
+/// let runtime = Moirai::new()?;
+///
+/// // Spawn a parallel task
+/// let counter = Arc::new(AtomicU32::new(0));
+/// let counter_clone = counter.clone();
+/// let handle = runtime.spawn_parallel(move || {
+///     for _ in 0..1000 {
+///         counter_clone.fetch_add(1, Ordering::Relaxed);
+///     }
+///     counter_clone.load(Ordering::Relaxed)
+/// });
+///
+/// // Spawn an async task
+/// let async_handle = runtime.spawn_async(async {
+///     // Simulate some async work
+///     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+///     "async task completed"
+/// });
+///
+/// // The tasks will execute concurrently
+/// println!("Tasks spawned, runtime is working...");
+///
+/// // Shutdown gracefully
+/// runtime.shutdown();
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct Moirai {
     executor: Arc<HybridExecutor>,
@@ -111,10 +127,31 @@ impl Moirai {
         MoiraiBuilder::new()
     }
 
+    /// Spawn a task for parallel execution.
+    ///
+    /// This is a convenience method for spawning CPU-bound tasks.
+    pub fn spawn<T>(&self, task: T) -> TaskHandle<T::Output>
+    where
+        T: Task,
+    {
+        self.executor.spawn(task)
+    }
+
+    /// Spawn a parallel task using a closure.
+    ///
+    /// This is equivalent to `spawn_blocking` but with a more intuitive name
+    /// for CPU-bound parallel work.
+    pub fn spawn_parallel<F, R>(&self, func: F) -> TaskHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.executor.spawn_blocking(func)
+    }
+
     /// Spawn an async task for execution.
     ///
-    /// The task will be scheduled on the async thread pool and can perform
-    /// I/O operations without blocking other tasks.
+    /// The task will be executed on the async thread pool.
     pub fn spawn_async<F>(&self, future: F) -> TaskHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -123,11 +160,10 @@ impl Moirai {
         self.executor.spawn_async(future)
     }
 
-    /// Spawn a parallel task for execution.
+    /// Spawn a blocking task that may block the current thread.
     ///
-    /// The task will be scheduled on the work-stealing thread pool and is
-    /// ideal for CPU-intensive computations.
-    pub fn spawn_parallel<F, R>(&self, func: F) -> TaskHandle<R>
+    /// Use this for I/O-bound or blocking operations.
+    pub fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -207,7 +243,7 @@ impl Moirai {
 
     /// Create a channel with a specific address.
     pub fn channel_with_address<T>(&self, address: Address) -> TransportResult<(UniversalSender<T>, UniversalReceiver<T>)> {
-        UniversalChannel::new(address)
+        channel::new(address)
     }
 
     /// Spawn a task on a remote node.
