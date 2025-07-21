@@ -32,7 +32,7 @@ pub use moirai_core::{
 pub use moirai_executor::HybridExecutor;
 
 // Re-export scheduler functionality
-pub use moirai_scheduler::{WorkStealingScheduler, LocalScheduler};
+pub use moirai_scheduler::WorkStealingScheduler;
 
 // Re-export transport functionality
 pub use moirai_transport::{

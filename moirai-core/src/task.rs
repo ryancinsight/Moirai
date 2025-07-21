@@ -8,7 +8,7 @@ use core::{
 };
 
 #[cfg(feature = "std")]
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc;
 
 /// The core trait for executable tasks in the Moirai runtime.
 pub trait Task: Send + 'static {
@@ -472,7 +472,7 @@ where
 
     fn execute(mut self) -> Self::Output {
         let task = self.task.take().expect("Task already executed");
-        let handler = self.handler.take().expect("Handler already used");
+        let _handler = self.handler.take().expect("Handler already used");
         
         // In a real implementation, we would catch panics here
         // For now, we'll just execute the task normally

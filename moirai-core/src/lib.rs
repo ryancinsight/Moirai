@@ -25,9 +25,8 @@ extern crate std;
 
 use core::{
     fmt,
-    future::Future,
     pin::Pin,
-    task::{Context, Poll, Waker},
+    task::{Context, Poll},
 };
 
 // Re-export commonly used types from alloc for convenience

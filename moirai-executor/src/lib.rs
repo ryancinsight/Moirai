@@ -23,6 +23,10 @@ use moirai_core::{
     task::{TaskBuilder, TaskWrapper},
     Box, Vec,
 };
+use moirai_utils::{
+    cpu::{CpuTopology, CpuCore, affinity::{AffinityMask, pin_to_core}},
+    memory::prefetch_read,
+};
 use moirai_scheduler::WorkStealingScheduler;
 use std::{
     collections::HashMap,
@@ -57,6 +61,7 @@ impl WorkerId {
 /// 
 /// Each worker follows the Information Expert pattern by owning
 /// its execution context and managing its own lifecycle.
+/// Enhanced with CPU topology awareness for optimal performance.
 struct Worker {
     id: WorkerId,
     scheduler: Arc<WorkStealingScheduler>,
@@ -64,6 +69,9 @@ struct Worker {
     task_registry: Arc<TaskRegistry>,
     shutdown_signal: Arc<AtomicBool>,
     metrics: Arc<WorkerMetrics>,
+    // CPU optimization fields
+    cpu_core: Option<CpuCore>,
+    affinity_mask: AffinityMask,
 }
 
 /// Metrics collected per worker thread.
@@ -76,7 +84,7 @@ struct WorkerMetrics {
 }
 
 impl Worker {
-    /// Create a new worker.
+    /// Create a new worker with CPU topology awareness.
     fn new(
         id: WorkerId,
         scheduler: Arc<WorkStealingScheduler>,
@@ -85,6 +93,29 @@ impl Worker {
         shutdown_signal: Arc<AtomicBool>,
         metrics: Arc<WorkerMetrics>,
     ) -> Self {
+        let topology = CpuTopology::detect();
+        let worker_index = id.get();
+        
+        // Assign CPU core based on worker ID and topology
+        let cpu_core = if worker_index < topology.logical_cores as usize {
+            Some(CpuCore::new(worker_index as u32))
+        } else {
+            // Round-robin assignment for excess workers
+            let core_id = worker_index % (topology.logical_cores as usize);
+            Some(CpuCore::new(core_id as u32))
+        };
+        
+        // Create affinity mask - prefer NUMA-local cores
+        let affinity_mask = if let Some(core) = cpu_core {
+            if let Some(numa_node) = topology.numa_node(core) {
+                AffinityMask::numa_node(numa_node)
+            } else {
+                AffinityMask::single(core)
+            }
+        } else {
+            AffinityMask::all()
+        };
+        
         Self {
             id,
             scheduler,
@@ -92,17 +123,33 @@ impl Worker {
             task_registry,
             shutdown_signal,
             metrics,
+            cpu_core,
+            affinity_mask,
         }
     }
 
     /// Main worker loop - follows the Controller pattern.
+    /// Enhanced with CPU optimizations for better performance.
     /// 
     /// # Behavior Guarantees
     /// - Processes tasks until shutdown signal is received
     /// - Attempts work stealing when local queue is empty
     /// - Updates metrics atomically for thread safety
     /// - Handles panics gracefully without crashing worker
+    /// - Sets CPU affinity for optimal cache locality
     fn run(self) {
+        // Set CPU affinity for this worker thread
+        if let Err(e) = self.affinity_mask.set_current_thread_affinity() {
+            eprintln!("Warning: Failed to set CPU affinity for worker {}: {}", self.id.get(), e);
+        }
+        
+        // Pin to specific core if available
+        if let Some(core) = self.cpu_core {
+            if let Err(e) = pin_to_core(core) {
+                eprintln!("Warning: Failed to pin worker {} to core {}: {}", self.id.get(), core.id(), e);
+            }
+        }
+        
         while !self.shutdown_signal.load(Ordering::Acquire) {
             let mut work_found = false;
 
@@ -131,15 +178,20 @@ impl Worker {
     }
 
     /// Execute a single task with error handling and metrics.
+    /// Enhanced with memory prefetching for better cache performance.
     /// 
     /// # Behavior Guarantees
     /// - Task panics are caught and recorded as failures
     /// - Execution time is measured and recorded
     /// - Memory ordering ensures consistent metrics updates
     /// - Task status is updated in the registry
+    /// - Memory prefetching improves cache locality
     fn execute_task(&self, task: Box<dyn BoxedTask>) {
         let task_id = task.context().id;
         let start_time = Instant::now();
+        
+        // Prefetch task data for better cache performance
+        prefetch_read(task.as_ref() as *const _ as *const u8);
         
         // Update task status to running
         self.task_registry.update_status(task_id, TaskStatus::Running);
@@ -790,7 +842,7 @@ impl ExecutorControl for HybridExecutor {
         
         for scheduler in &self.schedulers {
             if scheduler.load() > 0 {
-                if let Ok(executed) = scheduler.try_execute_next() {
+                if let Ok(executed) = scheduler.try_execute_next_task() {
                     work_done = work_done || executed;
                 }
             }
