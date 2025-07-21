@@ -554,10 +554,10 @@ mod tests {
         };
 
         // Wrap in a closure that returns ()
-        let task_box: Box<dyn BoxedTask> = Box::new(TaskBuilder::new(
-            move || { task.execute(); },
-            TaskId::new(1)
-        ).build());
+        let task_closure = TaskBuilder::new()
+            .with_id(TaskId::new(1))
+            .build(move || { task.execute(); });
+        let task_box: Box<dyn BoxedTask> = Box::new(moirai_core::task::TaskWrapper::new(task_closure));
 
         scheduler.schedule_task(task_box).unwrap();
         assert_eq!(scheduler.load(), 1);
@@ -579,10 +579,10 @@ mod tests {
             executed: executed.clone(),
         };
 
-        let task_box: Box<dyn BoxedTask> = Box::new(TaskBuilder::new(
-            move || { task.execute(); },
-            TaskId::new(1)
-        ).build());
+        let task_closure = TaskBuilder::new()
+            .with_id(TaskId::new(1))
+            .build(move || { task.execute(); });
+        let task_box: Box<dyn BoxedTask> = Box::new(moirai_core::task::TaskWrapper::new(task_closure));
 
         scheduler.schedule_task(task_box).unwrap();
         assert_eq!(scheduler.load(), 1);

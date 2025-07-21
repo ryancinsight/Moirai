@@ -1,8 +1,8 @@
 //! Synchronization primitives for Moirai concurrency library.
 
 use std::sync::{
-    Mutex as StdMutex, RwLock as StdRwLock, Condvar as StdCondvar,
-    atomic::{AtomicU64, AtomicUsize, Ordering},
+    Arc, Mutex as StdMutex, RwLock as StdRwLock, Condvar as StdCondvar,
+    atomic::{AtomicU64, Ordering},
     Barrier as StdBarrier,
 };
 use std::sync::OnceLock;
@@ -30,6 +30,13 @@ pub struct Barrier {
 /// A one-time initialization primitive.
 pub struct Once {
     inner: OnceLock<()>,
+}
+
+/// A wait group for synchronizing multiple threads.
+pub struct WaitGroup {
+    counter: AtomicU64,
+    condvar: Condvar,
+    mutex: Mutex<()>,
 }
 
 /// An atomic counter.
@@ -151,9 +158,58 @@ impl Once {
             f();
         });
     }
+
+    /// Check if the closure has been called.
+    pub fn is_completed(&self) -> bool {
+        self.inner.get().is_some()
+    }
 }
 
 impl Default for Once {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WaitGroup {
+    /// Create a new wait group.
+    pub fn new() -> Self {
+        Self {
+            counter: AtomicU64::new(0),
+            condvar: Condvar::new(),
+            mutex: Mutex::new(()),
+        }
+    }
+
+    /// Add to the wait group counter.
+    pub fn add(&self, delta: u64) {
+        self.counter.fetch_add(delta, Ordering::AcqRel);
+    }
+
+    /// Mark one task as done.
+    pub fn done(&self) {
+        let prev = self.counter.fetch_sub(1, Ordering::AcqRel);
+        if prev == 1 {
+            // Last task completed, notify all waiters
+            self.condvar.notify_all();
+        }
+    }
+
+    /// Wait for all tasks to complete.
+    pub fn wait(&self) {
+        let mut guard = self.mutex.lock().unwrap();
+        while self.counter.load(Ordering::Acquire) > 0 {
+            guard = self.condvar.wait(guard).unwrap();
+        }
+    }
+
+    /// Get the current counter value.
+    pub fn count(&self) -> u64 {
+        self.counter.load(Ordering::Acquire)
+    }
+}
+
+impl Default for WaitGroup {
     fn default() -> Self {
         Self::new()
     }

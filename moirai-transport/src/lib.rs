@@ -445,25 +445,35 @@ impl TransportManager {
             TransportType::SharedMemory => {
                 self.local_transports.shared_memory.send(address, message).await
             }
-            #[cfg(feature = "network")]
             TransportType::Tcp => {
-                self.network_transports.tcp.send(address, message).await
+                #[cfg(feature = "network")]
+                {
+                    self.network_transports.tcp.send(address, message).await
+                }
+                #[cfg(not(feature = "network"))]
+                {
+                    Err(TransportError::NoTransportAvailable)
+                }
             }
-            #[cfg(feature = "network")]
             TransportType::Udp => {
-                self.network_transports.udp.send(address, message).await
+                #[cfg(feature = "network")]
+                {
+                    self.network_transports.udp.send(address, message).await
+                }
+                #[cfg(not(feature = "network"))]
+                {
+                    Err(TransportError::NoTransportAvailable)
+                }
             }
-            #[cfg(feature = "distributed")]
             TransportType::Distributed => {
-                self.network_transports.distributed.send(address, message).await
-            }
-            #[cfg(not(feature = "network"))]
-            TransportType::Tcp | TransportType::Udp => {
-                Err(TransportError::NoTransportAvailable)
-            }
-            #[cfg(all(not(feature = "distributed"), feature = "network"))]
-            TransportType::Distributed => {
-                Err(TransportError::NoTransportAvailable)
+                #[cfg(feature = "distributed")]
+                {
+                    self.network_transports.distributed.send(address, message).await
+                }
+                #[cfg(not(feature = "distributed"))]
+                {
+                    Err(TransportError::NoTransportAvailable)
+                }
             }
         }
     }
