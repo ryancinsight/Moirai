@@ -892,39 +892,50 @@ mod tests {
     #[test]
     fn test_mpmc_channel() {
         let (tx, rx) = mpmc::<i32>(10);
-        let tx1 = tx.clone();
-        let tx2 = tx.clone();
-        let rx1 = rx.clone();
-        let rx2 = rx.clone();
-        
+        let mut sender_handles = Vec::new();
+
         // Test multiple senders
-        thread::spawn(move || {
+        let tx1 = tx.clone();
+        sender_handles.push(thread::spawn(move || {
             tx1.send(1).unwrap();
             tx1.send(2).unwrap();
-        });
+        }));
         
-        thread::spawn(move || {
+        let tx2 = tx.clone();
+        sender_handles.push(thread::spawn(move || {
             tx2.send(3).unwrap();
             tx2.send(4).unwrap();
-        });
-        
-        // Test multiple receivers
-        let mut received = Vec::new();
-        
-        // Give threads time to send
-        thread::sleep(Duration::from_millis(10));
-        
-        // Try to receive all messages
-        for _ in 0..4 {
-            if let Ok(val) = rx1.try_recv() {
-                received.push(val);
-            } else if let Ok(val) = rx2.try_recv() {
-                received.push(val);
-            }
+        }));
+
+        // Wait for all senders to complete before proceeding
+        for handle in sender_handles {
+            handle.join().unwrap();
+        }
+        drop(tx); // Close channel to signal receivers to stop
+
+        let received_data = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut receiver_handles = Vec::new();
+
+        // Test multiple receivers concurrently
+        for _ in 0..2 {
+            let rx_clone = rx.clone();
+            let data_clone = received_data.clone();
+            receiver_handles.push(thread::spawn(move || {
+                while let Ok(val) = rx_clone.recv() {
+                    data_clone.lock().unwrap().push(val);
+                }
+            }));
+        }
+
+        // Wait for all receivers to complete
+        for handle in receiver_handles {
+            handle.join().unwrap();
         }
         
+        // Verify all messages were received exactly once
+        let mut received = received_data.lock().unwrap();
         received.sort();
-        assert_eq!(received, vec![1, 2, 3, 4]);
+        assert_eq!(*received, vec![1, 2, 3, 4]);
     }
 
     #[test]

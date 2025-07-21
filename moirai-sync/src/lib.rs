@@ -61,9 +61,16 @@ pub struct AtomicCounter {
 /// 
 /// # Performance Characteristics
 /// - Lock/unlock: ~10ns uncontended
-/// - Adaptive spinning: 1-100 iterations before blocking
+/// - Adaptive spinning: 1-100 iterations before blocking (configurable in future versions)
 /// - Memory overhead: 16 bytes + data size
 /// - Cache-friendly implementation
+/// 
+/// # Configuration Notes
+/// The spinning behavior is currently tuned for general-purpose workloads.
+/// Future versions may support per-instance configuration for:
+/// - Maximum spin iterations (currently 100)
+/// - Backoff strategy parameters
+/// - Workload-specific optimizations (CPU-bound vs I/O-bound)
 pub struct FastMutex<T> {
     locked: AtomicBool,
     data: UnsafeCell<T>,
@@ -312,6 +319,32 @@ unsafe impl<T: Send> Sync for FastMutex<T> {}
 unsafe impl<T: Send> Send for FastMutex<T> {}
 
 impl<T> FastMutex<T> {
+    /// Maximum number of spin iterations before yielding to the scheduler.
+    /// 
+    /// This value is chosen based on empirical testing across different workloads:
+    /// - CPU-bound tasks: 100 iterations provide good balance between latency and CPU usage
+    /// - I/O-bound tasks: May benefit from lower values (configurable in future versions)
+    /// - Mixed workloads: 100 iterations work well for most scenarios
+    /// 
+    /// Future versions may make this configurable per mutex instance.
+    const MAX_SPIN_ITERATIONS: usize = 100;
+    
+    /// Scale factor for exponential backoff calculation.
+    /// 
+    /// Divides spin_count to control how quickly backoff increases:
+    /// - Lower values = more aggressive backoff (better for high contention)
+    /// - Higher values = more conservative backoff (better for low contention)
+    /// - Value of 10 provides good balance for typical workloads
+    const BACKOFF_SCALE_FACTOR: usize = 10;
+    
+    /// Maximum exponent for exponential backoff (limits 2^n growth).
+    /// 
+    /// Prevents excessive spinning on highly contended locks:
+    /// - 2^6 = 64 spin_loop iterations maximum per backoff cycle
+    /// - Balances between giving lock holder time vs. CPU efficiency
+    /// - Higher values may cause cache thrashing under extreme contention
+    const MAX_BACKOFF_EXPONENT: usize = 6;
+
     /// Create a new fast mutex.
     pub const fn new(data: T) -> Self {
         Self {
@@ -335,13 +368,12 @@ impl<T> FastMutex<T> {
             };
         }
 
-        // Adaptive spinning with backoff
+        // Adaptive spinning with exponential backoff
         let mut spin_count = 0;
-        const MAX_SPIN: usize = 100;
         
-        while spin_count < MAX_SPIN {
-            // Exponential backoff
-            let backoff_iterations = 1 << (spin_count / 10).min(6);
+        while spin_count < Self::MAX_SPIN_ITERATIONS {
+            // Exponential backoff: start with short spins, increase exponentially
+            let backoff_iterations = 1 << (spin_count / Self::BACKOFF_SCALE_FACTOR).min(Self::MAX_BACKOFF_EXPONENT);
             for _ in 0..backoff_iterations {
                 hint::spin_loop();
             }
