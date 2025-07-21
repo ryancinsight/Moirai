@@ -196,6 +196,11 @@ impl<T> TaskHandle<T> {
         }
     }
 
+    /// Create a new detached task handle (alias for new in no_std).
+    pub fn new_detached(id: TaskId) -> Self {
+        Self::new(id)
+    }
+
     /// Get the task ID.
     pub fn id(&self) -> TaskId {
         self.id
