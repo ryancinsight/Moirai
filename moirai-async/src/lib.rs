@@ -539,7 +539,7 @@ pub mod io {
 
     impl<F, R> Future for AsyncRead<F>
     where
-        F: FnOnce() -> io::Result<R>,
+        F: FnOnce() -> io::Result<R> + std::marker::Unpin,
     {
         type Output = io::Result<R>;
 
@@ -617,7 +617,6 @@ pub mod io {
 pub mod net {
     //! Async networking primitives with high performance focus.
     
-    use std::future::Future;
     use std::io;
     use std::net::SocketAddr;
     

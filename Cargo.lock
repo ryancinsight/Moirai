@@ -609,6 +609,7 @@ name = "moirai-sync"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "libc",
  "moirai-core",
  "moirai-utils",
  "proptest",

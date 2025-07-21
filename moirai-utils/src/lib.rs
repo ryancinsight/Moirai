@@ -7,7 +7,7 @@
 extern crate std;
 
 #[cfg(feature = "std")]
-use std::{collections::HashMap, vec::Vec, format};
+use std::collections::HashMap;
 
 /// Cache line size for alignment optimizations.
 pub const CACHE_LINE_SIZE: usize = 64;
@@ -250,7 +250,7 @@ pub mod cpu {
         #[cfg(target_os = "linux")]
         fn detect_linux_caches(&mut self) {
             use std::fs;
-            use std::path::Path;
+            
             
             let mut detected_caches = Vec::new();
             
@@ -278,7 +278,7 @@ pub mod cpu {
         #[cfg(target_os = "linux")]
         fn read_cache_info(&self, cache_path: &std::path::Path, cpu_id: u32) -> Option<CacheInfo> {
             use std::fs;
-            use std::str::FromStr;
+            
             
             let level_path = cache_path.join("level");
             let size_path = cache_path.join("size");
@@ -316,7 +316,7 @@ pub mod cpu {
 
         /// Parse size string (e.g., "32K", "1M").
         #[cfg(target_os = "linux")]
-        fn parse_size(size_str: &str) -> Option<usize> {
+        pub fn parse_size(size_str: &str) -> Option<usize> {
             let size_str = size_str.trim();
             if size_str.is_empty() {
                 return None;
@@ -337,7 +337,7 @@ pub mod cpu {
 
         /// Parse CPU list (e.g., "0-3,6,8-11").
         #[cfg(target_os = "linux")]
-        fn parse_cpu_list(cpu_list: &str) -> Option<Vec<CpuCore>> {
+        pub fn parse_cpu_list(cpu_list: &str) -> Option<Vec<CpuCore>> {
             let mut cores = Vec::new();
             
             for part in cpu_list.trim().split(',') {
@@ -364,7 +364,7 @@ pub mod cpu {
         /// Detect NUMA information on Linux.
         #[cfg(target_os = "linux")]
         fn detect_linux_numa(&mut self) {
-            use std::fs;
+            
             
             let mut numa_mapping = HashMap::new();
             
