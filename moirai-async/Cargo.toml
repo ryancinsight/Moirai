@@ -15,7 +15,7 @@ description = "Async/await support for Moirai concurrency library"
 [dependencies]
 moirai-core = { workspace = true }
 moirai-executor = { workspace = true }
-moirai-channel = { workspace = true }
+moirai-transport = { workspace = true }
 moirai-utils = { workspace = true }
 
 [dev-dependencies]

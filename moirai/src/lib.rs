@@ -78,10 +78,12 @@ pub use moirai_executor::{HybridExecutor, ExecutorHandle};
 // Re-export scheduler types
 pub use moirai_scheduler::{WorkStealingScheduler, LocalScheduler};
 
-// Re-export channel types
-pub use moirai_channel::{
-    Channel, Sender, Receiver, bounded, unbounded,
-    mpmc, oneshot, select,
+// Re-export unified transport types
+pub use moirai_transport::{
+    UniversalSender, UniversalReceiver, UniversalChannel,
+    Address, ThreadId, ProcessId, RemoteAddress, BroadcastScope,
+    TransportManager, TransportResult, TransportError,
+    channel,
 };
 
 // Re-export sync types
@@ -104,11 +106,11 @@ pub use moirai_iter::{
     par_iter, async_iter,
 };
 
-// Optional IPC support
-#[cfg(feature = "ipc")]
-pub use moirai_ipc::{
-    SharedMemory, NamedPipe, MessageQueue,
-    ProcessPool, CrossProcessChannel,
+// Optional distributed computing support
+#[cfg(feature = "distributed")]
+pub use moirai_transport::{
+    NetworkTopology, PeerNode, NodeCapabilities,
+    DeliveryReceipt,
 };
 
 // Optional metrics support
@@ -242,6 +244,28 @@ impl Moirai {
         self.executor.stats()
     }
 
+    /// Create a universal channel for communication.
+    pub fn channel<T>(&self) -> TransportResult<(UniversalSender<T>, UniversalReceiver<T>)> {
+        channel::universal()
+    }
+
+    /// Create a channel with a specific address.
+    pub fn channel_with_address<T>(&self, address: Address) -> TransportResult<(UniversalSender<T>, UniversalReceiver<T>)> {
+        UniversalChannel::new(address)
+    }
+
+    /// Spawn a task on a remote node.
+    #[cfg(feature = "distributed")]
+    pub fn spawn_remote<F, R>(&self, node: &str, func: F) -> TaskHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        // Implementation would coordinate with distributed scheduler
+        // For now, fall back to local execution
+        self.spawn_parallel(func)
+    }
+
     /// Create a pipeline builder for chaining async and parallel operations.
     pub fn pipeline(&self) -> PipelineBuilder {
         PipelineBuilder::new(self.clone())
@@ -319,6 +343,21 @@ impl MoiraiBuilder {
     #[cfg(feature = "metrics")]
     pub fn enable_metrics(mut self, enabled: bool) -> Self {
         self.config.enable_metrics = enabled;
+        self
+    }
+
+    /// Enable distributed computing capabilities.
+    #[cfg(feature = "distributed")]
+    pub fn enable_distributed(mut self) -> Self {
+        // Configuration would be added to ExecutorConfig
+        // For now, this is a placeholder
+        self
+    }
+
+    /// Set the node ID for distributed computing.
+    #[cfg(feature = "distributed")]
+    pub fn node_id(mut self, _id: impl Into<String>) -> Self {
+        // Configuration would be added to ExecutorConfig
         self
     }
 

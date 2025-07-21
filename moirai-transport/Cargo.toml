@@ -1,5 +1,5 @@
 [package]
-name = "moirai-executor"
+name = "moirai-transport"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,19 +10,23 @@ documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-description = "Hybrid executor implementation for Moirai concurrency library"
+description = "Unified transport layer for Moirai concurrency library - seamless communication across threads, processes, and machines"
 
 [dependencies]
 moirai-core = { workspace = true }
 moirai-scheduler = { workspace = true }
 moirai-utils = { workspace = true }
-futures = "0.3"
+crossbeam-channel = "0.5"
 
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = []
-numa = []
+default = ["local"]
+local = []  # In-memory and shared memory transports
+network = []  # TCP/UDP network transports
+distributed = ["network"]  # Full distributed computing support
+encryption = []  # Message encryption for secure communication
+compression = []  # Message compression for bandwidth optimization
 metrics = ["moirai-core/metrics"]

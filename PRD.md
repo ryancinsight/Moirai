@@ -88,10 +88,11 @@ Moirai is a next-generation concurrency library that synthesizes the best princi
 - Zero-cost task state machines
 - Efficient task spawning and completion
 
-**4. Communication Primitives**
-- MPMC channels with various flavors (bounded, unbounded, rendezvous)
-- IPC mechanisms for cross-process communication
-- Shared memory abstractions
+**4. Unified Communication System**
+- Universal channels that seamlessly work across threads, processes, and machines
+- Adaptive transport layer (in-memory, shared memory, sockets, etc.)
+- Location-transparent addressing and routing
+- Unified scheduler coordination for all communication types
 
 **5. Resource Management**
 - Thread-local storage optimization
@@ -100,24 +101,35 @@ Moirai is a next-generation concurrency library that synthesizes the best princi
 
 #### 4.2 API Design
 
-**Executor API:**
+**Unified Runtime API:**
 ```rust
 // Unified executor for hybrid workloads
-let executor = Moirai::builder()
+let moirai = Moirai::builder()
     .worker_threads(8)
     .async_threads(4)
+    .enable_distributed() // Enable cross-process/machine communication
     .build();
 
 // Async task execution
-executor.spawn_async(async { /* async work */ }).await;
+moirai.spawn_async(async { /* async work */ }).await;
 
 // Parallel task execution
-executor.spawn_parallel(|| { /* CPU-intensive work */ });
+moirai.spawn_parallel(|| { /* CPU-intensive work */ });
 
-// Hybrid pipeline
-executor.pipeline()
+// Cross-process task execution
+moirai.spawn_remote("worker-node-1", || { /* remote work */ }).await;
+
+// Universal communication - same API regardless of location
+let (tx, rx) = moirai.channel::<String>();
+tx.send_to("process-2", "Hello").await?; // Cross-process
+tx.send_to("thread-local", "Hi").await?; // Same thread
+tx.send_to("remote:192.168.1.100", "Hey").await?; // Remote machine
+
+// Hybrid pipeline with distributed stages
+moirai.pipeline()
     .async_stage(|data| async move { /* I/O */ })
     .parallel_stage(|data| { /* CPU */ })
+    .remote_stage("gpu-cluster", |data| { /* GPU compute */ })
     .execute(input_stream)
     .collect();
 ```
@@ -141,10 +153,12 @@ data.into_par_iter()
 - [ ] Task spawning and lifecycle management
 - [ ] Thread-local storage optimization
 
-**Communication:**
-- [ ] MPMC channels (bounded, unbounded)
-- [ ] Cross-thread message passing
-- [ ] Shared state primitives (Mutex, RwLock alternatives)
+**Unified Communication:**
+- [ ] Universal channels with location transparency
+- [ ] Adaptive transport selection (in-memory, shared memory, sockets)
+- [ ] Cross-thread, cross-process, and cross-machine message passing
+- [ ] Unified addressing scheme for all communication targets
+- [ ] Scheduler-coordinated message routing and delivery
 
 **Async Support:**
 - [ ] Future trait implementation
@@ -170,10 +184,12 @@ data.into_par_iter()
 - [ ] Deadlock detection
 - [ ] Resource utilization monitoring
 
-**Extended Communication:**
-- [ ] IPC mechanisms (shared memory, pipes)
-- [ ] Network-aware task distribution
-- [ ] Persistent task queues
+**Advanced Communication Features:**
+- [ ] Distributed task scheduling and load balancing
+- [ ] Fault-tolerant message delivery with retries
+- [ ] Message persistence and replay capabilities
+- [ ] Network topology discovery and optimization
+- [ ] Cross-platform communication protocols
 
 ### 6. Performance Requirements
 

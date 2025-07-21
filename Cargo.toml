@@ -3,15 +3,13 @@ members = [
     "moirai-core",
     "moirai-executor",
     "moirai-scheduler", 
-    "moirai-channel",
+    "moirai-transport",
     "moirai-sync",
     "moirai-async",
     "moirai-iter",
-    "moirai-ipc",
     "moirai-metrics",
     "moirai-utils",
     "moirai",
-    "examples/*",
     "benchmarks",
     "tests"
 ]
@@ -34,11 +32,10 @@ rust-version = "1.75.0"
 moirai-core = { path = "moirai-core", version = "0.1.0" }
 moirai-executor = { path = "moirai-executor", version = "0.1.0" }
 moirai-scheduler = { path = "moirai-scheduler", version = "0.1.0" }
-moirai-channel = { path = "moirai-channel", version = "0.1.0" }
+moirai-transport = { path = "moirai-transport", version = "0.1.0" }
 moirai-sync = { path = "moirai-sync", version = "0.1.0" }
 moirai-async = { path = "moirai-async", version = "0.1.0" }
 moirai-iter = { path = "moirai-iter", version = "0.1.0" }
-moirai-ipc = { path = "moirai-ipc", version = "0.1.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.1.0" }
 moirai-utils = { path = "moirai-utils", version = "0.1.0" }
 
@@ -46,6 +43,9 @@ moirai-utils = { path = "moirai-utils", version = "0.1.0" }
 criterion = "0.5"
 proptest = "1.4"
 quickcheck = "1.0"
+futures = "0.3"
+crossbeam-channel = "0.5"
+tokio = "1.0"
 
 [profile.release]
 lto = true

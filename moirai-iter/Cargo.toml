@@ -15,7 +15,7 @@ description = "Parallel and async iterator combinators for Moirai concurrency li
 [dependencies]
 moirai-core = { workspace = true }
 moirai-executor = { workspace = true }
-moirai-async = { workspace = true }
+moirai-async = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
 
 [dev-dependencies]

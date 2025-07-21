@@ -16,25 +16,29 @@ description = "High-performance hybrid concurrency library for Rust - weaving th
 moirai-core = { workspace = true }
 moirai-executor = { workspace = true }
 moirai-scheduler = { workspace = true }
-moirai-channel = { workspace = true }
+moirai-transport = { workspace = true }
 moirai-sync = { workspace = true }
 moirai-async = { workspace = true, optional = true }
-moirai-iter = { workspace = true }
-moirai-ipc = { workspace = true, optional = true }
+moirai-iter = { workspace = true, optional = true }
 moirai-metrics = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
+tokio = { version = "1.0", features = ["full"], optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = ["async", "iter"]
-full = ["async", "iter", "ipc", "metrics", "numa", "futex"]
+default = ["async", "iter", "local"]
+full = ["async", "iter", "distributed", "metrics", "numa", "futex", "encryption"]
 async = ["moirai-async"]
 iter = ["moirai-iter"]
-ipc = ["moirai-ipc"]
-metrics = ["moirai-metrics", "moirai-core/metrics"]
+local = ["moirai-transport/local"]
+network = ["moirai-transport/network"]
+distributed = ["moirai-transport/distributed", "network"]
+encryption = ["moirai-transport/encryption"]
+compression = ["moirai-transport/compression"]
+metrics = ["moirai-metrics", "moirai-core/metrics", "moirai-transport/metrics"]
 numa = ["moirai-executor/numa", "moirai-scheduler/numa", "moirai-utils/numa"]
 futex = ["moirai-sync/futex"]
 no-std = ["moirai-core/no-std", "moirai-utils/no-std"]

@@ -8,37 +8,8 @@ publish = false
 description = "Benchmarks for Moirai concurrency library"
 
 [dependencies]
-moirai = { workspace = true, features = ["full"] }
+moirai = { path = "../moirai", features = ["full"] }
 criterion = { workspace = true, features = ["html_reports"] }
+tokio = { version = "1.0", features = ["full"] }
 
-[[bench]]
-name = "executor"
-harness = false
-
-[[bench]]
-name = "scheduler"
-harness = false
-
-[[bench]]
-name = "channels"
-harness = false
-
-[[bench]]
-name = "sync"
-harness = false
-
-[[bench]]
-name = "async_tasks"
-harness = false
-
-[[bench]]
-name = "iterators"
-harness = false
-
-[[bench]]
-name = "memory"
-harness = false
-
-[[bench]]
-name = "comparison"
-harness = false
+# Benchmarks will be added as development progresses

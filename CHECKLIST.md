@@ -41,19 +41,21 @@
 - [ ] Basic work stealing algorithm
 - [ ] Load balancing heuristics
 
-## Phase 2: Communication Primitives (Months 3-4)
+## Phase 2: Unified Transport Layer (Months 3-4)
 
-### 2.1 MPMC Channel Implementation
-- [ ] Bounded channel variants
-  - [ ] Ring buffer implementation
-  - [ ] Backpressure handling
-  - [ ] Overflow strategies
-- [ ] Unbounded channel variants
-  - [ ] Dynamic growth strategies
-  - [ ] Memory pressure handling
-- [ ] Rendezvous channels (zero capacity)
-- [ ] Channel selection mechanisms
-- [ ] Async channel operations
+### 2.1 Universal Communication System
+- [ ] Universal addressing scheme
+  - [ ] Thread, process, and remote address types
+  - [ ] Broadcast scopes and routing
+  - [ ] Address resolution and caching
+- [ ] Transport manager implementation
+  - [ ] Automatic transport selection
+  - [ ] Routing table optimization
+  - [ ] Scheduler coordination
+- [ ] Local transport mechanisms
+  - [ ] In-memory channels (same thread)
+  - [ ] Shared memory channels (same process)
+  - [ ] Lock-free queue implementations
 
 ### 2.2 Synchronization Primitives
 - [ ] Fast Mutex implementation
@@ -77,14 +79,19 @@
 - [ ] Hazard pointer implementation
 - [ ] Epoch-based memory reclamation
 
-### 2.4 Inter-Process Communication
-- [ ] Shared memory implementation
-  - [ ] Memory mapping utilities
-  - [ ] Cross-process synchronization
-  - [ ] Memory layout management
-- [ ] Named pipes support
-- [ ] Unix domain sockets
-- [ ] Message queue abstraction
+### 2.4 Network and Distributed Transport
+- [ ] Network transport implementation
+  - [ ] TCP transport for reliable communication
+  - [ ] UDP transport for low-latency messaging
+  - [ ] Connection pooling and management
+- [ ] Distributed computing features
+  - [ ] Node discovery and topology mapping
+  - [ ] Load balancing across nodes
+  - [ ] Fault tolerance and failover
+- [ ] Advanced features
+  - [ ] Message encryption and authentication
+  - [ ] Compression for bandwidth optimization
+  - [ ] Delivery confirmations and retries
 
 ## Phase 3: Async Integration (Months 5-6)
 
