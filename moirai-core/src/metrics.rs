@@ -1,41 +1,122 @@
-//! Performance metrics and monitoring for Moirai.
+//! Metrics collection and monitoring for Moirai.
 
-use crate::scheduler::SchedulerId;
-use alloc::collections::BTreeMap;
-use core::sync::atomic::{AtomicU64, Ordering};
-
+use core::fmt;
 #[cfg(feature = "std")]
-use std::time::Instant;
-
+use std::collections::HashMap;
 #[cfg(not(feature = "std"))]
-pub struct Instant {
-    // Minimal fallback implementation for no_std
-    // In a real implementation, this would use a monotonic timer
-    timestamp: u64,
-}
+use alloc::collections::BTreeMap as HashMap;
 
-#[cfg(not(feature = "std"))]
+/// A timestamp for performance measurements.
+/// 
+/// This is a placeholder type - in a real implementation, this would
+/// provide high-resolution timing capabilities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Instant(u64);
+
 impl Instant {
+    /// Get the current instant.
+    #[cfg(feature = "std")]
     pub fn now() -> Self {
-        Self { timestamp: 0 }
+        Self(std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64)
     }
 
-    pub fn elapsed(&self) -> core::time::Duration {
-        core::time::Duration::from_secs(0)
+    /// Get the current instant (no_std version).
+    #[cfg(not(feature = "std"))]
+    pub fn now() -> Self {
+        // Placeholder - would need platform-specific implementation
+        Self(0)
+    }
+
+    /// Calculate duration since another instant.
+    pub fn duration_since(&self, earlier: Instant) -> Duration {
+        Duration::from_nanos(self.0.saturating_sub(earlier.0))
+    }
+
+    /// Calculate elapsed time since this instant.
+    pub fn elapsed(&self) -> Duration {
+        Self::now().duration_since(*self)
+    }
+}
+
+/// A duration type for timing measurements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Duration(u64);
+
+impl Duration {
+    /// Create a duration from nanoseconds.
+    pub const fn from_nanos(nanos: u64) -> Self {
+        Self(nanos)
+    }
+
+    /// Create a duration from microseconds.
+    pub const fn from_micros(micros: u64) -> Self {
+        Self(micros * 1_000)
+    }
+
+    /// Create a duration from milliseconds.
+    pub const fn from_millis(millis: u64) -> Self {
+        Self(millis * 1_000_000)
+    }
+
+    /// Create a duration from seconds.
+    pub const fn from_secs(secs: u64) -> Self {
+        Self(secs * 1_000_000_000)
+    }
+
+    /// Get duration as nanoseconds.
+    pub const fn as_nanos(&self) -> u64 {
+        self.0
+    }
+
+    /// Get duration as microseconds.
+    pub const fn as_micros(&self) -> u64 {
+        self.0 / 1_000
+    }
+
+    /// Get duration as milliseconds.
+    pub const fn as_millis(&self) -> u64 {
+        self.0 / 1_000_000
+    }
+
+    /// Get duration as seconds.
+    pub const fn as_secs(&self) -> u64 {
+        self.0 / 1_000_000_000
+    }
+
+    /// Get duration as floating-point seconds.
+    pub fn as_secs_f64(&self) -> f64 {
+        self.0 as f64 / 1_000_000_000.0
+    }
+}
+
+impl fmt::Display for Duration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0 < 1_000 {
+            write!(f, "{}ns", self.0)
+        } else if self.0 < 1_000_000 {
+            write!(f, "{:.1}μs", self.0 as f64 / 1_000.0)
+        } else if self.0 < 1_000_000_000 {
+            write!(f, "{:.1}ms", self.0 as f64 / 1_000_000.0)
+        } else {
+            write!(f, "{:.1}s", self.0 as f64 / 1_000_000_000.0)
+        }
     }
 }
 
 /// Performance counter that tracks events.
 #[derive(Debug)]
 pub struct Counter {
-    value: AtomicU64,
+    value: core::sync::atomic::AtomicU64,
 }
 
 impl Counter {
     /// Create a new counter starting at zero.
     pub const fn new() -> Self {
         Self {
-            value: AtomicU64::new(0),
+            value: core::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -46,17 +127,17 @@ impl Counter {
 
     /// Add a value to the counter.
     pub fn add(&self, value: u64) {
-        self.value.fetch_add(value, Ordering::Relaxed);
+        self.value.fetch_add(value, core::sync::atomic::Ordering::Relaxed);
     }
 
     /// Get the current value.
     pub fn get(&self) -> u64 {
-        self.value.load(Ordering::Relaxed)
+        self.value.load(core::sync::atomic::Ordering::Relaxed)
     }
 
     /// Reset the counter to zero.
     pub fn reset(&self) {
-        self.value.store(0, Ordering::Relaxed);
+        self.value.store(0, core::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -69,20 +150,20 @@ impl Default for Counter {
 /// Gauge that tracks a current value that can go up or down.
 #[derive(Debug)]
 pub struct Gauge {
-    value: AtomicU64,
+    value: core::sync::atomic::AtomicU64,
 }
 
 impl Gauge {
     /// Create a new gauge starting at zero.
     pub const fn new() -> Self {
         Self {
-            value: AtomicU64::new(0),
+            value: core::sync::atomic::AtomicU64::new(0),
         }
     }
 
     /// Set the gauge to a specific value.
     pub fn set(&self, value: u64) {
-        self.value.store(value, Ordering::Relaxed);
+        self.value.store(value, core::sync::atomic::Ordering::Relaxed);
     }
 
     /// Increment the gauge by one.
@@ -97,22 +178,22 @@ impl Gauge {
 
     /// Add a value to the gauge.
     pub fn add(&self, value: u64) {
-        self.value.fetch_add(value, Ordering::Relaxed);
+        self.value.fetch_add(value, core::sync::atomic::Ordering::Relaxed);
     }
 
     /// Subtract a value from the gauge.
     pub fn subtract(&self, value: u64) {
-        self.value.fetch_sub(value, Ordering::Relaxed);
+        self.value.fetch_sub(value, core::sync::atomic::Ordering::Relaxed);
     }
 
     /// Get the current value.
     pub fn get(&self) -> u64 {
-        self.value.load(Ordering::Relaxed)
+        self.value.load(core::sync::atomic::Ordering::Relaxed)
     }
 
     /// Reset the gauge to zero.
     pub fn reset(&self) {
-        self.value.store(0, Ordering::Relaxed);
+        self.value.store(0, core::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -125,19 +206,19 @@ impl Default for Gauge {
 /// Histogram that tracks the distribution of values.
 #[derive(Debug)]
 pub struct Histogram {
-    buckets: [AtomicU64; 16], // Simple fixed-size buckets
-    sum: AtomicU64,
-    count: AtomicU64,
+    buckets: [core::sync::atomic::AtomicU64; 16], // Simple fixed-size buckets
+    sum: core::sync::atomic::AtomicU64,
+    count: core::sync::atomic::AtomicU64,
 }
 
 impl Histogram {
     /// Create a new histogram.
     pub const fn new() -> Self {
-        const ATOMIC_ZERO: AtomicU64 = AtomicU64::new(0);
+        const ATOMIC_ZERO: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
         Self {
             buckets: [ATOMIC_ZERO; 16],
-            sum: AtomicU64::new(0),
-            count: AtomicU64::new(0),
+            sum: core::sync::atomic::AtomicU64::new(0),
+            count: core::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -150,19 +231,19 @@ impl Histogram {
             ((64 - value.leading_zeros()) as usize).min(15)
         };
 
-        self.buckets[bucket_index].fetch_add(1, Ordering::Relaxed);
-        self.sum.fetch_add(value, Ordering::Relaxed);
-        self.count.fetch_add(1, Ordering::Relaxed);
+        self.buckets[bucket_index].fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        self.sum.fetch_add(value, core::sync::atomic::Ordering::Relaxed);
+        self.count.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     }
 
     /// Get the total count of recorded values.
     pub fn count(&self) -> u64 {
-        self.count.load(Ordering::Relaxed)
+        self.count.load(core::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get the sum of all recorded values.
     pub fn sum(&self) -> u64 {
-        self.sum.load(Ordering::Relaxed)
+        self.sum.load(core::sync::atomic::Ordering::Relaxed)
     }
 
     /// Calculate the average of recorded values.
@@ -178,7 +259,7 @@ impl Histogram {
     /// Get the count for a specific bucket.
     pub fn bucket_count(&self, bucket: usize) -> u64 {
         if bucket < self.buckets.len() {
-            self.buckets[bucket].load(Ordering::Relaxed)
+            self.buckets[bucket].load(core::sync::atomic::Ordering::Relaxed)
         } else {
             0
         }
@@ -187,10 +268,10 @@ impl Histogram {
     /// Reset all counters.
     pub fn reset(&self) {
         for bucket in &self.buckets {
-            bucket.store(0, Ordering::Relaxed);
+            bucket.store(0, core::sync::atomic::Ordering::Relaxed);
         }
-        self.sum.store(0, Ordering::Relaxed);
-        self.count.store(0, Ordering::Relaxed);
+        self.sum.store(0, core::sync::atomic::Ordering::Relaxed);
+        self.count.store(0, core::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -356,7 +437,7 @@ pub struct Metrics {
     /// Task metrics
     pub tasks: TaskMetrics,
     /// Scheduler metrics by ID
-    pub schedulers: BTreeMap<SchedulerId, SchedulerMetrics>,
+    pub schedulers: HashMap<crate::scheduler::SchedulerId, SchedulerMetrics>,
 }
 
 impl Metrics {
@@ -364,12 +445,12 @@ impl Metrics {
     pub fn new() -> Self {
         Self {
             tasks: TaskMetrics::new(),
-            schedulers: BTreeMap::new(),
+            schedulers: HashMap::new(),
         }
     }
 
     /// Get or create scheduler metrics.
-    pub fn scheduler(&mut self, id: SchedulerId) -> &mut SchedulerMetrics {
+    pub fn scheduler(&mut self, id: crate::scheduler::SchedulerId) -> &mut SchedulerMetrics {
         self.schedulers.entry(id).or_insert_with(SchedulerMetrics::new)
     }
 

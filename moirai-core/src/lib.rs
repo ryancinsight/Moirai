@@ -27,7 +27,7 @@ use core::{
     fmt,
     future::Future,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
 
 // Re-export commonly used types from alloc for convenience
@@ -224,8 +224,12 @@ pub trait IoTask: AsyncTask {}
 /// A handle that can be used to await the completion of a spawned task.
 pub struct TaskHandle<T> {
     id: TaskId,
+    waker: Option<Waker>,
     _phantom: core::marker::PhantomData<T>,
 }
+
+// TaskHandle is safe to be Unpin since it doesn't contain any self-referential data
+impl<T> Unpin for TaskHandle<T> {}
 
 impl<T> TaskHandle<T> {
     /// Create a new task handle.
@@ -233,6 +237,7 @@ impl<T> TaskHandle<T> {
     pub const fn new(id: TaskId) -> Self {
         Self {
             id,
+            waker: None,
             _phantom: core::marker::PhantomData,
         }
     }
@@ -242,6 +247,11 @@ impl<T> TaskHandle<T> {
     pub const fn id(&self) -> TaskId {
         self.id
     }
+
+    /// Set the waker for this handle.
+    pub fn set_waker(&mut self, waker: Waker) {
+        self.waker = Some(waker);
+    }
 }
 
 impl<T> Future for TaskHandle<T>
@@ -250,8 +260,15 @@ where
 {
     type Output = Result<T, crate::error::TaskError>;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // This is a placeholder - actual implementation would check task completion
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Get a mutable reference to the inner data
+        let this = self.get_mut();
+        
+        // Store the waker for later use
+        this.waker = Some(cx.waker().clone());
+        
+        // For now, this is a placeholder - actual implementation would check task completion
+        // The executor would wake this waker when the task completes
         Poll::Pending
     }
 }
