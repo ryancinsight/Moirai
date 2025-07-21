@@ -790,7 +790,7 @@ impl ExecutorControl for HybridExecutor {
         
         for scheduler in &self.schedulers {
             if scheduler.load() > 0 {
-                if let Ok(executed) = scheduler.try_execute_next() {
+                if let Ok(executed) = scheduler.try_execute_next_task() {
                     work_done = work_done || executed;
                 }
             }
