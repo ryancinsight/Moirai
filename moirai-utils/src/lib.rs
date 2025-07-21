@@ -1003,9 +1003,10 @@ pub mod memory_pool {
         /// Get the memory overhead in bytes.
         pub fn overhead_bytes(&self) -> usize {
             // Approximate overhead: VecDeque + Vec + Mutex overhead
-            std::mem::size_of::<VecDeque<NonNull<u8>>>() + 
-            std::mem::size_of::<Vec<NonNull<u8>>>() +
-            self.total_chunks * std::mem::size_of::<NonNull<u8>>()
+            let vec_deque_overhead = std::mem::size_of::<VecDeque<NonNull<u8>>>() + 16; // Add heap allocation overhead
+            let vec_overhead = std::mem::size_of::<Vec<NonNull<u8>>>() + 16; // Add heap allocation overhead
+            let chunk_overhead = self.total_chunks * (std::mem::size_of::<NonNull<u8>>() + 8); // Add per-chunk overhead
+            align_to_cache_line(vec_deque_overhead + vec_overhead + chunk_overhead) // Align to cache line size
         }
     }
 
