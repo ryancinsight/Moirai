@@ -737,9 +737,7 @@ impl TaskSpawner for HybridExecutor {
         R: Send + 'static,
     {
         // Create a task from the blocking function
-        let task_id = self.task_registry.generate_id();
         let task = TaskBuilder::new()
-            .with_id(task_id)
             .build(func);
 
         self.spawn_internal(task, Priority::Normal)
