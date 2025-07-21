@@ -18,6 +18,8 @@
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 
+extern crate alloc;
+
 #[cfg(feature = "std")]
 extern crate std;
 
@@ -27,6 +29,9 @@ use core::{
     pin::Pin,
     task::{Context, Poll},
 };
+
+// Re-export commonly used types from alloc for convenience
+pub use alloc::{boxed::Box, string::String, vec::Vec};
 
 pub mod task;
 pub mod executor;
@@ -274,11 +279,11 @@ impl<F> TaskBuilder<F> {
     }
 
     /// Build the task.
-    #[must_use]
-    pub fn build(self) -> impl Task<Output = F::Output>
-    where
-        F: FnOnce() -> F::Output + Send + 'static,
-        F::Output: Send + 'static,
+          #[must_use]
+      pub fn build(self) -> impl Task<Output = R>
+      where
+         F: FnOnce() -> R + Send + 'static,
+          R: Send + 'static,
     {
         ClosureTask {
             func: Some(self.func),
@@ -295,12 +300,12 @@ struct ClosureTask<F> {
     config: TaskConfig,
 }
 
-impl<F> Task for ClosureTask<F>
+impl<F, R> Task for ClosureTask<F>
 where
-    F: FnOnce() -> F::Output + Send + 'static,
-    F::Output: Send + 'static,
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
 {
-    type Output = F::Output;
+    type Output = R;
 
     fn execute(mut self) -> Self::Output {
         let func = self.func.take().expect("Task already executed");
