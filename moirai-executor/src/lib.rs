@@ -9,6 +9,7 @@ use moirai_core::{
     error::{ExecutorResult, TaskError, ExecutorError},
     scheduler::{Scheduler, SchedulerId, SchedulerConfig, QueueType},
 };
+use moirai_core::task::TaskWrapper;
 
 #[cfg(feature = "metrics")]
 use moirai_core::executor::ExecutorStats;
@@ -249,7 +250,7 @@ impl HybridExecutor {
     }
 
     /// Register a new task in the registry.
-    fn register_task(&self, id: TaskId, priority: Priority) -> TaskHandle<()> {
+    fn register_task(&self, id: TaskId, priority: Priority) {
         let info = TaskInfo {
             id,
             status: TaskStatus::Queued,
@@ -263,8 +264,6 @@ impl HybridExecutor {
         if let Ok(mut registry) = self.task_registry.write() {
             registry.insert(id, info);
         }
-
-        TaskHandle::new(id)
     }
 
     /// Select the best scheduler for a new task based on load balancing.
@@ -314,10 +313,18 @@ impl TaskSpawner for HybridExecutor {
     {
         let task_id = self.next_task_id();
         
-        // Register task before submission
-        let _handle = self.register_task(task_id, task.context().priority);
+        // Create a channel for the result
+        #[cfg(feature = "std")]
+        let (sender, receiver) = std::sync::mpsc::channel();
         
-        // Convert the task to a BoxedTask with proper ID
+        // Register task before submission
+        self.register_task(task_id, task.context().priority);
+        
+        // Convert the task to a BoxedTask with proper ID and result sender
+        #[cfg(feature = "std")]
+        let boxed_task: Box<dyn BoxedTask> = Box::new(TaskWrapper::with_result_sender(task, sender));
+        
+        #[cfg(not(feature = "std"))]
         let boxed_task: Box<dyn BoxedTask> = Box::new(TaskWrapper::new(task));
         
         // Submit to a worker
@@ -330,7 +337,11 @@ impl TaskSpawner for HybridExecutor {
             }
         }
         
-        TaskHandle::new(task_id)
+        #[cfg(feature = "std")]
+        return TaskHandle::new_with_receiver(task_id, receiver);
+        
+        #[cfg(not(feature = "std"))]
+        return TaskHandle::new_detached(task_id);
     }
 
     fn spawn_async<F>(&self, future: F) -> TaskHandle<F::Output>
@@ -340,8 +351,12 @@ impl TaskSpawner for HybridExecutor {
     {
         let task_id = self.next_task_id();
         
+        // Create a channel for the result
+        #[cfg(feature = "std")]
+        let (sender, receiver) = std::sync::mpsc::channel();
+        
         // Register the async task
-        let _handle = self.register_task(task_id, Priority::Normal);
+        self.register_task(task_id, Priority::Normal);
         
         // For async tasks, we would need an async executor integration
         // For now, we'll create a placeholder handle
@@ -357,7 +372,11 @@ impl TaskSpawner for HybridExecutor {
             }
         }
         
-        TaskHandle::new(task_id)
+        #[cfg(feature = "std")]
+        return TaskHandle::new_with_receiver(task_id, receiver);
+        
+        #[cfg(not(feature = "std"))]
+        return TaskHandle::new_detached(task_id);
     }
 
     fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>
@@ -367,11 +386,22 @@ impl TaskSpawner for HybridExecutor {
     {
         let task_id = self.next_task_id();
         
-        // Register the blocking task
-        let _handle = self.register_task(task_id, Priority::Normal);
+        // Create a channel for the result
+        #[cfg(feature = "std")]
+        let (sender, receiver) = std::sync::mpsc::channel();
         
-        // Create a blocking task wrapper
-        let blocking_task = BlockingTask::new(func);
+        // Register the blocking task
+        self.register_task(task_id, Priority::Normal);
+        
+        // Create a blocking task wrapper using ClosureTask
+        let context = TaskContext::new(task_id);
+        let blocking_task = moirai_core::task::ClosureTask::new(func, context);
+        
+        // Convert to BoxedTask with result sender
+        #[cfg(feature = "std")]
+        let boxed_task: Box<dyn BoxedTask> = Box::new(TaskWrapper::with_result_sender(blocking_task, sender));
+        
+        #[cfg(not(feature = "std"))]
         let boxed_task: Box<dyn BoxedTask> = Box::new(TaskWrapper::new(blocking_task));
         
         // Submit to a worker
@@ -384,7 +414,11 @@ impl TaskSpawner for HybridExecutor {
             }
         }
         
-        TaskHandle::new(task_id)
+        #[cfg(feature = "std")]
+        return TaskHandle::new_with_receiver(task_id, receiver);
+        
+        #[cfg(not(feature = "std"))]
+        return TaskHandle::new_detached(task_id);
     }
 
     fn spawn_with_priority<T>(&self, task: T, priority: Priority) -> TaskHandle<T::Output>
@@ -393,10 +427,18 @@ impl TaskSpawner for HybridExecutor {
     {
         let task_id = self.next_task_id();
         
-        // Register task with specified priority
-        let _handle = self.register_task(task_id, priority);
+        // Create a channel for the result
+        #[cfg(feature = "std")]
+        let (sender, receiver) = std::sync::mpsc::channel();
         
-        // Convert the task to a BoxedTask
+        // Register task with specified priority
+        self.register_task(task_id, priority);
+        
+        // Convert the task to a BoxedTask with result sender
+        #[cfg(feature = "std")]
+        let boxed_task: Box<dyn BoxedTask> = Box::new(TaskWrapper::with_result_sender(task, sender));
+        
+        #[cfg(not(feature = "std"))]
         let boxed_task: Box<dyn BoxedTask> = Box::new(TaskWrapper::new(task));
         
         // Submit to a worker
@@ -409,7 +451,11 @@ impl TaskSpawner for HybridExecutor {
             }
         }
         
-        TaskHandle::new(task_id)
+        #[cfg(feature = "std")]
+        return TaskHandle::new_with_receiver(task_id, receiver);
+        
+        #[cfg(not(feature = "std"))]
+        return TaskHandle::new_detached(task_id);
     }
 }
 
@@ -614,48 +660,7 @@ impl Executor for HybridExecutor {
     }
 }
 
-/// Wrapper to convert any Task to a BoxedTask.
-struct TaskWrapper<T> {
-    task: Option<T>,
-    cached_context: TaskContext,
-}
 
-impl<T> TaskWrapper<T> {
-    fn new(task: T) -> Self 
-    where
-        T: Task,
-    {
-        let cached_context = task.context().clone();
-        Self { 
-            task: Some(task),
-            cached_context,
-        }
-    }
-}
-
-impl<T> BoxedTask for TaskWrapper<T>
-where
-    T: Task + Send + 'static,
-    T::Output: Send + 'static,
-{
-    fn execute_boxed(mut self: Box<Self>) {
-        if let Some(task) = self.task.take() {
-            let _ = task.execute(); // Ignore the output for now
-        }
-    }
-
-    fn context(&self) -> &TaskContext {
-        &self.cached_context
-    }
-
-    fn is_stealable(&self) -> bool {
-        self.task.as_ref().map(|t| t.is_stealable()).unwrap_or(false)
-    }
-
-    fn estimated_cost(&self) -> u32 {
-        self.task.as_ref().map(|t| t.estimated_cost()).unwrap_or(1)
-    }
-}
 
 /// A blocking task that wraps a closure.
 struct BlockingTask<F, R> 
@@ -747,12 +752,11 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let task = TaskBuilder::new(
-            move || {
+        let task = TaskBuilder::new()
+            .with_id(TaskId::new(1))
+            .build(move || {
                 counter_clone.fetch_add(1, Ordering::Relaxed);
-            },
-            TaskId::new(1)
-        ).build();
+            });
 
         let handle = executor.spawn(task);
         assert_eq!(handle.id().get(), 0); // First task gets ID 0
@@ -769,7 +773,9 @@ mod tests {
         let config = ExecutorConfig::default();
         let executor = HybridExecutor::new(config).unwrap();
 
-        let task = TaskBuilder::new(|| {}, TaskId::new(1)).build();
+        let task = TaskBuilder::new()
+            .with_id(TaskId::new(1))
+            .build(|| {});
         let handle = executor.spawn_with_priority(task, Priority::High);
         
         // Verify the task was registered with high priority
@@ -798,9 +804,11 @@ mod tests {
         
         // After spawning tasks, load might increase
         // (though it might be executed immediately in tests)
-        let task = TaskBuilder::new(|| {
-            std::thread::sleep(Duration::from_millis(10));
-        }, TaskId::new(1)).build();
+        let task = TaskBuilder::new()
+            .with_id(TaskId::new(1))
+            .build(|| {
+                std::thread::sleep(Duration::from_millis(10));
+            });
         
         let _handle = executor.spawn(task);
         // Note: Load tracking depends on timing and might be 0 if task executes immediately

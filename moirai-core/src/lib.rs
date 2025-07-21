@@ -41,6 +41,12 @@ pub mod error;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
+// Re-export key types from task module
+pub use task::{
+    Task, TaskExt, TaskFuture, TaskHandle, TaskBuilder, TaskWrapper,
+    ClosureTask, ChainedTask, MappedTask, CatchTask
+};
+
 /// A unique identifier for tasks within the runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TaskId(u64);
@@ -132,28 +138,6 @@ impl TaskContext {
     }
 }
 
-/// The core trait for executable tasks in the Moirai runtime.
-pub trait Task: Send + 'static {
-    /// The output type produced by this task.
-    type Output: Send + 'static;
-
-    /// Execute this task to completion.
-    fn execute(self) -> Self::Output;
-
-    /// Get the task context for scheduling and debugging.
-    fn context(&self) -> &TaskContext;
-
-    /// Check if this task can be stolen by another thread.
-    fn is_stealable(&self) -> bool {
-        true
-    }
-
-    /// Estimate the computational cost of this task (for load balancing).
-    fn estimated_cost(&self) -> u32 {
-        1
-    }
-}
-
 /// A trait for tasks that can be executed from a Box<dyn ...>
 pub trait BoxedTask: Send + 'static {
     /// Execute this task and return a boxed result.
@@ -173,10 +157,10 @@ pub trait BoxedTask: Send + 'static {
     }
 }
 
-// Implement BoxedTask for any Task that returns ()
-impl<T> BoxedTask for T 
+// Implement BoxedTask for any TaskWrapper (which always returns ())
+impl<T> BoxedTask for TaskWrapper<T> 
 where 
-    T: Task<Output = ()> + Send + 'static,
+    T: Task + Send + 'static,
 {
     fn execute_boxed(self: Box<Self>) {
         (*self).execute();
@@ -221,61 +205,6 @@ pub trait CpuTask: Task {}
 /// Marker trait for tasks that perform I/O operations.
 pub trait IoTask: AsyncTask {}
 
-/// A handle that can be used to await the completion of a spawned task.
-pub struct TaskHandle<T> {
-    id: TaskId,
-    waker: Option<Waker>,
-    _phantom: core::marker::PhantomData<T>,
-}
-
-// TaskHandle is safe to be Unpin since it doesn't contain any self-referential data
-impl<T> Unpin for TaskHandle<T> {}
-
-impl<T> TaskHandle<T> {
-    /// Create a new task handle.
-    #[must_use]
-    pub const fn new(id: TaskId) -> Self {
-        Self {
-            id,
-            waker: None,
-            _phantom: core::marker::PhantomData,
-        }
-    }
-
-    /// Get the task ID.
-    #[must_use]
-    pub const fn id(&self) -> TaskId {
-        self.id
-    }
-
-    /// Set the waker for this handle.
-    pub fn set_waker(&mut self, waker: Waker) {
-        self.waker = Some(waker);
-    }
-}
-
-impl<T> Future for TaskHandle<T>
-where
-    T: Send + 'static,
-{
-    type Output = Result<T, crate::error::TaskError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Get a mutable reference to the inner data
-        let this = self.get_mut();
-        
-        // Store the waker for later use
-        this.waker = Some(cx.waker().clone());
-        
-        // For now, this is a placeholder - actual implementation would check task completion
-        // The executor would wake this waker when the task completes
-        Poll::Pending
-    }
-}
-
-unsafe impl<T: Send> Send for TaskHandle<T> {}
-unsafe impl<T: Send> Sync for TaskHandle<T> {}
-
 /// Configuration for task execution behavior.
 #[derive(Debug, Clone)]
 pub struct TaskConfig {
@@ -294,104 +223,6 @@ impl Default for TaskConfig {
             enable_metrics: cfg!(feature = "metrics"),
             stack_size: None, // Use system default
         }
-    }
-}
-
-/// Builder pattern for creating tasks with configuration.
-pub struct TaskBuilder<F> {
-    func: F,
-    context: TaskContext,
-    config: TaskConfig,
-}
-
-impl<F> TaskBuilder<F> {
-    /// Create a new task builder.
-    #[must_use]
-    pub fn new(func: F, id: TaskId) -> Self {
-        Self {
-            func,
-            context: TaskContext::new(id),
-            config: TaskConfig::default(),
-        }
-    }
-
-    /// Set the task priority.
-    #[must_use]
-    pub fn priority(mut self, priority: Priority) -> Self {
-        self.context.priority = priority;
-        self
-    }
-
-    /// Set the task name.
-    #[must_use]
-    pub fn name(mut self, name: &'static str) -> Self {
-        self.context.name = Some(name);
-        self
-    }
-
-    /// Set the task configuration.
-    #[must_use]
-    pub fn config(mut self, config: TaskConfig) -> Self {
-        self.config = config;
-        self
-    }
-
-    /// Build the task.
-    #[must_use]
-    pub fn build<R>(self) -> impl Task<Output = R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        ClosureTask {
-            func: Some(self.func),
-            context: self.context,
-            config: self.config,
-        }
-    }
-}
-
-/// A task implementation that wraps a closure.
-struct ClosureTask<F> {
-    func: Option<F>,
-    context: TaskContext,
-    config: TaskConfig,
-}
-
-impl<F, R> Task for ClosureTask<F>
-where
-    F: FnOnce() -> R + Send + 'static,
-    R: Send + 'static,
-{
-    type Output = R;
-
-    fn execute(mut self) -> Self::Output {
-        let func = self.func.take().expect("Task already executed");
-        func()
-    }
-
-    fn context(&self) -> &TaskContext {
-        &self.context
-    }
-
-    fn estimated_cost(&self) -> u32 {
-        // Default cost estimation - could be made configurable
-        match self.context.priority {
-            Priority::Low => 1,
-            Priority::Normal => 2,
-            Priority::High => 4,
-            Priority::Critical => 8,
-        }
-    }
-}
-
-impl<F> fmt::Debug for ClosureTask<F> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ClosureTask")
-            .field("context", &self.context)
-            .field("config", &self.config)
-            .field("executed", &self.func.is_none())
-            .finish()
     }
 }
 
@@ -423,19 +254,5 @@ mod tests {
         assert_eq!(ctx.id, id);
         assert_eq!(ctx.priority, Priority::High);
         assert_eq!(ctx.name, Some("test_task"));
-    }
-
-    #[test]
-    fn test_task_builder() {
-        let id = TaskId::new(1);
-        let task = TaskBuilder::new(|| 42, id)
-            .priority(Priority::High)
-            .name("test")
-            .build();
-
-        assert_eq!(task.context().id, id);
-        assert_eq!(task.context().priority, Priority::High);
-        assert_eq!(task.context().name, Some("test"));
-        assert_eq!(task.execute(), 42);
     }
 }
