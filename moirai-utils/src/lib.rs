@@ -337,7 +337,7 @@ pub mod cpu {
 
         /// Parse CPU list (e.g., "0-3,6,8-11").
         #[cfg(target_os = "linux")]
-        pub fn parse_cpu_list(cpu_list: &str) -> Option<Vec<CpuCore>> {
+        fn parse_cpu_list(cpu_list: &str) -> Option<Vec<CpuCore>> {
             let mut cores = Vec::new();
             
             for part in cpu_list.trim().split(',') {
