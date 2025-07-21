@@ -1,0 +1,13 @@
+[package]
+name = "stellaris-tests"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "Integration tests for Stellaris concurrency library"
+
+[dependencies]
+stellaris = { workspace = true, features = ["full"] }
+proptest = { workspace = true }
+quickcheck = { workspace = true }

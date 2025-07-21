@@ -1,0 +1,27 @@
+[package]
+name = "stellaris-executor"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "Hybrid executor implementation for Stellaris concurrency library"
+
+[dependencies]
+stellaris-core = { workspace = true }
+stellaris-scheduler = { workspace = true }
+stellaris-utils = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = []
+numa = []
+metrics = ["stellaris-core/metrics"]

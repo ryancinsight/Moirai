@@ -1,0 +1,26 @@
+[package]
+name = "stellaris-channel"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "MPMC channels and communication primitives for Stellaris concurrency library"
+
+[dependencies]
+stellaris-core = { workspace = true }
+stellaris-utils = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = []
+async = []
+metrics = ["stellaris-core/metrics"]

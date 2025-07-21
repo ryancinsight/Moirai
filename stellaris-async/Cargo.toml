@@ -1,0 +1,29 @@
+[package]
+name = "stellaris-async"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "Async/await support for Stellaris concurrency library"
+
+[dependencies]
+stellaris-core = { workspace = true }
+stellaris-executor = { workspace = true }
+stellaris-channel = { workspace = true }
+stellaris-utils = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = []
+io = []
+timers = []
+metrics = ["stellaris-core/metrics"]

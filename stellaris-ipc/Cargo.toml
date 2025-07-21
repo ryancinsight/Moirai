@@ -1,0 +1,29 @@
+[package]
+name = "stellaris-ipc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "Inter-process communication for Stellaris concurrency library"
+
+[dependencies]
+stellaris-core = { workspace = true }
+stellaris-channel = { workspace = true }
+stellaris-sync = { workspace = true }
+stellaris-utils = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = []
+shared-memory = []
+named-pipes = []
+metrics = ["stellaris-core/metrics"]

@@ -1,0 +1,44 @@
+[package]
+name = "stellaris-benchmarks"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "Benchmarks for Stellaris concurrency library"
+
+[dependencies]
+stellaris = { workspace = true, features = ["full"] }
+criterion = { workspace = true, features = ["html_reports"] }
+
+[[bench]]
+name = "executor"
+harness = false
+
+[[bench]]
+name = "scheduler"
+harness = false
+
+[[bench]]
+name = "channels"
+harness = false
+
+[[bench]]
+name = "sync"
+harness = false
+
+[[bench]]
+name = "async_tasks"
+harness = false
+
+[[bench]]
+name = "iterators"
+harness = false
+
+[[bench]]
+name = "memory"
+harness = false
+
+[[bench]]
+name = "comparison"
+harness = false

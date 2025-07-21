@@ -1,0 +1,25 @@
+[package]
+name = "stellaris-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "Core abstractions and traits for the Stellaris concurrency library"
+
+[dependencies]
+stellaris-utils = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = []
+no-std = []
+metrics = ["stellaris-utils/metrics"]

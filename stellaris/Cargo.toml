@@ -1,0 +1,40 @@
+[package]
+name = "stellaris"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "High-performance hybrid concurrency library for Rust"
+
+[dependencies]
+stellaris-core = { workspace = true }
+stellaris-executor = { workspace = true }
+stellaris-scheduler = { workspace = true }
+stellaris-channel = { workspace = true }
+stellaris-sync = { workspace = true }
+stellaris-async = { workspace = true, optional = true }
+stellaris-iter = { workspace = true }
+stellaris-ipc = { workspace = true, optional = true }
+stellaris-metrics = { workspace = true, optional = true }
+stellaris-utils = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[features]
+default = ["async", "iter"]
+full = ["async", "iter", "ipc", "metrics", "numa", "futex"]
+async = ["stellaris-async"]
+iter = ["stellaris-iter"]
+ipc = ["stellaris-ipc"]
+metrics = ["stellaris-metrics", "stellaris-core/metrics"]
+numa = ["stellaris-executor/numa", "stellaris-scheduler/numa", "stellaris-utils/numa"]
+futex = ["stellaris-sync/futex"]
+no-std = ["stellaris-core/no-std", "stellaris-utils/no-std"]
