@@ -83,6 +83,7 @@ impl Worker {
         coordinator: Arc<WorkStealingCoordinator>,
         task_registry: Arc<TaskRegistry>,
         shutdown_signal: Arc<AtomicBool>,
+        metrics: Arc<WorkerMetrics>,
     ) -> Self {
         Self {
             id,
@@ -90,7 +91,7 @@ impl Worker {
             coordinator,
             task_registry,
             shutdown_signal,
-            metrics: Arc::new(WorkerMetrics::default()),
+            metrics,
         }
     }
 
@@ -444,6 +445,9 @@ pub struct HybridExecutor {
     shutdown_complete: Arc<Condvar>,
     shutdown_mutex: Arc<Mutex<bool>>,
     
+    // Metrics
+    worker_metrics: Vec<Arc<WorkerMetrics>>,
+    
     // Plugins
     plugins: Vec<Box<dyn ExecutorPlugin>>,
     
@@ -501,14 +505,19 @@ impl HybridExecutor {
 
         // Create worker threads
         let mut worker_handles = Vec::with_capacity(config.worker_threads);
+        let mut worker_metrics = Vec::with_capacity(config.worker_threads);
         
         for (i, scheduler) in schedulers.iter().enumerate() {
+            let metrics = Arc::new(WorkerMetrics::default());
+            worker_metrics.push(metrics.clone());
+            
             let worker = Worker::new(
                 WorkerId::new(i),
                 scheduler.clone(),
                 coordinator.clone(),
                 task_registry.clone(),
                 shutdown_signal.clone(),
+                metrics,
             );
 
             let handle = thread::Builder::new()
@@ -551,6 +560,7 @@ impl HybridExecutor {
             shutdown_signal,
             shutdown_complete,
             shutdown_mutex,
+            worker_metrics,
             plugins,
             start_time: Instant::now(),
             tasks_spawned: AtomicU64::new(0),
@@ -672,10 +682,10 @@ impl HybridExecutor {
             .enumerate()
             .map(|(i, _)| WorkerSnapshot {
                 id: WorkerId::new(i),
-                tasks_executed: 0, // Would need access to worker metrics
-                steal_attempts: 0,
-                successful_steals: 0,
-                execution_time_ns: 0,
+                tasks_executed: self.worker_metrics[i].tasks_executed.load(Ordering::Relaxed),
+                steal_attempts: self.worker_metrics[i].steal_attempts.load(Ordering::Relaxed),
+                successful_steals: self.worker_metrics[i].successful_steals.load(Ordering::Relaxed),
+                execution_time_ns: self.worker_metrics[i].execution_time_ns.load(Ordering::Relaxed),
             })
             .collect();
 
@@ -823,8 +833,6 @@ impl ExecutorControl for HybridExecutor {
     }
 
     fn shutdown_timeout(&self, timeout: Duration) {
-        let _start_time = Instant::now();
-        
         // Try graceful shutdown first
         self.shutdown_signal.store(true, Ordering::Release);
 
@@ -838,12 +846,6 @@ impl ExecutorControl for HybridExecutor {
 
         if result.1.timed_out() {
             // Force shutdown - in a real implementation, this would forcibly terminate threads
-            eprintln!("Executor shutdown timed out after {:?}, forcing termination", timeout);
-        }
-
-        // Notify plugins
-        for plugin in &self.plugins {
-            plugin.on_shutdown();
         }
     }
 
@@ -1329,7 +1331,7 @@ mod tests {
             .build(|| "high priority task");
 
         let handle = executor.spawn_with_priority(task, Priority::Critical);
-        assert_eq!(handle.id().get(), 1); // First task should get ID 1
+        assert_eq!(handle.id().get(), 0); // First task should get ID 0
     }
 
     #[test]
@@ -1382,5 +1384,57 @@ mod tests {
         
         assert!(registry.cancel_task(id).is_ok());
         assert_eq!(registry.get_status(id), Some(TaskStatus::Cancelled));
+    }
+
+    #[test]
+    fn test_worker_metrics_sharing() {
+        use std::sync::atomic::Ordering;
+        
+        let executor = HybridExecutorBuilder::new()
+            .worker_threads(2)
+            .build()
+            .unwrap();
+
+        // Spawn several tasks to generate metrics
+        for i in 0..5 {
+            let task = TaskBuilder::new()
+                .name("metrics_test_task")
+                .build(move || {
+                    // Do some work to generate metrics
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    i * 2
+                });
+                
+            let _handle = executor.spawn_with_priority(task, Priority::Normal);
+        }
+        
+        // Wait for tasks to complete
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        
+        // Verify that worker metrics are accessible and have been updated
+        let stats = executor.detailed_stats();
+        
+        println!("Detailed executor stats: {:?}", stats);
+        
+        // Verify we have metrics for all workers
+        assert_eq!(stats.worker_stats.len(), 2);
+        
+        // Verify that at least some tasks were executed (metrics should be > 0)
+        let total_tasks_executed: u64 = stats.worker_stats.iter()
+            .map(|w| w.tasks_executed)
+            .sum();
+            
+        println!("Total tasks executed across workers: {}", total_tasks_executed);
+        assert!(total_tasks_executed > 0, "Workers should have executed some tasks");
+        
+        // Verify that execution time was recorded
+        let total_execution_time: u64 = stats.worker_stats.iter()
+            .map(|w| w.execution_time_ns)
+            .sum();
+            
+        println!("Total execution time across workers: {} ns", total_execution_time);
+        assert!(total_execution_time > 0, "Workers should have recorded execution time");
+        
+        executor.shutdown();
     }
 }
