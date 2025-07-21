@@ -9,7 +9,7 @@ use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
-use moirai_core::{TaskId, Priority, error::ExecutorError};
+use moirai_core::{TaskId, Priority};
 
 /// An async executor that integrates with Moirai's hybrid runtime.
 /// 

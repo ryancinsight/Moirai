@@ -5,8 +5,8 @@
 //! while maintaining safety and avoiding deadlocks.
 
 use std::sync::{
-    Arc, Mutex as StdMutex, RwLock as StdRwLock, Condvar as StdCondvar,
-    atomic::{AtomicU64, AtomicBool, AtomicUsize, Ordering},
+    Mutex as StdMutex, RwLock as StdRwLock, Condvar as StdCondvar,
+    atomic::{AtomicU64, AtomicBool, Ordering},
     Barrier as StdBarrier,
 };
 use std::sync::OnceLock;
@@ -534,6 +534,7 @@ impl<'a, T> Drop for SpinLockGuard<'a, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
 
