@@ -205,11 +205,26 @@ impl<T> ChaseLevDeque<T> {
         let new_array_ptr = Box::into_raw(new_array);
         self.array.store(new_array_ptr, Ordering::Release);
         
-        // Note: In a production implementation, we would need proper memory reclamation
-        // using hazard pointers or epoch-based reclamation to safely free the old array
+        // Push the old array into the list of arrays pending deallocation
+        let mut old_arrays = self.old_arrays.lock().unwrap();
+        old_arrays.push(old_array_ptr);
+        
+        // Note: Proper memory reclamation is deferred to a safe point
     }
 }
 
+impl<T> ChaseLevDeque<T> {
+    /// Safely deallocate old arrays when it is safe to do so.
+    pub fn reclaim_memory(&self) {
+        let mut old_arrays = self.old_arrays.lock().unwrap();
+        for array_ptr in old_arrays.drain(..) {
+            unsafe {
+                // Deallocate the old array
+                Box::from_raw(array_ptr);
+            }
+        }
+    }
+}
 /// Result of a steal operation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StealResult<T> {
