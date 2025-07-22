@@ -844,7 +844,7 @@ pub mod channel {
 mod tests {
     use super::*;
     use std::thread;
-    use std::time::Duration;
+
 
     #[test]
     fn test_bounded_channel_basic() {

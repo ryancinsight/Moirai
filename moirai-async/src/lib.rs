@@ -887,11 +887,11 @@ mod tests {
         let executor = AsyncExecutor::new();
         
         let handle = executor.spawn(async { 42 });
-        let task_id = handle.id();
+        let _task_id = handle.id();
         
         assert!(!handle.is_ready());
         assert!(handle.try_result().is_none());
-        assert!(task_id.get() >= 0); // Task ID should be valid
+        // Task ID should be valid (0 is a valid starting ID)
     }
 
     // Note: This test would require tokio integration

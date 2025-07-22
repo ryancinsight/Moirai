@@ -1114,7 +1114,7 @@ pub mod memory_pool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{vec, vec::Vec};
+    use std::vec;
 
     #[test]
     fn test_cache_line_alignment() {
@@ -1138,7 +1138,7 @@ mod tests {
     #[cfg(feature = "std")]
     mod cpu_tests {
         use super::super::cpu::*;
-        use std::{vec, vec::Vec, format};
+        use std::vec;
 
         #[test]
         fn test_cpu_core() {
@@ -1617,17 +1617,17 @@ mod tests {
         memory::memory_barrier();
         memory::compiler_barrier();
         
-        // Test in a simple scenario
-        static mut COUNTER: u32 = 0;
-        unsafe {
-            COUNTER = 1;
-            memory::compiler_barrier();
-            assert_eq!(COUNTER, 1);
-            
-            COUNTER = 2;
-            memory::memory_barrier();
-            assert_eq!(COUNTER, 2);
-        }
+        // Test in a simple scenario using AtomicU32 for safety
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        
+        COUNTER.store(1, Ordering::Relaxed);
+        memory::compiler_barrier();
+        assert_eq!(COUNTER.load(Ordering::Relaxed), 1);
+        
+        COUNTER.store(2, Ordering::Relaxed);
+        memory::memory_barrier();
+        assert_eq!(COUNTER.load(Ordering::Relaxed), 2);
     }
 
     #[test]

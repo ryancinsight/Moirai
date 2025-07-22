@@ -38,10 +38,10 @@ pub trait AsyncIterator {
     type Item;
 
     /// Get the next item asynchronously.
-    async fn next(&mut self) -> Option<Self::Item>;
+    fn next(&mut self) -> impl std::future::Future<Output = Option<Self::Item>> + Send;
 
     /// Apply an async function to each item.
-    async fn for_each<F, Fut>(self, _func: F)
+    fn for_each<F, Fut>(self, _func: F) -> impl std::future::Future<Output = ()> + Send
     where
         F: FnMut(Self::Item) -> Fut,
         Fut: std::future::Future<Output = ()>;
@@ -158,16 +158,20 @@ pub struct AsyncIter<I> {
 impl<I> AsyncIterator for AsyncIter<I> {
     type Item = ();
 
-    async fn next(&mut self) -> Option<Self::Item> {
-        // Placeholder implementation
-        None
+    fn next(&mut self) -> impl std::future::Future<Output = Option<Self::Item>> + Send {
+        async move {
+            // Placeholder implementation
+            None
+        }
     }
 
-    async fn for_each<F, Fut>(self, _func: F)
+    fn for_each<F, Fut>(self, _func: F) -> impl std::future::Future<Output = ()> + Send
     where
         F: FnMut(Self::Item) -> Fut,
         Fut: std::future::Future<Output = ()>,
     {
-        // Placeholder implementation
+        async move {
+            // Placeholder implementation
+        }
     }
 }

@@ -620,7 +620,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Priority, TaskBuilder};
+    use crate::TaskBuilder;
 
     #[test]
     fn test_task_future() {
