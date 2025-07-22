@@ -223,6 +223,7 @@ impl Worker {
     }
 
     /// Get worker metrics snapshot.
+    #[allow(dead_code)]
     fn metrics(&self) -> WorkerSnapshot {
         WorkerSnapshot {
             id: self.id,
@@ -373,6 +374,7 @@ impl TaskRegistry {
     }
 
     /// Clean up completed tasks older than the specified duration.
+    #[allow(dead_code)]
     fn cleanup_completed(&self, max_age: Duration) {
         let cutoff = Instant::now() - max_age;
         let mut tasks = self.tasks.write().unwrap();
@@ -487,7 +489,7 @@ pub struct HybridExecutor {
     // Core components
     config: ExecutorConfig,
     schedulers: Vec<Arc<WorkStealingScheduler>>,
-    coordinator: Arc<WorkStealingCoordinator>,
+    _coordinator: Arc<WorkStealingCoordinator>,
     task_registry: Arc<TaskRegistry>,
     
     // Thread management
@@ -605,7 +607,7 @@ impl HybridExecutor {
         Ok(Self {
             config,
             schedulers,
-            coordinator,
+            _coordinator: coordinator,
             task_registry,
             worker_handles: Mutex::new(worker_handles),
             cleanup_handle: Mutex::new(cleanup_handle),
@@ -1138,6 +1140,7 @@ impl ExecutorPlugin for LoggingPlugin {
 }
 
 // Example blocking task for testing
+#[allow(dead_code)]
 struct BlockingTask<F, R> 
 where
     F: FnOnce() -> R + Send + 'static,
@@ -1153,6 +1156,7 @@ where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
+    #[allow(dead_code)]
     fn new(func: F) -> Self {
         Self {
             func: Some(func),
@@ -1486,5 +1490,32 @@ mod tests {
         assert!(total_execution_time > 0, "Workers should have recorded execution time");
         
         executor.shutdown();
+    }
+}
+
+impl Drop for HybridExecutor {
+    fn drop(&mut self) {
+        // Ensure clean shutdown when the executor is dropped
+        self.shutdown_signal.store(true, Ordering::Release);
+        
+        // Clean up cleanup thread first
+        if let Ok(mut cleanup_handle) = self.cleanup_handle.lock() {
+            if let Some(handle) = cleanup_handle.take() {
+                let _ = handle.join();
+            }
+        }
+        
+        // Clean up worker threads
+        if let Ok(mut handles) = self.worker_handles.lock() {
+            let worker_handles = std::mem::take(&mut *handles);
+            for handle in worker_handles {
+                let _ = handle.join();
+            }
+        }
+        
+        // Notify plugins
+        for plugin in &self.plugins {
+            plugin.on_shutdown();
+        }
     }
 }

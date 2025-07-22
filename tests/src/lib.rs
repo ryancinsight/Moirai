@@ -1,5 +1,8 @@
 //! Integration tests for Moirai concurrency library.
 
+use moirai::{Moirai, Priority};
+use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
+use std::time::Duration;
 
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]

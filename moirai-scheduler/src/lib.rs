@@ -248,7 +248,7 @@ pub struct WorkStealingScheduler {
     /// Unique identifier for this scheduler
     id: SchedulerId,
     /// Configuration for this scheduler
-    config: SchedulerConfig,
+    _config: SchedulerConfig,
     /// Local work queue (Chase-Lev deque)
     local_queue: ChaseLevDeque<Box<dyn BoxedTask>>,
     /// Global work queue for load balancing
@@ -284,7 +284,7 @@ impl WorkStealingScheduler {
 
         Self {
             id,
-            config,
+            _config: config,
             local_queue: ChaseLevDeque::new(initial_capacity),
             global_queue: Mutex::new(VecDeque::new()),
             stats: SchedulerStats::default(),

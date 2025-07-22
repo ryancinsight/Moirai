@@ -17,12 +17,10 @@ use std::collections::HashMap;
 use std::hash::{Hash, BuildHasher};
 use std::collections::hash_map::RandomState;
 
-#[cfg(target_os = "linux")]
-use std::time::Duration;
+
 
 #[cfg(target_os = "linux")]
 mod futex {
-    use std::sync::atomic::Ordering;
     
     // Linux futex operations
     const FUTEX_WAIT: i32 = 0;
@@ -1499,7 +1497,7 @@ impl<T> LockFreeQueue<T> {
                         Ordering::Relaxed,
                     ).is_ok() {
                         // Successfully dequeued, clean up old head
-                        unsafe { Box::from_raw(head) };
+                        unsafe { let _ = Box::from_raw(head); };
                         return data;
                     }
                     
@@ -1531,14 +1529,21 @@ impl<T> Default for LockFreeQueue<T> {
 impl<T> Drop for LockFreeQueue<T> {
     /// Clean up all remaining nodes.
     fn drop(&mut self) {
-        while self.dequeue().is_some() {
-            // Dequeue all remaining items
-        }
+        // Manually traverse and free all nodes without using dequeue
+        // This avoids potential double-free issues with the complex dequeue logic
+        let mut current = self.head.load(Ordering::Acquire);
+        let mut count = 0;
         
-        // Clean up dummy node
-        let head = self.head.load(Ordering::Acquire);
-        if !head.is_null() {
-            unsafe { Box::from_raw(head) };
+        while !current.is_null() && count < 10000 { // Safety limit to prevent infinite loops
+            let next = unsafe { (*current).next.load(Ordering::Acquire) };
+            unsafe { 
+                // Take any remaining data to drop it properly
+                let _ = (*current).data.take();
+                // Free the node
+                let _ = Box::from_raw(current); 
+            };
+            current = next;
+            count += 1;
         }
     }
 }

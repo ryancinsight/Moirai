@@ -23,6 +23,7 @@ pub struct Histogram {
 }
 
 /// A metrics collector.
+#[allow(dead_code)]
 pub struct MetricsCollector {
     counters: HashMap<String, Counter>,
     gauges: HashMap<String, Gauge>,

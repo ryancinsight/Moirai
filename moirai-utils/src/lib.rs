@@ -605,7 +605,7 @@ pub mod numa {
     
     use super::*;
     #[cfg(feature = "std")]
-    use super::cpu::{CpuCore, CpuTopology};
+    use super::cpu::CpuTopology;
     
     /// NUMA node identifier.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1006,7 +1006,7 @@ pub mod memory_pool {
             let vec_deque_overhead = std::mem::size_of::<VecDeque<NonNull<u8>>>() + 16; // Add heap allocation overhead
             let vec_overhead = std::mem::size_of::<Vec<NonNull<u8>>>() + 16; // Add heap allocation overhead
             let chunk_overhead = self.total_chunks * (std::mem::size_of::<NonNull<u8>>() + 8); // Add per-chunk overhead
-            align_to_cache_line(vec_deque_overhead + vec_overhead + chunk_overhead) // Align to cache line size
+            crate::align_to_cache_line(vec_deque_overhead + vec_overhead + chunk_overhead) // Align to cache line size
         }
     }
 

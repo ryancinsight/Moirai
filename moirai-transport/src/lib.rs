@@ -266,6 +266,7 @@ pub enum BroadcastScope {
 }
 
 /// Universal channel that adapts its transport based on the target address.
+#[allow(dead_code)]
 pub struct UniversalChannel<T> {
     local_tx: Option<LocalSender<T>>,
     local_rx: Option<LocalReceiver<T>>,
@@ -274,6 +275,7 @@ pub struct UniversalChannel<T> {
 }
 
 /// Transport manager that coordinates different communication mechanisms.
+#[allow(dead_code)]
 pub struct TransportManager {
     scheduler_id: SchedulerId,
     local_transports: LocalTransportPool,
@@ -298,6 +300,7 @@ pub struct NetworkTransportPool {
 }
 
 /// Routing table for address resolution and transport selection.
+#[allow(dead_code)]
 pub struct RoutingTable {
     // Maps addresses to optimal transport mechanisms
     routes: std::collections::HashMap<Address, TransportType>,
@@ -321,6 +324,7 @@ pub enum TransportType {
 }
 
 /// Network topology information for routing optimization.
+#[allow(dead_code)]
 pub struct NetworkTopology {
     local_node_id: String,
     peer_nodes: Vec<PeerNode>,
@@ -328,6 +332,7 @@ pub struct NetworkTopology {
 }
 
 /// Information about a peer node in the network.
+#[allow(dead_code)]
 pub struct PeerNode {
     node_id: String,
     address: RemoteAddress,
@@ -337,6 +342,7 @@ pub struct PeerNode {
 
 /// Capabilities of a network node.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct NodeCapabilities {
     cpu_cores: u32,
     memory_gb: u32,
@@ -345,12 +351,14 @@ pub struct NodeCapabilities {
 }
 
 /// Local sender for in-process communication.
+#[allow(dead_code)]
 pub struct LocalSender<T> {
     inner: crossbeam_channel::Sender<T>,
     address: Address,
 }
 
 /// Local receiver for in-process communication.
+#[allow(dead_code)]
 pub struct LocalReceiver<T> {
     inner: crossbeam_channel::Receiver<T>,
     address: Address,
@@ -705,7 +713,7 @@ impl InMemoryTransport {
         Self
     }
 
-    async fn send<T>(&self, address: Address, message: T) -> TransportResult<()> 
+    async fn send<T>(&self, address: Address, _message: T) -> TransportResult<()> 
     where
         T: Send + 'static,
     {
@@ -727,7 +735,7 @@ impl SharedMemoryTransport {
         Ok(Self)
     }
 
-    async fn send<T>(&self, address: Address, message: T) -> TransportResult<()> 
+    async fn send<T>(&self, address: Address, _message: T) -> TransportResult<()> 
     where
         T: Send + 'static,
     {
