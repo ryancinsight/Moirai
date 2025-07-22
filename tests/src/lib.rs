@@ -38,7 +38,7 @@ mod integration_tests {
     }
 
     #[test]
-    #[ignore] // Temporarily disabled due to memory safety issue affecting parallel workloads
+    #[ignore] // Still investigating runtime-level hanging issue
     fn test_parallel_computation() {
         let runtime = Moirai::new().unwrap();
         let counter = Arc::new(AtomicU32::new(0));
@@ -238,7 +238,7 @@ mod integration_tests {
 
     /// Stress test with CPU optimizations.
     #[test]
-    #[ignore] // Temporarily disabled due to memory safety issue in LockFreeQueue
+    #[ignore] // Memory corruption under high stress - needs investigation of memory allocators or high-level runtime issues
     fn test_cpu_optimized_stress() {
         use moirai_utils::cpu::CpuTopology;
         

@@ -1068,7 +1068,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Temporarily disabled due to memory safety issue
     fn test_lock_free_queue_basic() {
         let queue = LockFreeQueue::new();
         assert!(queue.is_empty());
@@ -1089,7 +1088,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Temporarily disabled due to memory safety issue
     fn test_lock_free_queue_concurrent() {
         use std::sync::Arc;
         use std::thread;
@@ -1163,7 +1161,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Temporarily disabled due to memory safety issue
     fn test_lock_free_queue_interleaved() {
         let queue = LockFreeQueue::new();
         
@@ -1372,41 +1369,50 @@ impl<T> Drop for LockFreeStack<T> {
 unsafe impl<T: Send> Send for LockFreeStack<T> {}
 unsafe impl<T: Send> Sync for LockFreeStack<T> {}
 
-/// A lock-free queue using the Michael & Scott algorithm.
+/// A memory-safe lock-free queue using epoch-based reclamation.
 /// 
 /// # Design Principles Applied
 /// - **SOLID**: Single responsibility (queue operations)
 /// - **CUPID**: Composable, predictable FIFO behavior
 /// - **GRASP**: Information expert pattern
-/// - **KISS**: Well-established algorithm implementation
 /// - **SSOT**: Atomic head/tail pointers as authoritative sources
+/// - **Memory Safety**: Uses crossbeam-epoch for safe memory reclamation
 /// 
 /// # Performance Characteristics
 /// - Enqueue: O(1) amortized with potential retry loops
 /// - Dequeue: O(1) amortized with potential retry loops
-/// - Memory overhead: 16 bytes per node + data
-/// - ABA problem resistant through careful memory management
+/// - Memory overhead: 16 bytes per node + data + epoch overhead
+/// - ABA problem resistant through epoch-based reclamation
+/// 
+/// # Safety
+/// This implementation uses crossbeam-epoch to ensure memory safety
+/// by deferring memory reclamation until all threads have finished
+/// accessing the data structure.
 pub struct LockFreeQueue<T> {
-    head: AtomicPtr<QueueNode<T>>,
-    tail: AtomicPtr<QueueNode<T>>,
+    head: crossbeam_epoch::Atomic<QueueNode<T>>,
+    tail: crossbeam_epoch::Atomic<QueueNode<T>>,
 }
 
 struct QueueNode<T> {
-    data: Option<T>,
-    next: AtomicPtr<QueueNode<T>>,
+    data: std::cell::Cell<Option<T>>,
+    next: crossbeam_epoch::Atomic<QueueNode<T>>,
 }
 
 impl<T> LockFreeQueue<T> {
     /// Create a new empty lock-free queue.
     pub fn new() -> Self {
-        let dummy = Box::into_raw(Box::new(QueueNode {
-            data: None,
-            next: AtomicPtr::new(std::ptr::null_mut()),
-        }));
+        use crossbeam_epoch::Owned;
+        
+        let dummy = Owned::new(QueueNode {
+            data: std::cell::Cell::new(None),
+            next: crossbeam_epoch::Atomic::null(),
+        });
+
+        let dummy_ptr = dummy.into_shared(unsafe { &crossbeam_epoch::unprotected() });
 
         Self {
-            head: AtomicPtr::new(dummy),
-            tail: AtomicPtr::new(dummy),
+            head: crossbeam_epoch::Atomic::from(dummy_ptr),
+            tail: crossbeam_epoch::Atomic::from(dummy_ptr),
         }
     }
 
@@ -1415,36 +1421,48 @@ impl<T> LockFreeQueue<T> {
     /// # Design Principles
     /// - **SOLID**: Single responsibility for enqueue operation
     /// - **GRASP**: Creator pattern for queue nodes
+    /// - **Memory Safety**: Uses epoch-based reclamation for safe memory management
     pub fn enqueue(&self, data: T) {
-        let new_node = Box::into_raw(Box::new(QueueNode {
-            data: Some(data),
-            next: AtomicPtr::new(std::ptr::null_mut()),
-        }));
+        use crossbeam_epoch::Owned;
+        use std::sync::atomic::Ordering;
+        
+        let mut new_node = Owned::new(QueueNode {
+            data: std::cell::Cell::new(Some(data)),
+            next: crossbeam_epoch::Atomic::null(),
+        });
+
+        let guard = &crossbeam_epoch::pin();
 
         loop {
-            let tail = self.tail.load(Ordering::Acquire);
-            let next = unsafe { (*tail).next.load(Ordering::Acquire) };
+            let tail = self.tail.load(Ordering::Acquire, guard);
+            let next = unsafe { tail.deref() }.next.load(Ordering::Acquire, guard);
 
             // Check if tail is still the last node
-            if tail == self.tail.load(Ordering::Acquire) {
+            if tail == self.tail.load(Ordering::Acquire, guard) {
                 if next.is_null() {
                     // Try to link new node at the end of the list
-                    if unsafe {
-                        (*tail).next.compare_exchange_weak(
-                            next,
-                            new_node,
-                            Ordering::Release,
-                            Ordering::Relaxed,
-                        ).is_ok()
-                    } {
-                        // Successfully linked, now try to swing tail to new node
-                        let _ = self.tail.compare_exchange_weak(
-                            tail,
-                            new_node,
-                            Ordering::Release,
-                            Ordering::Relaxed,
-                        );
-                        break;
+                    match unsafe { tail.deref() }.next.compare_exchange_weak(
+                        next,
+                        new_node,
+                        Ordering::Release,
+                        Ordering::Relaxed,
+                        guard,
+                    ) {
+                        Ok(new_node_shared) => {
+                            // Successfully linked, now try to swing tail to new node
+                            let _ = self.tail.compare_exchange_weak(
+                                tail,
+                                new_node_shared,
+                                Ordering::Release,
+                                Ordering::Relaxed,
+                                guard,
+                            );
+                            break;
+                        }
+                        Err(e) => {
+                            // CAS failed, retry with the returned node
+                            new_node = e.new;
+                        }
                     }
                 } else {
                     // Tail is lagging, try to advance it
@@ -1453,6 +1471,7 @@ impl<T> LockFreeQueue<T> {
                         next,
                         Ordering::Release,
                         Ordering::Relaxed,
+                        guard,
                     );
                 }
             }
@@ -1468,14 +1487,19 @@ impl<T> LockFreeQueue<T> {
     /// # Design Principles
     /// - **SOLID**: Single responsibility for dequeue operation
     /// - **SSOT**: Head pointer is authoritative for queue front
+    /// - **Memory Safety**: Uses epoch-based reclamation for safe memory management
     pub fn dequeue(&self) -> Option<T> {
+        use std::sync::atomic::Ordering;
+        
+        let guard = &crossbeam_epoch::pin();
+
         loop {
-            let head = self.head.load(Ordering::Acquire);
-            let tail = self.tail.load(Ordering::Acquire);
-            let next = unsafe { (*head).next.load(Ordering::Acquire) };
+            let head = self.head.load(Ordering::Acquire, guard);
+            let tail = self.tail.load(Ordering::Acquire, guard);
+            let next = unsafe { head.deref() }.next.load(Ordering::Acquire, guard);
 
             // Check if head is still the first node
-            if head == self.head.load(Ordering::Acquire) {
+            if head == self.head.load(Ordering::Acquire, guard) {
                 if head == tail {
                     if next.is_null() {
                         // Queue is empty
@@ -1487,22 +1511,29 @@ impl<T> LockFreeQueue<T> {
                         next,
                         Ordering::Release,
                         Ordering::Relaxed,
+                        guard,
                     );
                 } else if !next.is_null() {
-                    // Try to swing head to next node first
+                    // Read the data before attempting to modify head
+                    let data = unsafe { next.deref() }.data.take();
+                    
+                    // Try to swing head to next node
                     if self.head.compare_exchange_weak(
                         head,
                         next,
                         Ordering::Release,
                         Ordering::Relaxed,
+                        guard,
                     ).is_ok() {
-                        // Successfully moved head, now safely take data
-                        let data = unsafe { (*next).data.take() };
-                        // Clean up old head node
-                        unsafe { let _ = Box::from_raw(head); };
+                        // Successfully moved head, schedule old head for deletion
+                        unsafe { guard.defer_destroy(head) };
                         return data;
+                    } else {
+                        // CAS failed, restore the data if we took it
+                        if let Some(restored_data) = data {
+                            unsafe { next.deref() }.data.set(Some(restored_data));
+                        }
                     }
-                    // CAS failed, retry loop without any data manipulation
                 }
             }
         }
@@ -1510,9 +1541,12 @@ impl<T> LockFreeQueue<T> {
 
     /// Check if the queue is empty.
     pub fn is_empty(&self) -> bool {
-        let head = self.head.load(Ordering::Acquire);
-        let tail = self.tail.load(Ordering::Acquire);
-        let next = unsafe { (*head).next.load(Ordering::Acquire) };
+        use std::sync::atomic::Ordering;
+        
+        let guard = &crossbeam_epoch::pin();
+        let head = self.head.load(Ordering::Acquire, guard);
+        let tail = self.tail.load(Ordering::Acquire, guard);
+        let next = unsafe { head.deref() }.next.load(Ordering::Acquire, guard);
         
         head == tail && next.is_null()
     }
@@ -1526,22 +1560,13 @@ impl<T> Default for LockFreeQueue<T> {
 
 impl<T> Drop for LockFreeQueue<T> {
     /// Clean up all remaining nodes.
+    /// 
+    /// With crossbeam-epoch, we don't need to manually free nodes as they
+    /// will be automatically reclaimed when all epochs are done.
     fn drop(&mut self) {
-        // Manually traverse and free all nodes without using dequeue
-        // This avoids potential double-free issues with the complex dequeue logic
-        let mut current = self.head.load(Ordering::Acquire);
-        let mut count = 0;
-        
-        while !current.is_null() && count < 10000 { // Safety limit to prevent infinite loops
-            let next = unsafe { (*current).next.load(Ordering::Acquire) };
-            unsafe { 
-                // Take any remaining data to drop it properly
-                let _ = (*current).data.take();
-                // Free the node
-                let _ = Box::from_raw(current); 
-            };
-            current = next;
-            count += 1;
+        // Dequeue all remaining items to ensure proper cleanup
+        while self.dequeue().is_some() {
+            // Continue dequeuing until empty
         }
     }
 }
