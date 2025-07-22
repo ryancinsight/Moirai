@@ -239,7 +239,7 @@ impl RtConstraints {
             deadline_ns: None,
             period_ns: None,
             wcet_ns: None,
-            policy: RtSchedulingPolicy::EnergyEfficient { target_utilization },
+            policy: RtSchedulingPolicy::EnergyEfficient { target_utilization: target_utilization.min(100) },
             priority_ceiling: None,
             cpu_quota_percent: None,
             max_execution_slice_us: None,
