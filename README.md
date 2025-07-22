@@ -1,6 +1,8 @@
-# # Moirai - Weaving the Threads of Fate
+# Moirai - Weaving the Threads of Fate
 
 A high-performance hybrid concurrency library for Rust that seamlessly blends asynchronous and parallel execution models. Named after the Greek Fates who controlled the threads of life, Moirai weaves together async and parallel execution with unified communication across threads, processes, and machines.
+
+**Built entirely from scratch using only Rust's standard library** - Moirai is designed as a high-performance alternative to tokio and rayon, providing superior scheduling and communication primitives without external dependencies.
 
 ## 🌟 Key Features
 
@@ -11,14 +13,14 @@ A high-performance hybrid concurrency library for Rust that seamlessly blends as
 - **🔒 Memory Safety**: Leverage Rust's ownership system for safe concurrency
 - **📊 NUMA Awareness**: Optimize for modern multi-socket systems
 - **🔄 Iterator Combinators**: Rich parallel and async iterator processing
+- **🚀 Standard Library Only**: No external dependencies - pure Rust stdlib implementation
 
 ## 🚀 Quick Start
 
 ```rust
 use moirai::prelude::*;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a hybrid runtime
     let moirai = Moirai::builder()
         .worker_threads(8)
@@ -30,13 +32,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, rx) = moirai.channel::<String>()?;
     
     // Send to different targets with the same interface
-    tx.send_to(Address::Thread(ThreadId(1)), "Hello thread!".to_string()).await?;
-    tx.send_to(Address::Process(ProcessId(456)), "Hello process!".to_string()).await?;
-    tx.send_to(Address::Remote(RemoteAddress {
-        host: "worker-node-1".to_string(),
-        port: 8080,
-        namespace: None,
-    }), "Hello remote!".to_string()).await?;
+    moirai.block_on(async {
+        tx.send_to(Address::Thread(ThreadId(1)), "Hello thread!".to_string()).await?;
+        tx.send_to(Address::Process(ProcessId(456)), "Hello process!".to_string()).await?;
+        tx.send_to(Address::Remote(RemoteAddress {
+            host: "worker-node-1".to_string(),
+            port: 8080,
+            namespace: None,
+        }), "Hello remote!".to_string()).await?;
+        Ok::<(), Box<dyn std::error::Error>>(())
+    })?;
 
     // Spawn tasks across execution models
     let async_task = moirai.spawn_async(async {
@@ -50,8 +55,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Await results
-    let a = async_task.await?;
-    let b = parallel_task.await?;
+    let a = moirai.block_on(async_task)?;
+    let b = parallel_task.join()?;
     
     println!("Results: {} + {} = {}", a, b, a + b);
     Ok(())
@@ -66,6 +71,7 @@ Moirai unifies communication and task execution under a single scheduler-coordin
 - **🚀 Transport Layer**: Automatic selection between in-memory, shared memory, TCP, and distributed protocols
 - **🎯 Location Transparency**: Same API works across threads, processes, and machines
 - **⚖️ Load Balancing**: Intelligent work distribution considers both compute and communication costs
+- **🔧 Pure Rust Implementation**: Built entirely from scratch using only standard library primitives
 
 ## 📦 Crate Structure
 

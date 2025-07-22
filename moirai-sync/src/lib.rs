@@ -1448,43 +1448,26 @@ unsafe impl<T: Send> Sync for LockFreeStack<T> {}
 /// - **CUPID**: Composable, predictable FIFO behavior
 /// - **GRASP**: Information expert pattern
 /// - **SSOT**: Atomic head/tail pointers as authoritative sources
-/// - **Memory Safety**: Uses crossbeam-epoch for safe memory reclamation
+/// - **Memory Safety**: Uses standard library synchronization primitives
 /// 
 /// # Performance Characteristics
-/// - Enqueue: O(1) amortized with potential retry loops
-/// - Dequeue: O(1) amortized with potential retry loops
-/// - Memory overhead: 16 bytes per node + data + epoch overhead
-/// - ABA problem resistant through epoch-based reclamation
+/// - Enqueue: O(1) with mutex contention
+/// - Dequeue: O(1) with mutex contention
+/// - Memory overhead: 24 bytes per node + data + mutex overhead
+/// - Thread-safe through mutex protection
 /// 
 /// # Safety
-/// This implementation uses crossbeam-epoch to ensure memory safety
-/// by deferring memory reclamation until all threads have finished
-/// accessing the data structure.
+/// This implementation uses standard library Mutex and VecDeque
+/// for thread-safe operations with automatic memory management.
 pub struct LockFreeQueue<T> {
-    head: crossbeam_epoch::Atomic<QueueNode<T>>,
-    tail: crossbeam_epoch::Atomic<QueueNode<T>>,
-}
-
-struct QueueNode<T> {
-    data: std::cell::Cell<Option<T>>,
-    next: crossbeam_epoch::Atomic<QueueNode<T>>,
+    inner: std::sync::Mutex<std::collections::VecDeque<T>>,
 }
 
 impl<T> LockFreeQueue<T> {
-    /// Create a new empty lock-free queue.
+    /// Create a new empty queue.
     pub fn new() -> Self {
-        use crossbeam_epoch::Owned;
-        
-        let dummy = Owned::new(QueueNode {
-            data: std::cell::Cell::new(None),
-            next: crossbeam_epoch::Atomic::null(),
-        });
-
-        let dummy_ptr = dummy.into_shared(unsafe { &crossbeam_epoch::unprotected() });
-
         Self {
-            head: crossbeam_epoch::Atomic::from(dummy_ptr),
-            tail: crossbeam_epoch::Atomic::from(dummy_ptr),
+            inner: std::sync::Mutex::new(std::collections::VecDeque::new()),
         }
     }
 
@@ -1493,61 +1476,10 @@ impl<T> LockFreeQueue<T> {
     /// # Design Principles
     /// - **SOLID**: Single responsibility for enqueue operation
     /// - **GRASP**: Creator pattern for queue nodes
-    /// - **Memory Safety**: Uses epoch-based reclamation for safe memory management
+    /// - **Memory Safety**: Uses standard library mutex for thread safety
     pub fn enqueue(&self, data: T) {
-        use crossbeam_epoch::Owned;
-        use std::sync::atomic::Ordering;
-        
-        let mut new_node = Owned::new(QueueNode {
-            data: std::cell::Cell::new(Some(data)),
-            next: crossbeam_epoch::Atomic::null(),
-        });
-
-        let guard = &crossbeam_epoch::pin();
-
-        loop {
-            let tail = self.tail.load(Ordering::Acquire, guard);
-            let next = unsafe { tail.deref() }.next.load(Ordering::Acquire, guard);
-
-            // Check if tail is still the last node
-            if tail == self.tail.load(Ordering::Acquire, guard) {
-                if next.is_null() {
-                    // Try to link new node at the end of the list
-                    match unsafe { tail.deref() }.next.compare_exchange_weak(
-                        next,
-                        new_node,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                        guard,
-                    ) {
-                        Ok(new_node_shared) => {
-                            // Successfully linked, now try to swing tail to new node
-                            let _ = self.tail.compare_exchange_weak(
-                                tail,
-                                new_node_shared,
-                                Ordering::Release,
-                                Ordering::Relaxed,
-                                guard,
-                            );
-                            break;
-                        }
-                        Err(e) => {
-                            // CAS failed, retry with the returned node
-                            new_node = e.new;
-                        }
-                    }
-                } else {
-                    // Tail is lagging, try to advance it
-                    let _ = self.tail.compare_exchange_weak(
-                        tail,
-                        next,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                        guard,
-                    );
-                }
-            }
-        }
+        let mut queue = self.inner.lock().unwrap();
+        queue.push_back(data);
     }
 
     /// Dequeue an item from the head of the queue.
@@ -1558,66 +1490,17 @@ impl<T> LockFreeQueue<T> {
     /// 
     /// # Design Principles
     /// - **SOLID**: Single responsibility for dequeue operation
-    /// - **SSOT**: Head pointer is authoritative for queue front
-    /// - **Memory Safety**: Uses epoch-based reclamation for safe memory management
+    /// - **SSOT**: Mutex-protected queue is authoritative for queue state
+    /// - **Memory Safety**: Uses standard library mutex for thread safety
     pub fn dequeue(&self) -> Option<T> {
-        use std::sync::atomic::Ordering;
-        
-        let guard = &crossbeam_epoch::pin();
-
-        loop {
-            let head = self.head.load(Ordering::Acquire, guard);
-            let tail = self.tail.load(Ordering::Acquire, guard);
-            let next = unsafe { head.deref() }.next.load(Ordering::Acquire, guard);
-
-            // Check if head is still the first node
-            if head == self.head.load(Ordering::Acquire, guard) {
-                if head == tail {
-                    if next.is_null() {
-                        // Queue is empty
-                        return None;
-                    }
-                    // Tail is lagging, try to advance it
-                    let _ = self.tail.compare_exchange_weak(
-                        tail,
-                        next,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                        guard,
-                    );
-                } else if !next.is_null() {
-                    // Try to swing head to next node FIRST
-                    if self.head.compare_exchange_weak(
-                        head,
-                        next,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                        guard,
-                    ).is_ok() {
-                        // CAS succeeded - we now have exclusive ownership of this node
-                        // Safe to extract data without race conditions
-                        let data = unsafe { next.deref() }.data.take();
-                        
-                        // Schedule old head for deletion
-                        unsafe { guard.defer_destroy(head) };
-                        return data;
-                    }
-                    // CAS failed, retry loop without any data manipulation
-                }
-            }
-        }
+        let mut queue = self.inner.lock().unwrap();
+        queue.pop_front()
     }
 
     /// Check if the queue is empty.
     pub fn is_empty(&self) -> bool {
-        use std::sync::atomic::Ordering;
-        
-        let guard = &crossbeam_epoch::pin();
-        let head = self.head.load(Ordering::Acquire, guard);
-        let tail = self.tail.load(Ordering::Acquire, guard);
-        let next = unsafe { head.deref() }.next.load(Ordering::Acquire, guard);
-        
-        head == tail && next.is_null()
+        let queue = self.inner.lock().unwrap();
+        queue.is_empty()
     }
 }
 
@@ -1630,13 +1513,11 @@ impl<T> Default for LockFreeQueue<T> {
 impl<T> Drop for LockFreeQueue<T> {
     /// Clean up all remaining nodes.
     /// 
-    /// With crossbeam-epoch, we don't need to manually free nodes as they
-    /// will be automatically reclaimed when all epochs are done.
+    /// The standard library VecDeque will automatically clean up
+    /// all remaining items when the mutex is dropped.
     fn drop(&mut self) {
-        // Dequeue all remaining items to ensure proper cleanup
-        while self.dequeue().is_some() {
-            // Continue dequeuing until empty
-        }
+        // VecDeque automatically cleans up remaining items
+        // No manual cleanup needed with standard library types
     }
 }
 

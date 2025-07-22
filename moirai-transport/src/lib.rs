@@ -5,23 +5,34 @@
 //! the Moirai scheduler for optimal performance and resource management.
 
 use moirai_core::{TaskId, scheduler::SchedulerId};
-use std::{fmt};
+use std::{
+    fmt,
+    sync::{Arc, Mutex, Condvar},
+    collections::VecDeque,
+};
 
 /// A multi-producer, multi-consumer channel.
 pub struct Channel<T> {
     _phantom: std::marker::PhantomData<T>,
 }
 
+/// Internal shared state for MPMC channel
+struct ChannelState<T> {
+    queue: VecDeque<T>,
+    capacity: Option<usize>,
+    closed: bool,
+}
+
 /// The sending half of a channel.
 #[derive(Clone)]
 pub struct Sender<T> {
-    inner: crossbeam_channel::Sender<T>,
+    state: Arc<(Mutex<ChannelState<T>>, Condvar, Condvar)>,
 }
 
 /// The receiving half of a channel.
 #[derive(Clone)]
 pub struct Receiver<T> {
-    inner: crossbeam_channel::Receiver<T>,
+    state: Arc<(Mutex<ChannelState<T>>, Condvar, Condvar)>,
 }
 
 /// Error types for channel operations.
@@ -61,7 +72,21 @@ impl<T> Sender<T> {
     /// - Thread-safe: can be called from multiple threads concurrently
     /// - Memory ordering: uses acquire-release semantics
     pub fn send(&self, value: T) -> ChannelResult<()> {
-        self.inner.send(value).map_err(|_| ChannelError::Closed)
+        let (mutex, not_full, not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+        
+        // Wait for space or channel closure
+        while !guard.closed && guard.capacity.map_or(false, |cap| guard.queue.len() >= cap) {
+            guard = not_full.wait(guard).unwrap();
+        }
+        
+        if guard.closed {
+            return Err(ChannelError::Closed);
+        }
+        
+        guard.queue.push_back(value);
+        not_empty.notify_one();
+        Ok(())
     }
 
     /// Try to send a value without blocking.
@@ -71,11 +96,20 @@ impl<T> Sender<T> {
     /// - Returns WouldBlock if channel is full
     /// - Returns Closed if channel is disconnected
     pub fn try_send(&self, value: T) -> ChannelResult<()> {
-        match self.inner.try_send(value) {
-            Ok(()) => Ok(()),
-            Err(crossbeam_channel::TrySendError::Full(_)) => Err(ChannelError::Full),
-            Err(crossbeam_channel::TrySendError::Disconnected(_)) => Err(ChannelError::Closed),
+        let (mutex, _not_full, not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+        
+        if guard.closed {
+            return Err(ChannelError::Closed);
         }
+        
+        if guard.capacity.map_or(false, |cap| guard.queue.len() >= cap) {
+            return Err(ChannelError::Full);
+        }
+        
+        guard.queue.push_back(value);
+        not_empty.notify_one();
+        Ok(())
     }
 }
 
@@ -87,7 +121,20 @@ impl<T> Receiver<T> {
     /// - Thread-safe: can be called from multiple threads concurrently
     /// - Memory ordering: uses acquire-release semantics
     pub fn recv(&self) -> ChannelResult<T> {
-        self.inner.recv().map_err(|_| ChannelError::Closed)
+        let (mutex, not_full, not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+        
+        // Wait for message or channel closure
+        while guard.queue.is_empty() && !guard.closed {
+            guard = not_empty.wait(guard).unwrap();
+        }
+        
+        if let Some(value) = guard.queue.pop_front() {
+            not_full.notify_one();
+            Ok(value)
+        } else {
+            Err(ChannelError::Closed)
+        }
     }
 
     /// Try to receive a value without blocking.
@@ -97,10 +144,16 @@ impl<T> Receiver<T> {
     /// - Returns Empty if no message is available
     /// - Returns Closed if channel is disconnected
     pub fn try_recv(&self) -> ChannelResult<T> {
-        match self.inner.try_recv() {
-            Ok(value) => Ok(value),
-            Err(crossbeam_channel::TryRecvError::Empty) => Err(ChannelError::Empty),
-            Err(crossbeam_channel::TryRecvError::Disconnected) => Err(ChannelError::Closed),
+        let (mutex, not_full, _not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+        
+        if let Some(value) = guard.queue.pop_front() {
+            not_full.notify_one();
+            Ok(value)
+        } else if guard.closed {
+            Err(ChannelError::Closed)
+        } else {
+            Err(ChannelError::Empty)
         }
     }
 }
@@ -116,12 +169,21 @@ impl<T> Receiver<T> {
 /// # Performance Characteristics
 /// - Send/receive: O(1) amortized
 /// - Memory overhead: ~8 bytes per slot + message size
-/// - Lock-free implementation for optimal performance
+/// - Lock-based implementation using std library primitives
 pub fn bounded<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
-    let (tx, rx) = crossbeam_channel::bounded(capacity);
+    let state = Arc::new((
+        Mutex::new(ChannelState {
+            queue: VecDeque::new(),
+            capacity: Some(capacity),
+            closed: false,
+        }),
+        Condvar::new(), // not_full
+        Condvar::new(), // not_empty
+    ));
+    
     (
-        Sender { inner: tx },
-        Receiver { inner: rx },
+        Sender { state: state.clone() },
+        Receiver { state },
     )
 }
 
@@ -137,12 +199,21 @@ pub fn bounded<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
 /// - Send: O(1) amortized, never blocks on capacity
 /// - Receive: O(1) amortized
 /// - Memory overhead: ~16 bytes per message + message size
-/// - Lock-free implementation for optimal performance
+/// - Lock-based implementation using std library primitives
 pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
-    let (tx, rx) = crossbeam_channel::unbounded();
+    let state = Arc::new((
+        Mutex::new(ChannelState {
+            queue: VecDeque::new(),
+            capacity: None,
+            closed: false,
+        }),
+        Condvar::new(), // not_full
+        Condvar::new(), // not_empty
+    ));
+    
     (
-        Sender { inner: tx },
-        Receiver { inner: rx },
+        Sender { state: state.clone() },
+        Receiver { state },
     )
 }
 
@@ -353,14 +424,14 @@ pub struct NodeCapabilities {
 /// Local sender for in-process communication.
 #[allow(dead_code)]
 pub struct LocalSender<T> {
-    inner: crossbeam_channel::Sender<T>,
+    inner: Sender<T>,
     address: Address,
 }
 
 /// Local receiver for in-process communication.
 #[allow(dead_code)]
 pub struct LocalReceiver<T> {
-    inner: crossbeam_channel::Receiver<T>,
+    inner: Receiver<T>,
     address: Address,
 }
 

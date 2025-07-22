@@ -16,7 +16,6 @@ description = "Unified transport layer for Moirai concurrency library - seamless
 moirai-core = { workspace = true }
 moirai-scheduler = { workspace = true }
 moirai-utils = { workspace = true }
-crossbeam-channel = "0.5"
 
 [dev-dependencies]
 criterion = { workspace = true }
