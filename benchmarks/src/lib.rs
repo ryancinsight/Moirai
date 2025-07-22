@@ -129,7 +129,7 @@ impl PerformanceStats {
         let std_dev = variance.sqrt();
 
         let mut sorted = samples.to_vec();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let min = sorted[0];
         let max = sorted[count - 1];
