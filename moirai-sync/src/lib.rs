@@ -1161,6 +1161,78 @@ mod tests {
     }
 
     #[test]
+    fn test_race_condition_data_integrity() {
+        // This test specifically targets the race condition where speculative
+        // data extraction before CAS could cause data loss between threads
+        use std::collections::HashSet;
+        
+        const NUM_THREADS: usize = 8;
+        const ITEMS_PER_THREAD: usize = 100;
+        const TOTAL_ITEMS: usize = NUM_THREADS * ITEMS_PER_THREAD;
+        
+        let queue = Arc::new(LockFreeQueue::new());
+        
+        // Producer phase: Each thread adds unique values
+        let producer_handles: Vec<_> = (0..NUM_THREADS).map(|thread_id| {
+            let queue = Arc::clone(&queue);
+            thread::spawn(move || {
+                for i in 0..ITEMS_PER_THREAD {
+                    let unique_value = thread_id * ITEMS_PER_THREAD + i;
+                    queue.enqueue(unique_value);
+                }
+            })
+        }).collect();
+        
+        // Wait for all producers to finish
+        for handle in producer_handles {
+            handle.join().unwrap();
+        }
+        
+        // Consumer phase: Multiple threads concurrently dequeue all items
+        let consumed_items = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let consumer_handles: Vec<_> = (0..NUM_THREADS).map(|_| {
+            let queue = Arc::clone(&queue);
+            let consumed_items = Arc::clone(&consumed_items);
+            thread::spawn(move || {
+                let mut local_items = Vec::new();
+                
+                // Each thread attempts to dequeue items until queue is empty
+                while let Some(item) = queue.dequeue() {
+                    local_items.push(item);
+                }
+                
+                // Add local items to global collection
+                if !local_items.is_empty() {
+                    consumed_items.lock().unwrap().extend(local_items);
+                }
+            })
+        }).collect();
+        
+        // Wait for all consumers to finish
+        for handle in consumer_handles {
+            handle.join().unwrap();
+        }
+        
+        // Verify data integrity
+        let final_items = consumed_items.lock().unwrap();
+        
+        // Check that we got exactly the right number of items (no data loss)
+        assert_eq!(final_items.len(), TOTAL_ITEMS, 
+                   "Data loss detected! Expected {} items, got {}", 
+                   TOTAL_ITEMS, final_items.len());
+        
+        // Check that all items are unique (no duplication)
+        let unique_items: HashSet<_> = final_items.iter().cloned().collect();
+        assert_eq!(unique_items.len(), final_items.len(),
+                   "Duplicate items detected! Race condition may have caused data duplication");
+        
+        // Check that we have all expected values (no corruption)
+        let expected_items: HashSet<_> = (0..TOTAL_ITEMS).collect();
+        assert_eq!(unique_items, expected_items,
+                   "Data corruption detected! Some items were lost or corrupted");
+    }
+
+    #[test]
     fn test_lock_free_queue_interleaved() {
         let queue = LockFreeQueue::new();
         
@@ -1514,10 +1586,7 @@ impl<T> LockFreeQueue<T> {
                         guard,
                     );
                 } else if !next.is_null() {
-                    // Read the data before attempting to modify head
-                    let data = unsafe { next.deref() }.data.take();
-                    
-                    // Try to swing head to next node
+                    // Try to swing head to next node FIRST
                     if self.head.compare_exchange_weak(
                         head,
                         next,
@@ -1525,15 +1594,15 @@ impl<T> LockFreeQueue<T> {
                         Ordering::Relaxed,
                         guard,
                     ).is_ok() {
-                        // Successfully moved head, schedule old head for deletion
+                        // CAS succeeded - we now have exclusive ownership of this node
+                        // Safe to extract data without race conditions
+                        let data = unsafe { next.deref() }.data.take();
+                        
+                        // Schedule old head for deletion
                         unsafe { guard.defer_destroy(head) };
                         return data;
-                    } else {
-                        // CAS failed, restore the data if we took it
-                        if let Some(restored_data) = data {
-                            unsafe { next.deref() }.data.set(Some(restored_data));
-                        }
                     }
+                    // CAS failed, retry loop without any data manipulation
                 }
             }
         }

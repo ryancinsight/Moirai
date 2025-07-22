@@ -238,7 +238,7 @@ mod integration_tests {
 
     /// Stress test with CPU optimizations.
     #[test]
-    #[ignore] // Memory corruption under high stress - needs investigation of memory allocators or high-level runtime issues
+    #[ignore] // SIGSEGV under extreme stress - additional memory safety investigation needed beyond the dequeue race condition fix
     fn test_cpu_optimized_stress() {
         use moirai_utils::cpu::CpuTopology;
         
