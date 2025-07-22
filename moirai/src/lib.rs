@@ -258,7 +258,7 @@ impl Moirai {
         R: Send + 'static,
     {
         // Create a distributed task
-        let task_id = format!("remote-task-{}", self.next_task_id());
+        let task_id = format!("remote-task-{}", self.next_task_id().get());
         
         // In a real implementation, this would:
         // 1. Serialize the closure and its environment
