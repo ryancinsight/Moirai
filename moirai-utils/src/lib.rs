@@ -1298,7 +1298,7 @@ pub mod memory_pool {
     pub struct NumaAwarePool {
         pools: HashMap<u32, MemoryPool>, // One pool per NUMA node
         preferred_node: Option<u32>,
-        block_size: usize,
+        block_size: usize, // Used in allocation logic
         // Metadata tracking: maps allocated pointers to their source node
         allocation_metadata: std::sync::Mutex<HashMap<usize, u32>>,
     }
@@ -1461,6 +1461,11 @@ pub mod memory_pool {
                     let _ = writeln!(io::stderr(), "WARNING: NumaAwarePool::deallocate_from_node - Invalid node ID: {}", node_id);
                 }
             }
+        }
+
+        /// Get the block size for this NUMA-aware pool.
+        pub fn block_size(&self) -> usize {
+            self.block_size
         }
 
         /// Get statistics for all NUMA nodes.
