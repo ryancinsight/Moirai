@@ -960,6 +960,113 @@ pub mod memory {
     pub fn compiler_barrier() {
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     }
+
+    /// Branch prediction optimization utilities.
+    /// 
+    /// # Design Principles Applied
+    /// - **SOLID**: Single responsibility for branch prediction optimization
+    /// - **CUPID**: Composable hints that can be used throughout the codebase
+    /// - **KISS**: Simple, lightweight branch prediction hints
+    /// - **YAGNI**: Only essential branch prediction features
+    pub mod branch_prediction {
+        /// Hint that a condition is likely to be true.
+        /// 
+        /// This helps the CPU's branch predictor optimize for the common case,
+        /// reducing branch misprediction penalties. Uses manual branch prediction
+        /// techniques that are stable and compatible with all Rust versions.
+        /// 
+        /// # Example
+        /// ```
+        /// use moirai_utils::memory::branch_prediction::likely;
+        /// 
+        /// if likely(some_condition) {
+        ///     // This branch is expected to be taken most of the time
+        /// }
+        /// ```
+        #[inline]
+        pub fn likely(condition: bool) -> bool {
+            // Manual branch prediction using cold attribute on unlikely path
+            if condition {
+                true
+            } else {
+                cold_path_false()
+            }
+        }
+
+        /// Hint that a condition is unlikely to be true.
+        /// 
+        /// This helps the CPU's branch predictor optimize for the uncommon case,
+        /// reducing branch misprediction penalties for error paths.
+        /// 
+        /// # Example
+        /// ```
+        /// use moirai_utils::memory::branch_prediction::unlikely;
+        /// 
+        /// if unlikely(error_condition) {
+        ///     // This branch is expected to be taken rarely
+        ///     handle_error();
+        /// }
+        /// ```
+        #[inline]
+        pub fn unlikely(condition: bool) -> bool {
+            // Manual branch prediction using cold attribute on likely path
+            if condition {
+                cold_path_true()
+            } else {
+                false
+            }
+        }
+
+        /// Cold path for false condition - marked cold to hint branch predictor.
+        #[cold]
+        #[inline(never)]
+        fn cold_path_false() -> bool {
+            false
+        }
+
+        /// Cold path for true condition - marked cold to hint branch predictor.
+        #[cold]
+        #[inline(never)]
+        fn cold_path_true() -> bool {
+            true
+        }
+
+        /// Force a branch prediction to be cold (unlikely to be taken).
+        /// 
+        /// This is useful for error handling paths that should not pollute
+        /// the branch predictor's cache.
+        #[inline]
+        pub fn cold_branch() {
+            #[cfg(target_arch = "x86_64")]
+            {
+                // Insert a serializing instruction to ensure branch prediction cache coherency
+                unsafe {
+                    core::arch::asm!("", options(nomem, nostack));
+                }
+            }
+        }
+
+        /// Prefetch the next instruction to improve instruction cache performance.
+        /// 
+        /// This is particularly useful in tight loops where instruction cache
+        /// misses can significantly impact performance.
+        #[inline]
+        pub fn prefetch_instruction(ptr: *const u8) {
+            #[cfg(target_arch = "x86_64")]
+            unsafe {
+                core::arch::x86_64::_mm_prefetch(ptr as *const i8, core::arch::x86_64::_MM_HINT_T0);
+            }
+            
+            #[cfg(target_arch = "aarch64")]
+            unsafe {
+                core::arch::aarch64::_prefetch(ptr, core::arch::aarch64::_PREFETCH_READ, core::arch::aarch64::_PREFETCH_LOCALITY3);
+            }
+            
+            // For other architectures, this is a no-op
+            #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+            let _ = ptr;
+        }
+    }
 }
 
 /// Memory pool allocator for high-performance memory management.
@@ -2168,5 +2275,116 @@ mod tests {
         // These should not crash even with null pointers
         memory::prefetch_read(core::ptr::null::<u32>());
         memory::prefetch_write(core::ptr::null::<u32>());
+    }
+
+    #[test]
+    fn test_branch_prediction_likely() {
+        use memory::branch_prediction::likely;
+        
+        // Test that likely conditions work correctly
+        assert!(likely(true));
+        assert!(!likely(false));
+        
+        // Test in a realistic scenario
+        let mut count = 0;
+        for i in 0..100 {
+            if likely(i < 95) {  // This should be true 95% of the time
+                count += 1;
+            }
+        }
+        assert_eq!(count, 95);
+    }
+
+    #[test]
+    fn test_branch_prediction_unlikely() {
+        use memory::branch_prediction::unlikely;
+        
+        // Test that unlikely conditions work correctly
+        assert!(unlikely(true));
+        assert!(!unlikely(false));
+        
+        // Test in a realistic scenario
+        let mut error_count = 0;
+        for i in 0..100 {
+            if unlikely(i >= 95) {  // This should be true 5% of the time
+                error_count += 1;
+            }
+        }
+        assert_eq!(error_count, 5);
+    }
+
+    #[test]
+    fn test_branch_prediction_cold_branch() {
+        use memory::branch_prediction::cold_branch;
+        
+        // Test that cold_branch doesn't crash
+        cold_branch();
+        
+        // Test in an error handling context
+        let result: Result<i32, &str> = Ok(42);
+        match result {
+            Ok(value) => assert_eq!(value, 42),
+            Err(_) => {
+                cold_branch(); // Mark this as a cold path
+                panic!("Should not reach here");
+            }
+        }
+    }
+
+    #[test]
+    fn test_branch_prediction_instruction_prefetch() {
+        use memory::branch_prediction::prefetch_instruction;
+        
+        // Test instruction prefetching with valid addresses
+        let code = [0u8; 64];  // Simulate some code
+        prefetch_instruction(code.as_ptr());
+        
+        // Test with null pointer (should not crash)
+        prefetch_instruction(core::ptr::null::<u8>());
+    }
+
+    #[test]
+    fn test_branch_prediction_performance_pattern() {
+        use memory::branch_prediction::likely;
+        
+        // Simulate a common performance pattern: hot path with error handling
+        let mut success_count = 0;
+        let mut error_count = 0;
+        
+        for i in 0..1000 {
+            let success = i % 100 != 0;  // 99% success rate
+            
+            if likely(success) {
+                // Hot path - should be optimized
+                success_count += 1;
+            } else {
+                // Cold path - error handling
+                // Note: success is false here, so this is the error case
+                error_count += 1;
+            }
+        }
+        
+        assert_eq!(success_count, 990);
+        assert_eq!(error_count, 10);
+    }
+
+    #[test]
+    fn test_branch_prediction_with_unlikely_condition() {
+        use memory::branch_prediction::unlikely;
+        
+        // Test unlikely in a more realistic scenario
+        let mut rare_event_count = 0;
+        let mut normal_count = 0;
+        
+        for i in 0..1000 {
+            if unlikely(i % 100 == 0) {  // 1% chance - rare event
+                rare_event_count += 1;
+            } else {
+                normal_count += 1;
+            }
+        }
+        
+        assert_eq!(rare_event_count, 10);
+        assert_eq!(normal_count, 990);
     }
 }

@@ -235,11 +235,12 @@ impl RtConstraints {
     /// Create constraints for energy-efficient scheduling.
     #[must_use]
     pub const fn energy_efficient(target_utilization: u8) -> Self {
+        let clamped_utilization = if target_utilization > 100 { 100 } else { target_utilization };
         Self {
             deadline_ns: None,
             period_ns: None,
             wcet_ns: None,
-            policy: RtSchedulingPolicy::EnergyEfficient { target_utilization: target_utilization.min(100) },
+            policy: RtSchedulingPolicy::EnergyEfficient { target_utilization: clamped_utilization },
             priority_ceiling: None,
             cpu_quota_percent: None,
             max_execution_slice_us: None,
