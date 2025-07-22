@@ -169,7 +169,7 @@ pub struct RtConstraints {
     pub policy: RtSchedulingPolicy,
     /// Priority inheritance ceiling (for priority inheritance protocol)
     pub priority_ceiling: Option<Priority>,
-    /// CPU quota in percentage (0.0 to 1.0)
+    /// CPU quota in percentage (0-100)
     pub cpu_quota_percent: Option<u8>, // 0-100 percentage
     /// Maximum consecutive execution time before yielding (microseconds)
     pub max_execution_slice_us: Option<u32>,
