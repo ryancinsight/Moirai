@@ -451,7 +451,7 @@ mod tests {
         let moirai = Moirai::new().unwrap();
         
         // Test basic task spawning
-        let handle = moirai.spawn_parallel(|| {
+        let mut handle = moirai.spawn_parallel(|| {
             (0..100).sum::<i32>()
         });
         
@@ -459,7 +459,6 @@ mod tests {
         assert_eq!(handle.id().get(), 0);
         
         // In std environments, we can actually get the result
-        #[cfg(feature = "std")]
         {
             // Give the task some time to complete (this is a simple synchronous operation)
             std::thread::sleep(std::time::Duration::from_millis(10));

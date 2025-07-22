@@ -605,7 +605,7 @@ pub mod numa {
     
     use super::*;
     #[cfg(feature = "std")]
-    use super::cpu::{CpuCore, CpuTopology};
+    use super::cpu::CpuTopology;
     
     /// NUMA node identifier.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1006,7 +1006,7 @@ pub mod memory_pool {
             let vec_deque_overhead = std::mem::size_of::<VecDeque<NonNull<u8>>>() + 16; // Add heap allocation overhead
             let vec_overhead = std::mem::size_of::<Vec<NonNull<u8>>>() + 16; // Add heap allocation overhead
             let chunk_overhead = self.total_chunks * (std::mem::size_of::<NonNull<u8>>() + 8); // Add per-chunk overhead
-            align_to_cache_line(vec_deque_overhead + vec_overhead + chunk_overhead) // Align to cache line size
+            crate::align_to_cache_line(vec_deque_overhead + vec_overhead + chunk_overhead) // Align to cache line size
         }
     }
 
@@ -1114,7 +1114,7 @@ pub mod memory_pool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{vec, vec::Vec};
+    use std::vec;
 
     #[test]
     fn test_cache_line_alignment() {
@@ -1138,7 +1138,7 @@ mod tests {
     #[cfg(feature = "std")]
     mod cpu_tests {
         use super::super::cpu::*;
-        use std::{vec, vec::Vec, format};
+        use std::vec;
 
         #[test]
         fn test_cpu_core() {
@@ -1617,17 +1617,17 @@ mod tests {
         memory::memory_barrier();
         memory::compiler_barrier();
         
-        // Test in a simple scenario
-        static mut COUNTER: u32 = 0;
-        unsafe {
-            COUNTER = 1;
-            memory::compiler_barrier();
-            assert_eq!(COUNTER, 1);
-            
-            COUNTER = 2;
-            memory::memory_barrier();
-            assert_eq!(COUNTER, 2);
-        }
+        // Test in a simple scenario using AtomicU32 for safety
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        
+        COUNTER.store(1, Ordering::Relaxed);
+        memory::compiler_barrier();
+        assert_eq!(COUNTER.load(Ordering::Relaxed), 1);
+        
+        COUNTER.store(2, Ordering::Relaxed);
+        memory::memory_barrier();
+        assert_eq!(COUNTER.load(Ordering::Relaxed), 2);
     }
 
     #[test]

@@ -43,7 +43,7 @@ struct AsyncTaskWrapper {
     task_id: TaskId,
     future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
     priority: Priority,
-    created_at: Instant,
+    _created_at: Instant,
 }
 
 /// Registry for managing wakers efficiently.
@@ -114,7 +114,7 @@ impl AsyncExecutor {
             task_id,
             future: Box::pin(wrapped_future),
             priority,
-            created_at: Instant::now(),
+            _created_at: Instant::now(),
         };
 
         // Add to task queue
@@ -469,7 +469,7 @@ pub mod io {
     /// - Buffering optimizes small read/write operations
     pub struct File {
         inner: std::fs::File,
-        buffer: Vec<u8>,
+        _buffer: Vec<u8>,
     }
     
     impl File {
@@ -484,7 +484,7 @@ pub mod io {
             let inner = std::fs::File::open(path)?;
             Ok(Self {
                 inner,
-                buffer: Vec::with_capacity(8192), // 8KB buffer
+                _buffer: Vec::with_capacity(8192), // 8KB buffer
             })
         }
 
@@ -493,7 +493,7 @@ pub mod io {
             let inner = std::fs::File::create(path)?;
             Ok(Self {
                 inner,
-                buffer: Vec::with_capacity(8192),
+                _buffer: Vec::with_capacity(8192),
             })
         }
 
@@ -887,11 +887,11 @@ mod tests {
         let executor = AsyncExecutor::new();
         
         let handle = executor.spawn(async { 42 });
-        let task_id = handle.id();
+        let _task_id = handle.id();
         
         assert!(!handle.is_ready());
         assert!(handle.try_result().is_none());
-        assert!(task_id.get() >= 0); // Task ID should be valid
+        // Task ID should be valid (0 is a valid starting ID)
     }
 
     // Note: This test would require tokio integration

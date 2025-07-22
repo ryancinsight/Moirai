@@ -223,6 +223,7 @@ impl Worker {
     }
 
     /// Get worker metrics snapshot.
+    #[allow(dead_code)]
     fn metrics(&self) -> WorkerSnapshot {
         WorkerSnapshot {
             id: self.id,
@@ -373,6 +374,7 @@ impl TaskRegistry {
     }
 
     /// Clean up completed tasks older than the specified duration.
+    #[allow(dead_code)]
     fn cleanup_completed(&self, max_age: Duration) {
         let cutoff = Instant::now() - max_age;
         let mut tasks = self.tasks.write().unwrap();
@@ -487,7 +489,7 @@ pub struct HybridExecutor {
     // Core components
     config: ExecutorConfig,
     schedulers: Vec<Arc<WorkStealingScheduler>>,
-    coordinator: Arc<WorkStealingCoordinator>,
+    _coordinator: Arc<WorkStealingCoordinator>,
     task_registry: Arc<TaskRegistry>,
     
     // Thread management
@@ -605,7 +607,7 @@ impl HybridExecutor {
         Ok(Self {
             config,
             schedulers,
-            coordinator,
+            _coordinator: coordinator,
             task_registry,
             worker_handles: Mutex::new(worker_handles),
             cleanup_handle: Mutex::new(cleanup_handle),
@@ -852,34 +854,7 @@ impl ExecutorControl for HybridExecutor {
     }
 
     fn shutdown(&self) {
-        // Signal shutdown to all workers and cleanup thread
-        self.shutdown_signal.store(true, Ordering::Release);
-
-        // Wait for cleanup thread to complete first
-        let mut cleanup_handle = self.cleanup_handle.lock().unwrap();
-        if let Some(handle) = cleanup_handle.take() {
-            let _ = handle.join();
-        }
-        drop(cleanup_handle); // Release the lock
-
-        // Wait for all worker threads to complete
-        let mut handles = self.worker_handles.lock().unwrap();
-        let worker_handles = std::mem::take(&mut *handles);
-        drop(handles); // Release the lock before joining
-        
-        for handle in worker_handles {
-            let _ = handle.join();
-        }
-
-        // Notify plugins
-        for plugin in &self.plugins {
-            plugin.on_shutdown();
-        }
-
-        // Signal shutdown complete
-        let mut shutdown_complete = self.shutdown_mutex.lock().unwrap();
-        *shutdown_complete = true;
-        self.shutdown_complete.notify_all();
+        self.shutdown_internal(true);
     }
 
     fn shutdown_timeout(&self, timeout: Duration) {
@@ -887,15 +862,32 @@ impl ExecutorControl for HybridExecutor {
         self.shutdown_signal.store(true, Ordering::Release);
 
         // Wait for completion or timeout
-        let shutdown_complete = self.shutdown_mutex.lock().unwrap();
-        let result = self.shutdown_complete.wait_timeout_while(
+        // Handle poisoned mutex properly
+        let shutdown_complete_result = self.shutdown_mutex.lock();
+        let shutdown_complete = match shutdown_complete_result {
+            Ok(guard) => guard,
+            Err(_poisoned) => {
+                // If mutex is poisoned, we can't wait for completion reliably
+                // Fall back to forced shutdown immediately
+                return;
+            }
+        };
+
+        let wait_result = self.shutdown_complete.wait_timeout_while(
             shutdown_complete,
             timeout,
             |&mut completed| !completed,
-        ).unwrap();
+        );
 
-        if result.1.timed_out() {
-            // Force shutdown - in a real implementation, this would forcibly terminate threads
+        match wait_result {
+            Ok((_, timeout_result)) => {
+                if timeout_result.timed_out() {
+                    // Force shutdown - in a real implementation, this would forcibly terminate threads
+                }
+            }
+            Err(_) => {
+                // Wait was interrupted, proceed with force shutdown if needed
+            }
         }
     }
 
@@ -1020,6 +1012,72 @@ impl HybridExecutor {
         
         stats
     }
+
+    /// Internal shutdown implementation that handles both graceful shutdown and drop cleanup.
+    /// 
+    /// # Parameters
+    /// - `notify_completion`: Whether to signal shutdown completion and notify waiting threads
+    /// 
+    /// # Design Principles
+    /// - **SOLID**: Single responsibility for shutdown logic
+    /// - **DRY**: Eliminates code duplication between shutdown() and Drop::drop()
+    /// - **Safety**: Properly handles poisoned mutexes to prevent resource leaks
+    fn shutdown_internal(&self, notify_completion: bool) {
+        // Signal shutdown to all workers and cleanup thread
+        self.shutdown_signal.store(true, Ordering::Release);
+
+        // Wait for cleanup thread to complete first
+        // Handle poisoned mutex to ensure thread is always joined
+        let cleanup_handle_result = self.cleanup_handle.lock();
+        let mut cleanup_handle = match cleanup_handle_result {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                // Mutex is poisoned, but we still need to join the thread
+                // This is safe because we're only taking the JoinHandle
+                poisoned.into_inner()
+            }
+        };
+        
+        if let Some(handle) = cleanup_handle.take() {
+            let _ = handle.join();
+        }
+        drop(cleanup_handle); // Release the lock
+
+        // Wait for all worker threads to complete
+        // Handle poisoned mutex to ensure threads are always joined
+        let worker_handles_result = self.worker_handles.lock();
+        let mut handles = match worker_handles_result {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                // Mutex is poisoned, but we still need to join the threads
+                // This is safe because we're only taking the JoinHandles
+                poisoned.into_inner()
+            }
+        };
+        
+        let worker_handles = std::mem::take(&mut *handles);
+        drop(handles); // Release the lock before joining
+        
+        for handle in worker_handles {
+            let _ = handle.join();
+        }
+
+        // Notify plugins
+        for plugin in &self.plugins {
+            plugin.on_shutdown();
+        }
+
+        // Signal shutdown complete only if requested (not during drop)
+        if notify_completion {
+            let shutdown_complete_result = self.shutdown_mutex.lock();
+            let mut shutdown_complete = match shutdown_complete_result {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            *shutdown_complete = true;
+            self.shutdown_complete.notify_all();
+        }
+    }
 }
 
 /// Detailed executor statistics for monitoring and debugging.
@@ -1138,6 +1196,7 @@ impl ExecutorPlugin for LoggingPlugin {
 }
 
 // Example blocking task for testing
+#[allow(dead_code)]
 struct BlockingTask<F, R> 
 where
     F: FnOnce() -> R + Send + 'static,
@@ -1153,6 +1212,7 @@ where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
+    #[allow(dead_code)]
     fn new(func: F) -> Self {
         Self {
             func: Some(func),
@@ -1486,5 +1546,13 @@ mod tests {
         assert!(total_execution_time > 0, "Workers should have recorded execution time");
         
         executor.shutdown();
+    }
+}
+
+impl Drop for HybridExecutor {
+    fn drop(&mut self) {
+        // Use the shared shutdown logic without completion notification
+        // This ensures proper handling of poisoned mutexes and prevents resource leaks
+        self.shutdown_internal(false);
     }
 }

@@ -17,12 +17,10 @@ use std::collections::HashMap;
 use std::hash::{Hash, BuildHasher};
 use std::collections::hash_map::RandomState;
 
-#[cfg(target_os = "linux")]
-use std::time::Duration;
+
 
 #[cfg(target_os = "linux")]
 mod futex {
-    use std::sync::atomic::Ordering;
     
     // Linux futex operations
     const FUTEX_WAIT: i32 = 0;
@@ -667,7 +665,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::thread;
-    use std::time::Duration;
+
 
     #[test]
     fn test_mutex() {
@@ -1163,6 +1161,78 @@ mod tests {
     }
 
     #[test]
+    fn test_race_condition_data_integrity() {
+        // This test specifically targets the race condition where speculative
+        // data extraction before CAS could cause data loss between threads
+        use std::collections::HashSet;
+        
+        const NUM_THREADS: usize = 8;
+        const ITEMS_PER_THREAD: usize = 100;
+        const TOTAL_ITEMS: usize = NUM_THREADS * ITEMS_PER_THREAD;
+        
+        let queue = Arc::new(LockFreeQueue::new());
+        
+        // Producer phase: Each thread adds unique values
+        let producer_handles: Vec<_> = (0..NUM_THREADS).map(|thread_id| {
+            let queue = Arc::clone(&queue);
+            thread::spawn(move || {
+                for i in 0..ITEMS_PER_THREAD {
+                    let unique_value = thread_id * ITEMS_PER_THREAD + i;
+                    queue.enqueue(unique_value);
+                }
+            })
+        }).collect();
+        
+        // Wait for all producers to finish
+        for handle in producer_handles {
+            handle.join().unwrap();
+        }
+        
+        // Consumer phase: Multiple threads concurrently dequeue all items
+        let consumed_items = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let consumer_handles: Vec<_> = (0..NUM_THREADS).map(|_| {
+            let queue = Arc::clone(&queue);
+            let consumed_items = Arc::clone(&consumed_items);
+            thread::spawn(move || {
+                let mut local_items = Vec::new();
+                
+                // Each thread attempts to dequeue items until queue is empty
+                while let Some(item) = queue.dequeue() {
+                    local_items.push(item);
+                }
+                
+                // Add local items to global collection
+                if !local_items.is_empty() {
+                    consumed_items.lock().unwrap().extend(local_items);
+                }
+            })
+        }).collect();
+        
+        // Wait for all consumers to finish
+        for handle in consumer_handles {
+            handle.join().unwrap();
+        }
+        
+        // Verify data integrity
+        let final_items = consumed_items.lock().unwrap();
+        
+        // Check that we got exactly the right number of items (no data loss)
+        assert_eq!(final_items.len(), TOTAL_ITEMS, 
+                   "Data loss detected! Expected {} items, got {}", 
+                   TOTAL_ITEMS, final_items.len());
+        
+        // Check that all items are unique (no duplication)
+        let unique_items: HashSet<_> = final_items.iter().cloned().collect();
+        assert_eq!(unique_items.len(), final_items.len(),
+                   "Duplicate items detected! Race condition may have caused data duplication");
+        
+        // Check that we have all expected values (no corruption)
+        let expected_items: HashSet<_> = (0..TOTAL_ITEMS).collect();
+        assert_eq!(unique_items, expected_items,
+                   "Data corruption detected! Some items were lost or corrupted");
+    }
+
+    #[test]
     fn test_lock_free_queue_interleaved() {
         let queue = LockFreeQueue::new();
         
@@ -1371,41 +1441,50 @@ impl<T> Drop for LockFreeStack<T> {
 unsafe impl<T: Send> Send for LockFreeStack<T> {}
 unsafe impl<T: Send> Sync for LockFreeStack<T> {}
 
-/// A lock-free queue using the Michael & Scott algorithm.
+/// A memory-safe lock-free queue using epoch-based reclamation.
 /// 
 /// # Design Principles Applied
 /// - **SOLID**: Single responsibility (queue operations)
 /// - **CUPID**: Composable, predictable FIFO behavior
 /// - **GRASP**: Information expert pattern
-/// - **KISS**: Well-established algorithm implementation
 /// - **SSOT**: Atomic head/tail pointers as authoritative sources
+/// - **Memory Safety**: Uses crossbeam-epoch for safe memory reclamation
 /// 
 /// # Performance Characteristics
 /// - Enqueue: O(1) amortized with potential retry loops
 /// - Dequeue: O(1) amortized with potential retry loops
-/// - Memory overhead: 16 bytes per node + data
-/// - ABA problem resistant through careful memory management
+/// - Memory overhead: 16 bytes per node + data + epoch overhead
+/// - ABA problem resistant through epoch-based reclamation
+/// 
+/// # Safety
+/// This implementation uses crossbeam-epoch to ensure memory safety
+/// by deferring memory reclamation until all threads have finished
+/// accessing the data structure.
 pub struct LockFreeQueue<T> {
-    head: AtomicPtr<QueueNode<T>>,
-    tail: AtomicPtr<QueueNode<T>>,
+    head: crossbeam_epoch::Atomic<QueueNode<T>>,
+    tail: crossbeam_epoch::Atomic<QueueNode<T>>,
 }
 
 struct QueueNode<T> {
-    data: Option<T>,
-    next: AtomicPtr<QueueNode<T>>,
+    data: std::cell::Cell<Option<T>>,
+    next: crossbeam_epoch::Atomic<QueueNode<T>>,
 }
 
 impl<T> LockFreeQueue<T> {
     /// Create a new empty lock-free queue.
     pub fn new() -> Self {
-        let dummy = Box::into_raw(Box::new(QueueNode {
-            data: None,
-            next: AtomicPtr::new(std::ptr::null_mut()),
-        }));
+        use crossbeam_epoch::Owned;
+        
+        let dummy = Owned::new(QueueNode {
+            data: std::cell::Cell::new(None),
+            next: crossbeam_epoch::Atomic::null(),
+        });
+
+        let dummy_ptr = dummy.into_shared(unsafe { &crossbeam_epoch::unprotected() });
 
         Self {
-            head: AtomicPtr::new(dummy),
-            tail: AtomicPtr::new(dummy),
+            head: crossbeam_epoch::Atomic::from(dummy_ptr),
+            tail: crossbeam_epoch::Atomic::from(dummy_ptr),
         }
     }
 
@@ -1414,36 +1493,48 @@ impl<T> LockFreeQueue<T> {
     /// # Design Principles
     /// - **SOLID**: Single responsibility for enqueue operation
     /// - **GRASP**: Creator pattern for queue nodes
+    /// - **Memory Safety**: Uses epoch-based reclamation for safe memory management
     pub fn enqueue(&self, data: T) {
-        let new_node = Box::into_raw(Box::new(QueueNode {
-            data: Some(data),
-            next: AtomicPtr::new(std::ptr::null_mut()),
-        }));
+        use crossbeam_epoch::Owned;
+        use std::sync::atomic::Ordering;
+        
+        let mut new_node = Owned::new(QueueNode {
+            data: std::cell::Cell::new(Some(data)),
+            next: crossbeam_epoch::Atomic::null(),
+        });
+
+        let guard = &crossbeam_epoch::pin();
 
         loop {
-            let tail = self.tail.load(Ordering::Acquire);
-            let next = unsafe { (*tail).next.load(Ordering::Acquire) };
+            let tail = self.tail.load(Ordering::Acquire, guard);
+            let next = unsafe { tail.deref() }.next.load(Ordering::Acquire, guard);
 
             // Check if tail is still the last node
-            if tail == self.tail.load(Ordering::Acquire) {
+            if tail == self.tail.load(Ordering::Acquire, guard) {
                 if next.is_null() {
                     // Try to link new node at the end of the list
-                    if unsafe {
-                        (*tail).next.compare_exchange_weak(
-                            next,
-                            new_node,
-                            Ordering::Release,
-                            Ordering::Relaxed,
-                        ).is_ok()
-                    } {
-                        // Successfully linked, now try to swing tail to new node
-                        let _ = self.tail.compare_exchange_weak(
-                            tail,
-                            new_node,
-                            Ordering::Release,
-                            Ordering::Relaxed,
-                        );
-                        break;
+                    match unsafe { tail.deref() }.next.compare_exchange_weak(
+                        next,
+                        new_node,
+                        Ordering::Release,
+                        Ordering::Relaxed,
+                        guard,
+                    ) {
+                        Ok(new_node_shared) => {
+                            // Successfully linked, now try to swing tail to new node
+                            let _ = self.tail.compare_exchange_weak(
+                                tail,
+                                new_node_shared,
+                                Ordering::Release,
+                                Ordering::Relaxed,
+                                guard,
+                            );
+                            break;
+                        }
+                        Err(e) => {
+                            // CAS failed, retry with the returned node
+                            new_node = e.new;
+                        }
                     }
                 } else {
                     // Tail is lagging, try to advance it
@@ -1452,6 +1543,7 @@ impl<T> LockFreeQueue<T> {
                         next,
                         Ordering::Release,
                         Ordering::Relaxed,
+                        guard,
                     );
                 }
             }
@@ -1467,14 +1559,19 @@ impl<T> LockFreeQueue<T> {
     /// # Design Principles
     /// - **SOLID**: Single responsibility for dequeue operation
     /// - **SSOT**: Head pointer is authoritative for queue front
+    /// - **Memory Safety**: Uses epoch-based reclamation for safe memory management
     pub fn dequeue(&self) -> Option<T> {
+        use std::sync::atomic::Ordering;
+        
+        let guard = &crossbeam_epoch::pin();
+
         loop {
-            let head = self.head.load(Ordering::Acquire);
-            let tail = self.tail.load(Ordering::Acquire);
-            let next = unsafe { (*head).next.load(Ordering::Acquire) };
+            let head = self.head.load(Ordering::Acquire, guard);
+            let tail = self.tail.load(Ordering::Acquire, guard);
+            let next = unsafe { head.deref() }.next.load(Ordering::Acquire, guard);
 
             // Check if head is still the first node
-            if head == self.head.load(Ordering::Acquire) {
+            if head == self.head.load(Ordering::Acquire, guard) {
                 if head == tail {
                     if next.is_null() {
                         // Queue is empty
@@ -1486,27 +1583,26 @@ impl<T> LockFreeQueue<T> {
                         next,
                         Ordering::Release,
                         Ordering::Relaxed,
+                        guard,
                     );
                 } else if !next.is_null() {
-                    // Read data before CAS
-                    let data = unsafe { (*next).data.take() };
-                    
-                    // Try to swing head to next node
+                    // Try to swing head to next node FIRST
                     if self.head.compare_exchange_weak(
                         head,
                         next,
                         Ordering::Release,
                         Ordering::Relaxed,
+                        guard,
                     ).is_ok() {
-                        // Successfully dequeued, clean up old head
-                        unsafe { Box::from_raw(head) };
+                        // CAS succeeded - we now have exclusive ownership of this node
+                        // Safe to extract data without race conditions
+                        let data = unsafe { next.deref() }.data.take();
+                        
+                        // Schedule old head for deletion
+                        unsafe { guard.defer_destroy(head) };
                         return data;
                     }
-                    
-                    // CAS failed, restore data if we took it
-                    if let Some(restored_data) = data {
-                        unsafe { (*next).data = Some(restored_data) };
-                    }
+                    // CAS failed, retry loop without any data manipulation
                 }
             }
         }
@@ -1514,9 +1610,12 @@ impl<T> LockFreeQueue<T> {
 
     /// Check if the queue is empty.
     pub fn is_empty(&self) -> bool {
-        let head = self.head.load(Ordering::Acquire);
-        let tail = self.tail.load(Ordering::Acquire);
-        let next = unsafe { (*head).next.load(Ordering::Acquire) };
+        use std::sync::atomic::Ordering;
+        
+        let guard = &crossbeam_epoch::pin();
+        let head = self.head.load(Ordering::Acquire, guard);
+        let tail = self.tail.load(Ordering::Acquire, guard);
+        let next = unsafe { head.deref() }.next.load(Ordering::Acquire, guard);
         
         head == tail && next.is_null()
     }
@@ -1530,15 +1629,13 @@ impl<T> Default for LockFreeQueue<T> {
 
 impl<T> Drop for LockFreeQueue<T> {
     /// Clean up all remaining nodes.
+    /// 
+    /// With crossbeam-epoch, we don't need to manually free nodes as they
+    /// will be automatically reclaimed when all epochs are done.
     fn drop(&mut self) {
+        // Dequeue all remaining items to ensure proper cleanup
         while self.dequeue().is_some() {
-            // Dequeue all remaining items
-        }
-        
-        // Clean up dummy node
-        let head = self.head.load(Ordering::Acquire);
-        if !head.is_null() {
-            unsafe { Box::from_raw(head) };
+            // Continue dequeuing until empty
         }
     }
 }
