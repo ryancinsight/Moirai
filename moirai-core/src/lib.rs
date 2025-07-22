@@ -36,6 +36,7 @@ pub mod task;
 pub mod executor;
 pub mod scheduler;
 pub mod error;
+pub mod security;
 
 #[cfg(feature = "metrics")]
 pub mod metrics;

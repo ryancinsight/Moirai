@@ -22,7 +22,6 @@ moirai-async = { workspace = true, optional = true }
 moirai-iter = { workspace = true, optional = true }
 moirai-metrics = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
-tokio = { version = "1.0", features = ["full"], optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

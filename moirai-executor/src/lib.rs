@@ -833,9 +833,73 @@ impl ExecutorControl for HybridExecutor {
     where
         F: Future,
     {
-        // Simple block_on implementation using a basic runtime
-        // In a production implementation, this would integrate with the async runtime
-        futures::executor::block_on(future)
+        // Standard library-based block_on implementation
+        // Creates a simple executor using std primitives
+        use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+        use std::sync::{Arc, Mutex, Condvar};
+        
+        let waker_data = Arc::new((Mutex::new(false), Condvar::new()));
+        let waker_data_clone = waker_data.clone();
+        
+        unsafe fn wake(data: *const ()) {
+            let data = Arc::from_raw(data as *const (Mutex<bool>, Condvar));
+            {
+                let (lock, cvar) = &*data;
+                let mut notified = lock.lock().unwrap();
+                *notified = true;
+                cvar.notify_one();
+            }
+            std::mem::forget(data); // Don't drop the Arc
+        }
+        
+        unsafe fn wake_by_ref(data: *const ()) {
+            let data = &*(data as *const (Mutex<bool>, Condvar));
+            let (lock, cvar) = data;
+            let mut notified = lock.lock().unwrap();
+            *notified = true;
+            cvar.notify_one();
+        }
+        
+        unsafe fn clone_waker(data: *const ()) -> RawWaker {
+            let data = Arc::from_raw(data as *const (Mutex<bool>, Condvar));
+            let cloned = data.clone();
+            std::mem::forget(data); // Don't drop the original Arc
+            RawWaker::new(Arc::into_raw(cloned) as *const (), &WAKER_VTABLE)
+        }
+        
+        unsafe fn drop_waker(data: *const ()) {
+            let _ = Arc::from_raw(data as *const (Mutex<bool>, Condvar));
+        }
+        
+        static WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
+            clone_waker,
+            wake,
+            wake_by_ref,
+            drop_waker,
+        );
+        
+        let raw_waker = RawWaker::new(
+            Arc::into_raw(waker_data_clone) as *const (),
+            &WAKER_VTABLE,
+        );
+        let waker = unsafe { Waker::from_raw(raw_waker) };
+        let mut context = Context::from_waker(&waker);
+        
+        let mut future = Box::pin(future);
+        
+        loop {
+            match future.as_mut().poll(&mut context) {
+                Poll::Ready(result) => return result,
+                Poll::Pending => {
+                    let (lock, cvar) = &*waker_data;
+                    let mut notified = lock.lock().unwrap();
+                    while !*notified {
+                        notified = cvar.wait(notified).unwrap();
+                    }
+                    *notified = false;
+                }
+            }
+        }
     }
 
     fn try_run(&self) -> bool {

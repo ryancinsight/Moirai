@@ -39,13 +39,10 @@ moirai-iter = { path = "moirai-iter", version = "0.1.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.1.0" }
 moirai-utils = { path = "moirai-utils", version = "0.1.0" }
 
-# External dependencies (stdlib only - these are for dev/test purposes)
+# Development and testing dependencies only (not used in runtime)
 criterion = "0.5"
 proptest = "1.4"
 quickcheck = "1.0"
-futures = "0.3"
-crossbeam-channel = "0.5"
-tokio = "1.0"
 
 [profile.release]
 lto = true

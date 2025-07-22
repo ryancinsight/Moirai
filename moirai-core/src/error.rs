@@ -84,6 +84,10 @@ pub enum ExecutorError {
     ThreadPoolCreationFailed,
     /// Task spawn failed
     SpawnFailed(TaskError),
+    /// Resource exhaustion detected
+    ResourceExhausted(String),
+    /// Performance anomaly detected
+    PerformanceAnomaly(String),
 }
 
 impl fmt::Display for ExecutorError {
@@ -94,6 +98,8 @@ impl fmt::Display for ExecutorError {
             Self::InvalidConfiguration => write!(f, "Invalid executor configuration"),
             Self::ThreadPoolCreationFailed => write!(f, "Failed to create thread pool"),
             Self::SpawnFailed(err) => write!(f, "Failed to spawn task: {}", err),
+            Self::ResourceExhausted(msg) => write!(f, "Resource exhausted: {}", msg),
+            Self::PerformanceAnomaly(msg) => write!(f, "Performance anomaly: {}", msg),
         }
     }
 }
