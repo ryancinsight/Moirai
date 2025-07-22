@@ -100,6 +100,130 @@ impl fmt::Display for Priority {
     }
 }
 
+/// Real-time scheduling policies for tasks that require deterministic execution.
+/// 
+/// # Design Principles Applied
+/// - **SOLID**: Single responsibility for scheduling policy definition
+/// - **CUPID**: Composable with existing Priority system
+/// - **GRASP**: Information expert for real-time requirements
+/// - **ADP**: Adapts to different real-time scheduling needs
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RtSchedulingPolicy {
+    /// First-In-First-Out scheduling (non-preemptive within priority)
+    Fifo,
+    /// Round-Robin scheduling with time slicing
+    RoundRobin {
+        /// Time slice in microseconds
+        time_slice_us: u32,
+    },
+    /// Deadline-driven scheduling (Earliest Deadline First)
+    DeadlineDriven,
+    /// Rate-monotonic scheduling (fixed priority based on period)
+    RateMonotonic,
+}
+
+impl Default for RtSchedulingPolicy {
+    fn default() -> Self {
+        Self::Fifo
+    }
+}
+
+impl fmt::Display for RtSchedulingPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Fifo => write!(f, "FIFO"),
+            Self::RoundRobin { time_slice_us } => write!(f, "RR({}μs)", time_slice_us),
+            Self::DeadlineDriven => write!(f, "EDF"),
+            Self::RateMonotonic => write!(f, "RM"),
+        }
+    }
+}
+
+/// Real-time task constraints and timing requirements.
+/// 
+/// # Design Principles Applied
+/// - **SOLID**: Single responsibility for timing constraints
+/// - **CUPID**: Composable with task scheduling system
+/// - **GRASP**: Information expert for real-time timing
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RtConstraints {
+    /// Absolute deadline in nanoseconds from task creation
+    pub deadline_ns: Option<u64>,
+    /// Period for periodic tasks in nanoseconds
+    pub period_ns: Option<u64>,
+    /// Worst-case execution time in nanoseconds
+    pub wcet_ns: Option<u64>,
+    /// Scheduling policy to use for this task
+    pub policy: RtSchedulingPolicy,
+}
+
+impl Default for RtConstraints {
+    fn default() -> Self {
+        Self {
+            deadline_ns: None,
+            period_ns: None,
+            wcet_ns: None,
+            policy: RtSchedulingPolicy::default(),
+        }
+    }
+}
+
+impl RtConstraints {
+    /// Create constraints for a deadline-driven task.
+    #[must_use]
+    pub const fn deadline(deadline_ns: u64) -> Self {
+        Self {
+            deadline_ns: Some(deadline_ns),
+            period_ns: None,
+            wcet_ns: None,
+            policy: RtSchedulingPolicy::DeadlineDriven,
+        }
+    }
+
+    /// Create constraints for a periodic task.
+    #[must_use]
+    pub const fn periodic(period_ns: u64, wcet_ns: u64) -> Self {
+        Self {
+            deadline_ns: Some(period_ns), // Deadline equals period for periodic tasks
+            period_ns: Some(period_ns),
+            wcet_ns: Some(wcet_ns),
+            policy: RtSchedulingPolicy::RateMonotonic,
+        }
+    }
+
+    /// Create constraints for a round-robin task.
+    #[must_use]
+    pub const fn round_robin(time_slice_us: u32) -> Self {
+        Self {
+            deadline_ns: None,
+            period_ns: None,
+            wcet_ns: None,
+            policy: RtSchedulingPolicy::RoundRobin { time_slice_us },
+        }
+    }
+
+    /// Check if this task has a deadline.
+    #[must_use]
+    pub const fn has_deadline(&self) -> bool {
+        self.deadline_ns.is_some()
+    }
+
+    /// Check if this task is periodic.
+    #[must_use]
+    pub const fn is_periodic(&self) -> bool {
+        self.period_ns.is_some()
+    }
+
+    /// Get the utilization factor (WCET / Period) for schedulability analysis.
+    #[must_use]
+    pub fn utilization(&self) -> Option<f64> {
+        match (self.wcet_ns, self.period_ns) {
+            (Some(wcet), Some(period)) if period > 0 => Some(wcet as f64 / period as f64),
+            _ => None,
+        }
+    }
+}
+
 /// Task execution context and metadata.
 #[derive(Debug, Clone)]
 pub struct TaskContext {
@@ -109,6 +233,8 @@ pub struct TaskContext {
     pub priority: Priority,
     /// Optional name for debugging
     pub name: Option<&'static str>,
+    /// Real-time scheduling constraints
+    pub rt_constraints: Option<RtConstraints>,
 }
 
 impl TaskContext {
@@ -119,6 +245,7 @@ impl TaskContext {
             id,
             priority: Priority::Normal,
             name: None,
+            rt_constraints: None,
         }
     }
 
@@ -134,6 +261,51 @@ impl TaskContext {
     pub const fn with_name(mut self, name: &'static str) -> Self {
         self.name = Some(name);
         self
+    }
+
+    /// Set real-time scheduling constraints for this task.
+    #[must_use]
+    pub const fn with_rt_constraints(mut self, constraints: RtConstraints) -> Self {
+        self.rt_constraints = Some(constraints);
+        self
+    }
+
+    /// Set a deadline for this task (convenience method).
+    #[must_use]
+    pub const fn with_deadline(mut self, deadline_ns: u64) -> Self {
+        self.rt_constraints = Some(RtConstraints::deadline(deadline_ns));
+        self
+    }
+
+    /// Make this task periodic with the given period and WCET.
+    #[must_use]
+    pub const fn with_period(mut self, period_ns: u64, wcet_ns: u64) -> Self {
+        self.rt_constraints = Some(RtConstraints::periodic(period_ns, wcet_ns));
+        self
+    }
+
+    /// Check if this task has real-time constraints.
+    #[must_use]
+    pub const fn is_realtime(&self) -> bool {
+        self.rt_constraints.is_some()
+    }
+
+    /// Get the deadline for this task, if any.
+    #[must_use]
+    pub const fn deadline_ns(&self) -> Option<u64> {
+        match &self.rt_constraints {
+            Some(constraints) => constraints.deadline_ns,
+            None => None,
+        }
+    }
+
+    /// Check if this task is periodic.
+    #[must_use]
+    pub const fn is_periodic(&self) -> bool {
+        match &self.rt_constraints {
+            Some(constraints) => constraints.is_periodic(),
+            None => false,
+        }
     }
 }
 
@@ -253,5 +425,118 @@ mod tests {
         assert_eq!(ctx.id, id);
         assert_eq!(ctx.priority, Priority::High);
         assert_eq!(ctx.name, Some("test_task"));
+        assert!(!ctx.is_realtime());
+    }
+
+    #[test]
+    fn test_rt_scheduling_policy() {
+        let fifo = RtSchedulingPolicy::Fifo;
+        let rr = RtSchedulingPolicy::RoundRobin { time_slice_us: 1000 };
+        let edf = RtSchedulingPolicy::DeadlineDriven;
+        let rm = RtSchedulingPolicy::RateMonotonic;
+
+        assert_eq!(format!("{}", fifo), "FIFO");
+        assert_eq!(format!("{}", rr), "RR(1000μs)");
+        assert_eq!(format!("{}", edf), "EDF");
+        assert_eq!(format!("{}", rm), "RM");
+
+        assert_eq!(RtSchedulingPolicy::default(), RtSchedulingPolicy::Fifo);
+    }
+
+    #[test]
+    fn test_rt_constraints() {
+        // Test deadline constraint
+        let deadline_constraint = RtConstraints::deadline(1_000_000); // 1ms
+        assert_eq!(deadline_constraint.deadline_ns, Some(1_000_000));
+        assert_eq!(deadline_constraint.policy, RtSchedulingPolicy::DeadlineDriven);
+        assert!(deadline_constraint.has_deadline());
+        assert!(!deadline_constraint.is_periodic());
+
+        // Test periodic constraint
+        let periodic_constraint = RtConstraints::periodic(10_000_000, 2_000_000); // 10ms period, 2ms WCET
+        assert_eq!(periodic_constraint.period_ns, Some(10_000_000));
+        assert_eq!(periodic_constraint.wcet_ns, Some(2_000_000));
+        assert_eq!(periodic_constraint.deadline_ns, Some(10_000_000)); // Deadline = period
+        assert_eq!(periodic_constraint.policy, RtSchedulingPolicy::RateMonotonic);
+        assert!(periodic_constraint.has_deadline());
+        assert!(periodic_constraint.is_periodic());
+
+        // Test utilization calculation
+        let utilization = periodic_constraint.utilization().unwrap();
+        assert!((utilization - 0.2).abs() < f64::EPSILON); // 2ms / 10ms = 0.2
+
+        // Test round-robin constraint
+        let rr_constraint = RtConstraints::round_robin(500);
+        assert_eq!(rr_constraint.policy, RtSchedulingPolicy::RoundRobin { time_slice_us: 500 });
+        assert!(!rr_constraint.has_deadline());
+        assert!(!rr_constraint.is_periodic());
+    }
+
+    #[test]
+    fn test_task_context_with_rt_constraints() {
+        let id = TaskId::new(1);
+        
+        // Test deadline task
+        let deadline_task = TaskContext::new(id)
+            .with_deadline(5_000_000); // 5ms deadline
+        
+        assert!(deadline_task.is_realtime());
+        assert_eq!(deadline_task.deadline_ns(), Some(5_000_000));
+        assert!(!deadline_task.is_periodic());
+
+        // Test periodic task
+        let periodic_task = TaskContext::new(id)
+            .with_period(20_000_000, 3_000_000); // 20ms period, 3ms WCET
+        
+        assert!(periodic_task.is_realtime());
+        assert_eq!(periodic_task.deadline_ns(), Some(20_000_000));
+        assert!(periodic_task.is_periodic());
+
+        // Test custom RT constraints
+        let custom_constraint = RtConstraints {
+            deadline_ns: Some(1_000_000),
+            period_ns: None,
+            wcet_ns: Some(500_000),
+            policy: RtSchedulingPolicy::Fifo,
+        };
+
+        let custom_task = TaskContext::new(id)
+            .with_rt_constraints(custom_constraint);
+        
+        assert!(custom_task.is_realtime());
+        assert_eq!(custom_task.deadline_ns(), Some(1_000_000));
+        assert!(!custom_task.is_periodic());
+    }
+
+    #[test]
+    fn test_rt_constraints_utilization() {
+        // Test valid utilization
+        let constraint = RtConstraints::periodic(10_000_000, 3_000_000);
+        assert_eq!(constraint.utilization(), Some(0.3));
+
+        // Test invalid utilization (no period)
+        let constraint = RtConstraints::deadline(1_000_000);
+        assert_eq!(constraint.utilization(), None);
+
+        // Test zero period
+        let constraint = RtConstraints {
+            wcet_ns: Some(1_000_000),
+            period_ns: Some(0),
+            deadline_ns: None,
+            policy: RtSchedulingPolicy::default(),
+        };
+        assert_eq!(constraint.utilization(), None);
+    }
+
+    #[test]
+    fn test_rt_constraints_default() {
+        let default_constraints = RtConstraints::default();
+        assert_eq!(default_constraints.deadline_ns, None);
+        assert_eq!(default_constraints.period_ns, None);
+        assert_eq!(default_constraints.wcet_ns, None);
+        assert_eq!(default_constraints.policy, RtSchedulingPolicy::Fifo);
+        assert!(!default_constraints.has_deadline());
+        assert!(!default_constraints.is_periodic());
+        assert_eq!(default_constraints.utilization(), None);
     }
 }
