@@ -2345,7 +2345,7 @@ mod tests {
 
     #[test]
     fn test_branch_prediction_performance_pattern() {
-        use memory::branch_prediction::{likely, unlikely};
+        use memory::branch_prediction::likely;
         
         // Simulate a common performance pattern: hot path with error handling
         let mut success_count = 0;
@@ -2357,13 +2357,34 @@ mod tests {
             if likely(success) {
                 // Hot path - should be optimized
                 success_count += 1;
-            } else if unlikely(!success) {
+            } else {
                 // Cold path - error handling
+                // Note: success is false here, so this is the error case
                 error_count += 1;
             }
         }
         
         assert_eq!(success_count, 990);
         assert_eq!(error_count, 10);
+    }
+
+    #[test]
+    fn test_branch_prediction_with_unlikely_condition() {
+        use memory::branch_prediction::unlikely;
+        
+        // Test unlikely in a more realistic scenario
+        let mut rare_event_count = 0;
+        let mut normal_count = 0;
+        
+        for i in 0..1000 {
+            if unlikely(i % 100 == 0) {  // 1% chance - rare event
+                rare_event_count += 1;
+            } else {
+                normal_count += 1;
+            }
+        }
+        
+        assert_eq!(rare_event_count, 10);
+        assert_eq!(normal_count, 990);
     }
 }

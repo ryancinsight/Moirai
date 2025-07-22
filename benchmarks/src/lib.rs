@@ -41,6 +41,35 @@ pub enum MetricType {
     Custom(String),
 }
 
+/// Indicates whether higher values are better or worse for a metric.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetricDirection {
+    /// Higher values are better (e.g., throughput, success rate).
+    HigherIsBetter,
+    /// Lower values are better (e.g., latency, error rate).
+    LowerIsBetter,
+}
+
+impl MetricType {
+    /// Get the direction for this metric type (whether higher values are better or worse).
+    pub fn direction(&self) -> MetricDirection {
+        match self {
+            // Lower is better for latency, contention, and overhead metrics
+            MetricType::TaskLatency => MetricDirection::LowerIsBetter,
+            MetricType::LockContention => MetricDirection::LowerIsBetter,
+            MetricType::ContextSwitchOverhead => MetricDirection::LowerIsBetter,
+            
+            // Higher is better for throughput, allocation rate, and utilization
+            MetricType::TaskThroughput => MetricDirection::HigherIsBetter,
+            MetricType::MemoryAllocationRate => MetricDirection::HigherIsBetter,
+            MetricType::CpuUtilization => MetricDirection::HigherIsBetter,
+            
+            // Custom metrics default to lower is better (safer assumption)
+            MetricType::Custom(_) => MetricDirection::LowerIsBetter,
+        }
+    }
+}
+
 impl std::fmt::Display for MetricType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -133,8 +162,12 @@ impl PerformanceStats {
 
         let min = sorted[0];
         let max = sorted[count - 1];
-        let p95 = sorted[(count as f64 * 0.95) as usize];
-        let p99 = sorted[(count as f64 * 0.99) as usize];
+        
+        // Use more accurate percentile calculation: ((N-1) * p).round() as usize
+        let p95_index = (((count - 1) as f64 * 0.95).round() as usize).min(count - 1);
+        let p99_index = (((count - 1) as f64 * 0.99).round() as usize).min(count - 1);
+        let p95 = sorted[p95_index];
+        let p99 = sorted[p99_index];
 
         Self {
             count,
@@ -148,19 +181,23 @@ impl PerformanceStats {
     }
 
     /// Check if this performance represents a regression compared to baseline.
+    /// This method should not be used directly - use RegressionDetector::check_regressions instead
+    /// which has the necessary context about metric direction.
+    #[deprecated(note = "Use RegressionDetector::check_regressions which has metric direction context")]
     pub fn is_regression(&self, baseline: &PerformanceStats, threshold: f64) -> bool {
+        // This method is fundamentally flawed because it doesn't know if higher values
+        // are better or worse for the metric. Kept for backward compatibility but deprecated.
         if baseline.count < MIN_SAMPLES || self.count < MIN_SAMPLES {
-            return false; // Not enough data for reliable comparison
+            return false;
         }
 
-        // For latency metrics, higher is worse
-        // For throughput metrics, lower is worse
-        let regression_factor = match self.mean > baseline.mean {
-            true => (self.mean - baseline.mean) / baseline.mean,
-            false => (baseline.mean - self.mean) / baseline.mean,
-        };
-
-        regression_factor > threshold
+        // Only check for degradation (higher values assumed worse, like latency)
+        if self.mean > baseline.mean {
+            let regression_factor = (self.mean - baseline.mean) / baseline.mean;
+            regression_factor > threshold
+        } else {
+            false
+        }
     }
 }
 
@@ -219,8 +256,45 @@ impl RegressionDetector {
             if let Some(samples) = current_samples.get(metric_type) {
                 let current_stats = PerformanceStats::from_samples(samples);
                 
-                if current_stats.is_regression(baseline, self.threshold) {
-                    let regression_percentage = ((current_stats.mean - baseline.mean) / baseline.mean).abs() * 100.0;
+                // Check if we have enough samples for reliable comparison
+                if baseline.count < MIN_SAMPLES || current_stats.count < MIN_SAMPLES {
+                    continue;
+                }
+                
+                // Determine if this is a regression based on metric direction
+                let is_regression = match metric_type.direction() {
+                    MetricDirection::LowerIsBetter => {
+                        // For metrics where lower is better (latency, contention), 
+                        // regression is when current > baseline
+                        if current_stats.mean > baseline.mean {
+                            let regression_factor = (current_stats.mean - baseline.mean) / baseline.mean;
+                            regression_factor > self.threshold
+                        } else {
+                            false // Improvement, not regression
+                        }
+                    }
+                    MetricDirection::HigherIsBetter => {
+                        // For metrics where higher is better (throughput, utilization),
+                        // regression is when current < baseline
+                        if current_stats.mean < baseline.mean {
+                            let regression_factor = (baseline.mean - current_stats.mean) / baseline.mean;
+                            regression_factor > self.threshold
+                        } else {
+                            false // Improvement, not regression
+                        }
+                    }
+                };
+                
+                if is_regression {
+                    let regression_percentage = match metric_type.direction() {
+                        MetricDirection::LowerIsBetter => {
+                            ((current_stats.mean - baseline.mean) / baseline.mean) * 100.0
+                        }
+                        MetricDirection::HigherIsBetter => {
+                            ((baseline.mean - current_stats.mean) / baseline.mean) * 100.0
+                        }
+                    };
+                    
                     regressions.push(RegressionReport {
                         metric_type: metric_type.clone(),
                         baseline_stats: baseline.clone(),
@@ -338,18 +412,46 @@ mod tests {
         assert_eq!(stats.min, 10.0);
         assert_eq!(stats.max, 50.0);
         assert!(stats.std_dev > 0.0);
+        
+        // Test improved percentile calculation
+        // For 5 samples [10, 20, 30, 40, 50]:
+        // P95 index = ((5-1) * 0.95).round() = (4 * 0.95).round() = 3.8.round() = 4
+        // P99 index = ((5-1) * 0.99).round() = (4 * 0.99).round() = 3.96.round() = 4
+        assert_eq!(stats.p95, 50.0); // Should be the last element for small samples
+        assert_eq!(stats.p99, 50.0);
+    }
+
+    #[test]
+    fn test_percentile_calculation_accuracy() {
+        // Test with a larger sample to verify percentile accuracy
+        let samples: Vec<f64> = (1..=100).map(|i| i as f64).collect();
+        let stats = PerformanceStats::from_samples(&samples);
+        
+        // For 100 samples:
+        // P95 index = ((100-1) * 0.95).round() = (99 * 0.95).round() = 94.05.round() = 94
+        // P99 index = ((100-1) * 0.99).round() = (99 * 0.99).round() = 98.01.round() = 98
+        // Note: 0-indexed, so sample[94] = 95th value, sample[98] = 99th value
+        assert_eq!(stats.p95, 95.0);
+        assert_eq!(stats.p99, 99.0);
+        assert_eq!(stats.mean, 50.5);
+        assert_eq!(stats.min, 1.0);
+        assert_eq!(stats.max, 100.0);
     }
 
     #[test]
     fn test_regression_detection() {
+        // Test the deprecated method (for backward compatibility)
         let baseline_samples = vec![100.0; 20]; // Stable baseline
         let baseline_stats = PerformanceStats::from_samples(&baseline_samples);
         
-        let regressed_samples = vec![120.0; 20]; // 20% increase
+        let regressed_samples = vec![120.0; 20]; // 20% increase (worse for latency-like metrics)
         let regressed_stats = PerformanceStats::from_samples(&regressed_samples);
         
-        assert!(regressed_stats.is_regression(&baseline_stats, 0.05)); // 5% threshold
-        assert!(!regressed_stats.is_regression(&baseline_stats, 0.25)); // 25% threshold
+        #[allow(deprecated)]
+        {
+            assert!(regressed_stats.is_regression(&baseline_stats, 0.05)); // 5% threshold
+            assert!(!regressed_stats.is_regression(&baseline_stats, 0.25)); // 25% threshold
+        }
     }
 
     #[test]
@@ -361,14 +463,61 @@ mod tests {
         let baseline_stats = PerformanceStats::from_samples(&baseline_samples);
         detector.set_baseline(MetricType::TaskLatency, baseline_stats);
         
-        // Add regressed samples
-        for value in vec![120.0; 15] { // 20% increase
+        // Add regressed samples (higher latency is worse)
+        for value in vec![120.0; 15] { // 20% increase - this is a regression for latency
             detector.add_sample(PerformanceSample::new(MetricType::TaskLatency, value));
         }
         
         let regressions = detector.check_regressions();
         assert_eq!(regressions.len(), 1);
         assert!(regressions[0].regression_percentage > 15.0);
+    }
+
+    #[test]
+    fn test_regression_detector_with_throughput_improvement() {
+        let detector = RegressionDetector::with_threshold(0.10); // 10% threshold
+        
+        // Set baseline for throughput metric
+        let baseline_samples = vec![100.0; 15];
+        let baseline_stats = PerformanceStats::from_samples(&baseline_samples);
+        detector.set_baseline(MetricType::TaskThroughput, baseline_stats);
+        
+        // Add improved samples (higher throughput is better)
+        for value in vec![120.0; 15] { // 20% increase - this is an improvement, not regression
+            detector.add_sample(PerformanceSample::new(MetricType::TaskThroughput, value));
+        }
+        
+        let regressions = detector.check_regressions();
+        assert_eq!(regressions.len(), 0); // No regressions - this is an improvement!
+    }
+
+    #[test]
+    fn test_regression_detector_with_throughput_regression() {
+        let detector = RegressionDetector::with_threshold(0.10); // 10% threshold
+        
+        // Set baseline for throughput metric
+        let baseline_samples = vec![100.0; 15];
+        let baseline_stats = PerformanceStats::from_samples(&baseline_samples);
+        detector.set_baseline(MetricType::TaskThroughput, baseline_stats);
+        
+        // Add regressed samples (lower throughput is worse)
+        for value in vec![80.0; 15] { // 20% decrease - this is a regression for throughput
+            detector.add_sample(PerformanceSample::new(MetricType::TaskThroughput, value));
+        }
+        
+        let regressions = detector.check_regressions();
+        assert_eq!(regressions.len(), 1);
+        assert!(regressions[0].regression_percentage > 15.0);
+    }
+
+    #[test]
+    fn test_metric_direction() {
+        // Test that metric directions are correctly assigned
+        assert_eq!(MetricType::TaskLatency.direction(), MetricDirection::LowerIsBetter);
+        assert_eq!(MetricType::TaskThroughput.direction(), MetricDirection::HigherIsBetter);
+        assert_eq!(MetricType::LockContention.direction(), MetricDirection::LowerIsBetter);
+        assert_eq!(MetricType::CpuUtilization.direction(), MetricDirection::HigherIsBetter);
+        assert_eq!(MetricType::Custom("test".to_string()).direction(), MetricDirection::LowerIsBetter);
     }
 
     #[test]
