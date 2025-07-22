@@ -120,6 +120,16 @@ pub enum RtSchedulingPolicy {
     DeadlineDriven,
     /// Rate-monotonic scheduling (fixed priority based on period)
     RateMonotonic,
+    /// Energy-efficient scheduling (reduces CPU frequency when possible)
+    EnergyEfficient {
+        /// Target CPU utilization percentage (0-100)
+        target_utilization: u8,
+    },
+    /// Fair scheduling with proportional share
+    ProportionalShare {
+        /// Scheduling weight for this task
+        weight: u32,
+    },
 }
 
 impl Default for RtSchedulingPolicy {
@@ -135,6 +145,8 @@ impl fmt::Display for RtSchedulingPolicy {
             Self::RoundRobin { time_slice_us } => write!(f, "RR({}μs)", time_slice_us),
             Self::DeadlineDriven => write!(f, "EDF"),
             Self::RateMonotonic => write!(f, "RM"),
+            Self::EnergyEfficient { target_utilization } => write!(f, "EE({}%)", target_utilization),
+            Self::ProportionalShare { weight } => write!(f, "PS({})", weight),
         }
     }
 }
@@ -155,6 +167,12 @@ pub struct RtConstraints {
     pub wcet_ns: Option<u64>,
     /// Scheduling policy to use for this task
     pub policy: RtSchedulingPolicy,
+    /// Priority inheritance ceiling (for priority inheritance protocol)
+    pub priority_ceiling: Option<Priority>,
+    /// CPU quota in percentage (0.0 to 1.0)
+    pub cpu_quota_percent: Option<u8>, // 0-100 percentage
+    /// Maximum consecutive execution time before yielding (microseconds)
+    pub max_execution_slice_us: Option<u32>,
 }
 
 impl Default for RtConstraints {
@@ -164,6 +182,9 @@ impl Default for RtConstraints {
             period_ns: None,
             wcet_ns: None,
             policy: RtSchedulingPolicy::default(),
+            priority_ceiling: None,
+            cpu_quota_percent: None,
+            max_execution_slice_us: None,
         }
     }
 }
@@ -177,6 +198,9 @@ impl RtConstraints {
             period_ns: None,
             wcet_ns: None,
             policy: RtSchedulingPolicy::DeadlineDriven,
+            priority_ceiling: None,
+            cpu_quota_percent: None,
+            max_execution_slice_us: None,
         }
     }
 
@@ -188,6 +212,9 @@ impl RtConstraints {
             period_ns: Some(period_ns),
             wcet_ns: Some(wcet_ns),
             policy: RtSchedulingPolicy::RateMonotonic,
+            priority_ceiling: None,
+            cpu_quota_percent: None,
+            max_execution_slice_us: None,
         }
     }
 
@@ -199,6 +226,37 @@ impl RtConstraints {
             period_ns: None,
             wcet_ns: None,
             policy: RtSchedulingPolicy::RoundRobin { time_slice_us },
+            priority_ceiling: None,
+            cpu_quota_percent: None,
+            max_execution_slice_us: None,
+        }
+    }
+
+    /// Create constraints for energy-efficient scheduling.
+    #[must_use]
+    pub const fn energy_efficient(target_utilization: u8) -> Self {
+        Self {
+            deadline_ns: None,
+            period_ns: None,
+            wcet_ns: None,
+            policy: RtSchedulingPolicy::EnergyEfficient { target_utilization },
+            priority_ceiling: None,
+            cpu_quota_percent: None,
+            max_execution_slice_us: None,
+        }
+    }
+
+    /// Create constraints for proportional share scheduling.
+    #[must_use]
+    pub const fn proportional_share(weight: u32) -> Self {
+        Self {
+            deadline_ns: None,
+            period_ns: None,
+            wcet_ns: None,
+            policy: RtSchedulingPolicy::ProportionalShare { weight },
+            priority_ceiling: None,
+            cpu_quota_percent: None,
+            max_execution_slice_us: None,
         }
     }
 
@@ -221,6 +279,40 @@ impl RtConstraints {
             (Some(wcet), Some(period)) if period > 0 => Some(wcet as f64 / period as f64),
             _ => None,
         }
+    }
+
+    /// Create RT constraints with priority inheritance ceiling.
+    #[must_use]
+    pub const fn with_priority_ceiling(mut self, ceiling: Priority) -> Self {
+        self.priority_ceiling = Some(ceiling);
+        self
+    }
+
+    /// Create RT constraints with CPU quota (0-100 percent).
+    #[must_use]
+    pub const fn with_cpu_quota(mut self, quota_percent: u8) -> Self {
+        let quota = if quota_percent > 100 { 100 } else { quota_percent };
+        self.cpu_quota_percent = Some(quota);
+        self
+    }
+
+    /// Create RT constraints with maximum execution slice.
+    #[must_use]
+    pub const fn with_execution_slice(mut self, slice_us: u32) -> Self {
+        self.max_execution_slice_us = Some(slice_us);
+        self
+    }
+
+    /// Check if this task has priority inheritance enabled.
+    #[must_use]
+    pub const fn has_priority_inheritance(&self) -> bool {
+        self.priority_ceiling.is_some()
+    }
+
+    /// Check if this task has CPU quota limits.
+    #[must_use]
+    pub const fn has_cpu_quota(&self) -> bool {
+        self.cpu_quota_percent.is_some()
     }
 }
 
@@ -498,6 +590,9 @@ mod tests {
             period_ns: None,
             wcet_ns: Some(500_000),
             policy: RtSchedulingPolicy::Fifo,
+            priority_ceiling: None,
+            cpu_quota_percent: None,
+            max_execution_slice_us: None,
         };
 
         let custom_task = TaskContext::new(id)
@@ -524,8 +619,46 @@ mod tests {
             period_ns: Some(0),
             deadline_ns: None,
             policy: RtSchedulingPolicy::default(),
+            priority_ceiling: None,
+            cpu_quota_percent: None,
+            max_execution_slice_us: None,
         };
         assert_eq!(constraint.utilization(), None);
+    }
+
+    #[test]
+    fn test_advanced_rt_scheduling_policies() {
+        // Test energy-efficient scheduling
+        let ee_constraint = RtConstraints::energy_efficient(75);
+        assert_eq!(ee_constraint.policy, RtSchedulingPolicy::EnergyEfficient { target_utilization: 75 });
+        assert!(!ee_constraint.has_deadline());
+        assert!(!ee_constraint.is_periodic());
+
+        // Test proportional share scheduling
+        let ps_constraint = RtConstraints::proportional_share(100);
+        assert_eq!(ps_constraint.policy, RtSchedulingPolicy::ProportionalShare { weight: 100 });
+
+        // Test policy display
+        assert_eq!(format!("{}", RtSchedulingPolicy::EnergyEfficient { target_utilization: 80 }), "EE(80%)");
+        assert_eq!(format!("{}", RtSchedulingPolicy::ProportionalShare { weight: 50 }), "PS(50)");
+    }
+
+    #[test]
+    fn test_priority_inheritance_and_cpu_quota() {
+        let constraint = RtConstraints::deadline(5_000_000)
+            .with_priority_ceiling(Priority::Critical)
+            .with_cpu_quota(75)
+            .with_execution_slice(1000);
+
+        assert!(constraint.has_priority_inheritance());
+        assert!(constraint.has_cpu_quota());
+        assert_eq!(constraint.priority_ceiling, Some(Priority::Critical));
+        assert_eq!(constraint.cpu_quota_percent, Some(75));
+        assert_eq!(constraint.max_execution_slice_us, Some(1000));
+
+        // Test CPU quota clamping
+        let constraint_clamped = RtConstraints::deadline(1_000_000).with_cpu_quota(150);
+        assert_eq!(constraint_clamped.cpu_quota_percent, Some(100));
     }
 
     #[test]

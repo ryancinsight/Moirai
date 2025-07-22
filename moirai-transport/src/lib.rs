@@ -593,7 +593,7 @@ impl TransportManager {
     }
 
     /// Receive a message.
-    pub async fn receive_message<T>(&self, address: Address) -> TransportResult<(Address, T)>
+    pub async fn receive_message<T>(&self, _address: Address) -> TransportResult<(Address, T)>
     where
         T: Send + Sync + 'static,
     {
@@ -604,7 +604,7 @@ impl TransportManager {
         use std::task::{Context, Poll};
         
         struct MessageReceiver<T> {
-            address: Address,
+            _address: Address,
             _phantom: std::marker::PhantomData<T>,
         }
         
@@ -642,7 +642,7 @@ impl TransportManager {
     }
 
     /// Receive from a specific sender.
-    pub async fn receive_from<T>(&self, receiver: Address, sender: Address) -> TransportResult<T>
+    pub async fn receive_from<T>(&self, _receiver: Address, _sender: Address) -> TransportResult<T>
     where
         T: Send + Sync + 'static,
     {
@@ -747,7 +747,32 @@ pub struct TcpTransport;
 pub struct UdpTransport;
 
 #[cfg(feature = "distributed")]
-pub struct DistributedTransport;
+pub struct DistributedTransport {
+    node_id: String,
+    known_nodes: std::sync::RwLock<std::collections::HashMap<String, RemoteAddress>>,
+}
+
+/// Represents a task that can be executed on a remote node
+#[cfg(feature = "distributed")]
+#[derive(Debug, Clone)]
+pub struct DistributedTask {
+    pub task_id: String,
+    pub target_node: String,
+    pub payload: Vec<u8>, // Serialized task
+    pub priority: u8,
+    pub deadline_ns: Option<u64>,
+}
+
+/// Information about a node in the distributed system
+#[cfg(feature = "distributed")]
+#[derive(Debug, Clone)]
+pub struct NodeInfo {
+    pub node_id: String,
+    pub address: RemoteAddress,
+    pub capabilities: Vec<String>,
+    pub load_factor: f32,
+    pub last_heartbeat: std::time::SystemTime,
+}
 
 impl InMemoryTransport {
     fn new() -> Self {
@@ -815,12 +840,63 @@ impl UdpTransport {
 #[cfg(feature = "distributed")]
 impl DistributedTransport {
     fn new() -> TransportResult<Self> {
-        Ok(Self)
+        let node_id = format!("node-{}", generate_message_id());
+        Ok(Self {
+            node_id,
+            known_nodes: std::sync::RwLock::new(std::collections::HashMap::new()),
+        })
     }
 
-    async fn send<T>(&self, _address: Address, _message: T) -> TransportResult<()> {
-        // Placeholder implementation
+    /// Register a new node in the distributed system
+    pub fn register_node(&self, node_id: String, address: RemoteAddress) -> TransportResult<()> {
+        let mut nodes = self.known_nodes.write()
+            .map_err(|_| TransportError::NetworkError("Failed to acquire write lock".to_string()))?;
+        nodes.insert(node_id, address);
         Ok(())
+    }
+
+    /// Get information about known nodes
+    pub fn get_nodes(&self) -> TransportResult<Vec<NodeInfo>> {
+        let nodes = self.known_nodes.read()
+            .map_err(|_| TransportError::NetworkError("Failed to acquire read lock".to_string()))?;
+        
+        let mut node_infos = Vec::new();
+        for (node_id, address) in nodes.iter() {
+            node_infos.push(NodeInfo {
+                node_id: node_id.clone(),
+                address: address.clone(),
+                capabilities: vec!["compute".to_string(), "storage".to_string()],
+                load_factor: 0.5, // Mock load factor
+                last_heartbeat: std::time::SystemTime::now(),
+            });
+        }
+        Ok(node_infos)
+    }
+
+    /// Get the current node ID
+    pub fn node_id(&self) -> &str {
+        &self.node_id
+    }
+
+    async fn send<T>(&self, address: Address, _message: T) -> TransportResult<()> {
+        match address {
+            Address::Remote(_remote_addr) => {
+                // In a real implementation, this would:
+                // 1. Serialize the message
+                // 2. Establish network connection to remote_addr
+                // 3. Send the serialized data
+                // 4. Handle network errors and retries
+                
+                // For now, we simulate successful transmission
+                {
+                    use std::io::{self, Write};
+                    let _ = writeln!(io::stderr(), 
+                        "DISTRIBUTED: Sending message to remote address");
+                }
+                Ok(())
+            }
+            _ => Err(TransportError::NetworkError("Invalid address for distributed transport".to_string()))
+        }
     }
 }
 
