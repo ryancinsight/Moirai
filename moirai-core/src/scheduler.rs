@@ -255,7 +255,7 @@ impl WorkStealingCoordinator {
             }
             
             // Simple LCG for pseudo-random selection
-            seed = seed * Wrapping(1103515245) + Wrapping(12345);
+            seed = seed * Wrapping(1_103_515_245) + Wrapping(12345);
             let victim_idx = (seed.0 as usize) % self.schedulers.len();
             
             let victim = &self.schedulers[victim_idx];

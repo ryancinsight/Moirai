@@ -122,7 +122,7 @@ pub mod cpu {
         /// Get the current CPU topology.
         pub fn detect() -> Self {
             static TOPOLOGY: OnceLock<CpuTopology> = OnceLock::new();
-            TOPOLOGY.get_or_init(|| Self::detect_impl()).clone()
+            TOPOLOGY.get_or_init(Self::detect_impl).clone()
         }
 
         /// Detect CPU topology (implementation).
@@ -322,12 +322,12 @@ pub mod cpu {
                 return None;
             }
             
-            let (num_str, suffix) = if size_str.ends_with('K') {
-                (&size_str[..size_str.len()-1], 1024)
-            } else if size_str.ends_with('M') {
-                (&size_str[..size_str.len()-1], 1024 * 1024)
-            } else if size_str.ends_with('G') {
-                (&size_str[..size_str.len()-1], 1024 * 1024 * 1024)
+            let (num_str, suffix) = if let Some(stripped) = size_str.strip_suffix('K') {
+                (stripped, 1024)
+            } else if let Some(stripped) = size_str.strip_suffix('M') {
+                (stripped, 1024 * 1024)
+            } else if let Some(stripped) = size_str.strip_suffix('G') {
+                (stripped, 1024 * 1024 * 1024)
             } else {
                 (size_str, 1)
             };
@@ -598,11 +598,9 @@ pub mod cpu {
     }
 }
 
-/// NUMA topology information.
 #[cfg(feature = "numa")]
+/// NUMA topology information.
 pub mod numa {
-    //! NUMA topology detection and management.
-    
     use super::*;
     #[cfg(feature = "std")]
     use super::cpu::CpuTopology;
@@ -807,7 +805,7 @@ pub mod numa {
                     )
                 };
                 
-                if ptr == std::ptr::null_mut() || ptr == (-1isize) as *mut c_void {
+                if ptr.is_null() || ptr == (-1isize) as *mut c_void {
                     return Err(NumaError::AllocationFailed);
                 }
                 
@@ -853,6 +851,11 @@ pub mod numa {
         }
 
         /// Free NUMA-allocated memory.
+        ///
+        /// # Safety
+        /// - `ptr` must have been allocated by `allocate_on_node`
+        /// - `ptr` must not be used after this call
+        /// - `size` must match the size used during allocation
         pub unsafe fn free_numa_memory<T>(ptr: *mut T, size: usize) {
             #[cfg(target_os = "linux")]
             {
@@ -911,8 +914,6 @@ pub mod numa {
 
 /// Memory optimization utilities.
 pub mod memory {
-    //! Memory optimization and prefetching utilities.
-    
     /// Prefetch data into cache.
     #[inline]
     pub fn prefetch_read<T>(ptr: *const T) {
@@ -979,8 +980,10 @@ pub mod memory {
         /// ```
         /// use moirai_utils::memory::branch_prediction::likely;
         /// 
+        /// let some_condition = true; // Usually true in your code
         /// if likely(some_condition) {
         ///     // This branch is expected to be taken most of the time
+        ///     println!("Common case");
         /// }
         /// ```
         #[inline]
@@ -1002,9 +1005,10 @@ pub mod memory {
         /// ```
         /// use moirai_utils::memory::branch_prediction::unlikely;
         /// 
+        /// let error_condition = false; // Usually false in your code
         /// if unlikely(error_condition) {
         ///     // This branch is expected to be taken rarely
-        ///     handle_error();
+        ///     eprintln!("Error occurred!");
         /// }
         /// ```
         #[inline]
@@ -1521,21 +1525,15 @@ pub mod memory_pool {
                 }
             }
             
-            // Fallback: This should never happen in correct usage, but provides safety
-            // If metadata is corrupted or missing, this indicates a programming error
-            #[cfg(feature = "std")]
-            {
-                use std::io::{self, Write};
-                let _ = writeln!(io::stderr(), "WARNING: NumaAwarePool::deallocate - Missing metadata for pointer {:p}. This indicates a bug.", ptr.as_ptr());
-            }
-            
-            // As a last resort, try all pools (this is not ideal but prevents crashes)
-            for pool in self.pools.values() {
-                // Note: This is still problematic as we don't know which pool owns this memory
-                // In a production system, this should panic or return an error
-                pool.deallocate(ptr);
-                return;
-            }
+            // SAFETY CONTRACT VIOLATION: The caller provided a pointer that was not allocated
+            // by this NumaAwarePool, or there is a critical internal bug with metadata tracking.
+            // This is undefined behavior and we must fail fast rather than risk memory corruption.
+            panic!(
+                "NumaAwarePool::deallocate - Invalid pointer {:p}. \
+                This pointer was not allocated by this pool or metadata is corrupted. \
+                This indicates a serious programming error or memory corruption.",
+                ptr.as_ptr()
+            );
         }
 
         /// Deallocate a block from a specific NUMA node (safer alternative).
@@ -2034,6 +2032,10 @@ mod tests {
                 }
             }
         }
+
+        // NOTE: Test for panic behavior on invalid pointer deallocation
+        // would be added here, but requires resolving module structure issues
+        // The fix is implemented: invalid pointers now cause panic instead of UB
     }
 
     #[cfg(feature = "std")]

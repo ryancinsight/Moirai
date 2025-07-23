@@ -539,10 +539,19 @@ mod tests {
 
     #[test]
     fn test_insufficient_samples_no_regression() {
+        let detector = RegressionDetector::with_threshold(0.05);
+        
+        // Set baseline with insufficient samples
         let baseline_stats = PerformanceStats::from_samples(&vec![100.0; 5]); // Less than MIN_SAMPLES
-        let current_stats = PerformanceStats::from_samples(&vec![200.0; 15]); // Significant increase
+        detector.set_baseline(MetricType::TaskLatency, baseline_stats);
+        
+        // Add current samples that would normally be a regression
+        for value in vec![200.0; 15] {
+            detector.add_sample(PerformanceSample::new(MetricType::TaskLatency, value));
+        }
         
         // Should not detect regression due to insufficient baseline samples
-        assert!(!current_stats.is_regression(&baseline_stats, 0.05));
+        let regressions = detector.check_regressions();
+        assert!(regressions.is_empty());
     }
 }
