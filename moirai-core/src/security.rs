@@ -600,7 +600,7 @@ mod tests {
             assert!(result.is_ok(), "Spawn {} should succeed", i + 1);
         }
         
-        // 4th spawn should fail due to rate limiting
+        assert!(total_acquired <= 100, "Total acquired {total_acquired} should not exceed limit 100");
         let result = auditor.audit_task_spawn(TaskId::new(4), Priority::Normal);
         assert!(result.is_err(), "4th spawn should fail due to rate limiting");
         
