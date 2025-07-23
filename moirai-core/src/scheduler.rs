@@ -361,7 +361,7 @@ mod tests {
     fn test_scheduler_id() {
         let id = SchedulerId::new(42);
         assert_eq!(id.get(), 42);
-        assert_eq!(format!("{}", id), "Scheduler(42)");
+        assert_eq!(format!("{id}"), "Scheduler(42)");
     }
 
     #[test]

@@ -50,7 +50,7 @@ impl fmt::Display for TaskError {
             Self::Timeout => write!(f, "Task exceeded execution time limit"),
             Self::ResourceExhausted => write!(f, "Task failed due to resource exhaustion"),
             Self::InvalidOperation => write!(f, "Invalid operation"),
-            Self::ExecutionFailed(kind) => write!(f, "Task execution failed: {}", kind),
+            Self::ExecutionFailed(kind) => write!(f, "Task execution failed: {kind}"),
         }
     }
 }

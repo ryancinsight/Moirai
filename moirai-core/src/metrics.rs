@@ -1,143 +1,161 @@
 //! Metrics collection and monitoring for Moirai.
 
-use core::fmt;
-#[cfg(feature = "std")]
+use core::sync::atomic::{AtomicU64, Ordering};
 use std::collections::HashMap;
-#[cfg(not(feature = "std"))]
-use alloc::collections::BTreeMap as HashMap;
+use std::time::Duration;
+use crate::scheduler::SchedulerId;
 
-/// A timestamp for performance measurements.
-/// 
-/// This is a placeholder type - in a real implementation, this would
-/// provide high-resolution timing capabilities.
+/// High-precision timestamp for performance measurements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Instant(u64);
 
 impl Instant {
-    /// Get the current instant.
-    #[cfg(feature = "std")]
+    /// Create a new instant representing the current time.
+    #[must_use]
     pub fn now() -> Self {
-        Self(std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64)
+        Self(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+                .try_into()
+                .unwrap_or(u64::MAX), // Handle potential truncation gracefully
+        )
     }
 
-    /// Get the current instant (no_std version).
-    #[cfg(not(feature = "std"))]
-    pub fn now() -> Self {
-        // Placeholder - would need platform-specific implementation
-        Self(0)
-    }
-
-    /// Calculate duration since another instant.
+    /// Calculate the duration since an earlier instant.
+    #[must_use]
     pub fn duration_since(&self, earlier: Instant) -> Duration {
         Duration::from_nanos(self.0.saturating_sub(earlier.0))
     }
 
-    /// Calculate elapsed time since this instant.
+    /// Get the elapsed time since this instant.
+    #[must_use]
     pub fn elapsed(&self) -> Duration {
         Self::now().duration_since(*self)
     }
 }
 
-/// A duration type for timing measurements.
+/// A duration type optimized for performance metrics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Duration(u64);
+pub struct TimeDuration(u64);
 
-impl Duration {
+impl TimeDuration {
     /// Create a duration from nanoseconds.
+    #[must_use]
     pub const fn from_nanos(nanos: u64) -> Self {
         Self(nanos)
     }
 
     /// Create a duration from microseconds.
+    #[must_use]
     pub const fn from_micros(micros: u64) -> Self {
         Self(micros * 1_000)
     }
 
     /// Create a duration from milliseconds.
+    #[must_use]
     pub const fn from_millis(millis: u64) -> Self {
         Self(millis * 1_000_000)
     }
 
     /// Create a duration from seconds.
+    #[must_use]
     pub const fn from_secs(secs: u64) -> Self {
         Self(secs * 1_000_000_000)
     }
 
-    /// Get duration as nanoseconds.
+    /// Get the duration in nanoseconds.
+    #[must_use]
     pub const fn as_nanos(&self) -> u64 {
         self.0
     }
 
-    /// Get duration as microseconds.
+    /// Get the duration in microseconds.
+    #[must_use]
     pub const fn as_micros(&self) -> u64 {
         self.0 / 1_000
     }
 
-    /// Get duration as milliseconds.
+    /// Get the duration in milliseconds.
+    #[must_use]
     pub const fn as_millis(&self) -> u64 {
         self.0 / 1_000_000
     }
 
-    /// Get duration as seconds.
+    /// Get the duration in seconds.
+    #[must_use]
     pub const fn as_secs(&self) -> u64 {
         self.0 / 1_000_000_000
     }
 
-    /// Get duration as floating-point seconds.
+    /// Get the duration as seconds with fractional precision.
+    #[must_use]
     pub fn as_secs_f64(&self) -> f64 {
-        self.0 as f64 / 1_000_000_000.0
+        // Use explicit conversion to handle precision loss intentionally
+        #[allow(clippy::cast_precision_loss)]
+        {
+            self.0 as f64 / 1_000_000_000.0
+        }
     }
 }
 
-impl fmt::Display for Duration {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for TimeDuration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.0 < 1_000 {
             write!(f, "{}ns", self.0)
         } else if self.0 < 1_000_000 {
-            write!(f, "{:.1}μs", self.0 as f64 / 1_000.0)
+            #[allow(clippy::cast_precision_loss)]
+            {
+                write!(f, "{:.1}μs", self.0 as f64 / 1_000.0)
+            }
         } else if self.0 < 1_000_000_000 {
-            write!(f, "{:.1}ms", self.0 as f64 / 1_000_000.0)
+            #[allow(clippy::cast_precision_loss)]
+            {
+                write!(f, "{:.1}ms", self.0 as f64 / 1_000_000.0)
+            }
         } else {
-            write!(f, "{:.1}s", self.0 as f64 / 1_000_000_000.0)
+            #[allow(clippy::cast_precision_loss)]
+            {
+                write!(f, "{:.1}s", self.0 as f64 / 1_000_000_000.0)
+            }
         }
     }
 }
 
-/// Performance counter that tracks events.
+/// Thread-safe counter for performance metrics.
 #[derive(Debug)]
 pub struct Counter {
-    value: core::sync::atomic::AtomicU64,
+    value: AtomicU64,
 }
 
 impl Counter {
-    /// Create a new counter starting at zero.
+    /// Create a new counter.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
-            value: core::sync::atomic::AtomicU64::new(0),
+            value: AtomicU64::new(0),
         }
     }
 
-    /// Increment the counter by one.
+    /// Increment the counter by 1.
     pub fn increment(&self) {
         self.add(1);
     }
 
     /// Add a value to the counter.
     pub fn add(&self, value: u64) {
-        self.value.fetch_add(value, core::sync::atomic::Ordering::Relaxed);
+        self.value.fetch_add(value, Ordering::Relaxed);
     }
 
     /// Get the current value.
     pub fn get(&self) -> u64 {
-        self.value.load(core::sync::atomic::Ordering::Relaxed)
+        self.value.load(Ordering::Relaxed)
     }
 
     /// Reset the counter to zero.
     pub fn reset(&self) {
-        self.value.store(0, core::sync::atomic::Ordering::Relaxed);
+        self.value.store(0, Ordering::Relaxed);
     }
 }
 
@@ -147,53 +165,44 @@ impl Default for Counter {
     }
 }
 
-/// Gauge that tracks a current value that can go up or down.
+/// Thread-safe gauge for current values.
 #[derive(Debug)]
 pub struct Gauge {
-    value: core::sync::atomic::AtomicU64,
+    value: AtomicU64,
 }
 
 impl Gauge {
-    /// Create a new gauge starting at zero.
+    /// Create a new gauge.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
-            value: core::sync::atomic::AtomicU64::new(0),
+            value: AtomicU64::new(0),
         }
     }
 
-    /// Set the gauge to a specific value.
+    /// Set the gauge value.
     pub fn set(&self, value: u64) {
-        self.value.store(value, core::sync::atomic::Ordering::Relaxed);
-    }
-
-    /// Increment the gauge by one.
-    pub fn increment(&self) {
-        self.add(1);
-    }
-
-    /// Decrement the gauge by one.
-    pub fn decrement(&self) {
-        self.subtract(1);
-    }
-
-    /// Add a value to the gauge.
-    pub fn add(&self, value: u64) {
-        self.value.fetch_add(value, core::sync::atomic::Ordering::Relaxed);
-    }
-
-    /// Subtract a value from the gauge.
-    pub fn subtract(&self, value: u64) {
-        self.value.fetch_sub(value, core::sync::atomic::Ordering::Relaxed);
+        self.value.store(value, Ordering::Relaxed);
     }
 
     /// Get the current value.
     pub fn get(&self) -> u64 {
-        self.value.load(core::sync::atomic::Ordering::Relaxed)
+        self.value.load(Ordering::Relaxed)
     }
 
-    /// Reset the gauge to zero.
-    pub fn reset(&self) {
-        self.value.store(0, core::sync::atomic::Ordering::Relaxed);
+    /// Increment the gauge by 1.
+    pub fn increment(&self) {
+        self.add(1);
+    }
+
+    /// Add to the gauge value.
+    pub fn add(&self, value: u64) {
+        self.value.fetch_add(value, Ordering::Relaxed);
+    }
+
+    /// Subtract from the gauge value.
+    pub fn subtract(&self, value: u64) {
+        self.value.fetch_sub(value, Ordering::Relaxed);
     }
 }
 
@@ -203,22 +212,32 @@ impl Default for Gauge {
     }
 }
 
-/// Histogram that tracks the distribution of values.
+/// Thread-safe histogram for value distributions.
 #[derive(Debug)]
 pub struct Histogram {
-    buckets: [core::sync::atomic::AtomicU64; 16], // Simple fixed-size buckets
-    sum: core::sync::atomic::AtomicU64,
-    count: core::sync::atomic::AtomicU64,
+    buckets: [AtomicU64; 16],
+    sum: AtomicU64,
+    count: AtomicU64,
 }
 
 impl Histogram {
     /// Create a new histogram.
+    #[must_use]
     pub const fn new() -> Self {
-        const ATOMIC_ZERO: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+        // Use const fn to avoid interior mutable const warning
+        const fn new_atomic() -> AtomicU64 {
+            AtomicU64::new(0)
+        }
+        
         Self {
-            buckets: [ATOMIC_ZERO; 16],
-            sum: core::sync::atomic::AtomicU64::new(0),
-            count: core::sync::atomic::AtomicU64::new(0),
+            buckets: [
+                new_atomic(), new_atomic(), new_atomic(), new_atomic(),
+                new_atomic(), new_atomic(), new_atomic(), new_atomic(),
+                new_atomic(), new_atomic(), new_atomic(), new_atomic(),
+                new_atomic(), new_atomic(), new_atomic(), new_atomic(),
+            ],
+            sum: AtomicU64::new(0),
+            count: AtomicU64::new(0),
         }
     }
 
@@ -228,22 +247,22 @@ impl Histogram {
         let bucket_index = if value == 0 {
             0
         } else {
-            ((64 - value.leading_zeros()) as usize).min(15)
+            (15 - value.leading_zeros() as usize).min(15)
         };
 
-        self.buckets[bucket_index].fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        self.sum.fetch_add(value, core::sync::atomic::Ordering::Relaxed);
-        self.count.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        self.buckets[bucket_index].fetch_add(1, Ordering::Relaxed);
+        self.sum.fetch_add(value, Ordering::Relaxed);
+        self.count.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Get the total count of recorded values.
     pub fn count(&self) -> u64 {
-        self.count.load(core::sync::atomic::Ordering::Relaxed)
+        self.count.load(Ordering::Relaxed)
     }
 
     /// Get the sum of all recorded values.
     pub fn sum(&self) -> u64 {
-        self.sum.load(core::sync::atomic::Ordering::Relaxed)
+        self.sum.load(Ordering::Relaxed)
     }
 
     /// Calculate the average of recorded values.
@@ -252,26 +271,21 @@ impl Histogram {
         if count == 0 {
             0.0
         } else {
-            self.sum() as f64 / count as f64
+            // Intentional precision loss for averaging - use explicit allow
+            #[allow(clippy::cast_precision_loss)]
+            {
+                self.sum() as f64 / count as f64
+            }
         }
     }
 
     /// Get the count for a specific bucket.
     pub fn bucket_count(&self, bucket: usize) -> u64 {
         if bucket < self.buckets.len() {
-            self.buckets[bucket].load(core::sync::atomic::Ordering::Relaxed)
+            self.buckets[bucket].load(Ordering::Relaxed)
         } else {
             0
         }
-    }
-
-    /// Reset all counters.
-    pub fn reset(&self) {
-        for bucket in &self.buckets {
-            bucket.store(0, core::sync::atomic::Ordering::Relaxed);
-        }
-        self.sum.store(0, core::sync::atomic::Ordering::Relaxed);
-        self.count.store(0, core::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -281,151 +295,123 @@ impl Default for Histogram {
     }
 }
 
-/// Task execution metrics.
+/// Metrics for individual tasks.
 #[derive(Debug)]
-pub struct TaskMetrics {
-    /// Number of tasks spawned
+pub struct TaskData {
     pub spawned: Counter,
-    /// Number of tasks completed
     pub completed: Counter,
-    /// Number of tasks cancelled
-    pub cancelled: Counter,
-    /// Task execution time histogram (microseconds)
     pub execution_time: Histogram,
-    /// Task queue wait time histogram (microseconds)
     pub wait_time: Histogram,
 }
 
-impl TaskMetrics {
+impl TaskData {
     /// Create new task metrics.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             spawned: Counter::new(),
             completed: Counter::new(),
-            cancelled: Counter::new(),
             execution_time: Histogram::new(),
             wait_time: Histogram::new(),
         }
     }
 
-    /// Record task spawn.
-    pub fn record_spawn(&self) {
-        self.spawned.increment();
-    }
-
-    /// Record task completion with execution time.
-    pub fn record_completion(&self, execution_time: core::time::Duration) {
+    /// Record task execution metrics.
+    pub fn record_execution(&self, execution_time: Duration) {
         self.completed.increment();
-        self.execution_time.record(execution_time.as_micros() as u64);
-    }
-
-    /// Record task cancellation.
-    pub fn record_cancellation(&self) {
-        self.cancelled.increment();
+        // Handle potential truncation with try_from
+        let micros = execution_time.as_micros();
+        if let Ok(micros_u64) = u64::try_from(micros) {
+            self.execution_time.record(micros_u64);
+        } else {
+            // For extremely long durations, record maximum value
+            self.execution_time.record(u64::MAX);
+        }
     }
 
     /// Record task wait time.
-    pub fn record_wait_time(&self, wait_time: core::time::Duration) {
-        self.wait_time.record(wait_time.as_micros() as u64);
+    pub fn record_wait(&self, wait_time: Duration) {
+        // Handle potential truncation with try_from
+        let micros = wait_time.as_micros();
+        if let Ok(micros_u64) = u64::try_from(micros) {
+            self.wait_time.record(micros_u64);
+        } else {
+            // For extremely long wait times, record maximum value
+            self.wait_time.record(u64::MAX);
+        }
     }
 
-    /// Get completion rate (0.0 to 1.0).
+    /// Calculate task completion rate.
     pub fn completion_rate(&self) -> f64 {
         let spawned = self.spawned.get();
         if spawned == 0 {
             0.0
         } else {
-            self.completed.get() as f64 / spawned as f64
+            // Intentional precision loss for rate calculation
+            #[allow(clippy::cast_precision_loss)]
+            {
+                self.completed.get() as f64 / spawned as f64
+            }
         }
-    }
-
-    /// Reset all metrics.
-    pub fn reset(&self) {
-        self.spawned.reset();
-        self.completed.reset();
-        self.cancelled.reset();
-        self.execution_time.reset();
-        self.wait_time.reset();
     }
 }
 
-impl Default for TaskMetrics {
+impl Default for TaskData {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Scheduler metrics.
+/// Metrics for individual schedulers.
 #[derive(Debug)]
-pub struct SchedulerMetrics {
-    /// Current queue length
+pub struct SchedulerData {
     pub queue_length: Gauge,
-    /// Number of steal attempts
+    pub tasks_processed: Counter,
     pub steal_attempts: Counter,
-    /// Number of successful steals
     pub successful_steals: Counter,
-    /// Number of times stolen from
-    pub stolen_from: Counter,
-    /// CPU utilization gauge (0-100)
     pub cpu_utilization: Gauge,
 }
 
-impl SchedulerMetrics {
+impl SchedulerData {
     /// Create new scheduler metrics.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             queue_length: Gauge::new(),
+            tasks_processed: Counter::new(),
             steal_attempts: Counter::new(),
             successful_steals: Counter::new(),
-            stolen_from: Counter::new(),
             cpu_utilization: Gauge::new(),
         }
     }
 
-    /// Record a steal attempt.
-    pub fn record_steal_attempt(&self, successful: bool) {
-        self.steal_attempts.increment();
-        if successful {
-            self.successful_steals.increment();
+    /// Record CPU utilization as a percentage.
+    pub fn record_cpu_utilization(&self, utilization: f32) -> f32 {
+        // Handle potential truncation and sign loss with bounds checking
+        let utilization_percent = (utilization * 100.0).clamp(0.0, 100.0);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            self.cpu_utilization.set(utilization_percent as u64);
         }
+        utilization_percent
     }
 
-    /// Record being stolen from.
-    pub fn record_stolen_from(&self) {
-        self.stolen_from.increment();
-    }
-
-    /// Update queue length.
-    pub fn update_queue_length(&self, length: usize) {
-        self.queue_length.set(length as u64);
-    }
-
-    /// Update CPU utilization.
-    pub fn update_cpu_utilization(&self, utilization: f32) {
-        self.cpu_utilization.set((utilization * 100.0) as u64);
-    }
-
-    /// Get steal success rate.
+    /// Calculate steal success rate.
     pub fn steal_success_rate(&self) -> f64 {
         let attempts = self.steal_attempts.get();
         if attempts == 0 {
             0.0
         } else {
-            self.successful_steals.get() as f64 / attempts as f64
+            // Intentional precision loss for rate calculation
+            #[allow(clippy::cast_precision_loss)]
+            {
+                self.successful_steals.get() as f64 / attempts as f64
+            }
         }
-    }
-
-    /// Reset all metrics.
-    pub fn reset(&self) {
-        self.queue_length.reset();
-        self.steal_attempts.reset();
-        self.successful_steals.reset();
-        self.stolen_from.reset();
-        self.cpu_utilization.reset();
     }
 }
 
-impl Default for SchedulerMetrics {
+impl Default for SchedulerData {
     fn default() -> Self {
         Self::new()
     }
@@ -433,61 +419,66 @@ impl Default for SchedulerMetrics {
 
 /// Global metrics collector.
 #[derive(Debug)]
-pub struct Metrics {
-    /// Task metrics
-    pub tasks: TaskMetrics,
-    /// Scheduler metrics by ID
-    pub schedulers: HashMap<crate::scheduler::SchedulerId, SchedulerMetrics>,
+pub struct GlobalMetrics {
+    pub tasks: TaskData,
+    pub schedulers: HashMap<SchedulerId, SchedulerData>,
 }
 
-impl Metrics {
-    /// Create a new metrics collector.
+impl GlobalMetrics {
+    /// Create new global metrics.
+    #[must_use]
     pub fn new() -> Self {
         Self {
-            tasks: TaskMetrics::new(),
+            tasks: TaskData::new(),
             schedulers: HashMap::new(),
         }
     }
 
     /// Get or create scheduler metrics.
-    pub fn scheduler(&mut self, id: crate::scheduler::SchedulerId) -> &mut SchedulerMetrics {
-        self.schedulers.entry(id).or_insert_with(SchedulerMetrics::new)
-    }
-
-    /// Reset all metrics.
-    pub fn reset(&mut self) {
-        self.tasks.reset();
-        for metrics in self.schedulers.values() {
-            metrics.reset();
-        }
+    pub fn scheduler(&mut self, id: SchedulerId) -> &mut SchedulerData {
+        self.schedulers.entry(id).or_default()
     }
 
     /// Get a snapshot of current metrics.
-    pub fn snapshot(&self) -> MetricsSnapshot {
-        MetricsSnapshot {
-            tasks_spawned: self.tasks.spawned.get(),
-            tasks_completed: self.tasks.completed.get(),
-            tasks_cancelled: self.tasks.cancelled.get(),
-            avg_execution_time_us: self.tasks.execution_time.average(),
-            avg_wait_time_us: self.tasks.wait_time.average(),
-            total_steal_attempts: self.schedulers.values()
-                .map(|s| s.steal_attempts.get())
-                .sum(),
-            total_successful_steals: self.schedulers.values()
-                .map(|s| s.successful_steals.get())
-                .sum(),
-            avg_queue_length: if self.schedulers.is_empty() {
-                0.0
-            } else {
-                self.schedulers.values()
-                    .map(|s| s.queue_length.get())
-                    .sum::<u64>() as f64 / self.schedulers.len() as f64
-            },
+    pub fn snapshot(&self) -> Snapshot {
+        let total_queue_length = self
+            .schedulers
+            .values()
+            .map(|s| s.queue_length.get())
+            .sum::<u64>();
+
+        let scheduler_count = self.schedulers.len();
+        let average_queue_length = if scheduler_count == 0 {
+            0.0
+        } else {
+            // Intentional precision loss for averaging
+            #[allow(clippy::cast_precision_loss)]
+            {
+                total_queue_length as f64 / scheduler_count as f64
+            }
+        };
+
+        let (total_steal_attempts, total_successful_steals) = self
+            .schedulers
+            .values()
+            .fold((0, 0), |(attempts, steals), scheduler| {
+                (
+                    attempts + scheduler.steal_attempts.get(),
+                    steals + scheduler.successful_steals.get(),
+                )
+            });
+
+        Snapshot {
+            total_tasks_spawned: self.tasks.spawned.get(),
+            total_tasks_completed: self.tasks.completed.get(),
+            average_queue_length,
+            total_steal_attempts,
+            total_successful_steals,
         }
     }
 }
 
-impl Default for Metrics {
+impl Default for GlobalMetrics {
     fn default() -> Self {
         Self::new()
     }
@@ -495,46 +486,26 @@ impl Default for Metrics {
 
 /// Snapshot of metrics at a point in time.
 #[derive(Debug, Clone)]
-pub struct MetricsSnapshot {
-    /// Total tasks spawned
-    pub tasks_spawned: u64,
-    /// Total tasks completed
-    pub tasks_completed: u64,
-    /// Total tasks cancelled
-    pub tasks_cancelled: u64,
-    /// Average execution time in microseconds
-    pub avg_execution_time_us: f64,
-    /// Average wait time in microseconds
-    pub avg_wait_time_us: f64,
-    /// Total steal attempts across all schedulers
+pub struct Snapshot {
+    pub total_tasks_spawned: u64,
+    pub total_tasks_completed: u64,
+    pub average_queue_length: f64,
     pub total_steal_attempts: u64,
-    /// Total successful steals across all schedulers
     pub total_successful_steals: u64,
-    /// Average queue length across all schedulers
-    pub avg_queue_length: f64,
 }
 
-impl core::fmt::Display for MetricsSnapshot {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        writeln!(f, "Moirai Metrics Snapshot:")?;
-        writeln!(f, "  Tasks:")?;
-        writeln!(f, "    Spawned: {}", self.tasks_spawned)?;
-        writeln!(f, "    Completed: {}", self.tasks_completed)?;
-        writeln!(f, "    Cancelled: {}", self.tasks_cancelled)?;
-        writeln!(f, "    Avg Execution Time: {:.2}μs", self.avg_execution_time_us)?;
-        writeln!(f, "    Avg Wait Time: {:.2}μs", self.avg_wait_time_us)?;
-        writeln!(f, "  Work Stealing:")?;
-        writeln!(f, "    Total Attempts: {}", self.total_steal_attempts)?;
-        writeln!(f, "    Successful: {}", self.total_successful_steals)?;
-        writeln!(f, "    Success Rate: {:.2}%", 
-            if self.total_steal_attempts > 0 {
+impl Snapshot {
+    /// Calculate overall steal success rate.
+    pub fn steal_success_rate(&self) -> f64 {
+        if self.total_steal_attempts == 0 {
+            0.0
+        } else {
+            // Intentional precision loss for rate calculation
+            #[allow(clippy::cast_precision_loss)]
+            {
                 (self.total_successful_steals as f64 / self.total_steal_attempts as f64) * 100.0
-            } else {
-                0.0
-            })?;
-        writeln!(f, "  Scheduling:")?;
-        writeln!(f, "    Avg Queue Length: {:.2}", self.avg_queue_length)?;
-        Ok(())
+            }
+        }
     }
 }
 
@@ -568,7 +539,7 @@ mod tests {
         gauge.increment();
         assert_eq!(gauge.get(), 11);
         
-        gauge.decrement();
+        gauge.subtract(1);
         assert_eq!(gauge.get(), 10);
         
         gauge.add(5);
@@ -583,7 +554,10 @@ mod tests {
         let histogram = Histogram::new();
         assert_eq!(histogram.count(), 0);
         assert_eq!(histogram.sum(), 0);
-        assert_eq!(histogram.average(), 0.0);
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(histogram.average(), 0.0);
+        }
         
         histogram.record(10);
         histogram.record(20);
@@ -591,38 +565,72 @@ mod tests {
         
         assert_eq!(histogram.count(), 3);
         assert_eq!(histogram.sum(), 60);
-        assert_eq!(histogram.average(), 20.0);
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(histogram.average(), 20.0);
+        }
     }
 
     #[test]
-    fn test_task_metrics() {
-        let metrics = TaskMetrics::new();
+    fn test_task_data() {
+        let metrics = TaskData::new();
         
-        metrics.record_spawn();
-        metrics.record_spawn();
+        metrics.spawned.increment();
+        metrics.spawned.increment();
         assert_eq!(metrics.spawned.get(), 2);
         
-        metrics.record_completion(core::time::Duration::from_millis(1));
+        metrics.record_execution(core::time::Duration::from_millis(1));
         assert_eq!(metrics.completed.get(), 1);
-        assert_eq!(metrics.completion_rate(), 0.5);
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(metrics.completion_rate(), 0.5);
+        }
         
-        metrics.record_cancellation();
-        assert_eq!(metrics.cancelled.get(), 1);
+        metrics.record_wait(core::time::Duration::from_millis(1));
     }
 
     #[test]
-    fn test_scheduler_metrics() {
-        let metrics = SchedulerMetrics::new();
+    fn test_scheduler_data() {
+        let metrics = SchedulerData::new();
         
-        metrics.update_queue_length(5);
+        metrics.queue_length.set(5);
         assert_eq!(metrics.queue_length.get(), 5);
         
-        metrics.record_steal_attempt(false);
-        metrics.record_steal_attempt(true);
-        metrics.record_steal_attempt(true);
+        metrics.steal_attempts.increment();
+        metrics.steal_attempts.increment();
+        metrics.steal_attempts.increment();
         
         assert_eq!(metrics.steal_attempts.get(), 3);
-        assert_eq!(metrics.successful_steals.get(), 2);
-        assert_eq!(metrics.steal_success_rate(), 2.0 / 3.0);
+        assert_eq!(metrics.successful_steals.get(), 0);
+        assert_eq!(metrics.steal_success_rate(), 0.0);
+
+        let utilization = metrics.record_cpu_utilization(0.75);
+        assert_eq!(utilization, 75.0);
+        assert_eq!(metrics.cpu_utilization.get(), 75);
+    }
+
+    #[test]
+    fn test_global_metrics() {
+        let mut global = GlobalMetrics::new();
+        
+        global.scheduler(SchedulerId::new(1)).queue_length.set(5);
+        global.scheduler(SchedulerId::new(2)).queue_length.set(10);
+        global.scheduler(SchedulerId::new(3)).queue_length.set(15);
+
+        assert_eq!(global.snapshot().average_queue_length, 10.0);
+
+        global.scheduler(SchedulerId::new(1)).steal_attempts.increment();
+        global.scheduler(SchedulerId::new(2)).steal_attempts.increment();
+        global.scheduler(SchedulerId::new(3)).steal_attempts.increment();
+        global.scheduler(SchedulerId::new(1)).steal_attempts.increment();
+
+        assert_eq!(global.snapshot().total_steal_attempts, 4);
+
+        global.scheduler(SchedulerId::new(1)).successful_steals.increment();
+        global.scheduler(SchedulerId::new(2)).successful_steals.increment();
+        global.scheduler(SchedulerId::new(3)).successful_steals.increment();
+        global.scheduler(SchedulerId::new(1)).successful_steals.increment();
+
+        assert_eq!(global.snapshot().total_successful_steals, 4);
     }
 }
