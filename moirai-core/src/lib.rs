@@ -43,9 +43,54 @@ pub mod metrics;
 
 // Re-export key types from task module
 pub use task::{
-    Task, TaskExt, TaskFuture, TaskHandle, TaskBuilder, TaskWrapper,
-    ClosureTask, ChainedTask, MappedTask, CatchTask
+    Task, TaskBuilder, TaskExt,
+    Closure, Chained, Mapped, Catch, Parameterized, Group, Spawner
 };
+
+/// A handle to a spawned task that allows monitoring and control.
+#[derive(Debug, Clone)]
+pub struct TaskHandle<T> {
+    /// The unique identifier for this task
+    pub id: TaskId,
+    /// Whether the task can be cancelled
+    pub cancellable: bool,
+    /// Phantom data to maintain the output type
+    _phantom: core::marker::PhantomData<T>,
+}
+
+impl<T> TaskHandle<T> {
+    /// Create a new task handle.
+    #[must_use]
+    pub const fn new(id: TaskId, cancellable: bool) -> Self {
+        Self { 
+            id, 
+            cancellable,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+    
+    /// Wait for the task to complete and return the result.
+    /// 
+    /// # Returns
+    /// The result of the task execution once it completes.
+    /// 
+    /// # Panics
+    /// Currently panics with a message indicating the method is not yet implemented.
+    /// This is a placeholder that requires integration with the actual executor.
+    /// 
+    /// # Note
+    /// This is a placeholder implementation. In a real executor,
+    /// this would block until the task completes and return the actual result.
+    #[must_use]
+    pub fn join(self) -> T {
+        // TODO: Implement actual result retrieval mechanism
+        // This would typically involve:
+        // 1. Blocking on a channel/future until task completion
+        // 2. Retrieving the result from task storage
+        // 3. Handling cancellation and error cases
+        panic!("join() not yet implemented - requires executor integration")
+    }
+}
 
 /// A unique identifier for tasks within the runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -407,7 +452,7 @@ pub trait BoxedTask: Send + 'static {
 }
 
 // Implement BoxedTask for any TaskWrapper (which always returns ())
-impl<T> BoxedTask for TaskWrapper<T> 
+impl<T> BoxedTask for T 
 where 
     T: Task + Send + 'static,
 {

@@ -432,8 +432,11 @@ impl Default for SchedulerData {
     }
 }
 
-/// Global metrics collector.
-#[derive(Debug)]
+/// Global metrics aggregated across all executor components.
+///
+/// This struct provides system-wide performance and operational metrics,
+/// combining data from all schedulers, workers, and runtime components.
+#[allow(clippy::module_name_repetitions)]
 pub struct GlobalMetrics {
     /// Task-related metrics aggregated across all schedulers
     pub tasks: TaskData,
@@ -518,6 +521,7 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// Calculate overall steal success rate.
+    #[must_use]
     pub fn steal_success_rate(&self) -> f64 {
         if self.total_steal_attempts == 0 {
             0.0

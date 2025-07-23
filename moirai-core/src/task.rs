@@ -32,7 +32,8 @@ pub trait Task: Send + 'static {
     }
 }
 
-/// A future that wraps a task for async execution.
+/// A future that can be awaited to get the result of a task.
+#[allow(clippy::module_name_repetitions)]
 pub struct TaskFuture<T> {
     task: Option<T>,
     context: TaskContext,
@@ -73,8 +74,8 @@ where
     }
 }
 
-/// A wrapper that allows any task to be executed through dynamic dispatch.
-/// This solves the problem of storing tasks with different output types.
+/// A wrapper that adapts any task to the `BoxedTask` interface.
+#[allow(clippy::module_name_repetitions)]
 pub struct TaskWrapper<T: Task> {
     task: T,
     result_sender: Option<mpsc::Sender<T::Output>>,
@@ -123,8 +124,8 @@ impl<T: Task> Task for TaskWrapper<T> {
     }
 }
 
-/// A handle to a spawned task that can be used to retrieve the result.
-#[cfg(feature = "std")]
+/// A handle to a task that may be running on another thread.
+#[allow(clippy::module_name_repetitions)]
 pub struct TaskHandle<T> {
     id: TaskId,
     result_receiver: Option<mpsc::Receiver<T>>,
@@ -132,7 +133,15 @@ pub struct TaskHandle<T> {
 
 #[cfg(feature = "std")]
 impl<T> TaskHandle<T> {
-    /// Create a new task handle with a result receiver.
+    /// Creates a new task handle with a receiver for the result.
+    ///
+    /// # Arguments
+    /// * `id` - The unique identifier for this task
+    /// * `receiver` - Channel receiver for the task result
+    ///
+    /// # Returns
+    /// A new task handle instance
+    #[must_use]
     pub fn new_with_receiver(id: TaskId, receiver: mpsc::Receiver<T>) -> Self {
         Self {
             id,
@@ -140,7 +149,14 @@ impl<T> TaskHandle<T> {
         }
     }
 
-    /// Create a new task handle without a result receiver (for fire-and-forget tasks).
+    /// Creates a new detached task handle (no result channel).
+    ///
+    /// # Arguments
+    /// * `id` - The unique identifier for this task
+    ///
+    /// # Returns
+    /// A new detached task handle instance
+    #[must_use]
     pub fn new_detached(id: TaskId) -> Self {
         Self {
             id,
@@ -148,28 +164,31 @@ impl<T> TaskHandle<T> {
         }
     }
 
-    /// Get the task ID.
+    /// Returns the task ID.
+    ///
+    /// # Returns
+    /// The unique identifier for this task
+    #[must_use]
     pub fn id(&self) -> TaskId {
         self.id
     }
 
-    /// Wait for the task to complete and get the result.
-    /// This will block the current thread until the task completes.
+    /// Waits for the task to complete and returns the result.
+    ///
+    /// # Returns
+    /// `Some(result)` if the task completed successfully, `None` if it was cancelled or detached
+    #[must_use]
     pub fn join(mut self) -> Option<T> {
         self.result_receiver
             .take()
             .and_then(|receiver| receiver.recv().ok())
     }
 
-    /// Try to get the result without blocking.
-    /// Returns None if the task hasn't completed yet.
-    pub fn try_join(&mut self) -> Option<T> {
-        self.result_receiver
-            .as_ref()
-            .and_then(|receiver| receiver.try_recv().ok())
-    }
-
-    /// Check if the task has completed.
+    /// Checks if the task has finished execution.
+    ///
+    /// # Returns
+    /// `true` if the task has completed (successfully or with error), `false` if still running
+    #[must_use]
     pub fn is_finished(&self) -> bool {
         self.result_receiver
             .as_ref()
@@ -207,66 +226,51 @@ impl<T> TaskHandle<T> {
     }
 }
 
-/// Extension trait for tasks to provide additional functionality.
-pub trait TaskExt: Task {
-    /// Convert this task into a future.
-    fn into_future(self) -> TaskFuture<Self>
+/// Extension trait providing additional functionality for tasks.
+#[allow(clippy::module_name_repetitions)]
+pub trait TaskExt: Task + Sized {
+    /// Chain this task with another operation.
+    fn then<F, U>(self, func: F) -> Chained<Self, F>
     where
-        Self: Sized + Unpin,
-    {
-        let context = self.context().clone();
-        TaskFuture::new(self, context)
-    }
-
-    /// Create a boxed version of this task.
-    fn boxed(self) -> Box<dyn Task<Output = Self::Output>>
-    where
-        Self: Sized + 'static,
-        Self::Output: 'static,
-    {
-        Box::new(self)
-    }
-
-    /// Chain this task with another task.
-    fn then<F, U>(self, func: F) -> ChainedTask<Self, F>
-    where
-        Self: Sized,
         F: FnOnce(Self::Output) -> U + Send + 'static,
         U: Send + 'static,
     {
-        ChainedTask::new(self, func)
+        Chained::new(self, func)
     }
 
     /// Map the output of this task.
-    fn map<F, U>(self, func: F) -> MappedTask<Self, F>
+    fn map<F, U>(self, func: F) -> Mapped<Self, F>
     where
-        Self: Sized,
         F: FnOnce(Self::Output) -> U + Send + 'static,
         U: Send + 'static,
     {
-        MappedTask::new(self, func)
+        Mapped::new(self, func)
     }
 
     /// Add error handling to this task.
-    fn catch<F>(self, handler: F) -> CatchTask<Self, F>
+    fn catch<F>(self, handler: F) -> Catch<Self, F>
     where
-        Self: Sized,
         F: FnOnce() -> Self::Output + Send + 'static,
     {
-        CatchTask::new(self, handler)
+        Catch::new(self, handler)
     }
 }
 
 // Implement TaskExt for all types that implement Task
 impl<T: Task> TaskExt for T {}
 
-/// A builder for creating tasks with specific properties.
+/// Builder for creating and configuring tasks.
+#[allow(clippy::module_name_repetitions)]
 pub struct TaskBuilder {
     context: TaskContext,
 }
 
 impl TaskBuilder {
-    /// Create a new task builder.
+    /// Creates a new task builder with default settings.
+    ///
+    /// # Returns
+    /// A new builder instance ready for configuration
+    #[must_use]
     pub fn new() -> Self {
         // Generate a dummy ID for now - this should be replaced by the executor
         Self {
@@ -274,31 +278,52 @@ impl TaskBuilder {
         }
     }
 
-    /// Set the priority for the task.
+    /// Sets the priority level for the task.
+    ///
+    /// # Arguments
+    /// * `priority` - The scheduling priority for this task
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn priority(mut self, priority: crate::Priority) -> Self {
         self.context.priority = priority;
         self
     }
 
-    /// Set the name for the task.
+    /// Sets a descriptive name for the task.
+    ///
+    /// # Arguments
+    /// * `name` - A static string name for debugging and monitoring
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn name(mut self, name: &'static str) -> Self {
         self.context.name = Some(name);
         self
     }
 
-    /// Set the ID for the task.
+    /// Sets the task ID and returns the modified task builder.
+    ///
+    /// # Arguments
+    /// * `id` - The unique identifier for this task
+    ///
+    /// # Returns
+    /// The task builder with the specified ID set
+    #[must_use]
     pub fn with_id(mut self, id: TaskId) -> Self {
         self.context.id = id;
         self
     }
 
-    /// Build a task from a closure.
-    pub fn build<F, R>(self, func: F) -> ClosureTask<F>
+    /// Build the task with the provided function.
+    pub fn build<F, R>(self, func: F) -> Closure<F>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        ClosureTask::new(func, self.context)
+        Closure::new(func, self.context)
     }
 }
 
@@ -308,23 +333,28 @@ impl Default for TaskBuilder {
     }
 }
 
-/// A task created from a closure.
-pub struct ClosureTask<F> {
-    func: Option<F>,
+/// A task implementation that wraps a closure for execution.
+///
+/// This struct provides a way to create tasks from closures while maintaining
+/// the full task interface including stealability and cost estimation.
+pub struct Closure<F> {
+    /// The closure to be executed
+    closure: Option<F>,
+    /// Task execution context and metadata
     context: TaskContext,
 }
 
-impl<F> ClosureTask<F> {
+impl<F> Closure<F> {
     /// Create a new closure task.
     pub fn new(func: F, context: TaskContext) -> Self {
         Self {
-            func: Some(func),
+            closure: Some(func),
             context,
         }
     }
 }
 
-impl<F, R> Task for ClosureTask<F>
+impl<F, R> Task for Closure<F>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
@@ -332,7 +362,7 @@ where
     type Output = R;
 
     fn execute(mut self) -> Self::Output {
-        let func = self.func.take().expect("Task already executed");
+        let func = self.closure.take().expect("Task already executed");
         func()
     }
 
@@ -341,14 +371,20 @@ where
     }
 }
 
-/// A task that chains two operations together.
-pub struct ChainedTask<T, F> {
+/// A task that chains the execution of one task with another.
+///
+/// This allows for sequential task composition where the second task
+/// receives the output of the first task as input.
+pub struct Chained<T, F> {
+    /// The primary task to execute first
     task: Option<T>,
-    func: Option<F>,
+    /// The continuation function to apply to the first task's result
+    continuation: Option<F>,
+    /// Task execution context and metadata
     context: TaskContext,
 }
 
-impl<T, F> ChainedTask<T, F> {
+impl<T, F> Chained<T, F> {
     /// Create a new chained task.
     pub fn new(task: T, func: F) -> Self
     where
@@ -357,13 +393,13 @@ impl<T, F> ChainedTask<T, F> {
         let context = task.context().clone();
         Self {
             task: Some(task),
-            func: Some(func),
+            continuation: Some(func),
             context,
         }
     }
 }
 
-impl<T, F, U> Task for ChainedTask<T, F>
+impl<T, F, U> Task for Chained<T, F>
 where
     T: Task,
     F: FnOnce(T::Output) -> U + Send + 'static,
@@ -373,7 +409,7 @@ where
 
     fn execute(mut self) -> Self::Output {
         let task = self.task.take().expect("Task already executed");
-        let func = self.func.take().expect("Function already used");
+        let func = self.continuation.take().expect("Function already used");
         let result = task.execute();
         func(result)
     }
@@ -383,22 +419,28 @@ where
     }
 
     fn is_stealable(&self) -> bool {
-        self.task.as_ref().map_or(false, |t| t.is_stealable())
+        self.task.as_ref().map_or(false, Task::is_stealable)
     }
 
     fn estimated_cost(&self) -> u32 {
-        self.task.as_ref().map_or(1, |t| t.estimated_cost())
+        self.task.as_ref().map_or(1, Task::estimated_cost)
     }
 }
 
-/// A task that maps the output of another task.
-pub struct MappedTask<T, F> {
+/// A task that applies a mapping function to the result of another task.
+///
+/// This provides a way to transform task outputs while maintaining
+/// the task execution semantics and error handling.
+pub struct Mapped<T, F> {
+    /// The source task whose output will be transformed
     task: Option<T>,
-    func: Option<F>,
+    /// The mapping function to apply to the task result
+    mapper: Option<F>,
+    /// Task execution context and metadata
     context: TaskContext,
 }
 
-impl<T, F> MappedTask<T, F> {
+impl<T, F> Mapped<T, F> {
     /// Create a new mapped task.
     pub fn new(task: T, func: F) -> Self
     where
@@ -407,13 +449,13 @@ impl<T, F> MappedTask<T, F> {
         let context = task.context().clone();
         Self {
             task: Some(task),
-            func: Some(func),
+            mapper: Some(func),
             context,
         }
     }
 }
 
-impl<T, F, U> Task for MappedTask<T, F>
+impl<T, F, U> Task for Mapped<T, F>
 where
     T: Task,
     F: FnOnce(T::Output) -> U + Send + 'static,
@@ -423,7 +465,7 @@ where
 
     fn execute(mut self) -> Self::Output {
         let task = self.task.take().expect("Task already executed");
-        let func = self.func.take().expect("Function already used");
+        let func = self.mapper.take().expect("Function already used");
         let result = task.execute();
         func(result)
     }
@@ -433,22 +475,28 @@ where
     }
 
     fn is_stealable(&self) -> bool {
-        self.task.as_ref().map_or(false, |t| t.is_stealable())
+        self.task.as_ref().map_or(false, Task::is_stealable)
     }
 
     fn estimated_cost(&self) -> u32 {
-        self.task.as_ref().map_or(1, |t| t.estimated_cost())
+        self.task.as_ref().map_or(1, Task::estimated_cost)
     }
 }
 
-/// A task that provides error handling capabilities.
-pub struct CatchTask<T, F> {
+/// A task that provides error handling for another task.
+///
+/// This allows tasks to recover from errors by providing fallback
+/// behavior or error transformation logic.
+pub struct Catch<T, F> {
+    /// The primary task that may fail
     task: Option<T>,
-    handler: Option<F>,
+    /// The error handler function
+    error_handler: Option<F>,
+    /// Task execution context and metadata
     context: TaskContext,
 }
 
-impl<T, F> CatchTask<T, F> {
+impl<T, F> Catch<T, F> {
     /// Create a new catch task.
     pub fn new(task: T, handler: F) -> Self
     where
@@ -457,13 +505,13 @@ impl<T, F> CatchTask<T, F> {
         let context = task.context().clone();
         Self {
             task: Some(task),
-            handler: Some(handler),
+            error_handler: Some(handler),
             context,
         }
     }
 }
 
-impl<T, F> Task for CatchTask<T, F>
+impl<T, F> Task for Catch<T, F>
 where
     T: Task,
     F: FnOnce() -> T::Output + Send + 'static,
@@ -472,7 +520,7 @@ where
 
     fn execute(mut self) -> Self::Output {
         let task = self.task.take().expect("Task already executed");
-        let _handler = self.handler.take().expect("Handler already used");
+        let _handler = self.error_handler.take().expect("Handler already used");
         
         // In a real implementation, we would catch panics here
         // For now, we'll just execute the task normally
@@ -485,33 +533,39 @@ where
     }
 
     fn is_stealable(&self) -> bool {
-        self.task.as_ref().map_or(false, |t| t.is_stealable())
+        self.task.as_ref().map_or(false, Task::is_stealable)
     }
 
     fn estimated_cost(&self) -> u32 {
-        self.task.as_ref().map_or(1, |t| t.estimated_cost())
+        self.task.as_ref().map_or(1, Task::estimated_cost)
     }
 }
 
-/// A task that can be spawned multiple times with different inputs.
-pub struct ParameterizedTask<F, P> {
-    func: F,
-    params: P,
+/// A task that accepts parameters for customized execution.
+///
+/// This provides a way to create reusable task templates that can
+/// be parameterized at execution time.
+pub struct Parameterized<F, P> {
+    /// The parameterized function to execute
+    function: Option<F>,
+    /// The parameters to pass to the function
+    parameters: Option<P>,
+    /// Task execution context and metadata
     context: TaskContext,
 }
 
-impl<F, P> ParameterizedTask<F, P> {
+impl<F, P> Parameterized<F, P> {
     /// Create a new parameterized task.
     pub fn new(func: F, params: P, context: TaskContext) -> Self {
         Self {
-            func,
-            params,
+            function: Some(func),
+            parameters: Some(params),
             context,
         }
     }
 }
 
-impl<F, P, R> Task for ParameterizedTask<F, P>
+impl<F, P, R> Task for Parameterized<F, P>
 where
     F: FnOnce(P) -> R + Send + 'static,
     P: Send + 'static,
@@ -519,8 +573,10 @@ where
 {
     type Output = R;
 
-    fn execute(self) -> Self::Output {
-        (self.func)(self.params)
+    fn execute(mut self) -> Self::Output {
+        let func = self.function.take().expect("Task already executed");
+        let params = self.parameters.take().expect("Parameters already used");
+        func(params)
     }
 
     fn context(&self) -> &TaskContext {
@@ -528,48 +584,73 @@ where
     }
 }
 
-/// A collection of tasks that can be executed together.
-pub struct TaskGroup {
-    tasks: alloc::vec::Vec<Box<dyn FnOnce() + Send + 'static>>,
+/// A collection of related tasks that can be executed as a group.
+///
+/// This provides batch execution capabilities and allows for
+/// coordinated task management and monitoring.
+pub struct Group {
+    /// The unique identifier for this task group
+    /// Allows the task group ID field to be unused for now
+    #[allow(dead_code)]
+    id: TaskId,
+    /// Collection of tasks in this group
+    tasks: Vec<Box<dyn FnOnce() + Send + 'static>>,
+    /// Task execution context and metadata
     context: TaskContext,
 }
 
-impl TaskGroup {
-    /// Create a new task group.
+impl Group {
+    /// Creates a new task group with the specified ID.
+    ///
+    /// # Arguments
+    /// * `id` - Unique identifier for the task group
+    ///
+    /// # Returns
+    /// A new empty task group
+    #[must_use]
     pub fn new(id: TaskId) -> Self {
         Self {
-            tasks: alloc::vec::Vec::new(),
+            id,
+            tasks: Vec::new(),
             context: TaskContext::new(id),
         }
     }
 
     /// Add a task to the group.
-    pub fn add_task<T>(&mut self, task: T)
+    pub fn add_task<F>(&mut self, task_fn: F)
     where
-        T: Task<Output = ()> + 'static,
+        F: FnOnce() + Send + 'static,
     {
         self.tasks.push(Box::new(move || {
-            task.execute();
+            task_fn();
         }));
     }
 
-    /// Get the number of tasks in the group.
+    /// Returns the number of tasks in this group.
+    ///
+    /// # Returns
+    /// The count of tasks currently in the group
+    #[must_use]
     pub fn len(&self) -> usize {
         self.tasks.len()
     }
 
-    /// Check if the group is empty.
+    /// Checks if the task group is empty.
+    ///
+    /// # Returns
+    /// `true` if the group contains no tasks, `false` otherwise
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.tasks.is_empty()
     }
 }
 
-impl Task for TaskGroup {
+impl Task for Group {
     type Output = ();
 
     fn execute(self) -> Self::Output {
         // Execute each task function
-        for task_fn in self.tasks.into_iter() {
+        for task_fn in self.tasks {
             task_fn();
         }
     }
@@ -578,19 +659,24 @@ impl Task for TaskGroup {
         &self.context
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn estimated_cost(&self) -> u32 {
-        // Estimate based on number of tasks
         self.tasks.len() as u32
     }
 }
 
-/// A task that spawns other tasks.
-pub struct SpawnerTask<F> {
+/// A task that can spawn other tasks during its execution.
+///
+/// This provides dynamic task creation capabilities, allowing tasks
+/// to generate additional work based on runtime conditions.
+pub struct Spawner<F> {
+    /// The spawning function that creates new tasks
     spawner: Option<F>,
+    /// Task execution context and metadata
     context: TaskContext,
 }
 
-impl<F> SpawnerTask<F> {
+impl<F> Spawner<F> {
     /// Create a new spawner task.
     pub fn new(spawner: F, context: TaskContext) -> Self {
         Self {
@@ -600,7 +686,7 @@ impl<F> SpawnerTask<F> {
     }
 }
 
-impl<F> Task for SpawnerTask<F>
+impl<F> Task for Spawner<F>
 where
     F: FnOnce() + Send + 'static,
 {
@@ -657,28 +743,35 @@ mod tests {
 
     #[test]
     fn test_task_group() {
-        let mut group = TaskGroup::new(TaskId::new(1));
+        let mut group = Group::new(TaskId::new(1));
         
         let task1 = TaskBuilder::new()
             .with_id(TaskId::new(2))
-            .build(|| ());
+            .build(|| 42);
+        
         let task2 = TaskBuilder::new()
             .with_id(TaskId::new(3))
-            .build(|| ());
+            .build(|| 24);
         
-        group.add_task(task1);
-        group.add_task(task2);
+        // Wrap tasks in closures for the group
+        group.add_task(|| {
+            let _ = task1.execute();
+        });
+        group.add_task(|| {
+            let _ = task2.execute();
+        });
         
         assert_eq!(group.len(), 2);
         assert!(!group.is_empty());
         
-        group.execute(); // Should not panic
+        // Execute the group
+        group.execute();
     }
 
     #[test]
     fn test_parameterized_task() {
         let id = TaskId::new(1);
-        let task = ParameterizedTask::new(|x: i32| x * 3, 7, TaskContext::new(id));
+        let task = Parameterized::new(|x: i32| x * 3, 7, TaskContext::new(id));
         
         assert_eq!(task.execute(), 21);
     }
@@ -686,7 +779,7 @@ mod tests {
     #[test]
     fn test_spawner_task() {
         let id = TaskId::new(1);
-        let spawner = SpawnerTask::new(|| {
+        let spawner = Spawner::new(|| {
             // This would spawn other tasks in a real implementation
         }, TaskContext::new(id));
         
