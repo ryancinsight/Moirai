@@ -328,7 +328,7 @@ impl SecurityAuditor {
                 if *total > self.config.max_allocation_size / 2 {
                     self.record_event(SecurityEvent::MemoryAnomalous {
                         size: *total,
-                        location: format!("accumulated_at_{}", location),
+                        location: format!("accumulated_at_{location}"),
                         timestamp: SystemTime::now(),
                     });
                 }
@@ -336,7 +336,7 @@ impl SecurityAuditor {
             Err(_) => {
                 // Lock is poisoned, record this as a security event but don't panic
                 self.record_event(SecurityEvent::RaceCondition {
-                    description: format!("Memory allocation tracking lock poisoned at {}", location),
+                    description: format!("Memory allocation tracking lock poisoned at {location}"),
                     timestamp: SystemTime::now(),
                 });
                 return Err(ExecutorError::ResourceExhausted(
@@ -360,33 +360,25 @@ impl SecurityAuditor {
         });
     }
     
-    /// Record a security event.
-    /// 
-    /// Handles lock poisoning gracefully by attempting to continue operation.
-    /// In case of lock poisoning, the event may be lost but the system continues running.
+    /// Record a security event with automatic cleanup.
     fn record_event(&self, event: SecurityEvent) {
-        match self.events.lock() {
-            Ok(mut events) => {
-                events.push(event);
-                
-                // Clean up old events based on retention policy
-                let cutoff = SystemTime::now() - self.config.audit_retention;
-                events.retain(|event| {
-                    let timestamp = match event {
-                        SecurityEvent::TaskSpawn { timestamp, .. } => *timestamp,
-                        SecurityEvent::MemoryAnomalous { timestamp, .. } => *timestamp,
-                        SecurityEvent::RaceCondition { timestamp, .. } => *timestamp,
-                        SecurityEvent::ResourceExhaustion { timestamp, .. } => *timestamp,
-                    };
-                    timestamp > cutoff
-                });
-            }
-            Err(_) => {
-                // Lock is poisoned - we can't record this event, but we shouldn't panic
-                // In a production system, this might be logged to an external system
-                // For now, we silently continue to maintain system stability
-            }
+        if let Ok(mut events) = self.events.lock() {
+            events.push(event);
+            
+            // Clean up old events based on retention policy
+            let cutoff = SystemTime::now() - self.config.audit_retention;
+            events.retain(|event| {
+                let timestamp = match event {
+                    SecurityEvent::TaskSpawn { timestamp, .. }
+                    | SecurityEvent::MemoryAnomalous { timestamp, .. }
+                    | SecurityEvent::RaceCondition { timestamp, .. }
+                    | SecurityEvent::ResourceExhaustion { timestamp, .. } => *timestamp,
+                };
+                timestamp > cutoff
+            });
         }
+        // If lock is poisoned, we silently continue to maintain system stability
+        // In production, this might be logged to an external system
     }
     
     /// Get all security events.
@@ -402,36 +394,31 @@ impl SecurityAuditor {
         }
     }
     
-    /// Generate a security audit report.
-    /// 
-    /// Handles lock poisoning gracefully by returning a minimal report if events are unavailable.
-    pub fn generate_report(&self) -> SecurityReport {
-        let (total_events, event_counts) = match self.events.lock() {
-            Ok(events) => {
-                let total_events = events.len();
-                let mut event_counts = HashMap::new();
-                
-                for event in events.iter() {
-                    let event_type = match event {
-                        SecurityEvent::TaskSpawn { .. } => "TaskSpawn",
-                        SecurityEvent::MemoryAnomalous { .. } => "MemoryAnomalous",
-                        SecurityEvent::RaceCondition { .. } => "RaceCondition",
-                        SecurityEvent::ResourceExhaustion { .. } => "ResourceExhaustion",
-                    };
-                    *event_counts.entry(event_type.to_string()).or_insert(0) += 1;
-                }
-                
-                (total_events, event_counts)
+    /// Generate a comprehensive security report.
+    pub fn generate_report(&self) -> Report {
+        let (total_events, event_counts) = if let Ok(events) = self.events.lock() {
+            let total_events = events.len();
+            let mut event_counts = HashMap::new();
+            
+            for event in events.iter() {
+                let event_type = match event {
+                    SecurityEvent::TaskSpawn { .. } => "TaskSpawn",
+                    SecurityEvent::MemoryAnomalous { .. } => "MemoryAnomalous",
+                    SecurityEvent::RaceCondition { .. } => "RaceCondition",
+                    SecurityEvent::ResourceExhaustion { .. } => "ResourceExhaustion",
+                };
+                *event_counts.entry(event_type.to_string()).or_insert(0) += 1;
             }
-            Err(_) => {
-                // Lock is poisoned, return minimal report
-                let mut event_counts = HashMap::new();
-                event_counts.insert("LockPoisoned".to_string(), 1);
-                (0, event_counts)
-            }
+            
+            (total_events, event_counts)
+        } else {
+            // Lock is poisoned, return minimal report
+            let mut event_counts = HashMap::new();
+            event_counts.insert("LockPoisoned".to_string(), 1);
+            (0, event_counts)
         };
         
-        SecurityReport {
+        Report {
             config: self.config.clone(),
             total_events,
             event_counts,
@@ -442,7 +429,7 @@ impl SecurityAuditor {
 
 /// Security audit report.
 #[derive(Debug, Clone)]
-pub struct SecurityReport {
+pub struct Report {
     /// Configuration used for this audit
     pub config: SecurityConfig,
     /// Total number of security events recorded
@@ -453,7 +440,7 @@ pub struct SecurityReport {
     pub generated_at: SystemTime,
 }
 
-impl SecurityReport {
+impl Report {
     /// Check if the system passes security validation.
     pub fn is_secure(&self) -> bool {
         // No resource exhaustion events
@@ -600,29 +587,27 @@ mod tests {
             .sum();
         
         // Should not exceed the limit even with concurrent access
-        assert!(total_acquired <= 100, "Total acquired {} should not exceed limit 100", total_acquired);
-    }
-    
-    #[test]
-    fn test_improved_rate_limiting() {
+        assert!(total_acquired <= 100, "Total acquired {total_acquired} should not exceed limit 100");
+        
+        // Test rate limiting with a restrictive configuration
         let mut config = SecurityConfig::production();
-        config.max_task_spawn_rate = 5; // Very low limit for testing
+        config.max_task_spawn_rate = 3; // Very low limit for testing
         let auditor = SecurityAuditor::new(config);
         
-        // Should allow exactly 5 spawns
-        for i in 0..5 {
+        // Should allow exactly 3 spawns
+        for i in 0..3 {
             let result = auditor.audit_task_spawn(TaskId::new(i + 1), Priority::Normal);
             assert!(result.is_ok(), "Spawn {} should succeed", i + 1);
         }
         
-        // 6th spawn should fail due to rate limiting
-        let result = auditor.audit_task_spawn(TaskId::new(6), Priority::Normal);
-        assert!(result.is_err(), "6th spawn should fail due to rate limiting");
+        assert!(total_acquired <= 100, "Total acquired {total_acquired} should not exceed limit 100");
+        let result = auditor.audit_task_spawn(TaskId::new(4), Priority::Normal);
+        assert!(result.is_err(), "4th spawn should fail due to rate limiting");
         
         // Check that it's specifically a rate limit error
         match result {
             Err(ExecutorError::ResourceExhausted(msg)) => {
-                assert!(msg.contains("rate limit"), "Error should mention rate limit: {}", msg);
+                assert!(msg.contains("rate limit"), "Error should mention rate limit: {msg}");
             }
             _ => panic!("Expected ResourceExhausted error"),
         }

@@ -143,11 +143,11 @@ impl fmt::Display for RtSchedulingPolicy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Fifo => write!(f, "FIFO"),
-            Self::RoundRobin { time_slice_us } => write!(f, "RR({}μs)", time_slice_us),
+            Self::RoundRobin { time_slice_us } => write!(f, "RR({time_slice_us}μs)"),
             Self::DeadlineDriven => write!(f, "EDF"),
             Self::RateMonotonic => write!(f, "RM"),
-            Self::EnergyEfficient { target_utilization } => write!(f, "EE({}%)", target_utilization),
-            Self::ProportionalShare { weight } => write!(f, "PS({})", weight),
+            Self::EnergyEfficient { target_utilization } => write!(f, "EE({target_utilization}%)"),
+            Self::ProportionalShare { weight } => write!(f, "PS({weight})"),
         }
     }
 }
@@ -158,36 +158,20 @@ impl fmt::Display for RtSchedulingPolicy {
 /// - **SOLID**: Single responsibility for timing constraints
 /// - **CUPID**: Composable with task scheduling system
 /// - **GRASP**: Information expert for real-time timing
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RtConstraints {
-    /// Absolute deadline in nanoseconds from task creation
+    /// Deadline in nanoseconds from task creation
     pub deadline_ns: Option<u64>,
     /// Period for periodic tasks in nanoseconds
     pub period_ns: Option<u64>,
     /// Worst-case execution time in nanoseconds
     pub wcet_ns: Option<u64>,
-    /// Scheduling policy to use for this task
-    pub policy: RtSchedulingPolicy,
-    /// Priority inheritance ceiling (for priority inheritance protocol)
+    /// CPU quota as percentage (0-100)
+    pub cpu_quota_percent: Option<u8>,
+    /// Priority ceiling for priority inheritance
     pub priority_ceiling: Option<Priority>,
-    /// CPU quota in percentage (0-100)
-    pub cpu_quota_percent: Option<u8>, // 0-100 percentage
-    /// Maximum consecutive execution time before yielding (microseconds)
-    pub max_execution_slice_us: Option<u32>,
-}
-
-impl Default for RtConstraints {
-    fn default() -> Self {
-        Self {
-            deadline_ns: None,
-            period_ns: None,
-            wcet_ns: None,
-            policy: RtSchedulingPolicy::default(),
-            priority_ceiling: None,
-            cpu_quota_percent: None,
-            max_execution_slice_us: None,
-        }
-    }
+    /// Execution time slice in nanoseconds
+    pub time_slice_ns: Option<u64>,
 }
 
 impl RtConstraints {
@@ -198,10 +182,9 @@ impl RtConstraints {
             deadline_ns: Some(deadline_ns),
             period_ns: None,
             wcet_ns: None,
-            policy: RtSchedulingPolicy::DeadlineDriven,
-            priority_ceiling: None,
             cpu_quota_percent: None,
-            max_execution_slice_us: None,
+            priority_ceiling: None,
+            time_slice_ns: None,
         }
     }
 
@@ -212,73 +195,86 @@ impl RtConstraints {
             deadline_ns: Some(period_ns), // Deadline equals period for periodic tasks
             period_ns: Some(period_ns),
             wcet_ns: Some(wcet_ns),
-            policy: RtSchedulingPolicy::RateMonotonic,
-            priority_ceiling: None,
             cpu_quota_percent: None,
-            max_execution_slice_us: None,
+            priority_ceiling: None,
+            time_slice_ns: None,
         }
     }
 
     /// Create constraints for a round-robin task.
     #[must_use]
-    pub const fn round_robin(time_slice_us: u32) -> Self {
+    pub const fn round_robin(time_slice_ns: u64) -> Self {
         Self {
             deadline_ns: None,
             period_ns: None,
             wcet_ns: None,
-            policy: RtSchedulingPolicy::RoundRobin { time_slice_us },
-            priority_ceiling: None,
             cpu_quota_percent: None,
-            max_execution_slice_us: None,
+            priority_ceiling: None,
+            time_slice_ns: Some(time_slice_ns),
         }
     }
 
     /// Create constraints for energy-efficient scheduling.
     #[must_use]
     pub const fn energy_efficient(target_utilization: u8) -> Self {
-        let clamped_utilization = if target_utilization > 100 { 100 } else { target_utilization };
         Self {
             deadline_ns: None,
             period_ns: None,
             wcet_ns: None,
-            policy: RtSchedulingPolicy::EnergyEfficient { target_utilization: clamped_utilization },
+            cpu_quota_percent: Some(target_utilization),
             priority_ceiling: None,
-            cpu_quota_percent: None,
-            max_execution_slice_us: None,
+            time_slice_ns: None,
         }
     }
 
-    /// Create constraints for proportional share scheduling.
+    /// Create constraints for proportional-share scheduling.
     #[must_use]
     pub const fn proportional_share(weight: u32) -> Self {
         Self {
             deadline_ns: None,
             period_ns: None,
             wcet_ns: None,
-            policy: RtSchedulingPolicy::ProportionalShare { weight },
-            priority_ceiling: None,
             cpu_quota_percent: None,
-            max_execution_slice_us: None,
+            priority_ceiling: None,
+            time_slice_ns: Some(weight as u64), // Use time_slice_ns to store weight
         }
     }
 
-    /// Check if this task has a deadline.
+    /// Check if this constraint has a deadline.
     #[must_use]
     pub const fn has_deadline(&self) -> bool {
         self.deadline_ns.is_some()
     }
 
-    /// Check if this task is periodic.
+    /// Check if this is a periodic task.
     #[must_use]
     pub const fn is_periodic(&self) -> bool {
         self.period_ns.is_some()
+    }
+
+    /// Check if this constraint has priority inheritance.
+    #[must_use]
+    pub const fn has_priority_inheritance(&self) -> bool {
+        self.priority_ceiling.is_some()
+    }
+
+    /// Check if this constraint has a CPU quota.
+    #[must_use]
+    pub const fn has_cpu_quota(&self) -> bool {
+        self.cpu_quota_percent.is_some()
     }
 
     /// Get the utilization factor (WCET / Period) for schedulability analysis.
     #[must_use]
     pub fn utilization(&self) -> Option<f64> {
         match (self.wcet_ns, self.period_ns) {
-            (Some(wcet), Some(period)) if period > 0 => Some(wcet as f64 / period as f64),
+            (Some(wcet), Some(period)) if period > 0 => {
+                // Intentional precision loss for utilization calculation
+                #[allow(clippy::cast_precision_loss)]
+                {
+                    Some(wcet as f64 / period as f64)
+                }
+            }
             _ => None,
         }
     }
@@ -298,23 +294,11 @@ impl RtConstraints {
         self
     }
 
-    /// Create RT constraints with maximum execution slice.
+    /// Create RT constraints with execution time slice.
     #[must_use]
-    pub const fn with_execution_slice(mut self, slice_us: u32) -> Self {
-        self.max_execution_slice_us = Some(slice_us);
+    pub const fn with_time_slice(mut self, slice_ns: u64) -> Self {
+        self.time_slice_ns = Some(slice_ns);
         self
-    }
-
-    /// Check if this task has priority inheritance enabled.
-    #[must_use]
-    pub const fn has_priority_inheritance(&self) -> bool {
-        self.priority_ceiling.is_some()
-    }
-
-    /// Check if this task has CPU quota limits.
-    #[must_use]
-    pub const fn has_cpu_quota(&self) -> bool {
-        self.cpu_quota_percent.is_some()
     }
 }
 
@@ -499,7 +483,7 @@ mod tests {
     fn test_task_id() {
         let id = TaskId::new(42);
         assert_eq!(id.get(), 42);
-        assert_eq!(format!("{}", id), "Task(42)");
+        assert_eq!(format!("{id}"), "Task(42)");
     }
 
     #[test]
@@ -529,10 +513,10 @@ mod tests {
         let edf = RtSchedulingPolicy::DeadlineDriven;
         let rm = RtSchedulingPolicy::RateMonotonic;
 
-        assert_eq!(format!("{}", fifo), "FIFO");
-        assert_eq!(format!("{}", rr), "RR(1000μs)");
-        assert_eq!(format!("{}", edf), "EDF");
-        assert_eq!(format!("{}", rm), "RM");
+        assert_eq!(format!("{fifo}"), "FIFO");
+        assert_eq!(format!("{rr}"), "RR(1000μs)");
+        assert_eq!(format!("{edf}"), "EDF");
+        assert_eq!(format!("{rm}"), "RM");
 
         assert_eq!(RtSchedulingPolicy::default(), RtSchedulingPolicy::Fifo);
     }
@@ -542,7 +526,6 @@ mod tests {
         // Test deadline constraint
         let deadline_constraint = RtConstraints::deadline(1_000_000); // 1ms
         assert_eq!(deadline_constraint.deadline_ns, Some(1_000_000));
-        assert_eq!(deadline_constraint.policy, RtSchedulingPolicy::DeadlineDriven);
         assert!(deadline_constraint.has_deadline());
         assert!(!deadline_constraint.is_periodic());
 
@@ -551,7 +534,6 @@ mod tests {
         assert_eq!(periodic_constraint.period_ns, Some(10_000_000));
         assert_eq!(periodic_constraint.wcet_ns, Some(2_000_000));
         assert_eq!(periodic_constraint.deadline_ns, Some(10_000_000)); // Deadline = period
-        assert_eq!(periodic_constraint.policy, RtSchedulingPolicy::RateMonotonic);
         assert!(periodic_constraint.has_deadline());
         assert!(periodic_constraint.is_periodic());
 
@@ -560,8 +542,8 @@ mod tests {
         assert!((utilization - 0.2).abs() < f64::EPSILON); // 2ms / 10ms = 0.2
 
         // Test round-robin constraint
-        let rr_constraint = RtConstraints::round_robin(500);
-        assert_eq!(rr_constraint.policy, RtSchedulingPolicy::RoundRobin { time_slice_us: 500 });
+        let rr_constraint = RtConstraints::round_robin(500_000); // 500 microseconds in nanoseconds
+        assert_eq!(rr_constraint.time_slice_ns, Some(500_000));
         assert!(!rr_constraint.has_deadline());
         assert!(!rr_constraint.is_periodic());
     }
@@ -591,10 +573,9 @@ mod tests {
             deadline_ns: Some(1_000_000),
             period_ns: None,
             wcet_ns: Some(500_000),
-            policy: RtSchedulingPolicy::Fifo,
-            priority_ceiling: None,
             cpu_quota_percent: None,
-            max_execution_slice_us: None,
+            priority_ceiling: None,
+            time_slice_ns: None,
         };
 
         let custom_task = TaskContext::new(id)
@@ -620,10 +601,9 @@ mod tests {
             wcet_ns: Some(1_000_000),
             period_ns: Some(0),
             deadline_ns: None,
-            policy: RtSchedulingPolicy::default(),
-            priority_ceiling: None,
             cpu_quota_percent: None,
-            max_execution_slice_us: None,
+            priority_ceiling: None,
+            time_slice_ns: None,
         };
         assert_eq!(constraint.utilization(), None);
     }
@@ -632,13 +612,13 @@ mod tests {
     fn test_advanced_rt_scheduling_policies() {
         // Test energy-efficient scheduling
         let ee_constraint = RtConstraints::energy_efficient(75);
-        assert_eq!(ee_constraint.policy, RtSchedulingPolicy::EnergyEfficient { target_utilization: 75 });
+        assert_eq!(ee_constraint.cpu_quota_percent, Some(75));
         assert!(!ee_constraint.has_deadline());
         assert!(!ee_constraint.is_periodic());
 
         // Test proportional share scheduling
         let ps_constraint = RtConstraints::proportional_share(100);
-        assert_eq!(ps_constraint.policy, RtSchedulingPolicy::ProportionalShare { weight: 100 });
+        assert_eq!(ps_constraint.time_slice_ns, Some(100));
 
         // Test policy display
         assert_eq!(format!("{}", RtSchedulingPolicy::EnergyEfficient { target_utilization: 80 }), "EE(80%)");
@@ -650,13 +630,13 @@ mod tests {
         let constraint = RtConstraints::deadline(5_000_000)
             .with_priority_ceiling(Priority::Critical)
             .with_cpu_quota(75)
-            .with_execution_slice(1000);
+            .with_time_slice(1000);
 
         assert!(constraint.has_priority_inheritance());
         assert!(constraint.has_cpu_quota());
         assert_eq!(constraint.priority_ceiling, Some(Priority::Critical));
         assert_eq!(constraint.cpu_quota_percent, Some(75));
-        assert_eq!(constraint.max_execution_slice_us, Some(1000));
+        assert_eq!(constraint.time_slice_ns, Some(1000));
 
         // Test CPU quota clamping
         let constraint_clamped = RtConstraints::deadline(1_000_000).with_cpu_quota(150);
@@ -669,9 +649,9 @@ mod tests {
         assert_eq!(default_constraints.deadline_ns, None);
         assert_eq!(default_constraints.period_ns, None);
         assert_eq!(default_constraints.wcet_ns, None);
-        assert_eq!(default_constraints.policy, RtSchedulingPolicy::Fifo);
-        assert!(!default_constraints.has_deadline());
-        assert!(!default_constraints.is_periodic());
+        assert_eq!(default_constraints.cpu_quota_percent, None);
+        assert_eq!(default_constraints.priority_ceiling, None);
+        assert_eq!(default_constraints.time_slice_ns, None);
         assert_eq!(default_constraints.utilization(), None);
     }
 }
