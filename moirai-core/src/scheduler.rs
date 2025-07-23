@@ -56,6 +56,14 @@ pub trait Scheduler: Send + Sync + 'static {
 
     /// Returns a unique identifier for this scheduler instance.
     fn id(&self) -> SchedulerId;
+
+    /// Returns whether this scheduler can have tasks stolen from it.
+    ///
+    /// # Returns
+    /// `true` if the scheduler has stealable tasks, `false` otherwise.
+    fn can_be_stolen_from(&self) -> bool {
+        self.load() > 0
+    }
 }
 
 /// Generic scheduling interface with type-safe task handling.
@@ -122,6 +130,8 @@ impl fmt::Display for SchedulerId {
 pub struct Config {
     /// Strategy used for work-stealing between schedulers
     pub work_stealing_strategy: WorkStealingStrategy,
+    /// Type of queue implementation to use
+    pub queue_type: QueueType,
     /// Maximum number of tasks in each scheduler's local queue
     pub max_local_queue_size: usize,
     /// Maximum number of tasks in the global shared queue
@@ -138,6 +148,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             work_stealing_strategy: WorkStealingStrategy::default(),
+            queue_type: QueueType::ChaseLev,
             max_local_queue_size: 1024,
             max_global_queue_size: 1024,
             max_steal_attempts: 3,
@@ -146,6 +157,9 @@ impl Default for Config {
         }
     }
 }
+
+/// Type alias for backward compatibility with existing code.
+pub type SchedulerConfig = Config;
 
 /// Work stealing strategies define how schedulers attempt to balance load.
 #[derive(Debug, Clone, PartialEq)]

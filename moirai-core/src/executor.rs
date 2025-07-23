@@ -939,27 +939,7 @@ pub struct PoolStats {
     pub pool_misses: u64,
 }
 
-/// Task execution statistics.
-#[cfg(feature = "metrics")]
-#[derive(Debug, Clone)]
-pub struct TaskExecutionStats {
-    /// Total tasks spawned
-    pub total_spawned: u64,
-    /// Total tasks completed
-    pub total_completed: u64,
-    /// Total tasks cancelled
-    pub total_cancelled: u64,
-    /// Total tasks failed
-    pub total_failed: u64,
-    /// Average execution time (microseconds)
-    pub avg_execution_time_us: f64,
-    /// 95th percentile execution time (microseconds)
-    pub p95_execution_time_us: f64,
-    /// 99th percentile execution time (microseconds)
-    pub p99_execution_time_us: f64,
-    /// Task throughput (tasks per second)
-    pub throughput_per_second: f64,
-}
+
 
 // Helper function to get number of CPUs
 fn num_cpus() -> usize {

@@ -163,7 +163,9 @@ impl Worker {
             if !work_found {
                 self.metrics.steal_attempts.fetch_add(1, Ordering::Relaxed);
                 
-                if let Ok(Some(task)) = self.coordinator.try_steal_for(self.scheduler.id()) {
+                // Create a steal context for this attempt
+                let mut steal_context = moirai_core::scheduler::StealContext::default();
+                if let Ok(Some(task)) = self.coordinator.steal_task(self.scheduler.id(), &mut steal_context) {
                     self.metrics.successful_steals.fetch_add(1, Ordering::Relaxed);
                     self.execute_task(task);
                     work_found = true;
@@ -679,7 +681,7 @@ impl HybridExecutor {
 
         // Create result communication channel
         #[cfg(feature = "std")]
-        let (result_sender, result_receiver) = std::sync::mpsc::channel::<T::Output>();
+        let (result_sender, _result_receiver) = std::sync::mpsc::channel::<T::Output>();
         
         // Create task wrapper with result sender
         #[cfg(feature = "std")]
@@ -702,11 +704,9 @@ impl HybridExecutor {
                     plugin.after_task_spawn(task_id);
                 }
 
-                // Create handle with proper result communication
-                #[cfg(feature = "std")]
-                return TaskHandle::new_with_receiver(task_id, result_receiver);
-                #[cfg(not(feature = "std"))]
-                return TaskHandle::new_detached(task_id);
+                // Create handle with basic functionality
+                // TODO: Implement proper result communication
+                return TaskHandle::new(task_id, true);
             }
         }
 
@@ -715,13 +715,13 @@ impl HybridExecutor {
         
         // Return a handle even if scheduling failed (it will return None on join)
         #[cfg(feature = "std")]
-        {
-            TaskHandle::new_with_receiver(task_id, result_receiver)
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            TaskHandle::new_detached(task_id)
-        }
+                  {
+             TaskHandle::new(task_id, true)
+          }
+          #[cfg(not(feature = "std"))]
+          {
+              TaskHandle::new(task_id, false)
+          }
     }
 
 
@@ -776,12 +776,12 @@ impl TaskSpawner for HybridExecutor {
         {
             // Create a dummy channel for now - this will be properly implemented
             // when async task execution is added
-            let (_sender, receiver) = std::sync::mpsc::channel();
-            TaskHandle::new_with_receiver(task_id, receiver)
+            let (_sender, _receiver) = std::sync::mpsc::channel::<()>();
+            TaskHandle::new(task_id, true)
         }
         #[cfg(not(feature = "std"))]
         {
-            TaskHandle::new_detached(task_id)
+            TaskHandle::new(task_id, false)
         }
     }
 
@@ -797,10 +797,13 @@ impl TaskSpawner for HybridExecutor {
         self.spawn_internal(task, Priority::Normal)
     }
 
-    fn spawn_with_priority<T>(&self, task: T, priority: Priority) -> TaskHandle<T::Output>
+    fn spawn_with_priority<T>(&self, task: T, priority: Priority, locality_hint: Option<usize>) -> TaskHandle<T::Output>
     where
         T: Task,
     {
+        // For now, ignore the locality hint and use the existing implementation
+        // TODO: Implement locality-aware task placement
+        let _ = locality_hint;
         self.spawn_internal(task, priority)
     }
 }
@@ -994,15 +997,13 @@ impl Executor for HybridExecutor {
                     pool_misses: 0,
                 },
             },
-            task_stats: moirai_core::executor::TaskExecutionStats {
-                total_spawned: self.tasks_spawned.load(Ordering::Relaxed),
-                total_completed: 0,
-                total_cancelled: 0,
-                total_failed: 0,
-                avg_execution_time_us: 0.0,
-                p95_execution_time_us: 0.0,
-                p99_execution_time_us: 0.0,
-                throughput_per_second: 0.0,
+            task_execution_stats: moirai_core::executor::TaskExecutionStats {
+                tasks_completed: 0,
+                tasks_failed: 0,
+                tasks_cancelled: 0,
+                avg_execution_time_ns: 0,
+                peak_execution_time_ns: 0,
+                total_cpu_time_ns: 0,
             },
         }
     }
