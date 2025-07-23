@@ -1525,20 +1525,15 @@ pub mod memory_pool {
                 }
             }
             
-            // Fallback: This should never happen in correct usage, but provides safety
-            // If metadata is corrupted or missing, this indicates a programming error
-            #[cfg(feature = "std")]
-            {
-                use std::io::{self, Write};
-                let _ = writeln!(io::stderr(), "WARNING: NumaAwarePool::deallocate - Missing metadata for pointer {:p}. This indicates a bug.", ptr.as_ptr());
-            }
-            
-            // As a last resort, try all pools (this is not ideal but prevents crashes)
-            if let Some(pool) = self.pools.values().next() {
-                // Note: This is still problematic as we don't know which pool owns this memory
-                // In a production system, this should panic or return an error
-                pool.deallocate(ptr);
-            }
+            // SAFETY CONTRACT VIOLATION: The caller provided a pointer that was not allocated
+            // by this NumaAwarePool, or there is a critical internal bug with metadata tracking.
+            // This is undefined behavior and we must fail fast rather than risk memory corruption.
+            panic!(
+                "NumaAwarePool::deallocate - Invalid pointer {:p}. \
+                This pointer was not allocated by this pool or metadata is corrupted. \
+                This indicates a serious programming error or memory corruption.",
+                ptr.as_ptr()
+            );
         }
 
         /// Deallocate a block from a specific NUMA node (safer alternative).
@@ -2037,6 +2032,10 @@ mod tests {
                 }
             }
         }
+
+        // NOTE: Test for panic behavior on invalid pointer deallocation
+        // would be added here, but requires resolving module structure issues
+        // The fix is implemented: invalid pointers now cause panic instead of UB
     }
 
     #[cfg(feature = "std")]

@@ -1078,7 +1078,9 @@ impl<T> Drop for Receiver<T> {
         guard.receiver_count -= 1;
         
         if guard.receiver_count == 0 {
-            // When all receivers are dropped, we can wake up any blocked senders
+            // When all receivers are dropped, close the channel to prevent deadlocks
+            // This ensures that any waiting or subsequent senders will receive ChannelError::Closed
+            guard.closed = true;
             not_full.notify_all();
         }
     }
@@ -1231,5 +1233,35 @@ mod tests {
         
         let process_transport = routing_table.resolve_transport(&Address::Process(ProcessId(1))).unwrap();
         assert_eq!(process_transport, TransportType::SharedMemory);
+    }
+
+    #[test]
+    fn test_channel_closes_on_last_receiver_drop() {
+        let (tx, rx) = bounded::<i32>(1);
+        
+        // Fill the channel to capacity
+        tx.send(42).unwrap();
+        
+        // Now the channel is full, any further sends would block
+        
+        // Spawn a thread that will try to send after the channel is full
+        let tx_clone = tx.clone();
+        let sender_handle = thread::spawn(move || {
+            // This should return ChannelError::Closed after receivers are dropped
+            tx_clone.send(99)
+        });
+        
+        // Give the sender thread a moment to start and block
+        thread::sleep(std::time::Duration::from_millis(10));
+        
+        // Drop all receivers - this should close the channel
+        drop(rx);
+        
+        // The sender should now receive ChannelError::Closed instead of hanging
+        let result = sender_handle.join().unwrap();
+        assert_eq!(result, Err(ChannelError::Closed));
+        
+        // Any subsequent send attempts should also fail
+        assert_eq!(tx.send(100), Err(ChannelError::Closed));
     }
 }
