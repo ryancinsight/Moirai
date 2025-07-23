@@ -21,16 +21,16 @@ struct ChannelState<T> {
     queue: VecDeque<T>,
     capacity: Option<usize>,
     closed: bool,
+    sender_count: usize,
+    receiver_count: usize,
 }
 
 /// The sending half of a channel.
-#[derive(Clone)]
 pub struct Sender<T> {
     state: Arc<(Mutex<ChannelState<T>>, Condvar, Condvar)>,
 }
 
 /// The receiving half of a channel.
-#[derive(Clone)]
 pub struct Receiver<T> {
     state: Arc<(Mutex<ChannelState<T>>, Condvar, Condvar)>,
 }
@@ -176,6 +176,8 @@ pub fn bounded<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
             queue: VecDeque::new(),
             capacity: Some(capacity),
             closed: false,
+            sender_count: 1,
+            receiver_count: 1,
         }),
         Condvar::new(), // not_full
         Condvar::new(), // not_empty
@@ -206,6 +208,8 @@ pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
             queue: VecDeque::new(),
             capacity: None,
             closed: false,
+            sender_count: 1,
+            receiver_count: 1,
         }),
         Condvar::new(), // not_full
         Condvar::new(), // not_empty
@@ -1025,6 +1029,58 @@ pub mod channel {
             port,
             namespace: None,
         }))
+    }
+}
+
+impl<T> Clone for Sender<T> {
+    fn clone(&self) -> Self {
+        let (mutex, _not_full, _not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+        guard.sender_count += 1;
+        drop(guard);
+        
+        Self {
+            state: self.state.clone(),
+        }
+    }
+}
+
+impl<T> Drop for Sender<T> {
+    fn drop(&mut self) {
+        let (mutex, _not_full, not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+        guard.sender_count -= 1;
+        
+        if guard.sender_count == 0 {
+            guard.closed = true;
+            not_empty.notify_all();
+        }
+    }
+}
+
+impl<T> Clone for Receiver<T> {
+    fn clone(&self) -> Self {
+        let (mutex, _not_full, _not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+        guard.receiver_count += 1;
+        drop(guard);
+        
+        Self {
+            state: self.state.clone(),
+        }
+    }
+}
+
+impl<T> Drop for Receiver<T> {
+    fn drop(&mut self) {
+        let (mutex, not_full, _not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+        guard.receiver_count -= 1;
+        
+        if guard.receiver_count == 0 {
+            // When all receivers are dropped, we can wake up any blocked senders
+            not_full.notify_all();
+        }
     }
 }
 

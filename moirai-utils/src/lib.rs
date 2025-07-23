@@ -980,8 +980,10 @@ pub mod memory {
         /// ```
         /// use moirai_utils::memory::branch_prediction::likely;
         /// 
+        /// let some_condition = true; // Usually true in your code
         /// if likely(some_condition) {
         ///     // This branch is expected to be taken most of the time
+        ///     println!("Common case");
         /// }
         /// ```
         #[inline]
@@ -1003,9 +1005,10 @@ pub mod memory {
         /// ```
         /// use moirai_utils::memory::branch_prediction::unlikely;
         /// 
+        /// let error_condition = false; // Usually false in your code
         /// if unlikely(error_condition) {
         ///     // This branch is expected to be taken rarely
-        ///     handle_error();
+        ///     eprintln!("Error occurred!");
         /// }
         /// ```
         #[inline]
