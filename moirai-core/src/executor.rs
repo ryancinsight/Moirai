@@ -38,7 +38,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
     /// - Resource exhaustion (queue full, memory limit reached)
     /// - Task validation failures (invalid priority, security constraints)
     /// - System shutdown in progress
-    fn spawn<T>(&self, task: T) -> TaskHandle
+    fn spawn<T>(&self, task: T) -> TaskHandle<T::Output>
     where
         T: Task + Send + 'static;
 
@@ -52,7 +52,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
     ///
     /// # Errors
     /// Returns `TaskError::SpawnFailed` under the same conditions as `spawn`
-    fn spawn_async<F>(&self, future: F) -> TaskHandle
+    fn spawn_async<F>(&self, future: F) -> TaskHandle<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static;
@@ -67,7 +67,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
     ///
     /// # Errors
     /// Returns `TaskError::SpawnFailed` under the same conditions as `spawn`
-    fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle
+    fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static;
@@ -89,7 +89,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
         task: T,
         priority: Priority,
         locality_hint: Option<usize>,
-    ) -> TaskHandle
+    ) -> TaskHandle<T::Output>
     where
         T: Task + Send + 'static;
 }
@@ -433,16 +433,16 @@ impl TaskStats {
         }
     }
 
-    /// Returns whether the task is currently being executed.
+    /// Returns whether the task is currently active (queued or running).
     #[must_use]
     pub fn is_active(&self) -> bool {
-        matches!(self.status, TaskStatus::Running)
+        matches!(self.status, TaskStatus::Queued | TaskStatus::Running)
     }
 
-    /// Returns whether the task has completed execution (successfully or with error).
+    /// Returns whether the task has reached a terminal state.
     #[must_use]
     pub fn is_finished(&self) -> bool {
-        matches!(self.status, TaskStatus::Completed | TaskStatus::Failed)
+        matches!(self.status, TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed)
     }
 }
 
@@ -821,8 +821,52 @@ pub struct ExecutorStats {
     pub global_queue_stats: QueueStats,
     /// Memory usage statistics
     pub memory_stats: MemoryStats,
-    /// Task execution statistics
-    pub task_stats: TaskStats,
+    /// Aggregate task execution statistics across all workers
+    pub task_execution_stats: TaskExecutionStats,
+}
+
+/// Aggregate task execution statistics across the entire executor.
+#[cfg(feature = "metrics")]
+#[derive(Debug, Clone, Default)]
+pub struct TaskExecutionStats {
+    /// Total number of tasks completed successfully
+    pub tasks_completed: u64,
+    /// Total number of tasks that failed
+    pub tasks_failed: u64,
+    /// Total number of tasks cancelled
+    pub tasks_cancelled: u64,
+    /// Average task execution time in nanoseconds
+    pub avg_execution_time_ns: u64,
+    /// Peak task execution time in nanoseconds
+    pub peak_execution_time_ns: u64,
+    /// Total CPU time consumed by all tasks in nanoseconds
+    pub total_cpu_time_ns: u64,
+}
+
+#[cfg(feature = "metrics")]
+impl ExecutorStats {
+    /// Returns statistics for all tasks managed by this executor.
+    ///
+    /// # Returns
+    /// A slice containing statistics for all tracked tasks
+    ///
+    /// # Note
+    /// This is currently a placeholder implementation that returns an empty slice.
+    /// A full implementation would maintain a registry of task statistics and return
+    /// them here. This requires integration with the actual executor implementation.
+    #[must_use]
+    pub fn get_stats(&self) -> &[TaskStats] {
+        // TODO: Implement actual statistics collection
+        // This would typically involve:
+        // 1. Maintaining a registry of active and completed tasks
+        // 2. Collecting performance metrics during task execution
+        // 3. Providing filtered views (active, completed, failed, etc.)
+        // 4. Implementing retention policies for completed task stats
+        
+        // For now, return empty slice to maintain API compatibility
+        // while indicating this needs proper implementation
+        &[]
+    }
 }
 
 /// Statistics for a single worker thread.

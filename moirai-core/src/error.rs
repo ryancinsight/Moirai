@@ -4,7 +4,7 @@ use core::fmt;
 
 /// Errors that can occur during task operations.
 #[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskError {
     /// Task was cancelled before completion
     Cancelled,
@@ -74,7 +74,7 @@ impl fmt::Display for TaskErrorKind {
 
 /// Errors that can occur during executor operations.
 #[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutorError {
     /// Executor is shutting down
     ShuttingDown,
@@ -108,7 +108,7 @@ impl fmt::Display for ExecutorError {
 
 /// Errors that can occur during scheduler operations.
 #[allow(clippy::module_name_repetitions)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SchedulerError {
     /// Queue is full and cannot accept more tasks
     QueueFull,

@@ -305,6 +305,17 @@ impl WorkStealingCoordinator {
     /// - System constraints or resource exhaustion
     /// - Invalid scheduler configuration
     /// - Internal synchronization failures
+    ///
+    /// # Implementation Status
+    /// **WARNING: This is a placeholder implementation that does not perform actual work stealing.**
+    /// 
+    /// The current implementation simulates successful steals by creating empty tasks.
+    /// A production implementation would need to:
+    /// 1. Access victim scheduler's actual task queues
+    /// 2. Implement lock-free or low-contention stealing algorithms
+    /// 3. Handle queue synchronization and memory ordering
+    /// 4. Provide backoff strategies for failed steal attempts
+    /// 5. Maintain work-stealing statistics and metrics
     pub fn steal_task(&self, thief_id: SchedulerId, context: &mut StealContext) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
         // Find potential victims for work stealing
         let victims = self.select_victims(thief_id);
@@ -317,18 +328,28 @@ impl WorkStealingCoordinator {
         // Try to steal from each victim
         for victim_id in victims {
             if let Some(scheduler) = self.schedulers.iter().find(|s| s.id() == victim_id) {
-                // In a real implementation, this would attempt to steal from the victim's queue
+                // TODO: CRITICAL - Implement actual work stealing
+                // This placeholder implementation does not perform real work stealing
+                // and would result in a non-functional scheduler in production.
+                //
+                // A real implementation would:
+                // 1. Access the victim's task queue (local deque, global queue, etc.)
+                // 2. Attempt to steal from the back/front of the queue atomically
+                // 3. Handle contention with the victim scheduler
+                // 4. Respect task affinity and stealing policies
+                // 5. Update stealing statistics and context
+                
                 if scheduler.load() > 0 {
-                    // Simulate successful steal
+                    // PLACEHOLDER: This creates a fake task instead of stealing a real one
                     context.attempts = 0; // Reset attempts on success
                     context.last_success = Some(SystemTime::now());
                     
-                    // Create a proper task for the stolen work
-                    let stolen_task = Closure::new(|| {
-                        // Placeholder stolen task
+                    // Create a placeholder task (NOT a real stolen task)
+                    let placeholder_task = Closure::new(|| {
+                        // This is a placeholder - real stolen tasks would have actual work
                     }, crate::TaskContext::new(crate::TaskId::new(0)));
                     
-                    return Ok(Some(Box::new(stolen_task) as Box<dyn BoxedTask>));
+                    return Ok(Some(Box::new(placeholder_task) as Box<dyn BoxedTask>));
                 }
             }
         }

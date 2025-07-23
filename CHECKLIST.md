@@ -60,10 +60,26 @@ Moirai is a high-performance, memory-safe concurrency library for Rust that prov
   - Fixed format string usage to use inline format args
   - Converted single-match patterns to if-let where appropriate
   - Added proper trait derives (PartialEq, Eq, Hash) for SchedulerId
+- ✅ **API Compatibility Restored** - Fixed breaking changes introduced during cleanup
+  - Restored generic TaskHandle<T> to maintain typed result retrieval
+  - Re-added PartialEq/Eq derives for error types (TaskError, ExecutorError, SchedulerError)
+  - Fixed TaskStats methods: is_active() includes Queued, is_finished() includes Cancelled
+  - Corrected ExecutorStats to use TaskExecutionStats for aggregate statistics
+- ⚠️ **Critical Implementation Gaps Identified** - Require completion before production
+  - TaskHandle.join() method is placeholder - needs executor integration
+  - steal_task() is non-functional placeholder - creates fake tasks instead of stealing
+  - ExecutorStats.get_stats() returns empty slice - needs actual statistics collection
 - ✅ **Documentation Quality** - Enhanced with proper error documentation and examples
 - ⏳ **Performance Optimizations** - In progress
 - ⏳ **Memory Management** - Optimization pending
 - ⏳ **Error Handling** - Refinement in progress
+
+### Critical TODOs for Production Readiness
+- [ ] **Implement TaskHandle.join()** - Requires result retrieval mechanism with executor
+- [ ] **Implement actual work-stealing** - steal_task() currently creates placeholder tasks
+- [ ] **Implement statistics collection** - get_stats() needs real task registry integration
+- [ ] **Add result storage mechanism** - TaskHandle needs way to retrieve typed results
+- [ ] **Implement task queue integration** - Work stealing needs access to actual queues
 
 ### 9.2 Performance Optimization & Benchmarking 🔄 **ACTIVE**
 - [x] **Performance Regression Detection** ✅ **COMPLETED** - Automated monitoring

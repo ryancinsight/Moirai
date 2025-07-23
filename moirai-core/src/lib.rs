@@ -49,18 +49,46 @@ pub use task::{
 
 /// A handle to a spawned task that allows monitoring and control.
 #[derive(Debug, Clone)]
-pub struct TaskHandle {
+pub struct TaskHandle<T> {
     /// The unique identifier for this task
     pub id: TaskId,
     /// Whether the task can be cancelled
     pub cancellable: bool,
+    /// Phantom data to maintain the output type
+    _phantom: core::marker::PhantomData<T>,
 }
 
-impl TaskHandle {
+impl<T> TaskHandle<T> {
     /// Create a new task handle.
     #[must_use]
     pub const fn new(id: TaskId, cancellable: bool) -> Self {
-        Self { id, cancellable }
+        Self { 
+            id, 
+            cancellable,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+    
+    /// Wait for the task to complete and return the result.
+    /// 
+    /// # Returns
+    /// The result of the task execution once it completes.
+    /// 
+    /// # Panics
+    /// Currently panics with a message indicating the method is not yet implemented.
+    /// This is a placeholder that requires integration with the actual executor.
+    /// 
+    /// # Note
+    /// This is a placeholder implementation. In a real executor,
+    /// this would block until the task completes and return the actual result.
+    #[must_use]
+    pub fn join(self) -> T {
+        // TODO: Implement actual result retrieval mechanism
+        // This would typically involve:
+        // 1. Blocking on a channel/future until task completion
+        // 2. Retrieving the result from task storage
+        // 3. Handling cancellation and error cases
+        panic!("join() not yet implemented - requires executor integration")
     }
 }
 
