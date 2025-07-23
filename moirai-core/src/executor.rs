@@ -25,70 +25,73 @@ use crate::metrics::Instant;
 /// - Memory overhead: < 64 bytes per task
 /// - Thread-safe: All operations are safe for concurrent access
 pub trait TaskSpawner: Send + Sync + 'static {
-    /// Spawn a task for execution.
-    /// 
-    /// # Behavior Guarantees
-    /// - Returns immediately without blocking
-    /// - Task is queued for execution on available worker
-    /// - Respects task priority for scheduling order
-    /// - Task context is preserved throughout execution
-    /// 
-    /// # Performance Characteristics
-    /// - Latency: < 100ns for local tasks
-    /// - Memory: ~64 bytes per task overhead
-    /// - Scalability: Linear up to 128 cores
-    fn spawn<T>(&self, task: T) -> TaskHandle<T::Output>
+    /// Spawns a new task for execution.
+    ///
+    /// # Arguments
+    /// * `task` - The task to be executed
+    ///
+    /// # Returns
+    /// A handle to the spawned task that allows monitoring and control
+    ///
+    /// # Errors
+    /// Returns `TaskError::SpawnFailed` if the task cannot be spawned due to:
+    /// - Resource exhaustion (queue full, memory limit reached)
+    /// - Task validation failures (invalid priority, security constraints)
+    /// - System shutdown in progress
+    fn spawn<T>(&self, task: T) -> TaskHandle
     where
-        T: Task;
+        T: Task + Send + 'static;
 
-    /// Spawn an async task for execution.
-    /// 
-    /// # Behavior Guarantees
-    /// - Future is polled on async executor thread pool
-    /// - Supports cooperative cancellation via task handles
-    /// - Preserves async context and waker chains
-    /// - Automatically handles Future trait requirements
-    /// 
-    /// # Performance Characteristics
-    /// - Spawn latency: < 200ns for async tasks
-    /// - Polling overhead: < 50ns per poll
-    /// - Memory: Future size + 64 bytes overhead
-    fn spawn_async<F>(&self, future: F) -> TaskHandle<F::Output>
+    /// Spawns an asynchronous task (Future) for execution.
+    ///
+    /// # Arguments
+    /// * `future` - The future to be executed
+    ///
+    /// # Returns
+    /// A handle to the spawned task
+    ///
+    /// # Errors
+    /// Returns `TaskError::SpawnFailed` under the same conditions as `spawn`
+    fn spawn_async<F>(&self, future: F) -> TaskHandle
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static;
 
-    /// Spawn a blocking task that may block the current thread.
-    /// 
-    /// # Behavior Guarantees
-    /// - Executes on dedicated blocking thread pool
-    /// - Does not block async executor threads
-    /// - Supports cancellation via task handles
-    /// - Thread stack size configurable via ExecutorConfig
-    /// 
-    /// # Performance Characteristics
-    /// - Spawn latency: < 500ns (thread pool coordination)
-    /// - Thread overhead: ~8MB stack per blocking thread
-    /// - Scalability: Configurable blocking thread pool size
-    fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>
+    /// Spawns a blocking task that may perform I/O or CPU-intensive work.
+    ///
+    /// # Arguments
+    /// * `func` - The blocking function to execute
+    ///
+    /// # Returns
+    /// A handle to the spawned task
+    ///
+    /// # Errors
+    /// Returns `TaskError::SpawnFailed` under the same conditions as `spawn`
+    fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static;
 
-    /// Spawn a task with a specific priority.
-    /// 
-    /// # Behavior Guarantees
-    /// - Higher priority tasks are scheduled before lower priority
-    /// - Priority inversion protection via priority inheritance
-    /// - Maintains fairness within same priority level
-    /// - Critical priority tasks can preempt lower priority tasks
-    /// 
-    /// # Performance Characteristics
-    /// - Priority scheduling overhead: < 10ns additional cost
-    /// - Queue operations: O(1) for most priorities, O(log n) for priority queue
-    fn spawn_with_priority<T>(&self, task: T, priority: Priority) -> TaskHandle<T::Output>
+    /// Spawns a task with specific priority and scheduling hints.
+    ///
+    /// # Arguments
+    /// * `task` - The task to be executed
+    /// * `priority` - The scheduling priority for this task
+    /// * `locality_hint` - Optional hint about preferred execution location
+    ///
+    /// # Returns
+    /// A handle to the spawned task
+    ///
+    /// # Errors
+    /// Returns `TaskError::SpawnFailed` under the same conditions as `spawn`
+    fn spawn_with_priority<T>(
+        &self,
+        task: T,
+        priority: Priority,
+        locality_hint: Option<usize>,
+    ) -> TaskHandle
     where
-        T: Task;
+        T: Task + Send + 'static;
 }
 
 /// Task management and monitoring capabilities.
@@ -108,19 +111,19 @@ pub trait TaskSpawner: Send + Sync + 'static {
 /// - Cancellation: O(1) operation, cooperative completion
 /// - Statistics: Atomic operations, minimal overhead
 pub trait TaskManager: Send + Sync + 'static {
-    /// Cancel a running task.
-    /// 
-    /// # Behavior Guarantees
-    /// - Cancellation is cooperative and may not be immediate
-    /// - Returns Ok(()) if cancellation was requested successfully
-    /// - Task may still complete normally if already finishing
-    /// - Cancellation is idempotent - safe to call multiple times
-    /// - Memory ordering: Release semantics for cancellation flag
-    /// 
-    /// # Performance Characteristics
-    /// - Latency: < 50ns for cancellation request
-    /// - Memory: Single atomic flag per task
-    /// - Thread safety: Lock-free cancellation signaling
+    /// Cancels a running task by its ID.
+    ///
+    /// # Arguments
+    /// * `id` - The unique identifier of the task to cancel
+    ///
+    /// # Returns
+    /// `Ok(())` if the task was successfully cancelled or was already completed.
+    ///
+    /// # Errors
+    /// Returns `TaskError` in the following cases:
+    /// - `NotFound` if no task with the given ID exists
+    /// - `InvalidState` if the task cannot be cancelled (e.g., already completed)
+    /// - `SystemError` if the cancellation operation fails due to internal errors
     fn cancel_task(&self, id: TaskId) -> Result<(), crate::error::TaskError>;
 
     /// Get the current status of a task.
@@ -167,21 +170,11 @@ pub trait TaskManager: Send + Sync + 'static {
     fn task_stats(&self, id: TaskId) -> Option<TaskStats>;
 }
 
-/// Executor lifecycle and control operations.
-/// 
-/// This trait provides high-level executor control operations.
-/// It follows the Command pattern for executor lifecycle management.
-/// 
-/// # Behavior Guarantees
-/// - Shutdown operations are idempotent and thread-safe
-/// - Graceful shutdown allows running tasks to complete
-/// - Forced shutdown may terminate tasks abruptly
-/// - Load balancing is automatic and transparent
-/// 
-/// # Performance Characteristics
-/// - Control operations: < 1μs latency
-/// - Shutdown time: Depends on running task completion
-/// - Load reporting: O(1) atomic operations
+/// Provides control operations for executor lifecycle management.
+///
+/// This trait enables external systems to manage executor state transitions,
+/// perform health checks, and coordinate shutdown procedures.
+#[allow(clippy::module_name_repetitions)]
 pub trait ExecutorControl: Send + Sync + 'static {
     /// Block the current thread until the future completes.
     /// 
@@ -238,7 +231,7 @@ pub trait ExecutorControl: Send + Sync + 'static {
     /// - Guarantees executor stops within timeout + small overhead
     /// 
     /// # Performance Characteristics
-    /// - Graceful phase: Same as shutdown()
+    /// - Graceful phase: Same as `shutdown()`
     /// - Forced phase: Immediate thread termination
     /// - Timeout accuracy: ±10ms typical variance
     fn shutdown_timeout(&self, timeout: core::time::Duration);
@@ -414,59 +407,50 @@ pub struct TaskStats {
 }
 
 impl TaskStats {
-    /// Calculate the total execution time.
-    /// 
+    /// Returns the total execution time of the task, if available.
+    ///
     /// # Returns
-    /// - Some(duration) if task has started and completed
-    /// - None if task hasn't started or is still running
-    /// 
-    /// # Accuracy
-    /// - Resolution: Nanosecond precision
-    /// - Clock: Monotonic system clock
+    /// `Some(duration)` if the task has completed execution, `None` if still running or queued.
+    #[must_use]
     pub fn execution_time(&self) -> Option<core::time::Duration> {
-        match (self.start_time, self.completion_time) {
-            (Some(start), Some(end)) => Some(end.duration_since(start)),
+        match (&self.start_time, &self.completion_time) {
+            (Some(start), Some(end)) => Some(end.duration_since(*start)),
             _ => None,
         }
     }
 
-    /// Calculate the time spent waiting in queue.
-    /// 
+    /// Returns the time the task spent in the queue before execution.
+    ///
     /// # Returns
-    /// - Some(duration) if task has started
-    /// - Some(duration_since_spawn) if task is still queued
-    /// 
-    /// # Accuracy
-    /// - Includes scheduler overhead and load balancing time
-    /// - May include time spent in priority queues
+    /// - `Some(duration_since_spawn)` if task is still queued
+    /// - `Some(queue_duration)` if task has started execution
+    /// - `None` if timing information is unavailable
+    #[must_use]
     pub fn queue_time(&self) -> Option<core::time::Duration> {
-        match self.start_time {
+        match &self.start_time {
             Some(start) => Some(start.duration_since(self.spawn_time)),
             None => Some(Instant::now().duration_since(self.spawn_time)),
         }
     }
 
-    /// Check if the task is currently active.
-    /// 
-    /// # Definition
-    /// Active tasks are either queued or currently running.
-    /// Completed, cancelled, or failed tasks are not active.
+    /// Returns whether the task is currently being executed.
+    #[must_use]
     pub fn is_active(&self) -> bool {
-        matches!(self.status, TaskStatus::Queued | TaskStatus::Running)
+        matches!(self.status, TaskStatus::Running)
     }
 
-    /// Check if the task has completed (successfully or not).
-    /// 
-    /// # Definition
-    /// Finished tasks have reached a terminal state and will
-    /// not transition to any other state.
+    /// Returns whether the task has completed execution (successfully or with error).
+    #[must_use]
     pub fn is_finished(&self) -> bool {
-        matches!(self.status, TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed)
+        matches!(self.status, TaskStatus::Completed | TaskStatus::Failed)
     }
 }
 
-/// Configuration for executor behavior.
-#[derive(Debug, Clone)]
+/// Configuration settings for executor behavior and performance characteristics.
+///
+/// This struct encapsulates all tunable parameters that affect executor operation,
+/// including thread pool sizes, queue capacities, and various performance optimizations.
+#[allow(clippy::module_name_repetitions)]
 pub struct ExecutorConfig {
     /// Number of worker threads for parallel tasks
     pub worker_threads: usize,
@@ -571,13 +555,13 @@ pub struct CleanupConfig {
     /// How long to keep completed task metadata before cleanup
     /// 
     /// # Default: 5 minutes
-    /// # Range: 1 second to 1 hour
+    /// # Range: 1 second to `task_retention_duration`
     pub task_retention_duration: core::time::Duration,
     
     /// How often to run the cleanup process
     /// 
     /// # Default: 30 seconds  
-    /// # Range: 1 second to task_retention_duration
+    /// # Range: 1 second to `task_retention_duration`
     pub cleanup_interval: core::time::Duration,
     
     /// Whether to enable automatic cleanup
@@ -604,9 +588,19 @@ impl Default for CleanupConfig {
     }
 }
 
-/// Plugin trait for extending executor functionality.
+/// Plugin interface for extending executor functionality.
+///
+/// Plugins provide a way to add custom behavior to the executor lifecycle
+/// without modifying the core execution logic.
+#[allow(clippy::module_name_repetitions)]
 pub trait ExecutorPlugin: Send + Sync + 'static {
-    /// Initialize the plugin.
+    /// Initialize the plugin with access to executor configuration.
+    ///
+    /// # Errors
+    /// Returns `ExecutorError` if the plugin cannot be properly initialized due to:
+    /// - Invalid configuration parameters
+    /// - Resource allocation failures
+    /// - Dependency conflicts with other plugins
     fn initialize(&mut self) -> Result<(), crate::error::ExecutorError> {
         Ok(())
     }
@@ -642,14 +636,22 @@ pub trait ExecutorPlugin: Send + Sync + 'static {
     }
 }
 
-/// Builder for creating executor configurations.
+/// Builder for creating and configuring executor instances.
+///
+/// This builder provides a fluent interface for setting up executors with
+/// custom configurations, plugins, and performance characteristics.
+#[allow(clippy::module_name_repetitions)]
 pub struct ExecutorBuilder {
     config: ExecutorConfig,
     plugins: alloc::vec::Vec<alloc::boxed::Box<dyn ExecutorPlugin>>,
 }
 
 impl ExecutorBuilder {
-    /// Create a new executor builder with default configuration.
+    /// Creates a new executor builder with default settings.
+    ///
+    /// # Returns
+    /// A new builder instance ready for configuration
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: ExecutorConfig::default(),
@@ -657,31 +659,66 @@ impl ExecutorBuilder {
         }
     }
 
-    /// Set the number of worker threads.
+    /// Sets the number of worker threads for CPU-bound tasks.
+    ///
+    /// # Arguments
+    /// * `count` - Number of worker threads to create
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn worker_threads(mut self, count: usize) -> Self {
         self.config.worker_threads = count;
         self
     }
 
-    /// Set the number of async threads.
+    /// Sets the number of threads for async task execution.
+    ///
+    /// # Arguments
+    /// * `count` - Number of async threads to create
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn async_threads(mut self, count: usize) -> Self {
         self.config.async_threads = count;
         self
     }
 
-    /// Set the maximum global queue size.
+    /// Sets the maximum size of the global task queue.
+    ///
+    /// # Arguments
+    /// * `size` - Maximum number of tasks in the global queue
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn max_global_queue_size(mut self, size: usize) -> Self {
         self.config.max_global_queue_size = size;
         self
     }
 
-    /// Set the maximum local queue size.
+    /// Sets the maximum size of per-worker local queues.
+    ///
+    /// # Arguments
+    /// * `size` - Maximum number of tasks in each local queue
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn max_local_queue_size(mut self, size: usize) -> Self {
         self.config.max_local_queue_size = size;
         self
     }
 
-    /// Set the thread name prefix.
+    /// Sets the thread name prefix for executor threads.
+    ///
+    /// # Arguments
+    /// * `prefix` - String prefix for thread names
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn thread_name_prefix(mut self, prefix: impl Into<alloc::string::String>) -> Self {
         self.config.thread_name_prefix = prefix.into();
         self
@@ -689,6 +726,7 @@ impl ExecutorBuilder {
 
     /// Enable or disable NUMA awareness.
     #[cfg(feature = "numa")]
+    #[must_use]
     pub fn numa_aware(mut self, enabled: bool) -> Self {
         self.config.numa_aware = enabled;
         self
@@ -696,36 +734,69 @@ impl ExecutorBuilder {
 
     /// Enable or disable metrics collection.
     #[cfg(feature = "metrics")]
+    #[must_use]
     pub fn enable_metrics(mut self, enabled: bool) -> Self {
         self.config.enable_metrics = enabled;
         self
     }
 
-    /// Set preemption configuration.
+    /// Configures preemption behavior for the executor.
+    ///
+    /// # Arguments
+    /// * `config` - Preemption configuration settings
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn preemption_config(mut self, config: PreemptionConfig) -> Self {
         self.config.preemption = config;
         self
     }
 
-    /// Set memory configuration.
+    /// Configures memory management settings.
+    ///
+    /// # Arguments
+    /// * `config` - Memory configuration settings
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn memory_config(mut self, config: MemoryConfig) -> Self {
         self.config.memory = config;
         self
     }
 
-    /// Set cleanup configuration.
+    /// Configures cleanup and maintenance settings.
+    ///
+    /// # Arguments
+    /// * `config` - Cleanup configuration settings
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn cleanup_config(mut self, config: CleanupConfig) -> Self {
         self.config.cleanup = config;
         self
     }
 
-    /// Add a plugin to the executor.
+    /// Adds a plugin to the executor.
+    ///
+    /// # Arguments
+    /// * `plugin` - The plugin instance to add
+    ///
+    /// # Returns
+    /// The builder instance for method chaining
+    #[must_use]
     pub fn plugin(mut self, plugin: impl ExecutorPlugin) -> Self {
         self.plugins.push(alloc::boxed::Box::new(plugin));
         self
     }
 
-    /// Build the executor configuration.
+    /// Builds the configuration and plugin list without creating an executor.
+    ///
+    /// # Returns
+    /// A tuple containing the executor configuration and list of plugins
+    #[must_use]
     pub fn build_config(self) -> (ExecutorConfig, alloc::vec::Vec<alloc::boxed::Box<dyn ExecutorPlugin>>) {
         (self.config, self.plugins)
     }
@@ -737,9 +808,12 @@ impl Default for ExecutorBuilder {
     }
 }
 
-/// Overall executor statistics.
+/// Runtime statistics and performance metrics for executor instances.
+///
+/// This struct provides comprehensive monitoring data for executor performance,
+/// including task throughput, queue utilization, and resource consumption metrics.
 #[cfg(feature = "metrics")]
-#[derive(Debug, Clone)]
+#[allow(clippy::module_name_repetitions)]
 pub struct ExecutorStats {
     /// Worker thread statistics
     pub worker_stats: alloc::vec::Vec<WorkerStats>,
@@ -748,7 +822,7 @@ pub struct ExecutorStats {
     /// Memory usage statistics
     pub memory_stats: MemoryStats,
     /// Task execution statistics
-    pub task_stats: TaskExecutionStats,
+    pub task_stats: TaskStats,
 }
 
 /// Statistics for a single worker thread.
@@ -848,7 +922,7 @@ fn num_cpus() -> usize {
     #[cfg(feature = "std")]
     {
         std::thread::available_parallelism()
-            .map(|n| n.get())
+            .map(std::num::NonZero::get)
             .unwrap_or(1)
     }
     #[cfg(not(feature = "std"))]

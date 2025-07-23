@@ -43,9 +43,26 @@ pub mod metrics;
 
 // Re-export key types from task module
 pub use task::{
-    Task, TaskExt, TaskFuture, TaskHandle, TaskBuilder, TaskWrapper,
-    ClosureTask, ChainedTask, MappedTask, CatchTask
+    Task, TaskBuilder, TaskExt,
+    Closure, Chained, Mapped, Catch, Parameterized, Group, Spawner
 };
+
+/// A handle to a spawned task that allows monitoring and control.
+#[derive(Debug, Clone)]
+pub struct TaskHandle {
+    /// The unique identifier for this task
+    pub id: TaskId,
+    /// Whether the task can be cancelled
+    pub cancellable: bool,
+}
+
+impl TaskHandle {
+    /// Create a new task handle.
+    #[must_use]
+    pub const fn new(id: TaskId, cancellable: bool) -> Self {
+        Self { id, cancellable }
+    }
+}
 
 /// A unique identifier for tasks within the runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -407,7 +424,7 @@ pub trait BoxedTask: Send + 'static {
 }
 
 // Implement BoxedTask for any TaskWrapper (which always returns ())
-impl<T> BoxedTask for TaskWrapper<T> 
+impl<T> BoxedTask for T 
 where 
     T: Task + Send + 'static,
 {

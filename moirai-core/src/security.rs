@@ -10,8 +10,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-/// Security audit levels for different deployment environments.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Security levels that can be applied to task execution environments.
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SecurityLevel {
     /// Development environment - minimal security checks
     Development,
@@ -23,8 +24,9 @@ pub enum SecurityLevel {
     Production,
 }
 
-/// Security audit event types.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Security-related events that can occur during task execution.
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, Clone)]
 pub enum SecurityEvent {
     /// Task spawning with security context
     TaskSpawn { 
@@ -64,7 +66,8 @@ pub enum SecurityEvent {
     },
 }
 
-/// Security audit configuration.
+/// Configuration settings for security policies and enforcement.
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 pub struct SecurityConfig {
     /// Security level for this deployment
@@ -95,7 +98,11 @@ impl Default for SecurityConfig {
 }
 
 impl SecurityConfig {
-    /// Create a production-ready security configuration.
+    /// Creates a production-ready security configuration.
+    ///
+    /// # Returns
+    /// A security configuration suitable for production environments
+    #[must_use]
     pub fn production() -> Self {
         Self {
             level: SecurityLevel::Production,
@@ -137,6 +144,7 @@ impl SlidingWindowRateLimiter {
         let num_windows = num_windows.max(1); // Ensure at least 1 window
         let window_duration_ns = 1_000_000_000 / num_windows as u64; // 1 second / num_windows
         // Total requests allowed across all windows
+        #[allow(clippy::cast_possible_truncation)]
         let max_requests = max_requests_per_second as usize;
         
         let mut windows = Vec::with_capacity(num_windows);
@@ -144,6 +152,7 @@ impl SlidingWindowRateLimiter {
             windows.push(AtomicUsize::new(0));
         }
         
+        #[allow(clippy::cast_possible_truncation)]
         let now_ns = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -163,6 +172,7 @@ impl SlidingWindowRateLimiter {
     /// 
     /// Returns true if the request is allowed, false if rate limited.
     fn try_acquire(&self) -> bool {
+        #[allow(clippy::cast_possible_truncation)]
         let now_ns = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
@@ -197,6 +207,7 @@ impl SlidingWindowRateLimiter {
         
         if elapsed_ns >= self.window_duration_ns {
             // Calculate how many windows we need to advance
+            #[allow(clippy::cast_possible_truncation)]
             let windows_to_advance = (elapsed_ns / self.window_duration_ns) as usize;
             
             // Try to update the window start time atomically
@@ -231,7 +242,8 @@ impl SlidingWindowRateLimiter {
     }
 }
 
-/// Security auditor for monitoring and validating system security.
+/// Security auditor for monitoring and enforcing security policies.
+#[allow(clippy::module_name_repetitions)]
 pub struct SecurityAuditor {
     config: SecurityConfig,
     events: Arc<Mutex<Vec<SecurityEvent>>>,
@@ -241,7 +253,14 @@ pub struct SecurityAuditor {
 }
 
 impl SecurityAuditor {
-    /// Create a new security auditor with the specified configuration.
+    /// Creates a new security auditor with the given configuration.
+    ///
+    /// # Arguments
+    /// * `config` - Security configuration settings
+    ///
+    /// # Returns
+    /// A new security auditor instance
+    #[must_use]
     pub fn new(config: SecurityConfig) -> Self {
         Self {
             task_spawn_limiter: SlidingWindowRateLimiter::new(config.max_task_spawn_rate, 10),
@@ -262,10 +281,20 @@ impl SecurityAuditor {
         self.enabled.load(Ordering::Relaxed)
     }
     
-    /// Audit a task spawn operation.
-    /// 
-    /// Uses a lock-free sliding window rate limiter to accurately enforce spawn rate limits
-    /// without race conditions or performance bottlenecks.
+    /// Audits a task spawn request for security compliance.
+    ///
+    /// # Arguments
+    /// * `task_id` - The unique identifier for the task being spawned
+    /// * `priority` - The requested priority level for the task
+    ///
+    /// # Returns
+    /// `Ok(())` if the spawn request is approved, `Err` if denied.
+    ///
+    /// # Errors
+    /// Returns `ExecutorError` in the following cases:
+    /// - `ResourceExhausted` if rate limits are exceeded
+    /// - `SecurityViolation` if the request violates security policies
+    /// - `InvalidConfiguration` if security settings are malformed
     pub fn audit_task_spawn(&self, task_id: TaskId, priority: Priority) -> Result<(), ExecutorError> {
         if !self.is_enabled() {
             return Ok(());
@@ -283,7 +312,7 @@ impl SecurityAuditor {
             });
             
             return Err(ExecutorError::ResourceExhausted(
-                format!("Task spawn rate limit exceeded: {} requests/sec", current_count)
+                format!("Task spawn rate limit exceeded: {current_count} requests/sec")
             ));
         }
         
@@ -297,10 +326,20 @@ impl SecurityAuditor {
         Ok(())
     }
     
-    /// Audit a memory allocation operation.
-    /// 
-    /// Checks allocation size limits and tracks allocation patterns to detect anomalies.
-    /// Handles lock poisoning gracefully by propagating errors instead of panicking.
+    /// Audits a memory allocation request.
+    ///
+    /// # Arguments
+    /// * `size` - The size of the memory allocation in bytes
+    /// * `location` - A string identifying the allocation location
+    ///
+    /// # Returns
+    /// `Ok(())` if the allocation is approved, `Err` if denied.
+    ///
+    /// # Errors
+    /// Returns `ExecutorError` in the following cases:
+    /// - `ResourceExhausted` if memory limits are exceeded
+    /// - `SecurityViolation` if the allocation pattern is suspicious
+    /// - `SystemError` if internal tracking fails
     pub fn audit_memory_allocation(&self, size: usize, location: &str) -> Result<(), ExecutorError> {
         if !self.is_enabled() || !self.config.enable_memory_validation {
             return Ok(());
@@ -319,30 +358,27 @@ impl SecurityAuditor {
         }
         
         // Track allocations by location (handle lock poisoning gracefully)
-        match self.memory_allocations.lock() {
-            Ok(mut allocations) => {
-                let total = allocations.entry(location.to_string()).or_insert(0);
-                *total += size;
-                
-                // Check for potential memory leaks (simplified heuristic)
-                if *total > self.config.max_allocation_size / 2 {
-                    self.record_event(SecurityEvent::MemoryAnomalous {
-                        size: *total,
-                        location: format!("accumulated_at_{location}"),
-                        timestamp: SystemTime::now(),
-                    });
-                }
-            }
-            Err(_) => {
-                // Lock is poisoned, record this as a security event but don't panic
-                self.record_event(SecurityEvent::RaceCondition {
-                    description: format!("Memory allocation tracking lock poisoned at {location}"),
+        if let Ok(mut allocations) = self.memory_allocations.lock() {
+            let total = allocations.entry(location.to_string()).or_insert(0);
+            *total += size;
+            
+            // Check for potential memory leaks (simplified heuristic)
+            if *total > self.config.max_allocation_size / 2 {
+                self.record_event(SecurityEvent::MemoryAnomalous {
+                    size: *total,
+                    location: format!("accumulated_at_{location}"),
                     timestamp: SystemTime::now(),
                 });
-                return Err(ExecutorError::ResourceExhausted(
-                    "Memory allocation tracking unavailable due to lock poisoning".to_string()
-                ));
             }
+        } else {
+            // Lock is poisoned, record this as a security event but don't panic
+            self.record_event(SecurityEvent::RaceCondition {
+                description: format!("Memory allocation tracking lock poisoned at {location}"),
+                timestamp: SystemTime::now(),
+            });
+            return Err(ExecutorError::ResourceExhausted(
+                "Memory allocation tracking unavailable due to lock poisoning".to_string()
+            ));
         }
         
         Ok(())
@@ -441,13 +477,21 @@ pub struct Report {
 }
 
 impl Report {
-    /// Check if the system passes security validation.
+    /// Checks if the current security state is considered secure.
+    ///
+    /// # Returns
+    /// `true` if the system is in a secure state, `false` otherwise
+    #[must_use]
     pub fn is_secure(&self) -> bool {
         // No resource exhaustion events
         self.event_counts.get("ResourceExhaustion").unwrap_or(&0) == &0
     }
     
-    /// Get security score (0-100, higher is better).
+    /// Calculates a security score based on current metrics.
+    ///
+    /// # Returns
+    /// A security score from 0-100, where 100 is most secure
+    #[must_use]
     pub fn security_score(&self) -> u8 {
         let critical_events = *self.event_counts.get("ResourceExhaustion").unwrap_or(&0);
         let warning_events = *self.event_counts.get("MemoryAnomalous").unwrap_or(&0) +

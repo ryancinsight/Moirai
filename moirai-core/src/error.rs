@@ -1,9 +1,10 @@
-//! Error types for the Moirai concurrency library.
+//! Error types and handling for the Moirai runtime.
 
 use core::fmt;
 
-/// Errors that can occur during task execution.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Errors that can occur during task operations.
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, Clone)]
 pub enum TaskError {
     /// Task was cancelled before completion
     Cancelled,
@@ -71,8 +72,9 @@ impl fmt::Display for TaskErrorKind {
     }
 }
 
-/// Errors that can occur in the executor.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Errors that can occur during executor operations.
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, Clone)]
 pub enum ExecutorError {
     /// Executor is shutting down
     ShuttingDown,
@@ -97,15 +99,16 @@ impl fmt::Display for ExecutorError {
             Self::AlreadyRunning => write!(f, "Executor is already running"),
             Self::InvalidConfiguration => write!(f, "Invalid executor configuration"),
             Self::ThreadPoolCreationFailed => write!(f, "Failed to create thread pool"),
-            Self::SpawnFailed(err) => write!(f, "Failed to spawn task: {}", err),
-            Self::ResourceExhausted(msg) => write!(f, "Resource exhausted: {}", msg),
-            Self::PerformanceAnomaly(msg) => write!(f, "Performance anomaly: {}", msg),
+            Self::SpawnFailed(err) => write!(f, "Failed to spawn task: {err}"),
+            Self::ResourceExhausted(msg) => write!(f, "Resource exhausted: {msg}"),
+            Self::PerformanceAnomaly(msg) => write!(f, "Performance anomaly: {msg}"),
         }
     }
 }
 
-/// Errors that can occur in the scheduler.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Errors that can occur during scheduler operations.
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, Clone)]
 pub enum SchedulerError {
     /// Queue is full and cannot accept more tasks
     QueueFull,
