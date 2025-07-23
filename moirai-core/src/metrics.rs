@@ -247,7 +247,13 @@ impl Histogram {
         let bucket_index = if value == 0 {
             0
         } else {
-            (15 - value.leading_zeros() as usize).min(15)
+            // Safe calculation to avoid overflow
+            let leading_zeros = value.leading_zeros();
+            if leading_zeros >= 15 {
+                0
+            } else {
+                (15 - leading_zeros as usize).min(15)
+            }
         };
 
         self.buckets[bucket_index].fetch_add(1, Ordering::Relaxed);
@@ -298,9 +304,13 @@ impl Default for Histogram {
 /// Metrics for individual tasks.
 #[derive(Debug)]
 pub struct TaskData {
+    /// Number of tasks spawned in total
     pub spawned: Counter,
+    /// Number of tasks that completed successfully
     pub completed: Counter,
+    /// Histogram of task execution times in microseconds
     pub execution_time: Histogram,
+    /// Histogram of task wait times in microseconds
     pub wait_time: Histogram,
 }
 
@@ -365,10 +375,15 @@ impl Default for TaskData {
 /// Metrics for individual schedulers.
 #[derive(Debug)]
 pub struct SchedulerData {
+    /// Current number of tasks in the scheduler's queue
     pub queue_length: Gauge,
+    /// Total number of tasks processed by this scheduler
     pub tasks_processed: Counter,
+    /// Number of work-stealing attempts made
     pub steal_attempts: Counter,
+    /// Number of successful work-stealing operations
     pub successful_steals: Counter,
+    /// Current CPU utilization percentage (0-100)
     pub cpu_utilization: Gauge,
 }
 
@@ -420,7 +435,9 @@ impl Default for SchedulerData {
 /// Global metrics collector.
 #[derive(Debug)]
 pub struct GlobalMetrics {
+    /// Task-related metrics aggregated across all schedulers
     pub tasks: TaskData,
+    /// Per-scheduler metrics indexed by scheduler ID
     pub schedulers: HashMap<SchedulerId, SchedulerData>,
 }
 
@@ -487,10 +504,15 @@ impl Default for GlobalMetrics {
 /// Snapshot of metrics at a point in time.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
+    /// Total number of tasks spawned across all schedulers
     pub total_tasks_spawned: u64,
+    /// Total number of tasks completed across all schedulers  
     pub total_tasks_completed: u64,
+    /// Average queue length across all active schedulers
     pub average_queue_length: f64,
+    /// Total number of work-stealing attempts made
     pub total_steal_attempts: u64,
+    /// Total number of successful work-stealing operations
     pub total_successful_steals: u64,
 }
 

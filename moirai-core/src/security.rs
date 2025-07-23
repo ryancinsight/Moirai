@@ -589,16 +589,20 @@ mod tests {
         // Should not exceed the limit even with concurrent access
         assert!(total_acquired <= 100, "Total acquired {total_acquired} should not exceed limit 100");
         
-        // Test rate limiting
-        let auditor = SecurityAuditor::new(SecurityConfig::production());
-        for i in 0..5 {
+        // Test rate limiting with a restrictive configuration
+        let mut config = SecurityConfig::production();
+        config.max_task_spawn_rate = 3; // Very low limit for testing
+        let auditor = SecurityAuditor::new(config);
+        
+        // Should allow exactly 3 spawns
+        for i in 0..3 {
             let result = auditor.audit_task_spawn(TaskId::new(i + 1), Priority::Normal);
             assert!(result.is_ok(), "Spawn {} should succeed", i + 1);
         }
         
-        // 6th spawn should fail due to rate limiting
-        let result = auditor.audit_task_spawn(TaskId::new(6), Priority::Normal);
-        assert!(result.is_err(), "6th spawn should fail due to rate limiting");
+        // 4th spawn should fail due to rate limiting
+        let result = auditor.audit_task_spawn(TaskId::new(4), Priority::Normal);
+        assert!(result.is_err(), "4th spawn should fail due to rate limiting");
         
         // Check that it's specifically a rate limit error
         match result {

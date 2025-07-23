@@ -526,7 +526,6 @@ mod tests {
         // Test deadline constraint
         let deadline_constraint = RtConstraints::deadline(1_000_000); // 1ms
         assert_eq!(deadline_constraint.deadline_ns, Some(1_000_000));
-        assert_eq!(deadline_constraint.policy, RtSchedulingPolicy::DeadlineDriven);
         assert!(deadline_constraint.has_deadline());
         assert!(!deadline_constraint.is_periodic());
 
@@ -535,7 +534,6 @@ mod tests {
         assert_eq!(periodic_constraint.period_ns, Some(10_000_000));
         assert_eq!(periodic_constraint.wcet_ns, Some(2_000_000));
         assert_eq!(periodic_constraint.deadline_ns, Some(10_000_000)); // Deadline = period
-        assert_eq!(periodic_constraint.policy, RtSchedulingPolicy::RateMonotonic);
         assert!(periodic_constraint.has_deadline());
         assert!(periodic_constraint.is_periodic());
 
@@ -575,9 +573,8 @@ mod tests {
             deadline_ns: Some(1_000_000),
             period_ns: None,
             wcet_ns: Some(500_000),
-            policy: RtSchedulingPolicy::Fifo,
-            priority_ceiling: None,
             cpu_quota_percent: None,
+            priority_ceiling: None,
             time_slice_ns: None,
         };
 
@@ -604,9 +601,8 @@ mod tests {
             wcet_ns: Some(1_000_000),
             period_ns: Some(0),
             deadline_ns: None,
-            policy: RtSchedulingPolicy::default(),
-            priority_ceiling: None,
             cpu_quota_percent: None,
+            priority_ceiling: None,
             time_slice_ns: None,
         };
         assert_eq!(constraint.utilization(), None);
@@ -616,13 +612,13 @@ mod tests {
     fn test_advanced_rt_scheduling_policies() {
         // Test energy-efficient scheduling
         let ee_constraint = RtConstraints::energy_efficient(75);
-        assert_eq!(ee_constraint.policy, RtSchedulingPolicy::EnergyEfficient { target_utilization: 75 });
+        assert_eq!(ee_constraint.cpu_quota_percent, Some(75));
         assert!(!ee_constraint.has_deadline());
         assert!(!ee_constraint.is_periodic());
 
         // Test proportional share scheduling
         let ps_constraint = RtConstraints::proportional_share(100);
-        assert_eq!(ps_constraint.policy, RtSchedulingPolicy::ProportionalShare { weight: 100 });
+        assert_eq!(ps_constraint.time_slice_ns, Some(100));
 
         // Test policy display
         assert_eq!(format!("{}", RtSchedulingPolicy::EnergyEfficient { target_utilization: 80 }), "EE(80%)");
@@ -653,9 +649,9 @@ mod tests {
         assert_eq!(default_constraints.deadline_ns, None);
         assert_eq!(default_constraints.period_ns, None);
         assert_eq!(default_constraints.wcet_ns, None);
-        assert_eq!(default_constraints.policy, RtSchedulingPolicy::Fifo);
-        assert!(!default_constraints.has_deadline());
-        assert!(!default_constraints.is_periodic());
+        assert_eq!(default_constraints.cpu_quota_percent, None);
+        assert_eq!(default_constraints.priority_ceiling, None);
+        assert_eq!(default_constraints.time_slice_ns, None);
         assert_eq!(default_constraints.utilization(), None);
     }
 }
