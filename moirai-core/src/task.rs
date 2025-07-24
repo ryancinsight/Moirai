@@ -1,6 +1,6 @@
 //! Task abstractions and utilities for the Moirai runtime.
 
-use crate::{TaskId, TaskContext, Box};
+use crate::{TaskId, TaskContext, Box, TaskError};
 use core::{
     future::Future,
     pin::Pin,
@@ -78,7 +78,8 @@ where
 #[allow(clippy::module_name_repetitions)]
 pub struct TaskWrapper<T: Task> {
     task: T,
-    result_sender: Option<mpsc::Sender<T::Output>>,
+    result_sender: Option<mpsc::Sender<Result<T::Output, TaskError>>>,
+    completion_sender: Option<mpsc::Sender<()>>,
 }
 
 impl<T: Task> TaskWrapper<T> {
@@ -87,14 +88,16 @@ impl<T: Task> TaskWrapper<T> {
         Self {
             task,
             result_sender: None,
+            completion_sender: None,
         }
     }
 
-    /// Create a new task wrapper with a result sender.
-    pub fn with_result_sender(task: T, sender: mpsc::Sender<T::Output>) -> Self {
+    /// Create a new task wrapper with result and completion senders.
+    pub fn with_result_sender(task: T, result_sender: mpsc::Sender<Result<T::Output, TaskError>>, completion_sender: mpsc::Sender<()>) -> Self {
         Self {
             task,
-            result_sender: Some(sender),
+            result_sender: Some(result_sender),
+            completion_sender: Some(completion_sender),
         }
     }
 }
@@ -107,7 +110,12 @@ impl<T: Task> Task for TaskWrapper<T> {
         
         // Send the result if we have a sender
         if let Some(sender) = self.result_sender {
-            let _ = sender.send(result); // Ignore send errors (receiver may be dropped)
+            let _ = sender.send(Ok(result)); // Wrap result in Ok
+        }
+        
+        // Send completion notification
+        if let Some(sender) = self.completion_sender {
+            let _ = sender.send(());
         }
     }
 

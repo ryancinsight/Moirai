@@ -1317,16 +1317,12 @@ impl HybridExecutor {
             plugin.before_task_spawn(task_id, priority);
         }
 
-        // Create result communication channel
-        #[cfg(feature = "std")]
-        let (result_sender, _result_receiver) = std::sync::mpsc::channel::<T::Output>();
+        // Create result communication channels
+        let (result_sender, result_receiver) = moirai_core::create_result_channel::<T::Output>();
+        let (completion_sender, _completion_receiver) = std::sync::mpsc::channel::<()>();
         
         // Create task wrapper with result sender
-        #[cfg(feature = "std")]
-        let task_wrapper = TaskWrapper::with_result_sender(task, result_sender);
-        #[cfg(not(feature = "std"))]
-        let task_wrapper = TaskWrapper::new(task);
-        
+        let task_wrapper = TaskWrapper::with_result_sender(task, result_sender, completion_sender);
         let boxed_task: Box<dyn BoxedTask> = Box::new(task_wrapper);
 
         // Schedule task
@@ -1342,9 +1338,8 @@ impl HybridExecutor {
                     plugin.after_task_spawn(task_id);
                 }
 
-                // Create handle with basic functionality
-                // TODO: Implement proper result communication
-                return TaskHandle::new(task_id, true);
+                // Create handle with proper result communication
+                return TaskHandle::new_with_result_channel(task_id, true, result_receiver);
             }
         }
 

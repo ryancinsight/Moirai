@@ -7,16 +7,16 @@
 extern crate std;
 
 #[cfg(feature = "std")]
-use std::collections::HashMap;
+
 
 // Core imports needed for no_std compatibility
-use core::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 // Std-only imports
 #[cfg(feature = "std")]
 use std::{
     boxed::Box,
-    vec::{self, Vec},
+    vec::Vec,
 };
 
 /// Cache line size for alignment optimizations.
