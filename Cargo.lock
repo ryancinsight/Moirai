@@ -553,6 +553,7 @@ dependencies = [
  "moirai-utils",
  "proptest",
  "quickcheck",
+ "tokio",
 ]
 
 [[package]]

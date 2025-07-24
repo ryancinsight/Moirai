@@ -12,3 +12,4 @@ moirai = { path = "../moirai", features = ["full"] }
 moirai-utils = { path = "../moirai-utils", features = ["std"] }
 proptest = { workspace = true }
 quickcheck = { workspace = true }
+tokio = { version = "1.0", features = ["full"] }

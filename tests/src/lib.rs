@@ -259,3 +259,214 @@ mod integration_tests {
         println!("CPU-optimized stress test completed {} tasks in {:?}", task_count, duration);
     }
 }
+
+#[cfg(test)]
+mod documentation_tests {
+    use moirai::{Moirai, Priority, TaskContext, TaskId, Closure};
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// Test the quick start example from the main documentation (simplified)
+    #[tokio::test]
+    async fn test_quick_start_documentation_example() -> Result<(), Box<dyn std::error::Error>> {
+        // Create a new runtime with minimal configuration
+        let runtime = Moirai::builder()
+            .worker_threads(1) // Use 1 thread for testing
+            .build()?;
+
+        // CPU-bound parallel computation
+        let parallel_handle = runtime.spawn_parallel(move || {
+            // Simple computation for testing
+            42 * 2
+        });
+
+        // Another parallel task
+        let critical_handle = runtime.spawn_parallel(move || "critical task executed");
+
+        // Tasks execute concurrently with optimal scheduling
+        let parallel_result = parallel_handle.join()?;
+        let critical_result = critical_handle.join()?;
+
+        // Validate results
+        assert_eq!(parallel_result, 84);
+        assert_eq!(critical_result, "critical task executed");
+
+        // Graceful shutdown with resource cleanup
+        runtime.shutdown();
+        Ok(())
+    }
+
+    /// Test task chaining documentation example
+    #[tokio::test]
+    async fn test_task_chaining_documentation_example() -> Result<(), Box<dyn std::error::Error>> {
+        let runtime = Moirai::new()?;
+
+        // Chain tasks with dependencies (simplified for testing)
+        let initial_value = 42;
+        let doubled = initial_value * 2;
+        let _final_result = doubled + 10;
+
+        // Test the conceptual chaining (actual TaskBuilder implementation may vary)
+        let handle = runtime.spawn_parallel(move || {
+            let step1 = initial_value;
+            let step2 = step1 * 2;
+            let step3 = step2 + 10;
+            step3
+        });
+
+        let result = handle.join()?;
+        assert_eq!(result, 94); // (42 * 2) + 10
+
+        runtime.shutdown();
+        Ok(())
+    }
+
+    /// Test distributed computing example (mocked for testing)
+    #[tokio::test]
+    async fn test_distributed_documentation_example() -> Result<(), Box<dyn std::error::Error>> {
+        let runtime = Moirai::builder()
+            .enable_distributed()
+            .node_id("worker-1".to_string())
+            .build()?;
+
+        // Test local execution (distributed features are available but not tested in detail)
+        let local_handle = runtime.spawn_parallel(move || "computed locally");
+        let result = local_handle.join()?;
+        assert_eq!(result, "computed locally");
+
+        runtime.shutdown();
+        Ok(())
+    }
+
+    /// Test migration from std::thread pattern
+    #[tokio::test]
+    async fn test_std_thread_migration_pattern() -> Result<(), Box<dyn std::error::Error>> {
+        fn expensive_computation() -> i32 {
+            (0..1000).sum()
+        }
+
+        // Moirai approach
+        let runtime = Moirai::new()?;
+        let handle = runtime.spawn_parallel(|| {
+            expensive_computation()
+        });
+        let result = handle.join()?;
+        
+        assert_eq!(result, 499500); // Sum of 0..1000
+        
+        runtime.shutdown();
+        Ok(())
+    }
+
+    /// Test migration from Tokio pattern
+    #[tokio::test]
+    async fn test_tokio_migration_pattern() -> Result<(), Box<dyn std::error::Error>> {
+        async fn async_operation() -> &'static str {
+            std::thread::sleep(Duration::from_millis(1));
+            "async completed"
+        }
+
+        // Moirai approach
+        let runtime = Moirai::new()?;
+        let handle = runtime.spawn_async(async {
+            async_operation().await
+        });
+        let result = handle.join()?;
+        
+        assert_eq!(result, "async completed");
+        
+        runtime.shutdown();
+        Ok(())
+    }
+
+    /// Test performance characteristics mentioned in documentation
+    #[tokio::test]
+    async fn test_performance_characteristics() -> Result<(), Box<dyn std::error::Error>> {
+        let runtime = Moirai::builder()
+            .worker_threads(4)
+            .enable_metrics(true)
+            .build()?;
+
+        let start = std::time::Instant::now();
+        
+        // Spawn multiple tasks to test scheduling overhead
+        let mut handles = Vec::new();
+        for i in 0..100 {
+            let handle = runtime.spawn_parallel(move || i * i);
+            handles.push(handle);
+        }
+
+        // Wait for all tasks to complete
+        let mut results = Vec::new();
+        for handle in handles {
+            results.push(handle.join()?);
+        }
+
+        let elapsed = start.elapsed();
+        
+        // Verify results are correct
+        for (i, &result) in results.iter().enumerate() {
+            assert_eq!(result, i * i);
+        }
+
+        // Performance assertion: should complete 100 tasks quickly
+        assert!(elapsed < Duration::from_millis(100), 
+                "100 simple tasks should complete within 100ms, took {:?}", elapsed);
+
+        runtime.shutdown();
+        Ok(())
+    }
+
+    /// Test safety guarantees mentioned in documentation
+    #[tokio::test]
+    async fn test_safety_guarantees() -> Result<(), Box<dyn std::error::Error>> {
+        let runtime = Moirai::new()?;
+        
+        // Test memory safety with shared data
+        let shared_data = Arc::new(AtomicU32::new(0));
+        let mut handles = Vec::new();
+
+        // Spawn multiple tasks that modify shared data
+        for _ in 0..10 {
+            let data = shared_data.clone();
+            let handle = runtime.spawn_parallel(move || {
+                for _ in 0..100 {
+                    data.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all tasks
+        for handle in handles {
+            handle.join()?;
+        }
+
+        // Verify no data races occurred
+        assert_eq!(shared_data.load(Ordering::Relaxed), 1000);
+
+        runtime.shutdown();
+        Ok(())
+    }
+
+    /// Test error handling capabilities
+    #[tokio::test]
+    async fn test_error_handling_documentation() -> Result<(), Box<dyn std::error::Error>> {
+        let runtime = Moirai::new()?;
+
+        // Test error propagation in parallel tasks
+        let handle = runtime.spawn_parallel(|| -> Result<i32, &'static str> {
+            Err("intentional error")
+        });
+
+        let result = handle.join();
+        match result {
+            Ok(Err(err)) => assert_eq!(err, "intentional error"),
+            _ => panic!("Expected error to be propagated"),
+        }
+
+        runtime.shutdown();
+        Ok(())
+    }
+}
