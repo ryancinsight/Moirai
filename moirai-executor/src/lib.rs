@@ -690,10 +690,8 @@ impl Worker {
             last_update: start_time,
         };
         
-        // Register task metrics
-        if let Ok(mut metrics_map) = self.task_metrics.lock() {
-            metrics_map.insert(task_id, initial_metrics);
-        }
+        // Register task metrics - use expect() for consistent task tracking
+        self.task_metrics.lock().expect("Task metrics mutex poisoned during task registration").insert(task_id, initial_metrics);
         
         // Prefetch task data for better cache performance
         prefetch_read(task.as_ref() as *const _ as *const u8);
@@ -817,13 +815,13 @@ impl Worker {
     fn monitor_task_memory(&self, task_id: TaskId) {
         let current_memory = self.get_current_memory_usage();
         
-        if let Ok(mut metrics_map) = self.task_metrics.lock() {
-            if let Some(metrics) = metrics_map.get_mut(&task_id) {
-                if current_memory > metrics.memory_peak_bytes {
-                    metrics.memory_peak_bytes = current_memory;
-                }
-                metrics.last_update = std::time::Instant::now();
+        // Use expect() for consistent memory monitoring
+        let mut metrics_map = self.task_metrics.lock().expect("Task metrics mutex poisoned during memory monitoring");
+        if let Some(metrics) = metrics_map.get_mut(&task_id) {
+            if current_memory > metrics.memory_peak_bytes {
+                metrics.memory_peak_bytes = current_memory;
             }
+            metrics.last_update = std::time::Instant::now();
         }
     }
 
@@ -834,25 +832,25 @@ impl Worker {
     /// * `cpu_time_ns` - CPU time consumed in nanoseconds
     /// * `execution_time_ns` - Total execution time in nanoseconds
     fn finalize_task_metrics(&self, task_id: TaskId, cpu_time_ns: u64, _execution_time_ns: u64) {
-        if let Ok(mut metrics_map) = self.task_metrics.lock() {
-            if let Some(metrics) = metrics_map.get_mut(&task_id) {
-                metrics.cpu_time_ns = cpu_time_ns;
-                metrics.last_update = std::time::Instant::now();
+        // Use expect() for consistent task finalization
+        let mut metrics_map = self.task_metrics.lock().expect("Task metrics mutex poisoned during task finalization");
+        if let Some(metrics) = metrics_map.get_mut(&task_id) {
+            metrics.cpu_time_ns = cpu_time_ns;
+            metrics.last_update = std::time::Instant::now();
+            
+            // Clean up local metrics after processing
+            // Keep only recent metrics to prevent memory bloat
+            const MAX_RETAINED_METRICS: usize = 100;
+            if metrics_map.len() > MAX_RETAINED_METRICS {
+                // Remove oldest entries
+                let mut entries: Vec<_> = metrics_map.iter().map(|(k, v)| (*k, v.last_update)).collect();
+                entries.sort_by_key(|(_, last_update)| *last_update);
                 
-                // Clean up local metrics after processing
-                // Keep only recent metrics to prevent memory bloat
-                const MAX_RETAINED_METRICS: usize = 100;
-                if metrics_map.len() > MAX_RETAINED_METRICS {
-                    // Remove oldest entries
-                    let mut entries: Vec<_> = metrics_map.iter().map(|(k, v)| (*k, v.last_update)).collect();
-                    entries.sort_by_key(|(_, last_update)| *last_update);
-                    
-                    let to_remove = entries.len().saturating_sub(MAX_RETAINED_METRICS);
-                    let ids_to_remove: Vec<_> = entries.iter().take(to_remove).map(|(id, _)| *id).collect();
-                    
-                    for id in ids_to_remove {
-                        metrics_map.remove(&id);
-                    }
+                let to_remove = entries.len().saturating_sub(MAX_RETAINED_METRICS);
+                let ids_to_remove: Vec<_> = entries.iter().take(to_remove).map(|(id, _)| *id).collect();
+                
+                for id in ids_to_remove {
+                    metrics_map.remove(&id);
                 }
             }
         }
