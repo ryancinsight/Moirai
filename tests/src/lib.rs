@@ -262,7 +262,7 @@ mod integration_tests {
 
 #[cfg(test)]
 mod documentation_tests {
-    use moirai::{Moirai, Priority, TaskContext, TaskId, Closure};
+    use moirai::Moirai;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
