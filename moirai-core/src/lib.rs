@@ -55,7 +55,7 @@ pub use task::{
 };
 
 /// Result channel for direct task result passing without global storage.
-/// This eliminates the scalability bottleneck of a global Mutex<HashMap>.
+/// This eliminates the scalability bottleneck of a global `Mutex<HashMap>`.
 pub type ResultChannel<T> = mpsc::Receiver<TaskResult<T>>;
 
 /// Sender for task results - used internally by the runtime.

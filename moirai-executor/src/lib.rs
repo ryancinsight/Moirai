@@ -472,21 +472,24 @@ fn waker_from_runtime_waker(runtime_waker: RuntimeWaker) -> Waker {
 }
 
 /// Global async runtime instance
-static ASYNC_RUNTIME: std::sync::OnceLock<AsyncRuntime> = std::sync::OnceLock::new();
+static ASYNC_RUNTIME: std::sync::OnceLock<Arc<AsyncRuntime>> = std::sync::OnceLock::new();
 
 /// Get or initialize the global async runtime
 pub fn get_async_runtime() -> &'static AsyncRuntime {
-    ASYNC_RUNTIME.get_or_init(|| {
-        let runtime = AsyncRuntime::new();
+    let arc_runtime = ASYNC_RUNTIME.get_or_init(|| {
+        let runtime = Arc::new(AsyncRuntime::new());
         
-        // Spawn runtime thread
-        let runtime_ref = unsafe { std::mem::transmute::<&AsyncRuntime, &'static AsyncRuntime>(&runtime) };
+        // Clone Arc for the background thread
+        let runtime_clone = runtime.clone();
         thread::spawn(move || {
-            runtime_ref.run();
+            runtime_clone.run();
         });
         
         runtime
-    })
+    });
+    
+    // Return reference to the Arc's inner value
+    arc_runtime.as_ref()
 }
 
 /// Wrapper for async tasks that implements the BoxedTask trait with proper async execution
@@ -1317,16 +1320,12 @@ impl HybridExecutor {
             plugin.before_task_spawn(task_id, priority);
         }
 
-        // Create result communication channel
-        #[cfg(feature = "std")]
-        let (result_sender, _result_receiver) = std::sync::mpsc::channel::<T::Output>();
+        // Create result communication channels
+        let (result_sender, result_receiver) = moirai_core::create_result_channel::<T::Output>();
+        let (completion_sender, _completion_receiver) = std::sync::mpsc::channel::<()>();
         
         // Create task wrapper with result sender
-        #[cfg(feature = "std")]
-        let task_wrapper = TaskWrapper::with_result_sender(task, result_sender);
-        #[cfg(not(feature = "std"))]
-        let task_wrapper = TaskWrapper::new(task);
-        
+        let task_wrapper = TaskWrapper::with_result_sender(task, result_sender, completion_sender);
         let boxed_task: Box<dyn BoxedTask> = Box::new(task_wrapper);
 
         // Schedule task
@@ -1342,9 +1341,8 @@ impl HybridExecutor {
                     plugin.after_task_spawn(task_id);
                 }
 
-                // Create handle with basic functionality
-                // TODO: Implement proper result communication
-                return TaskHandle::new(task_id, true);
+                // Create handle with proper result communication
+                return TaskHandle::new_with_result_channel(task_id, true, result_receiver);
             }
         }
 
@@ -2275,8 +2273,21 @@ mod tests {
 
 impl Drop for HybridExecutor {
     fn drop(&mut self) {
-        // Use the shared shutdown logic without completion notification
-        // This ensures proper handling of poisoned mutexes and prevents resource leaks
-        self.shutdown_internal(false);
+        // Signal shutdown to all workers
+        self.shutdown_signal.store(true, Ordering::Relaxed);
+        
+        // Join worker threads safely
+        if let Ok(mut handles) = self.worker_handles.lock() {
+            for handle in handles.drain(..) {
+                let _ = handle.join(); // Ignore join errors during drop
+            }
+        }
+        
+        // Join cleanup thread safely
+        if let Ok(mut cleanup_handle) = self.cleanup_handle.lock() {
+            if let Some(handle) = cleanup_handle.take() {
+                let _ = handle.join(); // Ignore join errors during drop
+            }
+        }
     }
 }

@@ -164,7 +164,7 @@ impl<T> Receiver<T> {
 /// - Channel has exactly the specified capacity
 /// - Senders block when channel is full
 /// - Multiple senders and receivers are supported (MPMC)
-/// - Memory usage is bounded by capacity * size_of::<T>()
+/// - Memory usage is bounded by capacity * `size_of::<T>`()
 /// 
 /// # Performance Characteristics
 /// - Send/receive: O(1) amortized
