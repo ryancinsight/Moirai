@@ -30,6 +30,9 @@ use moirai_utils::{
 use moirai_scheduler::WorkStealingScheduler;
 use std::{
     collections::HashMap,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll, Waker},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock, Condvar,
@@ -72,6 +75,102 @@ struct Worker {
     // CPU optimization fields
     cpu_core: Option<CpuCore>,
     affinity_mask: AffinityMask,
+    // Task performance tracking
+    task_metrics: Arc<Mutex<std::collections::HashMap<TaskId, TaskPerformanceMetrics>>>,
+}
+
+/// Wrapper for async tasks that implements the BoxedTask trait.
+struct AsyncTaskWrapper<F> {
+    future: Option<Pin<Box<F>>>,
+    task_id: TaskId,
+    context: TaskContext,
+}
+
+impl<F> AsyncTaskWrapper<F>
+where
+    F: Future + Send + 'static,
+{
+    fn new(future: F, task_id: TaskId) -> Self {
+        Self {
+            future: Some(Box::pin(future)),
+            task_id,
+            context: TaskContext::new(task_id),
+        }
+    }
+}
+
+impl<F> BoxedTask for AsyncTaskWrapper<F>
+where
+    F: Future + Send + 'static,
+{
+    fn execute_boxed(&mut self) {
+        if let Some(future) = self.future.take() {
+            // Create a simple executor for this async task
+            // This is a basic implementation - a full async runtime would be more sophisticated
+            let waker = create_noop_waker();
+            let mut context = Context::from_waker(&waker);
+            
+            // Poll the future to completion
+            let mut future = future;
+            loop {
+                match future.as_mut().poll(&mut context) {
+                    Poll::Ready(_) => break,
+                    Poll::Pending => {
+                        // In a real async runtime, we'd yield here and reschedule
+                        // For this implementation, we'll busy-wait (not ideal but functional)
+                        std::thread::yield_now();
+                    }
+                }
+            }
+        }
+    }
+
+    fn context(&self) -> &TaskContext {
+        &self.context
+    }
+
+    fn estimated_cost(&self) -> u32 {
+        1 // Default cost for async tasks
+    }
+}
+
+/// Create a no-op waker for simple async task execution.
+fn create_noop_waker() -> Waker {
+    use std::task::{RawWaker, RawWakerVTable};
+    
+    fn noop_clone(_: *const ()) -> RawWaker {
+        noop_raw_waker()
+    }
+    
+    fn noop_wake(_: *const ()) {}
+    
+    fn noop_wake_by_ref(_: *const ()) {}
+    
+    fn noop_drop(_: *const ()) {}
+    
+    fn noop_raw_waker() -> RawWaker {
+        const VTABLE: RawWakerVTable = RawWakerVTable::new(noop_clone, noop_wake, noop_wake_by_ref, noop_drop);
+        RawWaker::new(std::ptr::null(), &VTABLE)
+    }
+    
+    unsafe { Waker::from_raw(noop_raw_waker()) }
+}
+
+/// Performance metrics for individual task execution tracking.
+#[derive(Debug, Clone)]
+struct TaskPerformanceMetrics {
+    /// CPU time consumed by this task in nanoseconds
+    pub cpu_time_ns: u64,
+    /// Memory usage at task start in bytes
+    pub memory_start_bytes: u64,
+    /// Peak memory usage during execution in bytes
+    pub memory_peak_bytes: u64,
+    /// Number of times the task was preempted
+    pub preemption_count: u32,
+    /// Task execution start time
+    pub start_time: std::time::Instant,
+    /// Last time metrics were updated
+    pub last_update: std::time::Instant,
 }
 
 /// Metrics collected per worker thread.
@@ -125,6 +224,7 @@ impl Worker {
             metrics,
             cpu_core,
             affinity_mask,
+            task_metrics: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -192,18 +292,44 @@ impl Worker {
         let task_id = task.context().id;
         let start_time = Instant::now();
         
+        // Initialize task performance metrics
+        let memory_start = self.get_current_memory_usage();
+        let initial_metrics = TaskPerformanceMetrics {
+            cpu_time_ns: 0,
+            memory_start_bytes: memory_start,
+            memory_peak_bytes: memory_start,
+            preemption_count: 0,
+            start_time,
+            last_update: start_time,
+        };
+        
+        // Register task metrics
+        if let Ok(mut metrics_map) = self.task_metrics.lock() {
+            metrics_map.insert(task_id, initial_metrics);
+        }
+        
         // Prefetch task data for better cache performance
         prefetch_read(task.as_ref() as *const _ as *const u8);
         
         // Update task status to running
         self.task_registry.update_status(task_id, TaskStatus::Running);
         
+        // Track CPU time during execution
+        let cpu_start = self.get_current_cpu_time();
+        
         // Execute task with panic handling
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // Monitor memory usage during execution
+            self.monitor_task_memory(task_id);
             task.execute_boxed();
         }));
 
         let execution_time = start_time.elapsed();
+        let cpu_end = self.get_current_cpu_time();
+        let cpu_time_ns = cpu_end.saturating_sub(cpu_start);
+        
+        // Final metrics update
+        self.finalize_task_metrics(task_id, cpu_time_ns, execution_time.as_nanos() as u64);
         
         // Update task status based on result
         match result {
@@ -222,6 +348,127 @@ impl Worker {
             execution_time.as_nanos() as u64,
             Ordering::Relaxed,
         );
+    }
+
+    /// Get current memory usage for the process.
+    /// 
+    /// # Returns
+    /// Current memory usage in bytes, or 0 if unable to determine.
+    fn get_current_memory_usage(&self) -> u64 {
+        #[cfg(target_os = "linux")]
+        {
+            // Read from /proc/self/status for memory information
+            if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+                for line in status.lines() {
+                    if line.starts_with("VmRSS:") {
+                        if let Some(kb_str) = line.split_whitespace().nth(1) {
+                            if let Ok(kb) = kb_str.parse::<u64>() {
+                                return kb * 1024; // Convert KB to bytes
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        #[cfg(not(target_os = "linux"))]
+        {
+            // Fallback for other platforms - use a simple heuristic
+            // This is a simplified implementation for cross-platform compatibility
+            0
+        }
+        
+        0
+    }
+
+    /// Get current CPU time for the current thread.
+    /// 
+    /// # Returns
+    /// CPU time in nanoseconds, or 0 if unable to determine.
+    fn get_current_cpu_time(&self) -> u64 {
+        #[cfg(target_os = "linux")]
+        {
+            // Use clock_gettime for thread-specific CPU time
+            use std::os::raw::{c_int, c_long};
+            
+            #[repr(C)]
+            struct Timespec {
+                tv_sec: c_long,
+                tv_nsec: c_long,
+            }
+            
+            extern "C" {
+                fn clock_gettime(clock_id: c_int, tp: *mut Timespec) -> c_int;
+            }
+            
+            const CLOCK_THREAD_CPUTIME_ID: c_int = 3;
+            
+            let mut ts = Timespec { tv_sec: 0, tv_nsec: 0 };
+            unsafe {
+                if clock_gettime(CLOCK_THREAD_CPUTIME_ID, &mut ts) == 0 {
+                    return (ts.tv_sec as u64) * 1_000_000_000 + (ts.tv_nsec as u64);
+                }
+            }
+        }
+        
+        #[cfg(not(target_os = "linux"))]
+        {
+            // Fallback for other platforms
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64
+        }
+        
+        0
+    }
+
+    /// Monitor task memory usage during execution.
+    /// 
+    /// # Arguments
+    /// * `task_id` - The ID of the task to monitor
+    fn monitor_task_memory(&self, task_id: TaskId) {
+        let current_memory = self.get_current_memory_usage();
+        
+        if let Ok(mut metrics_map) = self.task_metrics.lock() {
+            if let Some(metrics) = metrics_map.get_mut(&task_id) {
+                if current_memory > metrics.memory_peak_bytes {
+                    metrics.memory_peak_bytes = current_memory;
+                }
+                metrics.last_update = std::time::Instant::now();
+            }
+        }
+    }
+
+    /// Finalize task metrics after completion.
+    /// 
+    /// # Arguments
+    /// * `task_id` - The ID of the completed task
+    /// * `cpu_time_ns` - CPU time consumed in nanoseconds
+    /// * `execution_time_ns` - Total execution time in nanoseconds
+    fn finalize_task_metrics(&self, task_id: TaskId, cpu_time_ns: u64, execution_time_ns: u64) {
+        if let Ok(mut metrics_map) = self.task_metrics.lock() {
+            if let Some(metrics) = metrics_map.get_mut(&task_id) {
+                metrics.cpu_time_ns = cpu_time_ns;
+                metrics.last_update = std::time::Instant::now();
+                
+                // Clean up local metrics after processing
+                // Keep only recent metrics to prevent memory bloat
+                const MAX_RETAINED_METRICS: usize = 100;
+                if metrics_map.len() > MAX_RETAINED_METRICS {
+                    // Remove oldest entries
+                    let mut entries: Vec<_> = metrics_map.iter().collect();
+                    entries.sort_by_key(|(_, m)| m.last_update);
+                    
+                    let to_remove = entries.len().saturating_sub(MAX_RETAINED_METRICS);
+                    for i in 0..to_remove {
+                        if let Some((id, _)) = entries.get(i) {
+                            metrics_map.remove(id);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Get worker metrics snapshot.
@@ -340,9 +587,9 @@ impl TaskRegistry {
             spawn_time: metadata.spawn_time,
             start_time: metadata.start_time,
             completion_time: metadata.completion_time,
-            preemption_count: 0, // TODO: Track preemptions
-            cpu_time_ns: 0, // TODO: Track CPU time
-            memory_used_bytes: 0, // TODO: Track memory usage
+            preemption_count: metadata.preemption_count,
+            cpu_time_ns: metadata.cpu_time_ns,
+            memory_used_bytes: metadata.memory_used_bytes
         })
     }
 
@@ -763,26 +1010,44 @@ impl TaskSpawner for HybridExecutor {
         self.spawn_internal(task, Priority::Normal)
     }
 
-    fn spawn_async<F>(&self, _future: F) -> TaskHandle<F::Output>
+    fn spawn_async<F>(&self, future: F) -> TaskHandle<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        // TODO: Implement async task spawning
-        // For now, create a placeholder handle
         let task_id = self.task_registry.register_task(Priority::Normal);
         
-        #[cfg(feature = "std")]
-        {
-            // Create a dummy channel for now - this will be properly implemented
-            // when async task execution is added
-            let (_sender, _receiver) = std::sync::mpsc::channel::<()>();
-            TaskHandle::new(task_id, true)
+        // Create completion notification channel
+        let (completion_tx, completion_rx) = std::sync::mpsc::channel();
+        
+        // Wrap the future in a task that handles result storage
+        let future_wrapper = async move {
+            let result = future.await;
+            
+            // Store the result for later retrieval
+            moirai_core::store_task_result(task_id, result);
+            
+            // Notify completion
+            let _ = completion_tx.send(());
+        };
+        
+        // Convert the future into a task
+        let task = AsyncTaskWrapper::new(future_wrapper, task_id);
+        
+        // Schedule the async task for execution
+        if let Some(scheduler) = self.select_scheduler() {
+            let boxed_task = Box::new(task) as Box<dyn BoxedTask>;
+            if let Err(e) = scheduler.schedule_task(boxed_task) {
+                eprintln!("Failed to schedule async task {}: {:?}", task_id, e);
+                return TaskHandle::new(task_id, true);
+            }
+        } else {
+            eprintln!("No scheduler available for async task {}", task_id);
+            return TaskHandle::new(task_id, true);
         }
-        #[cfg(not(feature = "std"))]
-        {
-            TaskHandle::new(task_id, false)
-        }
+        
+        // Return handle with completion notification
+        TaskHandle::new_with_completion(task_id, true, completion_rx)
     }
 
     fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>

@@ -823,6 +823,8 @@ pub struct ExecutorStats {
     pub memory_stats: MemoryStats,
     /// Aggregate task execution statistics across all workers
     pub task_execution_stats: TaskExecutionStats,
+    /// Registry of individual task statistics
+    task_stats_registry: alloc::vec::Vec<TaskStats>,
 }
 
 /// Aggregate task execution statistics across the entire executor.
@@ -845,27 +847,117 @@ pub struct TaskExecutionStats {
 
 #[cfg(feature = "metrics")]
 impl ExecutorStats {
+    /// Create a new ExecutorStats instance with empty registries.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            worker_stats: alloc::vec::Vec::new(),
+            global_queue_stats: QueueStats {
+                current_length: 0,
+                max_length: 0,
+                total_enqueued: 0,
+                total_dequeued: 0,
+                avg_wait_time_us: 0.0,
+            },
+            memory_stats: MemoryStats {
+                current_usage: 0,
+                peak_usage: 0,
+                allocations: 0,
+                deallocations: 0,
+                pool_stats: PoolStats {
+                    small_pool_utilization: 0.0,
+                    medium_pool_utilization: 0.0,
+                    large_pool_utilization: 0.0,
+                    pool_hits: 0,
+                    pool_misses: 0,
+                },
+            },
+            task_execution_stats: TaskExecutionStats::default(),
+            task_stats_registry: alloc::vec::Vec::new(),
+        }
+    }
+
     /// Returns statistics for all tasks managed by this executor.
     ///
     /// # Returns
     /// A slice containing statistics for all tracked tasks
-    ///
-    /// # Note
-    /// This is currently a placeholder implementation that returns an empty slice.
-    /// A full implementation would maintain a registry of task statistics and return
-    /// them here. This requires integration with the actual executor implementation.
     #[must_use]
     pub fn get_stats(&self) -> &[TaskStats] {
-        // TODO: Implement actual statistics collection
-        // This would typically involve:
-        // 1. Maintaining a registry of active and completed tasks
-        // 2. Collecting performance metrics during task execution
-        // 3. Providing filtered views (active, completed, failed, etc.)
-        // 4. Implementing retention policies for completed task stats
+        &self.task_stats_registry
+    }
+
+    /// Add a new task to the statistics registry.
+    ///
+    /// # Arguments
+    /// * `task_stats` - The task statistics to register
+    pub fn register_task(&mut self, task_stats: TaskStats) {
+        self.task_stats_registry.push(task_stats);
         
-        // For now, return empty slice to maintain API compatibility
-        // while indicating this needs proper implementation
-        &[]
+        // Implement retention policy - keep only the last 1000 task stats
+        const MAX_TASK_STATS: usize = 1000;
+        if self.task_stats_registry.len() > MAX_TASK_STATS {
+            self.task_stats_registry.remove(0);
+        }
+    }
+
+    /// Update statistics for an existing task.
+    ///
+    /// # Arguments
+    /// * `task_id` - The ID of the task to update
+    /// * `status` - The new status of the task
+    /// * `execution_time_ns` - Optional execution time in nanoseconds
+    pub fn update_task_stats(&mut self, task_id: crate::TaskId, status: TaskStatus, execution_time_ns: Option<u64>) {
+        if let Some(task_stats) = self.task_stats_registry.iter_mut().find(|stats| stats.id == task_id) {
+            task_stats.status = status;
+            if let Some(exec_time) = execution_time_ns {
+                task_stats.cpu_time_ns = exec_time;
+            }
+            // Update completion time if task is finished
+            if matches!(status, TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled) {
+                task_stats.completion_time = Some(std::time::Instant::now());
+            }
+        }
+    }
+
+    /// Get statistics for active tasks only.
+    ///
+    /// # Returns
+    /// A vector containing statistics for currently active tasks
+    #[must_use]
+    pub fn get_active_task_stats(&self) -> alloc::vec::Vec<&TaskStats> {
+        self.task_stats_registry
+            .iter()
+            .filter(|stats| stats.is_active())
+            .collect()
+    }
+
+    /// Get statistics for completed tasks only.
+    ///
+    /// # Returns
+    /// A vector containing statistics for completed tasks
+    #[must_use]
+    pub fn get_completed_task_stats(&self) -> alloc::vec::Vec<&TaskStats> {
+        self.task_stats_registry
+            .iter()
+            .filter(|stats| stats.is_finished())
+            .collect()
+    }
+
+    /// Remove old completed task statistics based on retention policy.
+    ///
+    /// # Arguments
+    /// * `max_age_seconds` - Maximum age in seconds for retaining completed task stats
+    pub fn cleanup_old_stats(&mut self, max_age_seconds: u64) {
+        let _cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(max_age_seconds);
+        
+        self.task_stats_registry.retain(|stats| {
+            // Keep active tasks and recently completed tasks
+            stats.is_active() || stats.completion_time.map_or(true, |completion| {
+                // Convert Instant to SystemTime for comparison (approximate)
+                let elapsed_since_completion = completion.elapsed();
+                elapsed_since_completion < std::time::Duration::from_secs(max_age_seconds)
+            })
+        });
     }
 }
 

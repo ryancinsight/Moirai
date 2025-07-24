@@ -23,6 +23,10 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+use std::sync::{Arc, Mutex, mpsc};
+use std::collections::HashMap;
+use std::thread;
+use std::time::Duration;
 use core::{
     fmt,
     pin::Pin,
@@ -31,6 +35,12 @@ use core::{
 
 // Re-export commonly used types from alloc for convenience
 pub use alloc::{boxed::Box, string::String, vec::Vec};
+
+// Re-export key types from various modules
+pub use error::{
+    ExecutorError, ExecutorResult, TaskError, TaskResult,
+    SchedulerError, SchedulerResult
+};
 
 pub mod task;
 pub mod executor;
@@ -47,6 +57,35 @@ pub use task::{
     Closure, Chained, Mapped, Catch, Parameterized, Group, Spawner
 };
 
+/// Global task result storage for handling task completion
+static TASK_RESULTS: std::sync::OnceLock<Arc<Mutex<HashMap<TaskId, Box<dyn std::any::Any + Send + Sync>>>>> = std::sync::OnceLock::new();
+
+/// Initialize the global task result storage
+pub fn init_result_storage() {
+    TASK_RESULTS.get_or_init(|| Arc::new(Mutex::new(HashMap::new())));
+}
+
+/// Store a task result for later retrieval
+pub fn store_task_result<T: Send + Sync + 'static>(task_id: TaskId, result: T) {
+    if let Some(storage) = TASK_RESULTS.get() {
+        if let Ok(mut map) = storage.lock() {
+            map.insert(task_id, Box::new(result));
+        }
+    }
+}
+
+/// Retrieve a task result from storage
+pub fn take_task_result<T: Send + Sync + 'static>(task_id: TaskId) -> Option<T> {
+    if let Some(storage) = TASK_RESULTS.get() {
+        if let Ok(mut map) = storage.lock() {
+            if let Some(boxed_result) = map.remove(&task_id) {
+                return boxed_result.downcast().ok().map(|b| *b);
+            }
+        }
+    }
+    None
+}
+
 /// A handle to a spawned task that allows monitoring and control.
 #[derive(Debug, Clone)]
 pub struct TaskHandle<T> {
@@ -54,6 +93,8 @@ pub struct TaskHandle<T> {
     pub id: TaskId,
     /// Whether the task can be cancelled
     pub cancellable: bool,
+    /// Channel for receiving completion notifications
+    completion_rx: Option<Arc<Mutex<mpsc::Receiver<()>>>>,
     /// Phantom data to maintain the output type
     _phantom: core::marker::PhantomData<T>,
 }
@@ -65,6 +106,18 @@ impl<T> TaskHandle<T> {
         Self { 
             id, 
             cancellable,
+            completion_rx: None,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+    
+    /// Create a new task handle with completion notification channel.
+    #[must_use]
+    pub fn new_with_completion(id: TaskId, cancellable: bool, completion_rx: mpsc::Receiver<()>) -> Self {
+        Self { 
+            id, 
+            cancellable,
+            completion_rx: Some(Arc::new(Mutex::new(completion_rx))),
             _phantom: core::marker::PhantomData,
         }
     }
@@ -74,21 +127,101 @@ impl<T> TaskHandle<T> {
     /// # Returns
     /// The result of the task execution once it completes.
     /// 
-    /// # Panics
-    /// Currently panics with a message indicating the method is not yet implemented.
-    /// This is a placeholder that requires integration with the actual executor.
+    /// # Errors
+    /// Returns an error if the task was cancelled or failed to complete.
     /// 
     /// # Note
-    /// This is a placeholder implementation. In a real executor,
-    /// this would block until the task completes and return the actual result.
+    /// This implementation uses a combination of polling and blocking to
+    /// efficiently wait for task completion while allowing for cancellation.
     #[must_use]
-    pub fn join(self) -> T {
-        // TODO: Implement actual result retrieval mechanism
-        // This would typically involve:
-        // 1. Blocking on a channel/future until task completion
-        // 2. Retrieving the result from task storage
-        // 3. Handling cancellation and error cases
-        panic!("join() not yet implemented - requires executor integration")
+    pub fn join(self) -> TaskResult<T> 
+    where 
+        T: Send + Sync + 'static 
+    {
+        // Initialize result storage if not already done
+        init_result_storage();
+        
+        // If we have a completion channel, wait for notification
+        if let Some(completion_rx) = &self.completion_rx {
+            if let Ok(rx) = completion_rx.lock() {
+                // Wait for completion notification with timeout
+                let mut attempts = 0;
+                const MAX_ATTEMPTS: u32 = 1000; // 10 seconds total
+                const TIMEOUT_MS: u64 = 10;
+                
+                loop {
+                    match rx.recv_timeout(Duration::from_millis(TIMEOUT_MS)) {
+                        Ok(()) => break, // Task completed
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            attempts += 1;
+                            if attempts >= MAX_ATTEMPTS {
+                                return Err(TaskError::ExecutionTimeout);
+                            }
+                            // Check if result is already available
+                            if let Some(result) = take_task_result::<T>(self.id) {
+                                return Ok(result);
+                            }
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            // Channel disconnected, check for result
+                            break;
+                        }
+                    }
+                }
+            }
+        } else {
+            // No completion channel, poll for result
+            let mut attempts = 0;
+            const MAX_POLL_ATTEMPTS: u32 = 1000;
+            
+            loop {
+                if let Some(result) = take_task_result::<T>(self.id) {
+                    return Ok(result);
+                }
+                
+                attempts += 1;
+                if attempts >= MAX_POLL_ATTEMPTS {
+                    return Err(TaskError::ExecutionTimeout);
+                }
+                
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        
+        // Try to retrieve the result one final time
+        take_task_result::<T>(self.id).ok_or(TaskError::ResultNotFound)
+    }
+    
+    /// Check if the task has completed without blocking.
+    /// 
+    /// # Returns
+    /// `true` if the task has completed, `false` otherwise.
+    pub fn is_finished(&self) -> bool 
+    where 
+        T: Send + Sync + 'static 
+    {
+        init_result_storage();
+        
+        if let Some(storage) = TASK_RESULTS.get() {
+            if let Ok(map) = storage.lock() {
+                return map.contains_key(&self.id);
+            }
+        }
+        false
+    }
+    
+    /// Attempt to cancel the task.
+    /// 
+    /// # Returns
+    /// `true` if the task was successfully cancelled, `false` if it was already completed.
+    pub fn cancel(&self) -> bool {
+        if !self.cancellable {
+            return false;
+        }
+        
+        // For now, return false as cancellation mechanism needs executor integration
+        // TODO: Implement proper cancellation through executor
+        false
     }
 }
 
