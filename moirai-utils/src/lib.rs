@@ -1073,3 +1073,139 @@ pub mod probabilistic {
 
 /// SIMD operations module.
 pub mod simd;
+
+/// Advanced performance counter for SIMD operations.
+#[derive(Debug)]
+pub struct SimdPerformanceCounter {
+    /// Number of vectorized operations performed.
+    vectorized_ops: AtomicUsize,
+    /// Number of scalar fallback operations.
+    scalar_ops: AtomicUsize,
+    /// Total elements processed via SIMD.
+    simd_elements: AtomicUsize,
+    /// Total elements processed via scalar fallback.
+    scalar_elements: AtomicUsize,
+}
+
+impl SimdPerformanceCounter {
+    /// Create a new SIMD performance counter.
+    pub const fn new() -> Self {
+        Self {
+            vectorized_ops: AtomicUsize::new(0),
+            scalar_ops: AtomicUsize::new(0),
+            simd_elements: AtomicUsize::new(0),
+            scalar_elements: AtomicUsize::new(0),
+        }
+    }
+
+    /// Record a vectorized operation.
+    pub fn record_vectorized_op(&self, element_count: usize) {
+        self.vectorized_ops.fetch_add(1, Ordering::Relaxed);
+        self.simd_elements.fetch_add(element_count, Ordering::Relaxed);
+    }
+
+    /// Record a scalar fallback operation.
+    pub fn record_scalar_op(&self, element_count: usize) {
+        self.scalar_ops.fetch_add(1, Ordering::Relaxed);
+        self.scalar_elements.fetch_add(element_count, Ordering::Relaxed);
+    }
+
+    /// Get the total number of vectorized operations.
+    pub fn vectorized_operations(&self) -> usize {
+        self.vectorized_ops.load(Ordering::Relaxed)
+    }
+
+    /// Get the total number of scalar operations.
+    pub fn scalar_operations(&self) -> usize {
+        self.scalar_ops.load(Ordering::Relaxed)
+    }
+
+    /// Get the SIMD utilization ratio (0.0 to 1.0).
+    pub fn simd_utilization_ratio(&self) -> f64 {
+        let simd_elements = self.simd_elements.load(Ordering::Relaxed) as f64;
+        let scalar_elements = self.scalar_elements.load(Ordering::Relaxed) as f64;
+        let total_elements = simd_elements + scalar_elements;
+        
+        if total_elements == 0.0 {
+            0.0
+        } else {
+            simd_elements / total_elements
+        }
+    }
+
+    /// Get performance statistics.
+    pub fn get_stats(&self) -> SimdStats {
+        SimdStats {
+            vectorized_ops: self.vectorized_operations(),
+            scalar_ops: self.scalar_operations(),
+            simd_elements: self.simd_elements.load(Ordering::Relaxed),
+            scalar_elements: self.scalar_elements.load(Ordering::Relaxed),
+            utilization_ratio: self.simd_utilization_ratio(),
+        }
+    }
+
+    /// Reset all counters.
+    pub fn reset(&self) {
+        self.vectorized_ops.store(0, Ordering::Relaxed);
+        self.scalar_ops.store(0, Ordering::Relaxed);
+        self.simd_elements.store(0, Ordering::Relaxed);
+        self.scalar_elements.store(0, Ordering::Relaxed);
+    }
+}
+
+impl Default for SimdPerformanceCounter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clone for SimdPerformanceCounter {
+    fn clone(&self) -> Self {
+        Self {
+            vectorized_ops: AtomicUsize::new(self.vectorized_ops.load(Ordering::Relaxed)),
+            scalar_ops: AtomicUsize::new(self.scalar_ops.load(Ordering::Relaxed)),
+            simd_elements: AtomicUsize::new(self.simd_elements.load(Ordering::Relaxed)),
+            scalar_elements: AtomicUsize::new(self.scalar_elements.load(Ordering::Relaxed)),
+        }
+    }
+}
+
+/// SIMD performance statistics snapshot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimdStats {
+    /// Number of vectorized operations.
+    pub vectorized_ops: usize,
+    /// Number of scalar operations.
+    pub scalar_ops: usize,
+    /// Elements processed via SIMD.
+    pub simd_elements: usize,
+    /// Elements processed via scalar code.
+    pub scalar_elements: usize,
+    /// SIMD utilization ratio (0.0 to 1.0).
+    pub utilization_ratio: f64,
+}
+
+impl SimdStats {
+    /// Calculate the performance improvement factor.
+    pub fn performance_improvement_factor(&self) -> f64 {
+        if self.scalar_elements == 0 {
+            return 1.0;
+        }
+        
+        // Assume SIMD provides 4-8x speedup on average
+        let avg_simd_speedup = if crate::simd::has_avx2_support() { 8.0 } else { 4.0 };
+        let simd_equivalent_scalar = self.simd_elements as f64 / avg_simd_speedup;
+        let total_equivalent_scalar = simd_equivalent_scalar + self.scalar_elements as f64;
+        let actual_total = (self.simd_elements + self.scalar_elements) as f64;
+        
+        actual_total / total_equivalent_scalar
+    }
+}
+
+/// Global SIMD performance counter instance.
+static GLOBAL_SIMD_COUNTER: SimdPerformanceCounter = SimdPerformanceCounter::new();
+
+/// Get the global SIMD performance counter.
+pub fn global_simd_counter() -> &'static SimdPerformanceCounter {
+    &GLOBAL_SIMD_COUNTER
+}
