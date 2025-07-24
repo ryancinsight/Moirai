@@ -1,10 +1,9 @@
 //! Scheduler trait definitions and work-stealing abstractions.
 
-use crate::{Task, BoxedTask, error::SchedulerResult, Box, Vec};
+use crate::{Task, BoxedTask, error::{SchedulerResult, SchedulerError}, Box, Vec};
 use core::fmt;
 use std::time::SystemTime;
 use std::num::Wrapping;
-use crate::task::Closure;
 
 /// Core scheduling interface for task distribution and execution.
 ///
@@ -56,6 +55,14 @@ pub trait Scheduler: Send + Sync + 'static {
 
     /// Returns a unique identifier for this scheduler instance.
     fn id(&self) -> SchedulerId;
+
+    /// Returns whether this scheduler can have tasks stolen from it.
+    ///
+    /// # Returns
+    /// `true` if the scheduler has stealable tasks, `false` otherwise.
+    fn can_be_stolen_from(&self) -> bool {
+        self.load() > 0
+    }
 }
 
 /// Generic scheduling interface with type-safe task handling.
@@ -122,6 +129,8 @@ impl fmt::Display for SchedulerId {
 pub struct Config {
     /// Strategy used for work-stealing between schedulers
     pub work_stealing_strategy: WorkStealingStrategy,
+    /// Type of queue implementation to use
+    pub queue_type: QueueType,
     /// Maximum number of tasks in each scheduler's local queue
     pub max_local_queue_size: usize,
     /// Maximum number of tasks in the global shared queue
@@ -138,6 +147,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             work_stealing_strategy: WorkStealingStrategy::default(),
+            queue_type: QueueType::ChaseLev,
             max_local_queue_size: 1024,
             max_global_queue_size: 1024,
             max_steal_attempts: 3,
@@ -146,6 +156,9 @@ impl Default for Config {
         }
     }
 }
+
+/// Type alias for backward compatibility with existing code.
+pub type SchedulerConfig = Config;
 
 /// Work stealing strategies define how schedulers attempt to balance load.
 #[derive(Debug, Clone, PartialEq)]
@@ -325,37 +338,110 @@ impl WorkStealingCoordinator {
             return Ok(None);
         }
 
-        // Try to steal from each victim
+        // Try to steal from each victim scheduler
         for victim_id in victims {
-            if let Some(scheduler) = self.schedulers.iter().find(|s| s.id() == victim_id) {
-                // TODO: CRITICAL - Implement actual work stealing
-                // This placeholder implementation does not perform real work stealing
-                // and would result in a non-functional scheduler in production.
-                //
-                // A real implementation would:
-                // 1. Access the victim's task queue (local deque, global queue, etc.)
-                // 2. Attempt to steal from the back/front of the queue atomically
-                // 3. Handle contention with the victim scheduler
-                // 4. Respect task affinity and stealing policies
-                // 5. Update stealing statistics and context
+            if let Some(victim_scheduler) = self.schedulers.iter().find(|s| s.id() == victim_id) {
+                // Check if the victim has tasks available for stealing
+                if !victim_scheduler.can_be_stolen_from() {
+                    continue;
+                }
                 
-                if scheduler.load() > 0 {
-                    // PLACEHOLDER: This creates a fake task instead of stealing a real one
-                    context.attempts = 0; // Reset attempts on success
-                    context.last_success = Some(SystemTime::now());
-                    
-                    // Create a placeholder task (NOT a real stolen task)
-                    let placeholder_task = Closure::new(|| {
-                        // This is a placeholder - real stolen tasks would have actual work
-                    }, crate::TaskContext::new(crate::TaskId::new(0)));
-                    
-                    return Ok(Some(Box::new(placeholder_task) as Box<dyn BoxedTask>));
+                // Attempt to steal a task from the victim
+                match self.attempt_steal_from_victim(thief_id, victim_scheduler, context) {
+                    Ok(Some(stolen_task)) => {
+                        // Successfully stole a task
+                        context.attempts = 0; // Reset attempts on success
+                        context.last_success = Some(SystemTime::now());
+                        
+                        // Update statistics for both thief and victim
+                        self.update_steal_statistics(thief_id, victim_id, true);
+                        
+                        return Ok(Some(stolen_task));
+                    }
+                    Ok(None) => {
+                        // No task available from this victim, try next
+                        self.update_steal_statistics(thief_id, victim_id, false);
+                        continue;
+                    }
+                    Err(e) => {
+                        // Steal attempt failed, update context and continue
+                        context.attempts += 1;
+                        self.update_steal_statistics(thief_id, victim_id, false);
+                        
+                        // If it's a critical error, return it
+                        if matches!(e, SchedulerError::SystemFailure(_)) {
+                            return Err(e);
+                        }
+                        // Otherwise continue trying other victims
+                    }
                 }
             }
         }
 
         context.attempts += 1;
         Ok(None)
+    }
+
+    /// Attempt to steal a task from a specific victim scheduler.
+    ///
+    /// This implements the core work-stealing algorithm that tries to
+    /// extract a task from the victim's queue using the scheduler's try_steal method.
+    fn attempt_steal_from_victim(
+        &self,
+        thief_id: SchedulerId,
+        victim_scheduler: &Box<dyn Scheduler>,
+        context: &mut StealContext,
+    ) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
+        // Find the thief scheduler to perform the steal operation
+        if let Some(thief_scheduler) = self.schedulers.iter().find(|s| s.id() == thief_id) {
+            // Use the scheduler's built-in try_steal method
+            match thief_scheduler.try_steal(victim_scheduler.as_ref()) {
+                Ok(Some(stolen_task)) => {
+                    // Add the victim to recent victims list to avoid immediate re-stealing
+                    context.recent_victims.push(victim_scheduler.id());
+                    
+                    // Limit the recent victims list size
+                    if context.recent_victims.len() > 10 {
+                        context.recent_victims.remove(0);
+                    }
+                    
+                    Ok(Some(stolen_task))
+                }
+                Ok(None) => {
+                    // No task available for stealing
+                    Ok(None)
+                }
+                Err(e) => {
+                    // Steal operation failed
+                    Err(e)
+                }
+            }
+        } else {
+            // Thief scheduler not found
+            Err(SchedulerError::InvalidScheduler)
+        }
+    }
+
+    /// Update stealing statistics for performance monitoring.
+    ///
+    /// This tracks successful and failed steal attempts to help optimize
+    /// work-stealing strategies and identify performance bottlenecks.
+    fn update_steal_statistics(&mut self, thief_id: SchedulerId, victim_id: SchedulerId, success: bool) {
+        // Update thief statistics
+        if let Some(thief_stats) = self.stats.iter_mut().find(|s| s.scheduler_id == thief_id) {
+            if success {
+                thief_stats.steals_taken += 1;
+            } else {
+                thief_stats.steal_failures += 1;
+            }
+        }
+
+        // Update victim statistics
+        if let Some(victim_stats) = self.stats.iter_mut().find(|s| s.scheduler_id == victim_id) {
+            if success {
+                victim_stats.steals_given += 1;
+            }
+        }
     }
 
     fn select_victims(&self, thief_id: SchedulerId) -> Vec<SchedulerId> {

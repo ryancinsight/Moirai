@@ -182,7 +182,7 @@ impl Moirai {
     where
         T: Task,
     {
-        self.executor.spawn_with_priority(task, priority)
+        self.executor.spawn_with_priority(task, priority, None)
     }
 
     /// Block the current thread until the future completes.

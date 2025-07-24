@@ -18,6 +18,12 @@ pub enum TaskError {
     InvalidOperation,
     /// Generic task execution error
     ExecutionFailed(TaskErrorKind),
+    /// Task execution timed out waiting for completion
+    ExecutionTimeout,
+    /// Task result was not found in storage
+    ResultNotFound,
+    /// Task failed to spawn
+    SpawnFailed,
 }
 
 /// Specific kinds of task execution errors.
@@ -48,6 +54,9 @@ impl fmt::Display for TaskError {
         match self {
             Self::Cancelled => write!(f, "Task was cancelled"),
             Self::Panicked => write!(f, "Task panicked during execution"),
+            Self::ExecutionTimeout => write!(f, "Task execution timed out"),
+            Self::ResultNotFound => write!(f, "Task result not found"),
+            Self::SpawnFailed => write!(f, "Task failed to spawn"),
             Self::Timeout => write!(f, "Task exceeded execution time limit"),
             Self::ResourceExhausted => write!(f, "Task failed due to resource exhaustion"),
             Self::InvalidOperation => write!(f, "Invalid operation"),
@@ -118,6 +127,10 @@ pub enum SchedulerError {
     StealFailed,
     /// Invalid scheduler state
     InvalidState,
+    /// System failure occurred
+    SystemFailure(String),
+    /// Invalid scheduler reference
+    InvalidScheduler,
 }
 
 impl fmt::Display for SchedulerError {
@@ -127,6 +140,8 @@ impl fmt::Display for SchedulerError {
             Self::QueueEmpty => write!(f, "Task queue is empty"),
             Self::StealFailed => write!(f, "Work stealing failed"),
             Self::InvalidState => write!(f, "Invalid scheduler state"),
+            Self::SystemFailure(msg) => write!(f, "System failure: {}", msg),
+            Self::InvalidScheduler => write!(f, "Invalid scheduler reference"),
         }
     }
 }

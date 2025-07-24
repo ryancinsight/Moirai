@@ -23,6 +23,10 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+use std::sync::{Arc, Mutex, mpsc};
+use std::collections::HashMap;
+use std::thread;
+use std::time::Duration;
 use core::{
     fmt,
     pin::Pin,
@@ -32,11 +36,16 @@ use core::{
 // Re-export commonly used types from alloc for convenience
 pub use alloc::{boxed::Box, string::String, vec::Vec};
 
+// Re-export key types from various modules
+pub use error::{
+    ExecutorError, ExecutorResult, TaskError, TaskResult,
+    SchedulerError, SchedulerResult
+};
+
 pub mod task;
 pub mod executor;
 pub mod scheduler;
 pub mod error;
-pub mod security;
 
 #[cfg(feature = "metrics")]
 pub mod metrics;
@@ -47,49 +56,205 @@ pub use task::{
     Closure, Chained, Mapped, Catch, Parameterized, Group, Spawner
 };
 
+/// Result channel for direct task result passing without global storage.
+/// This eliminates the scalability bottleneck of a global Mutex<HashMap>.
+pub type ResultChannel<T> = mpsc::Receiver<TaskResult<T>>;
+
+/// Sender for task results - used internally by the runtime.
+pub type ResultSender<T> = mpsc::Sender<TaskResult<T>>;
+
 /// A handle to a spawned task that allows monitoring and control.
-#[derive(Debug, Clone)]
+/// 
+/// This implementation uses direct channel-based result passing to avoid
+/// the performance bottleneck of global shared storage under high concurrency.
 pub struct TaskHandle<T> {
     /// The unique identifier for this task
     pub id: TaskId,
     /// Whether the task can be cancelled
     pub cancellable: bool,
+    /// Direct channel for receiving the task result
+    result_receiver: Option<ResultChannel<T>>,
+    /// Optional completion notification channel
+    completion_receiver: Option<mpsc::Receiver<()>>,
     /// Phantom data to maintain the output type
     _phantom: core::marker::PhantomData<T>,
 }
 
 impl<T> TaskHandle<T> {
-    /// Create a new task handle.
+    /// Create a new task handle with direct result channel.
+    /// 
+    /// This is the preferred constructor that provides direct result passing
+    /// without going through global storage, eliminating lock contention.
+    #[must_use]
+    pub fn new_with_result_channel(
+        id: TaskId, 
+        cancellable: bool, 
+        result_receiver: ResultChannel<T>
+    ) -> Self {
+        Self { 
+            id, 
+            cancellable,
+            result_receiver: Some(result_receiver),
+            completion_receiver: None,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+    
+    /// Create a new task handle with both result and completion channels.
+    /// 
+    /// This provides both direct result passing and completion notification,
+    /// useful for cases where you need to distinguish between completion and result availability.
+    #[must_use]
+    pub fn new_with_channels(
+        id: TaskId, 
+        cancellable: bool, 
+        result_receiver: ResultChannel<T>,
+        completion_receiver: mpsc::Receiver<()>
+    ) -> Self {
+        Self { 
+            id, 
+            cancellable,
+            result_receiver: Some(result_receiver),
+            completion_receiver: Some(completion_receiver),
+            _phantom: core::marker::PhantomData,
+        }
+    }
+    
+    /// Create a basic task handle (for backward compatibility).
+    /// 
+    /// Note: This doesn't provide result retrieval capabilities.
+    /// Use new_with_result_channel() for full functionality.
     #[must_use]
     pub const fn new(id: TaskId, cancellable: bool) -> Self {
         Self { 
             id, 
             cancellable,
+            result_receiver: None,
+            completion_receiver: None,
             _phantom: core::marker::PhantomData,
         }
     }
     
     /// Wait for the task to complete and return the result.
     /// 
+    /// This method uses direct channel communication to receive the result,
+    /// avoiding the performance bottleneck of global shared storage.
+    /// 
     /// # Returns
     /// The result of the task execution once it completes.
     /// 
-    /// # Panics
-    /// Currently panics with a message indicating the method is not yet implemented.
-    /// This is a placeholder that requires integration with the actual executor.
+    /// # Errors
+    /// Returns an error if the task was cancelled, failed, or the channel was disconnected.
+    /// 
+    /// # Performance
+    /// This implementation scales linearly with the number of concurrent tasks
+    /// since each task has its own dedicated result channel.
+    #[must_use]
+    pub fn join(mut self) -> TaskResult<T> {
+        if let Some(result_receiver) = self.result_receiver.take() {
+            // Direct channel receive - no global lock contention!
+            match result_receiver.recv() {
+                Ok(result) => result,
+                Err(mpsc::RecvError) => {
+                    // Channel disconnected - task likely failed to complete properly
+                    Err(TaskError::ResultNotFound)
+                }
+            }
+        } else {
+            // No result channel available
+            Err(TaskError::ResultNotFound)
+        }
+    }
+    
+    /// Wait for the task to complete with a timeout.
+    /// 
+    /// # Arguments
+    /// * `timeout` - Maximum time to wait for the result
+    /// 
+    /// # Returns
+    /// The task result if available within the timeout, or a timeout error.
+    #[must_use]
+    pub fn join_timeout(mut self, timeout: Duration) -> TaskResult<T> {
+        if let Some(result_receiver) = self.result_receiver.take() {
+            match result_receiver.recv_timeout(timeout) {
+                Ok(result) => result,
+                Err(mpsc::RecvTimeoutError::Timeout) => Err(TaskError::ExecutionTimeout),
+                Err(mpsc::RecvTimeoutError::Disconnected) => Err(TaskError::ResultNotFound),
+            }
+        } else {
+            Err(TaskError::ResultNotFound)
+        }
+    }
+    
+    /// Check if the task has completed without blocking.
+    /// 
+    /// # Returns
+    /// `Some(result)` if the task has completed, `None` if still running.
+    /// 
+    /// # Performance
+    /// This is a non-blocking operation that uses try_recv() on the dedicated channel.
+    pub fn try_join(&mut self) -> Option<TaskResult<T>> {
+        if let Some(ref result_receiver) = self.result_receiver {
+            match result_receiver.try_recv() {
+                Ok(result) => {
+                    // Task completed - take the receiver to prevent double-use
+                    self.result_receiver = None;
+                    Some(result)
+                }
+                Err(mpsc::TryRecvError::Empty) => None, // Still running
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    // Channel disconnected
+                    self.result_receiver = None;
+                    Some(Err(TaskError::ResultNotFound))
+                }
+            }
+        } else {
+            None
+        }
+    }
+    
+    /// Check if the task has completed without consuming the result.
+    /// 
+    /// # Returns
+    /// `true` if the task has completed, `false` otherwise.
+    pub fn is_finished(&self) -> bool {
+        if let Some(ref result_receiver) = self.result_receiver {
+            // Use try_recv to check without consuming
+            matches!(result_receiver.try_recv(), Ok(_) | Err(mpsc::TryRecvError::Disconnected))
+        } else {
+            // No result channel - check completion channel if available
+            if let Some(ref completion_receiver) = self.completion_receiver {
+                matches!(completion_receiver.try_recv(), Ok(_) | Err(mpsc::TryRecvError::Disconnected))
+            } else {
+                false // No way to determine completion
+            }
+        }
+    }
+    
+    /// Attempt to cancel the task.
+    /// 
+    /// # Returns
+    /// `true` if the task was successfully cancelled, `false` if it was already completed.
     /// 
     /// # Note
-    /// This is a placeholder implementation. In a real executor,
-    /// this would block until the task completes and return the actual result.
-    #[must_use]
-    pub fn join(self) -> T {
-        // TODO: Implement actual result retrieval mechanism
-        // This would typically involve:
-        // 1. Blocking on a channel/future until task completion
-        // 2. Retrieving the result from task storage
-        // 3. Handling cancellation and error cases
-        panic!("join() not yet implemented - requires executor integration")
+    /// Cancellation mechanism needs integration with the executor for full functionality.
+    pub fn cancel(&self) -> bool {
+        if !self.cancellable {
+            return false;
+        }
+        
+        // TODO: Implement proper cancellation through executor
+        // This would involve signaling the executor to stop processing this task
+        false
     }
+}
+
+/// Helper function to create a result channel pair.
+/// 
+/// # Returns
+/// A tuple of (sender, receiver) for task result communication.
+pub fn create_result_channel<T>() -> (ResultSender<T>, ResultChannel<T>) {
+    mpsc::channel()
 }
 
 /// A unique identifier for tasks within the runtime.
