@@ -23,9 +23,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-use std::sync::{Arc, Mutex, mpsc};
-use std::collections::HashMap;
-use std::thread;
+use std::sync::mpsc;
 use std::time::Duration;
 use core::{
     fmt,

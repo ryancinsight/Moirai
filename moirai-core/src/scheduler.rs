@@ -4,6 +4,7 @@ use crate::{Task, BoxedTask, error::{SchedulerResult, SchedulerError}, Box, Vec}
 use core::fmt;
 use std::time::SystemTime;
 use std::num::Wrapping;
+use std::sync::{Arc, Mutex};
 
 /// Core scheduling interface for task distribution and execution.
 ///
@@ -245,6 +246,7 @@ impl Default for StealContext {
 ///
 /// This struct provides detailed metrics about scheduler performance,
 /// helping with monitoring, debugging, and optimization.
+#[derive(Debug, Clone)]
 pub struct Stats {
     /// Unique identifier of this scheduler
     pub scheduler_id: SchedulerId,
@@ -272,7 +274,7 @@ pub struct Stats {
 pub struct WorkStealingCoordinator {
     schedulers: Vec<Box<dyn Scheduler>>,
     strategy: WorkStealingStrategy,
-    stats: Vec<Stats>,
+    stats: Arc<Mutex<Vec<Stats>>>,
 }
 
 impl WorkStealingCoordinator {
@@ -282,7 +284,7 @@ impl WorkStealingCoordinator {
         Self {
             schedulers: Vec::new(),
             strategy,
-            stats: Vec::new(),
+            stats: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -290,18 +292,21 @@ impl WorkStealingCoordinator {
     pub fn register_scheduler(&mut self, scheduler: Box<dyn Scheduler>) {
         let id = scheduler.id();
         self.schedulers.push(scheduler);
-        self.stats.push(Stats {
-            scheduler_id: id,
-            total_scheduled: 0,
-            total_completed: 0,
-            current_load: 0,
-            peak_load: 0,
-            steals_given: 0,
-            steals_taken: 0,
-            steal_failures: 0,
-            avg_queue_time_us: 0,
-            scheduling_time_us: 0,
-        });
+        
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.push(Stats {
+                scheduler_id: id,
+                total_scheduled: 0,
+                total_completed: 0,
+                current_load: 0,
+                peak_load: 0,
+                steals_given: 0,
+                steals_taken: 0,
+                steal_failures: 0,
+                avg_queue_time_us: 0,
+                scheduling_time_us: 0,
+            });
+        }
     }
 
     /// Attempt to steal tasks from other schedulers.
@@ -426,20 +431,22 @@ impl WorkStealingCoordinator {
     ///
     /// This tracks successful and failed steal attempts to help optimize
     /// work-stealing strategies and identify performance bottlenecks.
-    fn update_steal_statistics(&mut self, thief_id: SchedulerId, victim_id: SchedulerId, success: bool) {
-        // Update thief statistics
-        if let Some(thief_stats) = self.stats.iter_mut().find(|s| s.scheduler_id == thief_id) {
-            if success {
-                thief_stats.steals_taken += 1;
-            } else {
-                thief_stats.steal_failures += 1;
+    fn update_steal_statistics(&self, thief_id: SchedulerId, victim_id: SchedulerId, success: bool) {
+        if let Ok(mut stats) = self.stats.lock() {
+            // Update thief statistics
+            if let Some(thief_stats) = stats.iter_mut().find(|s| s.scheduler_id == thief_id) {
+                if success {
+                    thief_stats.steals_taken += 1;
+                } else {
+                    thief_stats.steal_failures += 1;
+                }
             }
-        }
 
-        // Update victim statistics
-        if let Some(victim_stats) = self.stats.iter_mut().find(|s| s.scheduler_id == victim_id) {
-            if success {
-                victim_stats.steals_given += 1;
+            // Update victim statistics
+            if let Some(victim_stats) = stats.iter_mut().find(|s| s.scheduler_id == victim_id) {
+                if success {
+                    victim_stats.steals_given += 1;
+                }
             }
         }
     }
@@ -563,16 +570,20 @@ impl WorkStealingCoordinator {
 
     /// Returns statistics for all registered schedulers.
     #[must_use]
-    pub fn get_stats(&self) -> &[Stats] {
-        // Note: This is a simplified implementation
-        // In a real implementation, this would return actual statistics
-        &[]
+    pub fn get_stats(&self) -> Vec<Stats> {
+        if let Ok(stats) = self.stats.lock() {
+            stats.clone()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Update statistics for a scheduler.
     pub fn update_stats(&mut self, id: SchedulerId, stats: Stats) {
-        if let Some(existing_stats) = self.stats.iter_mut().find(|s| s.scheduler_id == id) {
-            *existing_stats = stats;
+        if let Ok(mut stats_vec) = self.stats.lock() {
+            if let Some(existing_stats) = stats_vec.iter_mut().find(|s| s.scheduler_id == id) {
+                *existing_stats = stats;
+            }
         }
     }
 }

@@ -647,15 +647,7 @@ mod tests {
         }
     }
 
-    impl BoxedTask for TestTask {
-        fn execute_boxed(self: Box<Self>) {
-            let _ = (*self).execute();
-        }
-
-        fn context(&self) -> &TaskContext {
-            Task::context(self)
-        }
-    }
+    // BoxedTask is automatically implemented for TestTask via the blanket impl
 
     #[test]
     fn test_chase_lev_deque_basic_operations() {
