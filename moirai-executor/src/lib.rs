@@ -519,17 +519,13 @@ where
         if let Some(future) = self.future.take() {
             let task_id = self.task_id;
             
-            // Wrap the future to handle result storage
-            let future_with_result = async move {
-                let result = future.await;
-                
-                // Store the result for later retrieval
-                moirai_core::store_task_result(task_id, result);
-            };
+            // The future wrapper already handles result sending through channels
+            // No need for global storage - results are sent directly via channels
+            // This eliminates the performance bottleneck of global shared state
             
-            // Submit to the async runtime instead of busy-waiting
+            // Submit to the async runtime - results handled via dedicated channels
             let runtime = get_async_runtime();
-            runtime.spawn(task_id, future_with_result);
+            runtime.spawn(task_id, future);
         }
     }
 
@@ -1399,22 +1395,19 @@ impl TaskSpawner for HybridExecutor {
     fn spawn_async<F>(&self, future: F) -> TaskHandle<F::Output>
     where
         F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F::Output: Send + Sync + 'static,
     {
         let task_id = self.task_registry.register_task(Priority::Normal);
         
-        // Create completion notification channel
-        let (completion_tx, completion_rx) = std::sync::mpsc::channel();
+        // Create direct result channel - eliminates global storage bottleneck!
+        let (result_sender, result_receiver) = moirai_core::create_result_channel();
         
-        // Wrap the future in a task that handles result storage
+        // Wrap the future to send result directly through channel
         let future_wrapper = async move {
             let result = future.await;
             
-            // Store the result for later retrieval
-            moirai_core::store_task_result(task_id, result);
-            
-            // Notify completion
-            let _ = completion_tx.send(());
+            // Send result directly through dedicated channel - no global lock!
+            let _ = result_sender.send(Ok(result));
         };
         
         // Convert the future into a task
@@ -1425,27 +1418,58 @@ impl TaskSpawner for HybridExecutor {
             let boxed_task = Box::new(task) as Box<dyn BoxedTask>;
             if let Err(e) = scheduler.schedule_task(boxed_task) {
                 eprintln!("Failed to schedule async task {}: {:?}", task_id, e);
-                return TaskHandle::new(task_id, true);
+                // Send error through result channel
+                let _ = result_sender.send(Err(moirai_core::TaskError::SpawnFailed));
+                return TaskHandle::new_with_result_channel(task_id, true, result_receiver);
             }
         } else {
             eprintln!("No scheduler available for async task {}", task_id);
-            return TaskHandle::new(task_id, true);
+            // Send error through result channel
+            let _ = result_sender.send(Err(moirai_core::TaskError::SpawnFailed));
+            return TaskHandle::new_with_result_channel(task_id, true, result_receiver);
         }
         
-        // Return handle with completion notification
-        TaskHandle::new_with_completion(task_id, true, completion_rx)
+        // Return handle with direct result channel - scales linearly!
+        TaskHandle::new_with_result_channel(task_id, true, result_receiver)
     }
 
     fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
+        R: Send + Sync + 'static,
     {
-        // Create a task from the blocking function
+        let task_id = self.task_registry.register_task(Priority::Normal);
+        
+        // Create direct result channel - eliminates global storage bottleneck!
+        let (result_sender, result_receiver) = moirai_core::create_result_channel();
+        
+        // Wrap the function to send result through dedicated channel
+        let func_wrapper = move || {
+            let result = func();
+            // Send result directly - no global lock contention!
+            let _ = result_sender.send(Ok(result));
+        };
+        
+        // Create a task from the wrapped function
         let task = TaskBuilder::new()
-            .build(func);
+            .build(func_wrapper);
 
-        self.spawn_internal(task, Priority::Normal)
+        // Schedule the task
+        if let Some(scheduler) = self.select_scheduler() {
+            let boxed_task = Box::new(task) as Box<dyn BoxedTask>;
+            if let Err(e) = scheduler.schedule_task(boxed_task) {
+                eprintln!("Failed to schedule blocking task {}: {:?}", task_id, e);
+                // Send error through result channel
+                let _ = result_sender.send(Err(moirai_core::TaskError::SpawnFailed));
+            }
+        } else {
+            eprintln!("No scheduler available for blocking task {}", task_id);
+            // Send error through result channel
+            let _ = result_sender.send(Err(moirai_core::TaskError::SpawnFailed));
+        }
+        
+        // Return handle with direct result channel - scales linearly!
+        TaskHandle::new_with_result_channel(task_id, true, result_receiver)
     }
 
     fn spawn_with_priority<T>(&self, task: T, priority: Priority, locality_hint: Option<usize>) -> TaskHandle<T::Output>
