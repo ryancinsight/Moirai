@@ -329,7 +329,7 @@ impl WorkStealingCoordinator {
     /// 3. Handle queue synchronization and memory ordering
     /// 4. Provide backoff strategies for failed steal attempts
     /// 5. Maintain work-stealing statistics and metrics
-    pub fn steal_task(&mut self, thief_id: SchedulerId, context: &mut StealContext) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
+    pub fn steal_task(&self, thief_id: SchedulerId, context: &mut StealContext) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
         // Find potential victims for work stealing
         let victims = self.select_victims(thief_id);
         
