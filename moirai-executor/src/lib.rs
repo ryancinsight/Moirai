@@ -596,6 +596,35 @@ struct TaskPerformanceMetrics {
     pub last_update: std::time::Instant,
 }
 
+impl TaskPerformanceMetrics {
+    /// Calculate total execution time from start
+    pub fn execution_time(&self) -> std::time::Duration {
+        self.start_time.elapsed()
+    }
+    
+    /// Get memory growth since task start
+    pub fn memory_growth(&self) -> u64 {
+        self.memory_peak_bytes.saturating_sub(self.memory_start_bytes)
+    }
+    
+    /// Check if task has been preempted
+    pub fn was_preempted(&self) -> bool {
+        self.preemption_count > 0
+    }
+    
+    /// Update metrics with current values
+    pub fn update(&mut self, current_memory: u64) {
+        self.memory_peak_bytes = self.memory_peak_bytes.max(current_memory);
+        self.last_update = std::time::Instant::now();
+    }
+    
+    /// Increment preemption count
+    pub fn increment_preemption(&mut self) {
+        self.preemption_count += 1;
+        self.last_update = std::time::Instant::now();
+    }
+}
+
 /// Metrics collected per worker thread.
 #[derive(Debug, Default)]
 struct WorkerMetrics {
@@ -688,6 +717,15 @@ impl Worker {
                 let mut steal_context = moirai_core::scheduler::StealContext::default();
                 if let Ok(Some(task)) = self.coordinator.steal_task(self.scheduler.id(), &mut steal_context) {
                     self.metrics.successful_steals.fetch_add(1, Ordering::Relaxed);
+                    
+                    // Track preemption for stolen tasks
+                    let task_id = task.context().id;
+                    if let Ok(mut metrics_map) = self.task_metrics.lock() {
+                        if let Some(metrics) = metrics_map.get_mut(&task_id) {
+                            metrics.increment_preemption();
+                        }
+                    }
+                    
                     self.execute_task(task);
                     work_found = true;
                 }
@@ -852,10 +890,7 @@ impl Worker {
         // Use expect() for consistent memory monitoring
         let mut metrics_map = self.task_metrics.lock().expect("Task metrics mutex poisoned during memory monitoring");
         if let Some(metrics) = metrics_map.get_mut(&task_id) {
-            if current_memory > metrics.memory_peak_bytes {
-                metrics.memory_peak_bytes = current_memory;
-            }
-            metrics.last_update = std::time::Instant::now();
+            metrics.update(current_memory);
         }
     }
 
@@ -871,6 +906,17 @@ impl Worker {
         if let Some(metrics) = metrics_map.get_mut(&task_id) {
             metrics.cpu_time_ns = cpu_time_ns;
             metrics.last_update = std::time::Instant::now();
+            
+            // Log performance statistics using all fields
+            let execution_duration = metrics.execution_time();
+            let memory_growth = metrics.memory_growth();
+            let was_preempted = metrics.was_preempted();
+            
+            // Debug logging for performance analysis
+            if execution_duration.as_millis() > 100 || memory_growth > 1024 * 1024 || was_preempted {
+                println!("Task {} performance: {}ms execution, {}MB memory growth, preempted: {}", 
+                    task_id, execution_duration.as_millis(), memory_growth / (1024 * 1024), was_preempted);
+            }
             
             // Clean up local metrics after processing
             // Keep only recent metrics to prevent memory bloat
@@ -1561,13 +1607,11 @@ impl ExecutorControl for HybridExecutor {
         
         unsafe fn wake(data: *const ()) {
             let data = Arc::from_raw(data as *const (Mutex<bool>, Condvar));
-            {
-                let (lock, cvar) = &*data;
-                let mut notified = lock.lock().unwrap();
-                *notified = true;
-                cvar.notify_one();
-            }
-            std::mem::forget(data); // Don't drop the Arc
+            let (lock, cvar) = &*data;
+            let mut notified = lock.lock().unwrap();
+            *notified = true;
+            cvar.notify_one();
+            // Arc is consumed here, no need for forget
         }
         
         unsafe fn wake_by_ref(data: *const ()) {
@@ -1581,7 +1625,7 @@ impl ExecutorControl for HybridExecutor {
         unsafe fn clone_waker(data: *const ()) -> RawWaker {
             let data = Arc::from_raw(data as *const (Mutex<bool>, Condvar));
             let cloned = data.clone();
-            std::mem::forget(data); // Don't drop the original Arc
+            std::mem::forget(data); // Don't drop the original Arc - this is correct for clone
             RawWaker::new(Arc::into_raw(cloned) as *const (), &WAKER_VTABLE)
         }
         
