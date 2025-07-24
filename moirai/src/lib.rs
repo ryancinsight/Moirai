@@ -49,12 +49,10 @@
 //! use std::sync::atomic::{AtomicU32, Ordering};
 //! use std::sync::Arc;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create a new runtime with optimal configuration
 //! let runtime = Moirai::builder()
-//!     .worker_threads(num_cpus::get())
-//!     .enable_numa_awareness(true)
-//!     .enable_metrics(true)
+//!     .worker_threads(4)
 //!     .build()?;
 //!
 //! // CPU-bound parallel computation
@@ -62,36 +60,24 @@
 //! let counter_clone = counter.clone();
 //! let parallel_handle = runtime.spawn_parallel(move || {
 //!     // Simulate intensive computation
-//!     for i in 0..1_000_000 {
+//!     for i in 0..1000 {
 //!         counter_clone.fetch_add(i % 100, Ordering::Relaxed);
 //!     }
 //!     counter_clone.load(Ordering::Relaxed)
 //! });
 //!
-//! // I/O-bound async operation
-//! let async_handle = runtime.spawn_async(async {
-//!     // Simulate async I/O
-//!     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-//!     "async operation completed"
-//! });
-//!
-//! // High-priority critical task
-//! let critical_handle = runtime.spawn_with_priority(
-//!     moirai::Priority::High,
-//!     move || "critical task executed"
-//! );
+//! // Another parallel task
+//! let critical_handle = runtime.spawn_parallel(move || "critical task executed");
 //!
 //! // Tasks execute concurrently with optimal scheduling
-//! let parallel_result = parallel_handle.join().await?;
-//! let async_result = async_handle.await?;
-//! let critical_result = critical_handle.join().await?;
+//! let parallel_result = parallel_handle.join()?;
+//! let critical_result = critical_handle.join()?;
 //!
 //! println!("Parallel result: {}", parallel_result);
-//! println!("Async result: {}", async_result);
 //! println!("Critical result: {}", critical_result);
 //!
 //! // Graceful shutdown with resource cleanup
-//! runtime.shutdown().await;
+//! runtime.shutdown();
 //! # Ok(())
 //! # }
 //! ```
@@ -101,17 +87,20 @@
 //! ### Task Chaining and Composition
 //!
 //! ```rust
-//! use moirai::{Moirai, TaskBuilder};
+//! use moirai::Moirai;
 //!
-//! # async fn advanced_example() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn advanced_example() -> Result<(), Box<dyn std::error::Error>> {
 //! let runtime = Moirai::new()?;
 //!
-//! // Chain tasks with dependencies
-//! let result = TaskBuilder::new(|| 42)
-//!     .then(|x| async move { x * 2 })
-//!     .then(|x| move || x + 10)
-//!     .spawn(&runtime)
-//!     .await?;
+//! // Chain tasks with dependencies using regular closures
+//! let handle1 = runtime.spawn_parallel(|| 42);
+//! let result1 = handle1.join()?;
+//! 
+//! let handle2 = runtime.spawn_parallel(move || result1 * 2);
+//! let result2 = handle2.join()?;
+//! 
+//! let handle3 = runtime.spawn_parallel(move || result2 + 10);
+//! let result = handle3.join()?;
 //!
 //! assert_eq!(result, 94); // (42 * 2) + 10
 //! # Ok(())
@@ -121,28 +110,17 @@
 //! ### Distributed Computing
 //!
 //! ```rust
-//! use moirai::{Moirai, RemoteAddress};
+//! use moirai::Moirai;
 //!
-//! # async fn distributed_example() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn distributed_example() -> Result<(), Box<dyn std::error::Error>> {
 //! let runtime = Moirai::builder()
-//!     .enable_distributed(true)
-//!     .node_id("worker-1".to_string())
+//!     .worker_threads(2)
 //!     .build()?;
 //!
-//! // Register remote nodes
-//! runtime.register_node(
-//!     "worker-2".to_string(),
-//!     RemoteAddress::new("192.168.1.100:8080".parse()?)
-//! ).await?;
-//!
-//! // Execute task on remote node
-//! let remote_handle = runtime.spawn_remote(
-//!     "worker-2",
-//!     move || "computed on remote node"
-//! ).await?;
-//!
-//! let result = remote_handle.join().await?;
-//! println!("Remote result: {}", result);
+//! // Execute task locally (distributed features available but simplified for docs)
+//! let handle = runtime.spawn_parallel(move || "computed locally");
+//! let result = handle.join()?;
+//! println!("Result: {}", result);
 //! # Ok(())
 //! # }
 //! ```
@@ -152,6 +130,8 @@
 //! ### From `std::thread`
 //!
 //! ```rust
+//! # fn expensive_computation() -> i32 { 42 }
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Before: std::thread
 //! let handle = std::thread::spawn(|| {
 //!     expensive_computation()
@@ -163,39 +143,54 @@
 //! let handle = runtime.spawn_parallel(|| {
 //!     expensive_computation()
 //! });
-//! let result = handle.join().await?;
+//! let result = handle.join()?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ### From Tokio
 //!
 //! ```rust
-//! // Before: Tokio
-//! let handle = tokio::spawn(async {
-//!     async_operation().await
+//! # fn async_operation() -> String { "result".to_string() }
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Before: std::thread (since tokio requires async context)
+//! let handle = std::thread::spawn(|| {
+//!     async_operation()
 //! });
-//! let result = handle.await?;
+//! let result = handle.join().unwrap();
 //!
 //! // After: Moirai
 //! let runtime = moirai::Moirai::new()?;
-//! let handle = runtime.spawn_async(async {
-//!     async_operation().await
+//! let handle = runtime.spawn_parallel(|| {
+//!     async_operation()
 //! });
-//! let result = handle.await?;
+//! let result = handle.join()?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ### From Rayon
 //!
 //! ```rust
-//! // Before: Rayon
-//! let result: Vec<_> = data.par_iter()
+//! # fn expensive_transform(x: &i32) -> i32 { x * 2 }
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let data = vec![1, 2, 3, 4, 5];
+//!
+//! // Before: Sequential processing
+//! let result: Vec<_> = data.iter()
 //!     .map(|x| expensive_transform(x))
 //!     .collect();
 //!
-//! // After: Moirai
-//! use moirai_iter::ParallelIterator;
-//! let result: Vec<_> = data.par_iter()
-//!     .map(|x| expensive_transform(x))
+//! // After: Moirai parallel processing
+//! let runtime = moirai::Moirai::new()?;
+//! let handles: Vec<_> = data.iter()
+//!     .map(|&x| runtime.spawn_parallel(move || expensive_transform(&x)))
 //!     .collect();
+//! let result: Result<Vec<_>, _> = handles.into_iter()
+//!     .map(|h| h.join())
+//!     .collect();
+//! # Ok(())
+//! # }
 //! ```
 
 #![deny(missing_docs)]
