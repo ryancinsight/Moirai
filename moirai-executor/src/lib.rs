@@ -34,15 +34,16 @@ use std::{
     pin::Pin,
     task::{Context, Poll, Waker},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering, AtomicUsize},
         Arc, Mutex, RwLock, Condvar,
+        mpsc::{self, Receiver, Sender},
     },
-    thread::{self, JoinHandle},
+    thread::{self, ThreadId},
     time::{Duration, Instant},
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll, Waker},
 };
+
+#[cfg(unix)]
+use std::os::unix::io::RawFd;
 
 /// A unique identifier for worker threads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,6 +59,157 @@ impl WorkerId {
     pub const fn get(self) -> usize {
         self.0
     }
+}
+
+/// I/O event types for the async runtime
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoEvent {
+    /// Ready for reading
+    Read,
+    /// Ready for writing  
+    Write,
+    /// Error condition
+    Error,
+}
+
+/// I/O reactor for handling file descriptor events
+pub struct IoReactor {
+    /// Map of file descriptors to their wakers
+    fd_wakers: Arc<Mutex<HashMap<RawFd, (Waker, IoEvent)>>>,
+    /// Event notification channel
+    event_sender: Sender<(RawFd, IoEvent)>,
+    event_receiver: Arc<Mutex<Receiver<(RawFd, IoEvent)>>>,
+    /// Shutdown signal
+    shutdown: Arc<AtomicBool>,
+}
+
+#[cfg(unix)]
+impl IoReactor {
+    /// Create a new I/O reactor
+    pub fn new() -> Self {
+        let (event_sender, event_receiver) = mpsc::channel();
+        
+        Self {
+            fd_wakers: Arc::new(Mutex::new(HashMap::new())),
+            event_sender,
+            event_receiver: Arc::new(Mutex::new(event_receiver)),
+            shutdown: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Register a file descriptor for I/O events
+    pub fn register_fd(&self, fd: RawFd, waker: Waker, event: IoEvent) {
+        if let Ok(mut wakers) = self.fd_wakers.lock() {
+            wakers.insert(fd, (waker, event));
+        }
+    }
+
+    /// Unregister a file descriptor
+    pub fn unregister_fd(&self, fd: RawFd) {
+        if let Ok(mut wakers) = self.fd_wakers.lock() {
+            wakers.remove(&fd);
+        }
+    }
+
+    /// Run the I/O event loop (simplified - real implementation would use epoll/kqueue)
+    pub fn run(&self) {
+        while !self.shutdown.load(Ordering::Relaxed) {
+            // Simplified I/O polling - in a real implementation this would use epoll/kqueue/iocp
+            self.poll_fds();
+            
+            // Process events
+            if let Ok(receiver) = self.event_receiver.lock() {
+                while let Ok((fd, event)) = receiver.try_recv() {
+                    if let Ok(wakers) = self.fd_wakers.lock() {
+                        if let Some((waker, registered_event)) = wakers.get(&fd) {
+                            if *registered_event == event {
+                                waker.wake_by_ref();
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Small sleep to prevent busy-waiting (real implementation would block on epoll)
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    /// Poll file descriptors for readiness (simplified implementation)
+    fn poll_fds(&self) {
+        if let Ok(wakers) = self.fd_wakers.lock() {
+            for (&fd, &(ref _waker, event)) in wakers.iter() {
+                // Simplified readiness check - real implementation would use select/poll/epoll
+                match event {
+                    IoEvent::Read => {
+                        // Check if fd is ready for reading
+                        if self.is_fd_ready_for_read(fd) {
+                            let _ = self.event_sender.send((fd, IoEvent::Read));
+                        }
+                    }
+                    IoEvent::Write => {
+                        // Check if fd is ready for writing
+                        if self.is_fd_ready_for_write(fd) {
+                            let _ = self.event_sender.send((fd, IoEvent::Write));
+                        }
+                    }
+                    IoEvent::Error => {
+                        // Check for error conditions
+                        if self.is_fd_error(fd) {
+                            let _ = self.event_sender.send((fd, IoEvent::Error));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Check if file descriptor is ready for reading (simplified)
+    fn is_fd_ready_for_read(&self, _fd: RawFd) -> bool {
+        // Simplified implementation - always return true for demo
+        // Real implementation would use select/poll/epoll
+        true
+    }
+
+    /// Check if file descriptor is ready for writing (simplified)
+    fn is_fd_ready_for_write(&self, _fd: RawFd) -> bool {
+        // Simplified implementation - always return true for demo
+        // Real implementation would use select/poll/epoll
+        true
+    }
+
+    /// Check if file descriptor has error condition (simplified)
+    fn is_fd_error(&self, _fd: RawFd) -> bool {
+        // Simplified implementation - always return false for demo
+        // Real implementation would check error conditions
+        false
+    }
+
+    /// Shutdown the reactor
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(not(unix))]
+impl IoReactor {
+    /// Create a new I/O reactor (no-op on non-Unix platforms)
+    pub fn new() -> Self {
+        let (event_sender, event_receiver) = mpsc::channel();
+        
+        Self {
+            fd_wakers: Arc::new(Mutex::new(HashMap::new())),
+            event_sender,
+            event_receiver: Arc::new(Mutex::new(event_receiver)),
+            shutdown: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// No-op implementations for non-Unix platforms
+    pub fn register_fd(&self, _fd: i32, _waker: Waker, _event: IoEvent) {}
+    pub fn unregister_fd(&self, _fd: i32) {}
+    pub fn run(&self) {}
+    pub fn shutdown(&self) {    }
 }
 
 /// Worker thread that executes tasks from the scheduler.
@@ -79,9 +231,268 @@ struct Worker {
     task_metrics: Arc<Mutex<std::collections::HashMap<TaskId, TaskPerformanceMetrics>>>,
 }
 
-/// Wrapper for async tasks that implements the BoxedTask trait.
+/// Enhanced async runtime with I/O event loop integration
+pub struct AsyncRuntime {
+    /// Task queue for ready futures
+    ready_queue: Arc<Mutex<Vec<AsyncTask>>>,
+    /// Waiting tasks indexed by task ID
+    waiting_tasks: Arc<Mutex<HashMap<TaskId, AsyncTask>>>,
+    /// Waker registry for pending tasks
+    wakers: Arc<Mutex<HashMap<TaskId, Waker>>>,
+    /// Notification channel for waking the runtime
+    wake_sender: Sender<TaskId>,
+    wake_receiver: Arc<Mutex<Receiver<TaskId>>>,
+    /// I/O reactor for handling file descriptor events
+    io_reactor: Arc<IoReactor>,
+    /// Shutdown signal
+    shutdown: Arc<AtomicBool>,
+    /// Number of active tasks
+    active_tasks: Arc<AtomicUsize>,
+}
+
+/// A scheduled async task with its future and metadata
+struct AsyncTask {
+    task_id: TaskId,
+    future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+    context: TaskContext,
+}
+
+/// Custom waker that notifies the async runtime when a task is ready
+struct RuntimeWaker {
+    task_id: TaskId,
+    wake_sender: Sender<TaskId>,
+}
+
+impl AsyncRuntime {
+    /// Create a new async runtime with I/O support
+    pub fn new() -> Self {
+        let (wake_sender, wake_receiver) = mpsc::channel();
+        let io_reactor = Arc::new(IoReactor::new());
+        
+        // Start I/O reactor thread
+        {
+            let reactor = io_reactor.clone();
+            thread::spawn(move || {
+                reactor.run();
+            });
+        }
+        
+        Self {
+            ready_queue: Arc::new(Mutex::new(Vec::new())),
+            waiting_tasks: Arc::new(Mutex::new(HashMap::new())),
+            wakers: Arc::new(Mutex::new(HashMap::new())),
+            wake_sender,
+            wake_receiver: Arc::new(Mutex::new(wake_receiver)),
+            io_reactor,
+            shutdown: Arc::new(AtomicBool::new(false)),
+            active_tasks: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Get reference to the I/O reactor
+    pub fn io_reactor(&self) -> &IoReactor {
+        &self.io_reactor
+    }
+
+    /// Spawn a future on this runtime
+    pub fn spawn<F>(&self, task_id: TaskId, future: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let async_task = AsyncTask {
+            task_id,
+            future: Box::pin(future),
+            context: TaskContext::new(task_id),
+        };
+
+        // Add to ready queue initially
+        if let Ok(mut queue) = self.ready_queue.lock() {
+            queue.push(async_task);
+            self.active_tasks.fetch_add(1, Ordering::Relaxed);
+        }
+
+        // Wake the runtime
+        let _ = self.wake_sender.send(task_id);
+    }
+
+    /// Run the async runtime event loop
+    pub fn run(&self) {
+        while !self.shutdown.load(Ordering::Relaxed) {
+            // Process ready tasks
+            self.process_ready_tasks();
+            
+            // Wait for wake notifications or timeout
+            self.wait_for_wake_or_timeout();
+            
+            // Check if we should continue running
+            if self.active_tasks.load(Ordering::Relaxed) == 0 {
+                break;
+            }
+        }
+    }
+
+    /// Process all ready tasks
+    fn process_ready_tasks(&self) {
+        let mut ready_tasks = Vec::new();
+        
+        // Move ready tasks out of the queue
+        if let Ok(mut queue) = self.ready_queue.lock() {
+            ready_tasks.append(&mut *queue);
+        }
+
+        // Process each ready task
+        for mut task in ready_tasks {
+            self.poll_task(&mut task);
+        }
+    }
+
+    /// Poll a single task
+    fn poll_task(&self, task: &mut AsyncTask) {
+        // Create waker for this task
+        let waker = self.create_waker(task.task_id);
+        let mut context = Context::from_waker(&waker);
+
+        // Poll the future
+        match task.future.as_mut().poll(&mut context) {
+            Poll::Ready(()) => {
+                // Task completed - remove from active count
+                self.active_tasks.fetch_sub(1, Ordering::Relaxed);
+                
+                // Clean up waker
+                if let Ok(mut wakers) = self.wakers.lock() {
+                    wakers.remove(&task.task_id);
+                }
+            }
+            Poll::Pending => {
+                // Task is waiting - move to waiting tasks
+                if let Ok(mut waiting) = self.waiting_tasks.lock() {
+                    waiting.insert(task.task_id, AsyncTask {
+                        task_id: task.task_id,
+                        future: std::mem::replace(&mut task.future, Box::pin(async {})),
+                        context: task.context.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Create a waker for a specific task
+    fn create_waker(&self, task_id: TaskId) -> Waker {
+        let runtime_waker = RuntimeWaker {
+            task_id,
+            wake_sender: self.wake_sender.clone(),
+        };
+
+        let waker = waker_from_runtime_waker(runtime_waker);
+        
+        // Store the waker for this task
+        if let Ok(mut wakers) = self.wakers.lock() {
+            wakers.insert(task_id, waker.clone());
+        }
+        
+        waker
+    }
+
+    /// Wait for wake notifications or timeout
+    fn wait_for_wake_or_timeout(&self) {
+        if let Ok(receiver) = self.wake_receiver.lock() {
+            // Wait for wake notification with timeout
+            match receiver.recv_timeout(Duration::from_millis(10)) {
+                Ok(task_id) => {
+                    // Move woken task from waiting to ready
+                    self.move_task_to_ready(task_id);
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    // Timeout - continue to next iteration
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    // Channel disconnected - shutdown
+                    self.shutdown.store(true, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
+    /// Move a task from waiting to ready queue
+    fn move_task_to_ready(&self, task_id: TaskId) {
+        if let (Ok(mut waiting), Ok(mut ready)) = (
+            self.waiting_tasks.lock(),
+            self.ready_queue.lock()
+        ) {
+            if let Some(task) = waiting.remove(&task_id) {
+                ready.push(task);
+            }
+        }
+    }
+
+    /// Shutdown the runtime
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+        self.io_reactor.shutdown();
+    }
+}
+
+/// Create a waker from a RuntimeWaker
+fn waker_from_runtime_waker(runtime_waker: RuntimeWaker) -> Waker {
+    use std::task::{RawWaker, RawWakerVTable};
+    
+    unsafe fn clone_raw(data: *const ()) -> RawWaker {
+        let runtime_waker = &*(data as *const RuntimeWaker);
+        let cloned = RuntimeWaker {
+            task_id: runtime_waker.task_id,
+            wake_sender: runtime_waker.wake_sender.clone(),
+        };
+        RawWaker::new(Box::into_raw(Box::new(cloned)) as *const (), &VTABLE)
+    }
+
+    unsafe fn wake_raw(data: *const ()) {
+        let runtime_waker = Box::from_raw(data as *mut RuntimeWaker);
+        let _ = runtime_waker.wake_sender.send(runtime_waker.task_id);
+    }
+
+    unsafe fn wake_by_ref_raw(data: *const ()) {
+        let runtime_waker = &*(data as *const RuntimeWaker);
+        let _ = runtime_waker.wake_sender.send(runtime_waker.task_id);
+    }
+
+    unsafe fn drop_raw(data: *const ()) {
+        let _ = Box::from_raw(data as *mut RuntimeWaker);
+    }
+
+    const VTABLE: RawWakerVTable = RawWakerVTable::new(
+        clone_raw,
+        wake_raw,
+        wake_by_ref_raw,
+        drop_raw,
+    );
+
+    let runtime_waker = Box::new(runtime_waker);
+    let raw_waker = RawWaker::new(Box::into_raw(runtime_waker) as *const (), &VTABLE);
+    
+    unsafe { Waker::from_raw(raw_waker) }
+}
+
+/// Global async runtime instance
+static ASYNC_RUNTIME: std::sync::OnceLock<AsyncRuntime> = std::sync::OnceLock::new();
+
+/// Get or initialize the global async runtime
+pub fn get_async_runtime() -> &'static AsyncRuntime {
+    ASYNC_RUNTIME.get_or_init(|| {
+        let runtime = AsyncRuntime::new();
+        
+        // Spawn runtime thread
+        let runtime_ref = unsafe { std::mem::transmute::<&AsyncRuntime, &'static AsyncRuntime>(&runtime) };
+        thread::spawn(move || {
+            runtime_ref.run();
+        });
+        
+        runtime
+    })
+}
+
+/// Wrapper for async tasks that implements the BoxedTask trait with proper async execution
 struct AsyncTaskWrapper<F> {
-    future: Option<Pin<Box<F>>>,
+    future: Option<F>,
     task_id: TaskId,
     context: TaskContext,
 }
@@ -92,7 +503,7 @@ where
 {
     fn new(future: F, task_id: TaskId) -> Self {
         Self {
-            future: Some(Box::pin(future)),
+            future: Some(future),
             task_id,
             context: TaskContext::new(task_id),
         }
@@ -102,26 +513,23 @@ where
 impl<F> BoxedTask for AsyncTaskWrapper<F>
 where
     F: Future + Send + 'static,
+    F::Output: Send + Sync + 'static,
 {
     fn execute_boxed(&mut self) {
         if let Some(future) = self.future.take() {
-            // Create a simple executor for this async task
-            // This is a basic implementation - a full async runtime would be more sophisticated
-            let waker = create_noop_waker();
-            let mut context = Context::from_waker(&waker);
+            let task_id = self.task_id;
             
-            // Poll the future to completion
-            let mut future = future;
-            loop {
-                match future.as_mut().poll(&mut context) {
-                    Poll::Ready(_) => break,
-                    Poll::Pending => {
-                        // In a real async runtime, we'd yield here and reschedule
-                        // For this implementation, we'll busy-wait (not ideal but functional)
-                        std::thread::yield_now();
-                    }
-                }
-            }
+            // Wrap the future to handle result storage
+            let future_with_result = async move {
+                let result = future.await;
+                
+                // Store the result for later retrieval
+                moirai_core::store_task_result(task_id, result);
+            };
+            
+            // Submit to the async runtime instead of busy-waiting
+            let runtime = get_async_runtime();
+            runtime.spawn(task_id, future_with_result);
         }
     }
 
@@ -132,28 +540,6 @@ where
     fn estimated_cost(&self) -> u32 {
         1 // Default cost for async tasks
     }
-}
-
-/// Create a no-op waker for simple async task execution.
-fn create_noop_waker() -> Waker {
-    use std::task::{RawWaker, RawWakerVTable};
-    
-    fn noop_clone(_: *const ()) -> RawWaker {
-        noop_raw_waker()
-    }
-    
-    fn noop_wake(_: *const ()) {}
-    
-    fn noop_wake_by_ref(_: *const ()) {}
-    
-    fn noop_drop(_: *const ()) {}
-    
-    fn noop_raw_waker() -> RawWaker {
-        const VTABLE: RawWakerVTable = RawWakerVTable::new(noop_clone, noop_wake, noop_wake_by_ref, noop_drop);
-        RawWaker::new(std::ptr::null(), &VTABLE)
-    }
-    
-    unsafe { Waker::from_raw(noop_raw_waker()) }
 }
 
 /// Performance metrics for individual task execution tracking.
