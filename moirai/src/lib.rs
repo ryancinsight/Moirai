@@ -510,7 +510,7 @@ mod tests {
         });
         
         // Verify the handle was created (task ID should be valid, not necessarily 0)
-        assert_eq!(handle.id().get(), 0);
+        assert_eq!(handle.id.get(), 0);
         
         // In std environments, we can actually get the result
         {
@@ -519,7 +519,7 @@ mod tests {
             
             // Try to get the result
             if let Some(result) = handle.try_join() {
-                assert_eq!(result, 4950); // Sum of 0..100
+                assert_eq!(result, Ok(4950)); // Sum of 0..100
             }
         }
     }
@@ -530,7 +530,7 @@ mod tests {
         let handle = moirai.spawn_async(async { 42 });
         // For now, we'll just test that the handle was created
         // TODO: Implement proper async execution and testing
-        assert_eq!(handle.id().get(), 0);
+        assert_eq!(handle.id.get(), 0);
     }
 
     #[test]
@@ -546,7 +546,7 @@ mod tests {
     fn test_global_spawn() {
         let handle = spawn_parallel(|| "hello world");
         // For now, we'll just test that the handle was created (task ID should be valid)
-        assert!(handle.id().get() < 100); // Reasonable upper bound for task IDs in tests
+        assert!(handle.id.get() < 100); // Reasonable upper bound for task IDs in tests
     }
 
     #[test]
@@ -554,14 +554,14 @@ mod tests {
         let moirai = Moirai::new().unwrap();
         
         // Create a task with high priority
-        let context = TaskContext::new(TaskId::new(42))
+        let _context = TaskContext::new(TaskId::new(42))
             .with_priority(Priority::High)
             .with_name("test_task");
         
-        let task = moirai_core::task::ClosureTask::new(|| "high priority task", context);
+        let task = moirai_core::task::TaskBuilder::new().with_id(TaskId::new(0)).build(|| "high priority task");
         let handle = moirai.spawn_with_priority(task, Priority::High);
         
-        assert_eq!(handle.id().get(), 0);
+        assert_eq!(handle.id.get(), 0);
     }
 
     #[test] 
@@ -578,8 +578,7 @@ mod tests {
 
     #[test]
     fn test_task_chaining() {
-        let context = TaskContext::new(TaskId::new(1));
-        let task = moirai_core::task::ClosureTask::new(|| 21, context);
+        let task = moirai_core::task::TaskBuilder::new().with_id(TaskId::new(1)).build(|| 21);
         
         let chained = task.then(|x| x * 2);
         assert_eq!(chained.execute(), 42);
@@ -587,8 +586,7 @@ mod tests {
 
     #[test]
     fn test_task_mapping() {
-        let context = TaskContext::new(TaskId::new(1));
-        let task = moirai_core::task::ClosureTask::new(|| 21, context);
+        let task = moirai_core::task::TaskBuilder::new().with_id(TaskId::new(1)).build(|| 21);
         
         let mapped = task.map(|x| x * 2);
         assert_eq!(mapped.execute(), 42);
@@ -630,19 +628,19 @@ mod tests {
         println!("Result 3: {:?}", result3);
         
         // At least verify the handles were created with valid task IDs
-        assert!(handle1.id().get() < 100);
+        assert!(handle1.id.get() < 100);
         
         // If we get results, verify they're correct
         if let Some(result) = result1 {
-            assert_eq!(result, 84);
+            assert_eq!(result, Ok(84));
         }
         
         if let Some(result) = result2 {
-            assert_eq!(result, "Hello, Moirai");
+            assert_eq!(result, Ok("Hello, Moirai".to_string()));
         }
         
         if let Some(result) = result3 {
-            assert_eq!(result, 3628800); // 10!
+            assert_eq!(result, Ok(3628800)); // 10!
         }
     }
 

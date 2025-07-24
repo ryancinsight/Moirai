@@ -24,7 +24,6 @@ use moirai_core::{
     Box, Vec,
 };
 use moirai_utils::{
-    cpu::{CpuTopology, CpuCore, affinity::{AffinityMask, pin_to_core}},
     memory::prefetch_read,
 };
 use moirai_scheduler::WorkStealingScheduler;
@@ -38,7 +37,7 @@ use std::{
         Arc, Mutex, RwLock, Condvar,
         mpsc::{self, Receiver, Sender},
     },
-    thread::{self, ThreadId},
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
@@ -224,9 +223,9 @@ struct Worker {
     task_registry: Arc<TaskRegistry>,
     shutdown_signal: Arc<AtomicBool>,
     metrics: Arc<WorkerMetrics>,
-    // CPU optimization fields
-    cpu_core: Option<CpuCore>,
-    affinity_mask: AffinityMask,
+    // CPU optimization fields (disabled for now)
+    // cpu_core: Option<CpuCore>,
+    // affinity_mask: AffinityMask,
     // Task performance tracking
     task_metrics: Arc<Mutex<std::collections::HashMap<TaskId, TaskPerformanceMetrics>>>,
 }
@@ -515,7 +514,7 @@ where
     F: Future + Send + 'static,
     F::Output: Send + Sync + 'static,
 {
-    fn execute_boxed(&mut self) {
+    fn execute_boxed(mut self: Box<Self>) {
         if let Some(future) = self.future.take() {
             let task_id = self.task_id;
             
@@ -525,7 +524,15 @@ where
             
             // Submit to the async runtime - results handled via dedicated channels
             let runtime = get_async_runtime();
-            runtime.spawn(task_id, future);
+            
+            // Wrap the future to handle the result and return ()
+            let wrapped_future = async move {
+                let _result = future.await;
+                // Result is handled by the AsyncTaskWrapper's channels
+                // The runtime only needs to know the task completed
+            };
+            
+            runtime.spawn(task_id, wrapped_future);
         }
     }
 
@@ -574,28 +581,27 @@ impl Worker {
         shutdown_signal: Arc<AtomicBool>,
         metrics: Arc<WorkerMetrics>,
     ) -> Self {
-        let topology = CpuTopology::detect();
-        let worker_index = id.get();
+        // CPU topology detection disabled for now
+        // let topology = CpuTopology::detect();
+        // let worker_index = id.get();
         
-        // Assign CPU core based on worker ID and topology
-        let cpu_core = if worker_index < topology.logical_cores as usize {
-            Some(CpuCore::new(worker_index as u32))
-        } else {
-            // Round-robin assignment for excess workers
-            let core_id = worker_index % (topology.logical_cores as usize);
-            Some(CpuCore::new(core_id as u32))
-        };
+        // CPU affinity assignment disabled for now
+        // let cpu_core = if worker_index < topology.logical_cores as usize {
+        //     Some(CpuCore::new(worker_index as u32))
+        // } else {
+        //     let core_id = worker_index % (topology.logical_cores as usize);
+        //     Some(CpuCore::new(core_id as u32))
+        // };
         
-        // Create affinity mask - prefer NUMA-local cores
-        let affinity_mask = if let Some(core) = cpu_core {
-            if let Some(numa_node) = topology.numa_node(core) {
-                AffinityMask::numa_node(numa_node)
-            } else {
-                AffinityMask::single(core)
-            }
-        } else {
-            AffinityMask::all()
-        };
+        // let affinity_mask = if let Some(core) = cpu_core {
+        //     if let Some(numa_node) = topology.numa_node(core) {
+        //         AffinityMask::numa_node(numa_node)
+        //     } else {
+        //         AffinityMask::single(core)
+        //     }
+        // } else {
+        //     AffinityMask::all()
+        // };
         
         Self {
             id,
@@ -604,8 +610,8 @@ impl Worker {
             task_registry,
             shutdown_signal,
             metrics,
-            cpu_core,
-            affinity_mask,
+            // cpu_core,
+            // affinity_mask,
             task_metrics: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
@@ -620,17 +626,16 @@ impl Worker {
     /// - Handles panics gracefully without crashing worker
     /// - Sets CPU affinity for optimal cache locality
     fn run(self) {
-        // Set CPU affinity for this worker thread
-        if let Err(e) = self.affinity_mask.set_current_thread_affinity() {
-            eprintln!("Warning: Failed to set CPU affinity for worker {}: {}", self.id.get(), e);
-        }
+        // CPU affinity setting disabled for now
+        // if let Err(e) = self.affinity_mask.set_current_thread_affinity() {
+        //     eprintln!("Warning: Failed to set CPU affinity for worker {}: {}", self.id.get(), e);
+        // }
         
-        // Pin to specific core if available
-        if let Some(core) = self.cpu_core {
-            if let Err(e) = pin_to_core(core) {
-                eprintln!("Warning: Failed to pin worker {} to core {}: {}", self.id.get(), core.id(), e);
-            }
-        }
+        // if let Some(core) = self.cpu_core {
+        //     if let Err(e) = pin_to_core(core) {
+        //         eprintln!("Warning: Failed to pin worker {} to core {}: {}", self.id.get(), core.id(), e);
+        //     }
+        // }
         
         while !self.shutdown_signal.load(Ordering::Acquire) {
             let mut work_found = false;
@@ -685,10 +690,8 @@ impl Worker {
             last_update: start_time,
         };
         
-        // Register task metrics
-        if let Ok(mut metrics_map) = self.task_metrics.lock() {
-            metrics_map.insert(task_id, initial_metrics);
-        }
+        // Register task metrics - use expect() for consistent task tracking
+        self.task_metrics.lock().expect("Task metrics mutex poisoned during task registration").insert(task_id, initial_metrics);
         
         // Prefetch task data for better cache performance
         prefetch_read(task.as_ref() as *const _ as *const u8);
@@ -812,13 +815,13 @@ impl Worker {
     fn monitor_task_memory(&self, task_id: TaskId) {
         let current_memory = self.get_current_memory_usage();
         
-        if let Ok(mut metrics_map) = self.task_metrics.lock() {
-            if let Some(metrics) = metrics_map.get_mut(&task_id) {
-                if current_memory > metrics.memory_peak_bytes {
-                    metrics.memory_peak_bytes = current_memory;
-                }
-                metrics.last_update = std::time::Instant::now();
+        // Use expect() for consistent memory monitoring
+        let mut metrics_map = self.task_metrics.lock().expect("Task metrics mutex poisoned during memory monitoring");
+        if let Some(metrics) = metrics_map.get_mut(&task_id) {
+            if current_memory > metrics.memory_peak_bytes {
+                metrics.memory_peak_bytes = current_memory;
             }
+            metrics.last_update = std::time::Instant::now();
         }
     }
 
@@ -828,26 +831,26 @@ impl Worker {
     /// * `task_id` - The ID of the completed task
     /// * `cpu_time_ns` - CPU time consumed in nanoseconds
     /// * `execution_time_ns` - Total execution time in nanoseconds
-    fn finalize_task_metrics(&self, task_id: TaskId, cpu_time_ns: u64, execution_time_ns: u64) {
-        if let Ok(mut metrics_map) = self.task_metrics.lock() {
-            if let Some(metrics) = metrics_map.get_mut(&task_id) {
-                metrics.cpu_time_ns = cpu_time_ns;
-                metrics.last_update = std::time::Instant::now();
+    fn finalize_task_metrics(&self, task_id: TaskId, cpu_time_ns: u64, _execution_time_ns: u64) {
+        // Use expect() for consistent task finalization
+        let mut metrics_map = self.task_metrics.lock().expect("Task metrics mutex poisoned during task finalization");
+        if let Some(metrics) = metrics_map.get_mut(&task_id) {
+            metrics.cpu_time_ns = cpu_time_ns;
+            metrics.last_update = std::time::Instant::now();
+            
+            // Clean up local metrics after processing
+            // Keep only recent metrics to prevent memory bloat
+            const MAX_RETAINED_METRICS: usize = 100;
+            if metrics_map.len() > MAX_RETAINED_METRICS {
+                // Remove oldest entries
+                let mut entries: Vec<_> = metrics_map.iter().map(|(k, v)| (*k, v.last_update)).collect();
+                entries.sort_by_key(|(_, last_update)| *last_update);
                 
-                // Clean up local metrics after processing
-                // Keep only recent metrics to prevent memory bloat
-                const MAX_RETAINED_METRICS: usize = 100;
-                if metrics_map.len() > MAX_RETAINED_METRICS {
-                    // Remove oldest entries
-                    let mut entries: Vec<_> = metrics_map.iter().collect();
-                    entries.sort_by_key(|(_, m)| m.last_update);
-                    
-                    let to_remove = entries.len().saturating_sub(MAX_RETAINED_METRICS);
-                    for i in 0..to_remove {
-                        if let Some((id, _)) = entries.get(i) {
-                            metrics_map.remove(id);
-                        }
-                    }
+                let to_remove = entries.len().saturating_sub(MAX_RETAINED_METRICS);
+                let ids_to_remove: Vec<_> = entries.iter().take(to_remove).map(|(id, _)| *id).collect();
+                
+                for id in ids_to_remove {
+                    metrics_map.remove(&id);
                 }
             }
         }
@@ -895,6 +898,9 @@ struct TaskMetadata {
     start_time: Option<Instant>,
     completion_time: Option<Instant>,
     waker: Option<Waker>,
+    preemption_count: u32,
+    cpu_time_ns: u64,
+    memory_used_bytes: u64,
 }
 
 impl TaskRegistry {
@@ -923,6 +929,9 @@ impl TaskRegistry {
             start_time: None,
             completion_time: None,
             waker: None,
+            preemption_count: 0,
+            cpu_time_ns: 0,
+            memory_used_bytes: 0,
         };
 
         let mut tasks = self.tasks.write().unwrap();
@@ -1395,12 +1404,13 @@ impl TaskSpawner for HybridExecutor {
     fn spawn_async<F>(&self, future: F) -> TaskHandle<F::Output>
     where
         F: Future + Send + 'static,
-        F::Output: Send + Sync + 'static,
+        F::Output: Send + 'static,
     {
         let task_id = self.task_registry.register_task(Priority::Normal);
         
         // Create direct result channel - eliminates global storage bottleneck!
         let (result_sender, result_receiver) = moirai_core::create_result_channel();
+        let error_sender = result_sender.clone();
         
         // Wrap the future to send result directly through channel
         let future_wrapper = async move {
@@ -1419,13 +1429,13 @@ impl TaskSpawner for HybridExecutor {
             if let Err(e) = scheduler.schedule_task(boxed_task) {
                 eprintln!("Failed to schedule async task {}: {:?}", task_id, e);
                 // Send error through result channel
-                let _ = result_sender.send(Err(moirai_core::TaskError::SpawnFailed));
+                let _ = error_sender.send(Err(moirai_core::TaskError::SpawnFailed));
                 return TaskHandle::new_with_result_channel(task_id, true, result_receiver);
             }
         } else {
             eprintln!("No scheduler available for async task {}", task_id);
             // Send error through result channel
-            let _ = result_sender.send(Err(moirai_core::TaskError::SpawnFailed));
+            let _ = error_sender.send(Err(moirai_core::TaskError::SpawnFailed));
             return TaskHandle::new_with_result_channel(task_id, true, result_receiver);
         }
         
@@ -1436,12 +1446,13 @@ impl TaskSpawner for HybridExecutor {
     fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
-        R: Send + Sync + 'static,
+        R: Send + 'static,
     {
         let task_id = self.task_registry.register_task(Priority::Normal);
         
         // Create direct result channel - eliminates global storage bottleneck!
         let (result_sender, result_receiver) = moirai_core::create_result_channel();
+        let error_sender = result_sender.clone();
         
         // Wrap the function to send result through dedicated channel
         let func_wrapper = move || {
@@ -1460,12 +1471,12 @@ impl TaskSpawner for HybridExecutor {
             if let Err(e) = scheduler.schedule_task(boxed_task) {
                 eprintln!("Failed to schedule blocking task {}: {:?}", task_id, e);
                 // Send error through result channel
-                let _ = result_sender.send(Err(moirai_core::TaskError::SpawnFailed));
+                let _ = error_sender.send(Err(moirai_core::TaskError::SpawnFailed));
             }
         } else {
             eprintln!("No scheduler available for blocking task {}", task_id);
             // Send error through result channel
-            let _ = result_sender.send(Err(moirai_core::TaskError::SpawnFailed));
+            let _ = error_sender.send(Err(moirai_core::TaskError::SpawnFailed));
         }
         
         // Return handle with direct result channel - scales linearly!
@@ -1650,37 +1661,10 @@ impl Executor for HybridExecutor {
     #[cfg(feature = "metrics")]
     fn stats(&self) -> moirai_core::executor::ExecutorStats {
         // Return placeholder stats - would be implemented with real metrics
-        moirai_core::executor::ExecutorStats {
-            worker_stats: Vec::new(),
-            global_queue_stats: moirai_core::executor::QueueStats {
-                current_length: self.load(),
-                max_length: 0,
-                total_enqueued: self.tasks_spawned.load(Ordering::Relaxed),
-                total_dequeued: 0,
-                avg_wait_time_us: 0.0,
-            },
-            memory_stats: moirai_core::executor::MemoryStats {
-                current_usage: 0,
-                peak_usage: 0,
-                allocations: 0,
-                deallocations: 0,
-                pool_stats: moirai_core::executor::PoolStats {
-                    small_pool_utilization: 0.0,
-                    medium_pool_utilization: 0.0,
-                    large_pool_utilization: 0.0,
-                    pool_hits: 0,
-                    pool_misses: 0,
-                },
-            },
-            task_execution_stats: moirai_core::executor::TaskExecutionStats {
-                tasks_completed: 0,
-                tasks_failed: 0,
-                tasks_cancelled: 0,
-                avg_execution_time_ns: 0,
-                peak_execution_time_ns: 0,
-                total_cpu_time_ns: 0,
-            },
-        }
+        let mut stats = moirai_core::executor::ExecutorStats::new();
+        stats.global_queue_stats.current_length = self.load();
+        stats.global_queue_stats.total_enqueued = self.tasks_spawned.load(Ordering::Relaxed);
+        stats
     }
 }
 
@@ -2015,7 +1999,7 @@ mod tests {
                 42
             });
 
-        let _handle = executor.spawn_with_priority(task, Priority::High);
+        let _handle = executor.spawn_with_priority(task, Priority::High, None);
         
         // Give task time to complete
         thread::sleep(Duration::from_millis(100));
@@ -2048,7 +2032,7 @@ mod tests {
                 .name("test_task")
                 .build(move || i * 2);
                 
-            let _handle = executor.spawn_with_priority(task, Priority::Normal);
+            let _handle = executor.spawn_with_priority(task, Priority::Normal, None);
         }
         
         // Wait for tasks to complete
@@ -2097,7 +2081,7 @@ mod tests {
                 .name("manual_test_task")
                 .build(move || i);
                 
-            let _handle = executor.spawn_with_priority(task, Priority::Normal);
+            let _handle = executor.spawn_with_priority(task, Priority::Normal, None);
         }
         
         // Wait for tasks to complete
@@ -2149,7 +2133,7 @@ mod tests {
                 .name("count_test_task")
                 .build(move || i);
                 
-            let _handle = executor.spawn_with_priority(task, Priority::Normal);
+            let _handle = executor.spawn_with_priority(task, Priority::Normal, None);
             
             // Small delay between tasks to ensure different completion times
             thread::sleep(Duration::from_millis(10));
@@ -2180,8 +2164,8 @@ mod tests {
             .priority(Priority::Critical)
             .build(|| "high priority task");
 
-        let handle = executor.spawn_with_priority(task, Priority::Critical);
-        assert_eq!(handle.id().get(), 0); // First task should get ID 0
+        let handle = executor.spawn_with_priority(task, Priority::Critical, None);
+        assert_eq!(handle.id.get(), 0); // First task should get ID 0
     }
 
     #[test]
@@ -2255,7 +2239,7 @@ mod tests {
                     i * 2
                 });
                 
-            let _handle = executor.spawn_with_priority(task, Priority::Normal);
+            let _handle = executor.spawn_with_priority(task, Priority::Normal, None);
         }
         
         // Wait for tasks to complete

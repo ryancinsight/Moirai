@@ -1,14 +1,21 @@
 [package]
 name = "moirai-benchmarks"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
-publish = false
-description = "Benchmarks for Moirai concurrency library"
+version = "0.1.0"
+edition = "2021"
+authors = ["Moirai Team"]
+description = "Comprehensive benchmarking suite for Moirai concurrency library"
+license = "MIT OR Apache-2.0"
+
+[[bench]]
+name = "moirai_benchmarks"
+harness = false
 
 [dependencies]
-moirai = { path = "../moirai", features = ["full"] }
-criterion = { workspace = true, features = ["html_reports"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+moirai = { path = "../moirai" }
+moirai-core = { path = "../moirai-core" }
+moirai-utils = { path = "../moirai-utils" }
+tokio = { version = "1.0", features = ["full"] }
 
-# Benchmarks will be added as development progresses
+[dev-dependencies]
+tokio-test = "0.4"
