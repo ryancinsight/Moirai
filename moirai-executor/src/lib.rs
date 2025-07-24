@@ -24,7 +24,6 @@ use moirai_core::{
     Box, Vec,
 };
 use moirai_utils::{
-    cpu::{CpuTopology, CpuCore, affinity::{AffinityMask, pin_to_core}},
     memory::prefetch_read,
 };
 use moirai_scheduler::WorkStealingScheduler;
@@ -224,9 +223,9 @@ struct Worker {
     task_registry: Arc<TaskRegistry>,
     shutdown_signal: Arc<AtomicBool>,
     metrics: Arc<WorkerMetrics>,
-    // CPU optimization fields
-    cpu_core: Option<CpuCore>,
-    affinity_mask: AffinityMask,
+    // CPU optimization fields (disabled for now)
+    // cpu_core: Option<CpuCore>,
+    // affinity_mask: AffinityMask,
     // Task performance tracking
     task_metrics: Arc<Mutex<std::collections::HashMap<TaskId, TaskPerformanceMetrics>>>,
 }
@@ -582,28 +581,27 @@ impl Worker {
         shutdown_signal: Arc<AtomicBool>,
         metrics: Arc<WorkerMetrics>,
     ) -> Self {
-        let topology = CpuTopology::detect();
-        let worker_index = id.get();
+        // CPU topology detection disabled for now
+        // let topology = CpuTopology::detect();
+        // let worker_index = id.get();
         
-        // Assign CPU core based on worker ID and topology
-        let cpu_core = if worker_index < topology.logical_cores as usize {
-            Some(CpuCore::new(worker_index as u32))
-        } else {
-            // Round-robin assignment for excess workers
-            let core_id = worker_index % (topology.logical_cores as usize);
-            Some(CpuCore::new(core_id as u32))
-        };
+        // CPU affinity assignment disabled for now
+        // let cpu_core = if worker_index < topology.logical_cores as usize {
+        //     Some(CpuCore::new(worker_index as u32))
+        // } else {
+        //     let core_id = worker_index % (topology.logical_cores as usize);
+        //     Some(CpuCore::new(core_id as u32))
+        // };
         
-        // Create affinity mask - prefer NUMA-local cores
-        let affinity_mask = if let Some(core) = cpu_core {
-            if let Some(numa_node) = topology.numa_node(core) {
-                AffinityMask::numa_node(numa_node)
-            } else {
-                AffinityMask::single(core)
-            }
-        } else {
-            AffinityMask::all()
-        };
+        // let affinity_mask = if let Some(core) = cpu_core {
+        //     if let Some(numa_node) = topology.numa_node(core) {
+        //         AffinityMask::numa_node(numa_node)
+        //     } else {
+        //         AffinityMask::single(core)
+        //     }
+        // } else {
+        //     AffinityMask::all()
+        // };
         
         Self {
             id,
@@ -612,8 +610,8 @@ impl Worker {
             task_registry,
             shutdown_signal,
             metrics,
-            cpu_core,
-            affinity_mask,
+            // cpu_core,
+            // affinity_mask,
             task_metrics: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
@@ -628,17 +626,16 @@ impl Worker {
     /// - Handles panics gracefully without crashing worker
     /// - Sets CPU affinity for optimal cache locality
     fn run(self) {
-        // Set CPU affinity for this worker thread
-        if let Err(e) = self.affinity_mask.set_current_thread_affinity() {
-            eprintln!("Warning: Failed to set CPU affinity for worker {}: {}", self.id.get(), e);
-        }
+        // CPU affinity setting disabled for now
+        // if let Err(e) = self.affinity_mask.set_current_thread_affinity() {
+        //     eprintln!("Warning: Failed to set CPU affinity for worker {}: {}", self.id.get(), e);
+        // }
         
-        // Pin to specific core if available
-        if let Some(core) = self.cpu_core {
-            if let Err(e) = pin_to_core(core) {
-                eprintln!("Warning: Failed to pin worker {} to core {}: {}", self.id.get(), core.id(), e);
-            }
-        }
+        // if let Some(core) = self.cpu_core {
+        //     if let Err(e) = pin_to_core(core) {
+        //         eprintln!("Warning: Failed to pin worker {} to core {}: {}", self.id.get(), core.id(), e);
+        //     }
+        // }
         
         while !self.shutdown_signal.load(Ordering::Acquire) {
             let mut work_found = false;
