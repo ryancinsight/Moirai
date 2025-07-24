@@ -1607,13 +1607,11 @@ impl ExecutorControl for HybridExecutor {
         
         unsafe fn wake(data: *const ()) {
             let data = Arc::from_raw(data as *const (Mutex<bool>, Condvar));
-            {
-                let (lock, cvar) = &*data;
-                let mut notified = lock.lock().unwrap();
-                *notified = true;
-                cvar.notify_one();
-            }
-            std::mem::forget(data); // Don't drop the Arc
+            let (lock, cvar) = &*data;
+            let mut notified = lock.lock().unwrap();
+            *notified = true;
+            cvar.notify_one();
+            // Arc is consumed here, no need for forget
         }
         
         unsafe fn wake_by_ref(data: *const ()) {
@@ -1627,7 +1625,7 @@ impl ExecutorControl for HybridExecutor {
         unsafe fn clone_waker(data: *const ()) -> RawWaker {
             let data = Arc::from_raw(data as *const (Mutex<bool>, Condvar));
             let cloned = data.clone();
-            std::mem::forget(data); // Don't drop the original Arc
+            std::mem::forget(data); // Don't drop the original Arc - this is correct for clone
             RawWaker::new(Arc::into_raw(cloned) as *const (), &WAKER_VTABLE)
         }
         
