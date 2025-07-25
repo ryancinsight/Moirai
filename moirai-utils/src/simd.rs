@@ -132,22 +132,26 @@ pub unsafe fn vectorized_dot_product_f32(a: &[f32], b: &[f32]) -> f32 {
 /// * `result` - Output 4x4 matrix (16 elements)
 #[target_feature(enable = "avx2")]
 pub unsafe fn vectorized_matrix_mul_4x4_f32(a: &[f32; 16], b: &[f32; 16], result: &mut [f32; 16]) {
-    // Load rows of matrix A
-    let row0 = _mm_loadu_ps(&a[0]);
-    let row1 = _mm_loadu_ps(&a[4]);
-    let row2 = _mm_loadu_ps(&a[8]);
-    let row3 = _mm_loadu_ps(&a[12]);
+    // Compute C = A * B for 4x4 row-major matrices
+    // A[i][j] = a[i*4 + j], B[i][j] = b[i*4 + j], C[i][j] = result[i*4 + j]
     
-    // Process each column of matrix B
-    for col in 0..4 {
-        let b_col = _mm_set_ps(b[12 + col], b[8 + col], b[4 + col], b[col]);
+    for i in 0..4 {
+        // Load row i of matrix A
+        let a_row = _mm_loadu_ps(&a[i * 4]);
         
-        let mut res_col = _mm_mul_ps(_mm_shuffle_ps(b_col, b_col, 0x00), row0);
-        res_col = _mm_add_ps(res_col, _mm_mul_ps(_mm_shuffle_ps(b_col, b_col, 0x55), row1));
-        res_col = _mm_add_ps(res_col, _mm_mul_ps(_mm_shuffle_ps(b_col, b_col, 0xAA), row2));
-        res_col = _mm_add_ps(res_col, _mm_mul_ps(_mm_shuffle_ps(b_col, b_col, 0xFF), row3));
-        
-        _mm_storeu_ps(&mut result[col * 4], res_col);
+        // Compute row i of result matrix
+        for j in 0..4 {
+            // Extract column j from matrix B
+            let b_col = _mm_set_ps(b[12 + j], b[8 + j], b[4 + j], b[j]);
+            
+            // Compute dot product of a_row and b_col
+            let dot = _mm_dp_ps(a_row, b_col, 0xF1);
+            
+            // Store result[i][j] = a_row · b_col
+            let mut temp = [0.0f32; 4];
+            _mm_storeu_ps(temp.as_mut_ptr(), dot);
+            result[i * 4 + j] = temp[0];
+        }
     }
 }
 
@@ -278,6 +282,102 @@ pub unsafe fn neon_vectorized_dot_product_f32(a: &[f32], b: &[f32]) -> f32 {
     vget_lane_f32(sum_final, 0)
 }
 
+/// ARM NEON-optimized 4x4 matrix multiplication.
+///
+/// # Safety
+/// This function uses unsafe NEON intrinsics for ARM64 platforms.
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+pub unsafe fn neon_vectorized_matrix_mul_4x4_f32(a: &[f32; 16], b: &[f32; 16], result: &mut [f32; 16]) {
+    // Compute C = A * B for 4x4 row-major matrices
+    // A[i][j] = a[i*4 + j], B[i][j] = b[i*4 + j], C[i][j] = result[i*4 + j]
+    
+    for i in 0..4 {
+        // Load row i of matrix A
+        let a_row = vld1q_f32(&a[i * 4]);
+        
+        // Compute row i of result matrix
+        for j in 0..4 {
+            // Extract column j from matrix B and compute dot product
+            let b_col = [b[j], b[4 + j], b[8 + j], b[12 + j]];
+            let b_col_v = vld1q_f32(b_col.as_ptr());
+            
+            // Compute dot product of a_row and b_col
+            let mul = vmulq_f32(a_row, b_col_v);
+            let sum_pair = vpadd_f32(vget_low_f32(mul), vget_high_f32(mul));
+            let final_sum = vpadd_f32(sum_pair, sum_pair);
+            
+            // Store result[i][j] = a_row · b_col
+            result[i * 4 + j] = vget_lane_f32(final_sum, 0);
+        }
+    }
+}
+
+/// ARM NEON-optimized vector sum.
+///
+/// # Safety
+/// This function uses unsafe NEON intrinsics for ARM64 platforms.
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+pub unsafe fn neon_vectorized_sum_f32(data: &[f32]) -> f32 {
+    assert_eq!(data.len() % 4, 0, "Length must be multiple of 4 for NEON");
+    
+    let chunks = data.len() / 4;
+    let mut sum = vdupq_n_f32(0.0);
+    
+    for i in 0..chunks {
+        let offset = i * 4;
+        let v = vld1q_f32(data.as_ptr().add(offset));
+        sum = vaddq_f32(sum, v);
+    }
+    
+    // Horizontal sum
+    let sum_pair = vpadd_f32(vget_low_f32(sum), vget_high_f32(sum));
+    let final_sum = vpadd_f32(sum_pair, sum_pair);
+    vget_lane_f32(final_sum, 0)
+}
+
+/// ARM NEON-optimized vector mean.
+///
+/// # Safety
+/// This function uses unsafe NEON intrinsics for ARM64 platforms.
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+pub unsafe fn neon_vectorized_mean_f32(data: &[f32]) -> f32 {
+    neon_vectorized_sum_f32(data) / data.len() as f32
+}
+
+/// ARM NEON-optimized vector variance.
+///
+/// # Safety
+/// This function uses unsafe NEON intrinsics for ARM64 platforms.
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+pub unsafe fn neon_vectorized_variance_f32(data: &[f32]) -> f32 {
+    assert_eq!(data.len() % 4, 0, "Length must be multiple of 4 for NEON");
+    
+    let mean = neon_vectorized_mean_f32(data);
+    let mean_v = vdupq_n_f32(mean);
+    
+    let chunks = data.len() / 4;
+    let mut sum_sq_diff = vdupq_n_f32(0.0);
+    
+    for i in 0..chunks {
+        let offset = i * 4;
+        let v = vld1q_f32(data.as_ptr().add(offset));
+        let diff = vsubq_f32(v, mean_v);
+        let sq_diff = vmulq_f32(diff, diff);
+        sum_sq_diff = vaddq_f32(sum_sq_diff, sq_diff);
+    }
+    
+    // Horizontal sum
+    let sum_pair = vpadd_f32(vget_low_f32(sum_sq_diff), vget_high_f32(sum_sq_diff));
+    let final_sum = vpadd_f32(sum_pair, sum_pair);
+    let total_sq_diff = vget_lane_f32(final_sum, 0);
+    
+    total_sq_diff / data.len() as f32
+}
+
 /// Runtime detection of SIMD capabilities.
 ///
 /// Returns true if the current CPU supports AVX2 instructions.
@@ -395,56 +495,139 @@ pub fn safe_vectorized_dot_product_f32(a: &[f32], b: &[f32]) -> f32 {
 
 /// Safe wrapper for matrix multiplication with fallback.
 pub fn safe_vectorized_matrix_mul_4x4_f32(a: &[f32; 16], b: &[f32; 16], result: &mut [f32; 16]) {
-    if has_avx2_support() {
-        unsafe {
-            vectorized_matrix_mul_4x4_f32(a, b, result);
-        }
-    } else {
-        // Fallback to scalar implementation
-        for i in 0..4 {
-            for j in 0..4 {
-                let mut sum = 0.0;
-                for k in 0..4 {
-                    sum += a[i * 4 + k] * b[k * 4 + j];
-                }
-                result[i * 4 + j] = sum;
+    #[cfg(target_arch = "x86_64")]
+    {
+        if has_avx2_support() {
+            unsafe {
+                vectorized_matrix_mul_4x4_f32(a, b, result);
             }
+            #[cfg(feature = "std")]
+            crate::global_simd_counter().record_vectorized_op(16);
+            return;
         }
     }
+    
+    #[cfg(target_arch = "aarch64")]
+    {
+        if has_neon_support() {
+            unsafe {
+                neon_vectorized_matrix_mul_4x4_f32(a, b, result);
+            }
+            #[cfg(feature = "std")]
+            crate::global_simd_counter().record_vectorized_op(16);
+            return;
+        }
+    }
+    
+    // Fallback to scalar implementation
+    for i in 0..4 {
+        for j in 0..4 {
+            let mut sum = 0.0;
+            for k in 0..4 {
+                sum += a[i * 4 + k] * b[k * 4 + j];
+            }
+            result[i * 4 + j] = sum;
+        }
+    }
+    #[cfg(feature = "std")]
+    crate::global_simd_counter().record_scalar_op(16);
 }
 
 /// Safe wrapper for vector sum with fallback.
 pub fn safe_vectorized_sum_f32(data: &[f32]) -> f32 {
-    if has_avx2_support() && data.len() % 8 == 0 {
-        unsafe {
-            vectorized_sum_f32(data)
+    #[cfg(target_arch = "x86_64")]
+    {
+        if has_avx2_support() && data.len() % 8 == 0 {
+            let result = unsafe {
+                vectorized_sum_f32(data)
+            };
+            #[cfg(feature = "std")]
+            crate::global_simd_counter().record_vectorized_op(data.len());
+            return result;
         }
-    } else {
-        data.iter().sum()
     }
+    
+    #[cfg(target_arch = "aarch64")]
+    {
+        if has_neon_support() && data.len() % 4 == 0 {
+            let result = unsafe {
+                neon_vectorized_sum_f32(data)
+            };
+            #[cfg(feature = "std")]
+            crate::global_simd_counter().record_vectorized_op(data.len());
+            return result;
+        }
+    }
+    
+    // Fallback to scalar implementation
+    #[cfg(feature = "std")]
+    crate::global_simd_counter().record_scalar_op(data.len());
+    data.iter().sum()
 }
 
 /// Safe wrapper for vector mean with fallback.
 pub fn safe_vectorized_mean_f32(data: &[f32]) -> f32 {
-    if has_avx2_support() && data.len() % 8 == 0 {
-        unsafe {
-            vectorized_mean_f32(data)
+    #[cfg(target_arch = "x86_64")]
+    {
+        if has_avx2_support() && data.len() % 8 == 0 {
+            let result = unsafe {
+                vectorized_mean_f32(data)
+            };
+            #[cfg(feature = "std")]
+            crate::global_simd_counter().record_vectorized_op(data.len());
+            return result;
         }
-    } else {
-        data.iter().sum::<f32>() / data.len() as f32
     }
+    
+    #[cfg(target_arch = "aarch64")]
+    {
+        if has_neon_support() && data.len() % 4 == 0 {
+            let result = unsafe {
+                neon_vectorized_mean_f32(data)
+            };
+            #[cfg(feature = "std")]
+            crate::global_simd_counter().record_vectorized_op(data.len());
+            return result;
+        }
+    }
+    
+    // Fallback to scalar implementation
+    #[cfg(feature = "std")]
+    crate::global_simd_counter().record_scalar_op(data.len());
+    data.iter().sum::<f32>() / data.len() as f32
 }
 
 /// Safe wrapper for vector variance with fallback.
 pub fn safe_vectorized_variance_f32(data: &[f32]) -> f32 {
-    if has_avx2_support() && data.len() % 8 == 0 {
-        unsafe {
-            vectorized_variance_f32(data)
+    #[cfg(target_arch = "x86_64")]
+    {
+        if has_avx2_support() && data.len() % 8 == 0 {
+            let result = unsafe {
+                vectorized_variance_f32(data)
+            };
+            #[cfg(feature = "std")]
+            crate::global_simd_counter().record_vectorized_op(data.len());
+            return result;
         }
-    } else {
-        let mean = data.iter().sum::<f32>() / data.len() as f32;
-        data.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / data.len() as f32
     }
+    
+    #[cfg(target_arch = "aarch64")]
+    {
+        if has_neon_support() && data.len() % 4 == 0 {
+            let result = unsafe {
+                neon_vectorized_variance_f32(data)
+            };
+            #[cfg(feature = "std")]
+            crate::global_simd_counter().record_vectorized_op(data.len());
+            return result;
+        }
+    }
+    
+    // Fallback to scalar implementation
+    #[cfg(feature = "std")]
+    crate::global_simd_counter().record_scalar_op(data.len());
+    let mean = data.iter().sum::<f32>() / data.len() as f32;
+    data.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / data.len() as f32
 }
 
 #[cfg(test)]
@@ -508,24 +691,70 @@ mod tests {
     
     #[test]
     fn test_safe_vectorized_matrix_mul() {
+        // Test 1: Identity matrix (original test)
         let a = [
             1.0, 2.0, 3.0, 4.0,
             5.0, 6.0, 7.0, 8.0,
             9.0, 10.0, 11.0, 12.0,
             13.0, 14.0, 15.0, 16.0,
         ];
-        let b = [
+        let identity = [
             1.0, 0.0, 0.0, 0.0,
             0.0, 1.0, 0.0, 0.0,
             0.0, 0.0, 1.0, 0.0,
             0.0, 0.0, 0.0, 1.0,
-        ]; // Identity matrix
+        ];
         let mut result = [0.0; 16];
         
-        safe_vectorized_matrix_mul_4x4_f32(&a, &b, &mut result);
-        
-        // Result should be the same as matrix a
+        safe_vectorized_matrix_mul_4x4_f32(&a, &identity, &mut result);
         assert_eq!(result, a);
+        
+        // Test 2: Non-symmetrical matrices to verify correct A * B computation
+        let a_test = [
+            1.0, 2.0, 3.0, 4.0,    // [1 2 3 4]
+            5.0, 6.0, 7.0, 8.0,    // [5 6 7 8]
+            9.0, 10.0, 11.0, 12.0, // [9 10 11 12]
+            13.0, 14.0, 15.0, 16.0, // [13 14 15 16]
+        ];
+        let b_test = [
+            1.0, 0.0, 0.0, 1.0,    // [1 0 0 1]
+            0.0, 1.0, 0.0, 2.0,    // [0 1 0 2]
+            0.0, 0.0, 1.0, 3.0,    // [0 0 1 3]
+            1.0, 0.0, 0.0, 4.0,    // [1 0 0 4]
+        ];
+        
+        let expected = [
+            // Row 0: [1,2,3,4] * B = [1*1+2*0+3*0+4*1, 1*0+2*1+3*0+4*0, 1*0+2*0+3*1+4*0, 1*1+2*2+3*3+4*4]
+            5.0, 2.0, 3.0, 30.0,   // [5, 2, 3, 30]
+            // Row 1: [5,6,7,8] * B = [5*1+6*0+7*0+8*1, 5*0+6*1+7*0+8*0, 5*0+6*0+7*1+8*0, 5*1+6*2+7*3+8*4]
+            13.0, 6.0, 7.0, 70.0,  // [13, 6, 7, 70]
+            // Row 2: [9,10,11,12] * B = [9*1+10*0+11*0+12*1, 9*0+10*1+11*0+12*0, 9*0+10*0+11*1+12*0, 9*1+10*2+11*3+12*4]
+            21.0, 10.0, 11.0, 110.0, // [21, 10, 11, 110]
+            // Row 3: [13,14,15,16] * B = [13*1+14*0+15*0+16*1, 13*0+14*1+15*0+16*0, 13*0+14*0+15*1+16*0, 13*1+14*2+15*3+16*4]
+            29.0, 14.0, 15.0, 150.0, // [29, 14, 15, 150]
+        ];
+        
+        safe_vectorized_matrix_mul_4x4_f32(&a_test, &b_test, &mut result);
+        
+        // Verify each element with tolerance for floating point precision
+        for i in 0..16 {
+            assert!((result[i] - expected[i]).abs() < 1e-5, 
+                   "Mismatch at index {}: expected {}, got {}", i, expected[i], result[i]);
+        }
+        
+        // Test 3: Verify non-commutativity (A*B != B*A for general matrices)
+        let mut result_ba = [0.0; 16];
+        safe_vectorized_matrix_mul_4x4_f32(&b_test, &a_test, &mut result_ba);
+        
+        // Should be different from A*B (unless matrices commute)
+        let mut different = false;
+        for i in 0..16 {
+            if (result[i] - result_ba[i]).abs() > 1e-5 {
+                different = true;
+                break;
+            }
+        }
+        assert!(different, "A*B should not equal B*A for non-commuting matrices");
     }
     
     #[test]

@@ -1187,18 +1187,30 @@ pub struct SimdStats {
 
 impl SimdStats {
     /// Calculate the performance improvement factor.
+    /// 
+    /// Returns the speedup factor compared to if all operations were scalar.
+    /// If only SIMD operations were performed, returns the average SIMD speedup.
+    /// If no operations were performed, returns 1.0.
     pub fn performance_improvement_factor(&self) -> f64 {
-        if self.scalar_elements == 0 {
+        let total_elements = self.simd_elements + self.scalar_elements;
+        
+        // Check for division by zero (no operations performed)
+        if total_elements == 0 {
             return 1.0;
         }
         
         // Assume SIMD provides 4-8x speedup on average
         let avg_simd_speedup = if crate::simd::has_avx2_support() { 8.0 } else { 4.0 };
-        let simd_equivalent_scalar = self.simd_elements as f64 / avg_simd_speedup;
-        let total_equivalent_scalar = simd_equivalent_scalar + self.scalar_elements as f64;
-        let actual_total = (self.simd_elements + self.scalar_elements) as f64;
         
-        actual_total / total_equivalent_scalar
+        // Calculate time if all operations were scalar
+        let scalar_time = total_elements as f64;
+        
+        // Calculate actual time (SIMD operations are faster)
+        let simd_time = self.simd_elements as f64 / avg_simd_speedup;
+        let actual_time = simd_time + self.scalar_elements as f64;
+        
+        // Performance improvement = scalar_time / actual_time
+        scalar_time / actual_time
     }
 }
 
@@ -1208,4 +1220,56 @@ static GLOBAL_SIMD_COUNTER: SimdPerformanceCounter = SimdPerformanceCounter::new
 /// Get the global SIMD performance counter.
 pub fn global_simd_counter() -> &'static SimdPerformanceCounter {
     &GLOBAL_SIMD_COUNTER
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_performance_improvement_factor() {
+        let counter = SimdPerformanceCounter::new();
+        
+        // Test 1: No operations performed
+        let stats = counter.get_stats();
+        assert_eq!(stats.performance_improvement_factor(), 1.0);
+        
+        // Test 2: Only SIMD operations (should return avg speedup)
+        counter.record_vectorized_op(100);
+        let stats = counter.get_stats();
+        let expected_speedup = if crate::simd::has_avx2_support() { 8.0 } else { 4.0 };
+        assert_eq!(stats.performance_improvement_factor(), expected_speedup);
+        
+        // Test 3: Only scalar operations (should return 1.0)
+        counter.reset();
+        counter.record_scalar_op(100);
+        let stats = counter.get_stats();
+        assert_eq!(stats.performance_improvement_factor(), 1.0);
+        
+        // Test 4: Mixed operations
+        counter.reset();
+        counter.record_vectorized_op(100); // 100 elements via SIMD
+        counter.record_scalar_op(100);     // 100 elements via scalar
+        let stats = counter.get_stats();
+        
+        // Expected calculation:
+        // scalar_time = 200 (all elements processed scalar)
+        // actual_time = 100/speedup + 100 = 100/speedup + 100
+        // improvement = 200 / (100/speedup + 100)
+        let speedup = if crate::simd::has_avx2_support() { 8.0 } else { 4.0 };
+        let expected = 200.0 / (100.0/speedup + 100.0);
+        assert!((stats.performance_improvement_factor() - expected).abs() < 1e-10);
+    }
+    
+    #[test]
+    fn test_simd_stats_utilization() {
+        let counter = SimdPerformanceCounter::new();
+        
+        // Test utilization calculation
+        counter.record_vectorized_op(80);
+        counter.record_scalar_op(20);
+        
+        let stats = counter.get_stats();
+        assert_eq!(stats.utilization_ratio, 0.8); // 80/100
+    }
 }
