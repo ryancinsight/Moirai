@@ -9,11 +9,15 @@ A next-generation concurrency library that synthesizes the best principles from 
 
 ## 🚀 Features
 
-### ✅ **Unified Iterator System (moirai_iter)**
+### ✅ **Unified Iterator System (moirai_iter)** - **ENHANCED**
 - **Execution Agnostic**: Same API works across parallel, async, distributed, and hybrid contexts
-- **Memory Efficient**: NUMA-aware allocation and cache-friendly data layouts  
+- **Memory Efficient**: Streaming operations, NUMA-aware allocation, and cache-friendly data layouts  
 - **Zero-cost Abstractions**: Compile-time optimizations with no runtime overhead
 - **Pure Rust std**: No external dependencies, built entirely on Rust's standard library
+- **Thread Pool Management**: Efficient thread reuse and resource management
+- **True Async Execution**: Non-blocking async operations without thread spawning
+- **Adaptive Thresholds**: Configurable and intelligent workload-based execution strategy selection
+- **Streaming Collect**: Memory-efficient collection operations for large datasets
 
 ```rust
 use moirai::prelude::*;

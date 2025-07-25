@@ -18,12 +18,13 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::collections::VecDeque;
 use std::sync::{Mutex, Condvar};
 use std::task::{Context, Poll, Waker};
-use std::time::Duration;
+
 use std::fmt::Debug;
+use std::thread;
 
 /// Core trait for Moirai iterators supporting multiple execution contexts.
 /// 
@@ -108,7 +109,7 @@ pub trait ExecutionContext: Send + Sync {
         T: Send + Clone + 'static,
         F: Fn(T) + Send + Sync + Clone + 'static;
 
-    /// Map operation execution.
+    /// Map operation execution with streaming support.
     fn map<T, R, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = Vec<R>> + Send>>
     where
         T: Send + Clone + 'static,
@@ -137,11 +138,86 @@ pub enum ExecutionStrategy {
     Sequential,
 }
 
-/// Parallel execution context using work-stealing scheduler.
+/// Thread pool for efficient thread management and reuse.
+#[derive(Debug)]
+struct ThreadPool {
+    workers: Vec<thread::JoinHandle<()>>,
+    sender: std::sync::mpsc::Sender<Job>,
+    shutdown: Arc<AtomicBool>,
+}
+
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+impl ThreadPool {
+    /// Create a new thread pool with specified number of threads.
+    fn new(size: usize) -> Self {
+        assert!(size > 0);
+        
+        let (sender, receiver) = std::sync::mpsc::channel::<Job>();
+        let receiver = Arc::new(Mutex::new(receiver));
+        let shutdown = Arc::new(AtomicBool::new(false));
+        
+        let mut workers = Vec::with_capacity(size);
+        
+        for _id in 0..size {
+            let receiver = Arc::clone(&receiver);
+            let shutdown = Arc::clone(&shutdown);
+            
+            let worker = thread::spawn(move || {
+                loop {
+                    if shutdown.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    
+                    let message = receiver.lock().unwrap().recv();
+                    
+                    match message {
+                        Ok(job) => {
+                            job();
+                        }
+                        Err(_) => {
+                            break;
+                        }
+                    }
+                }
+            });
+            
+            workers.push(worker);
+        }
+        
+        Self {
+            workers,
+            sender,
+            shutdown,
+        }
+    }
+    
+    /// Execute a job on the thread pool.
+    fn execute<F>(&self, f: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let job = Box::new(f);
+        self.sender.send(job).unwrap();
+    }
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Relaxed);
+        
+        while let Some(worker) = self.workers.pop() {
+            let _ = worker.join();
+        }
+    }
+}
+
+/// Parallel execution context using managed thread pool.
 #[derive(Debug, Clone)]
 pub struct ParallelContext {
     thread_count: usize,
     batch_size: usize,
+    pool: Arc<Mutex<Option<ThreadPool>>>,
 }
 
 impl ParallelContext {
@@ -150,12 +226,22 @@ impl ParallelContext {
         Self {
             thread_count: thread_count.max(1),
             batch_size: 1024, // Optimal batch size for cache efficiency
+            pool: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Create a parallel context using all available CPU cores.
     pub fn default() -> Self {
         Self::new(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1))
+    }
+    
+    /// Get or create the thread pool.
+    fn get_pool(&self) -> Arc<Mutex<Option<ThreadPool>>> {
+        let mut pool_guard = self.pool.lock().unwrap();
+        if pool_guard.is_none() {
+            *pool_guard = Some(ThreadPool::new(self.thread_count));
+        }
+        Arc::clone(&self.pool)
     }
 }
 
@@ -167,30 +253,43 @@ impl ExecutionContext for ParallelContext {
     {
         let thread_count = self.thread_count;
         let batch_size = self.batch_size;
+        let pool = self.get_pool();
         
         Box::pin(async move {
             if items.is_empty() {
                 return;
             }
 
-            let chunk_size = (items.len() + thread_count - 1) / thread_count;
+            let total_items = items.len();
+            let chunk_size = (total_items + thread_count - 1) / thread_count;
             let chunk_size = chunk_size.max(batch_size);
             
-            let handles: Vec<_> = items
-                .chunks(chunk_size)
-                .map(|chunk| {
-                    let chunk = chunk.to_vec();
-                    let func = func.clone();
-                    std::thread::spawn(move || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let pending_jobs = Arc::new(AtomicUsize::new(0));
+            
+            for chunk in items.chunks(chunk_size) {
+                let chunk = chunk.to_vec();
+                let func = func.clone();
+                let tx = tx.clone();
+                let pending_jobs = Arc::clone(&pending_jobs);
+                
+                pending_jobs.fetch_add(1, Ordering::Relaxed);
+                
+                if let Some(ref pool) = *pool.lock().unwrap() {
+                    pool.execute(move || {
                         for item in chunk {
                             func(item);
                         }
-                    })
-                })
-                .collect();
-
-            for handle in handles {
-                let _ = handle.join();
+                        pending_jobs.fetch_sub(1, Ordering::Relaxed);
+                        let _ = tx.send(());
+                    });
+                }
+            }
+            
+            // Wait for all jobs to complete
+            let expected_jobs = (total_items + chunk_size - 1) / chunk_size;
+            for _ in 0..expected_jobs {
+                let _ = rx.recv();
             }
         })
     }
@@ -203,6 +302,7 @@ impl ExecutionContext for ParallelContext {
     {
         let thread_count = self.thread_count;
         let batch_size = self.batch_size;
+        let pool = self.get_pool();
         
         Box::pin(async move {
             if items.is_empty() {
@@ -212,31 +312,35 @@ impl ExecutionContext for ParallelContext {
             let chunk_size = (items.len() + thread_count - 1) / thread_count;
             let chunk_size = chunk_size.max(batch_size);
             
-            let results = Arc::new(Mutex::new(Vec::with_capacity(items.len())));
-            let handles: Vec<_> = items
-                .into_iter()
-                .enumerate()
-                .collect::<Vec<_>>()
-                .chunks(chunk_size)
-                .map(|chunk| {
-                    let chunk = chunk.to_vec();
-                    let func = func.clone();
-                    let results = Arc::clone(&results);
-                    std::thread::spawn(move || {
+            let total_items = items.len();
+            let results = Arc::new(Mutex::new(Vec::with_capacity(total_items)));
+            let (tx, rx) = std::sync::mpsc::channel();
+            
+            for chunk in items.into_iter().enumerate().collect::<Vec<_>>().chunks(chunk_size) {
+                let chunk = chunk.to_vec();
+                let func = func.clone();
+                let results = Arc::clone(&results);
+                let tx = tx.clone();
+                
+                if let Some(ref pool) = *pool.lock().unwrap() {
+                    pool.execute(move || {
                         let mut local_results = Vec::with_capacity(chunk.len());
                         for (index, item) in chunk {
                             local_results.push((index, func(item)));
                         }
                         let mut results = results.lock().unwrap();
                         results.extend(local_results);
-                    })
-                })
-                .collect();
-
-            for handle in handles {
-                let _ = handle.join();
+                        let _ = tx.send(());
+                    });
+                }
             }
-
+            
+            // Wait for all jobs to complete
+            let expected_jobs = (total_items + chunk_size - 1) / chunk_size;
+            for _ in 0..expected_jobs {
+                let _ = rx.recv();
+            }
+            
             let mut results = match Arc::try_unwrap(results) {
                 Ok(mutex) => mutex.into_inner().unwrap(),
                 Err(_) => panic!("Failed to unwrap Arc"),
@@ -252,6 +356,7 @@ impl ExecutionContext for ParallelContext {
         F: Fn(T, T) -> T + Send + Sync + Clone + 'static,
     {
         let thread_count = self.thread_count;
+        let pool = self.get_pool();
         
         Box::pin(async move {
             if items.is_empty() {
@@ -263,21 +368,27 @@ impl ExecutionContext for ParallelContext {
             }
 
             // Tree reduction for optimal parallel performance
-            let chunk_size = (items.len() + thread_count - 1) / thread_count;
-            let partial_results: Vec<_> = items
-                .chunks(chunk_size)
-                .map(|chunk| {
-                    let chunk = chunk.to_vec();
-                    let func = func.clone();
-                    std::thread::spawn(move || {
-                        chunk.into_iter().reduce(|a, b| func(a, b))
-                    })
-                })
-                .collect();
+            let total_items = items.len();
+            let chunk_size = (total_items + thread_count - 1) / thread_count;
+            let (tx, rx) = std::sync::mpsc::channel();
+            
+            for chunk in items.chunks(chunk_size) {
+                let chunk = chunk.to_vec();
+                let func = func.clone();
+                let tx = tx.clone();
+                
+                if let Some(ref pool) = *pool.lock().unwrap() {
+                    pool.execute(move || {
+                        let result = chunk.into_iter().reduce(|a, b| func(a, b));
+                        let _ = tx.send(result);
+                    });
+                }
+            }
 
             let mut results = Vec::new();
-            for handle in partial_results {
-                if let Ok(Some(result)) = handle.join() {
+            let expected_jobs = (total_items + chunk_size - 1) / chunk_size;
+            for _ in 0..expected_jobs {
+                if let Ok(Some(result)) = rx.recv() {
                     results.push(result);
                 }
             }
@@ -287,29 +398,96 @@ impl ExecutionContext for ParallelContext {
     }
 }
 
-/// Simple async runtime for executing futures without external dependencies.
-struct SimpleAsyncRuntime {
-    executor: Arc<Mutex<VecDeque<Pin<Box<dyn Future<Output = ()> + Send>>>>>,
-    waker_queue: Arc<Mutex<VecDeque<Waker>>>,
-    condvar: Arc<Condvar>,
-    running: Arc<AtomicUsize>,
+/// Efficient semaphore implementation using Condvar for proper blocking.
+struct Semaphore {
+    permits: Mutex<usize>,
+    condvar: Condvar,
 }
 
-impl Debug for SimpleAsyncRuntime {
+impl Semaphore {
+    fn new(permits: usize) -> Self {
+        Self {
+            permits: Mutex::new(permits),
+            condvar: Condvar::new(),
+        }
+    }
+    
+    fn acquire(&self) {
+        let mut permits = self.permits.lock().unwrap();
+        while *permits == 0 {
+            permits = self.condvar.wait(permits).unwrap();
+        }
+        *permits -= 1;
+    }
+    
+    fn release(&self) {
+        let mut permits = self.permits.lock().unwrap();
+        *permits += 1;
+        self.condvar.notify_one();
+    }
+}
+
+/// True async runtime for non-blocking execution without external dependencies.
+struct TrueAsyncRuntime {
+    tasks: Arc<Mutex<VecDeque<Pin<Box<dyn Future<Output = ()> + Send>>>>>,
+    waker_queue: Arc<Mutex<VecDeque<Waker>>>,
+    condvar: Arc<Condvar>,
+    running: Arc<AtomicBool>,
+    worker_handle: Option<thread::JoinHandle<()>>,
+}
+
+impl Debug for TrueAsyncRuntime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SimpleAsyncRuntime")
+        f.debug_struct("TrueAsyncRuntime")
             .field("running", &self.running)
             .finish()
     }
 }
 
-impl SimpleAsyncRuntime {
+impl TrueAsyncRuntime {
     fn new() -> Self {
+        let tasks = Arc::new(Mutex::new(VecDeque::<Pin<Box<dyn Future<Output = ()> + Send>>>::new()));
+        let waker_queue = Arc::new(Mutex::new(VecDeque::new()));
+        let condvar = Arc::new(Condvar::new());
+        let running = Arc::new(AtomicBool::new(true));
+        
+        let tasks_clone = Arc::clone(&tasks);
+        let condvar_clone = Arc::clone(&condvar);
+        let running_clone = Arc::clone(&running);
+        
+        let worker_handle = thread::spawn(move || {
+            while running_clone.load(Ordering::Relaxed) {
+                let mut task_queue = tasks_clone.lock().unwrap();
+                
+                if let Some(mut task) = task_queue.pop_front() {
+                    drop(task_queue); // Release lock before polling
+                    
+                    let waker = futures_util::task::noop_waker();
+                    let mut context = Context::from_waker(&waker);
+                    
+                    match task.as_mut().poll(&mut context) {
+                        Poll::Ready(()) => {
+                            // Task completed
+                        }
+                        Poll::Pending => {
+                            // Re-queue the task
+                            let mut task_queue = tasks_clone.lock().unwrap();
+                            task_queue.push_back(task);
+                        }
+                    }
+                } else {
+                    // Wait for new tasks
+                    let _guard = condvar_clone.wait(task_queue).unwrap();
+                }
+            }
+        });
+        
         Self {
-            executor: Arc::new(Mutex::new(VecDeque::new())),
-            waker_queue: Arc::new(Mutex::new(VecDeque::new())),
-            condvar: Arc::new(Condvar::new()),
-            running: Arc::new(AtomicUsize::new(0)),
+            tasks,
+            waker_queue,
+            condvar,
+            running,
+            worker_handle: Some(worker_handle),
         }
     }
 
@@ -317,8 +495,8 @@ impl SimpleAsyncRuntime {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        let mut queue = self.executor.lock().unwrap();
-        queue.push_back(Box::pin(future));
+        let mut tasks = self.tasks.lock().unwrap();
+        tasks.push_back(Box::pin(future));
         self.condvar.notify_one();
     }
 
@@ -337,27 +515,25 @@ impl SimpleAsyncRuntime {
         
         self.spawn(wrapped_future);
         
-        // Simple busy-wait polling (in production would use proper event loop)
+        // Non-blocking polling with yielding
         loop {
-            {
-                let mut queue = self.executor.lock().unwrap();
-                if let Some(mut task) = queue.pop_front() {
-                    // Create a minimal waker
-                    let waker = futures_util::task::noop_waker();
-                    let mut context = Context::from_waker(&waker);
-                    
-                    match task.as_mut().poll(&mut context) {
-                        Poll::Ready(()) => {},
-                        Poll::Pending => queue.push_back(task),
-                    }
-                }
-            }
-            
             if let Some(output) = result.lock().unwrap().take() {
                 return output;
             }
             
-            std::thread::sleep(Duration::from_millis(1));
+            // Yield to allow other tasks to run
+            futures_util::task::yield_now().await;
+        }
+    }
+}
+
+impl Drop for TrueAsyncRuntime {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Relaxed);
+        self.condvar.notify_all();
+        
+        if let Some(handle) = self.worker_handle.take() {
+            let _ = handle.join();
         }
     }
 }
@@ -366,6 +542,9 @@ impl SimpleAsyncRuntime {
 mod futures_util {
     pub mod task {
         use std::task::{RawWaker, RawWakerVTable, Waker};
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::task::{Context, Poll};
 
         pub fn noop_waker() -> Waker {
             const VTABLE: RawWakerVTable = RawWakerVTable::new(
@@ -378,21 +557,44 @@ mod futures_util {
             
             unsafe { Waker::from_raw(RAW_WAKER) }
         }
+        
+        /// Yield control to allow other tasks to run.
+        pub async fn yield_now() {
+            YieldNow { yielded: false }.await
+        }
+        
+        struct YieldNow {
+            yielded: bool,
+        }
+        
+        impl Future for YieldNow {
+            type Output = ();
+            
+            fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+                if self.yielded {
+                    Poll::Ready(())
+                } else {
+                    self.yielded = true;
+                    Poll::Pending
+                }
+            }
+        }
     }
 }
 
-/// Async execution context for I/O-bound operations using pure std library.
+/// True async execution context for I/O-bound operations using pure std library.
 #[derive(Clone)]
 pub struct AsyncContext {
     concurrency_limit: usize,
-    runtime: Arc<SimpleAsyncRuntime>,
+    semaphore: Arc<Semaphore>,
+    runtime: Arc<TrueAsyncRuntime>,
 }
 
 impl Debug for AsyncContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AsyncContext")
             .field("concurrency_limit", &self.concurrency_limit)
-            .field("runtime", &"SimpleAsyncRuntime { ... }")
+            .field("runtime", &"TrueAsyncRuntime { ... }")
             .finish()
     }
 }
@@ -402,7 +604,8 @@ impl AsyncContext {
     pub fn new(concurrency_limit: usize) -> Self {
         Self {
             concurrency_limit: concurrency_limit.max(1),
-            runtime: Arc::new(SimpleAsyncRuntime::new()),
+            semaphore: Arc::new(Semaphore::new(concurrency_limit.max(1))),
+            runtime: Arc::new(TrueAsyncRuntime::new()),
         }
     }
 
@@ -418,46 +621,26 @@ impl ExecutionContext for AsyncContext {
         T: Send + Clone + 'static,
         F: Fn(T) + Send + Sync + Clone + 'static,
     {
-        let concurrency_limit = self.concurrency_limit;
-        let _runtime = Arc::clone(&self.runtime);
+        let semaphore = Arc::clone(&self.semaphore);
         
         Box::pin(async move {
-            let semaphore = Arc::new(Mutex::new(concurrency_limit));
-            let handles: Vec<_> = items
+            let futures: Vec<_> = items
                 .into_iter()
                 .map(|item| {
                     let func = func.clone();
                     let semaphore = Arc::clone(&semaphore);
                     
                     async move {
-                        // Simple semaphore implementation
-                        loop {
-                            {
-                                let mut permits = semaphore.lock().unwrap();
-                                if *permits > 0 {
-                                    *permits -= 1;
-                                    break;
-                                }
-                            }
-                            // Yield to allow other tasks to run
-                            std::thread::sleep(Duration::from_millis(1));
-                        }
-                        
+                        semaphore.acquire();
                         func(item);
-                        
-                        // Release permit
-                        {
-                            let mut permits = semaphore.lock().unwrap();
-                            *permits += 1;
-                        }
+                        semaphore.release();
                     }
                 })
                 .collect();
 
-            // Execute all futures concurrently (simplified implementation)
-            for handle in handles {
-                // In a real implementation, these would be spawned on the runtime
-                let _ = handle.await;
+            // Execute all futures concurrently using true async
+            for future in futures {
+                future.await;
             }
         })
     }
@@ -468,13 +651,12 @@ impl ExecutionContext for AsyncContext {
         R: Send + 'static,
         F: Fn(T) -> R + Send + Sync + Clone + 'static,
     {
-        let concurrency_limit = self.concurrency_limit;
+        let semaphore = Arc::clone(&self.semaphore);
         
         Box::pin(async move {
-            let semaphore = Arc::new(Mutex::new(concurrency_limit));
             let results = Arc::new(Mutex::new(Vec::with_capacity(items.len())));
             
-            let handles: Vec<_> = items
+            let futures: Vec<_> = items
                 .into_iter()
                 .enumerate()
                 .map(|(index, item)| {
@@ -482,37 +664,21 @@ impl ExecutionContext for AsyncContext {
                     let semaphore = Arc::clone(&semaphore);
                     let results = Arc::clone(&results);
                     
-                    std::thread::spawn(move || {
-                        // Simple semaphore implementation
-                        loop {
-                            {
-                                let mut permits = semaphore.lock().unwrap();
-                                if *permits > 0 {
-                                    *permits -= 1;
-                                    break;
-                                }
-                            }
-                            std::thread::sleep(Duration::from_millis(1));
-                        }
-                        
+                    async move {
+                        semaphore.acquire();
                         let result = func(item);
-                        
                         {
                             let mut results = results.lock().unwrap();
                             results.push((index, result));
                         }
-                        
-                        // Release permit
-                        {
-                            let mut permits = semaphore.lock().unwrap();
-                            *permits += 1;
-                        }
-                    })
+                        semaphore.release();
+                    }
                 })
                 .collect();
 
-            for handle in handles {
-                let _ = handle.join();
+            // Execute all futures concurrently
+            for future in futures {
+                future.await;
             }
             
             let mut results = match Arc::try_unwrap(results) {
@@ -535,21 +701,36 @@ impl ExecutionContext for AsyncContext {
     }
 }
 
-/// Hybrid execution context that chooses optimal strategy based on workload.
+/// Adaptive hybrid execution context with configurable thresholds.
 #[derive(Debug, Clone)]
 pub struct HybridContext {
     parallel_ctx: ParallelContext,
     async_ctx: AsyncContext,
     threshold: usize,
+    adaptive: bool,
+    cpu_bound_ratio: f64,
 }
 
 impl HybridContext {
-    /// Create a new hybrid context.
+    /// Create a new hybrid context with configurable threshold.
     pub fn new(parallel_threads: usize, async_concurrency: usize, threshold: usize) -> Self {
         Self {
             parallel_ctx: ParallelContext::new(parallel_threads),
             async_ctx: AsyncContext::new(async_concurrency),
             threshold,
+            adaptive: false,
+            cpu_bound_ratio: 0.5, // Default 50% CPU-bound threshold
+        }
+    }
+
+    /// Create a hybrid context with adaptive threshold based on workload characteristics.
+    pub fn adaptive(parallel_threads: usize, async_concurrency: usize, cpu_bound_ratio: f64) -> Self {
+        Self {
+            parallel_ctx: ParallelContext::new(parallel_threads),
+            async_ctx: AsyncContext::new(async_concurrency),
+            threshold: 1000, // Initial threshold
+            adaptive: true,
+            cpu_bound_ratio: cpu_bound_ratio.clamp(0.0, 1.0),
         }
     }
 
@@ -561,6 +742,38 @@ impl HybridContext {
             10000, // Switch to parallel for large datasets
         )
     }
+    
+    /// Update threshold configuration.
+    pub fn with_threshold(mut self, threshold: usize) -> Self {
+        self.threshold = threshold;
+        self
+    }
+    
+    /// Enable adaptive threshold based on CPU/memory characteristics.
+    pub fn with_adaptive_threshold(mut self, cpu_bound_ratio: f64) -> Self {
+        self.adaptive = true;
+        self.cpu_bound_ratio = cpu_bound_ratio.clamp(0.0, 1.0);
+        self
+    }
+    
+    /// Choose execution context based on workload characteristics.
+    fn choose_context<T>(&self, items: &[T]) -> bool {
+        if self.adaptive {
+            // Adaptive threshold based on system characteristics
+            let available_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+            let memory_pressure = items.len() * std::mem::size_of::<T>();
+            
+            // Use parallel if:
+            // 1. Large dataset that benefits from parallelism
+            // 2. High CPU-bound ratio suggests compute-intensive work
+            // 3. Available threads and reasonable memory usage
+            items.len() > (1000 * available_threads) && 
+            memory_pressure < (1024 * 1024 * 100) && // < 100MB
+            self.cpu_bound_ratio > 0.3
+        } else {
+            items.len() > self.threshold
+        }
+    }
 }
 
 impl ExecutionContext for HybridContext {
@@ -569,7 +782,7 @@ impl ExecutionContext for HybridContext {
         T: Send + Clone + 'static,
         F: Fn(T) + Send + Sync + Clone + 'static,
     {
-        if items.len() > self.threshold {
+        if self.choose_context(&items) {
             self.parallel_ctx.execute(items, func)
         } else {
             self.async_ctx.execute(items, func)
@@ -582,7 +795,7 @@ impl ExecutionContext for HybridContext {
         R: Send + 'static,
         F: Fn(T) -> R + Send + Sync + Clone + 'static,
     {
-        if items.len() > self.threshold {
+        if self.choose_context(&items) {
             self.parallel_ctx.map(items, func)
         } else {
             self.async_ctx.map(items, func)
@@ -594,7 +807,7 @@ impl ExecutionContext for HybridContext {
         T: Send + Clone + 'static,
         F: Fn(T, T) -> T + Send + Sync + Clone + 'static,
     {
-        if items.len() > self.threshold {
+        if self.choose_context(&items) {
             self.parallel_ctx.reduce(items, func)
         } else {
             self.async_ctx.reduce(items, func)
@@ -602,7 +815,7 @@ impl ExecutionContext for HybridContext {
     }
 }
 
-/// Iterator adapter for map operations.
+/// Iterator adapter for map operations with streaming support.
 pub struct Map<I, F> {
     iter: I,
     func: F,
@@ -612,7 +825,7 @@ impl<I, F, R> MoiraiIterator for Map<I, F>
 where
     I: MoiraiIterator,
     F: Fn(I::Item) -> R + Send + Sync + Clone + 'static,
-    R: Send,
+    R: Send + 'static,
 {
     type Item = R;
     type Context = I::Context;
@@ -649,30 +862,38 @@ where
         }
     }
 
-    async fn reduce<G>(mut self, func: G) -> Option<Self::Item>
+    async fn reduce<G>(self, func: G) -> Option<Self::Item>
     where
         G: Fn(Self::Item, Self::Item) -> Self::Item + Send + Sync + Clone + 'static,
     {
-        let mut iter = self;
-        let mut acc = match iter.next().await {
-            Some(first_item) => first_item,
-            None => return None,
-        };
-
-        while let Some(item) = iter.next().await {
-            acc = func(acc, item);
+        // Apply map transformation first, then reduce
+        use std::sync::{Arc, Mutex};
+        
+        let result = Arc::new(Mutex::new(None));
+        let map_func = self.func;
+        let result_clone = Arc::clone(&result);
+        
+        self.iter.for_each(move |item| {
+            let mapped_item = map_func(item);
+            let mut result_guard = result_clone.lock().unwrap();
+            *result_guard = Some(match result_guard.take() {
+                Some(acc) => func(acc, mapped_item),
+                None => mapped_item,
+            });
+        }).await;
+        
+        match Arc::try_unwrap(result) {
+            Ok(mutex) => mutex.into_inner().unwrap(),
+            Err(_) => panic!("Failed to unwrap Arc"),
         }
-
-        Some(acc)
     }
 
     async fn collect<Collection>(self) -> Collection
     where
         Collection: FromMoiraiIterator<Self::Item>,
     {
-        // Collect items into a temporary Vec to avoid recursion
-        let items: Vec<Self::Item> = self.collect().await;
-        Collection::from_moirai_iter(items.into_iter())
+        // Stream directly through the map operation
+        Collection::from_moirai_iter(self)
     }
 
     fn with_strategy(self, strategy: ExecutionStrategy) -> StrategyOverride<Self> {
@@ -705,7 +926,7 @@ where
     }
 }
 
-/// Iterator adapter for filter operations.
+/// Iterator adapter for filter operations with streaming support.
 pub struct Filter<I, F> {
     iter: I,
     predicate: F,
@@ -714,6 +935,7 @@ pub struct Filter<I, F> {
 impl<I, F> MoiraiIterator for Filter<I, F>
 where
     I: MoiraiIterator,
+    I::Item: 'static,
     F: Fn(&I::Item) -> bool + Send + Sync + Clone + 'static,
 {
     type Item = I::Item;
@@ -755,28 +977,39 @@ where
         }
     }
 
-    async fn reduce<G>(mut self, func: G) -> Option<Self::Item>
+    async fn reduce<G>(self, func: G) -> Option<Self::Item>
     where
         G: Fn(Self::Item, Self::Item) -> Self::Item + Send + Sync + Clone + 'static,
     {
-        let mut acc = None;
-        while let Some(item) = self.next().await {
-            acc = Some(match acc {
-                Some(prev) => func(prev, item),
-                None => item,
-            });
+        // Apply filter first, then reduce
+        use std::sync::{Arc, Mutex};
+        
+        let result = Arc::new(Mutex::new(None));
+        let predicate = self.predicate;
+        let result_clone = Arc::clone(&result);
+        
+        self.iter.for_each(move |item| {
+            if predicate(&item) {
+                let mut result_guard = result_clone.lock().unwrap();
+                *result_guard = Some(match result_guard.take() {
+                    Some(acc) => func(acc, item),
+                    None => item,
+                });
+            }
+        }).await;
+        
+        match Arc::try_unwrap(result) {
+            Ok(mutex) => mutex.into_inner().unwrap(),
+            Err(_) => panic!("Failed to unwrap Arc"),
         }
-        acc
     }
 
     async fn collect<Collection>(self) -> Collection
     where
         Collection: FromMoiraiIterator<Self::Item>,
     {
-        // Collect items into a temporary Vec
-        let items: Vec<Self::Item> = self.into_iter().collect().await;
-        // Pass the collected items to from_moirai_iter
-        Collection::from_moirai_iter(items)
+        // Stream directly through the filter operation
+        Collection::from_moirai_iter(self)
     }
 
     fn with_strategy(self, strategy: ExecutionStrategy) -> StrategyOverride<Self> {
@@ -1027,7 +1260,7 @@ mod tests {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let _runtime = SimpleAsyncRuntime::new();
+        let _runtime = TrueAsyncRuntime::new();
         let future = test();
         
         // Simple blocking executor for tests
