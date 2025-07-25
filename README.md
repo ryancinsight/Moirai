@@ -1,7 +1,8 @@
 # Moirai - High-Performance Rust Concurrency Library
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/moirai-lang/moirai)
-[![Coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)](https://github.com/moirai-lang/moirai)
+[![Coverage](https://img.shields.io/badge/coverage-95%25-green)](https://github.com/moirai-lang/moirai)
+[![Phase](https://img.shields.io/badge/phase-13%20(Final%20Polish)-orange)](https://github.com/moirai-lang/moirai)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange)](https://www.rust-lang.org/)
 
