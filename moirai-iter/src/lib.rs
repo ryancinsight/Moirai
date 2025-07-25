@@ -754,12 +754,18 @@ where
         }
     }
 
-    async fn reduce<G>(self, func: G) -> Option<Self::Item>
+    async fn reduce<G>(mut self, func: G) -> Option<Self::Item>
     where
         G: Fn(Self::Item, Self::Item) -> Self::Item + Send + Sync + Clone + 'static,
     {
-        let items: Vec<_> = self.collect().await;
-        items.into_iter().reduce(func)
+        let mut acc = None;
+        while let Some(item) = self.next().await {
+            acc = Some(match acc {
+                Some(prev) => func(prev, item),
+                None => item,
+            });
+        }
+        acc
     }
 
     async fn collect<Collection>(self) -> Collection
