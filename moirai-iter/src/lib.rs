@@ -178,11 +178,13 @@ struct ThreadPool {
     workers: Vec<Worker>,
     sender: std::sync::mpsc::Sender<Message>,
     shutdown: Arc<AtomicBool>,
+    #[allow(dead_code)]
     active_jobs: Arc<AtomicUsize>,
 }
 
 #[derive(Debug)]
 struct Worker {
+    #[allow(dead_code)]
     id: usize,
     handle: Option<thread::JoinHandle<()>>,
 }
@@ -261,6 +263,7 @@ impl ThreadPool {
     }
     
     /// Wait for all active jobs to complete.
+    #[allow(dead_code)]
     fn wait_for_completion(&self) {
         while self.active_jobs.load(Ordering::Relaxed) > 0 {
             thread::sleep(Duration::from_millis(1));
@@ -289,6 +292,7 @@ impl Drop for ThreadPool {
 pub struct ParallelContext {
     thread_count: usize,
     batch_size: usize,
+    #[allow(dead_code)]
     pool: Arc<Mutex<Option<ThreadPool>>>,
 }
 
@@ -308,6 +312,7 @@ impl ParallelContext {
     }
     
     /// Get or create the thread pool.
+    #[allow(dead_code)]
     fn get_pool(&self) -> ThreadPool {
         let mut pool_guard = self.pool.lock().unwrap();
         if pool_guard.is_none() {
@@ -1107,31 +1112,41 @@ where
 
 /// Strategy override adapter.
 pub struct StrategyOverride<I> {
+    #[allow(dead_code)]
     iter: I,
+    #[allow(dead_code)]
     strategy: ExecutionStrategy,
 }
 
 /// Chain adapter for combining iterators.
 pub struct Chain<I, J> {
+    #[allow(dead_code)]
     first: I,
+    #[allow(dead_code)]
     second: J,
 }
 
 /// Take adapter for limiting items.
 pub struct Take<I> {
+    #[allow(dead_code)]
     iter: I,
+    #[allow(dead_code)]
     n: usize,
 }
 
 /// Skip adapter for skipping items.
 pub struct Skip<I> {
+    #[allow(dead_code)]
     iter: I,
+    #[allow(dead_code)]
     n: usize,
 }
 
 /// Batch adapter for processing items in batches.
 pub struct Batch<I> {
+    #[allow(dead_code)]
     iter: I,
+    #[allow(dead_code)]
     size: usize,
 }
 

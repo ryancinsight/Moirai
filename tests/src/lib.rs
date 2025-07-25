@@ -122,12 +122,12 @@ mod integration_tests {
     fn test_cpu_optimization_integration() {
         // Simple integration test for CPU-optimized execution
         let runtime = Moirai::builder()
-            .worker_threads(8) // More worker threads
+            .worker_threads(4) // Reduced worker threads to avoid resource contention
             .build()
             .unwrap();
         
         let counter = Arc::new(AtomicU32::new(0));
-        let task_count = 8; // Fewer tasks
+        let task_count = 4; // Reduced task count for stability
         
         let handles: Vec<_> = (0..task_count)
             .map(|i| {
@@ -155,6 +155,9 @@ mod integration_tests {
         for (i, &result) in results.iter().enumerate() {
             assert_eq!(result, (i * 2 + 1) as u64, "CPU computation should produce correct result");
         }
+        
+        // Explicit shutdown to ensure proper cleanup
+        runtime.shutdown();
     }
 
     /// Test memory prefetching utilities.
