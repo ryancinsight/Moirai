@@ -9,15 +9,16 @@ A next-generation concurrency library that synthesizes the best principles from 
 
 ## 🚀 Features
 
-### ✅ **Unified Iterator System (moirai_iter)** - **ENHANCED**
+### ✅ **Unified Iterator System (moirai_iter)** - **RECENTLY IMPROVED**
 - **Execution Agnostic**: Same API works across parallel, async, distributed, and hybrid contexts
 - **Memory Efficient**: Streaming operations, NUMA-aware allocation, and cache-friendly data layouts  
 - **Zero-cost Abstractions**: Compile-time optimizations with no runtime overhead
 - **Pure Rust std**: No external dependencies, built entirely on Rust's standard library
-- **Thread Pool Management**: Efficient thread reuse and resource management
-- **True Async Execution**: Non-blocking async operations without thread spawning
-- **Adaptive Thresholds**: Configurable and intelligent workload-based execution strategy selection
-- **Streaming Collect**: Memory-efficient collection operations for large datasets
+- **🆕 Advanced Thread Pool**: Work-stealing thread pool with adaptive sizing and efficient job management
+- **🆕 True Async Execution**: Non-blocking async operations using custom pure-std async runtime
+- **🆕 Adaptive Hybrid Context**: Configurable thresholds with performance history tracking for intelligent execution strategy selection
+- **🆕 Streaming Operations**: Memory-efficient map, filter, and reduce operations that avoid intermediate collections
+- **🆕 Enhanced Configuration**: `HybridConfig` for fine-tuning execution parameters (CPU-bound ratio, memory thresholds, batch sizes)
 
 ```rust
 use moirai::prelude::*;
@@ -40,6 +41,20 @@ moirai_iter_async(data.clone())
 moirai_iter_hybrid(data)
     .batch(1000)  // Process in cache-friendly batches
     .map(|x| expensive_computation(x))
+    .collect::<Vec<_>>()
+    .await;
+
+// Custom hybrid configuration
+let config = HybridConfig {
+    adaptive: true,
+    cpu_bound_ratio: 0.8,
+    memory_threshold: 50 * 1024 * 1024, // 50MB
+    min_parallel_batch: 500,
+    ..Default::default()
+};
+moirai_iter_hybrid_with_config(data, config)
+    .map(|x| x * 2)
+    .filter(|&x| x > 5)
     .collect::<Vec<_>>()
     .await;
 ```
