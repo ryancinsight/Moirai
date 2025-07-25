@@ -649,13 +649,21 @@ where
         }
     }
 
-    async fn reduce<G>(self, func: G) -> Option<Self::Item>
+    async fn reduce<G>(mut self, func: G) -> Option<Self::Item>
     where
         G: Fn(Self::Item, Self::Item) -> Self::Item + Send + Sync + Clone + 'static,
     {
-        // This is a simplified implementation - in practice would need proper streaming
-        let items: Vec<_> = self.collect().await;
-        items.into_iter().reduce(func)
+        let mut iter = self;
+        let mut acc = match iter.next().await {
+            Some(first_item) => first_item,
+            None => return None,
+        };
+
+        while let Some(item) = iter.next().await {
+            acc = func(acc, item);
+        }
+
+        Some(acc)
     }
 
     async fn collect<Collection>(self) -> Collection
