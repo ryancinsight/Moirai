@@ -670,8 +670,9 @@ where
     where
         Collection: FromMoiraiIterator<Self::Item>,
     {
-        // Simplified implementation - would need proper streaming in practice
-        Collection::from_moirai_iter(self)
+        // Collect items into a temporary Vec to avoid recursion
+        let items: Vec<Self::Item> = self.collect().await;
+        Collection::from_moirai_iter(items.into_iter())
     }
 
     fn with_strategy(self, strategy: ExecutionStrategy) -> StrategyOverride<Self> {
