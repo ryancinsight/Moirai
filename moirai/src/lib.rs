@@ -610,7 +610,7 @@ pub mod prelude {
     };
 
     #[cfg(feature = "iter")]
-    pub use crate::{ParallelIterator, AsyncIterator, IntoParallelIterator};
+    pub use crate::{MoiraiIterator, ExecutionContext, ExecutionStrategy, IntoMoiraiIterator};
 
     #[cfg(feature = "async")]
     pub use crate::{Timer, Timeout};
