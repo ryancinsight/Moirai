@@ -773,7 +773,10 @@ where
     where
         Collection: FromMoiraiIterator<Self::Item>,
     {
-        Collection::from_moirai_iter(self)
+        // Collect items into a temporary Vec
+        let items: Vec<Self::Item> = self.into_iter().collect().await;
+        // Pass the collected items to from_moirai_iter
+        Collection::from_moirai_iter(items)
     }
 
     fn with_strategy(self, strategy: ExecutionStrategy) -> StrategyOverride<Self> {
