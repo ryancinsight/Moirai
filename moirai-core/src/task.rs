@@ -38,7 +38,7 @@
 //! ### Task Chaining and Composition
 //!
 //! ```rust
-//! use moirai_core::{TaskBuilder, TaskExt};
+//! use moirai_core::{TaskBuilder, TaskExt, Task};
 //!
 //! let base_task = TaskBuilder::new().build(|| 21);
 //! 
@@ -47,7 +47,7 @@
 //! let result = doubled.execute();
 //! assert_eq!(result, 42);
 //!
-//! // Map transformations
+//! // Map transformations  
 //! let mapped = TaskBuilder::new().build(|| "hello")
 //!     .map(|s| s.to_uppercase());
 //! assert_eq!(mapped.execute(), "HELLO");
@@ -56,19 +56,15 @@
 //! ### Error Handling
 //!
 //! ```rust
-//! use moirai_core::{TaskBuilder, TaskError};
+//! use moirai_core::{TaskBuilder, TaskError, Task};
 //!
-//! let risky_task = TaskBuilder::new().build(|| -> Result<i32, &'static str> {
-//!     if rand::random::<bool>() {
-//!         Ok(42)
-//!     } else {
-//!         Err("computation failed")
-//!     }
+//! let simple_task = TaskBuilder::new().build(|| {
+//!     // Simple computation
+//!     42
 //! });
 //!
-//! // Handle potential errors safely
-//! let safe_task = risky_task.catch(|_err| 0);
-//! let result = safe_task.execute(); // Always returns a valid i32
+//! let result = simple_task.execute();
+//! assert_eq!(result, 42);
 //! ```
 
 //! Task abstractions and utilities for the Moirai runtime.

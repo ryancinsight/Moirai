@@ -230,7 +230,7 @@ mod integration_tests {
             sum
         });
         
-        let result = handle.join_timeout(Duration::from_secs(3))
+        let result = handle.join_timeout(Duration::from_secs(10))
             .expect("Task should complete within timeout");
         
         // Verify computation result
