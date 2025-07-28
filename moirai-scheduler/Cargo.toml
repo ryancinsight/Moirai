@@ -15,6 +15,7 @@ description = "Work-stealing scheduler implementation for Moirai concurrency lib
 [dependencies]
 moirai-core = { workspace = true }
 moirai-utils = { workspace = true }
+num_cpus = "1.16"
 
 [dev-dependencies]
 criterion = { workspace = true }
