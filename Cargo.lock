@@ -572,6 +572,7 @@ dependencies = [
  "criterion",
  "moirai-core",
  "moirai-utils",
+ "num_cpus",
  "proptest",
 ]
 

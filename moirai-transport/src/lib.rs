@@ -1,4 +1,6 @@
 //! Unified transport layer for Moirai concurrency library.
+
+pub mod zero_copy;
 //!
 //! This module provides a seamless communication abstraction that works across
 //! threads, processes, and machines. All communication is coordinated through

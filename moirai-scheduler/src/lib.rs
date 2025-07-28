@@ -2,6 +2,8 @@
 //!
 //! This module provides a high-performance work-stealing scheduler based on the Chase-Lev
 //! algorithm, optimized for both single-threaded performance and multi-threaded scalability.
+
+pub mod numa_scheduler;
 //!
 //! ## Algorithm Overview
 //!
