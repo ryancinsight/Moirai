@@ -157,8 +157,6 @@ impl ExecutionContext for NumaAwareContext {
                     }
                     
                     let items = items.clone();
-
-                    
                     scope.spawn(move || {
                         // Pin thread to NUMA node
                         #[cfg(target_os = "linux")]
