@@ -200,12 +200,13 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                 let func = Arc::clone(&func);
                 scope.spawn(move || {
                     // Process chunk with prefetching
+                    let cache_line_elements = CACHE_LINE_SIZE / mem::size_of::<T>();
                     for (i, item) in chunk.iter().enumerate() {
                         // Prefetch next cache line
-                        if i % (CACHE_LINE_SIZE / mem::size_of::<T>()) == 0 
-                            && i + (CACHE_LINE_SIZE / mem::size_of::<T>()) < chunk.len() {
+                        if i % cache_line_elements == 0 
+                            && i + cache_line_elements < chunk.len() {
                             unsafe {
-                                let next_ptr = chunk.as_ptr().add(i + (CACHE_LINE_SIZE / mem::size_of::<T>()));
+                                let next_ptr = chunk.as_ptr().add(i + cache_line_elements);
                                 prefetch_read_data(next_ptr as *const u8, 0);
                             }
                         }
