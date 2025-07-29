@@ -70,7 +70,7 @@ impl NumaAwareContext {
     unsafe fn numa_alloc(&self, size: usize, node: usize) -> *mut u8 {
         #[cfg(target_os = "linux")]
         {
-            use std::os::raw::{c_void, c_ulong};
+
             
             // Use mmap with NUMA policy
             let addr = libc::mmap(

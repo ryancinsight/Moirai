@@ -3,11 +3,9 @@
 //! This module provides high-performance iterator adapters that maximize cache locality
 //! through careful data layout, prefetching, and zero-copy operations.
 
-use std::slice;
 use std::mem;
 use std::ptr;
 use std::sync::Arc;
-use std::marker::PhantomData;
 
 /// Cache line size for most modern x86_64 processors
 pub const CACHE_LINE_SIZE: usize = 64;

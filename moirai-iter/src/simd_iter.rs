@@ -3,8 +3,6 @@
 //! This module provides iterator adapters that leverage SIMD instructions
 //! for vectorized processing of numeric data.
 
-use std::slice;
-use std::mem;
 use std::marker::PhantomData;
 
 /// Trait for types that can be processed with SIMD operations
@@ -25,7 +23,10 @@ pub struct SimdF32Iterator<'a> {
 impl<'a> SimdF32Iterator<'a> {
     pub fn new(data: &'a [f32]) -> Self {
         // AVX2 processes 8 f32 values at once
+        #[cfg(target_arch = "x86_64")]
         let chunk_size = if is_x86_feature_detected!("avx2") { 8 } else { 1 };
+        #[cfg(not(target_arch = "x86_64"))]
+        let chunk_size = 1;
         
         Self {
             data,
@@ -38,7 +39,12 @@ impl<'a> SimdF32Iterator<'a> {
     pub fn simd_add(self, other: &'a [f32]) -> Vec<f32> {
         assert_eq!(self.data.len(), other.len(), "Slices must have same length");
         
-        if !is_x86_feature_detected!("avx2") || self.data.len() < 8 {
+        #[cfg(target_arch = "x86_64")]
+        let use_simd = is_x86_feature_detected!("avx2") && self.data.len() >= 8;
+        #[cfg(not(target_arch = "x86_64"))]
+        let use_simd = false;
+        
+        if !use_simd {
             // Fallback to scalar operations
             return self.data.iter()
                 .zip(other.iter())
@@ -72,7 +78,12 @@ impl<'a> SimdF32Iterator<'a> {
     pub fn simd_mul(self, other: &'a [f32]) -> Vec<f32> {
         assert_eq!(self.data.len(), other.len(), "Slices must have same length");
         
-        if !is_x86_feature_detected!("avx2") || self.data.len() < 8 {
+        #[cfg(target_arch = "x86_64")]
+        let use_simd = is_x86_feature_detected!("avx2") && self.data.len() >= 8;
+        #[cfg(not(target_arch = "x86_64"))]
+        let use_simd = false;
+        
+        if !use_simd {
             // Fallback to scalar operations
             return self.data.iter()
                 .zip(other.iter())
@@ -106,7 +117,12 @@ impl<'a> SimdF32Iterator<'a> {
     pub fn simd_dot_product(self, other: &'a [f32]) -> f32 {
         assert_eq!(self.data.len(), other.len(), "Slices must have same length");
         
-        if !is_x86_feature_detected!("avx2") || self.data.len() < 8 {
+        #[cfg(target_arch = "x86_64")]
+        let use_simd = is_x86_feature_detected!("avx2") && self.data.len() >= 8;
+        #[cfg(not(target_arch = "x86_64"))]
+        let use_simd = false;
+        
+        if !use_simd {
             // Fallback to scalar operations
             return self.data.iter()
                 .zip(other.iter())
@@ -175,7 +191,10 @@ impl<'a> SimdParallelIterator<'a, f32> {
             .unwrap_or(1);
         
         // Each thread processes multiple SIMD chunks
+        #[cfg(target_arch = "x86_64")]
         let simd_chunk = if is_x86_feature_detected!("avx2") { 8 } else { 1 };
+        #[cfg(not(target_arch = "x86_64"))]
+        let simd_chunk = 1;
         let chunk_size = (data.len() / num_threads).max(simd_chunk * 128); // At least 128 SIMD operations per thread
         
         Self {
