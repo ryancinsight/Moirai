@@ -1,5 +1,8 @@
 //! Integration tests for Moirai concurrency library.
 
+pub mod principle_based_edge_tests;
+pub mod edge_test_runner;
+
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]
 mod integration_tests {
@@ -288,6 +291,31 @@ mod integration_tests {
         
         // Explicit shutdown to ensure cleanup
         runtime.shutdown();
+    }
+
+    /// Comprehensive principle-based edge testing
+    #[test]
+    fn test_comprehensive_principle_edge_cases() {
+        use crate::edge_test_runner::EdgeTestRunner;
+        
+        let mut runner = EdgeTestRunner::new()
+            .with_timeout(std::time::Duration::from_secs(60))
+            .with_parallel_execution(true);
+            
+        let stats = runner.run_all_tests();
+        
+        // Assert high success rate for principle compliance
+        assert!(stats.success_rate() >= 0.95, 
+            "Edge test success rate {:.1}% below quality threshold of 95%", 
+            stats.success_rate() * 100.0);
+            
+        // Assert comprehensive coverage
+        assert!(stats.total_tests >= 15, 
+            "Expected at least 15 edge test cases, found {}", stats.total_tests);
+            
+        println!("✅ All principle-based edge tests completed successfully!");
+        println!("📊 Success rate: {:.1}%", stats.success_rate() * 100.0);
+        println!("⏱️  Total duration: {:.2}s", stats.total_duration.as_secs_f64());
     }
 }
 
