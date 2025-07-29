@@ -236,12 +236,14 @@ mod solid_tests {
         struct MinimalTaskRunner {
             spawned_tasks: AtomicUsize,
             completion_rate: AtomicU64, // f64 bits stored as u64
+            task_id_counter: AtomicUsize, // Counter for generating unique task IDs
         }
 
         impl TaskSpawner for MinimalTaskRunner {
             fn spawn_task(&self, _priority: Priority) -> Result<TaskId, ExecutorError> {
+                let task_id = self.task_id_counter.fetch_add(1, Ordering::Relaxed);
                 self.spawned_tasks.fetch_add(1, Ordering::Relaxed);
-                Ok(TaskId::new(1))
+                Ok(TaskId::new(task_id as u64))
             }
         }
 
