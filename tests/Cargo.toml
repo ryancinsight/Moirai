@@ -9,6 +9,10 @@ description = "Integration tests for Moirai concurrency library"
 
 [dependencies]
 moirai = { path = "../moirai", features = ["full"] }
+moirai-core = { path = "../moirai-core" }
+moirai-scheduler = { path = "../moirai-scheduler" }
+moirai-transport = { path = "../moirai-transport" }
+moirai-sync = { path = "../moirai-sync" }
 moirai-utils = { path = "../moirai-utils", features = ["std"] }
 proptest = { workspace = true }
 quickcheck = { workspace = true }

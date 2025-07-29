@@ -2,8 +2,6 @@
 //!
 //! This module provides a high-performance work-stealing scheduler based on the Chase-Lev
 //! algorithm, optimized for both single-threaded performance and multi-threaded scalability.
-
-pub mod numa_scheduler;
 //!
 //! ## Algorithm Overview
 //!
@@ -42,77 +40,79 @@ pub mod numa_scheduler;
 //! ### Basic Usage
 //!
 //! ```rust
-//! use moirai_scheduler::{WorkStealingScheduler, SchedulerConfig};
-//! use moirai_core::{Task, TaskBuilder, Priority};
-//!
-//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create scheduler with optimal configuration
-//! let config = SchedulerConfig {
-//!     initial_capacity: 256,
-//!     max_capacity: 4096,
-//!     steal_strategy: WorkStealingStrategy::StealHalf,
-//!     enable_statistics: true,
-//! };
-//!
-//! let mut scheduler = WorkStealingScheduler::new(config)?;
-//!
-//! // Add tasks with different priorities
-//! let high_priority_task = TaskBuilder::new()
-//!     .priority(Priority::High)
-//!     .name("critical_task")
-//!     .build(|| println!("High priority work"));
-//!
-//! let normal_task = TaskBuilder::new()
-//!     .priority(Priority::Normal)
-//!     .build(|| println!("Normal work"));
-//!
-//! scheduler.schedule(high_priority_task)?;
-//! scheduler.schedule(normal_task)?;
-//!
-//! // Execute tasks (high priority first)
-//! while let Some(task) = scheduler.next_task() {
-//!     task.execute();
-//! }
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## Thread Safety and Stealing
-//!
-//! The scheduler is designed for efficient work stealing across multiple threads:
-//!
-//! ```rust
-//! use moirai_scheduler::WorkStealingScheduler;
-//! use std::sync::Arc;
-//! use std::thread;
-//!
-//! # fn stealing_example() -> Result<(), Box<dyn std::error::Error>> {
-//! let scheduler = Arc::new(WorkStealingScheduler::new(Default::default())?);
-//!
-//! // Worker threads can steal from each other
-//! let handles: Vec<_> = (0..4).map(|worker_id| {
-//!     let scheduler = scheduler.clone();
-//!     thread::spawn(move || {
-//!         // Each worker tries to get work
-//!         while let Some(task) = scheduler.steal_task(worker_id) {
-//!             task.execute();
-//!         }
-//!     })
-//! }).collect();
-//!
-//! // Main thread continues adding work
-//! for i in 0..1000 {
-//!     let task = TaskBuilder::new().build(move || println!("Task {}", i));
-//!     scheduler.schedule(task)?;
-//! }
-//!
-//! // Wait for all workers to complete
-//! for handle in handles {
-//!     handle.join().unwrap();
-//! }
-//! # Ok(())
-//! # }
-//! ```
+// use moirai_scheduler::{WorkStealingScheduler, SchedulerConfig};
+// use moirai_core::{Task, TaskBuilder, Priority};
+//
+// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+// // Create scheduler with optimal configuration
+// let config = SchedulerConfig {
+//     initial_capacity: 256,
+//     max_capacity: 4096,
+//     steal_strategy: WorkStealingStrategy::StealHalf,
+//     enable_statistics: true,
+// };
+//
+// let mut scheduler = WorkStealingScheduler::new(config)?;
+//
+// // Add tasks with different priorities
+// let high_priority_task = TaskBuilder::new()
+//     .priority(Priority::High)
+//     .name("critical_task")
+//     .build(|| println!("High priority work"));
+//
+// let normal_task = TaskBuilder::new()
+//     .priority(Priority::Normal)
+//     .build(|| println!("Normal work"));
+//
+// scheduler.schedule(high_priority_task)?;
+// scheduler.schedule(normal_task)?;
+//
+// // Execute tasks (high priority first)
+// while let Some(task) = scheduler.next_task() {
+//     task.execute();
+// }
+// # Ok(())
+// # }
+// ```
+//
+// ## Thread Safety and Stealing
+//
+// The scheduler is designed for efficient work stealing across multiple threads:
+//
+// ```rust
+// use moirai_scheduler::WorkStealingScheduler;
+// use std::sync::Arc;
+// use std::thread;
+//
+// # fn stealing_example() -> Result<(), Box<dyn std::error::Error>> {
+// let scheduler = Arc::new(WorkStealingScheduler::new(Default::default())?);
+//
+// // Worker threads can steal from each other
+// let handles: Vec<_> = (0..4).map(|worker_id| {
+//     let scheduler = scheduler.clone();
+//     thread::spawn(move || {
+//         // Each worker tries to get work
+//         while let Some(task) = scheduler.steal_task(worker_id) {
+//             task.execute();
+//         }
+//     })
+// }).collect();
+//
+// // Main thread continues adding work
+// for i in 0..1000 {
+//     let task = TaskBuilder::new().build(move || println!("Task {}", i));
+//     scheduler.schedule(task)?;
+// }
+//
+// // Wait for all workers to complete
+// for handle in handles {
+//     handle.join().unwrap();
+// }
+// # Ok(())
+// # }
+// ```
+
+pub mod numa_scheduler;
 
 use moirai_core::{
     BoxedTask, scheduler::{Scheduler, SchedulerId, SchedulerConfig, QueueType, WorkStealingStrategy},
