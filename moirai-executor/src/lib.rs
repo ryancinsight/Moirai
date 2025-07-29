@@ -52,6 +52,7 @@ use moirai_core::{
     scheduler::{Scheduler, SchedulerId, WorkStealingCoordinator},
     error::{ExecutorError, ExecutorResult, TaskError},
     task::{TaskBuilder, TaskWrapper},
+    cache_aligned::CacheAligned,
     Box, Vec,
 };
 use moirai_utils::{
@@ -626,12 +627,24 @@ impl TaskPerformanceMetrics {
 }
 
 /// Metrics collected per worker thread.
-#[derive(Debug, Default)]
+/// Each atomic counter is cache-aligned to prevent false sharing.
+#[derive(Debug)]
 struct WorkerMetrics {
-    tasks_executed: AtomicU64,
-    steal_attempts: AtomicU64,
-    successful_steals: AtomicU64,
-    execution_time_ns: AtomicU64,
+    tasks_executed: CacheAligned<AtomicU64>,
+    steal_attempts: CacheAligned<AtomicU64>,
+    successful_steals: CacheAligned<AtomicU64>,
+    execution_time_ns: CacheAligned<AtomicU64>,
+}
+
+impl Default for WorkerMetrics {
+    fn default() -> Self {
+        Self {
+            tasks_executed: CacheAligned::new(AtomicU64::new(0)),
+            steal_attempts: CacheAligned::new(AtomicU64::new(0)),
+            successful_steals: CacheAligned::new(AtomicU64::new(0)),
+            execution_time_ns: CacheAligned::new(AtomicU64::new(0)),
+        }
+    }
 }
 
 impl Worker {
