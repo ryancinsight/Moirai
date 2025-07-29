@@ -157,7 +157,6 @@ impl ExecutionContext for NumaAwareContext {
                     }
                     
                     let items = items.clone();
-                    let func = func.clone();
 
                     
                     scope.spawn(move || {
@@ -215,7 +214,6 @@ impl ExecutionContext for NumaAwareContext {
                     }
                     
                     let items = items.clone();
-                    let func = func.clone();
                     
                     scope.spawn(move || {
                         // Pin to NUMA node
@@ -277,7 +275,6 @@ impl ExecutionContext for NumaAwareContext {
                     }
                     
                     let items = items.clone();
-                    let func = func.clone();
                     
                     let handle = scope.spawn(move || {
                         // Pin to NUMA node

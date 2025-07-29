@@ -169,6 +169,45 @@ fn test_cache_padded_alignment() {
 - **Maintainability**: Removed code duplication and dead code
 - **Clarity**: Improved naming and documentation
 
+### 7. Unnecessary Arc Allocations
+
+**Issue**: Using `Arc::new(func)` creates heap allocations for functions in performance-critical code.
+
+**Fix Applied**:
+```rust
+// Before:
+let func = Arc::new(func);
+std::thread::scope(|scope| {
+    for chunk in self.data.chunks(self.chunk_size) {
+        let func = Arc::clone(&func);
+        scope.spawn(move || {
+            // ...
+        });
+    }
+});
+
+// After:
+std::thread::scope(|scope| {
+    for chunk in self.data.chunks(self.chunk_size) {
+        scope.spawn(|| {
+            // Direct access to func via closure capture
+            // ...
+        });
+    }
+});
+```
+
+**Changes Made**:
+- Removed `Arc::new(func)` and `Arc::clone(&func)` from all methods in `cache_optimized.rs`
+- Removed `func.clone()` from all methods in `numa_aware.rs`
+- Removed unused `use std::sync::Arc` import
+
+**Benefits**:
+- Eliminates heap allocations for function pointers
+- Better performance in hot paths
+- Leverages `std::thread::scope`'s ability to borrow non-'static data
+- Simpler, cleaner code
+
 ---
 
 This comprehensive fix addresses all code review feedback while maintaining the performance benefits of the cache locality optimizations.

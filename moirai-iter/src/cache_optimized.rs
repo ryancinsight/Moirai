@@ -5,7 +5,6 @@
 
 use std::mem;
 use std::ptr;
-use std::sync::Arc;
 
 // Import CacheAligned from moirai-core
 use moirai_core::cache_aligned::CacheAligned;
@@ -193,12 +192,9 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
     where
         F: Fn(&T) + Send + Sync,
     {
-        let func = Arc::new(func);
-        
         std::thread::scope(|scope| {
             for chunk in self.data.chunks(self.chunk_size) {
-                let func = Arc::clone(&func);
-                scope.spawn(move || {
+                scope.spawn(|| {
                     // Process chunk with prefetching
                     let cache_line_elements = CACHE_LINE_SIZE / mem::size_of::<T>();
                     for (i, item) in chunk.iter().enumerate() {
@@ -224,7 +220,6 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         F: Fn(&T) -> R + Send + Sync,
         R: Send,
     {
-        let func = Arc::new(func);
         let mut results = Vec::with_capacity(self.data.len());
         unsafe { results.set_len(self.data.len()); }
         
@@ -232,10 +227,9 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         
         std::thread::scope(|scope| {
             for (chunk_idx, chunk) in self.data.chunks(self.chunk_size).enumerate() {
-                let func = Arc::clone(&func);
                 let chunk_start = chunk_idx * self.chunk_size;
                 
-                scope.spawn(move || {
+                scope.spawn(|| {
                     for (i, item) in chunk.iter().enumerate() {
                         unsafe {
                             let result = func(item);
@@ -263,15 +257,12 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             return Some(self.data[0].clone());
         }
         
-        let func = Arc::new(func);
-        
         // Tree reduction with cache-friendly chunking
         let mut current_results: Vec<T> = std::thread::scope(|scope| {
             let mut handles = Vec::new();
             
             for chunk in self.data.chunks(self.chunk_size) {
-                let func = Arc::clone(&func);
-                let handle = scope.spawn(move || {
+                let handle = scope.spawn(|| {
                     chunk.iter()
                         .cloned()
                         .reduce(|a, b| func(&a, &b))
@@ -286,13 +277,11 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         
         // Continue reducing until we have a single result
         while current_results.len() > 1 {
-            let func = Arc::clone(&func);
             current_results = std::thread::scope(|scope| {
                 let mut handles = Vec::new();
                 
                 // Process pairs without copying the entire chunk
                 for i in (0..current_results.len()).step_by(2) {
-                    let func = Arc::clone(&func);
                     let len = current_results.len();
                     
                     // Use unsafe to work around borrow checker limitations with scoped threads
