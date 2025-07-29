@@ -7,23 +7,14 @@ use std::mem;
 use std::ptr;
 use std::sync::Arc;
 
+// Import CacheAligned from moirai-core
+use moirai_core::cache_aligned::CacheAligned;
+
 /// Cache line size for most modern x86_64 processors
 pub const CACHE_LINE_SIZE: usize = 64;
 
 /// Optimal chunk size for cache-friendly iteration (L1 cache size / 2)
 pub const OPTIMAL_CHUNK_SIZE: usize = 16384; // 16KB, half of typical L1 cache
-
-/// A cache-aligned wrapper for data to prevent false sharing
-#[repr(align(64))]
-pub struct CacheAligned<T> {
-    pub data: T,
-}
-
-impl<T> CacheAligned<T> {
-    pub fn new(data: T) -> Self {
-        Self { data }
-    }
-}
 
 /// Zero-copy window iterator that processes data in cache-friendly chunks
 pub struct WindowIterator<'a, T> {
@@ -261,7 +252,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
     pub fn reduce<F>(&self, func: F) -> Option<T>
     where
         F: Fn(&T, &T) -> T + Send + Sync,
-        T: Clone,
+        T: Clone + Send,
     {
         if self.data.is_empty() {
             return None;
@@ -298,14 +289,19 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             current_results = std::thread::scope(|scope| {
                 let mut handles = Vec::new();
                 
-                for chunk in current_results.chunks(2) {
+                // Process pairs without copying the entire chunk
+                for i in (0..current_results.len()).step_by(2) {
                     let func = Arc::clone(&func);
-                    let chunk = chunk.to_vec();
-                    let handle = scope.spawn(move || {
-                        if chunk.len() == 2 {
-                            Some(func(&chunk[0], &chunk[1]))
+                    let len = current_results.len();
+                    
+                    // Use unsafe to work around borrow checker limitations with scoped threads
+                    let results_ptr = current_results.as_ptr();
+                    
+                    let handle = scope.spawn(move || unsafe {
+                        if i + 1 < len {
+                            Some(func(&*results_ptr.add(i), &*results_ptr.add(i + 1)))
                         } else {
-                            Some(chunk[0].clone())
+                            Some((*results_ptr.add(i)).clone())
                         }
                     });
                     handles.push(handle);

@@ -60,19 +60,18 @@ impl<T> From<T> for CacheAligned<T> {
 }
 
 /// A padded structure that ensures each element in an array is on its own cache line
-#[repr(C)]
+/// 
+/// This implementation ensures the total size is always a multiple of CACHE_LINE_SIZE
+/// to maintain proper alignment in arrays.
+#[repr(C, align(64))]
 pub struct CachePadded<T> {
     data: T,
-    _padding: [u8; CACHE_LINE_SIZE - (size_of::<T>() % CACHE_LINE_SIZE)],
 }
 
 impl<T> CachePadded<T> {
     /// Create a new cache-padded value
     pub fn new(data: T) -> Self {
-        Self {
-            data,
-            _padding: [0; CACHE_LINE_SIZE - (size_of::<T>() % CACHE_LINE_SIZE)],
-        }
+        Self { data }
     }
     
     /// Get a reference to the inner value
@@ -156,6 +155,43 @@ mod tests {
         for i in 1..counters.len() {
             let addr1 = &counters[i-1] as *const _ as usize;
             let addr2 = &counters[i] as *const _ as usize;
+            assert!(addr2 - addr1 >= CACHE_LINE_SIZE);
+        }
+    }
+    
+    #[test]
+    fn test_cache_padded_alignment() {
+        // Test with various sizes to ensure correct padding
+        struct Small { _x: u8 }
+        struct Medium { _x: [u8; 32] }
+        struct Large { _x: [u8; 64] }
+        struct ExtraLarge { _x: [u8; 128] }
+        
+        // All CachePadded types should be aligned to cache line
+        assert_eq!(align_of::<CachePadded<Small>>(), CACHE_LINE_SIZE);
+        assert_eq!(align_of::<CachePadded<Medium>>(), CACHE_LINE_SIZE);
+        assert_eq!(align_of::<CachePadded<Large>>(), CACHE_LINE_SIZE);
+        assert_eq!(align_of::<CachePadded<ExtraLarge>>(), CACHE_LINE_SIZE);
+        
+        // Size should be at least the cache line size
+        assert!(size_of::<CachePadded<Small>>() >= CACHE_LINE_SIZE);
+        assert!(size_of::<CachePadded<Medium>>() >= CACHE_LINE_SIZE);
+        assert!(size_of::<CachePadded<Large>>() >= CACHE_LINE_SIZE);
+        assert!(size_of::<CachePadded<ExtraLarge>>() >= CACHE_LINE_SIZE);
+        
+        // Test array alignment
+        let padded_array: [CachePadded<AtomicUsize>; 4] = [
+            CachePadded::new(AtomicUsize::new(0)),
+            CachePadded::new(AtomicUsize::new(1)),
+            CachePadded::new(AtomicUsize::new(2)),
+            CachePadded::new(AtomicUsize::new(3)),
+        ];
+        
+        // Each element should be on its own cache line
+        for i in 1..padded_array.len() {
+            let addr1 = &padded_array[i-1] as *const _ as usize;
+            let addr2 = &padded_array[i] as *const _ as usize;
+            assert_eq!(addr2 - addr1, size_of::<CachePadded<AtomicUsize>>());
             assert!(addr2 - addr1 >= CACHE_LINE_SIZE);
         }
     }

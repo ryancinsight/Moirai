@@ -5,14 +5,6 @@
 
 use std::marker::PhantomData;
 
-/// Trait for types that can be processed with SIMD operations
-pub trait SimdElement: Clone + Send + Sync {
-    /// Process elements using SIMD operations if available
-    fn simd_process<F>(slice: &[Self], func: F) -> Vec<Self>
-    where
-        F: Fn(&[Self]) -> Vec<Self>;
-}
-
 /// SIMD-optimized iterator for f32 arrays
 pub struct SimdF32Iterator<'a> {
     data: &'a [f32],
@@ -150,8 +142,9 @@ impl<'a> SimdF32Iterator<'a> {
         sum
     }
     
-    /// Apply a scalar function with SIMD-optimized batching
-    pub fn simd_map<F>(self, func: F) -> Vec<f32>
+    /// Apply a scalar function with cache-friendly chunking and prefetching
+    /// Note: The function itself is not vectorized, but the iteration is optimized
+    pub fn map_with_prefetch<F>(self, func: F) -> Vec<f32>
     where
         F: Fn(f32) -> f32,
     {

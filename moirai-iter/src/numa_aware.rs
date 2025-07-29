@@ -156,7 +156,7 @@ impl ExecutionContext for NumaAwareContext {
                         continue;
                     }
                     
-                    let chunk = items[start..end].to_vec();
+                    let items = items.clone();
                     let func = func.clone();
 
                     
@@ -171,9 +171,9 @@ impl ExecutionContext for NumaAwareContext {
                             }
                         }
                         
-                        // Process items
-                        for item in chunk {
-                            func(item);
+                        // Process items without copying
+                        for i in start..end {
+                            func(items[i].clone());
                         }
                     });
                 }
@@ -214,7 +214,7 @@ impl ExecutionContext for NumaAwareContext {
                         continue;
                     }
                     
-                    let chunk = items[start..end].to_vec();
+                    let items = items.clone();
                     let func = func.clone();
                     
                     scope.spawn(move || {
@@ -228,11 +228,11 @@ impl ExecutionContext for NumaAwareContext {
                             }
                         }
                         
-                        // Process chunk
-                        for (i, item) in chunk.into_iter().enumerate() {
-                            let result = func(item);
+                        // Process chunk without copying
+                        for i in start..end {
+                            let result = func(items[i].clone());
                             unsafe {
-                                ptr::write(results_ptr.add(start + i), result);
+                                ptr::write(results_ptr.add(i), result);
                             }
                         }
                     });
@@ -276,7 +276,7 @@ impl ExecutionContext for NumaAwareContext {
                         continue;
                     }
                     
-                    let chunk = items[start..end].to_vec();
+                    let items = items.clone();
                     let func = func.clone();
                     
                     let handle = scope.spawn(move || {
@@ -290,7 +290,8 @@ impl ExecutionContext for NumaAwareContext {
                             }
                         }
                         
-                        chunk.into_iter().reduce(|a, b| func(a, b))
+                        // Reduce without copying the entire chunk
+                        (start..end).map(|i| items[i].clone()).reduce(|a, b| func(a, b))
                     });
                     
                     handles.push(handle);
