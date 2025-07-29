@@ -1702,7 +1702,7 @@ impl Task for TestTask {
         static DEFAULT_CONTEXT: std::sync::OnceLock<TaskContext> = std::sync::OnceLock::new();
         DEFAULT_CONTEXT.get_or_init(|| {
             TaskContext::new(
-                TaskId::new(42)
+                TaskId::new(DEFAULT_TASK_ID)
             )
         })
     }
