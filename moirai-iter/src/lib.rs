@@ -26,6 +26,18 @@ use std::fmt::Debug;
 use std::thread;
 use std::time::{Duration, Instant};
 
+pub mod cache_optimized;
+pub use cache_optimized::{CacheOptimizedExt, WindowIterator, CacheAlignedChunks, ZeroCopyParallelIter};
+
+pub mod simd_iter;
+pub use simd_iter::{SimdIteratorExt, SimdF32Iterator, SimdParallelIterator};
+
+pub mod numa_aware;
+pub use numa_aware::{NumaIteratorExt, NumaPolicy, NumaAwareContext};
+
+pub mod prefetch;
+pub use prefetch::{PrefetchExt, SlicePrefetchExt, PrefetchChunks};
+
 /// Core trait for Moirai iterators supporting multiple execution contexts.
 /// 
 /// This trait provides a unified interface for iteration that can be executed
@@ -338,35 +350,12 @@ impl ExecutionContext for ParallelContext {
                 return;
             }
 
-            let total_items = items.len();
-            let chunk_size = ((total_items + thread_count - 1) / thread_count).max(batch_size);
-            
-            let pool = ThreadPool::new(thread_count);
-            let (tx, rx) = std::sync::mpsc::channel();
-            let pending_jobs = Arc::new(AtomicUsize::new(0));
-            
-            for chunk in items.chunks(chunk_size) {
-                let chunk = chunk.to_vec();
-                let func = func.clone();
-                let tx = tx.clone();
-                let pending_jobs = Arc::clone(&pending_jobs);
-                
-                pending_jobs.fetch_add(1, Ordering::Relaxed);
-                
-                let _ = pool.execute(move || {
-                    for item in chunk {
-                        func(item);
-                    }
-                    pending_jobs.fetch_sub(1, Ordering::Relaxed);
-                    let _ = tx.send(());
-                });
-            }
-            
-            // Wait for all jobs to complete
-            let expected_jobs = (total_items + chunk_size - 1) / chunk_size;
-            for _ in 0..expected_jobs {
-                let _ = rx.recv();
-            }
+            // Use zero-copy parallel iterator for better cache locality
+            use crate::cache_optimized::CacheOptimizedExt;
+            let items_slice = items.as_slice();
+            items_slice.zero_copy_par_iter().for_each(|item| {
+                func(item.clone());
+            });
         })
     }
 
@@ -376,50 +365,15 @@ impl ExecutionContext for ParallelContext {
         R: Send + 'static,
         F: Fn(T) -> R + Send + Sync + Clone + 'static,
     {
-        let thread_count = self.thread_count;
-        let batch_size = self.batch_size;
-        
         Box::pin(async move {
             if items.is_empty() {
                 return Vec::new();
             }
 
-            let total_items = items.len();
-            let chunk_size = ((total_items + thread_count - 1) / thread_count).max(batch_size);
-            
-            let pool = ThreadPool::new(thread_count);
-            let results = Arc::new(Mutex::new(Vec::with_capacity(total_items)));
-            let (tx, rx) = std::sync::mpsc::channel();
-            
-            for chunk in items.into_iter().enumerate().collect::<Vec<_>>().chunks(chunk_size) {
-                let chunk = chunk.to_vec();
-                let func = func.clone();
-                let results = Arc::clone(&results);
-                let tx = tx.clone();
-                
-                let _ = pool.execute(move || {
-                    let mut local_results = Vec::with_capacity(chunk.len());
-                    for (index, item) in chunk {
-                        local_results.push((index, func(item)));
-                    }
-                    let mut results = results.lock().unwrap();
-                    results.extend(local_results);
-                    let _ = tx.send(());
-                });
-            }
-            
-            // Wait for all jobs to complete
-            let expected_jobs = (total_items + chunk_size - 1) / chunk_size;
-            for _ in 0..expected_jobs {
-                let _ = rx.recv();
-            }
-            
-            let mut results = match Arc::try_unwrap(results) {
-                Ok(mutex) => mutex.into_inner().unwrap(),
-                Err(_) => panic!("Failed to unwrap Arc"),
-            };
-            results.sort_by_key(|(index, _)| *index);
-            results.into_iter().map(|(_, result)| result).collect()
+            // Use zero-copy parallel iterator for better cache locality
+            use crate::cache_optimized::CacheOptimizedExt;
+            let items_slice = items.as_slice();
+            items_slice.zero_copy_par_iter().map(|item| func(item.clone()))
         })
     }
 
@@ -428,8 +382,6 @@ impl ExecutionContext for ParallelContext {
         T: Send + Clone + 'static,
         F: Fn(T, T) -> T + Send + Sync + Clone + 'static,
     {
-        let thread_count = self.thread_count;
-        
         Box::pin(async move {
             if items.is_empty() {
                 return None;
@@ -439,33 +391,10 @@ impl ExecutionContext for ParallelContext {
                 return items.into_iter().next();
             }
 
-            // Tree reduction for optimal parallel performance
-            let total_items = items.len();
-            let chunk_size = (total_items + thread_count - 1) / thread_count;
-            
-            let pool = ThreadPool::new(thread_count);
-            let (tx, rx) = std::sync::mpsc::channel();
-            
-            for chunk in items.chunks(chunk_size) {
-                let chunk = chunk.to_vec();
-                let func = func.clone();
-                let tx = tx.clone();
-                
-                let _ = pool.execute(move || {
-                    let result = chunk.into_iter().reduce(|a, b| func(a, b));
-                    let _ = tx.send(result);
-                });
-            }
-
-            let mut results = Vec::new();
-            let expected_jobs = (total_items + chunk_size - 1) / chunk_size;
-            for _ in 0..expected_jobs {
-                if let Ok(Some(result)) = rx.recv() {
-                    results.push(result);
-                }
-            }
-
-            results.into_iter().reduce(|a, b| func(a, b))
+            // Use zero-copy parallel iterator for better cache locality
+            use crate::cache_optimized::CacheOptimizedExt;
+            let items_slice = items.as_slice();
+            items_slice.zero_copy_par_iter().reduce(|a, b| func(a, b))
         })
     }
 

@@ -116,7 +116,7 @@ pub mod numa_scheduler;
 
 use moirai_core::{
     BoxedTask, scheduler::{Scheduler, SchedulerId, SchedulerConfig, QueueType, WorkStealingStrategy},
-    error::SchedulerResult, Box,
+    error::SchedulerResult, cache_aligned::CacheAligned, Box,
 };
 use std::{
     sync::{
@@ -372,20 +372,34 @@ pub struct WorkStealingScheduler {
 }
 
 /// Statistics for scheduler performance monitoring.
-#[derive(Debug, Default)]
+/// Each counter is cache-aligned to prevent false sharing between threads.
+#[derive(Debug)]
 pub struct SchedulerStats {
     /// Total tasks scheduled
-    tasks_scheduled: AtomicUsize,
+    tasks_scheduled: CacheAligned<AtomicUsize>,
     /// Total tasks executed
-    tasks_executed: AtomicUsize,
+    tasks_executed: CacheAligned<AtomicUsize>,
     /// Total steal attempts
-    steal_attempts: AtomicUsize,
+    steal_attempts: CacheAligned<AtomicUsize>,
     /// Successful steals
-    successful_steals: AtomicUsize,
+    successful_steals: CacheAligned<AtomicUsize>,
     /// Time spent executing tasks (nanoseconds)
-    execution_time_ns: AtomicUsize,
+    execution_time_ns: CacheAligned<AtomicUsize>,
     /// Last activity timestamp
-    last_activity: AtomicUsize,
+    last_activity: CacheAligned<AtomicUsize>,
+}
+
+impl Default for SchedulerStats {
+    fn default() -> Self {
+        Self {
+            tasks_scheduled: CacheAligned::new(AtomicUsize::new(0)),
+            tasks_executed: CacheAligned::new(AtomicUsize::new(0)),
+            steal_attempts: CacheAligned::new(AtomicUsize::new(0)),
+            successful_steals: CacheAligned::new(AtomicUsize::new(0)),
+            execution_time_ns: CacheAligned::new(AtomicUsize::new(0)),
+            last_activity: CacheAligned::new(AtomicUsize::new(0)),
+        }
+    }
 }
 
 impl WorkStealingScheduler {

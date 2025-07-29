@@ -17,10 +17,15 @@ moirai-core = { workspace = true }
 moirai-executor = { workspace = true }
 moirai-async = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
+moirai-scheduler = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
+tokio = { version = "1", features = ["rt", "macros"] }
 
 [features]
 default = []

@@ -45,6 +45,7 @@ pub mod executor;
 pub mod scheduler;
 pub mod error;
 pub mod pool;
+pub mod cache_aligned;
 
 #[cfg(feature = "metrics")]
 pub mod metrics;
