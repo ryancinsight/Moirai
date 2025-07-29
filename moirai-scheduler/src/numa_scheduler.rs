@@ -3,17 +3,17 @@
 //! This module provides a scheduler that understands NUMA topology and optimizes
 //! work distribution to minimize memory latency and maximize cache efficiency.
 
-use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use std::thread;
 
 use moirai_core::{
-    Task, BoxedTask, TaskId, Priority,
+    BoxedTask, Priority,
     scheduler::{Scheduler, SchedulerId},
     error::{SchedulerResult, SchedulerError},
-    pool::{TaskPool, TaskWrapper},
+    pool::{TaskPool},
     Box,
 };
 
@@ -415,7 +415,7 @@ struct NodeQueue {
     /// Local task deque (using existing Chase-Lev implementation)
     local_queue: crate::ChaseLevDeque<Box<dyn BoxedTask>>,
     /// Priority queues for different task priorities
-    priority_queues: [crate::ChaseLevDeque<Box<dyn BoxedTask>>; 3],
+    priority_queues: [crate::ChaseLevDeque<Box<dyn BoxedTask>>; 4],
     /// Queue load metrics
     load_metrics: LoadMetrics,
     /// Lock for exclusive operations
@@ -456,6 +456,7 @@ impl NodeQueue {
             node_id,
             local_queue: crate::ChaseLevDeque::new(1024),
             priority_queues: [
+                crate::ChaseLevDeque::new(1024), // Critical
                 crate::ChaseLevDeque::new(1024), // High
                 crate::ChaseLevDeque::new(1024), // Normal
                 crate::ChaseLevDeque::new(1024), // Low
@@ -472,9 +473,10 @@ impl NodeQueue {
 
     fn push_task(&self, task: Box<dyn BoxedTask>, priority: Priority) {
         let queue_index = match priority {
-            Priority::High => 0,
-            Priority::Normal => 1,
-            Priority::Low => 2,
+            Priority::Critical => 0,
+            Priority::High => 1,
+            Priority::Normal => 2,
+            Priority::Low => 3,
         };
 
         self.priority_queues[queue_index].push(task);
@@ -805,7 +807,7 @@ impl From<NumaSchedulerError> for SchedulerError {
     fn from(err: NumaSchedulerError) -> Self {
         match err {
             NumaSchedulerError::InvalidNode => SchedulerError::QueueFull,
-            NumaSchedulerError::TopologyDetectionFailed => SchedulerError::ShutdownInProgress,
+            NumaSchedulerError::TopologyDetectionFailed => SchedulerError::SystemFailure("NUMA topology detection failed".to_string()),
         }
     }
 }

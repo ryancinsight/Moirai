@@ -592,6 +592,10 @@ name = "moirai-tests"
 version = "0.1.0"
 dependencies = [
  "moirai",
+ "moirai-core",
+ "moirai-scheduler",
+ "moirai-sync",
+ "moirai-transport",
  "moirai-utils",
  "proptest",
  "quickcheck",
