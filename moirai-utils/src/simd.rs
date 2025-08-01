@@ -5,11 +5,11 @@
 
 // Only compile SIMD code on supported platforms
 #![cfg(any(
-    all(target_arch = "x86_64", not(target_arch = "wasm32")),
+    target_arch = "x86_64",
     target_arch = "aarch64"
 ))]
 
-#[cfg(all(target_arch = "x86_64", not(target_arch = "wasm32")))]
+#[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
 // ARM NEON support for broader platform compatibility
