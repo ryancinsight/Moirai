@@ -10,14 +10,50 @@
 //! - RDMA for low-latency networking
 //! - CUDA IPC for GPU communication
 
-use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
-use std::mem;
-use std::ptr;
-use std::slice;
-use std::os::raw::c_void;
+use crate::platform::*;
+use core::slice;
+use core::mem;
+use core::fmt;
 
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
+
+/// IPC-specific error type to minimize dependencies
+#[derive(Debug, Clone)]
+pub enum IpcError {
+    /// System error with error code
+    SystemError(i32),
+    /// Invalid argument
+    InvalidArgument,
+    /// Not implemented
+    NotImplemented,
+    /// Resource not found
+    NotFound,
+    /// Permission denied
+    PermissionDenied,
+}
+
+impl fmt::Display for IpcError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IpcError::SystemError(code) => write!(f, "System error: {}", code),
+            IpcError::InvalidArgument => write!(f, "Invalid argument"),
+            IpcError::NotImplemented => write!(f, "Not implemented"),
+            IpcError::NotFound => write!(f, "Resource not found"),
+            IpcError::PermissionDenied => write!(f, "Permission denied"),
+        }
+    }
+}
+
+impl core::error::Error for IpcError {}
+
+/// Convert OS error to IpcError
+#[cfg(unix)]
+fn last_os_error() -> IpcError {
+    unsafe {
+        IpcError::SystemError(*libc::__errno_location())
+    }
+}
 
 /// Shared memory segment for zero-copy IPC
 pub struct SharedMemory {
@@ -29,7 +65,7 @@ pub struct SharedMemory {
     #[cfg(unix)]
     fd: RawFd,
     #[cfg(windows)]
-    handle: *mut c_void,
+    handle: usize, // Use usize instead of *mut c_void to avoid dependency
     /// Whether this instance owns the memory
     owner: bool,
 }
@@ -40,43 +76,42 @@ unsafe impl Sync for SharedMemory {}
 impl SharedMemory {
     /// Create a new shared memory segment
     #[cfg(unix)]
-    pub fn create(name: &str, size: usize) -> Result<Self, std::io::Error> {
+    pub fn create(name: &str, size: usize) -> Result<Self, IpcError> {
         use std::ffi::CString;
-        use libc::{shm_open, ftruncate, mmap, O_CREAT, O_RDWR, PROT_READ, PROT_WRITE, MAP_SHARED};
         
-        let c_name = CString::new(name)?;
+        let c_name = CString::new(name).map_err(|_| IpcError::InvalidArgument)?;
         
         unsafe {
             // Create shared memory object
-            let fd = shm_open(
+            let fd = libc::shm_open(
                 c_name.as_ptr(),
-                O_CREAT | O_RDWR,
+                libc::O_CREAT | libc::O_RDWR,
                 0o666
             );
             
             if fd < 0 {
-                return Err(std::io::Error::last_os_error());
+                return Err(last_os_error());
             }
             
             // Set size
-            if ftruncate(fd, size as i64) < 0 {
+            if libc::ftruncate(fd, size as i64) < 0 {
                 libc::close(fd);
-                return Err(std::io::Error::last_os_error());
+                return Err(last_os_error());
             }
             
             // Map into memory
-            let ptr = mmap(
-                ptr::null_mut(),
+            let ptr = libc::mmap(
+                null_mut(),
                 size,
-                PROT_READ | PROT_WRITE,
-                MAP_SHARED,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
                 fd,
                 0
             );
             
             if ptr == libc::MAP_FAILED {
                 libc::close(fd);
-                return Err(std::io::Error::last_os_error());
+                return Err(last_os_error());
             }
             
             Ok(Self {
@@ -90,37 +125,36 @@ impl SharedMemory {
     
     /// Open an existing shared memory segment
     #[cfg(unix)]
-    pub fn open(name: &str, size: usize) -> Result<Self, std::io::Error> {
+    pub fn open(name: &str, size: usize) -> Result<Self, IpcError> {
         use std::ffi::CString;
-        use libc::{shm_open, mmap, O_RDWR, PROT_READ, PROT_WRITE, MAP_SHARED};
         
-        let c_name = CString::new(name)?;
+        let c_name = CString::new(name).map_err(|_| IpcError::InvalidArgument)?;
         
         unsafe {
             // Open shared memory object
-            let fd = shm_open(
+            let fd = libc::shm_open(
                 c_name.as_ptr(),
-                O_RDWR,
+                libc::O_RDWR,
                 0
             );
             
             if fd < 0 {
-                return Err(std::io::Error::last_os_error());
+                return Err(last_os_error());
             }
             
             // Map into memory
-            let ptr = mmap(
-                ptr::null_mut(),
+            let ptr = libc::mmap(
+                null_mut(),
                 size,
-                PROT_READ | PROT_WRITE,
-                MAP_SHARED,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
                 fd,
                 0
             );
             
             if ptr == libc::MAP_FAILED {
                 libc::close(fd);
-                return Err(std::io::Error::last_os_error());
+                return Err(last_os_error());
             }
             
             Ok(Self {
@@ -147,11 +181,19 @@ impl SharedMemory {
 impl Drop for SharedMemory {
     fn drop(&mut self) {
         unsafe {
-            libc::munmap(self.ptr as *mut c_void, self.size);
-            libc::close(self.fd);
-            
-            if self.owner {
-                // Note: shm_unlink would be called here in production
+            #[cfg(unix)]
+            {
+                // Unmap memory
+                libc::munmap(self.ptr as *mut libc::c_void, self.size);
+                
+                // Close file descriptor
+                libc::close(self.fd);
+                
+                // Unlink if owner
+                if self.owner {
+                    // Note: We don't have the name here, so unlinking
+                    // should be done explicitly by the user
+                }
             }
         }
     }
@@ -183,7 +225,7 @@ struct QueueMetadata {
 
 impl<T: Copy> SharedQueue<T> {
     /// Create a new shared queue
-    pub fn create(name: &str, capacity: usize) -> Result<Self, std::io::Error> {
+    pub fn create(name: &str, capacity: usize) -> Result<Self, IpcError> {
         let meta_size = mem::size_of::<QueueMetadata>();
         let data_size = capacity * mem::size_of::<T>();
         let total_size = meta_size + data_size;
@@ -208,7 +250,7 @@ impl<T: Copy> SharedQueue<T> {
     }
     
     /// Open an existing shared queue
-    pub fn open(name: &str, capacity: usize) -> Result<Self, std::io::Error> {
+    pub fn open(name: &str, capacity: usize) -> Result<Self, IpcError> {
         let meta_size = mem::size_of::<QueueMetadata>();
         let data_size = capacity * mem::size_of::<T>();
         let total_size = meta_size + data_size;
@@ -242,7 +284,7 @@ impl<T: Copy> SharedQueue<T> {
                 return Err(value);
             }
             
-            ptr::write(self.buffer.add(head % self.capacity), value);
+            core::ptr::write(self.buffer.add(head % self.capacity), value);
             (*self.meta).head.store(head.wrapping_add(1), Ordering::Release);
             
             Ok(())
@@ -259,7 +301,7 @@ impl<T: Copy> SharedQueue<T> {
                 return None;
             }
             
-            let value = ptr::read(self.buffer.add(tail % self.capacity));
+            let value = core::ptr::read(self.buffer.add(tail % self.capacity));
             (*self.meta).tail.store(tail.wrapping_add(1), Ordering::Release);
             
             Some(value)
@@ -267,65 +309,37 @@ impl<T: Copy> SharedQueue<T> {
     }
 }
 
-/// Remote Direct Memory Access (RDMA) for network communication
+/// RDMA connection for low-latency networking
 pub struct RdmaConnection {
-    /// Connection endpoint
-    endpoint: RdmaEndpoint,
-    /// Memory regions
-    regions: Vec<RdmaMemoryRegion>,
-}
-
-struct RdmaEndpoint {
-    /// Connection ID
-    id: u64,
-    /// Remote address
-    remote_addr: std::net::SocketAddr,
-    /// Local address
-    local_addr: std::net::SocketAddr,
-}
-
-struct RdmaMemoryRegion {
-    /// Local memory pointer
-    ptr: *mut u8,
-    /// Size of the region
-    size: usize,
-    /// Remote key for access
-    rkey: u32,
-    /// Local key
-    lkey: u32,
+    /// Connection handle (placeholder)
+    handle: usize,
+    /// Remote address as string (to avoid std::net dependency)
+    remote_addr: String,
+    /// Local address as string
+    local_addr: String,
+    /// Queue pair number
+    qp_num: u32,
 }
 
 impl RdmaConnection {
     /// Connect to an RDMA endpoint
-    pub fn connect(_addr: &str) -> Result<Self, std::io::Error> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "RDMA not implemented"
-        ))
+    pub fn connect(_addr: &str) -> Result<Self, IpcError> {
+        Err(IpcError::NotImplemented)
     }
     
     /// Register memory region for RDMA
-    pub fn register_memory(&self, _addr: *mut u8, _len: usize) -> Result<u32, std::io::Error> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "RDMA not implemented"
-        ))
+    pub fn register_memory(&self, _addr: *mut u8, _len: usize) -> Result<u32, IpcError> {
+        Err(IpcError::NotImplemented)
     }
     
     /// Write data to remote memory
-    pub fn write(&self, _local: *const u8, _remote_addr: u64, _len: usize, _rkey: u32) -> Result<(), std::io::Error> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "RDMA not implemented"
-        ))
+    pub fn write(&self, _local: *const u8, _remote_addr: u64, _len: usize, _rkey: u32) -> Result<(), IpcError> {
+        Err(IpcError::NotImplemented)
     }
     
     /// Read data from remote memory
-    pub fn read(&self, _local: *mut u8, _remote_addr: u64, _len: usize, _rkey: u32) -> Result<(), std::io::Error> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "RDMA not implemented"
-        ))
+    pub fn read(&self, _local: *mut u8, _remote_addr: u64, _len: usize, _rkey: u32) -> Result<(), IpcError> {
+        Err(IpcError::NotImplemented)
     }
 }
 
@@ -356,7 +370,7 @@ impl GpuIpc {
     }
     
     /// Create a shareable GPU memory handle
-    pub fn create_handle(&mut self, gpu_ptr: u64, size: usize) -> Result<[u8; 64], std::io::Error> {
+    pub fn create_handle(&mut self, gpu_ptr: u64, size: usize) -> Result<[u8; 64], IpcError> {
         // In production, this would use CUDA IPC API
         let handle = [0u8; 64]; // Placeholder
         
@@ -370,9 +384,9 @@ impl GpuIpc {
     }
     
     /// Open a GPU memory handle from another process
-    pub fn open_handle(&self, handle: [u8; 64]) -> Result<u64, std::io::Error> {
+    pub fn open_handle(&self, handle: [u8; 64]) -> Result<u64, IpcError> {
         // In production, this would use CUDA IPC API
-        todo!("GPU IPC handle opening")
+        Err(IpcError::NotImplemented)
     }
 }
 
@@ -399,7 +413,7 @@ enum CommBackend {
 
 impl DistributedComm {
     /// Initialize distributed communication
-    pub fn init() -> Result<Self, std::io::Error> {
+    pub fn init() -> Result<Self, IpcError> {
         // In production, this would initialize MPI or other backend
         Ok(Self {
             node_id: 0,
@@ -409,46 +423,46 @@ impl DistributedComm {
     }
     
     /// All-reduce operation across all nodes
-    pub fn all_reduce<T: Copy + Send>(&self, data: &mut [T], op: ReduceOp) -> Result<(), std::io::Error> {
+    pub fn all_reduce<T: Copy + Send>(&self, data: &mut [T], op: ReduceOp) -> Result<(), IpcError> {
         match self.backend {
             CommBackend::SharedMem => {
                 // Single node, nothing to do
                 Ok(())
             }
-            _ => todo!("Distributed all-reduce"),
+            _ => Err(IpcError::NotImplemented),
         }
     }
     
     /// Broadcast from one node to all others
-    pub fn broadcast<T: Copy + Send>(&self, data: &mut [T], root: u32) -> Result<(), std::io::Error> {
+    pub fn broadcast<T: Copy + Send>(&self, data: &mut [T], root: u32) -> Result<(), IpcError> {
         match self.backend {
             CommBackend::SharedMem => {
                 // Single node, nothing to do
                 Ok(())
             }
-            _ => todo!("Distributed broadcast"),
+            _ => Err(IpcError::NotImplemented),
         }
     }
     
     /// Point-to-point send
-    pub fn send<T: Copy + Send>(&self, data: &[T], dest: u32) -> Result<(), std::io::Error> {
+    pub fn send<T: Copy + Send>(&self, data: &[T], dest: u32) -> Result<(), IpcError> {
         match self.backend {
             CommBackend::SharedMem => {
                 // Would use shared memory queue
-                todo!("P2P send via shared memory")
+                Err(IpcError::NotImplemented)
             }
-            _ => todo!("Distributed send"),
+            _ => Err(IpcError::NotImplemented),
         }
     }
     
     /// Point-to-point receive
-    pub fn recv<T: Copy + Send>(&self, data: &mut [T], source: u32) -> Result<(), std::io::Error> {
+    pub fn recv<T: Copy + Send>(&self, data: &mut [T], source: u32) -> Result<(), IpcError> {
         match self.backend {
             CommBackend::SharedMem => {
                 // Would use shared memory queue
-                todo!("P2P recv via shared memory")
+                Err(IpcError::NotImplemented)
             }
-            _ => todo!("Distributed recv"),
+            _ => Err(IpcError::NotImplemented),
         }
     }
 }

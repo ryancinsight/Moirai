@@ -71,6 +71,10 @@ impl<T> Buffer<T> {
         let slot = &mut *self.storage[index & self.mask].get();
         slot.write(value);
     }
+    
+    fn capacity(&self) -> usize {
+        self.storage.len()
+    }
 }
 
 impl<T: Send> WorkStealingDeque<T> {
@@ -115,11 +119,8 @@ impl<T: Send> WorkStealingDeque<T> {
         let bottom = self.bottom.value.load(Ordering::Relaxed);
         let new_bottom = bottom.wrapping_sub(1);
         
-        // Relaxed store is safe - only owner modifies bottom
-        self.bottom.value.store(new_bottom, Ordering::Relaxed);
-        
         // Synchronize with stealers
-        std::sync::atomic::fence(Ordering::SeqCst);
+        fence(Ordering::SeqCst);
         
         let top = self.top.value.load(Ordering::Relaxed);
         
@@ -128,15 +129,14 @@ impl<T: Send> WorkStealingDeque<T> {
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
             // Ensure new_bottom is within buffer bounds before reading
             let capacity = buffer.capacity();
-            if new_bottom < capacity {
-                let task = unsafe { ptr::read(buffer.get(new_bottom)) };
-                
-                // (rest of code continues unchanged)
-            } else {
+            if new_bottom >= capacity {
                 // Out of bounds, restore bottom and return None
                 self.bottom.value.store(bottom, Ordering::Relaxed);
                 return None;
             }
+            
+            let task = unsafe { core::ptr::read(buffer.get(new_bottom)) };
+            
             if top == new_bottom {
                 // Last task - race with stealers
                 if self.top.value.compare_exchange(
@@ -174,8 +174,8 @@ impl<T: Send> WorkStealingDeque<T> {
                 return None; // Empty
             }
             
-            let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
-            let task = unsafe { ptr::read(buffer.get(top)) };
+            let buffer = unsafe { &*self.buffer.value.load(Ordering::Acquire) };
+            let task = unsafe { core::ptr::read(buffer.get(top)) };
             
             // Try to increment top
             if self.top.value.compare_exchange(
