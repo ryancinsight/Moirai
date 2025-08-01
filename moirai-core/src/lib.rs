@@ -16,12 +16,10 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
-// Re-exports for no-std compatibility
-#[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, vec::Vec, string::String};
-#[cfg(not(feature = "std"))]
-use core as std;
+// Platform abstraction layer
+pub mod platform;
 
+// Core modules
 pub mod task;
 pub mod executor;
 pub mod scheduler;
@@ -50,16 +48,8 @@ pub use executor::{TaskSpawner, TaskManager, TaskStatus, ExecutorConfig};
 pub use scheduler::{Scheduler, SchedulerId};
 pub use error::{TaskError, ExecutorError, SchedulerError};
 
-// Re-export commonly used types
-#[cfg(feature = "std")]
-pub use std::boxed::Box;
-#[cfg(feature = "std")]
-pub use std::vec::Vec;
-
-#[cfg(not(feature = "std"))]
-pub use alloc::boxed::Box;
-#[cfg(not(feature = "std"))]
-pub use alloc::vec::Vec;
+// Re-export platform types for convenience
+pub use platform::{Box, Vec, String, Arc};
 
 /// Type alias for boxed errors.
 pub type BoxError = Box<dyn core::error::Error + Send + Sync>;

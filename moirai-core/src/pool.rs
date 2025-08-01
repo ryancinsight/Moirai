@@ -1,19 +1,12 @@
-//! Object pooling for efficient task allocation.
-//!
-//! This module provides memory-efficient object pooling to reduce allocation pressure
-//! and improve cache locality through object reuse.
+//! Object pooling for efficient memory management.
 //! 
-//! Improvements inspired by:
-//! - Tokio's slab allocator for task storage
-//! - OpenMP's low-overhead synchronization
-//! - Memory pooling techniques for zero-allocation hot paths
+//! This module implements advanced pooling techniques inspired by:
+//! - Tokio's slab allocator
+//! - Lock-free stacks for thread-safe pooling
+//! - Thread-local caching for hot paths
 
-use std::sync::atomic::{AtomicUsize, AtomicPtr, AtomicBool, Ordering};
-use std::ptr;
-use std::cell::UnsafeCell;
-use std::mem::MaybeUninit;
+use crate::platform::*;
 use crate::{TaskId, Priority};
-use std::marker::PhantomData;
 
 /// Cache line size for padding
 const CACHE_LINE_SIZE: usize = 64;
@@ -276,10 +269,25 @@ pub struct TaskWrapper<T> {
     inner: Option<T>,
     task_id: Option<TaskId>,
     priority: Priority,
-    creation_time: std::time::Instant,
+    /// Creation timestamp for age tracking
+    creation_time: Instant,
+    /// Number of times this wrapper has been reset
     reset_count: usize,
     /// Inline storage for small tasks to avoid allocation
     inline_storage: [u8; 64],
+}
+
+impl<T> Default for TaskWrapper<T> {
+    fn default() -> Self {
+        Self {
+            inner: None,
+            task_id: None,
+            priority: Priority::Normal,
+            creation_time: Instant::now(),
+            reset_count: 0,
+            inline_storage: [0; 64],
+        }
+    }
 }
 
 impl<T> TaskWrapper<T> {
@@ -289,7 +297,7 @@ impl<T> TaskWrapper<T> {
             inner: None,
             task_id: None,
             priority: Priority::Normal,
-            creation_time: std::time::Instant::now(),
+            creation_time: Instant::now(),
             reset_count: 0,
             inline_storage: [0; 64],
         }
@@ -300,7 +308,7 @@ impl<T> TaskWrapper<T> {
         self.inner = Some(task);
         self.task_id = Some(task_id);
         self.priority = priority;
-        self.creation_time = std::time::Instant::now();
+        self.creation_time = Instant::now();
     }
 
     /// Reset the wrapper for reuse.
@@ -308,6 +316,7 @@ impl<T> TaskWrapper<T> {
         self.inner = None;
         self.task_id = None;
         self.priority = Priority::Normal;
+        self.creation_time = Instant::now();
         self.reset_count += 1;
     }
 
@@ -326,20 +335,14 @@ impl<T> TaskWrapper<T> {
         self.priority
     }
 
-    /// Get the age of this task.
-    pub fn age(&self) -> std::time::Duration {
+    /// Get the age of this wrapper.
+    pub fn age(&self) -> Duration {
         self.creation_time.elapsed()
     }
 
     /// Get the number of times this wrapper has been reset.
     pub fn reset_count(&self) -> usize {
         self.reset_count
-    }
-}
-
-impl<T> Default for TaskWrapper<T> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -414,8 +417,8 @@ impl<T: Default + Send + 'static> GlobalPool<T> {
     /// This first checks a thread-local cache before falling back to the global pool.
     pub fn get(&self) -> T {
         // Try thread-local cache first
-        thread_local! {
-            static LOCAL_CACHE: UnsafeCell<Vec<*mut u8>> = UnsafeCell::new(Vec::new());
+        crate::thread_local_static! {
+            static LOCAL_CACHE: UnsafeCell<Vec<*mut u8>> = UnsafeCell::new(Vec::new())
         }
         
         // Try global pool

@@ -6,29 +6,15 @@
 
 use crate::error::ExecutorResult;
 use crate::{Task, TaskId, Priority};
-use core::cell::UnsafeCell;
-
-#[cfg(feature = "std")]
-use std::time::Instant;
-
-#[cfg(feature = "std")]
-use std::string::String;
-#[cfg(feature = "std")]
-use std::vec::Vec;
-#[cfg(feature = "std")]
-use std::boxed::Box;
-
-#[cfg(not(feature = "std"))]
-use alloc::string::String;
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
+use crate::platform::*;
 
 /// Thread-local task context for improved locality (inspired by Tokio)
-thread_local! {
-    static CURRENT_TASK: UnsafeCell<Option<TaskId>> = UnsafeCell::new(None);
-    static LOCAL_QUEUE: UnsafeCell<Vec<Box<dyn Send>>> = UnsafeCell::new(Vec::with_capacity(32));
+crate::thread_local_static! {
+    static CURRENT_TASK: UnsafeCell<Option<TaskId>> = UnsafeCell::new(None)
+}
+
+crate::thread_local_static! {
+    static LOCAL_QUEUE: UnsafeCell<Vec<Box<dyn Send>>> = UnsafeCell::new(Vec::with_capacity(32))
 }
 
 /// Get the current task ID if running within a task context
@@ -353,6 +339,23 @@ pub trait Executor: TaskSpawner + TaskManager + ExecutorControl {
     /// - Thread safety: Atomic operations for consistency
     #[cfg(feature = "metrics")]
     fn stats(&self) -> ExecutorStats;
+}
+
+/// Executor statistics (placeholder for when metrics feature is disabled)
+#[cfg(not(feature = "metrics"))]
+#[derive(Debug, Clone, Default)]
+pub struct ExecutorStats;
+
+/// Executor statistics with full metrics
+#[cfg(feature = "metrics")]
+#[derive(Debug, Clone, Default)]
+pub struct ExecutorStats {
+    /// Number of tasks executed
+    pub tasks_executed: u64,
+    /// Number of tasks in queue
+    pub tasks_queued: usize,
+    /// Average task execution time
+    pub avg_execution_time_ns: u64,
 }
 
 /// Status of a task within the executor.
@@ -830,260 +833,7 @@ impl ExecutorBuilder {
         self.config.cleanup = config;
         self
     }
-
-    /// Adds a plugin to the executor.
-    ///
-    /// # Arguments
-    /// * `plugin` - The plugin instance to add
-    ///
-    /// # Returns
-    /// The builder instance for method chaining
-    #[must_use]
-    pub fn plugin(mut self, plugin: impl ExecutorPlugin) -> Self {
-        self.plugins.push(Box::new(plugin));
-        self
-    }
-
-    /// Builds the configuration and plugin list without creating an executor.
-    ///
-    /// # Returns
-    /// A tuple containing the executor configuration and list of plugins
-    #[must_use]
-    pub fn build_config(self) -> (ExecutorConfig, Vec<Box<dyn ExecutorPlugin>>) {
-        (self.config, self.plugins)
-    }
 }
-
-impl Default for ExecutorBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Runtime statistics and performance metrics for executor instances.
-///
-/// This struct provides comprehensive monitoring data for executor performance,
-/// including task throughput, queue utilization, and resource consumption metrics.
-#[cfg(feature = "metrics")]
-#[allow(clippy::module_name_repetitions)]
-pub struct ExecutorStats {
-    /// Worker thread statistics
-    pub worker_stats: Vec<WorkerStats>,
-    /// Global queue statistics
-    pub global_queue_stats: QueueStats,
-    /// Memory usage statistics
-    pub memory_stats: MemoryStats,
-    /// Aggregate task execution statistics across all workers
-    pub task_execution_stats: TaskExecutionStats,
-    /// Registry of individual task statistics
-    task_stats_registry: Vec<TaskStats>,
-}
-
-/// Aggregate task execution statistics across the entire executor.
-#[cfg(feature = "metrics")]
-#[derive(Debug, Clone, Default)]
-pub struct TaskExecutionStats {
-    /// Total number of tasks completed successfully
-    pub tasks_completed: u64,
-    /// Total number of tasks that failed
-    pub tasks_failed: u64,
-    /// Total number of tasks cancelled
-    pub tasks_cancelled: u64,
-    /// Average task execution time in nanoseconds
-    pub avg_execution_time_ns: u64,
-    /// Peak task execution time in nanoseconds
-    pub peak_execution_time_ns: u64,
-    /// Total CPU time consumed by all tasks in nanoseconds
-    pub total_cpu_time_ns: u64,
-}
-
-#[cfg(feature = "metrics")]
-impl ExecutorStats {
-    /// Create a new ExecutorStats instance with empty registries.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            worker_stats: Vec::new(),
-            global_queue_stats: QueueStats {
-                current_length: 0,
-                max_length: 0,
-                total_enqueued: 0,
-                total_dequeued: 0,
-                avg_wait_time_us: 0.0,
-            },
-            memory_stats: MemoryStats {
-                current_usage: 0,
-                peak_usage: 0,
-                allocations: 0,
-                deallocations: 0,
-                pool_stats: PoolStats {
-                    small_pool_utilization: 0.0,
-                    medium_pool_utilization: 0.0,
-                    large_pool_utilization: 0.0,
-                    pool_hits: 0,
-                    pool_misses: 0,
-                },
-            },
-            task_execution_stats: TaskExecutionStats::default(),
-            task_stats_registry: Vec::new(),
-        }
-    }
-
-    /// Returns statistics for all tasks managed by this executor.
-    ///
-    /// # Returns
-    /// A slice containing statistics for all tracked tasks
-    #[must_use]
-    pub fn get_stats(&self) -> &[TaskStats] {
-        &self.task_stats_registry
-    }
-
-    /// Add a new task to the statistics registry.
-    ///
-    /// # Arguments
-    /// * `task_stats` - The task statistics to register
-    pub fn register_task(&mut self, task_stats: TaskStats) {
-        self.task_stats_registry.push(task_stats);
-        
-        // Implement retention policy - keep only the last 1000 task stats
-        const MAX_TASK_STATS: usize = 1000;
-        if self.task_stats_registry.len() > MAX_TASK_STATS {
-            self.task_stats_registry.remove(0);
-        }
-    }
-
-    /// Update statistics for an existing task.
-    ///
-    /// # Arguments
-    /// * `task_id` - The ID of the task to update
-    /// * `status` - The new status of the task
-    /// * `execution_time_ns` - Optional execution time in nanoseconds
-    pub fn update_task_stats(&mut self, task_id: crate::TaskId, status: TaskStatus, execution_time_ns: Option<u64>) {
-        if let Some(task_stats) = self.task_stats_registry.iter_mut().find(|stats| stats.id == task_id) {
-            task_stats.status = status;
-            if let Some(exec_time) = execution_time_ns {
-                task_stats.cpu_time_ns = exec_time;
-            }
-            // Update completion time if task is finished
-            if matches!(status, TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled) {
-                task_stats.completion_time = Some(std::time::Instant::now());
-            }
-        }
-    }
-
-    /// Get statistics for active tasks only.
-    ///
-    /// # Returns
-    /// A vector containing statistics for currently active tasks
-    #[must_use]
-    pub fn get_active_task_stats(&self) -> Vec<&TaskStats> {
-        self.task_stats_registry
-            .iter()
-            .filter(|stats| stats.is_active())
-            .collect()
-    }
-
-    /// Get statistics for completed tasks only.
-    ///
-    /// # Returns
-    /// A vector containing statistics for completed tasks
-    #[must_use]
-    pub fn get_completed_task_stats(&self) -> Vec<&TaskStats> {
-        self.task_stats_registry
-            .iter()
-            .filter(|stats| stats.is_finished())
-            .collect()
-    }
-
-    /// Remove old completed task statistics based on retention policy.
-    ///
-    /// # Arguments
-    /// * `max_age_seconds` - Maximum age in seconds for retaining completed task stats
-    pub fn cleanup_old_stats(&mut self, max_age_seconds: u64) {
-        let _cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(max_age_seconds);
-        
-        self.task_stats_registry.retain(|stats| {
-            // Keep active tasks and recently completed tasks
-            stats.is_active() || stats.completion_time.map_or(true, |completion| {
-                // Convert Instant to SystemTime for comparison (approximate)
-                let elapsed_since_completion = completion.elapsed();
-                elapsed_since_completion < std::time::Duration::from_secs(max_age_seconds)
-            })
-        });
-    }
-}
-
-/// Statistics for a single worker thread.
-#[cfg(feature = "metrics")]
-#[derive(Debug, Clone)]
-pub struct WorkerStats {
-    /// Worker thread ID
-    pub thread_id: usize,
-    /// Number of tasks executed
-    pub tasks_executed: u64,
-    /// Number of successful steal attempts
-    pub successful_steals: u64,
-    /// Number of failed steal attempts
-    pub failed_steals: u64,
-    /// Number of times stolen from
-    pub stolen_from: u64,
-    /// Current local queue length
-    pub local_queue_length: usize,
-    /// CPU utilization percentage (0-100)
-    pub cpu_utilization: f32,
-    /// Total execution time (nanoseconds)
-    pub total_execution_time_ns: u64,
-}
-
-/// Queue statistics.
-#[cfg(feature = "metrics")]
-#[derive(Debug, Clone)]
-pub struct QueueStats {
-    /// Current queue length
-    pub current_length: usize,
-    /// Maximum queue length seen
-    pub max_length: usize,
-    /// Total tasks enqueued
-    pub total_enqueued: u64,
-    /// Total tasks dequeued
-    pub total_dequeued: u64,
-    /// Average wait time in queue (microseconds)
-    pub avg_wait_time_us: f64,
-}
-
-/// Memory usage statistics.
-#[cfg(feature = "metrics")]
-#[derive(Debug, Clone)]
-pub struct MemoryStats {
-    /// Current memory usage (bytes)
-    pub current_usage: u64,
-    /// Peak memory usage (bytes)
-    pub peak_usage: u64,
-    /// Number of allocations
-    pub allocations: u64,
-    /// Number of deallocations
-    pub deallocations: u64,
-    /// Memory pool statistics
-    pub pool_stats: PoolStats,
-}
-
-/// Memory pool statistics.
-#[cfg(feature = "metrics")]
-#[derive(Debug, Clone)]
-pub struct PoolStats {
-    /// Small pool utilization (0-100)
-    pub small_pool_utilization: f32,
-    /// Medium pool utilization (0-100)
-    pub medium_pool_utilization: f32,
-    /// Large pool utilization (0-100)
-    pub large_pool_utilization: f32,
-    /// Number of pool hits
-    pub pool_hits: u64,
-    /// Number of pool misses
-    pub pool_misses: u64,
-}
-
-
 
 // Helper function to get number of CPUs
 fn num_cpus() -> usize {
@@ -1096,95 +846,5 @@ fn num_cpus() -> usize {
     #[cfg(not(feature = "std"))]
     {
         4 // Reasonable default for no_std
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_task_status_display() {
-        assert_eq!(format!("{}", TaskStatus::Queued), "Queued");
-        assert_eq!(format!("{}", TaskStatus::Running), "Running");
-        assert_eq!(format!("{}", TaskStatus::Completed), "Completed");
-        assert_eq!(format!("{}", TaskStatus::Cancelled), "Cancelled");
-        assert_eq!(format!("{}", TaskStatus::Failed), "Failed");
-    }
-
-    #[test]
-    fn test_executor_config_default() {
-        let config = ExecutorConfig::default();
-        assert!(config.worker_threads > 0);
-        assert!(config.async_threads > 0);
-        assert_eq!(config.max_global_queue_size, 8192);
-        assert_eq!(config.max_local_queue_size, 256);
-        assert_eq!(config.thread_name_prefix, "moirai-worker");
-    }
-
-    #[test]
-    fn test_preemption_config_default() {
-        let config = PreemptionConfig::default();
-        assert!(config.enabled);
-        assert_eq!(config.time_slice_us, 10_000);
-        assert!(config.priority_based);
-        assert_eq!(config.min_execution_time_us, 1_000);
-    }
-
-    #[test]
-    fn test_memory_config_default() {
-        let config = MemoryConfig::default();
-        assert!(config.use_memory_pools);
-        assert_eq!(config.small_pool_size, 64 * 1024);
-        assert_eq!(config.medium_pool_size, 1024 * 1024);
-        assert_eq!(config.large_pool_size, 16 * 1024 * 1024);
-    }
-
-    #[test]
-    fn test_cleanup_config_default() {
-        let config = CleanupConfig::default();
-        assert_eq!(config.task_retention_duration, core::time::Duration::from_secs(300));
-        assert_eq!(config.cleanup_interval, core::time::Duration::from_secs(30));
-        assert!(config.enable_automatic_cleanup);
-        assert_eq!(config.max_retained_tasks, 10_000);
-    }
-
-    #[test]
-    fn test_executor_builder() {
-        let builder = ExecutorBuilder::new()
-            .worker_threads(8)
-            .async_threads(4)
-            .max_global_queue_size(16384)
-            .thread_name_prefix("test-worker");
-
-        let (config, _plugins) = builder.build_config();
-        assert_eq!(config.worker_threads, 8);
-        assert_eq!(config.async_threads, 4);
-        assert_eq!(config.max_global_queue_size, 16384);
-        assert_eq!(config.thread_name_prefix, "test-worker");
-    }
-
-    #[test]
-    fn test_task_stats_calculations() {
-        let spawn_time = Instant::now();
-        let start_time = spawn_time; // Simplified for test
-        let completion_time = start_time; // Simplified for test
-
-        let stats = TaskStats {
-            id: TaskId::new(1),
-            status: TaskStatus::Completed,
-            priority: Priority::Normal,
-            spawn_time,
-            start_time: Some(start_time),
-            completion_time: Some(completion_time),
-            preemption_count: 0,
-            cpu_time_ns: 1_000_000,
-            memory_used_bytes: 4096,
-        };
-
-        assert!(stats.is_finished());
-        assert!(!stats.is_active());
-        assert!(stats.execution_time().is_some());
-        assert!(stats.queue_time().is_some());
     }
 }

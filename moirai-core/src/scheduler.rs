@@ -1,21 +1,20 @@
-//! Scheduler trait definitions and work-stealing abstractions.
+//! Scheduler trait and implementations.
 //! 
-//! This module implements advanced scheduling techniques inspired by:
-//! - Rayon's work-stealing deques
+//! This module provides advanced scheduling algorithms inspired by:
+//! - Rayon's work-stealing deque (Chase-Lev algorithm)
 //! - Tokio's async notification system  
 //! - OpenMP's low-overhead synchronization
 
 use crate::{BoxedTask, TaskId, Priority};
 use crate::error::{SchedulerError, SchedulerResult};
-use core::time::Duration;
+use crate::platform::*;
 use core::fmt;
+use core::time::Duration;
+use core::num::Wrapping;
+use core::cmp::Reverse;
+
+#[cfg(feature = "std")]
 use std::time::SystemTime;
-use std::num::Wrapping;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicUsize, AtomicPtr, Ordering};
-use std::cell::UnsafeCell;
-use std::mem::MaybeUninit;
-use std::ptr;
 
 /// Cache line size for padding to prevent false sharing
 const CACHE_LINE_SIZE: usize = 64;
@@ -39,8 +38,7 @@ pub struct WorkStealingDeque<T> {
     top: CachePadded<AtomicUsize>,
     /// Ring buffer for tasks
     buffer: CachePadded<AtomicPtr<Buffer<T>>>,
-    /// Stealer handle factory
-    _phantom: std::marker::PhantomData<T>,
+    _phantom: PhantomData<T>,
 }
 
 struct Buffer<T> {
@@ -85,7 +83,7 @@ impl<T: Send> WorkStealingDeque<T> {
             bottom: CachePadded { value: AtomicUsize::new(0) },
             top: CachePadded { value: AtomicUsize::new(0) },
             buffer: CachePadded { value: AtomicPtr::new(buffer) },
-            _phantom: std::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -109,6 +107,7 @@ impl<T: Send> WorkStealingDeque<T> {
         
         // Release store to make task visible to stealers
         self.bottom.value.store(bottom.wrapping_add(1), Ordering::Release);
+        fence(Ordering::SeqCst);
     }
 
     /// Pop a task (owner only)
@@ -158,7 +157,7 @@ impl<T: Send> WorkStealingDeque<T> {
             let top = self.top.value.load(Ordering::Acquire);
             
             // Synchronize with owner
-            std::sync::atomic::fence(Ordering::SeqCst);
+            fence(Ordering::SeqCst);
             
             let bottom = self.bottom.value.load(Ordering::Acquire);
             
@@ -665,7 +664,7 @@ impl WorkStealingCoordinator {
                 if !candidates.is_empty() {
                     // Sort by load (highest first) using sort_by_key
                     let mut sorted_candidates = candidates;
-                    sorted_candidates.sort_by_key(|b| std::cmp::Reverse(b.load()));
+                    sorted_candidates.sort_by_key(|b| Reverse(b.load()));
                     
                     // Take up to max_attempts victims
                     for scheduler in sorted_candidates.into_iter().take(*max_attempts) {
@@ -714,7 +713,7 @@ impl WorkStealingCoordinator {
         }
 
         // Sort by load (highest first) and return the busiest
-        candidates.sort_by_key(|b| std::cmp::Reverse(b.load()));
+        candidates.sort_by_key(|b| Reverse(b.load()));
         candidates.first().map(|s| s.id())
     }
 
