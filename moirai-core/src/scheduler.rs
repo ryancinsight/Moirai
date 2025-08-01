@@ -126,8 +126,17 @@ impl<T: Send> WorkStealingDeque<T> {
         if top <= new_bottom {
             // Non-empty
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
-            let task = unsafe { ptr::read(buffer.get(new_bottom)) };
-            
+            // Ensure new_bottom is within buffer bounds before reading
+            let capacity = buffer.capacity();
+            if new_bottom < capacity {
+                let task = unsafe { ptr::read(buffer.get(new_bottom)) };
+                
+                // (rest of code continues unchanged)
+            } else {
+                // Out of bounds, restore bottom and return None
+                self.bottom.value.store(bottom, Ordering::Relaxed);
+                return None;
+            }
             if top == new_bottom {
                 // Last task - race with stealers
                 if self.top.value.compare_exchange(
