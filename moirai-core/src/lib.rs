@@ -43,8 +43,10 @@ pub use error::{
 pub mod task;
 pub mod executor;
 pub mod scheduler;
+pub mod improved_scheduler;
 pub mod error;
 pub mod pool;
+pub mod improved_pool;
 pub mod cache_aligned;
 
 #[cfg(feature = "metrics")]
