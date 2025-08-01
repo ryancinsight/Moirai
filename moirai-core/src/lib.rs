@@ -46,6 +46,10 @@ pub mod scheduler;
 pub mod error;
 pub mod pool;
 pub mod cache_aligned;
+pub mod communication;
+
+#[cfg(unix)]
+pub mod ipc;
 
 #[cfg(feature = "metrics")]
 pub mod metrics;

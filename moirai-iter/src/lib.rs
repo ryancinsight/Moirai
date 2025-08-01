@@ -27,7 +27,18 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub mod cache_optimized;
+pub mod advanced_iterators;
+pub mod channel_fusion;
+
 pub use cache_optimized::{CacheOptimizedExt, WindowIterator, CacheAlignedChunks, ZeroCopyParallelIter};
+pub use advanced_iterators::{
+    AdvancedIteratorExt, SimdElement, ZeroCopyIter, ChunkedIter, 
+    FusedIter, WindowedIter, ParallelIter, StreamingIter
+};
+pub use channel_fusion::{
+    ChannelFusionExt, FusableChannel, ChannelFusedIter, ChannelSplitter,
+    ChannelMerger, Pipeline, SplitStrategy, MergeStrategy
+};
 
 pub mod simd_iter;
 pub use simd_iter::{SimdIteratorExt, SimdF32Iterator, SimdParallelIterator};
