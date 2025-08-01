@@ -3,6 +3,13 @@
 //! This module provides vectorized implementations of common operations
 //! used in task scheduling and data processing pipelines.
 
+// Only compile SIMD code on supported platforms
+#![cfg(any(
+    all(target_arch = "x86_64", not(target_arch = "wasm32")),
+    target_arch = "aarch64"
+))]
+
+#[cfg(all(target_arch = "x86_64", not(target_arch = "wasm32")))]
 use core::arch::x86_64::*;
 
 // ARM NEON support for broader platform compatibility
@@ -10,7 +17,7 @@ use core::arch::x86_64::*;
 use core::arch::aarch64::*;
 
 // Import the feature detection macro
-#[cfg(all(target_arch = "x86_64", feature = "std"))]
+#[cfg(all(target_arch = "x86_64", feature = "std", not(target_arch = "wasm32")))]
 use std::is_x86_feature_detected;
 
 /// SIMD-optimized vector addition for f32 arrays.
@@ -40,6 +47,7 @@ use std::is_x86_feature_detected;
 /// 
 /// assert_eq!(result, [9.0; 8]);
 /// ```
+#[cfg(all(target_arch = "x86_64", not(target_arch = "wasm32")))]
 #[target_feature(enable = "avx2")]
 pub unsafe fn vectorized_add_f32(a: &[f32], b: &[f32], result: &mut [f32]) {
     assert_eq!(a.len(), b.len());
@@ -382,11 +390,11 @@ pub unsafe fn neon_vectorized_variance_f32(data: &[f32]) -> f32 {
 ///
 /// Returns true if the current CPU supports AVX2 instructions.
 pub fn has_avx2_support() -> bool {
-    #[cfg(all(target_arch = "x86_64", feature = "std"))]
+    #[cfg(all(target_arch = "x86_64", feature = "std", not(target_arch = "wasm32")))]
     {
         is_x86_feature_detected!("avx2")
     }
-    #[cfg(not(all(target_arch = "x86_64", feature = "std")))]
+    #[cfg(not(all(target_arch = "x86_64", feature = "std", not(target_arch = "wasm32"))))]
     {
         false
     }
@@ -771,7 +779,7 @@ mod tests {
     }
     
     #[test]
-    #[cfg(all(target_arch = "x86_64", feature = "std"))]
+    #[cfg(all(target_arch = "x86_64", feature = "std", not(target_arch = "wasm32")))]
     fn test_vectorized_operations() {
         if !has_avx2_support() {
             println!("Skipping SIMD tests - AVX2 not supported");

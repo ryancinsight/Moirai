@@ -5,12 +5,14 @@
 //! - Tokio's async notification system  
 //! - OpenMP's low-overhead synchronization
 
-use crate::{Task, BoxedTask, error::{SchedulerResult, SchedulerError}, Box, Vec};
+use crate::{BoxedTask, TaskId, Priority};
+use crate::error::{SchedulerError, SchedulerResult};
+use core::time::Duration;
 use core::fmt;
 use std::time::SystemTime;
 use std::num::Wrapping;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicPtr, Ordering};
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 use std::ptr;
@@ -198,20 +200,17 @@ unsafe impl<T: Send> Sync for WorkStealingDeque<T> {}
 /// This trait defines the fundamental operations that all scheduler implementations
 /// must support for managing task queues and work distribution.
 pub trait Scheduler: Send + Sync + 'static {
-    /// Adds a task to the scheduler's queue for execution.
-    ///
-    /// # Arguments
-    /// * `task` - The boxed task to be scheduled
-    ///
-    /// # Returns
-    /// `Ok(())` if the task was successfully queued, `Err` otherwise.
-    ///
+    /// Schedule a task for execution.
+    /// 
+    /// The scheduler will determine when and where to execute the task based on
+    /// its internal policies and current system state.
+    /// 
     /// # Errors
-    /// Returns `SchedulerError` in the following cases:
-    /// - `QueueFull` if the scheduler's queue is at capacity
-    /// - `ShutdownInProgress` if the scheduler is being shut down
-    /// - `InvalidTask` if the task is malformed or cannot be executed
-    fn schedule_task(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()>;
+    /// Returns `SchedulerError` if the task cannot be scheduled due to:
+    /// - Resource constraints (queue full, memory limits)
+    /// - Scheduler shutdown or invalid state
+    /// - Task validation failures
+    fn schedule(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()>;
 
     /// Retrieves the next available task for execution.
     ///
@@ -251,29 +250,6 @@ pub trait Scheduler: Send + Sync + 'static {
     fn can_be_stolen_from(&self) -> bool {
         self.load() > 0
     }
-}
-
-/// Generic scheduling interface with type-safe task handling.
-///
-/// This trait provides a higher-level interface for schedulers that can work
-/// with specific task types while maintaining type safety.
-pub trait Generic: Send + Sync + 'static {
-    /// Schedules a typed task for execution.
-    ///
-    /// # Arguments
-    /// * `task` - The task to schedule
-    ///
-    /// # Returns
-    /// `Ok(())` if the task was successfully scheduled.
-    ///
-    /// # Errors
-    /// Returns `SchedulerError` if the task cannot be scheduled due to:
-    /// - Resource constraints (queue full, memory limits)
-    /// - Scheduler shutdown or invalid state
-    /// - Task validation failures
-    fn schedule<T>(&self, task: T) -> SchedulerResult<()>
-    where
-        T: Task;
 }
 
 /// A unique identifier for schedulers within the work-stealing system.
@@ -346,7 +322,7 @@ impl Default for Config {
 }
 
 /// Strategies for work-stealing between schedulers.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum WorkStealingStrategy {
     /// Random victim selection
     Random { max_attempts: usize },

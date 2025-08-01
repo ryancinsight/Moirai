@@ -6,12 +6,10 @@
 //! - LMAX Disruptor's ring buffers
 //! - Zero-copy message passing
 
-use std::sync::atomic::{AtomicUsize, AtomicPtr, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::sync::Arc;
 use std::cell::UnsafeCell;
-use std::mem::{self, MaybeUninit};
-use std::ptr;
-use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 
 /// Cache line size for padding
 const CACHE_LINE: usize = 64;
@@ -115,7 +113,7 @@ impl<T> SpscChannel<T> {
         }
         
         unsafe {
-            let slot = &*self.buffer[head & self.mask].get();
+            let slot = &mut *self.buffer[head & self.mask].get();
             slot.write(value);
         }
         
@@ -330,6 +328,8 @@ impl CollectiveOps {
             return vec![];
         }
         
+        let result_len = values.len();
+        
         // Tree reduction for efficiency
         let mut current = values;
         while current.len() > 1 {
@@ -347,11 +347,11 @@ impl CollectiveOps {
         }
         
         // Broadcast result to all
-        vec![current[0].clone(); values.len()]
+        vec![current[0].clone(); result_len]
     }
     
     /// Scatter operation: distribute data chunks to participants
-    pub fn scatter<T>(data: Vec<T>, num_participants: usize) -> Vec<Vec<T>> {
+    pub fn scatter<T: Clone>(data: Vec<T>, num_participants: usize) -> Vec<Vec<T>> {
         let chunk_size = (data.len() + num_participants - 1) / num_participants;
         data.chunks(chunk_size)
             .map(|chunk| chunk.to_vec())
@@ -368,7 +368,7 @@ impl CollectiveOps {
         let n = data.len();
         let mut result = vec![Vec::new(); n];
         
-        for (i, row) in data.iter().enumerate() {
+        for (_i, row) in data.iter().enumerate() {
             for (j, item) in row.iter().enumerate() {
                 if j < n {
                     result[j].push(item.clone());
@@ -436,7 +436,7 @@ impl<T> RingBuffer<T> {
         
         // Write value
         unsafe {
-            let slot = &*self.buffer[current & self.mask].get();
+            let slot = &mut *self.buffer[current & self.mask].get();
             slot.write(value);
         }
         

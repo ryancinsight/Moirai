@@ -10,15 +10,14 @@
 //! - RDMA for low-latency networking
 //! - CUDA IPC for GPU communication
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
-use std::mem::{self, MaybeUninit};
+use std::mem;
 use std::ptr;
 use std::slice;
 use std::os::raw::c_void;
 
 #[cfg(unix)]
-use std::os::unix::io::{RawFd, AsRawFd};
+use std::os::unix::io::RawFd;
 
 /// Shared memory segment for zero-copy IPC
 pub struct SharedMemory {
@@ -297,36 +296,36 @@ struct RdmaMemoryRegion {
 }
 
 impl RdmaConnection {
-    /// Create a new RDMA connection (placeholder)
-    pub fn connect(addr: &str) -> Result<Self, std::io::Error> {
-        // In production, this would use RDMA verbs API
-        todo!("RDMA implementation")
+    /// Connect to an RDMA endpoint
+    pub fn connect(_addr: &str) -> Result<Self, std::io::Error> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "RDMA not implemented"
+        ))
     }
     
-    /// Register a memory region for RDMA
-    pub fn register_memory(&mut self, ptr: *mut u8, size: usize) -> Result<u32, std::io::Error> {
-        // In production, this would register with RDMA NIC
-        let region = RdmaMemoryRegion {
-            ptr,
-            size,
-            rkey: 0, // Would be assigned by RDMA
-            lkey: 0,
-        };
-        
-        self.regions.push(region);
-        Ok(0)
+    /// Register memory region for RDMA
+    pub fn register_memory(&self, _addr: *mut u8, _len: usize) -> Result<u32, std::io::Error> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "RDMA not implemented"
+        ))
     }
     
-    /// Perform RDMA write
-    pub fn write(&self, local: &[u8], remote_addr: u64, rkey: u32) -> Result<(), std::io::Error> {
-        // In production, this would use RDMA verbs
-        todo!("RDMA write implementation")
+    /// Write data to remote memory
+    pub fn write(&self, _local: *const u8, _remote_addr: u64, _len: usize, _rkey: u32) -> Result<(), std::io::Error> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "RDMA not implemented"
+        ))
     }
     
-    /// Perform RDMA read
-    pub fn read(&self, local: &mut [u8], remote_addr: u64, rkey: u32) -> Result<(), std::io::Error> {
-        // In production, this would use RDMA verbs
-        todo!("RDMA read implementation")
+    /// Read data from remote memory
+    pub fn read(&self, _local: *mut u8, _remote_addr: u64, _len: usize, _rkey: u32) -> Result<(), std::io::Error> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "RDMA not implemented"
+        ))
     }
 }
 

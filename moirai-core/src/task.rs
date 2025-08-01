@@ -73,15 +73,86 @@
 
 //! Task abstractions and utilities for the Moirai runtime.
 
-use crate::{TaskId, TaskContext, Box, TaskError};
-use core::{
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use crate::error::TaskError;
+use core::future::Future;
+use core::pin::Pin;
+use core::marker::PhantomData;
 
 #[cfg(feature = "std")]
 use std::sync::mpsc;
+
+/// A unique identifier for tasks within the runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TaskId(pub u64);
+
+impl TaskId {
+    /// Create a new task ID.
+    pub const fn new(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+/// Priority levels for task scheduling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Priority {
+    /// Low priority tasks (background work)
+    Low = 0,
+    /// Normal priority tasks (default)
+    Normal = 1,
+    /// High priority tasks (interactive work)
+    High = 2,
+    /// Critical priority tasks (system-level work)
+    Critical = 3,
+}
+
+impl Default for Priority {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
+/// Task execution context and metadata.
+#[derive(Debug, Clone)]
+pub struct TaskContext {
+    /// Unique identifier for this task
+    pub id: TaskId,
+    /// Priority level for scheduling
+    pub priority: Priority,
+    /// Optional name for debugging
+    pub name: Option<&'static str>,
+}
+
+impl TaskContext {
+    /// Create a new task context.
+    pub const fn new(id: TaskId) -> Self {
+        Self {
+            id,
+            priority: Priority::Normal,
+            name: None,
+        }
+    }
+    
+    /// Set the priority for this task.
+    pub const fn with_priority(mut self, priority: Priority) -> Self {
+        self.priority = priority;
+        self
+    }
+    
+    /// Set the name for this task.
+    pub const fn with_name(mut self, name: &'static str) -> Self {
+        self.name = Some(name);
+        self
+    }
+}
+
+/// A trait for tasks that can be executed from a Box<dyn ...>
+pub trait BoxedTask: Send + 'static {
+    /// Execute this task and return a boxed result.
+    fn execute_boxed(self: Box<Self>);
+    
+    /// Get the task context for scheduling and debugging.
+    fn context(&self) -> &TaskContext;
+}
 
 /// The core trait for executable tasks in the Moirai runtime.
 pub trait Task: Send + 'static {
@@ -136,13 +207,13 @@ where
 {
     type Output = T::Output;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, _cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
         // Get a mutable reference to the task option
         let task_opt = &mut self.get_mut().task;
         
         match task_opt.take() {
-            Some(task) => Poll::Ready(task.execute()),
-            None => Poll::Pending, // Task already executed
+            Some(task) => core::task::Poll::Ready(task.execute()),
+            None => core::task::Poll::Pending, // Task already executed
         }
     }
 }
@@ -399,7 +470,7 @@ impl TaskBuilder {
     }
 
     /// Build the task with the provided function.
-    pub fn build<F, R>(self, func: F) -> Closure<F>
+    pub fn build<F, R>(self, func: F) -> Closure<F, R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -422,46 +493,38 @@ pub struct BaseTask<F, R> {
 }
 
 impl<F, R> BaseTask<F, R> 
-where
+where 
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    /// Create a new base task
     pub fn new(func: F, context: TaskContext) -> Self {
         Self {
             func,
             context,
-            _phantom: core::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 }
 
 /// A simple closure-based task implementation.
-pub struct Closure<F> {
-    base: BaseTask<F, F::Output>,
+pub struct Closure<F, R> {
+    base: BaseTask<F, R>,
 }
 
-impl<F> Closure<F> 
+impl<F, R> Closure<F, R>
 where
-    F: FnOnce() -> F::Output + Send + 'static,
-    F::Output: Send + 'static,
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
 {
     /// Create a new closure task.
-    pub fn new(func: F) -> Self {
-        Self {
-            base: BaseTask::new(func, TaskContext::default()),
-        }
-    }
-
-    /// Create a new closure task with custom context.
-    pub fn with_context(func: F, context: TaskContext) -> Self {
+    pub fn new(func: F, context: TaskContext) -> Self {
         Self {
             base: BaseTask::new(func, context),
         }
     }
 }
 
-impl<F, R> Task for Closure<F>
+impl<F, R> Task for Closure<F, R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,

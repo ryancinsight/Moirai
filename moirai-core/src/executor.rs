@@ -1,25 +1,34 @@
-//! Executor trait definitions and configuration.
-//! 
-//! This module implements advanced execution techniques inspired by:
-//! - Tokio's task-local storage and runtime design
-//! - Work-stealing for load balancing
-//! - Cache-aware scheduling for better locality
+//! # Executor Framework
+//!
+//! This module provides the core executor abstractions for task execution in Moirai.
+//! The design is inspired by modern async runtimes while maintaining simplicity and 
+//! zero-cost abstractions.
 
-use crate::{Task, TaskHandle, TaskId, Priority};
-use core::future::Future;
-use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
-use std::cell::UnsafeCell;
+use crate::error::ExecutorResult;
+use crate::{Task, TaskId, Priority};
+use core::cell::UnsafeCell;
 
 #[cfg(feature = "std")]
 use std::time::Instant;
 
+#[cfg(feature = "std")]
+use std::string::String;
+#[cfg(feature = "std")]
+use std::vec::Vec;
+#[cfg(feature = "std")]
+use std::boxed::Box;
+
 #[cfg(not(feature = "std"))]
-use crate::metrics::Instant;
+use alloc::string::String;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 /// Thread-local task context for improved locality (inspired by Tokio)
 thread_local! {
     static CURRENT_TASK: UnsafeCell<Option<TaskId>> = UnsafeCell::new(None);
-    static LOCAL_QUEUE: UnsafeCell<Vec<Box<dyn Task>>> = UnsafeCell::new(Vec::with_capacity(32));
+    static LOCAL_QUEUE: UnsafeCell<Vec<Box<dyn Send>>> = UnsafeCell::new(Vec::with_capacity(32));
 }
 
 /// Get the current task ID if running within a task context
@@ -63,7 +72,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
     /// - Resource exhaustion (queue full, memory limit reached)
     /// - Task validation failures (invalid priority, security constraints)
     /// - System shutdown in progress
-    fn spawn<T>(&self, task: T) -> TaskHandle<T::Output>
+    fn spawn<T>(&self, task: T) -> ExecutorResult<T::Output>
     where
         T: Task + Send + 'static;
 
@@ -77,9 +86,9 @@ pub trait TaskSpawner: Send + Sync + 'static {
     ///
     /// # Errors
     /// Returns `TaskError::SpawnFailed` under the same conditions as `spawn`
-    fn spawn_async<F>(&self, future: F) -> TaskHandle<F::Output>
+    fn spawn_async<F>(&self, future: F) -> ExecutorResult<F::Output>
     where
-        F: Future + Send + 'static,
+        F: core::future::Future + Send + 'static,
         F::Output: Send + 'static;
 
     /// Spawns a blocking task that may perform I/O or CPU-intensive work.
@@ -92,7 +101,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
     ///
     /// # Errors
     /// Returns `TaskError::SpawnFailed` under the same conditions as `spawn`
-    fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>
+    fn spawn_blocking<F, R>(&self, func: F) -> ExecutorResult<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static;
@@ -114,13 +123,13 @@ pub trait TaskSpawner: Send + Sync + 'static {
         task: T,
         priority: Priority,
         locality_hint: Option<usize>,
-    ) -> TaskHandle<T::Output>
+    ) -> ExecutorResult<T::Output>
     where
         T: Task + Send + 'static;
         
     /// Spawn a task on the current thread's local queue for better locality
     /// (inspired by Tokio's spawn_local)
-    fn spawn_local<T>(&self, task: T) -> TaskHandle<T::Output>
+    fn spawn_local<T>(&self, task: T) -> ExecutorResult<T::Output>
     where
         T: Task + 'static,
     {
@@ -160,7 +169,7 @@ pub trait TaskManager: Send + Sync + 'static {
     /// - `NotFound` if no task with the given ID exists
     /// - `InvalidState` if the task cannot be cancelled (e.g., already completed)
     /// - `SystemError` if the cancellation operation fails due to internal errors
-    fn cancel_task(&self, id: TaskId) -> Result<(), crate::error::TaskError>;
+    fn cancel_task(&self, id: TaskId) -> ExecutorResult<()>;
 
     /// Get the current status of a task.
     /// 
@@ -177,19 +186,26 @@ pub trait TaskManager: Send + Sync + 'static {
     /// - Non-blocking: Never blocks calling thread
     fn task_status(&self, id: TaskId) -> Option<TaskStatus>;
 
-    /// Wait for a task to complete with optional timeout.
+    /// Wait for a task to complete.
     /// 
-    /// # Behavior Guarantees
-    /// - Returns immediately if task is already complete
-    /// - Respects timeout if specified, returns Err on timeout
-    /// - Cancellable via async cancellation mechanisms
-    /// - Memory ordering: Acquire semantics for completion check
+    /// Returns a future that resolves when the task completes or the timeout expires.
+    /// This enables async/await patterns for task coordination.
     /// 
-    /// # Performance Characteristics
+    /// # Arguments
+    /// - `id`: The task ID to wait for
+    /// - `timeout`: Optional timeout duration
+    /// 
+    /// # Returns
+    /// A future that resolves to:
+    /// - `Ok(())` when the task completes successfully
+    /// - `Err(TaskError::Timeout)` if the timeout expires
+    /// - `Err(TaskError::NotFound)` if the task doesn't exist
+    /// 
+    /// # Performance
     /// - Immediate return: < 10ns if already complete
     /// - Waiting overhead: Event-driven, no busy polling
     /// - Memory: Minimal waker chain overhead
-    fn wait_for_task(&self, id: TaskId, timeout: Option<core::time::Duration>) -> impl Future<Output = Result<(), crate::error::TaskError>> + Send;
+    fn wait_for_task(&self, id: TaskId, timeout: Option<core::time::Duration>) -> impl core::future::Future<Output = ExecutorResult<()>> + Send;
 
     /// Get statistics about task execution.
     /// 
@@ -227,7 +243,7 @@ pub trait ExecutorControl: Send + Sync + 'static {
     /// - Suitable for main thread or dedicated blocking contexts
     fn block_on<F>(&self, future: F) -> F::Output
     where
-        F: Future;
+        F: core::future::Future;
 
     /// Attempt to run tasks without blocking.
     /// 
@@ -497,7 +513,7 @@ pub struct ExecutorConfig {
     /// Maximum size of per-thread local queues
     pub max_local_queue_size: usize,
     /// Thread name prefix for worker threads
-    pub thread_name_prefix: alloc::string::String,
+    pub thread_name_prefix: String,
     /// Whether to enable NUMA-aware thread placement
     #[cfg(feature = "numa")]
     pub numa_aware: bool,
@@ -637,7 +653,7 @@ pub trait ExecutorPlugin: Send + Sync + 'static {
     /// - Invalid configuration parameters
     /// - Resource allocation failures
     /// - Dependency conflicts with other plugins
-    fn initialize(&mut self) -> Result<(), crate::error::ExecutorError> {
+    fn initialize(&mut self) -> ExecutorResult<()> {
         Ok(())
     }
 
@@ -679,7 +695,7 @@ pub trait ExecutorPlugin: Send + Sync + 'static {
 #[allow(clippy::module_name_repetitions)]
 pub struct ExecutorBuilder {
     config: ExecutorConfig,
-    plugins: alloc::vec::Vec<alloc::boxed::Box<dyn ExecutorPlugin>>,
+    plugins: Vec<Box<dyn ExecutorPlugin>>,
 }
 
 impl ExecutorBuilder {
@@ -691,7 +707,7 @@ impl ExecutorBuilder {
     pub fn new() -> Self {
         Self {
             config: ExecutorConfig::default(),
-            plugins: alloc::vec::Vec::new(),
+            plugins: Vec::new(),
         }
     }
 
@@ -755,7 +771,7 @@ impl ExecutorBuilder {
     /// # Returns
     /// The builder instance for method chaining
     #[must_use]
-    pub fn thread_name_prefix(mut self, prefix: impl Into<alloc::string::String>) -> Self {
+    pub fn thread_name_prefix(mut self, prefix: impl Into<String>) -> Self {
         self.config.thread_name_prefix = prefix.into();
         self
     }
@@ -824,7 +840,7 @@ impl ExecutorBuilder {
     /// The builder instance for method chaining
     #[must_use]
     pub fn plugin(mut self, plugin: impl ExecutorPlugin) -> Self {
-        self.plugins.push(alloc::boxed::Box::new(plugin));
+        self.plugins.push(Box::new(plugin));
         self
     }
 
@@ -833,7 +849,7 @@ impl ExecutorBuilder {
     /// # Returns
     /// A tuple containing the executor configuration and list of plugins
     #[must_use]
-    pub fn build_config(self) -> (ExecutorConfig, alloc::vec::Vec<alloc::boxed::Box<dyn ExecutorPlugin>>) {
+    pub fn build_config(self) -> (ExecutorConfig, Vec<Box<dyn ExecutorPlugin>>) {
         (self.config, self.plugins)
     }
 }
@@ -852,7 +868,7 @@ impl Default for ExecutorBuilder {
 #[allow(clippy::module_name_repetitions)]
 pub struct ExecutorStats {
     /// Worker thread statistics
-    pub worker_stats: alloc::vec::Vec<WorkerStats>,
+    pub worker_stats: Vec<WorkerStats>,
     /// Global queue statistics
     pub global_queue_stats: QueueStats,
     /// Memory usage statistics
@@ -860,7 +876,7 @@ pub struct ExecutorStats {
     /// Aggregate task execution statistics across all workers
     pub task_execution_stats: TaskExecutionStats,
     /// Registry of individual task statistics
-    task_stats_registry: alloc::vec::Vec<TaskStats>,
+    task_stats_registry: Vec<TaskStats>,
 }
 
 /// Aggregate task execution statistics across the entire executor.
@@ -887,7 +903,7 @@ impl ExecutorStats {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            worker_stats: alloc::vec::Vec::new(),
+            worker_stats: Vec::new(),
             global_queue_stats: QueueStats {
                 current_length: 0,
                 max_length: 0,
@@ -909,7 +925,7 @@ impl ExecutorStats {
                 },
             },
             task_execution_stats: TaskExecutionStats::default(),
-            task_stats_registry: alloc::vec::Vec::new(),
+            task_stats_registry: Vec::new(),
         }
     }
 
@@ -960,7 +976,7 @@ impl ExecutorStats {
     /// # Returns
     /// A vector containing statistics for currently active tasks
     #[must_use]
-    pub fn get_active_task_stats(&self) -> alloc::vec::Vec<&TaskStats> {
+    pub fn get_active_task_stats(&self) -> Vec<&TaskStats> {
         self.task_stats_registry
             .iter()
             .filter(|stats| stats.is_active())
@@ -972,7 +988,7 @@ impl ExecutorStats {
     /// # Returns
     /// A vector containing statistics for completed tasks
     #[must_use]
-    pub fn get_completed_task_stats(&self) -> alloc::vec::Vec<&TaskStats> {
+    pub fn get_completed_task_stats(&self) -> Vec<&TaskStats> {
         self.task_stats_registry
             .iter()
             .filter(|stats| stats.is_finished())

@@ -11,8 +11,9 @@
 use std::sync::atomic::{AtomicUsize, AtomicPtr, AtomicBool, Ordering};
 use std::ptr;
 use std::cell::UnsafeCell;
-use std::mem::{self, MaybeUninit};
+use std::mem::MaybeUninit;
 use crate::{TaskId, Priority};
+use std::marker::PhantomData;
 
 /// Cache line size for padding
 const CACHE_LINE_SIZE: usize = 64;
@@ -343,53 +344,48 @@ impl<T> Default for TaskWrapper<T> {
 }
 
 /// Thread-local task pool for zero-allocation task execution
-/// 
-/// This provides extremely fast allocation for the common case where
-/// tasks are created and executed on the same thread.
 pub struct ThreadLocalPool<T> {
+    /// Stack of available objects
     pool: UnsafeCell<Vec<T>>,
-    capacity: usize,
+    /// Maximum pool size
+    max_size: usize,
+    /// Marker to ensure !Send and !Sync
+    _marker: PhantomData<*const T>,
 }
 
 impl<T> ThreadLocalPool<T> {
     /// Create a new thread-local pool
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(max_size: usize) -> Self {
         Self {
-            pool: UnsafeCell::new(Vec::with_capacity(capacity)),
-            capacity,
+            pool: UnsafeCell::new(Vec::with_capacity(max_size)),
+            max_size,
+            _marker: PhantomData,
         }
     }
     
-    /// Get an item from the pool or create a new one
+    /// Get an object from the pool or create a new one
     pub fn get_or_create<F>(&self, create: F) -> T
     where
         F: FnOnce() -> T,
     {
         unsafe {
             let pool = &mut *self.pool.get();
-            if let Some(item) = pool.pop() {
-                item
-            } else {
-                create()
-            }
+            pool.pop().unwrap_or_else(create)
         }
     }
     
-    /// Return an item to the pool
-    pub fn put(&self, item: T) {
+    /// Return an object to the pool
+    pub fn put(&self, obj: T) {
         unsafe {
             let pool = &mut *self.pool.get();
-            if pool.len() < self.capacity {
-                pool.push(item);
+            if pool.len() < self.max_size {
+                pool.push(obj);
             }
-            // Otherwise drop the item
         }
     }
 }
 
-// Thread-local pools are not Send or Sync
-impl<T> !Send for ThreadLocalPool<T> {}
-impl<T> !Sync for ThreadLocalPool<T> {}
+// ThreadLocalPool is automatically !Send and !Sync due to *const T marker
 
 /// Global object pool for cross-thread sharing.
 /// 

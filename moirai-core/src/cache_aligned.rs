@@ -4,7 +4,6 @@
 //! and improve cache efficiency in concurrent environments.
 
 use std::ops::{Deref, DerefMut};
-use std::mem::{size_of, align_of};
 
 /// Standard cache line size for x86_64 and ARM64 processors
 pub const CACHE_LINE_SIZE: usize = 64;

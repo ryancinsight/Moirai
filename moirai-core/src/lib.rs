@@ -22,11 +22,6 @@ use alloc::{boxed::Box, vec::Vec, string::String};
 #[cfg(not(feature = "std"))]
 use core as std;
 
-#[cfg(feature = "std")]
-use std::sync::mpsc;
-#[cfg(feature = "std")]
-use std::time::Duration;
-
 pub mod task;
 pub mod executor;
 pub mod scheduler;
@@ -50,13 +45,20 @@ pub mod metrics;
 pub mod security;
 
 // Core type definitions
-pub use task::{Task, TaskContext, TaskId, Priority, TaskFuture, TaskExt, BoxedTask};
-pub use executor::{TaskSpawner, TaskManager, TaskMonitor, TaskStatus, ExecutorConfig};
-pub use scheduler::{Scheduler, SchedulerId, Generic as GenericScheduler};
+pub use task::{Task, TaskId, Priority, TaskContext, TaskFuture, TaskExt, BoxedTask};
+pub use executor::{TaskSpawner, TaskManager, TaskStatus, ExecutorConfig};
+pub use scheduler::{Scheduler, SchedulerId};
 pub use error::{TaskError, ExecutorError, SchedulerError};
 
 // Re-export commonly used types
+#[cfg(feature = "std")]
+pub use std::boxed::Box;
+#[cfg(feature = "std")]
+pub use std::vec::Vec;
+
+#[cfg(not(feature = "std"))]
 pub use alloc::boxed::Box;
+#[cfg(not(feature = "std"))]
 pub use alloc::vec::Vec;
 
 /// Type alias for boxed errors.
@@ -73,7 +75,7 @@ pub use wasm_executor::{WasmExecutor, WasmTask};
 pub mod prelude {
     pub use crate::{
         Task, TaskContext, TaskId, Priority, TaskFuture, TaskExt,
-        TaskSpawner, TaskManager, TaskMonitor, TaskStatus,
+        TaskSpawner, TaskManager, TaskStatus,
         Scheduler, SchedulerId, 
         TaskError, ExecutorError, SchedulerError,
     };
