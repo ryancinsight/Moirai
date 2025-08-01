@@ -1,13 +1,38 @@
 //! Executor trait definitions and configuration.
+//! 
+//! This module implements advanced execution techniques inspired by:
+//! - Tokio's task-local storage and runtime design
+//! - Work-stealing for load balancing
+//! - Cache-aware scheduling for better locality
 
 use crate::{Task, TaskHandle, TaskId, Priority};
 use core::future::Future;
+use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use std::cell::UnsafeCell;
 
 #[cfg(feature = "std")]
 use std::time::Instant;
 
 #[cfg(not(feature = "std"))]
 use crate::metrics::Instant;
+
+/// Thread-local task context for improved locality (inspired by Tokio)
+thread_local! {
+    static CURRENT_TASK: UnsafeCell<Option<TaskId>> = UnsafeCell::new(None);
+    static LOCAL_QUEUE: UnsafeCell<Vec<Box<dyn Task>>> = UnsafeCell::new(Vec::with_capacity(32));
+}
+
+/// Get the current task ID if running within a task context
+pub fn current_task_id() -> Option<TaskId> {
+    CURRENT_TASK.with(|cell| unsafe { (*cell.get()).clone() })
+}
+
+/// Set the current task context
+pub(crate) fn set_current_task(id: Option<TaskId>) {
+    CURRENT_TASK.with(|cell| unsafe {
+        *cell.get() = id;
+    });
+}
 
 /// Core task spawning capabilities.
 /// 
@@ -92,6 +117,17 @@ pub trait TaskSpawner: Send + Sync + 'static {
     ) -> TaskHandle<T::Output>
     where
         T: Task + Send + 'static;
+        
+    /// Spawn a task on the current thread's local queue for better locality
+    /// (inspired by Tokio's spawn_local)
+    fn spawn_local<T>(&self, task: T) -> TaskHandle<T::Output>
+    where
+        T: Task + 'static,
+    {
+        // Default implementation falls back to regular spawn
+        // Executors can override for better locality
+        self.spawn(task)
+    }
 }
 
 /// Task management and monitoring capabilities.
