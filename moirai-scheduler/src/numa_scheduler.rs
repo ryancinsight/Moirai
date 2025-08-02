@@ -736,7 +736,7 @@ impl NumaAwareScheduler {
 }
 
 impl Scheduler for NumaAwareScheduler {
-    fn schedule_task(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()> {
+    fn schedule(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()> {
         // Use round-robin for basic scheduling
         let node_id = self.steal_stats.total_attempts.load(Ordering::Relaxed) % self.node_queues.len();
         self.schedule_on_node(task, Some(node_id), Priority::Normal)

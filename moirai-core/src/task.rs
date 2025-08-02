@@ -73,15 +73,86 @@
 
 //! Task abstractions and utilities for the Moirai runtime.
 
-use crate::{TaskId, TaskContext, Box, TaskError};
-use core::{
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use crate::error::TaskError;
+use core::future::Future;
+use core::pin::Pin;
+use core::marker::PhantomData;
 
 #[cfg(feature = "std")]
 use std::sync::mpsc;
+
+/// A unique identifier for tasks within the runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TaskId(pub u64);
+
+impl TaskId {
+    /// Create a new task ID.
+    pub const fn new(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+/// Priority levels for task scheduling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Priority {
+    /// Low priority tasks (background work)
+    Low = 0,
+    /// Normal priority tasks (default)
+    Normal = 1,
+    /// High priority tasks (interactive work)
+    High = 2,
+    /// Critical priority tasks (system-level work)
+    Critical = 3,
+}
+
+impl Default for Priority {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
+/// Task execution context and metadata.
+#[derive(Debug, Clone)]
+pub struct TaskContext {
+    /// Unique identifier for this task
+    pub id: TaskId,
+    /// Priority level for scheduling
+    pub priority: Priority,
+    /// Optional name for debugging
+    pub name: Option<&'static str>,
+}
+
+impl TaskContext {
+    /// Create a new task context.
+    pub const fn new(id: TaskId) -> Self {
+        Self {
+            id,
+            priority: Priority::Normal,
+            name: None,
+        }
+    }
+    
+    /// Set the priority for this task.
+    pub const fn with_priority(mut self, priority: Priority) -> Self {
+        self.priority = priority;
+        self
+    }
+    
+    /// Set the name for this task.
+    pub const fn with_name(mut self, name: &'static str) -> Self {
+        self.name = Some(name);
+        self
+    }
+}
+
+/// A trait for tasks that can be executed from a Box<dyn ...>
+pub trait BoxedTask: Send + 'static {
+    /// Execute this task and return a boxed result.
+    fn execute_boxed(self: Box<Self>);
+    
+    /// Get the task context for scheduling and debugging.
+    fn context(&self) -> &TaskContext;
+}
 
 /// The core trait for executable tasks in the Moirai runtime.
 pub trait Task: Send + 'static {
@@ -136,13 +207,13 @@ where
 {
     type Output = T::Output;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, _cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
         // Get a mutable reference to the task option
         let task_opt = &mut self.get_mut().task;
         
         match task_opt.take() {
-            Some(task) => Poll::Ready(task.execute()),
-            None => Poll::Pending, // Task already executed
+            Some(task) => core::task::Poll::Ready(task.execute()),
+            None => core::task::Poll::Pending, // Task already executed
         }
     }
 }
@@ -399,7 +470,7 @@ impl TaskBuilder {
     }
 
     /// Build the task with the provided function.
-    pub fn build<F, R>(self, func: F) -> Closure<F>
+    pub fn build<F, R>(self, func: F) -> Closure<F, R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -414,67 +485,78 @@ impl Default for TaskBuilder {
     }
 }
 
-/// A task implementation that wraps a closure for execution.
-///
-/// This struct provides a way to create tasks from closures while maintaining
-/// the full task interface including stealability and cost estimation.
-pub struct Closure<F> {
-    /// The closure to be executed
-    closure: Option<F>,
-    /// Task execution context and metadata
+/// Base implementation for common task patterns to reduce redundancy
+pub struct BaseTask<F, R> {
+    func: F,
     context: TaskContext,
+    _phantom: core::marker::PhantomData<R>,
 }
 
-impl<F> Closure<F> {
-    /// Create a new closure task.
+impl<F, R> BaseTask<F, R> 
+where 
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
     pub fn new(func: F, context: TaskContext) -> Self {
         Self {
-            closure: Some(func),
+            func,
             context,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<F, R> Task for Closure<F>
+/// A simple closure-based task implementation.
+pub struct Closure<F, R> {
+    base: BaseTask<F, R>,
+}
+
+impl<F, R> Closure<F, R>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    /// Create a new closure task.
+    pub fn new(func: F, context: TaskContext) -> Self {
+        Self {
+            base: BaseTask::new(func, context),
+        }
+    }
+}
+
+impl<F, R> Task for Closure<F, R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
     type Output = R;
 
-    fn execute(mut self) -> Self::Output {
-        let func = self.closure.take().expect("Task already executed");
-        func()
+    fn execute(self) -> Self::Output {
+        (self.base.func)()
     }
 
     fn context(&self) -> &TaskContext {
-        &self.context
+        &self.base.context
     }
 }
 
-/// A task that chains the execution of one task with another.
-///
-/// This allows for sequential task composition where the second task
-/// receives the output of the first task as input.
+/// A task that chains two operations together.
 pub struct Chained<T, F> {
-    /// The primary task to execute first
-    task: Option<T>,
-    /// The continuation function to apply to the first task's result
-    continuation: Option<F>,
-    /// Task execution context and metadata
+    task: T,
+    continuation: F,
     context: TaskContext,
 }
 
 impl<T, F> Chained<T, F> {
     /// Create a new chained task.
-    pub fn new(task: T, func: F) -> Self
+    pub fn new(task: T, continuation: F) -> Self
     where
         T: Task,
     {
         let context = task.context().clone();
         Self {
-            task: Some(task),
-            continuation: Some(func),
+            task,
+            continuation,
             context,
         }
     }
@@ -488,11 +570,9 @@ where
 {
     type Output = U;
 
-    fn execute(mut self) -> Self::Output {
-        let task = self.task.take().expect("Task already executed");
-        let func = self.continuation.take().expect("Function already used");
-        let result = task.execute();
-        func(result)
+    fn execute(self) -> Self::Output {
+        let result = self.task.execute();
+        (self.continuation)(result)
     }
 
     fn context(&self) -> &TaskContext {
@@ -500,37 +580,31 @@ where
     }
 
     fn is_stealable(&self) -> bool {
-        self.task.as_ref().map_or(false, Task::is_stealable)
+        self.task.is_stealable()
     }
 
     fn estimated_cost(&self) -> u32 {
-        self.task.as_ref().map_or(1, Task::estimated_cost)
+        self.task.estimated_cost() + 1
     }
 }
 
-/// A task that applies a mapping function to the result of another task.
-///
-/// This provides a way to transform task outputs while maintaining
-/// the task execution semantics and error handling.
+/// A task that maps the output of another task.
 pub struct Mapped<T, F> {
-    /// The source task whose output will be transformed
-    task: Option<T>,
-    /// The mapping function to apply to the task result
-    mapper: Option<F>,
-    /// Task execution context and metadata
+    task: T,
+    mapper: F,
     context: TaskContext,
 }
 
 impl<T, F> Mapped<T, F> {
     /// Create a new mapped task.
-    pub fn new(task: T, func: F) -> Self
+    pub fn new(task: T, mapper: F) -> Self
     where
         T: Task,
     {
         let context = task.context().clone();
         Self {
-            task: Some(task),
-            mapper: Some(func),
+            task,
+            mapper,
             context,
         }
     }
@@ -544,11 +618,9 @@ where
 {
     type Output = U;
 
-    fn execute(mut self) -> Self::Output {
-        let task = self.task.take().expect("Task already executed");
-        let func = self.mapper.take().expect("Function already used");
-        let result = task.execute();
-        func(result)
+    fn execute(self) -> Self::Output {
+        let result = self.task.execute();
+        (self.mapper)(result)
     }
 
     fn context(&self) -> &TaskContext {
@@ -556,24 +628,18 @@ where
     }
 
     fn is_stealable(&self) -> bool {
-        self.task.as_ref().map_or(false, Task::is_stealable)
+        self.task.is_stealable()
     }
 
     fn estimated_cost(&self) -> u32 {
-        self.task.as_ref().map_or(1, Task::estimated_cost)
+        self.task.estimated_cost()
     }
 }
 
-/// A task that provides error handling for another task.
-///
-/// This allows tasks to recover from errors by providing fallback
-/// behavior or error transformation logic.
+/// A task that catches errors from another task.
 pub struct Catch<T, F> {
-    /// The primary task that may fail
-    task: Option<T>,
-    /// The error handler function
-    error_handler: Option<F>,
-    /// Task execution context and metadata
+    task: T,
+    handler: F,
     context: TaskContext,
 }
 
@@ -585,8 +651,8 @@ impl<T, F> Catch<T, F> {
     {
         let context = task.context().clone();
         Self {
-            task: Some(task),
-            error_handler: Some(handler),
+            task,
+            handler,
             context,
         }
     }
@@ -595,18 +661,15 @@ impl<T, F> Catch<T, F> {
 impl<T, F> Task for Catch<T, F>
 where
     T: Task,
-    F: FnOnce() -> T::Output + Send + 'static,
+    T::Output: core::fmt::Debug,
+    F: FnOnce(core::fmt::Arguments<'_>) -> T::Output + Send + 'static,
 {
     type Output = T::Output;
 
-    fn execute(mut self) -> Self::Output {
-        let task = self.task.take().expect("Task already executed");
-        let _handler = self.error_handler.take().expect("Handler already used");
-        
-        // In a real implementation, we would catch panics here
-        // For now, we'll just execute the task normally
-        // This could be enhanced with std::panic::catch_unwind
-        task.execute()
+    fn execute(self) -> Self::Output {
+        // In a real implementation, this would catch panics
+        // For now, just execute the task normally
+        self.task.execute()
     }
 
     fn context(&self) -> &TaskContext {
@@ -614,11 +677,11 @@ where
     }
 
     fn is_stealable(&self) -> bool {
-        self.task.as_ref().map_or(false, Task::is_stealable)
+        self.task.is_stealable()
     }
 
     fn estimated_cost(&self) -> u32 {
-        self.task.as_ref().map_or(1, Task::estimated_cost)
+        self.task.estimated_cost()
     }
 }
 

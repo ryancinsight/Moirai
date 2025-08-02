@@ -13,11 +13,26 @@ rust-version.workspace = true
 description = "Core abstractions and traits for the Moirai concurrency library"
 
 [dependencies]
-moirai-utils = { workspace = true }
+moirai-utils = { workspace = true, default-features = false }
+
+# Unix dependencies
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# WASM dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+    "Worker",
+    "MessageEvent", 
+    "MessagePort"
+] }
 
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
+wasm-bindgen-test = "0.3"
 
 [features]
 default = ["std"]
@@ -25,3 +40,4 @@ no-std = []
 std = []
 numa = []
 metrics = ["moirai-utils/metrics"]
+wasm = ["wasm-bindgen", "js-sys", "web-sys", "no-std"]

@@ -505,7 +505,7 @@ impl WorkStealingScheduler {
 }
 
 impl Scheduler for WorkStealingScheduler {
-    fn schedule_task(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()> {
+    fn schedule(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()> {
         self.stats.tasks_scheduled.fetch_add(1, Ordering::Relaxed);
         
         // Prefer local queue for better cache locality
@@ -829,7 +829,7 @@ mod tests {
         
         // Test task scheduling
         let task = Box::new(TestTask::new(42));
-        scheduler.schedule_task(task).unwrap();
+        scheduler.schedule(task).unwrap();
         
         assert_eq!(scheduler.load(), 1);
         
@@ -851,7 +851,7 @@ mod tests {
         // Schedule and execute some tasks
         for i in 0..5 {
             let task = Box::new(TestTask::new(i));
-            scheduler.schedule_task(task).unwrap();
+            scheduler.schedule(task).unwrap();
         }
         
         // Execute all tasks
@@ -876,7 +876,7 @@ mod tests {
         // Test multiple task scheduling
         for i in 0..10 {
             let task = Box::new(TestTask::new(i));
-            scheduler.schedule_task(task).unwrap();
+            scheduler.schedule(task).unwrap();
         }
         
         assert_eq!(scheduler.load(), 10);

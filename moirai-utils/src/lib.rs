@@ -1071,8 +1071,31 @@ pub mod probabilistic {
     }
 }
 
-/// SIMD operations module.
+#[cfg(all(
+    feature = "simd",
+    any(
+        all(target_arch = "x86_64", not(target_arch = "wasm32")),
+        target_arch = "aarch64"
+    )
+))]
 pub mod simd;
+
+// Provide stub implementations for unsupported platforms
+#[cfg(all(
+    feature = "simd",
+    not(any(
+        all(target_arch = "x86_64", not(target_arch = "wasm32")),
+        target_arch = "aarch64"
+    ))
+))]
+pub mod simd {
+    //! Stub SIMD module for platforms without SIMD support
+    
+    /// Fallback implementation of has_avx2_support
+    pub fn has_avx2_support() -> bool {
+        false
+    }
+}
 
 /// Advanced performance counter for SIMD operations.
 #[derive(Debug)]
