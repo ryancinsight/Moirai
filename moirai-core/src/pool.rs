@@ -4,6 +4,21 @@
 //! - Tokio's slab allocator
 //! - Lock-free stacks for thread-safe pooling
 //! - Thread-local caching for hot paths
+//!
+//! # Safety
+//!
+//! This module uses `MaybeUninit` for performance in several data structures:
+//! 
+//! - **LockFreeStack**: Items are initialized with `MaybeUninit::new()` in `push()` 
+//!   before being added to the stack. The `assume_init()` in `pop()` is safe because
+//!   we only pop items that were previously pushed.
+//!
+//! - **SlabAllocator**: The `occupied` flag tracks initialization state. Items are
+//!   written with `write()` before setting `occupied = true`. The `assume_init_read()`
+//!   in `remove()` is safe because we check `occupied` first.
+//!
+//! All uses of `assume_init()` are documented with SAFETY comments explaining why
+//! the operation is sound.
 
 use crate::platform::*;
 use crate::{TaskId, Priority};
@@ -105,6 +120,9 @@ impl<T> LockFreeStack<T> {
             ).is_ok() {
                 self.len.value.fetch_sub(1, Ordering::Relaxed);
                 let node = unsafe { Box::from_raw(head) };
+                // SAFETY: The data was initialized in push() with MaybeUninit::new(item)
+                // before the node was added to the stack. The compare_exchange ensures
+                // we have exclusive access to this node.
                 return Some(unsafe { node.data.assume_init() });
             }
         }
@@ -199,8 +217,12 @@ impl<T> SlabAllocator<T> {
                 unsafe {
                     (*entry.value.get()).write(value);
                 }
+                
+                // Mark as occupied after writing the value
+                debug_assert!(!entry.occupied.load(Ordering::Relaxed), "Slot should be vacant before marking occupied");
                 entry.occupied.store(true, Ordering::Release);
                 self.len.value.fetch_add(1, Ordering::Relaxed);
+                
                 return Some(free_idx);
             }
         }
@@ -219,6 +241,9 @@ impl<T> SlabAllocator<T> {
         }
         
         // Extract the value
+        // SAFETY: The occupied flag ensures this slot contains initialized data.
+        // The swap(false) above gives us exclusive access to this slot.
+        // The data was initialized in insert() with write(value).
         let value = unsafe { (*entry.value.get()).assume_init_read() };
         
         // Add to free list

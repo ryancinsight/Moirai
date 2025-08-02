@@ -1,10 +1,24 @@
-//! High-performance communication infrastructure for concurrent components.
+//! High-performance communication primitives for concurrent systems.
 //! 
-//! This module provides efficient communication primitives inspired by:
-//! - Crossbeam's lock-free channels
-//! - MPI's collective operations
-//! - LMAX Disruptor's ring buffers
-//! - Zero-copy message passing
+//! This module provides efficient communication mechanisms between:
+//! - Threads (SPSC channels, broadcast channels)
+//! - Tasks (message passing, collective operations)
+//! - Systems (ring buffers, zero-copy channels)
+//!
+//! # Safety
+//!
+//! This module uses `MaybeUninit` for zero-copy performance in several structures:
+//!
+//! - **SpscChannel**: Messages are written with `write()` before incrementing the head
+//!   pointer. The `assume_init_read()` in `recv()` is safe because we check that
+//!   head > tail, ensuring data was written.
+//!
+//! - **RingBuffer**: Values are written with `write()` before incrementing producer_seq.
+//!   The `assume_init_read()` in `try_consume()` is safe because we check that
+//!   producer_seq > current, ensuring data was written.
+//!
+//! All uses of `assume_init_read()` are protected by sequence number checks that
+//! ensure the data was initialized before reading.
 
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::sync::Arc;
@@ -132,6 +146,10 @@ impl<T> SpscChannel<T> {
         
         let value = unsafe {
             let slot = &*self.buffer[tail & self.mask].get();
+            // SAFETY: The head > tail check ensures this slot contains initialized data.
+            // Data was written in send() before incrementing head pointer.
+            // Single consumer ensures exclusive read access.
+            debug_assert!(tail < head, "Attempting to read from empty channel");
             slot.assume_init_read()
         };
         
@@ -464,6 +482,9 @@ impl<T> RingBuffer<T> {
         // Read value
         let value = unsafe {
             let slot = &*self.buffer[current & self.mask].get();
+            // SAFETY: The producer_seq > current check ensures this slot contains initialized data.
+            // Data was written in try_publish() before incrementing producer_seq.
+            // The consumer sequence ensures we have exclusive read access to this slot.
             slot.assume_init_read()
         };
         
