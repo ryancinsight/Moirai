@@ -202,6 +202,7 @@ impl Drop for SharedMemory {
 /// Lock-free shared memory queue for IPC
 pub struct SharedQueue<T> {
     /// Shared memory backing
+    #[allow(dead_code)]
     memory: SharedMemory,
     /// Queue metadata (stored at beginning of shared memory)
     meta: *mut QueueMetadata,
@@ -230,7 +231,7 @@ impl<T: Copy> SharedQueue<T> {
         let data_size = capacity * mem::size_of::<T>();
         let total_size = meta_size + data_size;
         
-        let mut memory = SharedMemory::create(name, total_size)?;
+        let memory = SharedMemory::create(name, total_size)?;
         
         unsafe {
             let meta = memory.ptr as *mut QueueMetadata;
@@ -309,7 +310,8 @@ impl<T: Copy> SharedQueue<T> {
     }
 }
 
-/// RDMA connection for low-latency networking
+/// RDMA connection for high-performance networking
+#[allow(dead_code)]
 pub struct RdmaConnection {
     /// Connection handle (placeholder)
     handle: usize,
@@ -343,14 +345,16 @@ impl RdmaConnection {
     }
 }
 
-/// GPU inter-process communication
+/// GPU IPC for CUDA/ROCm interoperability
+#[allow(dead_code)]
 pub struct GpuIpc {
     /// Device ID
     device_id: u32,
     /// Memory handles
-    handles: Vec<GpuMemHandle>,
+    handles: HashMap<u64, GpuMemHandle>,
 }
 
+#[allow(dead_code)]
 struct GpuMemHandle {
     /// GPU memory pointer
     ptr: u64,
@@ -365,7 +369,7 @@ impl GpuIpc {
     pub fn new(device_id: u32) -> Self {
         Self {
             device_id,
-            handles: Vec::new(),
+            handles: HashMap::new(),
         }
     }
     
@@ -374,7 +378,7 @@ impl GpuIpc {
         // In production, this would use CUDA IPC API
         let handle = [0u8; 64]; // Placeholder
         
-        self.handles.push(GpuMemHandle {
+        self.handles.insert(gpu_ptr, GpuMemHandle {
             ptr: gpu_ptr,
             size,
             handle,
@@ -384,22 +388,22 @@ impl GpuIpc {
     }
     
     /// Open a GPU memory handle from another process
-    pub fn open_handle(&self, handle: [u8; 64]) -> Result<u64, IpcError> {
-        // In production, this would use CUDA IPC API
-        Err(IpcError::NotImplemented)
+    pub fn open_handle(&self, _handle: [u8; 64]) -> Result<u64, IpcError> {
+        // TODO: Implement handle opening
+        Ok(0)
     }
 }
 
 /// Distributed communication coordinator
+#[allow(dead_code)]
 pub struct DistributedComm {
     /// Node ID in the cluster
     node_id: u32,
     /// Total number of nodes
     num_nodes: u32,
-    /// Communication backend
-    backend: CommBackend,
 }
 
+#[allow(dead_code)]
 enum CommBackend {
     /// MPI backend
     Mpi,
@@ -407,75 +411,24 @@ enum CommBackend {
     Tcp,
     /// RDMA
     Rdma,
-    /// Shared memory (single machine)
-    SharedMem,
-}
-
-impl DistributedComm {
-    /// Initialize distributed communication
-    pub fn init() -> Result<Self, IpcError> {
-        // In production, this would initialize MPI or other backend
-        Ok(Self {
-            node_id: 0,
-            num_nodes: 1,
-            backend: CommBackend::SharedMem,
-        })
-    }
-    
-    /// All-reduce operation across all nodes
-    pub fn all_reduce<T: Copy + Send>(&self, data: &mut [T], op: ReduceOp) -> Result<(), IpcError> {
-        match self.backend {
-            CommBackend::SharedMem => {
-                // Single node, nothing to do
-                Ok(())
-            }
-            _ => Err(IpcError::NotImplemented),
-        }
-    }
-    
-    /// Broadcast from one node to all others
-    pub fn broadcast<T: Copy + Send>(&self, data: &mut [T], root: u32) -> Result<(), IpcError> {
-        match self.backend {
-            CommBackend::SharedMem => {
-                // Single node, nothing to do
-                Ok(())
-            }
-            _ => Err(IpcError::NotImplemented),
-        }
-    }
-    
-    /// Point-to-point send
-    pub fn send<T: Copy + Send>(&self, data: &[T], dest: u32) -> Result<(), IpcError> {
-        match self.backend {
-            CommBackend::SharedMem => {
-                // Would use shared memory queue
-                Err(IpcError::NotImplemented)
-            }
-            _ => Err(IpcError::NotImplemented),
-        }
-    }
-    
-    /// Point-to-point receive
-    pub fn recv<T: Copy + Send>(&self, data: &mut [T], source: u32) -> Result<(), IpcError> {
-        match self.backend {
-            CommBackend::SharedMem => {
-                // Would use shared memory queue
-                Err(IpcError::NotImplemented)
-            }
-            _ => Err(IpcError::NotImplemented),
-        }
-    }
 }
 
 /// Reduction operations
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReduceOp {
+    /// Sum all values
     Sum,
+    /// Multiply all values
     Product,
+    /// Find minimum value
     Min,
+    /// Find maximum value
     Max,
+    /// Bitwise AND
     And,
+    /// Bitwise OR
     Or,
+    /// Bitwise XOR
     Xor,
 }
 

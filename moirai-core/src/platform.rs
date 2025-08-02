@@ -85,6 +85,11 @@ pub use std::fmt::{self, Debug, Display};
 pub use core::fmt::{self, Debug, Display};
 
 // Thread-local storage abstraction
+
+/// Creates a thread-local static variable with platform-specific implementation.
+/// 
+/// This macro provides a unified interface for thread-local storage across
+/// different platforms (std and no_std environments).
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 #[macro_export]
 macro_rules! thread_local_static {
@@ -140,46 +145,26 @@ pub use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard
 #[cfg(not(feature = "std"))]
 pub use spin::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-// Channel abstraction
-#[cfg(feature = "std")]
+/// Channel abstraction for cross-platform message passing.
+/// 
+/// This module provides a unified interface for channels that works
+/// across different platforms and feature configurations.
 pub mod channel {
-    pub use std::sync::mpsc::{channel, sync_channel, Sender, Receiver, RecvError, TryRecvError};
-}
-
-#[cfg(not(feature = "std"))]
-pub mod channel {
-    // For no-std, we would need to implement our own channels
-    // This is a placeholder
-    pub struct Sender<T>(core::marker::PhantomData<T>);
-    pub struct Receiver<T>(core::marker::PhantomData<T>);
+    #[cfg(feature = "std")]
+    pub use std::sync::mpsc::{channel, Sender, Receiver, RecvError, TryRecvError};
     
-    pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
-        (Sender(core::marker::PhantomData), Receiver(core::marker::PhantomData))
-    }
+    #[cfg(not(feature = "std"))]
+    pub use alloc::sync::mpsc::{channel, Sender, Receiver, RecvError, TryRecvError};
 }
 
-// Thread abstraction
-#[cfg(all(feature = "std", not(target_arch = "wasm32")))]
+/// Thread abstraction for cross-platform threading support.
+/// 
+/// This module provides a unified interface for thread operations that works
+/// across different platforms and feature configurations.
 pub mod thread {
-    pub use std::thread::{spawn, sleep, yield_now, current, ThreadId, JoinHandle};
-}
-
-#[cfg(any(not(feature = "std"), target_arch = "wasm32"))]
-pub mod thread {
-    use super::*;
+    #[cfg(feature = "std")]
+    pub use std::thread::{spawn, sleep, yield_now, JoinHandle, Thread, ThreadId};
     
-    pub struct JoinHandle<T>(PhantomData<T>);
-    
-    pub fn spawn<F, T>(_f: F) -> JoinHandle<T>
-    where
-        F: FnOnce() -> T + Send + 'static,
-        T: Send + 'static,
-    {
-        // No-op for platforms without threads
-        JoinHandle(PhantomData)
-    }
-    
-    pub fn yield_now() {
-        // No-op
-    }
+    #[cfg(not(feature = "std"))]
+    compile_error!("Thread support requires std feature");
 }

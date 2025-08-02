@@ -221,9 +221,8 @@ impl Default for HybridConfig {
     }
 }
 
-/// Advanced thread pool with work-stealing and adaptive sizing.
+/// Thread pool for parallel iteration execution.
 /// Now uses the improved scheduler from moirai-core
-#[derive(Debug)]
 struct ThreadPool {
     workers: Vec<Worker>,
     sender: std::sync::mpsc::Sender<Message>,
@@ -367,7 +366,7 @@ impl ParallelContext {
 
     /// Create a parallel context with default thread count.
     pub fn default() -> Self {
-        Self::new(num_cpus())
+        Self::new(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1))
     }
 
     /// Set the batch size for chunked processing.
@@ -422,7 +421,10 @@ impl ParallelContext {
             }
         }
         
-        Arc::try_unwrap(results).unwrap().into_inner().unwrap()
+        Arc::try_unwrap(results)
+            .unwrap_or_else(|_| panic!("Failed to unwrap Arc"))
+            .into_inner()
+            .unwrap_or_else(|_| panic!("Failed to unwrap Mutex"))
     }
 }
 
@@ -435,7 +437,7 @@ impl ExecutionContext for ParallelContext {
         Box::pin(async move {
             self.parallel_operation(items, move |chunk| {
                 chunk.into_iter().for_each(&func);
-                vec![]
+                vec![] as Vec<()>
             });
         })
     }
@@ -466,7 +468,8 @@ impl ExecutionContext for ParallelContext {
             // Tree reduction for better parallelism
             let mut current = items;
             while current.len() > 1 {
-                let chunk_results = self.parallel_operation(current, |chunk| {
+                let func = func.clone();
+                let chunk_results = self.parallel_operation(current, move |chunk| {
                     let mut iter = chunk.into_iter();
                     let mut results = Vec::new();
                     
@@ -519,7 +522,7 @@ impl AsyncContext {
 
     /// Create an async context with default settings.
     pub fn default() -> Self {
-        Self::new(num_cpus() * 2)
+        Self::new(std::thread::available_parallelism().map(|n| n.get() * 2).unwrap_or(2))
     }
     
     /// Set the buffer size for streaming operations.

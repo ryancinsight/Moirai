@@ -1,16 +1,20 @@
-//! # Executor Framework
+//! Executor trait and implementations.
 //!
-//! This module provides the core executor abstractions for task execution in Moirai.
-//! The design is inspired by modern async runtimes while maintaining simplicity and 
-//! zero-cost abstractions.
+//! This module provides the core executor abstraction for the Moirai runtime.
+//! It defines traits for task spawning, management, and lifecycle control.
 
+use crate::{Task, TaskId, Priority, TaskHandle, TaskContext};
 use crate::error::ExecutorResult;
-use crate::{Task, TaskId, Priority};
 use crate::platform::*;
+use core::cell::UnsafeCell;
 
-/// Thread-local task context for improved locality (inspired by Tokio)
+// Thread-local task context for improved locality (inspired by Tokio)
 crate::thread_local_static! {
     static CURRENT_TASK: UnsafeCell<Option<TaskId>> = UnsafeCell::new(None)
+}
+
+crate::thread_local_static! {
+    static EXECUTOR_CONTEXT: UnsafeCell<Option<TaskContext>> = UnsafeCell::new(None)
 }
 
 crate::thread_local_static! {
@@ -22,7 +26,8 @@ pub fn current_task_id() -> Option<TaskId> {
     CURRENT_TASK.with(|cell| unsafe { (*cell.get()).clone() })
 }
 
-/// Set the current task context
+/// Set the current task ID for this thread
+#[allow(dead_code)]
 pub(crate) fn set_current_task(id: Option<TaskId>) {
     CURRENT_TASK.with(|cell| unsafe {
         *cell.get() = id;
@@ -58,7 +63,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
     /// - Resource exhaustion (queue full, memory limit reached)
     /// - Task validation failures (invalid priority, security constraints)
     /// - System shutdown in progress
-    fn spawn<T>(&self, task: T) -> ExecutorResult<T::Output>
+    fn spawn<T>(&self, task: T) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task + Send + 'static;
 
@@ -72,7 +77,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
     ///
     /// # Errors
     /// Returns `TaskError::SpawnFailed` under the same conditions as `spawn`
-    fn spawn_async<F>(&self, future: F) -> ExecutorResult<F::Output>
+    fn spawn_async<F>(&self, future: F) -> ExecutorResult<TaskHandle<F::Output>>
     where
         F: core::future::Future + Send + 'static,
         F::Output: Send + 'static;
@@ -87,7 +92,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
     ///
     /// # Errors
     /// Returns `TaskError::SpawnFailed` under the same conditions as `spawn`
-    fn spawn_blocking<F, R>(&self, func: F) -> ExecutorResult<R>
+    fn spawn_blocking<F, R>(&self, func: F) -> ExecutorResult<TaskHandle<R>>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static;
@@ -109,13 +114,13 @@ pub trait TaskSpawner: Send + Sync + 'static {
         task: T,
         priority: Priority,
         locality_hint: Option<usize>,
-    ) -> ExecutorResult<T::Output>
+    ) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task + Send + 'static;
         
     /// Spawn a task on the current thread's local queue for better locality
     /// (inspired by Tokio's spawn_local)
-    fn spawn_local<T>(&self, task: T) -> ExecutorResult<T::Output>
+    fn spawn_local<T>(&self, task: T) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task + 'static,
     {
@@ -691,13 +696,10 @@ pub trait ExecutorPlugin: Send + Sync + 'static {
     }
 }
 
-/// Builder for creating and configuring executor instances.
-///
-/// This builder provides a fluent interface for setting up executors with
-/// custom configurations, plugins, and performance characteristics.
-#[allow(clippy::module_name_repetitions)]
+/// Builder for creating executors with custom configuration.
 pub struct ExecutorBuilder {
     config: ExecutorConfig,
+    #[allow(dead_code)]
     plugins: Vec<Box<dyn ExecutorPlugin>>,
 }
 

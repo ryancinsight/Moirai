@@ -200,7 +200,7 @@
 
 // Re-export core functionality
 pub use moirai_core::{
-    Task, AsyncTask, TaskId, TaskHandle, Priority, TaskContext, TaskBuilder,
+    Task, TaskId, TaskHandle, Priority, TaskContext,
     error::*, task::*, executor::*, scheduler::*,
 };
 
@@ -314,19 +314,18 @@ impl Moirai {
     where
         T: Task,
     {
-        self.executor.spawn(task)
+        self.executor.spawn(task).expect("Failed to spawn task")
     }
 
     /// Spawn a parallel task using a closure.
     ///
-    /// This is equivalent to `spawn_blocking` but with a more intuitive name
-    /// for CPU-bound parallel work.
-    pub fn spawn_parallel<F, R>(&self, func: F) -> TaskHandle<R>
+    /// The task will be executed on the work-stealing thread pool.
+    pub fn spawn_fn<F, R>(&self, func: F) -> TaskHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.executor.spawn_blocking(func)
+        self.executor.spawn_blocking(func).expect("Failed to spawn blocking task")
     }
 
     /// Spawn an async task for execution.
@@ -337,7 +336,7 @@ impl Moirai {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.executor.spawn_async(future)
+        self.executor.spawn_async(future).expect("Failed to spawn async task")
     }
 
     /// Spawn a blocking task that may block the current thread.
@@ -348,17 +347,17 @@ impl Moirai {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.executor.spawn_blocking(func)
+        self.executor.spawn_blocking(func).expect("Failed to spawn blocking task")
     }
 
     /// Spawn a task with a specific priority.
     ///
-    /// Higher priority tasks will be scheduled before lower priority tasks.
+    /// Higher priority tasks will be executed before lower priority tasks.
     pub fn spawn_with_priority<T>(&self, task: T, priority: Priority) -> TaskHandle<T::Output>
     where
         T: Task,
     {
-        self.executor.spawn_with_priority(task, priority, None)
+        self.executor.spawn_with_priority(task, priority, None).expect("Failed to spawn task with priority")
     }
 
     /// Block the current thread until the future completes.
@@ -605,7 +604,7 @@ pub mod prelude {
     
     pub use crate::{
         Moirai, MoiraiBuilder,
-        Task, AsyncTask, TaskHandle, TaskId, Priority,
+        Task, TaskHandle, TaskId, Priority,
         TaskBuilder, TaskExt,
     };
 
@@ -644,7 +643,7 @@ where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    global().spawn_parallel(func)
+    global().spawn_fn(func)
 }
 
 /// Block on a future using the global runtime.

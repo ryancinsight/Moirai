@@ -23,8 +23,7 @@
 use crate::platform::*;
 use crate::{TaskId, Priority};
 
-/// Cache line size for padding
-const CACHE_LINE_SIZE: usize = 64;
+
 
 /// Padding to prevent false sharing
 #[repr(align(64))]
@@ -53,6 +52,7 @@ pub struct LockFreeStack<T> {
 struct StackNode<T> {
     data: MaybeUninit<T>,
     next: *mut StackNode<T>,
+    #[allow(dead_code)]
     generation: usize,
 }
 
@@ -299,6 +299,7 @@ pub struct TaskWrapper<T> {
     /// Number of times this wrapper has been reset
     reset_count: usize,
     /// Inline storage for small tasks to avoid allocation
+    #[allow(dead_code)]
     inline_storage: [u8; 64],
 }
 
@@ -594,3 +595,6 @@ mod tests {
         assert_eq!(count, 400);
     }
 }
+
+/// Type alias for task pool
+pub type TaskPool<T> = GlobalPool<T>;

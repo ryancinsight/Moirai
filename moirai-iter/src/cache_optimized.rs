@@ -1,13 +1,18 @@
-//! Cache-optimized iterator implementations using zero-copy techniques.
+//! Cache-optimized iterator implementations for maximum memory throughput.
 //!
-//! This module provides high-performance iterator adapters that maximize cache locality
-//! through careful data layout, prefetching, and zero-copy operations.
+//! This module provides iterators that are designed to work efficiently
+//! with CPU caches, minimizing cache misses and maximizing memory bandwidth.
 
 use std::mem;
 use std::ptr;
+use std::sync::Arc;
 
 // Import CacheAligned from moirai-core
 use moirai_core::cache_aligned::CacheAligned;
+
+/// Wrapper to make raw pointers Send
+struct SendPtr<T>(*mut T);
+unsafe impl<T> Send for SendPtr<T> {}
 
 /// Cache line size for most modern x86_64 processors
 pub const CACHE_LINE_SIZE: usize = 64;
@@ -223,17 +228,24 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         let mut results = Vec::with_capacity(self.data.len());
         unsafe { results.set_len(self.data.len()); }
         
-        let results_ptr = results.as_mut_ptr();
+        let results_ptr: *mut R = results.as_mut_ptr();
+        let func = Arc::new(func);
         
         std::thread::scope(|scope| {
             for (chunk_idx, chunk) in self.data.chunks(self.chunk_size).enumerate() {
                 let chunk_start = chunk_idx * self.chunk_size;
+                let chunk_len = chunk.len();
                 
-                scope.spawn(|| {
+                // Calculate pointer offset before spawning to avoid capturing raw pointer
+                let chunk_results_ptr = unsafe { results_ptr.add(chunk_start) };
+                let ptr_wrapper = SendPtr(chunk_results_ptr);
+                let func = Arc::clone(&func);
+                
+                scope.spawn(move || {
                     for (i, item) in chunk.iter().enumerate() {
                         unsafe {
                             let result = func(item);
-                            ptr::write(results_ptr.add(chunk_start + i), result);
+                            ptr::write(ptr_wrapper.0.add(i), result);
                         }
                     }
                 });
@@ -279,19 +291,31 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         while current_results.len() > 1 {
             current_results = std::thread::scope(|scope| {
                 let mut handles = Vec::new();
+                let len = current_results.len();
                 
                 // Process pairs without copying the entire chunk
-                for i in (0..current_results.len()).step_by(2) {
-                    let len = current_results.len();
+                for i in 0..len {
                     
-                    // Use unsafe to work around borrow checker limitations with scoped threads
-                    let results_ptr = current_results.as_ptr();
+                    // Calculate pointers before spawning to avoid capturing raw pointer
+                    let ptr_i = unsafe { current_results.as_ptr().add(i) };
+                    let ptr_i_plus_1 = if i + 1 < len {
+                        Some(unsafe { current_results.as_ptr().add(i + 1) })
+                    } else {
+                        None
+                    };
+                    
+                    // Wrap pointers to make them Send
+                    struct SendPtrPair<T>(*const T, Option<*const T>);
+                    unsafe impl<T> Send for SendPtrPair<T> {}
+                    
+                    let ptr_pair = SendPtrPair(ptr_i, ptr_i_plus_1);
                     
                     let handle = scope.spawn(move || unsafe {
-                        if i + 1 < len {
-                            Some(func(&*results_ptr.add(i), &*results_ptr.add(i + 1)))
+                        let (ptr_i, ptr_i_plus_1) = (ptr_pair.0, ptr_pair.1);
+                        if let Some(ptr_next) = ptr_i_plus_1 {
+                            Some(func(&*ptr_i, &*ptr_next))
                         } else {
-                            Some((*results_ptr.add(i)).clone())
+                            Some((*ptr_i).clone())
                         }
                     });
                     handles.push(handle);
@@ -319,7 +343,7 @@ pub trait CacheOptimizedExt<T> {
     fn zero_copy_par_iter(&self) -> ZeroCopyParallelIter<T>;
 }
 
-impl<T> CacheOptimizedExt<T> for [T] {
+impl<T: Send + Sync> CacheOptimizedExt<T> for [T] {
     fn cache_windows(&self, window_size: usize) -> WindowIterator<T> {
         WindowIterator::new(self, window_size, window_size)
     }
