@@ -421,7 +421,10 @@ impl ParallelContext {
             }
         }
         
-        Arc::try_unwrap(results).unwrap().into_inner().unwrap()
+        Arc::try_unwrap(results)
+            .unwrap_or_else(|_| panic!("Failed to unwrap Arc"))
+            .into_inner()
+            .unwrap_or_else(|_| panic!("Failed to unwrap Mutex"))
     }
 }
 
@@ -434,7 +437,7 @@ impl ExecutionContext for ParallelContext {
         Box::pin(async move {
             self.parallel_operation(items, move |chunk| {
                 chunk.into_iter().for_each(&func);
-                vec![]
+                vec![] as Vec<()>
             });
         })
     }

@@ -1,16 +1,23 @@
-//! NUMA-aware iterator execution for optimal memory locality.
+//! NUMA-aware iterator implementations for optimal memory locality.
 //!
-//! This module provides NUMA-aware execution contexts that allocate memory
-//! and schedule work based on NUMA topology to minimize memory latency.
+//! This module provides iterators that are aware of Non-Uniform Memory Access
+//! (NUMA) architectures, ensuring data is processed on the CPU cores closest
+//! to where it resides in memory.
 
 use std::sync::Arc;
+use std::pin::Pin;
+use std::future::Future;
 use std::thread;
 use std::alloc::{alloc, dealloc, Layout};
 use std::ptr;
 use std::mem;
 
 use crate::{ExecutionContext, MoiraiIterator};
-use moirai_scheduler::numa_scheduler::CpuTopology;
+use moirai_scheduler::numa_scheduler::{CpuTopology, NumaNode};
+
+/// Wrapper to make raw pointers Send
+struct SendPtr<T>(*mut T);
+unsafe impl<T> Send for SendPtr<T> {}
 
 /// NUMA memory allocation policy
 #[derive(Debug, Clone, Copy)]
@@ -27,7 +34,7 @@ pub enum NumaPolicy {
 
 /// NUMA-aware execution context for iterators
 pub struct NumaAwareContext {
-    topology: Arc<CpuTopology>,
+    topology: Arc<Option<CpuTopology>>,
     policy: NumaPolicy,
     thread_count: usize,
 }
@@ -37,7 +44,8 @@ impl NumaAwareContext {
     pub fn new(policy: NumaPolicy) -> Self {
         let topology = Arc::new(CpuTopology::detect());
         let thread_count = topology.as_ref()
-            .map(|t| t.cores.len())
+            .as_ref()
+            .map(|t| t.logical_cores)
             .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
         
         Self {
@@ -58,7 +66,10 @@ impl NumaAwareContext {
                     cpu = result as usize;
                 }
                 
-                self.topology.core_to_node.get(&cpu).copied().unwrap_or(0)
+                self.topology.as_ref()
+                    .as_ref()
+                    .and_then(|t| t.core_to_node.get(&cpu).copied())
+                    .unwrap_or(0)
             }
         }
         
@@ -145,38 +156,43 @@ impl ExecutionContext for NumaAwareContext {
                 return;
             }
             
-            // Distribute work across NUMA nodes
-            let numa_nodes = topology.numa_nodes.len();
-            let items_per_node = (items.len() + numa_nodes - 1) / numa_nodes;
-            
-            std::thread::scope(|scope| {
-                for (node_idx, node) in topology.numa_nodes.iter().enumerate() {
-                    let start = node_idx * items_per_node;
-                    let end = ((node_idx + 1) * items_per_node).min(items.len());
-                    
-                    if start >= end {
-                        continue;
-                    }
-                    
-                    let items = items.clone();
-                    scope.spawn(move || {
-                        // Pin thread to NUMA node
-                        #[cfg(target_os = "linux")]
-                        {
-                            if let Some(core) = node.cores.first() {
-                                // CPU affinity setting for Linux
-                                // Note: This would require additional platform-specific code
-                                let _ = core;
-                            }
+            if let Some(ref topology) = *self.topology {
+                let numa_nodes = topology.numa_nodes.len();
+                let total_items = items.len();
+                
+                // Distribute work across NUMA nodes
+                let items_per_node = (total_items + numa_nodes - 1) / numa_nodes;
+                
+                std::thread::scope(|scope| {
+                    for (node_idx, node) in topology.numa_nodes.iter().enumerate() {
+                        let start = node_idx * items_per_node;
+                        let end = ((node_idx + 1) * items_per_node).min(total_items);
+                        
+                        if start >= end {
+                            continue;
                         }
                         
-                        // Process items without copying
-                        for i in start..end {
-                            func(items[i].clone());
-                        }
-                    });
-                }
-            });
+                        let items = items.clone();
+                        let func = func.clone();
+                        scope.spawn(move || {
+                            // Pin thread to NUMA node
+                            #[cfg(target_os = "linux")]
+                            {
+                                if let Some(core) = node.cores.first() {
+                                    // CPU affinity setting for Linux
+                                    // Note: This would require additional platform-specific code
+                                    let _ = core;
+                                }
+                            }
+                            
+                            // Process items without copying
+                            for i in start..end {
+                                func(items[i].clone());
+                            }
+                        });
+                    }
+                });
+            }
         })
     }
     
@@ -194,50 +210,59 @@ impl ExecutionContext for NumaAwareContext {
             }
             
             let total_items = items.len();
-            let numa_nodes = topology.numa_nodes.len();
             
-            // Allocate result vector with NUMA awareness
-            let mut results = Vec::with_capacity(total_items);
-            unsafe { results.set_len(total_items); }
-            let results_ptr = results.as_mut_ptr();
-            
-            // Distribute work across NUMA nodes
-            let items_per_node = (total_items + numa_nodes - 1) / numa_nodes;
-            
-            std::thread::scope(|scope| {
-                for (node_idx, node) in topology.numa_nodes.iter().enumerate() {
-                    let start = node_idx * items_per_node;
-                    let end = ((node_idx + 1) * items_per_node).min(total_items);
-                    
-                    if start >= end {
-                        continue;
-                    }
-                    
-                    let items = items.clone();
-                    
-                    scope.spawn(move || {
-                        // Pin to NUMA node
-                        #[cfg(target_os = "linux")]
-                        {
-                            if let Some(core) = node.cores.first() {
-                                // CPU affinity setting for Linux
-                                // Note: This would require additional platform-specific code
-                                let _ = core;
-                            }
+            if let Some(ref topology) = *topology {
+                let numa_nodes = topology.numa_nodes.len();
+                
+                // Allocate result vector with NUMA awareness
+                let mut results = Vec::with_capacity(total_items);
+                unsafe { results.set_len(total_items); }
+                let results_ptr: *mut R = results.as_mut_ptr();
+                
+                // Distribute work across NUMA nodes
+                let items_per_node = (total_items + numa_nodes - 1) / numa_nodes;
+                
+                std::thread::scope(|scope| {
+                    for (node_idx, node) in topology.numa_nodes.iter().enumerate() {
+                        let start = node_idx * items_per_node;
+                        let end = ((node_idx + 1) * items_per_node).min(total_items);
+                        
+                        if start >= end {
+                            continue;
                         }
                         
-                        // Process chunk without copying
-                        for i in start..end {
-                            let result = func(items[i].clone());
-                            unsafe {
-                                ptr::write(results_ptr.add(i), result);
+                        let items = items.clone();
+                        let func = func.clone();
+                        let results_ptr = unsafe { results_ptr.add(start) };
+                        let ptr_wrapper = SendPtr(results_ptr);
+                        
+                        scope.spawn(move || {
+                            // Pin thread to NUMA node
+                            #[cfg(target_os = "linux")]
+                            {
+                                if let Some(core) = node.cores.first() {
+                                    // CPU affinity setting for Linux
+                                    // Note: This would require additional platform-specific code
+                                    let _ = core;
+                                }
                             }
-                        }
-                    });
-                }
-            });
-            
-            results
+                            
+                            // Process items and write results directly
+                            for (i, idx) in (start..end).enumerate() {
+                                let result = func(items[idx].clone());
+                                unsafe {
+                                    ptr::write(ptr_wrapper.0.add(i), result);
+                                }
+                            }
+                        });
+                    }
+                });
+                
+                results
+            } else {
+                // Fallback to simple parallel processing
+                items.into_iter().map(func).collect()
+            }
         })
     }
     
@@ -257,52 +282,45 @@ impl ExecutionContext for NumaAwareContext {
                 return items.into_iter().next();
             }
             
-            // NUMA-aware tree reduction
-            let numa_nodes = topology.numa_nodes.len();
-            let items_per_node = (items.len() + numa_nodes - 1) / numa_nodes;
-            
-            // First level: reduce within each NUMA node
-            let node_results: Vec<Option<T>> = std::thread::scope(|scope| {
-                let mut handles = Vec::new();
+            if let Some(ref topology) = *topology {
+                // NUMA-aware tree reduction
+                let numa_nodes = topology.numa_nodes.len();
+                let items_per_node = (items.len() + numa_nodes - 1) / numa_nodes;
                 
-                for (node_idx, node) in topology.numa_nodes.iter().enumerate() {
-                    let start = node_idx * items_per_node;
-                    let end = ((node_idx + 1) * items_per_node).min(items.len());
+                // First level: reduce within each NUMA node
+                let node_results: Vec<Option<T>> = std::thread::scope(|scope| {
+                    let mut handles = Vec::new();
                     
-                    if start >= end {
-                        handles.push(scope.spawn(|| None));
-                        continue;
-                    }
-                    
-                    let items = items.clone();
-                    
-                    let handle = scope.spawn(move || {
-                        // Pin to NUMA node
-                        #[cfg(target_os = "linux")]
-                        {
-                            if let Some(core) = node.cores.first() {
-                                // CPU affinity setting for Linux
-                                // Note: This would require additional platform-specific code
-                                let _ = core;
-                            }
+                    for node_idx in 0..numa_nodes {
+                        let start = node_idx * items_per_node;
+                        let end = ((node_idx + 1) * items_per_node).min(items.len());
+                        
+                        if start >= end {
+                            handles.push(scope.spawn(move || None));
+                            continue;
                         }
                         
-                        // Reduce without copying the entire chunk
-                        (start..end).map(|i| items[i].clone()).reduce(|a, b| func(a, b))
-                    });
+                        let chunk = items[start..end].to_vec();
+                        let func = func.clone();
+                        
+                        handles.push(scope.spawn(move || {
+                            chunk.into_iter().reduce(|a, b| func(a, b))
+                        }));
+                    }
                     
-                    handles.push(handle);
-                }
+                    handles.into_iter()
+                        .map(|h| h.join().unwrap())
+                        .collect()
+                });
                 
-                handles.into_iter()
-                    .map(|h| h.join().unwrap())
-                    .collect()
-            });
-            
-            // Second level: reduce across NUMA nodes
-            node_results.into_iter()
-                .flatten()
-                .reduce(|a, b| func(a, b))
+                // Second level: reduce across NUMA nodes
+                node_results.into_iter()
+                    .flatten()
+                    .reduce(|a, b| func(a, b))
+            } else {
+                // Fallback to simple reduction
+                items.into_iter().reduce(func)
+            }
         })
     }
     
