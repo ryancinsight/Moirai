@@ -574,10 +574,6 @@ where
     fn context(&self) -> &TaskContext {
         &self.context
     }
-
-    fn estimated_cost(&self) -> u32 {
-        1 // Default cost for async tasks
-    }
 }
 
 /// Performance metrics for individual task execution tracking.
@@ -1411,7 +1407,7 @@ impl HybridExecutor {
         }
 
         // Create result communication channels
-        let (result_sender, result_receiver) = moirai_core::create_result_channel::<T::Output>();
+        let (result_sender, result_receiver) = std::sync::mpsc::channel::<T::Output>();
         let (completion_sender, _completion_receiver) = std::sync::mpsc::channel::<()>();
         
         // Create task wrapper with result sender
@@ -1420,7 +1416,7 @@ impl HybridExecutor {
 
         // Schedule task
         if let Some(scheduler) = self.select_scheduler() {
-            if let Ok(()) = scheduler.schedule_task(boxed_task) {
+            if let Ok(()) = scheduler.schedule(boxed_task) {
                 self.tasks_spawned.fetch_add(1, Ordering::Relaxed);
                 
                 // Update task status to queued
@@ -1432,7 +1428,7 @@ impl HybridExecutor {
                 }
 
                 // Create handle with proper result communication
-                return TaskHandle::new_with_result_channel(task_id, true, result_receiver);
+                return TaskHandle::new_with_receiver(task_id, result_receiver);
             }
         }
 
@@ -1482,14 +1478,14 @@ impl HybridExecutor {
 // Implement the segregated traits
 
 impl TaskSpawner for HybridExecutor {
-    fn spawn<T>(&self, task: T) -> TaskHandle<T::Output>
+    fn spawn<T>(&self, task: T) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task,
     {
-        self.spawn_internal(task, Priority::Normal)
+        Ok(self.spawn_internal(task, Priority::Normal))
     }
 
-    fn spawn_async<F>(&self, future: F) -> TaskHandle<F::Output>
+    fn spawn_async<F>(&self, future: F) -> ExecutorResult<TaskHandle<F::Output>>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -1497,41 +1493,31 @@ impl TaskSpawner for HybridExecutor {
         let task_id = self.task_registry.register_task(Priority::Normal);
         
         // Create direct result channel - eliminates global storage bottleneck!
-        let (result_sender, result_receiver) = moirai_core::create_result_channel();
+        let (result_sender, result_receiver) = std::sync::mpsc::channel();
         let error_sender = result_sender.clone();
         
         // Wrap the future to send result directly through channel
         let future_wrapper = async move {
             let result = future.await;
-            
-            // Send result directly through dedicated channel - no global lock!
-            let _ = result_sender.send(Ok(result));
+            let _ = result_sender.send(result);
         };
         
-        // Convert the future into a task
+        // Create boxed task
         let task = AsyncTaskWrapper::new(future_wrapper, task_id);
+        let boxed_task: Box<dyn BoxedTask> = Box::new(task);
         
-        // Schedule the async task for execution
-        if let Some(scheduler) = self.select_scheduler() {
-            let boxed_task = Box::new(task) as Box<dyn BoxedTask>;
-            if let Err(e) = scheduler.schedule_task(boxed_task) {
-                eprintln!("Failed to schedule async task {}: {:?}", task_id, e);
-                // Send error through result channel
-                let _ = error_sender.send(Err(moirai_core::TaskError::SpawnFailed));
-                return TaskHandle::new_with_result_channel(task_id, true, result_receiver);
-            }
-        } else {
-            eprintln!("No scheduler available for async task {}", task_id);
-            // Send error through result channel
-            let _ = error_sender.send(Err(moirai_core::TaskError::SpawnFailed));
-            return TaskHandle::new_with_result_channel(task_id, true, result_receiver);
-        }
+        // Submit to scheduler
+        let scheduler = self.select_scheduler()
+            .ok_or(ExecutorError::NoSchedulerAvailable)?;
+        scheduler.schedule(boxed_task).map_err(|e| {
+            drop(error_sender);
+            ExecutorError::SchedulerError(e)
+        })?;
         
-        // Return handle with direct result channel - scales linearly!
-        TaskHandle::new_with_result_channel(task_id, true, result_receiver)
+        Ok(TaskHandle::new_with_receiver(task_id, result_receiver))
     }
 
-    fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>
+    fn spawn_blocking<F, R>(&self, func: F) -> ExecutorResult<TaskHandle<R>>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -1539,46 +1525,38 @@ impl TaskSpawner for HybridExecutor {
         let task_id = self.task_registry.register_task(Priority::Normal);
         
         // Create direct result channel - eliminates global storage bottleneck!
-        let (result_sender, result_receiver) = moirai_core::create_result_channel();
+        let (result_sender, result_receiver) = std::sync::mpsc::channel();
         let error_sender = result_sender.clone();
         
         // Wrap the function to send result through dedicated channel
         let func_wrapper = move || {
             let result = func();
-            // Send result directly - no global lock contention!
-            let _ = result_sender.send(Ok(result));
+            let _ = result_sender.send(result);
         };
         
-        // Create a task from the wrapped function
-        let task = TaskBuilder::new()
-            .build(func_wrapper);
-
-        // Schedule the task
-        if let Some(scheduler) = self.select_scheduler() {
-            let boxed_task = Box::new(task) as Box<dyn BoxedTask>;
-            if let Err(e) = scheduler.schedule_task(boxed_task) {
-                eprintln!("Failed to schedule blocking task {}: {:?}", task_id, e);
-                // Send error through result channel
-                let _ = error_sender.send(Err(moirai_core::TaskError::SpawnFailed));
-            }
-        } else {
-            eprintln!("No scheduler available for blocking task {}", task_id);
-            // Send error through result channel
-            let _ = error_sender.send(Err(moirai_core::TaskError::SpawnFailed));
-        }
+        // Create a blocking task
+        let task = BlockingTaskWrapper::new(func_wrapper, task_id);
+        let boxed_task: Box<dyn BoxedTask> = Box::new(task);
         
-        // Return handle with direct result channel - scales linearly!
-        TaskHandle::new_with_result_channel(task_id, true, result_receiver)
+        // Submit to scheduler
+        let scheduler = self.select_scheduler()
+            .ok_or(ExecutorError::NoSchedulerAvailable)?;
+        scheduler.schedule(boxed_task).map_err(|e| {
+            drop(error_sender);
+            ExecutorError::SchedulerError(e)
+        })?;
+        
+        Ok(TaskHandle::new_with_receiver(task_id, result_receiver))
     }
 
-    fn spawn_with_priority<T>(&self, task: T, priority: Priority, locality_hint: Option<usize>) -> TaskHandle<T::Output>
+    fn spawn_with_priority<T>(&self, task: T, priority: Priority, locality_hint: Option<usize>) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task,
     {
         // For now, ignore the locality hint and use the existing implementation
         // TODO: Implement locality-aware task placement
         let _ = locality_hint;
-        self.spawn_internal(task, priority)
+        Ok(self.spawn_internal(task, priority))
     }
 }
 
@@ -2042,6 +2020,41 @@ where
     fn execute(mut self) -> Self::Output {
         let func = self.func.take().expect("Task already executed");
         func()
+    }
+
+    fn context(&self) -> &TaskContext {
+        &self.context
+    }
+}
+
+/// Wrapper for blocking tasks that implements BoxedTask
+struct BlockingTaskWrapper<F> {
+    func: Option<F>,
+    task_id: TaskId,
+    context: TaskContext,
+}
+
+impl<F> BlockingTaskWrapper<F>
+where
+    F: FnOnce() + Send + 'static,
+{
+    fn new(func: F, task_id: TaskId) -> Self {
+        Self {
+            func: Some(func),
+            task_id,
+            context: TaskContext::new(task_id),
+        }
+    }
+}
+
+impl<F> BoxedTask for BlockingTaskWrapper<F>
+where
+    F: FnOnce() + Send + 'static,
+{
+    fn execute_boxed(mut self: Box<Self>) {
+        if let Some(func) = self.func.take() {
+            func();
+        }
     }
 
     fn context(&self) -> &TaskContext {

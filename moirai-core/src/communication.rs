@@ -25,8 +25,7 @@ use std::sync::Arc;
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 
-/// Cache line size for padding
-const CACHE_LINE: usize = 64;
+
 
 /// Padding to prevent false sharing
 #[repr(align(64))]

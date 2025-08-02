@@ -81,9 +81,15 @@ use core::marker::PhantomData;
 #[cfg(feature = "std")]
 use std::sync::mpsc;
 
-/// A unique identifier for tasks within the runtime.
+/// A unique identifier for tasks in the Moirai runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TaskId(pub u64);
+
+impl core::fmt::Display for TaskId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Task#{}", self.0)
+    }
+}
 
 impl TaskId {
     /// Create a new task ID.
@@ -497,6 +503,7 @@ where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
+    /// Create a new base task with the given function and context.
     pub fn new(func: F, context: TaskContext) -> Self {
         Self {
             func,
@@ -636,11 +643,11 @@ where
     }
 }
 
-/// A task that catches errors from another task.
+/// Wrapper that catches task errors and provides a fallback value
+#[allow(dead_code)]
 pub struct Catch<T, F> {
     task: T,
     handler: F,
-    context: TaskContext,
 }
 
 impl<T, F> Catch<T, F> {
@@ -653,7 +660,6 @@ impl<T, F> Catch<T, F> {
         Self {
             task,
             handler,
-            context,
         }
     }
 }
@@ -673,7 +679,7 @@ where
     }
 
     fn context(&self) -> &TaskContext {
-        &self.context
+        &self.task.context()
     }
 
     fn is_stealable(&self) -> bool {
