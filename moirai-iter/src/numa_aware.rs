@@ -36,7 +36,9 @@ impl NumaAwareContext {
     /// Create a new NUMA-aware context
     pub fn new(policy: NumaPolicy) -> Self {
         let topology = Arc::new(CpuTopology::detect());
-        let thread_count = topology.logical_cores;
+        let thread_count = topology.as_ref()
+            .map(|t| t.cores.len())
+            .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1));
         
         Self {
             topology,

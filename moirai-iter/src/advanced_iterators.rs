@@ -260,7 +260,7 @@ pub struct ParallelIter<T> {
 impl<T: Send + Sync + 'static> ParallelIter<T> {
     /// Create a new parallel iterator
     pub fn new(data: Vec<T>) -> Self {
-        let num_threads = num_cpus::get();
+        let num_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
         let chunk_size = (data.len() + num_threads - 1) / num_threads;
         
         Self {

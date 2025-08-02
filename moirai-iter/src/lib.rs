@@ -221,9 +221,8 @@ impl Default for HybridConfig {
     }
 }
 
-/// Advanced thread pool with work-stealing and adaptive sizing.
+/// Thread pool for parallel iteration execution.
 /// Now uses the improved scheduler from moirai-core
-#[derive(Debug)]
 struct ThreadPool {
     workers: Vec<Worker>,
     sender: std::sync::mpsc::Sender<Message>,
@@ -367,7 +366,7 @@ impl ParallelContext {
 
     /// Create a parallel context with default thread count.
     pub fn default() -> Self {
-        Self::new(num_cpus())
+        Self::new(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1))
     }
 
     /// Set the batch size for chunked processing.
@@ -519,7 +518,7 @@ impl AsyncContext {
 
     /// Create an async context with default settings.
     pub fn default() -> Self {
-        Self::new(num_cpus() * 2)
+        Self::new(std::thread::available_parallelism().map(|n| n.get() * 2).unwrap_or(2))
     }
     
     /// Set the buffer size for streaming operations.

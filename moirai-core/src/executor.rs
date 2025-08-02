@@ -3,13 +3,18 @@
 //! This module provides the core executor abstraction for the Moirai runtime.
 //! It defines traits for task spawning, management, and lifecycle control.
 
-use crate::{Task, TaskId, Priority, TaskContext, TaskHandle};
+use crate::{Task, TaskId, Priority, TaskHandle, TaskContext};
 use crate::error::ExecutorResult;
 use crate::platform::*;
+use core::cell::UnsafeCell;
 
-/// Thread-local task context for improved locality (inspired by Tokio)
+// Thread-local task context for improved locality (inspired by Tokio)
 crate::thread_local_static! {
     static CURRENT_TASK: UnsafeCell<Option<TaskId>> = UnsafeCell::new(None)
+}
+
+crate::thread_local_static! {
+    static EXECUTOR_CONTEXT: UnsafeCell<Option<TaskContext>> = UnsafeCell::new(None)
 }
 
 crate::thread_local_static! {

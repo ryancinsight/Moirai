@@ -1,11 +1,18 @@
-//! SIMD-optimized iterator operations for maximum performance.
+//! SIMD-optimized iterators for high-performance data processing.
 //!
-//! This module provides iterator adapters that leverage SIMD instructions
-//! for vectorized processing of numeric data.
+//! This module provides SIMD-accelerated iteration patterns that leverage
+//! modern CPU vector instructions for maximum throughput.
 
 use std::marker::PhantomData;
+use moirai_core::cache_aligned::CacheAligned;
 
-/// SIMD-optimized iterator for f32 arrays
+/// Wrapper to make raw pointers Send
+struct SendPtr<T>(*mut T);
+unsafe impl<T> Send for SendPtr<T> {}
+
+/// SIMD-optimized iterator for f32 operations.
+///
+/// Automatically vectorizes operations using platform-specific SIMD instructions.
 pub struct SimdF32Iterator<'a> {
     data: &'a [f32],
     chunk_size: usize,
@@ -202,22 +209,28 @@ impl<'a> SimdParallelIterator<'a, f32> {
         assert_eq!(self.data.len(), other.len(), "Slices must have same length");
         
         let mut result = vec![0.0f32; self.data.len()];
-        let result_ptr = result.as_mut_ptr();
         
         std::thread::scope(|scope| {
+            let result_ptr = result.as_mut_ptr();
+            
             for (chunk_idx, (chunk_a, chunk_b)) in self.data.chunks(self.chunk_size)
                 .zip(other.chunks(self.chunk_size))
                 .enumerate()
             {
                 let chunk_start = chunk_idx * self.chunk_size;
+                let chunk_len = chunk_a.len();
+                
+                // Create a wrapper that is Send
+                let result_ptr_offset = unsafe { result_ptr.add(chunk_start) };
+                let ptr_wrapper = SendPtr(result_ptr_offset);
                 
                 scope.spawn(move || {
                     let chunk_result = SimdF32Iterator::new(chunk_a).simd_add(chunk_b);
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             chunk_result.as_ptr(),
-                            result_ptr.add(chunk_start),
-                            chunk_result.len(),
+                            ptr_wrapper.0,
+                            chunk_len,
                         );
                     }
                 });

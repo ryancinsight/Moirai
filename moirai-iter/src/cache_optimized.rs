@@ -223,17 +223,21 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         let mut results = Vec::with_capacity(self.data.len());
         unsafe { results.set_len(self.data.len()); }
         
-        let results_ptr = results.as_mut_ptr();
+        let results_ptr: *mut R = results.as_mut_ptr();
         
         std::thread::scope(|scope| {
             for (chunk_idx, chunk) in self.data.chunks(self.chunk_size).enumerate() {
                 let chunk_start = chunk_idx * self.chunk_size;
+                let chunk_len = chunk.len();
                 
-                scope.spawn(|| {
+                // Calculate pointer offset before spawning to avoid capturing raw pointer
+                let chunk_results_ptr = unsafe { results_ptr.add(chunk_start) };
+                
+                scope.spawn(move || {
                     for (i, item) in chunk.iter().enumerate() {
                         unsafe {
                             let result = func(item);
-                            ptr::write(results_ptr.add(chunk_start + i), result);
+                            ptr::write(chunk_results_ptr.add(i), result);
                         }
                     }
                 });
@@ -319,7 +323,7 @@ pub trait CacheOptimizedExt<T> {
     fn zero_copy_par_iter(&self) -> ZeroCopyParallelIter<T>;
 }
 
-impl<T> CacheOptimizedExt<T> for [T] {
+impl<T: Send + Sync> CacheOptimizedExt<T> for [T] {
     fn cache_windows(&self, window_size: usize) -> WindowIterator<T> {
         WindowIterator::new(self, window_size, window_size)
     }

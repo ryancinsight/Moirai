@@ -43,22 +43,17 @@
 //! - **Blocking Threads**: Long-running blocking operations (dynamically sized)
 
 use moirai_core::{
-    Task, TaskId, Priority, TaskContext, TaskHandle, BoxedTask,
-    executor::{
-        TaskSpawner, TaskManager, ExecutorControl, Executor,
-        TaskStatus, TaskStats, ExecutorConfig, CleanupConfig,
-        ExecutorPlugin,
-    },
-    scheduler::{Scheduler, SchedulerId, WorkStealingCoordinator},
+    executor::{ExecutorConfig, ExecutorStats, TaskManager, TaskSpawner, TaskStatus, TaskStats, ExecutorPlugin, CleanupConfig, ExecutorControl, Executor},
     error::{ExecutorError, ExecutorResult, TaskError},
-    task::{TaskBuilder, TaskWrapper},
+    pool::{GlobalPool, PoolStats},
+    scheduler::{Scheduler, SchedulerId},
+    task::{BoxedTask, Priority, Task, TaskContext, TaskFuture, TaskHandle, TaskId},
     cache_aligned::CacheAligned,
-    Box, Vec,
 };
+use moirai_scheduler::{SchedulerStats, WorkStealingScheduler, WorkStealingCoordinator};
 use moirai_utils::{
     memory::prefetch_read,
 };
-use moirai_scheduler::WorkStealingScheduler;
 use std::{
     collections::HashMap,
     future::Future,
@@ -252,6 +247,7 @@ struct Worker {
     id: WorkerId,
     scheduler: Arc<WorkStealingScheduler>,
     coordinator: Arc<WorkStealingCoordinator>,
+    all_schedulers: Vec<Arc<WorkStealingScheduler>>,
     task_registry: Arc<TaskRegistry>,
     shutdown_signal: Arc<AtomicBool>,
     metrics: Arc<WorkerMetrics>,
@@ -649,6 +645,7 @@ impl Worker {
         id: WorkerId,
         scheduler: Arc<WorkStealingScheduler>,
         coordinator: Arc<WorkStealingCoordinator>,
+        all_schedulers: Vec<Arc<WorkStealingScheduler>>,
         task_registry: Arc<TaskRegistry>,
         shutdown_signal: Arc<AtomicBool>,
         metrics: Arc<WorkerMetrics>,
@@ -679,6 +676,7 @@ impl Worker {
             id,
             scheduler,
             coordinator,
+            all_schedulers,
             task_registry,
             shutdown_signal,
             metrics,
@@ -722,9 +720,8 @@ impl Worker {
             if !work_found {
                 self.metrics.steal_attempts.fetch_add(1, Ordering::Relaxed);
                 
-                // Create a steal context for this attempt
-                let mut steal_context = moirai_core::scheduler::StealContext::default();
-                if let Ok(Some(task)) = self.coordinator.steal_task(self.scheduler.id(), &mut steal_context) {
+                // Try work stealing
+                if let Some(task) = self.coordinator.steal_work(&*self.scheduler, &self.all_schedulers) {
                     self.metrics.successful_steals.fetch_add(1, Ordering::Relaxed);
                     
                     // Track preemption for stolen tasks
@@ -1298,6 +1295,7 @@ impl HybridExecutor {
                 WorkerId::new(i),
                 scheduler.clone(),
                 coordinator.clone(),
+                schedulers.clone(),
                 task_registry.clone(),
                 shutdown_signal.clone(),
                 metrics,
@@ -1391,13 +1389,12 @@ impl HybridExecutor {
         }
     }
 
-    /// Internal task spawning implementation.
+    /// Internal spawn implementation shared by all spawn methods.
     /// 
     /// Follows the Template Method pattern with customizable task creation.
     fn spawn_internal<T>(&self, task: T, priority: Priority) -> TaskHandle<T::Output>
     where
         T: Task,
-        T::Output: Clone,
     {
         // Register task in registry
         let task_id = self.task_registry.register_task(priority);
@@ -1408,20 +1405,42 @@ impl HybridExecutor {
         }
 
         // Create result communication channels
-        let (result_sender, result_receiver) = std::sync::mpsc::channel::<Result<T::Output, TaskError>>();
-        let (completion_sender, _completion_receiver) = std::sync::mpsc::channel::<()>();
+        let (result_sender, result_receiver) = std::sync::mpsc::channel::<T::Output>();
         
-        // Create task wrapper with result sender
-        let task_wrapper = TaskWrapper::with_result_sender(task, result_sender, completion_sender);
-        let boxed_task: Box<dyn BoxedTask> = Box::new(task_wrapper);
+        // Create a wrapper that converts the task to BoxedTask
+        struct BoxedTaskWrapper<T: Task> {
+            task: Option<T>,
+            result_sender: std::sync::mpsc::Sender<T::Output>,
+            context: TaskContext,
+        }
+        
+        impl<T: Task> BoxedTask for BoxedTaskWrapper<T> {
+            fn execute_boxed(mut self: Box<Self>) {
+                if let Some(task) = self.task.take() {
+                    let result = task.execute();
+                    let _ = self.result_sender.send(result);
+                }
+            }
+            
+            fn context(&self) -> &TaskContext {
+                &self.context
+            }
+        }
+        
+        let context = task.context().clone();
+        let wrapper = BoxedTaskWrapper {
+            task: Some(task),
+            result_sender,
+            context,
+        };
+        
+        // Create boxed task
+        let boxed_task: Box<dyn BoxedTask> = Box::new(wrapper);
 
         // Schedule task
         if let Some(scheduler) = self.select_scheduler() {
             if let Ok(()) = scheduler.schedule(boxed_task) {
                 self.tasks_spawned.fetch_add(1, Ordering::Relaxed);
-                
-                // Update task status to queued
-                self.task_registry.update_status(task_id, TaskStatus::Queued);
                 
                 // Notify plugins
                 for plugin in &self.plugins {
@@ -1433,18 +1452,8 @@ impl HybridExecutor {
             }
         }
 
-        // If scheduling failed, mark task as failed
-        self.task_registry.update_status(task_id, TaskStatus::Failed);
-        
         // Return a handle even if scheduling failed (it will return None on join)
-        #[cfg(feature = "std")]
-                  {
-                             TaskHandle::new_detached(task_id)
-          }
-          #[cfg(not(feature = "std"))]
-          {
-                              TaskHandle::new_detached(task_id)
-          }
+        TaskHandle::new_detached(task_id)
     }
 
 
@@ -1482,7 +1491,6 @@ impl TaskSpawner for HybridExecutor {
     fn spawn<T>(&self, task: T) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task,
-        T::Output: Clone,
     {
         Ok(self.spawn_internal(task, Priority::Normal))
     }
@@ -1554,7 +1562,6 @@ impl TaskSpawner for HybridExecutor {
     fn spawn_with_priority<T>(&self, task: T, priority: Priority, locality_hint: Option<usize>) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task,
-        T::Output: Clone,
     {
         // For now, ignore the locality hint and use the existing implementation
         // TODO: Implement locality-aware task placement
