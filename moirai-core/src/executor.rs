@@ -4,10 +4,8 @@
 //! It defines traits for task spawning, management, and lifecycle control.
 
 use crate::{Task, TaskId, Priority, TaskContext, TaskHandle};
-use crate::error::{ExecutorError, ExecutorResult, TaskError};
+use crate::error::ExecutorResult;
 use crate::platform::*;
-use core::fmt;
-use core::future::Future;
 
 /// Thread-local task context for improved locality (inspired by Tokio)
 crate::thread_local_static! {
@@ -26,8 +24,8 @@ pub fn current_task_id() -> Option<TaskId> {
 /// Set the current task ID for this thread
 #[allow(dead_code)]
 pub(crate) fn set_current_task(id: Option<TaskId>) {
-    CURRENT_TASK.with(|current| {
-        *current.borrow_mut() = id;
+    CURRENT_TASK.with(|cell| unsafe {
+        *cell.get() = id;
     });
 }
 

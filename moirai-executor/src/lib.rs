@@ -1171,7 +1171,7 @@ struct TaskWaitFuture {
     task_id: TaskId,
     registry: Arc<TaskRegistry>,
     timeout: Option<Duration>,
-    start_time: Instant,
+    start_time: Option<Instant>,
 }
 
 impl Future for TaskWaitFuture {
@@ -1189,7 +1189,7 @@ impl Future for TaskWaitFuture {
             Some(TaskStatus::Queued) | Some(TaskStatus::Running) => {
                 // Check timeout
                 if let Some(timeout) = self.timeout {
-                    if self.start_time.elapsed() >= timeout {
+                    if self.start_time.unwrap().elapsed() >= timeout {
                         return Poll::Ready(Err(TaskError::Timeout));
                     }
                 }
@@ -1397,6 +1397,7 @@ impl HybridExecutor {
     fn spawn_internal<T>(&self, task: T, priority: Priority) -> TaskHandle<T::Output>
     where
         T: Task,
+        T::Output: Clone,
     {
         // Register task in registry
         let task_id = self.task_registry.register_task(priority);
@@ -1407,7 +1408,7 @@ impl HybridExecutor {
         }
 
         // Create result communication channels
-        let (result_sender, result_receiver) = std::sync::mpsc::channel::<T::Output>();
+        let (result_sender, result_receiver) = std::sync::mpsc::channel::<Result<T::Output, TaskError>>();
         let (completion_sender, _completion_receiver) = std::sync::mpsc::channel::<()>();
         
         // Create task wrapper with result sender
@@ -1438,11 +1439,11 @@ impl HybridExecutor {
         // Return a handle even if scheduling failed (it will return None on join)
         #[cfg(feature = "std")]
                   {
-             TaskHandle::new(task_id, true)
+                             TaskHandle::new_detached(task_id)
           }
           #[cfg(not(feature = "std"))]
           {
-              TaskHandle::new(task_id, false)
+                              TaskHandle::new_detached(task_id)
           }
     }
 
@@ -1481,6 +1482,7 @@ impl TaskSpawner for HybridExecutor {
     fn spawn<T>(&self, task: T) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task,
+        T::Output: Clone,
     {
         Ok(self.spawn_internal(task, Priority::Normal))
     }
@@ -1552,6 +1554,7 @@ impl TaskSpawner for HybridExecutor {
     fn spawn_with_priority<T>(&self, task: T, priority: Priority, locality_hint: Option<usize>) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task,
+        T::Output: Clone,
     {
         // For now, ignore the locality hint and use the existing implementation
         // TODO: Implement locality-aware task placement
@@ -1561,20 +1564,25 @@ impl TaskSpawner for HybridExecutor {
 }
 
 impl TaskManager for HybridExecutor {
-    fn cancel_task(&self, id: TaskId) -> Result<(), TaskError> {
+    fn cancel_task(&self, id: TaskId) -> ExecutorResult<()> {
         self.task_registry.cancel_task(id)
+            .map_err(|e| ExecutorError::SpawnFailed(e))
     }
 
     fn task_status(&self, id: TaskId) -> Option<TaskStatus> {
         self.task_registry.get_status(id)
     }
 
-    fn wait_for_task(&self, id: TaskId, timeout: Option<Duration>) -> impl Future<Output = Result<(), TaskError>> + Send {
-        TaskWaitFuture {
+    fn wait_for_task(&self, id: TaskId, timeout: Option<Duration>) -> impl Future<Output = ExecutorResult<()>> + Send {
+        let future = TaskWaitFuture {
             task_id: id,
             registry: self.task_registry.clone(),
             timeout,
-            start_time: Instant::now(),
+            start_time: Some(Instant::now()),
+        };
+        
+        async move {
+            future.await.map_err(|e| ExecutorError::SpawnFailed(e))
         }
     }
 
@@ -1725,9 +1733,9 @@ impl Executor for HybridExecutor {
     #[cfg(feature = "metrics")]
     fn stats(&self) -> moirai_core::executor::ExecutorStats {
         // Return placeholder stats - would be implemented with real metrics
-        let mut stats = moirai_core::executor::ExecutorStats::new();
-        stats.global_queue_stats.current_length = self.load();
-        stats.global_queue_stats.total_enqueued = self.tasks_spawned.load(Ordering::Relaxed);
+        let mut stats = moirai_core::executor::ExecutorStats::default();
+        stats.tasks_queued = self.load();
+        stats.tasks_executed = self.tasks_spawned.load(Ordering::Relaxed);
         stats
     }
 }

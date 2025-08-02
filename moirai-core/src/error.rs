@@ -24,6 +24,10 @@ pub enum TaskError {
     ResultNotFound,
     /// Task failed to spawn
     SpawnFailed,
+    /// Task is not in a valid state for the operation
+    InvalidState,
+    /// Task has already completed
+    AlreadyCompleted,
 }
 
 /// Specific kinds of task execution errors.
@@ -61,6 +65,8 @@ impl fmt::Display for TaskError {
             Self::ResourceExhausted => write!(f, "Task failed due to resource exhaustion"),
             Self::InvalidOperation => write!(f, "Invalid operation"),
             Self::ExecutionFailed(kind) => write!(f, "Task execution failed: {kind}"),
+            Self::InvalidState => write!(f, "Task is not in a valid state for the operation"),
+            Self::AlreadyCompleted => write!(f, "Task has already completed"),
         }
     }
 }

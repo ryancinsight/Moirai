@@ -27,6 +27,9 @@ pub mod error;
 pub mod pool;
 pub mod cache_aligned;
 
+#[cfg(feature = "coroutine")]
+pub mod coroutine;
+
 #[cfg(feature = "std")]
 pub mod communication;
 
@@ -45,8 +48,14 @@ pub mod security;
 // Core type definitions
 pub use task::{Task, TaskId, Priority, TaskContext, TaskFuture, TaskExt, BoxedTask, TaskHandle};
 pub use executor::{TaskSpawner, TaskManager, TaskStatus, ExecutorConfig};
-pub use scheduler::{Scheduler, SchedulerId};
+pub use scheduler::{Scheduler, SchedulerId, SchedulerConfig};
 pub use error::{TaskError, ExecutorError, SchedulerError};
+
+#[cfg(feature = "coroutine")]
+pub use coroutine::{
+    Coroutine, CoroutineState, CoroutineResult, CoroutineIterator, 
+    CoroutineFuture, SimpleCoroutine, CoroutineExt
+};
 
 // Re-export platform types for convenience
 pub use platform::{Box, Vec, String, Arc};

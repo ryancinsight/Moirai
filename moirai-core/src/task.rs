@@ -224,14 +224,15 @@ where
     }
 }
 
-/// A wrapper that adapts any task to the `BoxedTask` interface.
-#[allow(clippy::module_name_repetitions)]
+/// A wrapper that adds result channel support to any task.
+#[cfg(feature = "std")]
 pub struct TaskWrapper<T: Task> {
     task: T,
     result_sender: Option<mpsc::Sender<Result<T::Output, TaskError>>>,
     completion_sender: Option<mpsc::Sender<()>>,
 }
 
+#[cfg(feature = "std")]
 impl<T: Task> TaskWrapper<T> {
     /// Create a new task wrapper.
     pub fn new(task: T) -> Self {
@@ -243,7 +244,11 @@ impl<T: Task> TaskWrapper<T> {
     }
 
     /// Create a new task wrapper with result and completion senders.
-    pub fn with_result_sender(task: T, result_sender: mpsc::Sender<Result<T::Output, TaskError>>, completion_sender: mpsc::Sender<()>) -> Self {
+    pub fn with_result_sender(
+        task: T, 
+        result_sender: mpsc::Sender<Result<T::Output, TaskError>>, 
+        completion_sender: mpsc::Sender<()>
+    ) -> Self {
         Self {
             task,
             result_sender: Some(result_sender),
@@ -252,33 +257,45 @@ impl<T: Task> TaskWrapper<T> {
     }
 }
 
-impl<T: Task> Task for TaskWrapper<T> {
-    type Output = ();
+#[cfg(feature = "std")]
+impl<T: Task> Task for TaskWrapper<T>
+where
+    T::Output: Clone,
+{
+    type Output = T::Output;
 
     fn execute(self) -> Self::Output {
         let result = self.task.execute();
         
-        // Send the result if we have a sender
+        // Send result through channel if available
         if let Some(sender) = self.result_sender {
-            let _ = sender.send(Ok(result)); // Wrap result in Ok
+            let _ = sender.send(Ok(result.clone()));
         }
         
-        // Send completion notification
+        // Signal completion
         if let Some(sender) = self.completion_sender {
             let _ = sender.send(());
         }
+        
+        result
     }
 
     fn context(&self) -> &TaskContext {
         self.task.context()
     }
+}
 
-    fn is_stealable(&self) -> bool {
-        self.task.is_stealable()
+#[cfg(feature = "std")]
+impl<T: Task> BoxedTask for TaskWrapper<T>
+where
+    T::Output: Clone,
+{
+    fn execute_boxed(self: Box<Self>) {
+        let _ = (*self).execute();
     }
-
-    fn estimated_cost(&self) -> u32 {
-        self.task.estimated_cost()
+    
+    fn context(&self) -> &TaskContext {
+        self.task.context()
     }
 }
 
@@ -384,38 +401,115 @@ impl<T> TaskHandle<T> {
     }
 }
 
-/// Extension trait providing additional functionality for tasks.
-#[allow(clippy::module_name_repetitions)]
+/// Extension methods for tasks.
 pub trait TaskExt: Task + Sized {
-    /// Chain this task with another operation.
-    fn then<F, U>(self, func: F) -> Chained<Self, F>
-    where
-        F: FnOnce(Self::Output) -> U + Send + 'static,
-        U: Send + 'static,
-    {
-        Chained::new(self, func)
-    }
-
-    /// Map the output of this task.
-    fn map<F, U>(self, func: F) -> Mapped<Self, F>
-    where
-        F: FnOnce(Self::Output) -> U + Send + 'static,
-        U: Send + 'static,
-    {
-        Mapped::new(self, func)
-    }
-
-    /// Add error handling to this task.
+    /// Execute the task and catch any errors, providing a fallback value.
     fn catch<F>(self, handler: F) -> Catch<Self, F>
     where
-        F: FnOnce() -> Self::Output + Send + 'static,
+        F: FnOnce(TaskError) -> Self::Output,
     {
         Catch::new(self, handler)
     }
+
+    /// Transform the output of this task.
+    fn map<F, R>(self, mapper: F) -> Mapped<Self, F>
+    where
+        F: FnOnce(Self::Output) -> R,
+    {
+        Mapped::new(self, mapper)
+    }
+    
+    /// Convert this task into a task with the given context.
+    fn with_context(self, context: TaskContext) -> ContextualTask<Self> {
+        ContextualTask::new(self, context)
+    }
 }
 
-// Implement TaskExt for all types that implement Task
-impl<T: Task> TaskExt for T {}
+/// A task with an explicit context.
+pub struct ContextualTask<T> {
+    task: T,
+    context: TaskContext,
+}
+
+impl<T: Task> ContextualTask<T> {
+    /// Create a new contextual task.
+    pub fn new(task: T, context: TaskContext) -> Self {
+        Self { task, context }
+    }
+}
+
+impl<T: Task> Task for ContextualTask<T> {
+    type Output = T::Output;
+    
+    fn execute(self) -> Self::Output {
+        self.task.execute()
+    }
+    
+    fn context(&self) -> &TaskContext {
+        &self.context
+    }
+}
+
+/// Wrapper for coroutines to implement the Task trait.
+#[cfg(feature = "coroutine")]
+pub struct CoroutineTask<C>
+where
+    C: crate::coroutine::Coroutine,
+{
+    coroutine: Option<C>,
+    context: TaskContext,
+}
+
+#[cfg(feature = "coroutine")]
+impl<C> CoroutineTask<C>
+where
+    C: crate::coroutine::Coroutine,
+{
+    /// Create a new coroutine task.
+    pub fn new(coroutine: C, context: TaskContext) -> Self {
+        Self {
+            coroutine: Some(coroutine),
+            context,
+        }
+    }
+}
+
+#[cfg(feature = "coroutine")]
+impl<C> Task for CoroutineTask<C>
+where
+    C: crate::coroutine::Coroutine + Send + 'static,
+    C::Return: Send + 'static,
+{
+    type Output = C::Return;
+    
+    fn execute(mut self) -> Self::Output {
+        if let Some(mut coroutine) = self.coroutine.take() {
+            // Run the coroutine to completion
+            loop {
+                match coroutine.resume() {
+                    crate::coroutine::CoroutineResult::Yielded(_) => {
+                        // Continue running
+                        continue;
+                    }
+                    crate::coroutine::CoroutineResult::Complete(value) => {
+                        return value;
+                    }
+                    crate::coroutine::CoroutineResult::Error(_) => {
+                        // In a real implementation, we'd propagate the error
+                        // For now, panic
+                        panic!("Coroutine error");
+                    }
+                }
+            }
+        } else {
+            panic!("Coroutine already consumed");
+        }
+    }
+    
+    fn context(&self) -> &TaskContext {
+        &self.context
+    }
+}
 
 /// Builder for creating and configuring tasks.
 #[allow(clippy::module_name_repetitions)]
@@ -560,11 +654,11 @@ impl<T, F> Chained<T, F> {
     where
         T: Task,
     {
-        let context = task.context().clone();
+        let _context = task.context().clone();
         Self {
             task,
             continuation,
-            context,
+            context: _context,
         }
     }
 }
@@ -608,11 +702,11 @@ impl<T, F> Mapped<T, F> {
     where
         T: Task,
     {
-        let context = task.context().clone();
+        let _context = task.context().clone();
         Self {
             task,
             mapper,
-            context,
+            context: _context,
         }
     }
 }
@@ -656,7 +750,7 @@ impl<T, F> Catch<T, F> {
     where
         T: Task,
     {
-        let context = task.context().clone();
+        let _context = task.context().clone();
         Self {
             task,
             handler,
@@ -852,6 +946,9 @@ where
         &self.context
     }
 }
+
+// Implement TaskExt for all types that implement Task
+impl<T: Task> TaskExt for T {}
 
 #[cfg(test)]
 mod tests {
