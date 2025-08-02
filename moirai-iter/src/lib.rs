@@ -127,7 +127,7 @@ pub trait MoiraiIterator: Sized + Send {
 /// Execution context trait defining how iterators execute their operations.
 pub trait ExecutionContext: Send + Sync {
     /// Execute a closure across all items in the context with streaming support.
-    fn execute<T, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = ()> + Send>>
+    fn execute<T, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
     where
         T: Send + Clone + 'static,
         F: Fn(T) + Send + Sync + Clone + 'static;
@@ -429,7 +429,7 @@ impl ParallelContext {
 }
 
 impl ExecutionContext for ParallelContext {
-    fn execute<T, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = ()> + Send>>
+    fn execute<T, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
     where
         T: Send + Clone + 'static,
         F: Fn(T) + Send + Sync + Clone + 'static,
@@ -532,31 +532,25 @@ impl AsyncContext {
     }
     
     /// Common implementation for async operations with concurrency control
-    async fn async_operation<T, R, F>(
-        &self,
-        items: Vec<T>,
-        operation: F,
-    ) -> Vec<R>
+    async fn async_operation<T, R, F>(&self, items: Vec<T>, func: F) -> Vec<R>
     where
         T: Send + Clone + 'static,
         R: Send + 'static,
-        F: Fn(T) -> R + Send + Sync + Clone,
+        F: Fn(T) -> R + Send + Sync + Clone + 'static,
     {
-        if items.is_empty() {
-            return Vec::new();
-        }
-
-        // Use chunking for concurrency control without external dependencies
-        let chunk_size = (items.len() + self.max_concurrent - 1) / self.max_concurrent;
         let mut results = Vec::with_capacity(items.len());
+        let chunk_size = self.buffer_size;
         
-        for chunk in items.chunks(chunk_size) {
-            // Process chunk with yielding for cooperative scheduling
-            for item in chunk {
-                let result = operation(item.clone());
-                results.push(result);
+        // Process items in chunks without using slice iterator
+        let mut i = 0;
+        while i < items.len() {
+            let end = std::cmp::min(i + chunk_size, items.len());
+            for j in i..end {
+                results.push(func(items[j].clone()));
+                // Yield to other tasks periodically
                 yield_now().await;
             }
+            i = end;
         }
         
         results
@@ -564,13 +558,15 @@ impl AsyncContext {
 }
 
 impl ExecutionContext for AsyncContext {
-    fn execute<T, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = ()> + Send>>
+    fn execute<T, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
     where
         T: Send + Clone + 'static,
         F: Fn(T) + Send + Sync + Clone + 'static,
     {
         Box::pin(async move {
-            self.async_operation(items, |item| {
+            // Clone items to ensure they are owned by the async block
+            let items = items.into_iter().collect::<Vec<_>>();
+            self.async_operation(items, move |item| {
                 func(item);
                 ()
             }).await;
@@ -768,7 +764,7 @@ impl HybridContext {
 }
 
 impl ExecutionContext for HybridContext {
-    fn execute<T, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = ()> + Send>>
+    fn execute<T, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
     where
         T: Send + Clone + 'static,
         F: Fn(T) + Send + Sync + Clone + 'static,

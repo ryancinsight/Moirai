@@ -13,11 +13,17 @@ use std::ptr;
 use std::mem;
 
 use crate::{ExecutionContext, MoiraiIterator};
-use moirai_scheduler::numa_scheduler::{CpuTopology, NumaNode};
+use moirai_scheduler::numa_scheduler::CpuTopology;
 
 /// Wrapper to make raw pointers Send
 struct SendPtr<T>(*mut T);
 unsafe impl<T> Send for SendPtr<T> {}
+
+impl<T> SendPtr<T> {
+    unsafe fn as_ptr(&self) -> *mut T {
+        self.0
+    }
+}
 
 /// NUMA memory allocation policy
 #[derive(Debug, Clone, Copy)]
@@ -156,7 +162,7 @@ impl ExecutionContext for NumaAwareContext {
                 return;
             }
             
-            if let Some(ref topology) = *self.topology {
+            if let Some(ref topology) = *topology {
                 let numa_nodes = topology.numa_nodes.len();
                 let total_items = items.len();
                 
@@ -211,13 +217,17 @@ impl ExecutionContext for NumaAwareContext {
             
             let total_items = items.len();
             
-            if let Some(ref topology) = *topology {
+            if let Some(ref topology) = *self.topology {
                 let numa_nodes = topology.numa_nodes.len();
+                let total_items = items.len();
                 
-                // Allocate result vector with NUMA awareness
                 let mut results = Vec::with_capacity(total_items);
                 unsafe { results.set_len(total_items); }
                 let results_ptr: *mut R = results.as_mut_ptr();
+                
+                // Wrap items in Arc to make them Send
+                let items = Arc::new(items);
+                let func = Arc::new(func);
                 
                 // Distribute work across NUMA nodes
                 let items_per_node = (total_items + numa_nodes - 1) / numa_nodes;
@@ -231,8 +241,9 @@ impl ExecutionContext for NumaAwareContext {
                             continue;
                         }
                         
-                        let items = items.clone();
-                        let func = func.clone();
+                        // Clone the items for this node
+                        let node_items: Vec<T> = items[start..end].to_vec();
+                        let func = Arc::clone(&func);
                         let results_ptr = unsafe { results_ptr.add(start) };
                         let ptr_wrapper = SendPtr(results_ptr);
                         
@@ -248,10 +259,10 @@ impl ExecutionContext for NumaAwareContext {
                             }
                             
                             // Process items and write results directly
-                            for (i, idx) in (start..end).enumerate() {
-                                let result = func(items[idx].clone());
+                            for (i, item) in node_items.into_iter().enumerate() {
+                                let result = func(item);
                                 unsafe {
-                                    ptr::write(ptr_wrapper.0.add(i), result);
+                                    ptr::write(ptr_wrapper.as_ptr().add(i), result);
                                 }
                             }
                         });

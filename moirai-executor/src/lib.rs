@@ -43,14 +43,14 @@
 //! - **Blocking Threads**: Long-running blocking operations (dynamically sized)
 
 use moirai_core::{
-    executor::{ExecutorConfig, ExecutorStats, TaskManager, TaskSpawner, TaskStatus, TaskStats, ExecutorPlugin, CleanupConfig, ExecutorControl, Executor},
-    error::{ExecutorError, ExecutorResult, TaskError},
-    pool::{GlobalPool, PoolStats},
-    scheduler::{Scheduler, SchedulerId},
-    task::{BoxedTask, Priority, Task, TaskContext, TaskFuture, TaskHandle, TaskId},
     cache_aligned::CacheAligned,
+    error::{ExecutorError, ExecutorResult, TaskError},
+    executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus, TaskStats, ExecutorPlugin, CleanupConfig, ExecutorControl, Executor},
+    pool::GlobalPool,
+    scheduler::{Scheduler, SchedulerId},
+    task::{BoxedTask, Priority, Task, TaskContext, TaskHandle, TaskId},
 };
-use moirai_scheduler::{SchedulerStats, WorkStealingScheduler, WorkStealingCoordinator};
+use moirai_scheduler::{WorkStealingScheduler, WorkStealingCoordinator};
 use moirai_utils::{
     memory::prefetch_read,
 };

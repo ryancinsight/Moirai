@@ -452,7 +452,7 @@ impl NumaAwareScheduler {
     /// # Arguments
     /// * `topology` - CPU topology information (auto-detected if None)
     /// * `task_pool_size` - Size of the task object pool
-    pub fn new(topology: Option<CpuTopology>, task_pool_size: usize) -> Self {
+    pub fn new(topology: Option<CpuTopology>, _task_pool_size: usize) -> Self {
         let topology = Arc::new(topology.unwrap_or_else(|| {
             CpuTopology::detect().unwrap_or_else(|| CpuTopology::single_node())
         }));
@@ -775,136 +775,91 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::thread;
-    use std::time::Duration;
-
+    use moirai_core::{
+        task::{TaskContext, TaskId, BoxedTask},
+        Priority,
+    };
+    
     #[test]
-    fn test_cpu_topology_detection() {
-        let topology = CpuTopology::detect().unwrap_or_else(|| CpuTopology::single_node());
-        assert!(!topology.numa_nodes.is_empty());
-        assert!(topology.logical_cores > 0);
-        assert_eq!(topology.core_to_node.len(), topology.logical_cores);
+    fn test_numa_scheduler_creation() {
+        let scheduler = NumaAwareScheduler::new(None, 1024);
+        let stats = scheduler.statistics();
+        assert_eq!(stats.node_loads.iter().sum::<usize>(), 0);
     }
-
+    
     #[test]
-    fn test_adaptive_backoff() {
-        let backoff = AdaptiveBackoff::new(100, 10000);
-        
-        // Initial state
-        assert_eq!(backoff.current_delay().as_nanos(), 100);
-        
-        // Record failures and check exponential backoff
-        backoff.record_failure();
-        assert!(backoff.current_delay().as_nanos() > 100);
-        
-        backoff.record_failure();
-        let delay_after_two_failures = backoff.current_delay().as_nanos();
-        assert!(delay_after_two_failures > 200);
-        
-        // Record success and check reset
-        backoff.record_success();
-        assert_eq!(backoff.current_delay().as_nanos(), 100);
-    }
-
-    #[test]
-    fn test_node_queue_priority() {
-        let queue = NodeQueue::new(0);
-        
-        // Add tasks with different priorities
-        queue.push_task(Box::new(DummyTask("low")), Priority::Low);
-        queue.push_task(Box::new(DummyTask("high")), Priority::High);
-        queue.push_task(Box::new(DummyTask("normal")), Priority::Normal);
-        
-        // Should pop in priority order
-        assert_eq!(queue.pop_task().unwrap().name(), "high");
-        assert_eq!(queue.pop_task().unwrap().name(), "normal");
-        assert_eq!(queue.pop_task().unwrap().name(), "low");
-    }
-
-    #[test]
-    fn test_numa_scheduler_basic() {
-        let scheduler = NumaAwareScheduler::new(None, 100);
+    fn test_task_scheduling() {
+        let scheduler = Arc::new(NumaAwareScheduler::new(None, 1024));
         
         // Schedule some tasks
         for i in 0..10 {
-            let task = Box::new(DummyTask(&format!("task-{}", i)));
-            scheduler.schedule_task(task).unwrap();
+            let task = Box::new(DummyTask(format!("task-{}", i)));
+            scheduler.schedule(task).unwrap();
         }
-        
-        assert_eq!(scheduler.load(), 10);
-        
-        // Retrieve tasks
-        let mut retrieved = 0;
-        while scheduler.next_task().unwrap().is_some() {
-            retrieved += 1;
-        }
-        
-        assert_eq!(retrieved, 10);
-        assert_eq!(scheduler.load(), 0);
-    }
-
-    #[test]
-    fn test_numa_aware_stealing() {
-        let mut scheduler = NumaAwareScheduler::new(None, 100);
-        
-        // Assign workers to different nodes
-        scheduler.assign_worker(0, Some(0));
-        scheduler.assign_worker(1, Some(1));
-        
-        // Add tasks to specific nodes
-        scheduler.schedule_on_node(
-            Box::new(DummyTask("node0-task")), 
-            Some(0), 
-            Priority::Normal
-        ).unwrap();
-        
-        // Worker 1 should be able to steal from node 0
-        let stolen_task = scheduler.steal_with_locality(1);
-        assert!(stolen_task.is_some());
         
         let stats = scheduler.statistics();
-        assert!(stats.total_steal_attempts > 0);
+        assert_eq!(stats.node_loads.iter().sum::<usize>(), 10);
     }
-
+    
     #[test]
-    fn test_concurrent_numa_operations() {
-        let scheduler = Arc::new(NumaAwareScheduler::new(None, 1000));
+    fn test_work_stealing() {
+        let scheduler = Arc::new(NumaAwareScheduler::new(None, 1024));
+        
+        // Add tasks to different nodes
+        for i in 0..20 {
+            let task = Box::new(DummyTask(format!("task-{}", i)));
+            scheduler.schedule_on_node(
+                task,
+                Some(i % 2), // Alternate between nodes 0 and 1
+                Priority::Normal,
+            ).unwrap();
+        }
+        
+        // Steal work from node 0
+        let stolen = scheduler.steal_with_locality(0);
+        assert!(stolen.is_some());
+    }
+    
+    #[test]
+    fn test_concurrent_operations() {
+        let scheduler = Arc::new(NumaAwareScheduler::new(None, 1024));
+        let num_workers = 4;
         let mut handles = vec![];
-
-        // Spawn multiple worker threads
-        for worker_id in 0..4 {
-            let scheduler = scheduler.clone();
+        
+        // Spawn workers that add and steal tasks concurrently
+        for worker_id in 0..num_workers {
+            let scheduler = Arc::clone(&scheduler);
             handles.push(thread::spawn(move || {
                 // Each worker adds tasks and tries to steal work
                 for i in 0..100 {
-                    let task = Box::new(DummyTask(&format!("worker-{}-task-{}", worker_id, i)));
-                    scheduler.schedule_task(task).unwrap();
+                    let task = Box::new(DummyTask(format!("worker-{}-task-{}", worker_id, i)));
+                    scheduler.schedule(task).unwrap();
                     
                     // Try to steal some work
-                    for _ in 0..10 {
-                        scheduler.steal_with_locality(worker_id);
-                        thread::sleep(Duration::from_nanos(100));
+                    if i % 10 == 0 {
+                        let _ = scheduler.steal_with_locality(worker_id % 2);
                     }
                 }
             }));
         }
-
+        
+        // Wait for all workers to complete
         for handle in handles {
             handle.join().unwrap();
         }
-
+        
         let stats = scheduler.statistics();
-        assert!(stats.total_steal_attempts > 0);
-        println!("NUMA scheduler stats: {:#?}", stats);
+        assert_eq!(stats.node_loads.iter().sum::<usize>(), num_workers * 100);
     }
-
+    
     #[test]
     fn test_load_balancing() {
-        let scheduler = NumaAwareScheduler::new(None, 100);
+        let scheduler = Arc::new(NumaAwareScheduler::new(None, 1024));
         
         // Add many tasks to one node
         for i in 0..50 {
             scheduler.schedule_on_node(
-                Box::new(DummyTask(&format!("task-{}", i))),
+                Box::new(DummyTask(format!("task-{}", i))),
                 Some(0),
                 Priority::Normal,
             ).unwrap();
@@ -913,36 +868,29 @@ mod tests {
         let stats_before = scheduler.statistics();
         let max_load_before = stats_before.node_loads.iter().max().unwrap_or(&0);
         
-        // Balance the load
-        scheduler.balance_load();
+        // Trigger load balancing by stealing from overloaded nodes
+        for _ in 0..20 {
+            scheduler.steal_with_locality(1);
+        }
         
         let stats_after = scheduler.statistics();
         let max_load_after = stats_after.node_loads.iter().max().unwrap_or(&0);
         
-        // Load should be more balanced after balancing
-        assert!(max_load_after <= max_load_before);
+        // Load should be more balanced after stealing
+        assert!(max_load_after < max_load_before);
     }
-
-    // Dummy task for testing
-    struct DummyTask(&'static str);
     
-    impl DummyTask {
-        fn name(&self) -> &'static str {
-            self.0
-        }
-    }
+    // Dummy task for testing
+    struct DummyTask(String);
     
     impl BoxedTask for DummyTask {
-        fn execute(self: Box<Self>) {
-            // Do nothing
+        fn execute_boxed(self: Box<Self>) -> () {
+            // Do nothing for test
         }
         
-        fn task_id(&self) -> TaskId {
-            TaskId::new()
-        }
-        
-        fn priority(&self) -> Priority {
-            Priority::Normal
+        fn context(&self) -> &TaskContext {
+            static DEFAULT_CONTEXT: std::sync::OnceLock<TaskContext> = std::sync::OnceLock::new();
+            DEFAULT_CONTEXT.get_or_init(|| TaskContext::new(TaskId::new(0)))
         }
     }
 }

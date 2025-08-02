@@ -827,20 +827,24 @@ mod tests {
         let config = SchedulerConfig::default();
         let scheduler = WorkStealingScheduler::new(SchedulerId::new(0), config);
         
-        // Test task scheduling
-        let task = Box::new(TestTask::new(42));
-        scheduler.schedule(task).unwrap();
+        // Schedule some tasks
+        for i in 0..10 {
+            let task = TestTask::new(i);
+            let wrapped = moirai_core::task::TaskWrapper::new(task);
+            let task: Box<dyn BoxedTask> = Box::new(wrapped);
+            scheduler.schedule(task).unwrap();
+        }
         
-        assert_eq!(scheduler.load(), 1);
+        // Get stats
+        let stats = scheduler.stats();
+        assert_eq!(stats.tasks_scheduled, 10);
         
-        // Test task execution
-        let executed = scheduler.try_execute_next_task().unwrap();
-        assert!(executed);
-        assert_eq!(scheduler.load(), 0);
-        
-        // No more tasks
-        let executed = scheduler.try_execute_next_task().unwrap();
-        assert!(!executed);
+        // Pop tasks
+        let mut popped = 0;
+        while scheduler.try_execute_next_task().unwrap() {
+            popped += 1;
+        }
+        assert_eq!(popped, 10);
     }
 
     #[test]
@@ -850,7 +854,9 @@ mod tests {
         
         // Schedule and execute some tasks
         for i in 0..5 {
-            let task = Box::new(TestTask::new(i));
+            let task = TestTask::new(i);
+            let wrapped = moirai_core::task::TaskWrapper::new(task);
+            let task: Box<dyn BoxedTask> = Box::new(wrapped);
             scheduler.schedule(task).unwrap();
         }
         
@@ -875,7 +881,9 @@ mod tests {
         
         // Test multiple task scheduling
         for i in 0..10 {
-            let task = Box::new(TestTask::new(i));
+            let task = TestTask::new(i);
+            let wrapped = moirai_core::task::TaskWrapper::new(task);
+            let task: Box<dyn BoxedTask> = Box::new(wrapped);
             scheduler.schedule(task).unwrap();
         }
         

@@ -5,10 +5,17 @@
 
 use std::marker::PhantomData;
 use moirai_core::cache_aligned::CacheAligned;
+use std::sync::Arc;
 
 /// Wrapper to make raw pointers Send
 struct SendPtr<T>(*mut T);
 unsafe impl<T> Send for SendPtr<T> {}
+
+impl<T> SendPtr<T> {
+    unsafe fn as_ptr(&self) -> *mut T {
+        self.0
+    }
+}
 
 /// SIMD-optimized iterator for f32 operations.
 ///
@@ -209,33 +216,33 @@ impl<'a> SimdParallelIterator<'a, f32> {
         assert_eq!(self.data.len(), other.len(), "Slices must have same length");
         
         let mut result = vec![0.0f32; self.data.len()];
+        let data = Arc::new(self.data.to_vec());
+        let other = Arc::new(other.to_vec());
         let len = self.data.len();
         let chunk_size = self.chunk_size;
         
-        // Process chunks in parallel
-        let chunks: Vec<_> = self.data.chunks(chunk_size)
-            .zip(other.chunks(chunk_size))
-            .enumerate()
-            .map(|(idx, (a, b))| (idx, a.to_vec(), b.to_vec()))
-            .collect();
-        
         std::thread::scope(|scope| {
             let result_ptr = result.as_mut_ptr();
+            let num_chunks = (len + chunk_size - 1) / chunk_size;
             
-            for (chunk_idx, chunk_a, chunk_b) in chunks {
+            for chunk_idx in 0..num_chunks {
                 let chunk_start = chunk_idx * chunk_size;
-                let chunk_len = chunk_a.len();
+                let chunk_end = std::cmp::min(chunk_start + chunk_size, len);
+                let chunk_len = chunk_end - chunk_start;
                 
-                // Create a wrapper that is Send
-                let result_ptr_offset = unsafe { result_ptr.add(chunk_start) };
-                let ptr_wrapper = SendPtr(result_ptr_offset);
+                // Clone Arc references
+                let data = Arc::clone(&data);
+                let other = Arc::clone(&other);
+                let result_ptr_wrapper = SendPtr(unsafe { result_ptr.add(chunk_start) });
                 
                 scope.spawn(move || {
-                    let chunk_result = SimdF32Iterator::new(&chunk_a).simd_add(&chunk_b);
+                    let chunk_a = &data[chunk_start..chunk_end];
+                    let chunk_b = &other[chunk_start..chunk_end];
+                    let chunk_result = SimdF32Iterator::new(chunk_a).simd_add(chunk_b);
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             chunk_result.as_ptr(),
-                            ptr_wrapper.0,
+                            result_ptr_wrapper.as_ptr(),
                             chunk_len,
                         );
                     }
@@ -251,33 +258,33 @@ impl<'a> SimdParallelIterator<'a, f32> {
         assert_eq!(self.data.len(), other.len(), "Slices must have same length");
         
         let mut result = vec![0.0f32; self.data.len()];
+        let data = Arc::new(self.data.to_vec());
+        let other = Arc::new(other.to_vec());
         let len = self.data.len();
         let chunk_size = self.chunk_size;
         
-        // Process chunks in parallel
-        let chunks: Vec<_> = self.data.chunks(chunk_size)
-            .zip(other.chunks(chunk_size))
-            .enumerate()
-            .map(|(idx, (a, b))| (idx, a.to_vec(), b.to_vec()))
-            .collect();
-        
         std::thread::scope(|scope| {
             let result_ptr = result.as_mut_ptr();
+            let num_chunks = (len + chunk_size - 1) / chunk_size;
             
-            for (chunk_idx, chunk_a, chunk_b) in chunks {
+            for chunk_idx in 0..num_chunks {
                 let chunk_start = chunk_idx * chunk_size;
-                let chunk_len = chunk_a.len();
+                let chunk_end = std::cmp::min(chunk_start + chunk_size, len);
+                let chunk_len = chunk_end - chunk_start;
                 
-                // Create a wrapper that is Send
-                let result_ptr_offset = unsafe { result_ptr.add(chunk_start) };
-                let ptr_wrapper = SendPtr(result_ptr_offset);
+                // Clone Arc references
+                let data = Arc::clone(&data);
+                let other = Arc::clone(&other);
+                let result_ptr_wrapper = SendPtr(unsafe { result_ptr.add(chunk_start) });
                 
                 scope.spawn(move || {
-                    let chunk_result = SimdF32Iterator::new(&chunk_a).simd_mul(&chunk_b);
+                    let chunk_a = &data[chunk_start..chunk_end];
+                    let chunk_b = &other[chunk_start..chunk_end];
+                    let chunk_result = SimdF32Iterator::new(chunk_a).simd_mul(chunk_b);
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             chunk_result.as_ptr(),
-                            ptr_wrapper.0,
+                            result_ptr_wrapper.as_ptr(),
                             chunk_len,
                         );
                     }

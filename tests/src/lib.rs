@@ -30,7 +30,7 @@ mod integration_tests {
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
 
-        let handle = runtime.spawn_parallel(move || {
+        let handle = runtime.spawn_fn(move || {
             counter_clone.fetch_add(1, Ordering::Relaxed);
             42
         });
@@ -52,7 +52,7 @@ mod integration_tests {
         let handles: Vec<_> = (0..task_count)
             .map(|i| {
                 let counter = counter.clone();
-                runtime.spawn_parallel(move || {
+                runtime.spawn_fn(move || {
                     counter.fetch_add(1, Ordering::Relaxed);
                     i * 2
                 })
@@ -135,7 +135,7 @@ mod integration_tests {
         let handles: Vec<_> = (0..task_count)
             .map(|i| {
                 let counter = counter.clone();
-                runtime.spawn_parallel(move || {
+                runtime.spawn_fn(move || {
                     // Very light computation
                     let result = i * 2 + 1;
                     counter.fetch_add(1, Ordering::Relaxed);
@@ -186,7 +186,7 @@ mod integration_tests {
         let handles: Vec<_> = (0..2)
             .map(|i| {
                 let data = data.clone();
-                runtime.spawn_parallel(move || {
+                runtime.spawn_fn(move || {
                     let slice = &data[i..i+2];
                     prefetch_read(slice.as_ptr());
                     slice.iter().sum::<u32>()
@@ -219,7 +219,7 @@ mod integration_tests {
             .unwrap();
         
         // Test that the runtime works correctly regardless of NUMA topology
-        let handle = runtime.spawn_parallel(|| {
+        let handle = runtime.spawn_fn(|| {
             // Simple computation that would benefit from NUMA awareness
             let mut sum = 0u64;
             for i in 0..100 {
@@ -250,7 +250,7 @@ mod integration_tests {
         let handles: Vec<_> = (0..task_count)
             .map(|i| {
                 let counter = counter.clone();
-                runtime.spawn_parallel(move || {
+                runtime.spawn_fn(move || {
                     // CPU-intensive computation that benefits from affinity
                     let mut result = 0u64;
                     for j in 0..50 {
@@ -332,13 +332,13 @@ mod documentation_tests {
             .build()?;
 
         // CPU-bound parallel computation
-        let parallel_handle = runtime.spawn_parallel(move || {
+        let parallel_handle = runtime.spawn_fn(move || {
             // Simple computation for testing
             42 * 2
         });
 
         // Another parallel task
-        let critical_handle = runtime.spawn_parallel(move || "critical task executed");
+        let critical_handle = runtime.spawn_fn(move || "critical task executed");
 
         // Tasks execute concurrently with optimal scheduling
         let parallel_result = parallel_handle.join()?;
@@ -364,7 +364,7 @@ mod documentation_tests {
         let _final_result = doubled + 10;
 
         // Test the conceptual chaining (actual TaskBuilder implementation may vary)
-        let handle = runtime.spawn_parallel(move || {
+        let handle = runtime.spawn_fn(move || {
             let step1 = initial_value;
             let step2 = step1 * 2;
             let step3 = step2 + 10;
@@ -387,7 +387,7 @@ mod documentation_tests {
             .build()?;
 
         // Test local execution (distributed features are available but not tested in detail)
-        let local_handle = runtime.spawn_parallel(move || "computed locally");
+        let local_handle = runtime.spawn_fn(move || "computed locally");
         let result = local_handle.join()?;
         assert_eq!(result, "computed locally");
 
@@ -404,7 +404,7 @@ mod documentation_tests {
 
         // Moirai approach
         let runtime = Moirai::new()?;
-        let handle = runtime.spawn_parallel(|| {
+        let handle = runtime.spawn_fn(|| {
             expensive_computation()
         });
         let result = handle.join()?;
@@ -427,7 +427,7 @@ mod documentation_tests {
 
         // Moirai approach using parallel execution for CPU-bound work
         let runtime = Moirai::new()?;
-        let handle = runtime.spawn_parallel(|| {
+        let handle = runtime.spawn_fn(|| {
             async_operation()
         });
         let result = handle.join()?;
@@ -451,7 +451,7 @@ mod documentation_tests {
         // Spawn multiple tasks to test scheduling overhead
         let mut handles = Vec::new();
         for i in 0..100 {
-            let handle = runtime.spawn_parallel(move || i * i);
+            let handle = runtime.spawn_fn(move || i * i);
             handles.push(handle);
         }
 
@@ -488,7 +488,7 @@ mod documentation_tests {
         // Spawn multiple tasks that modify shared data
         for _ in 0..10 {
             let data = shared_data.clone();
-            let handle = runtime.spawn_parallel(move || {
+            let handle = runtime.spawn_fn(move || {
                 for _ in 0..100 {
                     data.fetch_add(1, Ordering::Relaxed);
                 }
@@ -514,7 +514,7 @@ mod documentation_tests {
         let runtime = Moirai::new()?;
 
         // Test error propagation in parallel tasks
-        let handle = runtime.spawn_parallel(|| -> Result<i32, &'static str> {
+        let handle = runtime.spawn_fn(|| -> Result<i32, &'static str> {
             Err("intentional error")
         });
 

@@ -3,6 +3,7 @@
 //! This module provides iterators that are designed to work efficiently
 //! with CPU caches, minimizing cache misses and maximizing memory bandwidth.
 
+
 use std::mem;
 use std::ptr;
 use std::sync::Arc;
@@ -13,6 +14,22 @@ use moirai_core::cache_aligned::CacheAligned;
 /// Wrapper to make raw pointers Send
 struct SendPtr<T>(*mut T);
 unsafe impl<T> Send for SendPtr<T> {}
+
+impl<T> SendPtr<T> {
+    unsafe fn as_ptr(&self) -> *mut T {
+        self.0
+    }
+}
+
+/// Wrapper to make const raw pointers Send  
+struct SendConstPtr<T>(*const T);
+unsafe impl<T> Send for SendConstPtr<T> {}
+
+impl<T> SendConstPtr<T> {
+    unsafe fn as_ptr(&self) -> *const T {
+        self.0
+    }
+}
 
 /// Cache line size for most modern x86_64 processors
 pub const CACHE_LINE_SIZE: usize = 64;
@@ -230,22 +247,28 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         
         let results_ptr: *mut R = results.as_mut_ptr();
         let func = Arc::new(func);
+        let data = Arc::new(self.data);
+        let data_len = self.data.len();
         
         std::thread::scope(|scope| {
-            for (chunk_idx, chunk) in self.data.chunks(self.chunk_size).enumerate() {
-                let chunk_start = chunk_idx * self.chunk_size;
-                let chunk_len = chunk.len();
+            let chunk_size = self.chunk_size;
+            let num_chunks = (data_len + chunk_size - 1) / chunk_size;
+            
+            for chunk_idx in 0..num_chunks {
+                let chunk_start = chunk_idx * chunk_size;
+                let chunk_end = std::cmp::min(chunk_start + chunk_size, data_len);
                 
-                // Calculate pointer offset before spawning to avoid capturing raw pointer
-                let chunk_results_ptr = unsafe { results_ptr.add(chunk_start) };
-                let ptr_wrapper = SendPtr(chunk_results_ptr);
+                // Clone Arc references for the closure
+                let data = Arc::clone(&data);
                 let func = Arc::clone(&func);
+                let results_ptr_wrapper = SendPtr(unsafe { results_ptr.add(chunk_start) });
                 
                 scope.spawn(move || {
-                    for (i, item) in chunk.iter().enumerate() {
+                    for i in chunk_start..chunk_end {
                         unsafe {
-                            let result = func(item);
-                            ptr::write(ptr_wrapper.0.add(i), result);
+                            let result = func(&data[i]);
+                            let result_ptr = results_ptr_wrapper.as_ptr().add(i - chunk_start);
+                            ptr::write(result_ptr, result);
                         }
                     }
                 });
@@ -258,7 +281,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
     /// Reduce items in parallel using tree reduction for optimal cache efficiency
     pub fn reduce<F>(&self, func: F) -> Option<T>
     where
-        F: Fn(&T, &T) -> T + Send + Sync,
+        F: Fn(&T, &T) -> T + Send + Sync + Clone,
         T: Clone + Send,
     {
         if self.data.is_empty() {
@@ -292,37 +315,33 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             current_results = std::thread::scope(|scope| {
                 let mut handles = Vec::new();
                 let len = current_results.len();
+                let pairs_per_chunk = 32; // Process multiple pairs per thread
                 
-                // Process pairs without copying the entire chunk
-                for i in 0..len {
+                // Process pairs in chunks for better efficiency
+                for chunk_start in (0..len).step_by(pairs_per_chunk * 2) {
+                    let chunk_end = std::cmp::min(chunk_start + pairs_per_chunk * 2, len);
+                    let chunk = current_results[chunk_start..chunk_end].to_vec();
+                    let func = func.clone();
                     
-                    // Calculate pointers before spawning to avoid capturing raw pointer
-                    let ptr_i = unsafe { current_results.as_ptr().add(i) };
-                    let ptr_i_plus_1 = if i + 1 < len {
-                        Some(unsafe { current_results.as_ptr().add(i + 1) })
-                    } else {
-                        None
-                    };
-                    
-                    // Wrap pointers to make them Send
-                    struct SendPtrPair<T>(*const T, Option<*const T>);
-                    unsafe impl<T> Send for SendPtrPair<T> {}
-                    
-                    let ptr_pair = SendPtrPair(ptr_i, ptr_i_plus_1);
-                    
-                    let handle = scope.spawn(move || unsafe {
-                        let (ptr_i, ptr_i_plus_1) = (ptr_pair.0, ptr_pair.1);
-                        if let Some(ptr_next) = ptr_i_plus_1 {
-                            Some(func(&*ptr_i, &*ptr_next))
-                        } else {
-                            Some((*ptr_i).clone())
+                    let handle = scope.spawn(move || {
+                        let mut results = Vec::new();
+                        let mut i = 0;
+                        while i < chunk.len() {
+                            if i + 1 < chunk.len() {
+                                results.push(func(&chunk[i], &chunk[i + 1]));
+                                i += 2;
+                            } else {
+                                results.push(chunk[i].clone());
+                                i += 1;
+                            }
                         }
+                        results
                     });
                     handles.push(handle);
                 }
                 
                 handles.into_iter()
-                    .filter_map(|h| h.join().ok().flatten())
+                    .flat_map(|h| h.join().ok().unwrap_or_default())
                     .collect()
             });
         }
