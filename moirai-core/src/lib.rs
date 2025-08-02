@@ -46,7 +46,7 @@ pub mod metrics;
 pub mod security;
 
 // Core type definitions
-pub use task::{Task, TaskId, Priority, TaskContext, TaskFuture, TaskExt, BoxedTask, TaskHandle};
+pub use task::{Task, TaskId, Priority, TaskContext, TaskFuture, TaskExt, BoxedTask, TaskHandle, TaskBuilder};
 pub use executor::{TaskSpawner, TaskManager, TaskStatus, ExecutorConfig};
 pub use scheduler::{Scheduler, SchedulerId, SchedulerConfig};
 pub use error::{TaskError, ExecutorError, SchedulerError};

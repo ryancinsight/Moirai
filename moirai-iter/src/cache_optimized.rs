@@ -229,6 +229,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         unsafe { results.set_len(self.data.len()); }
         
         let results_ptr: *mut R = results.as_mut_ptr();
+        let func = Arc::new(func);
         
         std::thread::scope(|scope| {
             for (chunk_idx, chunk) in self.data.chunks(self.chunk_size).enumerate() {
@@ -238,7 +239,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                 // Calculate pointer offset before spawning to avoid capturing raw pointer
                 let chunk_results_ptr = unsafe { results_ptr.add(chunk_start) };
                 let ptr_wrapper = SendPtr(chunk_results_ptr);
-                let func = &func;
+                let func = Arc::clone(&func);
                 
                 scope.spawn(move || {
                     for (i, item) in chunk.iter().enumerate() {
@@ -303,7 +304,14 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                         None
                     };
                     
+                    // Wrap pointers to make them Send
+                    struct SendPtrPair<T>(*const T, Option<*const T>);
+                    unsafe impl<T> Send for SendPtrPair<T> {}
+                    
+                    let ptr_pair = SendPtrPair(ptr_i, ptr_i_plus_1);
+                    
                     let handle = scope.spawn(move || unsafe {
+                        let (ptr_i, ptr_i_plus_1) = (ptr_pair.0, ptr_pair.1);
                         if let Some(ptr_next) = ptr_i_plus_1 {
                             Some(func(&*ptr_i, &*ptr_next))
                         } else {

@@ -209,15 +209,21 @@ impl<'a> SimdParallelIterator<'a, f32> {
         assert_eq!(self.data.len(), other.len(), "Slices must have same length");
         
         let mut result = vec![0.0f32; self.data.len()];
+        let len = self.data.len();
+        let chunk_size = self.chunk_size;
+        
+        // Process chunks in parallel
+        let chunks: Vec<_> = self.data.chunks(chunk_size)
+            .zip(other.chunks(chunk_size))
+            .enumerate()
+            .map(|(idx, (a, b))| (idx, a.to_vec(), b.to_vec()))
+            .collect();
         
         std::thread::scope(|scope| {
             let result_ptr = result.as_mut_ptr();
             
-            for (chunk_idx, (chunk_a, chunk_b)) in self.data.chunks(self.chunk_size)
-                .zip(other.chunks(self.chunk_size))
-                .enumerate()
-            {
-                let chunk_start = chunk_idx * self.chunk_size;
+            for (chunk_idx, chunk_a, chunk_b) in chunks {
+                let chunk_start = chunk_idx * chunk_size;
                 let chunk_len = chunk_a.len();
                 
                 // Create a wrapper that is Send
@@ -225,7 +231,7 @@ impl<'a> SimdParallelIterator<'a, f32> {
                 let ptr_wrapper = SendPtr(result_ptr_offset);
                 
                 scope.spawn(move || {
-                    let chunk_result = SimdF32Iterator::new(chunk_a).simd_add(chunk_b);
+                    let chunk_result = SimdF32Iterator::new(&chunk_a).simd_add(&chunk_b);
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             chunk_result.as_ptr(),
@@ -245,22 +251,34 @@ impl<'a> SimdParallelIterator<'a, f32> {
         assert_eq!(self.data.len(), other.len(), "Slices must have same length");
         
         let mut result = vec![0.0f32; self.data.len()];
-        let result_ptr = result.as_mut_ptr();
+        let len = self.data.len();
+        let chunk_size = self.chunk_size;
+        
+        // Process chunks in parallel
+        let chunks: Vec<_> = self.data.chunks(chunk_size)
+            .zip(other.chunks(chunk_size))
+            .enumerate()
+            .map(|(idx, (a, b))| (idx, a.to_vec(), b.to_vec()))
+            .collect();
         
         std::thread::scope(|scope| {
-            for (chunk_idx, (chunk_a, chunk_b)) in self.data.chunks(self.chunk_size)
-                .zip(other.chunks(self.chunk_size))
-                .enumerate()
-            {
-                let chunk_start = chunk_idx * self.chunk_size;
+            let result_ptr = result.as_mut_ptr();
+            
+            for (chunk_idx, chunk_a, chunk_b) in chunks {
+                let chunk_start = chunk_idx * chunk_size;
+                let chunk_len = chunk_a.len();
+                
+                // Create a wrapper that is Send
+                let result_ptr_offset = unsafe { result_ptr.add(chunk_start) };
+                let ptr_wrapper = SendPtr(result_ptr_offset);
                 
                 scope.spawn(move || {
-                    let chunk_result = SimdF32Iterator::new(chunk_a).simd_mul(chunk_b);
+                    let chunk_result = SimdF32Iterator::new(&chunk_a).simd_mul(&chunk_b);
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             chunk_result.as_ptr(),
-                            result_ptr.add(chunk_start),
-                            chunk_result.len(),
+                            ptr_wrapper.0,
+                            chunk_len,
                         );
                     }
                 });

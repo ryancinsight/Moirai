@@ -468,7 +468,8 @@ impl ExecutionContext for ParallelContext {
             // Tree reduction for better parallelism
             let mut current = items;
             while current.len() > 1 {
-                let chunk_results = self.parallel_operation(current, |chunk| {
+                let func = func.clone();
+                let chunk_results = self.parallel_operation(current, move |chunk| {
                     let mut iter = chunk.into_iter();
                     let mut results = Vec::new();
                     

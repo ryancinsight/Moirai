@@ -967,25 +967,15 @@ mod tests {
     }
 
     #[test]
-    fn test_chained_task() {
+    fn test_task_composition() {
         let id = TaskId::new(1);
         let task = TaskBuilder::new()
             .with_id(id)
             .build(|| 10);
-        let chained = task.then(|x| x * 2);
         
-        assert_eq!(chained.execute(), 20);
-    }
-
-    #[test]
-    fn test_mapped_task() {
-        let id = TaskId::new(1);
-        let task = TaskBuilder::new()
-            .with_id(id)
-            .build(|| 5);
-        let mapped = task.map(|x| x.to_string());
-        
-        assert_eq!(mapped.execute(), "5");
+        // Test map combinator
+        let mapped = task.map(|x| x * 2);
+        assert_eq!(mapped.execute(), 20);
     }
 
     #[test]

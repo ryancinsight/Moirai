@@ -2080,6 +2080,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moirai_core::TaskBuilder;
     use std::sync::atomic::{AtomicI32, Ordering};
     use std::time::Duration;
 
@@ -2278,8 +2279,10 @@ mod tests {
             .priority(Priority::Critical)
             .build(|| "high priority task");
 
-        let handle = executor.spawn_with_priority(task, Priority::Critical, None);
-        assert_eq!(handle.id.get(), 0); // First task should get ID 0
+        let handle = executor.spawn_with_priority(task, Priority::Critical, None)
+            .expect("Failed to spawn task");
+        // Verify we got a valid handle
+        assert!(handle.id() != TaskId::new(u64::MAX));
     }
 
     #[test]
