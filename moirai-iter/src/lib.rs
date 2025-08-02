@@ -26,6 +26,13 @@ use std::fmt::Debug;
 use std::thread;
 use std::time::{Duration, Instant};
 
+// Base module with common abstractions
+pub mod base;
+pub use base::{
+    ExecutionBase, FromMoiraiIterator, tree_reduce, process_in_batches,
+    get_shared_thread_pool, PerformanceMetrics
+};
+
 pub mod cache_optimized;
 pub mod advanced_iterators;
 pub mod channel_fusion;
@@ -125,25 +132,35 @@ pub trait MoiraiIterator: Sized + Send {
 }
 
 /// Execution context trait defining how iterators execute their operations.
-pub trait ExecutionContext: Send + Sync {
+/// This now extends ExecutionBase to inherit common functionality.
+pub trait ExecutionContext: ExecutionBase {
     /// Execute a closure across all items in the context with streaming support.
     fn execute<T, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
     where
         T: Send + Clone + 'static,
-        F: Fn(T) + Send + Sync + Clone + 'static;
+        F: Fn(T) + Send + Sync + Clone + 'static,
+    {
+        self.execute_each(items, func)
+    }
 
     /// Map operation execution with streaming support.
     fn map<T, R, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = Vec<R>> + Send + '_>>
     where
         T: Send + Clone + 'static,
         R: Send + 'static,
-        F: Fn(T) -> R + Send + Sync + Clone + 'static;
+        F: Fn(T) -> R + Send + Sync + Clone + 'static,
+    {
+        self.execute_map(items, func)
+    }
 
     /// Reduce operation execution with tree reduction.
     fn reduce<T, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = Option<T>> + Send + '_>>
     where
         T: Send + Clone + 'static,
-        F: Fn(T, T) -> T + Send + Sync + Clone + 'static;
+        F: Fn(T, T) -> T + Send + Sync + Clone + 'static,
+    {
+        self.execute_reduce(items, func)
+    }
 
     /// Stream items through a function for memory-efficient processing.
     fn stream<T, R, F>(&self, items: Vec<T>, func: F) -> Pin<Box<dyn Future<Output = Vec<R>> + Send + '_>>
@@ -151,32 +168,6 @@ pub trait ExecutionContext: Send + Sync {
         T: Send + Clone + 'static,
         R: Send + 'static,
         F: Fn(T) -> Option<R> + Send + Sync + Clone + 'static;
-}
-
-/// Base implementation for common execution patterns
-/// This reduces code duplication across different contexts
-trait ExecutionBase: Send + Sync {
-    /// Process items in chunks for better cache locality
-    fn chunk_process<T, R, F>(
-        &self,
-        items: Vec<T>,
-        chunk_size: usize,
-        func: F,
-    ) -> Vec<R>
-    where
-        T: Send + Clone + 'static,
-        R: Send + 'static,
-        F: Fn(&[T]) -> Vec<R> + Send + Sync;
-        
-    /// Tree reduction for efficient parallel reduce
-    fn tree_reduce<T, F>(
-        &self,
-        items: Vec<T>,
-        func: F,
-    ) -> Option<T>
-    where
-        T: Send + Clone + 'static,
-        F: Fn(T, T) -> T + Send + Sync + Clone;
 }
 
 /// Execution strategy for controlling how operations are performed.
