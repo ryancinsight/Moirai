@@ -261,6 +261,7 @@ mod solid_tests {
         let runner = MinimalTaskRunner {
             spawned_tasks: AtomicUsize::new(0),
             completion_rate: AtomicU64::new(f64::to_bits(0.0)),
+            task_id_counter: AtomicUsize::new(0),
         };
 
         // Test that we can use only the interfaces we need
@@ -1702,7 +1703,7 @@ impl Task for TestTask {
         static DEFAULT_CONTEXT: std::sync::OnceLock<TaskContext> = std::sync::OnceLock::new();
         DEFAULT_CONTEXT.get_or_init(|| {
             TaskContext::new(
-                TaskId::new(DEFAULT_TASK_ID)
+                TaskId::new(0)
             )
         })
     }

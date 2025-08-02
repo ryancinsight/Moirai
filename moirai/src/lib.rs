@@ -58,7 +58,7 @@
 //! // CPU-bound parallel computation
 //! let counter = Arc::new(AtomicU32::new(0));
 //! let counter_clone = counter.clone();
-//! let parallel_handle = runtime.spawn_parallel(move || {
+//! let parallel_handle = runtime.spawn_fn(move || {
 //!     // Simulate intensive computation
 //!     for i in 0..1000 {
 //!         counter_clone.fetch_add(i % 100, Ordering::Relaxed);
@@ -67,7 +67,7 @@
 //! });
 //!
 //! // Another parallel task
-//! let critical_handle = runtime.spawn_parallel(move || "critical task executed");
+//! let critical_handle = runtime.spawn_fn(move || "critical task executed");
 //!
 //! // Tasks execute concurrently with optimal scheduling
 //! let parallel_result = parallel_handle.join()?;
@@ -93,13 +93,13 @@
 //! let runtime = Moirai::new()?;
 //!
 //! // Chain tasks with dependencies using regular closures
-//! let handle1 = runtime.spawn_parallel(|| 42);
+//! let handle1 = runtime.spawn_fn(|| 42);
 //! let result1 = handle1.join()?;
 //! 
-//! let handle2 = runtime.spawn_parallel(move || result1 * 2);
+//! let handle2 = runtime.spawn_fn(move || result1 * 2);
 //! let result2 = handle2.join()?;
 //! 
-//! let handle3 = runtime.spawn_parallel(move || result2 + 10);
+//! let handle3 = runtime.spawn_fn(move || result2 + 10);
 //! let result = handle3.join()?;
 //!
 //! assert_eq!(result, 94); // (42 * 2) + 10
@@ -118,7 +118,7 @@
 //!     .build()?;
 //!
 //! // Execute task locally (distributed features available but simplified for docs)
-//! let handle = runtime.spawn_parallel(move || "computed locally");
+//! let handle = runtime.spawn_fn(move || "computed locally");
 //! let result = handle.join()?;
 //! println!("Result: {}", result);
 //! # Ok(())
@@ -140,7 +140,7 @@
 //!
 //! // After: Moirai
 //! let runtime = moirai::Moirai::new()?;
-//! let handle = runtime.spawn_parallel(|| {
+//! let handle = runtime.spawn_fn(|| {
 //!     expensive_computation()
 //! });
 //! let result = handle.join()?;
@@ -161,7 +161,7 @@
 //!
 //! // After: Moirai
 //! let runtime = moirai::Moirai::new()?;
-//! let handle = runtime.spawn_parallel(|| {
+//! let handle = runtime.spawn_fn(|| {
 //!     async_operation()
 //! });
 //! let result = handle.join()?;
@@ -184,7 +184,7 @@
 //! // After: Moirai parallel processing
 //! let runtime = moirai::Moirai::new()?;
 //! let handles: Vec<_> = data.iter()
-//!     .map(|&x| runtime.spawn_parallel(move || expensive_transform(&x)))
+//!     .map(|&x| runtime.spawn_fn(move || expensive_transform(&x)))
 //!     .collect();
 //! let result: Result<Vec<_>, _> = handles.into_iter()
 //!     .map(|h| h.join())
@@ -200,7 +200,7 @@
 
 // Re-export core functionality
 pub use moirai_core::{
-    Task, AsyncTask, TaskId, TaskHandle, Priority, TaskContext, TaskBuilder,
+    Task, TaskId, TaskHandle, Priority, TaskContext,
     error::*, task::*, executor::*, scheduler::*,
 };
 
@@ -264,7 +264,7 @@ use std::{
 /// // Spawn a parallel task
 /// let counter = Arc::new(AtomicU32::new(0));
 /// let counter_clone = counter.clone();
-/// let handle = runtime.spawn_parallel(move || {
+/// let handle = runtime.spawn_fn(move || {
 ///     for _ in 0..1000 {
 ///         counter_clone.fetch_add(1, Ordering::Relaxed);
 ///     }
@@ -314,19 +314,18 @@ impl Moirai {
     where
         T: Task,
     {
-        self.executor.spawn(task)
+        self.executor.spawn(task).expect("Failed to spawn task")
     }
 
     /// Spawn a parallel task using a closure.
     ///
-    /// This is equivalent to `spawn_blocking` but with a more intuitive name
-    /// for CPU-bound parallel work.
-    pub fn spawn_parallel<F, R>(&self, func: F) -> TaskHandle<R>
+    /// The task will be executed on the work-stealing thread pool.
+    pub fn spawn_fn<F, R>(&self, func: F) -> TaskHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.executor.spawn_blocking(func)
+        self.executor.spawn_blocking(func).expect("Failed to spawn blocking task")
     }
 
     /// Spawn an async task for execution.
@@ -337,7 +336,7 @@ impl Moirai {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.executor.spawn_async(future)
+        self.executor.spawn_async(future).expect("Failed to spawn async task")
     }
 
     /// Spawn a blocking task that may block the current thread.
@@ -348,17 +347,17 @@ impl Moirai {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.executor.spawn_blocking(func)
+        self.executor.spawn_blocking(func).expect("Failed to spawn blocking task")
     }
 
     /// Spawn a task with a specific priority.
     ///
-    /// Higher priority tasks will be scheduled before lower priority tasks.
+    /// Higher priority tasks will be executed before lower priority tasks.
     pub fn spawn_with_priority<T>(&self, task: T, priority: Priority) -> TaskHandle<T::Output>
     where
         T: Task,
     {
-        self.executor.spawn_with_priority(task, priority, None)
+        self.executor.spawn_with_priority(task, priority, None).expect("Failed to spawn task with priority")
     }
 
     /// Block the current thread until the future completes.
@@ -434,7 +433,7 @@ impl Moirai {
         R: Send + 'static,
     {
         // Create a distributed task
-        let task_id = format!("remote-task-{}", self.next_task_id().get());
+        let task_id = format!("remote-task-{}", self.next_task_id());
         
         // In a real implementation, this would:
         // 1. Serialize the closure and its environment
@@ -449,7 +448,7 @@ impl Moirai {
         
         // For now, fall back to local execution with distributed semantics
         // Simulate remote execution with local task that has distributed characteristics
-        self.spawn_parallel(move || {
+        self.spawn_fn(move || {
             // Simulate remote execution delay
             std::thread::sleep(std::time::Duration::from_millis(10));
             func()
@@ -605,7 +604,7 @@ pub mod prelude {
     
     pub use crate::{
         Moirai, MoiraiBuilder,
-        Task, AsyncTask, TaskHandle, TaskId, Priority,
+        Task, TaskHandle, TaskId, Priority,
         TaskBuilder, TaskExt,
     };
 
@@ -639,12 +638,12 @@ where
 }
 
 /// Spawn a parallel task on the global runtime.
-pub fn spawn_parallel<F, R>(func: F) -> TaskHandle<R>
+pub fn spawn_fn<F, R>(func: F) -> TaskHandle<R>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    global().spawn_parallel(func)
+    global().spawn_fn(func)
 }
 
 /// Block on a future using the global runtime.
@@ -677,16 +676,16 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_parallel() {
+    fn test_spawn_fn() {
         let moirai = Moirai::new().unwrap();
         
         // Test basic task spawning
-        let mut handle = moirai.spawn_parallel(|| {
+        let mut handle = moirai.spawn_fn(|| {
             (0..100).sum::<i32>()
         });
         
         // Verify the handle was created (task ID should be valid, not necessarily 0)
-        assert_eq!(handle.id.get(), 0);
+        assert_eq!(handle.id(), 0);
         
         // In std environments, we can actually get the result
         {
@@ -694,7 +693,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
             
             // Try to get the result
-            if let Some(result) = handle.try_join() {
+            if let Some(result) = handle.join() {
                 assert_eq!(result, Ok(4950)); // Sum of 0..100
             }
         }
@@ -706,7 +705,7 @@ mod tests {
         let handle = moirai.spawn_async(async { 42 });
         // For now, we'll just test that the handle was created
         // TODO: Implement proper async execution and testing
-        assert_eq!(handle.id.get(), 0);
+        assert_eq!(handle.id(), 0);
     }
 
     #[test]
@@ -720,9 +719,9 @@ mod tests {
 
     #[test]
     fn test_global_spawn() {
-        let handle = spawn_parallel(|| "hello world");
+        let handle = spawn_fn(|| "hello world");
         // For now, we'll just test that the handle was created (task ID should be valid)
-        assert!(handle.id.get() < 100); // Reasonable upper bound for task IDs in tests
+        assert!(handle.id() < 100); // Reasonable upper bound for task IDs in tests
     }
 
     #[test]
@@ -737,7 +736,7 @@ mod tests {
         let task = moirai_core::task::TaskBuilder::new().with_id(TaskId::new(0)).build(|| "high priority task");
         let handle = moirai.spawn_with_priority(task, Priority::High);
         
-        assert_eq!(handle.id.get(), 0);
+        assert_eq!(handle.id(), 0);
     }
 
     #[test] 
@@ -773,17 +772,17 @@ mod tests {
         let moirai = Moirai::new().unwrap();
         
         // Test simple computation
-        let mut handle1 = moirai.spawn_parallel(|| {
+        let mut handle1 = moirai.spawn_fn(|| {
             42 * 2
         });
         
         // Test string computation
-        let mut handle2 = moirai.spawn_parallel(|| {
+        let mut handle2 = moirai.spawn_fn(|| {
             format!("Hello, {}", "Moirai")
         });
         
         // Test complex computation
-        let mut handle3 = moirai.spawn_parallel(|| {
+        let mut handle3 = moirai.spawn_fn(|| {
             (1..=10).product::<i32>()
         });
         
@@ -794,9 +793,9 @@ mod tests {
         // Note: In a real concurrent environment, we should use proper synchronization
         
         // Try non-blocking first
-        let result1 = handle1.try_join();
-        let result2 = handle2.try_join();
-        let result3 = handle3.try_join();
+        let result1 = handle1.join();
+        let result2 = handle2.join();
+        let result3 = handle3.join();
         
         // Print debug info to see what's happening
         println!("Result 1: {:?}", result1);
