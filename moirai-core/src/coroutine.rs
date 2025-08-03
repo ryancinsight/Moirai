@@ -102,24 +102,24 @@ pub enum CoroutineResult<Y, R> {
 #[cfg(feature = "std")]
 pub struct CoroutineHandle<Y, R> {
     /// Unique identifier for this coroutine
-    id: TaskId,
+    _id: TaskId,
     /// Receiver for yielded values
-    yield_receiver: Option<channel::Receiver<Y>>,
+    _yield_receiver: Option<channel::Receiver<Y>>,
     /// Receiver for the final result
-    result_receiver: Option<channel::Receiver<R>>,
+    _result_receiver: Option<channel::Receiver<R>>,
     /// Control channel for sending resume signals
-    control_sender: channel::Sender<CoroutineControl>,
+    _control_sender: channel::Sender<CoroutineControl>,
 }
 
 /// Control messages for coroutine execution.
 #[cfg(feature = "std")]
 enum CoroutineControl {
     /// Resume coroutine execution
-    Resume,
+    _Resume,
     /// Cancel coroutine execution
-    Cancel,
+    _Cancel,
     /// Pause coroutine execution
-    Pause,
+    _Pause,
 }
 
 /// A simple coroutine implementation using function pointers.
@@ -132,7 +132,7 @@ pub struct SimpleCoroutine<Y, R> {
     /// Current state
     state: CoroutineState,
     /// Task context for scheduling
-    context: TaskContext,
+    _context: TaskContext,
 }
 
 impl<Y, R> SimpleCoroutine<Y, R>
@@ -148,7 +148,7 @@ where
         Self {
             state_fn: Some(Box::new(func)),
             state: CoroutineState::Created,
-            context: TaskContext::new(TaskId::new(0)),
+            _context: TaskContext::new(TaskId::new(0)),
         }
     }
 }
@@ -273,7 +273,7 @@ pub struct CoroutineScheduler {
     /// Queue of ready coroutines
     ready_queue: VecDeque<Box<dyn Send>>,
     /// Currently running coroutine
-    current: Option<TaskId>,
+    _current: Option<TaskId>,
 }
 
 #[cfg(feature = "std")]
@@ -282,7 +282,7 @@ impl CoroutineScheduler {
     pub fn new() -> Self {
         Self {
             ready_queue: VecDeque::new(),
-            current: None,
+            _current: None,
         }
     }
     
@@ -300,10 +300,10 @@ impl CoroutineScheduler {
         self.ready_queue.push_back(Box::new(coroutine));
         
         CoroutineHandle {
-            id,
-            yield_receiver: Some(yield_rx),
-            result_receiver: Some(result_rx),
-            control_sender: control_tx,
+            _id: id,
+            _yield_receiver: Some(yield_rx),
+            _result_receiver: Some(result_rx),
+            _control_sender: control_tx,
         }
     }
 }

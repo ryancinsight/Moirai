@@ -2044,7 +2044,7 @@ where
 /// Wrapper for blocking tasks that implements BoxedTask
 struct BlockingTaskWrapper<F> {
     func: Option<F>,
-    task_id: TaskId,
+    _task_id: TaskId,
     context: TaskContext,
 }
 
@@ -2055,7 +2055,7 @@ where
     fn new(func: F, task_id: TaskId) -> Self {
         Self {
             func: Some(func),
-            task_id,
+            _task_id: task_id,
             context: TaskContext::new(task_id),
         }
     }

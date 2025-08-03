@@ -127,7 +127,7 @@ impl<T> CacheAlignedType for T {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
     
     #[test]
     fn test_cache_aligned() {

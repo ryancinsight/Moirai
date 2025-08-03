@@ -23,8 +23,7 @@ use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::fmt;
 
-/// Cache line size for padding (64 bytes on most architectures)
-const CACHE_LINE_SIZE: usize = 64;
+
 
 /// Padding to prevent false sharing between CPU cores
 #[repr(align(64))]
@@ -217,10 +216,12 @@ pub struct SpscSender<T> {
 }
 
 impl<T: Send> SpscSender<T> {
+    /// Send a value through the channel, blocking if necessary
     pub fn send(&self, value: T) -> Result<()> {
         self.channel.send(value)
     }
     
+    /// Try to send a value without blocking
     pub fn try_send(&self, value: T) -> Result<()> {
         self.channel.try_send(value)
     }
@@ -232,10 +233,12 @@ pub struct SpscReceiver<T> {
 }
 
 impl<T: Send> SpscReceiver<T> {
+    /// Receive a value from the channel, blocking if necessary
     pub fn recv(&self) -> Result<T> {
         self.channel.recv()
     }
     
+    /// Try to receive a value without blocking
     pub fn try_recv(&self) -> Result<T> {
         self.channel.try_recv()
     }
@@ -391,10 +394,12 @@ pub struct MpmcSender<T> {
 }
 
 impl<T: Send> MpmcSender<T> {
+    /// Send a value through the channel, blocking if necessary
     pub fn send(&self, value: T) -> Result<()> {
         self.channel.send(value)
     }
     
+    /// Try to send a value without blocking
     pub fn try_send(&self, value: T) -> Result<()> {
         self.channel.try_send(value)
     }
@@ -427,10 +432,12 @@ pub struct MpmcReceiver<T> {
 }
 
 impl<T: Send> MpmcReceiver<T> {
+    /// Receive a value from the channel, blocking if necessary
     pub fn recv(&self) -> Result<T> {
         self.channel.recv()
     }
     
+    /// Try to receive a value without blocking
     pub fn try_recv(&self) -> Result<T> {
         self.channel.try_recv()
     }
@@ -478,10 +485,12 @@ pub fn spsc<T>(capacity: usize) -> (SpscSender<T>, SpscReceiver<T>) {
     SpscChannel::channel(capacity)
 }
 
+/// Create a new bounded MPMC channel with the given capacity
 pub fn mpmc<T>(capacity: usize) -> (MpmcSender<T>, MpmcReceiver<T>) {
     MpmcChannel::channel(Some(capacity))
 }
 
+/// Create a new unbounded MPMC channel
 pub fn unbounded<T>() -> (MpmcSender<T>, MpmcReceiver<T>) {
     MpmcChannel::channel(None)
 }

@@ -184,8 +184,8 @@ impl TransportManager {
 
 /// Universal channel that works across different transport boundaries
 pub struct UniversalChannel<T: Send + 'static> {
-    sender: UniversalSender<T>,
-    receiver: UniversalReceiver<T>,
+    _sender: UniversalSender<T>,
+    _receiver: UniversalReceiver<T>,
 }
 
 /// Sender half of universal channel
@@ -225,8 +225,8 @@ impl<T: Send + 'static> Clone for UniversalSender<T> {
 
 /// Receiver half of universal channel
 pub struct UniversalReceiver<T: Send + 'static> {
-    transport: Arc<TransportManager>,
-    source: Address,
+    _transport: Arc<TransportManager>,
+    _source: Address,
     _phantom: std::marker::PhantomData<T>,
 }
 

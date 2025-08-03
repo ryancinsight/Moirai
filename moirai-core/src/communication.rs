@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn test_pubsub() {
         let pubsub = PubSub::new();
-        let mut rx = pubsub.subscribe("topic1");
+        let rx = pubsub.subscribe("topic1");
         
         assert_eq!(pubsub.publish(&"topic1", 42).unwrap(), 1);
         assert_eq!(rx.try_recv().unwrap(), 42);

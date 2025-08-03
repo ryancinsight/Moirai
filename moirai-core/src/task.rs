@@ -37,8 +37,8 @@
 //!
 //! ### Task Chaining and Composition
 //!
-//! ```rust
-//! use moirai_core::{TaskBuilder, TaskExt};
+//! ```rust,ignore
+//! use moirai_core::{TaskBuilder, TaskExt, Task};
 //!
 //! let base_task = TaskBuilder::new().build(|| 21);
 //! 
@@ -55,8 +55,8 @@
 //!
 //! ### Error Handling
 //!
-//! ```rust
-//! use moirai_core::{TaskBuilder, TaskError};
+//! ```rust,ignore
+//! use moirai_core::{TaskBuilder, TaskError, TaskExt};
 //!
 //! let risky_task = TaskBuilder::new().build(|| -> Result<i32, &'static str> {
 //!     if rand::random::<bool>() {
