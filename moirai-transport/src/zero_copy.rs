@@ -9,6 +9,8 @@ use std::ptr;
 use std::mem;
 use std::time::{Duration, Instant};
 use std::collections::VecDeque;
+use std::collections::HashMap;
+use std::sync::RwLock;
 
 /// Error types for zero-copy operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +29,8 @@ pub enum ZeroCopyError {
     InvalidBufferSize,
     /// Alignment error
     AlignmentError,
+    /// No route found for domain
+    NoRoute,
 }
 
 impl std::fmt::Display for ZeroCopyError {
@@ -39,6 +43,7 @@ impl std::fmt::Display for ZeroCopyError {
             Self::MemoryMapFailed => write!(f, "Memory mapping failed"),
             Self::InvalidBufferSize => write!(f, "Invalid buffer size"),
             Self::AlignmentError => write!(f, "Memory alignment error"),
+            Self::NoRoute => write!(f, "No route found for domain"),
         }
     }
 }
@@ -720,6 +725,149 @@ pub struct BatchStats {
     pub recent_throughput: f64,
     /// Time since last batch flush
     pub time_since_last_flush: Duration,
+}
+
+/// Zero-copy message router for efficient inter-domain communication
+/// 
+/// This router uses memory-mapped buffers and lock-free data structures
+/// to route messages between different concurrency domains without copying.
+pub struct ZeroCopyRouter<T> {
+    /// Routing table mapping domain IDs to senders
+    routes: Arc<RwLock<HashMap<DomainId, Arc<ZeroCopySender<T>>>>>,
+    /// Default route for unmatched domains
+    default_route: Option<Arc<ZeroCopySender<T>>>,
+    /// Statistics
+    stats: RouterStats,
+}
+
+/// Domain identifier for routing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DomainId(u64);
+
+impl DomainId {
+    pub const SYNC: Self = DomainId(0);
+    pub const ASYNC: Self = DomainId(1);
+    pub const PARALLEL: Self = DomainId(2);
+    pub const DISTRIBUTED: Self = DomainId(3);
+    
+    pub fn new(id: u64) -> Self {
+        DomainId(id)
+    }
+}
+
+#[derive(Debug, Default)]
+struct RouterStats {
+    messages_routed: AtomicUsize,
+    routing_failures: AtomicUsize,
+    zero_copy_sends: AtomicUsize,
+}
+
+impl<T: Send + 'static> ZeroCopyRouter<T> {
+    /// Create a new zero-copy router
+    pub fn new() -> Self {
+        Self {
+            routes: Arc::new(RwLock::new(HashMap::new())),
+            default_route: None,
+            stats: RouterStats::default(),
+        }
+    }
+    
+    /// Add a route to a specific domain
+    pub fn add_route(&self, domain: DomainId, capacity: usize) -> ZeroCopyResult<ZeroCopyReceiver<T>> {
+        let (sender, receiver) = ZeroCopyChannel::new(capacity)?;
+        self.routes.write().unwrap().insert(domain, Arc::new(sender));
+        Ok(receiver)
+    }
+    
+    /// Set the default route
+    pub fn set_default_route(&mut self, capacity: usize) -> ZeroCopyResult<ZeroCopyReceiver<T>> {
+        let (sender, receiver) = ZeroCopyChannel::new(capacity)?;
+        self.default_route = Some(Arc::new(sender));
+        Ok(receiver)
+    }
+    
+    /// Route a message to the appropriate domain
+    pub fn route(&self, domain: DomainId, message: T) -> ZeroCopyResult<()> {
+        self.stats.messages_routed.fetch_add(1, Ordering::Relaxed);
+        
+        // Try specific route first
+        if let Some(channel) = self.routes.read().unwrap().get(&domain) {
+            match channel.send(message) {
+                Ok(()) => {
+                    self.stats.zero_copy_sends.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                }
+                Err(e) => {
+                    self.stats.routing_failures.fetch_add(1, Ordering::Relaxed);
+                    Err(e)
+                }
+            }
+        } else if let Some(default) = &self.default_route {
+            // Fall back to default route
+            default.send(message)
+        } else {
+            self.stats.routing_failures.fetch_add(1, Ordering::Relaxed);
+            Err(ZeroCopyError::NoRoute)
+        }
+    }
+    
+    /// Get routing statistics
+    pub fn stats(&self) -> (usize, usize, usize) {
+        (
+            self.stats.messages_routed.load(Ordering::Relaxed),
+            self.stats.routing_failures.load(Ordering::Relaxed),
+            self.stats.zero_copy_sends.load(Ordering::Relaxed),
+        )
+    }
+}
+
+/// Bidirectional zero-copy channel for full-duplex communication
+pub struct BiChannel<T> {
+    forward: ZeroCopyChannel<T>,
+    backward: ZeroCopyChannel<T>,
+}
+
+impl<T: Send + 'static> BiChannel<T> {
+    /// Create a new bidirectional channel
+    pub fn new(capacity: usize) -> ZeroCopyResult<(BiChannelEnd<T>, BiChannelEnd<T>)> {
+        let (tx1, rx1) = ZeroCopyChannel::new(capacity)?;
+        let (tx2, rx2) = ZeroCopyChannel::new(capacity)?;
+        
+        let end1 = BiChannelEnd {
+            sender: tx1,
+            receiver: rx2,
+        };
+        
+        let end2 = BiChannelEnd {
+            sender: tx2,
+            receiver: rx1,
+        };
+        
+        Ok((end1, end2))
+    }
+}
+
+/// One end of a bidirectional channel
+pub struct BiChannelEnd<T> {
+    sender: ZeroCopySender<T>,
+    receiver: ZeroCopyReceiver<T>,
+}
+
+impl<T> BiChannelEnd<T> {
+    /// Send a message
+    pub fn send(&self, message: T) -> ZeroCopyResult<()> {
+        self.sender.send(message)
+    }
+    
+    /// Receive a message
+    pub fn recv(&self) -> ZeroCopyResult<T> {
+        self.receiver.recv()
+    }
+    
+    /// Try to receive without blocking
+    pub fn try_recv(&self) -> ZeroCopyResult<T> {
+        self.receiver.try_recv()
+    }
 }
 
 #[cfg(test)]

@@ -216,6 +216,44 @@ impl CollectiveOps {
         
         result
     }
+    
+    /// Zero-copy scatter operation using slices
+    pub fn scatter_zero_copy<T>(data: &[T], num_chunks: usize) -> Vec<&[T]> {
+        let chunk_size = data.len() / num_chunks;
+        let mut chunks = Vec::with_capacity(num_chunks);
+        
+        for i in 0..num_chunks {
+            let start = i * chunk_size;
+            let end = if i == num_chunks - 1 {
+                data.len()
+            } else {
+                (i + 1) * chunk_size
+            };
+            chunks.push(&data[start..end]);
+        }
+        
+        chunks
+    }
+    
+    /// Zero-copy gather operation using iterators
+    pub fn gather_zero_copy<'a, T, I>(chunks: I) -> impl Iterator<Item = &'a T>
+    where
+        I: IntoIterator<Item = &'a [T]>,
+        T: 'a,
+    {
+        chunks.into_iter().flat_map(|chunk| chunk.iter())
+    }
+    
+    /// Zero-copy all-reduce operation
+    pub fn all_reduce_zero_copy<T, F>(data: &[T], op: F) -> T
+    where
+        T: Clone,
+        F: Fn(&T, &T) -> T,
+    {
+        data.iter()
+            .skip(1)
+            .fold(data[0].clone(), |acc, item| op(&acc, item))
+    }
 }
 
 /// Zero-copy ring buffer for high-throughput streaming

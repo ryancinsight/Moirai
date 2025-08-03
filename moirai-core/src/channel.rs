@@ -18,6 +18,7 @@
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Condvar};
 use std::cell::UnsafeCell;
+use crate::communication::RingBuffer;
 use std::mem::MaybeUninit;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
@@ -562,6 +563,111 @@ pub fn mpmc<T>(capacity: usize) -> (MpmcSender<T>, MpmcReceiver<T>) {
 /// Create a new unbounded MPMC channel
 pub fn unbounded<T>() -> (MpmcSender<T>, MpmcReceiver<T>) {
     MpmcChannel::channel(None)
+}
+
+/// Zero-copy hybrid channel for async/sync interop
+/// 
+/// This channel uses a lock-free ring buffer with memory barriers
+/// to ensure safe zero-copy communication between async and sync contexts.
+pub struct HybridChannel<T> {
+    ring: Arc<RingBuffer<T>>,
+    async_notifier: Arc<AtomicBool>,
+    sync_notifier: Arc<AtomicBool>,
+}
+
+impl<T: Send> HybridChannel<T> {
+    /// Create a new hybrid channel with specified capacity
+    pub fn new(capacity: usize) -> (HybridSender<T>, HybridReceiver<T>) {
+        let ring = Arc::new(RingBuffer::new(capacity));
+        let async_notifier = Arc::new(AtomicBool::new(false));
+        let sync_notifier = Arc::new(AtomicBool::new(false));
+        
+        let sender = HybridSender {
+            ring: ring.clone(),
+            async_notifier: async_notifier.clone(),
+            sync_notifier: sync_notifier.clone(),
+        };
+        
+        let receiver = HybridReceiver {
+            ring,
+            async_notifier,
+            sync_notifier,
+        };
+        
+        (sender, receiver)
+    }
+}
+
+/// Sender half of hybrid channel
+pub struct HybridSender<T> {
+    ring: Arc<RingBuffer<T>>,
+    async_notifier: Arc<AtomicBool>,
+    sync_notifier: Arc<AtomicBool>,
+}
+
+impl<T: Send> HybridSender<T> {
+    /// Send value with zero-copy when possible
+    pub fn send(&self, value: T) -> Result<()> {
+        self.ring.try_produce(value).map_err(|_| ChannelError::Full)?;
+        
+        // Notify both async and sync waiters
+        self.async_notifier.store(true, Ordering::Release);
+        self.sync_notifier.store(true, Ordering::Release);
+        
+        Ok(())
+    }
+    
+    /// Try to send without blocking
+    pub fn try_send(&self, value: T) -> Result<()> {
+        self.send(value)
+    }
+}
+
+/// Receiver half of hybrid channel
+pub struct HybridReceiver<T> {
+    ring: Arc<RingBuffer<T>>,
+    async_notifier: Arc<AtomicBool>,
+    sync_notifier: Arc<AtomicBool>,
+}
+
+impl<T: Send> HybridReceiver<T> {
+    /// Receive value with zero-copy
+    pub fn recv(&self) -> Result<T> {
+        loop {
+            match self.ring.try_consume() {
+                Some(value) => return Ok(value),
+                None => {
+                    // Wait for notification
+                    while !self.sync_notifier.swap(false, Ordering::Acquire) {
+                        std::hint::spin_loop();
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Try to receive without blocking
+    pub fn try_recv(&self) -> Result<T> {
+        self.ring.try_consume().ok_or(ChannelError::Empty)
+    }
+    
+    /// Async receive for use in async contexts
+    #[cfg(feature = "async")]
+    pub async fn recv_async(&self) -> Result<T> {
+        loop {
+            match self.ring.try_consume() {
+                Some(value) => return Ok(value),
+                None => {
+                    // For now, busy wait with yield hints
+                    // In a real implementation, we'd integrate with the async runtime
+                    std::hint::spin_loop();
+                    if self.async_notifier.load(Ordering::Acquire) {
+                        self.async_notifier.store(false, Ordering::Release);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
