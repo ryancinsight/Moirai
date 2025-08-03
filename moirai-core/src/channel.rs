@@ -601,6 +601,7 @@ impl<T: Send> HybridChannel<T> {
 /// Sender half of hybrid channel
 pub struct HybridSender<T> {
     ring: Arc<RingBuffer<T>>,
+    #[allow(dead_code)]
     async_notifier: Arc<AtomicBool>,
     sync_notifier: Arc<AtomicBool>,
 }
@@ -626,7 +627,9 @@ impl<T: Send> HybridSender<T> {
 /// Receiver half of hybrid channel
 pub struct HybridReceiver<T> {
     ring: Arc<RingBuffer<T>>,
+    #[allow(dead_code)]
     async_notifier: Arc<AtomicBool>,
+    #[allow(dead_code)]
     sync_notifier: Arc<AtomicBool>,
 }
 

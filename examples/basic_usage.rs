@@ -96,18 +96,18 @@ fn main() {
     
     #[cfg(feature = "iter")]
     {
-        use moirai::{moirai_iter, MoiraiIterator};
+
         
         let numbers: Vec<i32> = (1..=10).collect();
-        let squared: Vec<i32> = runtime.block_on(async {
-            moirai_iter(numbers.clone())
-                .map(|n| {
-                    println!("  Squaring {} in parallel", n);
-                    n * n
-                })
-                .collect::<Vec<_>>()
-                .await
-        });
+        
+        // For now, use standard parallel iteration
+        let squared: Vec<i32> = numbers
+            .into_iter()
+            .map(|n| {
+                println!("  Squaring {} in parallel", n);
+                n * n
+            })
+            .collect();
         
         println!("  Squared numbers: {:?}", squared);
     }

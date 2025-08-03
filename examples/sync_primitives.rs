@@ -183,7 +183,7 @@ fn main() {
     // Example 7: Performance comparison
     println!("\n7. Performance Comparison (FastMutex vs std::sync::Mutex):");
     
-    let iterations = 1_000_000;
+    let iterations = 100_000;
     
     // FastMutex benchmark
     let fast_mutex = Arc::new(FastMutex::new(0));

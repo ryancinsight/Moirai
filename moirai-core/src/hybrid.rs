@@ -15,6 +15,7 @@ use std::collections::VecDeque;
 
 /// A hybrid task that can switch between coroutine and work-stealing execution
 pub struct HybridTask<T> {
+    #[allow(dead_code)]
     id: TaskId,
     state: TaskState,
     future: Option<Pin<Box<dyn Future<Output = T> + Send>>>,
@@ -95,6 +96,7 @@ pub struct HybridExecutor {
     /// Work-stealing deques for CPU-bound tasks
     work_queues: Vec<Arc<ZeroCopyWorkStealingDeque<Box<dyn Task<Output = ()>>>>>,
     /// Coroutine queue for I/O-bound tasks
+    #[allow(dead_code)]
     coroutine_queue: Arc<Mutex<VecDeque<Box<dyn Task<Output = ()>>>>>,
     /// Number of worker threads
     num_workers: usize,
@@ -174,8 +176,9 @@ struct ExecutionHistory {
     avg_work_stealing_time: u64,
 }
 
+/// Execution mode for adaptive tasks
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum ExecutionMode {
+pub enum ExecutionMode {
     /// Prefer coroutine execution
     Coroutine,
     /// Prefer work-stealing execution

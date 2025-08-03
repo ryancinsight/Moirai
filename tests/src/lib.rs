@@ -5,7 +5,7 @@ pub mod principle_based_edge_tests;
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]
 mod integration_tests {
-    use moirai::{Moirai, Priority, TaskBuilder};
+    use moirai::{Moirai, TaskBuilder};
     use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
     use std::time::Duration;
 

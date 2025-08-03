@@ -322,11 +322,11 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
     
     /// Grow the buffer with zero-copy transfer
     fn grow(&self, bottom: usize, top: usize, old_buffer: &Buffer<T>) {
-        let size = bottom.wrapping_sub(top);
+        let _size = bottom.wrapping_sub(top);
         let new_capacity = old_buffer.capacity() * 2;
         
         // Try to reuse cached buffer
-        let mut new_buffer = unsafe {
+        let new_buffer = unsafe {
             (*self.cached_buffer.get()).take()
                 .filter(|b| b.capacity() >= new_capacity)
                 .unwrap_or_else(|| Box::new(Buffer::new(new_capacity)))

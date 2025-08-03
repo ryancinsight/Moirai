@@ -822,6 +822,7 @@ impl<T: Send + 'static> ZeroCopyRouter<T> {
 }
 
 /// Bidirectional zero-copy channel for full-duplex communication
+#[allow(dead_code)]
 pub struct BiChannel<T> {
     forward: ZeroCopyChannel<T>,
     backward: ZeroCopyChannel<T>,
