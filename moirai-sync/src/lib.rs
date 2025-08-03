@@ -238,7 +238,7 @@ impl<T> FastMutex<T> {
         #[cfg(target_os = "linux")]
         {
             if self.state.swap(0, Ordering::Release) == 2 {
-                futex::futex_wake(&self.state as *const _ as *const i32, 1);
+                futex::futex_wake(self.state.as_ptr(), 1);
             }
         }
         #[cfg(not(target_os = "linux"))]
