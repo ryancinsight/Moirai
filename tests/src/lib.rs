@@ -5,7 +5,7 @@ pub mod principle_based_edge_tests;
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]
 mod integration_tests {
-    use moirai::{Moirai, TaskBuilder};
+    use moirai::{Moirai, TaskBuilder, Priority};
     use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
     use std::time::Duration;
 
@@ -312,6 +312,23 @@ mod integration_tests {
         
         assert_eq!(counter.load(Ordering::Relaxed), 400);
         println!("✅ Basic principle edge tests passed!");
+    }
+
+    #[test]
+    fn test_spawn_fn_with_priority_no_id_conflict() {
+        let runtime = Moirai::new().expect("Failed to create runtime");
+        
+        // Spawn multiple tasks with priority using the convenience method
+        let handle1 = runtime.spawn_fn_with_priority(|| 1, Priority::High);
+        let handle2 = runtime.spawn_fn_with_priority(|| 2, Priority::Normal);
+        let handle3 = runtime.spawn_fn_with_priority(|| 3, Priority::Low);
+        
+        // Verify all tasks complete successfully
+        assert_eq!(handle1.join(), Some(1));
+        assert_eq!(handle2.join(), Some(2));
+        assert_eq!(handle3.join(), Some(3));
+        
+        runtime.shutdown();
     }
 }
 

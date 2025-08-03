@@ -292,7 +292,7 @@ use std::{
 #[derive(Clone)]
 pub struct Moirai {
     executor: Arc<HybridExecutor>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used in spawn_remote for task ID generation
     task_counter: Arc<std::sync::atomic::AtomicU64>,
 }
 
@@ -370,10 +370,8 @@ impl Moirai {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let task = TaskBuilder::new()
-            .with_id(self.next_task_id())
-            .priority(priority)
-            .build(f);
+        // Let the executor handle ID assignment and priority
+        let task = TaskBuilder::new().build(f);
         self.spawn_with_priority(task, priority)
     }
 
@@ -450,7 +448,8 @@ impl Moirai {
         R: Send + 'static,
     {
         // Create a distributed task
-        let task_id = format!("remote-task-{}", self.next_task_id());
+        let task_id = format!("remote-task-{}", 
+            self.task_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
         
         // In a real implementation, this would:
         // 1. Serialize the closure and its environment
@@ -500,12 +499,7 @@ impl Moirai {
         Ok(())
     }
 
-    /// Generate the next task ID
-    #[allow(dead_code)]
-    fn next_task_id(&self) -> TaskId {
-        let id = self.task_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        TaskId::new(id)
-    }
+
 
     // TODO: Implement pipeline builder for chaining async and parallel operations
     // TODO: Implement scoped task spawner that ensures all tasks complete before returning

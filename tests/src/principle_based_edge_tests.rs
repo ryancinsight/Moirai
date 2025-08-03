@@ -18,12 +18,13 @@
 //! Each test is designed to validate not just functionality, but adherence
 //! to these fundamental design principles under extreme conditions.
 
-use moirai::{Moirai, Task, TaskId, TaskContext};
+use moirai::{Moirai, Task, TaskId, TaskContext, Priority, ExecutorError};
 
 use std::{
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::{AtomicUsize, AtomicU64, Ordering}},
     time::Duration,
     panic::catch_unwind,
+    thread,
 };
 use quickcheck::TestResult;
 
