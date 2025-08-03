@@ -246,6 +246,18 @@ impl ThreadPool {
     }
 }
 
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        // The sender will be dropped automatically when self is dropped,
+        // which signals workers to terminate. We just need to join the threads.
+        
+        // Join all worker threads to ensure they finish cleanly
+        for worker in self.workers.drain(..) {
+            let _ = worker.join();
+        }
+    }
+}
+
 /// Performance metrics for adaptive execution.
 #[derive(Debug, Clone)]
 pub struct PerformanceMetrics {
@@ -288,5 +300,39 @@ mod tests {
         });
         // [1,2,3] = 6, [4,5,6] = 15, [7,8] = 15
         assert_eq!(result, vec![6, 15, 15]);
+    }
+
+    #[test]
+    fn test_tree_reduce_parallel() {
+        let items: Vec<i32> = (1..=1000).collect();
+        let result = tree_reduce(items, |a, b| a + b);
+        assert_eq!(result, Some(500500));
+    }
+    
+    #[test]
+    fn test_thread_pool_graceful_shutdown() {
+        use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+        use std::time::Duration;
+        
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+        
+        {
+            let pool = ThreadPool::new(4);
+            
+            // Submit tasks that increment the counter
+            for _ in 0..10 {
+                let counter = counter.clone();
+                pool.execute(move || {
+                    std::thread::sleep(Duration::from_millis(10));
+                    counter.fetch_add(1, Ordering::SeqCst);
+                });
+            }
+            
+            // Pool will be dropped here
+        }
+        
+        // After drop, all tasks should have completed
+        assert_eq!(counter_clone.load(Ordering::SeqCst), 10);
     }
 }

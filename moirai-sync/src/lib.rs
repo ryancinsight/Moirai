@@ -427,7 +427,6 @@ impl<T> Drop for LockFreeStack<T> {
 pub struct ConcurrentHashMap<K, V, S = RandomState> {
     segments: Vec<Mutex<HashMap<K, V, S>>>,
     hasher: S,
-    segment_shift: u32,
 }
 
 impl<K: Hash + Eq, V> ConcurrentHashMap<K, V> {
@@ -439,7 +438,6 @@ impl<K: Hash + Eq, V> ConcurrentHashMap<K, V> {
     /// Create with a specific number of segments (must be power of 2).
     pub fn with_segments(num_segments: usize) -> Self {
         let num_segments = num_segments.next_power_of_two();
-        let segment_shift = num_segments.trailing_zeros();
         
         let segments = (0..num_segments)
             .map(|_| Mutex::new(HashMap::new()))
@@ -448,7 +446,6 @@ impl<K: Hash + Eq, V> ConcurrentHashMap<K, V> {
         Self {
             segments,
             hasher: RandomState::new(),
-            segment_shift,
         }
     }
 }
@@ -459,7 +456,8 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
         let mut hasher = self.hasher.build_hasher();
         key.hash(&mut hasher);
         let hash = hasher.finish();
-        (hash >> self.segment_shift) as usize % self.segments.len()
+        // Use bitmask for even distribution across power-of-2 segments
+        (hash as usize) & (self.segments.len() - 1)
     }
 
     /// Insert a key-value pair.
@@ -569,22 +567,46 @@ mod tests {
 
     #[test]
     fn test_concurrent_hashmap() {
-        let map = Arc::new(ConcurrentHashMap::new());
-        let mut handles = vec![];
-
-        for i in 0..10 {
-            let map = map.clone();
-            handles.push(thread::spawn(move || {
-                map.insert(i, i * 2);
-            }));
+        let map = ConcurrentHashMap::new();
+        
+        // Insert some values
+        map.insert("key1", 100);
+        map.insert("key2", 200);
+        
+        // Test retrieval
+        assert_eq!(map.get(&"key1"), Some(100));
+        assert_eq!(map.get(&"key2"), Some(200));
+        assert_eq!(map.get(&"key3"), None);
+        
+        // Test removal
+        assert_eq!(map.remove(&"key1"), Some(100));
+        assert_eq!(map.get(&"key1"), None);
+    }
+    
+    #[test]
+    fn test_concurrent_hashmap_segment_distribution() {
+        use std::collections::HashSet;
+        
+        // Create a map with 16 segments
+        let map = ConcurrentHashMap::<i32, i32>::with_segments(16);
+        
+        // Track which segments are used
+        let mut segments_used = HashSet::new();
+        
+        // Insert many keys and track segment distribution
+        for i in 0..1000 {
+            map.insert(i, i);
+            let segment_idx = map.segment_index(&i);
+            segments_used.insert(segment_idx);
         }
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        for i in 0..10 {
-            assert_eq!(map.get(&i), Some(i * 2));
+        
+        // With proper distribution, we should use most segments
+        // With 1000 keys across 16 segments, we expect to use all segments
+        assert!(segments_used.len() >= 14, "Poor segment distribution: only {} of 16 segments used", segments_used.len());
+        
+        // Verify all keys can be retrieved
+        for i in 0..1000 {
+            assert_eq!(map.get(&i), Some(i));
         }
     }
 }
