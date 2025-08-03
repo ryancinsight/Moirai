@@ -24,8 +24,7 @@
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use core::future::Future;
-use core::marker::PhantomData;
-use core::mem::MaybeUninit;
+
 
 use crate::{TaskId, TaskContext};
 use crate::error::TaskError;
@@ -52,12 +51,20 @@ pub enum CoroutineState {
 }
 
 /// A yield point in coroutine execution.
-#[derive(Debug)]
 pub struct YieldPoint<T> {
     /// The value being yielded
     pub value: T,
     /// Optional continuation data
     pub continuation: Option<Box<dyn Send>>,
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for YieldPoint<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("YieldPoint")
+            .field("value", &self.value)
+            .field("continuation", &self.continuation.is_some())
+            .finish()
+    }
 }
 
 /// Core coroutine trait for types that can be executed as coroutines.
@@ -134,7 +141,7 @@ where
     R: Send + 'static,
 {
     /// Create a new simple coroutine.
-    pub fn new<F>(mut func: F) -> Self
+    pub fn new<F>(func: F) -> Self
     where
         F: FnMut() -> CoroutineResult<Y, R> + Send + 'static,
     {
@@ -285,8 +292,8 @@ impl CoroutineScheduler {
         C: Coroutine + Send + 'static,
     {
         let id = TaskId::new(0); // In real implementation, generate unique ID
-        let (yield_tx, yield_rx) = channel::channel();
-        let (result_tx, result_rx) = channel::channel();
+        let (_yield_tx, yield_rx) = channel::channel();
+        let (_result_tx, result_rx) = channel::channel();
         let (control_tx, _control_rx) = channel::channel();
         
         // Box the coroutine and add to ready queue

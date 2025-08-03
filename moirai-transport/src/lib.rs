@@ -12,15 +12,11 @@
 
 pub mod zero_copy;
 
-use moirai_core::{
-    TaskId, scheduler::SchedulerId,
-    channel::{MpmcSender, MpmcReceiver, mpmc, unbounded, ChannelError}
-};
+use moirai_core::channel::{MpmcSender, MpmcReceiver, mpmc, unbounded};
 use std::{
     fmt,
     sync::{Arc, Mutex},
     collections::HashMap,
-    any::Any,
 };
 
 // Re-export core channel types for compatibility

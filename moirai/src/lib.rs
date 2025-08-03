@@ -416,13 +416,13 @@ impl Moirai {
     }
 
     /// Create a universal channel for communication.
-    pub fn channel<T>(&self) -> TransportResult<(UniversalSender<T>, UniversalReceiver<T>)> {
-        channel::universal()
+    pub fn channel<T: Send + 'static>(&self) -> (moirai_core::channel::MpmcSender<T>, moirai_core::channel::MpmcReceiver<T>) {
+        moirai_core::channel::unbounded()
     }
 
-    /// Create a channel with a specific address.
-    pub fn channel_with_address<T>(&self, address: Address) -> TransportResult<(UniversalSender<T>, UniversalReceiver<T>)> {
-        channel::new(address)
+    /// Create a bounded channel.
+    pub fn bounded_channel<T: Send + 'static>(&self, capacity: usize) -> (moirai_core::channel::MpmcSender<T>, moirai_core::channel::MpmcReceiver<T>) {
+        moirai_core::channel::mpmc(capacity)
     }
 
     /// Spawn a task on a remote node.
@@ -470,7 +470,7 @@ impl Moirai {
     /// Register a new node in the distributed system
     #[cfg(feature = "distributed")]
     pub fn register_node(&self, node_id: String, host: String, port: u16) -> Result<(), ExecutorError> {
-        let remote_addr = RemoteAddress { host, port, namespace: None };
+        let remote_addr = RemoteAddress { host, port, service: "moirai".to_string() };
         
         // In a real implementation, this would register the node with the transport manager
         {

@@ -5,9 +5,7 @@
 //! - Multiple channels for reduced synchronization
 //! - Automatic batching and buffering
 
-use std::sync::Arc;
 use std::marker::PhantomData;
-use crate::advanced_iterators::{AdvancedIteratorExt, ChunkedIter};
 
 /// Fused channel iterator that combines iteration with channel communication
 pub struct ChannelFusedIter<T, I, C> {

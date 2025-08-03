@@ -29,7 +29,7 @@ pub trait ExecutionBase: Send + Sync + 'static {
     ) -> Pin<Box<dyn Future<Output = Vec<R>> + Send + '_>>
     where
         T: Send + Clone + 'static,
-        R: Send + 'static,
+        R: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + Clone + 'static;
     
     /// Reduce items to a single value using tree reduction.
@@ -139,7 +139,7 @@ pub trait FromMoiraiIterator<T>: Send {
     }
 }
 
-impl<T> FromMoiraiIterator<T> for Vec<T> {
+impl<T: Send> FromMoiraiIterator<T> for Vec<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         iter.into_iter().collect()
     }
@@ -221,7 +221,7 @@ pub struct ThreadPool {
 
 impl ThreadPool {
     pub fn new(size: usize) -> Self {
-        let (sender, receiver) = std::sync::mpsc::channel();
+        let (sender, receiver) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send + 'static>>();
         let receiver = Arc::new(std::sync::Mutex::new(receiver));
         
         let workers = (0..size)

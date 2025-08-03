@@ -46,7 +46,6 @@ use moirai_core::{
     cache_aligned::CacheAligned,
     error::{ExecutorError, ExecutorResult, TaskError},
     executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus, TaskStats, ExecutorPlugin, CleanupConfig, ExecutorControl, Executor},
-    pool::GlobalPool,
     scheduler::{Scheduler, SchedulerId},
     task::{BoxedTask, Priority, Task, TaskContext, TaskHandle, TaskId},
 };

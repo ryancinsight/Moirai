@@ -85,7 +85,7 @@ pub struct PrefetchSliceIter<'a, T> {
 
 impl<'a, T> PrefetchSliceIter<'a, T> {
     pub fn new(slice: &'a [T]) -> Self {
-        let mut iter = Self {
+        let iter = Self {
             slice,
             position: 0,
             prefetch_distance: PREFETCH_DISTANCE,
@@ -216,7 +216,7 @@ impl<'a, T> PrefetchChunks<'a, T> {
     pub fn new(slice: &'a [T], chunk_size: usize) -> Self {
         assert!(chunk_size > 0, "Chunk size must be positive");
         
-        let mut iter = Self {
+        let iter = Self {
             slice,
             chunk_size,
             position: 0,

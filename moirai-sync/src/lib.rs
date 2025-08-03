@@ -10,7 +10,7 @@ use std::cell::UnsafeCell;
 use std::ops::{Deref, DerefMut};
 use std::hint;
 use std::collections::HashMap;
-use std::hash::{Hash, BuildHasher};
+use std::hash::{Hash, BuildHasher, Hasher};
 use std::collections::hash_map::RandomState;
 
 // Re-export standard library primitives directly (DRY principle)

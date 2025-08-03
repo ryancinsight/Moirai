@@ -15,7 +15,7 @@
 //! - Proper memory ordering with acquire-release semantics
 //! - Safe cleanup on drop with reference counting
 
-use std::sync::atomic::{AtomicUsize, AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Condvar};
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
@@ -30,14 +30,12 @@ const CACHE_LINE_SIZE: usize = 64;
 #[repr(align(64))]
 struct CachePadded<T> {
     value: T,
-    _padding: [u8; CACHE_LINE_SIZE - std::mem::size_of::<T>()],
 }
 
 impl<T> CachePadded<T> {
     const fn new(value: T) -> Self {
         Self {
             value,
-            _padding: [0; CACHE_LINE_SIZE - std::mem::size_of::<T>()],
         }
     }
 }
@@ -144,7 +142,7 @@ impl<T> SpscChannel<T> {
     }
 }
 
-impl<T> Channel<T> for SpscChannel<T> {
+impl<T: Send> Channel<T> for SpscChannel<T> {
     fn send(&self, value: T) -> Result<()> {
         self.try_send(value)
     }
@@ -218,7 +216,7 @@ pub struct SpscSender<T> {
     channel: Arc<SpscChannel<T>>,
 }
 
-impl<T> SpscSender<T> {
+impl<T: Send> SpscSender<T> {
     pub fn send(&self, value: T) -> Result<()> {
         self.channel.send(value)
     }
@@ -233,7 +231,7 @@ pub struct SpscReceiver<T> {
     channel: Arc<SpscChannel<T>>,
 }
 
-impl<T> SpscReceiver<T> {
+impl<T: Send> SpscReceiver<T> {
     pub fn recv(&self) -> Result<T> {
         self.channel.recv()
     }
@@ -301,7 +299,7 @@ impl<T> MpmcChannel<T> {
     }
 }
 
-impl<T> Channel<T> for MpmcChannel<T> {
+impl<T: Send> Channel<T> for MpmcChannel<T> {
     fn send(&self, value: T) -> Result<()> {
         let (mutex, not_full, not_empty) = &*self.state;
         let mut guard = mutex.lock().unwrap();
@@ -392,7 +390,7 @@ pub struct MpmcSender<T> {
     channel: Arc<MpmcChannel<T>>,
 }
 
-impl<T> MpmcSender<T> {
+impl<T: Send> MpmcSender<T> {
     pub fn send(&self, value: T) -> Result<()> {
         self.channel.send(value)
     }
@@ -428,7 +426,7 @@ pub struct MpmcReceiver<T> {
     channel: Arc<MpmcChannel<T>>,
 }
 
-impl<T> MpmcReceiver<T> {
+impl<T: Send> MpmcReceiver<T> {
     pub fn recv(&self) -> Result<T> {
         self.channel.recv()
     }

@@ -13,7 +13,7 @@
 //! - Maintain zero-copy semantics where possible
 //! - Follow SOLID principles with focused interfaces
 
-use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
