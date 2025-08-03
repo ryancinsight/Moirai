@@ -214,8 +214,11 @@ pub use moirai_scheduler::WorkStealingScheduler;
 pub use moirai_transport::{
     Address, TransportManager, TransportResult, TransportError,
     UniversalChannel, UniversalSender, UniversalReceiver, RemoteAddress,
-    InMemoryTransport, channel,
+    InMemoryTransport,
 };
+
+// Re-export channel functionality from core
+pub use moirai_core::channel;
 
 #[cfg(feature = "network")]
 pub use moirai_transport::{TcpTransport, UdpTransport};
@@ -358,6 +361,19 @@ impl Moirai {
         T: Task,
     {
         self.executor.spawn_with_priority(task, priority, None).expect("Failed to spawn task with priority")
+    }
+    
+    /// Spawn a closure with priority as a task (convenience method).
+    pub fn spawn_fn_with_priority<F, R>(&self, f: F, priority: Priority) -> TaskHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let task = TaskBuilder::new()
+            .with_id(self.next_task_id())
+            .priority(priority)
+            .build(f);
+        self.spawn_with_priority(task, priority)
     }
 
     /// Block the current thread until the future completes.

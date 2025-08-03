@@ -27,6 +27,22 @@ moirai-utils = { workspace = true }
 criterion = { workspace = true }
 proptest = { workspace = true }
 
+[[example]]
+name = "basic_usage"
+path = "../examples/basic_usage.rs"
+
+[[example]]
+name = "blocking_channels"
+path = "../examples/blocking_channels.rs"
+
+[[example]]
+name = "iterator_showcase"
+path = "../examples/iterator_showcase.rs"
+
+[[example]]
+name = "sync_primitives"
+path = "../examples/sync_primitives.rs"
+
 [features]
 default = ["async", "iter", "local"]
 full = ["async", "iter", "distributed", "metrics", "numa", "futex", "encryption"]

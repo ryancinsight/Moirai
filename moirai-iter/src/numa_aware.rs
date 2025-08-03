@@ -39,7 +39,9 @@ pub enum NumaPolicy {
 /// NUMA-aware execution context for iterators
 pub struct NumaAwareContext {
     topology: Arc<Option<CpuTopology>>,
+    #[allow(dead_code)]
     policy: NumaPolicy,
+    #[allow(dead_code)]
     thread_count: usize,
 }
 
@@ -60,6 +62,7 @@ impl NumaAwareContext {
     }
     
     /// Get the NUMA node for the current thread
+    #[allow(dead_code)]
     fn current_numa_node(&self) -> usize {
         #[cfg(target_os = "linux")]
         {
@@ -84,6 +87,7 @@ impl NumaAwareContext {
     }
     
     /// Allocate memory on a specific NUMA node
+    #[allow(dead_code)]
     unsafe fn numa_alloc(&self, size: usize, node: usize) -> *mut u8 {
         #[cfg(target_os = "linux")]
         {
@@ -129,6 +133,7 @@ impl NumaAwareContext {
     }
     
     /// Free NUMA-allocated memory
+    #[allow(dead_code)]
     unsafe fn numa_free(&self, ptr: *mut u8, size: usize) {
         #[cfg(target_os = "linux")]
         {

@@ -268,6 +268,7 @@ pub struct Pipeline<T> {
     stages: Vec<PipelineStage<T>>,
 }
 
+#[allow(dead_code)]
 enum PipelineStage<T> {
     /// Iterator source
     Source(Box<dyn Iterator<Item = T> + Send>),

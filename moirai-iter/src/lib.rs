@@ -485,7 +485,7 @@ impl ParallelContext {
             let results = Arc::clone(&results);
             let completed = Arc::clone(&completed);
             
-            pool.execute(move || {
+            let _ = pool.execute(move || {
                 let chunk_results = operation(chunk);
                 results.lock().unwrap().extend(chunk_results);
                 completed.fetch_add(1, Ordering::Release);

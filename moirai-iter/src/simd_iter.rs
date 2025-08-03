@@ -22,7 +22,6 @@ impl<T> SendPtr<T> {
 pub struct SimdF32Iterator<'a> {
     data: &'a [f32],
     chunk_size: usize,
-    position: usize,
 }
 
 impl<'a> SimdF32Iterator<'a> {
@@ -36,7 +35,6 @@ impl<'a> SimdF32Iterator<'a> {
         Self {
             data,
             chunk_size,
-            position: 0,
         }
     }
     

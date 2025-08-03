@@ -911,3 +911,20 @@ mod tests {
     //     // assert_eq!(result, 42);
     // }
 }
+
+/// Sleep for the specified duration.
+/// 
+/// This is a convenience function that creates a timer and awaits it.
+/// 
+/// # Example
+/// ```ignore
+/// use moirai::sleep;
+/// use std::time::Duration;
+/// 
+/// async {
+///     sleep(Duration::from_millis(100)).await;
+/// }
+/// ```
+pub async fn sleep(duration: std::time::Duration) {
+    Timer::sleep(duration).await;
+}

@@ -7,9 +7,10 @@
 //! - Barriers and wait groups
 
 use moirai_sync::{
-    FastMutex, SpinLock, WaitGroup, Barrier,
-    ConcurrentHashMap, LockFreeStack, LockFreeQueue
+    FastMutex, WaitGroup, Barrier,
+    ConcurrentHashMap, LockFreeStack
 };
+use moirai_utils::LockFreeQueue;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -64,7 +65,8 @@ fn main() {
     }
     
     // Read values
-    println!("  Map contains {} items", map.len());
+    // Note: ConcurrentHashMap doesn't have a len() method
+    println!("  Map operations completed");
     if let Some(value) = map.get(&"thread_0_item_0".to_string()) {
         println!("  Sample value: thread_0_item_0 = {}", value);
     }
@@ -103,7 +105,7 @@ fn main() {
     // Example 4: Lock-Free Queue
     println!("\n4. Lock-Free Queue Example:");
     
-    let queue = Arc::new(LockFreeQueue::new());
+    let queue: Arc<LockFreeQueue<i32>> = Arc::new(LockFreeQueue::new());
     
     // Producer thread
     let queue_producer = Arc::clone(&queue);
@@ -119,16 +121,13 @@ fn main() {
     let queue_consumer = Arc::clone(&queue);
     let consumer = thread::spawn(move || {
         thread::sleep(Duration::from_millis(50)); // Let producer get ahead
-        loop {
-            if let Some(value) = queue_consumer.dequeue() {
+        let mut consumed = 0;
+        while consumed < 10 {
+            if let Some(value) = queue_consumer.try_dequeue() {
                 println!("  Consumer: Dequeued {}", value);
+                consumed += 1;
             } else {
                 thread::sleep(Duration::from_millis(20));
-            }
-            
-            // Check if we've consumed 10 items
-            if queue_consumer.is_empty() {
-                break;
             }
         }
     });
