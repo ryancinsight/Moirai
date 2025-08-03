@@ -218,7 +218,7 @@ impl<T> FastMutex<T> {
                     ).ok();
                 }
                 
-                futex::futex_wait(&self.state as *const _ as *const i32, 2);
+                futex::futex_wait(self.state.as_ptr(), 2);
             }
         }
         #[cfg(not(target_os = "linux"))]
