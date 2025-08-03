@@ -87,9 +87,9 @@ fn main() {
         42
     });
     
-    // TaskHandle doesn't implement Future, so we can't await it directly
-    // Instead, we'll just let it complete in the background
-    std::thread::sleep(Duration::from_millis(100));
+    // Wait for the async task to complete and get its result.
+    let result = async_handle.join().expect("Async task failed");
+    println!("  Async result: {}", result);
     
     // Example 5: Parallel iteration (using moirai_iter if available)
     println!("\n5. Parallel iteration:");
