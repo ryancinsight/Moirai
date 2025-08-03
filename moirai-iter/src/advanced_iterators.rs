@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 /// SIMD lane width for vectorization
 #[cfg(target_arch = "x86_64")]
+#[allow(dead_code)]
 const SIMD_WIDTH: usize = 8; // AVX2: 256 bits / 32 bits per f32
 
 #[cfg(not(target_arch = "x86_64"))]
@@ -45,7 +46,7 @@ impl SimdElement for f32 {
         // Process SIMD chunks
         unsafe {
             for chunk in chunks {
-                let vec = _mm256_loadu_ps(chunk.as_ptr());
+                let _vec = _mm256_loadu_ps(chunk.as_ptr());
                 // In real implementation, we'd apply SIMD operations here
                 // For now, fall back to scalar
                 for &val in chunk {

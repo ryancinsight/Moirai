@@ -292,6 +292,7 @@ use std::{
 #[derive(Clone)]
 pub struct Moirai {
     executor: Arc<HybridExecutor>,
+    #[allow(dead_code)]
     task_counter: Arc<std::sync::atomic::AtomicU64>,
 }
 
@@ -500,6 +501,7 @@ impl Moirai {
     }
 
     /// Generate the next task ID
+    #[allow(dead_code)]
     fn next_task_id(&self) -> TaskId {
         let id = self.task_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         TaskId::new(id)

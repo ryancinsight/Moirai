@@ -256,7 +256,7 @@ impl ExecutionContext for NumaAwareContext {
         R: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + Clone + 'static,
     {
-        let topology = Arc::clone(&self.topology);
+        let _topology = Arc::clone(&self.topology);
         
         Box::pin(async move {
             if items.is_empty() {

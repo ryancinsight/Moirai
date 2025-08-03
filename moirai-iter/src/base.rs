@@ -106,7 +106,9 @@ where
 /// Base iterator wrapper that provides common functionality.
 /// This follows the Decorator pattern to add behavior without modifying the original iterator.
 pub struct BaseIterator<I, C> {
+    #[allow(dead_code)]
     pub(crate) inner: I,
+    #[allow(dead_code)]
     pub(crate) context: Arc<C>,
 }
 
@@ -154,7 +156,9 @@ impl<T: Send> FromMoiraiIterator<T> for Vec<T> {
 /// Common adapter for mapping operations.
 /// This reduces duplication across different iterator types.
 pub struct MapAdapter<I, F, T, R> {
+    #[allow(dead_code)]
     pub(crate) inner: I,
+    #[allow(dead_code)]
     pub(crate) func: F,
     pub(crate) _phantom: PhantomData<(T, R)>,
 }
@@ -171,7 +175,9 @@ impl<I, F, T, R> MapAdapter<I, F, T, R> {
 
 /// Common adapter for filter operations.
 pub struct FilterAdapter<I, F, T> {
+    #[allow(dead_code)]
     pub(crate) inner: I,
+    #[allow(dead_code)]
     pub(crate) predicate: F,
     pub(crate) _phantom: PhantomData<T>,
 }
@@ -188,7 +194,9 @@ impl<I, F, T> FilterAdapter<I, F, T> {
 
 /// Common adapter for batching operations.
 pub struct BatchAdapter<I> {
+    #[allow(dead_code)]
     pub(crate) inner: I,
+    #[allow(dead_code)]
     pub(crate) size: usize,
 }
 

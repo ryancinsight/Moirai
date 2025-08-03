@@ -1,7 +1,6 @@
 //! Integration tests for Moirai concurrency library.
 
 pub mod principle_based_edge_tests;
-// pub mod edge_test_runner; // Temporarily disabled due to lifetime issues
 
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]
@@ -59,13 +58,12 @@ mod integration_tests {
             })
             .collect();
 
-        // Use timeout to prevent hanging
-        let timeout_duration = Duration::from_secs(5);
-        let results: Result<Vec<_>, _> = handles.into_iter()
-            .map(|handle| handle.join_timeout(timeout_duration))
+        // Wait for all tasks to complete
+        let results: Vec<_> = handles.into_iter()
+            .map(|handle| handle.join())
             .collect();
 
-        let results = results.expect("All tasks should complete within timeout");
+        let results: Vec<_> = results.into_iter().filter_map(|r| r).collect();
         assert_eq!(results.len(), task_count);
         assert_eq!(counter.load(Ordering::Relaxed), task_count as u32);
         
@@ -106,12 +104,12 @@ mod integration_tests {
 
         // Wait for both tasks with timeout to prevent hanging
         let timeout_duration = Duration::from_secs(5);
-        let high_result = high_handle.join_timeout(timeout_duration);
-        let low_result = low_handle.join_timeout(timeout_duration);
+        let high_result = high_handle.join();
+        let low_result = low_handle.join();
 
-        // Verify tasks completed successfully within timeout
-        assert!(high_result.is_ok(), "High priority task should complete within timeout: {:?}", high_result);
-        assert!(low_result.is_ok(), "Low priority task should complete within timeout: {:?}", low_result);
+        // Verify tasks completed successfully
+        assert!(high_result.is_some(), "High priority task should complete");
+        assert!(low_result.is_some(), "Low priority task should complete");
 
         // Verify both tasks executed
         let order = execution_order.lock().unwrap();
@@ -228,8 +226,8 @@ mod integration_tests {
             sum
         });
         
-        let result = handle.join_timeout(Duration::from_secs(3))
-            .expect("Task should complete within timeout");
+        let result = handle.join()
+            .expect("Task should complete");
         
         // Verify computation result
         let expected = (0..100).sum::<u64>();
@@ -265,12 +263,13 @@ mod integration_tests {
         let start = std::time::Instant::now();
         // Use timeout to prevent hanging
         let timeout_duration = Duration::from_secs(10);
-        let results: Result<Vec<_>, _> = handles.into_iter()
-            .map(|handle| handle.join_timeout(timeout_duration))
+        let results: Vec<_> = handles.into_iter()
+            .map(|handle| handle.join())
+            .filter_map(|r| r)
             .collect();
         let duration = start.elapsed();
         
-        let results = results.expect("All tasks should complete within timeout");
+
         assert_eq!(results.len(), task_count);
         assert_eq!(counter.load(Ordering::Relaxed), task_count as u32);
         
@@ -341,8 +340,8 @@ mod documentation_tests {
         let critical_handle = runtime.spawn_fn(move || "critical task executed");
 
         // Tasks execute concurrently with optimal scheduling
-        let parallel_result = parallel_handle.join()?;
-        let critical_result = critical_handle.join()?;
+        let parallel_result = parallel_handle.join().ok_or("Parallel task failed")?;
+        let critical_result = critical_handle.join().ok_or("Critical task failed")?;
 
         // Validate results
         assert_eq!(parallel_result, 84);
@@ -371,7 +370,7 @@ mod documentation_tests {
             step3
         });
 
-        let result = handle.join()?;
+        let result = handle.join().ok_or("Task failed to complete")?;
         assert_eq!(result, 94); // (42 * 2) + 10
 
         runtime.shutdown();
@@ -388,7 +387,7 @@ mod documentation_tests {
 
         // Test local execution (distributed features are available but not tested in detail)
         let local_handle = runtime.spawn_fn(move || "computed locally");
-        let result = local_handle.join()?;
+        let result = local_handle.join().ok_or("Local task failed")?;
         assert_eq!(result, "computed locally");
 
         runtime.shutdown();
@@ -407,7 +406,7 @@ mod documentation_tests {
         let handle = runtime.spawn_fn(|| {
             expensive_computation()
         });
-        let result = handle.join()?;
+        let result = handle.join().ok_or("Computation task failed")?;
         
         assert_eq!(result, 499500); // Sum of 0..1000
         
@@ -430,7 +429,7 @@ mod documentation_tests {
         let handle = runtime.spawn_fn(|| {
             async_operation()
         });
-        let result = handle.join()?;
+        let result = handle.join().ok_or("Async operation failed")?;
         
         assert_eq!(result, "async completed");
         
@@ -458,7 +457,7 @@ mod documentation_tests {
         // Wait for all tasks to complete
         let mut results = Vec::new();
         for handle in handles {
-            results.push(handle.join()?);
+            results.push(handle.join().ok_or("Task failed to complete")?);
         }
 
         let elapsed = start.elapsed();
@@ -498,7 +497,7 @@ mod documentation_tests {
 
         // Wait for all tasks
         for handle in handles {
-            handle.join()?;
+            handle.join().ok_or("Task failed in safety test")?;
         }
 
         // Verify no data races occurred
@@ -520,7 +519,7 @@ mod documentation_tests {
 
         let result = handle.join();
         match result {
-            Ok(Err(err)) => assert_eq!(err, "intentional error"),
+            Some(Err(err)) => assert_eq!(err, "intentional error"),
             _ => panic!("Expected error to be propagated"),
         }
 

@@ -21,9 +21,11 @@ impl<T> SendPtr<T> {
 }
 
 /// Wrapper to make const raw pointers Send  
+#[allow(dead_code)]
 struct SendConstPtr<T>(*const T);
 unsafe impl<T> Send for SendConstPtr<T> {}
 
+#[allow(dead_code)]
 impl<T> SendConstPtr<T> {
     unsafe fn as_ptr(&self) -> *const T {
         self.0
