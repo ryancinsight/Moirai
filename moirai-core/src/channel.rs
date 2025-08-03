@@ -143,7 +143,40 @@ impl<T> SpscChannel<T> {
 
 impl<T: Send> Channel<T> for SpscChannel<T> {
     fn send(&self, value: T) -> Result<()> {
-        self.try_send(value)
+        // Implement blocking send with exponential backoff spin-wait
+        let mut spin_count = 0;
+        loop {
+            // Check if channel is closed first
+            if self.closed.load(Ordering::Relaxed) {
+                return Err(ChannelError::Closed);
+            }
+            
+            let head = self.head.value.load(Ordering::Relaxed);
+            let tail = self.tail.value.load(Ordering::Acquire);
+            
+            // Check if there's space
+            if head.wrapping_sub(tail) < self.buffer.len() {
+                // There's space, try to send
+                unsafe {
+                    let slot = &mut *self.buffer[head & self.mask].get();
+                    slot.write(value);
+                }
+                self.head.value.store(head.wrapping_add(1), Ordering::Release);
+                return Ok(());
+            }
+            
+            // Channel is full, spin-wait with exponential backoff
+            if spin_count < 6 {
+                // Active spinning for low latency (up to ~64 iterations)
+                for _ in 0..(1 << spin_count) {
+                    std::hint::spin_loop();
+                }
+                spin_count += 1;
+            } else {
+                // After initial spinning, yield to OS scheduler
+                std::thread::yield_now();
+            }
+        }
     }
     
     fn try_send(&self, value: T) -> Result<()> {
@@ -169,7 +202,27 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
     }
     
     fn recv(&self) -> Result<T> {
-        self.try_recv()
+        // Implement blocking recv with exponential backoff spin-wait
+        let mut spin_count = 0;
+        loop {
+            match self.try_recv() {
+                Ok(value) => return Ok(value),
+                Err(ChannelError::Empty) => {
+                    // Channel is empty, spin-wait with exponential backoff
+                    if spin_count < 6 {
+                        // Active spinning for low latency (up to ~64 iterations)
+                        for _ in 0..(1 << spin_count) {
+                            std::hint::spin_loop();
+                        }
+                        spin_count += 1;
+                    } else {
+                        // After initial spinning, yield to OS scheduler
+                        std::thread::yield_now();
+                    }
+                }
+                Err(e) => return Err(e), // Closed or other error
+            }
+        }
     }
     
     fn try_recv(&self) -> Result<T> {
@@ -215,6 +268,14 @@ pub struct SpscSender<T> {
     channel: Arc<SpscChannel<T>>,
 }
 
+impl<T> Clone for SpscSender<T> {
+    fn clone(&self) -> Self {
+        Self {
+            channel: self.channel.clone(),
+        }
+    }
+}
+
 impl<T: Send> SpscSender<T> {
     /// Send a value through the channel, blocking if necessary
     pub fn send(&self, value: T) -> Result<()> {
@@ -230,6 +291,14 @@ impl<T: Send> SpscSender<T> {
 /// Receiver half of SPSC channel
 pub struct SpscReceiver<T> {
     channel: Arc<SpscChannel<T>>,
+}
+
+impl<T> Clone for SpscReceiver<T> {
+    fn clone(&self) -> Self {
+        Self {
+            channel: self.channel.clone(),
+        }
+    }
 }
 
 impl<T: Send> SpscReceiver<T> {
@@ -528,5 +597,74 @@ mod tests {
         let mut values = vec![rx.recv().unwrap(), rx.recv().unwrap()];
         values.sort();
         assert_eq!(values, vec![1, 2]);
+    }
+
+    #[test]
+    fn test_unbounded_channel() {
+        let (tx, rx) = unbounded::<i32>();
+        
+        // Send some values
+        for i in 0..10 {
+            tx.send(i).unwrap();
+        }
+        
+        // Receive values
+        for i in 0..10 {
+            assert_eq!(rx.recv().unwrap(), i);
+        }
+    }
+    
+    #[test]
+    fn test_spsc_blocking_behavior() {
+        use std::thread;
+        use std::time::{Duration, Instant};
+        
+        // Create a small channel to test blocking
+        let (tx, rx) = spsc::<i32>(2);
+        
+        // Fill the channel
+        tx.send(1).unwrap();
+        tx.send(2).unwrap();
+        
+        // Spawn a thread that will send after a delay
+        let tx_clone = tx.clone();
+        let handle = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            // This will unblock the main thread's send
+            rx.recv().unwrap();
+        });
+        
+        // This send should block until the spawned thread receives
+        let start = Instant::now();
+        tx_clone.send(3).unwrap();
+        let elapsed = start.elapsed();
+        
+        // Verify that we blocked for approximately the sleep duration
+        assert!(elapsed >= Duration::from_millis(40), "Send should have blocked");
+        
+        handle.join().unwrap();
+    }
+    
+    #[test]
+    fn test_spsc_recv_blocking_behavior() {
+        use std::thread;
+        use std::time::{Duration, Instant};
+        
+        let (tx, rx) = spsc::<i32>(10);
+        
+        // Spawn a thread that will send after a delay
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            tx.send(42).unwrap();
+        });
+        
+        // This recv should block until the spawned thread sends
+        let start = Instant::now();
+        let value = rx.recv().unwrap();
+        let elapsed = start.elapsed();
+        
+        assert_eq!(value, 42);
+        // Verify that we blocked for approximately the sleep duration
+        assert!(elapsed >= Duration::from_millis(40), "Recv should have blocked");
     }
 }
