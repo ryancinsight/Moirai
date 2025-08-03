@@ -4,7 +4,6 @@
 //! modern CPU vector instructions for maximum throughput.
 
 use std::marker::PhantomData;
-use moirai_core::cache_aligned::CacheAligned;
 use std::sync::Arc;
 
 /// Wrapper to make raw pointers Send

@@ -24,8 +24,7 @@
 use core::pin::Pin;
 use core::task::{Context, Poll};
 use core::future::Future;
-use core::marker::PhantomData;
-use core::mem::MaybeUninit;
+
 
 use crate::{TaskId, TaskContext};
 use crate::error::TaskError;
@@ -52,12 +51,20 @@ pub enum CoroutineState {
 }
 
 /// A yield point in coroutine execution.
-#[derive(Debug)]
 pub struct YieldPoint<T> {
     /// The value being yielded
     pub value: T,
     /// Optional continuation data
     pub continuation: Option<Box<dyn Send>>,
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for YieldPoint<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("YieldPoint")
+            .field("value", &self.value)
+            .field("continuation", &self.continuation.is_some())
+            .finish()
+    }
 }
 
 /// Core coroutine trait for types that can be executed as coroutines.
@@ -95,24 +102,24 @@ pub enum CoroutineResult<Y, R> {
 #[cfg(feature = "std")]
 pub struct CoroutineHandle<Y, R> {
     /// Unique identifier for this coroutine
-    id: TaskId,
+    _id: TaskId,
     /// Receiver for yielded values
-    yield_receiver: Option<channel::Receiver<Y>>,
+    _yield_receiver: Option<channel::Receiver<Y>>,
     /// Receiver for the final result
-    result_receiver: Option<channel::Receiver<R>>,
+    _result_receiver: Option<channel::Receiver<R>>,
     /// Control channel for sending resume signals
-    control_sender: channel::Sender<CoroutineControl>,
+    _control_sender: channel::Sender<CoroutineControl>,
 }
 
 /// Control messages for coroutine execution.
 #[cfg(feature = "std")]
 enum CoroutineControl {
     /// Resume coroutine execution
-    Resume,
+    _Resume,
     /// Cancel coroutine execution
-    Cancel,
+    _Cancel,
     /// Pause coroutine execution
-    Pause,
+    _Pause,
 }
 
 /// A simple coroutine implementation using function pointers.
@@ -125,7 +132,7 @@ pub struct SimpleCoroutine<Y, R> {
     /// Current state
     state: CoroutineState,
     /// Task context for scheduling
-    context: TaskContext,
+    _context: TaskContext,
 }
 
 impl<Y, R> SimpleCoroutine<Y, R>
@@ -134,14 +141,14 @@ where
     R: Send + 'static,
 {
     /// Create a new simple coroutine.
-    pub fn new<F>(mut func: F) -> Self
+    pub fn new<F>(func: F) -> Self
     where
         F: FnMut() -> CoroutineResult<Y, R> + Send + 'static,
     {
         Self {
             state_fn: Some(Box::new(func)),
             state: CoroutineState::Created,
-            context: TaskContext::new(TaskId::new(0)),
+            _context: TaskContext::new(TaskId::new(0)),
         }
     }
 }
@@ -266,7 +273,7 @@ pub struct CoroutineScheduler {
     /// Queue of ready coroutines
     ready_queue: VecDeque<Box<dyn Send>>,
     /// Currently running coroutine
-    current: Option<TaskId>,
+    _current: Option<TaskId>,
 }
 
 #[cfg(feature = "std")]
@@ -275,7 +282,7 @@ impl CoroutineScheduler {
     pub fn new() -> Self {
         Self {
             ready_queue: VecDeque::new(),
-            current: None,
+            _current: None,
         }
     }
     
@@ -285,18 +292,18 @@ impl CoroutineScheduler {
         C: Coroutine + Send + 'static,
     {
         let id = TaskId::new(0); // In real implementation, generate unique ID
-        let (yield_tx, yield_rx) = channel::channel();
-        let (result_tx, result_rx) = channel::channel();
+        let (_yield_tx, yield_rx) = channel::channel();
+        let (_result_tx, result_rx) = channel::channel();
         let (control_tx, _control_rx) = channel::channel();
         
         // Box the coroutine and add to ready queue
         self.ready_queue.push_back(Box::new(coroutine));
         
         CoroutineHandle {
-            id,
-            yield_receiver: Some(yield_rx),
-            result_receiver: Some(result_rx),
-            control_sender: control_tx,
+            _id: id,
+            _yield_receiver: Some(yield_rx),
+            _result_receiver: Some(result_rx),
+            _control_sender: control_tx,
         }
     }
 }

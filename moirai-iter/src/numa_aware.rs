@@ -7,12 +7,10 @@
 use std::sync::Arc;
 use std::pin::Pin;
 use std::future::Future;
-use std::thread;
 use std::alloc::{alloc, dealloc, Layout};
 use std::ptr;
-use std::mem;
 
-use crate::{ExecutionContext, MoiraiIterator};
+use crate::{ExecutionContext, ExecutionBase, IntoParallelIterator};
 use moirai_scheduler::numa_scheduler::CpuTopology;
 
 /// Wrapper to make raw pointers Send
@@ -149,6 +147,51 @@ impl NumaAwareContext {
     }
 }
 
+impl ExecutionBase for NumaAwareContext {
+    fn execute_each<T, F>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
+    where
+        T: Send + Clone + 'static,
+        F: Fn(T) + Send + Sync + Clone + 'static,
+    {
+        Box::pin(async move {
+            items.into_par_iter().for_each(func);
+        })
+    }
+    
+    fn execute_map<T, R, F>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Pin<Box<dyn Future<Output = Vec<R>> + Send + '_>>
+    where
+        T: Send + Clone + 'static,
+        R: Send + Clone + 'static,
+        F: Fn(T) -> R + Send + Sync + Clone + 'static,
+    {
+        Box::pin(async move {
+            items.into_par_iter().map(func).collect()
+        })
+    }
+    
+    fn execute_filter<T, F>(
+        &self,
+        items: Vec<T>,
+        predicate: F,
+    ) -> Pin<Box<dyn Future<Output = Vec<T>> + Send + '_>>
+    where
+        T: Send + Clone + 'static,
+        F: Fn(&T) -> bool + Send + Sync + Clone + 'static,
+    {
+        Box::pin(async move {
+            items.into_par_iter().filter(|item| predicate(item)).collect()
+        })
+    }
+}
+
 impl ExecutionContext for NumaAwareContext {
     fn execute<T, F>(&self, items: Vec<T>, func: F) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
     where
@@ -205,7 +248,7 @@ impl ExecutionContext for NumaAwareContext {
     fn map<T, R, F>(&self, items: Vec<T>, func: F) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<R>> + Send + '_>>
     where
         T: Send + Clone + 'static,
-        R: Send + 'static,
+        R: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + Clone + 'static,
     {
         let topology = Arc::clone(&self.topology);
@@ -338,7 +381,7 @@ impl ExecutionContext for NumaAwareContext {
     fn stream<T, R, F>(&self, items: Vec<T>, func: F) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<R>> + Send + '_>>
     where
         T: Send + Clone + 'static,
-        R: Send + 'static,
+        R: Send + Clone + 'static,
         F: Fn(T) -> Option<R> + Send + Sync + Clone + 'static,
     {
         // Similar to map but filters out None values
@@ -373,7 +416,7 @@ impl<T: Send + Clone + 'static> NumaIterator<T> {
     /// Map items with NUMA-aware execution
     pub async fn map<R, F>(self, func: F) -> Vec<R>
     where
-        R: Send + 'static,
+        R: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + Clone + 'static,
     {
         self.context.map(self.items, func).await

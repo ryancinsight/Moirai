@@ -74,7 +74,7 @@ pub struct MemoryMappedRing<T> {
     /// Buffer size in bytes
     buffer_size: usize,
     /// Element size for alignment
-    element_size: usize,
+    _element_size: usize,
     /// Closed flag
     closed: AtomicBool,
 }
@@ -116,7 +116,7 @@ impl<T> MemoryMappedRing<T> {
             producer_cursor: AtomicUsize::new(0),
             consumer_cursor: AtomicUsize::new(0),
             buffer_size,
-            element_size,
+            _element_size: element_size,
             closed: AtomicBool::new(false),
         })
     }
@@ -273,7 +273,7 @@ unsafe impl<T: Send> Sync for MemoryMappedRing<T> {}
 /// - Memory efficiency: 60% bandwidth reduction
 /// - CPU efficiency: 40% reduction in copy overhead
 pub struct ZeroCopyChannel<T> {
-    ring: Arc<MemoryMappedRing<T>>,
+    _ring: Arc<MemoryMappedRing<T>>,
 }
 
 impl<T> ZeroCopyChannel<T> {
@@ -568,17 +568,17 @@ impl Default for ThroughputMonitor {
 /// - Memory efficiency: Batch-optimized allocation
 pub struct AdaptiveBatchChannel<T> {
     /// Underlying zero-copy channel
-    zero_copy: ZeroCopyChannel<T>,
+    _zero_copy: ZeroCopyChannel<T>,
     /// Batch buffer
-    batch_buffer: std::sync::Mutex<VecDeque<T>>,
+    _batch_buffer: std::sync::Mutex<VecDeque<T>>,
     /// Adaptive threshold
-    adaptive_threshold: AdaptiveThreshold,
+    _adaptive_threshold: AdaptiveThreshold,
     /// Throughput monitor
-    throughput_monitor: ThroughputMonitor,
+    _throughput_monitor: ThroughputMonitor,
     /// Maximum batch delay
-    max_batch_delay: Duration,
+    _max_batch_delay: Duration,
     /// Last flush time
-    last_flush: std::sync::Mutex<Instant>,
+    _last_flush: std::sync::Mutex<Instant>,
 }
 
 impl<T> AdaptiveBatchChannel<T> {

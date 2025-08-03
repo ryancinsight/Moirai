@@ -27,6 +27,10 @@ pub mod error;
 pub mod pool;
 pub mod cache_aligned;
 
+// Unified channel implementation
+#[cfg(feature = "std")]
+pub mod channel;
+
 #[cfg(feature = "coroutine")]
 pub mod coroutine;
 
@@ -50,6 +54,14 @@ pub use task::{Task, TaskId, Priority, TaskContext, TaskFuture, TaskExt, BoxedTa
 pub use executor::{TaskSpawner, TaskManager, TaskStatus, ExecutorConfig};
 pub use scheduler::{Scheduler, SchedulerId, SchedulerConfig};
 pub use error::{TaskError, ExecutorError, SchedulerError};
+
+#[cfg(feature = "std")]
+pub use channel::{
+    Channel, ChannelError,
+    SpscChannel, SpscSender, SpscReceiver,
+    MpmcChannel, MpmcSender, MpmcReceiver,
+    spsc, mpmc, unbounded, Select
+};
 
 #[cfg(feature = "coroutine")]
 pub use coroutine::{
@@ -77,6 +89,14 @@ pub mod prelude {
         TaskSpawner, TaskManager, TaskStatus,
         Scheduler, SchedulerId, 
         TaskError, ExecutorError, SchedulerError,
+    };
+    
+    #[cfg(feature = "std")]
+    pub use crate::{
+        Channel, ChannelError,
+        SpscSender, SpscReceiver,
+        MpmcSender, MpmcReceiver,
+        spsc, mpmc, unbounded
     };
     
     #[cfg(all(target_arch = "wasm32", feature = "wasm"))]

@@ -17,6 +17,10 @@ moirai-core = { workspace = true }
 moirai-scheduler = { workspace = true }
 moirai-utils = { workspace = true }
 
+# TODO: Add serialization support for safe message passing
+# serde = { version = "1.0", features = ["derive"] }
+# bincode = "1.3"  # or another serialization format
+
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }

@@ -7,10 +7,7 @@
 //! - Combinator patterns from functional programming
 
 use std::marker::PhantomData;
-use std::mem;
-use std::slice;
 use std::sync::Arc;
-use std::ops::{Add, Mul};
 
 /// SIMD lane width for vectorization
 #[cfg(target_arch = "x86_64")]

@@ -342,15 +342,15 @@ pub struct NumaAwareScheduler {
 /// Per-NUMA-node task queue.
 struct NodeQueue {
     /// Node ID
-    node_id: usize,
+    _node_id: usize,
     /// Local task deque (using existing Chase-Lev implementation)
-    local_queue: crate::ChaseLevDeque<Box<dyn BoxedTask>>,
+    _local_queue: crate::ChaseLevDeque<Box<dyn BoxedTask>>,
     /// Priority queues for different task priorities
     priority_queues: [crate::ChaseLevDeque<Box<dyn BoxedTask>>; 4],
     /// Queue load metrics
     load_metrics: LoadMetrics,
     /// Lock for exclusive operations
-    exclusive_lock: std::sync::Mutex<()>,
+    _exclusive_lock: std::sync::Mutex<()>,
 }
 
 /// Load metrics for a node queue.
@@ -361,9 +361,9 @@ struct LoadMetrics {
     /// Current queue length
     current_load: AtomicUsize,
     /// Average processing time
-    avg_processing_time_ns: AtomicUsize,
+    _avg_processing_time_ns: AtomicUsize,
     /// Last update timestamp
-    last_update: std::sync::Mutex<Instant>,
+    _last_update: std::sync::Mutex<Instant>,
 }
 
 /// Statistics for steal operations.
@@ -384,8 +384,8 @@ pub struct StealStatistics {
 impl NodeQueue {
     fn new(node_id: usize) -> Self {
         Self {
-            node_id,
-            local_queue: crate::ChaseLevDeque::new(1024),
+            _node_id: node_id,
+            _local_queue: crate::ChaseLevDeque::new(1024),
             priority_queues: [
                 crate::ChaseLevDeque::new(1024), // Critical
                 crate::ChaseLevDeque::new(1024), // High
@@ -395,10 +395,10 @@ impl NodeQueue {
             load_metrics: LoadMetrics {
                 tasks_processed: AtomicUsize::new(0),
                 current_load: AtomicUsize::new(0),
-                avg_processing_time_ns: AtomicUsize::new(0),
-                last_update: std::sync::Mutex::new(Instant::now()),
+                _avg_processing_time_ns: AtomicUsize::new(0),
+                _last_update: std::sync::Mutex::new(Instant::now()),
             },
-            exclusive_lock: std::sync::Mutex::new(()),
+            _exclusive_lock: std::sync::Mutex::new(()),
         }
     }
 
@@ -756,19 +756,7 @@ pub enum NumaSchedulerError {
     TopologyDetectionFailed,
 }
 
-// Helper trait for unwrap_or_continue in iterator chains
-trait UnwrapOrContinue<T> {
-    fn unwrap_or_continue(self) -> T;
-}
 
-impl<T> UnwrapOrContinue<T> for Option<T> {
-    fn unwrap_or_continue(self) -> T {
-        match self {
-            Some(val) => val,
-            None => panic!("unwrap_or_continue called on None"),
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -776,7 +764,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
-    use std::time::Instant;
+    
     use moirai_core::{
         task::{TaskContext, TaskId, BoxedTask},
         Priority,

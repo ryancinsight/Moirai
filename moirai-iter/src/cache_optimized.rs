@@ -9,7 +9,6 @@ use std::ptr;
 use std::sync::Arc;
 
 // Import CacheAligned from moirai-core
-use moirai_core::cache_aligned::CacheAligned;
 
 /// Wrapper to make raw pointers Send
 struct SendPtr<T>(*mut T);
