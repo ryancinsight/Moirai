@@ -11,6 +11,7 @@
 //! - Integration with Moirai scheduler for optimal performance
 
 pub mod zero_copy;
+pub mod safe_channel;
 
 use moirai_core::channel::{MpmcSender, MpmcReceiver, mpmc, unbounded};
 use std::{
