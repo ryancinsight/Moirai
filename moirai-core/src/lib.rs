@@ -49,6 +49,8 @@ pub mod metrics;
 #[cfg(feature = "std")]
 pub mod security;
 
+pub mod hybrid;
+
 // Core type definitions
 pub use task::{Task, TaskId, Priority, TaskContext, TaskFuture, TaskExt, BoxedTask, TaskHandle, TaskBuilder};
 pub use executor::{TaskSpawner, TaskManager, TaskStatus, ExecutorConfig};

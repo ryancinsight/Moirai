@@ -53,7 +53,7 @@ where
             if buffer.len() >= self.buffer_size {
                 match self.channel.send_batch(buffer) {
                     Ok(()) => buffer = Vec::with_capacity(self.buffer_size),
-                    Err(rejected) => {
+                    Err(_rejected) => {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::BrokenPipe,
                             "Channel closed"
@@ -268,6 +268,7 @@ pub struct Pipeline<T> {
     stages: Vec<PipelineStage<T>>,
 }
 
+#[allow(dead_code)]
 enum PipelineStage<T> {
     /// Iterator source
     Source(Box<dyn Iterator<Item = T> + Send>),

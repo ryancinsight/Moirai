@@ -21,8 +21,8 @@ impl<T> SendPtr<T> {
 /// Automatically vectorizes operations using platform-specific SIMD instructions.
 pub struct SimdF32Iterator<'a> {
     data: &'a [f32],
+    #[allow(dead_code)]
     chunk_size: usize,
-    position: usize,
 }
 
 impl<'a> SimdF32Iterator<'a> {
@@ -36,7 +36,6 @@ impl<'a> SimdF32Iterator<'a> {
         Self {
             data,
             chunk_size,
-            position: 0,
         }
     }
     
@@ -341,6 +340,7 @@ impl SimdIteratorExt for [f32] {
 
 // Helper macro to check CPU features at compile time
 #[cfg(target_arch = "x86_64")]
+#[allow(unused_macros)]
 macro_rules! is_x86_feature_detected {
     ("avx2") => {
         cfg!(target_feature = "avx2") || std::is_x86_feature_detected!("avx2")

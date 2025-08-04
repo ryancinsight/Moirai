@@ -18,6 +18,7 @@
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Condvar};
 use std::cell::UnsafeCell;
+use crate::communication::RingBuffer;
 use std::mem::MaybeUninit;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
@@ -564,6 +565,148 @@ pub fn unbounded<T>() -> (MpmcSender<T>, MpmcReceiver<T>) {
     MpmcChannel::channel(None)
 }
 
+/// Zero-copy hybrid channel for async/sync interop
+/// 
+/// This channel uses a lock-free ring buffer with memory barriers
+/// to ensure safe zero-copy communication between async and sync contexts.
+pub struct HybridChannel<T> {
+    ring: Arc<RingBuffer<T>>,
+    async_notifier: Arc<AtomicBool>,
+    sync_notifier: Arc<AtomicBool>,
+    /// Parking mechanism for efficient blocking
+    parker: Arc<Mutex<Vec<std::thread::Thread>>>,
+}
+
+impl<T: Send> HybridChannel<T> {
+    /// Create a new hybrid channel with specified capacity
+    pub fn new(capacity: usize) -> (HybridSender<T>, HybridReceiver<T>) {
+        let ring = Arc::new(RingBuffer::new(capacity));
+        let async_notifier = Arc::new(AtomicBool::new(false));
+        let sync_notifier = Arc::new(AtomicBool::new(false));
+        let parker = Arc::new(Mutex::new(Vec::new()));
+        
+        let sender = HybridSender {
+            ring: ring.clone(),
+            async_notifier: async_notifier.clone(),
+            sync_notifier: sync_notifier.clone(),
+            parker: parker.clone(),
+        };
+        
+        let receiver = HybridReceiver {
+            ring,
+            async_notifier,
+            sync_notifier,
+            parker,
+        };
+        
+        (sender, receiver)
+    }
+}
+
+/// Sender half of hybrid channel
+pub struct HybridSender<T> {
+    ring: Arc<RingBuffer<T>>,
+    #[allow(dead_code)]
+    async_notifier: Arc<AtomicBool>,
+    sync_notifier: Arc<AtomicBool>,
+    parker: Arc<Mutex<Vec<std::thread::Thread>>>,
+}
+
+impl<T: Send> HybridSender<T> {
+    /// Send value with zero-copy when possible
+    pub fn send(&self, value: T) -> Result<()> {
+        self.ring.try_produce(value).map_err(|_| ChannelError::Full)?;
+        
+        // Notify both async and sync waiters
+        self.async_notifier.store(true, Ordering::Release);
+        self.sync_notifier.store(true, Ordering::Release);
+        
+        // Unpark any waiting threads
+        if let Ok(mut parked) = self.parker.lock() {
+            for thread in parked.drain(..) {
+                thread.unpark();
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Try to send without blocking
+    pub fn try_send(&self, value: T) -> Result<()> {
+        self.send(value)
+    }
+}
+
+/// Receiver half of hybrid channel
+pub struct HybridReceiver<T> {
+    ring: Arc<RingBuffer<T>>,
+    #[allow(dead_code)]
+    async_notifier: Arc<AtomicBool>,
+    #[allow(dead_code)]
+    sync_notifier: Arc<AtomicBool>,
+    parker: Arc<Mutex<Vec<std::thread::Thread>>>,
+}
+
+impl<T: Send> HybridReceiver<T> {
+    /// Receive value with zero-copy
+    pub fn recv(&self) -> Result<T> {
+        // Fast path: try to receive without blocking
+        if let Some(value) = self.ring.try_consume() {
+            return Ok(value);
+        }
+        
+        // Slow path: park the thread and wait for notification
+        let current_thread = std::thread::current();
+        
+        loop {
+            // Register this thread for unparking
+            if let Ok(mut parked) = self.parker.lock() {
+                parked.push(current_thread.clone());
+            }
+            
+            // Check again after registering (to avoid race)
+            if let Some(value) = self.ring.try_consume() {
+                // Remove ourselves from the parker list
+                if let Ok(mut parked) = self.parker.lock() {
+                    parked.retain(|t| !t.id().eq(&current_thread.id()));
+                }
+                return Ok(value);
+            }
+            
+            // Park until unparked by sender
+            std::thread::park();
+            
+            // Try again after being unparked
+            if let Some(value) = self.ring.try_consume() {
+                return Ok(value);
+            }
+        }
+    }
+    
+    /// Try to receive without blocking
+    pub fn try_recv(&self) -> Result<T> {
+        self.ring.try_consume().ok_or(ChannelError::Empty)
+    }
+    
+    /// Async receive for use in async contexts
+    #[cfg(feature = "async")]
+    pub async fn recv_async(&self) -> Result<T> {
+        loop {
+            match self.ring.try_consume() {
+                Some(value) => return Ok(value),
+                None => {
+                    // For now, busy wait with yield hints
+                    // In a real implementation, we'd integrate with the async runtime
+                    std::hint::spin_loop();
+                    if self.async_notifier.load(Ordering::Acquire) {
+                        self.async_notifier.store(false, Ordering::Release);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -666,5 +809,40 @@ mod tests {
         assert_eq!(value, 42);
         // Verify that we blocked for approximately the sleep duration
         assert!(elapsed >= Duration::from_millis(40), "Recv should have blocked");
+    }
+
+    #[test]
+    fn test_hybrid_channel_parking() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::thread;
+        use std::time::{Duration, Instant};
+        
+        let (sender, receiver) = HybridChannel::<i32>::new(10);
+        let received = Arc::new(AtomicBool::new(false));
+        let received_clone = received.clone();
+        
+        // Start receiver thread
+        let receiver_thread = thread::spawn(move || {
+            let start = Instant::now();
+            let value = receiver.recv().unwrap();
+            let elapsed = start.elapsed();
+            received_clone.store(true, Ordering::Release);
+            (value, elapsed)
+        });
+        
+        // Wait a bit to ensure receiver is parked
+        thread::sleep(Duration::from_millis(100));
+        
+        // Send value - this should unpark the receiver
+        sender.send(42).unwrap();
+        
+        // Join and check results
+        let (value, elapsed) = receiver_thread.join().unwrap();
+        assert_eq!(value, 42);
+        assert!(received.load(Ordering::Acquire));
+        
+        // The receiver should have been parked for ~100ms
+        assert!(elapsed >= Duration::from_millis(90));
+        assert!(elapsed < Duration::from_millis(200));
     }
 }

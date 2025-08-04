@@ -18,19 +18,18 @@
 //! Each test is designed to validate not just functionality, but adherence
 //! to these fundamental design principles under extreme conditions.
 
-use moirai::{Moirai, Priority, Task, TaskId, TaskContext, ExecutorError};
+use moirai::{Moirai, Task, TaskId, TaskContext, Priority, ExecutorError};
 
 use std::{
-    sync::{Arc, Barrier, Mutex, RwLock, atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering}},
+    sync::{Arc, Mutex, atomic::{AtomicUsize, AtomicU64, Ordering}},
+    time::Duration,
+    panic::catch_unwind,
     thread,
-    time::{Duration, Instant},
-    collections::{HashMap, VecDeque},
-    panic::{catch_unwind, AssertUnwindSafe},
 };
-use proptest::prelude::*;
-use quickcheck::{quickcheck, TestResult};
+use quickcheck::TestResult;
 
 /// Test fixture for principle-based edge testing
+#[allow(dead_code)]
 struct PrincipleTestFixture {
     runtime: Moirai,
     test_id: u64,
@@ -1661,6 +1660,7 @@ mod simple_principles_tests {
 
 /// Helper test task for integration testing
 #[derive(Debug)]
+#[allow(dead_code)]
 struct TestTask {
     id: usize,
     work_amount: u64,

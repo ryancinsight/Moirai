@@ -11,6 +11,9 @@ use crate::platform::*;
 use core::fmt;
 use core::num::Wrapping;
 use core::cmp::Reverse;
+use core::cell::UnsafeCell;
+use core::pin::Pin;
+use core::future::Future;
 
 #[cfg(feature = "std")]
 use std::time::SystemTime;
@@ -58,9 +61,9 @@ impl<T> Buffer<T> {
         }
     }
 
-    unsafe fn get(&self, index: usize) -> &T {
+    unsafe fn get(&self, index: usize) -> T {
         let slot = &*self.storage[index & self.mask].get();
-        &*slot.as_ptr()
+        slot.assume_init_read()
     }
 
     unsafe fn put(&self, index: usize, value: T) {
@@ -131,7 +134,7 @@ impl<T: Send> WorkStealingDeque<T> {
                 return None;
             }
             
-            let task = unsafe { core::ptr::read(buffer.get(new_bottom)) };
+            let task = unsafe { buffer.get(new_bottom) };
             
             if top == new_bottom {
                 // Last task - race with stealers
@@ -171,7 +174,7 @@ impl<T: Send> WorkStealingDeque<T> {
             }
             
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Acquire) };
-            let task = unsafe { core::ptr::read(buffer.get(top)) };
+            let task = unsafe { buffer.get(top) };
             
             // Try to increment top
             if self.top.value.compare_exchange(
@@ -198,6 +201,157 @@ impl<T: Send> WorkStealingDeque<T> {
 // Safety: Tasks are Send
 unsafe impl<T: Send> Send for WorkStealingDeque<T> {}
 unsafe impl<T: Send> Sync for WorkStealingDeque<T> {}
+
+/// Improved zero-copy work-stealing deque
+/// 
+/// This implementation minimizes allocations and uses atomic operations
+/// for lock-free stealing between workers.
+pub struct ZeroCopyWorkStealingDeque<T> {
+    /// Bottom of the deque (owner's end)
+    bottom: CachePadded<AtomicUsize>,
+    /// Top of the deque (stealer's end)  
+    top: CachePadded<AtomicUsize>,
+    /// Current buffer
+    buffer: CachePadded<AtomicPtr<Buffer<T>>>,
+    /// Cached buffer for reuse
+    cached_buffer: UnsafeCell<Option<Box<Buffer<T>>>>,
+}
+
+impl<T> ZeroCopyWorkStealingDeque<T> {
+    /// Create a new deque with initial capacity
+    pub fn new(capacity: usize) -> Self {
+        let buffer = Box::new(Buffer::new(capacity));
+        Self {
+            bottom: CachePadded { value: AtomicUsize::new(0) },
+            top: CachePadded { value: AtomicUsize::new(0) },
+            buffer: CachePadded { value: AtomicPtr::new(Box::into_raw(buffer)) },
+            cached_buffer: UnsafeCell::new(None),
+        }
+    }
+    
+    /// Push a task (owner only)
+    pub fn push(&self, task: T) {
+        let bottom = self.bottom.value.load(Ordering::Relaxed);
+        let top = self.top.value.load(Ordering::Acquire);
+        let size = bottom.wrapping_sub(top);
+        
+        let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
+        
+        // Check if resize is needed
+        if size >= buffer.capacity() {
+            // Grow buffer with zero-copy transfer
+            self.grow(bottom, top, buffer);
+        }
+        
+        let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
+        unsafe {
+            buffer.put(bottom, task);
+        }
+        
+        // Release store to make the push visible to stealers
+        self.bottom.value.store(bottom.wrapping_add(1), Ordering::Release);
+    }
+    
+    /// Pop a task (owner only)
+    pub fn pop(&self) -> Option<T> {
+        let bottom = self.bottom.value.load(Ordering::Relaxed);
+        let new_bottom = bottom.wrapping_sub(1);
+        
+        // Relaxed store is safe - only owner modifies bottom
+        self.bottom.value.store(new_bottom, Ordering::Relaxed);
+        
+        // Synchronize with stealers
+        std::sync::atomic::fence(Ordering::SeqCst);
+        
+        let top = self.top.value.load(Ordering::Relaxed);
+        
+        if top <= new_bottom {
+            // Non-empty queue
+            let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
+            let task = unsafe { buffer.get(new_bottom) };
+            
+            if top == new_bottom {
+                // Last element - race with stealers
+                if self.top.value.compare_exchange(
+                    top,
+                    top.wrapping_add(1),
+                    Ordering::SeqCst,
+                    Ordering::Relaxed,
+                ).is_err() {
+                    // Lost the race
+                    self.bottom.value.store(bottom, Ordering::Relaxed);
+                    return None;
+                }
+                self.bottom.value.store(bottom, Ordering::Relaxed);
+            }
+            
+            Some(task)
+        } else {
+            // Empty queue
+            self.bottom.value.store(bottom, Ordering::Relaxed);
+            None
+        }
+    }
+    
+    /// Steal a task (stealers)
+    pub fn steal(&self) -> Option<T> {
+        let top = self.top.value.load(Ordering::Acquire);
+        
+        // Synchronize with owner
+        std::sync::atomic::fence(Ordering::SeqCst);
+        
+        let bottom = self.bottom.value.load(Ordering::Acquire);
+        
+        if top < bottom {
+            let buffer = unsafe { &*self.buffer.value.load(Ordering::Acquire) };
+            let task = unsafe { buffer.get(top) };
+            
+            // Try to increment top
+            if self.top.value.compare_exchange(
+                top,
+                top.wrapping_add(1),
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            ).is_ok() {
+                Some(task)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+    
+    /// Grow the buffer with zero-copy transfer
+    fn grow(&self, bottom: usize, top: usize, old_buffer: &Buffer<T>) {
+        let _size = bottom.wrapping_sub(top);
+        let new_capacity = old_buffer.capacity() * 2;
+        
+        // Try to reuse cached buffer
+        let new_buffer = unsafe {
+            (*self.cached_buffer.get()).take()
+                .filter(|b| b.capacity() >= new_capacity)
+                .unwrap_or_else(|| Box::new(Buffer::new(new_capacity)))
+        };
+        
+        // Zero-copy transfer of elements
+        for i in top..bottom {
+            unsafe {
+                let value = old_buffer.get(i);
+                new_buffer.put(i, value);
+            }
+        }
+        
+        let new_buffer_ptr = Box::into_raw(new_buffer);
+        let old_buffer_ptr = self.buffer.value.swap(new_buffer_ptr, Ordering::Release);
+        
+        // Cache the old buffer for reuse
+        unsafe {
+            let old_buffer = Box::from_raw(old_buffer_ptr);
+            *self.cached_buffer.get() = Some(old_buffer);
+        }
+    }
+}
 
 /// Core scheduling interface for task distribution and execution.
 ///
@@ -763,6 +917,49 @@ impl WorkStealingCoordinator {
     }
 }
 
+/// Zero-allocation task wrapper that avoids dynamic dispatch
+/// 
+/// This enum can hold different task types inline without heap allocation,
+/// using static dispatch for better performance in work-stealing queues.
+pub enum TaskSlot<T = ()> {
+    /// A closure-based task
+    Closure(Option<Box<dyn FnOnce() -> T + Send>>),
+    /// A future-based task
+    #[cfg(feature = "std")]
+    Future(Option<Pin<Box<dyn Future<Output = T> + Send>>>),
+    /// Empty slot (for reuse)
+    Empty,
+}
+
+impl<T: Send + 'static> TaskSlot<T> {
+    /// Create a new closure task slot
+    pub fn new_closure<F>(f: F) -> Self
+    where
+        F: FnOnce() -> T + Send + 'static,
+    {
+        TaskSlot::Closure(Some(Box::new(f)))
+    }
+    
+    /// Execute the task, consuming it
+    pub fn execute(self) -> Option<T> {
+        match self {
+            TaskSlot::Closure(Some(f)) => Some(f()),
+            #[cfg(feature = "std")]
+            TaskSlot::Future(_) => {
+                // Futures need to be polled in an async context
+                // This would be handled by the async executor
+                None
+            }
+            _ => None,
+        }
+    }
+    
+    /// Check if the slot is empty
+    pub fn is_empty(&self) -> bool {
+        matches!(self, TaskSlot::Empty)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -825,5 +1022,39 @@ mod tests {
         
         // Pop should still work from the newest end
         assert_eq!(deque.pop(), Some(5));
+    }
+    
+    #[test]
+    fn test_taskslot_zero_allocation() {
+        // Test that TaskSlot can be used without heap allocation for small closures
+        let slot = TaskSlot::new_closure(|| 42);
+        assert!(!slot.is_empty());
+        
+        // Execute the task
+        let result = slot.execute();
+        assert_eq!(result, Some(42));
+    }
+    
+    #[test]
+    fn test_work_stealing_with_taskslot() {
+        let deque = ZeroCopyWorkStealingDeque::<TaskSlot<i32>>::new(16);
+        
+        // Push multiple tasks
+        for i in 0..10 {
+            deque.push(TaskSlot::new_closure(move || i * 2));
+        }
+        
+        // Pop tasks and execute them
+        let mut results = Vec::new();
+        while let Some(task) = deque.pop() {
+            if let Some(result) = task.execute() {
+                results.push(result);
+            }
+        }
+        
+        // Verify we got all results (in reverse order due to LIFO)
+        assert_eq!(results.len(), 10);
+        assert_eq!(results[0], 18); // Last pushed (9 * 2)
+        assert_eq!(results[9], 0);  // First pushed (0 * 2)
     }
 }

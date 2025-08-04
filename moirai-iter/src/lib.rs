@@ -42,7 +42,7 @@ impl<T: Send + Clone + 'static> ParIter<T> {
     where
         F: Fn(T) + Send + Sync + 'static,
     {
-        let pool = base::get_shared_thread_pool();
+        let _pool = base::get_shared_thread_pool();
         let f = Arc::new(f);
         let chunk_size = (self.items.len() / thread::available_parallelism().map(|n| n.get()).unwrap_or(1)).max(1);
         
@@ -68,7 +68,7 @@ impl<T: Send + Clone + 'static> ParIter<T> {
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + Clone + 'static,
     {
-        let pool = base::get_shared_thread_pool();
+        let _pool = base::get_shared_thread_pool();
         let f = Arc::new(f);
         let chunk_size = (self.items.len() / thread::available_parallelism().map(|n| n.get()).unwrap_or(1)).max(1);
         
@@ -311,6 +311,7 @@ struct ThreadPool {
     shutdown: Arc<AtomicBool>,
     active_jobs: Arc<AtomicUsize>,
     /// Improved work queue with better cache locality
+    #[allow(dead_code)]
     work_queue: Arc<Mutex<VecDeque<Job>>>,
 }
 
@@ -477,7 +478,7 @@ impl ParallelContext {
         let results = Arc::new(Mutex::new(Vec::with_capacity(items.len())));
         let completed = Arc::new(AtomicUsize::new(0));
         
-        let chunks: Vec<_> = items.chunks(chunk_size).map(|c| c.to_vec()).collect();
+                    let chunks: Vec<Vec<T>> = items.chunks(chunk_size).map(|c| c.to_vec()).collect();
         let num_chunks = chunks.len();
         
         for chunk in chunks {
@@ -485,7 +486,7 @@ impl ParallelContext {
             let results = Arc::clone(&results);
             let completed = Arc::clone(&completed);
             
-            pool.execute(move || {
+            let _ = pool.execute(move || {
                 let chunk_results = operation(chunk);
                 results.lock().unwrap().extend(chunk_results);
                 completed.fetch_add(1, Ordering::Release);
@@ -634,6 +635,7 @@ impl ExecutionContext for ParallelContext {
 /// Now uses improved task scheduling from Tokio's design.
 #[derive(Debug, Clone)]
 pub struct AsyncContext {
+    #[allow(dead_code)]
     max_concurrent: usize,
     buffer_size: usize,
 }

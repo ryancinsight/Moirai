@@ -13,7 +13,7 @@
 pub mod zero_copy;
 pub mod safe_channel;
 
-use moirai_core::channel::{MpmcSender, MpmcReceiver, mpmc, unbounded};
+use moirai_core::channel::{MpmcSender, MpmcReceiver, mpmc};
 use std::{
     fmt,
     sync::{Arc, Mutex},
@@ -152,6 +152,64 @@ impl Transport for NetworkTransport {
     fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
         // TODO: Implement network transport
         Err(TransportError::Closed)
+    }
+    
+    fn supports(&self, address: &Address) -> bool {
+        matches!(address, Address::Remote(_))
+    }
+}
+
+/// TCP transport for reliable network communication
+/// Following YAGNI principle - implemented as minimal stub
+#[cfg(feature = "network")]
+pub struct TcpTransport {
+    // Will be implemented when needed
+}
+
+#[cfg(feature = "network")]
+impl TcpTransport {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+#[cfg(feature = "network")]
+impl Transport for TcpTransport {
+    fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
+        unimplemented!("TCP transport not yet implemented")
+    }
+
+    fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
+        unimplemented!("TCP transport not yet implemented")
+    }
+    
+    fn supports(&self, address: &Address) -> bool {
+        matches!(address, Address::Remote(_))
+    }
+}
+
+/// UDP transport for unreliable network communication
+/// Following YAGNI principle - implemented as minimal stub
+#[cfg(feature = "network")]
+pub struct UdpTransport {
+    // Will be implemented when needed
+}
+
+#[cfg(feature = "network")]
+impl UdpTransport {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+#[cfg(feature = "network")]
+impl Transport for UdpTransport {
+    fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
+        unimplemented!("UDP transport not yet implemented")
+    }
+
+    fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
+        unimplemented!("UDP transport not yet implemented")
     }
     
     fn supports(&self, address: &Address) -> bool {
@@ -312,7 +370,7 @@ pub struct ConnectionManager {
 enum ConnectionState {
     Connected,
     Disconnected,
-    Connecting,
+    // Connecting, // Will be used when async connection is implemented
 }
 
 impl ConnectionManager {

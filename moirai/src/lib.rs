@@ -214,8 +214,11 @@ pub use moirai_scheduler::WorkStealingScheduler;
 pub use moirai_transport::{
     Address, TransportManager, TransportResult, TransportError,
     UniversalChannel, UniversalSender, UniversalReceiver, RemoteAddress,
-    InMemoryTransport, channel,
+    InMemoryTransport,
 };
+
+// Re-export channel functionality from core
+pub use moirai_core::channel;
 
 #[cfg(feature = "network")]
 pub use moirai_transport::{TcpTransport, UdpTransport};
@@ -289,6 +292,7 @@ use std::{
 #[derive(Clone)]
 pub struct Moirai {
     executor: Arc<HybridExecutor>,
+    #[allow(dead_code)] // Used in spawn_remote for task ID generation
     task_counter: Arc<std::sync::atomic::AtomicU64>,
 }
 
@@ -358,6 +362,17 @@ impl Moirai {
         T: Task,
     {
         self.executor.spawn_with_priority(task, priority, None).expect("Failed to spawn task with priority")
+    }
+    
+    /// Spawn a closure with priority as a task (convenience method).
+    pub fn spawn_fn_with_priority<F, R>(&self, f: F, priority: Priority) -> TaskHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        // Let the executor handle ID assignment and priority
+        let task = TaskBuilder::new().build(f);
+        self.spawn_with_priority(task, priority)
     }
 
     /// Block the current thread until the future completes.
@@ -433,7 +448,8 @@ impl Moirai {
         R: Send + 'static,
     {
         // Create a distributed task
-        let task_id = format!("remote-task-{}", self.next_task_id());
+        let task_id = format!("remote-task-{}", 
+            self.task_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
         
         // In a real implementation, this would:
         // 1. Serialize the closure and its environment
@@ -483,11 +499,7 @@ impl Moirai {
         Ok(())
     }
 
-    /// Generate the next task ID
-    fn next_task_id(&self) -> TaskId {
-        let id = self.task_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        TaskId::new(id)
-    }
+
 
     // TODO: Implement pipeline builder for chaining async and parallel operations
     // TODO: Implement scoped task spawner that ensures all tasks complete before returning
