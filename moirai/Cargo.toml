@@ -43,6 +43,10 @@ path = "../examples/iterator_showcase.rs"
 name = "sync_primitives"
 path = "../examples/sync_primitives.rs"
 
+[[example]]
+name = "performance_demo"
+path = "../examples/performance_demo.rs"
+
 [features]
 default = ["async", "iter", "local"]
 full = ["async", "iter", "distributed", "metrics", "numa", "futex", "encryption"]

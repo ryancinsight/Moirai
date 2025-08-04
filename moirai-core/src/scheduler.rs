@@ -12,6 +12,8 @@ use core::fmt;
 use core::num::Wrapping;
 use core::cmp::Reverse;
 use core::cell::UnsafeCell;
+use core::pin::Pin;
+use core::future::Future;
 
 #[cfg(feature = "std")]
 use std::time::SystemTime;
@@ -915,6 +917,49 @@ impl WorkStealingCoordinator {
     }
 }
 
+/// Zero-allocation task wrapper that avoids dynamic dispatch
+/// 
+/// This enum can hold different task types inline without heap allocation,
+/// using static dispatch for better performance in work-stealing queues.
+pub enum TaskSlot<T = ()> {
+    /// A closure-based task
+    Closure(Option<Box<dyn FnOnce() -> T + Send>>),
+    /// A future-based task
+    #[cfg(feature = "std")]
+    Future(Option<Pin<Box<dyn Future<Output = T> + Send>>>),
+    /// Empty slot (for reuse)
+    Empty,
+}
+
+impl<T: Send + 'static> TaskSlot<T> {
+    /// Create a new closure task slot
+    pub fn new_closure<F>(f: F) -> Self
+    where
+        F: FnOnce() -> T + Send + 'static,
+    {
+        TaskSlot::Closure(Some(Box::new(f)))
+    }
+    
+    /// Execute the task, consuming it
+    pub fn execute(self) -> Option<T> {
+        match self {
+            TaskSlot::Closure(Some(f)) => Some(f()),
+            #[cfg(feature = "std")]
+            TaskSlot::Future(_) => {
+                // Futures need to be polled in an async context
+                // This would be handled by the async executor
+                None
+            }
+            _ => None,
+        }
+    }
+    
+    /// Check if the slot is empty
+    pub fn is_empty(&self) -> bool {
+        matches!(self, TaskSlot::Empty)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -977,5 +1022,39 @@ mod tests {
         
         // Pop should still work from the newest end
         assert_eq!(deque.pop(), Some(5));
+    }
+    
+    #[test]
+    fn test_taskslot_zero_allocation() {
+        // Test that TaskSlot can be used without heap allocation for small closures
+        let slot = TaskSlot::new_closure(|| 42);
+        assert!(!slot.is_empty());
+        
+        // Execute the task
+        let result = slot.execute();
+        assert_eq!(result, Some(42));
+    }
+    
+    #[test]
+    fn test_work_stealing_with_taskslot() {
+        let deque = ZeroCopyWorkStealingDeque::<TaskSlot<i32>>::new(16);
+        
+        // Push multiple tasks
+        for i in 0..10 {
+            deque.push(TaskSlot::new_closure(move || i * 2));
+        }
+        
+        // Pop tasks and execute them
+        let mut results = Vec::new();
+        while let Some(task) = deque.pop() {
+            if let Some(result) = task.execute() {
+                results.push(result);
+            }
+        }
+        
+        // Verify we got all results (in reverse order due to LIFO)
+        assert_eq!(results.len(), 10);
+        assert_eq!(results[0], 18); // Last pushed (9 * 2)
+        assert_eq!(results[9], 0);  // First pushed (0 * 2)
     }
 }

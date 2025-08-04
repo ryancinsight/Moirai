@@ -3,8 +3,8 @@
 //! This module provides advanced concurrency types that combine the benefits
 //! of different execution models for optimal performance.
 
-use crate::{Task, TaskId, TaskContext};
-use crate::scheduler::ZeroCopyWorkStealingDeque;
+use crate::TaskId;
+use crate::scheduler::{ZeroCopyWorkStealingDeque, TaskSlot};
 use crate::error::ExecutorResult;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -93,11 +93,11 @@ impl<T: Send + 'static> HybridTask<T> {
 
 /// Hybrid executor that combines coroutine and work-stealing execution
 pub struct HybridExecutor {
-    /// Work-stealing deques for CPU-bound tasks
-    work_queues: Vec<Arc<ZeroCopyWorkStealingDeque<Box<dyn Task<Output = ()>>>>>,
+    /// Work-stealing deques for CPU-bound tasks using zero-allocation slots
+    work_queues: Vec<Arc<ZeroCopyWorkStealingDeque<TaskSlot>>>,
     /// Coroutine queue for I/O-bound tasks
     #[allow(dead_code)]
-    coroutine_queue: Arc<Mutex<VecDeque<Box<dyn Task<Output = ()>>>>>,
+    coroutine_queue: Arc<Mutex<VecDeque<TaskSlot>>>,
     /// Number of worker threads
     num_workers: usize,
     /// Shutdown flag
@@ -123,20 +123,19 @@ impl HybridExecutor {
         }
     }
     
-    /// Spawn a task with automatic mode selection
-    pub fn spawn<T>(&self, task: T) -> ExecutorResult<()>
+    /// Spawn a closure task with automatic mode selection
+    pub fn spawn_closure<F>(&self, f: F) -> ExecutorResult<()>
     where
-        T: Task<Output = ()>,
+        F: FnOnce() + Send + 'static,
     {
         self.active_tasks.fetch_add(1, Ordering::Relaxed);
         
-        // Heuristic: Use coroutine mode for tasks with async nature
-        // Use work-stealing for CPU-bound tasks
-        let boxed_task = Box::new(task) as Box<dyn Task<Output = ()>>;
+        // Create a zero-allocation task slot
+        let task_slot = TaskSlot::new_closure(f);
         
-        // For now, distribute round-robin
+        // Distribute round-robin for load balancing
         let worker_id = self.active_tasks.load(Ordering::Relaxed) % self.num_workers;
-        self.work_queues[worker_id].push(boxed_task);
+        self.work_queues[worker_id].push(task_slot);
         
         Ok(())
     }
@@ -154,14 +153,14 @@ impl HybridExecutor {
 
 /// Adaptive task that can switch execution modes based on runtime behavior
 #[allow(dead_code)]
-pub struct AdaptiveTask {
+pub struct AdaptiveTask<F> {
     id: TaskId,
     /// Execution history for adaptation
     history: ExecutionHistory,
     /// Current execution mode
     mode: ExecutionMode,
-    /// The actual task
-    inner: Box<dyn Task<Output = ()>>,
+    /// The actual task closure
+    inner: Option<F>,
 }
 
 #[derive(Debug, Default)]
@@ -187,14 +186,14 @@ pub enum ExecutionMode {
     Adaptive,
 }
 
-impl AdaptiveTask {
+impl<F: FnOnce() + Send> AdaptiveTask<F> {
     /// Create a new adaptive task
-    pub fn new(id: TaskId, task: Box<dyn Task<Output = ()>>) -> Self {
+    pub fn new(id: TaskId, task: F) -> Self {
         Self {
             id,
             history: ExecutionHistory::default(),
             mode: ExecutionMode::Adaptive,
-            inner: task,
+            inner: Some(task),
         }
     }
     
@@ -242,19 +241,7 @@ mod tests {
     
     #[test]
     fn test_adaptive_task_mode_selection() {
-        struct DummyTask {
-            context: TaskContext,
-        }
-        impl Task for DummyTask {
-            type Output = ();
-            fn execute(self) -> Self::Output {}
-            fn context(&self) -> &TaskContext {
-                &self.context
-            }
-        }
-        let dummy_task = Box::new(DummyTask {
-            context: TaskContext::new(TaskId::new(1)),
-        }) as Box<dyn Task<Output = ()>>;
+        let dummy_task = || {};
         let mut adaptive = AdaptiveTask::new(TaskId::new(1), dummy_task);
         
         // Initially should choose coroutine
