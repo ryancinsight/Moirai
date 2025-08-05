@@ -15,19 +15,19 @@
 //! - **Performance**: SIMD vectorization and CPU optimization
 //! - **Pure Rust std**: No external dependencies, pure standard library implementation
 
-use std::future::Future;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
-use std::collections::VecDeque;
-use std::sync::Mutex;
-use std::task::{Context, Poll};
-use std::fmt::Debug;
+use std::future::Future;
+use std::task::{Context as TaskContext, Poll};
+use std::time::Duration;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::collections::VecDeque;
+use std::fmt::Debug;
 
 // Use moirai channels for async communication
-use moirai_core::channel::{unbounded, Sender, Receiver};
+use moirai_core::channel::unbounded;
 
 // Simple parallel execution helper
 trait IntoParallelIterator {
@@ -249,12 +249,6 @@ pub enum ContextType {
     Hybrid,
 }
 
-/// Base trait for all execution contexts.
-pub trait ExecutionBase: Send + Sync + Clone + 'static {
-    /// Get the thread pool for this context
-    fn thread_pool(&self) -> &Arc<ThreadPool>;
-}
-
 /// Trait for execution contexts that handle iterator operations.
 pub trait ExecutionContext: ExecutionBase {
     /// Execute a function on each item.
@@ -428,7 +422,7 @@ pub struct ParallelContext {
 impl Debug for ParallelContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ParallelContext")
-            .field("thread_pool", &self.thread_pool)
+            .field("thread_pool", &"<ThreadPool>")
             .finish()
     }
 }
@@ -437,14 +431,8 @@ impl ParallelContext {
     /// Create a new parallel execution context
     pub fn new() -> Self {
         Self {
-            thread_pool: Arc::new(ThreadPool::new(num_cpus::get())),
+            thread_pool: Arc::new(ThreadPool::new(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4))),
         }
-    }
-}
-
-impl ExecutionBase for ParallelContext {
-    fn thread_pool(&self) -> &Arc<ThreadPool> {
-        &self.thread_pool
     }
 }
 
@@ -460,7 +448,7 @@ impl ExecutionContext for ParallelContext {
         }
 
         // Use the thread pool instead of spawning threads directly
-        let thread_pool = self.thread_pool();
+        let thread_pool = &self.thread_pool;
         let items = Arc::new(items);
         let func = Arc::new(func);
         
@@ -492,7 +480,15 @@ impl ExecutionContext for ParallelContext {
         
         // Wait for all tasks to complete
         for _ in senders {
-            let _ = rx.recv().await;
+            // Poll until we receive
+            loop {
+                match rx.try_recv() {
+                    Ok(_) => break,
+                    Err(_) => {
+                        yield_now().await;
+                    }
+                }
+            }
         }
     }
 
@@ -512,7 +508,7 @@ impl ExecutionContext for ParallelContext {
         }
 
         // Use the thread pool for parallel reduction
-        let thread_pool = self.thread_pool();
+        let thread_pool = &self.thread_pool;
         let func = Arc::new(func);
         let items = Arc::new(items);
         
@@ -546,8 +542,17 @@ impl ExecutionContext for ParallelContext {
         // Collect results asynchronously
         let mut results = Vec::with_capacity(num_chunks);
         for _ in 0..num_chunks {
-            if let Ok(result) = rx.recv().await {
-                results.push(result);
+            // Poll until we receive
+            loop {
+                match rx.try_recv() {
+                    Ok(result) => {
+                        results.push(result);
+                        break;
+                    }
+                    Err(_) => {
+                        yield_now().await;
+                    }
+                }
             }
         }
         
@@ -556,6 +561,170 @@ impl ExecutionContext for ParallelContext {
 
     fn context_type(&self) -> ContextType {
         ContextType::Parallel
+    }
+}
+
+impl ExecutionBase for ParallelContext {
+    fn execute_each<T, F>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
+    where
+        T: Send + Clone + 'static,
+        F: Fn(T) + Send + Sync + Clone + 'static,
+    {
+        let pool = self.thread_pool.clone();
+        Box::pin(async move {
+            let func = Arc::new(func);
+            let (tx, rx) = unbounded::<()>();
+            let mut senders = vec![];
+            
+            let chunk_size = (items.len() + 3) / 4;
+            if chunk_size == 0 {
+                return;
+            }
+            
+            for chunk in items.chunks(chunk_size) {
+                let chunk = chunk.to_vec();
+                let func = Arc::clone(&func);
+                let tx = tx.clone();
+                senders.push(tx.clone());
+                
+                pool.execute(move || {
+                    for item in chunk {
+                        func(item);
+                    }
+                    let _ = tx.send(());
+                });
+            }
+            
+            drop(tx);
+            for _ in senders {
+                // Poll until we receive
+                loop {
+                    match rx.try_recv() {
+                        Ok(_) => break,
+                        Err(_) => {
+                            yield_now().await;
+                        }
+                    }
+                }
+            }
+        })
+    }
+    
+    fn execute_map<T, R, F>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Pin<Box<dyn Future<Output = Vec<R>> + Send + '_>>
+    where
+        T: Send + Clone + 'static,
+        R: Send + Clone + 'static,
+        F: Fn(T) -> R + Send + Sync + Clone + 'static,
+    {
+        let pool = self.thread_pool.clone();
+        Box::pin(async move {
+            let func = Arc::new(func);
+            let (tx, rx) = unbounded::<Vec<R>>();
+            let mut num_chunks = 0;
+            
+            let chunk_size = (items.len() + 3) / 4;
+            if chunk_size == 0 {
+                return Vec::new();
+            }
+            
+            for chunk in items.chunks(chunk_size) {
+                let chunk = chunk.to_vec();
+                let func = Arc::clone(&func);
+                let tx = tx.clone();
+                
+                pool.execute(move || {
+                    let results: Vec<R> = chunk.into_iter().map(|item| func(item)).collect();
+                    let _ = tx.send(results);
+                });
+                
+                num_chunks += 1;
+            }
+            
+            drop(tx);
+            
+            let mut all_results = Vec::with_capacity(items.len());
+            for _ in 0..num_chunks {
+                // Poll until we receive
+                loop {
+                    match rx.try_recv() {
+                        Ok(chunk_results) => {
+                            all_results.extend(chunk_results);
+                            break;
+                        }
+                        Err(_) => {
+                            yield_now().await;
+                        }
+                    }
+                }
+            }
+            
+            all_results
+        })
+    }
+    
+    fn execute_filter<T, F>(
+        &self,
+        items: Vec<T>,
+        predicate: F,
+    ) -> Pin<Box<dyn Future<Output = Vec<T>> + Send + '_>>
+    where
+        T: Send + Clone + 'static,
+        F: Fn(&T) -> bool + Send + Sync + Clone + 'static,
+    {
+        let pool = self.thread_pool.clone();
+        Box::pin(async move {
+            let predicate = Arc::new(predicate);
+            let (tx, rx) = unbounded::<Vec<T>>();
+            let mut num_chunks = 0;
+            
+            let chunk_size = (items.len() + 3) / 4;
+            if chunk_size == 0 {
+                return Vec::new();
+            }
+            
+            for chunk in items.chunks(chunk_size) {
+                let chunk = chunk.to_vec();
+                let predicate = Arc::clone(&predicate);
+                let tx = tx.clone();
+                
+                pool.execute(move || {
+                    let results: Vec<T> = chunk.into_iter()
+                        .filter(|item| predicate(item))
+                        .collect();
+                    let _ = tx.send(results);
+                });
+                
+                num_chunks += 1;
+            }
+            
+            drop(tx);
+            
+            let mut all_results = Vec::with_capacity(items.len());
+            for _ in 0..num_chunks {
+                // Poll until we receive
+                loop {
+                    match rx.try_recv() {
+                        Ok(chunk_results) => {
+                            all_results.extend(chunk_results);
+                            break;
+                        }
+                        Err(_) => {
+                            yield_now().await;
+                        }
+                    }
+                }
+            }
+            
+            all_results
+        })
     }
 }
 
@@ -625,9 +794,9 @@ impl ExecutionBase for AsyncContext {
         F: Fn(T) + Send + Sync + Clone + 'static,
     {
         Box::pin(async move {
-            // Simple sequential execution for async context
             for item in items {
                 func(item);
+                yield_now().await;
             }
         })
     }
@@ -643,8 +812,12 @@ impl ExecutionBase for AsyncContext {
         F: Fn(T) -> R + Send + Sync + Clone + 'static,
     {
         Box::pin(async move {
-            // Simple sequential execution for async context
-            items.into_iter().map(func).collect()
+            let mut results = Vec::with_capacity(items.len());
+            for item in items {
+                results.push(func(item));
+                yield_now().await;
+            }
+            results
         })
     }
     
@@ -658,7 +831,14 @@ impl ExecutionBase for AsyncContext {
         F: Fn(&T) -> bool + Send + Sync + Clone + 'static,
     {
         Box::pin(async move {
-            items.into_iter().filter(|item| predicate(item)).collect()
+            let mut results = Vec::new();
+            for item in items {
+                if predicate(&item) {
+                    results.push(item);
+                }
+                yield_now().await;
+            }
+            results
         })
     }
 }
@@ -764,7 +944,7 @@ impl PerformanceHistory {
 
 impl HybridContext {
     /// Create a new hybrid context with configurable threshold.
-    pub fn new(parallel_threads: usize, async_concurrency: usize, config: HybridConfig) -> Self {
+    pub fn new(_parallel_threads: usize, async_concurrency: usize, config: HybridConfig) -> Self {
         Self {
             parallel_ctx: ParallelContext::new(),
             async_ctx: AsyncContext::new(async_concurrency),
@@ -842,9 +1022,12 @@ impl ExecutionBase for HybridContext {
         T: Send + Clone + 'static,
         F: Fn(T) + Send + Sync + Clone + 'static,
     {
-        let parallel_ctx = self.parallel_ctx.clone();
         Box::pin(async move {
-            parallel_ctx.execute_each(items, func).await
+            if items.len() > 1000 {
+                self.parallel_ctx.execute_each(items, func).await
+            } else {
+                self.async_ctx.execute_each(items, func).await
+            }
         })
     }
     
@@ -858,9 +1041,12 @@ impl ExecutionBase for HybridContext {
         R: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + Clone + 'static,
     {
-        let parallel_ctx = self.parallel_ctx.clone();
         Box::pin(async move {
-            parallel_ctx.execute_map(items, func).await
+            if items.len() > 1000 {
+                self.parallel_ctx.execute_map(items, func).await
+            } else {
+                self.async_ctx.execute_map(items, func).await
+            }
         })
     }
     
@@ -873,9 +1059,12 @@ impl ExecutionBase for HybridContext {
         T: Send + Clone + 'static,
         F: Fn(&T) -> bool + Send + Sync + Clone + 'static,
     {
-        let parallel_ctx = self.parallel_ctx.clone();
         Box::pin(async move {
-            parallel_ctx.execute_filter(items, predicate).await
+            if items.len() > 1000 {
+                self.parallel_ctx.execute_filter(items, predicate).await
+            } else {
+                self.async_ctx.execute_filter(items, predicate).await
+            }
         })
     }
 }
@@ -985,18 +1174,26 @@ where
     where
         G: Fn(Self::Item, Self::Item) -> Self::Item + Send + Sync + Clone + 'static,
     {
-        // For now, use a simpler approach that collects then reduces
-        // A truly streaming map-reduce would require a different trait design
+        // Use a channel-based approach to avoid mutation in closure
+        let (tx, rx) = unbounded::<R>();
         let map_func = self.func;
-        let mut accumulator: Option<R> = None;
         
+        let tx_clone = tx.clone();
         self.iter.for_each(move |item| {
             let mapped = map_func(item);
-            accumulator = Some(match accumulator.take() {
-                None => mapped,
-                Some(acc) => reduce_func(acc, mapped),
-            });
+            let _ = tx_clone.send(mapped);
         }).await;
+        
+        drop(tx); // Signal completion
+        
+        // Collect and reduce
+        let mut accumulator: Option<R> = None;
+        while let Ok(item) = rx.try_recv() {
+            accumulator = Some(match accumulator {
+                None => item,
+                Some(acc) => reduce_func(acc, item),
+            });
+        }
         
         accumulator
     }
@@ -1008,20 +1205,28 @@ where
         // Preserve the execution context from the underlying iterator
         let context_type = self.iter.context_type();
         let map_func = self.func;
-        let mut results = Vec::new();
         
-        // Collect mapped results
+        // Use a channel to collect results
+        let (tx, rx) = unbounded::<R>();
+        let tx_clone = tx.clone();
+        
+        // Map and send results
         self.iter.for_each(move |item| {
-            results.push(map_func(item));
+            let mapped = map_func(item);
+            let _ = tx_clone.send(mapped);
         }).await;
         
-        // Create appropriate context based on original
-        let vec = match context_type {
-            ContextType::Parallel => MoiraiVec::new(results, ParallelContext::new()),
-            ContextType::Async => MoiraiVec::new(results, AsyncContext::new(100)),
-            ContextType::Hybrid => MoiraiVec::new(results, HybridContext::default()),
-            _ => MoiraiVec::new(results, ParallelContext::new()),
-        };
+        drop(tx); // Signal completion
+        
+        // Collect all results
+        let mut results = Vec::new();
+        while let Ok(item) = rx.try_recv() {
+            results.push(item);
+        }
+        
+        // Create a temporary MoiraiVec with ParallelContext for collection
+        // The actual context will be determined by the collector
+        let vec = MoiraiVec::new(results, ParallelContext::new());
         
         B::from_moirai_iter(vec)
     }
@@ -1468,7 +1673,7 @@ pub trait IntoMoiraiIterator<C: ExecutionContext> {
 
 impl<T, C> IntoMoiraiIterator<C> for Vec<T>
 where
-    T: Send + Clone + 'static,
+    T: Send + Sync + Clone + 'static,
     C: ExecutionContext + 'static,
 {
     type Item = T;
@@ -1551,20 +1756,18 @@ mod tests {
     mod futures {
         pub mod executor {
             use std::future::Future;
-            use std::task::{Context, Poll};
+            use std::task::{Context as TaskContext, Poll};
             use std::pin::Pin;
             
             pub fn block_on<F: Future>(mut future: F) -> F::Output {
                 let waker = noop_waker();
-                let mut context = Context::from_waker(&waker);
+                let mut context = TaskContext::from_waker(&waker);
                 let mut future = unsafe { Pin::new_unchecked(&mut future) };
                 
                 loop {
                     match future.as_mut().poll(&mut context) {
                         Poll::Ready(output) => return output,
-                        Poll::Pending => {
-                            std::thread::sleep(std::time::Duration::from_millis(1));
-                        }
+                        Poll::Pending => {}
                     }
                 }
             }

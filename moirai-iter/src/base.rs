@@ -227,6 +227,14 @@ pub struct ThreadPool {
     workers: Vec<std::thread::JoinHandle<()>>,
 }
 
+impl std::fmt::Debug for ThreadPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ThreadPool")
+            .field("workers", &self.workers.len())
+            .finish()
+    }
+}
+
 impl ThreadPool {
     pub fn new(size: usize) -> Self {
         let (sender, receiver) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send + 'static>>();

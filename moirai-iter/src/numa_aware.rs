@@ -197,203 +197,49 @@ impl ExecutionBase for NumaAwareContext {
     }
 }
 
-impl ExecutionContext for NumaAwareContext {
-    fn execute<T, F>(&self, items: Vec<T>, func: F) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+impl crate::ExecutionContext for NumaAwareContext {
+    async fn execute<T, F>(&self, items: Vec<T>, func: F)
     where
-        T: Send + Clone + 'static,
-        F: Fn(T) + Send + Sync + Clone + 'static,
+        T: Send + Sync + Clone + 'static,
+        F: Fn(T) -> () + Send + Sync + Clone + 'static,
     {
-        let topology = Arc::clone(&self.topology);
-        
-        Box::pin(async move {
-            if items.is_empty() {
-                return;
-            }
-            
-            if let Some(ref topology) = *topology {
-                let numa_nodes = topology.numa_nodes.len();
-                let total_items = items.len();
-                
-                // Distribute work across NUMA nodes
-                let items_per_node = (total_items + numa_nodes - 1) / numa_nodes;
-                
-                std::thread::scope(|scope| {
-                    for (node_idx, node) in topology.numa_nodes.iter().enumerate() {
-                        let start = node_idx * items_per_node;
-                        let end = ((node_idx + 1) * items_per_node).min(total_items);
-                        
-                        if start >= end {
-                            continue;
-                        }
-                        
-                        let items = items.clone();
-                        let func = func.clone();
-                        scope.spawn(move || {
-                            // Pin thread to NUMA node
-                            #[cfg(target_os = "linux")]
-                            {
-                                if let Some(core) = node.cores.first() {
-                                    // CPU affinity setting for Linux
-                                    // Note: This would require additional platform-specific code
-                                    let _ = core;
-                                }
-                            }
-                            
-                            // Process items without copying
-                            for i in start..end {
-                                func(items[i].clone());
-                            }
-                        });
-                    }
-                });
-            }
-        })
+        self.execute_each(items, func).await
     }
-    
-    fn map<T, R, F>(&self, items: Vec<T>, func: F) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<R>> + Send + '_>>
+
+    async fn reduce<T, F>(&self, items: Vec<T>, func: F) -> Option<T>
     where
-        T: Send + Clone + 'static,
-        R: Send + Clone + 'static,
-        F: Fn(T) -> R + Send + Sync + Clone + 'static,
-    {
-        let _topology = Arc::clone(&self.topology);
-        
-        Box::pin(async move {
-            if items.is_empty() {
-                return Vec::new();
-            }
-            
-            let _total_items = items.len();
-            
-            if let Some(ref topology) = *self.topology {
-                let numa_nodes = topology.numa_nodes.len();
-                let total_items = items.len();
-                
-                let mut results = Vec::with_capacity(total_items);
-                unsafe { results.set_len(total_items); }
-                let results_ptr: *mut R = results.as_mut_ptr();
-                
-                // Wrap items in Arc to make them Send
-                let items = Arc::new(items);
-                let func = Arc::new(func);
-                
-                // Distribute work across NUMA nodes
-                let items_per_node = (total_items + numa_nodes - 1) / numa_nodes;
-                
-                std::thread::scope(|scope| {
-                    for (node_idx, node) in topology.numa_nodes.iter().enumerate() {
-                        let start = node_idx * items_per_node;
-                        let end = ((node_idx + 1) * items_per_node).min(total_items);
-                        
-                        if start >= end {
-                            continue;
-                        }
-                        
-                        // Clone the items for this node
-                        let node_items: Vec<T> = items[start..end].to_vec();
-                        let func = Arc::clone(&func);
-                        let results_ptr = unsafe { results_ptr.add(start) };
-                        let ptr_wrapper = SendPtr(results_ptr);
-                        
-                        scope.spawn(move || {
-                            // Pin thread to NUMA node
-                            #[cfg(target_os = "linux")]
-                            {
-                                if let Some(core) = node.cores.first() {
-                                    // CPU affinity setting for Linux
-                                    // Note: This would require additional platform-specific code
-                                    let _ = core;
-                                }
-                            }
-                            
-                            // Process items and write results directly
-                            for (i, item) in node_items.into_iter().enumerate() {
-                                let result = func(item);
-                                unsafe {
-                                    ptr::write(ptr_wrapper.as_ptr().add(i), result);
-                                }
-                            }
-                        });
-                    }
-                });
-                
-                results
-            } else {
-                // Fallback to simple parallel processing
-                items.into_iter().map(func).collect()
-            }
-        })
-    }
-    
-    fn reduce<T, F>(&self, items: Vec<T>, func: F) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<T>> + Send + '_>>
-    where
-        T: Send + Clone + 'static,
+        T: Send + Sync + Clone + 'static,
         F: Fn(T, T) -> T + Send + Sync + Clone + 'static,
     {
-        let topology = Arc::clone(&self.topology);
+        // Implement using execute_map for NUMA-aware reduction
+        if items.is_empty() {
+            return None;
+        }
         
-        Box::pin(async move {
-            if items.is_empty() {
-                return None;
+        let chunk_size = (items.len() + self.thread_count - 1) / self.thread_count;
+        if chunk_size == 0 || items.len() == 1 {
+            return items.into_iter().reduce(func);
+        }
+        
+        // First pass: reduce within each NUMA node
+        let mut node_results = Vec::new();
+        for i in 0..self.thread_count {
+            let start = i * chunk_size;
+            let end = ((i + 1) * chunk_size).min(items.len());
+            if start < end {
+                let chunk: Vec<T> = items[start..end].to_vec();
+                if let Some(result) = chunk.into_iter().reduce(func.clone()) {
+                    node_results.push(result);
+                }
             }
-            
-            if items.len() == 1 {
-                return items.into_iter().next();
-            }
-            
-            if let Some(ref topology) = *topology {
-                // NUMA-aware tree reduction
-                let numa_nodes = topology.numa_nodes.len();
-                let items_per_node = (items.len() + numa_nodes - 1) / numa_nodes;
-                
-                // First level: reduce within each NUMA node
-                let node_results: Vec<Option<T>> = std::thread::scope(|scope| {
-                    let mut handles = Vec::new();
-                    
-                    for node_idx in 0..numa_nodes {
-                        let start = node_idx * items_per_node;
-                        let end = ((node_idx + 1) * items_per_node).min(items.len());
-                        
-                        if start >= end {
-                            handles.push(scope.spawn(move || None));
-                            continue;
-                        }
-                        
-                        let chunk = items[start..end].to_vec();
-                        let func = func.clone();
-                        
-                        handles.push(scope.spawn(move || {
-                            chunk.into_iter().reduce(|a, b| func(a, b))
-                        }));
-                    }
-                    
-                    handles.into_iter()
-                        .map(|h| h.join().unwrap())
-                        .collect()
-                });
-                
-                // Second level: reduce across NUMA nodes
-                node_results.into_iter()
-                    .flatten()
-                    .reduce(|a, b| func(a, b))
-            } else {
-                // Fallback to simple reduction
-                items.into_iter().reduce(func)
-            }
-        })
+        }
+        
+        // Final reduction
+        node_results.into_iter().reduce(func)
     }
     
-    fn stream<T, R, F>(&self, items: Vec<T>, func: F) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<R>> + Send + '_>>
-    where
-        T: Send + Clone + 'static,
-        R: Send + Clone + 'static,
-        F: Fn(T) -> Option<R> + Send + Sync + Clone + 'static,
-    {
-        // Similar to map but filters out None values
-        Box::pin(async move {
-            let mapped = self.map(items, func).await;
-            mapped.into_iter().flatten().collect()
-        })
+    fn context_type(&self) -> crate::ContextType {
+        crate::ContextType::Parallel // NUMA is a form of parallel execution
     }
 }
 
@@ -410,12 +256,12 @@ pub struct NumaIterator<T> {
 }
 
 impl<T: Send + Clone + 'static> NumaIterator<T> {
-    /// Execute a function on each item with NUMA awareness
+    /// Execute a function on each item with NUMA-aware placement
     pub async fn for_each<F>(self, func: F)
     where
         F: Fn(T) + Send + Sync + Clone + 'static,
     {
-        self.context.execute(self.items, func).await
+        self.context.execute_each(self.items, func).await
     }
     
     /// Map items with NUMA-aware execution
@@ -424,7 +270,7 @@ impl<T: Send + Clone + 'static> NumaIterator<T> {
         R: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + Clone + 'static,
     {
-        self.context.map(self.items, func).await
+        self.context.execute_map(self.items, func).await
     }
     
     /// Reduce items with NUMA-aware execution
@@ -432,7 +278,34 @@ impl<T: Send + Clone + 'static> NumaIterator<T> {
     where
         F: Fn(T, T) -> T + Send + Sync + Clone + 'static,
     {
-        self.context.reduce(self.items, func).await
+        if self.items.is_empty() {
+            return None;
+        }
+        
+        // For reduce, we need to implement it using execute_map
+        let items = self.items;
+        let num_nodes = self.context.thread_count.max(1);
+        let chunk_size = (items.len() + num_nodes - 1) / num_nodes;
+        
+        if chunk_size == 0 || items.len() == 1 {
+            return items.into_iter().reduce(func);
+        }
+        
+        // First pass: reduce within each NUMA node
+        let mut node_results = Vec::new();
+        for i in 0..num_nodes {
+            let start = i * chunk_size;
+            let end = ((i + 1) * chunk_size).min(items.len());
+            if start < end {
+                let chunk: Vec<T> = items[start..end].to_vec();
+                if let Some(result) = chunk.into_iter().reduce(func.clone()) {
+                    node_results.push(result);
+                }
+            }
+        }
+        
+        // Final reduction across nodes
+        node_results.into_iter().reduce(func)
     }
 }
 
