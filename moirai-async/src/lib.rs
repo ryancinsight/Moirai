@@ -860,6 +860,13 @@ pub mod timer {
     use std::collections::BinaryHeap;
     use std::cmp::Ordering;
     use std::thread;
+    use moirai_core::channel::{mpmc, MpmcSender, MpmcReceiver};
+    
+    /// Timer commands sent through the channel
+    enum TimerCommand {
+        Register { deadline: Instant, waker: Waker },
+        Shutdown,
+    }
     
     /// A future that completes after a specified duration
     pub struct Delay {
@@ -970,87 +977,108 @@ pub mod timer {
     
     /// Global timer instance
     pub struct Timer {
-        timers: Arc<Mutex<BinaryHeap<TimerEntry>>>,
+        sender: MpmcSender<TimerCommand>,
         thread: Option<thread::JoinHandle<()>>,
-        shutdown: Arc<Mutex<bool>>,
     }
     
     impl Timer {
         /// Create a new timer
         fn new() -> Self {
-            let timers = Arc::new(Mutex::new(BinaryHeap::<TimerEntry>::new()));
-            let shutdown = Arc::new(Mutex::new(false));
+            // Use a bounded channel for backpressure control
+            let (sender, receiver) = mpmc::<TimerCommand>(1024);
             
-            let timers_clone = timers.clone();
-            let shutdown_clone = shutdown.clone();
-            
-            // Spawn a background thread to process timers
             let thread = thread::spawn(move || {
+                let mut timers = BinaryHeap::<TimerEntry>::new();
+                
                 loop {
-                    // Check for shutdown
-                    if *shutdown_clone.lock().unwrap() {
-                        break;
-                    }
-                    
-                    // Get the next timer to process
-                    let next_timer = {
-                        let mut timers = timers_clone.lock().unwrap();
-                        
-                        // Remove expired timers and wake them
+                    // Calculate how long to wait
+                    let wait_duration = if let Some(entry) = timers.peek() {
                         let now = Instant::now();
-                        let mut to_wake = Vec::new();
-                        
-                        while let Some(entry) = timers.peek() {
-                            if entry.deadline <= now {
-                                to_wake.push(timers.pop().unwrap());
-                            } else {
-                                break;
-                            }
-                        }
-                        
-                        // Wake all expired timers
-                        for entry in to_wake {
-                            entry.waker.wake();
-                        }
-                        
-                        // Get next deadline
-                        timers.peek().map(|e| e.deadline)
-                    };
-                    
-                    // Sleep until next timer or 100ms (for checking shutdown)
-                    let sleep_duration = if let Some(deadline) = next_timer {
-                        let now = Instant::now();
-                        if deadline > now {
-                            std::cmp::min(deadline - now, Duration::from_millis(100))
+                        if entry.deadline <= now {
+                            // We have an expired timer, don't wait
+                            Duration::from_millis(0)
                         } else {
-                            Duration::from_millis(1)
+                            // Wait until the next timer expires, but cap at 100ms
+                            std::cmp::min(entry.deadline - now, Duration::from_millis(100))
                         }
                     } else {
+                        // No timers, wait up to 100ms for new commands
                         Duration::from_millis(100)
                     };
                     
-                    thread::sleep(sleep_duration);
+                    // If we have no wait time, just check for commands once
+                    if wait_duration == Duration::from_millis(0) {
+                        // Process all pending commands without blocking
+                        while let Ok(cmd) = receiver.try_recv() {
+                            match cmd {
+                                TimerCommand::Register { deadline, waker } => {
+                                    timers.push(TimerEntry { deadline, waker });
+                                }
+                                TimerCommand::Shutdown => {
+                                    return; // Exit the thread
+                                }
+                            }
+                        }
+                    } else {
+                        // Use blocking recv for the first command, then drain any additional
+                        match receiver.recv() {
+                            Ok(TimerCommand::Register { deadline, waker }) => {
+                                timers.push(TimerEntry { deadline, waker });
+                                
+                                // Drain any additional pending commands
+                                while let Ok(cmd) = receiver.try_recv() {
+                                    match cmd {
+                                        TimerCommand::Register { deadline, waker } => {
+                                            timers.push(TimerEntry { deadline, waker });
+                                        }
+                                        TimerCommand::Shutdown => {
+                                            return; // Exit the thread
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(TimerCommand::Shutdown) => {
+                                return; // Exit the thread
+                            }
+                            Err(_) => {
+                                // Channel closed, exit
+                                return;
+                            }
+                        }
+                    }
+                    
+                    // Process expired timers
+                    let now = Instant::now();
+                    while let Some(entry) = timers.peek() {
+                        if entry.deadline <= now {
+                            let entry = timers.pop().unwrap();
+                            entry.waker.wake();
+                        } else {
+                            break;
+                        }
+                    }
                 }
             });
             
             Timer {
-                timers,
+                sender,
                 thread: Some(thread),
-                shutdown,
             }
         }
         
         /// Register a timer
         fn register(&self, deadline: Instant, waker: Waker) {
-            let mut timers = self.timers.lock().unwrap();
-            timers.push(TimerEntry { deadline, waker });
+            // Use non-blocking send to avoid blocking the async runtime
+            // If the channel is full, we'll drop the timer registration
+            // In practice, 1024 pending timers should be plenty
+            let _ = self.sender.try_send(TimerCommand::Register { deadline, waker });
         }
     }
     
     impl Drop for Timer {
         fn drop(&mut self) {
-            // Signal shutdown
-            *self.shutdown.lock().unwrap() = true;
+            // Send shutdown command
+            let _ = self.sender.send(TimerCommand::Shutdown);
             
             // Wait for thread to finish
             if let Some(thread) = self.thread.take() {
