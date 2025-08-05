@@ -498,7 +498,7 @@ where
             })
             .collect::<Vec<_>>()
             .into_iter()
-            .map(|handle| handle.join().unwrap())
+            .map(|handle| handle.join().expect("Thread panicked during parallel reduction"))
             .collect();
 
         // Final reduction on the chunk results
