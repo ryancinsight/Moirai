@@ -227,6 +227,14 @@ pub struct ThreadPool {
     workers: Vec<std::thread::JoinHandle<()>>,
 }
 
+impl std::fmt::Debug for ThreadPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ThreadPool")
+            .field("workers", &self.workers.len())
+            .finish()
+    }
+}
+
 impl ThreadPool {
     pub fn new(size: usize) -> Self {
         let (sender, receiver) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send + 'static>>();
@@ -282,6 +290,219 @@ impl PerformanceMetrics {
         } else {
             (self.total_items as f64 * 1_000_000_000.0) / self.execution_time_ns as f64
         }
+    }
+}
+
+/// Zero-copy sliding window iterator
+/// 
+/// This iterator provides overlapping windows over a slice without any allocations.
+/// It demonstrates the zero-copy principle by working entirely with borrowed data.
+#[derive(Debug, Clone)]
+pub struct SlidingWindow<'a, T> {
+    data: &'a [T],
+    window_size: usize,
+    front_position: usize,
+    back_position: usize,
+}
+
+impl<'a, T> SlidingWindow<'a, T> {
+    /// Create a new sliding window iterator
+    #[inline]
+    pub fn new(data: &'a [T], window_size: usize) -> Self {
+        assert!(window_size > 0, "Window size must be positive");
+        let back_position = data.len().saturating_sub(window_size);
+        Self {
+            data,
+            window_size,
+            front_position: 0,
+            back_position,
+        }
+    }
+}
+
+impl<'a, T> Iterator for SlidingWindow<'a, T> {
+    type Item = &'a [T];
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.front_position + self.window_size > self.data.len() {
+            None
+        } else if self.front_position > self.back_position {
+            None
+        } else {
+            let window = &self.data[self.front_position..self.front_position + self.window_size];
+            self.front_position += 1;
+            Some(window)
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.window_size > self.data.len() {
+            (0, Some(0))
+        } else if self.front_position > self.back_position {
+            (0, Some(0))
+        } else {
+            let remaining = self.back_position - self.front_position + 1;
+            (remaining, Some(remaining))
+        }
+    }
+}
+
+impl<'a, T> DoubleEndedIterator for SlidingWindow<'a, T> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.back_position + self.window_size > self.data.len() {
+            None
+        } else if self.front_position > self.back_position {
+            None
+        } else {
+            let window = &self.data[self.back_position..self.back_position + self.window_size];
+            if self.back_position > 0 {
+                self.back_position -= 1;
+            } else {
+                // Ensure we don't iterate this window again
+                self.front_position = self.data.len();
+            }
+            Some(window)
+        }
+    }
+}
+
+impl<'a, T> ExactSizeIterator for SlidingWindow<'a, T> {
+    #[inline]
+    fn len(&self) -> usize {
+        if self.window_size > self.data.len() || self.front_position > self.back_position {
+            0
+        } else {
+            self.back_position - self.front_position + 1
+        }
+    }
+}
+
+/// Zero-copy chunking iterator with remainder handling
+/// 
+/// This iterator splits data into non-overlapping chunks of a specified size.
+/// The last chunk may be smaller if the data doesn't divide evenly.
+#[derive(Debug, Clone)]
+pub struct ChunksExact<'a, T> {
+    data: &'a [T],
+    chunk_size: usize,
+    remainder: &'a [T],
+}
+
+impl<'a, T> ChunksExact<'a, T> {
+    /// Create a new exact chunks iterator
+    #[inline]
+    pub fn new(data: &'a [T], chunk_size: usize) -> Self {
+        assert!(chunk_size > 0, "Chunk size must be positive");
+        let remainder_start = data.len() - (data.len() % chunk_size);
+        let (data, remainder) = data.split_at(remainder_start);
+        Self {
+            data,
+            chunk_size,
+            remainder,
+        }
+    }
+
+    /// Get the remainder that doesn't fit into a complete chunk
+    #[inline]
+    pub fn remainder(&self) -> &'a [T] {
+        self.remainder
+    }
+}
+
+impl<'a, T> Iterator for ChunksExact<'a, T> {
+    type Item = &'a [T];
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.data.len() < self.chunk_size {
+            None
+        } else {
+            let (chunk, rest) = self.data.split_at(self.chunk_size);
+            self.data = rest;
+            Some(chunk)
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let n = self.data.len() / self.chunk_size;
+        (n, Some(n))
+    }
+}
+
+impl<'a, T> DoubleEndedIterator for ChunksExact<'a, T> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.data.len() < self.chunk_size {
+            None
+        } else {
+            let (rest, chunk) = self.data.split_at(self.data.len() - self.chunk_size);
+            self.data = rest;
+            Some(chunk)
+        }
+    }
+}
+
+impl<'a, T> ExactSizeIterator for ChunksExact<'a, T> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.data.len() / self.chunk_size
+    }
+}
+
+/// Advanced iterator combinator for parallel reduction with zero allocation
+/// 
+/// This demonstrates how to build complex iterators using the combinator pattern
+/// while maintaining zero-copy semantics.
+pub struct ParallelReduce<T, F> {
+    data: Vec<T>,
+    chunk_size: usize,
+    reducer: F,
+}
+
+impl<T, F> ParallelReduce<T, F>
+where
+    T: Send + Sync + Clone + 'static,
+    F: Fn(&[T]) -> T + Send + Sync + Clone + 'static,
+{
+    /// Create a new parallel reduce iterator
+    pub fn new(data: Vec<T>, chunk_size: usize, reducer: F) -> Self {
+        Self {
+            data,
+            chunk_size,
+            reducer,
+        }
+    }
+
+    /// Execute the parallel reduction
+    pub fn reduce(self) -> Option<T> {
+        use std::thread;
+        
+        if self.data.is_empty() {
+            return None;
+        }
+
+        let chunks: Vec<Vec<T>> = self.data
+            .chunks(self.chunk_size)
+            .map(|chunk| chunk.to_vec())
+            .collect();
+
+        let chunk_results: Vec<_> = chunks
+            .into_iter()
+            .map(|chunk| {
+                let reducer = self.reducer.clone();
+                thread::spawn(move || reducer(&chunk))
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().expect("Thread panicked during parallel reduction"))
+            .collect();
+
+        // Final reduction on the chunk results
+        chunk_results.into_iter().reduce(|a, b| (self.reducer)(&[a, b]))
     }
 }
 

@@ -506,6 +506,117 @@ impl<T> Iterator for StreamingIter<T> {
     }
 }
 
+/// Zero-copy scan iterator that maintains state without cloning
+/// 
+/// This iterator applies a stateful transformation to each element,
+/// similar to fold but yielding intermediate results.
+pub struct ScanRef<I, St, F> {
+    iter: I,
+    state: St,
+    f: F,
+}
+
+impl<I, St, F, B> Iterator for ScanRef<I, St, F>
+where
+    I: Iterator,
+    F: FnMut(&mut St, I::Item) -> Option<B>,
+{
+    type Item = B;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = self.iter.next()?;
+        (self.f)(&mut self.state, item)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (_, upper) = self.iter.size_hint();
+        (0, upper)
+    }
+}
+
+/// Zero-copy fold that works with borrowed data
+/// 
+/// This allows folding over iterators of references without cloning
+pub fn fold_ref<I, B, F>(iter: I, init: B, mut f: F) -> B
+where
+    I: Iterator,
+    F: FnMut(B, &I::Item) -> B,
+    I::Item: AsRef<I::Item>,
+{
+    let mut accum = init;
+    for item in iter {
+        accum = f(accum, item.as_ref());
+    }
+    accum
+}
+
+/// Zero-copy partition iterator
+/// 
+/// Partitions elements into two collections based on a predicate,
+/// working with references to avoid cloning.
+pub struct PartitionRef<I, F> {
+    iter: I,
+    predicate: F,
+}
+
+impl<I, F> PartitionRef<I, F>
+where
+    I: Iterator,
+    F: FnMut(&I::Item) -> bool,
+{
+    /// Consume the iterator and partition into two collections
+    pub fn partition<A, B>(mut self) -> (A, B)
+    where
+        A: Default + Extend<I::Item>,
+        B: Default + Extend<I::Item>,
+    {
+        let mut left = A::default();
+        let mut right = B::default();
+        
+        for item in self.iter {
+            if (self.predicate)(&item) {
+                left.extend(Some(item));
+            } else {
+                right.extend(Some(item));
+            }
+        }
+        
+        (left, right)
+    }
+}
+
+/// Advanced iterator adapter for in-place modification
+/// 
+/// This allows modifying elements in-place without creating new allocations
+pub struct UpdateInPlace<'a, T, I, F> {
+    iter: I,
+    updater: F,
+    _phantom: std::marker::PhantomData<&'a mut T>,
+}
+
+impl<'a, T, I, F> Iterator for UpdateInPlace<'a, T, I, F>
+where
+    I: Iterator<Item = &'a mut T>,
+    F: FnMut(&mut T),
+{
+    type Item = &'a mut T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|item| {
+            (self.updater)(item);
+            item
+        })
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
