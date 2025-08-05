@@ -62,3 +62,17 @@ split-debuginfo = "unpacked"
 [profile.test]
 opt-level = 1
 debug = true
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "iterator_showcase"
+path = "examples/iterator_showcase.rs"
+required-features = ["iter"]
+
+[[example]]
+name = "async_timer"
+path = "examples/async_timer.rs"
+required-features = ["async"]

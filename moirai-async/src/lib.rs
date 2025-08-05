@@ -325,70 +325,6 @@ impl<T> Future for AsyncHandle<T> {
     }
 }
 
-/// A timer for async operations with high precision.
-/// 
-/// # Behavior Guarantees
-/// - Timers are accurate within system timer resolution
-/// - Multiple timers can run concurrently
-/// - Minimal CPU overhead when not expired
-pub struct Timer {
-    start_time: Instant,
-    duration: Duration,
-}
-
-impl Timer {
-    /// Create a new timer that expires after the specified duration.
-    pub fn new(duration: Duration) -> Self {
-        Self {
-            start_time: Instant::now(),
-            duration,
-        }
-    }
-
-    /// Sleep for the specified duration.
-    /// 
-    /// # Behavior Guarantees
-    /// - Yields control to other tasks while waiting
-    /// - Accurate timing within system limitations
-    /// - Efficient resource usage
-    pub async fn sleep(duration: Duration) {
-        let timer = Timer::new(duration);
-        timer.await;
-    }
-
-    /// Check if the timer has expired.
-    pub fn is_expired(&self) -> bool {
-        self.start_time.elapsed() >= self.duration
-    }
-
-    /// Get remaining time until expiration.
-    pub fn remaining(&self) -> Duration {
-        self.duration.saturating_sub(self.start_time.elapsed())
-    }
-}
-
-impl Future for Timer {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.is_expired() {
-            Poll::Ready(())
-        } else {
-            // In a real implementation, we would register with a timer wheel
-            // For now, we'll wake up periodically to check
-            let waker = cx.waker().clone();
-            let remaining = self.remaining();
-            
-            std::thread::spawn(move || {
-                std::thread::sleep(remaining.min(Duration::from_millis(10)));
-                waker.wake();
-            });
-            
-            Poll::Pending
-        }
-    }
-}
-
 /// A timeout wrapper for futures with cancellation support.
 /// 
 /// # Behavior Guarantees
@@ -912,19 +848,215 @@ mod tests {
     // }
 }
 
-/// Sleep for the specified duration.
-/// 
-/// This is a convenience function that creates a timer and awaits it.
-/// 
-/// # Example
-/// ```ignore
-/// use moirai::sleep;
-/// use std::time::Duration;
-/// 
-/// async {
-///     sleep(Duration::from_millis(100)).await;
-/// }
-/// ```
-pub async fn sleep(duration: std::time::Duration) {
-    Timer::sleep(duration).await;
+pub use timer::{Timer, Delay, sleep};
+pub use timeout::{Timeout, timeout};
+
+/// Async timer utilities for Moirai
+pub mod timer {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::{Context, Poll, Waker};
+    use std::time::{Duration, Instant};
+    use std::sync::{Arc, Mutex};
+    use std::collections::BinaryHeap;
+    use std::cmp::Ordering;
+    use std::thread;
+    
+    /// A future that completes after a specified duration
+    pub struct Delay {
+        deadline: Instant,
+        registered: bool,
+        waker: Option<Waker>,
+    }
+    
+    // Global timer instance using std::sync::OnceLock (no external dependencies)
+    static TIMER: std::sync::OnceLock<Timer> = std::sync::OnceLock::new();
+    
+    fn get_timer() -> &'static Timer {
+        TIMER.get_or_init(|| Timer::new())
+    }
+    
+    impl Delay {
+        /// Create a new delay that completes after the specified duration
+        pub fn new(duration: Duration) -> Self {
+            Delay {
+                deadline: Instant::now() + duration,
+                registered: false,
+                waker: None,
+            }
+        }
+        
+        /// Create a new delay that completes at the specified instant
+        pub fn until(deadline: Instant) -> Self {
+            Delay {
+                deadline,
+                registered: false,
+                waker: None,
+            }
+        }
+    }
+    
+    impl Future for Delay {
+        type Output = ();
+        
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let now = Instant::now();
+            
+            if now >= self.deadline {
+                Poll::Ready(())
+            } else {
+                // Register with the global timer
+                if !self.registered {
+                    self.waker = Some(cx.waker().clone());
+                    get_timer().register(self.deadline, cx.waker().clone());
+                    self.registered = true;
+                } else if self.waker.as_ref().map(|w| !w.will_wake(cx.waker())).unwrap_or(true) {
+                    // Waker changed, update it
+                    self.waker = Some(cx.waker().clone());
+                    get_timer().register(self.deadline, cx.waker().clone());
+                }
+                
+                Poll::Pending
+            }
+        }
+    }
+    
+    /// Sleep for the specified duration
+    /// 
+    /// This is an async-friendly sleep that doesn't block the thread
+    /// 
+    /// # Example
+    /// ```
+    /// use moirai_async::timer::sleep;
+    /// use std::time::Duration;
+    /// 
+    /// async fn example() {
+    ///     println!("Sleeping for 1 second...");
+    ///     sleep(Duration::from_secs(1)).await;
+    ///     println!("Done sleeping!");
+    /// }
+    /// ```
+    pub fn sleep(duration: Duration) -> Delay {
+        Delay::new(duration)
+    }
+    
+    /// Timer entry for the timer wheel
+    #[derive(Clone)]
+    struct TimerEntry {
+        deadline: Instant,
+        waker: Waker,
+    }
+    
+    impl PartialEq for TimerEntry {
+        fn eq(&self, other: &Self) -> bool {
+            self.deadline == other.deadline
+        }
+    }
+    
+    impl Eq for TimerEntry {}
+    
+    impl PartialOrd for TimerEntry {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            // Reverse order for min-heap behavior
+            Some(other.deadline.cmp(&self.deadline))
+        }
+    }
+    
+    impl Ord for TimerEntry {
+        fn cmp(&self, other: &Self) -> Ordering {
+            // Reverse order for min-heap behavior
+            other.deadline.cmp(&self.deadline)
+        }
+    }
+    
+    /// Global timer instance
+    pub struct Timer {
+        timers: Arc<Mutex<BinaryHeap<TimerEntry>>>,
+        thread: Option<thread::JoinHandle<()>>,
+        shutdown: Arc<Mutex<bool>>,
+    }
+    
+    impl Timer {
+        /// Create a new timer
+        fn new() -> Self {
+            let timers = Arc::new(Mutex::new(BinaryHeap::new()));
+            let shutdown = Arc::new(Mutex::new(false));
+            
+            let timers_clone = timers.clone();
+            let shutdown_clone = shutdown.clone();
+            
+            // Spawn a background thread to process timers
+            let thread = thread::spawn(move || {
+                loop {
+                    // Check for shutdown
+                    if *shutdown_clone.lock().unwrap() {
+                        break;
+                    }
+                    
+                    // Get the next timer to process
+                    let next_timer = {
+                        let mut timers = timers_clone.lock().unwrap();
+                        
+                        // Remove expired timers and wake them
+                        let now = Instant::now();
+                        let mut to_wake = Vec::new();
+                        
+                        while let Some(entry) = timers.peek() {
+                            if entry.deadline <= now {
+                                to_wake.push(timers.pop().unwrap());
+                            } else {
+                                break;
+                            }
+                        }
+                        
+                        // Wake all expired timers
+                        for entry in to_wake {
+                            entry.waker.wake();
+                        }
+                        
+                        // Get next deadline
+                        timers.peek().map(|e| e.deadline)
+                    };
+                    
+                    // Sleep until next timer or 100ms (for checking shutdown)
+                    let sleep_duration = if let Some(deadline) = next_timer {
+                        let now = Instant::now();
+                        if deadline > now {
+                            std::cmp::min(deadline - now, Duration::from_millis(100))
+                        } else {
+                            Duration::from_millis(1)
+                        }
+                    } else {
+                        Duration::from_millis(100)
+                    };
+                    
+                    thread::sleep(sleep_duration);
+                }
+            });
+            
+            Timer {
+                timers,
+                thread: Some(thread),
+                shutdown,
+            }
+        }
+        
+        /// Register a timer
+        fn register(&self, deadline: Instant, waker: Waker) {
+            let mut timers = self.timers.lock().unwrap();
+            timers.push(TimerEntry { deadline, waker });
+        }
+    }
+    
+    impl Drop for Timer {
+        fn drop(&mut self) {
+            // Signal shutdown
+            *self.shutdown.lock().unwrap() = true;
+            
+            // Wait for thread to finish
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
+    }
 }

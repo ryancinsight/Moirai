@@ -13,6 +13,10 @@ use moirai_iter::{
 };
 use std::time::{Duration, Instant};
 
+// Import async sleep if available
+#[cfg(feature = "async")]
+use moirai::sleep;
+
 fn main() {
     println!("Moirai Iterator System Showcase");
     println!("===============================");
@@ -58,7 +62,8 @@ fn main() {
         moirai_iter_async(urls)
             .map(|url| async move {
                 // Simulate async I/O operation
-                std::thread::sleep(Duration::from_millis(10));
+                // In production, you'd use moirai::sleep for non-blocking delays
+                // For this example, we'll just format the result
                 format!("Fetched: {}", url)
             })
             .collect::<Vec<_>>()
