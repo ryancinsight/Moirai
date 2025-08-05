@@ -116,7 +116,7 @@ pub mod numa_scheduler;
 
 use moirai_core::{
     BoxedTask, scheduler::{Scheduler, SchedulerId, SchedulerConfig, QueueType, WorkStealingStrategy},
-    error::SchedulerResult, cache_aligned::CacheAligned, Box,
+    error::SchedulerResult, CacheAligned, Box,
 };
 use std::{
     sync::{

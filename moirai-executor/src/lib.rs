@@ -43,7 +43,7 @@
 //! - **Blocking Threads**: Long-running blocking operations (dynamically sized)
 
 use moirai_core::{
-    cache_aligned::CacheAligned,
+    CacheAligned,
     error::{ExecutorError, ExecutorResult, TaskError},
     executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus, TaskStats, ExecutorPlugin, CleanupConfig, ExecutorControl, Executor},
     scheduler::{Scheduler, SchedulerId},

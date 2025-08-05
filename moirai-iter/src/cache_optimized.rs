@@ -9,16 +9,7 @@ use std::ptr;
 use std::sync::Arc;
 
 // Import CacheAligned from moirai-core
-
-/// Wrapper to make raw pointers Send
-struct SendPtr<T>(*mut T);
-unsafe impl<T> Send for SendPtr<T> {}
-
-impl<T> SendPtr<T> {
-    unsafe fn as_ptr(&self) -> *mut T {
-        self.0
-    }
-}
+use crate::base::SendPtr;
 
 /// Wrapper to make const raw pointers Send  
 #[allow(dead_code)]

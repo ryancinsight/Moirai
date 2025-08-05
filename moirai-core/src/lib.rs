@@ -25,11 +25,12 @@ pub mod executor;
 pub mod scheduler;
 pub mod error;
 pub mod pool;
-pub mod cache_aligned;
 
 // Unified channel implementation
 #[cfg(feature = "std")]
 pub mod channel;
+
+// CacheAligned is imported from moirai-utils
 
 #[cfg(feature = "coroutine")]
 pub mod coroutine;
@@ -49,7 +50,7 @@ pub mod metrics;
 #[cfg(feature = "std")]
 pub mod security;
 
-pub mod hybrid;
+// pub mod hybrid; // Removed: Duplicate implementation, using moirai-executor::HybridExecutor instead
 
 // Core type definitions
 pub use task::{Task, TaskId, Priority, TaskContext, TaskFuture, TaskExt, BoxedTask, TaskHandle, TaskBuilder};
@@ -64,6 +65,9 @@ pub use channel::{
     MpmcChannel, MpmcSender, MpmcReceiver,
     spsc, mpmc, unbounded, Select
 };
+
+// Re-export CacheAligned from moirai-utils for convenience
+pub use moirai_utils::CacheAligned;
 
 #[cfg(feature = "coroutine")]
 pub use coroutine::{

@@ -7,6 +7,31 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::marker::PhantomData;
+use std::sync::Mutex;
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
+
+/// A pointer wrapper that is Send but not Sync.
+/// Used for zero-copy operations where we need to send raw pointers between threads.
+/// 
+/// # Safety
+/// The pointer must remain valid for the lifetime of the SendPtr.
+/// The user must ensure proper synchronization when accessing the pointed data.
+#[derive(Debug)]
+pub(crate) struct SendPtr<T>(pub(crate) *mut T);
+
+unsafe impl<T> Send for SendPtr<T> {}
+
+impl<T> SendPtr<T> {
+    /// Get the raw pointer.
+    /// 
+    /// # Safety
+    /// The caller must ensure the pointer is valid and properly synchronized.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn as_ptr(&self) -> *mut T {
+        self.0
+    }
+}
 
 /// Core trait for all execution contexts, providing common functionality.
 /// This follows the Interface Segregation Principle by defining minimal required methods.

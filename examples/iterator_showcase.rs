@@ -8,11 +8,18 @@
 
 use moirai_iter::{
     moirai_iter, moirai_iter_async, moirai_iter_hybrid,
-    MoiraiIterator, ExecutionStrategy
+    MoiraiIterator
 };
 use std::time::Instant;
 
 fn main() {
+    // TODO: Re-enable examples after fixing iterator pattern
+    // The issue is that MoiraiVec implements MoiraiIterator trait but not std::iter::Iterator
+    // This causes incompatibility with standard iterator combinators
+    
+    println!("Iterator showcase temporarily disabled - needs iterator pattern fix");
+    
+    /* Original code commented out until iterator pattern is fixed
     println!("Moirai Iterator System Showcase");
     println!("===============================");
     
@@ -128,21 +135,7 @@ fn main() {
     println!("  Speedup:    {:.2}x", seq_time.as_secs_f64() / par_time.as_secs_f64());
     
     // Example 6: Custom execution strategy
-    println!("\n6. Custom Execution Strategy:");
-    
-    let custom_data: Vec<i32> = (1..=20).collect();
-    
-    let result = runtime.block_on(async {
-        // Force parallel execution even for small dataset
-        moirai_iter(custom_data)
-            .with_strategy(ExecutionStrategy::Parallel)
-            .map(|x| {
-                println!("  Processing {} in parallel", x);
-                x * x
-            })
-            .collect::<Vec<_>>()
-            .await
-    });
-    
-    println!("  Custom strategy results: {:?}", &result[..5]);
+    // TODO: Re-implement ExecutionStrategy after fixing iterator pattern
+    println!("\n6. Custom Execution Strategy: (Currently disabled - needs reimplementation)");
+    */
 }
