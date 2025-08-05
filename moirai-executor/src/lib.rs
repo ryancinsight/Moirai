@@ -1404,19 +1404,21 @@ impl HybridExecutor {
         }
 
         // Create result communication channels
-        let (result_sender, result_receiver) = std::sync::mpsc::channel::<T::Output>();
+        let (result_sender, result_receiver) = std::sync::mpsc::channel::<Result<T::Output, TaskError>>();
         
         // Create a wrapper that converts the task to BoxedTask
         struct BoxedTaskWrapper<T: Task> {
             task: Option<T>,
-            result_sender: std::sync::mpsc::Sender<T::Output>,
+            result_sender: std::sync::mpsc::Sender<Result<T::Output, TaskError>>,
             context: TaskContext,
         }
         
         impl<T: Task> BoxedTask for BoxedTaskWrapper<T> {
             fn execute_boxed(mut self: Box<Self>) {
                 if let Some(task) = self.task.take() {
-                    let result = task.execute();
+                    // Catch panics and convert to TaskError
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| task.execute()))
+                        .map_err(|_| TaskError::Panicked);
                     let _ = self.result_sender.send(result);
                 }
             }
@@ -1507,7 +1509,8 @@ impl TaskSpawner for HybridExecutor {
         
         // Wrap the future to send result directly through channel
         let future_wrapper = async move {
-            let result = future.await;
+            // For async tasks, we wrap the result in Ok since async tasks don't panic the same way
+            let result = Ok(future.await);
             let _ = result_sender.send(result);
         };
         
@@ -1539,7 +1542,9 @@ impl TaskSpawner for HybridExecutor {
         
         // Wrap the function to send result through dedicated channel
         let func_wrapper = move || {
-            let result = func();
+            // Catch panics and convert to TaskError
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(func))
+                .map_err(|_| TaskError::Panicked);
             let _ = result_sender.send(result);
         };
         

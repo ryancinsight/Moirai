@@ -706,8 +706,36 @@ mod tests {
             
             // Try to get the result
             if let Some(result) = handle.join() {
-                assert_eq!(result, 4950); // Sum of 0..100
+                assert_eq!(result, Ok(4950)); // Sum of 0..100
             }
+        }
+    }
+
+    #[test]
+    fn test_task_panic_handling() {
+        let moirai = Moirai::new().unwrap();
+        
+        // Spawn a task that panics
+        let mut handle = moirai.spawn_fn(|| {
+            panic!("Task intentionally panicked!");
+        });
+        
+        // Give the task time to execute and panic
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        
+        // The result should be an error indicating the task panicked
+        let result = handle.join();
+        assert!(result.is_some(), "Should get a result even if task panicked");
+        
+        if let Some(Err(error)) = result {
+            match error {
+                TaskError::Panicked => {
+                    // Expected - task panicked as intended
+                }
+                _ => panic!("Expected TaskError::Panicked but got {:?}", error),
+            }
+        } else {
+            panic!("Expected Some(Err(TaskError::Panicked)) but got {:?}", result);
         }
     }
 
@@ -822,15 +850,15 @@ mod tests {
         
         // If we get results, verify they're correct
         if let Some(result) = result1 {
-            assert_eq!(result, 84);
+            assert_eq!(result, Ok(84));
         }
         
         if let Some(result) = result2 {
-            assert_eq!(result, "Hello, Moirai".to_string());
+            assert_eq!(result, Ok("Hello, Moirai".to_string()));
         }
         
         if let Some(result) = result3 {
-            assert_eq!(result, 3628800); // 10!
+            assert_eq!(result, Ok(3628800)); // 10!
         }
     }
 
