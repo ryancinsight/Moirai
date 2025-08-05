@@ -62,7 +62,7 @@ impl<'a, T> Iterator for Windows<'a, T> {
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        if self.size > self.slice.len() {
+        if self.size > self.slice.len() || self.pos + self.size > self.slice.len() {
             (0, Some(0))
         } else {
             let remaining = self.slice.len() - self.pos - self.size + 1;
