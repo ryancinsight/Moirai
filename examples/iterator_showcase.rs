@@ -6,7 +6,11 @@
 //! - Hybrid execution strategies
 //! - Advanced iterator combinators
 
-use moirai_iter::{moirai_iter, moirai_iter_async, moirai_iter_hybrid};
+use moirai::prelude::*;
+use moirai_iter::{
+    moirai_iter, moirai_iter_async, moirai_iter_hybrid, moirai_iter_hybrid_with_config,
+    MoiraiIterator, ExecutionStrategy, HybridConfig
+};
 use std::time::{Duration, Instant};
 
 fn main() {
@@ -19,7 +23,9 @@ fn main() {
     let numbers: Vec<i32> = (1..=1000).collect();
     let start = Instant::now();
     
-    let result = futures::executor::block_on(async {
+    // Use block_on from moirai runtime
+    let runtime = moirai::Moirai::new().unwrap();
+    let result = runtime.block_on(async {
         moirai_iter(numbers.clone())
             .map(|x| {
                 // Simulate CPU-intensive work
@@ -48,11 +54,11 @@ fn main() {
     
     let start = Instant::now();
     
-    let results = futures::executor::block_on(async {
+    let results = runtime.block_on(async {
         moirai_iter_async(urls)
             .map(|url| async move {
                 // Simulate async I/O operation
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                std::thread::sleep(Duration::from_millis(10));
                 format!("Fetched: {}", url)
             })
             .collect::<Vec<_>>()
@@ -67,7 +73,7 @@ fn main() {
     let mixed_data: Vec<i32> = (1..=10000).collect();
     let start = Instant::now();
     
-    let result = futures::executor::block_on(async {
+    let result = runtime.block_on(async {
         moirai_iter_hybrid(mixed_data)
             .batch(100)
             .map(|batch| {
@@ -86,7 +92,7 @@ fn main() {
     let data1: Vec<i32> = (1..=5).collect();
     let data2: Vec<i32> = (6..=10).collect();
     
-    let result = futures::executor::block_on(async {
+    let result = runtime.block_on(async {
         moirai_iter(data1)
             .chain(moirai_iter(data2))
             .map(|x| x * 2)
@@ -109,7 +115,7 @@ fn main() {
     
     // Parallel execution
     let start = Instant::now();
-    let par_result = futures::executor::block_on(async {
+    let par_result = runtime.block_on(async {
         moirai_iter(test_data.clone())
             .map(|x| x as i64 * x as i64)
             .reduce(|a, b| a + b)
@@ -126,10 +132,10 @@ fn main() {
     
     let custom_data: Vec<i32> = (1..=20).collect();
     
-    let result = futures::executor::block_on(async {
+    let result = runtime.block_on(async {
         // Force parallel execution even for small dataset
         moirai_iter(custom_data)
-            .with_strategy_override(moirai_iter::ExecutionStrategy::Parallel)
+            .with_strategy(ExecutionStrategy::Parallel)
             .map(|x| {
                 println!("  Processing {} in parallel", x);
                 x * x

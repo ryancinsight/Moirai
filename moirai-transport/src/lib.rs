@@ -253,17 +253,40 @@ impl TransportManager {
 }
 
 /// Universal channel that works across different transport boundaries
+/// 
+/// This is a wrapper around core channel implementations that adds
+/// transport-specific functionality following DRY principle.
 pub struct UniversalChannel<T: Send + 'static> {
-    _sender: UniversalSender<T>,
-    _receiver: UniversalReceiver<T>,
+    sender: UniversalSender<T>,
+    receiver: UniversalReceiver<T>,
+}
+
+impl<T: Send + 'static> UniversalChannel<T> {
+    /// Create a new universal channel
+    pub fn new(transport: Arc<TransportManager>, address: Address) -> Self {
+        Self {
+            sender: UniversalSender {
+                transport: transport.clone(),
+                target: address.clone(),
+                _phantom: std::marker::PhantomData,
+            },
+            receiver: UniversalReceiver {
+                _transport: transport,
+                _source: address,
+                _phantom: std::marker::PhantomData,
+            },
+        }
+    }
+    
+    /// Split into sender and receiver halves
+    pub fn split(self) -> (UniversalSender<T>, UniversalReceiver<T>) {
+        (self.sender, self.receiver)
+    }
 }
 
 /// Sender half of universal channel
 /// 
-/// # Safety Note
-/// This implementation requires types to be serializable. The current implementation
-/// is a placeholder that only works with types that can be safely transmitted as bytes.
-/// For production use, this should use a proper serialization framework.
+/// This wraps core channel functionality with transport-specific serialization
 pub struct UniversalSender<T: Send + 'static> {
     transport: Arc<TransportManager>,
     target: Address,

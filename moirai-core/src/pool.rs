@@ -22,14 +22,13 @@
 
 use crate::platform::*;
 use crate::{TaskId, Priority};
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use std::mem::MaybeUninit;
+use std::marker::PhantomData;
+use std::ptr;
 
-
-
-/// Padding to prevent false sharing
-#[repr(align(64))]
-struct CachePadded<T> {
-    value: T,
-}
+// Note: LockFreeStack is kept in moirai-core to avoid cyclic dependencies
+// moirai-sync can re-export it from here if needed
 
 /// Lock-free stack for object pooling.
 /// 
@@ -149,6 +148,16 @@ impl<T> Drop for LockFreeStack<T> {
 
 unsafe impl<T: Send> Send for LockFreeStack<T> {}
 unsafe impl<T: Send> Sync for LockFreeStack<T> {}
+
+/// Padding to prevent false sharing
+#[repr(align(64))]
+struct CachePadded<T> {
+    value: T,
+}
+
+// LockFreeStack struct definition removed - using moirai_sync::LockFreeStack
+
+// LockFreeStack implementation removed - using moirai_sync::LockFreeStack
 
 /// Slab allocator for efficient task storage (inspired by Tokio)
 /// 

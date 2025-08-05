@@ -3,9 +3,7 @@
 //! This module provides specialized synchronization primitives that add value
 //! beyond the standard library, following YAGNI and DRY principles.
 
-use std::sync::{
-    atomic::{AtomicU64, AtomicBool, Ordering, AtomicI32, AtomicPtr},
-};
+use std::sync::atomic::{AtomicU64, AtomicBool, Ordering, AtomicI32};
 use std::cell::UnsafeCell;
 use std::ops::{Deref, DerefMut};
 use std::hint;
@@ -345,82 +343,8 @@ impl<'a, T> DerefMut for SpinLockGuard<'a, T> {
     }
 }
 
-/// Lock-free stack using Treiber's algorithm.
-/// This provides a high-performance alternative to mutex-protected collections.
-pub struct LockFreeStack<T> {
-    head: AtomicPtr<Node<T>>,
-}
-
-struct Node<T> {
-    data: T,
-    next: *mut Node<T>,
-}
-
-unsafe impl<T: Send> Send for LockFreeStack<T> {}
-unsafe impl<T: Send> Sync for LockFreeStack<T> {}
-
-impl<T> LockFreeStack<T> {
-    /// Create a new lock-free stack.
-    pub fn new() -> Self {
-        Self {
-            head: AtomicPtr::new(std::ptr::null_mut()),
-        }
-    }
-
-    /// Push an item onto the stack.
-    pub fn push(&self, data: T) {
-        let node = Box::into_raw(Box::new(Node {
-            data,
-            next: std::ptr::null_mut(),
-        }));
-
-        loop {
-            let head = self.head.load(Ordering::Relaxed);
-            unsafe { (*node).next = head; }
-            
-            match self.head.compare_exchange_weak(
-                head,
-                node,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => break,
-                Err(_) => continue,
-            }
-        }
-    }
-
-    /// Pop an item from the stack.
-    pub fn pop(&self) -> Option<T> {
-        loop {
-            let head = self.head.load(Ordering::Acquire);
-            if head.is_null() {
-                return None;
-            }
-
-            let next = unsafe { (*head).next };
-            
-            match self.head.compare_exchange_weak(
-                head,
-                next,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => {
-                    let node = unsafe { Box::from_raw(head) };
-                    return Some(node.data);
-                }
-                Err(_) => continue,
-            }
-        }
-    }
-}
-
-impl<T> Drop for LockFreeStack<T> {
-    fn drop(&mut self) {
-        while self.pop().is_some() {}
-    }
-}
+// Re-export LockFreeStack from moirai-core to maintain DRY principle
+pub use moirai_core::pool::LockFreeStack;
 
 /// Concurrent hash map with segment-based locking for scalability.
 /// This provides better scalability than a single mutex-protected HashMap.
