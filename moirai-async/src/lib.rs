@@ -795,11 +795,30 @@ mod tests {
 
     #[test]
     fn test_timer() {
-        let timer = Timer::new(Duration::from_millis(10));
-        assert!(!timer.is_expired());
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
         
-        std::thread::sleep(Duration::from_millis(15));
-        assert!(timer.is_expired());
+        let executor = AsyncExecutor::new();
+        let completed = Arc::new(AtomicBool::new(false));
+        let completed_clone = completed.clone();
+        
+        executor.spawn(async move {
+            timer::sleep(Duration::from_millis(10)).await;
+            completed_clone.store(true, Ordering::Relaxed);
+        });
+        
+        // Timer shouldn't complete immediately
+        assert!(!completed.load(Ordering::Relaxed));
+        
+        // Run executor until timer completes
+        let start = std::time::Instant::now();
+        while !completed.load(Ordering::Relaxed) && start.elapsed() < Duration::from_millis(50) {
+            executor.poll_next();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        
+        // Timer should have completed
+        assert!(completed.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -856,11 +875,10 @@ pub mod timer {
     use std::pin::Pin;
     use std::task::{Context, Poll, Waker};
     use std::time::{Duration, Instant};
-    use std::sync::{Arc, Mutex};
     use std::collections::BinaryHeap;
     use std::cmp::Ordering;
     use std::thread;
-    use moirai_core::channel::{mpmc, MpmcSender, MpmcReceiver};
+    use moirai_core::channel::{mpmc, MpmcSender};
     
     /// Timer commands sent through the channel
     enum TimerCommand {
@@ -991,71 +1009,59 @@ pub mod timer {
                 let mut timers = BinaryHeap::<TimerEntry>::new();
                 
                 loop {
-                    // Calculate how long to wait
-                    let wait_duration = if let Some(entry) = timers.peek() {
-                        let now = Instant::now();
-                        if entry.deadline <= now {
-                            // We have an expired timer, don't wait
-                            Duration::from_millis(0)
-                        } else {
-                            // Wait until the next timer expires, but cap at 100ms
-                            std::cmp::min(entry.deadline - now, Duration::from_millis(100))
-                        }
-                    } else {
-                        // No timers, wait up to 100ms for new commands
-                        Duration::from_millis(100)
-                    };
-                    
-                    // If we have no wait time, just check for commands once
-                    if wait_duration == Duration::from_millis(0) {
-                        // Process all pending commands without blocking
-                        while let Ok(cmd) = receiver.try_recv() {
-                            match cmd {
-                                TimerCommand::Register { deadline, waker } => {
-                                    timers.push(TimerEntry { deadline, waker });
-                                }
-                                TimerCommand::Shutdown => {
-                                    return; // Exit the thread
-                                }
-                            }
-                        }
-                    } else {
-                        // Use blocking recv for the first command, then drain any additional
-                        match receiver.recv() {
-                            Ok(TimerCommand::Register { deadline, waker }) => {
+                    // Process all pending commands (non-blocking)
+                    let mut shutdown = false;
+                    while let Ok(cmd) = receiver.try_recv() {
+                        match cmd {
+                            TimerCommand::Register { deadline, waker } => {
                                 timers.push(TimerEntry { deadline, waker });
-                                
-                                // Drain any additional pending commands
-                                while let Ok(cmd) = receiver.try_recv() {
-                                    match cmd {
-                                        TimerCommand::Register { deadline, waker } => {
-                                            timers.push(TimerEntry { deadline, waker });
-                                        }
-                                        TimerCommand::Shutdown => {
-                                            return; // Exit the thread
-                                        }
-                                    }
-                                }
                             }
-                            Ok(TimerCommand::Shutdown) => {
-                                return; // Exit the thread
-                            }
-                            Err(_) => {
-                                // Channel closed, exit
-                                return;
+                            TimerCommand::Shutdown => {
+                                shutdown = true;
+                                break;
                             }
                         }
                     }
                     
+                    if shutdown {
+                        return;
+                    }
+                    
                     // Process expired timers
                     let now = Instant::now();
+                    let mut wakers_to_wake = Vec::new();
+                    
                     while let Some(entry) = timers.peek() {
                         if entry.deadline <= now {
                             let entry = timers.pop().unwrap();
-                            entry.waker.wake();
+                            wakers_to_wake.push(entry.waker);
                         } else {
                             break;
                         }
+                    }
+                    
+                    // Wake all expired timers outside of the critical section
+                    for waker in wakers_to_wake {
+                        waker.wake();
+                    }
+                    
+                    // Calculate sleep duration until next timer
+                    let sleep_duration = if let Some(entry) = timers.peek() {
+                        let now = Instant::now();
+                        if entry.deadline > now {
+                            // Sleep until next timer, but wake up periodically to check for new commands
+                            std::cmp::min(entry.deadline - now, Duration::from_millis(10))
+                        } else {
+                            // Timer already expired, process immediately
+                            Duration::from_millis(0)
+                        }
+                    } else {
+                        // No timers, sleep briefly before checking for new commands
+                        Duration::from_millis(10)
+                    };
+                    
+                    if sleep_duration > Duration::from_millis(0) {
+                        thread::sleep(sleep_duration);
                     }
                 }
             });
