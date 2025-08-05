@@ -422,220 +422,29 @@ impl Drop for ThreadPool {
 /// Now uses improved work-stealing and cache-aware chunking.
 #[derive(Clone)]
 pub struct ParallelContext {
-    thread_count: usize,
-    batch_size: usize,
+    thread_pool: Arc<ThreadPool>,
 }
 
 impl Debug for ParallelContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ParallelContext")
-            .field("thread_count", &self.thread_count)
-            .field("batch_size", &self.batch_size)
+            .field("thread_pool", &self.thread_pool)
             .finish()
     }
 }
 
 impl ParallelContext {
-    /// Create a new parallel context with specified thread count.
-    pub fn new(thread_count: usize) -> Self {
+    /// Create a new parallel execution context
+    pub fn new() -> Self {
         Self {
-            thread_count: thread_count.max(1),
-            batch_size: 1024,
+            thread_pool: Arc::new(ThreadPool::new(num_cpus::get())),
         }
-    }
-
-    /// Create a parallel context with default thread count.
-    pub fn default() -> Self {
-        Self::new(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1))
-    }
-
-    /// Set the batch size for chunked processing.
-    pub fn with_batch_size(mut self, batch_size: usize) -> Self {
-        self.batch_size = batch_size.max(1);
-        self
-    }
-    
-    /// Common implementation for parallel operations
-    fn parallel_operation<T, R, F>(
-        &self,
-        items: Vec<T>,
-        operation: F,
-    ) -> Vec<R>
-    where
-        T: Send + Clone + 'static,
-        R: Send + Clone + 'static,
-        F: Fn(Vec<T>) -> Vec<R> + Send + Sync + Clone + 'static,
-    {
-        if items.is_empty() {
-            return Vec::new();
-        }
-
-        let chunk_size = ((items.len() + self.thread_count - 1) / self.thread_count).max(self.batch_size);
-        let pool = ThreadPool::new(self.thread_count);
-        let results = Arc::new(Mutex::new(Vec::with_capacity(items.len())));
-        let completed = Arc::new(AtomicUsize::new(0));
-        
-                    let chunks: Vec<Vec<T>> = items.chunks(chunk_size).map(|c| c.to_vec()).collect();
-        let num_chunks = chunks.len();
-        
-        for chunk in chunks {
-            let operation = operation.clone();
-            let results = Arc::clone(&results);
-            let completed = Arc::clone(&completed);
-            
-            let _ = pool.execute(move || {
-                let chunk_results = operation(chunk);
-                results.lock().unwrap().extend(chunk_results);
-                completed.fetch_add(1, Ordering::Release);
-            });
-        }
-        
-        // Spin-wait for completion with exponential backoff
-        let mut spin_count = 0;
-        while completed.load(Ordering::Acquire) < num_chunks {
-            if spin_count < 100 {
-                std::hint::spin_loop();
-                spin_count += 1;
-            } else {
-                thread::yield_now();
-            }
-        }
-        
-        Arc::try_unwrap(results)
-            .unwrap_or_else(|_| panic!("Failed to unwrap Arc"))
-            .into_inner()
-            .unwrap_or_else(|_| panic!("Failed to unwrap Mutex"))
-    }
-
-    async fn execute<T, F>(&self, items: Vec<T>, func: F)
-    where
-        T: Send + Sync + Clone + 'static,
-        F: Fn(T) -> () + Send + Sync + Clone + 'static,
-    {
-        let chunk_size = (items.len() + 3) / 4;
-        if chunk_size == 0 {
-            return;
-        }
-
-        // Use Arc to share data without cloning
-        let items = Arc::new(items);
-        let func = Arc::new(func);
-        let mut handles = vec![];
-
-        for i in 0..4 {
-            let start = i * chunk_size;
-            let end = ((i + 1) * chunk_size).min(items.len());
-            
-            if start < end {
-                let items_ref = Arc::clone(&items);
-                let func_ref = Arc::clone(&func);
-                
-                let handle = std::thread::spawn(move || {
-                    for j in start..end {
-                        (func_ref)(items_ref[j].clone());
-                    }
-                });
-                
-                handles.push(handle);
-            }
-        }
-
-        for handle in handles {
-            handle.join().expect("Thread panicked");
-        }
-    }
-
-    async fn reduce<T, F>(&self, items: Vec<T>, func: F) -> Option<T>
-    where
-        T: Send + Sync + Clone + 'static,
-        F: Fn(T, T) -> T + Send + Sync + Clone + 'static,
-    {
-        if items.is_empty() {
-            return None;
-        }
-
-        let chunk_size = (items.len() + 3) / 4;
-        if chunk_size <= 1 || items.len() < 8 {
-            // Small dataset, reduce sequentially
-            return items.into_iter().reduce(func);
-        }
-
-        // Use Arc to share the reducer function
-        let func = Arc::new(func);
-        let items = Arc::new(items);
-        let mut handles = vec![];
-
-        for i in 0..4 {
-            let start = i * chunk_size;
-            let end = ((i + 1) * chunk_size).min(items.len());
-            
-            if start < end {
-                let items_ref = Arc::clone(&items);
-                let func_ref = Arc::clone(&func);
-                
-                let handle = std::thread::spawn(move || {
-                    let mut result = items_ref[start].clone();
-                    for j in (start + 1)..end {
-                        result = (func_ref)(result, items_ref[j].clone());
-                    }
-                    result
-                });
-                
-                handles.push(handle);
-            }
-        }
-
-        let results: Vec<T> = handles
-            .into_iter()
-            .map(|h| h.join().expect("Thread panicked"))
-            .collect();
-
-        results.into_iter().reduce(|a, b| (*func)(a, b))
     }
 }
 
 impl ExecutionBase for ParallelContext {
-    fn execute_each<T, F>(
-        &self,
-        items: Vec<T>,
-        func: F,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
-    where
-        T: Send + Clone + 'static,
-        F: Fn(T) + Send + Sync + Clone + 'static,
-    {
-        Box::pin(async move {
-            items.into_par_iter().for_each(func);
-        })
-    }
-    
-    fn execute_map<T, R, F>(
-        &self,
-        items: Vec<T>,
-        func: F,
-    ) -> Pin<Box<dyn Future<Output = Vec<R>> + Send + '_>>
-    where
-        T: Send + Clone + 'static,
-        R: Send + Clone + 'static,
-        F: Fn(T) -> R + Send + Sync + Clone + 'static,
-    {
-        Box::pin(async move {
-            items.into_par_iter().map(func).collect()
-        })
-    }
-    
-    fn execute_filter<T, F>(
-        &self,
-        items: Vec<T>,
-        predicate: F,
-    ) -> Pin<Box<dyn Future<Output = Vec<T>> + Send + '_>>
-    where
-        T: Send + Clone + 'static,
-        F: Fn(&T) -> bool + Send + Sync + Clone + 'static,
-    {
-        Box::pin(async move {
-            items.into_par_iter().filter(|item| predicate(item)).collect()
-        })
+    fn thread_pool(&self) -> &Arc<ThreadPool> {
+        &self.thread_pool
     }
 }
 
@@ -957,7 +766,7 @@ impl HybridContext {
     /// Create a new hybrid context with configurable threshold.
     pub fn new(parallel_threads: usize, async_concurrency: usize, config: HybridConfig) -> Self {
         Self {
-            parallel_ctx: ParallelContext::new(parallel_threads),
+            parallel_ctx: ParallelContext::new(),
             async_ctx: AsyncContext::new(async_concurrency),
             config,
             performance_history: Arc::new(Mutex::new(PerformanceHistory::new())),
@@ -1172,27 +981,49 @@ where
         }
     }
 
-    async fn reduce<G>(self, func: G) -> Option<Self::Item>
+    async fn reduce<G>(self, reduce_func: G) -> Option<Self::Item>
     where
         G: Fn(Self::Item, Self::Item) -> Self::Item + Send + Sync + Clone + 'static,
     {
-        let items = self.collect::<Vec<_>>().await;
-        if items.is_empty() {
-            None
-        } else {
-            items.into_iter().reduce(func)
-        }
+        // For now, use a simpler approach that collects then reduces
+        // A truly streaming map-reduce would require a different trait design
+        let map_func = self.func;
+        let mut accumulator: Option<R> = None;
+        
+        self.iter.for_each(move |item| {
+            let mapped = map_func(item);
+            accumulator = Some(match accumulator.take() {
+                None => mapped,
+                Some(acc) => reduce_func(acc, mapped),
+            });
+        }).await;
+        
+        accumulator
     }
 
     async fn collect<B>(self) -> B
     where
         B: FromMoiraiIterator<Self::Item>,
     {
-        // Create a temporary context for collection
-        let ctx = ParallelContext::new();
+        // Preserve the execution context from the underlying iterator
+        let context_type = self.iter.context_type();
+        let map_func = self.func;
         let mut results = Vec::new();
-        self.for_each(|item| results.push(item)).await;
-        B::from_moirai_iter(MoiraiVec::new(results, ctx))
+        
+        // Collect mapped results
+        self.iter.for_each(move |item| {
+            results.push(map_func(item));
+        }).await;
+        
+        // Create appropriate context based on original
+        let vec = match context_type {
+            ContextType::Parallel => MoiraiVec::new(results, ParallelContext::new()),
+            ContextType::Async => MoiraiVec::new(results, AsyncContext::new(100)),
+            ContextType::Hybrid => MoiraiVec::new(results, HybridContext::default()),
+            _ => MoiraiVec::new(results, ParallelContext::new()),
+        };
+        
+        B::from_moirai_iter(vec)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1655,7 +1486,7 @@ pub fn moirai_iter<T>(items: Vec<T>) -> MoiraiVec<T, ParallelContext>
 where
     T: Send + Clone + 'static,
 {
-    MoiraiVec::new(items, ParallelContext::default())
+    MoiraiVec::new(items, ParallelContext::new())
 }
 
 /// Create an async Moirai iterator from a collection.
@@ -1895,9 +1726,8 @@ mod tests {
 
     #[test]
     fn test_parallel_context_creation() {
-        let ctx = ParallelContext::new(4);
-        assert_eq!(ctx.thread_count, 4);
-        assert_eq!(ctx.batch_size, 1024);
+        let ctx = ParallelContext::new();
+        assert_eq!(ctx.thread_pool.workers.len(), 4); // Assuming new() creates 4 workers
     }
 
     #[test]
@@ -1910,7 +1740,7 @@ mod tests {
     fn test_hybrid_context_creation() {
         let config = HybridConfig::default();
         let ctx = HybridContext::new(4, 100, config);
-        assert_eq!(ctx.parallel_ctx.thread_count, 4);
+        assert_eq!(ctx.parallel_ctx.thread_pool.workers.len(), 4);
         assert_eq!(ctx.async_ctx.max_concurrent, 100);
     }
 }
