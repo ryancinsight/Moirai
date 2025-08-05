@@ -506,6 +506,219 @@ impl<T> Iterator for StreamingIter<T> {
     }
 }
 
+/// Zero-copy scan iterator that maintains state without cloning
+/// 
+/// This iterator applies a stateful transformation to each element,
+/// similar to fold but yielding intermediate results.
+pub struct ScanRef<'a, I, St, F> {
+    iter: I,
+    state: St,
+    f: F,
+    _phantom: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a, I, St, F, B> Iterator for ScanRef<'a, I, St, F>
+where
+    I: Iterator,
+    F: FnMut(&mut St, I::Item) -> Option<B>,
+{
+    type Item = B;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = self.iter.next()?;
+        (self.f)(&mut self.state, item)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let (_, upper) = self.iter.size_hint();
+        (0, upper)
+    }
+}
+
+/// Zero-copy fold that works with borrowed data
+/// 
+/// This allows folding over iterators of references without cloning
+pub fn fold_ref<I, B, F>(iter: I, init: B, mut f: F) -> B
+where
+    I: Iterator,
+    F: FnMut(B, &I::Item) -> B,
+    I::Item: AsRef<I::Item>,
+{
+    let mut accum = init;
+    for item in iter {
+        accum = f(accum, item.as_ref());
+    }
+    accum
+}
+
+/// Zero-copy partition iterator
+/// 
+/// Partitions elements into two collections based on a predicate,
+/// working with references to avoid cloning.
+pub struct PartitionRef<I, F> {
+    iter: I,
+    predicate: F,
+}
+
+impl<I, F> PartitionRef<I, F>
+where
+    I: Iterator,
+    F: FnMut(&I::Item) -> bool,
+{
+    /// Consume the iterator and partition into two collections
+    pub fn partition<A, B>(mut self) -> (A, B)
+    where
+        A: Default + Extend<I::Item>,
+        B: Default + Extend<I::Item>,
+    {
+        let mut left = A::default();
+        let mut right = B::default();
+        
+        for item in self.iter {
+            if (self.predicate)(&item) {
+                left.extend(Some(item));
+            } else {
+                right.extend(Some(item));
+            }
+        }
+        
+        (left, right)
+    }
+}
+
+/// Advanced iterator adapter for in-place modification
+/// 
+/// This allows modifying elements in-place without creating new allocations
+pub struct UpdateInPlace<'a, T, I, F> {
+    iter: I,
+    updater: F,
+    _phantom: std::marker::PhantomData<&'a mut T>,
+}
+
+impl<'a, T, I, F> Iterator for UpdateInPlace<'a, T, I, F>
+where
+    I: Iterator<Item = &'a mut T>,
+    F: FnMut(&mut T),
+{
+    type Item = &'a mut T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|item| {
+            (self.updater)(item);
+            item
+        })
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+/// Extension trait for advanced zero-copy operations
+pub trait AdvancedIteratorExt: Iterator + Sized {
+    /// Create a scan iterator that applies a function to an accumulator
+    fn scan_state<St, F, B>(self, initial_state: St, f: F) -> Scan<Self, St, F>
+    where
+        F: FnMut(&mut St, Self::Item) -> Option<B>,
+    {
+        Scan {
+            iter: self,
+            state: initial_state,
+            f,
+        }
+    }
+
+    /// Create a flat map iterator
+    fn flat_map_iter<U, F>(self, f: F) -> FlatMap<Self, U, F>
+    where
+        U: IntoIterator,
+        F: FnMut(Self::Item) -> U,
+    {
+        FlatMap {
+            iter: self,
+            f,
+            frontiter: None,
+            backiter: None,
+        }
+    }
+
+    /// Create an inspect iterator
+    fn inspect_each<F>(self, f: F) -> Inspect<Self, F>
+    where
+        F: FnMut(&Self::Item),
+    {
+        Inspect { iter: self, f }
+    }
+
+    /// Create a peekable iterator
+    fn peekable_iter(self) -> Peekable<Self> {
+        Peekable {
+            iter: self,
+            peeked: None,
+        }
+    }
+
+    /// Create a skip while iterator
+    fn skip_while_iter<P>(self, predicate: P) -> SkipWhile<Self, P>
+    where
+        P: FnMut(&Self::Item) -> bool,
+    {
+        SkipWhile {
+            iter: self,
+            flag: false,
+            predicate,
+        }
+    }
+
+    /// Create a step by iterator
+    fn step_by_iter(self, step: usize) -> StepBy<Self> {
+        assert!(step != 0);
+        StepBy {
+            iter: self,
+            step: step - 1,
+            first_take: true,
+        }
+    }
+
+    /// Create a cycle iterator
+    fn cycle_iter(self) -> Cycle<Self>
+    where
+        Self: Clone,
+    {
+        Cycle {
+            orig: self.clone(),
+            iter: self,
+        }
+    }
+
+    /// Scan with a stateful transformation
+    fn scan_ref<St, F, B>(self, initial_state: St, f: F) -> ScanRef<'static, Self, St, F>
+    where
+        F: FnMut(&mut St, Self::Item) -> Option<B>,
+    {
+        ScanRef {
+            iter: self,
+            state: initial_state,
+            f,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Partition based on a predicate without cloning
+    fn partition_ref<F>(self, predicate: F) -> PartitionRef<Self, F>
+    where
+        F: FnMut(&Self::Item) -> bool,
+    {
+        PartitionRef { iter: self, predicate }
+    }
+}
+
+impl<I: Iterator + Sized> AdvancedIteratorExt for I {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
