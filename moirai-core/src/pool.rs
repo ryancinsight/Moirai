@@ -155,9 +155,9 @@ struct CachePadded<T> {
     value: T,
 }
 
-// LockFreeStack struct definition removed - using moirai_sync::LockFreeStack
+// LockFreeStack struct definition is canonical here; moirai_sync re-exports LockFreeStack from moirai_core
 
-// LockFreeStack implementation removed - using moirai_sync::LockFreeStack
+// LockFreeStack implementation is canonical here; moirai_sync re-exports LockFreeStack from moirai_core
 
 /// Slab allocator for efficient task storage (inspired by Tokio)
 /// 
