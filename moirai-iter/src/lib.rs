@@ -147,6 +147,14 @@ pub use numa_aware::{NumaIteratorExt, NumaPolicy, NumaAwareContext};
 pub mod prefetch;
 pub use prefetch::{PrefetchExt, SlicePrefetchExt, PrefetchChunks};
 
+pub mod windows;
+pub mod combinators;
+
+// Re-export window iterators
+pub use windows::{Windows, WindowsMut, Chunks, ChunksMut, ChunksExact, ChunksExactMut};
+// Re-export combinators
+pub use combinators::{Scan, FlatMap, Inspect, Peekable, SkipWhile, StepBy, Cycle};
+
 /// Core trait for Moirai iterators supporting multiple execution contexts.
 /// 
 /// This trait provides a unified interface for iteration that can be executed

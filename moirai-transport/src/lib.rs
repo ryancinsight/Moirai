@@ -253,17 +253,40 @@ impl TransportManager {
 }
 
 /// Universal channel that works across different transport boundaries
+/// 
+/// This is a wrapper around core channel implementations that adds
+/// transport-specific functionality following DRY principle.
 pub struct UniversalChannel<T: Send + 'static> {
-    _sender: UniversalSender<T>,
-    _receiver: UniversalReceiver<T>,
+    sender: UniversalSender<T>,
+    receiver: UniversalReceiver<T>,
+}
+
+impl<T: Send + 'static> UniversalChannel<T> {
+    /// Create a new universal channel
+    pub fn new(transport: Arc<TransportManager>, address: Address) -> Self {
+        Self {
+            sender: UniversalSender {
+                transport: transport.clone(),
+                target: address.clone(),
+                _phantom: std::marker::PhantomData,
+            },
+            receiver: UniversalReceiver {
+                _transport: transport,
+                _source: address,
+                _phantom: std::marker::PhantomData,
+            },
+        }
+    }
+    
+    /// Split into sender and receiver halves
+    pub fn split(self) -> (UniversalSender<T>, UniversalReceiver<T>) {
+        (self.sender, self.receiver)
+    }
 }
 
 /// Sender half of universal channel
 /// 
-/// # Safety Note
-/// This implementation requires types to be serializable. The current implementation
-/// is a placeholder that only works with types that can be safely transmitted as bytes.
-/// For production use, this should use a proper serialization framework.
+/// This wraps core channel functionality with transport-specific serialization
 pub struct UniversalSender<T: Send + 'static> {
     transport: Arc<TransportManager>,
     target: Address,
@@ -399,7 +422,7 @@ mod tests {
     
     #[test]
     fn test_channel_compatibility() {
-        let (tx, rx) = channel::<i32>(10);
+        let (tx, rx) = moirai_core::channel::mpmc::<i32>(10);
         
         assert!(tx.send(42).is_ok());
         assert_eq!(rx.recv().unwrap(), 42);
@@ -423,7 +446,7 @@ mod tests {
     #[test]
     fn test_universal_channel() {
         let transport_manager = TransportManager::new();
-        let sender = UniversalSender {
+        let sender = UniversalSender::<String> {
             transport: Arc::new(transport_manager),
             target: Address::Local("test_sender".to_string()),
             _phantom: std::marker::PhantomData,

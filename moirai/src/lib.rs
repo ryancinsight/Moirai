@@ -235,7 +235,7 @@ pub use moirai_metrics::MetricsCollector;
 
 // Re-export async functionality
 #[cfg(feature = "async")]
-pub use moirai_async::*;
+pub use moirai_async::{*, timer::sleep};
 
 // Re-export iterator functionality
 #[cfg(feature = "iter")]

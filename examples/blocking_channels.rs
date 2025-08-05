@@ -102,36 +102,6 @@ fn demonstrate_channel_trait_polymorphism() {
     let mpmc_channel = mpmc::<i32>(5);
     
     // Test blocking behavior through the trait
-    test_blocking_through_trait("SPSC", spsc_channel.0, spsc_channel.1);
-    test_blocking_through_trait("MPMC", mpmc_channel.0, mpmc_channel.1);
-}
-
-fn test_blocking_through_trait<T>(
-    name: &str,
-    tx: impl Channel<i32> + Send + 'static,
-    rx: impl Channel<i32> + Send + 'static,
-) {
-    println!("   - Testing {} through Channel trait:", name);
-    
-    // Fill channel to capacity
-    for i in 0..5 {
-        tx.send(i).unwrap();
-    }
-    
-    // Spawn receiver
-    let handle = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(50));
-        for _ in 0..5 {
-            rx.recv().unwrap();
-        }
-    });
-    
-    // This should block until receiver makes space
-    let start = Instant::now();
-    tx.send(99).unwrap();
-    let elapsed = start.elapsed();
-    
-    println!("     Blocked for {:?} (expected ~50ms)", elapsed);
-    
-    handle.join().unwrap();
+    // Note: Generic trait testing removed as Channel trait is for the channel itself,
+    // not for sender/receiver halves
 }

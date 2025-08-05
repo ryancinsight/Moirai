@@ -62,3 +62,4 @@ split-debuginfo = "unpacked"
 [profile.test]
 opt-level = 1
 debug = true
+

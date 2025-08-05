@@ -47,6 +47,16 @@ path = "../examples/sync_primitives.rs"
 name = "performance_demo"
 path = "../examples/performance_demo.rs"
 
+[[example]]
+name = "async_timer"
+path = "../examples/async_timer.rs"
+required-features = ["async"]
+
+[[example]]
+name = "iterator_showcase_simple"
+path = "../examples/iterator_showcase_simple.rs"
+required-features = ["iter"]
+
 [features]
 default = ["async", "iter", "local"]
 full = ["async", "iter", "distributed", "metrics", "numa", "futex", "encryption"]

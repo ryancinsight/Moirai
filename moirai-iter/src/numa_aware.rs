@@ -263,7 +263,7 @@ impl ExecutionContext for NumaAwareContext {
                 return Vec::new();
             }
             
-            let total_items = items.len();
+            let _total_items = items.len();
             
             if let Some(ref topology) = *self.topology {
                 let numa_nodes = topology.numa_nodes.len();
