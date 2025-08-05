@@ -26,6 +26,9 @@ use std::fmt::Debug;
 use std::thread;
 use std::time::{Duration, Instant};
 
+// Use moirai channels for async communication
+use moirai_core::channel::{unbounded, Sender, Receiver};
+
 // Simple parallel execution helper
 trait IntoParallelIterator {
     type Item: Send;
@@ -647,11 +650,15 @@ impl ExecutionContext for ParallelContext {
             return;
         }
 
-        // Use Arc to share data without cloning
+        // Use the thread pool instead of spawning threads directly
+        let thread_pool = self.thread_pool();
         let items = Arc::new(items);
         let func = Arc::new(func);
-        let mut handles = vec![];
-
+        
+        // Use moirai channels for async communication
+        let (tx, rx) = unbounded::<()>();
+        let mut senders = vec![];
+        
         for i in 0..4 {
             let start = i * chunk_size;
             let end = ((i + 1) * chunk_size).min(items.len());
@@ -659,19 +666,24 @@ impl ExecutionContext for ParallelContext {
             if start < end {
                 let items_ref = Arc::clone(&items);
                 let func_ref = Arc::clone(&func);
+                let pool = thread_pool.clone();
+                let tx = tx.clone();
+                senders.push(tx.clone());
                 
-                let handle = std::thread::spawn(move || {
+                pool.execute(move || {
                     for j in start..end {
                         (func_ref)(items_ref[j].clone());
                     }
+                    let _ = tx.send(());
                 });
-                
-                handles.push(handle);
             }
         }
-
-        for handle in handles {
-            handle.join().expect("Thread panicked");
+        
+        drop(tx); // Drop original sender
+        
+        // Wait for all tasks to complete
+        for _ in senders {
+            let _ = rx.recv().await;
         }
     }
 
@@ -690,11 +702,15 @@ impl ExecutionContext for ParallelContext {
             return items.into_iter().reduce(func);
         }
 
-        // Use Arc to share the reducer function
+        // Use the thread pool for parallel reduction
+        let thread_pool = self.thread_pool();
         let func = Arc::new(func);
         let items = Arc::new(items);
-        let mut handles = vec![];
-
+        
+        // Use moirai channels for results
+        let (tx, rx) = unbounded::<T>();
+        let mut num_chunks = 0;
+        
         for i in 0..4 {
             let start = i * chunk_size;
             let end = ((i + 1) * chunk_size).min(items.len());
@@ -702,24 +718,30 @@ impl ExecutionContext for ParallelContext {
             if start < end {
                 let items_ref = Arc::clone(&items);
                 let func_ref = Arc::clone(&func);
+                let tx = tx.clone();
                 
-                let handle = std::thread::spawn(move || {
+                thread_pool.execute(move || {
                     let mut result = items_ref[start].clone();
                     for j in (start + 1)..end {
                         result = (func_ref)(result, items_ref[j].clone());
                     }
-                    result
+                    let _ = tx.send(result);
                 });
                 
-                handles.push(handle);
+                num_chunks += 1;
             }
         }
-
-        let results: Vec<T> = handles
-            .into_iter()
-            .map(|h| h.join().expect("Thread panicked"))
-            .collect();
-
+        
+        drop(tx); // Close the sender
+        
+        // Collect results asynchronously
+        let mut results = Vec::with_capacity(num_chunks);
+        for _ in 0..num_chunks {
+            if let Ok(result) = rx.recv().await {
+                results.push(result);
+            }
+        }
+        
         results.into_iter().reduce(|a, b| (*func)(a, b))
     }
 
@@ -1092,7 +1114,7 @@ struct YieldNow {
 impl Future for YieldNow {
     type Output = ();
     
-    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
         if self.yielded {
             Poll::Ready(())
         } else {

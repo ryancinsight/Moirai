@@ -510,14 +510,13 @@ impl<T> Iterator for StreamingIter<T> {
 /// 
 /// This iterator applies a stateful transformation to each element,
 /// similar to fold but yielding intermediate results.
-pub struct ScanRef<'a, I, St, F> {
+pub struct ScanRef<I, St, F> {
     iter: I,
     state: St,
     f: F,
-    _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a, I, St, F, B> Iterator for ScanRef<'a, I, St, F>
+impl<I, St, F, B> Iterator for ScanRef<I, St, F>
 where
     I: Iterator,
     F: FnMut(&mut St, I::Item) -> Option<B>,
@@ -696,7 +695,7 @@ pub trait AdvancedIteratorExt: Iterator + Sized {
     }
 
     /// Scan with a stateful transformation
-    fn scan_ref<St, F, B>(self, initial_state: St, f: F) -> ScanRef<'static, Self, St, F>
+    fn scan_ref<St, F, B>(self, initial_state: St, f: F) -> ScanRef<Self, St, F>
     where
         F: FnMut(&mut St, Self::Item) -> Option<B>,
     {
@@ -704,7 +703,6 @@ pub trait AdvancedIteratorExt: Iterator + Sized {
             iter: self,
             state: initial_state,
             f,
-            _phantom: std::marker::PhantomData,
         }
     }
 

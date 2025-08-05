@@ -293,7 +293,8 @@ impl PerformanceMetrics {
 pub struct SlidingWindow<'a, T> {
     data: &'a [T],
     window_size: usize,
-    position: usize,
+    front_position: usize,
+    back_position: usize,
 }
 
 impl<'a, T> SlidingWindow<'a, T> {
@@ -301,10 +302,12 @@ impl<'a, T> SlidingWindow<'a, T> {
     #[inline]
     pub fn new(data: &'a [T], window_size: usize) -> Self {
         assert!(window_size > 0, "Window size must be positive");
+        let back_position = data.len().saturating_sub(window_size);
         Self {
             data,
             window_size,
-            position: 0,
+            front_position: 0,
+            back_position,
         }
     }
 }
@@ -314,11 +317,13 @@ impl<'a, T> Iterator for SlidingWindow<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.position + self.window_size > self.data.len() {
+        if self.front_position + self.window_size > self.data.len() {
+            None
+        } else if self.front_position > self.back_position {
             None
         } else {
-            let window = &self.data[self.position..self.position + self.window_size];
-            self.position += 1;
+            let window = &self.data[self.front_position..self.front_position + self.window_size];
+            self.front_position += 1;
             Some(window)
         }
     }
@@ -327,8 +332,10 @@ impl<'a, T> Iterator for SlidingWindow<'a, T> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         if self.window_size > self.data.len() {
             (0, Some(0))
+        } else if self.front_position > self.back_position {
+            (0, Some(0))
         } else {
-            let remaining = self.data.len() - self.position - self.window_size + 1;
+            let remaining = self.back_position - self.front_position + 1;
             (remaining, Some(remaining))
         }
     }
@@ -337,13 +344,19 @@ impl<'a, T> Iterator for SlidingWindow<'a, T> {
 impl<'a, T> DoubleEndedIterator for SlidingWindow<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.position + self.window_size > self.data.len() {
+        if self.back_position + self.window_size > self.data.len() {
+            None
+        } else if self.front_position > self.back_position {
             None
         } else {
-            let end = self.data.len() - self.position;
-            let start = end - self.window_size;
-            self.position += 1;
-            Some(&self.data[start..end])
+            let window = &self.data[self.back_position..self.back_position + self.window_size];
+            if self.back_position > 0 {
+                self.back_position -= 1;
+            } else {
+                // Ensure we don't iterate this window again
+                self.front_position = self.data.len();
+            }
+            Some(window)
         }
     }
 }
@@ -351,7 +364,11 @@ impl<'a, T> DoubleEndedIterator for SlidingWindow<'a, T> {
 impl<'a, T> ExactSizeIterator for SlidingWindow<'a, T> {
     #[inline]
     fn len(&self) -> usize {
-        self.size_hint().0
+        if self.window_size > self.data.len() || self.front_position > self.back_position {
+            0
+        } else {
+            self.back_position - self.front_position + 1
+        }
     }
 }
 
