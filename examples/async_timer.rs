@@ -66,19 +66,17 @@ fn main() {
     let start = Instant::now();
     
     runtime.block_on(async {
-        use moirai_iter::moirai_iter_async;
-        
         let items = vec!["first", "second", "third", "fourth", "fifth"];
         
         // Process items with async delays
-        let results = moirai_iter_async(items)
-            .map(|item| async move {
-                println!("Processing '{}' with 100ms delay...", item);
-                moirai::sleep(Duration::from_millis(100)).await;
-                format!("Processed: {}", item)
-            })
-            .collect::<Vec<_>>()
-            .await;
+        // Note: Async iterator processing would require proper async map implementation
+        // For now, we'll demonstrate with sequential processing
+        let mut results = Vec::new();
+        for item in items {
+            println!("Processing '{}' with 100ms delay...", item);
+            moirai::sleep(Duration::from_millis(100)).await;
+            results.push(format!("Processed: {}", item));
+        }
         
         println!("Results: {:?}", results);
     });
@@ -92,19 +90,19 @@ fn main() {
         use moirai::timeout;
         
         // Task that completes in time
-        match timeout(Duration::from_millis(200), async {
+        match timeout(async {
             moirai::sleep(Duration::from_millis(100)).await;
             "Task completed successfully"
-        }).await {
+        }, Duration::from_millis(200)).await {
             Ok(result) => println!("Success: {}", result),
             Err(_) => println!("Task timed out"),
         }
         
         // Task that times out
-        match timeout(Duration::from_millis(100), async {
+        match timeout(async {
             moirai::sleep(Duration::from_millis(200)).await;
             "This won't be reached"
-        }).await {
+        }, Duration::from_millis(100)).await {
             Ok(result) => println!("Success: {}", result),
             Err(_) => println!("Task timed out as expected"),
         }

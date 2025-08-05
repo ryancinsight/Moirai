@@ -333,7 +333,7 @@ impl<T> Future for AsyncHandle<T> {
 /// - Minimal overhead when not timed out
 pub struct Timeout<F> {
     future: Pin<Box<F>>,
-    timer: Timer,
+    delay: timer::Delay,
 }
 
 impl<F> Timeout<F> {
@@ -341,7 +341,7 @@ impl<F> Timeout<F> {
     pub fn new(future: F, duration: Duration) -> Self {
         Self {
             future: Box::pin(future),
-            timer: Timer::new(duration),
+            delay: timer::Delay::new(duration),
         }
     }
 }
@@ -351,7 +351,7 @@ impl<F: Future> Future for Timeout<F> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Check if the timer has expired first
-        if Pin::new(&mut self.timer).poll(cx).is_ready() {
+        if Pin::new(&mut self.delay).poll(cx).is_ready() {
             return Poll::Ready(Err(TimeoutError));
         }
 
@@ -849,7 +849,6 @@ mod tests {
 }
 
 pub use timer::{Timer, Delay, sleep};
-pub use timeout::{Timeout, timeout};
 
 /// Async timer utilities for Moirai
 pub mod timer {
@@ -979,7 +978,7 @@ pub mod timer {
     impl Timer {
         /// Create a new timer
         fn new() -> Self {
-            let timers = Arc::new(Mutex::new(BinaryHeap::new()));
+            let timers = Arc::new(Mutex::new(BinaryHeap::<TimerEntry>::new()));
             let shutdown = Arc::new(Mutex::new(false));
             
             let timers_clone = timers.clone();

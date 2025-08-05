@@ -120,9 +120,9 @@ impl<'a, T> ExactSizeIterator for Windows<'a, T> {}
 /// Mutable iterator over overlapping windows of a slice
 #[derive(Debug)]
 pub struct WindowsMut<'a, T> {
-    slice: &'a mut [T],
-    size: usize,
-    pos: usize,
+    _slice: &'a mut [T],
+    _size: usize,
+    _pos: usize,
     _phantom: PhantomData<&'a mut T>,
 }
 
@@ -135,9 +135,9 @@ impl<'a, T> WindowsMut<'a, T> {
     pub fn new(slice: &'a mut [T], size: usize) -> Self {
         assert!(size != 0, "window size must be non-zero");
         WindowsMut {
-            slice,
-            size,
-            pos: 0,
+            _slice: slice,
+            _size: size,
+            _pos: 0,
             _phantom: PhantomData,
         }
     }

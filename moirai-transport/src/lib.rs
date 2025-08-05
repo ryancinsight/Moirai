@@ -422,7 +422,7 @@ mod tests {
     
     #[test]
     fn test_channel_compatibility() {
-        let (tx, rx) = channel::<i32>(10);
+        let (tx, rx) = moirai_core::channel::mpmc::<i32>(10);
         
         assert!(tx.send(42).is_ok());
         assert_eq!(rx.recv().unwrap(), 42);
@@ -446,7 +446,7 @@ mod tests {
     #[test]
     fn test_universal_channel() {
         let transport_manager = TransportManager::new();
-        let sender = UniversalSender {
+        let sender = UniversalSender::<String> {
             transport: Arc::new(transport_manager),
             target: Address::Local("test_sender".to_string()),
             _phantom: std::marker::PhantomData,

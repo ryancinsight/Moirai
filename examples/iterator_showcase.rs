@@ -6,16 +6,11 @@
 //! - Hybrid execution strategies
 //! - Advanced iterator combinators
 
-use moirai::prelude::*;
 use moirai_iter::{
-    moirai_iter, moirai_iter_async, moirai_iter_hybrid, moirai_iter_hybrid_with_config,
-    MoiraiIterator, ExecutionStrategy, HybridConfig
+    moirai_iter, moirai_iter_async, moirai_iter_hybrid,
+    MoiraiIterator, ExecutionStrategy
 };
-use std::time::{Duration, Instant};
-
-// Import async sleep if available
-#[cfg(feature = "async")]
-use moirai::sleep;
+use std::time::Instant;
 
 fn main() {
     println!("Moirai Iterator System Showcase");

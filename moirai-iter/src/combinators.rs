@@ -601,20 +601,18 @@ mod tests {
     #[test]
     fn test_scan() {
         let numbers = vec![1, 2, 3, 4, 5];
-        let sums: Vec<_> = numbers.into_iter()
-            .scan(0, |state, x| {
-                *state += x;
-                Some(*state)
-            })
-            .collect();
+        let sums: Vec<_> = CombinatorExt::scan(numbers.into_iter(), 0, |state, x| {
+            *state += x;
+            Some(*state)
+        })
+        .collect();
         assert_eq!(sums, vec![1, 3, 6, 10, 15]);
     }
 
     #[test]
     fn test_flat_map() {
         let data = vec![vec![1, 2], vec![3, 4], vec![5]];
-        let flattened: Vec<_> = data.into_iter()
-            .flat_map(|v| v.into_iter())
+        let flattened: Vec<_> = CombinatorExt::flat_map(data.into_iter(), |v| v.into_iter())
             .collect();
         assert_eq!(flattened, vec![1, 2, 3, 4, 5]);
     }
@@ -622,8 +620,7 @@ mod tests {
     #[test]
     fn test_inspect() {
         let mut inspected = Vec::new();
-        let data: Vec<_> = (1..=5)
-            .inspect(|x| inspected.push(*x))
+        let data: Vec<_> = CombinatorExt::inspect(1..=5, |x| inspected.push(*x))
             .map(|x| x * 2)
             .collect();
         assert_eq!(data, vec![2, 4, 6, 8, 10]);
@@ -632,7 +629,7 @@ mod tests {
 
     #[test]
     fn test_peekable() {
-        let mut iter = vec![1, 2, 3].into_iter().peekable();
+        let mut iter = CombinatorExt::peekable(vec![1, 2, 3].into_iter());
         assert_eq!(iter.peek(), Some(&1));
         assert_eq!(iter.peek(), Some(&1));
         assert_eq!(iter.next(), Some(1));
@@ -641,28 +638,26 @@ mod tests {
 
     #[test]
     fn test_skip() {
-        let data: Vec<_> = (1..=10).skip(5).collect();
+        let data: Vec<_> = CombinatorExt::skip(1..=10, 5).collect();
         assert_eq!(data, vec![6, 7, 8, 9, 10]);
     }
 
     #[test]
     fn test_skip_while() {
-        let data: Vec<_> = (1..=10)
-            .skip_while(|&x| x < 5)
+        let data: Vec<_> = CombinatorExt::skip_while(1..=10, |&x| x < 5)
             .collect();
         assert_eq!(data, vec![5, 6, 7, 8, 9, 10]);
     }
 
     #[test]
     fn test_step_by() {
-        let data: Vec<_> = (0..10).step_by(2).collect();
+        let data: Vec<_> = CombinatorExt::step_by(0..10, 2).collect();
         assert_eq!(data, vec![0, 2, 4, 6, 8]);
     }
 
     #[test]
     fn test_cycle() {
-        let data: Vec<_> = vec![1, 2, 3].into_iter()
-            .cycle()
+        let data: Vec<_> = CombinatorExt::cycle(vec![1, 2, 3].into_iter())
             .take(10)
             .collect();
         assert_eq!(data, vec![1, 2, 3, 1, 2, 3, 1, 2, 3, 1]);
