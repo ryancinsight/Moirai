@@ -43,7 +43,7 @@
 //! - **Blocking Threads**: Long-running blocking operations (dynamically sized)
 
 use moirai_core::{
-    cache_aligned::CacheAligned,
+    CacheAligned,
     error::{ExecutorError, ExecutorResult, TaskError},
     executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus, TaskStats, ExecutorPlugin, CleanupConfig, ExecutorControl, Executor},
     scheduler::{Scheduler, SchedulerId},
@@ -59,7 +59,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll, Waker},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering, AtomicUsize},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock, Condvar,
         mpsc::{self, Receiver, Sender},
     },
@@ -257,38 +257,10 @@ struct Worker {
     task_metrics: Arc<Mutex<std::collections::HashMap<TaskId, TaskPerformanceMetrics>>>,
 }
 
-/// Enhanced async runtime with I/O event loop integration
-pub struct AsyncRuntime {
-    /// Task queue for ready futures
-    ready_queue: Arc<Mutex<Vec<AsyncTask>>>,
-    /// Waiting tasks indexed by task ID
-    waiting_tasks: Arc<Mutex<HashMap<TaskId, AsyncTask>>>,
-    /// Waker registry for pending tasks
-    wakers: Arc<Mutex<HashMap<TaskId, Waker>>>,
-    /// Notification channel for waking the runtime
-    wake_sender: Sender<TaskId>,
-    wake_receiver: Arc<Mutex<Receiver<TaskId>>>,
-    /// I/O reactor for handling file descriptor events
-    io_reactor: Arc<IoReactor>,
-    /// Shutdown signal
-    shutdown: Arc<AtomicBool>,
-    /// Number of active tasks
-    active_tasks: Arc<AtomicUsize>,
-}
+// AsyncRuntime has been moved to moirai-async for better separation of concerns
+// Use moirai_async::AsyncExecutor for async task execution
 
-/// A scheduled async task with its future and metadata
-struct AsyncTask {
-    task_id: TaskId,
-    future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
-    context: TaskContext,
-}
-
-/// Custom waker that notifies the async runtime when a task is ready
-struct RuntimeWaker {
-    task_id: TaskId,
-    wake_sender: Sender<TaskId>,
-}
-
+/* Commented out - AsyncRuntime moved to moirai-async
 impl AsyncRuntime {
     /// Create a new async runtime with I/O support
     pub fn new() -> Self {
@@ -518,6 +490,7 @@ pub fn get_async_runtime() -> &'static AsyncRuntime {
     // Return reference to the Arc's inner value
     arc_runtime.as_ref()
 }
+*/
 
 /// Wrapper for async tasks that implements the BoxedTask trait with proper async execution
 struct AsyncTaskWrapper<F> {
@@ -546,23 +519,49 @@ where
 {
     fn execute_boxed(mut self: Box<Self>) {
         if let Some(future) = self.future.take() {
-            let task_id = self.task_id;
+            // Since we don't have AsyncRuntime anymore, we need to handle async tasks differently
+            // For now, we'll use a simple block_on approach for compatibility
+            // In production, async tasks should be spawned through spawn_async which handles them properly
             
-            // The future wrapper already handles result sending through channels
-            // No need for global storage - results are sent directly via channels
-            // This eliminates the performance bottleneck of global shared state
+            use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+            use std::pin::Pin;
             
-            // Submit to the async runtime - results handled via dedicated channels
-            let runtime = get_async_runtime();
+            // Create a simple waker that does nothing
+            fn noop_clone(_: *const ()) -> RawWaker {
+                RawWaker::new(std::ptr::null(), &NOOP_WAKER_VTABLE)
+            }
             
-            // Wrap the future to handle the result and return ()
-            let wrapped_future = async move {
-                let _result = future.await;
-                // Result is handled by the AsyncTaskWrapper's channels
-                // The runtime only needs to know the task completed
-            };
+            fn noop(_: *const ()) {}
             
-            runtime.spawn(task_id, wrapped_future);
+            static NOOP_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
+                noop_clone,
+                noop,
+                noop,
+                noop,
+            );
+            
+            let raw_waker = RawWaker::new(std::ptr::null(), &NOOP_WAKER_VTABLE);
+            let waker = unsafe { Waker::from_raw(raw_waker) };
+            let mut context = Context::from_waker(&waker);
+            
+            let mut pinned_future = Box::pin(future);
+            
+            // Simple polling loop with timeout
+            let start = std::time::Instant::now();
+            let timeout = std::time::Duration::from_secs(60); // 60 second timeout for async tasks
+            
+            loop {
+                match pinned_future.as_mut().poll(&mut context) {
+                    Poll::Ready(_) => break,
+                    Poll::Pending => {
+                        if start.elapsed() > timeout {
+                            eprintln!("Warning: AsyncTaskWrapper task {} timed out", self.task_id.0);
+                            break;
+                        }
+                        std::thread::yield_now();
+                    }
+                }
+            }
         }
     }
 
@@ -1404,19 +1403,21 @@ impl HybridExecutor {
         }
 
         // Create result communication channels
-        let (result_sender, result_receiver) = std::sync::mpsc::channel::<T::Output>();
+        let (result_sender, result_receiver) = std::sync::mpsc::channel::<Result<T::Output, TaskError>>();
         
         // Create a wrapper that converts the task to BoxedTask
         struct BoxedTaskWrapper<T: Task> {
             task: Option<T>,
-            result_sender: std::sync::mpsc::Sender<T::Output>,
+            result_sender: std::sync::mpsc::Sender<Result<T::Output, TaskError>>,
             context: TaskContext,
         }
         
         impl<T: Task> BoxedTask for BoxedTaskWrapper<T> {
             fn execute_boxed(mut self: Box<Self>) {
                 if let Some(task) = self.task.take() {
-                    let result = task.execute();
+                    // Catch panics and convert to TaskError
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| task.execute()))
+                        .map_err(|_| TaskError::Panicked);
                     let _ = self.result_sender.send(result);
                 }
             }
@@ -1507,7 +1508,8 @@ impl TaskSpawner for HybridExecutor {
         
         // Wrap the future to send result directly through channel
         let future_wrapper = async move {
-            let result = future.await;
+            // For async tasks, we wrap the result in Ok since async tasks don't panic the same way
+            let result = Ok(future.await);
             let _ = result_sender.send(result);
         };
         
@@ -1539,7 +1541,9 @@ impl TaskSpawner for HybridExecutor {
         
         // Wrap the function to send result through dedicated channel
         let func_wrapper = move || {
-            let result = func();
+            // Catch panics and convert to TaskError
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(func))
+                .map_err(|_| TaskError::Panicked);
             let _ = result_sender.send(result);
         };
         

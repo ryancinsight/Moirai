@@ -34,8 +34,8 @@ fn main() {
     });
     
     // Wait for tasks to complete
-    let result1 = handle1.join().unwrap();
-    let result2 = handle2.join().unwrap();
+    let result1 = handle1.join().unwrap().unwrap();
+    let result2 = handle2.join().unwrap().unwrap();
     println!("  Results: {} and {}", result1, result2);
     
     // Example 2: Using channels
@@ -88,7 +88,7 @@ fn main() {
     });
     
     // Wait for the async task to complete and get its result.
-    let result = async_handle.join().expect("Async task failed");
+    let result = async_handle.join().expect("Async task failed").expect("Task execution failed");
     println!("  Async result: {}", result);
     
     // Example 5: Parallel iteration (using moirai_iter if available)

@@ -63,6 +63,14 @@ impl<T> core::ops::DerefMut for CacheAligned<T> {
     }
 }
 
+impl<T: core::fmt::Debug> core::fmt::Debug for CacheAligned<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CacheAligned")
+            .field("value", &self.0)
+            .finish()
+    }
+}
+
 /// A power-of-two sized ring buffer optimized for single-producer, single-consumer scenarios.
 #[repr(align(64))]
 pub struct RingBuffer<T> {

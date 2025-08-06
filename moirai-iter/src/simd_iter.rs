@@ -5,16 +5,7 @@
 
 use std::marker::PhantomData;
 use std::sync::Arc;
-
-/// Wrapper to make raw pointers Send
-struct SendPtr<T>(*mut T);
-unsafe impl<T> Send for SendPtr<T> {}
-
-impl<T> SendPtr<T> {
-    unsafe fn as_ptr(&self) -> *mut T {
-        self.0
-    }
-}
+use crate::base::SendPtr;
 
 /// SIMD-optimized iterator for f32 operations.
 ///

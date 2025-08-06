@@ -13,16 +13,6 @@ use std::ptr;
 use crate::{ExecutionContext, ExecutionBase, IntoParallelIterator};
 use moirai_scheduler::numa_scheduler::CpuTopology;
 
-/// Wrapper to make raw pointers Send
-struct SendPtr<T>(*mut T);
-unsafe impl<T> Send for SendPtr<T> {}
-
-impl<T> SendPtr<T> {
-    unsafe fn as_ptr(&self) -> *mut T {
-        self.0
-    }
-}
-
 /// NUMA memory allocation policy
 #[derive(Debug, Clone, Copy)]
 pub enum NumaPolicy {

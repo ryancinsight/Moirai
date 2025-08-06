@@ -303,7 +303,7 @@ where
 #[allow(clippy::module_name_repetitions)]
 pub struct TaskHandle<T> {
     id: TaskId,
-    result_receiver: Option<mpsc::Receiver<T>>,
+    result_receiver: Option<mpsc::Receiver<Result<T, TaskError>>>,
 }
 
 #[cfg(feature = "std")]
@@ -317,7 +317,7 @@ impl<T> TaskHandle<T> {
     /// # Returns
     /// A new task handle instance
     #[must_use]
-    pub fn new_with_receiver(id: TaskId, receiver: mpsc::Receiver<T>) -> Self {
+    pub fn new_with_receiver(id: TaskId, receiver: mpsc::Receiver<Result<T, TaskError>>) -> Self {
         Self {
             id,
             result_receiver: Some(receiver),
@@ -351,9 +351,11 @@ impl<T> TaskHandle<T> {
     /// Waits for the task to complete and returns the result.
     ///
     /// # Returns
-    /// `Some(result)` if the task completed successfully, `None` if it was cancelled or detached
+    /// - `Some(Ok(result))` if the task completed successfully
+    /// - `Some(Err(error))` if the task failed with an error
+    /// - `None` if the task was detached or the channel was disconnected
     #[must_use]
-    pub fn join(mut self) -> Option<T> {
+    pub fn join(mut self) -> Option<Result<T, TaskError>> {
         self.result_receiver
             .take()
             .and_then(|receiver| receiver.recv().ok())
@@ -622,6 +624,24 @@ where
         Self {
             base: BaseTask::new(func, context),
         }
+    }
+    
+    /// Chain another operation after this task.
+    pub fn then<G, S>(self, continuation: G) -> Chained<Self, G>
+    where
+        G: FnOnce(R) -> S + Send + 'static,
+        S: Send + 'static,
+    {
+        Chained::new(self, continuation)
+    }
+    
+    /// Map the output of this task.
+    pub fn map<G, S>(self, mapper: G) -> Mapped<Self, G>
+    where
+        G: FnOnce(R) -> S + Send + 'static,
+        S: Send + 'static,
+    {
+        Mapped::new(self, mapper)
     }
 }
 
