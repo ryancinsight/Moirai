@@ -519,12 +519,49 @@ where
 {
     fn execute_boxed(mut self: Box<Self>) {
         if let Some(future) = self.future.take() {
-            let _task_id = self.task_id;
-            let _future = future;
+            // Since we don't have AsyncRuntime anymore, we need to handle async tasks differently
+            // For now, we'll use a simple block_on approach for compatibility
+            // In production, async tasks should be spawned through spawn_async which handles them properly
             
-            // AsyncTaskWrapper is deprecated - async tasks are now handled
-            // directly in spawn_async without a separate runtime
-            panic!("AsyncTaskWrapper is deprecated - use spawn_async directly");
+            use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+            use std::pin::Pin;
+            
+            // Create a simple waker that does nothing
+            fn noop_clone(_: *const ()) -> RawWaker {
+                RawWaker::new(std::ptr::null(), &NOOP_WAKER_VTABLE)
+            }
+            
+            fn noop(_: *const ()) {}
+            
+            static NOOP_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
+                noop_clone,
+                noop,
+                noop,
+                noop,
+            );
+            
+            let raw_waker = RawWaker::new(std::ptr::null(), &NOOP_WAKER_VTABLE);
+            let waker = unsafe { Waker::from_raw(raw_waker) };
+            let mut context = Context::from_waker(&waker);
+            
+            let mut pinned_future = Box::pin(future);
+            
+            // Simple polling loop with timeout
+            let start = std::time::Instant::now();
+            let timeout = std::time::Duration::from_secs(60); // 60 second timeout for async tasks
+            
+            loop {
+                match pinned_future.as_mut().poll(&mut context) {
+                    Poll::Ready(_) => break,
+                    Poll::Pending => {
+                        if start.elapsed() > timeout {
+                            eprintln!("Warning: AsyncTaskWrapper task {} timed out", self.task_id.0);
+                            break;
+                        }
+                        std::thread::yield_now();
+                    }
+                }
+            }
         }
     }
 

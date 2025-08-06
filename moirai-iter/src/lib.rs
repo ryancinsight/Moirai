@@ -1653,15 +1653,36 @@ mod tests {
                 let mut context = TaskContext::from_waker(&waker);
                 let mut future = unsafe { Pin::new_unchecked(&mut future) };
                 
+                // Use a timeout approach instead of panicking
+                let start = std::time::Instant::now();
+                let timeout = std::time::Duration::from_secs(5);
+                let mut spin_count = 0;
+                
                 loop {
                     match future.as_mut().poll(&mut context) {
                         Poll::Ready(output) => return output,
                         Poll::Pending => {
-                            // In a real implementation, we would yield or park the thread
-                            // For tests, we'll just spin a limited number of times
-                            std::thread::yield_now();
-                            // This is a hack - in production use a proper executor
-                            panic!("Future not ready after yielding - use a proper async runtime");
+                            spin_count += 1;
+                            
+                            // Check timeout
+                            if start.elapsed() > timeout {
+                                eprintln!("Warning: Test future timed out after {:?}", timeout);
+                                eprintln!("This likely means the future will never complete.");
+                                eprintln!("Consider using a proper async runtime for testing.");
+                                // Return a default value for tests to continue
+                                // In a real scenario, this would be a Result<T, TimeoutError>
+                                panic!("Test timeout: Future not ready after {}ms", timeout.as_millis());
+                            }
+                            
+                            // Yield occasionally to prevent CPU spinning
+                            if spin_count % 100 == 0 {
+                                std::thread::yield_now();
+                            }
+                            
+                            // Small sleep to prevent busy waiting
+                            if spin_count % 1000 == 0 {
+                                std::thread::sleep(std::time::Duration::from_micros(100));
+                            }
                         }
                     }
                 }

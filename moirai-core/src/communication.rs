@@ -332,6 +332,32 @@ impl<T> RingBuffer<T> {
         self.consumer_seq.value.store(current.wrapping_add(1), Ordering::Release);
         Some(value)
     }
+    
+    /// Get the capacity of the ring buffer
+    pub fn capacity(&self) -> usize {
+        self.buffer.len()
+    }
+    
+    /// Check if the ring buffer is empty
+    pub fn is_empty(&self) -> bool {
+        let consumer = self.consumer_seq.value.load(Ordering::Acquire);
+        let producer = self.producer_seq.value.load(Ordering::Acquire);
+        consumer == producer
+    }
+    
+    /// Check if the ring buffer is full
+    pub fn is_full(&self) -> bool {
+        let consumer = self.consumer_seq.value.load(Ordering::Acquire);
+        let producer = self.producer_seq.value.load(Ordering::Acquire);
+        producer.wrapping_sub(consumer) >= self.buffer.len()
+    }
+    
+    /// Get the number of items currently in the buffer
+    pub fn len(&self) -> usize {
+        let consumer = self.consumer_seq.value.load(Ordering::Acquire);
+        let producer = self.producer_seq.value.load(Ordering::Acquire);
+        producer.wrapping_sub(consumer)
+    }
 }
 
 /// Topic-based publish/subscribe system built on channels

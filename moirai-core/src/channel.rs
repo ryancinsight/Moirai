@@ -570,47 +570,69 @@ pub fn unbounded<T>() -> (MpmcSender<T>, MpmcReceiver<T>) {
 /// This channel uses a lock-free ring buffer with memory barriers
 /// to ensure safe zero-copy communication between async and sync contexts.
 pub struct HybridChannel<T> {
-    #[allow(dead_code)]
     ring: Arc<RingBuffer<T>>,
-    #[allow(dead_code)]
     async_notifier: Arc<AtomicBool>,
-    #[allow(dead_code)]
     sync_notifier: Arc<AtomicBool>,
     /// Parking mechanism for efficient blocking
-    #[allow(dead_code)]
     parker: Arc<Mutex<Vec<std::thread::Thread>>>,
 }
 
 impl<T: Send> HybridChannel<T> {
     /// Create a new hybrid channel with specified capacity
     pub fn new(capacity: usize) -> (HybridSender<T>, HybridReceiver<T>) {
-        let ring = Arc::new(RingBuffer::new(capacity));
-        let async_notifier = Arc::new(AtomicBool::new(false));
-        let sync_notifier = Arc::new(AtomicBool::new(false));
-        let parker = Arc::new(Mutex::new(Vec::new()));
+        let channel = Self {
+            ring: Arc::new(RingBuffer::new(capacity)),
+            async_notifier: Arc::new(AtomicBool::new(false)),
+            sync_notifier: Arc::new(AtomicBool::new(false)),
+            parker: Arc::new(Mutex::new(Vec::new())),
+        };
         
+        channel.split()
+    }
+    
+    /// Split the channel into sender and receiver halves
+    fn split(self) -> (HybridSender<T>, HybridReceiver<T>) {
         let sender = HybridSender {
-            ring: ring.clone(),
-            async_notifier: async_notifier.clone(),
-            sync_notifier: sync_notifier.clone(),
-            parker: parker.clone(),
+            ring: self.ring.clone(),
+            async_notifier: self.async_notifier.clone(),
+            sync_notifier: self.sync_notifier.clone(),
+            parker: self.parker.clone(),
         };
         
         let receiver = HybridReceiver {
-            ring,
-            async_notifier,
-            sync_notifier,
-            parker,
+            ring: self.ring,
+            async_notifier: self.async_notifier,
+            sync_notifier: self.sync_notifier,
+            parker: self.parker,
         };
         
         (sender, receiver)
+    }
+    
+    /// Get the capacity of the channel
+    pub fn capacity(&self) -> usize {
+        self.ring.capacity()
+    }
+    
+    /// Check if the channel is empty
+    pub fn is_empty(&self) -> bool {
+        self.ring.is_empty()
+    }
+    
+    /// Check if the channel is full
+    pub fn is_full(&self) -> bool {
+        self.ring.is_full()
+    }
+    
+    /// Get the number of items currently in the channel
+    pub fn len(&self) -> usize {
+        self.ring.len()
     }
 }
 
 /// Sender half of hybrid channel
 pub struct HybridSender<T> {
     ring: Arc<RingBuffer<T>>,
-    #[allow(dead_code)]
     async_notifier: Arc<AtomicBool>,
     sync_notifier: Arc<AtomicBool>,
     parker: Arc<Mutex<Vec<std::thread::Thread>>>,
@@ -639,14 +661,64 @@ impl<T: Send> HybridSender<T> {
     pub fn try_send(&self, value: T) -> Result<()> {
         self.send(value)
     }
+    
+    /// Send with timeout
+    pub fn send_timeout(&self, mut value: T, timeout: std::time::Duration) -> Result<()> {
+        let start = std::time::Instant::now();
+        
+        loop {
+            match self.ring.try_produce(value) {
+                Ok(()) => {
+                    // Notify waiters
+                    self.async_notifier.store(true, Ordering::Release);
+                    self.sync_notifier.store(true, Ordering::Release);
+                    
+                    // Unpark any waiting threads
+                    if let Ok(mut parked) = self.parker.lock() {
+                        for thread in parked.drain(..) {
+                            thread.unpark();
+                        }
+                    }
+                    
+                    return Ok(());
+                }
+                Err(v) => {
+                    value = v; // Get the value back
+                    if start.elapsed() >= timeout {
+                        return Err(ChannelError::Full);
+                    }
+                    std::thread::yield_now();
+                }
+            }
+        }
+    }
+    
+    /// Check if the sender can send without blocking
+    pub fn can_send(&self) -> bool {
+        !self.ring.is_full()
+    }
+    
+    /// Get the number of items that can be sent without blocking
+    pub fn available_capacity(&self) -> usize {
+        self.ring.capacity() - self.ring.len()
+    }
+}
+
+impl<T> Clone for HybridSender<T> {
+    fn clone(&self) -> Self {
+        Self {
+            ring: self.ring.clone(),
+            async_notifier: self.async_notifier.clone(),
+            sync_notifier: self.sync_notifier.clone(),
+            parker: self.parker.clone(),
+        }
+    }
 }
 
 /// Receiver half of hybrid channel
 pub struct HybridReceiver<T> {
     ring: Arc<RingBuffer<T>>,
-    #[allow(dead_code)]
     async_notifier: Arc<AtomicBool>,
-    #[allow(dead_code)]
     sync_notifier: Arc<AtomicBool>,
     parker: Arc<Mutex<Vec<std::thread::Thread>>>,
 }
@@ -692,6 +764,56 @@ impl<T: Send> HybridReceiver<T> {
         self.ring.try_consume().ok_or(ChannelError::Empty)
     }
     
+    /// Receive with timeout
+    pub fn recv_timeout(&self, timeout: std::time::Duration) -> Result<T> {
+        let start = std::time::Instant::now();
+        
+        loop {
+            match self.try_recv() {
+                Ok(value) => return Ok(value),
+                Err(ChannelError::Empty) => {
+                    if start.elapsed() >= timeout {
+                        return Err(ChannelError::Empty);
+                    }
+                    
+                    // Register for wake-up before checking again
+                    let current_thread = std::thread::current();
+                    if let Ok(mut parked) = self.parker.lock() {
+                        parked.push(current_thread.clone());
+                    }
+                    
+                    // Park with timeout
+                    std::thread::park_timeout(timeout - start.elapsed());
+                    
+                    // Remove from parker list
+                    if let Ok(mut parked) = self.parker.lock() {
+                        parked.retain(|t| !t.id().eq(&current_thread.id()));
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    
+    /// Check if there are messages available
+    pub fn is_empty(&self) -> bool {
+        self.ring.is_empty()
+    }
+    
+    /// Get the number of messages available
+    pub fn len(&self) -> usize {
+        self.ring.len()
+    }
+    
+    /// Drain all available messages
+    pub fn drain(&self) -> Vec<T> {
+        let mut messages = Vec::new();
+        while let Ok(msg) = self.try_recv() {
+            messages.push(msg);
+        }
+        messages
+    }
+    
     /// Async receive for use in async contexts
     #[cfg(feature = "async")]
     pub async fn recv_async(&self) -> Result<T> {
@@ -714,6 +836,40 @@ impl<T: Send> HybridReceiver<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    
+    #[test]
+    fn test_hybrid_channel() {
+        let (tx, rx) = HybridChannel::<i32>::new(4);
+        
+        // Test basic send/receive
+        tx.send(42).unwrap();
+        assert_eq!(rx.recv().unwrap(), 42);
+        
+        // Test try_recv on empty channel
+        assert!(matches!(rx.try_recv(), Err(ChannelError::Empty)));
+        
+        // Test timeout
+        let result = rx.recv_timeout(std::time::Duration::from_millis(100));
+        assert!(matches!(result, Err(ChannelError::Empty)));
+        
+        // Test multiple sends
+        for i in 0..4 {
+            tx.send(i).unwrap();
+        }
+        
+        // Channel should be full
+        assert!(!tx.can_send());
+        assert_eq!(tx.available_capacity(), 0);
+        
+        // Test drain
+        let values = rx.drain();
+        assert_eq!(values, vec![0, 1, 2, 3]);
+        
+        // Test clone
+        let tx2 = tx.clone();
+        tx2.send(100).unwrap();
+        assert_eq!(rx.recv().unwrap(), 100);
+    }
     
     #[test]
     fn test_spsc_channel() {
