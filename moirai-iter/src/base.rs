@@ -7,9 +7,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::marker::PhantomData;
-use std::sync::Mutex;
-use std::collections::VecDeque;
-use std::time::{Duration, Instant};
 
 /// A pointer wrapper that is Send but not Sync.
 /// Used for zero-copy operations where we need to send raw pointers between threads.

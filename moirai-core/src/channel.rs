@@ -570,10 +570,14 @@ pub fn unbounded<T>() -> (MpmcSender<T>, MpmcReceiver<T>) {
 /// This channel uses a lock-free ring buffer with memory barriers
 /// to ensure safe zero-copy communication between async and sync contexts.
 pub struct HybridChannel<T> {
+    #[allow(dead_code)]
     ring: Arc<RingBuffer<T>>,
+    #[allow(dead_code)]
     async_notifier: Arc<AtomicBool>,
+    #[allow(dead_code)]
     sync_notifier: Arc<AtomicBool>,
     /// Parking mechanism for efficient blocking
+    #[allow(dead_code)]
     parker: Arc<Mutex<Vec<std::thread::Thread>>>,
 }
 

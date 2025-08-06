@@ -7,8 +7,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use crate::base::SendPtr;
 
-// SendPtr implementation is now in base module
-
 /// SIMD-optimized iterator for f32 operations.
 ///
 /// Automatically vectorizes operations using platform-specific SIMD instructions.
