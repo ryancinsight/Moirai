@@ -59,7 +59,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll, Waker},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering, AtomicUsize},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock, Condvar,
         mpsc::{self, Receiver, Sender},
     },
@@ -257,38 +257,10 @@ struct Worker {
     task_metrics: Arc<Mutex<std::collections::HashMap<TaskId, TaskPerformanceMetrics>>>,
 }
 
-/// Enhanced async runtime with I/O event loop integration
-pub struct AsyncRuntime {
-    /// Task queue for ready futures
-    ready_queue: Arc<Mutex<Vec<AsyncTask>>>,
-    /// Waiting tasks indexed by task ID
-    waiting_tasks: Arc<Mutex<HashMap<TaskId, AsyncTask>>>,
-    /// Waker registry for pending tasks
-    wakers: Arc<Mutex<HashMap<TaskId, Waker>>>,
-    /// Notification channel for waking the runtime
-    wake_sender: Sender<TaskId>,
-    wake_receiver: Arc<Mutex<Receiver<TaskId>>>,
-    /// I/O reactor for handling file descriptor events
-    io_reactor: Arc<IoReactor>,
-    /// Shutdown signal
-    shutdown: Arc<AtomicBool>,
-    /// Number of active tasks
-    active_tasks: Arc<AtomicUsize>,
-}
+// AsyncRuntime has been moved to moirai-async for better separation of concerns
+// Use moirai_async::AsyncExecutor for async task execution
 
-/// A scheduled async task with its future and metadata
-struct AsyncTask {
-    task_id: TaskId,
-    future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
-    context: TaskContext,
-}
-
-/// Custom waker that notifies the async runtime when a task is ready
-struct RuntimeWaker {
-    task_id: TaskId,
-    wake_sender: Sender<TaskId>,
-}
-
+/* Commented out - AsyncRuntime moved to moirai-async
 impl AsyncRuntime {
     /// Create a new async runtime with I/O support
     pub fn new() -> Self {
@@ -518,6 +490,7 @@ pub fn get_async_runtime() -> &'static AsyncRuntime {
     // Return reference to the Arc's inner value
     arc_runtime.as_ref()
 }
+*/
 
 /// Wrapper for async tasks that implements the BoxedTask trait with proper async execution
 struct AsyncTaskWrapper<F> {
@@ -546,23 +519,12 @@ where
 {
     fn execute_boxed(mut self: Box<Self>) {
         if let Some(future) = self.future.take() {
-            let task_id = self.task_id;
+            let _task_id = self.task_id;
+            let _future = future;
             
-            // The future wrapper already handles result sending through channels
-            // No need for global storage - results are sent directly via channels
-            // This eliminates the performance bottleneck of global shared state
-            
-            // Submit to the async runtime - results handled via dedicated channels
-            let runtime = get_async_runtime();
-            
-            // Wrap the future to handle the result and return ()
-            let wrapped_future = async move {
-                let _result = future.await;
-                // Result is handled by the AsyncTaskWrapper's channels
-                // The runtime only needs to know the task completed
-            };
-            
-            runtime.spawn(task_id, wrapped_future);
+            // AsyncTaskWrapper is deprecated - async tasks are now handled
+            // directly in spawn_async without a separate runtime
+            panic!("AsyncTaskWrapper is deprecated - use spawn_async directly");
         }
     }
 

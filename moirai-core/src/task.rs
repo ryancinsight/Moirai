@@ -625,6 +625,24 @@ where
             base: BaseTask::new(func, context),
         }
     }
+    
+    /// Chain another operation after this task.
+    pub fn then<G, S>(self, continuation: G) -> Chained<Self, G>
+    where
+        G: FnOnce(R) -> S + Send + 'static,
+        S: Send + 'static,
+    {
+        Chained::new(self, continuation)
+    }
+    
+    /// Map the output of this task.
+    pub fn map<G, S>(self, mapper: G) -> Mapped<Self, G>
+    where
+        G: FnOnce(R) -> S + Send + 'static,
+        S: Send + 'static,
+    {
+        Mapped::new(self, mapper)
+    }
 }
 
 impl<F, R> Task for Closure<F, R>

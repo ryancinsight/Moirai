@@ -791,14 +791,13 @@ mod tests {
         assert_eq!(task.execute(), 42);
     }
 
-    // TODO: Implement task chaining
-    // #[test]
-    // fn test_task_chaining() {
-    //     let task = moirai_core::task::TaskBuilder::new().with_id(TaskId::new(1)).build(|| 21);
-    //     
-    //     let chained = task.then(|x| x * 2);
-    //     assert_eq!(chained.execute(), 42);
-    // }
+    #[test]
+    fn test_task_chaining() {
+        let task = moirai_core::task::TaskBuilder::new().with_id(TaskId::new(1)).build(|| 21);
+        
+        let chained = task.then(|x| x * 2);
+        assert_eq!(chained.execute(), 42);
+    }
 
     #[test]
     fn test_task_mapping() {

@@ -51,13 +51,13 @@ fn main() {
     println!("\n5. Usage Pattern:");
     println!("  ```rust");
     println!("  // With async runtime (e.g., tokio)");
-    println!("  let result = runtime.block_on(async {");
+    println!("  let result = runtime.block_on(async {{");
     println!("      moirai_iter(data)");
     println!("          .map(|x| x * 2)");
     println!("          .filter(|&x| x > 10)");
     println!("          .collect::<Vec<_>>()");
     println!("          .await");
-    println!("  });");
+    println!("  }});");
     println!("  ```");
     
     println!("\nFor working examples with async runtime, see:");
