@@ -35,7 +35,7 @@ mod integration_tests {
         });
 
         let result = handle.join();
-        assert_eq!(result.unwrap(), 42);
+        assert_eq!(result.unwrap(), Ok(42));
         assert_eq!(counter.load(Ordering::Relaxed), 1);
     }
 
@@ -68,8 +68,8 @@ mod integration_tests {
         assert_eq!(counter.load(Ordering::Relaxed), task_count as u32);
         
         // Verify results are correct
-        for (i, &result) in results.iter().enumerate() {
-            assert_eq!(result, i * 2);
+        for (i, result) in results.iter().enumerate() {
+            assert_eq!(*result, Ok(i * 2));
         }
         
         // Explicit shutdown to ensure cleanup
@@ -150,8 +150,8 @@ mod integration_tests {
         assert_eq!(counter.load(Ordering::Relaxed), task_count as u32);
         
         // Verify all computations produced results
-        for (i, &result) in results.iter().enumerate() {
-            assert_eq!(result, (i * 2 + 1) as u64, "CPU computation should produce correct result");
+        for (i, result) in results.iter().enumerate() {
+            assert_eq!(*result, Ok((i * 2 + 1) as u64), "CPU computation should produce correct result");
         }
         
         // Explicit shutdown to ensure proper cleanup
@@ -199,8 +199,8 @@ mod integration_tests {
         
         assert_eq!(results.len(), 2);
         // Verify computation results  
-        assert_eq!(results[0], 3);  // 1 + 2
-        assert_eq!(results[1], 5);  // 2 + 3
+        assert_eq!(results[0], Ok(3));  // 1 + 2
+        assert_eq!(results[1], Ok(5));  // 2 + 3
         
         // Explicit shutdown to ensure cleanup
         runtime.shutdown();
@@ -231,7 +231,7 @@ mod integration_tests {
         
         // Verify computation result
         let expected = (0..100).sum::<u64>();
-        assert_eq!(result, expected, "NUMA-aware computation should produce correct result");
+        assert_eq!(result, Ok(expected), "NUMA-aware computation should produce correct result");
     }
 
     /// Stress test with CPU optimizations.
@@ -278,7 +278,10 @@ mod integration_tests {
         
         // Verify all computations completed
         for result in results {
-            assert!(result > 0);
+            match result {
+                Ok(value) => assert!(value > 0),
+                Err(e) => panic!("Task failed with error: {:?}", e),
+            }
         }
         
         println!("CPU-optimized stress test completed {} tasks in {:?}", task_count, duration);
@@ -324,9 +327,9 @@ mod integration_tests {
         let handle3 = runtime.spawn_fn_with_priority(|| 3, Priority::Low);
         
         // Verify all tasks complete successfully
-        assert_eq!(handle1.join(), Some(1));
-        assert_eq!(handle2.join(), Some(2));
-        assert_eq!(handle3.join(), Some(3));
+        assert_eq!(handle1.join(), Some(Ok(1)));
+        assert_eq!(handle2.join(), Some(Ok(2)));
+        assert_eq!(handle3.join(), Some(Ok(3)));
         
         runtime.shutdown();
     }
@@ -361,8 +364,8 @@ mod documentation_tests {
         let critical_result = critical_handle.join().ok_or("Critical task failed")?;
 
         // Validate results
-        assert_eq!(parallel_result, 84);
-        assert_eq!(critical_result, "critical task executed");
+        assert_eq!(parallel_result, Ok(84));
+        assert_eq!(critical_result, Ok("critical task executed"));
 
         // Graceful shutdown with resource cleanup
         runtime.shutdown();
@@ -388,7 +391,7 @@ mod documentation_tests {
         });
 
         let result = handle.join().ok_or("Task failed to complete")?;
-        assert_eq!(result, 94); // (42 * 2) + 10
+        assert_eq!(result, Ok(94)); // (42 * 2) + 10
 
         runtime.shutdown();
         Ok(())
@@ -405,7 +408,7 @@ mod documentation_tests {
         // Test local execution (distributed features are available but not tested in detail)
         let local_handle = runtime.spawn_fn(move || "computed locally");
         let result = local_handle.join().ok_or("Local task failed")?;
-        assert_eq!(result, "computed locally");
+        assert_eq!(result, Ok("computed locally"));
 
         runtime.shutdown();
         Ok(())
@@ -425,7 +428,7 @@ mod documentation_tests {
         });
         let result = handle.join().ok_or("Computation task failed")?;
         
-        assert_eq!(result, 499500); // Sum of 0..1000
+        assert_eq!(result, Ok(499500)); // Sum of 0..1000
         
         runtime.shutdown();
         Ok(())
@@ -448,7 +451,7 @@ mod documentation_tests {
         });
         let result = handle.join().ok_or("Async operation failed")?;
         
-        assert_eq!(result, "async completed");
+        assert_eq!(result, Ok("async completed"));
         
         runtime.shutdown();
         Ok(())
@@ -480,8 +483,8 @@ mod documentation_tests {
         let elapsed = start.elapsed();
         
         // Verify results are correct
-        for (i, &result) in results.iter().enumerate() {
-            assert_eq!(result, i * i);
+        for (i, result) in results.iter().enumerate() {
+            assert_eq!(*result, Ok(i * i));
         }
 
         // Performance assertion: should complete 100 tasks quickly
@@ -536,7 +539,7 @@ mod documentation_tests {
 
         let result = handle.join();
         match result {
-            Some(Err(err)) => assert_eq!(err, "intentional error"),
+            Some(Ok(Err(err))) => assert_eq!(err, "intentional error"),
             _ => panic!("Expected error to be propagated"),
         }
 

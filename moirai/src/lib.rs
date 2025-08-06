@@ -692,7 +692,7 @@ mod tests {
         let moirai = Moirai::new().unwrap();
         
         // Test basic task spawning
-        let mut handle = moirai.spawn_fn(|| {
+        let handle = moirai.spawn_fn(|| {
             (0..100).sum::<i32>()
         });
         
@@ -716,7 +716,7 @@ mod tests {
         let moirai = Moirai::new().unwrap();
         
         // Spawn a task that panics
-        let mut handle = moirai.spawn_fn(|| {
+        let handle = moirai.spawn_fn(|| {
             panic!("Task intentionally panicked!");
         });
         
@@ -813,17 +813,17 @@ mod tests {
         let moirai = Moirai::new().unwrap();
         
         // Test simple computation
-        let mut handle1 = moirai.spawn_fn(|| {
+        let handle1 = moirai.spawn_fn(|| {
             42 * 2
         });
         
         // Test string computation
-        let mut handle2 = moirai.spawn_fn(|| {
+        let handle2 = moirai.spawn_fn(|| {
             format!("Hello, {}", "Moirai")
         });
         
         // Test complex computation
-        let mut handle3 = moirai.spawn_fn(|| {
+        let handle3 = moirai.spawn_fn(|| {
             (1..=10).product::<i32>()
         });
         
