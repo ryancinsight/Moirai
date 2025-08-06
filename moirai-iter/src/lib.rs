@@ -1685,7 +1685,6 @@ mod tests {
 
     #[test]
     #[ignore = "Requires proper async runtime"]
-    #[ignore = "Requires proper async runtime"]
     fn test_parallel_for_each() {
         run_async_test(|| async {
             let items = vec![1, 2, 3, 4, 5];
