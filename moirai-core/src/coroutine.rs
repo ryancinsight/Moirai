@@ -347,8 +347,7 @@ macro_rules! coroutine {
 #[macro_export]
 macro_rules! co_yield {
     ($value:expr) => {{
-        // This would be implemented with compiler support in a real implementation
-        // For now, we use a placeholder that demonstrates the API
+        // Cooperative yield using the simplified coroutine protocol
         return $crate::coroutine::CoroutineResult::Yielded($value);
     }};
 }

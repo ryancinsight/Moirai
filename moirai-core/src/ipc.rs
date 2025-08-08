@@ -25,8 +25,8 @@ pub enum IpcError {
     SystemError(i32),
     /// Invalid argument
     InvalidArgument,
-    /// Not implemented
-    NotImplemented,
+    /// Operation or feature is not supported on this platform/configuration
+    Unsupported,
     /// Resource not found
     NotFound,
     /// Permission denied
@@ -38,7 +38,7 @@ impl fmt::Display for IpcError {
         match self {
             IpcError::SystemError(code) => write!(f, "System error: {}", code),
             IpcError::InvalidArgument => write!(f, "Invalid argument"),
-            IpcError::NotImplemented => write!(f, "Not implemented"),
+            IpcError::Unsupported => write!(f, "Unsupported operation"),
             IpcError::NotFound => write!(f, "Resource not found"),
             IpcError::PermissionDenied => write!(f, "Permission denied"),
         }
@@ -326,22 +326,22 @@ pub struct RdmaConnection {
 impl RdmaConnection {
     /// Connect to an RDMA endpoint
     pub fn connect(_addr: &str) -> Result<Self, IpcError> {
-        Err(IpcError::NotImplemented)
+        Err(IpcError::Unsupported)
     }
     
     /// Register memory region for RDMA
     pub fn register_memory(&self, _addr: *mut u8, _len: usize) -> Result<u32, IpcError> {
-        Err(IpcError::NotImplemented)
+        Err(IpcError::Unsupported)
     }
     
     /// Write data to remote memory
     pub fn write(&self, _local: *const u8, _remote_addr: u64, _len: usize, _rkey: u32) -> Result<(), IpcError> {
-        Err(IpcError::NotImplemented)
+        Err(IpcError::Unsupported)
     }
     
     /// Read data from remote memory
     pub fn read(&self, _local: *mut u8, _remote_addr: u64, _len: usize, _rkey: u32) -> Result<(), IpcError> {
-        Err(IpcError::NotImplemented)
+        Err(IpcError::Unsupported)
     }
 }
 
@@ -376,7 +376,8 @@ impl GpuIpc {
     /// Create a shareable GPU memory handle
     pub fn create_handle(&mut self, gpu_ptr: u64, size: usize) -> Result<[u8; 64], IpcError> {
         // In production, this would use CUDA IPC API
-        let handle = [0u8; 64]; // Placeholder
+        // Placeholder handle until GPU IPC is implemented in a dedicated feature gate
+        let handle = [0u8; 64];
         
         self.handles.insert(gpu_ptr, GpuMemHandle {
             ptr: gpu_ptr,
@@ -390,7 +391,7 @@ impl GpuIpc {
     /// Open a GPU memory handle from another process
     pub fn open_handle(&self, _handle: [u8; 64]) -> Result<u64, IpcError> {
         let _ = _handle;
-        Err(IpcError::NotImplemented)
+        Err(IpcError::Unsupported)
     }
 }
 

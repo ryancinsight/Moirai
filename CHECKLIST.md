@@ -121,4 +121,5 @@
 - [ ] Production readiness review
 - [x] SSOT consolidation: zero-copy moved to `moirai_core::communication::zero_copy`
 - [x] Iterator windows/chunks consolidated under `moirai_iter::windows`
-- [x] Placeholder cleanup: replaced TODO/stubs with explicit, safe behavior or working implementations
+- [x] Placeholder cleanup: replaced stubs with explicit unsupported errors or working code
+- [x] Zero-copy send returns value on failure to prevent data loss

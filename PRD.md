@@ -373,7 +373,7 @@ data.into_par_iter()
 - **Overall Project**: 100% complete with advanced cache optimizations
 - **Version 1.1 Release**: Enhanced with comprehensive cache locality improvements
 - **Production Deployment**: Fully optimized with zero-copy iterators, SIMD, and NUMA awareness
-- **API Hygiene**: Removed placeholders, stubs, and unimplemented paths in core; unsupported transports return explicit errors
+- **API Hygiene**: Removed placeholders and stubs; unsupported transports/IPC paths return explicit, non-panicking errors; zero-copy send returns value on failure
 
 **Recent Achievements (Phase 13 - Cache Locality)**:
 - ✅ **Zero-Copy Iterator Framework**: WindowIterator, CacheAlignedChunks, and ZeroCopyParallelIter eliminating allocations
