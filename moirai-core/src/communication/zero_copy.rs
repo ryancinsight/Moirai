@@ -95,13 +95,13 @@ impl<T> MemoryMappedRing<T> {
         })
     }
 
-    pub fn send_zero_copy(&self, value: T) -> ZeroCopyResult<()> {
+    pub fn send_zero_copy(&self, value: T) -> Result<(), (T, ZeroCopyError)> {
         if self.closed.load(Ordering::Acquire) {
-            return Err(ZeroCopyError::Closed);
+            return Err((value, ZeroCopyError::Closed));
         }
         let p = self.producer_cursor.load(Ordering::Relaxed);
         let c = self.consumer_cursor.load(Ordering::Acquire);
-        if p.wrapping_sub(c) >= self.capacity { return Err(ZeroCopyError::Full); }
+        if p.wrapping_sub(c) >= self.capacity { return Err((value, ZeroCopyError::Full)); }
 
         let ptr = self.buffer.load(Ordering::Relaxed);
         let idx = p & (self.capacity - 1);
@@ -127,7 +127,7 @@ impl<T> MemoryMappedRing<T> {
         Ok(value)
     }
 
-    pub fn try_send(&self, value: T) -> ZeroCopyResult<()> { self.send_zero_copy(value) }
+    pub fn try_send(&self, value: T) -> Result<(), (T, ZeroCopyError)> { self.send_zero_copy(value) }
     pub fn try_recv(&self) -> ZeroCopyResult<T> { self.recv_zero_copy() }
     pub fn close(&self) { self.closed.store(true, Ordering::Release); }
     pub fn is_closed(&self) -> bool { self.closed.load(Ordering::Acquire) }
@@ -176,8 +176,8 @@ impl<T> ZeroCopyChannel<T> {
 
 pub struct ZeroCopySender<T> { ring: Arc<MemoryMappedRing<T>> }
 impl<T> ZeroCopySender<T> {
-    pub fn send(&self, value: T) -> ZeroCopyResult<()> { self.ring.send_zero_copy(value) }
-    pub fn try_send(&self, value: T) -> ZeroCopyResult<()> { self.ring.try_send(value) }
+    pub fn send(&self, value: T) -> Result<(), (T, ZeroCopyError)> { self.ring.send_zero_copy(value) }
+    pub fn try_send(&self, value: T) -> Result<(), (T, ZeroCopyError)> { self.ring.try_send(value) }
     pub fn close(&self) { self.ring.close(); }
     pub fn is_closed(&self) -> bool { self.ring.is_closed() }
 }
@@ -332,10 +332,47 @@ impl<T> AdaptiveBatchSender<T> {
         len >= self.adaptive_threshold.current() || self.last_flush.lock().unwrap().elapsed() > self.max_batch_delay
     }
     fn flush_batch(&self) -> ZeroCopyResult<()> {
-        let mut buf = self.batch_buffer.lock().unwrap();
-        let mut last = self.last_flush.lock().unwrap();
-        while let Some(v) = buf.pop_front() { self.sender.send(v)?; }
-        *last = Instant::now();
+        // Drain the buffer quickly to minimize lock holding
+        let mut drained: VecDeque<T> = {
+            let mut buf = self.batch_buffer.lock().unwrap();
+            buf.drain(..).collect()
+        };
+
+        // Attempt to send drained items without holding locks
+        let mut unsent: VecDeque<T> = VecDeque::new();
+        while let Some(v) = drained.pop_front() {
+            match self.sender.send(v) {
+                Ok(()) => {}
+                Err((v, e)) => {
+                    if matches!(e, ZeroCopyError::Closed) {
+                        // Requeue current and any remaining items preserving order
+                        unsent.push_back(v);
+                        while let Some(rem) = drained.pop_front() { unsent.push_back(rem); }
+                        let mut buf = self.batch_buffer.lock().unwrap();
+                        for x in unsent.into_iter().rev() { buf.push_front(x); }
+                        return Err(ZeroCopyError::Closed);
+                    }
+                    // For transient errors (e.g., Full), collect to requeue and stop
+                    unsent.push_back(v);
+                    while let Some(rem) = drained.pop_front() { unsent.push_back(rem); }
+                    break;
+                }
+            }
+        }
+
+        // Requeue any unsent items at the front to preserve original order
+        if !unsent.is_empty() {
+            let mut buf = self.batch_buffer.lock().unwrap();
+            for x in unsent.into_iter().rev() { buf.push_front(x); }
+            // Partial flush occurred; do not update last flush time
+            return Ok(());
+        }
+
+        // Successful flush; update last flush timestamp with minimal locking
+        {
+            let mut last = self.last_flush.lock().unwrap();
+            *last = Instant::now();
+        }
         Ok(())
     }
     fn adjust_batch_size(&self) {
@@ -400,14 +437,14 @@ impl<T: Send + 'static> ZeroCopyRouter<T> {
     pub fn set_default_route(&mut self, capacity: usize) -> ZeroCopyResult<ZeroCopyReceiver<T>> {
         let (s, r) = ZeroCopyChannel::new(capacity)?; self.default_route = Some(Arc::new(s)); Ok(r)
     }
-    pub fn route(&self, domain: DomainId, message: T) -> ZeroCopyResult<()> {
+    pub fn route(&self, domain: DomainId, message: T) -> Result<(), (T, ZeroCopyError)> {
         self.stats.messages_routed.fetch_add(1, Ordering::Relaxed);
         if let Some(ch) = self.routes.read().unwrap().get(&domain) {
             match ch.send(message) {
                 Ok(()) => { self.stats.zero_copy_sends.fetch_add(1, Ordering::Relaxed); Ok(()) }
-                Err(e) => { self.stats.routing_failures.fetch_add(1, Ordering::Relaxed); Err(e) }
+                Err((msg, e)) => { self.stats.routing_failures.fetch_add(1, Ordering::Relaxed); Err((msg, e)) }
             }
-        } else if let Some(def) = &self.default_route { def.send(message) } else { self.stats.routing_failures.fetch_add(1, Ordering::Relaxed); Err(ZeroCopyError::NoRoute) }
+        } else if let Some(def) = &self.default_route { def.send(message) } else { self.stats.routing_failures.fetch_add(1, Ordering::Relaxed); Err((message, ZeroCopyError::NoRoute)) }
     }
     pub fn stats(&self) -> (usize, usize, usize) { (self.stats.messages_routed.load(Ordering::Relaxed), self.stats.routing_failures.load(Ordering::Relaxed), self.stats.zero_copy_sends.load(Ordering::Relaxed)) }
 }

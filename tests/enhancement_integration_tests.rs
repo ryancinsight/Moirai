@@ -258,10 +258,10 @@ fn test_zero_copy_channels() {
                             messages_sent += 1;
                             break;
                         }
-                        Err(ZeroCopyError::Full) => {
+                        Err((_, ZeroCopyError::Full)) => {
                             thread::yield_now();
                         }
-                        Err(e) => panic!("Unexpected send error: {:?}", e),
+                        Err((_, e)) => panic!("Unexpected send error: {:?}", e),
                     }
                 }
             }
