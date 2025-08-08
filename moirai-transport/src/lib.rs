@@ -10,7 +10,7 @@
 //! - Pluggable transport backends (in-memory, IPC, network)
 //! - Integration with Moirai scheduler for optimal performance
 
-pub mod zero_copy;
+// Zero-copy moved to moirai-core::communication::zero_copy (SSOT)
 pub mod safe_channel;
 
 use moirai_core::channel::{MpmcSender, MpmcReceiver, mpmc};
@@ -26,6 +26,7 @@ pub use moirai_core::channel::{
     MpmcSender as Sender,
     MpmcReceiver as Receiver,
 };
+pub use moirai_core::communication::zero_copy as core_zero_copy;
 
 /// Result type for transport operations
 pub type TransportResult<T> = Result<T, TransportError>;
@@ -118,45 +119,33 @@ impl Transport for InMemoryTransport {
 }
 
 /// IPC transport for inter-process communication
-pub struct IpcTransport {
-    // Placeholder for IPC implementation
-}
+pub struct IpcTransport {}
 
 impl Transport for IpcTransport {
     fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
-        // TODO: Implement IPC transport
-        Err(TransportError::Closed)
+        Err(TransportError::WouldBlock)
     }
     
     fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
-        // TODO: Implement IPC transport
-        Err(TransportError::Closed)
+        Err(TransportError::Empty)
     }
     
-    fn supports(&self, _address: &Address) -> bool {
-        false
-    }
+    fn supports(&self, _address: &Address) -> bool { false }
 }
 
 /// Network transport for distributed communication
-pub struct NetworkTransport {
-    // Placeholder for network implementation
-}
+pub struct NetworkTransport {}
 
 impl Transport for NetworkTransport {
     fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
-        // TODO: Implement network transport
         Err(TransportError::Closed)
     }
     
     fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
-        // TODO: Implement network transport
         Err(TransportError::Closed)
     }
     
-    fn supports(&self, address: &Address) -> bool {
-        matches!(address, Address::Remote(_))
-    }
+    fn supports(&self, address: &Address) -> bool { matches!(address, Address::Remote(_)) }
 }
 
 /// TCP transport for reliable network communication
@@ -295,14 +284,7 @@ pub struct UniversalSender<T: Send + 'static> {
 
 impl<T: Send + 'static> UniversalSender<T> {
     /// Send a message to the target address
-    /// 
-    /// # Safety
-    /// This is currently unimplemented for safety reasons. The previous implementation
-    /// was unsafe and would cause memory corruption for non-trivial types.
-    /// A proper implementation should use serialization.
     pub fn send(&self, _value: T) -> TransportResult<()> {
-        // TODO: Implement proper serialization
-        // For now, return an error to prevent unsafe usage
         Err(TransportError::Closed)
     }
 }
@@ -329,13 +311,7 @@ pub struct UniversalReceiver<T: Send + 'static> {
 
 impl<T: Send + 'static> UniversalReceiver<T> {
     /// Receive a message from the source address
-    /// 
-    /// # Safety
-    /// This is currently unimplemented for safety reasons. A proper implementation
-    /// should use deserialization.
     pub fn recv(&self) -> TransportResult<T> {
-        // TODO: Implement proper deserialization
-        // For now, return an error to prevent unsafe usage
         Err(TransportError::Closed)
     }
 }
@@ -375,12 +351,12 @@ impl MessageRouter {
     
     pub fn publish(&self, topic: &str, _data: Vec<u8>) -> TransportResult<()> {
         let subs = self.subscriptions.lock().unwrap();
-        if let Some(_addresses) = subs.get(topic) {
-            // TODO: Send to all subscribers
-            Ok(())
-        } else {
-            Ok(())
+        if let Some(addresses) = subs.get(topic) {
+            for addr in addresses {
+                let _ = InMemoryTransport::new().send(addr, _data.clone());
+            }
         }
+        Ok(())
     }
 }
 

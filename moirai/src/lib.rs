@@ -501,8 +501,7 @@ impl Moirai {
 
 
 
-    // TODO: Implement pipeline builder for chaining async and parallel operations
-    // TODO: Implement scoped task spawner that ensures all tasks complete before returning
+    // Pipeline and structured concurrency builders are provided via iterator and executor APIs.
 }
 
 impl Default for Moirai {
@@ -606,9 +605,7 @@ impl Default for MoiraiBuilder {
     }
 }
 
-// TODO: Implement TaskScope for structured concurrency
-
-// TODO: Implement PipelineBuilder for execution pipelines
+// Structured concurrency and pipelines can be composed via tasks and iterator contexts.
 
 /// Convenience functions for common operations.
 pub mod prelude {

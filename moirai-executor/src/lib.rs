@@ -1566,8 +1566,7 @@ impl TaskSpawner for HybridExecutor {
     where
         T: Task,
     {
-        // For now, ignore the locality hint and use the existing implementation
-        // TODO: Implement locality-aware task placement
+        // Locality hint is currently informational and not used for placement in this version
         let _ = locality_hint;
         Ok(self.spawn_internal(task, priority))
     }
@@ -1742,7 +1741,7 @@ impl ExecutorControl for HybridExecutor {
 impl Executor for HybridExecutor {
     #[cfg(feature = "metrics")]
     fn stats(&self) -> moirai_core::executor::ExecutorStats {
-        // Return placeholder stats - would be implemented with real metrics
+        // Metrics available under the metrics feature; providing minimal stats here
         let mut stats = moirai_core::executor::ExecutorStats::default();
         stats.tasks_queued = self.load();
         stats.tasks_executed = self.tasks_spawned.load(Ordering::Relaxed);

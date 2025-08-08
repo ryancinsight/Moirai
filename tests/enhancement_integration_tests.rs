@@ -18,7 +18,7 @@ use moirai_core::{
 use moirai_scheduler::numa_scheduler::{
     NumaAwareScheduler, CpuTopology, AdaptiveBackoff,
 };
-use moirai_transport::zero_copy::{
+use moirai_core::communication::zero_copy::{
     ZeroCopyChannel, AdaptiveBatchChannel, MemoryMappedRing,
     ZeroCopyError, BatchStats,
 };
@@ -258,10 +258,10 @@ fn test_zero_copy_channels() {
                             messages_sent += 1;
                             break;
                         }
-                        Err(ZeroCopyError::Full) => {
+                        Err((_, ZeroCopyError::Full)) => {
                             thread::yield_now();
                         }
-                        Err(e) => panic!("Unexpected send error: {:?}", e),
+                        Err((_, e)) => panic!("Unexpected send error: {:?}", e),
                     }
                 }
             }

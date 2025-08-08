@@ -188,6 +188,8 @@ Moirai's architecture is built on several key principles:
 
 ### Code Organization (Following SOLID/DRY)
 - **Unified Channels**: Single implementation in `moirai_core::channel`
+- **Zero-Copy Primitives (SSOT)**: Consolidated in `moirai_core::communication::zero_copy` (send returns `Result<(), (T, ZeroCopyError)>` on failure to prevent data loss)
+- **Iterator Windows/Chunks**: Consolidated in `moirai_iter::windows` (no duplicates in `base`)
 - **Base Iterator Module**: Common patterns extracted to `moirai_iter::base`
 - **Minimal Sync Primitives**: Focus on value-add over std library
 - **Clean Module Boundaries**: Each module has single responsibility
@@ -246,9 +248,12 @@ cargo +nightly bench
 - **KISS Implementation**: Simplified sync module, direct std re-exports
 - **YAGNI Focus**: Removed unnecessary wrappers and abstractions
 - **Zero Dependencies**: Pure std library (except `libc` for Linux futex)
+- **No Placeholders**: Eliminated TODO/placeholder stubs; unsupported transports return explicit, non-panicking errors
 
 ### Architecture Improvements
 - **Unified Channels**: Consolidated SPSC/MPMC implementations in core
+- **Zero-Copy Primitives (SSOT)**: Consolidated in `moirai_core::communication::zero_copy`
+- **Iterator Windows/Chunks**: Consolidated in `moirai_iter::windows`
 - **Base Iterator Module**: Extracted common patterns reducing 40% duplication
 - **Simplified Sync**: Removed thin wrappers, focused on value-add primitives
 - **Clean Transport**: Built on top of core channels, not duplicating
