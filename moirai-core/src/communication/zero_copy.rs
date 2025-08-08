@@ -450,7 +450,9 @@ impl<T: Send + 'static> ZeroCopyRouter<T> {
         Ok(r)
     }
     pub fn set_default_route(&mut self, capacity: usize) -> ZeroCopyResult<ZeroCopyReceiver<T>> {
-        let (s, r) = ZeroCopyChannel::new(capacity)?; self.default_route = Some(Arc::new(s)); Ok(r)
+        let (s, r) = ZeroCopyChannel::new(capacity)?;
+        self.default_route = Some(Arc::new(s));
+        Ok(r)
     }
     pub fn route(&self, domain: DomainId, message: T) -> Result<(), (T, ZeroCopyError)> {
         self.stats.messages_routed.fetch_add(1, Ordering::Relaxed);
