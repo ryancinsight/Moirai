@@ -393,7 +393,9 @@ struct RouterStats {
 impl<T: Send + 'static> ZeroCopyRouter<T> {
     pub fn new() -> Self { Self { routes: Arc::new(RwLock::new(HashMap::new())), default_route: None, stats: RouterStats::default() } }
     pub fn add_route(&self, domain: DomainId, capacity: usize) -> ZeroCopyResult<ZeroCopyReceiver<T>> {
-        let (s, r) = ZeroCopyChannel::new(capacity)?; self.routes.write().unwrap().insert(domain, Arc::new(s)); Ok(r)
+        let (s, r) = ZeroCopyChannel::new(capacity)?;
+        self.routes.write().unwrap().insert(domain, Arc::new(s));
+        Ok(r)
     }
     pub fn set_default_route(&mut self, capacity: usize) -> ZeroCopyResult<ZeroCopyReceiver<T>> {
         let (s, r) = ZeroCopyChannel::new(capacity)?; self.default_route = Some(Arc::new(s)); Ok(r)
