@@ -332,48 +332,63 @@ impl<T> AdaptiveBatchSender<T> {
         len >= self.adaptive_threshold.current() || self.last_flush.lock().unwrap().elapsed() > self.max_batch_delay
     }
     fn flush_batch(&self) -> ZeroCopyResult<()> {
-        // Drain the buffer quickly to minimize lock holding
-        let mut drained: VecDeque<T> = {
-            let mut buf = self.batch_buffer.lock().unwrap();
-            buf.drain(..).collect()
-        };
+        use std::thread;
 
-        // Attempt to send drained items without holding locks
-        let mut unsent: VecDeque<T> = VecDeque::new();
-        while let Some(v) = drained.pop_front() {
-            match self.sender.send(v) {
-                Ok(()) => {}
-                Err((v, e)) => {
-                    if matches!(e, ZeroCopyError::Closed) {
-                        // Requeue current and any remaining items preserving order
-                        unsent.push_back(v);
-                        while let Some(rem) = drained.pop_front() { unsent.push_back(rem); }
-                        let mut buf = self.batch_buffer.lock().unwrap();
-                        for x in unsent.into_iter().rev() { buf.push_front(x); }
-                        return Err(ZeroCopyError::Closed);
+        // Local queue of items to send; we guarantee all buffered items are sent before returning Ok
+        let mut pending: VecDeque<T> = VecDeque::new();
+
+        loop {
+            // If we do not have local pending items, drain from the shared buffer
+            if pending.is_empty() {
+                pending = {
+                    let mut buf = self.batch_buffer.lock().unwrap();
+                    buf.drain(..).collect()
+                };
+            }
+
+            // Nothing to flush
+            if pending.is_empty() {
+                let mut last = self.last_flush.lock().unwrap();
+                *last = Instant::now();
+                return Ok(());
+            }
+
+            // Try to send as many as possible without holding any locks
+            while let Some(v) = pending.pop_front() {
+                match self.sender.send(v) {
+                    Ok(()) => {}
+                    Err((v, e)) => {
+                        match e {
+                            ZeroCopyError::Closed => {
+                                // Requeue remaining items and return terminal error
+                                let mut buf = self.batch_buffer.lock().unwrap();
+                                // Put back current item and any remaining (reverse to preserve order when pushing_front)
+                                buf.push_front(v);
+                                for x in pending.into_iter().rev() { buf.push_front(x); }
+                                return Err(ZeroCopyError::Closed);
+                            }
+                            ZeroCopyError::Full | ZeroCopyError::WouldBlock => {
+                                // Put back current item at the front and retry after yielding
+                                pending.push_front(v);
+                                break;
+                            }
+                            other => {
+                                // Unexpected error path: requeue and treat as transient
+                                pending.push_front(v);
+                                break;
+                            }
+                        }
                     }
-                    // For transient errors (e.g., Full), collect to requeue and stop
-                    unsent.push_back(v);
-                    while let Some(rem) = drained.pop_front() { unsent.push_back(rem); }
-                    break;
                 }
             }
-        }
 
-        // Requeue any unsent items at the front to preserve original order
-        if !unsent.is_empty() {
-            let mut buf = self.batch_buffer.lock().unwrap();
-            for x in unsent.into_iter().rev() { buf.push_front(x); }
-            // Partial flush occurred; do not update last flush time
-            return Ok(());
+            // If we still have pending items, the channel was full; yield and retry
+            if !pending.is_empty() {
+                thread::yield_now();
+                continue;
+            }
+            // Otherwise, loop will drain again and likely exit updating last_flush
         }
-
-        // Successful flush; update last flush timestamp with minimal locking
-        {
-            let mut last = self.last_flush.lock().unwrap();
-            *last = Instant::now();
-        }
-        Ok(())
     }
     fn adjust_batch_size(&self) {
         self.throughput_monitor.update();
