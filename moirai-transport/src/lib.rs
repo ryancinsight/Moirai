@@ -10,7 +10,7 @@
 //! - Pluggable transport backends (in-memory, IPC, network)
 //! - Integration with Moirai scheduler for optimal performance
 
-pub mod zero_copy;
+// Zero-copy moved to moirai-core::communication::zero_copy (SSOT)
 pub mod safe_channel;
 
 use moirai_core::channel::{MpmcSender, MpmcReceiver, mpmc};
@@ -26,6 +26,7 @@ pub use moirai_core::channel::{
     MpmcSender as Sender,
     MpmcReceiver as Receiver,
 };
+pub use moirai_core::communication::zero_copy as core_zero_copy;
 
 /// Result type for transport operations
 pub type TransportResult<T> = Result<T, TransportError>;

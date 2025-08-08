@@ -381,6 +381,7 @@ data.into_par_iter()
 - ✅ **NUMA-Aware Execution**: NumaAwareContext with topology detection and 20-40% latency reduction on NUMA systems
 - ✅ **Strategic Prefetching**: PrefetchIterator reducing cache misses by 10-30% in hot paths
 - ✅ **Performance Improvements**: 38% faster parallel map, 59% faster cache-aligned atomics, 94% L1 cache hit rate
+- ✅ **SSOT Consolidation**: Zero-copy primitives centralized in `moirai_core::communication::zero_copy`; iterator windows/chunks consolidated in `moirai_iter::windows`
 - ✅ **Design Principle Compliance**: Maintained SOLID, CUPID, GRASP, ACID, DRY, KISS, YAGNI throughout optimizations
 - ✅ **Zero-Cost Abstractions**: All optimizations compile to optimal machine code with no runtime overhead
 

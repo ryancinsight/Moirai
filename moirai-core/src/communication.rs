@@ -22,6 +22,14 @@ use std::hash::Hash;
 
 use crate::channel::{MpmcSender, MpmcReceiver, mpmc, ChannelError};
 
+pub mod zero_copy;
+pub use zero_copy::{
+    ZeroCopyError, ZeroCopyResult,
+    MemoryMappedRing, ZeroCopyChannel, ZeroCopySender, ZeroCopyReceiver,
+    AdaptiveBatchChannel, AdaptiveBatchSender, AdaptiveBatchReceiver,
+    ThroughputMonitor, AdaptiveThreshold, BatchStats, ZeroCopyRouter, DomainId,
+};
+
 /// Padding to prevent false sharing
 #[repr(align(64))]
 struct CachePadded<T> {

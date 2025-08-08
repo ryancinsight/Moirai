@@ -188,6 +188,8 @@ Moirai's architecture is built on several key principles:
 
 ### Code Organization (Following SOLID/DRY)
 - **Unified Channels**: Single implementation in `moirai_core::channel`
+- **Zero-Copy Primitives (SSOT)**: Consolidated in `moirai_core::communication::zero_copy`
+- **Iterator Windows/Chunks**: Consolidated in `moirai_iter::windows` (no duplicates in `base`)
 - **Base Iterator Module**: Common patterns extracted to `moirai_iter::base`
 - **Minimal Sync Primitives**: Focus on value-add over std library
 - **Clean Module Boundaries**: Each module has single responsibility

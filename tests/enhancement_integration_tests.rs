@@ -18,7 +18,7 @@ use moirai_core::{
 use moirai_scheduler::numa_scheduler::{
     NumaAwareScheduler, CpuTopology, AdaptiveBackoff,
 };
-use moirai_transport::zero_copy::{
+use moirai_core::communication::zero_copy::{
     ZeroCopyChannel, AdaptiveBatchChannel, MemoryMappedRing,
     ZeroCopyError, BatchStats,
 };
