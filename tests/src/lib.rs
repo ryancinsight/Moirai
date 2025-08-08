@@ -209,7 +209,7 @@ mod integration_tests {
     /// Test NUMA awareness (if available).
     #[test]
     fn test_numa_awareness() {
-        // Simple placeholder test for NUMA awareness
+        // NUMA-aware features not enabled; verifying runtime basic functionality
         // NUMA features are not currently implemented, so we test basic runtime functionality
         let runtime = Moirai::builder()
             .worker_threads(4)

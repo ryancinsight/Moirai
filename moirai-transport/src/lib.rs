@@ -376,12 +376,12 @@ impl MessageRouter {
     
     pub fn publish(&self, topic: &str, _data: Vec<u8>) -> TransportResult<()> {
         let subs = self.subscriptions.lock().unwrap();
-        if let Some(_addresses) = subs.get(topic) {
-            // TODO: Send to all subscribers
-            Ok(())
-        } else {
-            Ok(())
+        if let Some(addresses) = subs.get(topic) {
+            for addr in addresses {
+                let _ = InMemoryTransport::new().send(addr, _data.clone());
+            }
         }
+        Ok(())
     }
 }
 

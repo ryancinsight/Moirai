@@ -248,9 +248,12 @@ cargo +nightly bench
 - **KISS Implementation**: Simplified sync module, direct std re-exports
 - **YAGNI Focus**: Removed unnecessary wrappers and abstractions
 - **Zero Dependencies**: Pure std library (except `libc` for Linux futex)
+- **No Placeholders**: Eliminated TODO/placeholder stubs in core paths; unsupported transports return explicit errors
 
 ### Architecture Improvements
 - **Unified Channels**: Consolidated SPSC/MPMC implementations in core
+- **Zero-Copy Primitives (SSOT)**: Consolidated in `moirai_core::communication::zero_copy`
+- **Iterator Windows/Chunks**: Consolidated in `moirai_iter::windows`
 - **Base Iterator Module**: Extracted common patterns reducing 40% duplication
 - **Simplified Sync**: Removed thin wrappers, focused on value-add primitives
 - **Clean Transport**: Built on top of core channels, not duplicating

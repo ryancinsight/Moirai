@@ -389,8 +389,8 @@ impl GpuIpc {
     
     /// Open a GPU memory handle from another process
     pub fn open_handle(&self, _handle: [u8; 64]) -> Result<u64, IpcError> {
-        // TODO: Implement handle opening
-        Ok(0)
+        let _ = _handle;
+        Err(IpcError::NotImplemented)
     }
 }
 

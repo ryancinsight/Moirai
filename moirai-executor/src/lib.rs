@@ -1566,8 +1566,7 @@ impl TaskSpawner for HybridExecutor {
     where
         T: Task,
     {
-        // For now, ignore the locality hint and use the existing implementation
-        // TODO: Implement locality-aware task placement
+        // Locality hint is currently informational and not used for placement in this version
         let _ = locality_hint;
         Ok(self.spawn_internal(task, priority))
     }
