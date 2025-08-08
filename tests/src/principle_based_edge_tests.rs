@@ -19,6 +19,12 @@
 //! to these fundamental design principles under extreme conditions.
 
 use moirai::{Moirai, Task, TaskId, TaskContext};
+use moirai::{Priority, ExecutorError};
+use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use std::collections::{HashMap, VecDeque};
+use std::time::{Duration, Instant};
+use std::thread;
 
 
 /// Test fixture for principle-based edge testing
@@ -47,6 +53,13 @@ impl PrincipleTestFixture {
 
 /// SOLID Principle Edge Tests
 mod solid_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex, RwLock};
+    use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+    use std::collections::{HashMap, VecDeque};
+    use std::time::{Duration, Instant};
+    use std::thread;
+    use moirai::{Priority, ExecutorError};
     
 
     /// Test Single Responsibility Principle (SRP) under extreme conditions
