@@ -4,7 +4,7 @@
 //! hints to improve cache performance during iteration.
 
 use std::mem;
-use crate::cache_optimized::{prefetch_read_data, prefetch_write_data};
+use crate::cache::{prefetch_read_data, prefetch_write_data};
 
 /// Prefetch distance in cache lines ahead of current position
 pub const PREFETCH_DISTANCE: usize = 4;
