@@ -1,7 +1,7 @@
 //! Tests for iterator fixes
 
 use moirai_iter::base::{SlidingWindow, ChunksExact};
-use moirai_iter::advanced_iterators::{AdvancedIteratorExt, ScanRef};
+use moirai_iter::iter_ops::{IteratorOpsExt, ScanRef};
 
 #[test]
 fn test_scan_ref_lifetime() {

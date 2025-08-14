@@ -165,11 +165,11 @@ impl TcpTransport {
 #[cfg(feature = "network")]
 impl Transport for TcpTransport {
     fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
-        unimplemented!("TCP transport not yet implemented")
+        Err(TransportError::Closed)
     }
 
     fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
-        unimplemented!("TCP transport not yet implemented")
+        Err(TransportError::Closed)
     }
     
     fn supports(&self, address: &Address) -> bool {
@@ -194,11 +194,11 @@ impl UdpTransport {
 #[cfg(feature = "network")]
 impl Transport for UdpTransport {
     fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
-        unimplemented!("UDP transport not yet implemented")
+        Err(TransportError::Closed)
     }
 
     fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
-        unimplemented!("UDP transport not yet implemented")
+        Err(TransportError::Closed)
     }
     
     fn supports(&self, address: &Address) -> bool {

@@ -78,16 +78,16 @@ let (tx, rx) = mpmc::<Task>(100);
 
 ### ✅ **Optimized Synchronization Primitives** - **REFACTORED**
 - **Value-add Focus**: Removed thin wrappers, re-export std primitives directly (YAGNI)
-- **FastMutex**: Adaptive spinning with futex support on Linux
+- **FutexMutex**: Adaptive spinning with futex support on Linux
 - **WaitGroup**: Go-style synchronization for task coordination
 - **Lock-free Stack**: Treiber's algorithm for high-performance collections
 - **Concurrent HashMap**: Segment-based locking for scalability
 
 ```rust
-use moirai::sync::{FastMutex, WaitGroup, LockFreeStack};
+use moirai::sync::{FutexMutex, WaitGroup, LockFreeStack};
 
 // Fast mutex with adaptive spinning
-let mutex = FastMutex::new(0);
+let mutex = FutexMutex::new(0);
 {
     let mut guard = mutex.lock();
     *guard += 1;

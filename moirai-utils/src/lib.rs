@@ -491,13 +491,13 @@ impl Clone for Backoff {
     }
 }
 
-/// Fast random number generator using xorshift algorithm.
+/// Xorshift-based random number generator.
 #[derive(Debug, Clone)]
-pub struct FastRng {
+pub struct XorshiftRng {
     state: u64,
 }
 
-impl FastRng {
+impl XorshiftRng {
     /// Create a new random number generator with a seed.
     pub const fn new(seed: u64) -> Self {
         Self {
@@ -551,7 +551,7 @@ impl FastRng {
     }
 }
 
-impl Default for FastRng {
+impl Default for XorshiftRng {
     fn default() -> Self {
         Self::default_seed()
     }
@@ -893,7 +893,7 @@ pub mod stats {
 /// Probabilistic data structures.
 pub mod probabilistic {
     #[allow(unused_imports)]
-    use super::FastRng;
+    use super::XorshiftRng;
     #[cfg(feature = "std")]
     use std::{vec, vec::Vec};
 

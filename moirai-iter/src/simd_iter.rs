@@ -160,7 +160,7 @@ impl<'a> SimdF32Iterator<'a> {
             // Prefetch next chunk
             if let Some(next_chunk) = self.data.get(result.len() + CHUNK_SIZE..) {
                 unsafe {
-                    use crate::cache_optimized::prefetch_read_data;
+                    use crate::cache::prefetch_read_data;
                     prefetch_read_data(next_chunk.as_ptr() as *const u8, 1);
                 }
             }

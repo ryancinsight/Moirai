@@ -131,9 +131,8 @@ impl AtomicCounter {
     }
 }
 
-/// A fast mutex with futex-based blocking on Linux.
-/// This provides real value over std::sync::Mutex through adaptive spinning.
-pub struct FastMutex<T> {
+/// A futex-backed mutex on Linux with adaptive spinning; falls back to atomic spin on non-Linux.
+pub struct FutexMutex<T> {
     #[cfg(target_os = "linux")]
     state: AtomicI32,  // 0 = unlocked, 1 = locked, 2 = locked with waiters
     #[cfg(not(target_os = "linux"))]
@@ -141,10 +140,10 @@ pub struct FastMutex<T> {
     data: UnsafeCell<T>,
 }
 
-unsafe impl<T: Send> Send for FastMutex<T> {}
-unsafe impl<T: Send> Sync for FastMutex<T> {}
+unsafe impl<T: Send> Send for FutexMutex<T> {}
+unsafe impl<T: Send> Sync for FutexMutex<T> {}
 
-impl<T> FastMutex<T> {
+impl<T> FutexMutex<T> {
     /// Create a new fast mutex.
     pub const fn new(data: T) -> Self {
         Self {
@@ -155,13 +154,13 @@ impl<T> FastMutex<T> {
             data: UnsafeCell::new(data),
         }
     }
-
+    
     /// Lock the mutex with adaptive spinning.
-    pub fn lock(&self) -> FastMutexGuard<'_, T> {
+    pub fn lock(&self) -> FutexMutexGuard<'_, T> {
         // Try to acquire the lock with spinning first
         for _ in 0..100 {
             if self.try_lock_fast() {
-                return FastMutexGuard {
+                return FutexMutexGuard {
                     mutex: self,
                     _phantom: std::marker::PhantomData,
                 };
@@ -171,12 +170,12 @@ impl<T> FastMutex<T> {
         
         // Fall back to blocking
         self.lock_slow();
-        FastMutexGuard {
+        FutexMutexGuard {
             mutex: self,
             _phantom: std::marker::PhantomData,
         }
     }
-
+    
     #[inline]
     fn try_lock_fast(&self) -> bool {
         #[cfg(target_os = "linux")]
@@ -192,7 +191,7 @@ impl<T> FastMutex<T> {
             !self.locked.swap(true, Ordering::Acquire)
         }
     }
-
+    
     #[cold]
     fn lock_slow(&self) {
         #[cfg(target_os = "linux")]
@@ -231,7 +230,7 @@ impl<T> FastMutex<T> {
             }
         }
     }
-
+    
     fn unlock(&self) {
         #[cfg(target_os = "linux")]
         {
@@ -246,27 +245,27 @@ impl<T> FastMutex<T> {
     }
 }
 
-/// Guard for FastMutex that automatically unlocks on drop.
-pub struct FastMutexGuard<'a, T> {
-    mutex: &'a FastMutex<T>,
+/// Guard for FutexMutex that automatically unlocks on drop.
+pub struct FutexMutexGuard<'a, T> {
+    mutex: &'a FutexMutex<T>,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<'a, T> Drop for FastMutexGuard<'a, T> {
+impl<'a, T> Drop for FutexMutexGuard<'a, T> {
     fn drop(&mut self) {
         self.mutex.unlock();
     }
 }
 
-impl<'a, T> Deref for FastMutexGuard<'a, T> {
+impl<'a, T> Deref for FutexMutexGuard<'a, T> {
     type Target = T;
-
+    
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.mutex.data.get() }
     }
 }
 
-impl<'a, T> DerefMut for FastMutexGuard<'a, T> {
+impl<'a, T> DerefMut for FutexMutexGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.mutex.data.get() }
     }
@@ -442,7 +441,7 @@ mod tests {
 
     #[test]
     fn test_fast_mutex() {
-        let mutex = Arc::new(FastMutex::new(0));
+        let mutex = Arc::new(FutexMutex::new(0));
         let mut handles = vec![];
 
         for _ in 0..10 {

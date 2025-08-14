@@ -7,7 +7,7 @@
 //! - Barriers and wait groups
 
 use moirai_sync::{
-    FastMutex, WaitGroup, Barrier,
+    FutexMutex, WaitGroup, Barrier,
     ConcurrentHashMap, LockFreeStack
 };
 use moirai_utils::LockFreeQueue;
@@ -22,7 +22,7 @@ fn main() {
     // Example 1: Fast Mutex
     println!("\n1. Fast Mutex Example:");
     
-    let counter = Arc::new(FastMutex::new(0));
+    let counter = Arc::new(FutexMutex::new(0));
     let mut handles = vec![];
     
     for i in 0..10 {
@@ -186,7 +186,7 @@ fn main() {
     let iterations = 100_000;
     
     // FastMutex benchmark
-    let fast_mutex = Arc::new(FastMutex::new(0));
+    let fast_mutex = Arc::new(FutexMutex::new(0));
     let start = Instant::now();
     
     let mut handles = vec![];

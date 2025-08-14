@@ -35,11 +35,11 @@ use base::ThreadPool;
 pub mod combinators;
 pub mod channel_fusion;
 pub mod windows;
-pub mod cache_optimized;
+pub mod cache;
 pub mod simd_iter;
-pub mod numa_aware;
+pub mod numa;
 pub mod prefetch;
-pub mod advanced_iterators;
+pub mod iter_ops;
 
 // Simple parallel execution helper
 trait IntoParallelIterator {
@@ -139,17 +139,17 @@ pub use base::{
 };
 
 // Re-export from other modules
-pub use cache_optimized::{CacheOptimizedExt, WindowIterator, CacheAlignedChunks, ZeroCopyParallelIter};
-pub use advanced_iterators::{
-    AdvancedIteratorExt, SimdElement, ZeroCopyIter, ChunkedIter, 
-    FusedIter, WindowedIter, ParallelIter, StreamingIter
+pub use cache::{CacheIterExt, WindowIterator, CacheAlignedChunks, ZeroCopyParallelIter};
+pub use iter_ops::{
+    IteratorOpsExt, SimdElement, ZeroCopyIter, ChunkedIter,
+    FusedIter, WindowIter, ParallelIter, StreamingIter
 };
 pub use channel_fusion::{
     ChannelFusionExt, FusableChannel, ChannelFusedIter, ChannelSplitter,
     ChannelMerger, Pipeline, SplitStrategy, MergeStrategy
 };
 pub use simd_iter::{SimdIteratorExt, SimdF32Iterator, SimdParallelIterator};
-pub use numa_aware::{NumaIteratorExt, NumaPolicy, NumaAwareContext};
+pub use numa::{NumaIterExt, NumaPolicy, NumaContext};
 pub use prefetch::{PrefetchExt, SlicePrefetchExt, PrefetchChunks};
 
 // Re-export window iterators
@@ -1671,7 +1671,7 @@ mod tests {
                                 eprintln!("Consider using a proper async runtime for testing.");
                                 // Return a default value for tests to continue
                                 // In a real scenario, this would be a Result<T, TimeoutError>
-                                panic!("Test timeout: Future not ready after {}ms", timeout.as_millis());
+                                panic!("Test timeout: future not ready after {}ms", timeout.as_millis());
                             }
                             
                             // Yield occasionally to prevent CPU spinning

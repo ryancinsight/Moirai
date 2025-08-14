@@ -100,10 +100,25 @@ impl<T: Send> WorkStealingDeque<T> {
         
         // Check if resize needed
         if size >= buffer.mask {
-            // In production, implement buffer growth here
-            panic!("Deque full - resize not implemented");
+            // Grow buffer by allocating a new one and copying existing elements
+            let old_buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
+            let new_capacity = old_buffer.capacity() * 2;
+            let new_buffer = Box::into_raw(Box::new(Buffer::new(new_capacity)));
+            let old_top = self.top.value.load(Ordering::Acquire);
+            let old_bottom = bottom;
+            // Copy existing range [old_top, old_bottom)
+            for i in old_top..old_bottom {
+                unsafe {
+                    (*new_buffer).put(i, old_buffer.get(i));
+                }
+            }
+            // Swap buffer pointer
+            let old_ptr = self.buffer.value.swap(new_buffer, Ordering::Release);
+            // Drop old buffer box safely
+            unsafe { drop(Box::from_raw(old_ptr)); }
         }
         
+        let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
         unsafe {
             buffer.put(bottom, task);
         }
