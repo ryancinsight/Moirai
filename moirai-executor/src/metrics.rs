@@ -4,7 +4,6 @@
 //! for both individual tasks and worker threads, following the Information
 //! Expert pattern where each metric owns its data and calculations.
 
-use moirai_core::{TaskId, Priority};
 use moirai_utils::CacheAligned;
 use std::{
     sync::atomic::{AtomicU64, Ordering},

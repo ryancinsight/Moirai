@@ -10,10 +10,10 @@ use crate::{
     types::WorkerId,
 };
 use moirai_core::{
-    BoxedTask, TaskId, TaskStatus,
-    scheduler::{WorkStealingScheduler, WorkStealingCoordinator},
+    BoxedTask, TaskId, TaskStatus, Scheduler,
 };
-use moirai_utils::prefetch_read;
+use moirai_scheduler::{WorkStealingScheduler, WorkStealingCoordinator};
+use moirai_utils::memory::prefetch_read;
 use std::{
     collections::HashMap,
     sync::{
@@ -208,7 +208,7 @@ impl Worker {
                 self.task_registry.update_status(task_id, TaskStatus::Completed);
             }
             Err(_) => {
-                self.task_registry.update_status(task_id, TaskStatus::Failed("Task panicked".to_string()));
+                self.task_registry.update_status(task_id, TaskStatus::Failed);
                 eprintln!("Task {} panicked during execution on worker {}", task_id, self.id.get());
             }
         }

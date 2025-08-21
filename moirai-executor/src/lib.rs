@@ -55,32 +55,23 @@ pub use task_registry::{TaskRegistry, TaskMetadata, RegistryStatistics, TaskWait
 pub use worker::Worker;
 
 use moirai_core::{
-    CacheAligned,
     error::{ExecutorError, ExecutorResult, TaskError},
     executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus, TaskStats, ExecutorPlugin, CleanupConfig, ExecutorControl, Executor},
     scheduler::{Scheduler, SchedulerId},
     task::{BoxedTask, Priority, Task, TaskContext, TaskHandle, TaskId},
 };
 use moirai_scheduler::{WorkStealingScheduler, WorkStealingCoordinator};
-use moirai_utils::{
-    memory::prefetch_read,
-};
 use std::{
-    collections::HashMap,
     future::Future,
-    pin::Pin,
-    task::{Context, Poll, Waker},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex, RwLock, Condvar,
-        mpsc,
+        Arc, Mutex, Condvar,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
-#[cfg(unix)]
-use std::os::unix::io::RawFd;
+
 /// Worker threads are now defined in the worker module.
 /// This ensures proper separation of concerns and maintainability.
 
@@ -351,7 +342,6 @@ where
             // In production, async tasks should be spawned through spawn_async which handles them properly
             
             use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-            use std::pin::Pin;
             
             // Create a simple waker that does nothing
             fn noop_clone(_: *const ()) -> RawWaker {
@@ -774,7 +764,7 @@ impl TaskSpawner for HybridExecutor {
 impl TaskManager for HybridExecutor {
     fn cancel_task(&self, id: TaskId) -> ExecutorResult<()> {
         self.task_registry.cancel_task(id)
-            .map_err(|e| ExecutorError::SpawnFailed(e))
+            .map_err(|_| ExecutorError::SpawnFailed(TaskError::InvalidOperation))
     }
 
     fn task_status(&self, id: TaskId) -> Option<TaskStatus> {
@@ -782,20 +772,20 @@ impl TaskManager for HybridExecutor {
     }
 
     fn wait_for_task(&self, id: TaskId, timeout: Option<Duration>) -> impl Future<Output = ExecutorResult<()>> + Send {
-        let future = TaskWaitFuture {
-            task_id: id,
-            registry: self.task_registry.clone(),
-            timeout,
-            start_time: Some(Instant::now()),
-        };
+        let future = TaskWaitFuture::with_timeout(id, self.task_registry.clone(), timeout);
         
         async move {
-            future.await.map_err(|e| ExecutorError::SpawnFailed(e))
+            match future.await {
+                TaskStatus::Completed => Ok(()),
+                TaskStatus::Cancelled => Err(ExecutorError::SpawnFailed(TaskError::Cancelled)),
+                TaskStatus::Failed => Err(ExecutorError::SpawnFailed(TaskError::Panicked)),
+                _ => Err(ExecutorError::SpawnFailed(TaskError::InvalidOperation)),
+            }
         }
     }
 
     fn task_stats(&self, id: TaskId) -> Option<TaskStats> {
-        self.task_registry.get_stats(id)
+        self.task_registry.get_core_stats(id)
     }
 }
 
@@ -970,7 +960,7 @@ impl HybridExecutor {
     /// Returns information about the current state of task metadata
     /// to help monitor memory usage and cleanup effectiveness.
     pub fn cleanup_stats(&self) -> CleanupStats {
-        let tasks = self.task_registry.tasks.read().unwrap();
+        let tasks = self.task_registry.get_all_metadata();
         
         let mut stats = CleanupStats {
             total_tasks: tasks.len(),
@@ -984,7 +974,7 @@ impl HybridExecutor {
         let now = Instant::now();
         let mut oldest_completion_time = None;
         
-        for metadata in tasks.values() {
+        for metadata in &tasks {
             match metadata.status {
                 TaskStatus::Queued | TaskStatus::Running => {
                     stats.active_tasks += 1;

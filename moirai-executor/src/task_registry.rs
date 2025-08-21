@@ -83,7 +83,7 @@ impl TaskRegistry {
         let id = self.generate_id();
         let metadata = TaskMetadata {
             id,
-            status: TaskStatus::Pending,
+            status: TaskStatus::Queued,
             priority,
             spawn_time: Instant::now(),
             start_time: None,
@@ -118,7 +118,7 @@ impl TaskRegistry {
                         metadata.start_time = Some(Instant::now());
                     }
                 }
-                TaskStatus::Completed | TaskStatus::Failed(_) => {
+                TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed => {
                     metadata.completion_time = Some(Instant::now());
                 }
                 _ => {}
@@ -184,8 +184,60 @@ impl TaskRegistry {
         let initial_count = tasks.len();
         
         tasks.retain(|_, metadata| {
-            !matches!(metadata.status, TaskStatus::Completed | TaskStatus::Failed(_))
+            !matches!(metadata.status, TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed)
         });
+        
+        initial_count - tasks.len()
+    }
+
+    /// Remove completed or failed tasks from the registry with limits.
+    /// 
+    /// # Arguments
+    /// * `retention_duration` - Maximum age for completed tasks
+    /// * `max_retained_tasks` - Maximum number of tasks to retain
+    /// 
+    /// Returns the number of tasks removed for monitoring purposes.
+    pub fn cleanup_completed_with_limits(&self, retention_duration: std::time::Duration, max_retained_tasks: usize) -> usize {
+        let mut tasks = self.tasks.write().unwrap();
+        let initial_count = tasks.len();
+        let now = Instant::now();
+        
+        // First, remove old completed tasks based on retention duration
+        tasks.retain(|_, metadata| {
+            if matches!(metadata.status, TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed) {
+                if let Some(completion_time) = metadata.completion_time {
+                    now.duration_since(completion_time) <= retention_duration
+                } else {
+                    // Task completed but no completion time recorded - keep it for now
+                    true
+                }
+            } else {
+                // Keep non-completed tasks
+                true
+            }
+        });
+        
+        // If still too many tasks, remove oldest completed ones
+        if tasks.len() > max_retained_tasks {
+            let mut completed_tasks: Vec<_> = tasks
+                .iter()
+                .filter(|(_, metadata)| matches!(metadata.status, TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed))
+                .map(|(id, metadata)| (*id, metadata.completion_time.unwrap_or(metadata.spawn_time)))
+                .collect();
+            
+            completed_tasks.sort_by_key(|(_, completion_time)| *completion_time);
+            
+            let to_remove = completed_tasks.len().saturating_sub(max_retained_tasks);
+            let ids_to_remove: Vec<_> = completed_tasks
+                .iter()
+                .take(to_remove)
+                .map(|(id, _)| *id)
+                .collect();
+            
+            for id in ids_to_remove {
+                tasks.remove(&id);
+            }
+        }
         
         initial_count - tasks.len()
     }
@@ -226,10 +278,11 @@ impl TaskRegistry {
         
         for metadata in tasks.values() {
             match metadata.status {
-                TaskStatus::Pending => stats.pending_count += 1,
+                TaskStatus::Queued => stats.pending_count += 1,
                 TaskStatus::Running => stats.running_count += 1,
                 TaskStatus::Completed => stats.completed_count += 1,
-                TaskStatus::Failed(_) => stats.failed_count += 1,
+                TaskStatus::Cancelled => stats.failed_count += 1, // Count cancelled as failed for now
+                TaskStatus::Failed => stats.failed_count += 1,
             }
             stats.total_cpu_time_ns += metadata.cpu_time_ns;
             stats.total_memory_bytes += metadata.memory_used_bytes;
@@ -237,6 +290,63 @@ impl TaskRegistry {
         
         stats.total_count = tasks.len();
         stats
+    }
+
+    /// Cancel a task by setting its status to Cancelled.
+    /// 
+    /// Returns Ok(()) if the task was found and cancelled, Err otherwise.
+    pub fn cancel_task(&self, task_id: TaskId) -> Result<(), String> {
+        if self.update_status(task_id, TaskStatus::Cancelled) {
+            Ok(())
+        } else {
+            Err(format!("Task {} not found", task_id))
+        }
+    }
+
+    /// Get the current status of a task.
+    /// 
+    /// Returns None if the task is not found in the registry.
+    pub fn get_status(&self, task_id: TaskId) -> Option<TaskStatus> {
+        let tasks = self.tasks.read().unwrap();
+        tasks.get(&task_id).map(|metadata| metadata.status)
+    }
+
+    /// Get detailed statistics for a specific task.
+    /// 
+    /// Returns None if the task is not found in the registry.
+    pub fn get_stats(&self, task_id: TaskId) -> Option<TaskMetadata> {
+        self.get_task(task_id)
+    }
+
+    /// Convert TaskMetadata to TaskStats from moirai-core.
+    fn metadata_to_stats(&self, metadata: &TaskMetadata) -> moirai_core::executor::TaskStats {
+        moirai_core::executor::TaskStats {
+            id: metadata.id,
+            status: metadata.status,
+            priority: metadata.priority,
+            spawn_time: metadata.spawn_time,
+            start_time: metadata.start_time,
+            completion_time: metadata.completion_time,
+            cpu_time_ns: metadata.cpu_time_ns,
+            memory_used_bytes: metadata.memory_used_bytes,
+            preemption_count: metadata.preemption_count,
+        }
+    }
+
+    /// Get core TaskStats for a specific task.
+    /// 
+    /// Returns None if the task is not found in the registry.
+    pub fn get_core_stats(&self, task_id: TaskId) -> Option<moirai_core::executor::TaskStats> {
+        self.get_task(task_id).map(|metadata| self.metadata_to_stats(&metadata))
+    }
+
+    /// Get all task metadata for analysis purposes.
+    /// 
+    /// Returns a snapshot of all task metadata at the time of the call.
+    /// Used for cleanup statistics and monitoring.
+    pub fn get_all_metadata(&self) -> Vec<TaskMetadata> {
+        let tasks = self.tasks.read().unwrap();
+        tasks.values().cloned().collect()
     }
 }
 
@@ -274,6 +384,10 @@ pub struct TaskWaitFuture {
     task_id: TaskId,
     /// Reference to the task registry
     registry: std::sync::Arc<TaskRegistry>,
+    /// Optional timeout for the wait operation
+    timeout: Option<std::time::Duration>,
+    /// Start time for timeout calculations
+    start_time: Option<std::time::Instant>,
     /// Whether this future has been polled before
     polled: bool,
 }
@@ -284,6 +398,23 @@ impl TaskWaitFuture {
         Self {
             task_id,
             registry,
+            timeout: None,
+            start_time: None,
+            polled: false,
+        }
+    }
+
+    /// Create a new future for waiting on a task with timeout.
+    pub fn with_timeout(
+        task_id: TaskId, 
+        registry: std::sync::Arc<TaskRegistry>, 
+        timeout: Option<std::time::Duration>
+    ) -> Self {
+        Self {
+            task_id,
+            registry,
+            timeout,
+            start_time: timeout.map(|_| std::time::Instant::now()),
             polled: false,
         }
     }
@@ -293,9 +424,16 @@ impl Future for TaskWaitFuture {
     type Output = TaskStatus;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Check for timeout first
+        if let (Some(timeout), Some(start_time)) = (self.timeout, self.start_time) {
+            if start_time.elapsed() >= timeout {
+                return Poll::Ready(TaskStatus::Failed); // Timeout treated as failure
+            }
+        }
+
         if let Some(metadata) = self.registry.get_task(self.task_id) {
             match metadata.status {
-                TaskStatus::Completed | TaskStatus::Failed(_) => {
+                TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed => {
                     Poll::Ready(metadata.status)
                 }
                 _ => {
