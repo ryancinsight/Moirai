@@ -1,5 +1,6 @@
 //! Integration tests for Moirai concurrency library.
 
+#[cfg(test)]
 pub mod principle_based_edge_tests;
 
 /// Integration tests for the complete Moirai system.

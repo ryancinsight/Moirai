@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn test_universal_channel() {
         let transport_manager = TransportManager::new();
-        let sender = UniversalSender::<String> {
+        let _sender = UniversalSender::<String> {
             transport: Arc::new(transport_manager),
             target: Address::Local("test_sender".to_string()),
             _phantom: std::marker::PhantomData,

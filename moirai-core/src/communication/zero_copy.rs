@@ -372,7 +372,7 @@ impl<T> AdaptiveBatchSender<T> {
                                 pending.push_front(v);
                                 break;
                             }
-                            other => {
+                            _other => {
                                 // Unexpected error path: requeue and treat as transient
                                 pending.push_front(v);
                                 break;

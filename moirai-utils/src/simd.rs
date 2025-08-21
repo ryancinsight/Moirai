@@ -47,17 +47,24 @@ use std::is_x86_feature_detected;
 /// 
 /// assert_eq!(result, [9.0; 8]);
 /// ```
+/// SIMD vector width for f32 operations - AVX2 supports 8 f32 elements (256 bits / 32 bits)
+const SIMD_F32_WIDTH: usize = 8;
+
+/// Vectorized addition using AVX2 SIMD instructions
+/// 
+/// # Safety
+/// This function requires AVX2 support and proper memory alignment
 #[cfg(all(target_arch = "x86_64", not(target_arch = "wasm32")))]
 #[target_feature(enable = "avx2")]
 pub unsafe fn vectorized_add_f32(a: &[f32], b: &[f32], result: &mut [f32]) {
     assert_eq!(a.len(), b.len());
     assert_eq!(a.len(), result.len());
-    assert_eq!(a.len() % 8, 0, "Length must be multiple of 8 for AVX2");
+    assert_eq!(a.len() % SIMD_F32_WIDTH, 0, "Length must be multiple of 8 for AVX2");
     
-    let chunks = a.len() / 8;
+    let chunks = a.len() / SIMD_F32_WIDTH;
     
     for i in 0..chunks {
-        let offset = i * 8;
+        let offset = i * SIMD_F32_WIDTH;
         
         // Load 8 f32 values using AVX2
         let va = _mm256_loadu_ps(a.as_ptr().add(offset));

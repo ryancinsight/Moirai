@@ -1137,7 +1137,7 @@ mod tests {
         // Parallel work-stealing is more selective - only steal when idle
         let mut parallel_stolen = 0;
         let workers = num_cpus;
-        for worker in 0..workers {
+        for _worker in 0..workers {
             // Each worker steals once when starting
             if scheduler.steal_with_locality(0).is_some() {
                 parallel_stolen += 1;
@@ -1236,7 +1236,7 @@ mod tests {
     }
     
     // Dummy task for testing
-    struct DummyTask(String);
+    struct DummyTask(#[allow(dead_code)] String);
     
     impl BoxedTask for DummyTask {
         fn execute_boxed(self: Box<Self>) -> () {

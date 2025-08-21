@@ -63,7 +63,8 @@ fn benchmark_task_dispatch() {
 }
 
 fn benchmark_channel_parking() {
-    const MESSAGES: usize = 10_000;
+/// Number of messages for transport benchmarks
+const TRANSPORT_BENCHMARK_MESSAGES: usize = 10_000;
     
     // Simulate busy-wait approach
     let busy_wait_time = Arc::new(std::sync::Mutex::new(Duration::ZERO));

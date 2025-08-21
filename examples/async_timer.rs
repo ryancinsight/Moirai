@@ -31,21 +31,21 @@ fn main() {
     
     runtime.block_on(async {
         // Spawn multiple async tasks with different sleep durations
-        let handle1 = moirai::spawn_async(async {
+        let _handle1 = moirai::spawn_async(async {
             println!("Task 1: Starting 200ms sleep");
             moirai::sleep(Duration::from_millis(200)).await;
             println!("Task 1: Completed!");
             1
         });
         
-        let handle2 = moirai::spawn_async(async {
+        let _handle2 = moirai::spawn_async(async {
             println!("Task 2: Starting 300ms sleep");
             moirai::sleep(Duration::from_millis(300)).await;
             println!("Task 2: Completed!");
             2
         });
         
-        let handle3 = moirai::spawn_async(async {
+        let _handle3 = moirai::spawn_async(async {
             println!("Task 3: Starting 100ms sleep");
             moirai::sleep(Duration::from_millis(100)).await;
             println!("Task 3: Completed!");

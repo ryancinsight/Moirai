@@ -718,7 +718,9 @@ impl<T> Clone for HybridSender<T> {
 /// Receiver half of hybrid channel
 pub struct HybridReceiver<T> {
     ring: Arc<RingBuffer<T>>,
+    #[allow(dead_code)]
     async_notifier: Arc<AtomicBool>,
+    #[allow(dead_code)]
     sync_notifier: Arc<AtomicBool>,
     parker: Arc<Mutex<Vec<std::thread::Thread>>>,
 }
@@ -815,7 +817,7 @@ impl<T: Send> HybridReceiver<T> {
     }
     
     /// Async receive for use in async contexts
-    #[cfg(feature = "async")]
+    #[cfg(feature = "coroutine")]
     pub async fn recv_async(&self) -> Result<T> {
         loop {
             match self.ring.try_consume() {
