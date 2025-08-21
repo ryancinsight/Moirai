@@ -65,6 +65,7 @@ fn benchmark_task_dispatch() {
 fn benchmark_channel_parking() {
 /// Number of messages for transport benchmarks
 const TRANSPORT_BENCHMARK_MESSAGES: usize = 10_000;
+const CHANNEL_BENCHMARK_MESSAGES: usize = 10_000;
     
     // Simulate busy-wait approach
     let busy_wait_time = Arc::new(std::sync::Mutex::new(Duration::ZERO));
@@ -88,7 +89,7 @@ const TRANSPORT_BENCHMARK_MESSAGES: usize = 10_000;
     
     // Send messages with delays
     thread::spawn(move || {
-        for i in 0..MESSAGES {
+        for i in 0..CHANNEL_BENCHMARK_MESSAGES {
             if i % 1000 == 0 {
                 thread::sleep(Duration::from_micros(10));
             }
