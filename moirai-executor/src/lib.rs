@@ -42,6 +42,12 @@
 //! - **Async Threads**: I/O-bound async tasks with efficient polling
 //! - **Blocking Threads**: Long-running blocking operations (dynamically sized)
 
+// Module declarations
+pub mod types;
+pub mod reactor;
+
+pub use types::{WorkerId, IoEvent};
+
 use moirai_core::{
     CacheAligned,
     error::{ExecutorError, ExecutorResult, TaskError},
@@ -69,44 +75,7 @@ use std::{
 
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
-
-/// A unique identifier for worker threads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WorkerId(usize);
-
-impl WorkerId {
-    /// Create a new worker ID.
-    pub const fn new(id: usize) -> Self {
-        Self(id)
-    }
-
-    /// Get the raw ID value.
-    pub const fn get(self) -> usize {
-        self.0
-    }
-}
-
-/// I/O event types for the async runtime
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IoEvent {
-    /// Ready for reading
-    Read,
-    /// Ready for writing  
-    Write,
-    /// Error condition
-    Error,
-}
-
-/// I/O reactor for handling file descriptor events
-pub struct IoReactor {
-    /// Map of file descriptors to their wakers
-    fd_wakers: Arc<Mutex<HashMap<RawFd, (Waker, IoEvent)>>>,
-    /// Event notification channel
-    event_sender: Sender<(RawFd, IoEvent)>,
-    event_receiver: Arc<Mutex<Receiver<(RawFd, IoEvent)>>>,
-    /// Shutdown signal
-    shutdown: Arc<AtomicBool>,
-}
+/// Worker thread that executes tasks from the scheduler.
 
 #[cfg(unix)]
 impl IoReactor {
