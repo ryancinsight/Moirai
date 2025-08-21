@@ -817,7 +817,7 @@ impl<T: Send> HybridReceiver<T> {
     }
     
     /// Async receive for use in async contexts
-    #[cfg(feature = "coroutine")]
+    #[cfg(feature = "async")]
     pub async fn recv_async(&self) -> Result<T> {
         loop {
             match self.ring.try_consume() {
