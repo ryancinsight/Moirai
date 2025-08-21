@@ -67,7 +67,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock, Condvar,
-        mpsc::{self, Receiver, Sender},
+        mpsc,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -76,136 +76,8 @@ use std::{
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
 /// Worker thread that executes tasks from the scheduler.
-
-#[cfg(unix)]
-impl IoReactor {
-    /// Create a new I/O reactor
-    pub fn new() -> Self {
-        let (event_sender, event_receiver) = mpsc::channel();
-        
-        Self {
-            fd_wakers: Arc::new(Mutex::new(HashMap::new())),
-            event_sender,
-            event_receiver: Arc::new(Mutex::new(event_receiver)),
-            shutdown: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// Register a file descriptor for I/O events
-    pub fn register_fd(&self, fd: RawFd, waker: Waker, event: IoEvent) {
-        if let Ok(mut wakers) = self.fd_wakers.lock() {
-            wakers.insert(fd, (waker, event));
-        }
-    }
-
-    /// Unregister a file descriptor
-    pub fn unregister_fd(&self, fd: RawFd) {
-        if let Ok(mut wakers) = self.fd_wakers.lock() {
-            wakers.remove(&fd);
-        }
-    }
-
-    /// Run the I/O event loop (simplified - real implementation would use epoll/kqueue)
-    pub fn run(&self) {
-        while !self.shutdown.load(Ordering::Relaxed) {
-            // Simplified I/O polling - in a real implementation this would use epoll/kqueue/iocp
-            self.poll_fds();
-            
-            // Process events
-            if let Ok(receiver) = self.event_receiver.lock() {
-                while let Ok((fd, event)) = receiver.try_recv() {
-                    if let Ok(wakers) = self.fd_wakers.lock() {
-                        if let Some((waker, registered_event)) = wakers.get(&fd) {
-                            if *registered_event == event {
-                                waker.wake_by_ref();
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Small sleep to prevent busy-waiting (real implementation would block on epoll)
-            thread::sleep(Duration::from_millis(1));
-        }
-    }
-
-    /// Poll file descriptors for readiness (simplified implementation)
-    fn poll_fds(&self) {
-        if let Ok(wakers) = self.fd_wakers.lock() {
-            for (&fd, &(ref _waker, event)) in wakers.iter() {
-                // Simplified readiness check - real implementation would use select/poll/epoll
-                match event {
-                    IoEvent::Read => {
-                        // Check if fd is ready for reading
-                        if self.is_fd_ready_for_read(fd) {
-                            let _ = self.event_sender.send((fd, IoEvent::Read));
-                        }
-                    }
-                    IoEvent::Write => {
-                        // Check if fd is ready for writing
-                        if self.is_fd_ready_for_write(fd) {
-                            let _ = self.event_sender.send((fd, IoEvent::Write));
-                        }
-                    }
-                    IoEvent::Error => {
-                        // Check for error conditions
-                        if self.is_fd_error(fd) {
-                            let _ = self.event_sender.send((fd, IoEvent::Error));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Check if file descriptor is ready for reading (simplified)
-    fn is_fd_ready_for_read(&self, _fd: RawFd) -> bool {
-        // Simplified implementation - always return true for demo
-        // Real implementation would use select/poll/epoll
-        true
-    }
-
-    /// Check if file descriptor is ready for writing (simplified)
-    fn is_fd_ready_for_write(&self, _fd: RawFd) -> bool {
-        // Simplified implementation - always return true for demo
-        // Real implementation would use select/poll/epoll
-        true
-    }
-
-    /// Check if file descriptor has error condition (simplified)
-    fn is_fd_error(&self, _fd: RawFd) -> bool {
-        // Simplified implementation - always return false for demo
-        // Real implementation would check error conditions
-        false
-    }
-
-    /// Shutdown the reactor
-    pub fn shutdown(&self) {
-        self.shutdown.store(true, Ordering::Relaxed);
-    }
-}
-
-#[cfg(not(unix))]
-impl IoReactor {
-    /// Create a new I/O reactor (no-op on non-Unix platforms)
-    pub fn new() -> Self {
-        let (event_sender, event_receiver) = mpsc::channel();
-        
-        Self {
-            fd_wakers: Arc::new(Mutex::new(HashMap::new())),
-            event_sender,
-            event_receiver: Arc::new(Mutex::new(event_receiver)),
-            shutdown: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// No-op implementations for non-Unix platforms
-    pub fn register_fd(&self, _fd: i32, _waker: Waker, _event: IoEvent) {}
-    pub fn unregister_fd(&self, _fd: i32) {}
-    pub fn run(&self) {}
-    pub fn shutdown(&self) {    }
-}
-
+/// 
+/// Each worker follows the Information Expert pattern by owning
 /// Worker thread that executes tasks from the scheduler.
 /// 
 /// Each worker follows the Information Expert pattern by owning
