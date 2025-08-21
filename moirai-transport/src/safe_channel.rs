@@ -197,8 +197,8 @@ mod tests {
         let address = Address::Local("test".to_string());
         
         // Create safe sender and receiver
-        let sender = SafeUniversalSender::<String>::new(transport.clone(), address.clone());
-        let receiver = SafeUniversalReceiver::<String>::new(transport, address);
+        let _sender = SafeUniversalSender::<String>::new(transport.clone(), address.clone());
+        let _receiver = SafeUniversalReceiver::<String>::new(transport, address);
         
         // This would work if we had a working transport implementation
         // sender.send("Hello, safe world!".to_string()).unwrap();

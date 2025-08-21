@@ -66,6 +66,13 @@ pub struct MemoryMappedRing<T> {
 }
 
 impl<T> MemoryMappedRing<T> {
+    /// Creates a new memory-mapped ring buffer with the specified capacity.
+    /// 
+    /// # Arguments
+    /// * `capacity` - The maximum number of elements the ring buffer can hold
+    /// 
+    /// # Returns
+    /// A new `MemoryMappedRing` instance or a `ZeroCopyError` if allocation fails
     pub fn new(capacity: usize) -> ZeroCopyResult<Self> {
         if !capacity.is_power_of_two() || capacity == 0 {
             return Err(ZeroCopyError::InvalidBufferSize);
@@ -95,6 +102,13 @@ impl<T> MemoryMappedRing<T> {
         })
     }
 
+    /// Sends a value through the ring buffer using zero-copy semantics.
+    /// 
+    /// # Arguments
+    /// * `value` - The value to send
+    /// 
+    /// # Returns
+    /// `Ok(())` on success, or `Err((value, error))` if the send fails
     pub fn send_zero_copy(&self, value: T) -> Result<(), (T, ZeroCopyError)> {
         if self.closed.load(Ordering::Acquire) {
             return Err((value, ZeroCopyError::Closed));
@@ -110,6 +124,10 @@ impl<T> MemoryMappedRing<T> {
         Ok(())
     }
 
+    /// Receives a value from the ring buffer using zero-copy semantics.
+    /// 
+    /// # Returns
+    /// The received value or a `ZeroCopyError` if no value is available
     pub fn recv_zero_copy(&self) -> ZeroCopyResult<T> {
         let c = self.consumer_cursor.load(Ordering::Relaxed);
         let p = self.producer_cursor.load(Ordering::Acquire);
@@ -127,10 +145,21 @@ impl<T> MemoryMappedRing<T> {
         Ok(value)
     }
 
+    /// Attempts to send a value without blocking.
+    /// 
+    /// # Arguments
+    /// * `value` - The value to send
+    /// 
+    /// # Returns
+    /// `Ok(())` on success, or `Err((value, error))` if the send fails
     pub fn try_send(&self, value: T) -> Result<(), (T, ZeroCopyError)> { self.send_zero_copy(value) }
+    /// Attempts to receive a value without blocking.
     pub fn try_recv(&self) -> ZeroCopyResult<T> { self.recv_zero_copy() }
+    /// Closes the ring buffer, preventing further operations.
     pub fn close(&self) { self.closed.store(true, Ordering::Release); }
+    /// Returns true if the ring buffer has been closed.
     pub fn is_closed(&self) -> bool { self.closed.load(Ordering::Acquire) }
+    /// Returns the current number of elements in the ring buffer.
     pub fn len(&self) -> usize {
         let p = self.producer_cursor.load(Ordering::Relaxed);
         let c = self.consumer_cursor.load(Ordering::Relaxed);
@@ -168,21 +197,38 @@ pub struct ZeroCopyChannel<T> {
 }
 
 impl<T> ZeroCopyChannel<T> {
+    /// Creates a new zero-copy channel pair with the specified capacity.
+    /// 
+    /// # Arguments
+    /// * `capacity` - The maximum number of elements the channel can buffer
+    /// 
+    /// # Returns
+    /// A tuple containing the sender and receiver halves of the channel
     pub fn new(capacity: usize) -> ZeroCopyResult<(ZeroCopySender<T>, ZeroCopyReceiver<T>)> {
         let ring = Arc::new(MemoryMappedRing::new(capacity)?);
         Ok((ZeroCopySender { ring: ring.clone() }, ZeroCopyReceiver { ring }))
     }
 }
 
+/// Zero-copy sender half of a channel.
+/// 
+/// Allows sending values through a memory-mapped ring buffer without copying data.
 pub struct ZeroCopySender<T> { ring: Arc<MemoryMappedRing<T>> }
 impl<T> ZeroCopySender<T> {
+    /// Sends a value through the channel.
     pub fn send(&self, value: T) -> Result<(), (T, ZeroCopyError)> { self.ring.send_zero_copy(value) }
+    /// Attempts to send a value without blocking.
     pub fn try_send(&self, value: T) -> Result<(), (T, ZeroCopyError)> { self.ring.try_send(value) }
+    /// Closes the sender half of the channel.
     pub fn close(&self) { self.ring.close(); }
+    /// Returns true if the channel is closed.
     pub fn is_closed(&self) -> bool { self.ring.is_closed() }
 }
 impl<T> Clone for ZeroCopySender<T> { fn clone(&self) -> Self { Self { ring: self.ring.clone() } } }
 
+/// Zero-copy receiver half of a channel.
+/// 
+/// Allows receiving values from a memory-mapped ring buffer without copying data.
 pub struct ZeroCopyReceiver<T> { ring: Arc<MemoryMappedRing<T>> }
 impl<T> ZeroCopyReceiver<T> {
     pub fn recv(&self) -> ZeroCopyResult<T> { self.ring.recv_zero_copy() }
@@ -372,7 +418,7 @@ impl<T> AdaptiveBatchSender<T> {
                                 pending.push_front(v);
                                 break;
                             }
-                            other => {
+                            _other => {
                                 // Unexpected error path: requeue and treat as transient
                                 pending.push_front(v);
                                 break;

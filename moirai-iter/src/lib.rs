@@ -1731,7 +1731,7 @@ mod tests {
             
             let results: Vec<i32> = iter.map(|x| x * 2).collect().await;
             // Validate we obtained a Vec; full async collect semantics are exercised under the async feature
-            assert!(results.len() >= 0);
+            assert!(!results.is_empty());
         });
     }
 

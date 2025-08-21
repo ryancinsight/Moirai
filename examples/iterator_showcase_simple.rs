@@ -2,7 +2,7 @@
 //!
 //! This example demonstrates basic usage of Moirai iterators
 
-use moirai_iter::{moirai_iter, MoiraiIterator};
+use moirai_iter::moirai_iter;
 
 fn main() {
     println!("Moirai Simple Iterator Showcase");
@@ -20,7 +20,7 @@ fn main() {
     println!("  (MoiraiIterator operations return futures - use with async runtime)");
     
     println!("\n2. Creating iterators:");
-    let iter = moirai_iter(vec![10, 20, 30]);
+    let _iter = moirai_iter(vec![10, 20, 30]);
     println!("  Created parallel iterator for: [10, 20, 30]");
     
     println!("\n3. Iterator features:");

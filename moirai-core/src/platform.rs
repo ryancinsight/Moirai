@@ -121,7 +121,7 @@ impl Instant {
     /// Create a new instant representing "now"
     pub fn now() -> Self {
         // In no-std, we can't get real time, so use a counter
-        // This is a simplified implementation
+        // Monotonic counter for simulating Instant::now() in no-std environments
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         Instant(COUNTER.fetch_add(1, Ordering::Relaxed))
     }

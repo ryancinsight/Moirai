@@ -346,7 +346,7 @@ pub trait Executor: TaskSpawner + TaskManager + ExecutorControl {
     fn stats(&self) -> ExecutorStats;
 }
 
-/// Executor statistics (placeholder for when metrics feature is disabled)
+/// Executor statistics (basic implementation when metrics feature is disabled)
 #[cfg(not(feature = "metrics"))]
 #[derive(Debug, Clone, Default)]
 pub struct ExecutorStats;

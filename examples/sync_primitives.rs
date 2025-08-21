@@ -181,19 +181,24 @@ fn main() {
     println!("  Main: All workers completed!");
     
     // Example 7: Performance comparison
-    println!("\n7. Performance Comparison (FastMutex vs std::sync::Mutex):");
+    println!("\n7. Performance Comparison (FutexMutex vs std::sync::Mutex):");
     
-    let iterations = 100_000;
+    /// Number of iterations for performance comparison benchmarks
+    const BENCHMARK_ITERATIONS: usize = 100_000;
+    /// Number of worker threads for performance comparison
+    const BENCHMARK_WORKER_THREADS: usize = 4;
     
-    // FastMutex benchmark
+    let iterations = BENCHMARK_ITERATIONS;
+    
+    // FutexMutex benchmark
     let fast_mutex = Arc::new(FutexMutex::new(0));
     let start = Instant::now();
     
     let mut handles = vec![];
-    for _ in 0..4 {
+    for _ in 0..BENCHMARK_WORKER_THREADS {
         let mutex_clone = Arc::clone(&fast_mutex);
         let handle = thread::spawn(move || {
-            for _ in 0..iterations / 4 {
+            for _ in 0..iterations / BENCHMARK_WORKER_THREADS {
                 let mut guard = mutex_clone.lock();
                 *guard += 1;
             }
@@ -212,10 +217,10 @@ fn main() {
     let start = Instant::now();
     
     let mut handles = vec![];
-    for _ in 0..4 {
+    for _ in 0..BENCHMARK_WORKER_THREADS {
         let mutex_clone = Arc::clone(&std_mutex);
         let handle = thread::spawn(move || {
-            for _ in 0..iterations / 4 {
+            for _ in 0..iterations / BENCHMARK_WORKER_THREADS {
                 let mut guard = mutex_clone.lock().unwrap();
                 *guard += 1;
             }
@@ -229,7 +234,7 @@ fn main() {
     
     let std_time = start.elapsed();
     
-    println!("  FastMutex:      {:?} ({} ops)", fast_time, *fast_mutex.lock());
+    println!("  FutexMutex:      {:?} ({} ops)", fast_time, *fast_mutex.lock());
     println!("  std::sync::Mutex: {:?} ({} ops)", std_time, *std_mutex.lock().unwrap());
     println!("  Speedup: {:.2}x", std_time.as_secs_f64() / fast_time.as_secs_f64());
 }

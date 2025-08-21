@@ -6,7 +6,7 @@ use std::future::Future;
 use std::alloc::{alloc, dealloc, Layout};
 use std::ptr;
 
-use crate::{ExecutionContext, ExecutionBase, IntoParallelIterator};
+use crate::{ExecutionBase, IntoParallelIterator};
 use moirai_scheduler::numa_scheduler::CpuTopology;
 
 /// NUMA memory allocation policy

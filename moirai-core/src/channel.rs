@@ -718,7 +718,9 @@ impl<T> Clone for HybridSender<T> {
 /// Receiver half of hybrid channel
 pub struct HybridReceiver<T> {
     ring: Arc<RingBuffer<T>>,
+    #[allow(dead_code)]
     async_notifier: Arc<AtomicBool>,
+    #[allow(dead_code)]
     sync_notifier: Arc<AtomicBool>,
     parker: Arc<Mutex<Vec<std::thread::Thread>>>,
 }

@@ -63,7 +63,8 @@ fn benchmark_task_dispatch() {
 }
 
 fn benchmark_channel_parking() {
-    const MESSAGES: usize = 10_000;
+/// Number of messages for transport benchmarks
+const TRANSPORT_BENCHMARK_MESSAGES: usize = 10_000;
     
     // Simulate busy-wait approach
     let busy_wait_time = Arc::new(std::sync::Mutex::new(Duration::ZERO));
@@ -72,7 +73,7 @@ fn benchmark_channel_parking() {
     let (tx1, rx1) = std::sync::mpsc::channel();
     let busy_thread = thread::spawn(move || {
         let mut total_wait = Duration::ZERO;
-        for _ in 0..MESSAGES {
+        for _ in 0..TRANSPORT_BENCHMARK_MESSAGES {
             let start = Instant::now();
             while rx1.try_recv().is_err() {
                 std::hint::spin_loop();
@@ -104,7 +105,7 @@ fn benchmark_channel_parking() {
     let (tx2, rx2) = std::sync::mpsc::channel();
     let park_thread = thread::spawn(move || {
         let mut total_wait = Duration::ZERO;
-        for _ in 0..MESSAGES {
+        for _ in 0..TRANSPORT_BENCHMARK_MESSAGES {
             let start = Instant::now();
             rx2.recv().unwrap();
             total_wait += start.elapsed();
@@ -114,7 +115,7 @@ fn benchmark_channel_parking() {
     
     // Send messages with delays
     thread::spawn(move || {
-        for i in 0..MESSAGES {
+        for i in 0..TRANSPORT_BENCHMARK_MESSAGES {
             if i % 1000 == 0 {
                 thread::sleep(Duration::from_micros(10));
             }

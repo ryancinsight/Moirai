@@ -4,7 +4,7 @@
 //! semantics, ensuring that SpscChannel and MpmcChannel conform to the
 //! Liskov Substitution Principle.
 
-use moirai_core::channel::{spsc, mpmc, Channel};
+use moirai_core::channel::{spsc, mpmc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -98,8 +98,8 @@ fn demonstrate_channel_trait_polymorphism() {
     println!("3. Channel Trait Polymorphism (LSP Compliance):");
     
     // Both SPSC and MPMC channels can be used through the Channel trait
-    let spsc_channel = spsc::<i32>(5);
-    let mpmc_channel = mpmc::<i32>(5);
+    let _spsc_channel = spsc::<i32>(5);
+    let _mpmc_channel = mpmc::<i32>(5);
     
     // Test blocking behavior through the trait
     // Note: Generic trait testing removed as Channel trait is for the channel itself,
