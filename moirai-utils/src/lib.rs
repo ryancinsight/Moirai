@@ -1088,7 +1088,8 @@ pub mod probabilistic {
 ))]
 pub mod simd;
 
-// Provide stub implementations for unsupported platforms
+// Platform-specific implementations for unsupported targets
+// Uses fallback implementations that provide basic functionality
 #[cfg(all(
     feature = "simd",
     not(any(

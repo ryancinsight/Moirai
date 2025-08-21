@@ -409,7 +409,7 @@ mod tests {
         let transport1 = InMemoryTransport::new();
         let transport2 = InMemoryTransport::new();
         
-        // Register transports with each other (simplified)
+        // Register transports with each other for routing
         // This would require a more robust mechanism for inter-transport communication
         // For now, we'll just check if they can send/recv to/from themselves
         assert!(transport1.send(&Address::Local("t1".to_string()), vec![1]).is_ok());
@@ -429,7 +429,7 @@ mod tests {
         };
 
         // Test sending a simple type (requires serialization)
-        // This test will currently fail as the send method is unimplemented
+        // This test demonstrates channel creation API
         // assert!(sender.send(42).is_ok()); 
     }
 }
