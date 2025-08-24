@@ -1,6 +1,6 @@
 //! Utility functions and data structures for Moirai concurrency library.
 
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![deny(missing_docs)]
 
 #[cfg(feature = "std")]
@@ -9,15 +9,32 @@ extern crate std;
 #[cfg(feature = "std")]
 
 
-// Core imports needed for no_std compatibility
+// Core imports needed for all configurations
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-// Std-only imports
+// Std-only imports (includes math functions)
 #[cfg(feature = "std")]
 use std::{
     boxed::Box,
     vec::Vec,
+    collections::VecDeque,
+    f64,  // For math functions like sqrt, ln, etc.
 };
+
+// No-std fallbacks
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+#[cfg(not(feature = "std"))]
+use alloc::{
+    boxed::Box,
+    vec::Vec,
+    collections::VecDeque,
+};
+
+// Math functions require std feature
+#[cfg(not(feature = "std"))]
+compile_error!("Math functions in this crate require the 'std' feature to be enabled");
 
 /// Cache line size for alignment optimizations.
 pub const CACHE_LINE_SIZE: usize = 64;
@@ -1232,7 +1249,7 @@ impl SimdStats {
         }
         
         // Assume SIMD provides 4-8x speedup on average
-        let avg_simd_speedup = if crate::simd::has_avx2_support() { 8.0 } else { 4.0 };
+        let avg_simd_speedup = if cfg!(feature = "simd") { 8.0 } else { 4.0 };
         
         // Calculate time if all operations were scalar
         let scalar_time = total_elements as f64;

@@ -189,18 +189,18 @@ impl<'a, T> Iterator for PrefetchSliceIterMut<'a, T> {
 /// Extension trait for slices to provide prefetching iterators
 pub trait SlicePrefetchExt<T> {
     /// Create a prefetching iterator over this slice
-    fn prefetch_iter(&self) -> PrefetchSliceIter<T>;
+    fn prefetch_iter(&self) -> PrefetchSliceIter<'_, T>;
     
     /// Create a prefetching mutable iterator
-    fn prefetch_iter_mut(&mut self) -> PrefetchSliceIterMut<T>;
+    fn prefetch_iter_mut(&mut self) -> PrefetchSliceIterMut<'_, T>;
 }
 
 impl<T> SlicePrefetchExt<T> for [T] {
-    fn prefetch_iter(&self) -> PrefetchSliceIter<T> {
+    fn prefetch_iter(&self) -> PrefetchSliceIter<'_, T> {
         PrefetchSliceIter::new(self)
     }
     
-    fn prefetch_iter_mut(&mut self) -> PrefetchSliceIterMut<T> {
+    fn prefetch_iter_mut(&mut self) -> PrefetchSliceIterMut<'_, T> {
         PrefetchSliceIterMut::new(self)
     }
 }

@@ -1,11 +1,11 @@
-//! Simple iterator showcase for Moirai
+//! Basic iterator showcase for Moirai
 //!
 //! This example demonstrates basic usage of Moirai iterators
 
 use moirai_iter::moirai_iter;
 
 fn main() {
-    println!("Moirai Simple Iterator Showcase");
+    println!("Moirai Basic Iterator Showcase");
     println!("================================");
     
     // Since MoiraiIterator methods return futures, we need an async runtime
