@@ -159,7 +159,7 @@ impl<T> FutexMutex<T> {
     pub fn lock(&self) -> FutexMutexGuard<'_, T> {
         // Try to acquire the lock with spinning first
         for _ in 0..100 {
-            if self.try_lock_fast() {
+            if self.try_lock_immediate() {
                 return FutexMutexGuard {
                     mutex: self,
                     _phantom: std::marker::PhantomData,
@@ -177,7 +177,7 @@ impl<T> FutexMutex<T> {
     }
     
     #[inline]
-    fn try_lock_fast(&self) -> bool {
+    fn try_lock_immediate(&self) -> bool {
         #[cfg(target_os = "linux")]
         {
             self.state.compare_exchange_weak(
@@ -440,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fast_mutex() {
+    fn test_futex_mutex() {
         let mutex = Arc::new(FutexMutex::new(0));
         let mut handles = vec![];
 

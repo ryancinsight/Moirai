@@ -264,7 +264,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
 pub trait CacheIterExt<T> {
 	fn cache_windows(&self, window_size: usize) -> WindowIterator<T>;
 	fn cache_chunks(&self) -> CacheAlignedChunks<T>;
-	fn zero_copy_par_iter(&self) -> ZeroCopyParallelIter<T>;
+	fn zero_copy_par_iter(&self) -> ZeroCopyParallelIter<'_, T>;
 }
 
 impl<T: Send + Sync> CacheIterExt<T> for [T] {
@@ -276,7 +276,7 @@ impl<T: Send + Sync> CacheIterExt<T> for [T] {
 		CacheAlignedChunks::new(self)
 	}
 	
-	fn zero_copy_par_iter(&self) -> ZeroCopyParallelIter<T> {
+	fn zero_copy_par_iter(&self) -> ZeroCopyParallelIter<'_, T> {
 		ZeroCopyParallelIter::new(self)
 	}
 }

@@ -235,9 +235,9 @@ mod integration_tests {
         assert_eq!(result, Ok(expected), "NUMA-aware computation should produce correct result");
     }
 
-    /// Stress test with CPU optimizations.
+    /// Stress test with CPU utilization.
     #[test]
-    fn test_cpu_optimized_stress() {
+    fn test_cpu_stress() {
         let runtime = Moirai::builder()
             .worker_threads(8) // Ensure sufficient worker threads
             .build()

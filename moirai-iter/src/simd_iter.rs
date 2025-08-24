@@ -313,18 +313,18 @@ impl<'a> SimdParallelIterator<'a, f32> {
 /// Extension trait for SIMD operations on slices
 pub trait SimdIteratorExt {
     /// Create a SIMD-optimized iterator for f32 slices
-    fn simd_iter(&self) -> SimdF32Iterator;
+    fn simd_iter(&self) -> SimdF32Iterator<'_>;
     
     /// Create a parallel SIMD iterator for f32 slices
-    fn par_simd_iter(&self) -> SimdParallelIterator<f32>;
+    fn par_simd_iter(&self) -> SimdParallelIterator<'_, f32>;
 }
 
 impl SimdIteratorExt for [f32] {
-    fn simd_iter(&self) -> SimdF32Iterator {
+    fn simd_iter(&self) -> SimdF32Iterator<'_> {
         SimdF32Iterator::new(self)
     }
     
-    fn par_simd_iter(&self) -> SimdParallelIterator<f32> {
+    fn par_simd_iter(&self) -> SimdParallelIterator<'_, f32> {
         SimdParallelIterator::new(self)
     }
 }

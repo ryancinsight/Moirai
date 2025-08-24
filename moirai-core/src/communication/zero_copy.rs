@@ -165,8 +165,13 @@ impl<T> MemoryMappedRing<T> {
         let c = self.consumer_cursor.load(Ordering::Relaxed);
         p.wrapping_sub(c)
     }
+    /// Check if the ring buffer is empty
     pub fn is_empty(&self) -> bool { self.len() == 0 }
+    
+    /// Check if the ring buffer is full
     pub fn is_full(&self) -> bool { self.len() >= self.capacity }
+    
+    /// Get the capacity of the ring buffer
     pub fn capacity(&self) -> usize { self.capacity }
 }
 
@@ -231,8 +236,13 @@ impl<T> Clone for ZeroCopySender<T> { fn clone(&self) -> Self { Self { ring: sel
 /// Allows receiving values from a memory-mapped ring buffer without copying data.
 pub struct ZeroCopyReceiver<T> { ring: Arc<MemoryMappedRing<T>> }
 impl<T> ZeroCopyReceiver<T> {
+    /// Receive a value with zero-copy semantics
     pub fn recv(&self) -> ZeroCopyResult<T> { self.ring.recv_zero_copy() }
+    
+    /// Try to receive a value without blocking
     pub fn try_recv(&self) -> ZeroCopyResult<T> { self.ring.try_recv() }
+    
+    /// Check if the channel is closed
     pub fn is_closed(&self) -> bool { self.ring.is_closed() }
 }
 impl<T> Clone for ZeroCopyReceiver<T> { fn clone(&self) -> Self { Self { ring: self.ring.clone() } } }
@@ -249,6 +259,7 @@ pub struct AdaptiveThreshold {
 }
 
 impl AdaptiveThreshold {
+    /// Create a new adaptive batch size controller
     pub fn new(initial: usize, min: usize, max: usize, adaptation_rate: f64) -> Self {
         assert!(min <= initial && initial <= max);
         assert!((0.0..=1.0).contains(&adaptation_rate) && adaptation_rate > 0.0);
@@ -261,7 +272,10 @@ impl AdaptiveThreshold {
             last_adaptation: std::sync::Mutex::new(Instant::now()),
         }
     }
+    /// Get the current batch size
     pub fn current(&self) -> usize { self.current.load(Ordering::Relaxed) }
+    
+    /// Update batch size based on performance metrics
     pub fn update(&self, throughput: f64, latency: Duration) {
         let mut history = self.throughput_history.lock().unwrap();
         let mut last = self.last_adaptation.lock().unwrap();
@@ -300,17 +314,22 @@ impl ThroughputMonitor {
             recent_throughput: std::sync::Mutex::new(VecDeque::with_capacity(10)),
         }
     }
+    /// Record a message being processed
     pub fn record_message(&self) { self.message_count.fetch_add(1, Ordering::Relaxed); }
+    
+    /// Get current throughput in messages per second
     pub fn current_throughput(&self) -> f64 {
         let count = self.message_count.load(Ordering::Relaxed);
         let start = self.start_time.lock().unwrap();
         let elapsed = start.elapsed();
         if elapsed.as_secs_f64() > 0.0 { count as f64 / elapsed.as_secs_f64() } else { 0.0 }
     }
+    /// Get recent throughput over the last measurement window
     pub fn recent_throughput(&self) -> f64 {
         let t = self.recent_throughput.lock().unwrap();
         if t.is_empty() { 0.0 } else { t.iter().sum::<f64>() / t.len() as f64 }
     }
+    /// Update throughput measurements
     pub fn update(&self) {
         let mut last = self.last_measurement.lock().unwrap();
         let mut rt = self.recent_throughput.lock().unwrap();
@@ -321,6 +340,7 @@ impl ThroughputMonitor {
             *last = now;
         }
     }
+    /// Get time since last measurement
     pub fn idle_time(&self) -> Duration { self.last_measurement.lock().unwrap().elapsed() }
 }
 impl Default for ThroughputMonitor { fn default() -> Self { Self::new() } }
@@ -336,6 +356,7 @@ pub struct AdaptiveBatchChannel<T> {
 }
 
 impl<T> AdaptiveBatchChannel<T> {
+    /// Create a new adaptive batch channel pair
     pub fn new(capacity: usize, max_batch_delay: Duration) -> ZeroCopyResult<(AdaptiveBatchSender<T>, AdaptiveBatchReceiver<T>)> {
         let (sender, receiver) = ZeroCopyChannel::new(capacity)?;
         let s = AdaptiveBatchSender {
@@ -351,6 +372,9 @@ impl<T> AdaptiveBatchChannel<T> {
     }
 }
 
+/// Adaptive batch sender for zero-copy channels.
+/// 
+/// Automatically adjusts batch sizes based on throughput and latency metrics.
 pub struct AdaptiveBatchSender<T> {
     sender: ZeroCopySender<T>,
     batch_buffer: std::sync::Mutex<VecDeque<T>>,
