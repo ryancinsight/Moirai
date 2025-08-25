@@ -5,7 +5,6 @@
 
 use super::task::TaskMetadata;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Central registry for tracking all tasks in the system

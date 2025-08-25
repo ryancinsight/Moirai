@@ -15,7 +15,7 @@ use moirai_core::{
     Box, BoxedTask, Priority,
 };
 
-/// CPU topology information for NUMA awareness.
+/// NUMA-aware work stealing scheduler.
 #[derive(Debug, Clone)]
 pub struct CpuTopology {
     /// Number of NUMA nodes

@@ -1,7 +1,7 @@
 //! Synchronization primitives example for Moirai
 //!
 //! This example demonstrates:
-//! - Fast mutex usage
+//! - Futex mutex usage
 //! - Concurrent hash map
 //! - Lock-free stack and queue
 //! - Barriers and wait groups
@@ -16,8 +16,8 @@ fn main() {
     println!("Moirai Synchronization Primitives");
     println!("=================================");
 
-    // Example 1: Fast Mutex
-    println!("\n1. Fast Mutex Example:");
+    // Example 1: Futex Mutex
+    println!("\n1. Futex Mutex Example:");
 
     let counter = Arc::new(FutexMutex::new(0));
     let mut handles = vec![];
@@ -188,12 +188,12 @@ fn main() {
     let iterations = BENCHMARK_ITERATIONS;
 
     // FutexMutex benchmark
-    let fast_mutex = Arc::new(FutexMutex::new(0));
+    let futex_mutex = Arc::new(FutexMutex::new(0));
     let start = Instant::now();
 
     let mut handles = vec![];
     for _ in 0..BENCHMARK_WORKER_THREADS {
-        let mutex_clone = Arc::clone(&fast_mutex);
+        let mutex_clone = Arc::clone(&futex_mutex);
         let handle = thread::spawn(move || {
             for _ in 0..iterations / BENCHMARK_WORKER_THREADS {
                 let mut guard = mutex_clone.lock();
@@ -207,7 +207,7 @@ fn main() {
         handle.join().unwrap();
     }
 
-    let fast_time = start.elapsed();
+    let futex_time = start.elapsed();
 
     // std::sync::Mutex benchmark
     let std_mutex = Arc::new(std::sync::Mutex::new(0));
@@ -233,8 +233,8 @@ fn main() {
 
     println!(
         "  FutexMutex:      {:?} ({} ops)",
-        fast_time,
-        *fast_mutex.lock()
+        futex_time,
+        *futex_mutex.lock()
     );
     println!(
         "  std::sync::Mutex: {:?} ({} ops)",
@@ -243,6 +243,6 @@ fn main() {
     );
     println!(
         "  Speedup: {:.2}x",
-        std_time.as_secs_f64() / fast_time.as_secs_f64()
+        std_time.as_secs_f64() / futex_time.as_secs_f64()
     );
 }

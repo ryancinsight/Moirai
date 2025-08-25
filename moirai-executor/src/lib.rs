@@ -35,9 +35,6 @@ pub use task::{TaskMetadata, TaskPerformanceMetrics, TaskWaitFuture};
 pub use types::{IoEvent, WorkerId};
 pub use worker::{Worker, WorkerMetrics};
 
-// Essential imports for any remaining implementation
-use std::sync::atomic::{AtomicBool, Ordering};
-
 /// Main executor builder for creating configured instances
 pub struct ExecutorBuilder {
     worker_threads: usize,

@@ -367,7 +367,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_simple_coroutine() {
+    fn test_basic_coroutine() {
         let mut counter = 0;
         let mut coro = SimpleCoroutine::new(move || {
             counter += 1;

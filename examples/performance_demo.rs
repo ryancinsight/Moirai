@@ -91,7 +91,7 @@ fn benchmark_channel_parking() {
 
     // Send messages with delays
     thread::spawn(move || {
-        for i in 0..MESSAGES {
+        for i in 0..TRANSPORT_BENCHMARK_MESSAGES {
             if i % 1000 == 0 {
                 thread::sleep(Duration::from_micros(10));
             }

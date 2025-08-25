@@ -26,7 +26,7 @@ mod integration_tests {
     }
 
     #[test]
-    fn test_simple_task_execution() {
+    fn test_basic_task_execution() {
         let runtime = Moirai::new().unwrap();
         let counter = Arc::new(AtomicU32::new(0));
         let counter_clone = counter.clone();
