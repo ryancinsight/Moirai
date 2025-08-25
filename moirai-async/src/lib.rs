@@ -3,21 +3,21 @@
 //! This module provides async runtime integration for Moirai, enabling seamless
 //! interop between sync and async tasks while maintaining high performance.
 
+use moirai_core::{Priority, TaskId};
+use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
-use std::sync::{Arc, Mutex};
-use std::collections::VecDeque;
-use moirai_core::{TaskId, Priority};
 
 /// An async executor that integrates with Moirai's hybrid runtime.
-/// 
+///
 /// # Behavior Guarantees
 /// - Tasks are scheduled fairly across available threads
 /// - Async and sync tasks can interoperate seamlessly
 /// - Wakers are efficiently managed to minimize overhead
-/// 
+///
 /// # Performance Characteristics
 /// - Task spawn: O(1) amortized, < 50ns typical latency
 /// - Waker registration: O(1), lock-free when possible
@@ -62,7 +62,7 @@ struct AsyncExecutorStats {
 
 impl AsyncExecutor {
     /// Create a new async executor.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Initializes all internal data structures
     /// - Ready to accept tasks immediately
@@ -76,7 +76,7 @@ impl AsyncExecutor {
     }
 
     /// Spawn an async task with default priority.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Task is queued for execution immediately
     /// - Returns handle that can be awaited
@@ -90,7 +90,7 @@ impl AsyncExecutor {
     }
 
     /// Spawn an async task with specified priority.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Higher priority tasks are scheduled first
     /// - Task metadata is tracked for monitoring
@@ -103,7 +103,7 @@ impl AsyncExecutor {
         let task_id = TaskId::new(self.next_task_id());
         let result_storage = Arc::new(Mutex::new(None));
         let result_storage_clone = result_storage.clone();
-        
+
         // Wrap the future to capture its result
         let wrapped_future = async move {
             let result = future.await;
@@ -121,12 +121,16 @@ impl AsyncExecutor {
         {
             let mut queue = self.task_queue.lock().unwrap();
             // Insert based on priority (higher priority first)
-            let insert_pos = queue.iter().position(|task| task.priority < priority)
+            let insert_pos = queue
+                .iter()
+                .position(|task| task.priority < priority)
                 .unwrap_or(queue.len());
             queue.insert(insert_pos, task_wrapper);
         }
 
-        self.stats.tasks_spawned.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stats
+            .tasks_spawned
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         AsyncHandle {
             task_id,
@@ -136,32 +140,36 @@ impl AsyncExecutor {
     }
 
     /// Poll the next available async task.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Tasks are polled in priority order
     /// - Completed tasks are automatically cleaned up
     /// - Wakers are properly managed
-    /// 
+    ///
     /// # Returns
     /// - `true` if a task was polled
     /// - `false` if no tasks are available
     pub fn poll_next(&self) -> bool {
         let mut queue = self.task_queue.lock().unwrap();
-        
+
         if let Some(mut task) = queue.pop_front() {
             drop(queue); // Release lock before polling
-            
+
             // Create a custom waker for this task
             let waker = self.waker_registry.create_waker(task.task_id);
             let mut context = Context::from_waker(&waker);
-            
+
             let start_time = Instant::now();
             match task.future.as_mut().poll(&mut context) {
                 Poll::Ready(()) => {
                     // Task completed
                     let execution_time = start_time.elapsed().as_nanos() as u64;
-                    self.stats.tasks_completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    self.stats.total_execution_time_ns.fetch_add(execution_time, std::sync::atomic::Ordering::Relaxed);
+                    self.stats
+                        .tasks_completed
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.stats
+                        .total_execution_time_ns
+                        .fetch_add(execution_time, std::sync::atomic::Ordering::Relaxed);
                     self.waker_registry.remove_waker(task.task_id);
                     true
                 }
@@ -178,7 +186,7 @@ impl AsyncExecutor {
     }
 
     /// Run the async executor until all tasks are complete or timeout.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Polls all available tasks fairly
     /// - Respects timeout if provided
@@ -207,11 +215,23 @@ impl AsyncExecutor {
     /// Get current statistics for this executor.
     pub fn stats(&self) -> AsyncExecutorStatsSnapshot {
         AsyncExecutorStatsSnapshot {
-            tasks_spawned: self.stats.tasks_spawned.load(std::sync::atomic::Ordering::Relaxed),
-            tasks_completed: self.stats.tasks_completed.load(std::sync::atomic::Ordering::Relaxed),
+            tasks_spawned: self
+                .stats
+                .tasks_spawned
+                .load(std::sync::atomic::Ordering::Relaxed),
+            tasks_completed: self
+                .stats
+                .tasks_completed
+                .load(std::sync::atomic::Ordering::Relaxed),
             tasks_pending: self.task_queue.lock().unwrap().len() as u64,
-            total_execution_time_ns: self.stats.total_execution_time_ns.load(std::sync::atomic::Ordering::Relaxed),
-            waker_notifications: self.stats.waker_notifications.load(std::sync::atomic::Ordering::Relaxed),
+            total_execution_time_ns: self
+                .stats
+                .total_execution_time_ns
+                .load(std::sync::atomic::Ordering::Relaxed),
+            waker_notifications: self
+                .stats
+                .waker_notifications
+                .load(std::sync::atomic::Ordering::Relaxed),
         }
     }
 
@@ -250,7 +270,7 @@ impl WakerRegistry {
             task_id,
             registry: Arc::downgrade(&Arc::new(self.clone())),
         };
-        
+
         Waker::from(Arc::new(registry))
     }
 
@@ -319,14 +339,15 @@ impl<T> Future for AsyncHandle<T> {
             Poll::Ready(result)
         } else {
             // Register waker for when result is available
-            self.waker_registry.register_waker(self.task_id, cx.waker().clone());
+            self.waker_registry
+                .register_waker(self.task_id, cx.waker().clone());
             Poll::Pending
         }
     }
 }
 
 /// A timeout wrapper for futures with cancellation support.
-/// 
+///
 /// # Behavior Guarantees
 /// - Cancels the wrapped future if timeout expires
 /// - Preserves the original future's output type
@@ -376,7 +397,7 @@ impl std::fmt::Display for TimeoutError {
 impl std::error::Error for TimeoutError {}
 
 /// Create a timeout wrapper for any future.
-/// 
+///
 /// # Behavior Guarantees
 /// - Returns `TimeoutError` if duration expires
 /// - Cancels the original future on timeout
@@ -391,14 +412,14 @@ where
 /// Async I/O operations with efficient resource management.
 pub mod io {
     //! Async I/O primitives optimized for Moirai's hybrid runtime.
-    
+
     use std::future::Future;
+    use std::io::{self, Read, Write};
     use std::pin::Pin;
     use std::task::{Context, Poll};
-    use std::io::{self, Read, Write};
-    
+
     /// Async file operations with efficient buffering.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Operations are truly async and don't block threads
     /// - File handles are properly closed on drop
@@ -407,10 +428,10 @@ pub mod io {
         inner: std::fs::File,
         _buffer: Vec<u8>,
     }
-    
+
     impl File {
         /// Open a file asynchronously.
-        /// 
+        ///
         /// # Behavior Guarantees
         /// - File is opened with appropriate permissions
         /// - Returns error if file cannot be accessed
@@ -434,7 +455,7 @@ pub mod io {
         }
 
         /// Read data from the file asynchronously.
-        /// 
+        ///
         /// # Behavior Guarantees
         /// - Reads up to `buf.len()` bytes
         /// - Returns actual number of bytes read
@@ -445,7 +466,7 @@ pub mod io {
         }
 
         /// Write data to the file asynchronously.
-        /// 
+        ///
         /// # Behavior Guarantees
         /// - Writes all data or returns error
         /// - Data is buffered for efficiency
@@ -552,12 +573,12 @@ pub mod io {
 /// Async networking operations with connection pooling.
 pub mod net {
     //! Async networking primitives with high performance focus.
-    
+
     use std::io;
     use std::net::SocketAddr;
-    
+
     /// Async TCP listener with connection management.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Accepts connections without blocking
     /// - Properly handles connection errors
@@ -567,10 +588,10 @@ pub mod net {
         max_connections: Option<usize>,
         current_connections: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     }
-    
+
     impl TcpListener {
         /// Bind to an address asynchronously.
-        /// 
+        ///
         /// # Behavior Guarantees
         /// - Binds to the specified address
         /// - Configures socket for optimal performance
@@ -578,7 +599,7 @@ pub mod net {
         pub async fn bind(addr: &str) -> io::Result<Self> {
             let inner = std::net::TcpListener::bind(addr)?;
             inner.set_nonblocking(true)?;
-            
+
             Ok(Self {
                 inner,
                 max_connections: None,
@@ -592,7 +613,7 @@ pub mod net {
         }
 
         /// Accept the next incoming connection.
-        /// 
+        ///
         /// # Behavior Guarantees
         /// - Returns when a connection is available
         /// - Respects connection limits if set
@@ -600,20 +621,26 @@ pub mod net {
         pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
             // Check connection limit
             if let Some(max) = self.max_connections {
-                let current = self.current_connections.load(std::sync::atomic::Ordering::Relaxed);
+                let current = self
+                    .current_connections
+                    .load(std::sync::atomic::Ordering::Relaxed);
                 if current >= max {
                     return Err(io::Error::new(
                         io::ErrorKind::WouldBlock,
-                        "Connection limit reached"
+                        "Connection limit reached",
                     ));
                 }
             }
 
             // In a real implementation, this would use proper async I/O
             let (stream, addr) = self.inner.accept()?;
-            self.current_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            
-            Ok((TcpStream::new(stream, self.current_connections.clone()), addr))
+            self.current_connections
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+            Ok((
+                TcpStream::new(stream, self.current_connections.clone()),
+                addr,
+            ))
         }
     }
 
@@ -624,7 +651,10 @@ pub mod net {
     }
 
     impl TcpStream {
-        fn new(inner: std::net::TcpStream, counter: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Self {
+        fn new(
+            inner: std::net::TcpStream,
+            counter: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        ) -> Self {
             Self {
                 inner,
                 connection_counter: counter,
@@ -635,7 +665,7 @@ pub mod net {
         pub async fn connect(addr: &str) -> io::Result<Self> {
             let stream = std::net::TcpStream::connect(addr)?;
             stream.set_nonblocking(true)?;
-            
+
             Ok(Self {
                 inner: stream,
                 connection_counter: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -658,7 +688,8 @@ pub mod net {
 
     impl Drop for TcpStream {
         fn drop(&mut self) {
-            self.connection_counter.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            self.connection_counter
+                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         }
     }
 }
@@ -666,12 +697,12 @@ pub mod net {
 /// Async file system operations with metadata caching.
 pub mod fs {
     //! Async file system operations optimized for common patterns.
-    
+
     use std::io;
     use std::path::Path;
-    
+
     /// Read an entire file asynchronously.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Reads entire file into memory efficiently
     /// - Handles large files with streaming
@@ -680,9 +711,9 @@ pub mod fs {
         // In a real implementation, this would use async file I/O
         std::fs::read(path)
     }
-    
+
     /// Write data to a file asynchronously.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Creates file if it doesn't exist
     /// - Overwrites existing content
@@ -743,7 +774,7 @@ mod tests {
     fn test_async_executor_creation() {
         let executor = AsyncExecutor::new();
         let stats = executor.stats();
-        
+
         assert_eq!(stats.tasks_spawned, 0);
         assert_eq!(stats.tasks_completed, 0);
         assert_eq!(stats.tasks_pending, 0);
@@ -752,10 +783,10 @@ mod tests {
     #[test]
     fn test_async_task_spawning() {
         let executor = AsyncExecutor::new();
-        
+
         let handle = executor.spawn(async { 42 });
         assert!(!handle.is_ready());
-        
+
         let stats = executor.stats();
         assert_eq!(stats.tasks_spawned, 1);
         assert_eq!(stats.tasks_pending, 1);
@@ -764,15 +795,15 @@ mod tests {
     #[test]
     fn test_async_task_execution() {
         let executor = AsyncExecutor::new();
-        
-        let _handle = executor.spawn(async { 
+
+        let _handle = executor.spawn(async {
             std::thread::sleep(Duration::from_millis(1));
             "completed"
         });
-        
+
         let completed = executor.run_until_complete(Some(Duration::from_millis(100)));
         assert_eq!(completed, 1);
-        
+
         let stats = executor.stats();
         assert_eq!(stats.tasks_completed, 1);
         assert_eq!(stats.tasks_pending, 0);
@@ -781,14 +812,14 @@ mod tests {
     #[test]
     fn test_task_priority_scheduling() {
         let executor = AsyncExecutor::new();
-        
+
         let _low = executor.spawn_with_priority(async { "low" }, Priority::Low);
         let _high = executor.spawn_with_priority(async { "high" }, Priority::High);
         let _normal = executor.spawn_with_priority(async { "normal" }, Priority::Normal);
-        
+
         // High priority task should be executed first
         assert!(executor.poll_next());
-        
+
         let stats = executor.stats();
         assert_eq!(stats.tasks_spawned, 3);
     }
@@ -797,26 +828,26 @@ mod tests {
     fn test_timer() {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
-        
+
         let executor = AsyncExecutor::new();
         let completed = Arc::new(AtomicBool::new(false));
         let completed_clone = completed.clone();
-        
+
         executor.spawn(async move {
             timer::sleep(Duration::from_millis(10)).await;
             completed_clone.store(true, Ordering::Relaxed);
         });
-        
+
         // Timer shouldn't complete immediately
         assert!(!completed.load(Ordering::Relaxed));
-        
+
         // Run executor until timer completes
         let start = std::time::Instant::now();
         while !completed.load(Ordering::Relaxed) && start.elapsed() < Duration::from_millis(50) {
             executor.poll_next();
             std::thread::sleep(Duration::from_millis(1));
         }
-        
+
         // Timer should have completed
         assert!(completed.load(Ordering::Relaxed));
     }
@@ -824,15 +855,15 @@ mod tests {
     #[test]
     fn test_timeout_wrapper() {
         let executor = AsyncExecutor::new();
-        
+
         let slow_task = async {
             std::thread::sleep(Duration::from_millis(100));
             "completed"
         };
-        
+
         let timeout_task = timeout(slow_task, Duration::from_millis(10));
         let _handle = executor.spawn(timeout_task);
-        
+
         let completed = executor.run_until_complete(Some(Duration::from_millis(50)));
         assert_eq!(completed, 1);
     }
@@ -840,10 +871,10 @@ mod tests {
     #[test]
     fn test_async_handle_operations() {
         let executor = AsyncExecutor::new();
-        
+
         let handle = executor.spawn(async { 42 });
         let _task_id = handle.id();
-        
+
         assert!(!handle.is_ready());
         assert!(handle.try_result().is_none());
         // Task ID should be valid (0 is a valid starting ID)
@@ -853,53 +884,53 @@ mod tests {
     // #[tokio::test]
     // async fn test_async_handle_await() {
     //     let executor = AsyncExecutor::new();
-    //     
+    //
     //     let handle = executor.spawn(async { 42 });
-    //     
+    //
     //     // Run executor in background
     //     std::thread::spawn(move || {
     //         executor.run_until_complete(Some(Duration::from_secs(1)));
     //     });
-    //     
+    //
     //     // This would work with a proper async runtime integration
     //     // let result = handle.await;
     //     // assert_eq!(result, 42);
     // }
 }
 
-pub use timer::{Timer, Delay, sleep};
+pub use timer::{sleep, Delay, Timer};
 
 /// Async timer utilities for Moirai
 pub mod timer {
+    use moirai_core::channel::{mpmc, MpmcSender};
+    use std::cmp::Ordering;
+    use std::collections::BinaryHeap;
     use std::future::Future;
     use std::pin::Pin;
     use std::task::{Context, Poll, Waker};
-    use std::time::{Duration, Instant};
-    use std::collections::BinaryHeap;
-    use std::cmp::Ordering;
     use std::thread;
-    use moirai_core::channel::{mpmc, MpmcSender};
-    
+    use std::time::{Duration, Instant};
+
     /// Timer commands sent through the channel
     enum TimerCommand {
         Register { deadline: Instant, waker: Waker },
         Shutdown,
     }
-    
+
     /// A future that completes after a specified duration
     pub struct Delay {
         deadline: Instant,
         registered: bool,
         waker: Option<Waker>,
     }
-    
+
     // Global timer instance using std::sync::OnceLock (no external dependencies)
     static TIMER: std::sync::OnceLock<Timer> = std::sync::OnceLock::new();
-    
+
     fn get_timer() -> &'static Timer {
         TIMER.get_or_init(|| Timer::new())
     }
-    
+
     impl Delay {
         /// Create a new delay that completes after the specified duration
         pub fn new(duration: Duration) -> Self {
@@ -909,7 +940,7 @@ pub mod timer {
                 waker: None,
             }
         }
-        
+
         /// Create a new delay that completes at the specified instant
         pub fn until(deadline: Instant) -> Self {
             Delay {
@@ -919,13 +950,13 @@ pub mod timer {
             }
         }
     }
-    
+
     impl Future for Delay {
         type Output = ();
-        
+
         fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
             let now = Instant::now();
-            
+
             if now >= self.deadline {
                 Poll::Ready(())
             } else {
@@ -934,26 +965,31 @@ pub mod timer {
                     self.waker = Some(cx.waker().clone());
                     get_timer().register(self.deadline, cx.waker().clone());
                     self.registered = true;
-                } else if self.waker.as_ref().map(|w| !w.will_wake(cx.waker())).unwrap_or(true) {
+                } else if self
+                    .waker
+                    .as_ref()
+                    .map(|w| !w.will_wake(cx.waker()))
+                    .unwrap_or(true)
+                {
                     // Waker changed, update it
                     self.waker = Some(cx.waker().clone());
                     get_timer().register(self.deadline, cx.waker().clone());
                 }
-                
+
                 Poll::Pending
             }
         }
     }
-    
+
     /// Sleep for the specified duration
-    /// 
+    ///
     /// This is an async-friendly sleep that doesn't block the thread
-    /// 
+    ///
     /// # Example
     /// ```
     /// use moirai_async::timer::sleep;
     /// use std::time::Duration;
-    /// 
+    ///
     /// async fn example() {
     ///     println!("Sleeping for 1 second...");
     ///     sleep(Duration::from_secs(1)).await;
@@ -963,51 +999,51 @@ pub mod timer {
     pub fn sleep(duration: Duration) -> Delay {
         Delay::new(duration)
     }
-    
+
     /// Timer entry for the timer wheel
     #[derive(Clone)]
     struct TimerEntry {
         deadline: Instant,
         waker: Waker,
     }
-    
+
     impl PartialEq for TimerEntry {
         fn eq(&self, other: &Self) -> bool {
             self.deadline == other.deadline
         }
     }
-    
+
     impl Eq for TimerEntry {}
-    
+
     impl PartialOrd for TimerEntry {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
             // Reverse order for min-heap behavior
             Some(other.deadline.cmp(&self.deadline))
         }
     }
-    
+
     impl Ord for TimerEntry {
         fn cmp(&self, other: &Self) -> Ordering {
             // Reverse order for min-heap behavior
             other.deadline.cmp(&self.deadline)
         }
     }
-    
+
     /// Global timer instance
     pub struct Timer {
         sender: MpmcSender<TimerCommand>,
         thread: Option<thread::JoinHandle<()>>,
     }
-    
+
     impl Timer {
         /// Create a new timer
         fn new() -> Self {
             // Use a bounded channel for backpressure control
             let (sender, receiver) = mpmc::<TimerCommand>(1024);
-            
+
             let thread = thread::spawn(move || {
                 let mut timers = BinaryHeap::<TimerEntry>::new();
-                
+
                 loop {
                     // Process all pending commands (non-blocking)
                     let mut shutdown = false;
@@ -1022,15 +1058,15 @@ pub mod timer {
                             }
                         }
                     }
-                    
+
                     if shutdown {
                         return;
                     }
-                    
+
                     // Process expired timers
                     let now = Instant::now();
                     let mut wakers_to_wake = Vec::new();
-                    
+
                     while let Some(entry) = timers.peek() {
                         if entry.deadline <= now {
                             let entry = timers.pop().unwrap();
@@ -1039,12 +1075,12 @@ pub mod timer {
                             break;
                         }
                     }
-                    
+
                     // Wake all expired timers outside of the critical section
                     for waker in wakers_to_wake {
                         waker.wake();
                     }
-                    
+
                     // Calculate sleep duration until next timer
                     let sleep_duration = if let Some(entry) = timers.peek() {
                         let now = Instant::now();
@@ -1059,33 +1095,35 @@ pub mod timer {
                         // No timers, sleep briefly before checking for new commands
                         Duration::from_millis(10)
                     };
-                    
+
                     if sleep_duration > Duration::from_millis(0) {
                         thread::sleep(sleep_duration);
                     }
                 }
             });
-            
+
             Timer {
                 sender,
                 thread: Some(thread),
             }
         }
-        
+
         /// Register a timer
         fn register(&self, deadline: Instant, waker: Waker) {
             // Use non-blocking send to avoid blocking the async runtime
             // If the channel is full, we'll drop the timer registration
             // In practice, 1024 pending timers should be plenty
-            let _ = self.sender.try_send(TimerCommand::Register { deadline, waker });
+            let _ = self
+                .sender
+                .try_send(TimerCommand::Register { deadline, waker });
         }
     }
-    
+
     impl Drop for Timer {
         fn drop(&mut self) {
             // Send shutdown command
             let _ = self.sender.send(TimerCommand::Shutdown);
-            
+
             // Wait for thread to finish
             if let Some(thread) = self.thread.take() {
                 let _ = thread.join();

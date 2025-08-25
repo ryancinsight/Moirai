@@ -3,13 +3,13 @@
 //! This module provides the core execution contexts that handle different
 //! types of workloads: parallel CPU-bound, async I/O-bound, and hybrid.
 
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 use std::fmt::Debug;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use moirai_core::channel::MpmcReceiver;
 use crate::base::ThreadPool;
+use moirai_core::channel::MpmcReceiver;
 
 /// Base trait for all execution contexts
 pub trait ExecutionBase: Send + Sync {
@@ -17,7 +17,9 @@ pub trait ExecutionBase: Send + Sync {
     fn context_type(&self) -> &'static str;
 
     /// Check if the context is ready for execution
-    fn is_ready(&self) -> bool { true }
+    fn is_ready(&self) -> bool {
+        true
+    }
 }
 
 /// Concrete execution context enum that wraps different strategy implementations
@@ -47,7 +49,11 @@ impl ExecutionContext {
     }
 
     /// Execute an iterator operation with proper type erasure
-    pub fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
+    pub fn execute_iter<T, F, R>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
         T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
@@ -111,21 +117,25 @@ impl ParallelContext {
 
 impl ParallelContext {
     /// Execute an iterator operation with parallel processing
-    pub fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
+    pub fn execute_iter<T, F, R>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
         T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
         let mut results = Vec::with_capacity(items.len());
-        
+
         // Process items directly with function application
         // Using simple sequential processing for now - can be enhanced with actual parallelism
         for item in items {
             let result = func(item);
             results.push(result);
         }
-        
+
         Ok(results)
     }
 
@@ -182,7 +192,11 @@ impl AsyncContext {
 
 impl AsyncContext {
     /// Execute an iterator operation with async processing
-    pub fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
+    pub fn execute_iter<T, F, R>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
         T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
@@ -190,7 +204,7 @@ impl AsyncContext {
     {
         // Simplified async execution - batched processing
         let mut results = Vec::with_capacity(items.len());
-        
+
         for batch in items.chunks(self.batch_size) {
             for item in batch {
                 // In real implementation, this would be truly async
@@ -198,7 +212,7 @@ impl AsyncContext {
                 results.push(result);
             }
         }
-        
+
         Ok(results)
     }
 
@@ -328,14 +342,18 @@ impl HybridContext {
 
 impl HybridContext {
     /// Execute an iterator operation with hybrid processing
-    pub fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
+    pub fn execute_iter<T, F, R>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
         T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
         let strategy = self.choose_strategy(items.len());
-        
+
         let start = Instant::now();
         let result = match strategy {
             ExecutionStrategy::Parallel => self.parallel_context.execute_iter(items, func),

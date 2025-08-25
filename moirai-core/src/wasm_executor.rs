@@ -1,5 +1,5 @@
 //! WASM executor implementation using Web Workers for parallelism.
-//! 
+//!
 //! This module provides a WebAssembly-compatible executor that leverages:
 //! - Web Workers for true parallelism
 //! - SharedArrayBuffer for zero-copy communication
@@ -7,18 +7,18 @@
 
 #![cfg(all(target_arch = "wasm32", feature = "wasm"))]
 
-use wasm_bindgen::prelude::*;
-use wasm_bindgen::JsCast;
-use web_sys::{Worker, MessageEvent, SharedArrayBuffer};
-use js_sys::{Array, Uint8Array, Atomics};
-use crate::{Task, TaskId, Priority, TaskContext};
 use crate::error::ExecutorError;
+use crate::{Priority, Task, TaskContext, TaskId};
+use alloc::{boxed::Box, string::ToString, sync::Arc, vec::Vec};
+use core::cell::UnsafeCell;
 use core::future::Future;
 use core::pin::Pin;
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use core::task::{Context, Poll};
-use alloc::{vec::Vec, boxed::Box, sync::Arc, string::ToString};
-use core::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
-use core::cell::UnsafeCell;
+use js_sys::{Array, Atomics, Uint8Array};
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use web_sys::{MessageEvent, SharedArrayBuffer, Worker};
 
 /// WASM executor that uses Web Workers for parallel execution
 pub struct WasmExecutor {
@@ -49,35 +49,37 @@ impl WasmExecutor {
     pub fn new(num_workers: usize) -> Result<Self, JsValue> {
         // Create shared memory (1MB for task queue)
         let shared_memory = SharedArrayBuffer::new(1024 * 1024);
-        
+
         // Initialize task queue
         let task_queue = Arc::new(WasmTaskQueue::new(shared_memory.clone()));
-        
+
         // Create workers
         let mut workers = Vec::with_capacity(num_workers);
-        
+
         for i in 0..num_workers {
             // Create worker from embedded script
             let worker = Worker::new(&format!("/moirai-worker-{}.js", i))?;
-            
+
             // Set up message handler
             let onmessage_callback = Closure::wrap(Box::new(move |event: MessageEvent| {
                 // Handle worker messages
-                web_sys::console::log_1(&format!("Worker {} message: {:?}", i, event.data()).into());
+                web_sys::console::log_1(
+                    &format!("Worker {} message: {:?}", i, event.data()).into(),
+                );
             }) as Box<dyn FnMut(MessageEvent)>);
-            
+
             worker.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
             onmessage_callback.forget();
-            
+
             // Send shared memory to worker
             let init_msg = Array::new();
             init_msg.push(&shared_memory);
             init_msg.push(&JsValue::from(i));
             worker.post_message(&init_msg)?;
-            
+
             workers.push(worker);
         }
-        
+
         Ok(Self {
             workers,
             shared_memory,
@@ -85,13 +87,14 @@ impl WasmExecutor {
             num_workers,
         })
     }
-    
+
     /// Submit a task to the executor
     pub fn submit_task(&self, task: WasmTask) -> Result<(), ExecutorError> {
-        self.task_queue.push(task)
+        self.task_queue
+            .push(task)
             .map_err(|_| ExecutorError::QueueFull)
     }
-    
+
     /// Shutdown all workers
     pub fn shutdown(&self) {
         for worker in &self.workers {
@@ -110,46 +113,46 @@ impl WasmTaskQueue {
             capacity: 1024, // Fixed size for simplicity
         }
     }
-    
+
     /// Push a task to the queue
     fn push(&self, task: WasmTask) -> Result<(), WasmTask> {
         let head = self.head.load(Ordering::Relaxed);
         let tail = self.tail.load(Ordering::Acquire);
-        
+
         if head.wrapping_sub(tail) >= self.capacity {
             return Err(task); // Queue full
         }
-        
+
         // Serialize task to shared memory
         let offset = (head % self.capacity) * 256; // 256 bytes per task
         task.write_to_buffer(&self.buffer, offset);
-        
+
         // Update head with release ordering
         self.head.store(head.wrapping_add(1), Ordering::Release);
-        
+
         // Wake a worker using Atomics.notify
         let array = Uint8Array::new(&self.buffer);
         let _ = Atomics::notify(&array, 0, 1);
-        
+
         Ok(())
     }
-    
+
     /// Pop a task from the queue (called by workers)
     fn pop(&self) -> Option<WasmTask> {
         let tail = self.tail.load(Ordering::Relaxed);
         let head = self.head.load(Ordering::Acquire);
-        
+
         if tail >= head {
             return None; // Empty
         }
-        
+
         // Read task from shared memory
         let offset = (tail % self.capacity) * 256;
         let task = WasmTask::read_from_buffer(&self.buffer, offset)?;
-        
+
         // Update tail
         self.tail.store(tail.wrapping_add(1), Ordering::Release);
-        
+
         Some(task)
     }
 }
@@ -180,45 +183,49 @@ enum WasmTaskType {
 impl WasmTask {
     /// Create a new WASM task
     pub fn new(id: TaskId, task_type: WasmTaskType, data: Vec<u8>) -> Self {
-        Self { id, task_type, data }
+        Self {
+            id,
+            task_type,
+            data,
+        }
     }
-    
+
     /// Write task to shared memory buffer
     fn write_to_buffer(&self, buffer: &SharedArrayBuffer, offset: usize) {
         let array = Uint8Array::new(buffer);
-        
+
         // Write task ID (8 bytes)
         let id_bytes = self.id.0.to_le_bytes();
         for (i, &byte) in id_bytes.iter().enumerate() {
             array.set_index((offset + i) as u32, byte);
         }
-        
+
         // Write task type (1 byte)
         array.set_index((offset + 8) as u32, self.task_type as u8);
-        
+
         // Write data length (4 bytes)
         let len_bytes = (self.data.len() as u32).to_le_bytes();
         for (i, &byte) in len_bytes.iter().enumerate() {
             array.set_index((offset + 9 + i) as u32, byte);
         }
-        
+
         // Write data
         for (i, &byte) in self.data.iter().enumerate() {
             array.set_index((offset + 13 + i) as u32, byte);
         }
     }
-    
+
     /// Read task from shared memory buffer
     fn read_from_buffer(buffer: &SharedArrayBuffer, offset: usize) -> Option<Self> {
         let array = Uint8Array::new(buffer);
-        
+
         // Read task ID
         let mut id_bytes = [0u8; 8];
         for i in 0..8 {
             id_bytes[i] = array.get_index((offset + i) as u32);
         }
         let id = TaskId(u64::from_le_bytes(id_bytes));
-        
+
         // Read task type
         let task_type = match array.get_index((offset + 8) as u32) {
             0 => WasmTaskType::JsFunction,
@@ -227,21 +234,25 @@ impl WasmTask {
             3 => WasmTaskType::Reduce,
             _ => return None,
         };
-        
+
         // Read data length
         let mut len_bytes = [0u8; 4];
         for i in 0..4 {
             len_bytes[i] = array.get_index((offset + 9 + i) as u32);
         }
         let data_len = u32::from_le_bytes(len_bytes) as usize;
-        
+
         // Read data
         let mut data = Vec::with_capacity(data_len);
         for i in 0..data_len {
             data.push(array.get_index((offset + 13 + i) as u32));
         }
-        
-        Some(Self { id, task_type, data })
+
+        Some(Self {
+            id,
+            task_type,
+            data,
+        })
     }
 }
 
@@ -271,14 +282,14 @@ impl<T> AtomicOption<T> {
             initialized: AtomicBool::new(false),
         }
     }
-    
+
     fn set(&self, value: T) {
         unsafe {
             *self.value.get() = Some(value);
         }
         self.initialized.store(true, Ordering::Release);
     }
-    
+
     fn take(&self) -> Option<T> {
         if self.initialized.load(Ordering::Acquire) {
             unsafe { (*self.value.get()).take() }
@@ -290,7 +301,7 @@ impl<T> AtomicOption<T> {
 
 impl<T> Future for WasmTaskHandle<T> {
     type Output = T;
-    
+
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.completed.load(Ordering::Acquire) {
             if let Some(result) = self.result.take() {
@@ -380,25 +391,26 @@ class TaskQueue {
         // ... (simplified for brevity)
     }
 }
-"#.to_string()
+"#
+    .to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
-    
+
     #[wasm_bindgen_test]
     fn test_wasm_task_serialization() {
         let task = WasmTask::new(
             TaskId(42),
             WasmTaskType::JsFunction,
-            b"console.log('test')".to_vec()
+            b"console.log('test')".to_vec(),
         );
-        
+
         let buffer = SharedArrayBuffer::new(1024);
         task.write_to_buffer(&buffer, 0);
-        
+
         let read_task = WasmTask::read_from_buffer(&buffer, 0).unwrap();
         assert_eq!(read_task.id.0, task.id.0);
         assert_eq!(read_task.data, task.data);

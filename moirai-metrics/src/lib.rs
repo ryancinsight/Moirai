@@ -78,7 +78,8 @@ impl Counter {
 
     /// Add a value to the counter.
     pub fn add(&self, value: u64) {
-        self.value.fetch_add(value, std::sync::atomic::Ordering::Relaxed);
+        self.value
+            .fetch_add(value, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Get the current value.
@@ -103,7 +104,8 @@ impl Gauge {
 
     /// Set the gauge value.
     pub fn set(&self, value: i64) {
-        self.value.store(value, std::sync::atomic::Ordering::Relaxed);
+        self.value
+            .store(value, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Increment the gauge.
@@ -118,7 +120,8 @@ impl Gauge {
 
     /// Add a value to the gauge.
     pub fn add(&self, value: i64) {
-        self.value.fetch_add(value, std::sync::atomic::Ordering::Relaxed);
+        self.value
+            .fetch_add(value, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Get the current value.

@@ -15,8 +15,6 @@
 //! - "Stream Fusion" by Coutts, Leshchinskiy & Stewart (2007)
 //! - "Functional Programming in C++" by Cukic (2018)
 
-
-
 /// Iterator adapter that maintains state while iterating
 ///
 /// Similar to fold but yields intermediate results
@@ -106,9 +104,13 @@ where
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let (flo, fhi) = self.frontiter.as_ref()
+        let (flo, fhi) = self
+            .frontiter
+            .as_ref()
             .map_or((0, Some(0)), |it| it.size_hint());
-        let (blo, bhi) = self.backiter.as_ref()
+        let (blo, bhi) = self
+            .backiter
+            .as_ref()
             .map_or((0, Some(0)), |it| it.size_hint());
         let lo = flo.saturating_add(blo);
         match (self.iter.size_hint(), fhi, bhi) {
@@ -612,8 +614,8 @@ mod tests {
     #[test]
     fn test_flat_map() {
         let data = vec![vec![1, 2], vec![3, 4], vec![5]];
-        let flattened: Vec<_> = CombinatorExt::flat_map(data.into_iter(), |v| v.into_iter())
-            .collect();
+        let flattened: Vec<_> =
+            CombinatorExt::flat_map(data.into_iter(), |v| v.into_iter()).collect();
         assert_eq!(flattened, vec![1, 2, 3, 4, 5]);
     }
 
@@ -644,8 +646,7 @@ mod tests {
 
     #[test]
     fn test_skip_while() {
-        let data: Vec<_> = CombinatorExt::skip_while(1..=10, |&x| x < 5)
-            .collect();
+        let data: Vec<_> = CombinatorExt::skip_while(1..=10, |&x| x < 5).collect();
         assert_eq!(data, vec![5, 6, 7, 8, 9, 10]);
     }
 

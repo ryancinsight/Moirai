@@ -13,18 +13,16 @@
 // Zero-copy moved to moirai-core::communication::zero_copy (SSOT)
 pub mod safe_channel;
 
-use moirai_core::channel::{MpmcSender, MpmcReceiver, mpmc};
+use moirai_core::channel::{mpmc, MpmcReceiver, MpmcSender};
 use std::{
+    collections::HashMap,
     fmt,
     sync::{Arc, Mutex},
-    collections::HashMap,
 };
 
 // Re-export core channel types for compatibility
 pub use moirai_core::channel::{
-    ChannelError as TransportError,
-    MpmcSender as Sender,
-    MpmcReceiver as Receiver,
+    ChannelError as TransportError, MpmcReceiver as Receiver, MpmcSender as Sender,
 };
 pub use moirai_core::communication::zero_copy as core_zero_copy;
 
@@ -53,10 +51,10 @@ impl fmt::Display for Address {
 pub trait Transport: Send + Sync {
     /// Send a message to the specified address
     fn send(&self, target: &Address, data: Vec<u8>) -> TransportResult<()>;
-    
+
     /// Receive a message from the specified address
     fn recv(&self, source: &Address) -> TransportResult<Vec<u8>>;
-    
+
     /// Check if the transport supports the given address
     fn supports(&self, address: &Address) -> bool;
 }
@@ -74,17 +72,17 @@ impl InMemoryTransport {
             receivers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
-    
+
     fn get_or_create_channel(&self, id: &str) -> (MpmcSender<Vec<u8>>, MpmcReceiver<Vec<u8>>) {
         let mut channels = self.channels.lock().unwrap();
         let mut receivers = self.receivers.lock().unwrap();
-        
+
         if let Some(sender) = channels.get(id) {
             if let Some(receiver) = receivers.get(id) {
                 return (sender.clone(), receiver.clone());
             }
         }
-        
+
         let (tx, rx) = mpmc(1024);
         channels.insert(id.to_string(), tx.clone());
         receivers.insert(id.to_string(), rx.clone());
@@ -102,7 +100,7 @@ impl Transport for InMemoryTransport {
             _ => Err(TransportError::Closed),
         }
     }
-    
+
     fn recv(&self, source: &Address) -> TransportResult<Vec<u8>> {
         match source {
             Address::Local(id) => {
@@ -112,7 +110,7 @@ impl Transport for InMemoryTransport {
             _ => Err(TransportError::Closed),
         }
     }
-    
+
     fn supports(&self, address: &Address) -> bool {
         matches!(address, Address::Local(_))
     }
@@ -125,12 +123,14 @@ impl Transport for IpcTransport {
     fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
         Err(TransportError::WouldBlock)
     }
-    
+
     fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
         Err(TransportError::Empty)
     }
-    
-    fn supports(&self, _address: &Address) -> bool { false }
+
+    fn supports(&self, _address: &Address) -> bool {
+        false
+    }
 }
 
 /// Network transport for distributed communication
@@ -140,12 +140,14 @@ impl Transport for NetworkTransport {
     fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
         Err(TransportError::Closed)
     }
-    
+
     fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
         Err(TransportError::Closed)
     }
-    
-    fn supports(&self, address: &Address) -> bool { matches!(address, Address::Remote(_)) }
+
+    fn supports(&self, address: &Address) -> bool {
+        matches!(address, Address::Remote(_))
+    }
 }
 
 /// TCP transport for reliable network communication
@@ -171,7 +173,7 @@ impl Transport for TcpTransport {
     fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
         Err(TransportError::Closed)
     }
-    
+
     fn supports(&self, address: &Address) -> bool {
         matches!(address, Address::Remote(_))
     }
@@ -200,7 +202,7 @@ impl Transport for UdpTransport {
     fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
         Err(TransportError::Closed)
     }
-    
+
     fn supports(&self, address: &Address) -> bool {
         matches!(address, Address::Remote(_))
     }
@@ -221,7 +223,7 @@ impl TransportManager {
             ],
         }
     }
-    
+
     pub fn send(&self, target: &Address, data: Vec<u8>) -> TransportResult<()> {
         for transport in &self.transports {
             if transport.supports(target) {
@@ -230,7 +232,7 @@ impl TransportManager {
         }
         Err(TransportError::Closed)
     }
-    
+
     pub fn recv(&self, source: &Address) -> TransportResult<Vec<u8>> {
         for transport in &self.transports {
             if transport.supports(source) {
@@ -242,7 +244,7 @@ impl TransportManager {
 }
 
 /// Universal channel that works across different transport boundaries
-/// 
+///
 /// This is a wrapper around core channel implementations that adds
 /// transport-specific functionality following DRY principle.
 pub struct UniversalChannel<T: Send + 'static> {
@@ -266,7 +268,7 @@ impl<T: Send + 'static> UniversalChannel<T> {
             },
         }
     }
-    
+
     /// Split into sender and receiver halves
     pub fn split(self) -> (UniversalSender<T>, UniversalReceiver<T>) {
         (self.sender, self.receiver)
@@ -274,7 +276,7 @@ impl<T: Send + 'static> UniversalChannel<T> {
 }
 
 /// Sender half of universal channel
-/// 
+///
 /// This wraps core channel functionality with transport-specific serialization
 pub struct UniversalSender<T: Send + 'static> {
     transport: Arc<TransportManager>,
@@ -341,14 +343,14 @@ impl MessageRouter {
             subscriptions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
-    
+
     pub fn subscribe(&self, topic: &str, address: Address) {
         let mut subs = self.subscriptions.lock().unwrap();
         subs.entry(topic.to_string())
             .or_insert_with(Vec::new)
             .push(address);
     }
-    
+
     pub fn publish(&self, topic: &str, _data: Vec<u8>) -> TransportResult<()> {
         let subs = self.subscriptions.lock().unwrap();
         if let Some(addresses) = subs.get(topic) {
@@ -378,13 +380,13 @@ impl ConnectionManager {
             connections: Arc::new(Mutex::new(HashMap::new())),
         }
     }
-    
+
     pub fn connect(&self, address: &Address) -> TransportResult<()> {
         let mut conns = self.connections.lock().unwrap();
         conns.insert(address.clone(), ConnectionState::Connected);
         Ok(())
     }
-    
+
     pub fn disconnect(&self, address: &Address) -> TransportResult<()> {
         let mut conns = self.connections.lock().unwrap();
         conns.insert(address.clone(), ConnectionState::Disconnected);
@@ -395,28 +397,38 @@ impl ConnectionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_channel_compatibility() {
         let (tx, rx) = moirai_core::channel::mpmc::<i32>(10);
-        
+
         assert!(tx.send(42).is_ok());
         assert_eq!(rx.recv().unwrap(), 42);
     }
-    
+
     #[test]
     fn test_in_memory_transport() {
         let transport1 = InMemoryTransport::new();
         let transport2 = InMemoryTransport::new();
-        
+
         // Register transports with each other for routing
         // This would require a more robust mechanism for inter-transport communication
         // For now, we'll just check if they can send/recv to/from themselves
-        assert!(transport1.send(&Address::Local("t1".to_string()), vec![1]).is_ok());
-        assert_eq!(transport1.recv(&Address::Local("t1".to_string())).unwrap(), vec![1]);
-        
-        assert!(transport2.send(&Address::Local("t2".to_string()), vec![2]).is_ok());
-        assert_eq!(transport2.recv(&Address::Local("t2".to_string())).unwrap(), vec![2]);
+        assert!(transport1
+            .send(&Address::Local("t1".to_string()), vec![1])
+            .is_ok());
+        assert_eq!(
+            transport1.recv(&Address::Local("t1".to_string())).unwrap(),
+            vec![1]
+        );
+
+        assert!(transport2
+            .send(&Address::Local("t2".to_string()), vec![2])
+            .is_ok());
+        assert_eq!(
+            transport2.recv(&Address::Local("t2".to_string())).unwrap(),
+            vec![2]
+        );
     }
 
     #[test]
@@ -430,6 +442,6 @@ mod tests {
 
         // Test sending a simple type (requires serialization)
         // This test demonstrates channel creation API
-        // assert!(sender.send(42).is_ok()); 
+        // assert!(sender.send(42).is_ok());
     }
 }

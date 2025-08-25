@@ -1,9 +1,9 @@
 //! Metrics collection and monitoring for Moirai.
 
+use crate::scheduler::SchedulerId;
 use core::sync::atomic::{AtomicU64, Ordering};
 use std::collections::HashMap;
 use std::time::Duration;
-use crate::scheduler::SchedulerId;
 
 /// High-precision timestamp for performance measurements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -228,13 +228,25 @@ impl Histogram {
         const fn new_atomic() -> AtomicU64 {
             AtomicU64::new(0)
         }
-        
+
         Self {
             buckets: [
-                new_atomic(), new_atomic(), new_atomic(), new_atomic(),
-                new_atomic(), new_atomic(), new_atomic(), new_atomic(),
-                new_atomic(), new_atomic(), new_atomic(), new_atomic(),
-                new_atomic(), new_atomic(), new_atomic(), new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
+                new_atomic(),
             ],
             sum: AtomicU64::new(0),
             count: AtomicU64::new(0),
@@ -478,15 +490,15 @@ impl GlobalMetrics {
             }
         };
 
-        let (total_steal_attempts, total_successful_steals) = self
-            .schedulers
-            .values()
-            .fold((0, 0), |(attempts, steals), scheduler| {
-                (
-                    attempts + scheduler.steal_attempts.get(),
-                    steals + scheduler.successful_steals.get(),
-                )
-            });
+        let (total_steal_attempts, total_successful_steals) =
+            self.schedulers
+                .values()
+                .fold((0, 0), |(attempts, steals), scheduler| {
+                    (
+                        attempts + scheduler.steal_attempts.get(),
+                        steals + scheduler.successful_steals.get(),
+                    )
+                });
 
         Snapshot {
             total_tasks_spawned: self.tasks.spawned.get(),
@@ -543,13 +555,13 @@ mod tests {
     fn test_counter() {
         let counter = Counter::new();
         assert_eq!(counter.get(), 0);
-        
+
         counter.increment();
         assert_eq!(counter.get(), 1);
-        
+
         counter.add(5);
         assert_eq!(counter.get(), 6);
-        
+
         counter.reset();
         assert_eq!(counter.get(), 0);
     }
@@ -558,19 +570,19 @@ mod tests {
     fn test_gauge() {
         let gauge = Gauge::new();
         assert_eq!(gauge.get(), 0);
-        
+
         gauge.set(10);
         assert_eq!(gauge.get(), 10);
-        
+
         gauge.increment();
         assert_eq!(gauge.get(), 11);
-        
+
         gauge.subtract(1);
         assert_eq!(gauge.get(), 10);
-        
+
         gauge.add(5);
         assert_eq!(gauge.get(), 15);
-        
+
         gauge.subtract(3);
         assert_eq!(gauge.get(), 12);
     }
@@ -584,11 +596,11 @@ mod tests {
         {
             assert_eq!(histogram.average(), 0.0);
         }
-        
+
         histogram.record(10);
         histogram.record(20);
         histogram.record(30);
-        
+
         assert_eq!(histogram.count(), 3);
         assert_eq!(histogram.sum(), 60);
         #[allow(clippy::float_cmp)]
@@ -600,32 +612,32 @@ mod tests {
     #[test]
     fn test_task_data() {
         let metrics = TaskData::new();
-        
+
         metrics.spawned.increment();
         metrics.spawned.increment();
         assert_eq!(metrics.spawned.get(), 2);
-        
+
         metrics.record_execution(core::time::Duration::from_millis(1));
         assert_eq!(metrics.completed.get(), 1);
         #[allow(clippy::float_cmp)]
         {
             assert_eq!(metrics.completion_rate(), 0.5);
         }
-        
+
         metrics.record_wait(core::time::Duration::from_millis(1));
     }
 
     #[test]
     fn test_scheduler_data() {
         let metrics = SchedulerData::new();
-        
+
         metrics.queue_length.set(5);
         assert_eq!(metrics.queue_length.get(), 5);
-        
+
         metrics.steal_attempts.increment();
         metrics.steal_attempts.increment();
         metrics.steal_attempts.increment();
-        
+
         assert_eq!(metrics.steal_attempts.get(), 3);
         assert_eq!(metrics.successful_steals.get(), 0);
         assert_eq!(metrics.steal_success_rate(), 0.0);
@@ -638,24 +650,48 @@ mod tests {
     #[test]
     fn test_global_metrics() {
         let mut global = GlobalMetrics::new();
-        
+
         global.scheduler(SchedulerId::new(1)).queue_length.set(5);
         global.scheduler(SchedulerId::new(2)).queue_length.set(10);
         global.scheduler(SchedulerId::new(3)).queue_length.set(15);
 
         assert_eq!(global.snapshot().average_queue_length, 10.0);
 
-        global.scheduler(SchedulerId::new(1)).steal_attempts.increment();
-        global.scheduler(SchedulerId::new(2)).steal_attempts.increment();
-        global.scheduler(SchedulerId::new(3)).steal_attempts.increment();
-        global.scheduler(SchedulerId::new(1)).steal_attempts.increment();
+        global
+            .scheduler(SchedulerId::new(1))
+            .steal_attempts
+            .increment();
+        global
+            .scheduler(SchedulerId::new(2))
+            .steal_attempts
+            .increment();
+        global
+            .scheduler(SchedulerId::new(3))
+            .steal_attempts
+            .increment();
+        global
+            .scheduler(SchedulerId::new(1))
+            .steal_attempts
+            .increment();
 
         assert_eq!(global.snapshot().total_steal_attempts, 4);
 
-        global.scheduler(SchedulerId::new(1)).successful_steals.increment();
-        global.scheduler(SchedulerId::new(2)).successful_steals.increment();
-        global.scheduler(SchedulerId::new(3)).successful_steals.increment();
-        global.scheduler(SchedulerId::new(1)).successful_steals.increment();
+        global
+            .scheduler(SchedulerId::new(1))
+            .successful_steals
+            .increment();
+        global
+            .scheduler(SchedulerId::new(2))
+            .successful_steals
+            .increment();
+        global
+            .scheduler(SchedulerId::new(3))
+            .successful_steals
+            .increment();
+        global
+            .scheduler(SchedulerId::new(1))
+            .successful_steals
+            .increment();
 
         assert_eq!(global.snapshot().total_successful_steals, 4);
     }

@@ -3,11 +3,11 @@
 //! This module provides types and functionality for task lifecycle management,
 //! including metadata tracking, performance metrics, and async task wrappers.
 
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 
 /// Async task wrapper for unified handling
 pub struct AsyncTaskWrapper<F> {
@@ -43,7 +43,8 @@ impl TaskPerformanceMetrics {
     pub fn record_completion(&mut self, execution_time: Duration) {
         self.completed_tasks += 1;
         self.total_execution_time += execution_time;
-        self.average_completion_time = self.total_execution_time / self.completed_tasks.max(1) as u32;
+        self.average_completion_time =
+            self.total_execution_time / self.completed_tasks.max(1) as u32;
         self.last_updated = Instant::now();
     }
 
@@ -55,8 +56,11 @@ impl TaskPerformanceMetrics {
 
     /// Get success rate as percentage
     pub fn success_rate(&self) -> f64 {
-        if self.total_tasks == 0 { 100.0 }
-        else { (self.completed_tasks as f64 / self.total_tasks as f64) * 100.0 }
+        if self.total_tasks == 0 {
+            100.0
+        } else {
+            (self.completed_tasks as f64 / self.total_tasks as f64) * 100.0
+        }
     }
 }
 

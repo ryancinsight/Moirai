@@ -10,21 +10,15 @@
 #[cfg(feature = "std")]
 pub use std::{
     boxed::Box,
-    vec::Vec,
+    collections::HashMap,
     string::String,
     sync::Arc,
-    collections::HashMap,
     time::{Duration, Instant},
+    vec::Vec,
 };
 
 #[cfg(not(feature = "std"))]
-pub use alloc::{
-    boxed::Box,
-    vec::Vec,
-    string::String,
-    sync::Arc,
-    collections::HashMap,
-};
+pub use alloc::{boxed::Box, collections::HashMap, string::String, sync::Arc, vec::Vec};
 
 #[cfg(not(feature = "std"))]
 pub use core::time::Duration;
@@ -32,29 +26,27 @@ pub use core::time::Duration;
 // Platform-specific atomic operations
 #[cfg(feature = "std")]
 pub use std::sync::atomic::{
-    AtomicBool, AtomicUsize, AtomicU64, AtomicPtr,
-    Ordering, fence, compiler_fence,
+    compiler_fence, fence, AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering,
 };
 
 #[cfg(not(feature = "std"))]
 pub use core::sync::atomic::{
-    AtomicBool, AtomicUsize, AtomicU64, AtomicPtr,
-    Ordering, fence, compiler_fence,
+    compiler_fence, fence, AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering,
 };
 
 // Platform-specific cell types
 #[cfg(feature = "std")]
-pub use std::cell::{UnsafeCell, RefCell, Cell};
+pub use std::cell::{Cell, RefCell, UnsafeCell};
 
 #[cfg(not(feature = "std"))]
-pub use core::cell::{UnsafeCell, RefCell, Cell};
+pub use core::cell::{Cell, RefCell, UnsafeCell};
 
 // Platform-specific memory operations
 #[cfg(feature = "std")]
-pub use std::mem::{self, MaybeUninit, size_of, align_of, forget, replace, swap};
+pub use std::mem::{self, align_of, forget, replace, size_of, swap, MaybeUninit};
 
 #[cfg(not(feature = "std"))]
-pub use core::mem::{self, MaybeUninit, size_of, align_of, forget, replace, swap};
+pub use core::mem::{self, align_of, forget, replace, size_of, swap, MaybeUninit};
 
 // Platform-specific pointer operations
 #[cfg(feature = "std")]
@@ -87,7 +79,7 @@ pub use core::fmt::{self, Debug, Display};
 // Thread-local storage abstraction
 
 /// Creates a thread-local static variable with platform-specific implementation.
-/// 
+///
 /// This macro provides a unified interface for thread-local storage across
 /// different platforms (std and no_std environments).
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
@@ -125,13 +117,13 @@ impl Instant {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         Instant(COUNTER.fetch_add(1, Ordering::Relaxed))
     }
-    
+
     /// Get duration since another instant
     pub fn duration_since(&self, earlier: Instant) -> Duration {
         let nanos = self.0.saturating_sub(earlier.0);
         Duration::from_nanos(nanos)
     }
-    
+
     /// Get elapsed time since this instant
     pub fn elapsed(&self) -> Duration {
         Instant::now().duration_since(*self)
@@ -146,25 +138,25 @@ pub use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard
 pub use spin::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Channel abstraction for cross-platform message passing.
-/// 
+///
 /// This module provides a unified interface for channels that works
 /// across different platforms and feature configurations.
 pub mod channel {
     #[cfg(feature = "std")]
-    pub use std::sync::mpsc::{channel, Sender, Receiver, RecvError, TryRecvError};
-    
+    pub use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
+
     #[cfg(not(feature = "std"))]
-    pub use alloc::sync::mpsc::{channel, Sender, Receiver, RecvError, TryRecvError};
+    pub use alloc::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 }
 
 /// Thread abstraction for cross-platform threading support.
-/// 
+///
 /// This module provides a unified interface for thread operations that works
 /// across different platforms and feature configurations.
 pub mod thread {
     #[cfg(feature = "std")]
-    pub use std::thread::{spawn, sleep, yield_now, JoinHandle, Thread, ThreadId};
-    
+    pub use std::thread::{sleep, spawn, yield_now, JoinHandle, Thread, ThreadId};
+
     #[cfg(not(feature = "std"))]
     compile_error!("Thread support requires std feature");
 }

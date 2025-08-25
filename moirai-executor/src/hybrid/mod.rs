@@ -3,20 +3,22 @@
 //! This module provides the core HybridExecutor that coordinates between
 //! async and parallel execution, managing workers, tasks, and metrics.
 
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc, Mutex,
+};
 
 use moirai_core::{
     error::{ExecutorError, ExecutorResult},
-    executor::{ExecutorConfig, TaskSpawner, TaskManager, ExecutorControl, Executor, TaskStatus, TaskStats, ExecutorStats},
-    task::{TaskId, Task, TaskHandle},
+    executor::{
+        Executor, ExecutorConfig, ExecutorControl, ExecutorStats, TaskManager, TaskSpawner,
+        TaskStats, TaskStatus,
+    },
+    task::{Task, TaskHandle, TaskId},
     Priority,
 };
 
-use crate::{
-    registry::TaskRegistry,
-    worker::Worker,
-    metrics::ExecutorMetrics,
-};
+use crate::{metrics::ExecutorMetrics, registry::TaskRegistry, worker::Worker};
 
 /// Main hybrid executor that coordinates async and parallel execution
 pub struct HybridExecutor {
@@ -33,7 +35,7 @@ impl HybridExecutor {
     pub fn new(config: ExecutorConfig) -> ExecutorResult<Self> {
         let worker_count = 4; // Default worker count since we don't have the method
         let mut workers = Vec::with_capacity(worker_count);
-        
+
         for i in 0..worker_count {
             workers.push(Worker::new(i));
         }
@@ -59,11 +61,11 @@ impl HybridExecutor {
     /// Shutdown the executor gracefully
     pub fn shutdown(&mut self) -> ExecutorResult<()> {
         self.shutdown_signal.store(true, Ordering::Relaxed);
-        
+
         for worker in &mut self.workers {
             worker.shutdown();
         }
-        
+
         Ok(())
     }
 
@@ -78,7 +80,7 @@ impl HybridExecutor {
         F: FnOnce() + Send + 'static,
     {
         let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed);
-        
+
         // Register the task
         {
             let mut registry = self.task_registry.lock().unwrap();
@@ -86,9 +88,15 @@ impl HybridExecutor {
         }
 
         // Find the least loaded worker
-        let worker = self.workers.iter()
-            .min_by_key(|w| w.queue_len())
-            .ok_or(ExecutorError::SpawnFailed(moirai_core::error::TaskError::ExecutionFailed(moirai_core::error::TaskErrorKind::Io)))?;
+        let worker =
+            self.workers
+                .iter()
+                .min_by_key(|w| w.queue_len())
+                .ok_or(ExecutorError::SpawnFailed(
+                    moirai_core::error::TaskError::ExecutionFailed(
+                        moirai_core::error::TaskErrorKind::Io,
+                    ),
+                ))?;
 
         // Submit the task
         worker.submit_task(task);
@@ -99,9 +107,7 @@ impl HybridExecutor {
 
     /// Get the number of active workers
     pub fn active_workers(&self) -> usize {
-        self.workers.iter()
-            .filter(|w| w.is_busy())
-            .count()
+        self.workers.iter().filter(|w| w.is_busy()).count()
     }
 
     /// Get the total number of workers
@@ -111,9 +117,7 @@ impl HybridExecutor {
 
     /// Get pending task count across all workers
     pub fn pending_tasks(&self) -> usize {
-        self.workers.iter()
-            .map(|w| w.queue_len())
-            .sum()
+        self.workers.iter().map(|w| w.queue_len()).sum()
     }
 }
 
@@ -124,16 +128,16 @@ impl TaskSpawner for HybridExecutor {
     {
         // Create a task handle
         let task_id = TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed));
-        
+
         // For now, use submit_task functionality adapted for the trait
         // In a real implementation, this would properly spawn the task
         let handle = TaskHandle::new_detached(task_id);
-        
+
         // Submit the task (simplified implementation)
         let _ = self.submit_task(move || {
             let _ = task.execute();
         });
-        
+
         Ok(handle)
     }
 
@@ -145,14 +149,14 @@ impl TaskSpawner for HybridExecutor {
         // Create a task handle for the async task
         let task_id = TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed));
         let handle = TaskHandle::new_detached(task_id);
-        
+
         // Submit the future as a task (simplified)
         let _ = self.submit_task(move || {
             // In a real implementation, this would properly execute the future
             // For now, we'll just drop it since we can't block_on here
             drop(future);
         });
-        
+
         Ok(handle)
     }
 
@@ -163,12 +167,12 @@ impl TaskSpawner for HybridExecutor {
     {
         let task_id = TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed));
         let handle = TaskHandle::new_detached(task_id);
-        
+
         // Submit the blocking function
         let _ = self.submit_task(move || {
             let _ = func();
         });
-        
+
         Ok(handle)
     }
 
@@ -197,7 +201,11 @@ impl TaskManager for HybridExecutor {
         None
     }
 
-    fn wait_for_task(&self, _id: TaskId, _timeout: Option<core::time::Duration>) -> impl core::future::Future<Output = ExecutorResult<()>> + Send {
+    fn wait_for_task(
+        &self,
+        _id: TaskId,
+        _timeout: Option<core::time::Duration>,
+    ) -> impl core::future::Future<Output = ExecutorResult<()>> + Send {
         async { Ok(()) }
     }
 
@@ -220,7 +228,7 @@ impl ExecutorControl for HybridExecutor {
             let waker = std::task::Waker::noop();
             let mut context = std::task::Context::from_waker(&waker);
             let mut future = std::pin::Pin::from(Box::new(future));
-            
+
             loop {
                 match future.as_mut().poll(&mut context) {
                     std::task::Poll::Ready(result) => return result,

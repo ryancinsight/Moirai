@@ -115,15 +115,14 @@
 pub mod numa_scheduler;
 
 use moirai_core::{
-    BoxedTask, scheduler::{Scheduler, SchedulerId, SchedulerConfig, QueueType, WorkStealingStrategy},
-    error::SchedulerResult, CacheAligned, Box,
+    error::SchedulerResult,
+    scheduler::{QueueType, Scheduler, SchedulerConfig, SchedulerId, WorkStealingStrategy},
+    Box, BoxedTask, CacheAligned,
 };
 use std::{
-    sync::{
-        atomic::{AtomicIsize, AtomicPtr, AtomicUsize, Ordering},
-    },
-    ptr,
     collections::VecDeque,
+    ptr,
+    sync::atomic::{AtomicIsize, AtomicPtr, AtomicUsize, Ordering},
     sync::Mutex,
     time::Instant,
 };
@@ -157,7 +156,7 @@ impl<T> Array<T> {
         for _ in 0..capacity {
             data.push(AtomicPtr::new(ptr::null_mut()));
         }
-        
+
         Self {
             capacity,
             mask: capacity - 1,
@@ -185,7 +184,7 @@ impl<T> ChaseLevDeque<T> {
     pub fn new(initial_capacity: usize) -> Self {
         let capacity = initial_capacity.next_power_of_two().max(16);
         let array = Box::new(Array::new(capacity));
-        
+
         Self {
             bottom: AtomicIsize::new(0),
             top: AtomicIsize::new(0),
@@ -198,23 +197,23 @@ impl<T> ChaseLevDeque<T> {
     pub fn push(&self, item: T) {
         let b = self.bottom.load(Ordering::Relaxed);
         let t = self.top.load(Ordering::Acquire);
-        
+
         let array_ptr = self.array.load(Ordering::Relaxed);
         let array = unsafe { &*array_ptr };
-        
+
         // Check if we need to resize
         if b - t >= array.capacity() as isize - 1 {
             self.resize();
         }
-        
+
         // Re-load array pointer after potential resize
         let array_ptr = self.array.load(Ordering::Relaxed);
         let array = unsafe { &*array_ptr };
-        
+
         // Store the item
         let item_ptr = Box::into_raw(Box::new(item));
         array.put(b, item_ptr);
-        
+
         // Release the item to thieves
         self.bottom.store(b + 1, Ordering::Release);
     }
@@ -224,30 +223,30 @@ impl<T> ChaseLevDeque<T> {
         let b = self.bottom.load(Ordering::Relaxed) - 1;
         let array_ptr = self.array.load(Ordering::Relaxed);
         let array = unsafe { &*array_ptr };
-        
+
         self.bottom.store(b, Ordering::Relaxed);
-        
+
         std::sync::atomic::fence(Ordering::SeqCst);
-        
+
         let t = self.top.load(Ordering::Relaxed);
-        
+
         if t <= b {
             // Non-empty queue
             let item_ptr = array.get(b);
             if t == b {
                 // Single last element, race with thieves
-                if self.top.compare_exchange_weak(
-                    t, t + 1, 
-                    Ordering::SeqCst, 
-                    Ordering::Relaxed
-                ).is_err() {
+                if self
+                    .top
+                    .compare_exchange_weak(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
+                    .is_err()
+                {
                     // Failed race, restore bottom
                     self.bottom.store(b + 1, Ordering::Relaxed);
                     return None;
                 }
                 self.bottom.store(b + 1, Ordering::Relaxed);
             }
-            
+
             if !item_ptr.is_null() {
                 let item = unsafe { Box::from_raw(item_ptr) };
                 return Some(*item);
@@ -256,37 +255,37 @@ impl<T> ChaseLevDeque<T> {
             // Empty queue, restore bottom
             self.bottom.store(b + 1, Ordering::Relaxed);
         }
-        
+
         None
     }
 
     /// Steal an item from the top of the deque (thief operation).
     pub fn steal(&self) -> StealResult<T> {
         let t = self.top.load(Ordering::Acquire);
-        
+
         std::sync::atomic::fence(Ordering::SeqCst);
-        
+
         let b = self.bottom.load(Ordering::Acquire);
-        
+
         if t < b {
             // Non-empty queue
             let array_ptr = self.array.load(Ordering::Relaxed);
             let array = unsafe { &*array_ptr };
             let item_ptr = array.get(t);
-            
+
             if !item_ptr.is_null() {
-                if self.top.compare_exchange_weak(
-                    t, t + 1,
-                    Ordering::SeqCst,
-                    Ordering::Relaxed
-                ).is_ok() {
+                if self
+                    .top
+                    .compare_exchange_weak(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
+                    .is_ok()
+                {
                     let item = unsafe { Box::from_raw(item_ptr) };
                     return StealResult::Success(*item);
                 }
             }
             return StealResult::Retry;
         }
-        
+
         StealResult::Empty
     }
 
@@ -308,24 +307,24 @@ impl<T> ChaseLevDeque<T> {
         let old_array = unsafe { &*old_array_ptr };
         let new_capacity = old_array.capacity() * 2;
         let new_array = Box::new(Array::new(new_capacity));
-        
+
         let b = self.bottom.load(Ordering::Relaxed);
         let t = self.top.load(Ordering::Relaxed);
-        
+
         // Copy elements to new array
         for i in t..b {
             let item_ptr = old_array.get(i);
             new_array.put(i, item_ptr);
         }
-        
+
         // Atomically replace the array
         let new_array_ptr = Box::into_raw(new_array);
         self.array.store(new_array_ptr, Ordering::Release);
-        
+
         // Push the old array into the list of arrays pending deallocation
         let mut old_arrays = self.old_arrays.lock().unwrap();
         old_arrays.push(old_array_ptr);
-        
+
         // Note: Proper memory reclamation is deferred to a safe point
     }
 }
@@ -407,7 +406,7 @@ impl WorkStealingScheduler {
     pub fn new(id: SchedulerId, config: SchedulerConfig) -> Self {
         let initial_capacity = match config.queue_type {
             QueueType::ChaseLev => 1024, // Default capacity
-            _ => 256, // Smaller capacity for other types
+            _ => 256,                    // Smaller capacity for other types
         };
 
         Self {
@@ -442,7 +441,7 @@ impl WorkStealingScheduler {
     /// Try to steal work from another scheduler.
     pub fn try_steal_from(&self, other: &WorkStealingScheduler) -> StealResult<Box<dyn BoxedTask>> {
         self.stats.steal_attempts.fetch_add(1, Ordering::Relaxed);
-        
+
         match other.local_queue.steal() {
             StealResult::Success(task) => {
                 self.stats.successful_steals.fetch_add(1, Ordering::Relaxed);
@@ -455,27 +454,31 @@ impl WorkStealingScheduler {
     /// Execute a single task.
     fn execute_task(&self, task: Box<dyn BoxedTask>) {
         let start_time = Instant::now();
-        
+
         // Execute the task
         task.execute_boxed();
-        
+
         // Update statistics
         let execution_time = start_time.elapsed().as_nanos() as usize;
         self.stats.tasks_executed.fetch_add(1, Ordering::Relaxed);
-        self.stats.execution_time_ns.fetch_add(execution_time, Ordering::Relaxed);
+        self.stats
+            .execution_time_ns
+            .fetch_add(execution_time, Ordering::Relaxed);
         self.stats.last_activity.store(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as usize,
-            Ordering::Relaxed
+            Ordering::Relaxed,
         );
     }
 
     /// Get current load (number of queued tasks).
     pub fn load(&self) -> usize {
         let local_load = self.local_queue.len();
-        let global_load = self.global_queue.lock()
+        let global_load = self
+            .global_queue
+            .lock()
             .map(|queue| queue.len())
             .unwrap_or(0);
         local_load + global_load
@@ -507,7 +510,7 @@ impl WorkStealingScheduler {
 impl Scheduler for WorkStealingScheduler {
     fn schedule(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()> {
         self.stats.tasks_scheduled.fetch_add(1, Ordering::Relaxed);
-        
+
         // Prefer local queue for better cache locality
         self.local_queue.push(task);
         Ok(())
@@ -621,12 +624,12 @@ impl WorkStealingCoordinator {
         for _ in 0..max_attempts {
             let target_idx = self.next_random() % all_schedulers.len();
             let target = &all_schedulers[target_idx];
-            
+
             // Don't steal from ourselves
             if target.id() == idle_scheduler.id() {
                 continue;
             }
-            
+
             match idle_scheduler.try_steal_from(target) {
                 StealResult::Success(task) => return Some(task),
                 StealResult::Retry => continue,
@@ -644,16 +647,16 @@ impl WorkStealingCoordinator {
         max_attempts: usize,
     ) -> Option<Box<dyn BoxedTask>> {
         let start_idx = (idle_scheduler.id().get() + 1) % all_schedulers.len();
-        
+
         for i in 0..max_attempts.min(all_schedulers.len()) {
             let target_idx = (start_idx + i) % all_schedulers.len();
             let target = &all_schedulers[target_idx];
-            
+
             // Don't steal from ourselves
             if target.id() == idle_scheduler.id() {
                 continue;
             }
-            
+
             match idle_scheduler.try_steal_from(target) {
                 StealResult::Success(task) => return Some(task),
                 StealResult::Retry => {
@@ -676,19 +679,19 @@ impl WorkStealingCoordinator {
         // Find the scheduler with the highest load
         let mut best_target: Option<&WorkStealingScheduler> = None;
         let mut max_load = 0;
-        
+
         for scheduler in all_schedulers {
             if scheduler.id() == idle_scheduler.id() {
                 continue;
             }
-            
+
             let load = scheduler.load();
             if load > max_load {
                 max_load = load;
                 best_target = Some(scheduler);
             }
         }
-        
+
         if let Some(target) = best_target {
             for _ in 0..max_attempts {
                 match idle_scheduler.try_steal_from(target) {
@@ -698,7 +701,7 @@ impl WorkStealingCoordinator {
                 }
             }
         }
-        
+
         None
     }
 
@@ -711,18 +714,19 @@ impl WorkStealingCoordinator {
     ) -> Option<Box<dyn BoxedTask>> {
         // Simplified locality-aware stealing based on scheduler ID distance
         let idle_id = idle_scheduler.id().get();
-        
-        let mut candidates: Vec<_> = all_schedulers.iter()
+
+        let mut candidates: Vec<_> = all_schedulers
+            .iter()
             .filter(|s| s.id() != idle_scheduler.id() && s.load() > 0)
             .map(|s| {
                 let distance = ((s.id().get() as i32) - (idle_id as i32)).abs() as usize;
                 (s, distance)
             })
             .collect();
-            
+
         // Sort by distance (closer first)
         candidates.sort_by_key(|(_, distance)| *distance);
-        
+
         for (target, _) in candidates.iter().take(max_attempts) {
             match idle_scheduler.try_steal_from(target) {
                 StealResult::Success(task) => return Some(task),
@@ -730,7 +734,7 @@ impl WorkStealingCoordinator {
                 StealResult::Empty => continue,
             }
         }
-        
+
         None
     }
 
@@ -780,43 +784,43 @@ mod tests {
     #[test]
     fn test_chase_lev_deque_basic_operations() {
         let deque: ChaseLevDeque<i32> = ChaseLevDeque::new(16);
-        
+
         // Test push and pop
         deque.push(1);
         deque.push(2);
         deque.push(3);
-        
+
         assert_eq!(deque.len(), 3);
         assert!(!deque.is_empty());
-        
+
         assert_eq!(deque.pop(), Some(3));
         assert_eq!(deque.pop(), Some(2));
         assert_eq!(deque.pop(), Some(1));
         assert_eq!(deque.pop(), None);
-        
+
         assert!(deque.is_empty());
     }
 
     #[test]
     fn test_chase_lev_deque_steal() {
         let deque: ChaseLevDeque<i32> = ChaseLevDeque::new(16);
-        
+
         // Push some items
         for i in 1..=5 {
             deque.push(i);
         }
-        
+
         // Steal from the top
         assert_eq!(deque.steal(), StealResult::Success(1));
         assert_eq!(deque.steal(), StealResult::Success(2));
-        
+
         // Pop from the bottom
         assert_eq!(deque.pop(), Some(5));
         assert_eq!(deque.pop(), Some(4));
-        
+
         // Steal the last item
         assert_eq!(deque.steal(), StealResult::Success(3));
-        
+
         // Should be empty now
         assert_eq!(deque.steal(), StealResult::Empty);
         assert_eq!(deque.pop(), None);
@@ -826,7 +830,7 @@ mod tests {
     fn test_work_stealing_scheduler() {
         let config = SchedulerConfig::default();
         let scheduler = WorkStealingScheduler::new(SchedulerId::new(0), config);
-        
+
         // Schedule some tasks
         for i in 0..10 {
             let task = TestTask::new(i);
@@ -834,11 +838,11 @@ mod tests {
             let task: Box<dyn BoxedTask> = Box::new(wrapped);
             scheduler.schedule(task).unwrap();
         }
-        
+
         // Get stats
         let stats = scheduler.stats();
         assert_eq!(stats.tasks_scheduled, 10);
-        
+
         // Pop tasks
         let mut popped = 0;
         while scheduler.try_execute_next_task().unwrap() {
@@ -851,7 +855,7 @@ mod tests {
     fn test_scheduler_stats() {
         let config = SchedulerConfig::default();
         let scheduler = WorkStealingScheduler::new(SchedulerId::new(1), config);
-        
+
         // Schedule and execute some tasks
         for i in 0..5 {
             let task = TestTask::new(i);
@@ -859,10 +863,10 @@ mod tests {
             let task: Box<dyn BoxedTask> = Box::new(wrapped);
             scheduler.schedule(task).unwrap();
         }
-        
+
         // Execute all tasks
         while scheduler.try_execute_next_task().unwrap() {}
-        
+
         let stats = scheduler.stats();
         assert_eq!(stats.scheduler_id, SchedulerId::new(1));
         assert_eq!(stats.tasks_scheduled, 5);
@@ -878,7 +882,7 @@ mod tests {
             ..Default::default()
         };
         let scheduler = WorkStealingScheduler::new(SchedulerId::new(2), config);
-        
+
         // Test multiple task scheduling
         for i in 0..10 {
             let task = TestTask::new(i);
@@ -886,15 +890,15 @@ mod tests {
             let task: Box<dyn BoxedTask> = Box::new(wrapped);
             scheduler.schedule(task).unwrap();
         }
-        
+
         assert_eq!(scheduler.load(), 10);
-        
+
         // Execute some tasks
         let mut executed_count = 0;
         while scheduler.try_execute_next_task().unwrap() {
             executed_count += 1;
         }
-        
+
         assert_eq!(executed_count, 10);
         assert_eq!(scheduler.load(), 0);
     }

@@ -1,5 +1,5 @@
 //! Moirai Iterator - Unified high-performance iterator system for concurrent, parallel, async, and distributed computing.
-//! 
+//!
 //! This module provides a comprehensive iterator framework that abstracts over different execution contexts:
 //! - **Parallel**: CPU-bound work across multiple threads with work-stealing
 //! - **Async**: I/O-bound work with efficient async/await patterns  
@@ -7,7 +7,7 @@
 //! - **Hybrid**: Mixed workloads combining parallel and async execution
 //!
 //! # Design Principles
-//! 
+//!
 //! - **Zero-cost abstractions**: Compile-time optimizations with no runtime overhead
 //! - **Memory efficiency**: NUMA-aware allocation and cache-friendly data layouts
 //! - **Execution agnostic**: Same API works across all execution contexts
@@ -17,28 +17,27 @@
 
 // Module declarations following SRP and SOC
 pub mod base;
-pub mod execution;
-pub mod combinators;
-pub mod channel_fusion;
-pub mod windows;
 pub mod cache;
-pub mod simd_iter;
+pub mod channel_fusion;
+pub mod combinators;
+pub mod execution;
+pub mod iter_ops;
 pub mod numa;
 pub mod prefetch;
-pub mod iter_ops;
+pub mod simd_iter;
+pub mod windows;
 
 // Re-export key types for clean API
 pub use base::ThreadPool;
 pub use execution::{
-    ExecutionBase, ExecutionContext, 
-    ParallelContext, AsyncContext, HybridContext,
-    HybridConfig, PerformanceHistory, ExecutionStrategy
+    AsyncContext, ExecutionBase, ExecutionContext, ExecutionStrategy, HybridConfig, HybridContext,
+    ParallelContext, PerformanceHistory,
 };
 
 /// Core trait for parallel iteration
 trait IntoParallelIterator {
     type Item: Send;
-    
+
     fn into_par_iter(self) -> ParIter<Self::Item>;
 }
 
@@ -59,7 +58,8 @@ impl<T: Send + Clone + 'static> ParIter<T> {
         R: Send + Clone + 'static,
     {
         let context = ParallelContext::new();
-        let results = context.execute_iter(self.data, func)
+        let results = context
+            .execute_iter(self.data, func)
             .unwrap_or_else(|_| vec![]);
         ParIter::new(results)
     }
@@ -69,7 +69,9 @@ impl<T: Send + Clone + 'static> ParIter<T> {
     where
         F: Fn(&T) -> bool + Send + Sync + 'static,
     {
-        let filtered: Vec<T> = self.data.into_iter()
+        let filtered: Vec<T> = self
+            .data
+            .into_iter()
             .filter(|item| predicate(item))
             .collect();
         ParIter::new(filtered)
@@ -91,7 +93,7 @@ impl<T: Send + Clone + 'static> ParIter<T> {
 
 impl<T: Send + Clone + 'static> IntoParallelIterator for Vec<T> {
     type Item = T;
-    
+
     fn into_par_iter(self) -> ParIter<Self::Item> {
         ParIter::new(self)
     }
@@ -130,9 +132,11 @@ impl<T: Send + Clone + 'static> MoiraiIterator<T> {
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + Clone + 'static,
     {
-        let results = self.context.execute_iter(self.data, func)
+        let results = self
+            .context
+            .execute_iter(self.data, func)
             .unwrap_or_else(|_| vec![]);
-        
+
         // Create new iterator with same context type
         match self.context.context_type() {
             "Parallel" => MoiraiIterator::parallel(results),
@@ -147,10 +151,12 @@ impl<T: Send + Clone + 'static> MoiraiIterator<T> {
     where
         F: Fn(&T) -> bool + Send + Sync + 'static,
     {
-        let filtered: Vec<T> = self.data.into_iter()
+        let filtered: Vec<T> = self
+            .data
+            .into_iter()
             .filter(|item| predicate(item))
             .collect();
-        
+
         match self.context.context_type() {
             "Parallel" => MoiraiIterator::parallel(filtered),
             "Async" => MoiraiIterator::async_iter(filtered),
