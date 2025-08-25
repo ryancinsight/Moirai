@@ -182,10 +182,7 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        assert_eq!(
-            format!("{}", TaskError::Cancelled),
-            "Task was cancelled"
-        );
+        assert_eq!(format!("{}", TaskError::Cancelled), "Task was cancelled");
         assert_eq!(
             format!("{}", TaskError::ExecutionFailed(TaskErrorKind::Io)),
             "Task execution failed: I/O error"

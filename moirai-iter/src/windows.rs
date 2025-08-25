@@ -42,7 +42,11 @@ impl<'a, T> Windows<'a, T> {
     #[inline]
     pub fn new(slice: &'a [T], size: usize) -> Self {
         assert!(size != 0, "window size must be non-zero");
-        Windows { slice, size, pos: 0 }
+        Windows {
+            slice,
+            size,
+            pos: 0,
+        }
     }
 }
 
@@ -231,7 +235,11 @@ impl<'a, T> DoubleEndedIterator for Chunks<'a, T> {
             None
         } else {
             let remainder = self.slice.len() % self.chunk_size;
-            let chunk_size = if remainder != 0 { remainder } else { self.chunk_size };
+            let chunk_size = if remainder != 0 {
+                remainder
+            } else {
+                self.chunk_size
+            };
             let (rest, chunk) = self.slice.split_at(self.slice.len() - chunk_size);
             self.slice = rest;
             Some(chunk)
@@ -293,7 +301,11 @@ impl<'a, T> DoubleEndedIterator for ChunksMut<'a, T> {
             None
         } else {
             let remainder = self.slice.len() % self.chunk_size;
-            let chunk_size = if remainder != 0 { remainder } else { self.chunk_size };
+            let chunk_size = if remainder != 0 {
+                remainder
+            } else {
+                self.chunk_size
+            };
             let slice = std::mem::take(&mut self.slice);
             let (rest, chunk) = slice.split_at_mut(slice.len() - chunk_size);
             self.slice = rest;
@@ -446,10 +458,10 @@ impl<'a, T> ExactSizeIterator for ChunksExactMut<'a, T> {}
 pub trait WindowExt<T> {
     /// Returns an iterator over overlapping windows of `size` elements.
     fn windows(&self, size: usize) -> Windows<'_, T>;
-    
+
     /// Returns an iterator over non-overlapping chunks of `size` elements.
     fn chunks(&self, size: usize) -> Chunks<'_, T>;
-    
+
     /// Returns an iterator over chunks of exactly `size` elements.
     fn chunks_exact(&self, size: usize) -> ChunksExact<'_, T>;
 }
@@ -459,12 +471,12 @@ impl<T> WindowExt<T> for [T] {
     fn windows(&self, size: usize) -> Windows<'_, T> {
         Windows::new(self, size)
     }
-    
+
     #[inline]
     fn chunks(&self, size: usize) -> Chunks<'_, T> {
         Chunks::new(self, size)
     }
-    
+
     #[inline]
     fn chunks_exact(&self, size: usize) -> ChunksExact<'_, T> {
         ChunksExact::new(self, size)
@@ -475,7 +487,7 @@ impl<T> WindowExt<T> for [T] {
 pub trait WindowExtMut<T> {
     /// Returns a mutable iterator over non-overlapping chunks.
     fn chunks_mut(&mut self, size: usize) -> ChunksMut<'_, T>;
-    
+
     /// Returns a mutable iterator over chunks of exactly `size` elements.
     fn chunks_exact_mut(&mut self, size: usize) -> ChunksExactMut<'_, T>;
 }
@@ -485,7 +497,7 @@ impl<T> WindowExtMut<T> for [T] {
     fn chunks_mut(&mut self, size: usize) -> ChunksMut<'_, T> {
         ChunksMut::new(self, size)
     }
-    
+
     #[inline]
     fn chunks_exact_mut(&mut self, size: usize) -> ChunksExactMut<'_, T> {
         ChunksExactMut::new(self, size)
@@ -501,7 +513,10 @@ mod tests {
     fn test_windows() {
         let data = vec![1, 2, 3, 4, 5];
         let windows: Vec<_> = data.windows(3).collect();
-        assert_eq!(windows, vec![&[1, 2, 3][..], &[2, 3, 4][..], &[3, 4, 5][..]]);
+        assert_eq!(
+            windows,
+            vec![&[1, 2, 3][..], &[2, 3, 4][..], &[3, 4, 5][..]]
+        );
     }
 
     #[test]

@@ -8,8 +8,8 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
         mpsc::{self, Receiver, Sender},
+        Arc, Mutex,
     },
     task::Waker,
     thread::{self, JoinHandle},
@@ -35,7 +35,7 @@ impl IoReactor {
     /// Create a new I/O reactor.
     pub fn new() -> Self {
         let (event_sender, event_receiver) = mpsc::channel();
-        
+
         Self {
             #[cfg(unix)]
             fd_wakers: Arc::new(Mutex::new(HashMap::new())),
@@ -65,7 +65,7 @@ impl IoReactor {
     }
 
     /// Run the I/O event loop.
-    /// 
+    ///
     /// This is a simplified implementation - production code would use
     /// platform-specific mechanisms like epoll/kqueue/IOCP.
     pub fn run(&self) {
@@ -73,7 +73,7 @@ impl IoReactor {
             #[cfg(unix)]
             {
                 self.poll_fds();
-                
+
                 // Process any pending events
                 if let Ok(receiver) = self.event_receiver.lock() {
                     while let Ok((fd, _event)) = receiver.try_recv() {
@@ -85,7 +85,7 @@ impl IoReactor {
                     }
                 }
             }
-            
+
             // Small sleep to prevent busy-waiting (production would block on epoll)
             thread::sleep(Duration::from_millis(1));
         }

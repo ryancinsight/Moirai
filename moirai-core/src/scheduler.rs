@@ -1,19 +1,19 @@
 //! Scheduler trait and implementations.
-//! 
+//!
 //! This module provides advanced scheduling algorithms inspired by:
 //! - Rayon's work-stealing deque (Chase-Lev algorithm)
 //! - Tokio's async notification system  
 //! - OpenMP's low-overhead synchronization
 
-use crate::{BoxedTask};
 use crate::error::{SchedulerError, SchedulerResult};
 use crate::platform::*;
-use core::fmt;
-use core::num::Wrapping;
-use core::cmp::Reverse;
+use crate::BoxedTask;
 use core::cell::UnsafeCell;
-use core::pin::Pin;
+use core::cmp::Reverse;
+use core::fmt;
 use core::future::Future;
+use core::num::Wrapping;
+use core::pin::Pin;
 
 #[cfg(feature = "std")]
 use std::time::SystemTime;
@@ -25,7 +25,7 @@ struct CachePadded<T> {
 }
 
 /// Chase-Lev work-stealing deque implementation (inspired by Rayon)
-/// 
+///
 /// This is a highly optimized deque that allows:
 /// - Single owner pushing/popping from one end
 /// - Multiple stealers taking from the other end
@@ -54,7 +54,7 @@ impl<T> Buffer<T> {
             .map(|_| UnsafeCell::new(MaybeUninit::uninit()))
             .collect::<Vec<_>>()
             .into_boxed_slice();
-        
+
         Self {
             mask: capacity - 1,
             storage,
@@ -70,7 +70,7 @@ impl<T> Buffer<T> {
         let slot = &mut *self.storage[index & self.mask].get();
         slot.write(value);
     }
-    
+
     fn capacity(&self) -> usize {
         self.storage.len()
     }
@@ -81,11 +81,17 @@ impl<T: Send> WorkStealingDeque<T> {
     pub fn new(capacity: usize) -> Self {
         let capacity = capacity.next_power_of_two();
         let buffer = Box::into_raw(Box::new(Buffer::new(capacity)));
-        
+
         Self {
-            bottom: CachePadded { value: AtomicUsize::new(0) },
-            top: CachePadded { value: AtomicUsize::new(0) },
-            buffer: CachePadded { value: AtomicPtr::new(buffer) },
+            bottom: CachePadded {
+                value: AtomicUsize::new(0),
+            },
+            top: CachePadded {
+                value: AtomicUsize::new(0),
+            },
+            buffer: CachePadded {
+                value: AtomicPtr::new(buffer),
+            },
             _phantom: PhantomData,
         }
     }
@@ -95,9 +101,9 @@ impl<T: Send> WorkStealingDeque<T> {
         let bottom = self.bottom.value.load(Ordering::Relaxed);
         let top = self.top.value.load(Ordering::Acquire);
         let size = bottom.wrapping_sub(top);
-        
+
         let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
-        
+
         // Check if resize needed
         if size >= buffer.mask {
             // Grow buffer by allocating a new one and copying existing elements
@@ -115,16 +121,20 @@ impl<T: Send> WorkStealingDeque<T> {
             // Swap buffer pointer
             let old_ptr = self.buffer.value.swap(new_buffer, Ordering::Release);
             // Drop old buffer box safely
-            unsafe { drop(Box::from_raw(old_ptr)); }
+            unsafe {
+                drop(Box::from_raw(old_ptr));
+            }
         }
-        
+
         let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
         unsafe {
             buffer.put(bottom, task);
         }
-        
+
         // Release store to make task visible to stealers
-        self.bottom.value.store(bottom.wrapping_add(1), Ordering::Release);
+        self.bottom
+            .value
+            .store(bottom.wrapping_add(1), Ordering::Release);
         fence(Ordering::SeqCst);
     }
 
@@ -132,12 +142,12 @@ impl<T: Send> WorkStealingDeque<T> {
     pub fn pop(&self) -> Option<T> {
         let bottom = self.bottom.value.load(Ordering::Relaxed);
         let new_bottom = bottom.wrapping_sub(1);
-        
+
         // Synchronize with stealers
         fence(Ordering::SeqCst);
-        
+
         let top = self.top.value.load(Ordering::Relaxed);
-        
+
         if top <= new_bottom {
             // Non-empty
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
@@ -148,24 +158,29 @@ impl<T: Send> WorkStealingDeque<T> {
                 self.bottom.value.store(bottom, Ordering::Relaxed);
                 return None;
             }
-            
+
             let task = unsafe { buffer.get(new_bottom) };
-            
+
             if top == new_bottom {
                 // Last task - race with stealers
-                if self.top.value.compare_exchange(
-                    top,
-                    top.wrapping_add(1),
-                    Ordering::SeqCst,
-                    Ordering::Relaxed
-                ).is_err() {
+                if self
+                    .top
+                    .value
+                    .compare_exchange(
+                        top,
+                        top.wrapping_add(1),
+                        Ordering::SeqCst,
+                        Ordering::Relaxed,
+                    )
+                    .is_err()
+                {
                     // Lost race
                     self.bottom.value.store(bottom, Ordering::Relaxed);
                     return None;
                 }
                 self.bottom.value.store(bottom, Ordering::Relaxed);
             }
-            
+
             Some(task)
         } else {
             // Empty
@@ -178,29 +193,34 @@ impl<T: Send> WorkStealingDeque<T> {
     pub fn steal(&self) -> Option<T> {
         loop {
             let top = self.top.value.load(Ordering::Acquire);
-            
+
             // Synchronize with owner
             fence(Ordering::SeqCst);
-            
+
             let bottom = self.bottom.value.load(Ordering::Acquire);
-            
+
             if top >= bottom {
                 return None; // Empty
             }
-            
+
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Acquire) };
             let task = unsafe { buffer.get(top) };
-            
+
             // Try to increment top
-            if self.top.value.compare_exchange(
-                top,
-                top.wrapping_add(1),
-                Ordering::SeqCst,
-                Ordering::Relaxed
-            ).is_ok() {
+            if self
+                .top
+                .value
+                .compare_exchange(
+                    top,
+                    top.wrapping_add(1),
+                    Ordering::SeqCst,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+            {
                 return Some(task);
             }
-            
+
             // CAS failed, retry
         }
     }
@@ -218,7 +238,7 @@ unsafe impl<T: Send> Send for WorkStealingDeque<T> {}
 unsafe impl<T: Send> Sync for WorkStealingDeque<T> {}
 
 /// Improved zero-copy work-stealing deque
-/// 
+///
 /// This implementation minimizes allocations and uses atomic operations
 /// for lock-free stealing between workers.
 pub struct ZeroCopyWorkStealingDeque<T> {
@@ -237,69 +257,82 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
     pub fn new(capacity: usize) -> Self {
         let buffer = Box::new(Buffer::new(capacity));
         Self {
-            bottom: CachePadded { value: AtomicUsize::new(0) },
-            top: CachePadded { value: AtomicUsize::new(0) },
-            buffer: CachePadded { value: AtomicPtr::new(Box::into_raw(buffer)) },
+            bottom: CachePadded {
+                value: AtomicUsize::new(0),
+            },
+            top: CachePadded {
+                value: AtomicUsize::new(0),
+            },
+            buffer: CachePadded {
+                value: AtomicPtr::new(Box::into_raw(buffer)),
+            },
             cached_buffer: UnsafeCell::new(None),
         }
     }
-    
+
     /// Push a task (owner only)
     pub fn push(&self, task: T) {
         let bottom = self.bottom.value.load(Ordering::Relaxed);
         let top = self.top.value.load(Ordering::Acquire);
         let size = bottom.wrapping_sub(top);
-        
+
         let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
-        
+
         // Check if resize is needed
         if size >= buffer.capacity() {
             // Grow buffer with zero-copy transfer
             self.grow(bottom, top, buffer);
         }
-        
+
         let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
         unsafe {
             buffer.put(bottom, task);
         }
-        
+
         // Release store to make the push visible to stealers
-        self.bottom.value.store(bottom.wrapping_add(1), Ordering::Release);
+        self.bottom
+            .value
+            .store(bottom.wrapping_add(1), Ordering::Release);
     }
-    
+
     /// Pop a task (owner only)
     pub fn pop(&self) -> Option<T> {
         let bottom = self.bottom.value.load(Ordering::Relaxed);
         let new_bottom = bottom.wrapping_sub(1);
-        
+
         // Relaxed store is safe - only owner modifies bottom
         self.bottom.value.store(new_bottom, Ordering::Relaxed);
-        
+
         // Synchronize with stealers
         std::sync::atomic::fence(Ordering::SeqCst);
-        
+
         let top = self.top.value.load(Ordering::Relaxed);
-        
+
         if top <= new_bottom {
             // Non-empty queue
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
             let task = unsafe { buffer.get(new_bottom) };
-            
+
             if top == new_bottom {
                 // Last element - race with stealers
-                if self.top.value.compare_exchange(
-                    top,
-                    top.wrapping_add(1),
-                    Ordering::SeqCst,
-                    Ordering::Relaxed,
-                ).is_err() {
+                if self
+                    .top
+                    .value
+                    .compare_exchange(
+                        top,
+                        top.wrapping_add(1),
+                        Ordering::SeqCst,
+                        Ordering::Relaxed,
+                    )
+                    .is_err()
+                {
                     // Lost the race
                     self.bottom.value.store(bottom, Ordering::Relaxed);
                     return None;
                 }
                 self.bottom.value.store(bottom, Ordering::Relaxed);
             }
-            
+
             Some(task)
         } else {
             // Empty queue
@@ -307,27 +340,32 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
             None
         }
     }
-    
+
     /// Steal a task (stealers)
     pub fn steal(&self) -> Option<T> {
         let top = self.top.value.load(Ordering::Acquire);
-        
+
         // Synchronize with owner
         std::sync::atomic::fence(Ordering::SeqCst);
-        
+
         let bottom = self.bottom.value.load(Ordering::Acquire);
-        
+
         if top < bottom {
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Acquire) };
             let task = unsafe { buffer.get(top) };
-            
+
             // Try to increment top
-            if self.top.value.compare_exchange(
-                top,
-                top.wrapping_add(1),
-                Ordering::SeqCst,
-                Ordering::Relaxed,
-            ).is_ok() {
+            if self
+                .top
+                .value
+                .compare_exchange(
+                    top,
+                    top.wrapping_add(1),
+                    Ordering::SeqCst,
+                    Ordering::Relaxed,
+                )
+                .is_ok()
+            {
                 Some(task)
             } else {
                 None
@@ -336,19 +374,20 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
             None
         }
     }
-    
+
     /// Grow the buffer with zero-copy transfer
     fn grow(&self, bottom: usize, top: usize, old_buffer: &Buffer<T>) {
         let _size = bottom.wrapping_sub(top);
         let new_capacity = old_buffer.capacity() * 2;
-        
+
         // Try to reuse cached buffer
         let new_buffer = unsafe {
-            (*self.cached_buffer.get()).take()
+            (*self.cached_buffer.get())
+                .take()
                 .filter(|b| b.capacity() >= new_capacity)
                 .unwrap_or_else(|| Box::new(Buffer::new(new_capacity)))
         };
-        
+
         // Zero-copy transfer of elements
         for i in top..bottom {
             unsafe {
@@ -356,10 +395,10 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
                 new_buffer.put(i, value);
             }
         }
-        
+
         let new_buffer_ptr = Box::into_raw(new_buffer);
         let old_buffer_ptr = self.buffer.value.swap(new_buffer_ptr, Ordering::Release);
-        
+
         // Cache the old buffer for reuse
         unsafe {
             let old_buffer = Box::from_raw(old_buffer_ptr);
@@ -374,10 +413,10 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
 /// must support for managing task queues and work distribution.
 pub trait Scheduler: Send + Sync + 'static {
     /// Schedule a task for execution.
-    /// 
+    ///
     /// The scheduler will determine when and where to execute the task based on
     /// its internal policies and current system state.
-    /// 
+    ///
     /// # Errors
     /// Returns `SchedulerError` if the task cannot be scheduled due to:
     /// - Resource constraints (queue full, memory limits)
@@ -501,35 +540,35 @@ pub type SchedulerConfig = Config;
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorkStealingStrategy {
     /// Random victim selection
-    Random { 
+    Random {
         /// Maximum number of steal attempts before giving up
-        max_attempts: usize 
+        max_attempts: usize,
     },
     /// Round-robin victim selection
-    RoundRobin { 
+    RoundRobin {
         /// Maximum number of steal attempts before giving up
-        max_attempts: usize 
+        max_attempts: usize,
     },
     /// Locality-aware victim selection
-    LocalityAware { 
+    LocalityAware {
         /// Maximum number of steal attempts before giving up
-        max_attempts: usize, 
+        max_attempts: usize,
         /// Weight factor for locality preference (0.0 to 1.0)
-        locality_factor: f64 
+        locality_factor: f64,
     },
     /// Load-based victim selection
-    LoadBased { 
+    LoadBased {
         /// Maximum number of steal attempts before giving up
-        max_attempts: usize, 
+        max_attempts: usize,
         /// Minimum load difference required to attempt stealing
-        min_load_diff: usize 
+        min_load_diff: usize,
     },
     /// Adaptive strategy that adjusts based on success rate
-    Adaptive { 
+    Adaptive {
         /// Base strategy to adapt from
-        base_strategy: Box<WorkStealingStrategy>, 
+        base_strategy: Box<WorkStealingStrategy>,
         /// Rate at which to adapt the strategy (0.0 to 1.0)
-        adaptation_rate: f64 
+        adaptation_rate: f64,
     },
 }
 
@@ -607,7 +646,7 @@ pub struct Stats {
 }
 
 /// Work stealing coordinator that manages steal attempts across schedulers.
-/// 
+///
 /// This implementation now uses work-stealing deques for better performance.
 pub struct WorkStealingCoordinator {
     schedulers: Vec<Box<dyn Scheduler>>,
@@ -633,20 +672,23 @@ impl WorkStealingCoordinator {
     pub fn register_scheduler(&mut self, scheduler: Box<dyn Scheduler>) {
         let id = scheduler.id();
         self.schedulers.push(scheduler);
-        
+
         // Use expect() to treat poisoned mutex as fatal error to maintain consistency
-        self.stats.lock().expect("Stats mutex poisoned during scheduler registration").push(Stats {
-            scheduler_id: id,
-            total_scheduled: 0,
-            total_completed: 0,
-            current_load: 0,
-            peak_load: 0,
-            steals_given: 0,
-            steals_taken: 0,
-            steal_failures: 0,
-            avg_queue_time_us: 0,
-            scheduling_time_us: 0,
-        });
+        self.stats
+            .lock()
+            .expect("Stats mutex poisoned during scheduler registration")
+            .push(Stats {
+                scheduler_id: id,
+                total_scheduled: 0,
+                total_completed: 0,
+                current_load: 0,
+                peak_load: 0,
+                steals_given: 0,
+                steals_taken: 0,
+                steal_failures: 0,
+                avg_queue_time_us: 0,
+                scheduling_time_us: 0,
+            });
     }
 
     /// Submit a task to the global injector queue
@@ -673,17 +715,21 @@ impl WorkStealingCoordinator {
     /// - System constraints or resource exhaustion
     /// - Invalid scheduler configuration
     /// - Internal synchronization failures
-    pub fn steal_task(&self, thief_id: SchedulerId, context: &mut StealContext) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
+    pub fn steal_task(
+        &self,
+        thief_id: SchedulerId,
+        context: &mut StealContext,
+    ) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
         // First try to steal from global injector (fast path)
         if let Some(task) = self.steal_from_injector() {
             context.attempts = 0;
             context.last_success = Some(SystemTime::now());
             return Ok(Some(task));
         }
-        
+
         // Find potential victims for work stealing
         let victims = self.select_victims(thief_id);
-        
+
         if victims.is_empty() {
             context.attempts += 1;
             return Ok(None);
@@ -696,17 +742,17 @@ impl WorkStealingCoordinator {
                 if !victim_scheduler.can_be_stolen_from() {
                     continue;
                 }
-                
+
                 // Attempt to steal a task from the victim
                 match self.attempt_steal_from_victim(thief_id, victim_scheduler, context) {
                     Ok(Some(stolen_task)) => {
                         // Successfully stole a task
                         context.attempts = 0; // Reset attempts on success
                         context.last_success = Some(SystemTime::now());
-                        
+
                         // Update statistics for both thief and victim
                         self.update_steal_statistics(thief_id, victim_id, true);
-                        
+
                         return Ok(Some(stolen_task));
                     }
                     Ok(None) => {
@@ -718,7 +764,7 @@ impl WorkStealingCoordinator {
                         // Steal attempt failed, update context and continue
                         context.attempts += 1;
                         self.update_steal_statistics(thief_id, victim_id, false);
-                        
+
                         // If it's a critical error, return it
                         if matches!(e, SchedulerError::SystemFailure(_)) {
                             return Err(e);
@@ -750,12 +796,12 @@ impl WorkStealingCoordinator {
                 Ok(Some(stolen_task)) => {
                     // Add the victim to recent victims list to avoid immediate re-stealing
                     context.recent_victims.push(victim_scheduler.id());
-                    
+
                     // Limit the recent victims list size
                     if context.recent_victims.len() > 10 {
                         context.recent_victims.remove(0);
                     }
-                    
+
                     Ok(Some(stolen_task))
                 }
                 Ok(None) => {
@@ -777,10 +823,18 @@ impl WorkStealingCoordinator {
     ///
     /// This tracks successful and failed steal attempts to help optimize
     /// work-stealing strategies and identify performance bottlenecks.
-    fn update_steal_statistics(&self, thief_id: SchedulerId, victim_id: SchedulerId, success: bool) {
+    fn update_steal_statistics(
+        &self,
+        thief_id: SchedulerId,
+        victim_id: SchedulerId,
+        success: bool,
+    ) {
         // Use expect() to treat poisoned mutex as fatal error for consistent statistics
-        let mut stats = self.stats.lock().expect("Stats mutex poisoned during steal statistics update");
-        
+        let mut stats = self
+            .stats
+            .lock()
+            .expect("Stats mutex poisoned during steal statistics update");
+
         // Update thief statistics
         if let Some(thief_stats) = stats.iter_mut().find(|s| s.scheduler_id == thief_id) {
             if success {
@@ -800,18 +854,19 @@ impl WorkStealingCoordinator {
 
     fn select_victims(&self, thief_id: SchedulerId) -> Vec<SchedulerId> {
         let mut victims = Vec::new();
-        
+
         match &self.strategy {
             WorkStealingStrategy::Random { max_attempts } => {
                 // Use a simple PRNG for victim selection
                 #[allow(clippy::cast_possible_truncation)]
                 let mut seed = Wrapping(thief_id.get() as u32);
-                
+
                 for scheduler in &self.schedulers {
                     if scheduler.id() != thief_id && scheduler.load() > 0 {
                         // Simple linear congruential generator
                         seed = seed * Wrapping(1_103_515_245) + Wrapping(12_345);
-                        if (seed.0 % 3) == 0 {  // ~33% selection probability
+                        if (seed.0 % 3) == 0 {
+                            // ~33% selection probability
                             victims.push(scheduler.id());
                         }
                         if victims.len() >= *max_attempts {
@@ -834,7 +889,10 @@ impl WorkStealingCoordinator {
                     }
                 }
             }
-            WorkStealingStrategy::LocalityAware { max_attempts, locality_factor: _ } => {
+            WorkStealingStrategy::LocalityAware {
+                max_attempts,
+                locality_factor: _,
+            } => {
                 // For now, just use round-robin (locality awareness would require more context)
                 for (i, scheduler) in self.schedulers.iter().enumerate() {
                     if scheduler.id() != thief_id && scheduler.load() > 0 {
@@ -848,22 +906,29 @@ impl WorkStealingCoordinator {
                     }
                 }
             }
-            WorkStealingStrategy::LoadBased { max_attempts, min_load_diff: _ } => {
+            WorkStealingStrategy::LoadBased {
+                max_attempts,
+                min_load_diff: _,
+            } => {
                 // Select victims based on their current load
-                let thief_load = self.schedulers.iter()
+                let thief_load = self
+                    .schedulers
+                    .iter()
                     .find(|s| s.id() == thief_id)
                     .map_or(0, |s| s.load());
-                
+
                 // Get candidates with higher load than the thief
-                let candidates: Vec<_> = self.schedulers.iter()
+                let candidates: Vec<_> = self
+                    .schedulers
+                    .iter()
                     .filter(|s| s.id() != thief_id && s.load() > thief_load)
                     .collect();
-                
+
                 if !candidates.is_empty() {
                     // Sort by load (highest first) using sort_by_key
                     let mut sorted_candidates = candidates;
                     sorted_candidates.sort_by_key(|b| Reverse(b.load()));
-                    
+
                     // Take up to max_attempts victims
                     for scheduler in sorted_candidates.into_iter().take(*max_attempts) {
                         victims.push(scheduler.id());
@@ -890,18 +955,21 @@ impl WorkStealingCoordinator {
                 }
             }
         }
-        
+
         victims
     }
 
     #[allow(dead_code)]
     fn find_best_victim(&self, thief_id: SchedulerId) -> Option<SchedulerId> {
-        let thief_load = self.schedulers.iter()
+        let thief_load = self
+            .schedulers
+            .iter()
             .find(|s| s.id() == thief_id)
             .map_or(0, |s| s.load());
 
         // Find schedulers with significantly higher load
-        let mut candidates: Vec<_> = self.schedulers
+        let mut candidates: Vec<_> = self
+            .schedulers
             .iter()
             .filter(|s| s.id() != thief_id && s.load() > thief_load + 2)
             .collect();
@@ -919,13 +987,19 @@ impl WorkStealingCoordinator {
     #[must_use]
     pub fn get_stats(&self) -> Vec<Stats> {
         // Use expect() to treat poisoned mutex as fatal error for consistent statistics
-        self.stats.lock().expect("Stats mutex poisoned during stats retrieval").clone()
+        self.stats
+            .lock()
+            .expect("Stats mutex poisoned during stats retrieval")
+            .clone()
     }
 
     /// Update statistics for a scheduler.
     pub fn update_stats(&mut self, id: SchedulerId, stats: Stats) {
         // Use expect() to treat poisoned mutex as fatal error for consistent statistics
-        let mut stats_vec = self.stats.lock().expect("Stats mutex poisoned during stats update");
+        let mut stats_vec = self
+            .stats
+            .lock()
+            .expect("Stats mutex poisoned during stats update");
         if let Some(existing_stats) = stats_vec.iter_mut().find(|s| s.scheduler_id == id) {
             *existing_stats = stats;
         }
@@ -933,7 +1007,7 @@ impl WorkStealingCoordinator {
 }
 
 /// Zero-allocation task wrapper that avoids dynamic dispatch
-/// 
+///
 /// This enum can hold different task types inline without heap allocation,
 /// using static dispatch for better performance in work-stealing queues.
 pub enum TaskSlot<T = ()> {
@@ -954,7 +1028,7 @@ impl<T: Send + 'static> TaskSlot<T> {
     {
         TaskSlot::Closure(Some(Box::new(f)))
     }
-    
+
     /// Execute the task, consuming it
     pub fn execute(self) -> Option<T> {
         match self {
@@ -968,7 +1042,7 @@ impl<T: Send + 'static> TaskSlot<T> {
             _ => None,
         }
     }
-    
+
     /// Check if the slot is empty
     pub fn is_empty(&self) -> bool {
         matches!(self, TaskSlot::Empty)
@@ -997,7 +1071,10 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.max_local_queue_size, 1024);
         assert!(config.enable_metrics);
-        assert_eq!(config.work_stealing_strategy, WorkStealingStrategy::default());
+        assert_eq!(
+            config.work_stealing_strategy,
+            WorkStealingStrategy::default()
+        );
     }
 
     #[test]
@@ -1008,57 +1085,57 @@ mod tests {
         assert!(ctx.recent_victims.is_empty());
         assert_eq!(ctx.backoff_delay, core::time::Duration::from_millis(10)); // Default backoff
     }
-    
+
     #[test]
     fn test_work_stealing_deque() {
         let deque = WorkStealingDeque::new(16);
-        
+
         // Test push/pop
         deque.push(1);
         deque.push(2);
         deque.push(3);
-        
+
         // Pop should return the most recently pushed item (LIFO)
         assert_eq!(deque.pop(), Some(3));
-        
+
         // After popping 3, we should be able to pop 2
         // But the implementation might have a different behavior
         // Let's test what actually happens
         let second_pop = deque.pop();
         assert!(second_pop.is_some());
-        
+
         // Test steal
         deque.push(4);
         deque.push(5);
-        
+
         // Steal should take from the opposite end (oldest item)
         let stolen = deque.steal();
         assert!(stolen.is_some());
-        
+
         // Pop should still work from the newest end
         assert_eq!(deque.pop(), Some(5));
     }
-    
+
     #[test]
     fn test_taskslot_zero_allocation() {
         // Test that TaskSlot can be used without heap allocation for small closures
         let slot = TaskSlot::new_closure(|| 42);
         assert!(!slot.is_empty());
-        
+
         // Execute the task
         let result = slot.execute();
         assert_eq!(result, Some(42));
     }
-    
+
     #[test]
     fn test_work_stealing_with_taskslot() {
         let deque = ZeroCopyWorkStealingDeque::<TaskSlot<i32>>::new(16);
-        
+
         // Push multiple tasks
         for i in 0..10 {
             deque.push(TaskSlot::new_closure(move || i * 2));
         }
-        
+
         // Pop tasks and execute them
         let mut results = Vec::new();
         while let Some(task) = deque.pop() {
@@ -1066,10 +1143,10 @@ mod tests {
                 results.push(result);
             }
         }
-        
+
         // Verify we got all results (in reverse order due to LIFO)
         assert_eq!(results.len(), 10);
         assert_eq!(results[0], 18); // Last pushed (9 * 2)
-        assert_eq!(results[9], 0);  // First pushed (0 * 2)
+        assert_eq!(results[9], 0); // First pushed (0 * 2)
     }
 }

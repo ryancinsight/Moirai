@@ -7,8 +7,6 @@
 extern crate std;
 
 #[cfg(feature = "std")]
-
-
 // Core imports needed for all configurations
 use core::sync::atomic::{AtomicUsize, Ordering};
 
@@ -16,9 +14,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(feature = "std")]
 use std::{
     boxed::Box,
+    f64, // For math functions like sqrt, ln, etc.
     vec::Vec,
-    collections::VecDeque,
-    f64,  // For math functions like sqrt, ln, etc.
 };
 
 // No-std fallbacks
@@ -26,11 +23,7 @@ use std::{
 extern crate alloc;
 
 #[cfg(not(feature = "std"))]
-use alloc::{
-    boxed::Box,
-    vec::Vec,
-    collections::VecDeque,
-};
+use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
 
 // Math functions require std feature
 #[cfg(not(feature = "std"))]
@@ -104,7 +97,10 @@ impl<T> RingBuffer<T> {
         assert!(capacity.is_power_of_two(), "Capacity must be a power of 2");
         assert!(capacity > 0, "Capacity must be greater than 0");
 
-        let data = (0..capacity).map(|_| None).collect::<Vec<_>>().into_boxed_slice();
+        let data = (0..capacity)
+            .map(|_| None)
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
 
         Self {
             data,
@@ -641,10 +637,7 @@ pub mod memory {
         #[cfg(target_arch = "x86_64")]
         {
             unsafe {
-                core::arch::x86_64::_mm_prefetch(
-                    ptr as *const i8,
-                    core::arch::x86_64::_MM_HINT_T0,
-                );
+                core::arch::x86_64::_mm_prefetch(ptr as *const i8, core::arch::x86_64::_MM_HINT_T0);
             }
         }
 
@@ -977,14 +970,19 @@ pub mod probabilistic {
 
         /// Get the estimated number of items in the filter.
         pub fn estimated_count(&self) -> usize {
-            let set_bits = self.bits.iter().map(|word| word.count_ones() as usize).sum::<usize>();
+            let set_bits = self
+                .bits
+                .iter()
+                .map(|word| word.count_ones() as usize)
+                .sum::<usize>();
 
             if set_bits == 0 {
                 return 0;
             }
 
             let ratio = set_bits as f64 / self.bit_count as f64;
-            let estimate = -(self.bit_count as f64 * (1.0_f64 - ratio).ln()) / self.hash_count as f64;
+            let estimate =
+                -(self.bit_count as f64 * (1.0_f64 - ratio).ln()) / self.hash_count as f64;
 
             estimate.round() as usize
         }
@@ -1063,15 +1061,19 @@ pub mod probabilistic {
 
         /// Estimate the cardinality.
         pub fn estimate(&self) -> f64 {
-            let raw_estimate = self.alpha
-                * (self.bucket_count as f64).powi(2)
-                / self.buckets.iter().map(|&b| 2.0_f64.powi(-(b as i32))).sum::<f64>();
+            let raw_estimate = self.alpha * (self.bucket_count as f64).powi(2)
+                / self
+                    .buckets
+                    .iter()
+                    .map(|&b| 2.0_f64.powi(-(b as i32)))
+                    .sum::<f64>();
 
             // Apply bias correction for small estimates
             if raw_estimate <= 2.5 * self.bucket_count as f64 {
                 let zeros = self.buckets.iter().filter(|&&b| b == 0).count();
                 if zeros != 0 {
-                    return self.bucket_count as f64 * (self.bucket_count as f64 / zeros as f64).ln();
+                    return self.bucket_count as f64
+                        * (self.bucket_count as f64 / zeros as f64).ln();
                 }
             }
 
@@ -1116,7 +1118,7 @@ pub mod simd;
 ))]
 pub mod simd {
     //! Stub SIMD module for platforms without SIMD support
-    
+
     /// Fallback implementation of has_avx2_support
     pub fn has_avx2_support() -> bool {
         false
@@ -1150,13 +1152,15 @@ impl SimdPerformanceCounter {
     /// Record a vectorized operation.
     pub fn record_vectorized_op(&self, element_count: usize) {
         self.vectorized_ops.fetch_add(1, Ordering::Relaxed);
-        self.simd_elements.fetch_add(element_count, Ordering::Relaxed);
+        self.simd_elements
+            .fetch_add(element_count, Ordering::Relaxed);
     }
 
     /// Record a scalar fallback operation.
     pub fn record_scalar_op(&self, element_count: usize) {
         self.scalar_ops.fetch_add(1, Ordering::Relaxed);
-        self.scalar_elements.fetch_add(element_count, Ordering::Relaxed);
+        self.scalar_elements
+            .fetch_add(element_count, Ordering::Relaxed);
     }
 
     /// Get the total number of vectorized operations.
@@ -1174,7 +1178,7 @@ impl SimdPerformanceCounter {
         let simd_elements = self.simd_elements.load(Ordering::Relaxed) as f64;
         let scalar_elements = self.scalar_elements.load(Ordering::Relaxed) as f64;
         let total_elements = simd_elements + scalar_elements;
-        
+
         if total_elements == 0.0 {
             0.0
         } else {
@@ -1236,28 +1240,28 @@ pub struct SimdStats {
 
 impl SimdStats {
     /// Calculate the performance improvement factor.
-    /// 
+    ///
     /// Returns the speedup factor compared to if all operations were scalar.
     /// If only SIMD operations were performed, returns the average SIMD speedup.
     /// If no operations were performed, returns 1.0.
     pub fn performance_improvement_factor(&self) -> f64 {
         let total_elements = self.simd_elements + self.scalar_elements;
-        
+
         // Check for division by zero (no operations performed)
         if total_elements == 0 {
             return 1.0;
         }
-        
+
         // Assume SIMD provides 4-8x speedup on average
         let avg_simd_speedup = if cfg!(feature = "simd") { 8.0 } else { 4.0 };
-        
+
         // Calculate time if all operations were scalar
         let scalar_time = total_elements as f64;
-        
+
         // Calculate actual time (SIMD operations are faster)
         let simd_time = self.simd_elements as f64 / avg_simd_speedup;
         let actual_time = simd_time + self.scalar_elements as f64;
-        
+
         // Performance improvement = scalar_time / actual_time
         scalar_time / actual_time
     }
@@ -1278,46 +1282,54 @@ mod tests {
     #[test]
     fn test_performance_improvement_factor() {
         let counter = SimdPerformanceCounter::new();
-        
+
         // Test 1: No operations performed
         let stats = counter.get_stats();
         assert_eq!(stats.performance_improvement_factor(), 1.0);
-        
+
         // Test 2: Only SIMD operations (should return avg speedup)
         counter.record_vectorized_op(100);
         let stats = counter.get_stats();
-        let expected_speedup = if crate::simd::has_avx2_support() { 8.0 } else { 4.0 };
+        let expected_speedup = if crate::simd::has_avx2_support() {
+            8.0
+        } else {
+            4.0
+        };
         assert_eq!(stats.performance_improvement_factor(), expected_speedup);
-        
+
         // Test 3: Only scalar operations (should return 1.0)
         counter.reset();
         counter.record_scalar_op(100);
         let stats = counter.get_stats();
         assert_eq!(stats.performance_improvement_factor(), 1.0);
-        
+
         // Test 4: Mixed operations
         counter.reset();
         counter.record_vectorized_op(100); // 100 elements via SIMD
-        counter.record_scalar_op(100);     // 100 elements via scalar
+        counter.record_scalar_op(100); // 100 elements via scalar
         let stats = counter.get_stats();
-        
+
         // Expected calculation:
         // scalar_time = 200 (all elements processed scalar)
         // actual_time = 100/speedup + 100 = 100/speedup + 100
         // improvement = 200 / (100/speedup + 100)
-        let speedup = if crate::simd::has_avx2_support() { 8.0 } else { 4.0 };
-        let expected = 200.0 / (100.0/speedup + 100.0);
+        let speedup = if crate::simd::has_avx2_support() {
+            8.0
+        } else {
+            4.0
+        };
+        let expected = 200.0 / (100.0 / speedup + 100.0);
         assert!((stats.performance_improvement_factor() - expected).abs() < 1e-10);
     }
-    
+
     #[test]
     fn test_simd_stats_utilization() {
         let counter = SimdPerformanceCounter::new();
-        
+
         // Test utilization calculation
         counter.record_vectorized_op(80);
         counter.record_scalar_op(20);
-        
+
         let stats = counter.get_stats();
         assert_eq!(stats.utilization_ratio, 0.8); // 80/100
     }

@@ -95,10 +95,10 @@
 //! // Chain tasks with dependencies using regular closures
 //! let handle1 = runtime.spawn_fn(|| 42);
 //! let result1 = handle1.join()?;
-//! 
+//!
 //! let handle2 = runtime.spawn_fn(move || result1 * 2);
 //! let result2 = handle2.join()?;
-//! 
+//!
 //! let handle3 = runtime.spawn_fn(move || result2 + 10);
 //! let result = handle3.join()?;
 //!
@@ -200,11 +200,10 @@
 
 // Re-export core functionality
 pub use moirai_core::{
-    Task, TaskId, TaskHandle, Priority, TaskContext,
-    error::*, task::*, executor::*, scheduler::*,
+    error::*, executor::*, scheduler::*, task::*, Priority, Task, TaskContext, TaskHandle, TaskId,
 };
 
-// Re-export executor functionality  
+// Re-export executor functionality
 pub use moirai_executor::HybridExecutor;
 
 // Re-export scheduler functionality
@@ -212,9 +211,8 @@ pub use moirai_scheduler::WorkStealingScheduler;
 
 // Re-export transport functionality
 pub use moirai_transport::{
-    Address, TransportManager, TransportResult, TransportError,
-    UniversalChannel, UniversalSender, UniversalReceiver, RemoteAddress,
-    InMemoryTransport,
+    Address, InMemoryTransport, RemoteAddress, TransportError, TransportManager, TransportResult,
+    UniversalChannel, UniversalReceiver, UniversalSender,
 };
 
 // Re-export channel functionality from core
@@ -224,10 +222,7 @@ pub use moirai_core::channel;
 pub use moirai_transport::{TcpTransport, UdpTransport};
 
 // Re-export synchronization primitives
-pub use moirai_sync::{
-    Mutex, RwLock, Condvar, Barrier, Once,
-    AtomicCounter,
-};
+pub use moirai_sync::{AtomicCounter, Barrier, Condvar, Mutex, Once, RwLock};
 
 // Re-export metrics functionality
 #[cfg(feature = "metrics")]
@@ -235,17 +230,13 @@ pub use moirai_metrics::MetricsCollector;
 
 // Re-export async functionality
 #[cfg(feature = "async")]
-pub use moirai_async::{*, timer::sleep};
+pub use moirai_async::{timer::sleep, *};
 
 // Re-export iterator functionality
 #[cfg(feature = "iter")]
 pub use moirai_iter::*;
 
-use std::{
-    future::Future,
-    sync::Arc,
-    time::Duration,
-};
+use std::{future::Future, sync::Arc, time::Duration};
 
 /// The main Moirai runtime that provides a unified interface for hybrid concurrency.
 ///
@@ -329,7 +320,9 @@ impl Moirai {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.executor.spawn_blocking(func).expect("Failed to spawn blocking task")
+        self.executor
+            .spawn_blocking(func)
+            .expect("Failed to spawn blocking task")
     }
 
     /// Spawn an async task for execution.
@@ -340,7 +333,9 @@ impl Moirai {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.executor.spawn_async(future).expect("Failed to spawn async task")
+        self.executor
+            .spawn_async(future)
+            .expect("Failed to spawn async task")
     }
 
     /// Spawn a blocking task that may block the current thread.
@@ -351,7 +346,9 @@ impl Moirai {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.executor.spawn_blocking(func).expect("Failed to spawn blocking task")
+        self.executor
+            .spawn_blocking(func)
+            .expect("Failed to spawn blocking task")
     }
 
     /// Spawn a task with a specific priority.
@@ -361,9 +358,11 @@ impl Moirai {
     where
         T: Task,
     {
-        self.executor.spawn_with_priority(task, priority, None).expect("Failed to spawn task with priority")
+        self.executor
+            .spawn_with_priority(task, priority, None)
+            .expect("Failed to spawn task with priority")
     }
-    
+
     /// Spawn a closure with priority as a task (convenience method).
     pub fn spawn_fn_with_priority<F, R>(&self, f: F, priority: Priority) -> TaskHandle<R>
     where
@@ -431,12 +430,23 @@ impl Moirai {
     }
 
     /// Create a universal channel for communication.
-    pub fn channel<T: Send + 'static>(&self) -> (moirai_core::channel::MpmcSender<T>, moirai_core::channel::MpmcReceiver<T>) {
+    pub fn channel<T: Send + 'static>(
+        &self,
+    ) -> (
+        moirai_core::channel::MpmcSender<T>,
+        moirai_core::channel::MpmcReceiver<T>,
+    ) {
         moirai_core::channel::unbounded()
     }
 
     /// Create a bounded channel.
-    pub fn bounded_channel<T: Send + 'static>(&self, capacity: usize) -> (moirai_core::channel::MpmcSender<T>, moirai_core::channel::MpmcReceiver<T>) {
+    pub fn bounded_channel<T: Send + 'static>(
+        &self,
+        capacity: usize,
+    ) -> (
+        moirai_core::channel::MpmcSender<T>,
+        moirai_core::channel::MpmcReceiver<T>,
+    ) {
         moirai_core::channel::mpmc(capacity)
     }
 
@@ -448,20 +458,27 @@ impl Moirai {
         R: Send + 'static,
     {
         // Create a distributed task
-        let task_id = format!("remote-task-{}", 
-            self.task_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
-        
+        let task_id = format!(
+            "remote-task-{}",
+            self.task_counter
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+
         // In a real implementation, this would:
         // 1. Serialize the closure and its environment
         // 2. Submit the task to the distributed transport
         // 3. Return a handle that can track remote execution
-        
+
         {
             use std::io::{self, Write};
-            let _ = writeln!(io::stderr(), 
-                "DISTRIBUTED: Spawning task {} on node {}", task_id, node);
+            let _ = writeln!(
+                io::stderr(),
+                "DISTRIBUTED: Spawning task {} on node {}",
+                task_id,
+                node
+            );
         }
-        
+
         // For now, fall back to local execution with distributed semantics
         // Simulate remote execution with local task that has distributed characteristics
         self.spawn_fn(move || {
@@ -485,21 +502,32 @@ impl Moirai {
 
     /// Register a new node in the distributed system
     #[cfg(feature = "distributed")]
-    pub fn register_node(&self, node_id: String, host: String, port: u16) -> Result<(), ExecutorError> {
-        let remote_addr = RemoteAddress { host, port, service: "moirai".to_string() };
-        
+    pub fn register_node(
+        &self,
+        node_id: String,
+        host: String,
+        port: u16,
+    ) -> Result<(), ExecutorError> {
+        let remote_addr = RemoteAddress {
+            host,
+            port,
+            service: "moirai".to_string(),
+        };
+
         // In a real implementation, this would register the node with the transport manager
         {
             use std::io::{self, Write};
-            let _ = writeln!(io::stderr(), 
-                "DISTRIBUTED: Registering node {} at {}:{}", 
-                node_id, remote_addr.host, remote_addr.port);
+            let _ = writeln!(
+                io::stderr(),
+                "DISTRIBUTED: Registering node {} at {}:{}",
+                node_id,
+                remote_addr.host,
+                remote_addr.port
+            );
         }
-        
+
         Ok(())
     }
-
-
 
     // Pipeline and structured concurrency builders are provided via iterator and executor APIs.
 }
@@ -610,18 +638,16 @@ impl Default for MoiraiBuilder {
 /// Convenience functions for common operations.
 pub mod prelude {
     //! Common imports for Moirai users.
-    
+
     pub use crate::{
-        Moirai, MoiraiBuilder,
-        Task, TaskHandle, TaskId, Priority,
-        TaskBuilder, TaskExt,
+        Moirai, MoiraiBuilder, Priority, Task, TaskBuilder, TaskExt, TaskHandle, TaskId,
     };
 
     #[cfg(feature = "iter")]
-    pub use crate::{MoiraiIterator, ExecutionContext, ExecutionStrategy, IntoMoiraiIterator};
+    pub use crate::{ExecutionContext, ExecutionStrategy, MoiraiIterator};
 
     #[cfg(feature = "async")]
-    pub use crate::{Timer, Timeout};
+    pub use crate::{Timeout, Timer};
 }
 
 /// Global runtime instance for convenience.
@@ -632,9 +658,8 @@ static GLOBAL_RUNTIME: std::sync::OnceLock<Moirai> = std::sync::OnceLock::new();
 /// This provides a convenient way to access a shared runtime instance
 /// without having to pass it around explicitly.
 pub fn global() -> &'static Moirai {
-    GLOBAL_RUNTIME.get_or_init(|| {
-        Moirai::new().expect("Failed to initialize global Moirai runtime")
-    })
+    GLOBAL_RUNTIME
+        .get_or_init(|| Moirai::new().expect("Failed to initialize global Moirai runtime"))
 }
 
 /// Spawn an async task on the global runtime.
@@ -680,27 +705,25 @@ mod tests {
             .async_threads(2)
             .build()
             .unwrap();
-        
+
         assert_eq!(moirai.worker_count(), 4);
     }
 
     #[test]
     fn test_spawn_fn() {
         let moirai = Moirai::new().unwrap();
-        
+
         // Test basic task spawning
-        let handle = moirai.spawn_fn(|| {
-            (0..100).sum::<i32>()
-        });
-        
+        let handle = moirai.spawn_fn(|| (0..100).sum::<i32>());
+
         // Verify the handle was created (task ID should be valid, not necessarily 0)
         assert_eq!(handle.id(), TaskId(0));
-        
+
         // In std environments, we can actually get the result
         {
             // Give the task some time to complete (this is a simple synchronous operation)
             std::thread::sleep(std::time::Duration::from_millis(10));
-            
+
             // Try to get the result
             if let Some(result) = handle.join() {
                 assert_eq!(result, Ok(4950)); // Sum of 0..100
@@ -711,19 +734,22 @@ mod tests {
     #[test]
     fn test_task_panic_handling() {
         let moirai = Moirai::new().unwrap();
-        
+
         // Spawn a task that panics
         let handle = moirai.spawn_fn(|| {
             panic!("Task intentionally panicked!");
         });
-        
+
         // Give the task time to execute and panic
         std::thread::sleep(std::time::Duration::from_millis(50));
-        
+
         // The result should be an error indicating the task panicked
         let result = handle.join();
-        assert!(result.is_some(), "Should get a result even if task panicked");
-        
+        assert!(
+            result.is_some(),
+            "Should get a result even if task panicked"
+        );
+
         if let Some(Err(error)) = result {
             match error {
                 TaskError::Panicked => {
@@ -732,7 +758,10 @@ mod tests {
                 _ => panic!("Expected TaskError::Panicked but got {:?}", error),
             }
         } else {
-            panic!("Expected Some(Err(TaskError::Panicked)) but got {:?}", result);
+            panic!(
+                "Expected Some(Err(TaskError::Panicked)) but got {:?}",
+                result
+            );
         }
     }
 
@@ -749,7 +778,7 @@ mod tests {
     fn test_global_runtime() {
         let runtime1 = global();
         let runtime2 = global();
-        
+
         // Should be the same instance
         assert!(std::ptr::eq(runtime1, runtime2));
     }
@@ -764,25 +793,27 @@ mod tests {
     #[test]
     fn test_task_with_priority() {
         let moirai = Moirai::new().unwrap();
-        
+
         // Create a task with high priority
         let _context = TaskContext::new(TaskId::new(42))
             .with_priority(Priority::High)
             .with_name("test_task");
-        
-        let task = moirai_core::task::TaskBuilder::new().with_id(TaskId::new(0)).build(|| "high priority task");
+
+        let task = moirai_core::task::TaskBuilder::new()
+            .with_id(TaskId::new(0))
+            .build(|| "high priority task");
         let handle = moirai.spawn_with_priority(task, Priority::High);
-        
+
         assert_eq!(handle.id(), TaskId(0));
     }
 
-    #[test] 
+    #[test]
     fn test_task_builder() {
         let task = TaskBuilder::new()
             .priority(Priority::High)
             .name("test_task")
             .build(|| 42);
-            
+
         assert_eq!(task.context().priority, Priority::High);
         assert_eq!(task.context().name, Some("test_task"));
         assert_eq!(task.execute(), 42);
@@ -790,16 +821,20 @@ mod tests {
 
     #[test]
     fn test_task_chaining() {
-        let task = moirai_core::task::TaskBuilder::new().with_id(TaskId::new(1)).build(|| 21);
-        
+        let task = moirai_core::task::TaskBuilder::new()
+            .with_id(TaskId::new(1))
+            .build(|| 21);
+
         let chained = task.then(|x| x * 2);
         assert_eq!(chained.execute(), 42);
     }
 
     #[test]
     fn test_task_mapping() {
-        let task = moirai_core::task::TaskBuilder::new().with_id(TaskId::new(1)).build(|| 21);
-        
+        let task = moirai_core::task::TaskBuilder::new()
+            .with_id(TaskId::new(1))
+            .build(|| 21);
+
         let mapped = task.map(|x| x * 2);
         assert_eq!(mapped.execute(), 42);
     }
@@ -807,52 +842,46 @@ mod tests {
     #[test]
     fn test_task_result_retrieval() {
         let moirai = Moirai::new().unwrap();
-        
+
         // Test simple computation
-        let handle1 = moirai.spawn_fn(|| {
-            42 * 2
-        });
-        
+        let handle1 = moirai.spawn_fn(|| 42 * 2);
+
         // Test string computation
-        let handle2 = moirai.spawn_fn(|| {
-            format!("Hello, {}", "Moirai")
-        });
-        
+        let handle2 = moirai.spawn_fn(|| format!("Hello, {}", "Moirai"));
+
         // Test complex computation
-        let handle3 = moirai.spawn_fn(|| {
-            (1..=10).product::<i32>()
-        });
-        
+        let handle3 = moirai.spawn_fn(|| (1..=10).product::<i32>());
+
         // At least verify the handles were created with valid task IDs
         assert!(handle1.id().0 < 100);
         assert!(handle2.id().0 < 100);
         assert!(handle3.id().0 < 100);
-        
+
         // Give tasks time to complete
         std::thread::sleep(std::time::Duration::from_millis(50));
-        
+
         // Verify we can retrieve results - using blocking join for more reliable tests
         // Note: In a real concurrent environment, we should use proper synchronization
-        
+
         // Try non-blocking first
         let result1 = handle1.join();
         let result2 = handle2.join();
         let result3 = handle3.join();
-        
+
         // Print debug info to see what's happening
         println!("Result 1: {:?}", result1);
         println!("Result 2: {:?}", result2);
         println!("Result 3: {:?}", result3);
-        
+
         // If we get results, verify they're correct
         if let Some(result) = result1 {
             assert_eq!(result, Ok(84));
         }
-        
+
         if let Some(result) = result2 {
             assert_eq!(result, Ok("Hello, Moirai".to_string()));
         }
-        
+
         if let Some(result) = result3 {
             assert_eq!(result, Ok(3628800)); // 10!
         }
@@ -861,17 +890,10 @@ mod tests {
     #[cfg(feature = "distributed")]
     #[test]
     fn test_distributed_features() {
-        let moirai = Moirai::builder()
-            .enable_distributed()
-            .build()
-            .unwrap();
+        let moirai = Moirai::builder().enable_distributed().build().unwrap();
 
         // Test node registration
-        let result = moirai.register_node(
-            "test-node-1".to_string(),
-            "127.0.0.1".to_string(),
-            8080
-        );
+        let result = moirai.register_node("test-node-1".to_string(), "127.0.0.1".to_string(), 8080);
         assert!(result.is_ok());
 
         // Test getting available nodes
@@ -881,9 +903,7 @@ mod tests {
         assert!(nodes.contains(&"gpu-cluster".to_string()));
 
         // Test remote task spawning (simulated)
-        let handle = moirai.spawn_remote("worker-node-1", || {
-            "remote task result".to_string()
-        });
+        let handle = moirai.spawn_remote("worker-node-1", || "remote task result".to_string());
 
         // The task should complete (even though it's simulated locally)
         std::thread::sleep(std::time::Duration::from_millis(50));

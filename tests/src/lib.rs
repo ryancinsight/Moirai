@@ -6,8 +6,11 @@ pub mod principle_based_edge_tests;
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]
 mod integration_tests {
-    use moirai::{Moirai, TaskBuilder, Priority};
-    use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
+    use moirai::{Moirai, Priority, TaskBuilder};
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    };
     use std::time::Duration;
 
     #[test]
@@ -18,9 +21,7 @@ mod integration_tests {
 
     #[test]
     fn test_runtime_builder() {
-        let runtime = Moirai::builder()
-            .worker_threads(4)
-            .build();
+        let runtime = Moirai::builder().worker_threads(4).build();
         assert!(runtime.is_ok());
     }
 
@@ -44,9 +45,10 @@ mod integration_tests {
     fn test_parallel_computation() {
         let runtime = Moirai::builder()
             .worker_threads(8) // Ensure sufficient worker threads
-            .build().unwrap();
+            .build()
+            .unwrap();
         let counter = Arc::new(AtomicU32::new(0));
-        
+
         // Test with moderate task count for parallel computation
         let task_count = 50;
         let handles: Vec<_> = (0..task_count)
@@ -60,19 +62,17 @@ mod integration_tests {
             .collect();
 
         // Wait for all tasks to complete
-        let results: Vec<_> = handles.into_iter()
-            .map(|handle| handle.join())
-            .collect();
+        let results: Vec<_> = handles.into_iter().map(|handle| handle.join()).collect();
 
         let results: Vec<_> = results.into_iter().filter_map(|r| r).collect();
         assert_eq!(results.len(), task_count);
         assert_eq!(counter.load(Ordering::Relaxed), task_count as u32);
-        
+
         // Verify results are correct
         for (i, result) in results.iter().enumerate() {
             assert_eq!(*result, Ok(i * 2));
         }
-        
+
         // Explicit shutdown to ensure cleanup
         runtime.shutdown();
     }
@@ -81,23 +81,19 @@ mod integration_tests {
     fn test_priority_scheduling() {
         let runtime = Moirai::new().unwrap();
         let execution_order = Arc::new(std::sync::Mutex::new(Vec::new()));
-        
+
         // Create priority tasks with minimal delays
         let order_clone = execution_order.clone();
-        let high_task = TaskBuilder::new()
-            .priority(Priority::High)
-            .build(move || {
-                order_clone.lock().unwrap().push("high");
-                1
-            });
-        
+        let high_task = TaskBuilder::new().priority(Priority::High).build(move || {
+            order_clone.lock().unwrap().push("high");
+            1
+        });
+
         let order_clone = execution_order.clone();
-        let low_task = TaskBuilder::new()
-            .priority(Priority::Low)
-            .build(move || {
-                order_clone.lock().unwrap().push("low");
-                2
-            });
+        let low_task = TaskBuilder::new().priority(Priority::Low).build(move || {
+            order_clone.lock().unwrap().push("low");
+            2
+        });
 
         // Spawn tasks
         let high_handle = runtime.spawn(high_task);
@@ -115,8 +111,14 @@ mod integration_tests {
         // Verify both tasks executed
         let order = execution_order.lock().unwrap();
         assert_eq!(order.len(), 2, "Both tasks should have executed");
-        assert!(order.contains(&"high"), "High priority task should have executed");
-        assert!(order.contains(&"low"), "Low priority task should have executed");
+        assert!(
+            order.contains(&"high"),
+            "High priority task should have executed"
+        );
+        assert!(
+            order.contains(&"low"),
+            "Low priority task should have executed"
+        );
     }
 
     /// Test CPU optimization features integrated with the executor.
@@ -127,10 +129,10 @@ mod integration_tests {
             .worker_threads(4) // Reduced worker threads to avoid resource contention
             .build()
             .unwrap();
-        
+
         let counter = Arc::new(AtomicU32::new(0));
         let task_count = 4; // Reduced task count for stability
-        
+
         let handles: Vec<_> = (0..task_count)
             .map(|i| {
                 let counter = counter.clone();
@@ -142,19 +144,24 @@ mod integration_tests {
                 })
             })
             .collect();
-        
+
         // Join all handles normally
-        let results: Vec<_> = handles.into_iter()
+        let results: Vec<_> = handles
+            .into_iter()
             .map(|handle| handle.join().expect("Task should complete"))
             .collect();
         assert_eq!(results.len(), task_count);
         assert_eq!(counter.load(Ordering::Relaxed), task_count as u32);
-        
+
         // Verify all computations produced results
         for (i, result) in results.iter().enumerate() {
-            assert_eq!(*result, Ok((i * 2 + 1) as u64), "CPU computation should produce correct result");
+            assert_eq!(
+                *result,
+                Ok((i * 2 + 1) as u64),
+                "CPU computation should produce correct result"
+            );
         }
-        
+
         // Explicit shutdown to ensure proper cleanup
         runtime.shutdown();
     }
@@ -163,46 +170,44 @@ mod integration_tests {
     #[test]
     fn test_memory_prefetching() {
         use moirai_utils::memory::{prefetch_read, prefetch_write};
-        
+
         let data = vec![1u32, 2, 3, 4, 5, 6, 7, 8];
-        
+
         // Test prefetching (should not crash)
         prefetch_read(data.as_ptr());
         prefetch_write(data.as_ptr());
-        
+
         // Memory barriers disabled for now
         // memory_barrier();
         // compiler_barrier();
-        
+
         // Create runtime with more workers to reduce contention
-        let runtime = Moirai::builder()
-            .worker_threads(8)
-            .build()
-            .unwrap();
+        let runtime = Moirai::builder().worker_threads(8).build().unwrap();
         let data = Arc::new(data);
-        
+
         // Reduce task count to minimize resource contention
         let handles: Vec<_> = (0..2)
             .map(|i| {
                 let data = data.clone();
                 runtime.spawn_fn(move || {
-                    let slice = &data[i..i+2];
+                    let slice = &data[i..i + 2];
                     prefetch_read(slice.as_ptr());
                     slice.iter().sum::<u32>()
                 })
             })
             .collect();
-        
+
         // Join all handles with a simple approach
-        let results: Vec<_> = handles.into_iter()
+        let results: Vec<_> = handles
+            .into_iter()
             .map(|handle| handle.join().expect("Task should complete"))
             .collect();
-        
+
         assert_eq!(results.len(), 2);
-        // Verify computation results  
-        assert_eq!(results[0], Ok(3));  // 1 + 2
-        assert_eq!(results[1], Ok(5));  // 2 + 3
-        
+        // Verify computation results
+        assert_eq!(results[0], Ok(3)); // 1 + 2
+        assert_eq!(results[1], Ok(5)); // 2 + 3
+
         // Explicit shutdown to ensure cleanup
         runtime.shutdown();
     }
@@ -212,11 +217,8 @@ mod integration_tests {
     fn test_numa_awareness() {
         // NUMA-aware features not enabled; verifying runtime basic functionality
         // NUMA features are not currently implemented, so we test basic runtime functionality
-        let runtime = Moirai::builder()
-            .worker_threads(4)
-            .build()
-            .unwrap();
-        
+        let runtime = Moirai::builder().worker_threads(4).build().unwrap();
+
         // Test that the runtime works correctly regardless of NUMA topology
         let handle = runtime.spawn_fn(|| {
             // Simple computation that would benefit from NUMA awareness
@@ -226,13 +228,16 @@ mod integration_tests {
             }
             sum
         });
-        
-        let result = handle.join()
-            .expect("Task should complete");
-        
+
+        let result = handle.join().expect("Task should complete");
+
         // Verify computation result
         let expected = (0..100).sum::<u64>();
-        assert_eq!(result, Ok(expected), "NUMA-aware computation should produce correct result");
+        assert_eq!(
+            result,
+            Ok(expected),
+            "NUMA-aware computation should produce correct result"
+        );
     }
 
     /// Stress test with CPU utilization.
@@ -242,10 +247,10 @@ mod integration_tests {
             .worker_threads(8) // Ensure sufficient worker threads
             .build()
             .unwrap();
-        
+
         let task_count = 20; // Reduced task count to prevent contention
         let counter = Arc::new(AtomicU32::new(0));
-        
+
         let handles: Vec<_> = (0..task_count)
             .map(|i| {
                 let counter = counter.clone();
@@ -260,23 +265,27 @@ mod integration_tests {
                 })
             })
             .collect();
-        
+
         let start = std::time::Instant::now();
         // Use timeout to prevent hanging
         let timeout_duration = Duration::from_secs(10);
-        let results: Vec<_> = handles.into_iter()
+        let results: Vec<_> = handles
+            .into_iter()
             .map(|handle| handle.join())
             .filter_map(|r| r)
             .collect();
         let duration = start.elapsed();
-        
 
         assert_eq!(results.len(), task_count);
         assert_eq!(counter.load(Ordering::Relaxed), task_count as u32);
-        
+
         // Verify performance (should complete reasonably quickly)
-        assert!(duration < Duration::from_secs(10), "Stress test took too long: {:?}", duration);
-        
+        assert!(
+            duration < Duration::from_secs(10),
+            "Stress test took too long: {:?}",
+            duration
+        );
+
         // Verify all computations completed
         for result in results {
             match result {
@@ -284,9 +293,12 @@ mod integration_tests {
                 Err(e) => panic!("Task failed with error: {:?}", e),
             }
         }
-        
-        println!("CPU-optimized stress test completed {} tasks in {:?}", task_count, duration);
-        
+
+        println!(
+            "CPU-optimized stress test completed {} tasks in {:?}",
+            task_count, duration
+        );
+
         // Explicit shutdown to ensure cleanup
         runtime.shutdown();
     }
@@ -298,22 +310,24 @@ mod integration_tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
         use std::thread;
-        
+
         // Simple SRP test
         let counter = Arc::new(AtomicUsize::new(0));
-        let handles: Vec<_> = (0..4).map(|_| {
-            let counter = counter.clone();
-            thread::spawn(move || {
-                for _ in 0..100 {
-                    counter.fetch_add(1, Ordering::Relaxed);
-                }
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let counter = counter.clone();
+                thread::spawn(move || {
+                    for _ in 0..100 {
+                        counter.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
             })
-        }).collect();
-        
+            .collect();
+
         for handle in handles {
             handle.join().expect("Thread failed");
         }
-        
+
         assert_eq!(counter.load(Ordering::Relaxed), 400);
         println!("✅ Basic principle edge tests passed!");
     }
@@ -321,17 +335,17 @@ mod integration_tests {
     #[test]
     fn test_spawn_fn_with_priority_no_id_conflict() {
         let runtime = Moirai::new().expect("Failed to create runtime");
-        
+
         // Spawn multiple tasks with priority using the convenience method
         let handle1 = runtime.spawn_fn_with_priority(|| 1, Priority::High);
         let handle2 = runtime.spawn_fn_with_priority(|| 2, Priority::Normal);
         let handle3 = runtime.spawn_fn_with_priority(|| 3, Priority::Low);
-        
+
         // Verify all tasks complete successfully
         assert_eq!(handle1.join(), Some(Ok(1)));
         assert_eq!(handle2.join(), Some(Ok(2)));
         assert_eq!(handle3.join(), Some(Ok(3)));
-        
+
         runtime.shutdown();
     }
 }
@@ -424,13 +438,11 @@ mod documentation_tests {
 
         // Moirai approach
         let runtime = Moirai::new()?;
-        let handle = runtime.spawn_fn(|| {
-            expensive_computation()
-        });
+        let handle = runtime.spawn_fn(|| expensive_computation());
         let result = handle.join().ok_or("Computation task failed")?;
-        
+
         assert_eq!(result, Ok(499500)); // Sum of 0..1000
-        
+
         runtime.shutdown();
         Ok(())
     }
@@ -447,13 +459,11 @@ mod documentation_tests {
 
         // Moirai approach using parallel execution for CPU-bound work
         let runtime = Moirai::new()?;
-        let handle = runtime.spawn_fn(|| {
-            async_operation()
-        });
+        let handle = runtime.spawn_fn(|| async_operation());
         let result = handle.join().ok_or("Async operation failed")?;
-        
+
         assert_eq!(result, Ok("async completed"));
-        
+
         runtime.shutdown();
         Ok(())
     }
@@ -467,7 +477,7 @@ mod documentation_tests {
             .build()?;
 
         let start = std::time::Instant::now();
-        
+
         // Spawn multiple tasks to test scheduling overhead
         let mut handles = Vec::new();
         for i in 0..100 {
@@ -482,15 +492,18 @@ mod documentation_tests {
         }
 
         let elapsed = start.elapsed();
-        
+
         // Verify results are correct
         for (i, result) in results.iter().enumerate() {
             assert_eq!(*result, Ok(i * i));
         }
 
         // Performance assertion: should complete 100 tasks quickly
-        assert!(elapsed < Duration::from_millis(100), 
-                "100 simple tasks should complete within 100ms, took {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_millis(100),
+            "100 simple tasks should complete within 100ms, took {:?}",
+            elapsed
+        );
 
         runtime.shutdown();
         Ok(())
@@ -500,7 +513,7 @@ mod documentation_tests {
     #[test]
     fn test_safety_guarantees() -> Result<(), Box<dyn std::error::Error>> {
         let runtime = Moirai::new()?;
-        
+
         // Test memory safety with shared data
         let shared_data = Arc::new(AtomicU32::new(0));
         let mut handles = Vec::new();
@@ -534,9 +547,7 @@ mod documentation_tests {
         let runtime = Moirai::new()?;
 
         // Test error propagation in parallel tasks
-        let handle = runtime.spawn_fn(|| -> Result<i32, &'static str> {
-            Err("intentional error")
-        });
+        let handle = runtime.spawn_fn(|| -> Result<i32, &'static str> { Err("intentional error") });
 
         let result = handle.join();
         match result {

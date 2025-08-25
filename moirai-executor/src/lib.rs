@@ -19,21 +19,21 @@
 //! - **Memory safety**: Rust ownership model prevents data races
 
 // Module declarations - following SRP and SOC principles
-pub mod task;
-pub mod registry;
-pub mod worker;
-pub mod metrics;
 pub mod hybrid;
-pub mod types;
+pub mod metrics;
 pub mod reactor;
+pub mod registry;
+pub mod task;
+pub mod types;
+pub mod worker;
 
 // Re-export key types for clean API
-pub use task::{TaskPerformanceMetrics, TaskMetadata, TaskWaitFuture};
-pub use registry::TaskRegistry;
-pub use worker::{Worker, WorkerMetrics};
-pub use metrics::ExecutorMetrics;
 pub use hybrid::HybridExecutor;
-pub use types::{WorkerId, IoEvent};
+pub use metrics::ExecutorMetrics;
+pub use registry::TaskRegistry;
+pub use task::{TaskMetadata, TaskPerformanceMetrics, TaskWaitFuture};
+pub use types::{IoEvent, WorkerId};
+pub use worker::{Worker, WorkerMetrics};
 
 // Essential imports for any remaining implementation
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -49,7 +49,9 @@ impl ExecutorBuilder {
     /// Create a new executor builder with default settings
     pub fn new() -> Self {
         Self {
-            worker_threads: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4),
+            worker_threads: std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4),
             async_threads: 4,
             blocking_threads: None,
         }

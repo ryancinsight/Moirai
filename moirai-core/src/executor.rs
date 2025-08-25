@@ -3,9 +3,9 @@
 //! This module provides the core executor abstraction for the Moirai runtime.
 //! It defines traits for task spawning, management, and lifecycle control.
 
-use crate::{Task, TaskId, Priority, TaskHandle, TaskContext};
 use crate::error::ExecutorResult;
 use crate::platform::*;
+use crate::{Priority, Task, TaskContext, TaskHandle, TaskId};
 use core::cell::UnsafeCell;
 
 // Thread-local task context for improved locality (inspired by Tokio)
@@ -35,16 +35,16 @@ pub(crate) fn set_current_task(id: Option<TaskId>) {
 }
 
 /// Core task spawning capabilities.
-/// 
+///
 /// This trait provides the fundamental ability to spawn tasks for execution.
 /// It follows the Single Responsibility Principle by focusing only on task spawning.
-/// 
+///
 /// # Behavior Guarantees
 /// - Task spawning is non-blocking and returns immediately
 /// - Tasks are scheduled for execution but may not start immediately
 /// - Task handles can be used to wait for completion or cancel tasks
 /// - Memory ordering follows acquire-release semantics for task state
-/// 
+///
 /// # Performance Characteristics
 /// - Task spawn: O(1) amortized, < 100ns typical latency
 /// - Memory overhead: < 64 bytes per task
@@ -117,7 +117,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
     ) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task + Send + 'static;
-        
+
     /// Spawn a task on the current thread's local queue for better locality
     /// (inspired by Tokio's spawn_local)
     fn spawn_local<T>(&self, task: T) -> ExecutorResult<TaskHandle<T::Output>>
@@ -131,17 +131,17 @@ pub trait TaskSpawner: Send + Sync + 'static {
 }
 
 /// Task management and monitoring capabilities.
-/// 
+///
 /// This trait provides operations for managing and monitoring running tasks.
 /// It follows the Interface Segregation Principle by separating management
 /// concerns from spawning concerns.
-/// 
+///
 /// # Behavior Guarantees
 /// - All operations are thread-safe and non-blocking where possible
 /// - Task state is eventually consistent across all observers
 /// - Cancellation is cooperative and may not be immediate
 /// - Statistics are updated atomically and consistently
-/// 
+///
 /// # Performance Characteristics
 /// - Status queries: O(1) lookup time, < 50ns latency
 /// - Cancellation: O(1) operation, cooperative completion
@@ -163,13 +163,13 @@ pub trait TaskManager: Send + Sync + 'static {
     fn cancel_task(&self, id: TaskId) -> ExecutorResult<()>;
 
     /// Get the current status of a task.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Returns None if task ID is not found
     /// - Status is eventually consistent across threads
     /// - Completed tasks may be garbage collected after timeout
     /// - Status transitions are monotonic (no backwards moves)
-    /// 
+    ///
     /// # Performance Characteristics
     /// - O(1) lookup time using hash table
     /// - Latency: < 50ns for status query
@@ -178,34 +178,38 @@ pub trait TaskManager: Send + Sync + 'static {
     fn task_status(&self, id: TaskId) -> Option<TaskStatus>;
 
     /// Wait for a task to complete.
-    /// 
+    ///
     /// Returns a future that resolves when the task completes or the timeout expires.
     /// This enables async/await patterns for task coordination.
-    /// 
+    ///
     /// # Arguments
     /// - `id`: The task ID to wait for
     /// - `timeout`: Optional timeout duration
-    /// 
+    ///
     /// # Returns
     /// A future that resolves to:
     /// - `Ok(())` when the task completes successfully
     /// - `Err(TaskError::Timeout)` if the timeout expires
     /// - `Err(TaskError::NotFound)` if the task doesn't exist
-    /// 
+    ///
     /// # Performance
     /// - Immediate return: < 10ns if already complete
     /// - Waiting overhead: Event-driven, no busy polling
     /// - Memory: Minimal waker chain overhead
-    fn wait_for_task(&self, id: TaskId, timeout: Option<core::time::Duration>) -> impl core::future::Future<Output = ExecutorResult<()>> + Send;
+    fn wait_for_task(
+        &self,
+        id: TaskId,
+        timeout: Option<core::time::Duration>,
+    ) -> impl core::future::Future<Output = ExecutorResult<()>> + Send;
 
     /// Get statistics about task execution.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Returns None if task ID is not found or stats not enabled
     /// - Statistics are eventually consistent
     /// - Timing measurements use high-resolution monotonic clock
     /// - Memory usage tracking depends on executor configuration
-    /// 
+    ///
     /// # Performance Characteristics
     /// - Lookup: O(1) hash table access
     /// - Overhead: ~100 bytes per task when metrics enabled
@@ -220,13 +224,13 @@ pub trait TaskManager: Send + Sync + 'static {
 #[allow(clippy::module_name_repetitions)]
 pub trait ExecutorControl: Send + Sync + 'static {
     /// Block the current thread until the future completes.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Blocks calling thread until future resolves
     /// - Supports nested async operations within the future
     /// - Handles panic propagation from the future
     /// - May deadlock if future depends on blocked thread
-    /// 
+    ///
     /// # Performance Characteristics
     /// - Optimal for CPU-bound futures with minimal I/O
     /// - May block calling thread indefinitely
@@ -237,13 +241,13 @@ pub trait ExecutorControl: Send + Sync + 'static {
         F: core::future::Future;
 
     /// Attempt to run tasks without blocking.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Non-blocking operation, returns immediately
     /// - Returns true if any work was performed
     /// - May perform multiple task executions in single call
     /// - Suitable for integration with external event loops
-    /// 
+    ///
     /// # Performance Characteristics
     /// - O(1) operation, < 1μs typical latency
     /// - Work stealing: Attempts to balance load across threads
@@ -251,14 +255,14 @@ pub trait ExecutorControl: Send + Sync + 'static {
     fn try_run(&self) -> bool;
 
     /// Shutdown the executor gracefully.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Allows running tasks to complete naturally
     /// - Prevents new tasks from being spawned
     /// - Idempotent operation - safe to call multiple times
     /// - Blocks until all worker threads have stopped
     /// - Releases all resources and thread handles
-    /// 
+    ///
     /// # Performance Characteristics
     /// - Shutdown time: Depends on longest running task
     /// - Resource cleanup: All memory and handles released
@@ -266,13 +270,13 @@ pub trait ExecutorControl: Send + Sync + 'static {
     fn shutdown(&self);
 
     /// Shutdown the executor with a timeout.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Attempts graceful shutdown first
     /// - Forces termination after timeout expires
     /// - May result in task cancellation or abortion
     /// - Guarantees executor stops within timeout + small overhead
-    /// 
+    ///
     /// # Performance Characteristics
     /// - Graceful phase: Same as `shutdown()`
     /// - Forced phase: Immediate thread termination
@@ -280,12 +284,12 @@ pub trait ExecutorControl: Send + Sync + 'static {
     fn shutdown_timeout(&self, timeout: core::time::Duration);
 
     /// Check if the executor is shutting down.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Returns true once shutdown has been initiated
     /// - Eventually consistent across all threads
     /// - Remains true until executor is fully stopped
-    /// 
+    ///
     /// # Performance Characteristics
     /// - O(1) operation, < 10ns latency
     /// - Non-blocking atomic read operation
@@ -293,25 +297,25 @@ pub trait ExecutorControl: Send + Sync + 'static {
     fn is_shutting_down(&self) -> bool;
 
     /// Get the number of worker threads.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Returns configured number of worker threads
     /// - Does not include async or blocking thread pools
     /// - Constant value set during executor creation
-    /// 
+    ///
     /// # Performance Characteristics
     /// - O(1) operation, immediate return
     /// - No synchronization overhead
     fn worker_count(&self) -> usize;
 
     /// Get the current load (number of pending tasks).
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Returns approximate pending task count
     /// - Eventually consistent across distributed queues
     /// - May include tasks currently being executed
     /// - Does not include blocked or suspended tasks
-    /// 
+    ///
     /// # Performance Characteristics
     /// - O(1) operation for local queues
     /// - May involve atomic reads across threads
@@ -320,10 +324,10 @@ pub trait ExecutorControl: Send + Sync + 'static {
 }
 
 /// Combined executor trait with all capabilities.
-/// 
+///
 /// This trait combines all executor capabilities into a single interface
 /// for convenience while maintaining the segregated design internally.
-/// 
+///
 /// # Design Philosophy
 /// - Composition over inheritance
 /// - Single interface for complete functionality
@@ -331,13 +335,13 @@ pub trait ExecutorControl: Send + Sync + 'static {
 /// - Enables easy mocking and testing
 pub trait Executor: TaskSpawner + TaskManager + ExecutorControl {
     /// Get comprehensive executor statistics.
-    /// 
+    ///
     /// # Behavior Guarantees
     /// - Returns current snapshot of all executor metrics
     /// - Statistics are eventually consistent
     /// - Available only when metrics feature is enabled
     /// - Includes worker, queue, memory, and task statistics
-    /// 
+    ///
     /// # Performance Characteristics
     /// - Collection overhead: < 1μs for full statistics
     /// - Memory: ~1KB for complete statistics snapshot
@@ -364,10 +368,10 @@ pub struct ExecutorStats {
 }
 
 /// Status of a task within the executor.
-/// 
+///
 /// Task status transitions follow a strict state machine:
 /// Queued → Running → (Completed | Cancelled | Failed)
-/// 
+///
 /// # State Transitions
 /// - Queued: Initial state when task is spawned
 /// - Running: Task is currently executing on a worker thread
@@ -377,39 +381,39 @@ pub struct ExecutorStats {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskStatus {
     /// Task is queued but not yet started
-    /// 
+    ///
     /// # Guarantees
     /// - Task will eventually transition to Running
     /// - Cancellation is possible in this state
     /// - Memory has been allocated for task execution
     Queued,
-    
+
     /// Task is currently running
-    /// 
+    ///
     /// # Guarantees
     /// - Task is actively executing on a worker thread
     /// - Cancellation is cooperative in this state
     /// - Progress is being made toward completion
     Running,
-    
+
     /// Task completed successfully
-    /// 
+    ///
     /// # Guarantees
     /// - Task result is available via task handle
     /// - No further state transitions possible
     /// - Resources have been cleaned up
     Completed,
-    
+
     /// Task was cancelled
-    /// 
+    ///
     /// # Guarantees
     /// - Task did not complete normally
     /// - Cancellation was requested and honored
     /// - Resources have been cleaned up
     Cancelled,
-    
+
     /// Task failed with an error
-    /// 
+    ///
     /// # Guarantees
     /// - Task encountered an unrecoverable error
     /// - Error information is available via task handle
@@ -430,15 +434,15 @@ impl core::fmt::Display for TaskStatus {
 }
 
 /// Detailed statistics about a specific task.
-/// 
+///
 /// Task statistics provide comprehensive information about task execution
 /// performance and resource usage. Statistics are collected when the
 /// metrics feature is enabled.
-/// 
+///
 /// # Memory Overhead
 /// When metrics are enabled, each task incurs approximately 100 bytes
 /// of additional memory overhead for statistics collection.
-/// 
+///
 /// # Accuracy Guarantees
 /// - Timestamps use monotonic high-resolution clock
 /// - Memory measurements are sampled at key execution points
@@ -502,7 +506,10 @@ impl TaskStats {
     /// Returns whether the task has reached a terminal state.
     #[must_use]
     pub fn is_finished(&self) -> bool {
-        matches!(self.status, TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed)
+        matches!(
+            self.status,
+            TaskStatus::Completed | TaskStatus::Cancelled | TaskStatus::Failed
+        )
     }
 }
 
@@ -598,8 +605,8 @@ impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             use_memory_pools: true,
-            small_pool_size: 64 * 1024,      // 64KB
-            medium_pool_size: 1024 * 1024,   // 1MB
+            small_pool_size: 64 * 1024,        // 64KB
+            medium_pool_size: 1024 * 1024,     // 1MB
             large_pool_size: 16 * 1024 * 1024, // 16MB
             track_per_task_memory: cfg!(feature = "metrics"),
         }
@@ -607,31 +614,31 @@ impl Default for MemoryConfig {
 }
 
 /// Configuration for task metadata cleanup.
-/// 
+///
 /// Controls how and when completed task metadata is removed from memory
 /// to prevent memory leaks in long-running executors.
 #[derive(Debug, Clone)]
 pub struct CleanupConfig {
     /// How long to keep completed task metadata before cleanup
-    /// 
+    ///
     /// # Default: 5 minutes
     /// # Range: 1 second to `task_retention_duration`
     pub task_retention_duration: core::time::Duration,
-    
+
     /// How often to run the cleanup process
-    /// 
+    ///
     /// # Default: 30 seconds  
     /// # Range: 1 second to `task_retention_duration`
     pub cleanup_interval: core::time::Duration,
-    
+
     /// Whether to enable automatic cleanup
-    /// 
+    ///
     /// If disabled, cleanup must be triggered manually via `cleanup_completed_tasks()`
     /// # Default: true
     pub enable_automatic_cleanup: bool,
-    
+
     /// Maximum number of completed tasks to retain regardless of age
-    /// 
+    ///
     /// This provides a hard limit to prevent unbounded memory growth
     /// # Default: 10,000 tasks
     pub max_retained_tasks: usize,
@@ -641,7 +648,7 @@ impl Default for CleanupConfig {
     fn default() -> Self {
         Self {
             task_retention_duration: core::time::Duration::from_secs(300), // 5 minutes
-            cleanup_interval: core::time::Duration::from_secs(30), // 30 seconds
+            cleanup_interval: core::time::Duration::from_secs(30),         // 30 seconds
             enable_automatic_cleanup: true,
             max_retained_tasks: 10_000,
         }

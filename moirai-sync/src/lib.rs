@@ -3,18 +3,18 @@
 //! This module provides specialized synchronization primitives that add value
 //! beyond the standard library, following YAGNI and DRY principles.
 
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering, AtomicI32};
 use std::cell::UnsafeCell;
-use std::ops::{Deref, DerefMut};
-use std::hint;
-use std::collections::HashMap;
-use std::hash::{Hash, BuildHasher, Hasher};
 use std::collections::hash_map::RandomState;
+use std::collections::HashMap;
+use std::hash::{BuildHasher, Hash, Hasher};
+use std::hint;
+use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 
 // Re-export standard library primitives directly (DRY principle)
 pub use std::sync::{
-    Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
-    Condvar, Barrier, OnceLock as Once,
+    Barrier, Condvar, Mutex, MutexGuard, OnceLock as Once, RwLock, RwLockReadGuard,
+    RwLockWriteGuard,
 };
 
 #[cfg(target_os = "linux")]
@@ -22,7 +22,7 @@ mod futex {
     // Linux futex operations
     const FUTEX_WAIT: i32 = 0;
     const FUTEX_WAKE: i32 = 1;
-    
+
     /// Wait on a futex if the value matches expected
     pub fn futex_wait(addr: *const i32, expected: i32) -> i32 {
         unsafe {
@@ -37,7 +37,7 @@ mod futex {
             ) as i32
         }
     }
-    
+
     /// Wake up waiters on a futex
     pub fn futex_wake(addr: *const i32, num_waiters: i32) -> i32 {
         unsafe {
@@ -134,7 +134,7 @@ impl AtomicCounter {
 /// A futex-backed mutex on Linux with adaptive spinning; falls back to atomic spin on non-Linux.
 pub struct FutexMutex<T> {
     #[cfg(target_os = "linux")]
-    state: AtomicI32,  // 0 = unlocked, 1 = locked, 2 = locked with waiters
+    state: AtomicI32, // 0 = unlocked, 1 = locked, 2 = locked with waiters
     #[cfg(not(target_os = "linux"))]
     locked: AtomicBool,
     data: UnsafeCell<T>,
@@ -154,7 +154,7 @@ impl<T> FutexMutex<T> {
             data: UnsafeCell::new(data),
         }
     }
-    
+
     /// Lock the mutex with adaptive spinning.
     pub fn lock(&self) -> FutexMutexGuard<'_, T> {
         // Try to acquire the lock with spinning first
@@ -167,7 +167,7 @@ impl<T> FutexMutex<T> {
             }
             hint::spin_loop();
         }
-        
+
         // Fall back to blocking
         self.lock_slow();
         FutexMutexGuard {
@@ -175,46 +175,43 @@ impl<T> FutexMutex<T> {
             _phantom: std::marker::PhantomData,
         }
     }
-    
+
     #[inline]
     fn try_lock_immediate(&self) -> bool {
         #[cfg(target_os = "linux")]
         {
-            self.state.compare_exchange_weak(
-                0, 1,
-                Ordering::Acquire,
-                Ordering::Relaxed
-            ).is_ok()
+            self.state
+                .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
         }
         #[cfg(not(target_os = "linux"))]
         {
             !self.locked.swap(true, Ordering::Acquire)
         }
     }
-    
+
     #[cold]
     fn lock_slow(&self) {
         #[cfg(target_os = "linux")]
         {
             loop {
                 let state = self.state.load(Ordering::Relaxed);
-                
-                if state == 0 && self.state.compare_exchange_weak(
-                    0, 1,
-                    Ordering::Acquire,
-                    Ordering::Relaxed
-                ).is_ok() {
+
+                if state == 0
+                    && self
+                        .state
+                        .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                        .is_ok()
+                {
                     return;
                 }
-                
+
                 if state == 1 {
-                    self.state.compare_exchange_weak(
-                        1, 2,
-                        Ordering::Relaxed,
-                        Ordering::Relaxed
-                    ).ok();
+                    self.state
+                        .compare_exchange_weak(1, 2, Ordering::Relaxed, Ordering::Relaxed)
+                        .ok();
                 }
-                
+
                 futex::futex_wait(self.state.as_ptr(), 2);
             }
         }
@@ -230,7 +227,7 @@ impl<T> FutexMutex<T> {
             }
         }
     }
-    
+
     fn unlock(&self) {
         #[cfg(target_os = "linux")]
         {
@@ -259,7 +256,7 @@ impl<'a, T> Drop for FutexMutexGuard<'a, T> {
 
 impl<'a, T> Deref for FutexMutexGuard<'a, T> {
     type Target = T;
-    
+
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.mutex.data.get() }
     }
@@ -361,7 +358,7 @@ impl<K: Hash + Eq, V> ConcurrentHashMap<K, V> {
     /// Create with a specific number of segments (must be power of 2).
     pub fn with_segments(num_segments: usize) -> Self {
         let num_segments = num_segments.next_power_of_two();
-        
+
         let segments = (0..num_segments)
             .map(|_| Mutex::new(HashMap::new()))
             .collect();
@@ -414,8 +411,8 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
     use std::sync::Arc;
+    use std::thread;
 
     #[test]
     fn test_wait_group() {
@@ -491,42 +488,46 @@ mod tests {
     #[test]
     fn test_concurrent_hashmap() {
         let map = ConcurrentHashMap::new();
-        
+
         // Insert some values
         map.insert("key1", 100);
         map.insert("key2", 200);
-        
+
         // Test retrieval
         assert_eq!(map.get(&"key1"), Some(100));
         assert_eq!(map.get(&"key2"), Some(200));
         assert_eq!(map.get(&"key3"), None);
-        
+
         // Test removal
         assert_eq!(map.remove(&"key1"), Some(100));
         assert_eq!(map.get(&"key1"), None);
     }
-    
+
     #[test]
     fn test_concurrent_hashmap_segment_distribution() {
         use std::collections::HashSet;
-        
+
         // Create a map with 16 segments
         let map = ConcurrentHashMap::<i32, i32>::with_segments(16);
-        
+
         // Track which segments are used
         let mut segments_used = HashSet::new();
-        
+
         // Insert many keys and track segment distribution
         for i in 0..1000 {
             map.insert(i, i);
             let segment_idx = map.segment_index(&i);
             segments_used.insert(segment_idx);
         }
-        
+
         // With proper distribution, we should use most segments
         // With 1000 keys across 16 segments, we expect to use all segments
-        assert!(segments_used.len() >= 14, "Poor segment distribution: only {} of 16 segments used", segments_used.len());
-        
+        assert!(
+            segments_used.len() >= 14,
+            "Poor segment distribution: only {} of 16 segments used",
+            segments_used.len()
+        );
+
         // Verify all keys can be retrieved
         for i in 0..1000 {
             assert_eq!(map.get(&i), Some(i));

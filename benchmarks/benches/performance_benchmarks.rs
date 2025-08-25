@@ -27,7 +27,7 @@ fn benchmark_task_scheduling_overhead(c: &mut Criterion) {
 /// Each thread count gets its own runtime instance
 fn benchmark_parallel_scalability(c: &mut Criterion) {
     let mut group = c.benchmark_group("parallel_scalability");
-    
+
     for thread_count in [1, 2, 4, 8].iter() {
         // Create runtime ONCE per thread count configuration
         let runtime = Moirai::builder()
@@ -35,37 +35,33 @@ fn benchmark_parallel_scalability(c: &mut Criterion) {
             .build()
             .expect("Failed to create runtime");
 
-        group.bench_with_input(
-            format!("threads_{}", thread_count),
-            thread_count,
-            |b, _| {
-                b.iter(|| {
-                    // Only measure the actual parallel computation
-                    let mut handles = Vec::with_capacity(100);
-                    for i in 0..100 {
-                        let handle = runtime.spawn_parallel(move || {
-                            // CPU-intensive computation
-                            let mut sum = 0;
-                            for j in 0..1000 {
-                                sum += (i * j) % 997; // Prime modulo for variation
-                            }
-                            black_box(sum)
-                        });
-                        handles.push(handle);
-                    }
-                    
-                    // Wait for all tasks to complete
-                    for handle in handles {
-                        black_box(handle.join().expect("Task failed"));
-                    }
-                });
-            },
-        );
+        group.bench_with_input(format!("threads_{}", thread_count), thread_count, |b, _| {
+            b.iter(|| {
+                // Only measure the actual parallel computation
+                let mut handles = Vec::with_capacity(100);
+                for i in 0..100 {
+                    let handle = runtime.spawn_parallel(move || {
+                        // CPU-intensive computation
+                        let mut sum = 0;
+                        for j in 0..1000 {
+                            sum += (i * j) % 997; // Prime modulo for variation
+                        }
+                        black_box(sum)
+                    });
+                    handles.push(handle);
+                }
+
+                // Wait for all tasks to complete
+                for handle in handles {
+                    black_box(handle.join().expect("Task failed"));
+                }
+            });
+        });
 
         // Cleanup after this thread count is done
         runtime.shutdown();
     }
-    
+
     group.finish();
 }
 
@@ -82,9 +78,7 @@ fn benchmark_memory_efficiency(c: &mut Criterion) {
         b.iter(|| {
             // Create fresh data for each iteration to avoid state carryover
             let large_data = vec![42u64; 10000];
-            let handle = runtime.spawn_parallel(move || {
-                black_box(large_data.iter().sum::<u64>())
-            });
+            let handle = runtime.spawn_parallel(move || black_box(large_data.iter().sum::<u64>()));
             black_box(handle.join().expect("Task failed"))
         });
     });
@@ -97,13 +91,13 @@ fn benchmark_memory_efficiency(c: &mut Criterion) {
 /// No runtime needed for pure SIMD operations
 fn benchmark_simd_performance(c: &mut Criterion) {
     use moirai_utils::simd::{safe_vectorized_add_f32, safe_vectorized_mul_f32};
-    
+
     let mut group = c.benchmark_group("simd_performance");
-    
+
     // Create test data ONCE outside all benchmarks
     let data_a = vec![1.0f32; 1024];
     let data_b = vec![2.0f32; 1024];
-    
+
     // Scalar version benchmark
     group.bench_function("scalar_add", |b| {
         b.iter(|| {
@@ -114,7 +108,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
             black_box(result)
         });
     });
-    
+
     // SIMD version benchmark
     group.bench_function("simd_add", |b| {
         b.iter(|| {
@@ -123,7 +117,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
             black_box(result)
         });
     });
-    
+
     // Scalar multiplication
     group.bench_function("scalar_multiply", |b| {
         b.iter(|| {
@@ -134,7 +128,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
             black_box(result)
         });
     });
-    
+
     // SIMD multiplication
     group.bench_function("simd_multiply", |b| {
         b.iter(|| {
@@ -143,7 +137,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
             black_box(result)
         });
     });
-    
+
     group.finish();
 }
 
@@ -151,21 +145,21 @@ fn benchmark_simd_performance(c: &mut Criterion) {
 /// Runtime created once, data structures reset per iteration
 fn benchmark_concurrent_data_structures(c: &mut Criterion) {
     use moirai_sync::{AtomicCounter, ConcurrentHashMap};
-    
+
     let mut group = c.benchmark_group("concurrent_data_structures");
-    
+
     // Create runtime ONCE outside all benchmarks
     let runtime = Moirai::builder()
         .worker_threads(4)
         .build()
         .expect("Failed to create runtime");
-    
+
     // AtomicCounter performance
     group.bench_function("atomic_counter", |b| {
         b.iter(|| {
             // Create fresh counter for each iteration to avoid state carryover
             let counter = Arc::new(AtomicCounter::new(0));
-            
+
             let mut handles = Vec::with_capacity(100);
             for _ in 0..100 {
                 let counter_clone = counter.clone();
@@ -176,22 +170,22 @@ fn benchmark_concurrent_data_structures(c: &mut Criterion) {
                 });
                 handles.push(handle);
             }
-            
+
             // Wait for all tasks to complete
             for handle in handles {
                 handle.join().expect("Task failed");
             }
-            
+
             black_box(counter.get())
         });
     });
-    
+
     // ConcurrentHashMap performance
     group.bench_function("concurrent_hashmap", |b| {
         b.iter(|| {
             // Create fresh map for each iteration to avoid state carryover
             let map = Arc::new(ConcurrentHashMap::new());
-            
+
             let mut handles = Vec::with_capacity(50);
             for i in 0..50 {
                 let map_clone = map.clone();
@@ -203,16 +197,16 @@ fn benchmark_concurrent_data_structures(c: &mut Criterion) {
                 });
                 handles.push(handle);
             }
-            
+
             // Wait for all tasks to complete
             for handle in handles {
                 handle.join().expect("Task failed");
             }
-            
+
             black_box(map.len())
         });
     });
-    
+
     // Cleanup after all concurrent data structure benchmarks
     runtime.shutdown();
     group.finish();
@@ -230,7 +224,7 @@ fn benchmark_work_stealing(c: &mut Criterion) {
     c.bench_function("work_stealing_efficiency", |b| {
         b.iter(|| {
             let mut handles = Vec::with_capacity(200);
-            
+
             // Create tasks with varying computational costs
             for i in 0..200 {
                 let cost = (i % 10) + 1; // Varying cost from 1 to 10
@@ -243,7 +237,7 @@ fn benchmark_work_stealing(c: &mut Criterion) {
                 });
                 handles.push(handle);
             }
-            
+
             // Wait for all tasks to complete
             for handle in handles {
                 black_box(handle.join().expect("Task failed"));
@@ -267,7 +261,7 @@ fn benchmark_error_handling(c: &mut Criterion) {
     c.bench_function("error_handling_overhead", |b| {
         b.iter(|| {
             let mut handles = Vec::with_capacity(100);
-            
+
             // Mix of successful and failing tasks (fresh each iteration)
             for i in 0..100 {
                 let handle = runtime.spawn_parallel(move || -> Result<i32, &'static str> {
@@ -279,7 +273,7 @@ fn benchmark_error_handling(c: &mut Criterion) {
                 });
                 handles.push(handle);
             }
-            
+
             // Process all results
             for handle in handles {
                 let result = handle.join().expect("Task join failed");

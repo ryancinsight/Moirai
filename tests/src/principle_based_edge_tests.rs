@@ -1,9 +1,9 @@
 //! Principle-Based Edge Testing for Moirai Concurrency Library
 //!
-//! This module implements comprehensive edge case testing strategies based on 
+//! This module implements comprehensive edge case testing strategies based on
 //! elite software design principles:
 //!
-//! - **SOLID**: Single responsibility, Open/closed, Liskov substitution, 
+//! - **SOLID**: Single responsibility, Open/closed, Liskov substitution,
 //!              Interface segregation, Dependency inversion
 //! - **CUPID**: Composable, Unix philosophy, Predictable, Idiomatic, Domain-based  
 //! - **GRASP**: General Responsibility Assignment Software Patterns
@@ -18,14 +18,13 @@
 //! Each test is designed to validate not just functionality, but adherence
 //! to these fundamental design principles under extreme conditions.
 
-use moirai::{Moirai, Task, TaskId, TaskContext};
-use moirai::{Priority, ExecutorError};
-use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use moirai::{ExecutorError, Priority};
+use moirai::{Moirai, Task, TaskContext, TaskId};
 use std::collections::{HashMap, VecDeque};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-
+use std::time::{Duration, Instant};
 
 /// Test fixture for principle-based edge testing
 #[allow(dead_code)]
@@ -36,8 +35,7 @@ struct PrincipleTestFixture {
 
 impl PrincipleTestFixture {
     fn new() -> Self {
-        let runtime = Moirai::new()
-            .expect("Failed to create test runtime");
+        let runtime = Moirai::new().expect("Failed to create test runtime");
 
         Self {
             runtime,
@@ -54,26 +52,25 @@ impl PrincipleTestFixture {
 /// SOLID Principle Edge Tests
 mod solid_tests {
     use super::*;
-    use std::sync::{Arc, Mutex, RwLock};
-    use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+    use moirai::{ExecutorError, Priority};
     use std::collections::{HashMap, VecDeque};
-    use std::time::{Duration, Instant};
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, RwLock};
     use std::thread;
-    use moirai::{Priority, ExecutorError};
-    
+    use std::time::{Duration, Instant};
 
     /// Test Single Responsibility Principle (SRP) under extreme conditions
     /// Each component should have one reason to change, even under stress
     #[test]
     fn test_srp_component_isolation_under_stress() {
         let _fixture = PrincipleTestFixture::new();
-        
+
         // Simple test to verify SRP compliance
         // Each component maintains a single responsibility
-        
+
         // Component 1: Counter (single responsibility: counting)
         let counter = Arc::new(AtomicUsize::new(0));
-        
+
         // Component 2: Validator (single responsibility: validation)
         struct Validator {
             max_value: usize,
@@ -84,64 +81,70 @@ mod solid_tests {
             }
         }
         let validator = Validator { max_value: 10000 };
-        
+
         // Test under load - each component does only its job
-        let handles: Vec<_> = (0..4).map(|_| {
-            let counter = counter.clone();
-            thread::spawn(move || {
-                for _ in 0..1000 {
-                    counter.fetch_add(1, Ordering::Relaxed);
-                }
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let counter = counter.clone();
+                thread::spawn(move || {
+                    for _ in 0..1000 {
+                        counter.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
             })
-        }).collect();
-        
+            .collect();
+
         for handle in handles {
             handle.join().expect("Thread failed");
         }
-        
+
         let final_count = counter.load(Ordering::Relaxed);
         assert_eq!(final_count, 4000);
         assert!(validator.is_valid(final_count));
-        
-        println!("SRP test completed: Counter={}, Valid={}", final_count, validator.is_valid(final_count));
+
+        println!(
+            "SRP test completed: Counter={}, Valid={}",
+            final_count,
+            validator.is_valid(final_count)
+        );
     }
 
     /// Test Open/Closed Principle (OCP) - extensibility without modification
     #[test]
     fn test_ocp_extensibility_under_edge_conditions() {
         // Test that we can extend behavior without modifying existing code
-        
+
         trait Processor {
             fn process(&self, input: i32) -> Result<i32, String>;
         }
-        
+
         struct BaseProcessor;
         impl Processor for BaseProcessor {
             fn process(&self, input: i32) -> Result<i32, String> {
-                input.checked_mul(2).ok_or_else(|| "Overflow in BaseProcessor".to_string())
+                input
+                    .checked_mul(2)
+                    .ok_or_else(|| "Overflow in BaseProcessor".to_string())
             }
         }
-        
+
         struct SafeProcessor;
         impl Processor for SafeProcessor {
             fn process(&self, input: i32) -> Result<i32, String> {
                 input.checked_mul(2).ok_or_else(|| "Overflow".to_string())
             }
         }
-        
+
         // Test extensibility - new processor without modifying existing ones
-        let processors: Vec<Box<dyn Processor>> = vec![
-            Box::new(BaseProcessor),
-            Box::new(SafeProcessor),
-        ];
-        
+        let processors: Vec<Box<dyn Processor>> =
+            vec![Box::new(BaseProcessor), Box::new(SafeProcessor)];
+
         let test_inputs = vec![0, 1, 100, i32::MAX];
-        
+
         for (i, processor) in processors.iter().enumerate() {
             for &input in &test_inputs {
                 let result = processor.process(input);
                 println!("Processor {} with input {}: {:?}", i, input, result);
-                
+
                 // Either succeeds or fails gracefully
                 match result {
                     Ok(output) => assert!(output >= input || input == 0),
@@ -152,7 +155,7 @@ mod solid_tests {
                 }
             }
         }
-        
+
         println!("OCP test completed - extensibility verified");
     }
 
@@ -168,10 +171,14 @@ mod solid_tests {
         struct SafeProcessor;
         impl EdgeProcessor for SafeProcessor {
             fn process(&self, input: i32) -> Result<i32, String> {
-                input.checked_mul(2).ok_or_else(|| "Overflow in SafeProcessor".to_string())
+                input
+                    .checked_mul(2)
+                    .ok_or_else(|| "Overflow in SafeProcessor".to_string())
             }
-            
-            fn can_handle_edge_case(&self) -> bool { true }
+
+            fn can_handle_edge_case(&self) -> bool {
+                true
+            }
         }
 
         struct RiskyProcessor;
@@ -183,21 +190,21 @@ mod solid_tests {
                     Ok(input * 2) // Potential overflow
                 }
             }
-            
-            fn can_handle_edge_case(&self) -> bool { false }
+
+            fn can_handle_edge_case(&self) -> bool {
+                false
+            }
         }
 
-        let processors: Vec<Box<dyn EdgeProcessor>> = vec![
-            Box::new(SafeProcessor),
-            Box::new(RiskyProcessor),
-        ];
+        let processors: Vec<Box<dyn EdgeProcessor>> =
+            vec![Box::new(SafeProcessor), Box::new(RiskyProcessor)];
 
         let edge_inputs = vec![0, 1, -1, i32::MAX, i32::MIN, i32::MAX / 2];
-        
+
         for (proc_idx, processor) in processors.iter().enumerate() {
             for &input in &edge_inputs {
                 let result = processor.process(input);
-                
+
                 // LSP: All implementations should handle edge cases gracefully
                 // Either succeed or fail with a proper error message
                 match result {
@@ -205,7 +212,9 @@ mod solid_tests {
                         println!("Processor {} handled {} -> {}", proc_idx, input, output);
                         // Verify output is reasonable
                         if input != 0 {
-                            assert!(output.abs() >= input.abs() || processor.can_handle_edge_case());
+                            assert!(
+                                output.abs() >= input.abs() || processor.can_handle_edge_case()
+                            );
                         }
                     }
                     Err(error) => {
@@ -240,7 +249,7 @@ mod solid_tests {
         // Implementation that only uses what it needs (ISP compliance)
         struct MinimalTaskRunner {
             spawned_tasks: AtomicUsize,
-            completion_rate: AtomicU64, // f64 bits stored as u64
+            completion_rate: AtomicU64,   // f64 bits stored as u64
             task_id_counter: AtomicUsize, // Counter for generating unique task IDs
         }
 
@@ -275,10 +284,14 @@ mod solid_tests {
 
         // Stress test with interface segregation
         const NUM_SPAWN_TESTS: usize = 10000;
-        
+
         let spawn_results: Vec<_> = (0..NUM_SPAWN_TESTS)
             .map(|i| {
-                let priority = if i % 2 == 0 { Priority::High } else { Priority::Low };
+                let priority = if i % 2 == 0 {
+                    Priority::High
+                } else {
+                    Priority::Low
+                };
                 spawner.spawn_task(priority)
             })
             .collect();
@@ -290,10 +303,13 @@ mod solid_tests {
 
         // Monitor should reflect the spawned tasks
         assert_eq!(monitor.get_task_count(), NUM_SPAWN_TESTS);
-        
+
         // Each interface can be used independently without depending on others
         println!("Task spawner created {} tasks", monitor.get_task_count());
-        println!("Completion rate: {:.2}%", monitor.get_completion_rate() * 100.0);
+        println!(
+            "Completion rate: {:.2}%",
+            monitor.get_completion_rate() * 100.0
+        );
     }
 
     /// Test Dependency Inversion Principle (DIP) with edge case scenarios
@@ -302,7 +318,7 @@ mod solid_tests {
     fn test_dip_dependency_inversion_edge_resilience() {
         // High-level module should not depend on low-level modules
         // Both should depend on abstractions
-        
+
         trait EdgeCaseLogger: Send + Sync {
             fn log_edge_case(&self, severity: &str, message: &str) -> Result<(), String>;
             fn flush(&self) -> Result<(), String>;
@@ -319,7 +335,9 @@ mod solid_tests {
 
         impl EdgeCaseLogger for MemoryLogger {
             fn log_edge_case(&self, severity: &str, message: &str) -> Result<(), String> {
-                let mut logs = self.logs.lock()
+                let mut logs = self
+                    .logs
+                    .lock()
                     .map_err(|_| "Failed to acquire logging lock".to_string())?;
                 logs.push(format!("[{}] {}", severity, message));
                 Ok(())
@@ -353,10 +371,7 @@ mod solid_tests {
         }
 
         impl EdgeCaseHandler {
-            fn new(
-                logger: Arc<dyn EdgeCaseLogger>, 
-                detector: Arc<dyn EdgeCaseDetector>
-            ) -> Self {
+            fn new(logger: Arc<dyn EdgeCaseLogger>, detector: Arc<dyn EdgeCaseDetector>) -> Self {
                 Self { logger, detector }
             }
 
@@ -389,27 +404,48 @@ mod solid_tests {
 
         // Extreme edge case values
         let edge_values = vec![
-            i64::MIN, i64::MAX, 0, -1, 1,
-            i64::MIN + 1, i64::MAX - 1,
-            -2, 2, 100, -100,
+            i64::MIN,
+            i64::MAX,
+            0,
+            -1,
+            1,
+            i64::MIN + 1,
+            i64::MAX - 1,
+            -2,
+            2,
+            100,
+            -100,
         ];
 
-        let edge_count = handler.handle_batch(&edge_values)
+        let edge_count = handler
+            .handle_batch(&edge_values)
             .expect("Failed to handle edge case batch");
 
         // Verify edge cases were detected and logged
-        assert!(edge_count >= 5, "Expected at least 5 edge cases, found {}", edge_count);
+        assert!(
+            edge_count >= 5,
+            "Expected at least 5 edge cases, found {}",
+            edge_count
+        );
 
         let logs = logger.logs.lock().unwrap();
-        assert!(logs.len() >= 5, "Expected at least 5 log entries, found {}", logs.len());
-        
+        assert!(
+            logs.len() >= 5,
+            "Expected at least 5 log entries, found {}",
+            logs.len()
+        );
+
         // Verify specific edge cases were logged
         let log_text = logs.join("\n");
         assert!(log_text.contains("Integer underflow"));
         assert!(log_text.contains("Integer overflow"));
         assert!(log_text.contains("Zero value"));
 
-        println!("DIP test handled {} edge cases with {} log entries", edge_count, logs.len());
+        println!(
+            "DIP test handled {} edge cases with {} log entries",
+            edge_count,
+            logs.len()
+        );
     }
 }
 
@@ -422,26 +458,32 @@ mod cupid_tests {
     #[test]
     fn test_composable_edge_case_handling() {
         // Components should compose naturally, even under edge conditions
-        
+
         // Composable data transformers
         struct Doubler;
         impl Doubler {
             fn transform(input: i32) -> Result<i32, String> {
-                input.checked_mul(2).ok_or_else(|| "Overflow in doubling".to_string())
+                input
+                    .checked_mul(2)
+                    .ok_or_else(|| "Overflow in doubling".to_string())
             }
         }
 
         struct Incrementer;
         impl Incrementer {
             fn transform(input: i32) -> Result<i32, String> {
-                input.checked_add(1).ok_or_else(|| "Overflow in increment".to_string())
+                input
+                    .checked_add(1)
+                    .ok_or_else(|| "Overflow in increment".to_string())
             }
         }
 
         struct Negater;
         impl Negater {
             fn transform(input: i32) -> Result<i32, String> {
-                input.checked_neg().ok_or_else(|| "Overflow in negation".to_string())
+                input
+                    .checked_neg()
+                    .ok_or_else(|| "Overflow in negation".to_string())
             }
         }
 
@@ -454,17 +496,20 @@ mod cupid_tests {
             F1: Fn(T) -> Result<U, String>,
             F2: Fn(U) -> Result<V, String>,
         {
-            move |input| {
-                first(input).and_then(|intermediate| second(intermediate))
-            }
+            move |input| first(input).and_then(|intermediate| second(intermediate))
         }
 
         // Edge case inputs for composition testing
         let edge_inputs = vec![
-            0, 1, -1, 
-            i32::MAX, i32::MIN,
-            i32::MAX / 2, i32::MIN / 2,
-            1000000, -1000000,
+            0,
+            1,
+            -1,
+            i32::MAX,
+            i32::MIN,
+            i32::MAX / 2,
+            i32::MIN / 2,
+            1000000,
+            -1000000,
         ];
 
         // Test various compositions with edge cases
@@ -481,7 +526,7 @@ mod cupid_tests {
                 Err(e) => println!("  Double+Increment failed: {}", e),
             }
 
-            // Test increment -> double  
+            // Test increment -> double
             match increment_then_double(input) {
                 Ok(result) => println!("  Increment+Double: {} -> {}", input, result),
                 Err(e) => println!("  Increment+Double failed: {}", e),
@@ -503,7 +548,7 @@ mod cupid_tests {
     #[test]
     fn test_unix_philosophy_single_purpose_stress() {
         // Each component should do one thing well, even under extreme load
-        
+
         // Single-purpose components
         struct Counter {
             value: AtomicU64,
@@ -511,7 +556,9 @@ mod cupid_tests {
 
         impl Counter {
             fn new() -> Self {
-                Self { value: AtomicU64::new(0) }
+                Self {
+                    value: AtomicU64::new(0),
+                }
             }
 
             fn increment(&self) -> u64 {
@@ -543,7 +590,9 @@ mod cupid_tests {
 
         impl Reporter {
             fn new() -> Self {
-                Self { reports: AtomicU64::new(0) }
+                Self {
+                    reports: AtomicU64::new(0),
+                }
             }
 
             fn report(&self, message: &str) {
@@ -610,7 +659,7 @@ mod cupid_tests {
         // Test integration while maintaining single purposes
         let final_count = counter.get();
         let is_count_valid = validator.is_valid(final_count);
-        
+
         if is_count_valid {
             reporter.report(&format!("Final count {} is valid", final_count));
         } else {
@@ -627,7 +676,7 @@ mod cupid_tests {
     #[test]
     fn test_predictable_behavior_edge_conditions() {
         // System should behave predictably even in edge cases
-        
+
         struct PredictableProcessor {
             operation_count: AtomicU64,
             error_count: AtomicU64,
@@ -654,9 +703,9 @@ mod cupid_tests {
                         self.error_count.fetch_add(1, Ordering::Relaxed);
                         Err("Maximum value cannot be processed".to_string())
                     }
-                    0 => Ok(0), // Predictable: zero maps to zero
+                    0 => Ok(0),              // Predictable: zero maps to zero
                     x if x > 0 => Ok(x * 2), // Predictable: positive doubles
-                    x => Ok(x / 2), // Predictable: negative halves
+                    x => Ok(x / 2),          // Predictable: negative halves
                 }
             }
 
@@ -669,11 +718,11 @@ mod cupid_tests {
         }
 
         let processor = Arc::new(PredictableProcessor::new());
-        
+
         // Test predictability with repeated edge cases
         let edge_test_cases = vec![
             (i32::MIN, 10), // Should fail predictably 10 times
-            (i32::MAX, 10), // Should fail predictably 10 times  
+            (i32::MAX, 10), // Should fail predictably 10 times
             (0, 10),        // Should succeed predictably 10 times
             (100, 10),      // Should succeed predictably 10 times
             (-100, 10),     // Should succeed predictably 10 times
@@ -690,7 +739,7 @@ mod cupid_tests {
 
             for _ in 0..repetitions {
                 let result = processor.process(input);
-                
+
                 // Verify predictable behavior
                 match input {
                     i32::MIN | i32::MAX => {
@@ -716,7 +765,10 @@ mod cupid_tests {
         println!("Predictable behavior test completed:");
         println!("  Total operations: {}", actual_operations);
         println!("  Total errors: {}", actual_errors);
-        println!("  Error rate: {:.2}%", (actual_errors as f64 / actual_operations as f64) * 100.0);
+        println!(
+            "  Error rate: {:.2}%",
+            (actual_errors as f64 / actual_operations as f64) * 100.0
+        );
     }
 }
 
@@ -741,14 +793,14 @@ mod property_tests {
             }
 
             let initial_stats = pool.stats();
-            
+
             // Release all wrappers
             for wrapper in wrappers {
                 pool.release(wrapper);
             }
 
             let final_stats = pool.stats();
-            
+
             // Property: Pool should have same or more available wrappers
             prop_assert!(final_stats.available >= initial_stats.available);
         }
@@ -760,18 +812,18 @@ mod property_tests {
             decrements in 0usize..10000,
         ) {
             let counter = AtomicCounter::new(0);
-            
+
             for _ in 0..increments {
                 counter.increment();
             }
-            
+
             for _ in 0..decrements {
                 counter.decrement();
             }
-            
+
             let final_value = counter.get();
             let expected = increments as i64 - decrements as i64;
-            
+
             prop_assert_eq!(final_value, expected);
         }
 
@@ -837,9 +889,9 @@ mod quickcheck_tests {
     #[quickcheck]
     fn qc_wait_group_counter_accuracy(add_count: u8, done_count: u8) -> bool {
         let wg = WaitGroup::new();
-        
+
         wg.add(add_count as usize);
-        
+
         let done_count = done_count.min(add_count) as usize;
         for _ in 0..done_count {
             wg.done();
@@ -848,7 +900,7 @@ mod quickcheck_tests {
         wg.count() == (add_count as usize - done_count)
     }
 
-    #[quickcheck]  
+    #[quickcheck]
     fn qc_adaptive_backoff_monotonic_growth(failure_count: u8) -> bool {
         if failure_count == 0 {
             return true;
@@ -860,11 +912,11 @@ mod quickcheck_tests {
         for _ in 0..failure_count.min(10) {
             backoff.record_failure();
             let current_delay = backoff.current_delay();
-            
+
             if current_delay <= prev_delay {
                 return false;
             }
-            
+
             prev_delay = current_delay;
         }
 
@@ -892,7 +944,7 @@ mod grasp_tests {
     #[test]
     fn test_information_expert_edge_resilience() {
         // Objects that have information should be responsible for operations on that information
-        
+
         #[derive(Debug)]
         struct TaskStatistics {
             total_tasks: AtomicUsize,
@@ -919,14 +971,16 @@ mod grasp_tests {
             // Information expert for completion tracking
             fn record_task_completion(&self, execution_time_micros: u64) {
                 self.completed_tasks.fetch_add(1, Ordering::Relaxed);
-                
+
                 // Update running average (simplified for edge testing)
                 let current_avg = self.average_execution_time.load(Ordering::Relaxed);
                 let completed = self.completed_tasks.load(Ordering::Relaxed);
-                
+
                 if completed > 0 {
-                    let new_avg = (current_avg * (completed - 1) as u64 + execution_time_micros) / completed as u64;
-                    self.average_execution_time.store(new_avg, Ordering::Relaxed);
+                    let new_avg = (current_avg * (completed - 1) as u64 + execution_time_micros)
+                        / completed as u64;
+                    self.average_execution_time
+                        .store(new_avg, Ordering::Relaxed);
                 }
             }
 
@@ -958,20 +1012,20 @@ mod grasp_tests {
         }
 
         let stats = Arc::new(TaskStatistics::new());
-        
+
         // Edge case testing with extreme concurrency
         const NUM_THREADS: usize = 20;
         const TASKS_PER_THREAD: usize = 1000;
-        
+
         let mut handles = Vec::new();
-        
+
         for thread_id in 0..NUM_THREADS {
             let stats = stats.clone();
             handles.push(thread::spawn(move || {
                 for task_id in 0..TASKS_PER_THREAD {
                     let start_time = Instant::now();
                     stats.record_task_start();
-                    
+
                     // Simulate task execution with edge cases
                     let execution_result = if task_id % 100 == 0 {
                         // Simulate occasional failures (edge case)
@@ -986,9 +1040,9 @@ mod grasp_tests {
                         thread::sleep(Duration::from_micros(10));
                         true
                     };
-                    
+
                     let execution_time = start_time.elapsed().as_micros() as u64;
-                    
+
                     if execution_result {
                         stats.record_task_completion(execution_time);
                     } else {
@@ -1003,7 +1057,7 @@ mod grasp_tests {
         }
 
         let (total, completed, failed, success_rate, avg_time) = stats.performance_summary();
-        
+
         // Verify information expert maintained consistency under edge conditions
         assert_eq!(total, NUM_THREADS * TASKS_PER_THREAD);
         assert_eq!(completed + failed, total);
@@ -1022,7 +1076,7 @@ mod grasp_tests {
     #[test]
     fn test_creator_principle_resource_limits() {
         // Creator should be responsible for creating objects it has close coupling with
-        
+
         struct TaskFactory {
             created_count: AtomicUsize,
             max_concurrent: usize,
@@ -1041,12 +1095,15 @@ mod grasp_tests {
             fn create_task(&self, id: usize, work_amount: u64) -> Result<TestTask, String> {
                 let current_active = self.active_tasks.load(Ordering::Relaxed);
                 if current_active >= self.max_concurrent {
-                    return Err(format!("Resource limit exceeded: {} active tasks", current_active));
+                    return Err(format!(
+                        "Resource limit exceeded: {} active tasks",
+                        current_active
+                    ));
                 }
 
                 self.active_tasks.fetch_add(1, Ordering::Relaxed);
                 self.created_count.fetch_add(1, Ordering::Relaxed);
-                
+
                 Ok(TestTask::new(id, work_amount))
             }
 
@@ -1063,7 +1120,7 @@ mod grasp_tests {
         }
 
         let factory = Arc::new(TaskFactory::new(100)); // Edge case: limit concurrent tasks
-        
+
         // Test creator under resource pressure
         const NUM_CREATE_ATTEMPTS: usize = 10000;
         let mut successful_creates = 0;
@@ -1089,7 +1146,7 @@ mod grasp_tests {
         }
 
         let (total_created, active) = factory.stats();
-        
+
         assert_eq!(successful_creates, total_created);
         assert_eq!(successful_creates + failed_creates, NUM_CREATE_ATTEMPTS);
         assert!(active <= factory.max_concurrent);
@@ -1110,7 +1167,7 @@ mod acid_tests {
     #[test]
     fn test_atomicity_edge_transactions() {
         // Operations should be atomic - either completely succeed or completely fail
-        
+
         struct AtomicBankAccount {
             balance: AtomicU64,
             transaction_count: AtomicU64,
@@ -1127,20 +1184,24 @@ mod acid_tests {
             fn transfer(&self, amount: u64) -> Result<u64, String> {
                 loop {
                     let current_balance = self.balance.load(Ordering::Acquire);
-                    
+
                     if current_balance < amount {
                         return Err("Insufficient funds".to_string());
                     }
 
                     let new_balance = current_balance - amount;
-                    
+
                     // Atomic compare-and-swap ensures atomicity
-                    if self.balance.compare_exchange_weak(
-                        current_balance,
-                        new_balance,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                    ).is_ok() {
+                    if self
+                        .balance
+                        .compare_exchange_weak(
+                            current_balance,
+                            new_balance,
+                            Ordering::Release,
+                            Ordering::Relaxed,
+                        )
+                        .is_ok()
+                    {
                         self.transaction_count.fetch_add(1, Ordering::Relaxed);
                         return Ok(new_balance);
                     }
@@ -1163,19 +1224,19 @@ mod acid_tests {
         }
 
         let account = Arc::new(AtomicBankAccount::new(100_000));
-        
+
         // Edge case: high contention with many concurrent transactions
         const NUM_THREADS: usize = 50;
         const TRANSACTIONS_PER_THREAD: usize = 1000;
-        
+
         let mut handles = Vec::new();
-        
+
         for thread_id in 0..NUM_THREADS {
             let account = account.clone();
             handles.push(thread::spawn(move || {
                 let mut successful_transfers = 0;
                 let mut failed_transfers = 0;
-                
+
                 for i in 0..TRANSACTIONS_PER_THREAD {
                     if i % 2 == 0 {
                         // Deposit (always succeeds atomically)
@@ -1188,14 +1249,14 @@ mod acid_tests {
                         }
                     }
                 }
-                
+
                 (successful_transfers, failed_transfers)
             }));
         }
 
         let mut total_successful = 0;
         let mut total_failed = 0;
-        
+
         for handle in handles {
             let (successful, failed) = handle.join().expect("Thread panicked");
             total_successful += successful;
@@ -1204,11 +1265,11 @@ mod acid_tests {
 
         let final_balance = account.balance();
         let total_transactions = account.transaction_count();
-        
+
         // Verify atomicity: balance should be consistent with transaction history
         let expected_transactions = NUM_THREADS * TRANSACTIONS_PER_THREAD;
         assert_eq!(total_transactions, expected_transactions as u64);
-        
+
         println!("Atomicity edge test:");
         println!("  Final balance: {}", final_balance);
         println!("  Total transactions: {}", total_transactions);
@@ -1221,17 +1282,15 @@ mod acid_tests {
     #[test]
     fn test_isolation_concurrent_access() {
         // Operations should not interfere with each other
-        
+
         struct IsolatedCounter {
             counters: Vec<AtomicU64>,
         }
 
         impl IsolatedCounter {
             fn new(num_counters: usize) -> Self {
-                let counters = (0..num_counters)
-                    .map(|_| AtomicU64::new(0))
-                    .collect();
-                
+                let counters = (0..num_counters).map(|_| AtomicU64::new(0)).collect();
+
                 Self { counters }
             }
 
@@ -1239,7 +1298,7 @@ mod acid_tests {
                 if counter_id >= self.counters.len() {
                     return Err("Invalid counter ID".to_string());
                 }
-                
+
                 Ok(self.counters[counter_id].fetch_add(1, Ordering::Relaxed))
             }
 
@@ -1247,12 +1306,13 @@ mod acid_tests {
                 if counter_id >= self.counters.len() {
                     return Err("Invalid counter ID".to_string());
                 }
-                
+
                 Ok(self.counters[counter_id].load(Ordering::Relaxed))
             }
 
             fn total_count(&self) -> u64 {
-                self.counters.iter()
+                self.counters
+                    .iter()
                     .map(|counter| counter.load(Ordering::Relaxed))
                     .sum()
             }
@@ -1261,7 +1321,7 @@ mod acid_tests {
         const NUM_COUNTERS: usize = 10;
         const NUM_THREADS: usize = 20;
         const INCREMENTS_PER_THREAD: usize = 1000;
-        
+
         let isolated_counter = Arc::new(IsolatedCounter::new(NUM_COUNTERS));
         let mut handles = Vec::new();
 
@@ -1269,12 +1329,13 @@ mod acid_tests {
             let counter = isolated_counter.clone();
             handles.push(thread::spawn(move || {
                 let target_counter = thread_id % NUM_COUNTERS;
-                
+
                 for _ in 0..INCREMENTS_PER_THREAD {
-                    counter.increment_isolated(target_counter)
+                    counter
+                        .increment_isolated(target_counter)
                         .expect("Failed to increment counter");
                 }
-                
+
                 target_counter
             }));
         }
@@ -1289,10 +1350,12 @@ mod acid_tests {
         for (counter_id, thread_count) in counter_assignments {
             let expected_count = thread_count * INCREMENTS_PER_THREAD;
             let actual_count = isolated_counter.get_counter(counter_id).unwrap();
-            
-            assert_eq!(actual_count, expected_count as u64,
-                "Counter {} isolation violated: expected {}, got {}", 
-                counter_id, expected_count, actual_count);
+
+            assert_eq!(
+                actual_count, expected_count as u64,
+                "Counter {} isolation violated: expected {}, got {}",
+                counter_id, expected_count, actual_count
+            );
         }
 
         let total = isolated_counter.total_count();
@@ -1315,7 +1378,7 @@ mod simple_principles_tests {
     #[test]
     fn test_dry_principle_edge_cases() {
         // Common functionality should be extracted and reused, not duplicated
-        
+
         // Generic retry mechanism (DRY compliance)
         fn retry_with_backoff<F, T, E>(
             mut operation: F,
@@ -1326,7 +1389,7 @@ mod simple_principles_tests {
             F: FnMut() -> Result<T, E>,
         {
             let mut delay = initial_delay;
-            
+
             for attempt in 0..max_attempts {
                 match operation() {
                     Ok(result) => return Ok(result),
@@ -1339,7 +1402,7 @@ mod simple_principles_tests {
                     }
                 }
             }
-            
+
             unreachable!()
         }
 
@@ -1371,11 +1434,7 @@ mod simple_principles_tests {
         assert!(result2.is_err());
 
         // Edge case 3: Operation that succeeds immediately
-        let result3 = retry_with_backoff(
-            || Ok("Immediate success"),
-            5,
-            Duration::from_micros(10),
-        );
+        let result3 = retry_with_backoff(|| Ok("Immediate success"), 5, Duration::from_micros(10));
         assert!(result3.is_ok());
 
         println!("DRY principle test completed:");
@@ -1387,7 +1446,7 @@ mod simple_principles_tests {
     #[test]
     fn test_kiss_principle_simplicity_under_pressure() {
         // Simple solutions should work correctly even under pressure
-        
+
         // Simple FIFO queue (KISS compliance)
         struct SimpleQueue<T> {
             items: Mutex<VecDeque<T>>,
@@ -1401,34 +1460,31 @@ mod simple_principles_tests {
             }
 
             fn enqueue(&self, item: T) -> Result<(), String> {
-                let mut queue = self.items.lock()
-                    .map_err(|_| "Lock poisoned".to_string())?;
+                let mut queue = self.items.lock().map_err(|_| "Lock poisoned".to_string())?;
                 queue.push_back(item);
                 Ok(())
             }
 
             fn dequeue(&self) -> Result<Option<T>, String> {
-                let mut queue = self.items.lock()
-                    .map_err(|_| "Lock poisoned".to_string())?;
+                let mut queue = self.items.lock().map_err(|_| "Lock poisoned".to_string())?;
                 Ok(queue.pop_front())
             }
 
             fn len(&self) -> Result<usize, String> {
-                let queue = self.items.lock()
-                    .map_err(|_| "Lock poisoned".to_string())?;
+                let queue = self.items.lock().map_err(|_| "Lock poisoned".to_string())?;
                 Ok(queue.len())
             }
         }
 
         let queue = Arc::new(SimpleQueue::new());
-        
+
         // Edge case: High contention with many producers and consumers
         const NUM_PRODUCERS: usize = 10;
         const NUM_CONSUMERS: usize = 10;
         const ITEMS_PER_PRODUCER: usize = 1000;
-        
+
         let mut handles = Vec::new();
-        
+
         // Producers
         for producer_id in 0..NUM_PRODUCERS {
             let queue = queue.clone();
@@ -1454,7 +1510,9 @@ mod simple_principles_tests {
                         Ok(None) => {
                             thread::sleep(Duration::from_micros(10));
                             // Check if we should continue or exit
-                            if consumed.load(Ordering::Relaxed) >= NUM_PRODUCERS * ITEMS_PER_PRODUCER {
+                            if consumed.load(Ordering::Relaxed)
+                                >= NUM_PRODUCERS * ITEMS_PER_PRODUCER
+                            {
                                 break;
                             }
                         }
@@ -1470,9 +1528,12 @@ mod simple_principles_tests {
 
         let final_consumed = consumed_items.load(Ordering::Relaxed);
         let final_queue_len = queue.len().unwrap_or(0);
-        
+
         // Simple solution should handle edge case correctly
-        assert_eq!(final_consumed + final_queue_len, NUM_PRODUCERS * ITEMS_PER_PRODUCER);
+        assert_eq!(
+            final_consumed + final_queue_len,
+            NUM_PRODUCERS * ITEMS_PER_PRODUCER
+        );
 
         println!("KISS principle test completed:");
         println!("  Items produced: {}", NUM_PRODUCERS * ITEMS_PER_PRODUCER);
@@ -1485,7 +1546,7 @@ mod simple_principles_tests {
     #[test]
     fn test_ssot_principle_consistency() {
         // There should be one authoritative source for each piece of data
-        
+
         struct AuthoritativeConfig {
             values: Arc<RwLock<HashMap<String, String>>>,
             version: AtomicU64,
@@ -1500,7 +1561,9 @@ mod simple_principles_tests {
             }
 
             fn set(&self, key: String, value: String) -> Result<u64, String> {
-                let mut config = self.values.write()
+                let mut config = self
+                    .values
+                    .write()
                     .map_err(|_| "Lock poisoned".to_string())?;
                 config.insert(key, value);
                 let new_version = self.version.fetch_add(1, Ordering::Relaxed) + 1;
@@ -1508,7 +1571,9 @@ mod simple_principles_tests {
             }
 
             fn get(&self, key: &str) -> Result<Option<String>, String> {
-                let config = self.values.read()
+                let config = self
+                    .values
+                    .read()
                     .map_err(|_| "Lock poisoned".to_string())?;
                 Ok(config.get(key).cloned())
             }
@@ -1518,7 +1583,9 @@ mod simple_principles_tests {
             }
 
             fn snapshot(&self) -> Result<(HashMap<String, String>, u64), String> {
-                let config = self.values.read()
+                let config = self
+                    .values
+                    .read()
                     .map_err(|_| "Lock poisoned".to_string())?;
                 let version = self.version();
                 Ok((config.clone(), version))
@@ -1526,27 +1593,26 @@ mod simple_principles_tests {
         }
 
         let config = Arc::new(AuthoritativeConfig::new());
-        
+
         // Edge case: Many concurrent updates to different keys
         const NUM_UPDATERS: usize = 20;
         const UPDATES_PER_UPDATER: usize = 100;
-        
+
         let mut handles = Vec::new();
-        
+
         for updater_id in 0..NUM_UPDATERS {
             let config = config.clone();
             handles.push(thread::spawn(move || {
                 let mut versions = Vec::new();
-                
+
                 for update_id in 0..UPDATES_PER_UPDATER {
                     let key = format!("key_{}_{}", updater_id, update_id);
                     let value = format!("value_{}_{}", updater_id, update_id);
-                    
-                    let version = config.set(key, value)
-                        .expect("Failed to set config value");
+
+                    let version = config.set(key, value).expect("Failed to set config value");
                     versions.push(version);
                 }
-                
+
                 versions
             }));
         }
@@ -1560,8 +1626,13 @@ mod simple_principles_tests {
         // Verify SSOT: all version numbers should be unique and monotonic
         all_versions.sort();
         for (i, &version) in all_versions.iter().enumerate() {
-            assert_eq!(version, (i + 1) as u64, 
-                "Version mismatch: expected {}, got {}", i + 1, version);
+            assert_eq!(
+                version,
+                (i + 1) as u64,
+                "Version mismatch: expected {}, got {}",
+                i + 1,
+                version
+            );
         }
 
         let (final_snapshot, final_version) = config.snapshot().unwrap();
@@ -1579,7 +1650,7 @@ mod simple_principles_tests {
     #[test]
     fn test_yagni_principle_minimal_implementation() {
         // Build only what you need, when you need it
-        
+
         // Minimal cache implementation (YAGNI compliance)
         struct MinimalCache<K, V> {
             data: Mutex<HashMap<K, V>>,
@@ -1608,22 +1679,22 @@ mod simple_principles_tests {
         }
 
         let cache = Arc::new(MinimalCache::new());
-        
+
         // Test minimal implementation under edge conditions
         const NUM_THREADS: usize = 15;
         const OPERATIONS_PER_THREAD: usize = 500;
-        
+
         let mut handles = Vec::new();
-        
+
         for thread_id in 0..NUM_THREADS {
             let cache = cache.clone();
             handles.push(thread::spawn(move || {
                 let mut local_hits = 0;
                 let mut local_misses = 0;
-                
+
                 for op_id in 0..OPERATIONS_PER_THREAD {
                     let key = format!("key_{}", op_id % 100); // Limited key space
-                    
+
                     if op_id % 3 == 0 {
                         // Write operation
                         let value = format!("value_{}_{}", thread_id, op_id);
@@ -1636,14 +1707,14 @@ mod simple_principles_tests {
                         }
                     }
                 }
-                
+
                 (local_hits, local_misses)
             }));
         }
 
         let mut total_hits = 0;
         let mut total_misses = 0;
-        
+
         for handle in handles {
             let (hits, misses) = handle.join().expect("Thread panicked");
             total_hits += hits;
@@ -1651,7 +1722,7 @@ mod simple_principles_tests {
         }
 
         let final_size = cache.size();
-        
+
         // Minimal implementation should work correctly for basic use cases
         assert!(final_size > 0);
         assert!(total_hits + total_misses > 0);
@@ -1707,10 +1778,6 @@ impl Task for TestTask {
     fn context(&self) -> &TaskContext {
         // Return a default context for testing
         static DEFAULT_CONTEXT: std::sync::OnceLock<TaskContext> = std::sync::OnceLock::new();
-        DEFAULT_CONTEXT.get_or_init(|| {
-            TaskContext::new(
-                TaskId::new(0)
-            )
-        })
+        DEFAULT_CONTEXT.get_or_init(|| TaskContext::new(TaskId::new(0)))
     }
 }

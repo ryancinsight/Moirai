@@ -3,10 +3,13 @@
 //! This module provides worker thread abstractions and performance monitoring
 //! for the hybrid executor system.
 
-use std::sync::{Arc, Mutex, atomic::{AtomicUsize, AtomicBool, Ordering}};
-use std::time::{Duration, Instant};
-use std::thread;
 use std::collections::VecDeque;
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc, Mutex,
+};
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// Worker thread state and configuration
 pub struct Worker {
@@ -68,14 +71,14 @@ impl Worker {
         let id = self.id;
         let queue = self.task_queue.clone();
         let shutdown = self.is_shutdown.clone();
-        
+
         let handle = thread::Builder::new()
             .name(format!("moirai-worker-{}", id))
             .spawn(move || {
                 Self::worker_loop(id, queue, shutdown);
             })
             .expect("Failed to spawn worker thread");
-            
+
         self.thread_handle = Some(handle);
     }
 
@@ -129,7 +132,7 @@ impl Worker {
     /// Shutdown the worker
     pub fn shutdown(&mut self) {
         self.is_shutdown.store(true, Ordering::Relaxed);
-        
+
         if let Some(handle) = self.thread_handle.take() {
             let _ = handle.join();
         }

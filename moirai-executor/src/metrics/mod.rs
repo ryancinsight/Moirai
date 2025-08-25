@@ -13,24 +13,24 @@ pub struct ExecutorMetrics {
     pub tasks_spawned: AtomicU64,
     pub tasks_completed: AtomicU64,
     pub tasks_failed: AtomicU64,
-    
+
     // Timing metrics
-    pub total_execution_time: AtomicU64, // in nanoseconds
+    pub total_execution_time: AtomicU64,  // in nanoseconds
     pub average_task_duration: AtomicU64, // in nanoseconds
-    
+
     // Thread pool metrics
     pub active_workers: AtomicUsize,
     pub idle_workers: AtomicUsize,
     pub total_workers: AtomicUsize,
-    
+
     // Queue metrics
     pub pending_tasks: AtomicUsize,
     pub max_queue_depth: AtomicUsize,
-    
+
     // Resource utilization
-    pub memory_usage: AtomicUsize, // in bytes
+    pub memory_usage: AtomicUsize,  // in bytes
     pub cpu_utilization: AtomicU64, // percentage * 100
-    
+
     // System metrics
     pub started_at: Instant,
     pub last_updated: std::sync::Mutex<Instant>,
@@ -68,15 +68,17 @@ impl ExecutorMetrics {
     pub fn record_task_completed(&self, execution_time: Duration) {
         self.tasks_completed.fetch_add(1, Ordering::Relaxed);
         let exec_nanos = execution_time.as_nanos() as u64;
-        self.total_execution_time.fetch_add(exec_nanos, Ordering::Relaxed);
-        
+        self.total_execution_time
+            .fetch_add(exec_nanos, Ordering::Relaxed);
+
         // Update average (simple approach - more sophisticated methods could be used)
         let completed = self.tasks_completed.load(Ordering::Relaxed);
         let total_time = self.total_execution_time.load(Ordering::Relaxed);
         if completed > 0 {
-            self.average_task_duration.store(total_time / completed, Ordering::Relaxed);
+            self.average_task_duration
+                .store(total_time / completed, Ordering::Relaxed);
         }
-        
+
         self.update_timestamp();
     }
 
@@ -97,20 +99,21 @@ impl ExecutorMetrics {
     /// Update queue metrics
     pub fn update_queue_metrics(&self, pending: usize) {
         self.pending_tasks.store(pending, Ordering::Relaxed);
-        
+
         // Update max queue depth if this is a new maximum
         let current_max = self.max_queue_depth.load(Ordering::Relaxed);
         if pending > current_max {
             self.max_queue_depth.store(pending, Ordering::Relaxed);
         }
-        
+
         self.update_timestamp();
     }
 
     /// Update resource utilization metrics
     pub fn update_resource_metrics(&self, memory_bytes: usize, cpu_percent: f64) {
         self.memory_usage.store(memory_bytes, Ordering::Relaxed);
-        self.cpu_utilization.store((cpu_percent * 100.0) as u64, Ordering::Relaxed);
+        self.cpu_utilization
+            .store((cpu_percent * 100.0) as u64, Ordering::Relaxed);
         self.update_timestamp();
     }
 
@@ -129,7 +132,7 @@ impl ExecutorMetrics {
         let completed = self.tasks_completed.load(Ordering::Relaxed);
         let failed = self.tasks_failed.load(Ordering::Relaxed);
         let total = completed + failed;
-        
+
         if total > 0 {
             (completed as f64 / total as f64) * 100.0
         } else {

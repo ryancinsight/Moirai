@@ -5,7 +5,7 @@
 //! them to yield execution at any point and resume later with full state preservation.
 //!
 //! # Design Principles
-//! 
+//!
 //! - **Zero Dependencies**: Pure Rust standard library implementation
 //! - **Zero-Cost Abstractions**: Compile-time optimizations with no runtime overhead
 //! - **Memory Safety**: Safe coroutine switching with Rust's ownership model
@@ -21,14 +21,13 @@
 //! - `CoroutineHandle`: Handle for controlling coroutine execution
 //! - `CoroutineScheduler`: Integrates with Moirai's unified scheduler
 
+use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use core::future::Future;
 
-
-use crate::{TaskId, TaskContext};
 use crate::error::TaskError;
 use crate::platform::*;
+use crate::{TaskContext, TaskId};
 
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
@@ -73,18 +72,21 @@ pub trait Coroutine {
     type Yield;
     /// The type of value returned when the coroutine completes
     type Return;
-    
+
     /// Resume execution of the coroutine.
     ///
     /// Returns either a yielded value or the final return value.
     fn resume(&mut self) -> CoroutineResult<Self::Yield, Self::Return>;
-    
+
     /// Get the current state of the coroutine.
     fn state(&self) -> CoroutineState;
-    
+
     /// Check if the coroutine can be resumed.
     fn is_resumable(&self) -> bool {
-        matches!(self.state(), CoroutineState::Created | CoroutineState::Ready | CoroutineState::Yielded)
+        matches!(
+            self.state(),
+            CoroutineState::Created | CoroutineState::Ready | CoroutineState::Yielded
+        )
     }
 }
 
@@ -160,12 +162,12 @@ where
 {
     type Yield = Y;
     type Return = R;
-    
+
     fn resume(&mut self) -> CoroutineResult<Self::Yield, Self::Return> {
         if let Some(mut func) = self.state_fn.take() {
             self.state = CoroutineState::Running;
             let result = func();
-            
+
             match &result {
                 CoroutineResult::Yielded(_) => {
                     self.state = CoroutineState::Yielded;
@@ -178,13 +180,13 @@ where
                     self.state = CoroutineState::Error;
                 }
             }
-            
+
             result
         } else {
             CoroutineResult::Error(TaskError::InvalidState)
         }
     }
-    
+
     fn state(&self) -> CoroutineState {
         self.state
     }
@@ -210,12 +212,12 @@ where
     C: Coroutine,
 {
     type Item = C::Yield;
-    
+
     fn next(&mut self) -> Option<Self::Item> {
         if !self.coroutine.is_resumable() {
             return None;
         }
-        
+
         match self.coroutine.resume() {
             CoroutineResult::Yielded(value) => Some(value),
             CoroutineResult::Complete(_) => None,
@@ -246,13 +248,13 @@ where
     C: Coroutine + Unpin,
 {
     type Output = Result<C::Return, TaskError>;
-    
+
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         let coroutine = match self.coroutine.as_mut() {
             Some(c) => c,
             None => return Poll::Ready(Err(TaskError::AlreadyCompleted)),
         };
-        
+
         match coroutine.resume() {
             CoroutineResult::Yielded(_) => Poll::Pending,
             CoroutineResult::Complete(value) => {
@@ -285,7 +287,7 @@ impl CoroutineScheduler {
             _current: None,
         }
     }
-    
+
     /// Schedule a coroutine for execution.
     pub fn schedule<C>(&mut self, coroutine: C) -> CoroutineHandle<C::Yield, C::Return>
     where
@@ -295,10 +297,10 @@ impl CoroutineScheduler {
         let (_yield_tx, yield_rx) = channel::channel();
         let (_result_tx, result_rx) = channel::channel();
         let (control_tx, _control_rx) = channel::channel();
-        
+
         // Box the coroutine and add to ready queue
         self.ready_queue.push_back(Box::new(coroutine));
-        
+
         CoroutineHandle {
             _id: id,
             _yield_receiver: Some(yield_rx),
@@ -314,7 +316,7 @@ pub trait CoroutineExt: Sized {
     type Yield;
     /// The return type of the coroutine
     type Return;
-    
+
     /// Convert this value into a coroutine.
     fn into_coroutine(self) -> SimpleCoroutine<Self::Yield, Self::Return>;
 }
@@ -327,7 +329,7 @@ where
 {
     type Yield = Y;
     type Return = R;
-    
+
     fn into_coroutine(self) -> SimpleCoroutine<Y, R> {
         SimpleCoroutine::new(self)
     }
@@ -363,7 +365,7 @@ macro_rules! co_return {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_simple_coroutine() {
         let mut counter = 0;
@@ -375,27 +377,27 @@ mod tests {
                 CoroutineResult::Complete(counter)
             }
         });
-        
+
         assert_eq!(coro.state(), CoroutineState::Created);
-        
+
         match coro.resume() {
-            CoroutineResult::Yielded(1) => {},
+            CoroutineResult::Yielded(1) => {}
             _ => panic!("Expected yield of 1"),
         }
-        
+
         match coro.resume() {
-            CoroutineResult::Yielded(2) => {},
+            CoroutineResult::Yielded(2) => {}
             _ => panic!("Expected yield of 2"),
         }
-        
+
         match coro.resume() {
-            CoroutineResult::Complete(3) => {},
+            CoroutineResult::Complete(3) => {}
             _ => panic!("Expected completion with 3"),
         }
-        
+
         assert_eq!(coro.state(), CoroutineState::Completed);
     }
-    
+
     #[test]
     fn test_coroutine_iterator() {
         let mut counter = 0;
@@ -407,7 +409,7 @@ mod tests {
                 CoroutineResult::Complete(())
             }
         });
-        
+
         let iter = CoroutineIterator::new(coro);
         let values: Vec<i32> = iter.collect();
         assert_eq!(values, vec![1, 2, 3]);

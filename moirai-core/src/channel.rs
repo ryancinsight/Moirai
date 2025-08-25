@@ -15,16 +15,14 @@
 //! - Proper memory ordering with acquire-release semantics
 //! - Safe cleanup on drop with reference counting
 
-use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Condvar};
-use std::cell::UnsafeCell;
 use crate::communication::RingBuffer;
-use std::mem::MaybeUninit;
+use std::cell::UnsafeCell;
 use std::collections::VecDeque;
-use std::marker::PhantomData;
 use std::fmt;
-
-
+use std::marker::PhantomData;
+use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 
 /// Padding to prevent false sharing between CPU cores
 #[repr(align(64))]
@@ -34,9 +32,7 @@ struct CachePadded<T> {
 
 impl<T> CachePadded<T> {
     const fn new(value: T) -> Self {
-        Self {
-            value,
-        }
+        Self { value }
     }
 }
 
@@ -73,22 +69,22 @@ pub type Result<T> = std::result::Result<T, ChannelError>;
 pub trait Channel<T>: Send + Sync {
     /// Send a value, blocking if necessary
     fn send(&self, value: T) -> Result<()>;
-    
+
     /// Try to send without blocking
     fn try_send(&self, value: T) -> Result<()>;
-    
+
     /// Receive a value, blocking if necessary
     fn recv(&self) -> Result<T>;
-    
+
     /// Try to receive without blocking
     fn try_recv(&self) -> Result<T>;
-    
+
     /// Check if channel is empty
     fn is_empty(&self) -> bool;
-    
+
     /// Check if channel is full
     fn is_full(&self) -> bool;
-    
+
     /// Get the capacity of the channel
     fn capacity(&self) -> Option<usize>;
 }
@@ -121,7 +117,7 @@ impl<T> SpscChannel<T> {
             .map(|_| UnsafeCell::new(MaybeUninit::uninit()))
             .collect::<Vec<_>>()
             .into_boxed_slice();
-            
+
         Self {
             buffer,
             mask: capacity - 1,
@@ -131,12 +127,14 @@ impl<T> SpscChannel<T> {
             _phantom: PhantomData,
         }
     }
-    
+
     /// Create a channel pair (sender, receiver) for ergonomic usage
     pub fn channel(capacity: usize) -> (SpscSender<T>, SpscReceiver<T>) {
         let channel = Arc::new(Self::new(capacity));
         (
-            SpscSender { channel: channel.clone() },
+            SpscSender {
+                channel: channel.clone(),
+            },
             SpscReceiver { channel },
         )
     }
@@ -151,10 +149,10 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
             if self.closed.load(Ordering::Relaxed) {
                 return Err(ChannelError::Closed);
             }
-            
+
             let head = self.head.value.load(Ordering::Relaxed);
             let tail = self.tail.value.load(Ordering::Acquire);
-            
+
             // Check if there's space
             if head.wrapping_sub(tail) < self.buffer.len() {
                 // There's space, try to send
@@ -162,10 +160,12 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
                     let slot = &mut *self.buffer[head & self.mask].get();
                     slot.write(value);
                 }
-                self.head.value.store(head.wrapping_add(1), Ordering::Release);
+                self.head
+                    .value
+                    .store(head.wrapping_add(1), Ordering::Release);
                 return Ok(());
             }
-            
+
             // Channel is full, spin-wait with exponential backoff
             if spin_count < 6 {
                 // Active spinning for low latency (up to ~64 iterations)
@@ -179,29 +179,31 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
             }
         }
     }
-    
+
     fn try_send(&self, value: T) -> Result<()> {
         if self.closed.load(Ordering::Relaxed) {
             return Err(ChannelError::Closed);
         }
-        
+
         let head = self.head.value.load(Ordering::Relaxed);
         let tail = self.tail.value.load(Ordering::Acquire);
-        
+
         // Check if full
         if head.wrapping_sub(tail) >= self.buffer.len() {
             return Err(ChannelError::Full);
         }
-        
+
         unsafe {
             let slot = &mut *self.buffer[head & self.mask].get();
             slot.write(value);
         }
-        
-        self.head.value.store(head.wrapping_add(1), Ordering::Release);
+
+        self.head
+            .value
+            .store(head.wrapping_add(1), Ordering::Release);
         Ok(())
     }
-    
+
     fn recv(&self) -> Result<T> {
         // Implement blocking recv with exponential backoff spin-wait
         let mut spin_count = 0;
@@ -225,40 +227,42 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
             }
         }
     }
-    
+
     fn try_recv(&self) -> Result<T> {
         let tail = self.tail.value.load(Ordering::Relaxed);
         let head = self.head.value.load(Ordering::Acquire);
-        
+
         if tail == head {
             if self.closed.load(Ordering::Relaxed) {
                 return Err(ChannelError::Closed);
             }
             return Err(ChannelError::Empty);
         }
-        
+
         let value = unsafe {
             let slot = &*self.buffer[tail & self.mask].get();
             // SAFETY: head > tail check ensures initialized data
             slot.assume_init_read()
         };
-        
-        self.tail.value.store(tail.wrapping_add(1), Ordering::Release);
+
+        self.tail
+            .value
+            .store(tail.wrapping_add(1), Ordering::Release);
         Ok(value)
     }
-    
+
     fn is_empty(&self) -> bool {
         let tail = self.tail.value.load(Ordering::Relaxed);
         let head = self.head.value.load(Ordering::Acquire);
         tail == head
     }
-    
+
     fn is_full(&self) -> bool {
         let head = self.head.value.load(Ordering::Relaxed);
         let tail = self.tail.value.load(Ordering::Acquire);
         head.wrapping_sub(tail) >= self.buffer.len()
     }
-    
+
     fn capacity(&self) -> Option<usize> {
         Some(self.buffer.len())
     }
@@ -282,7 +286,7 @@ impl<T: Send> SpscSender<T> {
     pub fn send(&self, value: T) -> Result<()> {
         self.channel.send(value)
     }
-    
+
     /// Try to send a value without blocking
     pub fn try_send(&self, value: T) -> Result<()> {
         self.channel.try_send(value)
@@ -307,7 +311,7 @@ impl<T: Send> SpscReceiver<T> {
     pub fn recv(&self) -> Result<T> {
         self.channel.recv()
     }
-    
+
     /// Try to receive a value without blocking
     pub fn try_recv(&self) -> Result<T> {
         self.channel.try_recv()
@@ -338,35 +342,37 @@ impl<T> MpmcChannel<T> {
             sender_count: 0,
             receiver_count: 0,
         };
-        
+
         Self {
             state: Arc::new((Mutex::new(state), Condvar::new(), Condvar::new())),
         }
     }
-    
+
     /// Create an unbounded channel
     pub fn unbounded() -> Self {
         Self::new(None)
     }
-    
+
     /// Create a bounded channel with given capacity
     pub fn bounded(capacity: usize) -> Self {
         Self::new(Some(capacity))
     }
-    
+
     /// Create a channel pair for ergonomic usage
     pub fn channel(capacity: Option<usize>) -> (MpmcSender<T>, MpmcReceiver<T>) {
         let channel = Arc::new(Self::new(capacity));
         let (mutex, _, _) = &*channel.state;
-        
+
         {
             let mut state = mutex.lock().unwrap();
             state.sender_count = 1;
             state.receiver_count = 1;
         }
-        
+
         (
-            MpmcSender { channel: channel.clone() },
+            MpmcSender {
+                channel: channel.clone(),
+            },
             MpmcReceiver { channel },
         )
     }
@@ -376,47 +382,47 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
     fn send(&self, value: T) -> Result<()> {
         let (mutex, not_full, not_empty) = &*self.state;
         let mut guard = mutex.lock().unwrap();
-        
+
         // Wait for space or channel closure
         while !guard.closed && guard.capacity.map_or(false, |cap| guard.queue.len() >= cap) {
             guard = not_full.wait(guard).unwrap();
         }
-        
+
         if guard.closed {
             return Err(ChannelError::Closed);
         }
-        
+
         guard.queue.push_back(value);
         not_empty.notify_one();
         Ok(())
     }
-    
+
     fn try_send(&self, value: T) -> Result<()> {
         let (mutex, _, not_empty) = &*self.state;
         let mut guard = mutex.lock().unwrap();
-        
+
         if guard.closed {
             return Err(ChannelError::Closed);
         }
-        
+
         if guard.capacity.map_or(false, |cap| guard.queue.len() >= cap) {
             return Err(ChannelError::Full);
         }
-        
+
         guard.queue.push_back(value);
         not_empty.notify_one();
         Ok(())
     }
-    
+
     fn recv(&self) -> Result<T> {
         let (mutex, not_full, not_empty) = &*self.state;
         let mut guard = mutex.lock().unwrap();
-        
+
         // Wait for message or channel closure
         while guard.queue.is_empty() && !guard.closed {
             guard = not_empty.wait(guard).unwrap();
         }
-        
+
         if let Some(value) = guard.queue.pop_front() {
             not_full.notify_one();
             Ok(value)
@@ -424,11 +430,11 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             Err(ChannelError::Closed)
         }
     }
-    
+
     fn try_recv(&self) -> Result<T> {
         let (mutex, not_full, _) = &*self.state;
         let mut guard = mutex.lock().unwrap();
-        
+
         if let Some(value) = guard.queue.pop_front() {
             not_full.notify_one();
             Ok(value)
@@ -438,19 +444,19 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             Err(ChannelError::Empty)
         }
     }
-    
+
     fn is_empty(&self) -> bool {
         let (mutex, _, _) = &*self.state;
         let guard = mutex.lock().unwrap();
         guard.queue.is_empty()
     }
-    
+
     fn is_full(&self) -> bool {
         let (mutex, _, _) = &*self.state;
         let guard = mutex.lock().unwrap();
         guard.capacity.map_or(false, |cap| guard.queue.len() >= cap)
     }
-    
+
     fn capacity(&self) -> Option<usize> {
         let (mutex, _, _) = &*self.state;
         let guard = mutex.lock().unwrap();
@@ -468,7 +474,7 @@ impl<T: Send> MpmcSender<T> {
     pub fn send(&self, value: T) -> Result<()> {
         self.channel.send(value)
     }
-    
+
     /// Try to send a value without blocking
     pub fn try_send(&self, value: T) -> Result<()> {
         self.channel.try_send(value)
@@ -480,7 +486,9 @@ impl<T> Clone for MpmcSender<T> {
         let (mutex, _, _) = &*self.channel.state;
         let mut guard = mutex.lock().unwrap();
         guard.sender_count += 1;
-        Self { channel: self.channel.clone() }
+        Self {
+            channel: self.channel.clone(),
+        }
     }
 }
 
@@ -506,7 +514,7 @@ impl<T: Send> MpmcReceiver<T> {
     pub fn recv(&self) -> Result<T> {
         self.channel.recv()
     }
-    
+
     /// Try to receive a value without blocking
     pub fn try_recv(&self) -> Result<T> {
         self.channel.try_recv()
@@ -518,7 +526,9 @@ impl<T> Clone for MpmcReceiver<T> {
         let (mutex, _, _) = &*self.channel.state;
         let mut guard = mutex.lock().unwrap();
         guard.receiver_count += 1;
-        Self { channel: self.channel.clone() }
+        Self {
+            channel: self.channel.clone(),
+        }
     }
 }
 
@@ -566,7 +576,7 @@ pub fn unbounded<T>() -> (MpmcSender<T>, MpmcReceiver<T>) {
 }
 
 /// Zero-copy hybrid channel for async/sync interop
-/// 
+///
 /// This channel uses a lock-free ring buffer with memory barriers
 /// to ensure safe zero-copy communication between async and sync contexts.
 pub struct HybridChannel<T> {
@@ -586,10 +596,10 @@ impl<T: Send> HybridChannel<T> {
             sync_notifier: Arc::new(AtomicBool::new(false)),
             parker: Arc::new(Mutex::new(Vec::new())),
         };
-        
+
         channel.split()
     }
-    
+
     /// Split the channel into sender and receiver halves
     fn split(self) -> (HybridSender<T>, HybridReceiver<T>) {
         let sender = HybridSender {
@@ -598,32 +608,32 @@ impl<T: Send> HybridChannel<T> {
             sync_notifier: self.sync_notifier.clone(),
             parker: self.parker.clone(),
         };
-        
+
         let receiver = HybridReceiver {
             ring: self.ring,
             async_notifier: self.async_notifier,
             sync_notifier: self.sync_notifier,
             parker: self.parker,
         };
-        
+
         (sender, receiver)
     }
-    
+
     /// Get the capacity of the channel
     pub fn capacity(&self) -> usize {
         self.ring.capacity()
     }
-    
+
     /// Check if the channel is empty
     pub fn is_empty(&self) -> bool {
         self.ring.is_empty()
     }
-    
+
     /// Check if the channel is full
     pub fn is_full(&self) -> bool {
         self.ring.is_full()
     }
-    
+
     /// Get the number of items currently in the channel
     pub fn len(&self) -> usize {
         self.ring.len()
@@ -641,45 +651,47 @@ pub struct HybridSender<T> {
 impl<T: Send> HybridSender<T> {
     /// Send value with zero-copy when possible
     pub fn send(&self, value: T) -> Result<()> {
-        self.ring.try_produce(value).map_err(|_| ChannelError::Full)?;
-        
+        self.ring
+            .try_produce(value)
+            .map_err(|_| ChannelError::Full)?;
+
         // Notify both async and sync waiters
         self.async_notifier.store(true, Ordering::Release);
         self.sync_notifier.store(true, Ordering::Release);
-        
+
         // Unpark any waiting threads
         if let Ok(mut parked) = self.parker.lock() {
             for thread in parked.drain(..) {
                 thread.unpark();
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Try to send without blocking
     pub fn try_send(&self, value: T) -> Result<()> {
         self.send(value)
     }
-    
+
     /// Send with timeout
     pub fn send_timeout(&self, mut value: T, timeout: std::time::Duration) -> Result<()> {
         let start = std::time::Instant::now();
-        
+
         loop {
             match self.ring.try_produce(value) {
                 Ok(()) => {
                     // Notify waiters
                     self.async_notifier.store(true, Ordering::Release);
                     self.sync_notifier.store(true, Ordering::Release);
-                    
+
                     // Unpark any waiting threads
                     if let Ok(mut parked) = self.parker.lock() {
                         for thread in parked.drain(..) {
                             thread.unpark();
                         }
                     }
-                    
+
                     return Ok(());
                 }
                 Err(v) => {
@@ -692,12 +704,12 @@ impl<T: Send> HybridSender<T> {
             }
         }
     }
-    
+
     /// Check if the sender can send without blocking
     pub fn can_send(&self) -> bool {
         !self.ring.is_full()
     }
-    
+
     /// Get the number of items that can be sent without blocking
     pub fn available_capacity(&self) -> usize {
         self.ring.capacity() - self.ring.len()
@@ -732,16 +744,16 @@ impl<T: Send> HybridReceiver<T> {
         if let Some(value) = self.ring.try_consume() {
             return Ok(value);
         }
-        
+
         // Slow path: park the thread and wait for notification
         let current_thread = std::thread::current();
-        
+
         loop {
             // Register this thread for unparking
             if let Ok(mut parked) = self.parker.lock() {
                 parked.push(current_thread.clone());
             }
-            
+
             // Check again after registering (to avoid race)
             if let Some(value) = self.ring.try_consume() {
                 // Remove ourselves from the parker list
@@ -750,26 +762,26 @@ impl<T: Send> HybridReceiver<T> {
                 }
                 return Ok(value);
             }
-            
+
             // Park until unparked by sender
             std::thread::park();
-            
+
             // Try again after being unparked
             if let Some(value) = self.ring.try_consume() {
                 return Ok(value);
             }
         }
     }
-    
+
     /// Try to receive without blocking
     pub fn try_recv(&self) -> Result<T> {
         self.ring.try_consume().ok_or(ChannelError::Empty)
     }
-    
+
     /// Receive with timeout
     pub fn recv_timeout(&self, timeout: std::time::Duration) -> Result<T> {
         let start = std::time::Instant::now();
-        
+
         loop {
             match self.try_recv() {
                 Ok(value) => return Ok(value),
@@ -777,16 +789,16 @@ impl<T: Send> HybridReceiver<T> {
                     if start.elapsed() >= timeout {
                         return Err(ChannelError::Empty);
                     }
-                    
+
                     // Register for wake-up before checking again
                     let current_thread = std::thread::current();
                     if let Ok(mut parked) = self.parker.lock() {
                         parked.push(current_thread.clone());
                     }
-                    
+
                     // Park with timeout
                     std::thread::park_timeout(timeout - start.elapsed());
-                    
+
                     // Remove from parker list
                     if let Ok(mut parked) = self.parker.lock() {
                         parked.retain(|t| !t.id().eq(&current_thread.id()));
@@ -796,17 +808,17 @@ impl<T: Send> HybridReceiver<T> {
             }
         }
     }
-    
+
     /// Check if there are messages available
     pub fn is_empty(&self) -> bool {
         self.ring.is_empty()
     }
-    
+
     /// Get the number of messages available
     pub fn len(&self) -> usize {
         self.ring.len()
     }
-    
+
     /// Drain all available messages
     pub fn drain(&self) -> Vec<T> {
         let mut messages = Vec::new();
@@ -815,7 +827,7 @@ impl<T: Send> HybridReceiver<T> {
         }
         messages
     }
-    
+
     /// Async receive for use in async contexts
     #[cfg(feature = "std")]
     pub async fn recv_async(&self) -> Result<T> {
@@ -838,66 +850,66 @@ impl<T: Send> HybridReceiver<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_hybrid_channel() {
         let (tx, rx) = HybridChannel::<i32>::new(4);
-        
+
         // Test basic send/receive
         tx.send(42).unwrap();
         assert_eq!(rx.recv().unwrap(), 42);
-        
+
         // Test try_recv on empty channel
         assert!(matches!(rx.try_recv(), Err(ChannelError::Empty)));
-        
+
         // Test timeout
         let result = rx.recv_timeout(std::time::Duration::from_millis(100));
         assert!(matches!(result, Err(ChannelError::Empty)));
-        
+
         // Test multiple sends
         for i in 0..4 {
             tx.send(i).unwrap();
         }
-        
+
         // Channel should be full
         assert!(!tx.can_send());
         assert_eq!(tx.available_capacity(), 0);
-        
+
         // Test drain
         let values = rx.drain();
         assert_eq!(values, vec![0, 1, 2, 3]);
-        
+
         // Test clone
         let tx2 = tx.clone();
         tx2.send(100).unwrap();
         assert_eq!(rx.recv().unwrap(), 100);
     }
-    
+
     #[test]
     fn test_spsc_channel() {
         let (tx, rx) = spsc::<i32>(4);
-        
+
         // Send some values
         assert!(tx.send(1).is_ok());
         assert!(tx.send(2).is_ok());
-        
+
         // Receive values
         assert_eq!(rx.recv().unwrap(), 1);
         assert_eq!(rx.recv().unwrap(), 2);
-        
+
         // Channel should be empty
         assert!(rx.try_recv().is_err());
     }
-    
+
     #[test]
     fn test_mpmc_channel() {
         let (tx, rx) = mpmc::<i32>(4);
         let tx2 = tx.clone();
-        
+
         // Multiple senders
         assert!(tx.send(1).is_ok());
         assert!(tx2.send(2).is_ok());
-        
+
         // Receive values
         let mut values = vec![rx.recv().unwrap(), rx.recv().unwrap()];
         values.sort();
@@ -907,30 +919,30 @@ mod tests {
     #[test]
     fn test_unbounded_channel() {
         let (tx, rx) = unbounded::<i32>();
-        
+
         // Send some values
         for i in 0..10 {
             tx.send(i).unwrap();
         }
-        
+
         // Receive values
         for i in 0..10 {
             assert_eq!(rx.recv().unwrap(), i);
         }
     }
-    
+
     #[test]
     fn test_spsc_blocking_behavior() {
         use std::thread;
         use std::time::{Duration, Instant};
-        
+
         // Create a small channel to test blocking
         let (tx, rx) = spsc::<i32>(2);
-        
+
         // Fill the channel
         tx.send(1).unwrap();
         tx.send(2).unwrap();
-        
+
         // Spawn a thread that will send after a delay
         let tx_clone = tx.clone();
         let handle = thread::spawn(move || {
@@ -938,39 +950,45 @@ mod tests {
             // This will unblock the main thread's send
             rx.recv().unwrap();
         });
-        
+
         // This send should block until the spawned thread receives
         let start = Instant::now();
         tx_clone.send(3).unwrap();
         let elapsed = start.elapsed();
-        
+
         // Verify that we blocked for approximately the sleep duration
-        assert!(elapsed >= Duration::from_millis(40), "Send should have blocked");
-        
+        assert!(
+            elapsed >= Duration::from_millis(40),
+            "Send should have blocked"
+        );
+
         handle.join().unwrap();
     }
-    
+
     #[test]
     fn test_spsc_recv_blocking_behavior() {
         use std::thread;
         use std::time::{Duration, Instant};
-        
+
         let (tx, rx) = spsc::<i32>(10);
-        
+
         // Spawn a thread that will send after a delay
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(50));
             tx.send(42).unwrap();
         });
-        
+
         // This recv should block until the spawned thread sends
         let start = Instant::now();
         let value = rx.recv().unwrap();
         let elapsed = start.elapsed();
-        
+
         assert_eq!(value, 42);
         // Verify that we blocked for approximately the sleep duration
-        assert!(elapsed >= Duration::from_millis(40), "Recv should have blocked");
+        assert!(
+            elapsed >= Duration::from_millis(40),
+            "Recv should have blocked"
+        );
     }
 
     #[test]
@@ -978,11 +996,11 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::thread;
         use std::time::{Duration, Instant};
-        
+
         let (sender, receiver) = HybridChannel::<i32>::new(10);
         let received = Arc::new(AtomicBool::new(false));
         let received_clone = received.clone();
-        
+
         // Start receiver thread
         let receiver_thread = thread::spawn(move || {
             let start = Instant::now();
@@ -991,18 +1009,18 @@ mod tests {
             received_clone.store(true, Ordering::Release);
             (value, elapsed)
         });
-        
+
         // Wait a bit to ensure receiver is parked
         thread::sleep(Duration::from_millis(100));
-        
+
         // Send value - this should unpark the receiver
         sender.send(42).unwrap();
-        
+
         // Join and check results
         let (value, elapsed) = receiver_thread.join().unwrap();
         assert_eq!(value, 42);
         assert!(received.load(Ordering::Acquire));
-        
+
         // The receiver should have been parked for ~100ms
         assert!(elapsed >= Duration::from_millis(90));
         assert!(elapsed < Duration::from_millis(200));

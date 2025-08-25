@@ -20,11 +20,11 @@ extern crate alloc;
 pub mod platform;
 
 // Core modules
-pub mod task;
-pub mod executor;
-pub mod scheduler;
 pub mod error;
+pub mod executor;
 pub mod pool;
+pub mod scheduler;
+pub mod task;
 
 // Unified channel implementation
 #[cfg(feature = "std")]
@@ -53,17 +53,17 @@ pub mod security;
 // pub mod hybrid; // Removed: Duplicate implementation, using moirai-executor::HybridExecutor instead
 
 // Core type definitions
-pub use task::{Task, TaskId, Priority, TaskContext, TaskFuture, TaskExt, BoxedTask, TaskHandle, TaskBuilder};
-pub use executor::{TaskSpawner, TaskManager, TaskStatus, ExecutorConfig};
-pub use scheduler::{Scheduler, SchedulerId, SchedulerConfig};
-pub use error::{TaskError, ExecutorError, SchedulerError};
+pub use error::{ExecutorError, SchedulerError, TaskError};
+pub use executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus};
+pub use scheduler::{Scheduler, SchedulerConfig, SchedulerId};
+pub use task::{
+    BoxedTask, Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskHandle, TaskId,
+};
 
 #[cfg(feature = "std")]
 pub use channel::{
-    Channel, ChannelError,
-    SpscChannel, SpscSender, SpscReceiver,
-    MpmcChannel, MpmcSender, MpmcReceiver,
-    spsc, mpmc, unbounded, Select
+    mpmc, spsc, unbounded, Channel, ChannelError, MpmcChannel, MpmcReceiver, MpmcSender, Select,
+    SpscChannel, SpscReceiver, SpscSender,
 };
 
 // Re-export CacheAligned from moirai-utils for convenience
@@ -71,12 +71,12 @@ pub use moirai_utils::CacheAligned;
 
 #[cfg(feature = "coroutine")]
 pub use coroutine::{
-    Coroutine, CoroutineState, CoroutineResult, CoroutineIterator, 
-    CoroutineFuture, SimpleCoroutine, CoroutineExt
+    Coroutine, CoroutineExt, CoroutineFuture, CoroutineIterator, CoroutineResult, CoroutineState,
+    SimpleCoroutine,
 };
 
 // Re-export platform types for convenience
-pub use platform::{Box, Vec, String, Arc};
+pub use platform::{Arc, Box, String, Vec};
 
 /// Type alias for boxed errors.
 pub type BoxError = Box<dyn core::error::Error + Send + Sync>;
@@ -91,20 +91,16 @@ pub use wasm_executor::{WasmExecutor, WasmTask};
 /// Prelude module for convenient imports.
 pub mod prelude {
     pub use crate::{
-        Task, TaskContext, TaskId, Priority, TaskFuture, TaskExt,
-        TaskSpawner, TaskManager, TaskStatus,
-        Scheduler, SchedulerId, 
-        TaskError, ExecutorError, SchedulerError,
+        ExecutorError, Priority, Scheduler, SchedulerError, SchedulerId, Task, TaskContext,
+        TaskError, TaskExt, TaskFuture, TaskId, TaskManager, TaskSpawner, TaskStatus,
     };
-    
+
     #[cfg(feature = "std")]
     pub use crate::{
-        Channel, ChannelError,
-        SpscSender, SpscReceiver,
-        MpmcSender, MpmcReceiver,
-        spsc, mpmc, unbounded
+        mpmc, spsc, unbounded, Channel, ChannelError, MpmcReceiver, MpmcSender, SpscReceiver,
+        SpscSender,
     };
-    
+
     #[cfg(all(target_arch = "wasm32", feature = "wasm"))]
     pub use crate::{WasmExecutor, WasmTask};
 }

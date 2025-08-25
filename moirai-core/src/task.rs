@@ -41,7 +41,7 @@
 //! use moirai_core::{TaskBuilder, TaskExt, Task};
 //!
 //! let base_task = TaskBuilder::new().build(|| 21);
-//! 
+//!
 //! // Chain operations
 //! let doubled = base_task.then(|x| x * 2);
 //! let result = doubled.execute();
@@ -75,8 +75,8 @@
 
 use crate::error::TaskError;
 use core::future::Future;
-use core::pin::Pin;
 use core::marker::PhantomData;
+use core::pin::Pin;
 
 #[cfg(feature = "std")]
 use std::sync::mpsc;
@@ -137,13 +137,13 @@ impl TaskContext {
             name: None,
         }
     }
-    
+
     /// Set the priority for this task.
     pub const fn with_priority(mut self, priority: Priority) -> Self {
         self.priority = priority;
         self
     }
-    
+
     /// Set the name for this task.
     pub const fn with_name(mut self, name: &'static str) -> Self {
         self.name = Some(name);
@@ -155,7 +155,7 @@ impl TaskContext {
 pub trait BoxedTask: Send + 'static {
     /// Execute this task and return a boxed result.
     fn execute_boxed(self: Box<Self>);
-    
+
     /// Get the task context for scheduling and debugging.
     fn context(&self) -> &TaskContext;
 }
@@ -213,10 +213,13 @@ where
 {
     type Output = T::Output;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+    fn poll(
+        self: Pin<&mut Self>,
+        _cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
         // Get a mutable reference to the task option
         let task_opt = &mut self.get_mut().task;
-        
+
         match task_opt.take() {
             Some(task) => core::task::Poll::Ready(task.execute()),
             None => core::task::Poll::Pending, // Task already executed
@@ -245,9 +248,9 @@ impl<T: Task> TaskWrapper<T> {
 
     /// Create a new task wrapper with result and completion senders.
     pub fn with_result_sender(
-        task: T, 
-        result_sender: mpsc::Sender<Result<T::Output, TaskError>>, 
-        completion_sender: mpsc::Sender<()>
+        task: T,
+        result_sender: mpsc::Sender<Result<T::Output, TaskError>>,
+        completion_sender: mpsc::Sender<()>,
     ) -> Self {
         Self {
             task,
@@ -266,17 +269,17 @@ where
 
     fn execute(self) -> Self::Output {
         let result = self.task.execute();
-        
+
         // Send result through channel if available
         if let Some(sender) = self.result_sender {
             let _ = sender.send(Ok(result.clone()));
         }
-        
+
         // Signal completion
         if let Some(sender) = self.completion_sender {
             let _ = sender.send(());
         }
-        
+
         result
     }
 
@@ -293,7 +296,7 @@ where
     fn execute_boxed(self: Box<Self>) {
         let _ = (*self).execute();
     }
-    
+
     fn context(&self) -> &TaskContext {
         self.task.context()
     }
@@ -367,11 +370,12 @@ impl<T> TaskHandle<T> {
     /// `true` if the task has completed (successfully or with error), `false` if still running
     #[must_use]
     pub fn is_finished(&self) -> bool {
-        self.result_receiver
-            .as_ref()
-            .map_or(false, |receiver| {
-                matches!(receiver.try_recv(), Ok(_) | Err(mpsc::TryRecvError::Disconnected))
-            })
+        self.result_receiver.as_ref().map_or(false, |receiver| {
+            matches!(
+                receiver.try_recv(),
+                Ok(_) | Err(mpsc::TryRecvError::Disconnected)
+            )
+        })
     }
 }
 
@@ -420,7 +424,7 @@ pub trait TaskExt: Task + Sized {
     {
         Mapped::new(self, mapper)
     }
-    
+
     /// Convert this task into a task with the given context.
     fn with_context(self, context: TaskContext) -> ContextualTask<Self> {
         ContextualTask::new(self, context)
@@ -442,11 +446,11 @@ impl<T: Task> ContextualTask<T> {
 
 impl<T: Task> Task for ContextualTask<T> {
     type Output = T::Output;
-    
+
     fn execute(self) -> Self::Output {
         self.task.execute()
     }
-    
+
     fn context(&self) -> &TaskContext {
         &self.context
     }
@@ -483,7 +487,7 @@ where
     C::Return: Send + 'static,
 {
     type Output = C::Return;
-    
+
     fn execute(mut self) -> Self::Output {
         if let Some(mut coroutine) = self.coroutine.take() {
             // Run the coroutine to completion
@@ -507,7 +511,7 @@ where
             panic!("Coroutine already consumed");
         }
     }
-    
+
     fn context(&self) -> &TaskContext {
         &self.context
     }
@@ -594,8 +598,8 @@ pub struct BaseTask<F, R> {
     _phantom: core::marker::PhantomData<R>,
 }
 
-impl<F, R> BaseTask<F, R> 
-where 
+impl<F, R> BaseTask<F, R>
+where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
@@ -625,7 +629,7 @@ where
             base: BaseTask::new(func, context),
         }
     }
-    
+
     /// Chain another operation after this task.
     pub fn then<G, S>(self, continuation: G) -> Chained<Self, G>
     where
@@ -634,7 +638,7 @@ where
     {
         Chained::new(self, continuation)
     }
-    
+
     /// Map the output of this task.
     pub fn map<G, S>(self, mapper: G) -> Mapped<Self, G>
     where
@@ -771,10 +775,7 @@ impl<T, F> Catch<T, F> {
         T: Task,
     {
         let _context = task.context().clone();
-        Self {
-            task,
-            handler,
-        }
+        Self { task, handler }
     }
 }
 
@@ -978,21 +979,17 @@ mod tests {
     #[test]
     fn test_task_future() {
         let id = TaskId::new(1);
-        let task = TaskBuilder::new()
-            .with_id(id)
-            .build(|| 42);
+        let task = TaskBuilder::new().with_id(id).build(|| 42);
         let future = TaskFuture::new(task, TaskContext::new(id));
-        
+
         assert_eq!(future.context().id, id);
     }
 
     #[test]
     fn test_task_composition() {
         let id = TaskId::new(1);
-        let task = TaskBuilder::new()
-            .with_id(id)
-            .build(|| 10);
-        
+        let task = TaskBuilder::new().with_id(id).build(|| 10);
+
         // Test map combinator
         let mapped = task.map(|x| x * 2);
         assert_eq!(mapped.execute(), 20);
@@ -1001,15 +998,11 @@ mod tests {
     #[test]
     fn test_task_group() {
         let mut group = Group::new(TaskId::new(1));
-        
-        let task1 = TaskBuilder::new()
-            .with_id(TaskId::new(2))
-            .build(|| 42);
-        
-        let task2 = TaskBuilder::new()
-            .with_id(TaskId::new(3))
-            .build(|| 24);
-        
+
+        let task1 = TaskBuilder::new().with_id(TaskId::new(2)).build(|| 42);
+
+        let task2 = TaskBuilder::new().with_id(TaskId::new(3)).build(|| 24);
+
         // Wrap tasks in closures for the group
         group.add_task(|| {
             let _ = task1.execute();
@@ -1017,10 +1010,10 @@ mod tests {
         group.add_task(|| {
             let _ = task2.execute();
         });
-        
+
         assert_eq!(group.len(), 2);
         assert!(!group.is_empty());
-        
+
         // Execute the group
         group.execute();
     }
@@ -1029,17 +1022,20 @@ mod tests {
     fn test_parameterized_task() {
         let id = TaskId::new(1);
         let task = Parameterized::new(|x: i32| x * 3, 7, TaskContext::new(id));
-        
+
         assert_eq!(task.execute(), 21);
     }
 
     #[test]
     fn test_spawner_task() {
         let id = TaskId::new(1);
-        let spawner = Spawner::new(|| {
-            // This would spawn other tasks in a real implementation
-        }, TaskContext::new(id));
-        
+        let spawner = Spawner::new(
+            || {
+                // This would spawn other tasks in a real implementation
+            },
+            TaskContext::new(id),
+        );
+
         spawner.execute(); // Should not panic
     }
 }

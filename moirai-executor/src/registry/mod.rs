@@ -3,10 +3,10 @@
 //! This module provides centralized task tracking, enabling monitoring,
 //! debugging, and coordination of task execution across the system.
 
+use super::task::TaskMetadata;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use super::task::TaskMetadata;
 
 /// Central registry for tracking all tasks in the system
 #[derive(Debug)]
@@ -49,7 +49,8 @@ impl TaskRegistry {
 
     /// Check if a task is completed
     pub fn is_completed(&self, task_id: u64) -> bool {
-        self.tasks.get(&task_id)
+        self.tasks
+            .get(&task_id)
             .map(|m| m.completed_at.is_some())
             .unwrap_or(false)
     }
@@ -72,14 +73,16 @@ impl TaskRegistry {
 
     /// Get count of active tasks
     pub fn active_count(&self) -> usize {
-        self.tasks.values()
+        self.tasks
+            .values()
             .filter(|m| m.completed_at.is_none())
             .count()
     }
 
     /// Get count of completed tasks
     pub fn completed_count(&self) -> usize {
-        self.tasks.values()
+        self.tasks
+            .values()
             .filter(|m| m.completed_at.is_some())
             .count()
     }
