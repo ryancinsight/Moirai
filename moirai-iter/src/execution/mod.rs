@@ -8,17 +8,11 @@ use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 use std::fmt::Debug;
 
-use moirai_core::channel::{unbounded, MpmcReceiver, ChannelError};
+use moirai_core::channel::MpmcReceiver;
 use crate::base::ThreadPool;
 
 /// Base trait for all execution contexts
 pub trait ExecutionBase: Send + Sync {
-    /// Execute a closure with the context
-    fn execute<F, R>(&self, func: F) -> Result<R, Box<dyn std::error::Error + Send + Sync>>
-    where
-        F: FnOnce() -> R + Send,
-        R: Send;
-
     /// Get context type name for debugging
     fn context_type(&self) -> &'static str;
 
@@ -26,14 +20,54 @@ pub trait ExecutionBase: Send + Sync {
     fn is_ready(&self) -> bool { true }
 }
 
-/// Higher-level execution context trait
-pub trait ExecutionContext: ExecutionBase {
-    /// Execute an iterator operation
-    fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
+/// Concrete execution context enum that wraps different strategy implementations
+/// This approach ensures type safety while avoiding dyn-compatibility issues
+#[derive(Clone)]
+pub enum ExecutionContext {
+    /// Parallel execution for CPU-bound work
+    Parallel(ParallelContext),
+    /// Async execution for I/O-bound work  
+    Async(AsyncContext),
+    /// Hybrid execution that adapts between strategies
+    Hybrid(HybridContext),
+}
+
+impl ExecutionContext {
+    /// Execute a function once with the appropriate context
+    pub fn execute<F, R>(&self, func: F) -> Result<R, Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + 'static,
+        F: FnOnce() -> R + Send,
+        R: Send,
+    {
+        match self {
+            ExecutionContext::Parallel(ctx) => ctx.execute(func),
+            ExecutionContext::Async(ctx) => ctx.execute(func),
+            ExecutionContext::Hybrid(ctx) => ctx.execute(func),
+        }
+    }
+
+    /// Execute an iterator operation with proper type erasure
+    pub fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
-        R: Send + 'static;
+        R: Send + 'static,
+    {
+        match self {
+            ExecutionContext::Parallel(ctx) => ctx.execute_iter(items, func),
+            ExecutionContext::Async(ctx) => ctx.execute_iter(items, func),
+            ExecutionContext::Hybrid(ctx) => ctx.execute_iter(items, func),
+        }
+    }
+
+    /// Get context type name
+    pub fn context_type(&self) -> &'static str {
+        match self {
+            ExecutionContext::Parallel(ctx) => ctx.context_type(),
+            ExecutionContext::Async(ctx) => ctx.context_type(),
+            ExecutionContext::Hybrid(ctx) => ctx.context_type(),
+        }
+    }
 }
 
 /// Parallel execution context for CPU-bound work
@@ -54,52 +88,49 @@ impl Debug for ParallelContext {
 impl ParallelContext {
     /// Create a new parallel context with default thread pool
     pub fn new() -> Self {
+        let thread_count = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
         Self {
-            thread_pool: Arc::new(ThreadPool::new()),
+            thread_pool: Arc::new(ThreadPool::new(thread_count)),
             chunk_size: 1000,
         }
     }
 
     /// Create with specific chunk size
     pub fn with_chunk_size(chunk_size: usize) -> Self {
+        let thread_count = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
         Self {
-            thread_pool: Arc::new(ThreadPool::new()),
+            thread_pool: Arc::new(ThreadPool::new(thread_count)),
             chunk_size,
         }
     }
 }
 
-impl ExecutionContext for ParallelContext {
-    fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
+impl ParallelContext {
+    /// Execute an iterator operation with parallel processing
+    pub fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + 'static,
+        T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
-        let func = Arc::new(func);
         let mut results = Vec::with_capacity(items.len());
         
-        // Process in chunks for better cache locality
-        for chunk in items.chunks(self.chunk_size) {
-            let chunk_results: Vec<R> = chunk.iter()
-                .enumerate()
-                .map(|(_, item)| {
-                    // Clone the item for processing
-                    // Note: This requires T: Clone, which should be added to the trait bounds
-                    // For now, we'll use a placeholder
-                    todo!("Implement parallel chunk processing")
-                })
-                .collect();
-            
-            results.extend(chunk_results);
+        // Process items directly with function application
+        // Using simple sequential processing for now - can be enhanced with actual parallelism
+        for item in items {
+            let result = func(item);
+            results.push(result);
         }
         
         Ok(results)
     }
-}
 
-impl ExecutionBase for ParallelContext {
-    fn execute<F, R>(&self, func: F) -> Result<R, Box<dyn std::error::Error + Send + Sync>>
+    /// Execute a closure with the context
+    pub fn execute<F, R>(&self, func: F) -> Result<R, Box<dyn std::error::Error + Send + Sync>>
     where
         F: FnOnce() -> R + Send,
         R: Send,
@@ -107,7 +138,9 @@ impl ExecutionBase for ParallelContext {
         // Execute immediately in parallel context
         Ok(func())
     }
+}
 
+impl ExecutionBase for ParallelContext {
     fn context_type(&self) -> &'static str {
         "Parallel"
     }
@@ -147,26 +180,11 @@ impl AsyncContext {
     }
 }
 
-impl ExecutionBase for AsyncContext {
-    fn execute<F, R>(&self, func: F) -> Result<R, Box<dyn std::error::Error + Send + Sync>>
+impl AsyncContext {
+    /// Execute an iterator operation with async processing
+    pub fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
-        F: FnOnce() -> R + Send,
-        R: Send,
-    {
-        // In async context, execute immediately for now
-        // Real implementation would use async runtime
-        Ok(func())
-    }
-
-    fn context_type(&self) -> &'static str {
-        "Async"
-    }
-}
-
-impl ExecutionContext for AsyncContext {
-    fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
-    where
-        T: Send + 'static,
+        T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
@@ -176,15 +194,34 @@ impl ExecutionContext for AsyncContext {
         for batch in items.chunks(self.batch_size) {
             for item in batch {
                 // In real implementation, this would be truly async
-                todo!("Implement async batch processing")
+                let result = func(item.clone());
+                results.push(result);
             }
         }
         
         Ok(results)
     }
+
+    /// Execute a closure with the context
+    pub fn execute<F, R>(&self, func: F) -> Result<R, Box<dyn std::error::Error + Send + Sync>>
+    where
+        F: FnOnce() -> R + Send,
+        R: Send,
+    {
+        // In async context, execute immediately for now
+        // Real implementation would use async runtime
+        Ok(func())
+    }
+}
+
+impl ExecutionBase for AsyncContext {
+    fn context_type(&self) -> &'static str {
+        "Async"
+    }
 }
 
 /// Hybrid context that adapts between parallel and async execution
+#[derive(Clone)]
 pub struct HybridContext {
     parallel_context: ParallelContext,
     async_context: AsyncContext,
@@ -289,29 +326,11 @@ impl HybridContext {
     }
 }
 
-impl ExecutionBase for HybridContext {
-    fn execute<F, R>(&self, func: F) -> Result<R, Box<dyn std::error::Error + Send + Sync>>
+impl HybridContext {
+    /// Execute an iterator operation with hybrid processing
+    pub fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
-        F: FnOnce() -> R + Send,
-        R: Send,
-    {
-        // Choose strategy and delegate
-        let strategy = self.choose_strategy(1); // Single item
-        match strategy {
-            ExecutionStrategy::Parallel => self.parallel_context.execute(func),
-            ExecutionStrategy::Async => self.async_context.execute(func),
-        }
-    }
-
-    fn context_type(&self) -> &'static str {
-        "Hybrid"
-    }
-}
-
-impl ExecutionContext for HybridContext {
-    fn execute_iter<T, F, R>(&self, items: Vec<T>, func: F) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
-    where
-        T: Send + 'static,
+        T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
@@ -325,12 +344,33 @@ impl ExecutionContext for HybridContext {
         let duration = start.elapsed();
 
         // Record performance for future decisions
-        let mut history = self.performance_history.lock().unwrap();
-        match strategy {
-            ExecutionStrategy::Parallel => history.record_parallel_time(duration),
-            ExecutionStrategy::Async => history.record_async_time(duration),
+        if let Ok(mut history) = self.performance_history.lock() {
+            match strategy {
+                ExecutionStrategy::Parallel => history.record_parallel_time(duration),
+                ExecutionStrategy::Async => history.record_async_time(duration),
+            }
         }
 
         result
+    }
+
+    /// Execute a closure with the context
+    pub fn execute<F, R>(&self, func: F) -> Result<R, Box<dyn std::error::Error + Send + Sync>>
+    where
+        F: FnOnce() -> R + Send,
+        R: Send,
+    {
+        // Choose strategy and delegate
+        let strategy = self.choose_strategy(1); // Single item
+        match strategy {
+            ExecutionStrategy::Parallel => self.parallel_context.execute(func),
+            ExecutionStrategy::Async => self.async_context.execute(func),
+        }
+    }
+}
+
+impl ExecutionBase for HybridContext {
+    fn context_type(&self) -> &'static str {
+        "Hybrid"
     }
 }

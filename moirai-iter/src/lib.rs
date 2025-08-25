@@ -15,13 +15,6 @@
 //! - **Performance**: SIMD vectorization and CPU optimization
 //! - **Pure Rust std**: No external dependencies, pure standard library implementation
 
-use std::sync::Arc;
-use std::pin::Pin;
-use std::future::Future;
-use std::task::{Context as TaskContext, Poll};
-use std::time::Duration;
-use std::fmt::Debug;
-
 // Module declarations following SRP and SOC
 pub mod base;
 pub mod execution;
@@ -75,7 +68,6 @@ impl<T: Send + Clone + 'static> ParIter<T> {
     pub fn filter<F>(self, predicate: F) -> ParIter<T>
     where
         F: Fn(&T) -> bool + Send + Sync + 'static,
-        T: Clone,
     {
         let filtered: Vec<T> = self.data.into_iter()
             .filter(|item| predicate(item))
@@ -87,7 +79,6 @@ impl<T: Send + Clone + 'static> ParIter<T> {
     pub fn reduce<F>(self, func: F) -> Option<T>
     where
         F: Fn(T, T) -> T + Send + Sync + 'static,
-        T: Clone,
     {
         self.data.into_iter().reduce(func)
     }
@@ -98,7 +89,7 @@ impl<T: Send + Clone + 'static> ParIter<T> {
     }
 }
 
-impl<T: Send> IntoParallelIterator for Vec<T> {
+impl<T: Send + Clone + 'static> IntoParallelIterator for Vec<T> {
     type Item = T;
     
     fn into_par_iter(self) -> ParIter<Self::Item> {
@@ -109,36 +100,35 @@ impl<T: Send> IntoParallelIterator for Vec<T> {
 /// Main iterator type that adapts to different execution contexts
 pub struct MoiraiIterator<T> {
     data: Vec<T>,
-    context: Box<dyn ExecutionContext>,
+    context: ExecutionContext,
 }
 
-impl<T: Send + 'static> MoiraiIterator<T> {
+impl<T: Send + Clone + 'static> MoiraiIterator<T> {
     /// Create a new iterator with the given execution context
-    pub fn new(data: Vec<T>, context: Box<dyn ExecutionContext>) -> Self {
+    pub fn new(data: Vec<T>, context: ExecutionContext) -> Self {
         Self { data, context }
     }
 
     /// Create with parallel context
     pub fn parallel(data: Vec<T>) -> Self {
-        Self::new(data, Box::new(ParallelContext::new()))
+        Self::new(data, ExecutionContext::Parallel(ParallelContext::new()))
     }
 
     /// Create with async context
     pub fn async_iter(data: Vec<T>) -> Self {
-        Self::new(data, Box::new(AsyncContext::new()))
+        Self::new(data, ExecutionContext::Async(AsyncContext::new()))
     }
 
     /// Create with hybrid context
     pub fn hybrid(data: Vec<T>) -> Self {
-        Self::new(data, Box::new(HybridContext::new()))
+        Self::new(data, ExecutionContext::Hybrid(HybridContext::new()))
     }
 
     /// Map operation that preserves the execution context
     pub fn map<F, R>(self, func: F) -> MoiraiIterator<R>
     where
         F: Fn(T) -> R + Send + Sync + 'static,
-        R: Send + 'static,
-        T: Clone,
+        R: Send + Clone + 'static,
     {
         let results = self.context.execute_iter(self.data, func)
             .unwrap_or_else(|_| vec![]);
@@ -156,7 +146,6 @@ impl<T: Send + 'static> MoiraiIterator<T> {
     pub fn filter<F>(self, predicate: F) -> MoiraiIterator<T>
     where
         F: Fn(&T) -> bool + Send + Sync + 'static,
-        T: Clone,
     {
         let filtered: Vec<T> = self.data.into_iter()
             .filter(|item| predicate(item))
@@ -190,28 +179,27 @@ impl<T: Send + 'static> MoiraiIterator<T> {
     pub async fn for_each<F>(self, func: F)
     where
         F: Fn(T) -> () + Send + Sync + 'static,
-        T: Clone,
     {
         let _ = self.context.execute_iter(self.data, func);
     }
 }
 
 /// Convenience function to create a Moirai iterator
-pub fn moirai_iter<T: Send + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
+pub fn moirai_iter<T: Send + Clone + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
     MoiraiIterator::hybrid(data)
 }
 
 /// Create a parallel iterator
-pub fn moirai_iter_parallel<T: Send + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
+pub fn moirai_iter_parallel<T: Send + Clone + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
     MoiraiIterator::parallel(data)
 }
 
 /// Create an async iterator
-pub fn moirai_iter_async<T: Send + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
+pub fn moirai_iter_async<T: Send + Clone + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
     MoiraiIterator::async_iter(data)
 }
 
 /// Create a hybrid iterator
-pub fn moirai_iter_hybrid<T: Send + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
+pub fn moirai_iter_hybrid<T: Send + Clone + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
     MoiraiIterator::hybrid(data)
 }
