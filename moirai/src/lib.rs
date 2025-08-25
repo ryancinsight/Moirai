@@ -618,7 +618,7 @@ pub mod prelude {
     };
 
     #[cfg(feature = "iter")]
-    pub use crate::{MoiraiIterator, ExecutionContext, ExecutionStrategy, IntoMoiraiIterator};
+    pub use crate::{MoiraiIterator, ExecutionContext, ExecutionStrategy};
 
     #[cfg(feature = "async")]
     pub use crate::{Timer, Timeout};
