@@ -4,7 +4,7 @@
 //! - Parallel iterators for CPU-bound work
 //! - Async iterators for I/O-bound work
 //! - Hybrid execution strategies
-//! - Advanced iterator combinators
+//! - Iterator combinators
 
 use moirai_iter::moirai_iter;
 
@@ -45,7 +45,7 @@ fn main() {
     println!("  - NUMA-aware memory allocation on supported systems");
     println!("  - SIMD optimizations for numeric operations");
     println!("  - Work-stealing scheduler for load balancing");
-    println!("  - Cache-optimized data structures");
+    println!("  - Cache-aware data structures");
 
     // Example 5: Usage pattern
     println!("\n5. Usage Pattern:");

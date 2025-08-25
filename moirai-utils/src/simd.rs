@@ -1,4 +1,4 @@
-//! SIMD-optimized vector operations for high-performance computing.
+//! SIMD vector operations for high-performance computing.
 //!
 //! This module provides vectorized implementations of common operations
 //! used in task scheduling and data processing pipelines.
@@ -17,7 +17,7 @@ use core::arch::aarch64::*;
 #[cfg(all(target_arch = "x86_64", feature = "std", not(target_arch = "wasm32")))]
 use std::is_x86_feature_detected;
 
-/// SIMD-optimized vector addition for f32 arrays.
+/// SIMD vector addition for f32 arrays.
 ///
 /// # Safety
 /// This function uses unsafe SIMD intrinsics but is safe when:
@@ -79,7 +79,7 @@ pub unsafe fn vectorized_add_f32(a: &[f32], b: &[f32], result: &mut [f32]) {
     }
 }
 
-/// SIMD-optimized vector multiplication for f32 arrays.
+/// SIMD vector multiplication for f32 arrays.
 ///
 /// # Safety
 /// Same safety requirements as `vectorized_add_f32`.
@@ -102,7 +102,7 @@ pub unsafe fn vectorized_mul_f32(a: &[f32], b: &[f32], result: &mut [f32]) {
     }
 }
 
-/// SIMD-optimized dot product for f32 vectors.
+/// SIMD dot product for f32 vectors.
 ///
 /// # Safety
 /// Same safety requirements as other SIMD functions.
@@ -136,7 +136,7 @@ pub unsafe fn vectorized_dot_product_f32(a: &[f32], b: &[f32]) -> f32 {
     _mm_cvtss_f32(sum_final)
 }
 
-/// SIMD-optimized matrix multiplication for 4x4 f32 matrices.
+/// SIMD matrix multiplication for 4x4 f32 matrices.
 ///
 /// # Safety
 /// This function uses unsafe SIMD intrinsics for optimal performance.
@@ -171,7 +171,7 @@ pub unsafe fn vectorized_matrix_mul_4x4_f32(a: &[f32; 16], b: &[f32; 16], result
     }
 }
 
-/// SIMD-optimized vector sum reduction.
+/// SIMD vector sum reduction.
 ///
 /// # Safety
 /// Same safety requirements as other SIMD functions.
@@ -200,7 +200,7 @@ pub unsafe fn vectorized_sum_f32(data: &[f32]) -> f32 {
     _mm_cvtss_f32(sum_final)
 }
 
-/// SIMD-optimized vector mean calculation.
+/// SIMD vector mean calculation.
 ///
 /// # Safety
 /// Same safety requirements as other SIMD functions.
@@ -210,7 +210,7 @@ pub unsafe fn vectorized_mean_f32(data: &[f32]) -> f32 {
     sum / data.len() as f32
 }
 
-/// SIMD-optimized vector variance calculation.
+/// SIMD vector variance calculation.
 ///
 /// # Safety
 /// Same safety requirements as other SIMD functions.
@@ -244,7 +244,7 @@ pub unsafe fn vectorized_variance_f32(data: &[f32]) -> f32 {
     _mm_cvtss_f32(sum_final) / data.len() as f32
 }
 
-/// ARM NEON optimized vector addition for f32 arrays.
+/// ARM NEON vector addition for f32 arrays.
 ///
 /// # Safety
 /// This function uses unsafe NEON intrinsics for ARM64 platforms.
@@ -268,7 +268,7 @@ pub unsafe fn neon_vectorized_add_f32(a: &[f32], b: &[f32], result: &mut [f32]) 
     }
 }
 
-/// ARM NEON optimized dot product for f32 vectors.
+/// ARM NEON dot product for f32 vectors.
 ///
 /// # Safety
 /// This function uses unsafe NEON intrinsics for ARM64 platforms.

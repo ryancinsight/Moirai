@@ -288,17 +288,17 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
 
 /// Extension trait for slices to provide cache-aware iteration
 pub trait CacheIterExt<T> {
-    fn cache_windows(&self, window_size: usize) -> WindowIterator<T>;
-    fn cache_chunks(&self) -> CacheAlignedChunks<T>;
+    fn cache_windows(&self, window_size: usize) -> WindowIterator<'_, T>;
+    fn cache_chunks(&self) -> CacheAlignedChunks<'_, T>;
     fn zero_copy_par_iter(&self) -> ZeroCopyParallelIter<'_, T>;
 }
 
 impl<T: Send + Sync> CacheIterExt<T> for [T] {
-    fn cache_windows(&self, window_size: usize) -> WindowIterator<T> {
+    fn cache_windows(&self, window_size: usize) -> WindowIterator<'_, T> {
         WindowIterator::new(self, window_size, window_size)
     }
 
-    fn cache_chunks(&self) -> CacheAlignedChunks<T> {
+    fn cache_chunks(&self) -> CacheAlignedChunks<'_, T> {
         CacheAlignedChunks::new(self)
     }
 

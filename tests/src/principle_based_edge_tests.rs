@@ -1371,7 +1371,7 @@ mod acid_tests {
 
 /// DRY, KISS, SSOT, YAGNI Principle Edge Tests
 #[cfg(disabled)]
-mod simple_principles_tests {
+mod principles_tests {
     use super::*;
 
     /// Test DRY (Don't Repeat Yourself) under edge conditions

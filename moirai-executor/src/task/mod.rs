@@ -9,12 +9,6 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-/// Async task wrapper for unified handling
-pub struct AsyncTaskWrapper<F> {
-    pub(crate) future: Pin<Box<F>>,
-    pub(crate) metadata: TaskMetadata,
-}
-
 /// Task performance metrics for monitoring and optimization
 #[derive(Debug, Clone)]
 pub struct TaskPerformanceMetrics {

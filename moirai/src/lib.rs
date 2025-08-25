@@ -89,7 +89,7 @@
 //! ```rust
 //! use moirai::Moirai;
 //!
-//! # fn advanced_example() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn chaining_example() -> Result<(), Box<dyn std::error::Error>> {
 //! let runtime = Moirai::new()?;
 //!
 //! // Chain tasks with dependencies using regular closures
