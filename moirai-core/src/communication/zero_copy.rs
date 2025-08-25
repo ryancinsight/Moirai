@@ -391,6 +391,7 @@ pub struct ThroughputMonitor {
 }
 
 impl ThroughputMonitor {
+    /// Create a new throughput monitor
     pub fn new() -> Self {
         let now = Instant::now();
         Self {
@@ -492,6 +493,7 @@ pub struct AdaptiveBatchSender<T> {
 }
 
 impl<T> AdaptiveBatchSender<T> {
+    /// Send a value with adaptive batching based on throughput
     pub fn send_adaptive(&self, value: T) -> ZeroCopyResult<()> {
         self.throughput_monitor.record_message();
         {
@@ -576,9 +578,11 @@ impl<T> AdaptiveBatchSender<T> {
         let l = self.last_flush.lock().unwrap().elapsed();
         self.adaptive_threshold.update(t, l);
     }
+    /// Force flush the current batch
     pub fn flush(&self) -> ZeroCopyResult<()> {
         self.flush_batch()
     }
+    /// Get current batch statistics
     pub fn batch_stats(&self) -> BatchStats {
         BatchStats {
             current_threshold: self.adaptive_threshold.current(),
@@ -590,13 +594,16 @@ impl<T> AdaptiveBatchSender<T> {
     }
 }
 
+/// Adaptive batch receiver for zero-copy communication
 pub struct AdaptiveBatchReceiver<T> {
     receiver: ZeroCopyReceiver<T>,
 }
 impl<T> AdaptiveBatchReceiver<T> {
+    /// Receive a value (blocking)
     pub fn recv(&self) -> ZeroCopyResult<T> {
         self.receiver.recv()
     }
+    /// Try to receive a value (non-blocking)
     pub fn try_recv(&self) -> ZeroCopyResult<T> {
         self.receiver.try_recv()
     }
@@ -605,10 +612,15 @@ impl<T> AdaptiveBatchReceiver<T> {
 /// Statistics for adaptive batching.
 #[derive(Debug, Clone)]
 pub struct BatchStats {
+    /// Current adaptive threshold for batching
     pub current_threshold: usize,
+    /// Number of pending messages in batch
     pub pending_messages: usize,
+    /// Current throughput (messages per second)
     pub current_throughput: f64,
+    /// Recent average throughput
     pub recent_throughput: f64,
+    /// Time since last flush operation
     pub time_since_last_flush: Duration,
 }
 
@@ -619,13 +631,19 @@ pub struct ZeroCopyRouter<T> {
     stats: RouterStats,
 }
 
+/// Domain identifier for message routing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DomainId(u64);
 impl DomainId {
+    /// Synchronous execution domain
     pub const SYNC: Self = DomainId(0);
+    /// Asynchronous execution domain
     pub const ASYNC: Self = DomainId(1);
+    /// Parallel execution domain
     pub const PARALLEL: Self = DomainId(2);
+    /// Distributed execution domain
     pub const DISTRIBUTED: Self = DomainId(3);
+    /// Create a new domain identifier
     pub fn new(id: u64) -> Self {
         DomainId(id)
     }
@@ -639,6 +657,7 @@ struct RouterStats {
 }
 
 impl<T: Send + 'static> ZeroCopyRouter<T> {
+    /// Create a new zero-copy router
     pub fn new() -> Self {
         Self {
             routes: Arc::new(RwLock::new(HashMap::new())),
@@ -646,6 +665,7 @@ impl<T: Send + 'static> ZeroCopyRouter<T> {
             stats: RouterStats::default(),
         }
     }
+    /// Add a route for a specific domain
     pub fn add_route(
         &self,
         domain: DomainId,
@@ -655,11 +675,13 @@ impl<T: Send + 'static> ZeroCopyRouter<T> {
         self.routes.write().unwrap().insert(domain, Arc::new(s));
         Ok(r)
     }
+    /// Set the default route for unspecified domains
     pub fn set_default_route(&mut self, capacity: usize) -> ZeroCopyResult<ZeroCopyReceiver<T>> {
         let (s, r) = ZeroCopyChannel::new(capacity)?;
         self.default_route = Some(Arc::new(s));
         Ok(r)
     }
+    /// Route a message to the specified domain
     pub fn route(&self, domain: DomainId, message: T) -> Result<(), (T, ZeroCopyError)> {
         self.stats.messages_routed.fetch_add(1, Ordering::Relaxed);
         if let Some(ch) = self.routes.read().unwrap().get(&domain) {
@@ -680,6 +702,7 @@ impl<T: Send + 'static> ZeroCopyRouter<T> {
             Err((message, ZeroCopyError::NoRoute))
         }
     }
+    /// Get routing statistics (messages_routed, routing_failures, zero_copy_sends)
     pub fn stats(&self) -> (usize, usize, usize) {
         (
             self.stats.messages_routed.load(Ordering::Relaxed),

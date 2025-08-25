@@ -205,11 +205,13 @@ impl TaskManager for HybridExecutor {
                 Ok(())
             } else {
                 Err(ExecutorError::SpawnFailed(
-                    moirai_core::error::TaskError::InvalidOperation
+                    moirai_core::error::TaskError::InvalidOperation,
                 ))
             }
         } else {
-            Err(ExecutorError::ResourceExhausted("Failed to acquire registry lock".to_string()))
+            Err(ExecutorError::ResourceExhausted(
+                "Failed to acquire registry lock".to_string(),
+            ))
         }
     }
 
@@ -237,28 +239,30 @@ impl TaskManager for HybridExecutor {
         let registry = self.task_registry.clone();
         async move {
             let start = std::time::Instant::now();
-            
+
             loop {
                 // Check if task is complete
                 if let Ok(registry) = registry.lock() {
                     if registry.is_completed(id.0) {
                         return Ok(());
                     }
-                    
+
                     if registry.get_metadata(id.0).is_none() {
                         return Err(ExecutorError::SpawnFailed(
-                            moirai_core::error::TaskError::InvalidOperation
+                            moirai_core::error::TaskError::InvalidOperation,
                         ));
                     }
                 }
-                
+
                 // Check timeout
                 if let Some(timeout) = timeout {
                     if start.elapsed() >= timeout {
-                        return Err(ExecutorError::ResourceExhausted("Task wait timeout".to_string()));
+                        return Err(ExecutorError::ResourceExhausted(
+                            "Task wait timeout".to_string(),
+                        ));
                     }
                 }
-                
+
                 // Simple polling delay without tokio dependency
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
@@ -271,16 +275,16 @@ impl TaskManager for HybridExecutor {
                 Some(TaskStats {
                     id,
                     priority: Priority::Normal, // Default priority
-                    status: if registry.is_completed(id.0) { 
-                        TaskStatus::Completed 
-                    } else { 
-                        TaskStatus::Running 
+                    status: if registry.is_completed(id.0) {
+                        TaskStatus::Completed
+                    } else {
+                        TaskStatus::Running
                     },
                     spawn_time: metadata.created_at,
                     start_time: metadata.started_at,
                     completion_time: metadata.completed_at,
-                    preemption_count: 0, // Not tracked in current implementation
-                    cpu_time_ns: 0, // Not tracked in current implementation 
+                    preemption_count: 0,  // Not tracked in current implementation
+                    cpu_time_ns: 0,       // Not tracked in current implementation
                     memory_used_bytes: 0, // Not tracked in current implementation
                 })
             } else {
@@ -324,7 +328,7 @@ impl ExecutorControl for HybridExecutor {
         if let Ok(registry) = self.task_registry.lock() {
             let active_tasks = registry.active_count();
             let total_capacity = self.workers.len();
-            
+
             // Return true if we have capacity for more tasks
             active_tasks < total_capacity
         } else {

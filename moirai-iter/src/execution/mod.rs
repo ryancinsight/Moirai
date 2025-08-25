@@ -131,8 +131,11 @@ impl ParallelContext {
         }
 
         let func = Arc::new(func);
-        let chunks: Vec<_> = items.chunks(self.chunk_size).map(|chunk| chunk.to_vec()).collect();
-        
+        let chunks: Vec<_> = items
+            .chunks(self.chunk_size)
+            .map(|chunk| chunk.to_vec())
+            .collect();
+
         if chunks.len() == 1 {
             // Single chunk - execute sequentially
             let results = chunks[0].iter().cloned().map(|item| func(item)).collect();
@@ -142,27 +145,27 @@ impl ParallelContext {
         // Multiple chunks - execute in parallel using thread pool
         let mut results = Vec::with_capacity(items.len());
         let (tx, rx) = std::sync::mpsc::channel();
-        
+
         for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
             let tx = tx.clone();
             let func = Arc::clone(&func);
-            
+
             self.thread_pool.execute(move || {
                 let chunk_results: Vec<R> = chunk.into_iter().map(|item| func(item)).collect();
                 tx.send((chunk_idx, chunk_results)).unwrap();
             });
         }
         drop(tx); // Close the sender
-        
+
         // Collect results in order
         let mut ordered_results: Vec<(usize, Vec<R>)> = Vec::new();
         for (chunk_idx, chunk_results) in rx {
             ordered_results.push((chunk_idx, chunk_results));
         }
-        
+
         // Sort by chunk index to maintain order
         ordered_results.sort_by_key(|(idx, _)| *idx);
-        
+
         for (_, chunk_results) in ordered_results {
             results.extend(chunk_results);
         }
@@ -328,16 +331,20 @@ impl PerformanceHistory {
         self.decision_count += 1;
     }
 
-    pub fn recommend_strategy(&self, item_count: usize, config: &HybridConfig) -> ExecutionStrategy {
+    pub fn recommend_strategy(
+        &self,
+        item_count: usize,
+        config: &HybridConfig,
+    ) -> ExecutionStrategy {
         // Use config thresholds and performance history for decision
         if item_count < config.parallel_threshold {
             return ExecutionStrategy::Async;
         }
-        
+
         if item_count > config.async_threshold {
             return ExecutionStrategy::Parallel;
         }
-        
+
         // In the middle range, use performance history to decide
         if self.parallel_times.is_empty() && self.async_times.is_empty() {
             // No history, use simple heuristic
@@ -354,14 +361,14 @@ impl PerformanceHistory {
                 let sum: Duration = self.parallel_times.iter().sum();
                 sum / self.parallel_times.len() as u32
             };
-            
+
             let async_avg = if self.async_times.is_empty() {
                 Duration::from_secs(1) // Assume high if no data
             } else {
                 let sum: Duration = self.async_times.iter().sum();
                 sum / self.async_times.len() as u32
             };
-            
+
             // Choose the faster strategy, with adaptation factor
             let factor = config.adaptation_factor;
             if parallel_avg.as_secs_f64() * factor < async_avg.as_secs_f64() {
@@ -431,14 +438,14 @@ impl HybridContext {
                     while history.parallel_times.len() > self.config.history_window {
                         history.parallel_times.pop_front();
                     }
-                },
+                }
                 ExecutionStrategy::Async => {
                     history.record_async_time(duration);
                     // Apply config window size
                     while history.async_times.len() > self.config.history_window {
                         history.async_times.pop_front();
                     }
-                },
+                }
             }
         }
 
