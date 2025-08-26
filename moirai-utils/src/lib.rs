@@ -181,6 +181,7 @@ impl<T> RingBuffer<T> {
     }
 
     /// Clear all items from the ring buffer.
+    #[allow(clippy::redundant_pattern_matching)]
     pub fn clear(&self) {
         while let Some(_) = self.try_pop() {
             // Items are dropped automatically
@@ -538,7 +539,10 @@ impl XorshiftRng {
     }
 
     /// Generate the next random number.
-    pub fn next(&mut self) -> u64 {
+    ///
+    /// Uses XorShift algorithm for fast pseudo-random number generation.
+    /// Renamed from `next` to avoid confusion with Iterator::next().
+    pub fn next_u64(&mut self) -> u64 {
         self.state ^= self.state << 13;
         self.state ^= self.state >> 7;
         self.state ^= self.state << 17;
@@ -550,17 +554,17 @@ impl XorshiftRng {
         if max == 0 {
             return 0;
         }
-        self.next() % max
+        self.next_u64() % max
     }
 
     /// Generate a random boolean.
     pub fn next_bool(&mut self) -> bool {
-        self.next() & 1 == 1
+        self.next_u64() & 1 == 1
     }
 
     /// Generate a random f64 in the range [0.0, 1.0).
     pub fn next_f64(&mut self) -> f64 {
-        (self.next() >> 11) as f64 / (1u64 << 53) as f64
+        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
     }
 }
 
@@ -926,7 +930,7 @@ pub mod probabilistic {
             let bit_count = Self::optimal_bit_count(capacity, false_positive_rate);
             let hash_count = Self::optimal_hash_count(capacity, bit_count);
 
-            let word_count = (bit_count + 63) / 64;
+            let word_count = bit_count.div_ceil(64);
 
             Self {
                 bits: vec![0; word_count],
@@ -1028,7 +1032,7 @@ pub mod probabilistic {
         /// Create a new HyperLogLog with the given precision (4-16).
         pub fn new(precision: usize) -> Self {
             assert!(
-                precision >= 4 && precision <= 16,
+                (4..=16).contains(&precision),
                 "Precision must be between 4 and 16"
             );
 

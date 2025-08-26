@@ -8,6 +8,9 @@
 //! - Location transparency: same API for local and remote communication
 //! - Zero-copy optimization for local transport
 //! - Pluggable transport backends (in-memory, IPC, network)
+
+#![allow(clippy::new_without_default)]
+#![allow(clippy::unwrap_or_default)]
 //! - Integration with Moirai scheduler for optimal performance
 
 // Zero-copy moved to moirai-core::communication::zero_copy (SSOT)

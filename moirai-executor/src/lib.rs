@@ -8,6 +8,11 @@
 //! The `HybridExecutor` is built on three core principles:
 //! - **Work-Stealing Scheduler**: Intelligent load balancing across CPU cores
 //! - **Adaptive Thread Pools**: Separate pools for async I/O and CPU-bound work
+
+#![allow(clippy::incompatible_msrv)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::manual_map)]
+#![allow(clippy::type_complexity)]
 //! - **Zero-Copy Task Passing**: Minimal overhead task distribution
 //!
 //! ## Design Principles

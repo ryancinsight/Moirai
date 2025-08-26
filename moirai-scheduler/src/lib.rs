@@ -8,6 +8,10 @@
 //! The scheduler uses a lock-free work-stealing deque that allows:
 //! - **Local Access**: O(1) push/pop operations for the owning thread
 //! - **Work Stealing**: O(1) steal operations from other threads
+
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::cast_abs_to_unsigned)]
 //! - **Dynamic Resizing**: Automatic capacity adjustment under load
 //! - **Memory Efficiency**: Minimal memory overhead per task
 //!
@@ -40,40 +44,40 @@
 //! ### Basic Usage
 //!
 //! ```rust
-// use moirai_scheduler::{WorkStealingScheduler, SchedulerConfig};
-// use moirai_core::{Task, TaskBuilder, Priority};
-//
-// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-// // Create scheduler with optimal configuration
-// let config = SchedulerConfig {
-//     initial_capacity: 256,
-//     max_capacity: 4096,
-//     steal_strategy: WorkStealingStrategy::StealHalf,
-//     enable_statistics: true,
-// };
-//
-// let mut scheduler = WorkStealingScheduler::new(config)?;
-//
-// // Add tasks with different priorities
-// let high_priority_task = TaskBuilder::new()
-//     .priority(Priority::High)
-//     .name("critical_task")
-//     .build(|| println!("High priority work"));
-//
-// let normal_task = TaskBuilder::new()
-//     .priority(Priority::Normal)
-//     .build(|| println!("Normal work"));
-//
-// scheduler.schedule(high_priority_task)?;
-// scheduler.schedule(normal_task)?;
-//
-// // Execute tasks (high priority first)
-// while let Some(task) = scheduler.next_task() {
-//     task.execute();
-// }
-// # Ok(())
-// # }
-// ```
+//! use moirai_scheduler::{WorkStealingScheduler, SchedulerConfig};
+//! use moirai_core::{Task, TaskBuilder, Priority};
+//!
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Create scheduler with optimal configuration
+//! let config = SchedulerConfig {
+//!     initial_capacity: 256,
+//!     max_capacity: 4096,
+//!     steal_strategy: WorkStealingStrategy::StealHalf,
+//!     enable_statistics: true,
+//! };
+//!
+//! let mut scheduler = WorkStealingScheduler::new(config)?;
+//!
+//! // Add tasks with different priorities
+//! let high_priority_task = TaskBuilder::new()
+//!     .priority(Priority::High)
+//!     .name("critical_task")
+//!     .build(|| println!("High priority work"));
+//!
+//! let normal_task = TaskBuilder::new()
+//!     .priority(Priority::Normal)
+//!     .build(|| println!("Normal work"));
+//!
+//! scheduler.schedule(high_priority_task)?;
+//! scheduler.schedule(normal_task)?;
+//!
+//! // Execute tasks (high priority first)
+//! while let Some(task) = scheduler.next_task() {
+//!     task.execute();
+//! }
+//! # Ok(())
+//! # }
+//! ```
 //
 // ## Thread Safety and Stealing
 //

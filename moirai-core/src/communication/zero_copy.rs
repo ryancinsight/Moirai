@@ -567,7 +567,6 @@ impl<T> AdaptiveBatchSender<T> {
             // If we still have pending items, the channel was full; yield and retry
             if !pending.is_empty() {
                 thread::yield_now();
-                continue;
             }
             // Otherwise, loop will drain again and likely exit updating last_flush
         }

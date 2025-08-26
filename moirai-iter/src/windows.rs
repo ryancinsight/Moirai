@@ -19,7 +19,7 @@ use std::marker::PhantomData;
 
 /// Iterator over overlapping windows of a slice
 ///
-/// This struct is created by the [`windows`] method on slices.
+/// This struct is created by the `windows` method on slices.
 ///
 /// # Examples
 /// ```

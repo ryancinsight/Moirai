@@ -36,8 +36,11 @@ impl HybridExecutor {
         let worker_count = config.worker_threads; // Use config for worker count
         let mut workers = Vec::with_capacity(worker_count);
 
+        // Create workers and start them immediately
         for i in 0..worker_count {
-            workers.push(Worker::new(i));
+            let mut worker = Worker::new(i);
+            worker.start(); // Start worker threads immediately
+            workers.push(worker);
         }
 
         Ok(Self {
@@ -151,15 +154,42 @@ impl TaskSpawner for HybridExecutor {
         F: core::future::Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        // Create a task handle for the async task
         let task_id = TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed));
-        let handle = TaskHandle::new_detached(task_id);
+        
+        // Create a channel to communicate the result back
+        let (result_sender, result_receiver) = std::sync::mpsc::channel::<Result<F::Output, moirai_core::error::TaskError>>();
+        let handle = TaskHandle::new_with_receiver(task_id, result_receiver);
 
-        // Submit the future as a task (simplified)
+        // Submit the future as a task - implement basic async execution
         let _ = self.submit_task(move || {
-            // In a real implementation, this would properly execute the future
-            // For now, we'll just drop it since we can't block_on here
-            drop(future);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                // Create a basic async runtime
+                let waker = std::task::Waker::noop();
+                let mut context = std::task::Context::from_waker(&waker);
+                let mut future = std::pin::Pin::from(Box::new(future));
+                
+                // Simple polling loop - not efficient but works
+                loop {
+                    match future.as_mut().poll(&mut context) {
+                        std::task::Poll::Ready(value) => return value,
+                        std::task::Poll::Pending => {
+                            // In a real implementation, we'd yield to other tasks or wait for events
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                        }
+                    }
+                }
+            }));
+            
+            match result {
+                Ok(value) => {
+                    let _ = result_sender.send(Ok(value));
+                }
+                Err(_) => {
+                    let _ = result_sender.send(Err(moirai_core::error::TaskError::ExecutionFailed(
+                        moirai_core::error::TaskErrorKind::Io,
+                    )));
+                }
+            }
         });
 
         Ok(handle)
@@ -171,11 +201,24 @@ impl TaskSpawner for HybridExecutor {
         R: Send + 'static,
     {
         let task_id = TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed));
-        let handle = TaskHandle::new_detached(task_id);
+        
+        // Create a channel to communicate the result back
+        let (result_sender, result_receiver) = std::sync::mpsc::channel::<Result<R, moirai_core::error::TaskError>>();
+        let handle = TaskHandle::new_with_receiver(task_id, result_receiver);
 
         // Submit the blocking function
         let _ = self.submit_task(move || {
-            let _ = func();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(func));
+            match result {
+                Ok(value) => {
+                    let _ = result_sender.send(Ok(value));
+                }
+                Err(_) => {
+                    let _ = result_sender.send(Err(moirai_core::error::TaskError::ExecutionFailed(
+                        moirai_core::error::TaskErrorKind::Io,
+                    )));
+                }
+            }
         });
 
         Ok(handle)

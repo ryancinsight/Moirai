@@ -18,13 +18,7 @@
 //! Each test is designed to validate not just functionality, but adherence
 //! to these fundamental design principles under extreme conditions.
 
-use moirai::{ExecutorError, Priority};
 use moirai::{Moirai, Task, TaskContext, TaskId};
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
-use std::time::{Duration, Instant};
 
 /// Test fixture for principle-based edge testing
 #[allow(dead_code)]
@@ -53,11 +47,10 @@ impl PrincipleTestFixture {
 mod solid_tests {
     use super::*;
     use moirai::{ExecutorError, Priority};
-    use std::collections::{HashMap, VecDeque};
+
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex, RwLock};
+    use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::{Duration, Instant};
 
     /// Test Single Responsibility Principle (SRP) under extreme conditions
     /// Each component should have one reason to change, even under stress
@@ -450,7 +443,7 @@ mod solid_tests {
 }
 
 /// CUPID Principle Edge Tests  
-#[cfg(disabled)]
+#[cfg(feature = "expensive-tests")]
 mod cupid_tests {
     use super::*;
 
@@ -773,7 +766,7 @@ mod cupid_tests {
 }
 
 /// Property-based edge tests using proptest
-#[cfg(disabled)]
+#[cfg(feature = "property-tests")]
 mod property_tests {
     use super::*;
 
@@ -853,7 +846,7 @@ mod property_tests {
 }
 
 /// QuickCheck-based property tests
-#[cfg(disabled)]
+#[cfg(feature = "quickcheck-tests")]
 mod quickcheck_tests {
     use super::*;
 
@@ -936,7 +929,7 @@ mod quickcheck_tests {
 }
 
 /// GRASP Principle Edge Tests
-#[cfg(disabled)]
+#[cfg(feature = "grasp-tests")]
 mod grasp_tests {
     use super::*;
 
@@ -1159,7 +1152,7 @@ mod grasp_tests {
 }
 
 /// ACID Principle Edge Tests  
-#[cfg(disabled)]
+#[cfg(feature = "acid-tests")]
 mod acid_tests {
     use super::*;
 
@@ -1370,7 +1363,7 @@ mod acid_tests {
 }
 
 /// DRY, KISS, SSOT, YAGNI Principle Edge Tests
-#[cfg(disabled)]
+#[cfg(feature = "principle-tests")]
 mod principles_tests {
     use super::*;
 

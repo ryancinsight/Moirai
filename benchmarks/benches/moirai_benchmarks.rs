@@ -73,7 +73,7 @@ fn bench_async_tasks(c: &mut Criterion) {
 
                     // Wait for completion
                     for handle in handles {
-                        let _ = handle.try_join();
+                        let _ = handle.join();
                     }
 
                     moirai.shutdown();
@@ -117,7 +117,7 @@ fn bench_work_stealing(c: &mut Criterion) {
 
                     // Wait for completion
                     for handle in handles {
-                        let _ = handle.try_join();
+                        let _ = handle.join();
                     }
 
                     moirai.shutdown();
@@ -155,7 +155,7 @@ fn bench_priority_scheduling(c: &mut Criterion) {
 
             // Wait for completion
             for handle in handles {
-                let _ = handle.try_join();
+                let _ = handle.join();
             }
 
             moirai.shutdown();
@@ -227,7 +227,7 @@ fn bench_memory_allocation(c: &mut Criterion) {
                     .build(move || black_box(i));
 
                 let handle = moirai.spawn(task);
-                let _ = handle.try_join();
+                let _ = handle.join();
             }
 
             moirai.shutdown();
@@ -260,7 +260,7 @@ fn bench_synchronization(c: &mut Criterion) {
             }
 
             for handle in handles {
-                let _ = handle.try_join();
+                let _ = handle.join();
             }
 
             moirai.shutdown();
@@ -315,7 +315,7 @@ fn bench_performance_regression(c: &mut Criterion) {
 
             // Wait for all tasks to complete
             for handle in handles {
-                let _ = handle.try_join();
+                let _ = handle.join();
             }
 
             moirai.shutdown();
@@ -382,7 +382,7 @@ mod tests {
         let task = TaskBuilder::new().name("test_task").build(|| 42);
 
         let handle = moirai.spawn(task);
-        let result = handle.try_join();
+        let result = handle.join();
 
         assert!(result.is_some());
         moirai.shutdown();
@@ -415,7 +415,7 @@ mod tests {
         }
 
         for handle in handles {
-            let result = handle.try_join();
+            let result = handle.join();
             assert!(result.is_some());
         }
 

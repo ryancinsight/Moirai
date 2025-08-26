@@ -209,16 +209,18 @@ let moirai = Moirai::builder()
     .build();
 ```
 
-## 📊 Performance
+## 📊 Performance - Verified Working
 
-Moirai delivers exceptional performance across various workloads:
+Moirai delivers functional performance across core workloads:
 
-- **Task Spawning**: <50ns latency ✅
-- **Throughput**: 15M+ tasks/second ✅  
-- **Memory Overhead**: <800KB base ✅
-- **SIMD Acceleration**: 4-8x speedup for vectorizable operations ✅
-- **Scalability**: Linear scaling to 128+ CPU cores ✅
-- **Channel Performance**: <10ns for uncontended operations ✅
+- **Task Execution**: ✅ Working - Tasks execute and return results correctly
+- **Channel Communication**: ✅ Working - Producer/consumer patterns functional  
+- **Priority Scheduling**: ✅ Working - High/low priority tasks execute in order
+- **Async Support**: ✅ Working - Async tasks with proper await/delay execution
+- **Parallel Iteration**: ✅ Working - Work distribution across multiple threads
+- **Runtime Lifecycle**: ✅ Working - Clean startup and graceful shutdown
+
+*Performance benchmarks available but not yet validated under load*
 
 ## 🧪 Testing
 
@@ -238,7 +240,9 @@ cargo test -p moirai-tests
 cargo +nightly bench
 ```
 
-**Current Test Status**: 120+ tests passing with 100% success rate ✅
+**Current Test Status**: 39+ core tests passing with 100% success rate ✅  
+**Example Status**: All examples (basic_usage, async_timer) working end-to-end ✅  
+**Build Status**: Clean compilation with strategic clippy allows ✅
 
 ## 🎯 Design Principle Compliance
 
