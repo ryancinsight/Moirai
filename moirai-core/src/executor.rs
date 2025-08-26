@@ -8,6 +8,13 @@ use crate::platform::*;
 use crate::{Priority, Task, TaskContext, TaskHandle, TaskId};
 use core::cell::UnsafeCell;
 
+// Memory pool size constants
+const KILOBYTE: usize = 1024;
+const MEGABYTE: usize = 1024 * KILOBYTE;
+const SMALL_POOL_SIZE: usize = 64 * KILOBYTE;
+const MEDIUM_POOL_SIZE: usize = MEGABYTE;
+const LARGE_POOL_SIZE: usize = 16 * MEGABYTE;
+
 // Thread-local task context for improved locality (inspired by Tokio)
 crate::thread_local_static! {
     static CURRENT_TASK: UnsafeCell<Option<TaskId>> = UnsafeCell::new(None)
@@ -605,9 +612,9 @@ impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             use_memory_pools: true,
-            small_pool_size: 64 * 1024,        // 64KB
-            medium_pool_size: 1024 * 1024,     // 1MB
-            large_pool_size: 16 * 1024 * 1024, // 16MB
+            small_pool_size: SMALL_POOL_SIZE,
+            medium_pool_size: MEDIUM_POOL_SIZE,
+            large_pool_size: LARGE_POOL_SIZE,
             track_per_task_memory: cfg!(feature = "metrics"),
         }
     }

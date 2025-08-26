@@ -59,7 +59,7 @@ fn benchmark_task_spawning(c: &mut Criterion) {
                     let start = Instant::now();
 
                     let handles: Vec<_> = (0..count)
-                        .map(|i| runtime.spawn_parallel(move || black_box(i * 2)))
+                        .map(|i| runtime.spawn_fn(move || black_box(i * 2)))
                         .collect();
 
                     let spawn_time = start.elapsed();
@@ -168,7 +168,7 @@ fn benchmark_cpu_workloads(c: &mut Criterion) {
                     let handles: Vec<_> = (0..num_cpus::get())
                         .map(|_| {
                             let counter = counter.clone();
-                            runtime.spawn_parallel(move || {
+                            runtime.spawn_fn(move || {
                                 let result = cpu_intensive_work(size);
                                 counter.fetch_add(result, Ordering::Relaxed);
                             })
@@ -299,7 +299,7 @@ fn benchmark_mixed_workloads(c: &mut Criterion) {
             runtime.block_on(async {
                 // Mix of CPU and I/O tasks
                 let cpu_handles: Vec<_> = (0..4)
-                    .map(|_| runtime.spawn_parallel(|| cpu_intensive_work(1000)))
+                    .map(|_| runtime.spawn_fn(|| cpu_intensive_work(1000)))
                     .collect();
 
                 let io_handles: Vec<_> = (0..10)
@@ -360,7 +360,7 @@ fn benchmark_memory_efficiency(c: &mut Criterion) {
 
                     // Create many tasks to measure memory overhead
                     let handles: Vec<_> = (0..count)
-                        .map(|i| runtime.spawn_parallel(move || black_box(i)))
+                        .map(|i| runtime.spawn_fn(move || black_box(i)))
                         .collect();
 
                     let memory_footprint = handles.len() * std::mem::size_of_val(&handles[0]);
@@ -423,7 +423,7 @@ fn benchmark_scalability(c: &mut Criterion) {
                     let handles: Vec<_> = (0..threads)
                         .map(|_| {
                             let counter = counter.clone();
-                            runtime.spawn_parallel(move || {
+                            runtime.spawn_fn(move || {
                                 let result = cpu_intensive_work(10_000);
                                 counter.fetch_add(result, Ordering::Relaxed);
                             })

@@ -13,6 +13,22 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+// Memory size constants
+const GIGABYTE: usize = 1024 * 1024 * 1024;
+const MEGABYTE: usize = 1024 * 1024;
+
+// Time constants
+const SECONDS_PER_DAY: u64 = 24 * 3600;
+const DAYS_IN_WEEK: u64 = 7;
+const DAYS_IN_MONTH: u64 = 30;
+
+// Security thresholds
+const DEFAULT_MAX_ALLOCATION_SIZE: usize = GIGABYTE;
+const PRODUCTION_MAX_ALLOCATION_SIZE: usize = 512 * MEGABYTE;
+const DEFAULT_TASK_SPAWN_RATE: u64 = 10_000;
+const PRODUCTION_TASK_SPAWN_RATE: u64 = 5_000;
+const DEFAULT_RATE_LIMITER_WINDOWS: usize = 10;
+
 /// Security levels that can be applied to task execution environments.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -91,11 +107,11 @@ impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
             level: SecurityLevel::Development,
-            max_allocation_size: 1024 * 1024 * 1024, // 1GB
-            max_task_spawn_rate: 10_000,             // 10k tasks/sec
+            max_allocation_size: DEFAULT_MAX_ALLOCATION_SIZE,
+            max_task_spawn_rate: DEFAULT_TASK_SPAWN_RATE,
             enable_memory_validation: true,
             enable_race_detection: true,
-            audit_retention: Duration::from_secs(7 * 24 * 3600), // 7 days
+            audit_retention: Duration::from_secs(DAYS_IN_WEEK * SECONDS_PER_DAY),
         }
     }
 }
@@ -109,11 +125,11 @@ impl SecurityConfig {
     pub fn production() -> Self {
         Self {
             level: SecurityLevel::Production,
-            max_allocation_size: 512 * 1024 * 1024, // 512MB
-            max_task_spawn_rate: 5_000,             // 5k tasks/sec
+            max_allocation_size: PRODUCTION_MAX_ALLOCATION_SIZE,
+            max_task_spawn_rate: PRODUCTION_TASK_SPAWN_RATE,
             enable_memory_validation: true,
             enable_race_detection: true,
-            audit_retention: Duration::from_secs(30 * 24 * 3600), // 30 days
+            audit_retention: Duration::from_secs(DAYS_IN_MONTH * SECONDS_PER_DAY),
         }
     }
 }
@@ -188,7 +204,7 @@ impl SlidingWindowRateLimiter {
         let window_idx = self.current_window.load(Ordering::Acquire) % self.num_windows;
 
         // Optimistically increment the counter
-        let _old_count = self.windows[window_idx].fetch_add(1, Ordering::AcqRel);
+        let _previous_count = self.windows[window_idx].fetch_add(1, Ordering::AcqRel);
 
         // Check total count across all windows after incrementing
         let total_count = self.current_count();
@@ -269,7 +285,10 @@ impl SecurityAuditor {
     #[must_use]
     pub fn new(config: SecurityConfig) -> Self {
         Self {
-            task_spawn_limiter: SlidingWindowRateLimiter::new(config.max_task_spawn_rate, 10),
+            task_spawn_limiter: SlidingWindowRateLimiter::new(
+                config.max_task_spawn_rate,
+                DEFAULT_RATE_LIMITER_WINDOWS,
+            ),
             memory_allocations: Arc::new(Mutex::new(HashMap::new())),
             config,
             events: Arc::new(Mutex::new(Vec::new())),

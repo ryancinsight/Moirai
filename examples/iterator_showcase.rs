@@ -62,7 +62,7 @@ fn main() {
 
     println!("\nFor working examples with async runtime, see:");
     println!("  - async_timer.rs: Async execution example");
-    println!("  - iterator_showcase_simple.rs: Simple iterator usage");
+    println!("  - iterator_showcase_basic.rs: Basic iterator usage");
 
     println!("\nIterator showcase complete!");
 }

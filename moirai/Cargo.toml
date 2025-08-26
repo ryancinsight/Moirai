@@ -53,8 +53,8 @@ path = "../examples/async_timer.rs"
 required-features = ["async"]
 
 [[example]]
-name = "iterator_showcase_simple"
-path = "../examples/iterator_showcase_simple.rs"
+name = "iterator_showcase_basic"
+path = "../examples/iterator_showcase_basic.rs"
 required-features = ["iter"]
 
 [features]

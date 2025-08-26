@@ -119,7 +119,7 @@ impl<T: Send + Clone + 'static> MoiraiIterator<T> {
     /// For each operation with side effects
     pub async fn for_each<F>(self, func: F)
     where
-        F: Fn(T) -> () + Send + Sync + 'static,
+        F: Fn(T) + Send + Sync + 'static,
     {
         let _ = self.context.execute_iter(self.data, func);
     }

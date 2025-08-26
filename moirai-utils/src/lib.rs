@@ -181,6 +181,7 @@ impl<T> RingBuffer<T> {
     }
 
     /// Clear all items from the ring buffer.
+    #[allow(clippy::redundant_pattern_matching)]
     pub fn clear(&self) {
         while let Some(_) = self.try_pop() {
             // Items are dropped automatically
@@ -538,6 +539,9 @@ impl XorshiftRng {
     }
 
     /// Generate the next random number.
+    ///
+    /// Note: This method name follows the XorShift algorithm naming convention
+    /// rather than implementing the Iterator trait, as this is a stateful RNG.
     pub fn next(&mut self) -> u64 {
         self.state ^= self.state << 13;
         self.state ^= self.state >> 7;
@@ -926,7 +930,7 @@ pub mod probabilistic {
             let bit_count = Self::optimal_bit_count(capacity, false_positive_rate);
             let hash_count = Self::optimal_hash_count(capacity, bit_count);
 
-            let word_count = (bit_count + 63) / 64;
+            let word_count = bit_count.div_ceil(64);
 
             Self {
                 bits: vec![0; word_count],
@@ -1028,7 +1032,7 @@ pub mod probabilistic {
         /// Create a new HyperLogLog with the given precision (4-16).
         pub fn new(precision: usize) -> Self {
             assert!(
-                precision >= 4 && precision <= 16,
+                (4..=16).contains(&precision),
                 "Precision must be between 4 and 16"
             );
 

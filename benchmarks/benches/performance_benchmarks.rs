@@ -14,7 +14,7 @@ fn benchmark_task_scheduling_overhead(c: &mut Criterion) {
     c.bench_function("task_scheduling_overhead", |b| {
         b.iter(|| {
             // Only measure the actual task scheduling and execution
-            let handle = runtime.spawn_parallel(|| black_box(42));
+            let handle = runtime.spawn_fn(|| black_box(42));
             black_box(handle.join().expect("Task failed"))
         });
     });
@@ -40,7 +40,7 @@ fn benchmark_parallel_scalability(c: &mut Criterion) {
                 // Only measure the actual parallel computation
                 let mut handles = Vec::with_capacity(100);
                 for i in 0..100 {
-                    let handle = runtime.spawn_parallel(move || {
+                    let handle = runtime.spawn_fn(move || {
                         // CPU-intensive computation
                         let mut sum = 0;
                         for j in 0..1000 {
@@ -78,7 +78,7 @@ fn benchmark_memory_efficiency(c: &mut Criterion) {
         b.iter(|| {
             // Create fresh data for each iteration to avoid state carryover
             let large_data = vec![42u64; 10000];
-            let handle = runtime.spawn_parallel(move || black_box(large_data.iter().sum::<u64>()));
+            let handle = runtime.spawn_fn(move || black_box(large_data.iter().sum::<u64>()));
             black_box(handle.join().expect("Task failed"))
         });
     });
@@ -163,9 +163,9 @@ fn benchmark_concurrent_data_structures(c: &mut Criterion) {
             let mut handles = Vec::with_capacity(100);
             for _ in 0..100 {
                 let counter_clone = counter.clone();
-                let handle = runtime.spawn_parallel(move || {
+                let handle = runtime.spawn_fn(move || {
                     for _ in 0..100 {
-                        counter_clone.increment();
+                        counter_clone.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                 });
                 handles.push(handle);
@@ -189,7 +189,7 @@ fn benchmark_concurrent_data_structures(c: &mut Criterion) {
             let mut handles = Vec::with_capacity(50);
             for i in 0..50 {
                 let map_clone = map.clone();
-                let handle = runtime.spawn_parallel(move || {
+                let handle = runtime.spawn_fn(move || {
                     for j in 0..100 {
                         let key = format!("key_{}_{}", i, j);
                         map_clone.insert(key, i * j);
@@ -203,7 +203,8 @@ fn benchmark_concurrent_data_structures(c: &mut Criterion) {
                 handle.join().expect("Task failed");
             }
 
-            black_box(map.len())
+            // Use map for final black_box to prevent optimization
+            black_box(&map)
         });
     });
 
@@ -228,7 +229,7 @@ fn benchmark_work_stealing(c: &mut Criterion) {
             // Create tasks with varying computational costs
             for i in 0..200 {
                 let cost = (i % 10) + 1; // Varying cost from 1 to 10
-                let handle = runtime.spawn_parallel(move || {
+                let handle = runtime.spawn_fn(move || {
                     let mut sum = 0;
                     for j in 0..(cost * 1000) {
                         sum += (i * j) % 991; // Different prime for variation
@@ -264,7 +265,7 @@ fn benchmark_error_handling(c: &mut Criterion) {
 
             // Mix of successful and failing tasks (fresh each iteration)
             for i in 0..100 {
-                let handle = runtime.spawn_parallel(move || -> Result<i32, &'static str> {
+                let handle = runtime.spawn_fn(move || -> Result<i32, &'static str> {
                     if i % 10 == 0 {
                         Err("intentional error")
                     } else {

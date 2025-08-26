@@ -5,8 +5,8 @@
 //! CPU architectures.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use moirai_utils::global_simd_counter;
 use moirai_utils::simd::*;
-use moirai_utils::{global_simd_counter, SimdStats};
 
 /// Generate test data for benchmarks.
 fn generate_test_data(size: usize) -> (Vec<f32>, Vec<f32>) {

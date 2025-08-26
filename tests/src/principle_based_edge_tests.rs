@@ -18,13 +18,7 @@
 //! Each test is designed to validate not just functionality, but adherence
 //! to these fundamental design principles under extreme conditions.
 
-use moirai::{ExecutorError, Priority};
 use moirai::{Moirai, Task, TaskContext, TaskId};
-use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
-use std::time::{Duration, Instant};
 
 /// Test fixture for principle-based edge testing
 #[allow(dead_code)]
@@ -53,11 +47,10 @@ impl PrincipleTestFixture {
 mod solid_tests {
     use super::*;
     use moirai::{ExecutorError, Priority};
-    use std::collections::{HashMap, VecDeque};
+
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex, RwLock};
+    use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::{Duration, Instant};
 
     /// Test Single Responsibility Principle (SRP) under extreme conditions
     /// Each component should have one reason to change, even under stress

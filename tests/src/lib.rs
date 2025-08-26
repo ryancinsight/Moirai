@@ -100,7 +100,7 @@ mod integration_tests {
         let low_handle = runtime.spawn(low_task);
 
         // Wait for both tasks with timeout to prevent hanging
-        let timeout_duration = Duration::from_secs(5);
+        let _timeout_duration = Duration::from_secs(5);
         let high_result = high_handle.join();
         let low_result = low_handle.join();
 
@@ -268,7 +268,7 @@ mod integration_tests {
 
         let start = std::time::Instant::now();
         // Use timeout to prevent hanging
-        let timeout_duration = Duration::from_secs(10);
+        let _timeout_duration = Duration::from_secs(10);
         let results: Vec<_> = handles
             .into_iter()
             .map(|handle| handle.join())
