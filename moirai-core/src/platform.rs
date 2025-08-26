@@ -81,7 +81,7 @@ pub use core::fmt::{self, Debug, Display};
 /// Creates a thread-local static variable with platform-specific implementation.
 ///
 /// This macro provides a unified interface for thread-local storage across
-/// different platforms (std and no_std environments).
+/// different platforms (std and `no_std` environments).
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 #[macro_export]
 macro_rules! thread_local_static {

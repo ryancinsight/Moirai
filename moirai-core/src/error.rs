@@ -122,7 +122,7 @@ impl fmt::Display for ExecutorError {
             Self::ResourceExhausted(msg) => write!(f, "Resource exhausted: {msg}"),
             Self::PerformanceAnomaly(msg) => write!(f, "Performance anomaly: {msg}"),
             Self::NoSchedulerAvailable => write!(f, "No scheduler available"),
-            Self::SchedulerError(err) => write!(f, "Scheduler error: {}", err),
+            Self::SchedulerError(err) => write!(f, "Scheduler error: {err}"),
         }
     }
 }
@@ -152,7 +152,7 @@ impl fmt::Display for SchedulerError {
             Self::QueueEmpty => write!(f, "Task queue is empty"),
             Self::StealFailed => write!(f, "Work stealing failed"),
             Self::InvalidState => write!(f, "Invalid scheduler state"),
-            Self::SystemFailure(msg) => write!(f, "System failure: {}", msg),
+            Self::SystemFailure(msg) => write!(f, "System failure: {msg}"),
             Self::InvalidScheduler => write!(f, "Invalid scheduler reference"),
         }
     }

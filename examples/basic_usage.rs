@@ -34,8 +34,16 @@ fn main() {
     });
 
     // Wait for tasks to complete
-    let result1 = handle1.join().unwrap().unwrap();
-    let result2 = handle2.join().unwrap().unwrap();
+    // Give tasks time to complete since they're running in background threads
+    std::thread::sleep(Duration::from_millis(100));
+    
+    // Now try to get results
+    let result1 = handle1.join()
+        .expect("Task 1 should have completed")
+        .expect("Task 1 should not have errored");
+    let result2 = handle2.join()
+        .expect("Task 2 should have completed")
+        .expect("Task 2 should not have errored");
     println!("  Results: {} and {}", result1, result2);
 
     // Example 2: Using channels

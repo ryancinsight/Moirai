@@ -758,7 +758,6 @@ impl WorkStealingCoordinator {
                     Ok(None) => {
                         // No task available from this victim, try next
                         self.update_steal_statistics(thief_id, victim_id, false);
-                        continue;
                     }
                     Err(e) => {
                         // Steal attempt failed, update context and continue

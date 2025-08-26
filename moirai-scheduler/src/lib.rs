@@ -40,40 +40,40 @@
 //! ### Basic Usage
 //!
 //! ```rust
-// use moirai_scheduler::{WorkStealingScheduler, SchedulerConfig};
-// use moirai_core::{Task, TaskBuilder, Priority};
-//
-// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-// // Create scheduler with optimal configuration
-// let config = SchedulerConfig {
-//     initial_capacity: 256,
-//     max_capacity: 4096,
-//     steal_strategy: WorkStealingStrategy::StealHalf,
-//     enable_statistics: true,
-// };
-//
-// let mut scheduler = WorkStealingScheduler::new(config)?;
-//
-// // Add tasks with different priorities
-// let high_priority_task = TaskBuilder::new()
-//     .priority(Priority::High)
-//     .name("critical_task")
-//     .build(|| println!("High priority work"));
-//
-// let normal_task = TaskBuilder::new()
-//     .priority(Priority::Normal)
-//     .build(|| println!("Normal work"));
-//
-// scheduler.schedule(high_priority_task)?;
-// scheduler.schedule(normal_task)?;
-//
-// // Execute tasks (high priority first)
-// while let Some(task) = scheduler.next_task() {
-//     task.execute();
-// }
-// # Ok(())
-// # }
-// ```
+//! use moirai_scheduler::{WorkStealingScheduler, SchedulerConfig};
+//! use moirai_core::{Task, TaskBuilder, Priority};
+//!
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Create scheduler with optimal configuration
+//! let config = SchedulerConfig {
+//!     initial_capacity: 256,
+//!     max_capacity: 4096,
+//!     steal_strategy: WorkStealingStrategy::StealHalf,
+//!     enable_statistics: true,
+//! };
+//!
+//! let mut scheduler = WorkStealingScheduler::new(config)?;
+//!
+//! // Add tasks with different priorities
+//! let high_priority_task = TaskBuilder::new()
+//!     .priority(Priority::High)
+//!     .name("critical_task")
+//!     .build(|| println!("High priority work"));
+//!
+//! let normal_task = TaskBuilder::new()
+//!     .priority(Priority::Normal)
+//!     .build(|| println!("Normal work"));
+//!
+//! scheduler.schedule(high_priority_task)?;
+//! scheduler.schedule(normal_task)?;
+//!
+//! // Execute tasks (high priority first)
+//! while let Some(task) = scheduler.next_task() {
+//!     task.execute();
+//! }
+//! # Ok(())
+//! # }
+//! ```
 //
 // ## Thread Safety and Stealing
 //
