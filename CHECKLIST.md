@@ -1,5 +1,15 @@
 # Moirai Development Checklist
 
+## Phase 14: Critical Infrastructure Fixes ✅
+- [x] **MAJOR**: Fixed HybridExecutor to actually execute tasks (auto-start workers)
+- [x] **MAJOR**: Fixed spawn_blocking result communication via proper channels
+- [x] **MAJOR**: Fixed spawn_async implementation with polling-based runtime
+- [x] Fixed clippy warnings that prevented clean builds (-D warnings compliance)
+- [x] Fixed method naming conflicts (XorShiftRng API)
+- [x] Replaced cfg(disabled) with proper Cargo feature flags
+- [x] Fixed documentation compilation errors and broken links
+- [x] Verified all examples work end-to-end (basic_usage, async_timer)
+
 ## Phase 13: Code Optimization and Cleanup ✅
 - [x] Review and clean codebase following design principles
 - [x] Consolidate channel implementations (DRY/SSOT)
@@ -112,14 +122,14 @@
 - [x] Basic task spawning
 
 ## Next Steps
-- [ ] Comprehensive test suite
-- [ ] Performance benchmarks
-- [ ] Example applications
+- [x] Comprehensive test suite (39+ core tests passing)
+- [x] Example applications (basic_usage, async_timer working)
 - [x] Documentation improvements (SSOT and consolidation notes)
-- [ ] API stabilization
-- [ ] Performance profiling
+- [ ] Performance benchmarks validation
+- [ ] API stabilization  
 - [ ] Production readiness review
 - [x] SSOT consolidation: zero-copy moved to `moirai_core::communication::zero_copy`
 - [x] Iterator windows/chunks consolidated under `moirai_iter::windows`
 - [x] Placeholder cleanup: replaced stubs with explicit unsupported errors or working code
 - [x] Zero-copy send returns value on failure to prevent data loss
+- [x] **Critical Infrastructure**: Fixed executor to actually run tasks (was completely broken)

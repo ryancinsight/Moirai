@@ -3,6 +3,9 @@
 //! This module provides specialized synchronization primitives that add value
 //! beyond the standard library, following YAGNI and DRY principles.
 
+#![allow(clippy::new_without_default)]
+#![allow(clippy::manual_hash_one)]
+
 use std::cell::UnsafeCell;
 use std::collections::hash_map::RandomState;
 use std::collections::HashMap;

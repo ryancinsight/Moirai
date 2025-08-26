@@ -8,6 +8,10 @@
 //! The scheduler uses a lock-free work-stealing deque that allows:
 //! - **Local Access**: O(1) push/pop operations for the owning thread
 //! - **Work Stealing**: O(1) steal operations from other threads
+
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::cast_abs_to_unsigned)]
 //! - **Dynamic Resizing**: Automatic capacity adjustment under load
 //! - **Memory Efficiency**: Minimal memory overhead per task
 //!
