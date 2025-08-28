@@ -220,8 +220,7 @@ where
 
         match self.coroutine.resume() {
             CoroutineResult::Yielded(value) => Some(value),
-            CoroutineResult::Complete(_) => None,
-            CoroutineResult::Error(_) => None,
+            CoroutineResult::Complete(_) | CoroutineResult::Error(_) => None,
         }
     }
 }
@@ -250,9 +249,8 @@ where
     type Output = Result<C::Return, TaskError>;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let coroutine = match self.coroutine.as_mut() {
-            Some(c) => c,
-            None => return Poll::Ready(Err(TaskError::AlreadyCompleted)),
+        let Some(coroutine) = self.coroutine.as_mut() else {
+            return Poll::Ready(Err(TaskError::AlreadyCompleted));
         };
 
         match coroutine.resume() {

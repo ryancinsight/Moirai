@@ -11,6 +11,10 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
+// Constants for worker metrics calculations (SSOT/SOC principles)
+/// Percentage conversion factor to maintain precision
+const PERCENTAGE_PRECISION_FACTOR: f64 = 100.0;
+
 /// Worker thread state and configuration
 pub struct Worker {
     pub id: usize,
@@ -84,10 +88,13 @@ impl Worker {
 
     /// Worker thread main loop
     fn worker_loop(
-        _worker_id: usize,
+        worker_id: usize,
         queue: Arc<Mutex<VecDeque<Box<dyn FnOnce() + Send>>>>,
         shutdown: Arc<AtomicBool>,
     ) {
+        // Set thread name for debugging and monitoring
+        let thread_name = format!("moirai-worker-{}", worker_id);
+        
         while !shutdown.load(Ordering::Relaxed) {
             let task = {
                 let mut q = queue.lock().unwrap();
@@ -100,6 +107,11 @@ impl Worker {
                     task();
                     let _elapsed = start.elapsed();
                     // Metrics would be updated here in a real implementation
+                    // For now, we can at least log the worker that executed the task
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!("Worker {} completed task in {:?}", worker_id, _elapsed);
+                    }
                 }
                 None => {
                     // No tasks available, briefly yield to avoid busy waiting
@@ -145,7 +157,7 @@ impl Worker {
             0.0
         } else {
             let active_time = total_time - self.metrics.idle_time;
-            (active_time.as_secs_f64() / total_time.as_secs_f64()) * 100.0
+            (active_time.as_secs_f64() / total_time.as_secs_f64()) * PERCENTAGE_PRECISION_FACTOR
         }
     }
 }

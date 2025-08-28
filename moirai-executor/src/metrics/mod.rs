@@ -6,6 +6,14 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+// Constants for metrics calculations (SSOT/SOC principles)
+/// Percentage conversion factor to maintain precision
+const PERCENTAGE_PRECISION_FACTOR: f64 = 100.0;
+/// Maximum success rate when no tasks have failed
+const MAX_SUCCESS_RATE: f64 = 100.0;
+/// Default utilization when no workers are available
+const DEFAULT_UTILIZATION: f64 = 0.0;
+
 /// Comprehensive executor performance metrics
 #[derive(Debug)]
 pub struct ExecutorMetrics {
@@ -113,7 +121,7 @@ impl ExecutorMetrics {
     pub fn update_resource_metrics(&self, memory_bytes: usize, cpu_percent: f64) {
         self.memory_usage.store(memory_bytes, Ordering::Relaxed);
         self.cpu_utilization
-            .store((cpu_percent * 100.0) as u64, Ordering::Relaxed);
+            .store((cpu_percent * PERCENTAGE_PRECISION_FACTOR) as u64, Ordering::Relaxed);
         self.update_timestamp();
     }
 
@@ -134,9 +142,9 @@ impl ExecutorMetrics {
         let total = completed + failed;
 
         if total > 0 {
-            (completed as f64 / total as f64) * 100.0
+            (completed as f64 / total as f64) * PERCENTAGE_PRECISION_FACTOR
         } else {
-            100.0
+            MAX_SUCCESS_RATE
         }
     }
 
@@ -150,9 +158,9 @@ impl ExecutorMetrics {
         let total = self.total_workers.load(Ordering::Relaxed);
         if total > 0 {
             let active = self.active_workers.load(Ordering::Relaxed);
-            (active as f64 / total as f64) * 100.0
+            (active as f64 / total as f64) * PERCENTAGE_PRECISION_FACTOR
         } else {
-            0.0
+            DEFAULT_UTILIZATION
         }
     }
 
@@ -163,7 +171,7 @@ impl ExecutorMetrics {
 
     /// Get CPU utilization percentage
     pub fn cpu_utilization_percent(&self) -> f64 {
-        self.cpu_utilization.load(Ordering::Relaxed) as f64 / 100.0
+        self.cpu_utilization.load(Ordering::Relaxed) as f64 / PERCENTAGE_PRECISION_FACTOR
     }
 
     /// Get uptime

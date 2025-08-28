@@ -9,6 +9,12 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+// Constants for task metrics calculations (SSOT/SOC principles)
+/// Percentage conversion factor to maintain precision
+const PERCENTAGE_PRECISION_FACTOR: f64 = 100.0;
+/// Maximum success rate when no tasks have been executed
+const MAX_SUCCESS_RATE: f64 = 100.0;
+
 /// Task performance metrics for monitoring and optimization
 #[derive(Debug, Clone)]
 pub struct TaskPerformanceMetrics {
@@ -51,9 +57,9 @@ impl TaskPerformanceMetrics {
     /// Get success rate as percentage
     pub fn success_rate(&self) -> f64 {
         if self.total_tasks == 0 {
-            100.0
+            MAX_SUCCESS_RATE
         } else {
-            (self.completed_tasks as f64 / self.total_tasks as f64) * 100.0
+            (self.completed_tasks as f64 / self.total_tasks as f64) * PERCENTAGE_PRECISION_FACTOR
         }
     }
 }
