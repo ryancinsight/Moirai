@@ -188,7 +188,6 @@ impl<T: Send + Clone + 'static> NumaIter<T> {
         // Use the execute_iter method to apply the function
         let _ = self.context.execute_iter(self.items, move |item| {
             func(item);
-            ()
         });
     }
 

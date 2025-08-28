@@ -14,6 +14,19 @@ use std::hint;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 
+// Constants for synchronization parameters (SSOT/SOC principles)
+/// Maximum spin attempts before falling back to blocking
+const MAX_SPIN_ATTEMPTS: usize = 100;
+/// Number of test threads for concurrent testing
+#[cfg(test)]
+const TEST_THREAD_COUNT: usize = 10;
+/// Number of operations per test thread
+#[cfg(test)]
+const OPERATIONS_PER_THREAD: usize = 100;
+/// Number of test elements for stress testing
+#[cfg(test)]
+const TEST_ELEMENT_COUNT: usize = 1000;
+
 // Re-export standard library primitives directly (DRY principle)
 pub use std::sync::{
     Barrier, Condvar, Mutex, MutexGuard, OnceLock as Once, RwLock, RwLockReadGuard,
@@ -161,7 +174,7 @@ impl<T> FutexMutex<T> {
     /// Lock the mutex with adaptive spinning.
     pub fn lock(&self) -> FutexMutexGuard<'_, T> {
         // Try to acquire the lock with spinning first
-        for _ in 0..100 {
+        for _ in 0..MAX_SPIN_ATTEMPTS {
             if self.try_lock_immediate() {
                 return FutexMutexGuard {
                     mutex: self,
@@ -444,10 +457,10 @@ mod tests {
         let mutex = Arc::new(FutexMutex::new(0));
         let mut handles = vec![];
 
-        for _ in 0..10 {
+        for _ in 0..TEST_THREAD_COUNT {
             let mutex = mutex.clone();
             handles.push(thread::spawn(move || {
-                for _ in 0..100 {
+                for _ in 0..OPERATIONS_PER_THREAD {
                     let mut guard = mutex.lock();
                     *guard += 1;
                 }
@@ -517,7 +530,7 @@ mod tests {
         let mut segments_used = HashSet::new();
 
         // Insert many keys and track segment distribution
-        for i in 0..1000 {
+        for i in 0..TEST_ELEMENT_COUNT {
             map.insert(i, i);
             let segment_idx = map.segment_index(&i);
             segments_used.insert(segment_idx);
@@ -532,7 +545,7 @@ mod tests {
         );
 
         // Verify all keys can be retrieved
-        for i in 0..1000 {
+        for i in 0..TEST_ELEMENT_COUNT {
             assert_eq!(map.get(&i), Some(i));
         }
     }
