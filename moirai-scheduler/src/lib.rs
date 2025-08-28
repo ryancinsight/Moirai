@@ -131,6 +131,12 @@ use std::{
     time::Instant,
 };
 
+/// Default queue capacity for Chase-Lev deques
+const DEFAULT_CHASELEV_CAPACITY: usize = 1024;
+
+/// Default queue capacity for other queue types  
+const DEFAULT_QUEUE_CAPACITY: usize = 256;
+
 /// A lock-free work-stealing deque implementation based on the Chase-Lev algorithm.
 pub struct ChaseLevDeque<T> {
     /// Bottom index (only modified by owner)
@@ -409,8 +415,8 @@ impl WorkStealingScheduler {
     /// Create a new work-stealing scheduler.
     pub fn new(id: SchedulerId, config: SchedulerConfig) -> Self {
         let initial_capacity = match config.queue_type {
-            QueueType::ChaseLev => 1024, // Default capacity
-            _ => 256,                    // Smaller capacity for other types
+            QueueType::ChaseLev => DEFAULT_CHASELEV_CAPACITY,
+            _ => DEFAULT_QUEUE_CAPACITY,
         };
 
         Self {
