@@ -120,8 +120,10 @@ impl ExecutorMetrics {
     /// Update resource utilization metrics
     pub fn update_resource_metrics(&self, memory_bytes: usize, cpu_percent: f64) {
         self.memory_usage.store(memory_bytes, Ordering::Relaxed);
-        self.cpu_utilization
-            .store((cpu_percent * PERCENTAGE_PRECISION_FACTOR) as u64, Ordering::Relaxed);
+        self.cpu_utilization.store(
+            (cpu_percent * PERCENTAGE_PRECISION_FACTOR) as u64,
+            Ordering::Relaxed,
+        );
         self.update_timestamp();
     }
 

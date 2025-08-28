@@ -409,7 +409,6 @@ where
     Timeout::new(future, duration)
 }
 
-/// Async I/O operations with efficient resource management.
 pub mod io {
     //! Async I/O primitives optimized for Moirai's hybrid runtime.
 
@@ -570,7 +569,6 @@ pub mod io {
     }
 }
 
-/// Async networking operations with connection pooling.
 pub mod net {
     //! Async networking primitives with high performance focus.
 
@@ -694,7 +692,6 @@ pub mod net {
     }
 }
 
-/// Async file system operations with metadata caching.
 pub mod fs {
     //! Async file system operations optimized for common patterns.
 
@@ -928,7 +925,7 @@ pub mod timer {
     static TIMER: std::sync::OnceLock<Timer> = std::sync::OnceLock::new();
 
     fn get_timer() -> &'static Timer {
-        TIMER.get_or_init(|| Timer::new())
+        TIMER.get_or_init(Timer::new)
     }
 
     impl Delay {
@@ -1017,8 +1014,7 @@ pub mod timer {
 
     impl PartialOrd for TimerEntry {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            // Reverse order for min-heap behavior
-            Some(other.deadline.cmp(&self.deadline))
+            Some(self.cmp(other))
         }
     }
 

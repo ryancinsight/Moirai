@@ -93,8 +93,8 @@ impl Worker {
         shutdown: Arc<AtomicBool>,
     ) {
         // Set thread name for debugging and monitoring
-        let thread_name = format!("moirai-worker-{}", worker_id);
-        
+        let _thread_name = format!("moirai-worker-{}", worker_id);
+
         while !shutdown.load(Ordering::Relaxed) {
             let task = {
                 let mut q = queue.lock().unwrap();

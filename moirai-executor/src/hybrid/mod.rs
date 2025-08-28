@@ -155,9 +155,10 @@ impl TaskSpawner for HybridExecutor {
         F::Output: Send + 'static,
     {
         let task_id = TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed));
-        
+
         // Create a channel to communicate the result back
-        let (result_sender, result_receiver) = std::sync::mpsc::channel::<Result<F::Output, moirai_core::error::TaskError>>();
+        let (result_sender, result_receiver) =
+            std::sync::mpsc::channel::<Result<F::Output, moirai_core::error::TaskError>>();
         let handle = TaskHandle::new_with_receiver(task_id, result_receiver);
 
         // Submit the future as a task - implement basic async execution
@@ -167,7 +168,7 @@ impl TaskSpawner for HybridExecutor {
                 let waker = std::task::Waker::noop();
                 let mut context = std::task::Context::from_waker(&waker);
                 let mut future = std::pin::Pin::from(Box::new(future));
-                
+
                 // Simple polling loop - not efficient but works
                 loop {
                     match future.as_mut().poll(&mut context) {
@@ -179,15 +180,16 @@ impl TaskSpawner for HybridExecutor {
                     }
                 }
             }));
-            
+
             match result {
                 Ok(value) => {
                     let _ = result_sender.send(Ok(value));
                 }
                 Err(_) => {
-                    let _ = result_sender.send(Err(moirai_core::error::TaskError::ExecutionFailed(
-                        moirai_core::error::TaskErrorKind::Io,
-                    )));
+                    let _ =
+                        result_sender.send(Err(moirai_core::error::TaskError::ExecutionFailed(
+                            moirai_core::error::TaskErrorKind::Io,
+                        )));
                 }
             }
         });
@@ -201,9 +203,10 @@ impl TaskSpawner for HybridExecutor {
         R: Send + 'static,
     {
         let task_id = TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed));
-        
+
         // Create a channel to communicate the result back
-        let (result_sender, result_receiver) = std::sync::mpsc::channel::<Result<R, moirai_core::error::TaskError>>();
+        let (result_sender, result_receiver) =
+            std::sync::mpsc::channel::<Result<R, moirai_core::error::TaskError>>();
         let handle = TaskHandle::new_with_receiver(task_id, result_receiver);
 
         // Submit the blocking function
@@ -214,9 +217,10 @@ impl TaskSpawner for HybridExecutor {
                     let _ = result_sender.send(Ok(value));
                 }
                 Err(_) => {
-                    let _ = result_sender.send(Err(moirai_core::error::TaskError::ExecutionFailed(
-                        moirai_core::error::TaskErrorKind::Io,
-                    )));
+                    let _ =
+                        result_sender.send(Err(moirai_core::error::TaskError::ExecutionFailed(
+                            moirai_core::error::TaskErrorKind::Io,
+                        )));
                 }
             }
         });
@@ -234,7 +238,7 @@ impl TaskSpawner for HybridExecutor {
         T: Task + Send + 'static,
     {
         let task_id = TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed));
-        
+
         // Register the task with priority
         {
             let mut registry = self.task_registry.lock().unwrap();
@@ -242,21 +246,19 @@ impl TaskSpawner for HybridExecutor {
         }
 
         // Select worker based on locality hint or use least loaded
-        let worker = if let Some(hint) = locality_hint {
-            // Use modulo to map hint to available workers
-            let worker_index = hint % self.workers.len();
-            &self.workers[worker_index]
-        } else {
-            // Find the least loaded worker for load balancing
-            self.workers
-                .iter()
-                .min_by_key(|w| w.queue_len())
-                .ok_or(ExecutorError::SpawnFailed(
-                    moirai_core::error::TaskError::ExecutionFailed(
+        let worker =
+            if let Some(hint) = locality_hint {
+                // Use modulo to map hint to available workers
+                let worker_index = hint % self.workers.len();
+                &self.workers[worker_index]
+            } else {
+                // Find the least loaded worker for load balancing
+                self.workers.iter().min_by_key(|w| w.queue_len()).ok_or(
+                    ExecutorError::SpawnFailed(moirai_core::error::TaskError::ExecutionFailed(
                         moirai_core::error::TaskErrorKind::Io,
-                    ),
-                ))?
-        };
+                    )),
+                )?
+            };
 
         // Create prioritized task wrapper
         let _priority_ref = priority; // Use priority for future implementation
