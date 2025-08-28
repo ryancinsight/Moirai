@@ -370,8 +370,8 @@ mod tests {
                 });
             }
 
-            // Allow tasks to complete
-            for _ in 0..50 {
+            // Allow tasks to complete (reduced wait time)
+            for _ in 0..10 {
                 if counter.load(Ordering::SeqCst) == 4 {
                     break;
                 }

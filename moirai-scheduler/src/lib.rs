@@ -12,6 +12,7 @@
 #![allow(clippy::redundant_closure)]
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::cast_abs_to_unsigned)]
+
 //! - **Dynamic Resizing**: Automatic capacity adjustment under load
 //! - **Memory Efficiency**: Minimal memory overhead per task
 //!
@@ -137,6 +138,16 @@ const DEFAULT_CHASELEV_CAPACITY: usize = 1024;
 /// Default queue capacity for other queue types  
 const DEFAULT_QUEUE_CAPACITY: usize = 256;
 
+// Constants for work-stealing scheduler (SSOT principle)
+/// Minimum capacity for Chase-Lev deque to ensure efficient operations
+const MIN_DEQUE_CAPACITY: usize = 16;
+
+/// Linear congruential generator multiplier (standard LCG constant)
+const LCG_MULTIPLIER: usize = 1103515245;
+
+/// Linear congruential generator increment (standard LCG constant)
+const LCG_INCREMENT: usize = 12345;
+
 /// A lock-free work-stealing deque implementation based on the Chase-Lev algorithm.
 pub struct ChaseLevDeque<T> {
     /// Bottom index (only modified by owner)
@@ -192,7 +203,7 @@ impl<T> Array<T> {
 impl<T> ChaseLevDeque<T> {
     /// Create a new Chase-Lev deque with the specified initial capacity.
     pub fn new(initial_capacity: usize) -> Self {
-        let capacity = initial_capacity.next_power_of_two().max(16);
+        let capacity = initial_capacity.next_power_of_two().max(MIN_DEQUE_CAPACITY);
         let array = Box::new(Array::new(capacity));
 
         Self {
@@ -751,7 +762,9 @@ impl WorkStealingCoordinator {
     /// Simple linear congruential generator for random numbers.
     fn next_random(&self) -> usize {
         let current = self.rng_state.load(Ordering::Relaxed);
-        let next = current.wrapping_mul(1103515245).wrapping_add(12345);
+        let next = current
+            .wrapping_mul(LCG_MULTIPLIER)
+            .wrapping_add(LCG_INCREMENT);
         self.rng_state.store(next, Ordering::Relaxed);
         next
     }
