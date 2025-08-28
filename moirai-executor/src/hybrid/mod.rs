@@ -265,7 +265,9 @@ impl TaskSpawner for HybridExecutor {
         let prioritized_task = move || {
             // Note: Priority could be implemented through queue ordering
             // For now, execute immediately but record priority for metrics
-            let _ = task.execute();
+            if let Err(e) = task.execute() {
+                eprintln!("Task execution failed: {:?}", e);
+            }
         };
 
         // Submit the task
