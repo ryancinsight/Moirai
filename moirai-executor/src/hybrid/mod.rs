@@ -133,20 +133,27 @@ impl TaskSpawner for HybridExecutor {
     fn spawn<T>(&self, task: T) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task + Send + 'static,
+        T::Output: Send + 'static,
     {
         // Create a task handle
         let task_id = TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed));
 
-        // For now, use submit_task functionality adapted for the trait
-        // In a real implementation, this would properly spawn the task
-        let handle = TaskHandle::new_detached(task_id);
+        // Create result channel for the task
+        let (result_sender, result_receiver) = std::sync::mpsc::channel();
+        let (completion_sender, _completion_receiver) = std::sync::mpsc::channel();
 
-        // Submit the task (simplified implementation)
+        // Submit the task with result channel
         let _ = self.submit_task(move || {
-            let _ = task.execute();
+            let result = task.execute();
+
+            // Send result through channel
+            let _ = result_sender.send(Ok(result));
+
+            // Signal completion
+            let _ = completion_sender.send(());
         });
 
-        Ok(handle)
+        Ok(TaskHandle::new_with_receiver(task_id, result_receiver))
     }
 
     fn spawn_async<F>(&self, future: F) -> ExecutorResult<TaskHandle<F::Output>>
@@ -236,8 +243,13 @@ impl TaskSpawner for HybridExecutor {
     ) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task + Send + 'static,
+        T::Output: Send + 'static,
     {
         let task_id = TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed));
+
+        // Create result channel for the task
+        let (result_sender, result_receiver) = std::sync::mpsc::channel();
+        let (completion_sender, _completion_receiver) = std::sync::mpsc::channel();
 
         // Register the task with priority
         {
@@ -264,16 +276,21 @@ impl TaskSpawner for HybridExecutor {
         let _priority_ref = priority; // Use priority for future implementation
         let prioritized_task = move || {
             // Note: Priority could be implemented through queue ordering
-            // For now, execute immediately but record priority for metrics
-            let _result = task.execute();
-            // Task result is discarded for detached tasks
+            // Execute task and send result through channel
+            let result = task.execute();
+
+            // Send result through channel (don't need clone)
+            let _ = result_sender.send(Ok(result));
+
+            // Signal completion
+            let _ = completion_sender.send(());
         };
 
         // Submit the task
         worker.submit_task(prioritized_task);
         self.metrics.record_task_spawned();
 
-        Ok(TaskHandle::new_detached(task_id))
+        Ok(TaskHandle::new_with_receiver(task_id, result_receiver))
     }
 }
 

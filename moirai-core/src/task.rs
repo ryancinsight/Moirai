@@ -456,7 +456,6 @@ impl<T: Task> Task for ContextualTask<T> {
     }
 }
 
-
 /// Builder for creating and configuring tasks.
 #[allow(clippy::module_name_repetitions)]
 pub struct TaskBuilder {
