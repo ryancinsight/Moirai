@@ -329,7 +329,7 @@ impl<T> SpinLock<T> {
 
         loop {
             // Fast path: try to acquire immediately
-            if !self.locked.load(Ordering::Relaxed) && !self.locked.swap(true, Ordering::Acquire) {
+            if self.locked.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
                 return SpinLockGuard {
                     lock: self,
                     _phantom: std::marker::PhantomData,
