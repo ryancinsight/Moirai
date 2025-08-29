@@ -64,6 +64,8 @@ pub mod task;
 // Unified channel implementation
 #[cfg(feature = "std")]
 pub mod channel;
+#[cfg(feature = "std")]
+pub mod unified_channel;
 
 // CacheAligned is imported from moirai-utils
 
