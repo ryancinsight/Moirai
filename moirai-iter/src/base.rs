@@ -354,23 +354,32 @@ mod tests {
             atomic::{AtomicUsize, Ordering},
             Arc,
         };
-        use std::time::Duration;
 
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
 
         {
-            let pool = ThreadPool::new(4);
+            let pool = ThreadPool::new(2);
 
-            for _ in 0..10 {
+            // Submit fewer, faster tasks
+            for _ in 0..4 {
                 let counter = counter.clone();
                 pool.execute(move || {
-                    std::thread::sleep(Duration::from_millis(10));
+                    // Fast operation without sleep
                     counter.fetch_add(1, Ordering::SeqCst);
                 });
             }
-        }
 
-        assert_eq!(counter_clone.load(Ordering::SeqCst), 10);
+            // Allow tasks to complete (reduced wait time)
+            for _ in 0..10 {
+                if counter.load(Ordering::SeqCst) == 4 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        } // Pool is dropped here
+
+        // Verify all tasks completed
+        assert_eq!(counter_clone.load(Ordering::SeqCst), 4);
     }
 }

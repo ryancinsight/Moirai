@@ -531,8 +531,9 @@ mod tests {
 
         // Insert many keys and track segment distribution
         for i in 0..TEST_ELEMENT_COUNT {
-            map.insert(i, i);
-            let segment_idx = map.segment_index(&i);
+            let key = i as i32;
+            map.insert(key, key);
+            let segment_idx = map.segment_index(&key);
             segments_used.insert(segment_idx);
         }
 
@@ -546,7 +547,8 @@ mod tests {
 
         // Verify all keys can be retrieved
         for i in 0..TEST_ELEMENT_COUNT {
-            assert_eq!(map.get(&i), Some(i));
+            let key = i as i32;
+            assert_eq!(map.get(&key), Some(key));
         }
     }
 }

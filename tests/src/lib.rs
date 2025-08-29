@@ -3,6 +3,9 @@
 #[cfg(test)]
 pub mod principle_based_edge_tests;
 
+#[cfg(test)]
+pub mod interleaved_execution_tests;
+
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]
 mod integration_tests {

@@ -456,67 +456,6 @@ impl<T: Task> Task for ContextualTask<T> {
     }
 }
 
-/// Wrapper for coroutines to implement the Task trait.
-#[cfg(feature = "coroutine")]
-pub struct CoroutineTask<C>
-where
-    C: crate::coroutine::Coroutine,
-{
-    coroutine: Option<C>,
-    context: TaskContext,
-}
-
-#[cfg(feature = "coroutine")]
-impl<C> CoroutineTask<C>
-where
-    C: crate::coroutine::Coroutine,
-{
-    /// Create a new coroutine task.
-    pub fn new(coroutine: C, context: TaskContext) -> Self {
-        Self {
-            coroutine: Some(coroutine),
-            context,
-        }
-    }
-}
-
-#[cfg(feature = "coroutine")]
-impl<C> Task for CoroutineTask<C>
-where
-    C: crate::coroutine::Coroutine + Send + 'static,
-    C::Return: Send + 'static,
-{
-    type Output = C::Return;
-
-    fn execute(mut self) -> Self::Output {
-        if let Some(mut coroutine) = self.coroutine.take() {
-            // Run the coroutine to completion
-            loop {
-                match coroutine.resume() {
-                    crate::coroutine::CoroutineResult::Yielded(_) => {
-                        // Continue running
-                        continue;
-                    }
-                    crate::coroutine::CoroutineResult::Complete(value) => {
-                        return value;
-                    }
-                    crate::coroutine::CoroutineResult::Error(_) => {
-                        // In a real implementation, we'd propagate the error
-                        // For now, panic
-                        panic!("Coroutine error");
-                    }
-                }
-            }
-        } else {
-            panic!("Coroutine already consumed");
-        }
-    }
-
-    fn context(&self) -> &TaskContext {
-        &self.context
-    }
-}
-
 /// Builder for creating and configuring tasks.
 #[allow(clippy::module_name_repetitions)]
 pub struct TaskBuilder {
