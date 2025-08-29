@@ -34,7 +34,7 @@ pub struct ExecutorMetrics {
 
     // Resource utilization
     pub memory_usage: AtomicUsize,  // in bytes
-    pub cpu_utilization: AtomicU64, // percentage * 100
+    pub cpu_utilization: AtomicU64, // percentage * CPU_UTILIZATION_PRECISION
 
     // System metrics
     pub started_at: Instant,

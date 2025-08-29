@@ -36,6 +36,24 @@ pub const DEFAULT_CONCURRENT_MAP_SEGMENTS: usize = 16;
 /// Default ring buffer capacity (power of 2)
 pub const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
+/// Default MPMC channel capacity
+pub const DEFAULT_MPMC_CAPACITY: usize = 1024;
+
+/// Default CPU utilization precision factor (percentage * 100)
+pub const CPU_UTILIZATION_PRECISION: u64 = 100;
+
+/// Prime modulo for benchmark variation
+pub const BENCHMARK_PRIME_MODULO: usize = 997;
+
+/// Default benchmark operation count
+pub const DEFAULT_BENCHMARK_OPS: usize = 1000;
+
+/// Large benchmark data size for performance testing
+pub const LARGE_BENCHMARK_SIZE: usize = 10000;
+
+/// SIMD benchmark vector size
+pub const SIMD_BENCHMARK_SIZE: usize = 1024;
+
 // Test constants - only included in test builds
 #[cfg(test)]
 pub mod test_constants {
