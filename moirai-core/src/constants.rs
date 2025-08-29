@@ -41,13 +41,13 @@ pub const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 pub mod test_constants {
     /// Number of test threads for concurrent testing
     pub const TEST_THREAD_COUNT: usize = 10;
-    
+
     /// Number of operations per test thread
     pub const OPERATIONS_PER_THREAD: usize = 100;
-    
+
     /// Number of test elements for stress testing
     pub const TEST_ELEMENT_COUNT: usize = 1000;
-    
+
     /// Test sleep duration multiplier in milliseconds
     pub const TEST_SLEEP_MULTIPLIER_MS: u64 = 10;
 }

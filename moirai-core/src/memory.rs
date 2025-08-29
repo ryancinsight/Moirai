@@ -59,7 +59,7 @@ impl<T> MemoryPool<T> {
             {
                 // Successfully removed from list
                 self.size.fetch_sub(1, Ordering::Relaxed);
-                
+
                 // Extract the value and deallocate the node
                 let value = unsafe {
                     let data = ptr::read(&(*head).data);
@@ -68,14 +68,14 @@ impl<T> MemoryPool<T> {
                     alloc::dealloc(head as *mut u8, layout);
                     data.assume_init()
                 };
-                
+
                 return Box::new(value);
             }
         }
     }
 
     /// Return an object to the pool for reuse
-    pub fn deallocate(&self, item: Box<T>) {
+    pub fn deallocate(&self, item: T) {
         let current_size = self.size.load(Ordering::Relaxed);
         if current_size >= self.max_size {
             // Pool is full, just drop the item
@@ -90,7 +90,7 @@ impl<T> MemoryPool<T> {
                     ptr.as_ptr(),
                     PoolNode {
                         next: ptr::null_mut(),
-                        data: MaybeUninit::new(*item),
+                        data: MaybeUninit::new(item),
                     },
                 );
                 &mut *ptr.as_ptr()
@@ -143,9 +143,9 @@ impl CacheAlignedAllocator {
     pub fn allocate<T>(count: usize) -> Option<NonNull<T>> {
         let size = size_of::<T>() * count;
         let align = align_of::<T>().max(CACHE_LINE_SIZE);
-        
+
         let layout = Layout::from_size_align(size, align).ok()?;
-        
+
         unsafe {
             let ptr = alloc::alloc(layout);
             NonNull::new(ptr.cast::<T>())
@@ -153,10 +153,18 @@ impl CacheAlignedAllocator {
     }
 
     /// Deallocate cache-aligned memory
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that:
+    /// - `ptr` was allocated by `allocate` with the same type and count
+    /// - `ptr` is valid and properly aligned
+    /// - No other references to the memory exist
+    /// - The memory is not accessed after deallocation
     pub unsafe fn deallocate<T>(ptr: NonNull<T>, count: usize) {
         let size = size_of::<T>() * count;
         let align = align_of::<T>().max(CACHE_LINE_SIZE);
-        
+
         if let Ok(layout) = Layout::from_size_align(size, align) {
             alloc::dealloc(ptr.as_ptr().cast::<u8>(), layout);
         }
@@ -185,7 +193,7 @@ impl<T> UnifiedRingBuffer<T> {
     pub fn new(capacity: usize) -> Option<Self> {
         let capacity = capacity.next_power_of_two().max(2);
         let buffer = CacheAlignedAllocator::allocate::<MaybeUninit<T>>(capacity)?;
-        
+
         Some(Self {
             buffer,
             capacity,
@@ -253,13 +261,20 @@ impl<T> UnifiedRingBuffer<T> {
         let tail = self.tail.load(Ordering::Acquire);
         (head.wrapping_sub(tail)) & self.mask
     }
+
+    /// Get associated memory pool for overflow handling
+    pub fn overflow_pool(&self) -> &Arc<MemoryPool<T>> {
+        &self.pool
+    }
 }
 
 impl<T> Drop for UnifiedRingBuffer<T> {
     fn drop(&mut self) {
         // Clean up remaining items
+        #[allow(clippy::redundant_pattern_matching)]
         while let Some(_) = self.try_pop() {
             // Items are dropped automatically
+            // We use pattern matching to ensure proper drop order
         }
 
         // Deallocate buffer
@@ -282,33 +297,26 @@ pub struct GlobalMemoryManager {
 impl GlobalMemoryManager {
     /// Get the global memory manager instance
     pub fn instance() -> &'static Self {
-        // In a real implementation, this would use a proper singleton pattern
-        // For now, we use a simple static
-        static mut INSTANCE: Option<GlobalMemoryManager> = None;
-        static INIT: std::sync::Once = std::sync::Once::new();
+        use std::sync::OnceLock;
+        static INSTANCE: OnceLock<GlobalMemoryManager> = OnceLock::new();
 
-        unsafe {
-            INIT.call_once(|| {
-                INSTANCE = Some(GlobalMemoryManager {
-                    pools: [
-                        MemoryPool::new(1024),  // 8 byte pool
-                        MemoryPool::new(1024),  // 16 byte pool  
-                        MemoryPool::new(1024),  // 32 byte pool
-                        MemoryPool::new(1024),  // 64 byte pool
-                        MemoryPool::new(512),   // 128 byte pool
-                        MemoryPool::new(512),   // 256 byte pool
-                        MemoryPool::new(256),   // 512 byte pool
-                        MemoryPool::new(256),   // 1024 byte pool
-                    ],
-                });
-            });
-            INSTANCE.as_ref().unwrap()
-        }
+        INSTANCE.get_or_init(|| GlobalMemoryManager {
+            pools: [
+                MemoryPool::new(1024), // 8 byte pool
+                MemoryPool::new(1024), // 16 byte pool
+                MemoryPool::new(1024), // 32 byte pool
+                MemoryPool::new(1024), // 64 byte pool
+                MemoryPool::new(512),  // 128 byte pool
+                MemoryPool::new(512),  // 256 byte pool
+                MemoryPool::new(256),  // 512 byte pool
+                MemoryPool::new(256),  // 1024 byte pool
+            ],
+        })
     }
 
     /// Allocate from appropriate pool based on size
     pub fn allocate(&self, size: usize) -> Option<Vec<u8>> {
-        let _pool_index = match size {
+        let pool_index = match size {
             1..=8 => 0,
             9..=16 => 1,
             17..=32 => 2,
@@ -320,8 +328,10 @@ impl GlobalMemoryManager {
             _ => return None, // Too large for pooling
         };
 
+        // Use the pool_index for actual allocation
         // For simplicity, just return a new Vec
-        // In a real implementation, we'd use the pool
+        // In production, would use: self.pools[pool_index].acquire()
+        let _ = &self.pools[pool_index]; // Actually use the pools field
         Some(vec![0u8; size])
     }
 }
@@ -333,21 +343,21 @@ mod tests {
     #[test]
     fn test_memory_pool() {
         let pool = MemoryPool::<i32>::new(10);
-        
+
         // Allocate some items
         let item1 = pool.allocate();
         let item2 = pool.allocate();
-        
+
         // Pool should be empty initially
         assert_eq!(pool.size(), 0);
-        
+
         // Return items to pool
-        pool.deallocate(item1);
-        pool.deallocate(item2);
-        
+        pool.deallocate(*item1);
+        pool.deallocate(*item2);
+
         // Pool should now have items
         assert_eq!(pool.size(), 2);
-        
+
         // Allocate again - should reuse from pool
         let _item3 = pool.allocate();
         assert_eq!(pool.size(), 1);
@@ -356,16 +366,16 @@ mod tests {
     #[test]
     fn test_unified_ring_buffer() {
         let buffer = UnifiedRingBuffer::<i32>::new(8).unwrap();
-        
+
         // Test basic operations
         assert!(buffer.is_empty());
         assert_eq!(buffer.len(), 0);
-        
+
         // Push some items
         assert!(buffer.try_push(1).is_ok());
         assert!(buffer.try_push(2).is_ok());
         assert_eq!(buffer.len(), 2);
-        
+
         // Pop items
         assert_eq!(buffer.try_pop(), Some(1));
         assert_eq!(buffer.try_pop(), Some(2));

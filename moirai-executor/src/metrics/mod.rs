@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 // Import centralized constants (SSOT compliance)
 use moirai_core::constants::{
-    PERCENTAGE_PRECISION_FACTOR, MAX_SUCCESS_RATE, DEFAULT_UTILIZATION, BYTES_TO_MB_FACTOR,
+    BYTES_TO_MB_FACTOR, DEFAULT_UTILIZATION, MAX_SUCCESS_RATE, PERCENTAGE_PRECISION_FACTOR,
 };
 
 /// Comprehensive executor performance metrics
