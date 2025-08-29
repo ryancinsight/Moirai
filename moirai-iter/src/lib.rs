@@ -16,6 +16,7 @@
 //! - **Pure Rust std**: No external dependencies, pure standard library implementation
 
 // Module declarations following SRP and SOC
+pub mod advanced_patterns;
 pub mod base;
 pub mod cache;
 pub mod channel_fusion;

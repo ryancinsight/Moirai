@@ -6,13 +6,10 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-// Constants for metrics calculations (SSOT/SOC principles)
-/// Percentage conversion factor to maintain precision
-const PERCENTAGE_PRECISION_FACTOR: f64 = 100.0;
-/// Maximum success rate when no tasks have failed
-const MAX_SUCCESS_RATE: f64 = 100.0;
-/// Default utilization when no workers are available
-const DEFAULT_UTILIZATION: f64 = 0.0;
+// Import centralized constants (SSOT compliance)
+use moirai_core::constants::{
+    PERCENTAGE_PRECISION_FACTOR, MAX_SUCCESS_RATE, DEFAULT_UTILIZATION, BYTES_TO_MB_FACTOR,
+};
 
 /// Comprehensive executor performance metrics
 #[derive(Debug)]
@@ -168,7 +165,7 @@ impl ExecutorMetrics {
 
     /// Get memory usage in MB
     pub fn memory_usage_mb(&self) -> f64 {
-        self.memory_usage.load(Ordering::Relaxed) as f64 / (1024.0 * 1024.0)
+        self.memory_usage.load(Ordering::Relaxed) as f64 / BYTES_TO_MB_FACTOR
     }
 
     /// Get CPU utilization percentage

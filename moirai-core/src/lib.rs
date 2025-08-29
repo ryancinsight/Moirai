@@ -50,9 +50,13 @@ extern crate alloc;
 // Platform abstraction layer
 pub mod platform;
 
+// Global constants (SSOT principle)
+pub mod constants;
+
 // Core modules
 pub mod error;
 pub mod executor;
+pub mod memory;
 pub mod pool;
 pub mod scheduler;
 pub mod task;
@@ -60,6 +64,8 @@ pub mod task;
 // Unified channel implementation
 #[cfg(feature = "std")]
 pub mod channel;
+#[cfg(feature = "std")]
+pub mod unified_channel;
 
 // CacheAligned is imported from moirai-utils
 
