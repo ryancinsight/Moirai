@@ -118,7 +118,7 @@ impl<'a, T> Iterator for CacheAlignedChunks<'a, T> {
 /// Prefetch data for reading with specified cache level
 ///
 /// # Safety
-/// 
+///
 /// The caller must ensure that `ptr` is a valid pointer to readable memory.
 /// The `level` parameter should be in the range 0-3 for x86_64 architectures.
 /// On non-x86_64 architectures, this function is a no-op.
@@ -143,7 +143,7 @@ pub unsafe fn prefetch_read_data(ptr: *const u8, level: i32) {
 /// Prefetch data for writing with specified cache level
 ///
 /// # Safety
-/// 
+///
 /// The caller must ensure that `ptr` is a valid pointer to writable memory.
 /// The `level` parameter should be in the range 0-3 for x86_64 architectures.
 /// On non-x86_64 architectures, this function is a no-op.
@@ -210,7 +210,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         R: Send,
     {
         use std::mem::MaybeUninit;
-        
+
         let mut results: Vec<MaybeUninit<R>> = Vec::with_capacity(self.data.len());
         unsafe {
             results.set_len(self.data.len());
@@ -239,11 +239,9 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                 });
             }
         });
-        
+
         // Convert MaybeUninit<R> to R safely
-        unsafe {
-            results.into_iter().map(|item| item.assume_init()).collect()
-        }
+        unsafe { results.into_iter().map(|item| item.assume_init()).collect() }
     }
 
     pub fn reduce<F>(&self, func: F) -> Option<T>

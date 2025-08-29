@@ -139,7 +139,7 @@ impl<'a> SimdF32Iterator<'a> {
             }
         }
 
-        // Add remaining elements  
+        // Add remaining elements
         for (&data_val, &other_val) in self.data[simd_len..].iter().zip(&other[simd_len..]) {
             sum += data_val * other_val;
         }

@@ -114,10 +114,7 @@ where
     R: Send,
     F: Fn(&[T]) -> Vec<R> + Send + Sync,
 {
-    items
-        .chunks(batch_size)
-        .flat_map(func)
-        .collect()
+    items.chunks(batch_size).flat_map(func).collect()
 }
 
 /// Base iterator wrapper that provides common functionality.
