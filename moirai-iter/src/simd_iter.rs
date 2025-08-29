@@ -140,8 +140,8 @@ impl<'a> SimdF32Iterator<'a> {
         }
 
         // Add remaining elements
-        for i in simd_len..self.data.len() {
-            sum += self.data[i] * other[i];
+        for (&data_val, &other_val) in self.data[simd_len..].iter().zip(&other[simd_len..]) {
+            sum += data_val * other_val;
         }
 
         sum
@@ -218,7 +218,7 @@ impl<'a> SimdParallelIterator<'a, f32> {
 
         std::thread::scope(|scope| {
             let result_ptr = result.as_mut_ptr();
-            let num_chunks = (len + chunk_size - 1) / chunk_size;
+            let num_chunks = len.div_ceil(chunk_size);
 
             for chunk_idx in 0..num_chunks {
                 let chunk_start = chunk_idx * chunk_size;
@@ -260,7 +260,7 @@ impl<'a> SimdParallelIterator<'a, f32> {
 
         std::thread::scope(|scope| {
             let result_ptr = result.as_mut_ptr();
-            let num_chunks = (len + chunk_size - 1) / chunk_size;
+            let num_chunks = len.div_ceil(chunk_size);
 
             for chunk_idx in 0..num_chunks {
                 let chunk_start = chunk_idx * chunk_size;

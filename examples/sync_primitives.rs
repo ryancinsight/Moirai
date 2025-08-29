@@ -64,7 +64,7 @@ fn main() {
     // Read values
     // Note: ConcurrentHashMap doesn't have a len() method
     println!("  Map operations completed");
-    if let Some(value) = map.get(&"thread_0_item_0".to_string()) {
+    if let Ok(Some(value)) = map.get(&"thread_0_item_0".to_string()) {
         println!("  Sample value: thread_0_item_0 = {}", value);
     }
 

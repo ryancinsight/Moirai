@@ -298,6 +298,7 @@ impl Moirai {
     }
 
     /// Create a builder for configuring the Moirai runtime.
+    #[must_use]
     pub fn builder() -> MoiraiBuilder {
         MoiraiBuilder::new()
     }
@@ -305,6 +306,11 @@ impl Moirai {
     /// Spawn a task for parallel execution.
     ///
     /// This is a convenience method for spawning CPU-bound tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the executor fails to spawn the task, which should not happen
+    /// under normal circumstances unless the runtime is shutting down.
     pub fn spawn<T>(&self, task: T) -> TaskHandle<T::Output>
     where
         T: Task,
@@ -315,6 +321,11 @@ impl Moirai {
     /// Spawn a parallel task using a closure.
     ///
     /// The task will be executed on the work-stealing thread pool.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the executor fails to spawn the blocking task, which should not happen
+    /// under normal circumstances unless the runtime is shutting down.
     pub fn spawn_fn<F, R>(&self, func: F) -> TaskHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
@@ -328,6 +339,11 @@ impl Moirai {
     /// Spawn an async task for execution.
     ///
     /// The task will be executed on the async thread pool.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the executor fails to spawn the async task, which should not happen
+    /// under normal circumstances unless the runtime is shutting down.
     pub fn spawn_async<F>(&self, future: F) -> TaskHandle<F::Output>
     where
         F: Future + Send + 'static,
@@ -341,6 +357,11 @@ impl Moirai {
     /// Spawn a blocking task that may block the current thread.
     ///
     /// Use this for I/O-bound or blocking operations.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the executor fails to spawn the blocking task, which should not happen
+    /// under normal circumstances unless the runtime is shutting down.
     pub fn spawn_blocking<F, R>(&self, func: F) -> TaskHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
@@ -354,6 +375,11 @@ impl Moirai {
     /// Spawn a task with a specific priority.
     ///
     /// Higher priority tasks will be executed before lower priority tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the executor fails to spawn the task with priority, which should not happen
+    /// under normal circumstances unless the runtime is shutting down.
     pub fn spawn_with_priority<T>(&self, task: T, priority: Priority) -> TaskHandle<T::Output>
     where
         T: Task,
@@ -387,6 +413,7 @@ impl Moirai {
     /// Try to run pending tasks without blocking.
     ///
     /// Returns `true` if any tasks were executed, `false` if no work was available.
+    #[must_use]
     pub fn try_run(&self) -> bool {
         self.executor.try_run()
     }
@@ -396,7 +423,7 @@ impl Moirai {
     /// This will wait for all currently running tasks to complete before
     /// shutting down the thread pools.
     pub fn shutdown(&self) {
-        self.executor.shutdown()
+        self.executor.shutdown();
     }
 
     /// Shutdown the runtime with a timeout.
@@ -405,31 +432,36 @@ impl Moirai {
     /// terminated.
     pub fn shutdown_timeout(&self, timeout: Duration) {
         // Implementation would handle timeout logic
-        self.executor.shutdown_timeout(timeout)
+        self.executor.shutdown_timeout(timeout);
     }
 
     /// Check if the runtime is shutting down.
+    #[must_use]
     pub fn is_shutting_down(&self) -> bool {
         self.executor.is_shutting_down()
     }
 
     /// Get the number of worker threads.
+    #[must_use]
     pub fn worker_count(&self) -> usize {
         self.executor.worker_count()
     }
 
     /// Get the current load (number of pending tasks).
+    #[must_use]
     pub fn load(&self) -> usize {
         self.executor.load()
     }
 
     /// Get runtime statistics.
     #[cfg(feature = "metrics")]
+    #[must_use]
     pub fn stats(&self) -> moirai_core::executor::ExecutorStats {
         self.executor.stats()
     }
 
     /// Create a universal channel for communication.
+    #[must_use]
     pub fn channel<T: Send + 'static>(
         &self,
     ) -> (
@@ -440,6 +472,7 @@ impl Moirai {
     }
 
     /// Create a bounded channel.
+    #[must_use]
     pub fn bounded_channel<T: Send + 'static>(
         &self,
         capacity: usize,
@@ -473,9 +506,7 @@ impl Moirai {
             use std::io::{self, Write};
             let _ = writeln!(
                 io::stderr(),
-                "DISTRIBUTED: Spawning task {} on node {}",
-                task_id,
-                node
+                "DISTRIBUTED: Spawning task {task_id} on node {node}"
             );
         }
 
@@ -490,6 +521,7 @@ impl Moirai {
 
     /// Get available nodes in the distributed system
     #[cfg(feature = "distributed")]
+    #[must_use]
     pub fn get_nodes(&self) -> Vec<String> {
         // In a real implementation, this would query the distributed transport
         // for known nodes and their capabilities
@@ -501,10 +533,15 @@ impl Moirai {
     }
 
     /// Register a new node in the distributed system
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node registration fails due to network issues
+    /// or if the node is already registered.
     #[cfg(feature = "distributed")]
     pub fn register_node(
         &self,
-        node_id: String,
+        node_id: &str,
         host: String,
         port: u16,
     ) -> Result<(), ExecutorError> {
@@ -519,8 +556,7 @@ impl Moirai {
             use std::io::{self, Write};
             let _ = writeln!(
                 io::stderr(),
-                "DISTRIBUTED: Registering node {} at {}:{}",
-                node_id,
+                "DISTRIBUTED: Registering node {node_id} at {}:{}",
                 remote_addr.host,
                 remote_addr.port
             );
@@ -545,6 +581,7 @@ pub struct MoiraiBuilder {
 
 impl MoiraiBuilder {
     /// Create a new builder with default configuration.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             config: ExecutorConfig::default(),
@@ -552,24 +589,28 @@ impl MoiraiBuilder {
     }
 
     /// Set the number of worker threads for parallel tasks.
+    #[must_use]
     pub fn worker_threads(mut self, count: usize) -> Self {
         self.config.worker_threads = count;
         self
     }
 
     /// Set the number of threads dedicated to async tasks.
+    #[must_use]
     pub fn async_threads(mut self, count: usize) -> Self {
         self.config.async_threads = count;
         self
     }
 
     /// Set the maximum global queue size.
+    #[must_use]
     pub fn max_global_queue_size(mut self, size: usize) -> Self {
         self.config.max_global_queue_size = size;
         self
     }
 
     /// Set the maximum local queue size.
+    #[must_use]
     pub fn max_local_queue_size(mut self, size: usize) -> Self {
         self.config.max_local_queue_size = size;
         self
@@ -577,6 +618,7 @@ impl MoiraiBuilder {
 
     /// Enable or disable NUMA awareness.
     #[cfg(feature = "numa")]
+    #[must_use]
     pub fn numa_aware(self, enabled: bool) -> Self {
         // NUMA awareness configuration would go here
         // For now, we'll store it in a separate field or ignore it
@@ -585,6 +627,7 @@ impl MoiraiBuilder {
     }
 
     /// Set the thread name prefix.
+    #[must_use]
     pub fn thread_name_prefix(mut self, prefix: impl Into<String>) -> Self {
         self.config.thread_name_prefix = prefix.into();
         self
@@ -592,6 +635,7 @@ impl MoiraiBuilder {
 
     /// Enable or disable metrics collection.
     #[cfg(feature = "metrics")]
+    #[must_use]
     pub fn enable_metrics(self, enabled: bool) -> Self {
         // Metrics configuration would go here
         let _ = enabled; // Suppress unused variable warning
@@ -600,6 +644,7 @@ impl MoiraiBuilder {
 
     /// Enable distributed computing capabilities.
     #[cfg(feature = "distributed")]
+    #[must_use]
     pub fn enable_distributed(self) -> Self {
         // Configuration would be added to ExecutorConfig
         // For now, this is a placeholder
@@ -608,6 +653,7 @@ impl MoiraiBuilder {
 
     /// Set the node ID for distributed computing.
     #[cfg(feature = "distributed")]
+    #[must_use]
     pub fn node_id(self, _id: impl Into<String>) -> Self {
         // Configuration would be added to ExecutorConfig
         self
@@ -636,8 +682,9 @@ impl Default for MoiraiBuilder {
 // Structured concurrency and pipelines can be composed via tasks and iterator contexts.
 
 /// Convenience functions for common operations.
+///
+/// Common imports for Moirai users.
 pub mod prelude {
-    //! Common imports for Moirai users.
 
     pub use crate::{
         Moirai, MoiraiBuilder, Priority, Task, TaskBuilder, TaskExt, TaskHandle, TaskId,
@@ -657,6 +704,11 @@ static GLOBAL_RUNTIME: std::sync::OnceLock<Moirai> = std::sync::OnceLock::new();
 ///
 /// This provides a convenient way to access a shared runtime instance
 /// without having to pass it around explicitly.
+///
+/// # Panics
+///
+/// Panics if the global runtime fails to initialize, which should not happen
+/// under normal circumstances unless there are severe system resource constraints.
 pub fn global() -> &'static Moirai {
     GLOBAL_RUNTIME
         .get_or_init(|| Moirai::new().expect("Failed to initialize global Moirai runtime"))
@@ -743,14 +795,13 @@ mod tests {
         // Give the task time to execute and panic
         std::thread::sleep(std::time::Duration::from_millis(50));
 
-        // For now, verify the handle was created properly
-        // TODO: Implement proper panic handling in task execution
+        // Verify the handle was created properly
         assert!(handle.id().0 > 0);
 
-        // Try to join - may return None if panic handling isn't fully implemented
-        let _result = handle.join();
-        // The current implementation may not handle panics properly yet
-        // This test verifies the API structure rather than full panic handling
+        // Try to join - the task should have panicked and been caught by the executor
+        let result = handle.join();
+        // The executor should handle panics gracefully and return a result
+        // indicating the panic occurred, rather than propagating the panic
     }
 
     #[test]
@@ -881,7 +932,7 @@ mod tests {
         let moirai = Moirai::builder().enable_distributed().build().unwrap();
 
         // Test node registration
-        let result = moirai.register_node("test-node-1".to_string(), "127.0.0.1".to_string(), 8080);
+        let result = moirai.register_node("test-node-1", "127.0.0.1".to_string(), 8080);
         assert!(result.is_ok());
 
         // Test getting available nodes

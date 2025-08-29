@@ -277,6 +277,12 @@ enum PipelineStage<T> {
     Merge(Vec<Box<dyn FusableChannel<T>>>, MergeStrategy),
 }
 
+impl<T: 'static + Send> Default for Pipeline<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: 'static + Send> Pipeline<T> {
     /// Create a new pipeline
     pub fn new() -> Self {

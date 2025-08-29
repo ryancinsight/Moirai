@@ -139,7 +139,7 @@ impl NumaContext {
         R: Send + 'static,
     {
         // Simple implementation - divide work across NUMA nodes
-        let chunk_size = (items.len() + self.thread_count - 1) / self.thread_count;
+        let chunk_size = items.len().div_ceil(self.thread_count);
         let mut results = Vec::with_capacity(items.len());
 
         for chunk in items.chunks(chunk_size) {
@@ -210,7 +210,7 @@ impl<T: Send + Clone + 'static> NumaIter<T> {
         }
         let items = self.items;
         let num_nodes = self.context.thread_count.max(1);
-        let chunk_size = (items.len() + num_nodes - 1) / num_nodes;
+        let chunk_size = items.len().div_ceil(num_nodes);
         if chunk_size == 0 || items.len() == 1 {
             return items.into_iter().reduce(func);
         }

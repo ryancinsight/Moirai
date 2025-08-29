@@ -269,7 +269,7 @@ impl<T: Send + Sync + 'static> ParallelIter<T> {
         let num_threads = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
-        let chunk_size = (data.len() + num_threads - 1) / num_threads;
+        let chunk_size = data.len().div_ceil(num_threads);
 
         Self {
             data: Arc::new(data),
