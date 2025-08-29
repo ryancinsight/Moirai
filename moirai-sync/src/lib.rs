@@ -666,7 +666,9 @@ mod tests {
                     let mut guard = lock.lock();
                     *guard += 1;
                     // Hold the lock briefly to create contention
-                    thread::sleep(std::time::Duration::from_nanos(100));
+                    for _ in 0..10 {
+                        hint::spin_loop();
+                    }
                 }
             }));
         }
