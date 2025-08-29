@@ -9,6 +9,9 @@ pub mod interleaved_execution_tests;
 #[cfg(test)]
 pub mod database_connection_pool_edge_tests;
 
+#[cfg(test)]
+pub mod memory_ordering_edge_tests;
+
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]
 mod integration_tests {
