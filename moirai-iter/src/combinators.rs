@@ -314,7 +314,7 @@ where
     #[inline]
     fn count(mut self) -> usize {
         if self.n > 0 {
-            if let Some(_) = self.iter.nth(self.n - 1) {
+            if self.iter.nth(self.n - 1).is_some() {
                 1 + self.iter.count()
             } else {
                 0
@@ -431,13 +431,13 @@ where
         let (low, high) = self.iter.size_hint();
         let step = self.step + 1;
         let low = if self.first_take {
-            (low + step - 1) / step
+            low.div_ceil(step)
         } else {
             low / step
         };
         let high = high.map(|h| {
             if self.first_take {
-                (h + step - 1) / step
+                h.div_ceil(step)
             } else {
                 h / step
             }
@@ -478,7 +478,7 @@ where
         let len = self.iter.len();
         let step = self.step + 1;
         if self.first_take {
-            (len + step - 1) / step
+            len.div_ceil(step)
         } else {
             len / step
         }

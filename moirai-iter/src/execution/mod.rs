@@ -82,6 +82,12 @@ pub struct ParallelContext {
     chunk_size: usize,
 }
 
+impl Default for ParallelContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Debug for ParallelContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ParallelContext")
@@ -197,6 +203,12 @@ pub struct AsyncContext {
     max_concurrent: usize,
 }
 
+impl Default for AsyncContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AsyncContext {
     /// Create a new async context
     pub fn new() -> Self {
@@ -274,6 +286,12 @@ pub struct HybridContext {
     config: HybridConfig,
 }
 
+impl Default for HybridContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Configuration for hybrid execution strategy
 #[derive(Debug, Clone)]
 pub struct HybridConfig {
@@ -307,6 +325,12 @@ pub struct PerformanceHistory {
 pub enum ExecutionStrategy {
     Parallel,
     Async,
+}
+
+impl Default for PerformanceHistory {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PerformanceHistory {

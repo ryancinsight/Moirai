@@ -90,7 +90,7 @@ where
     }
 
     while items.len() > 1 {
-        let mut next = Vec::with_capacity((items.len() + 1) / 2);
+        let mut next = Vec::with_capacity(items.len().div_ceil(2));
 
         for chunk in items.chunks(2) {
             if chunk.len() == 2 {
@@ -116,7 +116,7 @@ where
 {
     items
         .chunks(batch_size)
-        .flat_map(|chunk| func(chunk))
+        .flat_map(func)
         .collect()
 }
 

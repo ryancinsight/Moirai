@@ -1,7 +1,6 @@
 //! Cache-aware iterator utilities.
 
 use std::mem;
-use std::ptr;
 use std::sync::Arc;
 
 use crate::base::SendPtr;
@@ -71,7 +70,7 @@ impl<'a, T> Iterator for WindowIterator<'a, T> {
             return (0, Some(0));
         }
         let remaining = self.data.len() - self.position;
-        let windows = (remaining + self.stride - 1) / self.stride;
+        let windows = remaining.div_ceil(self.stride);
         (windows, Some(windows))
     }
 }
@@ -117,6 +116,12 @@ impl<'a, T> Iterator for CacheAlignedChunks<'a, T> {
 }
 
 /// Prefetch data for reading with specified cache level
+///
+/// # Safety
+/// 
+/// The caller must ensure that `ptr` is a valid pointer to readable memory.
+/// The `level` parameter should be in the range 0-3 for x86_64 architectures.
+/// On non-x86_64 architectures, this function is a no-op.
 #[inline(always)]
 pub unsafe fn prefetch_read_data(ptr: *const u8, level: i32) {
     #[cfg(target_arch = "x86_64")]
@@ -136,6 +141,12 @@ pub unsafe fn prefetch_read_data(ptr: *const u8, level: i32) {
 }
 
 /// Prefetch data for writing with specified cache level
+///
+/// # Safety
+/// 
+/// The caller must ensure that `ptr` is a valid pointer to writable memory.
+/// The `level` parameter should be in the range 0-3 for x86_64 architectures.
+/// On non-x86_64 architectures, this function is a no-op.
 #[inline(always)]
 pub unsafe fn prefetch_write_data(ptr: *mut u8, level: i32) {
     #[cfg(target_arch = "x86_64")]
@@ -198,17 +209,19 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         F: Fn(&T) -> R + Send + Sync,
         R: Send,
     {
-        let mut results = Vec::with_capacity(self.data.len());
+        use std::mem::MaybeUninit;
+        
+        let mut results: Vec<MaybeUninit<R>> = Vec::with_capacity(self.data.len());
         unsafe {
             results.set_len(self.data.len());
         }
-        let results_ptr: *mut R = results.as_mut_ptr();
+        let results_ptr: *mut MaybeUninit<R> = results.as_mut_ptr();
         let func = Arc::new(func);
         let data = Arc::new(self.data);
         let data_len = self.data.len();
         std::thread::scope(|scope| {
             let chunk_size = self.chunk_size;
-            let num_chunks = (data_len + chunk_size - 1) / chunk_size;
+            let num_chunks = data_len.div_ceil(chunk_size);
             for chunk_idx in 0..num_chunks {
                 let chunk_start = chunk_idx * chunk_size;
                 let chunk_end = std::cmp::min(chunk_start + chunk_size, data_len);
@@ -220,13 +233,17 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                         unsafe {
                             let result = func(&data[i]);
                             let result_ptr = results_ptr_wrapper.as_ptr().add(i - chunk_start);
-                            ptr::write(result_ptr, result);
+                            result_ptr.write(MaybeUninit::new(result));
                         }
                     }
                 });
             }
         });
-        results
+        
+        // Convert MaybeUninit<R> to R safely
+        unsafe {
+            results.into_iter().map(|item| item.assume_init()).collect()
+        }
     }
 
     pub fn reduce<F>(&self, func: F) -> Option<T>
