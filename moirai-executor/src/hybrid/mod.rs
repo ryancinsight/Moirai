@@ -8,6 +8,9 @@ use std::sync::{
     Arc, Mutex,
 };
 
+// Import centralized constants (SSOT compliance)
+use moirai_core::constants::DEFAULT_POLL_INTERVAL_MS;
+
 use moirai_core::{
     error::{ExecutorError, ExecutorResult},
     executor::{
@@ -363,7 +366,7 @@ impl TaskManager for HybridExecutor {
                 }
 
                 // Simple polling delay without tokio dependency
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                std::thread::sleep(std::time::Duration::from_millis(DEFAULT_POLL_INTERVAL_MS));
             }
         }
     }

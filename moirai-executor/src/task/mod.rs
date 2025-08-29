@@ -9,11 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-// Constants for task metrics calculations (SSOT/SOC principles)
-/// Percentage conversion factor to maintain precision
-const PERCENTAGE_PRECISION_FACTOR: f64 = 100.0;
-/// Maximum success rate when no tasks have been executed
-const MAX_SUCCESS_RATE: f64 = 100.0;
+// Import centralized constants (SSOT compliance)
+use moirai_core::constants::{PERCENTAGE_PRECISION_FACTOR, MAX_SUCCESS_RATE};
 
 /// Task performance metrics for monitoring and optimization
 #[derive(Debug, Clone)]

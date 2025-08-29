@@ -14,27 +14,20 @@ use std::hint;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 
-// Constants for synchronization parameters (SSOT/SOC principles)
-/// Maximum spin attempts before falling back to blocking
-const MAX_SPIN_ATTEMPTS: usize = 100;
+// Import centralized constants (SSOT compliance)
+use moirai_core::constants::{
+    MAX_SPIN_ATTEMPTS, SPINLOCK_MAX_BACKOFF, SPINLOCK_MAX_SPINS_BEFORE_YIELD,
+    DEFAULT_CONCURRENT_MAP_SEGMENTS,
+};
+
+#[cfg(test)]
+use moirai_core::constants::test_constants::{
+    TEST_THREAD_COUNT, OPERATIONS_PER_THREAD, TEST_ELEMENT_COUNT, TEST_SLEEP_MULTIPLIER_MS,
+};
 
 // SpinLock backoff constants (TBB-inspired)
 /// Initial backoff iterations for SpinLock
 const SPINLOCK_INITIAL_BACKOFF: usize = 1;
-/// Maximum backoff iterations for SpinLock
-const SPINLOCK_MAX_BACKOFF: usize = 64;
-/// Maximum spin attempts before yielding to scheduler
-const SPINLOCK_MAX_SPINS_BEFORE_YIELD: usize = 1000;
-
-/// Number of test threads for concurrent testing
-#[cfg(test)]
-const TEST_THREAD_COUNT: usize = 10;
-/// Number of operations per test thread
-#[cfg(test)]
-const OPERATIONS_PER_THREAD: usize = 100;
-/// Number of test elements for stress testing
-#[cfg(test)]
-const TEST_ELEMENT_COUNT: usize = 1000;
 
 // Re-export standard library primitives directly (DRY principle)
 pub use std::sync::{
@@ -413,7 +406,7 @@ pub struct ConcurrentHashMap<K, V, S = RandomState> {
 impl<K: Hash + Eq, V> ConcurrentHashMap<K, V> {
     /// Create a new concurrent hash map with default hasher.
     pub fn new() -> Self {
-        Self::with_segments(16)
+        Self::with_segments(DEFAULT_CONCURRENT_MAP_SEGMENTS)
     }
 
     /// Create with a specific number of segments (must be power of 2).
@@ -510,7 +503,7 @@ mod tests {
         for i in 0..3 {
             let wg = wg.clone();
             handles.push(thread::spawn(move || {
-                thread::sleep(std::time::Duration::from_millis(i * 10));
+                thread::sleep(std::time::Duration::from_millis(i * TEST_SLEEP_MULTIPLIER_MS));
                 wg.done();
             }));
         }

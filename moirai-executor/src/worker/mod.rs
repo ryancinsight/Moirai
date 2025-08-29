@@ -11,9 +11,8 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-// Constants for worker metrics calculations (SSOT/SOC principles)
-/// Percentage conversion factor to maintain precision
-const PERCENTAGE_PRECISION_FACTOR: f64 = 100.0;
+// Import centralized constants (SSOT compliance)
+use moirai_core::constants::PERCENTAGE_PRECISION_FACTOR;
 
 /// Worker thread state and configuration
 pub struct Worker {
