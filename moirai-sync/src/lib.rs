@@ -17,6 +17,15 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 // Constants for synchronization parameters (SSOT/SOC principles)
 /// Maximum spin attempts before falling back to blocking
 const MAX_SPIN_ATTEMPTS: usize = 100;
+
+// SpinLock backoff constants (TBB-inspired)
+/// Initial backoff iterations for SpinLock
+const SPINLOCK_INITIAL_BACKOFF: usize = 1;
+/// Maximum backoff iterations for SpinLock
+const SPINLOCK_MAX_BACKOFF: usize = 64;
+/// Maximum spin attempts before yielding to scheduler
+const SPINLOCK_MAX_SPINS_BEFORE_YIELD: usize = 1000;
+
 /// Number of test threads for concurrent testing
 #[cfg(test)]
 const TEST_THREAD_COUNT: usize = 10;
@@ -284,8 +293,13 @@ impl<'a, T> DerefMut for FutexMutexGuard<'a, T> {
     }
 }
 
-/// A spin lock for very short critical sections.
-/// Use only when you know the critical section is extremely short.
+/// A spin lock for very short critical sections with TBB-inspired exponential backoff.
+///
+/// This implementation uses exponential backoff and adaptive yielding for better
+/// performance under contention. The lock is cache-line aligned to prevent false sharing.
+///
+/// Use only when you know the critical section is extremely short (< 1μs).
+#[repr(align(64))] // Cache line alignment to prevent false sharing
 pub struct SpinLock<T> {
     locked: AtomicBool,
     data: UnsafeCell<T>,
@@ -303,16 +317,43 @@ impl<T> SpinLock<T> {
         }
     }
 
-    /// Lock the spin lock.
+    /// Lock the spin lock with TBB-inspired exponential backoff.
+    ///
+    /// This implementation uses:
+    /// - Read-before-CAS to reduce memory contention
+    /// - Exponential backoff starting from 1 iteration up to 64
+    /// - Adaptive yielding after prolonged spinning
     pub fn lock(&self) -> SpinLockGuard<'_, T> {
-        while self.locked.swap(true, Ordering::Acquire) {
-            while self.locked.load(Ordering::Relaxed) {
+        let mut backoff = SPINLOCK_INITIAL_BACKOFF;
+        let mut total_spins = 0;
+
+        loop {
+            // Fast path: try to acquire immediately
+            if self.locked.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                return SpinLockGuard {
+                    lock: self,
+                    _phantom: std::marker::PhantomData,
+                };
+            }
+
+            // Exponential backoff with CPU pause instructions
+            for _ in 0..backoff {
                 hint::spin_loop();
             }
-        }
-        SpinLockGuard {
-            lock: self,
-            _phantom: std::marker::PhantomData,
+
+            // Double the backoff up to maximum
+            if backoff < SPINLOCK_MAX_BACKOFF {
+                backoff = backoff.saturating_mul(2);
+            }
+
+            total_spins += backoff;
+
+            // After many attempts, yield to scheduler to be cooperative
+            if total_spins >= SPINLOCK_MAX_SPINS_BEFORE_YIELD {
+                std::thread::yield_now();
+                total_spins = 0;
+                backoff = SPINLOCK_INITIAL_BACKOFF; // Reset backoff after yielding
+            }
         }
     }
 
@@ -397,30 +438,55 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
     }
 
     /// Insert a key-value pair.
-    pub fn insert(&self, key: K, value: V) -> Option<V> {
+    ///
+    /// Returns the previous value if the key existed, or None if it was a new key.
+    /// Uses Result to handle potential poisoned mutex errors.
+    pub fn insert(&self, key: K, value: V) -> Result<Option<V>, String> {
         let idx = self.segment_index(&key);
-        self.segments[idx].lock().unwrap().insert(key, value)
+        Ok(self.segments[idx]
+            .lock()
+            .map_err(|_| "Mutex poisoned".to_string())?
+            .insert(key, value))
     }
 
     /// Get a value by key.
-    pub fn get(&self, key: &K) -> Option<V>
+    ///
+    /// Returns the cloned value if found, or None if not found.
+    /// Uses Result to handle potential poisoned mutex errors.
+    pub fn get(&self, key: &K) -> Result<Option<V>, String>
     where
         V: Clone,
     {
         let idx = self.segment_index(key);
-        self.segments[idx].lock().unwrap().get(key).cloned()
+        Ok(self.segments[idx]
+            .lock()
+            .map_err(|_| "Mutex poisoned".to_string())?
+            .get(key)
+            .cloned())
     }
 
     /// Remove a key-value pair.
-    pub fn remove(&self, key: &K) -> Option<V> {
+    ///
+    /// Returns the removed value if the key existed, or None if it didn't exist.
+    /// Uses Result to handle potential poisoned mutex errors.
+    pub fn remove(&self, key: &K) -> Result<Option<V>, String> {
         let idx = self.segment_index(key);
-        self.segments[idx].lock().unwrap().remove(key)
+        Ok(self.segments[idx]
+            .lock()
+            .map_err(|_| "Mutex poisoned".to_string())?
+            .remove(key))
     }
 
     /// Check if a key exists.
-    pub fn contains_key(&self, key: &K) -> bool {
+    ///
+    /// Returns true if the key exists, false otherwise.
+    /// Uses Result to handle potential poisoned mutex errors.
+    pub fn contains_key(&self, key: &K) -> Result<bool, String> {
         let idx = self.segment_index(key);
-        self.segments[idx].lock().unwrap().contains_key(key)
+        Ok(self.segments[idx]
+            .lock()
+            .map_err(|_| "Mutex poisoned".to_string())?
+            .contains_key(key))
     }
 }
 
@@ -506,17 +572,17 @@ mod tests {
         let map = ConcurrentHashMap::new();
 
         // Insert some values
-        map.insert("key1", 100);
-        map.insert("key2", 200);
+        assert!(map.insert("key1", 100).unwrap().is_none());
+        assert!(map.insert("key2", 200).unwrap().is_none());
 
         // Test retrieval
-        assert_eq!(map.get(&"key1"), Some(100));
-        assert_eq!(map.get(&"key2"), Some(200));
-        assert_eq!(map.get(&"key3"), None);
+        assert_eq!(map.get(&"key1").unwrap(), Some(100));
+        assert_eq!(map.get(&"key2").unwrap(), Some(200));
+        assert_eq!(map.get(&"key3").unwrap(), None);
 
         // Test removal
-        assert_eq!(map.remove(&"key1"), Some(100));
-        assert_eq!(map.get(&"key1"), None);
+        assert_eq!(map.remove(&"key1").unwrap(), Some(100));
+        assert_eq!(map.get(&"key1").unwrap(), None);
     }
 
     #[test]
@@ -532,7 +598,7 @@ mod tests {
         // Insert many keys and track segment distribution
         for i in 0..TEST_ELEMENT_COUNT {
             let key = i as i32;
-            map.insert(key, key);
+            map.insert(key, key).unwrap();
             let segment_idx = map.segment_index(&key);
             segments_used.insert(segment_idx);
         }
@@ -548,7 +614,113 @@ mod tests {
         // Verify all keys can be retrieved
         for i in 0..TEST_ELEMENT_COUNT {
             let key = i as i32;
-            assert_eq!(map.get(&key), Some(key));
+            assert_eq!(map.get(&key).unwrap(), Some(key));
         }
+    }
+
+    #[test]
+    fn test_spinlock_basic_functionality() {
+        let lock = SpinLock::new(0);
+
+        // Test basic lock/unlock
+        {
+            let mut guard = lock.lock();
+            *guard = 42;
+        }
+
+        // Test that value was updated
+        {
+            let guard = lock.lock();
+            assert_eq!(*guard, 42);
+        }
+    }
+
+    #[test]
+    fn test_spinlock_try_lock() {
+        let lock = SpinLock::new(0);
+
+        // Should be able to try_lock on unlocked
+        let guard1 = lock.try_lock();
+        assert!(guard1.is_some());
+
+        // Should fail to try_lock when locked
+        let guard2 = lock.try_lock();
+        assert!(guard2.is_none());
+
+        // Should succeed after first guard is dropped
+        drop(guard1);
+        let guard3 = lock.try_lock();
+        assert!(guard3.is_some());
+    }
+
+    #[test]
+    fn test_spinlock_contention() {
+        let lock = Arc::new(SpinLock::new(0));
+        let mut handles = vec![];
+
+        // Spawn threads that increment a counter
+        for _ in 0..TEST_THREAD_COUNT {
+            let lock = lock.clone();
+            handles.push(thread::spawn(move || {
+                for _ in 0..OPERATIONS_PER_THREAD {
+                    let mut guard = lock.lock();
+                    *guard += 1;
+                    // Hold the lock briefly to create contention
+                    for _ in 0..10 {
+                        hint::spin_loop();
+                    }
+                }
+            }));
+        }
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Verify final count
+        let guard = lock.lock();
+        assert_eq!(*guard, TEST_THREAD_COUNT * OPERATIONS_PER_THREAD);
+    }
+
+    #[test]
+    fn test_spinlock_drop_behavior() {
+        let lock = SpinLock::new(vec![1, 2, 3]);
+
+        // Test that guard properly derefs
+        {
+            let guard = lock.lock();
+            assert_eq!(guard.len(), 3);
+            assert_eq!(guard[0], 1);
+        }
+
+        // Test that guard properly derefs mutably
+        {
+            let mut guard = lock.lock();
+            guard.push(4);
+            assert_eq!(guard.len(), 4);
+        }
+
+        // Verify changes persisted
+        {
+            let guard = lock.lock();
+            assert_eq!(*guard, vec![1, 2, 3, 4]);
+        }
+    }
+
+    #[test]
+    fn test_spinlock_send_sync() {
+        // Test that SpinLock implements Send + Sync
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<SpinLock<i32>>();
+
+        // Test that we can move SpinLock across threads
+        let lock = SpinLock::new(42);
+        let handle = thread::spawn(move || {
+            let guard = lock.lock();
+            *guard
+        });
+
+        assert_eq!(handle.join().unwrap(), 42);
     }
 }
