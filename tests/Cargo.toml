@@ -16,3 +16,4 @@ moirai-sync = { path = "../moirai-sync" }
 moirai-utils = { path = "../moirai-utils", features = ["std"] }
 proptest = { workspace = true }
 quickcheck = { workspace = true }
+fastrand = "2.0"

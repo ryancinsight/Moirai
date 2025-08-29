@@ -618,6 +618,7 @@ dependencies = [
 name = "moirai-tests"
 version = "0.1.0"
 dependencies = [
+ "fastrand",
  "moirai",
  "moirai-core",
  "moirai-scheduler",
