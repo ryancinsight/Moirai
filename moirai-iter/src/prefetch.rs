@@ -276,7 +276,7 @@ mod tests {
     fn test_prefetch_slice_iter() {
         let data: Vec<i32> = (0..1000).collect();
         let sum: i32 = data.prefetch_iter().sum();
-        assert_eq!(sum, (0..1000).sum());
+        assert_eq!(sum, (0..1000).sum::<i32>());
     }
 
     #[test]

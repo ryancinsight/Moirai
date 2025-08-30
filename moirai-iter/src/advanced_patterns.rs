@@ -511,6 +511,7 @@ pub fn pipeline<T>(data: Vec<T>) -> IteratorPipeline<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use moirai_core::unified_channel;
 
     #[test]
     fn test_streaming_iterator() {
