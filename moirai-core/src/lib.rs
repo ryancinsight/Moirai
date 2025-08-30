@@ -115,7 +115,7 @@ pub use moirai_utils::CacheAligned;
 #[cfg(feature = "coroutine")]
 pub use coroutine::{
     Coroutine, CoroutineExt, CoroutineFuture, CoroutineIterator, CoroutineResult, CoroutineState,
-    SimpleCoroutine,
+    FunctionCoroutine,
 };
 
 // Re-export platform types for convenience
