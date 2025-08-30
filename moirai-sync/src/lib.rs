@@ -16,13 +16,28 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 
 // Import centralized constants (SSOT compliance)
 use moirai_core::constants::{
-    MAX_SPIN_ATTEMPTS, SPINLOCK_MAX_BACKOFF, SPINLOCK_MAX_SPINS_BEFORE_YIELD,
-    DEFAULT_CONCURRENT_MAP_SEGMENTS,
+    DEFAULT_CONCURRENT_MAP_SEGMENTS, MAX_SPIN_ATTEMPTS, SPINLOCK_MAX_BACKOFF,
+    SPINLOCK_MAX_SPINS_BEFORE_YIELD,
 };
 
 #[cfg(test)]
-use moirai_core::constants::test_constants::{
-    TEST_THREAD_COUNT, OPERATIONS_PER_THREAD, TEST_ELEMENT_COUNT, TEST_SLEEP_MULTIPLIER_MS,
+mod test_constants {
+    /// Number of test threads for concurrent testing
+    pub const TEST_THREAD_COUNT: usize = 10;
+
+    /// Number of operations per test thread
+    pub const OPERATIONS_PER_THREAD: usize = 100;
+
+    /// Number of test elements for stress testing
+    pub const TEST_ELEMENT_COUNT: usize = 1000;
+
+    /// Sleep multiplier for timing tests (ms)
+    pub const TEST_SLEEP_MULTIPLIER_MS: u64 = 10;
+}
+
+#[cfg(test)]
+use test_constants::{
+    OPERATIONS_PER_THREAD, TEST_ELEMENT_COUNT, TEST_SLEEP_MULTIPLIER_MS, TEST_THREAD_COUNT,
 };
 
 // SpinLock backoff constants (TBB-inspired)
@@ -503,7 +518,9 @@ mod tests {
         for i in 0..3 {
             let wg = wg.clone();
             handles.push(thread::spawn(move || {
-                thread::sleep(std::time::Duration::from_millis(i * TEST_SLEEP_MULTIPLIER_MS));
+                thread::sleep(std::time::Duration::from_millis(
+                    i * TEST_SLEEP_MULTIPLIER_MS,
+                ));
                 wg.done();
             }));
         }

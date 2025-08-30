@@ -17,6 +17,7 @@
 pub mod safe_channel;
 
 use moirai_core::channel::{mpmc, MpmcReceiver, MpmcSender};
+use moirai_core::constants::DEFAULT_MPMC_CAPACITY;
 use std::{
     collections::HashMap,
     fmt,
@@ -86,7 +87,7 @@ impl InMemoryTransport {
             }
         }
 
-        let (tx, rx) = mpmc(1024);
+        let (tx, rx) = mpmc(DEFAULT_MPMC_CAPACITY);
         channels.insert(id.to_string(), tx.clone());
         receivers.insert(id.to_string(), rx.clone());
         (tx, rx)

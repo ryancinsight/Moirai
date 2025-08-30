@@ -9,11 +9,11 @@
 //! - NUMA-aware memory allocation patterns
 
 use moirai::{Moirai, Priority};
-use std::sync::{Arc, Barrier};
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
-use std::alloc::{Layout, alloc, dealloc};
+use std::alloc::{alloc, dealloc, Layout};
 use std::ptr;
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
+use std::sync::{Arc, Barrier};
+use std::time::{Duration, Instant};
 
 /// Cache-aligned atomic for preventing false sharing
 #[repr(align(64))] // Typical cache line size
@@ -78,7 +78,7 @@ impl LockFreeStack {
             unsafe {
                 (*new_node).next.store(head, Ordering::Relaxed);
             }
-            
+
             match self.head.compare_exchange_weak(
                 head,
                 new_node,
@@ -105,12 +105,10 @@ impl LockFreeStack {
             let data = unsafe { (*head).data };
 
             // This is where ABA can happen: head might be deallocated and reallocated
-            match self.head.compare_exchange_weak(
-                head,
-                next,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
+            match self
+                .head
+                .compare_exchange_weak(head, next, Ordering::Release, Ordering::Relaxed)
+            {
                 Ok(_) => {
                     self.operation_count.fetch_add(1, Ordering::Relaxed);
                     // In real implementation, we'd use hazard pointers or epochs
@@ -132,7 +130,8 @@ impl LockFreeStack {
         while !current.is_null() {
             count += 1;
             current = unsafe { (*current).next.load(Ordering::Acquire) };
-            if count > 10000 { // Prevent infinite loops in corrupted structures
+            if count > 10000 {
+                // Prevent infinite loops in corrupted structures
                 break;
             }
         }
@@ -174,26 +173,27 @@ impl MemoryBarrierTest {
     fn writer(&self, value: usize) {
         self.data.store(value, Ordering::Relaxed);
         self.flag1.store(true, Ordering::Release); // Release barrier
-        
+
         // Wait for acknowledgment
         while !self.flag2.load(Ordering::Acquire) {
             std::hint::spin_loop();
         }
-        
+
         self.flag1.store(false, Ordering::Relaxed);
         self.flag2.store(false, Ordering::Relaxed);
     }
 
     fn reader(&self) -> Option<usize> {
-        if self.flag1.load(Ordering::Acquire) { // Acquire barrier
+        if self.flag1.load(Ordering::Acquire) {
+            // Acquire barrier
             let data = self.data.load(Ordering::Relaxed);
             self.flag2.store(true, Ordering::Release);
-            
+
             // Check for reordering - in correct implementation, data should be non-zero
             if data == 0 {
                 self.reordering_detected.fetch_add(1, Ordering::Relaxed);
             }
-            
+
             Some(data)
         } else {
             None
@@ -211,7 +211,7 @@ struct FalseSharingTest {
     counter1: AtomicUsize,
     counter2: AtomicUsize,
     _padding: [u8; 64 - 2 * std::mem::size_of::<AtomicUsize>()],
-    
+
     // These should be on different cache lines
     aligned_counter1: CacheAlignedAtomic<AtomicUsize>,
     aligned_counter2: CacheAlignedAtomic<AtomicUsize>,
@@ -230,7 +230,7 @@ impl FalseSharingTest {
 
     fn increment_shared(&self, is_counter1: bool, iterations: usize) -> Duration {
         let start = Instant::now();
-        
+
         if is_counter1 {
             for _ in 0..iterations {
                 self.counter1.fetch_add(1, Ordering::Relaxed);
@@ -240,13 +240,13 @@ impl FalseSharingTest {
                 self.counter2.fetch_add(1, Ordering::Relaxed);
             }
         }
-        
+
         start.elapsed()
     }
 
     fn increment_aligned(&self, is_counter1: bool, iterations: usize) -> Duration {
         let start = Instant::now();
-        
+
         if is_counter1 {
             for _ in 0..iterations {
                 self.aligned_counter1.value.fetch_add(1, Ordering::Relaxed);
@@ -256,7 +256,7 @@ impl FalseSharingTest {
                 self.aligned_counter2.value.fetch_add(1, Ordering::Relaxed);
             }
         }
-        
+
         start.elapsed()
     }
 
@@ -293,32 +293,28 @@ impl NumaMemoryTest {
 
     fn allocate_and_access(&self, size: usize, access_pattern: AccessPattern) -> Duration {
         let start = Instant::now();
-        
+
         // Allocate memory
         let layout = Layout::from_size_align(size, 64).unwrap();
         let ptr = unsafe { alloc(layout) };
-        
+
         if ptr.is_null() {
             return start.elapsed();
         }
 
         // Access pattern affects NUMA locality
         match access_pattern {
-            AccessPattern::Sequential => {
-                unsafe {
-                    for i in 0..size {
-                        ptr.add(i).write_volatile(i as u8);
-                    }
+            AccessPattern::Sequential => unsafe {
+                for i in 0..size {
+                    ptr.add(i).write_volatile(i as u8);
                 }
-            }
-            AccessPattern::Random => {
-                unsafe {
-                    for _ in 0..size / 8 {
-                        let offset = fastrand::usize(0..size);
-                        ptr.add(offset).write_volatile(42);
-                    }
+            },
+            AccessPattern::Random => unsafe {
+                for _ in 0..size / 8 {
+                    let offset = fastrand::usize(0..size);
+                    ptr.add(offset).write_volatile(42);
                 }
-            }
+            },
             AccessPattern::Strided => {
                 unsafe {
                     let stride = 64; // Cache line size
@@ -330,7 +326,7 @@ impl NumaMemoryTest {
         }
 
         let duration = start.elapsed();
-        
+
         // Simulate NUMA detection (in real code, would use numa libraries)
         if duration.as_nanos() < 1000 {
             self.local_allocations.fetch_add(1, Ordering::Relaxed);
@@ -339,7 +335,7 @@ impl NumaMemoryTest {
         }
 
         unsafe { dealloc(ptr, layout) };
-        
+
         if let Ok(mut times) = self.allocation_times.lock() {
             times.push(duration);
         }
@@ -350,7 +346,7 @@ impl NumaMemoryTest {
     fn stats(&self) -> (usize, usize, Duration) {
         let local = self.local_allocations.load(Ordering::Relaxed);
         let remote = self.remote_allocations.load(Ordering::Relaxed);
-        
+
         let avg_time = if let Ok(times) = self.allocation_times.lock() {
             if times.is_empty() {
                 Duration::ZERO
@@ -392,7 +388,7 @@ impl SequentialConsistencyTest {
     fn thread1(&self) {
         self.x.store(1, Ordering::Relaxed);
         let y_val = self.y.load(Ordering::Relaxed);
-        
+
         // In sequential consistency, at least one thread should see the other's write
         if y_val == 0 {
             // This is fine, thread1 executed before thread2
@@ -402,7 +398,7 @@ impl SequentialConsistencyTest {
     fn thread2(&self) {
         self.y.store(1, Ordering::Relaxed);
         let x_val = self.x.load(Ordering::Relaxed);
-        
+
         // Sequential consistency violation if both threads see 0
         if x_val == 0 {
             self.violations.fetch_add(1, Ordering::Relaxed);
@@ -455,7 +451,7 @@ impl CacheInvalidationTest {
 
         // Cache miss - read from shared data
         self.cache_misses.fetch_add(1, Ordering::Relaxed);
-        
+
         if let Ok(data) = self.shared_data.lock() {
             if let Some(&value) = data.get(index) {
                 // Update cache
@@ -474,7 +470,7 @@ impl CacheInvalidationTest {
         if let Ok(mut data) = self.shared_data.lock() {
             if index < data.len() {
                 data[index] = value;
-                
+
                 // Invalidate cache entry
                 if let Ok(mut cache) = self.cache.write() {
                     if cache.remove(&index).is_some() {
@@ -521,7 +517,7 @@ impl MemoryOrderingTestRunner {
     /// Test ABA problem in lock-free data structures
     fn test_aba_problem(&self) -> Result<TestResults, String> {
         println!("Testing ABA problem in lock-free stack...");
-        
+
         let stack = Arc::new(LockFreeStack::new());
         let num_threads = 8;
         let operations_per_thread = 1000;
@@ -532,26 +528,29 @@ impl MemoryOrderingTestRunner {
         for thread_id in 0..num_threads {
             let stack = stack.clone();
             let barrier = barrier.clone();
-            
-            let handle = self.runtime.spawn_fn_with_priority(move || {
-                barrier.wait();
-                
-                // Alternate between push and pop operations
-                for i in 0..operations_per_thread {
-                    if thread_id % 2 == 0 || i % 3 == 0 {
-                        // Push operation
-                        stack.push(thread_id * 1000 + i);
-                    } else {
-                        // Pop operation
-                        let _ = stack.pop();
+
+            let handle = self.runtime.spawn_fn_with_priority(
+                move || {
+                    barrier.wait();
+
+                    // Alternate between push and pop operations
+                    for i in 0..operations_per_thread {
+                        if thread_id % 2 == 0 || i % 3 == 0 {
+                            // Push operation
+                            stack.push(thread_id * 1000 + i);
+                        } else {
+                            // Pop operation
+                            let _ = stack.pop();
+                        }
+
+                        // Occasionally yield to increase chance of ABA
+                        if i % 10 == 0 {
+                            std::thread::yield_now();
+                        }
                     }
-                    
-                    // Occasionally yield to increase chance of ABA
-                    if i % 10 == 0 {
-                        std::thread::yield_now();
-                    }
-                }
-            }, Priority::High);
+                },
+                Priority::High,
+            );
 
             handles.push(handle);
         }
@@ -579,7 +578,7 @@ impl MemoryOrderingTestRunner {
     /// Test memory barriers and reordering
     fn test_memory_barriers(&self) -> Result<TestResults, String> {
         println!("Testing memory barriers and reordering...");
-        
+
         let barrier_test = Arc::new(MemoryBarrierTest::new());
         let num_iterations = 10000;
         let mut successful_communications = 0;
@@ -588,22 +587,29 @@ impl MemoryOrderingTestRunner {
             let barrier_test_writer = barrier_test.clone();
             let barrier_test_reader = barrier_test.clone();
 
-            let writer_handle = self.runtime.spawn_fn_with_priority(move || {
-                barrier_test_writer.writer(i + 1);
-            }, Priority::High);
+            let writer_handle = self.runtime.spawn_fn_with_priority(
+                move || {
+                    barrier_test_writer.writer(i + 1);
+                },
+                Priority::High,
+            );
 
-            let reader_handle = self.runtime.spawn_fn_with_priority(move || {
-                // Give writer a chance to start
-                std::thread::sleep(Duration::from_nanos(100));
-                
-                for _ in 0..100 { // Try multiple times
-                    if let Some(_data) = barrier_test_reader.reader() {
-                        return true;
+            let reader_handle = self.runtime.spawn_fn_with_priority(
+                move || {
+                    // Give writer a chance to start
+                    std::thread::sleep(Duration::from_nanos(100));
+
+                    for _ in 0..100 {
+                        // Try multiple times
+                        if let Some(_data) = barrier_test_reader.reader() {
+                            return true;
+                        }
+                        std::thread::sleep(Duration::from_nanos(10));
                     }
-                    std::thread::sleep(Duration::from_nanos(10));
-                }
-                false
-            }, Priority::High);
+                    false
+                },
+                Priority::High,
+            );
 
             let _ = writer_handle.join();
             if let Some(Ok(success)) = reader_handle.join() {
@@ -617,8 +623,11 @@ impl MemoryOrderingTestRunner {
         }
 
         let reordering_count = barrier_test.reordering_count();
-        
-        println!("  Successful communications: {}/{}", successful_communications, num_iterations);
+
+        println!(
+            "  Successful communications: {}/{}",
+            successful_communications, num_iterations
+        );
         println!("  Memory reordering detected: {}", reordering_count);
 
         Ok(TestResults {
@@ -632,7 +641,7 @@ impl MemoryOrderingTestRunner {
     /// Test false sharing performance impact
     fn test_false_sharing(&self) -> Result<TestResults, String> {
         println!("Testing false sharing performance impact...");
-        
+
         let false_sharing_test = Arc::new(FalseSharingTest::new());
         let iterations = 1_000_000;
 
@@ -640,13 +649,15 @@ impl MemoryOrderingTestRunner {
         let test1 = false_sharing_test.clone();
         let test2 = false_sharing_test.clone();
 
-        let shared_handle1 = self.runtime.spawn_fn_with_priority(move || {
-            test1.increment_shared(true, iterations)
-        }, Priority::High);
+        let shared_handle1 = self.runtime.spawn_fn_with_priority(
+            move || test1.increment_shared(true, iterations),
+            Priority::High,
+        );
 
-        let shared_handle2 = self.runtime.spawn_fn_with_priority(move || {
-            test2.increment_shared(false, iterations)
-        }, Priority::High);
+        let shared_handle2 = self.runtime.spawn_fn_with_priority(
+            move || test2.increment_shared(false, iterations),
+            Priority::High,
+        );
 
         let shared_time1 = shared_handle1.join().unwrap().unwrap();
         let shared_time2 = shared_handle2.join().unwrap().unwrap();
@@ -656,13 +667,15 @@ impl MemoryOrderingTestRunner {
         let test3 = false_sharing_test.clone();
         let test4 = false_sharing_test.clone();
 
-        let aligned_handle1 = self.runtime.spawn_fn_with_priority(move || {
-            test3.increment_aligned(true, iterations)
-        }, Priority::High);
+        let aligned_handle1 = self.runtime.spawn_fn_with_priority(
+            move || test3.increment_aligned(true, iterations),
+            Priority::High,
+        );
 
-        let aligned_handle2 = self.runtime.spawn_fn_with_priority(move || {
-            test4.increment_aligned(false, iterations)
-        }, Priority::High);
+        let aligned_handle2 = self.runtime.spawn_fn_with_priority(
+            move || test4.increment_aligned(false, iterations),
+            Priority::High,
+        );
 
         let aligned_time1 = aligned_handle1.join().unwrap().unwrap();
         let aligned_time2 = aligned_handle2.join().unwrap().unwrap();
@@ -674,7 +687,7 @@ impl MemoryOrderingTestRunner {
         println!("  False sharing scenario:");
         println!("    Time: {:?}", avg_shared_time);
         println!("    Values: {} and {}", shared1, shared2);
-        
+
         println!("  Cache-aligned scenario:");
         println!("    Time: {:?}", avg_aligned_time);
         println!("    Values: {} and {}", aligned1, aligned2);
@@ -698,7 +711,7 @@ impl MemoryOrderingTestRunner {
     /// Test NUMA-aware memory allocation
     fn test_numa_memory_allocation(&self) -> Result<TestResults, String> {
         println!("Testing NUMA-aware memory allocation...");
-        
+
         let numa_test = Arc::new(NumaMemoryTest::new());
         let num_threads = 4;
         let allocations_per_thread = 100;
@@ -708,25 +721,28 @@ impl MemoryOrderingTestRunner {
 
         for _thread_id in 0..num_threads {
             let numa_test = numa_test.clone();
-            
-            let handle = self.runtime.spawn_fn_with_priority(move || {
-                for i in 0..allocations_per_thread {
-                    let size = allocation_sizes[i % allocation_sizes.len()];
-                    let pattern = match i % 3 {
-                        0 => AccessPattern::Sequential,
-                        1 => AccessPattern::Random,
-                        2 => AccessPattern::Strided,
-                        _ => AccessPattern::Sequential,
-                    };
-                    
-                    numa_test.allocate_and_access(size, pattern);
-                    
-                    // Occasionally yield to allow migration
-                    if i % 10 == 0 {
-                        std::thread::yield_now();
+
+            let handle = self.runtime.spawn_fn_with_priority(
+                move || {
+                    for i in 0..allocations_per_thread {
+                        let size = allocation_sizes[i % allocation_sizes.len()];
+                        let pattern = match i % 3 {
+                            0 => AccessPattern::Sequential,
+                            1 => AccessPattern::Random,
+                            2 => AccessPattern::Strided,
+                            _ => AccessPattern::Sequential,
+                        };
+
+                        numa_test.allocate_and_access(size, pattern);
+
+                        // Occasionally yield to allow migration
+                        if i % 10 == 0 {
+                            std::thread::yield_now();
+                        }
                     }
-                }
-            }, Priority::Normal);
+                },
+                Priority::Normal,
+            );
 
             handles.push(handle);
         }
@@ -744,8 +760,15 @@ impl MemoryOrderingTestRunner {
         };
 
         println!("  Total allocations: {}", total_allocs);
-        println!("  Local allocations: {} ({:.1}%)", local_allocs, locality_ratio);
-        println!("  Remote allocations: {} ({:.1}%)", remote_allocs, 100.0 - locality_ratio);
+        println!(
+            "  Local allocations: {} ({:.1}%)",
+            local_allocs, locality_ratio
+        );
+        println!(
+            "  Remote allocations: {} ({:.1}%)",
+            remote_allocs,
+            100.0 - locality_ratio
+        );
         println!("  Average allocation time: {:?}", avg_time);
 
         Ok(TestResults {
@@ -759,7 +782,7 @@ impl MemoryOrderingTestRunner {
     /// Test cache invalidation patterns
     fn test_cache_invalidation(&self) -> Result<TestResults, String> {
         println!("Testing cache invalidation patterns...");
-        
+
         let cache_test = Arc::new(CacheInvalidationTest::new(10000));
         let num_readers = 6;
         let num_writers = 2;
@@ -770,17 +793,20 @@ impl MemoryOrderingTestRunner {
         // Reader threads
         for reader_id in 0..num_readers {
             let cache_test = cache_test.clone();
-            
-            let handle = self.runtime.spawn_fn_with_priority(move || {
-                for i in 0..operations_per_thread {
-                    let index = (reader_id * 1000 + i) % 10000;
-                    let _ = cache_test.read_with_cache(index);
-                    
-                    if i % 100 == 0 {
-                        std::thread::yield_now();
+
+            let handle = self.runtime.spawn_fn_with_priority(
+                move || {
+                    for i in 0..operations_per_thread {
+                        let index = (reader_id * 1000 + i) % 10000;
+                        let _ = cache_test.read_with_cache(index);
+
+                        if i % 100 == 0 {
+                            std::thread::yield_now();
+                        }
                     }
-                }
-            }, Priority::Normal);
+                },
+                Priority::Normal,
+            );
 
             handles.push(handle);
         }
@@ -788,17 +814,21 @@ impl MemoryOrderingTestRunner {
         // Writer threads (cause cache invalidations)
         for writer_id in 0..num_writers {
             let cache_test = cache_test.clone();
-            
-            let handle = self.runtime.spawn_fn_with_priority(move || {
-                for i in 0..operations_per_thread / 10 { // Fewer writes
-                    let index = (writer_id * 500 + i) % 10000;
-                    let value = (writer_id as u64) * 1000000 + i as u64;
-                    cache_test.write_and_invalidate(index, value);
-                    
-                    // Writers sleep more to let readers build up cache
-                    std::thread::sleep(Duration::from_micros(100));
-                }
-            }, Priority::High);
+
+            let handle = self.runtime.spawn_fn_with_priority(
+                move || {
+                    for i in 0..operations_per_thread / 10 {
+                        // Fewer writes
+                        let index = (writer_id * 500 + i) % 10000;
+                        let value = (writer_id as u64) * 1000000 + i as u64;
+                        cache_test.write_and_invalidate(index, value);
+
+                        // Writers sleep more to let readers build up cache
+                        std::thread::sleep(Duration::from_micros(100));
+                    }
+                },
+                Priority::High,
+            );
 
             handles.push(handle);
         }
@@ -841,7 +871,7 @@ mod memory_ordering_tests {
     fn test_lock_free_aba_problem() {
         let runner = MemoryOrderingTestRunner::new().unwrap();
         let results = runner.test_aba_problem().unwrap();
-        
+
         println!("ABA Test Results: {:?}", results);
         assert!(results.operations_completed > 0);
         assert!(results.final_state_valid);
@@ -851,7 +881,7 @@ mod memory_ordering_tests {
     fn test_memory_barrier_correctness() {
         let runner = MemoryOrderingTestRunner::new().unwrap();
         let results = runner.test_memory_barriers().unwrap();
-        
+
         println!("Memory Barrier Test Results: {:?}", results);
         assert!(results.operations_completed > 0);
         // Some reordering may occur depending on architecture
@@ -862,7 +892,7 @@ mod memory_ordering_tests {
     fn test_false_sharing_detection() {
         let runner = MemoryOrderingTestRunner::new().unwrap();
         let results = runner.test_false_sharing().unwrap();
-        
+
         println!("False Sharing Test Results: {:?}", results);
         assert!(results.operations_completed > 0);
         assert!(results.final_state_valid);
@@ -874,7 +904,7 @@ mod memory_ordering_tests {
     fn test_numa_memory_patterns() {
         let runner = MemoryOrderingTestRunner::new().unwrap();
         let results = runner.test_numa_memory_allocation().unwrap();
-        
+
         println!("NUMA Memory Test Results: {:?}", results);
         assert!(results.operations_completed > 0);
         assert!(results.final_state_valid);
@@ -886,7 +916,7 @@ mod memory_ordering_tests {
     fn test_cache_invalidation_behavior() {
         let runner = MemoryOrderingTestRunner::new().unwrap();
         let results = runner.test_cache_invalidation().unwrap();
-        
+
         println!("Cache Invalidation Test Results: {:?}", results);
         assert!(results.operations_completed > 0);
         assert!(results.final_state_valid);
@@ -898,27 +928,26 @@ mod memory_ordering_tests {
     fn test_sequential_consistency() {
         let test = Arc::new(SequentialConsistencyTest::new());
         let num_iterations = 1000;
-        
+
         for _ in 0..num_iterations {
             test.reset();
-            
+
             let test1 = test.clone();
-            let t1 = std::thread::spawn(move || {
-                test1.thread1()
-            });
-            
+            let t1 = std::thread::spawn(move || test1.thread1());
+
             let test2 = test.clone();
-            let t2 = std::thread::spawn(move || {
-                test2.thread2()
-            });
-            
+            let t2 = std::thread::spawn(move || test2.thread2());
+
             t1.join().unwrap();
             t2.join().unwrap();
         }
-        
+
         let violations = test.violation_count();
-        println!("Sequential consistency violations: {}/{}", violations, num_iterations);
-        
+        println!(
+            "Sequential consistency violations: {}/{}",
+            violations, num_iterations
+        );
+
         // Some violations may occur with relaxed ordering
         assert!(violations <= num_iterations / 4); // Allow some violations but not too many
     }

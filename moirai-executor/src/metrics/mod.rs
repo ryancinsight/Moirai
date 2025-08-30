@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 // Import centralized constants (SSOT compliance)
 use moirai_core::constants::{
-    PERCENTAGE_PRECISION_FACTOR, MAX_SUCCESS_RATE, DEFAULT_UTILIZATION, BYTES_TO_MB_FACTOR,
+    BYTES_TO_MB_FACTOR, DEFAULT_UTILIZATION, MAX_SUCCESS_RATE, PERCENTAGE_PRECISION_FACTOR,
 };
 
 /// Comprehensive executor performance metrics
@@ -34,7 +34,7 @@ pub struct ExecutorMetrics {
 
     // Resource utilization
     pub memory_usage: AtomicUsize,  // in bytes
-    pub cpu_utilization: AtomicU64, // percentage * 100
+    pub cpu_utilization: AtomicU64, // percentage * CPU_UTILIZATION_PRECISION
 
     // System metrics
     pub started_at: Instant,

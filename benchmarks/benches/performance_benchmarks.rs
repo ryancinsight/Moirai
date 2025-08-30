@@ -1,5 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use moirai::Moirai;
+use moirai_core::constants::{CPU_UTILIZATION_PRECISION, BENCHMARK_PRIME_MODULO, DEFAULT_BENCHMARK_OPS, LARGE_BENCHMARK_SIZE, SIMD_BENCHMARK_SIZE};
 use std::sync::Arc;
 
 /// Benchmark task scheduling overhead - should be < 1μs per task
@@ -38,13 +39,13 @@ fn benchmark_parallel_scalability(c: &mut Criterion) {
         group.bench_with_input(format!("threads_{}", thread_count), thread_count, |b, _| {
             b.iter(|| {
                 // Only measure the actual parallel computation
-                let mut handles = Vec::with_capacity(100);
-                for i in 0..100 {
+                let mut handles = Vec::with_capacity(CPU_UTILIZATION_PRECISION as usize);
+                for i in 0..CPU_UTILIZATION_PRECISION as usize {
                     let handle = runtime.spawn_fn(move || {
                         // CPU-intensive computation
                         let mut sum = 0;
-                        for j in 0..1000 {
-                            sum += (i * j) % 997; // Prime modulo for variation
+                        for j in 0..DEFAULT_BENCHMARK_OPS {
+                            sum += (i * j) % BENCHMARK_PRIME_MODULO; // Prime modulo for variation
                         }
                         black_box(sum)
                     });
@@ -77,7 +78,7 @@ fn benchmark_memory_efficiency(c: &mut Criterion) {
     c.bench_function("memory_efficiency_large_data", |b| {
         b.iter(|| {
             // Create fresh data for each iteration to avoid state carryover
-            let large_data = vec![42u64; 10000];
+            let large_data = vec![42u64; LARGE_BENCHMARK_SIZE];
             let handle = runtime.spawn_fn(move || black_box(large_data.iter().sum::<u64>()));
             black_box(handle.join().expect("Task failed"))
         });
@@ -95,14 +96,14 @@ fn benchmark_simd_performance(c: &mut Criterion) {
     let mut group = c.benchmark_group("simd_performance");
 
     // Create test data ONCE outside all benchmarks
-    let data_a = vec![1.0f32; 1024];
-    let data_b = vec![2.0f32; 1024];
+    let data_a = vec![1.0f32; SIMD_BENCHMARK_SIZE];
+    let data_b = vec![2.0f32; SIMD_BENCHMARK_SIZE];
 
     // Scalar version benchmark
     group.bench_function("scalar_add", |b| {
         b.iter(|| {
-            let mut result = vec![0.0f32; 1024];
-            for i in 0..1024 {
+            let mut result = vec![0.0f32; SIMD_BENCHMARK_SIZE];
+            for i in 0..SIMD_BENCHMARK_SIZE {
                 result[i] = data_a[i] + data_b[i];
             }
             black_box(result)

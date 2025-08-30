@@ -1,21 +1,17 @@
 //! Advanced iterator patterns with unified memory management.
 //!
-//! This module implements sophisticated iterator patterns that leverage 
+//! This module implements sophisticated iterator patterns that leverage
 //! the unified channel system for zero-copy operations and optimal
 //! memory utilization, based on modern iterator design principles.
 
-use crate::base::{ExecutionBase, ThreadPool};
-use crate::execution::{ExecutionContext, ExecutionStrategy};
-use moirai_core::unified_channel::{
-    unified_channel, ChannelConfig, UnifiedReceiver, UnifiedSender, UnifiedChannelError
-};
-use moirai_core::memory::{MemoryPool, CacheAlignedAllocator};
 use moirai_core::constants::{CACHE_LINE_SIZE, DEFAULT_RING_BUFFER_CAPACITY};
+use moirai_core::memory::MemoryPool;
+use moirai_core::unified_channel::{
+    ChannelConfig, UnifiedChannelError, UnifiedReceiver, UnifiedSender,
+};
 
-use std::sync::Arc;
 use std::marker::PhantomData;
-use std::future::Future;
-use std::pin::Pin;
+use std::sync::Arc;
 
 /// Zero-copy iterator that operates directly on channel streams
 pub struct StreamingIterator<T> {
@@ -49,7 +45,7 @@ impl<T> StreamingIterator<T> {
 
         // Try to fill buffer with batch receive
         let new_items = self.receiver.recv_batch(self.batch_size);
-        
+
         if new_items.is_empty() {
             // Check if channel is closed
             if self.receiver.is_closed() {
@@ -60,13 +56,13 @@ impl<T> StreamingIterator<T> {
             match self.receiver.try_recv() {
                 Ok(item) => {
                     self.buffer.push(item);
-                    return true;
+                    true
                 }
-                Err(_) => return false,
+                Err(_) => false,
             }
         } else {
             self.buffer.extend(new_items);
-            return true;
+            true
         }
     }
 }
@@ -114,7 +110,8 @@ impl<T> ProducerConsumerPair<T> {
             ..Default::default()
         };
 
-        let (sender, receiver) = moirai_core::unified_channel::unified_channel_with_config(config.clone())?;
+        let (sender, receiver) =
+            moirai_core::unified_channel::unified_channel_with_config(config.clone())?;
 
         Ok(Self {
             sender,
@@ -149,7 +146,7 @@ impl<T> ProducerConsumerPair<T> {
 pub trait PipelineStage<Input, Output>: Send + Sync {
     /// Process a batch of inputs and produce outputs
     fn process_batch(&self, inputs: Vec<Input>) -> Vec<Output>;
-    
+
     /// Get preferred batch size for this stage
     fn preferred_batch_size(&self) -> usize {
         64
@@ -321,33 +318,40 @@ where
     {
         // Execute current stage first
         let intermediate_results = self.stage.process_batch(self.source);
-        
+
         MappedPipeline {
             source: intermediate_results,
             stage: MapStage::new(func),
             channel_capacity: self.channel_capacity,
-            memory_pool: None, // Type changes, so pool doesn't transfer
+            memory_pool: self.memory_pool.map(|_| {
+                // Create new pool for different type
+                Arc::new(MemoryPool::new(256))
+            }),
         }
     }
 
-    /// Add a filter stage
+    /// Add a filter stage  
     pub fn filter<G>(self, predicate: G) -> FilteredPipeline<Output, G>
     where
         G: Fn(&Output) -> bool + Send + Sync + 'static,
     {
         // Execute current stage first
         let intermediate_results = self.stage.process_batch(self.source);
-        
+
         FilteredPipeline {
             source: intermediate_results,
             stage: FilterStage::new(predicate),
             channel_capacity: self.channel_capacity,
-            memory_pool: None, // Type changes, so pool doesn't transfer
+            memory_pool: None, // Reset pool for different operations
         }
     }
 
     /// Execute pipeline and collect results
     pub fn collect(self) -> Vec<Output> {
+        // Use memory pool if available for optimization hints
+        if let Some(_pool) = &self.memory_pool {
+            // In production, would use pool for allocations
+        }
         self.stage.process_batch(self.source)
     }
 
@@ -380,7 +384,7 @@ where
     {
         // Execute current stage first
         let intermediate_results = self.stage.process_batch(self.source);
-        
+
         MappedPipeline {
             source: intermediate_results,
             stage: MapStage::new(func),
@@ -396,7 +400,7 @@ where
     {
         // Execute current stage first
         let intermediate_results = self.stage.process_batch(self.source);
-        
+
         FilteredPipeline {
             source: intermediate_results,
             stage: FilterStage::new(predicate),
@@ -439,14 +443,11 @@ impl<T: Clone> CacheAwareIterator<T> {
     }
 
     /// Process in cache-friendly chunks
-    pub fn process_chunks<F, R>(self, mut processor: F) -> Vec<R>
+    pub fn process_chunks<F, R>(self, processor: F) -> Vec<R>
     where
         F: FnMut(&[T]) -> R,
     {
-        self.data
-            .chunks(self.chunk_size)
-            .map(|chunk| processor(chunk))
-            .collect()
+        self.data.chunks(self.chunk_size).map(processor).collect()
     }
 
     /// Apply function with cache prefetching hints
@@ -471,7 +472,7 @@ impl<T: Clone> Iterator for CacheAwareIterator<T> {
 
         let item = self.data[self.current_pos].clone();
         self.current_pos += 1;
-        
+
         // Update chunk tracking for prefetching hints
         if self.current_pos % self.chunk_size == 0 {
             self.current_chunk += 1;
@@ -493,7 +494,9 @@ pub fn streaming_from_channel<T>(receiver: UnifiedReceiver<T>) -> StreamingItera
     StreamingIterator::new(receiver, 64)
 }
 
-pub fn producer_consumer_channel<T>(capacity: usize) -> Result<ProducerConsumerPair<T>, UnifiedChannelError> {
+pub fn producer_consumer_channel<T>(
+    capacity: usize,
+) -> Result<ProducerConsumerPair<T>, UnifiedChannelError> {
     ProducerConsumerPair::new(capacity)
 }
 
@@ -512,15 +515,15 @@ mod tests {
     #[test]
     fn test_streaming_iterator() {
         let (sender, receiver) = unified_channel::<i32>(16).unwrap();
-        
+
         // Send some data
         for i in 0..10 {
             sender.send(i).unwrap();
         }
-        
+
         // Create streaming iterator
         let mut iter = StreamingIterator::new(receiver, 5);
-        
+
         // Collect some items
         let mut collected = Vec::new();
         for _ in 0..5 {
@@ -528,7 +531,7 @@ mod tests {
                 collected.push(item);
             }
         }
-        
+
         assert_eq!(collected.len(), 5);
     }
 
@@ -536,29 +539,26 @@ mod tests {
     fn test_producer_consumer_pair() {
         let pair = ProducerConsumerPair::<i32>::new(32).unwrap();
         let producer = pair.producer();
-        
+
         // Send some data
         for i in 0..5 {
             producer.send(i).unwrap();
         }
-        
+
         // Need to close the channel so the iterator knows when to stop
         // For now, just use take() to limit the iteration
         let iter = pair.into_streaming_iter();
         let collected: Vec<_> = iter.take(5).collect();
-        
+
         assert_eq!(collected, vec![0, 1, 2, 3, 4]);
     }
 
     #[test]
     fn test_pipeline_basic() {
         let data = vec![1, 2, 3, 4, 5];
-        
-        let result = pipeline(data)
-            .map(|x| x * 2)
-            .filter(|&x| x > 4)
-            .collect();
-        
+
+        let result = pipeline(data).map(|x| x * 2).filter(|&x| x > 4).collect();
+
         assert_eq!(result, vec![6, 8, 10]);
     }
 
@@ -566,7 +566,7 @@ mod tests {
     fn test_cache_aware_iterator() {
         let data = (0..100).collect::<Vec<i32>>();
         let iter = CacheAwareIterator::new(data.clone());
-        
+
         let collected: Vec<_> = iter.take(10).collect();
         assert_eq!(collected, (0..10).collect::<Vec<_>>());
     }
@@ -574,13 +574,13 @@ mod tests {
     #[test]
     fn test_pipeline_chaining() {
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        
+
         let result = pipeline(data)
-            .filter(|&x| x % 2 == 0)  // Keep even numbers: [2, 4, 6, 8, 10]
-            .map(|x| x * x)           // Square them: [4, 16, 36, 64, 100]
-            .filter(|&x| x < 50)      // Keep < 50: [4, 16, 36]
+            .filter(|&x| x % 2 == 0) // Keep even numbers: [2, 4, 6, 8, 10]
+            .map(|x| x * x) // Square them: [4, 16, 36, 64, 100]
+            .filter(|&x| x < 50) // Keep < 50: [4, 16, 36]
             .collect();
-        
+
         assert_eq!(result, vec![4, 16, 36]);
     }
 }

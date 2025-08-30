@@ -10,7 +10,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 // Import centralized constants (SSOT compliance)
-use moirai_core::constants::{PERCENTAGE_PRECISION_FACTOR, MAX_SUCCESS_RATE};
+use moirai_core::constants::{MAX_SUCCESS_RATE, PERCENTAGE_PRECISION_FACTOR};
 
 /// Task performance metrics for monitoring and optimization
 #[derive(Debug, Clone)]
