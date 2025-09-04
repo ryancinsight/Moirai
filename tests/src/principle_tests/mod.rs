@@ -4,9 +4,10 @@
 //! elite software design principles into focused submodules.
 
 pub mod solid;
-pub mod cupid;
-pub mod grasp;
-pub mod acid;
+// TODO: Add additional principle test modules when needed
+// pub mod cupid;
+// pub mod grasp;
+// pub mod acid;
 
 use moirai::{Moirai, Task, TaskContext, TaskId};
 

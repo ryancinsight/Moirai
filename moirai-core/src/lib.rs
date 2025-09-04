@@ -87,6 +87,9 @@ pub mod metrics;
 #[cfg(feature = "std")]
 pub mod security;
 
+// Physics simulation module - leverages Moirai concurrency for high-performance computation
+pub mod physics;
+
 // pub mod hybrid; // Removed: Duplicate implementation, using moirai-executor::HybridExecutor instead
 
 // Core type definitions
@@ -120,6 +123,15 @@ pub use coroutine::{
 
 // Re-export platform types for convenience
 pub use platform::{Arc, Box, String, Vec};
+
+// Physics simulation exports
+pub use physics::{
+    PhysicsError, PhysicsResult, PhysicsFloat, Vector3D, 
+    Solver, PhysicsEntity, ForceField, SimulationStep, PhysicsWorld, CollisionDetector,
+    EulerSolver, RungeKuttaSolver, VerletSolver, HybridSolver,
+    Particle, RigidBody, PhysicsState, SimulationConfig,
+    GpuPhysicsContext, GpuBuffer, GpuKernel,
+};
 
 /// Type alias for boxed errors.
 pub type BoxError = Box<dyn core::error::Error + Send + Sync>;

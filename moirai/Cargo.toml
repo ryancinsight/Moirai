@@ -89,6 +89,10 @@ path = "../examples/network_service_load_balancing.rs"
 name = "distributed_task_coordination"
 path = "../examples/distributed_task_coordination.rs"
 
+[[example]]
+name = "physics_simulation_demo"
+path = "../examples/physics_simulation_demo.rs"
+
 [features]
 default = ["async", "iter", "local"]
 full = ["async", "iter", "distributed", "metrics", "numa", "futex", "encryption"]

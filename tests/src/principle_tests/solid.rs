@@ -398,7 +398,9 @@ use moirai::{Moirai, Task, TaskContext, TaskId, ExecutorError, Priority};
             logs.len()
         );
     }
-}
 
 /// CUPID Principle Edge Tests  
 #[cfg(feature = "expensive-tests")]
+mod cupid_tests {
+    // Placeholder for future CUPID tests
+}

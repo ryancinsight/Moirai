@@ -12,6 +12,12 @@ pub mod database_connection_pool_edge_tests;
 #[cfg(test)]
 pub mod memory_ordering_edge_tests;
 
+#[cfg(test)]
+pub mod principle_tests;
+
+#[cfg(test)]
+pub mod physics_tests;
+
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]
 mod integration_tests {
