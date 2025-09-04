@@ -1004,11 +1004,15 @@ name = "moirai-async"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "futures",
+ "libc",
  "moirai-core",
  "moirai-executor",
  "moirai-transport",
  "moirai-utils",
  "proptest",
+ "socket2",
+ "tokio",
 ]
 
 [[package]]
@@ -1017,9 +1021,13 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "crossbeam",
+ "futures",
+ "libc",
  "moirai",
+ "moirai-async",
  "moirai-core",
  "moirai-executor",
+ "moirai-iter",
  "moirai-scheduler",
  "moirai-sync",
  "moirai-utils",
@@ -1027,6 +1035,7 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "serde_json",
+ "socket2",
  "statistical",
  "tokio",
 ]
@@ -1077,6 +1086,7 @@ name = "moirai-iter"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "futures",
  "libc",
  "moirai-async",
  "moirai-core",
@@ -1084,6 +1094,7 @@ dependencies = [
  "moirai-scheduler",
  "moirai-utils",
  "proptest",
+ "thiserror",
  "tokio",
 ]
 

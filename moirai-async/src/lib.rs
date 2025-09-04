@@ -920,13 +920,13 @@ pub mod net {
         }
 
         /// Set read timeout
-        pub fn set_read_timeout(&self, timeout: Option<Duration>) {
+        pub fn set_read_timeout(&self, _timeout: Option<Duration>) {
             // Tokio doesn't support per-socket timeouts directly
             // This would be implemented using select! with timeout
         }
 
         /// Set write timeout
-        pub fn set_write_timeout(&self, timeout: Option<Duration>) {
+        pub fn set_write_timeout(&self, _timeout: Option<Duration>) {
             // Similar to read timeout
         }
     }
@@ -1124,8 +1124,10 @@ pub mod net {
 pub mod fs {
     //! Production async file system operations optimized for common patterns.
 
+    use std::future::Future;
     use std::io;
     use std::path::Path;
+    use std::pin::Pin;
     use std::sync::Arc;
     use std::time::SystemTime;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1457,27 +1459,29 @@ pub mod fs {
         Ok(paths)
     }
 
-    async fn walk_dir_recursive(
-        path: &Path,
-        paths: &mut Vec<std::path::PathBuf>,
+    fn walk_dir_recursive<'a>(
+        path: &'a Path,
+        paths: &'a mut Vec<std::path::PathBuf>,
         depth: usize,
         max_depth: usize,
-    ) -> io::Result<()> {
-        if depth > max_depth {
-            return Ok(());
-        }
-
-        let mut entries = tokio::fs::read_dir(path).await?;
-        while let Some(entry) = entries.next_entry().await? {
-            let entry_path = entry.path();
-            paths.push(entry_path.clone());
-
-            if entry_path.is_dir() {
-                walk_dir_recursive(&entry_path, paths, depth + 1, max_depth).await?;
+    ) -> Pin<Box<dyn Future<Output = io::Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            if depth > max_depth {
+                return Ok(());
             }
-        }
 
-        Ok(())
+            let mut entries = tokio::fs::read_dir(path).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let entry_path = entry.path();
+                paths.push(entry_path.clone());
+
+                if entry_path.is_dir() {
+                    walk_dir_recursive(&entry_path, paths, depth + 1, max_depth).await?;
+                }
+            }
+
+            Ok(())
+        })
     }
 }
 
@@ -1990,7 +1994,8 @@ pub mod timer {
                 match Pin::new(delay).poll(cx) {
                     Poll::Ready(()) => {
                         let tick_time = self.next_tick;
-                        self.next_tick += self.period;
+                        let period = self.period;
+                        self.next_tick += period;
                         self.delay = None;
                         Poll::Ready(tick_time)
                     }
@@ -2106,7 +2111,7 @@ pub mod timer {
                             TimerCommand::Cancel { timer_id } => {
                                 timer_wheel.remove_timer(timer_id);
                             }
-                            TimerCommand::Reschedule { timer_id, new_deadline } => {
+                            TimerCommand::Reschedule { timer_id, new_deadline: _ } => {
                                 timer_wheel.remove_timer(timer_id);
                                 // Will be re-registered on next poll
                             }

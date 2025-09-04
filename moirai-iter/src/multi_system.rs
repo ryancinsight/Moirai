@@ -281,10 +281,10 @@ impl MultiSystemContext {
         let (cpu_data, gpu_data) = data.split_at(split_point);
 
         // Execute concurrently on both compute types
-        let (cpu_results, gpu_results) = tokio::join!(
+        let (cpu_results, gpu_results) = futures::future::join(
             self.execute_cpu_compute(cpu_data.to_vec(), cpu_func),
             self.execute_gpu_compute(gpu_data.to_vec(), gpu_func)
-        );
+        ).await;
 
         // Combine results
         let mut combined_results = cpu_results?;

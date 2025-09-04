@@ -225,17 +225,18 @@ impl<T: Clone> BroadcastReceiver<T> {
     pub fn resubscribe(&self) -> BroadcastReceiver<T> {
         let mut state = self.state.lock().unwrap();
         let new_id = state.receivers.len() as u64;
+        let current_sequence = state.sequence;
         
         state.receivers.push(BroadcastReceiverState {
             id: new_id,
-            position: state.sequence,
+            position: current_sequence,
             waker: None,
         });
 
         BroadcastReceiver {
             state: self.state.clone(),
             id: new_id,
-            position: state.sequence,
+            position: current_sequence,
         }
     }
 }
@@ -267,9 +268,11 @@ impl<'a, T: Clone> Future for BroadcastRecv<'a, T> {
             Ok(message) => Poll::Ready(Ok(message)),
             Err(BroadcastError::Empty) => {
                 if !self.registered {
-                    let mut state = self.receiver.state.lock().unwrap();
-                    if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.receiver.id) {
-                        receiver_state.waker = Some(cx.waker().clone());
+                    {
+                        let mut state = self.receiver.state.lock().unwrap();
+                        if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.receiver.id) {
+                            receiver_state.waker = Some(cx.waker().clone());
+                        }
                     }
                     self.registered = true;
                 }
@@ -341,10 +344,11 @@ impl<T: Clone> WatchSender<T> {
         let mut state = self.state.lock().unwrap();
         state.value = value;
         state.version += 1;
+        let current_version = state.version;
 
         // Wake all receivers that are waiting for changes
         for receiver in &mut state.receivers {
-            if receiver.version < state.version {
+            if receiver.version < current_version {
                 if let Some(waker) = receiver.waker.take() {
                     waker.wake();
                 }
@@ -422,10 +426,11 @@ impl<T> Clone for WatchReceiver<T> {
     fn clone(&self) -> Self {
         let mut state = self.state.lock().unwrap();
         let new_id = state.receivers.len() as u64;
+        let current_version = state.version;
         
         state.receivers.push(WatchReceiverState {
             id: new_id,
-            version: state.version,
+            version: current_version,
             waker: None,
         });
 
@@ -454,20 +459,28 @@ impl<'a, T: Clone> Future for WatchChanged<'a, T> {
     type Output = Result<(), WatchError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut state = self.receiver.state.lock().unwrap();
-        
-        if state.version > self.receiver.version {
-            self.receiver.version = state.version;
-            Poll::Ready(Ok(()))
-        } else {
-            if !self.registered {
-                if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.receiver.id) {
-                    receiver_state.waker = Some(cx.waker().clone());
+        {
+            let mut state = self.receiver.state.lock().unwrap();
+            
+            if state.version > self.receiver.version {
+                let current_version = state.version;
+                drop(state);  // Release lock before modifying self
+                self.receiver.version = current_version;
+                return Poll::Ready(Ok(()));
+            } else {
+                if !self.registered {
+                    if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.receiver.id) {
+                        receiver_state.waker = Some(cx.waker().clone());
+                    }
                 }
-                self.registered = true;
             }
-            Poll::Pending
         }
+        
+        if !self.registered {
+            self.registered = true;
+        }
+        
+        Poll::Pending
     }
 }
 
@@ -541,7 +554,7 @@ impl<'a, T> Future for RwLockReadFuture<'a, T> {
 /// Future for async write lock acquisition
 pub struct RwLockWriteFuture<'a, T> {
     lock: &'a RwLock<T>,
-    registered: false,
+    registered: bool,
 }
 
 impl<'a, T> Future for RwLockWriteFuture<'a, T> {
