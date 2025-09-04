@@ -32,6 +32,10 @@ pub mod memory;
 #[cfg(feature = "std")]
 pub mod time;
 
+// SIMD optimizations for high-performance computing
+#[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
+pub mod simd;
+
 // Re-export commonly used types for convenience
 pub use cache::{CacheAligned, CACHE_LINE_SIZE, align_to_cache_line};
 pub use atomic::AtomicCounter;
@@ -42,6 +46,113 @@ pub use memory::{prefetch_read, prefetch_write, aligned_vec};
 
 #[cfg(feature = "std")]
 pub use time::{HighResTimer, unix_timestamp_nanos, unix_timestamp_micros, unix_timestamp_millis};
+
+// SIMD optimization counter for tracking performance improvements
+#[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
+pub use simd::{safe_vectorized_add_f32, safe_vectorized_mul_f32, safe_vectorized_dot_product_f32};
+
+#[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
+use std::sync::OnceLock;
+
+#[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
+static GLOBAL_SIMD_COUNTER: OnceLock<SimdCounter> = OnceLock::new();
+
+/// Get the global SIMD performance counter instance.
+///
+/// This provides a singleton counter for tracking SIMD vs scalar operation usage
+/// across the entire application.
+#[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
+pub fn global_simd_counter() -> &'static SimdCounter {
+    GLOBAL_SIMD_COUNTER.get_or_init(SimdCounter::new)
+}
+
+/// Performance counter for tracking SIMD optimization usage.
+///
+/// This counter tracks the ratio of vectorized vs scalar operations
+/// to help optimize performance-critical code paths.
+#[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[derive(Debug)]
+pub struct SimdCounter {
+    vectorized_ops: AtomicCounter,
+    scalar_ops: AtomicCounter,
+    vectorized_elements: AtomicCounter,
+    scalar_elements: AtomicCounter,
+}
+
+#[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
+impl SimdCounter {
+    /// Create a new SIMD performance counter.
+    pub fn new() -> Self {
+        Self {
+            vectorized_ops: AtomicCounter::new(),
+            scalar_ops: AtomicCounter::new(),
+            vectorized_elements: AtomicCounter::new(),
+            scalar_elements: AtomicCounter::new(),
+        }
+    }
+
+    /// Record a vectorized operation with the number of elements processed.
+    pub fn record_vectorized_op(&self, elements: usize) {
+        self.vectorized_ops.increment();
+        self.vectorized_elements.add(elements);
+    }
+
+    /// Record a scalar operation with the number of elements processed.
+    pub fn record_scalar_op(&self, elements: usize) {
+        self.scalar_ops.increment();
+        self.scalar_elements.add(elements);
+    }
+
+    /// Get the total number of vectorized operations performed.
+    pub fn vectorized_ops(&self) -> usize {
+        self.vectorized_ops.get()
+    }
+
+    /// Get the total number of scalar operations performed.
+    pub fn scalar_ops(&self) -> usize {
+        self.scalar_ops.get()
+    }
+
+    /// Calculate the vectorization rate as a percentage of total operations.
+    pub fn vectorization_rate(&self) -> f64 {
+        let total = self.vectorized_ops() + self.scalar_ops();
+        if total == 0 {
+            0.0
+        } else {
+            self.vectorized_ops() as f64 / total as f64
+        }
+    }
+
+    /// Get basic statistics about SIMD usage.
+    pub fn get_stats(&self) -> (usize, usize, usize, usize) {
+        (
+            self.vectorized_ops(),
+            self.scalar_ops(),
+            self.vectorized_elements.get(),
+            self.scalar_elements.get(),
+        )
+    }
+
+    /// Calculate SIMD utilization ratio (same as vectorization_rate for compatibility).
+    pub fn simd_utilization_ratio(&self) -> f64 {
+        self.vectorization_rate()
+    }
+
+    /// Reset all counters to zero.
+    pub fn reset(&self) {
+        self.vectorized_ops.reset();
+        self.scalar_ops.reset();
+        self.vectorized_elements.reset();
+        self.scalar_elements.reset();
+    }
+}
+
+#[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
+impl Default for SimdCounter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 // Legacy re-exports for backward compatibility - these maintain the old flat structure
 // while the new modular structure is the preferred approach

@@ -170,7 +170,6 @@ impl SafeDeserialize for String {
 ///     }
 /// }
 /// ```
-
 #[cfg(test)]
 mod tests {
     use super::*;

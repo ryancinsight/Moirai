@@ -94,7 +94,7 @@ pub fn prefetch_range_read<T>(ptr: *const T, bytes: usize) {
 /// * `slice` - The slice to prefetch
 pub fn prefetch_slice_read<T>(slice: &[T]) {
     if !slice.is_empty() {
-        let bytes = slice.len() * core::mem::size_of::<T>();
+        let bytes = std::mem::size_of_val(slice);
         prefetch_range_read(slice.as_ptr(), bytes);
     }
 }

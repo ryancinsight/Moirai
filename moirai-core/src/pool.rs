@@ -505,6 +505,9 @@ pub struct PoolStats {
     pub peak_size: usize,
 }
 
+/// Type alias for task pool
+pub type TaskPool<T> = GlobalPool<T>;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -611,6 +614,3 @@ mod tests {
         assert_eq!(count, 400);
     }
 }
-
-/// Type alias for task pool
-pub type TaskPool<T> = GlobalPool<T>;

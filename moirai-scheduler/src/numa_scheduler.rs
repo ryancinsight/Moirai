@@ -1289,7 +1289,7 @@ mod tests {
         // Coroutine stealing respects priorities
         let mut coro_stolen_by_priority = [0, 0, 0, 0]; // [Critical, High, Normal, Low]
         for _ in 0..20 {
-            if let Some(_) = scheduler.steal_with_locality(0) {
+            if scheduler.steal_with_locality(0).is_some() {
                 // In real implementation, we'd track which priority was stolen
                 // For now, we just count total
                 coro_stolen_by_priority[1] += 1; // Assume high priority
@@ -1373,7 +1373,7 @@ mod tests {
     struct DummyTask(#[allow(dead_code)] String);
 
     impl BoxedTask for DummyTask {
-        fn execute_boxed(self: Box<Self>) -> () {
+        fn execute_boxed(self: Box<Self>) {
             // Do nothing for test
         }
 

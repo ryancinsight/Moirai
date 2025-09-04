@@ -172,6 +172,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## 🌍 Real-World Examples
+
+Moirai excels in diverse concurrent programming scenarios. Explore our comprehensive examples:
+
+### 🔄 **Async & Parallel Processing**
+- **[Web Crawler](examples/web_crawler_parallel.rs)** - Parallel HTTP requests with rate limiting and async I/O
+- **[Video Processing Pipeline](examples/video_processing_pipeline.rs)** - SIMD-optimized media processing with memory pooling
+
+### 💰 **Financial & Transaction Systems**  
+- **[Financial Transaction Processing](examples/financial_transaction_processing.rs)** - Race condition handling, deadlock prevention, audit trails
+
+### 📡 **Real-Time Communication**
+- **[Chat Server](examples/realtime_chat_server.rs)** - WebSocket-style pub/sub with concurrent message delivery
+- **[High-Frequency Data Pipeline](examples/high_frequency_data_pipeline.rs)** - Market data streaming with backpressure handling
+
+### 🌐 **Network & Infrastructure**
+- **[Load Balancing](examples/network_service_load_balancing.rs)** - Dynamic service routing with health checks and auto-scaling
+
+### 🏠 **IoT & Edge Computing**
+- **[IoT Device Management](examples/iot_device_management.rs)** - Event-driven device coordination with real-time telemetry
+
+### 💼 **Enterprise Patterns**
+Each example demonstrates production-ready patterns:
+- **Circuit breakers** for fault tolerance
+- **Backpressure handling** for system stability  
+- **Memory pooling** for performance optimization
+- **Priority queuing** for resource management
+- **Health monitoring** for operational visibility
+- **Graceful degradation** under load
+
+Run any example:
+```bash
+cargo run --example web_crawler_parallel
+cargo run --example realtime_chat_server
+cargo run --example video_processing_pipeline
+cargo run --example iot_device_management
+```
+
 ## 🏗️ Architecture
 
 Moirai's architecture is built on several key principles:

@@ -640,10 +640,10 @@ mod tests {
 
         assert_eq!(metrics.steal_attempts.get(), 3);
         assert_eq!(metrics.successful_steals.get(), 0);
-        assert_eq!(metrics.steal_success_rate(), 0.0);
+        assert!((metrics.steal_success_rate() - 0.0).abs() < f64::EPSILON);
 
         let utilization = metrics.record_cpu_utilization(0.75);
-        assert_eq!(utilization, 75.0);
+        assert!((utilization - 75.0).abs() < f32::EPSILON);
         assert_eq!(metrics.cpu_utilization.get(), 75);
     }
 
@@ -655,7 +655,7 @@ mod tests {
         global.scheduler(SchedulerId::new(2)).queue_length.set(10);
         global.scheduler(SchedulerId::new(3)).queue_length.set(15);
 
-        assert_eq!(global.snapshot().average_queue_length, 10.0);
+        assert!((global.snapshot().average_queue_length - 10.0).abs() < f64::EPSILON);
 
         global
             .scheduler(SchedulerId::new(1))

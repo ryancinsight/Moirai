@@ -799,7 +799,7 @@ mod tests {
         assert!(handle.id().0 > 0);
 
         // Try to join - the task should have panicked and been caught by the executor
-        let result = handle.join();
+        let _result = handle.join();
         // The executor should handle panics gracefully and return a result
         // indicating the panic occurred, rather than propagating the panic
     }
@@ -908,9 +908,9 @@ mod tests {
         let result3 = handle3.join();
 
         // Print debug info to see what's happening
-        println!("Result 1: {:?}", result1);
-        println!("Result 2: {:?}", result2);
-        println!("Result 3: {:?}", result3);
+        println!("Result 1: {result1:?}");
+        println!("Result 2: {result2:?}");
+        println!("Result 3: {result3:?}");
 
         // If we get results, verify they're correct
         if let Some(result) = result1 {
@@ -922,7 +922,7 @@ mod tests {
         }
 
         if let Some(result) = result3 {
-            assert_eq!(result, Ok(3628800)); // 10!
+            assert_eq!(result, Ok(3_628_800)); // 10!
         }
     }
 
