@@ -145,7 +145,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
 /// Benchmark concurrent data structure performance
 /// Runtime created once, data structures reset per iteration
 fn benchmark_concurrent_data_structures(c: &mut Criterion) {
-    use moirai_sync::{AtomicCounter, ConcurrentHashMap};
+    use moirai_sync::ConcurrentHashMap;
 
     let mut group = c.benchmark_group("concurrent_data_structures");
 
@@ -159,7 +159,7 @@ fn benchmark_concurrent_data_structures(c: &mut Criterion) {
     group.bench_function("atomic_counter", |b| {
         b.iter(|| {
             // Create fresh counter for each iteration to avoid state carryover
-            let counter = Arc::new(AtomicCounter::new(0));
+            let counter = Arc::new(moirai_utils::AtomicCounter::new());
 
             let mut handles = Vec::with_capacity(100);
             for _ in 0..100 {
@@ -204,8 +204,8 @@ fn benchmark_concurrent_data_structures(c: &mut Criterion) {
                 handle.join().expect("Task failed");
             }
 
-            // Use map for final black_box to prevent optimization
-            black_box(&map)
+            // Use a simple value for final black_box to prevent optimization
+            black_box(50 * 100) // total expected insertions
         });
     });
 

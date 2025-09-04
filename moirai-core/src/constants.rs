@@ -55,6 +55,10 @@ pub const LARGE_BENCHMARK_SIZE: usize = 10000;
 pub const SIMD_BENCHMARK_SIZE: usize = 1024;
 
 // Test constants - only included in test builds
+/// Test-specific constants for benchmarking and validation.
+/// 
+/// These constants are only available during testing to ensure consistent
+/// test behavior across different test environments and platforms.
 #[cfg(test)]
 pub mod test_constants {
     /// Number of test threads for concurrent testing

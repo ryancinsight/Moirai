@@ -17,3 +17,12 @@ moirai-utils = { path = "../moirai-utils", features = ["std"] }
 proptest = { workspace = true }
 quickcheck = { workspace = true }
 fastrand = "2.0"
+
+[features]
+default = []
+expensive-tests = []
+property-tests = []
+quickcheck-tests = []
+grasp-tests = []
+acid-tests = []
+principle-tests = []

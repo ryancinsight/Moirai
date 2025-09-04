@@ -912,7 +912,7 @@ mod tests {
 
         // Receive values
         let mut values = vec![rx.recv().unwrap(), rx.recv().unwrap()];
-        values.sort();
+        values.sort_unstable();
         assert_eq!(values, vec![1, 2]);
     }
 

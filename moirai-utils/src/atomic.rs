@@ -49,6 +49,12 @@ impl AtomicCounter {
         self.value.fetch_add(amount, Ordering::Relaxed)
     }
 
+    /// Atomic fetch-and-add operation compatible with std::sync::atomic interface.
+    /// This provides a lower-level interface for compatibility.
+    pub fn fetch_add(&self, amount: usize, ordering: Ordering) -> usize {
+        self.value.fetch_add(amount, ordering)
+    }
+
     /// Decrement the counter by 1 and return the previous value.
     /// Note: This will wrap around on underflow.
     pub fn decrement(&self) -> usize {

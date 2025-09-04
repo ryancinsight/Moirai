@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_windows() {
-        let data = vec![1, 2, 3, 4, 5];
+        let data = [1, 2, 3, 4, 5];
         let windows: Vec<_> = data.windows(3).collect();
         assert_eq!(
             windows,
@@ -521,14 +521,14 @@ mod tests {
 
     #[test]
     fn test_chunks() {
-        let data = vec![1, 2, 3, 4, 5, 6, 7];
+        let data = [1, 2, 3, 4, 5, 6, 7];
         let chunks: Vec<_> = data.chunks(3).collect();
         assert_eq!(chunks, vec![&[1, 2, 3][..], &[4, 5, 6][..], &[7][..]]);
     }
 
     #[test]
     fn test_chunks_exact() {
-        let data = vec![1, 2, 3, 4, 5, 6, 7];
+        let data = [1, 2, 3, 4, 5, 6, 7];
         let iter = data.chunks_exact(3);
         let chunks: Vec<_> = iter.clone().collect();
         assert_eq!(chunks, vec![&[1, 2, 3][..], &[4, 5, 6][..]]);
@@ -537,7 +537,7 @@ mod tests {
 
     #[test]
     fn test_windows_size_hint() {
-        let data = vec![1, 2, 3, 4, 5];
+        let data = [1, 2, 3, 4, 5];
         let windows = data.windows(3);
         assert_eq!(windows.size_hint(), (3, Some(3)));
     }
@@ -554,13 +554,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "window size must be non-zero")]
     fn test_windows_zero_size() {
-        let data = vec![1, 2, 3];
+        let data = [1, 2, 3];
         let _ = data.windows(0);
     }
 
     #[test]
     fn test_double_ended_iteration() {
-        let data = vec![1, 2, 3, 4, 5];
+        let data = [1, 2, 3, 4, 5];
         let mut windows = data.windows(2);
         assert_eq!(windows.next(), Some(&[1, 2][..]));
         assert_eq!(windows.next_back(), Some(&[4, 5][..]));
