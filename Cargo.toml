@@ -9,6 +9,7 @@ members = [
     "moirai-iter",
     "moirai-metrics",
     "moirai-utils",
+    "moirai-gpu",
     "moirai",
     "benchmarks",
     "tests"
@@ -38,6 +39,7 @@ moirai-async = { path = "moirai-async", version = "0.1.0" }
 moirai-iter = { path = "moirai-iter", version = "0.1.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.1.0" }
 moirai-utils = { path = "moirai-utils", version = "0.1.0", features = ["std"] }
+moirai-gpu = { path = "moirai-gpu", version = "0.1.0" }
 
 # Development and testing dependencies only (not used in runtime)
 criterion = "0.5"

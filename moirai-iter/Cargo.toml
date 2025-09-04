@@ -18,6 +18,8 @@ moirai-executor = { workspace = true }
 moirai-async = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
 moirai-scheduler = { workspace = true }
+thiserror = "1.0"
+futures = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

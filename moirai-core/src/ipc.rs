@@ -14,6 +14,8 @@ use crate::platform::*;
 use core::fmt;
 use core::mem;
 use core::slice;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
@@ -80,6 +82,7 @@ impl SharedMemory {
         let c_name = CString::new(name).map_err(|_| IpcError::InvalidArgument)?;
 
         unsafe {
+            use std::ptr::null_mut;
             // Create shared memory object
             let fd = libc::shm_open(c_name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o666);
 
@@ -125,6 +128,7 @@ impl SharedMemory {
         let c_name = CString::new(name).map_err(|_| IpcError::InvalidArgument)?;
 
         unsafe {
+            use std::ptr::null_mut;
             // Open shared memory object
             let fd = libc::shm_open(c_name.as_ptr(), libc::O_RDWR, 0);
 

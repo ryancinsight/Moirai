@@ -31,6 +31,10 @@ pub enum ExecutionContext {
     Async(AsyncContext),
     /// Hybrid execution that adapts between strategies
     Hybrid(HybridContext),
+    /// Distributed execution across multiple machines
+    Distributed(crate::distributed::DistributedContext),
+    /// Multi-system execution across heterogeneous compute
+    MultiSystem(crate::multi_system::MultiSystemContext),
 }
 
 impl ExecutionContext {
@@ -44,6 +48,14 @@ impl ExecutionContext {
             ExecutionContext::Parallel(ctx) => ctx.execute(func),
             ExecutionContext::Async(ctx) => ctx.execute(func),
             ExecutionContext::Hybrid(ctx) => ctx.execute(func),
+            ExecutionContext::Distributed(_ctx) => {
+                // For now, execute locally - real implementation would distribute
+                Ok(func())
+            }
+            ExecutionContext::MultiSystem(_ctx) => {
+                // For now, execute locally - real implementation would coordinate systems
+                Ok(func())
+            }
         }
     }
 
@@ -62,7 +74,87 @@ impl ExecutionContext {
             ExecutionContext::Parallel(ctx) => ctx.execute_iter(items, func),
             ExecutionContext::Async(ctx) => ctx.execute_iter(items, func),
             ExecutionContext::Hybrid(ctx) => ctx.execute_iter(items, func),
+            ExecutionContext::Distributed(_ctx) => {
+                // For now, execute sequentially - real implementation would distribute
+                Ok(items.into_iter().map(func).collect())
+            }
+            ExecutionContext::MultiSystem(_ctx) => {
+                // For now, execute sequentially - real implementation would coordinate
+                Ok(items.into_iter().map(func).collect())
+            }
         }
+    }
+
+    /// Execute async iterator operations
+    pub async fn execute_async_iter<T, F, Fut, R>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        T: Send + Clone + 'static,
+        F: Fn(T) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = R> + Send + 'static,
+        R: Send + 'static,
+    {
+        // For now, simple sequential async execution
+        // Real implementation would leverage async execution contexts
+        let mut results = Vec::with_capacity(items.len());
+        for item in items {
+            let result = func(item).await;
+            results.push(result);
+        }
+        Ok(results)
+    }
+
+    /// Execute async filter operations
+    pub async fn execute_async_filter<T, F, Fut>(
+        &self,
+        items: Vec<T>,
+        predicate: F,
+    ) -> Result<Vec<T>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        T: Send + Clone + 'static,
+        F: Fn(&T) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = bool> + Send + 'static,
+    {
+        let mut results = Vec::new();
+        for item in items {
+            if predicate(&item).await {
+                results.push(item);
+            }
+        }
+        Ok(results)
+    }
+
+    /// Execute async for_each operations
+    pub async fn execute_async_for_each<T, F, Fut>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+    where
+        T: Send + Clone + 'static,
+        F: Fn(T) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        for item in items {
+            func(item).await;
+        }
+        Ok(())
+    }
+
+    /// Execute parallel reduce operations
+    pub async fn execute_reduce<T, F>(
+        &self,
+        items: Vec<T>,
+        func: F,
+    ) -> Result<Option<T>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        T: Send + Clone + 'static,
+        F: Fn(T, T) -> T + Send + Sync + 'static,
+    {
+        Ok(items.into_iter().reduce(func))
     }
 
     /// Get context type name
@@ -71,6 +163,8 @@ impl ExecutionContext {
             ExecutionContext::Parallel(ctx) => ctx.context_type(),
             ExecutionContext::Async(ctx) => ctx.context_type(),
             ExecutionContext::Hybrid(ctx) => ctx.context_type(),
+            ExecutionContext::Distributed(_) => "Distributed",
+            ExecutionContext::MultiSystem(_) => "MultiSystem",
         }
     }
 }

@@ -14,6 +14,8 @@ moirai-executor = { path = "../moirai-executor" }
 moirai-scheduler = { path = "../moirai-scheduler" }
 moirai-sync = { path = "../moirai-sync" }
 moirai-utils = { path = "../moirai-utils" }
+moirai-iter = { path = "../moirai-iter" }
+moirai-async = { path = "../moirai-async" }
 
 # Benchmarking framework
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -23,6 +25,11 @@ tokio = { version = "1.0", features = ["full"] }
 rayon = "1.8"
 crossbeam = "0.8"
 num_cpus = "1.16"
+futures = "0.3"
+
+# Additional dependencies for benchmarks
+socket2 = "0.5"
+libc = "0.2"
 
 # Statistics and analysis
 statistical = "1.0"

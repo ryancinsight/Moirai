@@ -1,0 +1,44 @@
+[package]
+name = "moirai-gpu"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+description = "GPU compute integration for the Moirai concurrency library using wgpu-rs"
+
+[dependencies]
+moirai-core = { workspace = true }
+moirai-utils = { workspace = true, features = ["std"] }
+
+# GPU compute dependencies
+wgpu = "0.19"
+pollster = "0.3"
+bytemuck = { version = "1.14", features = ["derive"] }
+
+# Async runtime support
+futures = "0.3"
+tokio = { version = "1.0", features = ["rt"], optional = true }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+tokio = { version = "1.0", features = ["rt", "macros"] }
+
+[features]
+default = ["std"]
+std = []
+async-tokio = ["tokio"]
+serde = ["dep:serde"]
+
+[[bench]]
+name = "gpu_compute"
+harness = false
