@@ -17,6 +17,12 @@ moirai-core = { workspace = true }
 moirai-executor = { workspace = true }
 moirai-transport = { workspace = true }
 moirai-utils = { workspace = true }
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
+socket2 = "0.5"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 criterion = { workspace = true }
