@@ -3,6 +3,14 @@
 //! This module provides async runtime integration for Moirai, enabling seamless
 //! interop between sync and async tasks while maintaining high performance.
 
+pub mod sync;
+
+pub use sync::{
+    Broadcast, BroadcastError, BroadcastReceiver, BroadcastSender,
+    Notify, RwLock, Semaphore, SemaphorePermit, 
+    Watch, WatchError, WatchReceiver, WatchSender,
+};
+
 use moirai_core::{Priority, TaskId};
 use std::collections::VecDeque;
 use std::future::Future;

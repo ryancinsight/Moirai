@@ -24,6 +24,7 @@ pub mod combinators;
 pub mod execution;
 pub mod iter_ops;
 pub mod numa;
+pub mod parallel;
 pub mod prefetch;
 pub mod simd_iter;
 pub mod windows;
@@ -33,6 +34,10 @@ pub use base::ThreadPool;
 pub use execution::{
     AsyncContext, ExecutionBase, ExecutionContext, ExecutionStrategy, HybridConfig, HybridContext,
     ParallelContext, PerformanceHistory,
+};
+pub use parallel::{
+    IntoParallelIterator, IntoParallelRefIterator, ParallelExtend, ParallelIterator,
+    RangeParIter, VecParIter, VecRefParIter,
 };
 
 /// Main iterator type that adapts to different execution contexts
