@@ -57,6 +57,38 @@ name = "iterator_showcase_basic"
 path = "../examples/iterator_showcase_basic.rs"
 required-features = ["iter"]
 
+[[example]]
+name = "web_crawler_parallel"
+path = "../examples/web_crawler_parallel.rs"
+
+[[example]]
+name = "realtime_chat_server"
+path = "../examples/realtime_chat_server.rs"
+
+[[example]]
+name = "video_processing_pipeline"
+path = "../examples/video_processing_pipeline.rs"
+
+[[example]]
+name = "iot_device_management"
+path = "../examples/iot_device_management.rs"
+
+[[example]]
+name = "financial_transaction_processing"
+path = "../examples/financial_transaction_processing.rs"
+
+[[example]]
+name = "high_frequency_data_pipeline"
+path = "../examples/high_frequency_data_pipeline.rs"
+
+[[example]]
+name = "network_service_load_balancing"
+path = "../examples/network_service_load_balancing.rs"
+
+[[example]]
+name = "distributed_task_coordination"
+path = "../examples/distributed_task_coordination.rs"
+
 [features]
 default = ["async", "iter", "local"]
 full = ["async", "iter", "distributed", "metrics", "numa", "futex", "encryption"]
