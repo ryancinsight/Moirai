@@ -236,6 +236,10 @@ pub use moirai_async::{timer::sleep, *};
 #[cfg(feature = "iter")]
 pub use moirai_iter::*;
 
+// Re-export GPU functionality
+#[cfg(feature = "gpu")]
+pub use moirai_gpu::prelude::*;
+
 use std::{future::Future, sync::Arc, time::Duration};
 
 /// The main Moirai runtime that provides a unified interface for hybrid concurrency.
@@ -517,6 +521,51 @@ impl Moirai {
             std::thread::sleep(std::time::Duration::from_millis(10));
             func()
         })
+    }
+
+    /// Create a GPU context for GPU-accelerated computing
+    ///
+    /// This initializes a GPU context using wgpu-rs for cross-platform GPU support.
+    /// The context can be used to create compute pipelines and execute GPU tasks.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no suitable GPU device is found or if GPU initialization fails.
+    #[cfg(feature = "gpu")]
+    pub async fn create_gpu_context(&self) -> Result<moirai_gpu::GpuContext, moirai_gpu::GpuError> {
+        moirai_gpu::GpuContext::new().await
+    }
+
+    /// Create a GPU context with specific device preferences
+    ///
+    /// This allows fine-grained control over GPU device selection.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no GPU device meeting the preferences is found.
+    #[cfg(feature = "gpu")]
+    pub async fn create_gpu_context_with_preferences(
+        &self,
+        preferences: moirai_gpu::DevicePreferences,
+    ) -> Result<moirai_gpu::GpuContext, moirai_gpu::GpuError> {
+        moirai_gpu::GpuContext::with_preferences(preferences).await
+    }
+
+    /// Spawn a GPU task for execution
+    ///
+    /// This spawns a GPU-accelerated task that will be executed on the GPU.
+    /// The task must implement the GpuTask trait.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the GPU context is not available or if the task fails to spawn.
+    #[cfg(feature = "gpu")]
+    pub fn spawn_gpu<T>(&self, gpu_context: &moirai_gpu::GpuContext, task: T) -> moirai_gpu::GpuTaskFuture<T::Output>
+    where
+        T: moirai_gpu::GpuTask + Send + 'static,
+        T::Output: Send + 'static,
+    {
+        gpu_context.spawn_gpu_task(task)
     }
 
     /// Get available nodes in the distributed system
