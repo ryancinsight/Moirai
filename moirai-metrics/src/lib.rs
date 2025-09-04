@@ -23,11 +23,32 @@ pub struct Histogram {
 }
 
 /// A metrics collector.
-#[allow(dead_code)]
 pub struct MetricsCollector {
     counters: HashMap<String, Counter>,
     gauges: HashMap<String, Gauge>,
     histograms: HashMap<String, Histogram>,
+}
+
+impl MetricsCollector {
+    /// Create a new metrics collector.
+    pub fn new() -> Self {
+        Self {
+            counters: HashMap::new(),
+            gauges: HashMap::new(),
+            histograms: HashMap::new(),
+        }
+    }
+
+    /// Collect all metrics.
+    pub fn collect(&self) -> MetricsSnapshot {
+        MetricsSnapshot::default()
+    }
+}
+
+impl Default for MetricsCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// A Prometheus metrics exporter.
@@ -174,28 +195,6 @@ pub struct HistogramStats {
     pub mean: f64,
     /// Standard deviation
     pub stddev: f64,
-}
-
-impl MetricsCollector {
-    /// Create a new metrics collector.
-    pub fn new() -> Self {
-        Self {
-            counters: HashMap::new(),
-            gauges: HashMap::new(),
-            histograms: HashMap::new(),
-        }
-    }
-
-    /// Collect all metrics.
-    pub fn collect(&self) -> MetricsSnapshot {
-        MetricsSnapshot::default()
-    }
-}
-
-impl Default for MetricsCollector {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 /// A snapshot of all metrics.

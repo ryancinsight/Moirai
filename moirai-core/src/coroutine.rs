@@ -124,11 +124,11 @@ enum CoroutineControl {
     _Pause,
 }
 
-/// A simple coroutine implementation using function pointers.
+/// A coroutine implementation using function pointers.
 ///
 /// This provides a zero-cost abstraction over cooperative multitasking,
 /// allowing functions to yield control and resume later.
-pub struct SimpleCoroutine<Y, R> {
+pub struct FunctionCoroutine<Y, R> {
     /// The coroutine state machine
     state_fn: Option<Box<dyn FnMut() -> CoroutineResult<Y, R> + Send>>,
     /// Current state
@@ -137,7 +137,7 @@ pub struct SimpleCoroutine<Y, R> {
     _context: TaskContext,
 }
 
-impl<Y, R> SimpleCoroutine<Y, R>
+impl<Y, R> FunctionCoroutine<Y, R>
 where
     Y: Send + 'static,
     R: Send + 'static,
@@ -155,7 +155,7 @@ where
     }
 }
 
-impl<Y, R> Coroutine for SimpleCoroutine<Y, R>
+impl<Y, R> Coroutine for FunctionCoroutine<Y, R>
 where
     Y: Send + 'static,
     R: Send + 'static,
@@ -316,7 +316,7 @@ pub trait CoroutineExt: Sized {
     type Return;
 
     /// Convert this value into a coroutine.
-    fn into_coroutine(self) -> SimpleCoroutine<Self::Yield, Self::Return>;
+    fn into_coroutine(self) -> FunctionCoroutine<Self::Yield, Self::Return>;
 }
 
 impl<F, Y, R> CoroutineExt for F
@@ -328,8 +328,8 @@ where
     type Yield = Y;
     type Return = R;
 
-    fn into_coroutine(self) -> SimpleCoroutine<Y, R> {
-        SimpleCoroutine::new(self)
+    fn into_coroutine(self) -> FunctionCoroutine<Y, R> {
+        FunctionCoroutine::new(self)
     }
 }
 
@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn test_basic_coroutine() {
         let mut counter = 0;
-        let mut coro = SimpleCoroutine::new(move || {
+        let mut coro = FunctionCoroutine::new(move || {
             counter += 1;
             if counter < 3 {
                 CoroutineResult::Yielded(counter)
@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn test_coroutine_iterator() {
         let mut counter = 0;
-        let coro = SimpleCoroutine::new(move || {
+        let coro = FunctionCoroutine::new(move || {
             counter += 1;
             if counter <= 3 {
                 CoroutineResult::Yielded(counter)

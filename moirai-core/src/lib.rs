@@ -103,13 +103,19 @@ pub use channel::{
     SpscChannel, SpscReceiver, SpscSender,
 };
 
+#[cfg(feature = "std")]
+pub use unified_channel::{
+    unified_channel, unified_channel_with_config, ChannelConfig, ChannelStatistics,
+    UnifiedChannelError, UnifiedReceiver, UnifiedSender,
+};
+
 // Re-export CacheAligned from moirai-utils for convenience
 pub use moirai_utils::CacheAligned;
 
 #[cfg(feature = "coroutine")]
 pub use coroutine::{
     Coroutine, CoroutineExt, CoroutineFuture, CoroutineIterator, CoroutineResult, CoroutineState,
-    SimpleCoroutine,
+    FunctionCoroutine,
 };
 
 // Re-export platform types for convenience

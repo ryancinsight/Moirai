@@ -23,9 +23,7 @@ pub enum NumaPolicy {
 /// NUMA execution context for iterators
 pub struct NumaContext {
     topology: Arc<Option<CpuTopology>>,
-    #[allow(dead_code)]
     policy: NumaPolicy,
-    #[allow(dead_code)]
     thread_count: usize,
 }
 
@@ -49,8 +47,23 @@ impl NumaContext {
         }
     }
 
-    #[allow(dead_code)]
-    fn current_numa_node(&self) -> usize {
+    /// Get the NUMA policy for this context.
+    pub fn policy(&self) -> NumaPolicy {
+        self.policy
+    }
+
+    /// Get the thread count for this context.
+    pub fn thread_count(&self) -> usize {
+        self.thread_count
+    }
+
+    /// Get the CPU topology if available.
+    pub fn topology(&self) -> Option<&CpuTopology> {
+        self.topology.as_ref().as_ref()
+    }
+
+    /// Get the current NUMA node for the calling thread.
+    pub fn current_numa_node(&self) -> usize {
         #[cfg(target_os = "linux")]
         {
             unsafe {
@@ -72,8 +85,12 @@ impl NumaContext {
         }
     }
 
-    #[allow(dead_code)]
-    unsafe fn numa_alloc(&self, size: usize, node: usize) -> *mut u8 {
+    /// Allocate memory on a specific NUMA node.
+    /// 
+    /// # Safety
+    /// The caller must ensure the returned pointer is properly deallocated
+    /// using `numa_free` with the same size.
+    pub unsafe fn numa_alloc(&self, size: usize, node: usize) -> *mut u8 {
         #[cfg(target_os = "linux")]
         {
             let addr = libc::mmap(
@@ -109,8 +126,12 @@ impl NumaContext {
         }
     }
 
-    #[allow(dead_code)]
-    unsafe fn numa_free(&self, ptr: *mut u8, size: usize) {
+    /// Free NUMA-allocated memory.
+    /// 
+    /// # Safety
+    /// The pointer must have been allocated with `numa_alloc` and the size
+    /// must match the original allocation.
+    pub unsafe fn numa_free(&self, ptr: *mut u8, size: usize) {
         #[cfg(target_os = "linux")]
         {
             if libc::munmap(ptr as *mut libc::c_void, size) != 0 {

@@ -159,10 +159,10 @@ impl<T: Clone> CacheFriendlyIterator<T> {
     }
 }
 
-/// Advanced SIMD patterns for complex operations
-pub struct AdvancedSimdOps;
+/// SIMD operations for complex parallel processing
+pub struct SimdOps;
 
-impl AdvancedSimdOps {
+impl SimdOps {
     /// Parallel reduction using SIMD with tree-based combining
     /// Based on patterns from "Parallel Programming in C with MPI and OpenMP"
     pub fn simd_parallel_reduce<T, F, R>(data: &[T], identity: R, op: F) -> R
