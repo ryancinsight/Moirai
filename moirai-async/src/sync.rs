@@ -170,7 +170,8 @@ impl<T: Clone> BroadcastSender<T> {
 
         // Add new message
         state.sequence += 1;
-        state.messages.push_back((state.sequence, message));
+        let sequence = state.sequence;
+        state.messages.push_back((sequence, message));
 
         // Wake all receivers
         let receiver_count = state.receivers.len();
@@ -240,7 +241,7 @@ impl<T: Clone> BroadcastReceiver<T> {
     }
 }
 
-impl<T> Clone for BroadcastReceiver<T> {
+impl<T: Clone> Clone for BroadcastReceiver<T> {
     fn clone(&self) -> Self {
         self.resubscribe()
     }

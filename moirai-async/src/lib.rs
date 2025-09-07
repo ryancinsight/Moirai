@@ -647,7 +647,7 @@ pub mod net {
     }
 
     /// Information about active connections
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct ConnectionInfo {
         pub connected_at: Instant,
         pub bytes_received: u64,
@@ -736,17 +736,21 @@ pub mod net {
                 }
             }
 
-            let (stream, addr) = self.inner.accept().await?;
+            let (mut stream, addr) = self.inner.accept().await?;
             
             // Configure the accepted socket
             stream.set_nodelay(self.config.nodelay)?;
             
             if let Some(keep_alive) = self.config.keep_alive {
-                let socket = socket2::Socket::from(stream);
+                // Convert tokio TcpStream to std TcpStream for socket2 compatibility
+                let std_stream = stream.into_std()?;
+                let socket = socket2::Socket::from(std_stream);
                 let keep_alive = socket2::TcpKeepalive::new()
                     .with_time(keep_alive)
                     .with_interval(Duration::from_secs(60));
                 socket.set_tcp_keepalive(&keep_alive)?;
+                // Convert back to tokio TcpStream
+                stream = TokioTcpStream::from_std(socket.into())?;
             }
 
             // Update statistics
@@ -824,7 +828,7 @@ pub mod net {
         /// Connect to a remote address asynchronously
         pub async fn connect(addr: &str) -> io::Result<Self> {
             let stream = TokioTcpStream::connect(addr).await?;
-            let peer_addr = stream.peer_addr()?;
+            let _peer_addr = stream.peer_addr()?;
             
             // Configure socket for optimal performance
             stream.set_nodelay(true)?;
@@ -1207,6 +1211,7 @@ pub mod fs {
             if let Some(mode) = options.mode {
                 #[cfg(unix)]
                 {
+                    #[allow(unused_imports)]
                     use std::os::unix::fs::OpenOptionsExt;
                     open_options.mode(mode);
                 }
@@ -1974,6 +1979,23 @@ pub mod timer {
             self.period = period;
             self.next_tick = Instant::now() + period;
             self.delay = None;
+        }
+
+        /// Wait for the next tick
+        pub async fn next(&mut self) -> Instant {
+            if self.delay.is_none() {
+                self.delay = Some(Delay::until(self.next_tick));
+            }
+
+            if let Some(delay) = &mut self.delay {
+                delay.await;
+                let tick_time = self.next_tick;
+                self.next_tick += self.period;
+                self.delay = None;
+                tick_time
+            } else {
+                Instant::now()
+            }
         }
     }
 
