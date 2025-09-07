@@ -3,7 +3,6 @@
 //! This module provides async-native iterator functionality that integrates
 //! with Moirai's unified async runtime for efficient I/O processing.
 
-use futures::future::{BoxFuture, FutureExt};
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};

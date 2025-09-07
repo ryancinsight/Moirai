@@ -135,7 +135,7 @@ impl DistributedContext {
         R: Send + 'static,
     {
         // Distribute tasks across nodes
-        let tasks = self.task_scheduler.create_map_tasks(data, map_func);
+        let tasks = self.task_scheduler.create_map_tasks(data, map_func).await;
         let results = self.execute_tasks_distributed(tasks).await?;
         Ok(results)
     }
@@ -278,7 +278,7 @@ impl DistributedScheduler {
         Ok(result)
     }
 
-    fn assign_tasks_to_nodes(&self, tasks: &[DistributedTask], nodes: &[NodeConfig]) -> HashMap<usize, Vec<&DistributedTask>> {
+    fn assign_tasks_to_nodes<'a>(&self, tasks: &'a [DistributedTask], nodes: &[NodeConfig]) -> HashMap<usize, Vec<&'a DistributedTask>> {
         let mut assignments = HashMap::new();
         
         // Round-robin assignment for simplicity

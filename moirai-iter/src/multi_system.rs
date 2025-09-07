@@ -4,8 +4,7 @@
 //! heterogeneous compute management, and unified scheduling across diverse systems.
 
 use crate::{distributed::NodeConfig, MoiraiIterator};
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Configuration for heterogeneous multi-system clusters
@@ -156,7 +155,7 @@ pub struct MultiSystemContext {
     systems: Arc<Vec<SystemConfig>>,
     unified_scheduler: Arc<UnifiedScheduler>,
     resource_manager: Arc<ResourceManager>,
-    topology_optimizer: Arc<TopologyOptimizer>,
+    topology_optimizer: Arc<Mutex<TopologyOptimizer>>,
 }
 
 impl MultiSystemContext {
@@ -166,14 +165,14 @@ impl MultiSystemContext {
             systems: Arc::new(Vec::new()),
             unified_scheduler: Arc::new(UnifiedScheduler::new()),
             resource_manager: Arc::new(ResourceManager::new()),
-            topology_optimizer: Arc::new(TopologyOptimizer::new()),
+            topology_optimizer: Arc::new(Mutex::new(TopologyOptimizer::new())),
         }
     }
 
     /// Add a system to the multi-system cluster
     pub fn add_system(&mut self, system: SystemConfig) {
         Arc::get_mut(&mut self.systems).unwrap().push(system);
-        self.topology_optimizer.update_topology(&self.systems);
+        self.topology_optimizer.lock().unwrap().update_topology(&self.systems);
     }
 
     /// Partition data across multiple systems with intelligent placement
@@ -187,7 +186,7 @@ impl MultiSystemContext {
         F: Fn(&T) -> usize + Send + Sync + 'static,
     {
         // Analyze data characteristics for optimal placement
-        let data_profile = self.analyze_data_characteristics(&data);
+        let data_profile = self.analyze_data_characteristics(&data).await;
         
         // Determine optimal system assignments
         let assignments = self.unified_scheduler.assign_data_to_systems(
@@ -538,7 +537,7 @@ impl<T: Send + Clone + 'static> MultiSystemIterator<T> {
         func: F,
     ) -> Result<MultiSystemIterator<R>, MultiSystemError>
     where
-        F: Fn(T) -> R + Send + Sync + 'static,
+        F: Fn(T) -> R + Send + Sync + Clone + 'static,
         R: Send + Clone + 'static,
     {
         let results = self
