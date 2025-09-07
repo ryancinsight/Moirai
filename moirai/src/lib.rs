@@ -198,9 +198,13 @@
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
 
-// Re-export core functionality
+// Re-export core functionality (avoiding ExecutorStats conflict)
 pub use moirai_core::{
-    error::*, executor::*, scheduler::*, task::*, Priority, Task, TaskContext, TaskHandle, TaskId,
+    error::*, 
+    executor::{Executor, ExecutorConfig, ExecutorControl, TaskSpawner}, 
+    scheduler::*, 
+    task::*, 
+    Priority, Task, TaskContext, TaskHandle, TaskId,
 };
 
 // Re-export executor functionality
@@ -228,9 +232,13 @@ pub use moirai_sync::{AtomicCounter, Barrier, Condvar, Mutex, Once, RwLock};
 #[cfg(feature = "metrics")]
 pub use moirai_metrics::MetricsCollector;
 
-// Re-export async functionality
+// Re-export async functionality (specific imports to avoid conflicts)
 #[cfg(feature = "async")]
-pub use moirai_async::{timer::sleep, *};
+pub use moirai_async::{
+    timer::sleep,
+    executor::{AsyncExecutor, AsyncHandle},
+    Timeout,
+};
 
 // Re-export iterator functionality
 #[cfg(feature = "iter")]
@@ -743,7 +751,7 @@ pub mod prelude {
     pub use crate::{ExecutionContext, ExecutionStrategy, MoiraiIterator};
 
     #[cfg(feature = "async")]
-    pub use crate::{Timeout, Timer};
+    pub use crate::Timeout;
 }
 
 /// Global runtime instance for convenience.

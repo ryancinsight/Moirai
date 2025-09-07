@@ -20,6 +20,7 @@ moirai-utils = { workspace = true }
 moirai-scheduler = { workspace = true }
 thiserror = "1.0"
 futures = "0.3"
+num_cpus = "1.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

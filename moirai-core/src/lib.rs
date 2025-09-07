@@ -54,6 +54,7 @@ pub mod platform;
 pub mod constants;
 
 // Core modules
+pub mod dtype;
 pub mod error;
 pub mod executor;
 pub mod memory;
@@ -111,6 +112,11 @@ pub use unified_channel::{
 
 // Re-export CacheAligned from moirai-utils for convenience
 pub use moirai_utils::CacheAligned;
+
+// Re-export unified data type traits
+pub use dtype::{
+    Dtype, IntegerDtype, FloatDtype, DefaultInt, DefaultUint, DefaultFloat, ComputeContext
+};
 
 #[cfg(feature = "coroutine")]
 pub use coroutine::{

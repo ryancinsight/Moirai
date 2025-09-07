@@ -1012,6 +1012,7 @@ dependencies = [
  "moirai-utils",
  "proptest",
  "socket2",
+ "tempfile",
  "tokio",
 ]
 
@@ -1093,6 +1094,7 @@ dependencies = [
  "moirai-executor",
  "moirai-scheduler",
  "moirai-utils",
+ "num_cpus",
  "proptest",
  "thiserror",
  "tokio",
