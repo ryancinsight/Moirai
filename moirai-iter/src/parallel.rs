@@ -71,39 +71,34 @@ pub trait ParallelIterator: Sized + Send {
 
     /// Count the number of elements
     fn count(self) -> usize {
-        self.map(|_| 1).reduce(|| 0, |a, b| a + b)
+        self.map(|_| 1).fold(0, |a, b| a + b)
     }
 
     /// Find the first element matching a predicate
     fn find_first<F>(self, predicate: F) -> Option<Self::Item>
     where
-        F: Fn(&Self::Item) -> bool + Send + Sync,
+        F: Fn(&Self::Item) -> bool + Send + Sync + Clone,
+        Self::Item: Sync,
     {
-        self.filter(predicate).find_any()
-    }
-
-    /// Find any element matching a predicate (order not guaranteed)
-    fn find_any<F>(self, predicate: F) -> Option<Self::Item>
-    where
-        F: Fn(&Self::Item) -> bool + Send + Sync,
-    {
-        self.drive(FindConsumer::new(predicate))
+        self.find_any(predicate)
     }
 
     /// Test if any element matches a predicate
     fn any<F>(self, predicate: F) -> bool
     where
-        F: Fn(Self::Item) -> bool + Send + Sync + Clone,
+        F: Fn(&Self::Item) -> bool + Send + Sync + Clone,
+        Self::Item: Sync,
     {
-        self.map(predicate).find_any().unwrap_or(false)
+        self.find_any(predicate).is_some()
     }
 
     /// Test if all elements match a predicate
     fn all<F>(self, predicate: F) -> bool
     where
-        F: Fn(Self::Item) -> bool + Send + Sync,
+        F: Fn(&Self::Item) -> bool + Send + Sync + Clone,
+        Self::Item: Sync,
     {
-        !self.map(|x| !predicate(x)).any(|x| x)
+        self.find_any(move |item| !predicate(item)).is_none()
     }
 
     /// Apply a function to each element (for side effects)
@@ -616,6 +611,25 @@ impl<T> NullConsumer<T> {
         Self {
             _phantom: PhantomData,
         }
+    }
+}
+
+impl<T: Send + Sync> Consumer<T> for NullConsumer<T> {
+    type Result = ();
+
+    fn consume<I>(self, _iter: I) -> Self::Result
+    where
+        I: ParallelIterator<Item = T>,
+    {
+        // Do nothing - this is a null consumer
+    }
+
+    fn split_at(self, _index: usize) -> (Self, Self) {
+        (NullConsumer::new(), NullConsumer::new())
+    }
+
+    fn combine(_left: Self::Result, _right: Self::Result) -> Self::Result {
+        // Do nothing
     }
 }
 

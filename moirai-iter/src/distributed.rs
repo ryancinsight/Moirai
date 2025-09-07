@@ -262,7 +262,7 @@ impl DistributedScheduler {
         &self,
         data: Vec<T>,
         reduce_func: F,
-        nodes: &[NodeConfig],
+        _nodes: &[NodeConfig],
     ) -> Result<Option<T>, DistributedError>
     where
         T: Send + Clone + 'static,

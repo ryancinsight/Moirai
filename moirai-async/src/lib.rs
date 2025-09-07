@@ -672,7 +672,7 @@ pub mod net {
             let listener = TokioTcpListener::bind(addr).await?;
             
             // Configure socket options
-            if let Ok(socket) = listener.local_addr() {
+            if let Ok(_socket) = listener.local_addr() {
                 #[cfg(unix)]
                 {
                     use std::os::unix::io::AsRawFd;
@@ -711,7 +711,7 @@ pub mod net {
 
             Ok(Self {
                 inner: listener,
-                config,
+                config: config.clone(),
                 stats: Arc::new(stats),
                 connection_pool: Arc::new(ConnectionPool::new(config.max_connections)),
             })
