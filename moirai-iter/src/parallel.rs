@@ -53,11 +53,6 @@ pub trait ParallelIterator: Sized + Send {
     {
         self.drive(FoldConsumer::new(init, fold_fn))
     }
-        T: Send + Clone,
-        F: Fn(T, Self::Item) -> T + Send + Sync,
-    {
-        self.drive(FoldConsumer::new(init, fold_fn))
-    }
 
     /// Collect into a collection
     fn collect<C>(self) -> C
@@ -98,7 +93,7 @@ pub trait ParallelIterator: Sized + Send {
     /// Test if any element matches a predicate
     fn any<F>(self, predicate: F) -> bool
     where
-        F: Fn(Self::Item) -> bool + Send + Sync,
+        F: Fn(Self::Item) -> bool + Send + Sync + Clone,
     {
         self.map(predicate).find_any().unwrap_or(false)
     }
@@ -114,7 +109,7 @@ pub trait ParallelIterator: Sized + Send {
     /// Apply a function to each element (for side effects)
     fn for_each<F>(self, op: F)
     where
-        F: Fn(Self::Item) + Send + Sync,
+        F: Fn(Self::Item) + Send + Sync + Clone,
     {
         self.map(op).drive(NullConsumer::new())
     }
@@ -126,6 +121,15 @@ pub trait ParallelIterator: Sized + Send {
         Self::Item: Sync + Clone,
     {
         self.drive(ReduceWithConsumer::new(reduce_fn))
+    }
+
+    /// Find any element matching a predicate
+    fn find_any<F>(self, predicate: F) -> Option<Self::Item>
+    where
+        F: Fn(&Self::Item) -> bool + Send + Sync + Clone,
+        Self::Item: Sync,
+    {
+        self.drive(FindConsumer::new(predicate))
     }
 }
 
@@ -271,7 +275,7 @@ impl<I, F> Map<I, F> {
 impl<I, F, R> ParallelIterator for Map<I, F>
 where
     I: ParallelIterator,
-    F: Fn(I::Item) -> R + Send + Sync,
+    F: Fn(I::Item) -> R + Send + Sync + Clone,
     R: Send,
 {
     type Item = R;
@@ -300,7 +304,7 @@ impl<I, F> Filter<I, F> {
 impl<I, F> ParallelIterator for Filter<I, F>
 where
     I: ParallelIterator,
-    F: Fn(&I::Item) -> bool + Send + Sync,
+    F: Fn(&I::Item) -> bool + Send + Sync + Clone,
 {
     type Item = I::Item;
 
@@ -435,7 +439,7 @@ where
 
     fn combine(left: Self::Result, right: Self::Result) -> Self::Result {
         match (left, right) {
-            (Some(l), Some(r)) => Some(l), // Simplified - should use reduce_fn
+            (Some(l), Some(_r)) => Some(l), // Simplified - should use reduce_fn
             (Some(v), None) | (None, Some(v)) => Some(v),
             (None, None) => None,
         }
@@ -596,7 +600,7 @@ where
 
     fn combine(left: Self::Result, right: Self::Result) -> Self::Result {
         match (left, right) {
-            (Some(l), Some(r)) => Some(l), // Should use reduce_fn
+            (Some(l), Some(_r)) => Some(l), // Should use reduce_fn
             (Some(v), None) | (None, Some(v)) => Some(v),
             (None, None) => None,
         }

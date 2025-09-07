@@ -1128,7 +1128,6 @@ pub mod fs {
     use std::io;
     use std::path::Path;
     use std::pin::Pin;
-    use std::sync::Arc;
     use std::time::SystemTime;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -1624,10 +1623,8 @@ pub use timer::{sleep, Delay, Timer};
 pub mod timer {
     use moirai_core::channel::{mpmc, MpmcSender};
     use std::cmp::Ordering;
-    use std::collections::BinaryHeap;
     use std::future::Future;
     use std::pin::Pin;
-    use std::sync::Arc;
     use std::task::{Context, Poll, Waker};
     use std::thread;
     use std::time::{Duration, Instant};

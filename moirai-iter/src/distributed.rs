@@ -203,7 +203,7 @@ impl DistributedScheduler {
         &self,
         data: Vec<T>,
         nodes: &[NodeConfig],
-        partition_func: F,
+        _partition_func: F,
     ) -> Vec<Vec<T>>
     where
         T: Send + Clone + 'static,
@@ -211,7 +211,7 @@ impl DistributedScheduler {
     {
         // Analyze data characteristics
         let data_size = data.len();
-        let node_count = nodes.len();
+        let _node_count = nodes.len();
         
         // Calculate optimal partition sizes based on node capabilities
         let partition_sizes = self.calculate_optimal_partitions(nodes, data_size);
@@ -240,7 +240,7 @@ impl DistributedScheduler {
         }).collect()
     }
 
-    async fn create_map_tasks<T, F, R>(&self, data: Vec<T>, map_func: F) -> Vec<DistributedTask>
+    async fn create_map_tasks<T, F, R>(&self, data: Vec<T>, _map_func: F) -> Vec<DistributedTask>
     where
         T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
@@ -326,7 +326,7 @@ impl FailureHandler {
         }
     }
 
-    async fn execute_with_retry<R>(&self, assignments: HashMap<usize, Vec<&DistributedTask>>) -> Result<Vec<R>, DistributedError>
+    async fn execute_with_retry<R>(&self, _assignments: HashMap<usize, Vec<&DistributedTask>>) -> Result<Vec<R>, DistributedError>
     where
         R: Send + 'static,
     {

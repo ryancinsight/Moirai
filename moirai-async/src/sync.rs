@@ -2,7 +2,6 @@
 //! 
 //! Provides async-aware synchronization that integrates with Moirai's unified runtime
 
-use moirai_core::{TaskId, Priority};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;

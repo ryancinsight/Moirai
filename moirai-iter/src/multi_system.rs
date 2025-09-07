@@ -179,7 +179,7 @@ impl MultiSystemContext {
     pub async fn partition_data<T, F>(
         &self,
         data: Vec<T>,
-        partition_func: F,
+        _partition_func: F,
     ) -> Vec<MoiraiIterator<T>>
     where
         T: Send + Clone + 'static,
@@ -359,7 +359,7 @@ impl UnifiedScheduler {
     async fn assign_data_to_systems<T>(
         &self,
         data: &[T],
-        profile: &DataProfile,
+        _profile: &DataProfile,
         systems: &[SystemConfig],
     ) -> Vec<Vec<T>>
     where
@@ -556,7 +556,7 @@ impl<T: Send + Clone + 'static> MultiSystemIterator<T> {
         
         partitions
             .into_iter()
-            .map(|partition| {
+            .map(|_partition| {
                 // Extract data from MoiraiIterator - this is a simplification
                 // Real implementation would handle this more elegantly
                 MultiSystemIterator::new(vec![], self.context.clone())
