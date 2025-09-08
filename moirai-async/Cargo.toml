@@ -17,6 +17,7 @@ moirai-core = { workspace = true }
 moirai-executor = { workspace = true }
 moirai-transport = { workspace = true }
 moirai-utils = { workspace = true }
+moirai-pal = { workspace = true }
 futures = "0.3"
 socket2 = "0.5"
 

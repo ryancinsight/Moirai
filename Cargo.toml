@@ -6,6 +6,7 @@ members = [
     "moirai-transport",
     "moirai-sync",
     "moirai-async",
+    "moirai-pal",
     "moirai-iter",
     "moirai-metrics",
     "moirai-utils",
@@ -36,6 +37,7 @@ moirai-scheduler = { path = "moirai-scheduler", version = "0.1.0" }
 moirai-transport = { path = "moirai-transport", version = "0.1.0" }
 moirai-sync = { path = "moirai-sync", version = "0.1.0" }
 moirai-async = { path = "moirai-async", version = "0.1.0" }
+moirai-pal = { path = "moirai-pal", version = "0.1.0" }
 moirai-iter = { path = "moirai-iter", version = "0.1.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.1.0" }
 moirai-utils = { path = "moirai-utils", version = "0.1.0", features = ["std"] }
