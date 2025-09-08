@@ -1013,7 +1013,6 @@ dependencies = [
  "proptest",
  "socket2",
  "tempfile",
- "tokio",
 ]
 
 [[package]]
