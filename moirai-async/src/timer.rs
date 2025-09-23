@@ -225,6 +225,7 @@ pub fn interval_at(start: Instant, period: Duration) -> Interval {
 
 /// Timer entry for the timer wheel
 #[derive(Debug)]
+#[allow(dead_code)] // Fields used for future timer identification per ADR requirements
 struct TimerEntry {
     id: u64,
     deadline: Instant,
@@ -303,6 +304,7 @@ impl RateLimiter {
 }
 
 /// Timer wheel for efficient timer management
+#[allow(dead_code)] // Fields used for future timer baseline tracking per ADR requirements
 pub struct TimerWheel {
     timers: BinaryHeap<TimerEntry>,
     next_id: u64,

@@ -276,7 +276,7 @@ impl File {
 }
 
 /// Convenience functions for common file operations
-
+///
 /// Read entire file contents as a string
 pub async fn read_to_string<P: AsRef<Path>>(path: P) -> io::Result<String> {
     let mut file = File::open(path).await?;
@@ -363,7 +363,6 @@ pub async fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     // Note: These tests are simplified for the tokio removal
     // In a full implementation, they would use Moirai's async runtime

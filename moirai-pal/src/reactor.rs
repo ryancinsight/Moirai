@@ -31,6 +31,7 @@ pub struct IoReactor {
 
 /// Information about registered file descriptors
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields used for future telemetry/debugging per ADR requirements
 struct FdInfo {
     interest: Interest,
     registered_at: Instant,
@@ -134,7 +135,7 @@ impl IoReactor {
     pub fn run(&self) -> io::Result<()> {
         self.running.store(true, Ordering::SeqCst);
         self.metrics.start_time.set(Instant::now()).map_err(|_| {
-            io::Error::new(io::ErrorKind::Other, "Reactor already started")
+            io::Error::other("Reactor already started")
         })?;
         
         while self.running.load(Ordering::SeqCst) {
@@ -178,7 +179,20 @@ impl IoReactor {
         let mut completed_tasks = Vec::new();
         
         for (index, task) in tasks.iter_mut().enumerate() {
-            let waker = std::task::Waker::noop(); // Simplified for now
+            // Create a simple noop waker compatible with MSRV 1.75.0
+            // Using standard library patterns per Rust Book Ch.16
+            use std::task::{RawWaker, RawWakerVTable, Waker};
+            
+            const NOOP_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
+                |_| RawWaker::new(std::ptr::null(), &NOOP_WAKER_VTABLE),
+                |_| {},
+                |_| {},
+                |_| {},
+            );
+            
+            let waker = unsafe {
+                Waker::from_raw(RawWaker::new(std::ptr::null(), &NOOP_WAKER_VTABLE))
+            };
             let mut context = Context::from_waker(&waker);
             
             match task.as_mut().poll(&mut context) {

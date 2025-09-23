@@ -562,7 +562,7 @@ impl Moirai {
     /// Spawn a GPU task for execution
     ///
     /// This spawns a GPU-accelerated task that will be executed on the GPU.
-    /// The task must implement the GpuTask trait.
+    /// The task must implement the `GpuTask` trait.
     ///
     /// # Panics
     ///

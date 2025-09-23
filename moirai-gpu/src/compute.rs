@@ -1,5 +1,8 @@
 //! GPU compute shader and kernel management
 
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+
 use crate::{error::GpuResult, GpuDevice, GpuBuffer};
 use wgpu::{ComputePipeline, ComputePipelineDescriptor, PipelineLayoutDescriptor, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindGroupDescriptor, BindGroupEntry, BindGroup};
 
@@ -211,7 +214,7 @@ mod tests {
     use super::*;
     use crate::{BufferUsage, DevicePreferences, GpuContext};
     
-    const SIMPLE_COMPUTE_SHADER: &str = r#"
+    const SIMPLE_COMPUTE_SHADER: &str = r"
         @group(0) @binding(0) var<storage, read_write> data: array<f32>;
         
         @compute @workgroup_size(64)
@@ -222,23 +225,24 @@ mod tests {
             }
             data[index] = data[index] * 2.0;
         }
-    "#;
+    ";
     
     #[test]
     fn test_compute_kernel_creation() {
         // Simplified test - in a full implementation, this would use Moirai's async runtime
         // For now, just test that the GPU types are properly defined
         let preferences = DevicePreferences::default();
-        assert_eq!(preferences.preferred_backend, PreferredBackend::Auto);
+        assert!(!preferences.prefer_discrete); // Default should prefer integrated
+        assert_eq!(preferences.min_memory, 0);
     }
     
     #[test] 
     fn test_kernel_dispatch() {
         // Simplified test - testing GPU dispatch structures
         let dispatch = KernelDispatch::new_1d(16);
-        assert_eq!(dispatch.groups, (16, 1, 1));
+        assert_eq!(dispatch.workgroups, (16, 1, 1));
         
         let dispatch_3d = KernelDispatch::new_3d(4, 4, 4);
-        assert_eq!(dispatch_3d.groups, (4, 4, 4));
+        assert_eq!(dispatch_3d.workgroups, (4, 4, 4));
     }
 }

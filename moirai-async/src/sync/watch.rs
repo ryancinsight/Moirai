@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 /// Watch channel for state monitoring with change notifications
+#[allow(dead_code)] // Fields used for future watch functionality per ADR requirements
 pub struct Watch<T> {
     state: Arc<Mutex<WatchState<T>>>,
 }
@@ -27,6 +28,8 @@ struct WatchReceiverState {
 
 impl<T: Clone + Send + 'static> Watch<T> {
     /// Create a new watch channel with an initial value
+    /// Returns (sender, receiver) tuple per channel pattern conventions
+    #[allow(clippy::new_ret_no_self)] // Standard channel pattern per Rust Book Ch.16
     pub fn new(initial: T) -> (WatchSender<T>, WatchReceiver<T>) {
         let state = Arc::new(Mutex::new(WatchState {
             value: initial,

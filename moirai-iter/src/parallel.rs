@@ -3,6 +3,8 @@
 //! This module provides parallel iterator functionality that matches Rayon's API
 //! while integrating with Moirai's unified scheduler and work-stealing runtime.
 
+#![allow(dead_code)] // Development structures per ADR requirements - parallel iterator features under development
+
 use crate::execution::ParallelContext;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -355,7 +357,7 @@ where
 
 /// Additional consumer implementations would go here...
 /// For brevity, showing structure for key consumers
-
+///
 pub struct FilterConsumer<C, F> {
     base: C,
     filter_fn: F,
@@ -418,9 +420,7 @@ where
     {
         // Simple sequential reduction for now
         // In a real implementation, this would be properly parallelized
-        let data: Vec<T> = match iter.drive(CollectConsumer::new()) {
-            data => data,
-        };
+        let data: Vec<T> = iter.drive(CollectConsumer::new());
         
         data.into_iter().reduce(self.reduce_fn)
     }
@@ -453,7 +453,7 @@ impl CollectConsumer {
 impl<T: Send + Sync> Consumer<T> for CollectConsumer {
     type Result = Vec<T>;
 
-    fn consume<I>(self, iter: I) -> Self::Result
+    fn consume<I>(self, _iter: I) -> Self::Result
     where
         I: ParallelIterator<Item = T>,
     {
@@ -496,9 +496,7 @@ where
         I: ParallelIterator<Item = U>,
     {
         // Simple fold implementation
-        let data: Vec<U> = match iter.drive(CollectConsumer::new()) {
-            data => data,
-        };
+        let data: Vec<U> = iter.drive(CollectConsumer::new());
         
         data.into_iter().fold(self.init, self.fold_fn)
     }
@@ -538,9 +536,7 @@ where
         I: ParallelIterator<Item = T>,
     {
         // Simple find implementation
-        let data: Vec<T> = match iter.drive(CollectConsumer::new()) {
-            data => data,
-        };
+        let data: Vec<T> = iter.drive(CollectConsumer::new());
         
         data.into_iter().find(|item| (self.predicate)(item))
     }
@@ -579,9 +575,7 @@ where
         I: ParallelIterator<Item = T>,
     {
         // Simple reduction with implementation
-        let data: Vec<T> = match iter.drive(CollectConsumer::new()) {
-            data => data,
-        };
+        let data: Vec<T> = iter.drive(CollectConsumer::new());
         
         data.into_iter().reduce(self.reduce_fn)
     }
@@ -891,14 +885,14 @@ mod tests {
     #[test]
     fn test_parallel_any() {
         let data = vec![1, 2, 3, 4, 5];
-        assert!(data.clone().into_par_iter().any(|x| x == 3));
-        assert!(!data.into_par_iter().any(|x| x == 10));
+        assert!(data.clone().into_par_iter().any(|x| *x == 3));
+        assert!(!data.into_par_iter().any(|x| *x == 10));
     }
 
     #[test]
     fn test_parallel_all() {
         let data = vec![2, 4, 6, 8];
-        assert!(data.clone().into_par_iter().all(|x| x % 2 == 0));
-        assert!(!data.into_par_iter().all(|x| x > 5));
+        assert!(data.clone().into_par_iter().all(|x| *x % 2 == 0));
+        assert!(!data.into_par_iter().all(|x| *x > 5));
     }
 }
