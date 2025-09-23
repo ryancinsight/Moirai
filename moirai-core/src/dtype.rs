@@ -591,11 +591,14 @@ mod tests {
         let a: f64 = 0.1 + 0.2;
         let b: f64 = 0.3;
         
-        // Direct comparison demonstrates precision issues per IEEE standards
-        assert!(!a.approx_eq(b));
-        
-        // Epsilon comparison succeeds
+        // Direct float comparison would be unreliable (exact equality fails due to IEEE precision)
+        // Using approx_eq for safe comparison per IEEE TSE 2022 standards
         assert!(a.approx_eq(b));
+        
+        // Test with values that should NOT be approximately equal
+        let c: f64 = 1.0;
+        let d: f64 = 2.0;
+        assert!(!c.approx_eq(d));
     }
     
     #[test]

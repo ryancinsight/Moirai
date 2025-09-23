@@ -268,9 +268,8 @@ impl PipelineExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DevicePreferences, GpuContext};
     
-    const VECTOR_ADD_SHADER: &str = r#"
+    const VECTOR_ADD_SHADER: &str = r"
         @group(0) @binding(0) var<storage, read> input_a: array<f32>;
         @group(0) @binding(1) var<storage, read> input_b: array<f32>;
         @group(0) @binding(2) var<storage, read_write> output: array<f32>;
@@ -283,7 +282,7 @@ mod tests {
             }
             output[index] = input_a[index] + input_b[index];
         }
-    "#;
+    ";
     
     #[test]
     fn test_pipeline_builder() {
@@ -292,7 +291,7 @@ mod tests {
         
         // Test that we can instantiate a pipeline dispatch
         let dispatch = KernelDispatch::new_1d(16);
-        assert_eq!(dispatch.groups, (16, 1, 1));
+        assert_eq!(dispatch.workgroups, (16, 1, 1));
     }
     
     #[test]
@@ -310,6 +309,6 @@ mod tests {
         assert_eq!(c.len(), 1024);
         
         let dispatch = KernelDispatch::new_1d(16);
-        assert_eq!(dispatch.groups, (16, 1, 1));
+        assert_eq!(dispatch.workgroups, (16, 1, 1));
     }
 }

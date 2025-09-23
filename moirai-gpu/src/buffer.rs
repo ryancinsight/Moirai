@@ -1,5 +1,8 @@
 //! GPU buffer management with zero-copy principles
 
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+
 use crate::{error::GpuResult, GpuDevice, GpuError};
 use std::collections::HashMap;
 use std::sync::Mutex;
