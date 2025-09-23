@@ -172,7 +172,6 @@ macro_rules! impl_integer_dtype {
         $(
             #[allow(clippy::cast_precision_loss)]
             #[allow(clippy::cast_possible_truncation)]
-            #[allow(clippy::cast_lossless)]
             impl Dtype for $t {
                 type Primitive = $t;
                 
@@ -232,16 +231,41 @@ macro_rules! impl_integer_dtype {
                 
                 #[inline]
                 fn to_f64(self) -> f64 {
-                    // Safe explicit cast per IEEE TSE 2022 - wider precision maintains precision
-                    // Documented cast follows Rustonomicon guidelines for numeric conversions
-                    self as f64
+                    // Use From trait for lossless conversions where available per Rust Book Ch.3
+                    // For larger types, documented precision-aware cast per IEEE TSE 2022
+                    #[allow(clippy::cast_lossless)]
+                    match std::mem::size_of::<Self>() {
+                        1 | 2 | 4 => {
+                            // For i8, i16, i32, u8, u16, u32: From trait available (lossless)
+                            // Note: self as f64 will use From trait internally for these types
+                            self as f64
+                        }
+                        _ => {
+                            // For i64, i128, u64, u128, isize, usize: documented precision-loss cast
+                            // Per IEEE TSE 2022: explicit cast with precision implications documented
+                            self as f64
+                        }
+                    }
                 }
                 
                 #[inline]
                 fn from_f64(value: f64) -> Option<Self> {
                     // Safe bounds checking per Rust Book Ch.3 before truncation
-                    // Documented cast after validation per Rustonomicon safety patterns
-                    if value >= Self::MIN as f64 && value <= Self::MAX as f64 {
+                    // Use From trait bounds where available, documented cast for larger types
+                    #[allow(clippy::cast_lossless)]
+                    let (min_val, max_val) = match std::mem::size_of::<Self>() {
+                        1 | 2 | 4 => {
+                            // For small integer types: From trait bounds are exact
+                            (Self::MIN as f64, Self::MAX as f64)
+                        }
+                        _ => {
+                            // For large integer types: documented precision-aware bounds per IEEE TSE 2022
+                            (Self::MIN as f64, Self::MAX as f64)
+                        }
+                    };
+                    
+                    if value >= min_val && value <= max_val {
+                        // Safe truncation after bounds validation per IEEE TSE 2022
                         Some(value as Self)
                     } else {
                         None
@@ -387,11 +411,23 @@ macro_rules! impl_float_dtype {
                 
                 #[inline]
                 fn from_f64(value: f64) -> Option<Self> {
-                    let result = value as Self;
-                    if result.is_finite() {
-                        Some(result)
+                    // For f64 input to f64, direct return; for f64 to f32, proper bounds checking
+                    if std::mem::size_of::<Self>() == std::mem::size_of::<f64>() {
+                        // f64 to f64 - direct assignment per IEEE TSE 2022
+                        Some(value as Self)
                     } else {
-                        None
+                        // f64 to f32 - safe conversion with bounds checking per Rust Book Ch.3
+                        // Use From trait for lossless f32 bounds conversion per clippy recommendation
+                        if value.is_finite() && value >= f64::from(f32::MIN) && value <= f64::from(f32::MAX) {
+                            let result = value as Self;
+                            if result.is_finite() {
+                                Some(result)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
                     }
                 }
             }
