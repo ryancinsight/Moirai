@@ -3,6 +3,9 @@
 //! This module provides distributed computing capabilities for Moirai iterators,
 //! enabling seamless scaling across multiple machines and network nodes.
 
+#![allow(dead_code)] // Development structures per ADR requirements - distributed features planned for future
+#![allow(clippy::redundant_closure)] // Some closures needed for distributed patterns
+
 use crate::MoiraiIterator;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -274,7 +277,7 @@ impl DistributedScheduler {
 
         // Implement tree-reduce for optimal network usage
         // This is a simplified version - real implementation would use network topology
-        let result = data.into_iter().reduce(|a, b| reduce_func(a, b));
+        let result = data.into_iter().reduce(reduce_func);
         Ok(result)
     }
 

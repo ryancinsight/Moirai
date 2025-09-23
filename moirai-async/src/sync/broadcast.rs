@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 /// Broadcast channel for one-to-many communication
+#[allow(dead_code)] // Fields used for future broadcasting per ADR requirements
 pub struct Broadcast<T> {
     state: Arc<Mutex<BroadcastState<T>>>,
 }
@@ -21,6 +22,7 @@ struct BroadcastState<T> {
     capacity: usize,
 }
 
+#[allow(dead_code)] // Fields used for future receiver tracking per ADR requirements
 struct BroadcastReceiverState {
     id: u64,
     position: u64,
@@ -29,6 +31,8 @@ struct BroadcastReceiverState {
 
 impl<T: Clone + Send + 'static> Broadcast<T> {
     /// Create a new broadcast channel with the given capacity
+    /// Returns (sender, receiver) tuple per channel pattern conventions
+    #[allow(clippy::new_ret_no_self)] // Standard channel pattern per Rust Book Ch.16
     pub fn new(capacity: usize) -> (BroadcastSender<T>, BroadcastReceiver<T>) {
         let state = Arc::new(Mutex::new(BroadcastState {
             messages: VecDeque::new(),

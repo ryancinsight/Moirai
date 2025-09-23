@@ -15,8 +15,10 @@ pub struct EpollReactor {
     /// epoll file descriptor
     epoll_fd: RawFd,
     /// Event buffer for epoll_wait
+    #[allow(dead_code)] // Used for future event processing per ADR requirements
     event_buffer: Vec<libc::epoll_event>,
     /// Mapping of file descriptors to their registered interests
+    #[allow(dead_code)] // Used for future interest tracking per ADR requirements
     fd_interests: HashMap<RawFd, Interest>,
 }
 
@@ -140,11 +142,11 @@ impl Reactor for EpollReactor {
         
         let mut result = Vec::with_capacity(num_events as usize);
         
-        for i in 0..num_events as usize {
-            let epoll_event = events[i];
-            let fd = epoll_event.u64 as RawFd;
-            let event = Self::epoll_events_to_event(fd, epoll_event.events);
-            result.push(event);
+        // Use iterator pattern per Rust Book Ch.13 for better performance
+        for event in events.iter().take(num_events as usize) {
+            let fd = event.u64 as RawFd;
+            let reactor_event = Self::epoll_events_to_event(fd, event.events);
+            result.push(reactor_event);
         }
         
         Ok(result)

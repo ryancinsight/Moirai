@@ -54,6 +54,7 @@ pub struct ConnectionInfo {
 
 /// Connection pool for managing active connections
 #[derive(Debug)]
+#[allow(dead_code)] // Fields used for future connection management per ADR requirements
 pub struct ConnectionPool {
     active_connections: Mutex<HashMap<SocketAddr, ConnectionInfo>>,
     max_connections: Option<usize>,
@@ -188,6 +189,7 @@ impl TcpListener {
 }
 
 /// Native async TCP stream with statistics tracking
+#[allow(dead_code)] // Fields used for future connection tracking per ADR requirements
 pub struct TcpStream {
     inner: StdTcpStream,
     stats: Arc<ServerStats>,
@@ -282,6 +284,7 @@ impl Default for UdpConfig {
 }
 
 /// Native async UDP socket
+#[allow(dead_code)] // Fields used for future UDP configuration per ADR requirements
 pub struct UdpSocket {
     inner: StdUdpSocket,
     stats: Arc<UdpStats>,

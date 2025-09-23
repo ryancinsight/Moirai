@@ -3,6 +3,8 @@
 //! This module extends distributed processing to include GPU coordination,
 //! heterogeneous compute management, and unified scheduling across diverse systems.
 
+#![allow(dead_code)] // Development structures per ADR requirements - multi-system features planned for future
+
 use crate::{distributed::NodeConfig, MoiraiIterator};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

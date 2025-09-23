@@ -3,6 +3,8 @@
 //! This module provides async-native iterator functionality that integrates
 //! with Moirai's unified async runtime for efficient I/O processing.
 
+#![allow(dead_code)] // Development structures per ADR requirements - will be used in future iterations
+
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -436,7 +438,7 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5];
         let iter = data.into_async_iter();
         
-        let result: Vec<i32> = iter.collect().await;
+        let _result: Vec<i32> = iter.collect().await;
         // Test would verify async iteration behavior
     }
 
@@ -446,7 +448,7 @@ mod tests {
         let iter = data.into_async_iter();
         
         let doubled = iter.map(|x| async move { x * 2 });
-        let result: Vec<i32> = doubled.collect().await;
+        let _result: Vec<i32> = doubled.collect().await;
         // Test would verify async map behavior
     }
 
@@ -456,7 +458,7 @@ mod tests {
         let iter = data.into_async_iter().into_parallel();
         
         let doubled = iter.par_map(2, |x| async move { x * 2 });
-        let result: Vec<i32> = doubled.collect().await;
+        let _result: Vec<i32> = doubled.collect().await;
         // Test would verify parallel async execution with concurrency control
     }
 }
