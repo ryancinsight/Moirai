@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 pub struct Delay {
     deadline: Instant,
     waker: Option<Waker>,
+    scheduled: bool,
 }
 
 impl Delay {
@@ -23,6 +24,7 @@ impl Delay {
         Self {
             deadline: Instant::now() + duration,
             waker: None,
+            scheduled: false,
         }
     }
 
@@ -31,6 +33,7 @@ impl Delay {
         Self {
             deadline,
             waker: None,
+            scheduled: false,
         }
     }
 
@@ -42,6 +45,7 @@ impl Delay {
     /// Reset the delay to a new duration from now
     pub fn reset(&mut self, duration: Duration) {
         self.deadline = Instant::now() + duration;
+        self.scheduled = false;
         if let Some(waker) = self.waker.take() {
             waker.wake();
         }
@@ -56,6 +60,18 @@ impl Future for Delay {
             Poll::Ready(())
         } else {
             self.waker = Some(cx.waker().clone());
+            if !self.scheduled {
+                self.scheduled = true;
+                let deadline = self.deadline;
+                let waker = cx.waker().clone();
+                std::thread::spawn(move || {
+                    let now = Instant::now();
+                    if deadline > now {
+                        std::thread::sleep(deadline - now);
+                    }
+                    waker.wake();
+                });
+            }
             Poll::Pending
         }
     }

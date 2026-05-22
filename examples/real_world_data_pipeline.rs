@@ -9,9 +9,9 @@
 //! Comparing Moirai's unified approach vs manual coordination with separate libraries.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
 
 /// Represents a data record in our processing pipeline
 #[derive(Clone, Debug)]
@@ -34,7 +34,9 @@ impl DataRecord {
             metadata: [
                 ("source".to_string(), "sensor".to_string()),
                 ("type".to_string(), "measurement".to_string()),
-            ].into_iter().collect(),
+            ]
+            .into_iter()
+            .collect(),
         }
     }
 
@@ -67,9 +69,8 @@ impl DataRecord {
     fn analyze(&self) -> (f64, f64, f64) {
         let sum: f64 = self.values.iter().sum();
         let mean = sum / self.values.len() as f64;
-        let variance = self.values.iter()
-            .map(|x| (x - mean).powi(2))
-            .sum::<f64>() / self.values.len() as f64;
+        let variance =
+            self.values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / self.values.len() as f64;
         let stddev = variance.sqrt();
         (mean, variance, stddev)
     }
@@ -87,30 +88,22 @@ struct ProcessingStats {
 }
 
 /// Moirai unified pipeline implementation
-async fn moirai_unified_pipeline(record_count: usize, record_size: usize) -> (Vec<(f64, f64, f64)>, ProcessingStats) {
-    use moirai_async::{Semaphore, Broadcast, timer::sleep};
-    use moirai_iter::{moirai_iter_hybrid, AsyncIterator};
-    
+async fn moirai_unified_pipeline(
+    record_count: usize,
+    record_size: usize,
+) -> (Vec<(f64, f64, f64)>, ProcessingStats) {
+    use moirai_async::Semaphore;
+    use moirai_iter::moirai_iter_hybrid;
+
     let start_time = Instant::now();
     let mut stats = ProcessingStats::default();
-    
+
     // Resource management - limit concurrent GPU operations
-    let gpu_semaphore = Semaphore::new(4);
-    
+    let gpu_semaphore = Arc::new(Semaphore::new(4));
+
     // Progress monitoring
-    let (progress_tx, mut progress_rx) = Broadcast::new(1000);
-    
-    // Spawn progress monitor task
-    let monitor_handle = tokio::spawn(async move {
-        let mut processed = 0;
-        while let Ok(count) = progress_rx.recv().await {
-            processed += count;
-            if processed % 100 == 0 {
-                println!("Processed {} records", processed);
-            }
-        }
-    });
-    
+    let progress_count = Arc::new(AtomicU64::new(0));
+
     // Generate input data (simulating network ingestion)
     let io_start = Instant::now();
     let input_data: Vec<DataRecord> = (0..record_count)
@@ -121,7 +114,7 @@ async fn moirai_unified_pipeline(record_count: usize, record_size: usize) -> (Ve
         })
         .collect();
     stats.io_time = io_start.elapsed();
-    
+
     // Unified processing pipeline with Moirai
     let results = moirai_iter_hybrid(input_data)
         // CPU-intensive validation and cleaning
@@ -130,68 +123,78 @@ async fn moirai_unified_pipeline(record_count: usize, record_size: usize) -> (Ve
             let valid = record.validate_and_clean();
             if !valid {
                 // Handle invalid records
-                record.metadata.insert("status".to_string(), "cleaned".to_string());
+                record
+                    .metadata
+                    .insert("status".to_string(), "cleaned".to_string());
             }
             (record, cpu_start.elapsed())
         })
         // GPU-accelerated transformation with resource limiting
-        .map_async(|data| async move {
-            let (mut record, cpu_time) = data;
-            let _permit = gpu_semaphore.acquire().await;
-            
-            let gpu_start = Instant::now();
-            record.gpu_transform();
-            let gpu_time = gpu_start.elapsed();
-            
-            (record, cpu_time, gpu_time)
+        .map_async(move |data| {
+            let gpu_semaphore = Arc::clone(&gpu_semaphore);
+            async move {
+                let (mut record, cpu_time) = data;
+                let _permit = gpu_semaphore.acquire().await;
+
+                let gpu_start = Instant::now();
+                record.gpu_transform();
+                let gpu_time = gpu_start.elapsed();
+
+                (record, cpu_time, gpu_time)
+            }
         })
         .await
         // Statistical analysis (CPU)
-        .map(|data| {
+        .map(move |data| {
             let (record, cpu_time, gpu_time) = data;
             let analysis = record.analyze();
-            
+
             // Report progress
-            let _ = progress_tx.send(1);
-            
+            let processed = progress_count.fetch_add(1, Ordering::Relaxed) + 1;
+            if processed % 100 == 0 {
+                println!("Processed {} records", processed);
+            }
+
             (analysis, cpu_time, gpu_time)
         })
         .collect_async()
         .await;
-    
+
     // Aggregate statistics
     let mut total_cpu_time = Duration::ZERO;
     let mut total_gpu_time = Duration::ZERO;
-    let analysis_results: Vec<(f64, f64, f64)> = results.into_iter().map(|(analysis, cpu_time, gpu_time)| {
-        total_cpu_time += cpu_time;
-        total_gpu_time += gpu_time;
-        analysis
-    }).collect();
-    
+    let analysis_results: Vec<(f64, f64, f64)> = results
+        .into_iter()
+        .map(|(analysis, cpu_time, gpu_time)| {
+            total_cpu_time += cpu_time;
+            total_gpu_time += gpu_time;
+            analysis
+        })
+        .collect();
+
     stats.records_processed = analysis_results.len() as u64;
     stats.total_processing_time = start_time.elapsed();
     stats.cpu_time = total_cpu_time;
     stats.gpu_time = total_gpu_time;
-    
-    // Clean up monitor
-    drop(progress_tx);
-    let _ = monitor_handle.await;
-    
+
     (analysis_results, stats)
 }
 
 /// Manual pipeline using separate Tokio + Rayon + custom GPU coordination
-async fn manual_separate_pipeline(record_count: usize, record_size: usize) -> (Vec<(f64, f64, f64)>, ProcessingStats) {
-    use tokio::sync::{Semaphore, broadcast};
+async fn manual_separate_pipeline(
+    record_count: usize,
+    record_size: usize,
+) -> (Vec<(f64, f64, f64)>, ProcessingStats) {
     use rayon::prelude::*;
-    
+    use tokio::sync::{broadcast, Semaphore};
+
     let start_time = Instant::now();
     let mut stats = ProcessingStats::default();
-    
+
     // Resource management
     let gpu_semaphore = Arc::new(Semaphore::new(4));
     let (progress_tx, mut progress_rx) = broadcast::channel(1000);
-    
+
     // Progress monitor
     let monitor_handle = tokio::spawn(async move {
         let mut processed = 0;
@@ -202,7 +205,7 @@ async fn manual_separate_pipeline(record_count: usize, record_size: usize) -> (V
             }
         }
     });
-    
+
     // Step 1: Data ingestion (async)
     let io_start = Instant::now();
     let mut input_data = Vec::new();
@@ -212,7 +215,7 @@ async fn manual_separate_pipeline(record_count: usize, record_size: usize) -> (V
         input_data.push(DataRecord::new(i as u64, record_size));
     }
     stats.io_time = io_start.elapsed();
-    
+
     // Step 2: CPU processing with Rayon
     let cpu_start = Instant::now();
     let cpu_processed: Vec<_> = input_data
@@ -220,13 +223,15 @@ async fn manual_separate_pipeline(record_count: usize, record_size: usize) -> (V
         .map(|mut record| {
             let valid = record.validate_and_clean();
             if !valid {
-                record.metadata.insert("status".to_string(), "cleaned".to_string());
+                record
+                    .metadata
+                    .insert("status".to_string(), "cleaned".to_string());
             }
             record
         })
         .collect();
     let cpu_time = cpu_start.elapsed();
-    
+
     // Step 3: GPU processing (manual async coordination)
     let gpu_start = Instant::now();
     let mut gpu_handles = Vec::new();
@@ -240,14 +245,14 @@ async fn manual_separate_pipeline(record_count: usize, record_size: usize) -> (V
         });
         gpu_handles.push(handle);
     }
-    
+
     let gpu_processed: Vec<DataRecord> = futures::future::join_all(gpu_handles)
         .await
         .into_iter()
         .map(|r| r.unwrap())
         .collect();
     let gpu_time = gpu_start.elapsed();
-    
+
     // Step 4: Analysis (Rayon again)
     let analysis_results: Vec<(f64, f64, f64)> = gpu_processed
         .into_par_iter()
@@ -257,120 +262,132 @@ async fn manual_separate_pipeline(record_count: usize, record_size: usize) -> (V
             analysis
         })
         .collect();
-    
+
     stats.records_processed = analysis_results.len() as u64;
     stats.total_processing_time = start_time.elapsed();
     stats.cpu_time = cpu_time;
     stats.gpu_time = gpu_time;
-    
+
     // Clean up
     drop(progress_tx);
     let _ = monitor_handle.await;
-    
+
     (analysis_results, stats)
 }
 
 /// Advanced Moirai pipeline with multi-system distribution
-async fn moirai_distributed_pipeline(record_count: usize, record_size: usize) -> (Vec<(f64, f64, f64)>, ProcessingStats) {
-    use moirai_iter::{moirai_iter_multi_system, multi_system::{SystemConfig, MultiSystemContext}};
-    use moirai_async::{Semaphore, timer::sleep};
-    
+async fn moirai_distributed_pipeline(
+    record_count: usize,
+    record_size: usize,
+) -> (Vec<(f64, f64, f64)>, ProcessingStats) {
+    use moirai_iter::moirai_iter_multi_system;
+
     let start_time = Instant::now();
     let mut stats = ProcessingStats::default();
-    
+
     // Configure multi-system context
-    let mut context = MultiSystemContext::new();
-    // In a real scenario, this would configure actual distributed nodes
-    
+    // In a real scenario, this would configure actual distributed nodes.
+
     // Generate input data
     let io_start = Instant::now();
     let input_data: Vec<DataRecord> = (0..record_count)
         .map(|i| DataRecord::new(i as u64, record_size))
         .collect();
     stats.io_time = io_start.elapsed();
-    
+
     // Multi-system processing with intelligent workload distribution
     let results = moirai_iter_multi_system(input_data)
         // Automatic distribution across systems based on data characteristics
-        .distribute_across_systems(|record| (record.id % 4) as usize)
+        .partition_across_systems(|record| (record.id % 4) as usize)
         .await;
-    
+
     // Process each partition and collect results
     let mut all_results = Vec::new();
     for partition in results {
         let partition_results = partition
-            .map_heterogeneous(|mut record| {
+            .map(|mut record| {
                 // Intelligent CPU vs GPU allocation
                 record.validate_and_clean();
                 record.gpu_transform();
                 record.analyze()
             })
-            .await
-            .unwrap()
-            .collect()
+            .collect_async()
             .await;
-        
+
         all_results.extend(partition_results);
     }
-    
+
     stats.records_processed = all_results.len() as u64;
     stats.total_processing_time = start_time.elapsed();
-    
+
     (all_results, stats)
 }
 
 /// Performance comparison runner
 async fn run_performance_comparison() {
     println!("=== Real-World Data Processing Pipeline Comparison ===\n");
-    
+
     let record_count = 1000;
     let record_size = 100;
-    
-    println!("Processing {} records with {} values each\n", record_count, record_size);
-    
+
+    println!(
+        "Processing {} records with {} values each\n",
+        record_count, record_size
+    );
+
     // Test 1: Moirai unified pipeline
     println!("Test 1: Moirai Unified Pipeline");
     let (moirai_results, moirai_stats) = moirai_unified_pipeline(record_count, record_size).await;
     println!("Results: {} records processed", moirai_results.len());
     println!("Stats: {:?}\n", moirai_stats);
-    
+
     // Test 2: Manual separate pipeline
     println!("Test 2: Manual Separate Pipeline (Tokio + Rayon)");
     let (manual_results, manual_stats) = manual_separate_pipeline(record_count, record_size).await;
     println!("Results: {} records processed", manual_results.len());
     println!("Stats: {:?}\n", manual_stats);
-    
+
     // Test 3: Moirai distributed pipeline
     println!("Test 3: Moirai Distributed Pipeline");
-    let (distributed_results, distributed_stats) = moirai_distributed_pipeline(record_count, record_size).await;
+    let (distributed_results, distributed_stats) =
+        moirai_distributed_pipeline(record_count, record_size).await;
     println!("Results: {} records processed", distributed_results.len());
     println!("Stats: {:?}\n", distributed_stats);
-    
+
     // Performance analysis
     println!("=== Performance Analysis ===");
-    
+
     let moirai_total = moirai_stats.total_processing_time.as_millis();
     let manual_total = manual_stats.total_processing_time.as_millis();
     let distributed_total = distributed_stats.total_processing_time.as_millis();
-    
+
     println!("Total Processing Time:");
     println!("  Moirai Unified: {}ms", moirai_total);
     println!("  Manual Separate: {}ms", manual_total);
     println!("  Moirai Distributed: {}ms", distributed_total);
-    
+
     if moirai_total < manual_total {
-        let improvement = (manual_total as f64 / moirai_total as f64);
-        println!("  Moirai Unified is {:.2}x faster than manual approach", improvement);
+        let improvement = manual_total as f64 / moirai_total as f64;
+        println!(
+            "  Moirai Unified is {:.2}x faster than manual approach",
+            improvement
+        );
     }
-    
+
     println!("\nThroughput:");
-    println!("  Moirai Unified: {:.2} records/sec", 
-             record_count as f64 * 1000.0 / moirai_total as f64);
-    println!("  Manual Separate: {:.2} records/sec", 
-             record_count as f64 * 1000.0 / manual_total as f64);
-    println!("  Moirai Distributed: {:.2} records/sec", 
-             record_count as f64 * 1000.0 / distributed_total as f64);
-    
+    println!(
+        "  Moirai Unified: {:.2} records/sec",
+        record_count as f64 * 1000.0 / moirai_total as f64
+    );
+    println!(
+        "  Manual Separate: {:.2} records/sec",
+        record_count as f64 * 1000.0 / manual_total as f64
+    );
+    println!(
+        "  Moirai Distributed: {:.2} records/sec",
+        record_count as f64 * 1000.0 / distributed_total as f64
+    );
+
     println!("\n=== Key Advantages of Moirai ===");
     println!("1. Unified API: Single interface for all concurrency patterns");
     println!("2. Intelligent Scheduling: Automatic workload distribution");
@@ -378,22 +395,22 @@ async fn run_performance_comparison() {
     println!("4. Zero-Copy: Efficient memory management across contexts");
     println!("5. Type Safety: Compile-time guarantees for concurrent code");
     println!("6. Monitoring: Built-in metrics and performance tracking");
-    
+
     // Verify results consistency
     let moirai_sum: f64 = moirai_results.iter().map(|(mean, _, _)| mean).sum();
     let manual_sum: f64 = manual_results.iter().map(|(mean, _, _)| mean).sum();
     let distributed_sum: f64 = distributed_results.iter().map(|(mean, _, _)| mean).sum();
-    
+
     println!("\nResult Verification:");
     println!("  Sum of means - Moirai: {:.6}", moirai_sum);
     println!("  Sum of means - Manual: {:.6}", manual_sum);
     println!("  Sum of means - Distributed: {:.6}", distributed_sum);
-    
+
     let diff1 = (moirai_sum - manual_sum).abs();
     let diff2 = (moirai_sum - distributed_sum).abs();
     println!("  Difference (unified vs manual): {:.6}", diff1);
     println!("  Difference (unified vs distributed): {:.6}", diff2);
-    
+
     if diff1 < 0.001 && diff2 < 0.001 {
         println!("  ✅ Results are consistent across all implementations");
     } else {
@@ -413,15 +430,15 @@ mod tests {
     #[tokio::test]
     async fn test_data_record_processing() {
         let mut record = DataRecord::new(1, 10);
-        
+
         // Test validation
         assert!(record.validate_and_clean());
-        
+
         // Test GPU transform
         let original_values = record.values.clone();
         record.gpu_transform();
         assert_ne!(record.values, original_values);
-        
+
         // Test analysis
         let (mean, variance, stddev) = record.analyze();
         assert!(mean > 0.0);

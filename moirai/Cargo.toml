@@ -27,6 +27,9 @@ moirai-utils = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
+futures = "0.3"
+rayon = "1.8"
+tokio = { version = "1.0", features = ["full"] }
 
 [[example]]
 name = "basic_usage"
@@ -47,6 +50,14 @@ path = "../examples/sync_primitives.rs"
 [[example]]
 name = "performance_demo"
 path = "../examples/performance_demo.rs"
+
+[[example]]
+name = "moirai_vs_tokio_rayon_comparison"
+path = "../examples/moirai_vs_tokio_rayon_comparison.rs"
+
+[[example]]
+name = "real_world_data_pipeline"
+path = "../examples/real_world_data_pipeline.rs"
 
 [[example]]
 name = "async_timer"
