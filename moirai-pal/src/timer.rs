@@ -1,10 +1,10 @@
 //! Platform-agnostic timer and timeout operations.
 
-use std::time::{Duration, Instant};
-use std::io;
 use std::future::Future;
+use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 
 /// Placeholder for platform-agnostic timer operations.
 /// This will be fully implemented once the core reactor is complete.
@@ -18,7 +18,7 @@ impl Timer {
             deadline: Instant::now() + duration,
         }
     }
-    
+
     pub fn deadline(&self) -> Instant {
         self.deadline
     }
@@ -26,7 +26,7 @@ impl Timer {
 
 impl Future for Timer {
     type Output = io::Result<()>;
-    
+
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         let now = Instant::now();
         if now >= self.deadline {

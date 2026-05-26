@@ -2,46 +2,48 @@
 //!
 //! This module provides async runtime integration for Moirai, enabling seamless
 //! interop between sync and async tasks while maintaining high performance.
-//! 
+//!
 //! Following SLAP principle, this module now serves as a facade that re-exports
 //! functionality from focused, single-responsibility modules.
 
 // Focused modules following SLAP principle
 pub mod executor;
 pub mod fs;
+pub mod io;
 pub mod net;
 pub mod sync;
 pub mod timer;
+
+// Re-export io functionality
+pub use io::{
+    AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, MoiraiCompat, TokioCompat,
+};
 
 // Re-export async executor functionality
 pub use executor::{AsyncExecutor, AsyncHandle, ExecutorStats};
 
 // Re-export timer functionality
 pub use timer::{
-    sleep, timeout, interval, interval_at, 
-    Delay, Timeout, TimeoutError, Interval, RateLimiter, RatePermit,
-    TimerWheel, TimerCommand
+    interval, interval_at, sleep, timeout, Delay, Interval, RateLimiter, RatePermit, Timeout,
+    TimeoutError, TimerCommand, TimerWheel,
 };
 
 // Re-export networking functionality
 pub use net::{
-    TcpListener, TcpStream, UdpSocket,
-    TcpServerConfig, TcpServerStats, UdpConfig, UdpSocketStats,
-    ConnectionInfo, ConnectionPool, ConnectionStats
+    ConnectionInfo, ConnectionPool, ConnectionStats, TcpListener, TcpServerConfig, TcpServerStats,
+    TcpStream, UdpConfig, UdpSocket, UdpSocketStats,
 };
 
 // Re-export file I/O functionality
 pub use fs::{
-    File, FileOpenOptions, FileStats,
-    read, read_to_string, write, write_str, append, append_str,
-    copy, remove_file, create_dir, create_dir_all, remove_dir, remove_dir_all
+    append, append_str, copy, create_dir, create_dir_all, read, read_to_string, remove_dir,
+    remove_dir_all, remove_file, write, write_str, File, FileOpenOptions, FileStats,
 };
 
 // Re-export sync primitives
 pub use sync::{
-    Broadcast, BroadcastError, BroadcastReceiver, BroadcastSender,
-    Notify, RwLock, Semaphore, SemaphorePermit, 
-    Watch, WatchError, WatchReceiver, WatchSender,
+    Broadcast, BroadcastError, BroadcastReceiver, BroadcastSender, Notify, RwLock, Semaphore,
+    SemaphorePermit, Watch, WatchError, WatchReceiver, WatchSender,
 };
 
 #[cfg(test)]
@@ -52,9 +54,11 @@ mod tests {
     #[test]
     fn test_integration_async_executor() {
         let executor = AsyncExecutor::new().expect("Failed to create executor");
-        
+
         let _handle = executor.spawn(async {
-            moirai_pal::timer::sleep(Duration::from_millis(10)).await.ok();
+            moirai_pal::timer::sleep(Duration::from_millis(10))
+                .await
+                .ok();
             "async task completed"
         });
 
@@ -63,7 +67,7 @@ mod tests {
         let stats_before = executor.stats();
         assert_eq!(stats_before.tasks_spawned, 1);
         assert_eq!(stats_before.tasks_pending, 1);
-        
+
         // For now, we can't test the full execution without running the executor
         // This test validates the spawning mechanism works
     }
@@ -71,7 +75,7 @@ mod tests {
     #[test]
     fn test_integration_executor_stats() {
         let executor = AsyncExecutor::new().expect("Failed to create executor");
-        
+
         let stats = executor.stats();
         assert_eq!(stats.tasks_spawned, 0);
         assert_eq!(stats.tasks_completed, 0);
@@ -79,13 +83,13 @@ mod tests {
         assert_eq!(stats.io_operations, 0);
     }
 
-    #[test] 
+    #[test]
     fn test_integration_reactor_access() {
         let executor = AsyncExecutor::new().expect("Failed to create executor");
-        
+
         // Verify we can access the underlying reactor
         let _reactor = executor.reactor();
-        
+
         // This confirms the integration with PAL reactor
     }
 }

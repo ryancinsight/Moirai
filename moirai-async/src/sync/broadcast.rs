@@ -10,22 +10,21 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 /// Broadcast channel for one-to-many communication
-#[allow(dead_code)] // Fields used for future broadcasting per ADR requirements
 pub struct Broadcast<T> {
-    state: Arc<Mutex<BroadcastState<T>>>,
+    _phantom: std::marker::PhantomData<T>,
 }
 
 struct BroadcastState<T> {
     messages: VecDeque<(u64, T)>,
     sequence: u64,
+    closed: bool,
     receivers: Vec<BroadcastReceiverState>,
     capacity: usize,
+    next_receiver_id: u64,
 }
 
-#[allow(dead_code)] // Fields used for future receiver tracking per ADR requirements
 struct BroadcastReceiverState {
     id: u64,
-    position: u64,
     waker: Option<Waker>,
 }
 
@@ -37,8 +36,10 @@ impl<T: Clone + Send + 'static> Broadcast<T> {
         let state = Arc::new(Mutex::new(BroadcastState {
             messages: VecDeque::new(),
             sequence: 0,
+            closed: false,
             receivers: Vec::new(),
             capacity,
+            next_receiver_id: 1,
         }));
 
         let sender = BroadcastSender {
@@ -54,11 +55,9 @@ impl<T: Clone + Send + 'static> Broadcast<T> {
         // Register the first receiver
         {
             let mut state_guard = state.lock().unwrap();
-            state_guard.receivers.push(BroadcastReceiverState {
-                id: 0,
-                position: 0,
-                waker: None,
-            });
+            state_guard
+                .receivers
+                .push(BroadcastReceiverState { id: 0, waker: None });
         }
 
         (sender, receiver)
@@ -74,7 +73,10 @@ impl<T: Clone> BroadcastSender<T> {
     /// Send a message to all receivers
     pub fn send(&self, message: T) -> Result<usize, BroadcastError> {
         let mut state = self.state.lock().unwrap();
-        
+        if state.closed {
+            return Err(BroadcastError::Closed);
+        }
+
         // Remove old messages if at capacity
         while state.messages.len() >= state.capacity {
             state.messages.pop_front();
@@ -102,6 +104,18 @@ impl<T: Clone> BroadcastSender<T> {
     }
 }
 
+impl<T> Drop for BroadcastSender<T> {
+    fn drop(&mut self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        for receiver in &mut state.receivers {
+            if let Some(waker) = receiver.waker.take() {
+                waker.wake();
+            }
+        }
+    }
+}
+
 /// Receiver half of broadcast channel
 pub struct BroadcastReceiver<T> {
     state: Arc<Mutex<BroadcastState<T>>>,
@@ -112,16 +126,28 @@ pub struct BroadcastReceiver<T> {
 impl<T: Clone> BroadcastReceiver<T> {
     /// Receive the next message
     pub fn recv(&mut self) -> BroadcastRecv<'_, T> {
-        BroadcastRecv {
-            receiver: self,
-            registered: false,
-        }
+        BroadcastRecv { receiver: self }
     }
 
     /// Try to receive a message immediately
     pub fn try_recv(&mut self) -> Result<T, BroadcastError> {
-        let state = self.state.lock().unwrap();
-        
+        let state_arc = self.state.clone();
+        let state = state_arc.lock().unwrap();
+
+        if state.messages.is_empty() {
+            if state.closed {
+                return Err(BroadcastError::Closed);
+            }
+            return Err(BroadcastError::Empty);
+        }
+
+        // Lagging check
+        let oldest_seq = state.messages.front().unwrap().0;
+        if self.position + 1 < oldest_seq {
+            self.position = oldest_seq - 1;
+            return Err(BroadcastError::Lagged);
+        }
+
         // Find message at our position
         for (seq, message) in &state.messages {
             if *seq > self.position {
@@ -130,18 +156,22 @@ impl<T: Clone> BroadcastReceiver<T> {
             }
         }
 
-        Err(BroadcastError::Empty)
+        if state.closed {
+            Err(BroadcastError::Closed)
+        } else {
+            Err(BroadcastError::Empty)
+        }
     }
 
     /// Clone this receiver to create a new independent receiver
     pub fn resubscribe(&self) -> BroadcastReceiver<T> {
         let mut state = self.state.lock().unwrap();
-        let new_id = state.receivers.len() as u64;
+        let new_id = state.next_receiver_id;
+        state.next_receiver_id += 1;
         let current_sequence = state.sequence;
-        
+
         state.receivers.push(BroadcastReceiverState {
             id: new_id,
-            position: current_sequence,
             waker: None,
         });
 
@@ -161,15 +191,15 @@ impl<T: Clone> Clone for BroadcastReceiver<T> {
 
 impl<T> Drop for BroadcastReceiver<T> {
     fn drop(&mut self) {
-        let mut state = self.state.lock().unwrap();
-        state.receivers.retain(|r| r.id != self.id);
+        if let Ok(mut state) = self.state.lock() {
+            state.receivers.retain(|r| r.id != self.id);
+        }
     }
 }
 
 /// Future for receiving from broadcast channel
 pub struct BroadcastRecv<'a, T> {
     receiver: &'a mut BroadcastReceiver<T>,
-    registered: bool,
 }
 
 impl<'a, T: Clone> Future for BroadcastRecv<'a, T> {
@@ -178,19 +208,24 @@ impl<'a, T: Clone> Future for BroadcastRecv<'a, T> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.receiver.try_recv() {
             Ok(message) => Poll::Ready(Ok(message)),
+            Err(BroadcastError::Lagged) => Poll::Ready(Err(BroadcastError::Lagged)),
+            Err(BroadcastError::Closed) => Poll::Ready(Err(BroadcastError::Closed)),
             Err(BroadcastError::Empty) => {
-                if !self.registered {
+                let state_arc = self.receiver.state.clone();
+                let mut state = state_arc.lock().unwrap();
+                if state.closed {
+                    Poll::Ready(Err(BroadcastError::Closed))
+                } else {
+                    if let Some(receiver_state) = state
+                        .receivers
+                        .iter_mut()
+                        .find(|r| r.id == self.receiver.id)
                     {
-                        let mut state = self.receiver.state.lock().unwrap();
-                        if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.receiver.id) {
-                            receiver_state.waker = Some(cx.waker().clone());
-                        }
+                        receiver_state.waker = Some(cx.waker().clone());
                     }
-                    self.registered = true;
+                    Poll::Pending
                 }
-                Poll::Pending
             }
-            Err(e) => Poll::Ready(Err(e)),
         }
     }
 }

@@ -90,13 +90,10 @@ fn main() {
         use moirai::timeout;
 
         // Task that completes in time
-        match timeout(
-            async {
-                moirai::sleep(Duration::from_millis(100)).await;
-                "Task completed successfully"
-            },
-            Duration::from_millis(200),
-        )
+        match timeout(Duration::from_millis(200), async {
+            moirai::sleep(Duration::from_millis(100)).await;
+            "Task completed successfully"
+        })
         .await
         {
             Ok(result) => println!("Success: {}", result),
@@ -104,13 +101,10 @@ fn main() {
         }
 
         // Task that times out
-        match timeout(
-            async {
-                moirai::sleep(Duration::from_millis(200)).await;
-                "This won't be reached"
-            },
-            Duration::from_millis(100),
-        )
+        match timeout(Duration::from_millis(100), async {
+            moirai::sleep(Duration::from_millis(200)).await;
+            "This won't be reached"
+        })
         .await
         {
             Ok(result) => println!("Success: {}", result),

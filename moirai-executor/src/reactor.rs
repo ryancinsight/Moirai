@@ -3,21 +3,27 @@
 //! The reactor provides cross-platform I/O event handling using the most
 //! efficient mechanism available on each platform (epoll, kqueue, IOCP).
 
-use crate::types::IoEvent;
 use std::{
-    collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, Sender},
-        Arc, Mutex,
+        Arc,
     },
-    task::Waker,
     thread::{self, JoinHandle},
     time::Duration,
 };
 
 #[cfg(unix)]
-use std::os::unix::io::RawFd;
+use crate::types::IoEvent;
+#[cfg(unix)]
+use std::{
+    collections::HashMap,
+    os::unix::io::RawFd,
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Mutex,
+    },
+    task::Waker,
+};
 
 /// I/O reactor for handling file descriptor events
 pub struct IoReactor {
@@ -34,7 +40,8 @@ pub struct IoReactor {
 impl IoReactor {
     /// Create a new I/O reactor.
     pub fn new() -> Self {
-        let (event_sender, event_receiver) = mpsc::channel();
+        #[cfg(unix)]
+        let (event_sender, event_receiver) = mpsc::channel::<(RawFd, IoEvent)>();
 
         Self {
             #[cfg(unix)]

@@ -11,13 +11,16 @@
 
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 // Simple pseudo-random number generator for demo purposes
 fn simple_random() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
 }
 
 fn random_f64() -> f64 {
@@ -114,16 +117,22 @@ impl DomainState {
         }
 
         // Check rate limiting
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
         let last_request = self.last_request_time.load(Ordering::Relaxed);
-        
+
         now.saturating_sub(last_request) >= self.min_delay_ms
     }
 
     fn start_request(&self) -> bool {
         if self.can_make_request("") {
             self.current_requests.fetch_add(1, Ordering::Relaxed);
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
             self.last_request_time.store(now, Ordering::Relaxed);
             self.request_count.fetch_add(1, Ordering::Relaxed);
             true
@@ -134,7 +143,7 @@ impl DomainState {
 
     fn complete_request(&self, success: bool) {
         self.current_requests.fetch_sub(1, Ordering::Relaxed);
-        
+
         if success {
             // Reset circuit breaker on success
             if self.circuit_breaker_state.load(Ordering::Relaxed) == 2 {
@@ -142,7 +151,10 @@ impl DomainState {
                 self.circuit_breaker_failures.store(0, Ordering::Relaxed);
             }
         } else {
-            let failures = self.circuit_breaker_failures.fetch_add(1, Ordering::Relaxed) + 1;
+            let failures = self
+                .circuit_breaker_failures
+                .fetch_add(1, Ordering::Relaxed)
+                + 1;
             if failures >= 5 {
                 self.circuit_breaker_state.store(1, Ordering::Relaxed); // Open circuit
             }
@@ -186,7 +198,9 @@ impl UrlFrontier {
     fn add_url(&self, target: CrawlTarget) -> Result<(), String> {
         // Check if already visited
         {
-            let visited = self.visited_urls.read()
+            let visited = self
+                .visited_urls
+                .read()
                 .map_err(|_| "Failed to read visited URLs")?;
             if visited.contains(&target.url) {
                 return Ok(()); // Already visited
@@ -195,7 +209,9 @@ impl UrlFrontier {
 
         // Add to visited set
         {
-            let mut visited = self.visited_urls.write()
+            let mut visited = self
+                .visited_urls
+                .write()
                 .map_err(|_| "Failed to write visited URLs")?;
             if !visited.insert(target.url.clone()) {
                 return Ok(()); // Already visited (race condition)
@@ -209,7 +225,8 @@ impl UrlFrontier {
             CrawlPriority::Low => &self.low_priority,
         };
 
-        queue.lock()
+        queue
+            .lock()
             .map_err(|_| "Failed to acquire queue lock")?
             .push_back(target);
 
@@ -277,21 +294,28 @@ impl ContentProcessor {
         }
     }
 
-    fn process_content(&self, url: &str, content: &str) -> Result<(Option<String>, Vec<String>), String> {
+    fn process_content(
+        &self,
+        url: &str,
+        content: &str,
+    ) -> Result<(Option<String>, Vec<String>), String> {
         let start_time = Instant::now();
-        
+
         // Simulate content processing
         let title = self.extract_title(content);
         let links = self.extract_links(content, url)?;
-        
+
         let processing_time = start_time.elapsed().as_millis() as u64;
-        
+
         // Update statistics
         self.processed_pages.fetch_add(1, Ordering::Relaxed);
-        self.total_content_bytes.fetch_add(content.len() as u64, Ordering::Relaxed);
-        self.extracted_links.fetch_add(links.len(), Ordering::Relaxed);
-        self.extraction_time.fetch_add(processing_time, Ordering::Relaxed);
-        
+        self.total_content_bytes
+            .fetch_add(content.len() as u64, Ordering::Relaxed);
+        self.extracted_links
+            .fetch_add(links.len(), Ordering::Relaxed);
+        self.extraction_time
+            .fetch_add(processing_time, Ordering::Relaxed);
+
         Ok((title, links))
     }
 
@@ -310,7 +334,7 @@ impl ContentProcessor {
 
     fn extract_links(&self, content: &str, base_url: &str) -> Result<Vec<String>, String> {
         let mut links = Vec::new();
-        
+
         // Simple link extraction (in real implementation, use proper HTML parser)
         let mut search_pos = 0;
         while let Some(href_pos) = content[search_pos..].find("href=\"") {
@@ -318,18 +342,18 @@ impl ContentProcessor {
             if let Some(end_pos) = content[start..].find("\"") {
                 let end = start + end_pos;
                 let link = content[start..end].trim();
-                
+
                 if !link.is_empty() && !link.starts_with('#') {
                     let absolute_url = self.resolve_url(base_url, link)?;
                     links.push(absolute_url);
                 }
-                
+
                 search_pos = end;
             } else {
                 break;
             }
         }
-        
+
         Ok(links)
     }
 
@@ -338,19 +362,28 @@ impl ContentProcessor {
             Ok(relative_url.to_string())
         } else if relative_url.starts_with('/') {
             // Extract domain from base URL
-            let domain_end = base_url.find('/')
-                .map(|pos| if base_url[..pos].contains("://") {
-                    base_url[pos + 2..].find('/').map(|p| pos + 2 + p + 1).unwrap_or(base_url.len())
-                } else {
-                    pos
+            let domain_end = base_url
+                .find('/')
+                .map(|pos| {
+                    if base_url[..pos].contains("://") {
+                        base_url[pos + 2..]
+                            .find('/')
+                            .map(|p| pos + 2 + p + 1)
+                            .unwrap_or(base_url.len())
+                    } else {
+                        pos
+                    }
                 })
                 .unwrap_or(base_url.len());
-            
+
             let domain = &base_url[..domain_end];
             Ok(format!("{}{}", domain, relative_url))
         } else {
             // Relative to current directory
-            let base_path = base_url.rfind('/').map(|pos| &base_url[..pos + 1]).unwrap_or(base_url);
+            let base_path = base_url
+                .rfind('/')
+                .map(|pos| &base_url[..pos + 1])
+                .unwrap_or(base_url);
             Ok(format!("{}{}", base_path, relative_url))
         }
     }
@@ -413,20 +446,29 @@ impl FileSystemManager {
             result.status_code,
             result.content_length,
             result.content_type,
-            result.title.as_ref().map(|t| format!("\"{}\"", t)).unwrap_or("null".to_string()),
+            result
+                .title
+                .as_ref()
+                .map(|t| format!("\"{}\"", t))
+                .unwrap_or("null".to_string()),
             result.links.len(),
             result.processing_time_ms,
             result.discovered_at,
             result.crawled_at,
             result.success,
-            result.error_message.as_ref().map(|e| format!("\"{}\"", e)).unwrap_or("null".to_string())
+            result
+                .error_message
+                .as_ref()
+                .map(|e| format!("\"{}\"", e))
+                .unwrap_or("null".to_string())
         );
 
         // Write file
         match std::fs::write(&file_path, &json_content) {
             Ok(_) => {
                 self.files_written.fetch_add(1, Ordering::Relaxed);
-                self.bytes_written.fetch_add(json_content.len() as u64, Ordering::Relaxed);
+                self.bytes_written
+                    .fetch_add(json_content.len() as u64, Ordering::Relaxed);
                 Ok(())
             }
             Err(e) => {
@@ -451,17 +493,24 @@ impl FileSystemManager {
 
     fn url_to_filename(&self, url: &str) -> String {
         // Convert URL to safe filename
-        let safe_chars: String = url.chars()
+        let safe_chars: String = url
+            .chars()
             .map(|c| match c {
                 'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => c,
                 _ => '_',
             })
             .collect();
-        
+
         // Limit length
         if safe_chars.len() > 100 {
-            format!("{}_hash_{:x}", &safe_chars[..80], 
-                     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u64)
+            format!(
+                "{}_hash_{:x}",
+                &safe_chars[..80],
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64
+            )
         } else {
             safe_chars
         }
@@ -483,12 +532,12 @@ struct WebCrawler {
     domain_states: Arc<RwLock<HashMap<String, Arc<DomainState>>>>,
     content_processor: Arc<ContentProcessor>,
     file_manager: Arc<FileSystemManager>,
-    
+
     // Configuration
     max_depth: u32,
     max_pages: usize,
     worker_threads: usize,
-    
+
     // Statistics
     pages_crawled: Arc<AtomicUsize>,
     pages_failed: Arc<AtomicUsize>,
@@ -497,9 +546,14 @@ struct WebCrawler {
 }
 
 impl WebCrawler {
-    fn new(max_depth: u32, max_pages: usize, worker_threads: usize, output_path: String) -> Result<Self, String> {
+    fn new(
+        max_depth: u32,
+        max_pages: usize,
+        worker_threads: usize,
+        output_path: String,
+    ) -> Result<Self, String> {
         let runtime = Moirai::new().map_err(|_| "Failed to create Moirai runtime")?;
-        
+
         // Create output directory
         std::fs::create_dir_all(&output_path)
             .map_err(|e| format!("Failed to create output directory {}: {}", output_path, e))?;
@@ -526,7 +580,10 @@ impl WebCrawler {
             url: url.clone(),
             depth: 0,
             priority,
-            discovered_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            discovered_time: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             domain: domain.clone(),
             parent_url: None,
             retry_count: 0,
@@ -534,7 +591,7 @@ impl WebCrawler {
 
         // Initialize domain state
         self.get_or_create_domain_state(&domain)?;
-        
+
         self.frontier.add_url(target)?;
         Ok(())
     }
@@ -542,7 +599,9 @@ impl WebCrawler {
     fn get_or_create_domain_state(&self, domain: &str) -> Result<Arc<DomainState>, String> {
         // Check if domain state exists
         {
-            let states = self.domain_states.read()
+            let states = self
+                .domain_states
+                .read()
                 .map_err(|_| "Failed to read domain states")?;
             if let Some(state) = states.get(domain) {
                 return Ok(state.clone());
@@ -550,9 +609,11 @@ impl WebCrawler {
         }
 
         // Create new domain state
-        let mut states = self.domain_states.write()
+        let mut states = self
+            .domain_states
+            .write()
             .map_err(|_| "Failed to write domain states")?;
-        
+
         if let Some(state) = states.get(domain) {
             Ok(state.clone()) // Another thread created it
         } else {
@@ -581,7 +642,10 @@ impl WebCrawler {
 
     fn start_crawling(&self) -> Result<(), String> {
         self.is_running.store(true, Ordering::Relaxed);
-        println!("Starting web crawler with {} worker threads", self.worker_threads);
+        println!(
+            "Starting web crawler with {} worker threads",
+            self.worker_threads
+        );
 
         // Start worker threads
         for worker_id in 0..self.worker_threads {
@@ -596,85 +660,98 @@ impl WebCrawler {
             let max_depth = self.max_depth;
             let max_pages = self.max_pages;
 
-            let handle = self.runtime.spawn_fn_with_priority(move || {
-                while is_running.load(Ordering::Relaxed) {
-                    // Check if we've reached the page limit
-                    if pages_crawled.load(Ordering::Relaxed) >= max_pages {
-                        break;
-                    }
+            let handle = self.runtime.spawn_fn_with_priority(
+                move || {
+                    while is_running.load(Ordering::Relaxed) {
+                        // Check if we've reached the page limit
+                        if pages_crawled.load(Ordering::Relaxed) >= max_pages {
+                            break;
+                        }
 
-                    // Get next URL to crawl
-                    let target = match frontier.get_next_url() {
-                        Some(target) => target,
-                        None => {
-                            // No URLs available, wait a bit
+                        // Get next URL to crawl
+                        let target = match frontier.get_next_url() {
+                            Some(target) => target,
+                            None => {
+                                // No URLs available, wait a bit
+                                std::thread::sleep(Duration::from_millis(100));
+                                continue;
+                            }
+                        };
+
+                        // Get domain state
+                        let domain_state = match domain_states.read() {
+                            Ok(states) => states.get(&target.domain).cloned(),
+                            Err(_) => continue,
+                        };
+
+                        let domain_state = match domain_state {
+                            Some(state) => state,
+                            None => continue,
+                        };
+
+                        // Check if we can make a request to this domain
+                        if !domain_state.start_request() {
+                            // Can't make request now, put URL back
+                            let _ = frontier.add_url(target);
                             std::thread::sleep(Duration::from_millis(100));
                             continue;
                         }
-                    };
 
-                    // Get domain state
-                    let domain_state = match domain_states.read() {
-                        Ok(states) => states.get(&target.domain).cloned(),
-                        Err(_) => continue,
-                    };
+                        // Crawl the page
+                        let crawl_start = Instant::now();
+                        let result = Self::crawl_page(&target, &content_processor);
+                        let crawl_time = crawl_start.elapsed().as_millis() as u64;
 
-                    let domain_state = match domain_state {
-                        Some(state) => state,
-                        None => continue,
-                    };
+                        domain_state.complete_request(result.success);
+                        total_crawl_time.fetch_add(crawl_time, Ordering::Relaxed);
 
-                    // Check if we can make a request to this domain
-                    if !domain_state.start_request() {
-                        // Can't make request now, put URL back
-                        let _ = frontier.add_url(target);
-                        std::thread::sleep(Duration::from_millis(100));
-                        continue;
-                    }
+                        if result.success {
+                            pages_crawled.fetch_add(1, Ordering::Relaxed);
 
-                    // Crawl the page
-                    let crawl_start = Instant::now();
-                    let result = Self::crawl_page(&target, &content_processor);
-                    let crawl_time = crawl_start.elapsed().as_millis() as u64;
-
-                    domain_state.complete_request(result.success);
-                    total_crawl_time.fetch_add(crawl_time, Ordering::Relaxed);
-
-                    if result.success {
-                        pages_crawled.fetch_add(1, Ordering::Relaxed);
-                        
-                        // Add discovered links to frontier
-                        if target.depth < max_depth {
-                            for link in &result.links {
-                                let link_domain = Self::extract_domain_static(link);
-                                let link_target = CrawlTarget {
-                                    url: link.clone(),
-                                    depth: target.depth + 1,
-                                    priority: if target.depth < 2 { CrawlPriority::Normal } else { CrawlPriority::Low },
-                                    discovered_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-                                    domain: link_domain,
-                                    parent_url: Some(target.url.clone()),
-                                    retry_count: 0,
-                                };
-                                let _ = frontier.add_url(link_target);
+                            // Add discovered links to frontier
+                            if target.depth < max_depth {
+                                for link in &result.links {
+                                    let link_domain = Self::extract_domain_static(link);
+                                    let link_target = CrawlTarget {
+                                        url: link.clone(),
+                                        depth: target.depth + 1,
+                                        priority: if target.depth < 2 {
+                                            CrawlPriority::Normal
+                                        } else {
+                                            CrawlPriority::Low
+                                        },
+                                        discovered_time: SystemTime::now()
+                                            .duration_since(UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_secs(),
+                                        domain: link_domain,
+                                        parent_url: Some(target.url.clone()),
+                                        retry_count: 0,
+                                    };
+                                    let _ = frontier.add_url(link_target);
+                                }
                             }
+                        } else {
+                            pages_failed.fetch_add(1, Ordering::Relaxed);
                         }
-                    } else {
-                        pages_failed.fetch_add(1, Ordering::Relaxed);
-                    }
 
-                    // Save result to disk
-                    if let Err(e) = file_manager.save_crawl_result(&result) {
-                        println!("Worker {}: Failed to save result for {}: {}", worker_id, result.url, e);
-                    }
+                        // Save result to disk
+                        if let Err(e) = file_manager.save_crawl_result(&result) {
+                            println!(
+                                "Worker {}: Failed to save result for {}: {}",
+                                worker_id, result.url, e
+                            );
+                        }
 
-                    // Log progress
-                    let total_crawled = pages_crawled.load(Ordering::Relaxed);
-                    if total_crawled % 10 == 0 {
-                        println!("Worker {}: Crawled {} pages", worker_id, total_crawled);
+                        // Log progress
+                        let total_crawled = pages_crawled.load(Ordering::Relaxed);
+                        if total_crawled % 10 == 0 {
+                            println!("Worker {}: Crawled {} pages", worker_id, total_crawled);
+                        }
                     }
-                }
-            }, Priority::Normal);
+                },
+                Priority::Normal,
+            );
 
             std::mem::drop(handle); // Let workers run asynchronously
         }
@@ -685,11 +762,15 @@ impl WebCrawler {
     fn crawl_page(target: &CrawlTarget, content_processor: &ContentProcessor) -> CrawlResult {
         let start_time = Instant::now();
         let discovered_at = target.discovered_time;
-        let crawled_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let crawled_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
         // Simulate HTTP request (in real implementation, use proper HTTP client)
-        let (success, status_code, content, content_type, error_message) = Self::simulate_http_request(&target.url);
-        
+        let (success, status_code, content, content_type, error_message) =
+            Self::simulate_http_request(&target.url);
+
         let processing_time = start_time.elapsed().as_millis() as u64;
 
         if success {
@@ -720,7 +801,7 @@ impl WebCrawler {
                     crawled_at,
                     success: false,
                     error_message: Some(format!("Content processing failed: {}", e)),
-                }
+                },
             }
         } else {
             CrawlResult {
@@ -746,11 +827,30 @@ impl WebCrawler {
 
         // Simulate various response scenarios
         if url.contains("error") {
-            (false, 500, String::new(), String::new(), Some("Server error".to_string()))
+            (
+                false,
+                500,
+                String::new(),
+                String::new(),
+                Some("Server error".to_string()),
+            )
         } else if url.contains("not-found") {
-            (false, 404, String::new(), String::new(), Some("Not found".to_string()))
-        } else if random_f64() < 0.05 { // 5% failure rate
-            (false, 503, String::new(), String::new(), Some("Service unavailable".to_string()))
+            (
+                false,
+                404,
+                String::new(),
+                String::new(),
+                Some("Not found".to_string()),
+            )
+        } else if random_f64() < 0.05 {
+            // 5% failure rate
+            (
+                false,
+                503,
+                String::new(),
+                String::new(),
+                Some("Service unavailable".to_string()),
+            )
         } else {
             // Generate mock HTML content
             let content = format!(
@@ -793,7 +893,7 @@ impl WebCrawler {
 
     fn wait_for_completion(&self, timeout_seconds: u64) -> Result<(), String> {
         let start_time = Instant::now();
-        
+
         while self.is_running.load(Ordering::Relaxed) {
             // Check timeout
             if start_time.elapsed().as_secs() > timeout_seconds {
@@ -828,7 +928,8 @@ impl WebCrawler {
 
     fn get_statistics(&self) -> CrawlerStats {
         let (discovered, queued, visited) = self.frontier.stats();
-        let (processed_pages, content_bytes, extracted_links, extraction_time) = self.content_processor.stats();
+        let (processed_pages, content_bytes, extracted_links, extraction_time) =
+            self.content_processor.stats();
         let (files_written, bytes_written, write_errors) = self.file_manager.stats();
 
         CrawlerStats {
@@ -872,9 +973,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create crawler
     let crawler = WebCrawler::new(
-        3,      // max depth
-        100,    // max pages
-        4,      // worker threads
+        3,   // max depth
+        100, // max pages
+        4,   // worker threads
         "/tmp/crawler_output".to_string(),
     )?;
 
@@ -901,39 +1002,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Display statistics
     println!("\n5. Crawling Statistics:");
     let stats = crawler.get_statistics();
-    
+
     println!("  ├─ URL Discovery:");
     println!("  │  ├─ URLs discovered: {}", stats.urls_discovered);
     println!("  │  ├─ URLs visited: {}", stats.urls_visited);
     println!("  │  └─ URLs queued: {}", stats.urls_queued);
-    
+
     println!("  ├─ Page Processing:");
     println!("  │  ├─ Pages crawled: {}", stats.pages_crawled);
     println!("  │  ├─ Pages failed: {}", stats.pages_failed);
-    println!("  │  ├─ Success rate: {:.1}%", 
-             (stats.pages_crawled as f64 / (stats.pages_crawled + stats.pages_failed) as f64) * 100.0);
-    println!("  │  └─ Avg crawl time: {:.1}ms per page", 
-             stats.total_crawl_time_ms as f64 / stats.pages_crawled.max(1) as f64);
-    
+    println!(
+        "  │  ├─ Success rate: {:.1}%",
+        (stats.pages_crawled as f64 / (stats.pages_crawled + stats.pages_failed) as f64) * 100.0
+    );
+    println!(
+        "  │  └─ Avg crawl time: {:.1}ms per page",
+        stats.total_crawl_time_ms as f64 / stats.pages_crawled.max(1) as f64
+    );
+
     println!("  ├─ Content Extraction:");
     println!("  │  ├─ Pages processed: {}", stats.processed_pages);
-    println!("  │  ├─ Content bytes: {:.2} KB", stats.content_bytes as f64 / 1024.0);
+    println!(
+        "  │  ├─ Content bytes: {:.2} KB",
+        stats.content_bytes as f64 / 1024.0
+    );
     println!("  │  ├─ Links extracted: {}", stats.extracted_links);
-    println!("  │  └─ Avg extraction time: {:.1}ms per page", 
-             stats.extraction_time_ms as f64 / stats.processed_pages.max(1) as f64);
-    
+    println!(
+        "  │  └─ Avg extraction time: {:.1}ms per page",
+        stats.extraction_time_ms as f64 / stats.processed_pages.max(1) as f64
+    );
+
     println!("  ├─ File Operations:");
     println!("  │  ├─ Files written: {}", stats.files_written);
-    println!("  │  ├─ Bytes written: {:.2} KB", stats.bytes_written as f64 / 1024.0);
+    println!(
+        "  │  ├─ Bytes written: {:.2} KB",
+        stats.bytes_written as f64 / 1024.0
+    );
     println!("  │  └─ Write errors: {}", stats.write_errors);
-    
+
     println!("  └─ Performance:");
-    println!("     ├─ Total throughput: {:.1} pages/sec", 
-             stats.pages_crawled as f64 / total_time.as_secs_f64());
-    println!("     ├─ Data throughput: {:.1} KB/sec", 
-             (stats.content_bytes as f64 / 1024.0) / total_time.as_secs_f64());
-    println!("     └─ Parallel efficiency: {:.1}%", 
-             (stats.pages_crawled as f64 / 4.0 / total_time.as_secs_f64()) * 100.0);
+    println!(
+        "     ├─ Total throughput: {:.1} pages/sec",
+        stats.pages_crawled as f64 / total_time.as_secs_f64()
+    );
+    println!(
+        "     ├─ Data throughput: {:.1} KB/sec",
+        (stats.content_bytes as f64 / 1024.0) / total_time.as_secs_f64()
+    );
+    println!(
+        "     └─ Parallel efficiency: {:.1}%",
+        (stats.pages_crawled as f64 / 4.0 / total_time.as_secs_f64()) * 100.0
+    );
 
     println!("\nWeb crawler demonstration completed!");
     println!("Successfully demonstrated:");

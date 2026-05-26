@@ -74,12 +74,60 @@
 //! Task abstractions and utilities for the Moirai runtime.
 
 use crate::error::TaskError;
+#[cfg(feature = "std")]
+use core::cell::UnsafeCell;
 use core::future::Future;
 use core::marker::PhantomData;
+#[cfg(feature = "std")]
+use core::mem::{ManuallyDrop, MaybeUninit};
 use core::pin::Pin;
 
 #[cfg(feature = "std")]
-use std::sync::mpsc;
+use std::sync::{
+    atomic::{AtomicU8, Ordering},
+    mpsc, Arc,
+};
+#[cfg(feature = "std")]
+use std::thread;
+
+#[cfg(feature = "std")]
+const RESULT_PENDING: u8 = 0;
+#[cfg(feature = "std")]
+const RESULT_WRITING: u8 = 1;
+#[cfg(feature = "std")]
+const RESULT_READY: u8 = 2;
+#[cfg(feature = "std")]
+const RESULT_TAKEN: u8 = 3;
+#[cfg(feature = "std")]
+const RESULT_WAITING: u8 = 4;
+
+#[cfg(feature = "std")]
+mod result_wait {
+    pub(super) mod sealed {
+        pub trait Sealed {}
+    }
+
+    /// Compile-time wait policy for task result handoff.
+    ///
+    /// Implementors are zero-sized marker types. `TaskResultSlot` receives the
+    /// policy as a generic parameter, so the spin budget is const-folded and no
+    /// runtime policy value is stored in the handle or slot.
+    pub(super) trait ResultWaitPolicy: sealed::Sealed {
+        const SPIN_ATTEMPTS: usize;
+    }
+
+    #[derive(Debug, Clone, Copy, Default)]
+    pub(super) struct BlockingResultWait;
+
+    impl sealed::Sealed for BlockingResultWait {}
+
+    impl ResultWaitPolicy for BlockingResultWait {
+        const SPIN_ATTEMPTS: usize = crate::constants::MAX_SPIN_ATTEMPTS;
+    }
+}
+
+#[cfg(feature = "std")]
+use result_wait::{BlockingResultWait, ResultWaitPolicy};
 
 /// A unique identifier for tasks in the Moirai runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -99,22 +147,17 @@ impl TaskId {
 }
 
 /// Priority levels for task scheduling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum Priority {
     /// Low priority tasks (background work)
     Low = 0,
     /// Normal priority tasks (default)
+    #[default]
     Normal = 1,
     /// High priority tasks (interactive work)
     High = 2,
     /// Critical priority tasks (system-level work)
     Critical = 3,
-}
-
-impl Default for Priority {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 /// Task execution context and metadata.
@@ -151,15 +194,6 @@ impl TaskContext {
     }
 }
 
-/// A trait for tasks that can be executed from a Box<dyn ...>
-pub trait BoxedTask: Send + 'static {
-    /// Execute this task and return a boxed result.
-    fn execute_boxed(self: Box<Self>);
-
-    /// Get the task context for scheduling and debugging.
-    fn context(&self) -> &TaskContext;
-}
-
 /// The core trait for executable tasks in the Moirai runtime.
 pub trait Task: Send + 'static {
     /// The output type produced by this task.
@@ -179,6 +213,30 @@ pub trait Task: Send + 'static {
     /// Estimate the computational cost of this task (for load balancing).
     fn estimated_cost(&self) -> u32 {
         1
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> Task for Box<T>
+where
+    T: Task,
+{
+    type Output = T::Output;
+
+    fn execute(self) -> Self::Output {
+        (*self).execute()
+    }
+
+    fn context(&self) -> &TaskContext {
+        (**self).context()
+    }
+
+    fn is_stealable(&self) -> bool {
+        (**self).is_stealable()
+    }
+
+    fn estimated_cost(&self) -> u32 {
+        (**self).estimated_cost()
     }
 }
 
@@ -288,42 +346,61 @@ where
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: Task> BoxedTask for TaskWrapper<T>
-where
-    T::Output: Clone,
-{
-    fn execute_boxed(self: Box<Self>) {
-        let _ = (*self).execute();
-    }
-
-    fn context(&self) -> &TaskContext {
-        self.task.context()
-    }
-}
-
 /// A handle to a task that may be running on another thread.
+#[cfg(feature = "std")]
 #[allow(clippy::module_name_repetitions)]
 pub struct TaskHandle<T> {
     id: TaskId,
-    result_receiver: Option<mpsc::Receiver<Result<T, TaskError>>>,
+    result_slot: Option<Arc<TaskResultSlot<T>>>,
+}
+
+#[cfg(feature = "std")]
+struct TaskResultSlot<T> {
+    result: UnsafeCell<MaybeUninit<Result<T, TaskError>>>,
+    state: AtomicU8,
+    waiter: UnsafeCell<MaybeUninit<thread::Thread>>,
+}
+
+// Safety: the slot is a single-producer/single-consumer one-shot cell.
+// `complete` wins the PENDING/WAITING -> WRITING transition before writing.
+// WAITING is entered only after the waiter thread is stored in the waiter cell,
+// and `wait` takes the value only after an acquire READY -> TAKEN transition.
+#[cfg(feature = "std")]
+unsafe impl<T: Send> Send for TaskResultSlot<T> {}
+
+#[cfg(feature = "std")]
+unsafe impl<T: Send> Sync for TaskResultSlot<T> {}
+
+/// Single-producer completion endpoint for a task result.
+#[cfg(feature = "std")]
+#[allow(clippy::module_name_repetitions)]
+pub struct TaskResultSender<T> {
+    slot: Option<Arc<TaskResultSlot<T>>>,
 }
 
 #[cfg(feature = "std")]
 impl<T> TaskHandle<T> {
-    /// Creates a new task handle with a receiver for the result.
-    ///
-    /// # Arguments
-    /// * `id` - The unique identifier for this task
-    /// * `receiver` - Channel receiver for the task result
-    ///
-    /// # Returns
-    /// A new task handle instance
+    /// Creates a new pending task handle and its completion sender.
     #[must_use]
-    pub fn new_with_receiver(id: TaskId, receiver: mpsc::Receiver<Result<T, TaskError>>) -> Self {
+    pub fn new_pending(id: TaskId) -> (Self, TaskResultSender<T>) {
+        let slot = Arc::new(TaskResultSlot::new());
+        (
+            Self {
+                id,
+                result_slot: Some(Arc::clone(&slot)),
+            },
+            TaskResultSender { slot: Some(slot) },
+        )
+    }
+
+    /// Creates a new task handle from an existing result.
+    #[must_use]
+    pub fn ready(id: TaskId, result: Result<T, TaskError>) -> Self {
+        let slot = Arc::new(TaskResultSlot::new());
+        slot.complete(result);
         Self {
             id,
-            result_receiver: Some(receiver),
+            result_slot: Some(slot),
         }
     }
 
@@ -338,7 +415,7 @@ impl<T> TaskHandle<T> {
     pub fn new_detached(id: TaskId) -> Self {
         Self {
             id,
-            result_receiver: None,
+            result_slot: None,
         }
     }
 
@@ -356,12 +433,12 @@ impl<T> TaskHandle<T> {
     /// # Returns
     /// - `Some(Ok(result))` if the task completed successfully
     /// - `Some(Err(error))` if the task failed with an error
-    /// - `None` if the task was detached or the channel was disconnected
+    /// - `None` if the task was detached
     #[must_use]
     pub fn join(mut self) -> Option<Result<T, TaskError>> {
-        self.result_receiver
+        self.result_slot
             .take()
-            .and_then(|receiver| receiver.recv().ok())
+            .map(|slot| slot.wait::<BlockingResultWait>())
     }
 
     /// Checks if the task has finished execution.
@@ -370,12 +447,248 @@ impl<T> TaskHandle<T> {
     /// `true` if the task has completed (successfully or with error), `false` if still running
     #[must_use]
     pub fn is_finished(&self) -> bool {
-        self.result_receiver.as_ref().map_or(false, |receiver| {
-            matches!(
-                receiver.try_recv(),
-                Ok(_) | Err(mpsc::TryRecvError::Disconnected)
+        self.result_slot
+            .as_ref()
+            .is_some_and(|slot| slot.is_completed())
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> TaskResultSender<T> {
+    /// Complete the task result and wake any waiter.
+    pub fn send(self, result: Result<T, TaskError>) {
+        let mut sender = ManuallyDrop::new(self);
+        if let Some(slot) = sender.slot.take() {
+            slot.complete(result);
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> Drop for TaskResultSender<T> {
+    fn drop(&mut self) {
+        if let Some(slot) = self.slot.take() {
+            slot.complete(Err(TaskError::Cancelled));
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> TaskResultSlot<T> {
+    fn new() -> Self {
+        Self {
+            result: UnsafeCell::new(MaybeUninit::uninit()),
+            state: AtomicU8::new(RESULT_PENDING),
+            waiter: UnsafeCell::new(MaybeUninit::uninit()),
+        }
+    }
+
+    fn complete(&self, result: Result<T, TaskError>) {
+        let Some(waiting) = self.begin_completion() else {
+            return;
+        };
+
+        // Safety: the WRITING state is reachable only through
+        // `begin_completion`, so no other thread can read, write, or drop the
+        // result cell until READY publishes.
+        unsafe {
+            (*self.result.get()).write(result);
+        }
+
+        self.state.store(RESULT_READY, Ordering::Release);
+
+        if waiting {
+            // Safety: WAITING is reachable only after `register_waiter` writes
+            // the thread handle and publishes it with a release CAS.
+            let thread = unsafe { (*self.waiter.get()).assume_init_read() };
+            thread.unpark();
+        }
+    }
+
+    fn wait<P>(&self) -> Result<T, TaskError>
+    where
+        P: ResultWaitPolicy,
+    {
+        if let Some(result) = self.try_take_ready() {
+            return result;
+        }
+
+        for _ in 0..P::SPIN_ATTEMPTS {
+            if let Some(result) = self.try_take_observed_ready() {
+                return result;
+            }
+            core::hint::spin_loop();
+        }
+
+        self.register_waiter();
+
+        loop {
+            if let Some(result) = self.try_take_observed_ready() {
+                return result;
+            }
+
+            thread::park();
+        }
+    }
+
+    fn is_completed(&self) -> bool {
+        self.state.load(Ordering::Acquire) == RESULT_READY
+    }
+
+    fn try_take_ready(&self) -> Option<Result<T, TaskError>> {
+        if self
+            .state
+            .compare_exchange(
+                RESULT_READY,
+                RESULT_TAKEN,
+                Ordering::Acquire,
+                Ordering::Relaxed,
             )
-        })
+            .is_ok()
+        {
+            // Safety: READY is published only after `complete` initializes the
+            // cell. The READY -> TAKEN transition is unique, so this read moves
+            // the result exactly once.
+            Some(unsafe { (*self.result.get()).assume_init_read() })
+        } else {
+            None
+        }
+    }
+
+    fn try_take_observed_ready(&self) -> Option<Result<T, TaskError>> {
+        if self.state.load(Ordering::Relaxed) == RESULT_READY {
+            self.try_take_ready()
+        } else {
+            None
+        }
+    }
+
+    fn register_waiter(&self) {
+        loop {
+            match self.state.load(Ordering::Acquire) {
+                RESULT_PENDING => {
+                    // Safety: there is only one consumer. If the publish CAS
+                    // fails, this local thread handle is dropped before retry.
+                    unsafe {
+                        (*self.waiter.get()).write(thread::current());
+                    }
+
+                    if self
+                        .state
+                        .compare_exchange(
+                            RESULT_PENDING,
+                            RESULT_WAITING,
+                            Ordering::Release,
+                            Ordering::Acquire,
+                        )
+                        .is_ok()
+                    {
+                        return;
+                    }
+
+                    // Safety: the CAS failed, so no producer can observe this
+                    // waiter cell as initialized through the WAITING state.
+                    unsafe {
+                        (*self.waiter.get()).assume_init_drop();
+                    }
+                }
+                RESULT_WRITING => core::hint::spin_loop(),
+                _ => return,
+            }
+        }
+    }
+
+    fn begin_completion(&self) -> Option<bool> {
+        match self.state.compare_exchange(
+            RESULT_PENDING,
+            RESULT_WRITING,
+            Ordering::Relaxed,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => Some(false),
+            Err(RESULT_WAITING) => {
+                if self
+                    .state
+                    .compare_exchange(
+                        RESULT_WAITING,
+                        RESULT_WRITING,
+                        Ordering::Acquire,
+                        Ordering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    Some(true)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T> Drop for TaskResultSlot<T> {
+    fn drop(&mut self) {
+        if self.state.load(Ordering::Acquire) == RESULT_READY {
+            // Safety: READY means the cell is initialized and no consuming join
+            // took it because `drop` has exclusive access to the slot.
+            unsafe {
+                self.result.get_mut().assume_init_drop();
+            }
+        }
+    }
+}
+
+#[cfg(all(feature = "std", feature = "result-diagnostics"))]
+const DIAGNOSTIC_READY_VALUE: usize = 42;
+
+/// Diagnostic-only ready result-slot take path for benchmark attribution.
+#[cfg(all(feature = "std", feature = "result-diagnostics"))]
+#[doc(hidden)]
+pub fn diagnostic_result_slot_ready_take() -> usize {
+    let slot = TaskResultSlot::new();
+    slot.complete(Ok(DIAGNOSTIC_READY_VALUE));
+    match slot.try_take_ready() {
+        Some(Ok(value)) => value,
+        _ => 0,
+    }
+}
+
+/// Diagnostic-only pending spin miss path for benchmark attribution.
+#[cfg(all(feature = "std", feature = "result-diagnostics"))]
+#[doc(hidden)]
+pub fn diagnostic_result_slot_spin_miss() -> usize {
+    let slot = TaskResultSlot::<usize>::new();
+    let mut misses = 0usize;
+    for _ in 0..BlockingResultWait::SPIN_ATTEMPTS {
+        if slot.try_take_observed_ready().is_none() {
+            misses = misses.wrapping_add(1);
+        }
+        core::hint::spin_loop();
+    }
+    misses
+}
+
+/// Diagnostic-only waiter registration path for benchmark attribution.
+#[cfg(all(feature = "std", feature = "result-diagnostics"))]
+#[doc(hidden)]
+pub fn diagnostic_result_slot_register_waiter() -> usize {
+    let slot = TaskResultSlot::<usize>::new();
+    slot.register_waiter();
+    usize::from(slot.state.load(Ordering::Acquire) == RESULT_WAITING)
+}
+
+/// Diagnostic-only waiting-result completion path for benchmark attribution.
+#[cfg(all(feature = "std", feature = "result-diagnostics"))]
+#[doc(hidden)]
+pub fn diagnostic_result_slot_complete_waiting() -> usize {
+    let slot = TaskResultSlot::new();
+    slot.register_waiter();
+    slot.complete(Ok(DIAGNOSTIC_READY_VALUE));
+    match slot.try_take_ready() {
+        Some(Ok(value)) => value,
+        _ => 0,
     }
 }
 
@@ -976,5 +1289,68 @@ mod tests {
         );
 
         spawner.execute(); // Should not panic
+    }
+
+    #[test]
+    fn task_handle_returns_sent_result() {
+        let (handle, sender) = TaskHandle::new_pending(TaskId::new(10));
+
+        assert!(!handle.is_finished());
+        sender.send(Ok(42usize));
+        assert!(handle.is_finished());
+        assert_eq!(handle.join(), Some(Ok(42)));
+    }
+
+    #[test]
+    fn task_handle_ready_returns_stored_result() {
+        let handle = TaskHandle::ready(TaskId::new(12), Ok(84usize));
+
+        assert!(handle.is_finished());
+        assert_eq!(handle.id(), TaskId::new(12));
+        assert_eq!(handle.join(), Some(Ok(84)));
+    }
+
+    #[test]
+    fn task_handle_reports_cancelled_when_sender_drops() {
+        let (handle, sender) = TaskHandle::<usize>::new_pending(TaskId::new(11));
+
+        drop(sender);
+
+        assert!(handle.is_finished());
+        assert_eq!(handle.join(), Some(Err(TaskError::Cancelled)));
+    }
+
+    #[test]
+    fn task_handle_waits_for_cross_thread_completion() {
+        let (handle, sender) = TaskHandle::new_pending(TaskId::new(13));
+
+        let worker = std::thread::spawn(move || {
+            sender.send(Ok(168usize));
+        });
+
+        assert_eq!(handle.join(), Some(Ok(168)));
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn task_handle_parks_until_delayed_completion() {
+        let (handle, sender) = TaskHandle::new_pending(TaskId::new(14));
+
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            sender.send(Ok(336usize));
+        });
+
+        assert_eq!(handle.join(), Some(Ok(336)));
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn result_wait_policy_is_zero_sized_and_const_bounded() {
+        assert_eq!(core::mem::size_of::<BlockingResultWait>(), 0);
+        assert_eq!(
+            BlockingResultWait::SPIN_ATTEMPTS,
+            crate::constants::MAX_SPIN_ATTEMPTS
+        );
     }
 }

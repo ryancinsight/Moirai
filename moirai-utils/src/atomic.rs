@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn test_atomic_counter_add_subtract() {
         let counter = AtomicCounter::new();
-        
+
         counter.add(10);
         assert_eq!(counter.get(), 10);
 
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn test_atomic_counter_max_min() {
         let counter = AtomicCounter::with_initial(5);
-        
+
         counter.max(3); // Should remain 5
         assert_eq!(counter.get(), 5);
 

@@ -127,7 +127,7 @@ fn test_priority_inversion_resistance() {
         let handle = fixture.runtime.spawn_fn_with_priority(
             move || {
                 // Simulate longer work to create backlog
-                std::thread::sleep(Duration::from_millis(5));
+                std::thread::sleep(Duration::from_millis(100));
                 counter.fetch_add(1, Ordering::SeqCst);
                 "low"
             },
@@ -228,7 +228,12 @@ fn test_resource_contention_handling() {
 /// Tests complex dependency chains across execution contexts
 #[test]
 fn test_cascading_dependencies() {
-    let fixture = InterleavedTestFixture::new();
+    let runtime = Moirai::builder()
+        .worker_threads(32)
+        .build()
+        .expect("Failed to create runtime for cascading dependencies testing");
+
+    let counter = Arc::new(AtomicUsize::new(0));
     let stage_counters = [
         Arc::new(AtomicUsize::new(0)), // Stage 1: Parallel
         Arc::new(AtomicUsize::new(0)), // Stage 2: Processing
@@ -237,17 +242,11 @@ fn test_cascading_dependencies() {
 
     // Stage 1: Parallel computation producers
     for i in 0..10 {
-        let counter = stage_counters[0].clone();
-        let next_stage_trigger = stage_counters[1].clone();
-        let handle = fixture.runtime.spawn_fn(move || {
+        let stage_counter = stage_counters[0].clone();
+        let handle = runtime.spawn_fn(move || {
             // Simulate parallel work
             let result = (0..100).map(|x| x * i).sum::<usize>();
-            counter.fetch_add(1, Ordering::SeqCst);
-
-            // Trigger next stage when threshold reached
-            if counter.load(Ordering::SeqCst) >= 5 {
-                next_stage_trigger.store(1, Ordering::SeqCst);
-            }
+            stage_counter.fetch_add(1, Ordering::SeqCst);
             result
         });
         std::mem::drop(handle);
@@ -257,8 +256,7 @@ fn test_cascading_dependencies() {
     for _ in 0..5 {
         let wait_counter = stage_counters[0].clone();
         let stage_counter = stage_counters[1].clone();
-        let next_stage_trigger = stage_counters[2].clone();
-        let handle = fixture.runtime.spawn_fn(move || {
+        let handle = runtime.spawn_fn(move || {
             // Wait for dependency
             while wait_counter.load(Ordering::SeqCst) < 5 {
                 std::thread::sleep(Duration::from_millis(1));
@@ -266,13 +264,8 @@ fn test_cascading_dependencies() {
 
             // Process with small delay
             std::thread::sleep(Duration::from_millis(2));
-            let count = stage_counter.fetch_add(1, Ordering::SeqCst) + 1;
 
-            // Trigger final stage
-            if count >= 3 {
-                next_stage_trigger.store(1, Ordering::SeqCst);
-            }
-            count
+            stage_counter.fetch_add(1, Ordering::SeqCst) + 1
         });
         std::mem::drop(handle);
     }
@@ -280,8 +273,8 @@ fn test_cascading_dependencies() {
     // Stage 3: Finalizers (wait for stage 2 partial completion)
     for _ in 0..3 {
         let wait_counter = stage_counters[1].clone();
-        let final_counter = fixture.counter.clone();
-        let handle = fixture.runtime.spawn_fn(move || {
+        let final_counter = counter.clone();
+        let handle = runtime.spawn_fn(move || {
             // Wait for dependency
             while wait_counter.load(Ordering::SeqCst) < 3 {
                 std::thread::sleep(Duration::from_millis(1));
@@ -296,7 +289,7 @@ fn test_cascading_dependencies() {
 
     // Wait for cascade completion
     let start = Instant::now();
-    while fixture.counter.load(Ordering::SeqCst) < 3 {
+    while counter.load(Ordering::SeqCst) < 3 {
         if start.elapsed().as_millis() > TIMEOUT_DURATION_MS as u128 {
             panic!("Timeout in cascading dependencies test");
         }
@@ -312,11 +305,17 @@ fn test_cascading_dependencies() {
         stage_counters[1].load(Ordering::SeqCst) >= 3,
         "Stage 2 incomplete"
     );
-    fixture.verify_completion(3);
+
+    let actual = counter.load(Ordering::SeqCst);
+    assert_eq!(
+        actual, 3,
+        "Task completion mismatch: expected {}, got {}",
+        3, actual
+    );
 
     println!(
         "Cascading dependencies completed in {}ms",
-        fixture.elapsed_ms()
+        start.elapsed().as_millis()
     );
 }
 

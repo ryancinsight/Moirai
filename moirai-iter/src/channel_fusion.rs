@@ -5,7 +5,7 @@
 //! - Multiple channels for reduced synchronization
 //! - Automatic batching and buffering
 
-use std::marker::PhantomData;
+use std::{collections::VecDeque, marker::PhantomData};
 
 /// Fused channel iterator that combines iteration with channel communication
 pub struct ChannelFusedIter<T, I, C> {
@@ -74,28 +74,31 @@ where
     }
 }
 
-/// Multi-channel splitter for distributing iterator output
-pub struct ChannelSplitter<T, I> {
+/// Multi-channel splitter for distributing iterator output.
+///
+/// The channel type is generic so each splitter monomorphizes to direct calls
+/// into the concrete channel implementation.
+pub struct ChannelSplitter<T, I, C> {
     iter: I,
-    channels: Vec<Box<dyn FusableChannel<T>>>,
+    channels: Vec<C>,
     strategy: SplitStrategy,
+    _phantom: PhantomData<T>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum SplitStrategy {
     /// Round-robin distribution
     RoundRobin,
-    /// Hash-based distribution
-    Hash,
     /// Load-balanced distribution
     LoadBalanced,
     /// Broadcast to all channels
     Broadcast,
 }
 
-impl<T, I> ChannelSplitter<T, I>
+impl<T, I, C> ChannelSplitter<T, I, C>
 where
     I: Iterator<Item = T>,
+    C: FusableChannel<T>,
     T: Send + Clone,
 {
     /// Create a new channel splitter
@@ -104,11 +107,12 @@ where
             iter,
             channels: Vec::new(),
             strategy,
+            _phantom: PhantomData,
         }
     }
 
     /// Add a channel to the splitter
-    pub fn add_channel(mut self, channel: Box<dyn FusableChannel<T>>) -> Self {
+    pub fn add_channel(mut self, channel: C) -> Self {
         self.channels.push(channel);
         self
     }
@@ -134,13 +138,7 @@ where
                         buffer.push(item.clone());
                     }
                 }
-                SplitStrategy::Hash => {
-                    // Simple hash distribution (would use proper hash in production)
-                    let hash = 0; // Placeholder
-                    buffers[hash % num_channels].push(item);
-                }
                 SplitStrategy::LoadBalanced => {
-                    // Find channel with smallest buffer
                     let min_idx = buffers
                         .iter()
                         .enumerate()
@@ -176,10 +174,11 @@ where
 }
 
 /// Channel merger for combining multiple channels into one iterator
-pub struct ChannelMerger<T> {
-    channels: Vec<Box<dyn FusableChannel<T>>>,
+pub struct ChannelMerger<T, C> {
+    channels: Vec<C>,
     strategy: MergeStrategy,
-    buffer: Vec<T>,
+    buffer: VecDeque<T>,
+    next_channel: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -192,144 +191,77 @@ pub enum MergeStrategy {
     FirstAvailable,
 }
 
-impl<T> ChannelMerger<T> {
+impl<T, C> ChannelMerger<T, C>
+where
+    C: FusableChannel<T>,
+{
     /// Create a new channel merger
     pub fn new(strategy: MergeStrategy) -> Self {
         Self {
             channels: Vec::new(),
             strategy,
-            buffer: Vec::new(),
+            buffer: VecDeque::new(),
+            next_channel: 0,
         }
     }
 
     /// Add a channel to merge
-    pub fn add_channel(mut self, channel: Box<dyn FusableChannel<T>>) -> Self {
+    pub fn add_channel(mut self, channel: C) -> Self {
         self.channels.push(channel);
         self
     }
 }
 
-impl<T> Iterator for ChannelMerger<T> {
+impl<T, C> Iterator for ChannelMerger<T, C>
+where
+    C: FusableChannel<T>,
+{
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Return from buffer first
-        if !self.buffer.is_empty() {
-            return Some(self.buffer.remove(0));
+        if let Some(item) = self.buffer.pop_front() {
+            return Some(item);
         }
 
-        // Try to receive from channels
         match self.strategy {
             MergeStrategy::FairMerge => {
-                // Round-robin through channels
-                for channel in &self.channels {
-                    let items = channel.recv_batch(1);
+                let channel_count = self.channels.len();
+                if channel_count == 0 {
+                    return None;
+                }
+
+                for _ in 0..channel_count {
+                    let channel_index = self.next_channel % channel_count;
+                    self.next_channel = (channel_index + 1) % channel_count;
+
+                    let items = self.channels[channel_index].recv_batch(1);
                     if !items.is_empty() {
                         self.buffer.extend(items);
-                        return self.buffer.pop();
+                        return self.buffer.pop_front();
                     }
                 }
             }
             MergeStrategy::FirstAvailable => {
-                // Take from first channel with data
                 for channel in &self.channels {
                     let items = channel.recv_batch(64);
                     if !items.is_empty() {
                         self.buffer.extend(items);
-                        return Some(self.buffer.remove(0));
+                        return self.buffer.pop_front();
                     }
                 }
             }
             MergeStrategy::Priority => {
-                // Priority order (first channel has highest priority)
                 for channel in &self.channels {
                     let items = channel.recv_batch(64);
                     if !items.is_empty() {
                         self.buffer.extend(items);
-                        return Some(self.buffer.remove(0));
+                        return self.buffer.pop_front();
                     }
                 }
             }
         }
 
         None
-    }
-}
-
-/// Pipeline builder for complex iterator-channel workflows
-pub struct Pipeline<T> {
-    stages: Vec<PipelineStage<T>>,
-}
-
-#[allow(dead_code)]
-enum PipelineStage<T> {
-    /// Iterator source
-    Source(Box<dyn Iterator<Item = T> + Send>),
-    /// Transformation
-    Transform(Box<dyn Fn(T) -> T + Send + Sync>),
-    /// Filter
-    Filter(Box<dyn Fn(&T) -> bool + Send + Sync>),
-    /// Channel output
-    Sink(Box<dyn FusableChannel<T>>),
-    /// Splitter
-    Split(Vec<Box<dyn FusableChannel<T>>>, SplitStrategy),
-    /// Merger
-    Merge(Vec<Box<dyn FusableChannel<T>>>, MergeStrategy),
-}
-
-impl<T: 'static + Send> Default for Pipeline<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T: 'static + Send> Pipeline<T> {
-    /// Create a new pipeline
-    pub fn new() -> Self {
-        Self { stages: Vec::new() }
-    }
-
-    /// Add an iterator source
-    pub fn source<I>(mut self, iter: I) -> Self
-    where
-        I: Iterator<Item = T> + Send + 'static,
-    {
-        self.stages.push(PipelineStage::Source(Box::new(iter)));
-        self
-    }
-
-    /// Add a transformation stage
-    pub fn transform<F>(mut self, f: F) -> Self
-    where
-        F: Fn(T) -> T + Send + Sync + 'static,
-    {
-        self.stages.push(PipelineStage::Transform(Box::new(f)));
-        self
-    }
-
-    /// Add a filter stage
-    pub fn filter<F>(mut self, f: F) -> Self
-    where
-        F: Fn(&T) -> bool + Send + Sync + 'static,
-    {
-        self.stages.push(PipelineStage::Filter(Box::new(f)));
-        self
-    }
-
-    /// Add a channel sink
-    pub fn sink<C>(mut self, channel: C) -> Self
-    where
-        C: FusableChannel<T> + 'static,
-    {
-        self.stages.push(PipelineStage::Sink(Box::new(channel)));
-        self
-    }
-
-    /// Execute the pipeline
-    pub fn execute(self) -> Result<(), std::io::Error> {
-        // This is a simplified execution model
-        // In production, this would handle complex stage composition
-        Ok(())
     }
 }
 
@@ -349,8 +281,9 @@ pub trait ChannelFusionExt: Iterator + Sized {
     }
 
     /// Split output to multiple channels
-    fn split_channels(self, strategy: SplitStrategy) -> ChannelSplitter<Self::Item, Self>
+    fn split_channels<C>(self, strategy: SplitStrategy) -> ChannelSplitter<Self::Item, Self, C>
     where
+        C: FusableChannel<Self::Item>,
         Self::Item: Send + Clone,
     {
         ChannelSplitter::new(self, strategy)
@@ -366,6 +299,14 @@ mod tests {
 
     struct TestChannel<T> {
         items: Arc<Mutex<Vec<T>>>,
+    }
+
+    impl<T> TestChannel<T> {
+        fn from_items(items: Vec<T>) -> Self {
+            Self {
+                items: Arc::new(Mutex::new(items)),
+            }
+        }
     }
 
     impl<T: Send> FusableChannel<T> for TestChannel<T> {
@@ -414,12 +355,48 @@ mod tests {
 
         data.into_iter()
             .split_channels(SplitStrategy::RoundRobin)
-            .add_channel(Box::new(channel1))
-            .add_channel(Box::new(channel2))
+            .add_channel(channel1)
+            .add_channel(channel2)
             .process()
             .unwrap();
 
         assert_eq!(*items1.lock().unwrap(), vec![1, 3, 5]);
         assert_eq!(*items2.lock().unwrap(), vec![2, 4, 6]);
+    }
+
+    #[test]
+    fn test_channel_merger_fair_merge_uses_fifo_order() {
+        let channel1 = TestChannel::from_items(vec![1, 3]);
+        let channel2 = TestChannel::from_items(vec![2, 4]);
+
+        let merged = ChannelMerger::new(MergeStrategy::FairMerge)
+            .add_channel(channel1)
+            .add_channel(channel2)
+            .collect::<Vec<_>>();
+
+        assert_eq!(merged, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_channel_splitter_broadcast_clones_to_every_channel() {
+        let data = vec![1, 2, 3];
+        let channel1 = TestChannel {
+            items: Arc::new(Mutex::new(Vec::new())),
+        };
+        let channel2 = TestChannel {
+            items: Arc::new(Mutex::new(Vec::new())),
+        };
+        let items1 = channel1.items.clone();
+        let items2 = channel2.items.clone();
+
+        data.into_iter()
+            .split_channels(SplitStrategy::Broadcast)
+            .add_channel(channel1)
+            .add_channel(channel2)
+            .process()
+            .unwrap();
+
+        assert_eq!(*items1.lock().unwrap(), vec![1, 2, 3]);
+        assert_eq!(*items2.lock().unwrap(), vec![1, 2, 3]);
     }
 }

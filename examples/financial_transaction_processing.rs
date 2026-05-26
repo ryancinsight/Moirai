@@ -9,10 +9,10 @@
 
 use moirai::{Moirai, Priority};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::fmt;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// Represents an account in the financial system
 #[derive(Debug, Clone)]
@@ -106,7 +106,9 @@ impl AuditTrail {
     }
 
     fn log_entry(&self, entry: AuditEntry) -> Result<(), String> {
-        let mut entries = self.entries.lock()
+        let mut entries = self
+            .entries
+            .lock()
             .map_err(|_| "Failed to acquire audit lock")?;
         entries.push(entry);
         self.entry_count.fetch_add(1, Ordering::Relaxed);
@@ -118,9 +120,12 @@ impl AuditTrail {
     }
 
     fn get_entries_for_account(&self, account_id: u64) -> Result<Vec<AuditEntry>, String> {
-        let entries = self.entries.lock()
+        let entries = self
+            .entries
+            .lock()
             .map_err(|_| "Failed to acquire audit lock")?;
-        Ok(entries.iter()
+        Ok(entries
+            .iter()
             .filter(|entry| entry.account_id == account_id)
             .cloned()
             .collect())
@@ -139,8 +144,7 @@ struct TransactionEngine {
 
 impl TransactionEngine {
     fn new() -> Result<Self, String> {
-        let runtime = Moirai::new()
-            .map_err(|_| "Failed to create Moirai runtime")?;
+        let runtime = Moirai::new().map_err(|_| "Failed to create Moirai runtime")?;
 
         Ok(Self {
             accounts: Arc::new(RwLock::new(HashMap::new())),
@@ -153,28 +157,39 @@ impl TransactionEngine {
     }
 
     fn create_account(&self, account_id: u64, initial_balance: u64) -> Result<(), String> {
-        let mut accounts = self.accounts.write()
+        let mut accounts = self
+            .accounts
+            .write()
             .map_err(|_| "Failed to acquire accounts write lock")?;
-        
+
         if accounts.contains_key(&account_id) {
             return Err(format!("Account {} already exists", account_id));
         }
-        
+
         accounts.insert(account_id, Account::new(account_id, initial_balance));
         Ok(())
     }
 
     fn get_account_balance(&self, account_id: u64) -> Result<u64, String> {
-        let accounts = self.accounts.read()
+        let accounts = self
+            .accounts
+            .read()
             .map_err(|_| "Failed to acquire accounts read lock")?;
-        
-        accounts.get(&account_id)
+
+        accounts
+            .get(&account_id)
             .map(|account| account.balance())
             .ok_or_else(|| format!("Account {} not found", account_id))
     }
 
     /// Process a transfer with comprehensive error handling and audit trailing
-    fn process_transfer(&self, from_account_id: u64, to_account_id: u64, amount: u64, priority: Priority) -> Result<u64, String> {
+    fn process_transfer(
+        &self,
+        from_account_id: u64,
+        to_account_id: u64,
+        amount: u64,
+        priority: Priority,
+    ) -> Result<u64, String> {
         if from_account_id == to_account_id {
             return Err("Cannot transfer to the same account".to_string());
         }
@@ -195,91 +210,108 @@ impl TransactionEngine {
         let failed_counter = self.failed_transactions.clone();
 
         // Use async execution for the transaction to demonstrate real-world async processing
-        let handle = self.runtime.spawn_fn_with_priority(move || {
-            // Always acquire locks in consistent order (by account ID) to prevent deadlocks
-            let (first_id, second_id) = if from_account_id < to_account_id {
-                (from_account_id, to_account_id)
-            } else {
-                (to_account_id, from_account_id)
-            };
+        let handle = self.runtime.spawn_fn_with_priority(
+            move || {
+                // Always acquire locks in consistent order (by account ID) to prevent deadlocks
+                let (_first_id, _second_id) = if from_account_id < to_account_id {
+                    (from_account_id, to_account_id)
+                } else {
+                    (to_account_id, from_account_id)
+                };
 
-            // Get account references
-            let accounts_read = accounts.read()
-                .map_err(|_| format!("Failed to acquire accounts lock for transaction {}", transaction_id))?;
+                // Get account references
+                let accounts_read = accounts.read().map_err(|_| {
+                    format!(
+                        "Failed to acquire accounts lock for transaction {}",
+                        transaction_id
+                    )
+                })?;
 
-            let from_account = accounts_read.get(&from_account_id)
-                .ok_or_else(|| format!("Source account {} not found", from_account_id))?
-                .clone();
-            
-            let to_account = accounts_read.get(&to_account_id)
-                .ok_or_else(|| format!("Destination account {} not found", to_account_id))?
-                .clone();
+                let from_account = accounts_read
+                    .get(&from_account_id)
+                    .ok_or_else(|| format!("Source account {} not found", from_account_id))?
+                    .clone();
 
-            // Release read lock before processing
-            drop(accounts_read);
+                let to_account = accounts_read
+                    .get(&to_account_id)
+                    .ok_or_else(|| format!("Destination account {} not found", to_account_id))?
+                    .clone();
 
-            // Check balance with optimistic locking
-            let from_balance_before = from_account.balance();
-            let from_version_before = from_account.version();
-            
-            if from_balance_before < amount {
-                failed_counter.fetch_add(1, Ordering::Relaxed);
-                return Err(format!("Insufficient funds in account {}: {} < {}", 
-                                 from_account_id, from_balance_before, amount));
-            }
+                // Release read lock before processing
+                drop(accounts_read);
 
-            // Perform atomic balance updates
-            let to_balance_before = to_account.balance();
-            
-            // Debit from source account
-            let from_balance_after = from_account.balance.fetch_sub(amount, Ordering::AcqRel);
-            if from_balance_after < amount {
-                // Race condition detected - restore balance and fail
-                from_account.balance.fetch_add(amount, Ordering::AcqRel);
-                failed_counter.fetch_add(1, Ordering::Relaxed);
-                return Err(format!("Race condition detected in account {}", from_account_id));
-            }
-            let from_balance_after = from_balance_after - amount;
+                // Check balance with optimistic locking
+                let from_balance_before = from_account.balance();
+                let _from_version_before = from_account.version();
 
-            // Credit to destination account
-            let to_balance_after = to_account.balance.fetch_add(amount, Ordering::AcqRel) + amount;
+                if from_balance_before < amount {
+                    failed_counter.fetch_add(1, Ordering::Relaxed);
+                    return Err(format!(
+                        "Insufficient funds in account {}: {} < {}",
+                        from_account_id, from_balance_before, amount
+                    ));
+                }
 
-            // Update versions for optimistic locking
-            from_account.version.fetch_add(1, Ordering::AcqRel);
-            to_account.version.fetch_add(1, Ordering::AcqRel);
+                // Perform atomic balance updates
+                let to_balance_before = to_account.balance();
 
-            // Log audit entries
-            let from_audit = AuditEntry {
-                transaction_id,
-                account_id: from_account_id,
-                balance_before: from_balance_before,
-                balance_after: from_balance_after,
-                timestamp,
-                operation: format!("DEBIT {}", amount),
-            };
+                // Debit from source account
+                let from_balance_after = from_account.balance.fetch_sub(amount, Ordering::AcqRel);
+                if from_balance_after < amount {
+                    // Race condition detected - restore balance and fail
+                    from_account.balance.fetch_add(amount, Ordering::AcqRel);
+                    failed_counter.fetch_add(1, Ordering::Relaxed);
+                    return Err(format!(
+                        "Race condition detected in account {}",
+                        from_account_id
+                    ));
+                }
+                let from_balance_after = from_balance_after - amount;
 
-            let to_audit = AuditEntry {
-                transaction_id,
-                account_id: to_account_id,
-                balance_before: to_balance_before,
-                balance_after: to_balance_after,
-                timestamp,
-                operation: format!("CREDIT {}", amount),
-            };
+                // Credit to destination account
+                let to_balance_after =
+                    to_account.balance.fetch_add(amount, Ordering::AcqRel) + amount;
 
-            audit_trail.log_entry(from_audit)
-                .map_err(|e| format!("Failed to log debit audit: {}", e))?;
-            audit_trail.log_entry(to_audit)
-                .map_err(|e| format!("Failed to log credit audit: {}", e))?;
+                // Update versions for optimistic locking
+                from_account.version.fetch_add(1, Ordering::AcqRel);
+                to_account.version.fetch_add(1, Ordering::AcqRel);
 
-            successful_counter.fetch_add(1, Ordering::Relaxed);
-            Ok(transaction_id)
-        }, priority);
+                // Log audit entries
+                let from_audit = AuditEntry {
+                    transaction_id,
+                    account_id: from_account_id,
+                    balance_before: from_balance_before,
+                    balance_after: from_balance_after,
+                    timestamp,
+                    operation: format!("DEBIT {}", amount),
+                };
+
+                let to_audit = AuditEntry {
+                    transaction_id,
+                    account_id: to_account_id,
+                    balance_before: to_balance_before,
+                    balance_after: to_balance_after,
+                    timestamp,
+                    operation: format!("CREDIT {}", amount),
+                };
+
+                audit_trail
+                    .log_entry(from_audit)
+                    .map_err(|e| format!("Failed to log debit audit: {}", e))?;
+                audit_trail
+                    .log_entry(to_audit)
+                    .map_err(|e| format!("Failed to log credit audit: {}", e))?;
+
+                successful_counter.fetch_add(1, Ordering::Relaxed);
+                Ok(transaction_id)
+            },
+            priority,
+        );
 
         // Return transaction ID immediately for async processing
         match handle.join() {
-            Ok(result) => result,
-            Err(_) => {
+            Some(Ok(result)) => result,
+            Some(Err(_)) | None => {
                 self.failed_transactions.fetch_add(1, Ordering::Relaxed);
                 Err("Transaction execution failed".to_string())
             }
@@ -287,13 +319,20 @@ impl TransactionEngine {
     }
 
     /// Process multiple transactions concurrently to test edge cases
-    fn process_batch_transfers(&self, transfers: Vec<(u64, u64, u64)>) -> Result<Vec<Result<u64, String>>, String> {
+    fn process_batch_transfers(
+        &self,
+        transfers: Vec<(u64, u64, u64)>,
+    ) -> Result<Vec<Result<u64, String>>, String> {
         let mut handles = Vec::new();
-        
+
         for (from, to, amount) in transfers {
             let engine = self;
-            let priority = if amount > 1000 { Priority::High } else { Priority::Normal };
-            
+            let priority = if amount > 1000 {
+                Priority::High
+            } else {
+                Priority::Normal
+            };
+
             // Process each transfer with appropriate priority
             match engine.process_transfer(from, to, amount, priority) {
                 Ok(tx_id) => handles.push(Ok(tx_id)),
@@ -322,9 +361,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create test accounts
     println!("\n1. Setting up test accounts...");
     engine.create_account(1001, 10000)?; // Alice
-    engine.create_account(1002, 5000)?;  // Bob  
-    engine.create_account(1003, 7500)?;  // Carol
-    engine.create_account(1004, 2000)?;  // Dave
+    engine.create_account(1002, 5000)?; // Bob
+    engine.create_account(1003, 7500)?; // Carol
+    engine.create_account(1004, 2000)?; // Dave
     engine.create_account(1005, 15000)?; // Eve
 
     println!("  Created 5 accounts with initial balances");
@@ -332,28 +371,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Edge Case 1: High-frequency concurrent transfers
     println!("\n2. High-frequency concurrent transfers...");
     let start_time = Instant::now();
-    
+
     let concurrent_transfers = vec![
-        (1001, 1002, 100),  // Alice -> Bob
-        (1002, 1003, 50),   // Bob -> Carol
-        (1003, 1004, 75),   // Carol -> Dave
-        (1004, 1005, 25),   // Dave -> Eve
-        (1005, 1001, 200),  // Eve -> Alice
-        (1001, 1003, 150),  // Alice -> Carol
-        (1002, 1004, 80),   // Bob -> Dave
-        (1003, 1005, 120),  // Carol -> Eve
-        (1004, 1001, 90),   // Dave -> Alice
-        (1005, 1002, 110),  // Eve -> Bob
+        (1001, 1002, 100), // Alice -> Bob
+        (1002, 1003, 50),  // Bob -> Carol
+        (1003, 1004, 75),  // Carol -> Dave
+        (1004, 1005, 25),  // Dave -> Eve
+        (1005, 1001, 200), // Eve -> Alice
+        (1001, 1003, 150), // Alice -> Carol
+        (1002, 1004, 80),  // Bob -> Dave
+        (1003, 1005, 120), // Carol -> Eve
+        (1004, 1001, 90),  // Dave -> Alice
+        (1005, 1002, 110), // Eve -> Bob
     ];
 
     let results = engine.process_batch_transfers(concurrent_transfers)?;
     let processing_time = start_time.elapsed();
 
-    println!("  Processed {} transfers in {:?}", results.len(), processing_time);
-    
+    println!(
+        "  Processed {} transfers in {:?}",
+        results.len(),
+        processing_time
+    );
+
     let successful_count = results.iter().filter(|r| r.is_ok()).count();
     let failed_count = results.len() - successful_count;
-    println!("  Results: {} successful, {} failed", successful_count, failed_count);
+    println!(
+        "  Results: {} successful, {} failed",
+        successful_count, failed_count
+    );
 
     // Edge Case 2: Insufficient funds scenario
     println!("\n3. Testing insufficient funds edge case...");
@@ -379,11 +425,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Edge Case 5: Race condition simulation
     println!("\n6. Simulating race conditions with rapid transfers...");
     let race_start = Instant::now();
-    
+
     // Create multiple rapid transfers from the same account
     let rapid_transfers = vec![
         (1001, 1002, 1000),
-        (1001, 1003, 1000), 
+        (1001, 1003, 1000),
         (1001, 1004, 1000),
         (1001, 1005, 1000),
         (1001, 1002, 1000),
@@ -394,12 +440,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let race_results = engine.process_batch_transfers(rapid_transfers)?;
     let race_time = race_start.elapsed();
-    
+
     let race_successful = race_results.iter().filter(|r| r.is_ok()).count();
     let race_failed = race_results.len() - race_successful;
-    
-    println!("  Rapid transfers: {} successful, {} failed in {:?}", 
-             race_successful, race_failed, race_time);
+
+    println!(
+        "  Rapid transfers: {} successful, {} failed in {:?}",
+        race_successful, race_failed, race_time
+    );
 
     // Display final account balances
     println!("\n7. Final account balances:");
@@ -416,8 +464,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Successful transactions: {}", successful);
     println!("  Failed transactions: {}", failed);
     println!("  Audit entries: {}", audit_entries);
-    println!("  Success rate: {:.2}%", 
-             (successful as f64 / (successful + failed) as f64) * 100.0);
+    println!(
+        "  Success rate: {:.2}%",
+        (successful as f64 / (successful + failed) as f64) * 100.0
+    );
 
     // Edge Case 6: Audit trail verification
     println!("\n9. Audit trail verification for Account 1001:");
@@ -425,9 +475,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(entries) => {
             println!("  Found {} audit entries:", entries.len());
             for (i, entry) in entries.iter().take(5).enumerate() {
-                println!("    {}. TX{}: {} (${} -> ${})", 
-                         i + 1, entry.transaction_id, entry.operation,
-                         entry.balance_before, entry.balance_after);
+                println!(
+                    "    {}. TX{}: {} (${} -> ${})",
+                    i + 1,
+                    entry.transaction_id,
+                    entry.operation,
+                    entry.balance_before,
+                    entry.balance_after
+                );
             }
             if entries.len() > 5 {
                 println!("    ... and {} more entries", entries.len() - 5);

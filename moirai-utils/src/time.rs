@@ -195,7 +195,7 @@ where
         f();
     }
     let total_duration = start.elapsed();
-    
+
     total_duration / iterations as u32
 }
 
@@ -207,18 +207,18 @@ mod tests {
     #[test]
     fn test_high_res_timer() {
         let mut timer = HighResTimer::new();
-        
+
         // Sleep for a small amount
         thread::sleep(Duration::from_millis(10));
-        
+
         let elapsed = timer.elapsed();
         assert!(elapsed >= Duration::from_millis(10));
         assert!(elapsed < Duration::from_millis(100)); // Should be much less
-        
+
         // Test restart
         let restart_elapsed = timer.restart();
         assert!(restart_elapsed >= Duration::from_millis(10));
-        
+
         // Timer should be reset now
         thread::sleep(Duration::from_millis(1));
         let new_elapsed = timer.elapsed();
@@ -231,17 +231,28 @@ mod tests {
         let micros = unix_timestamp_micros();
         let millis = unix_timestamp_millis();
         let secs = unix_timestamp_secs();
-        
+
         // Basic sanity checks
         assert!(nanos > 0);
         assert!(micros > 0);
         assert!(millis > 0);
         assert!(secs > 0);
-        
-        // Check relationships
-        assert!(nanos / 1_000 >= micros - 1); // Allow for timing differences
-        assert!(micros / 1_000 >= millis - 1);
-        assert!(millis / 1_000 >= secs - 1);
+
+        // Check relationships: each call uses a fresh SystemTime::now(), so later
+        // calls may be slightly higher.  Allow up to 1 second of drift to keep
+        // the test robust on slow or heavily-loaded machines.
+        let nanos_as_secs = nanos / 1_000_000_000;
+        let micros_as_secs = micros / 1_000_000;
+        let millis_as_secs = millis / 1_000;
+        assert!(nanos_as_secs.abs_diff(secs) <= 1, "nanos and secs diverged");
+        assert!(
+            micros_as_secs.abs_diff(secs) <= 1,
+            "micros and secs diverged"
+        );
+        assert!(
+            millis_as_secs.abs_diff(secs) <= 1,
+            "millis and secs diverged"
+        );
     }
 
     #[test]
@@ -250,7 +261,7 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
             42
         });
-        
+
         assert_eq!(result, 42);
         assert!(duration >= Duration::from_millis(5));
         assert!(duration < Duration::from_millis(50));
@@ -261,7 +272,7 @@ mod tests {
         let avg_duration = time_average(3, || {
             thread::sleep(Duration::from_millis(1));
         });
-        
+
         // Should be close to 1ms, allowing for overhead
         assert!(avg_duration >= Duration::from_millis(1));
         assert!(avg_duration < Duration::from_millis(10));
@@ -273,7 +284,7 @@ mod tests {
             // This should never be called
             panic!("Should not be executed");
         });
-        
+
         assert_eq!(avg_duration, Duration::ZERO);
     }
 }

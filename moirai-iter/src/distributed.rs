@@ -114,11 +114,10 @@ impl DistributedContext {
         }
 
         // Intelligent partitioning based on node capabilities
-        let partitions = self.task_scheduler.partition_data_intelligently(
-            data,
-            &self.nodes,
-            partition_func,
-        ).await;
+        let partitions = self
+            .task_scheduler
+            .partition_data_intelligently(data, &self.nodes, partition_func)
+            .await;
 
         partitions
             .into_iter()
@@ -154,20 +153,31 @@ impl DistributedContext {
         F: Fn(T, T) -> T + Send + Sync + 'static,
     {
         // Tree-reduce across nodes for optimal network usage
-        let result = self.task_scheduler.tree_reduce(data, reduce_func, &self.nodes).await?;
+        let result = self
+            .task_scheduler
+            .tree_reduce(data, reduce_func, &self.nodes)
+            .await?;
         Ok(result)
     }
 
-    async fn execute_tasks_distributed<R>(&self, tasks: Vec<DistributedTask>) -> Result<Vec<R>, DistributedError>
+    async fn execute_tasks_distributed<R>(
+        &self,
+        tasks: Vec<DistributedTask>,
+    ) -> Result<Vec<R>, DistributedError>
     where
         R: Send + 'static,
     {
         // Load balance tasks across available nodes
-        let node_assignments = self.task_scheduler.assign_tasks_to_nodes(&tasks, &self.nodes);
-        
+        let node_assignments = self
+            .task_scheduler
+            .assign_tasks_to_nodes(&tasks, &self.nodes);
+
         // Execute tasks with fault tolerance
-        let results = self.failure_handler.execute_with_retry(node_assignments).await?;
-        
+        let results = self
+            .failure_handler
+            .execute_with_retry(node_assignments)
+            .await?;
+
         Ok(results)
     }
 }
@@ -215,32 +225,35 @@ impl DistributedScheduler {
         // Analyze data characteristics
         let data_size = data.len();
         let _node_count = nodes.len();
-        
+
         // Calculate optimal partition sizes based on node capabilities
         let partition_sizes = self.calculate_optimal_partitions(nodes, data_size);
-        
+
         // Partition data according to calculated sizes
         let mut partitions = Vec::new();
         let mut start_idx = 0;
-        
+
         for partition_size in partition_sizes {
             let end_idx = std::cmp::min(start_idx + partition_size, data_size);
             let partition = data[start_idx..end_idx].to_vec();
             partitions.push(partition);
             start_idx = end_idx;
         }
-        
+
         partitions
     }
 
     fn calculate_optimal_partitions(&self, nodes: &[NodeConfig], total_items: usize) -> Vec<usize> {
         // Weight partitions by node capabilities
         let total_compute_power: usize = nodes.iter().map(|n| n.cpu_cores).sum();
-        
-        nodes.iter().map(|node| {
-            let weight = node.cpu_cores as f64 / total_compute_power as f64;
-            (weight * total_items as f64) as usize
-        }).collect()
+
+        nodes
+            .iter()
+            .map(|node| {
+                let weight = node.cpu_cores as f64 / total_compute_power as f64;
+                (weight * total_items as f64) as usize
+            })
+            .collect()
     }
 
     async fn create_map_tasks<T, F, R>(&self, data: Vec<T>, _map_func: F) -> Vec<DistributedTask>
@@ -250,15 +263,18 @@ impl DistributedScheduler {
         R: Send + 'static,
     {
         // Create tasks with estimated performance characteristics
-        data.into_iter().enumerate().map(|(idx, _item)| {
-            DistributedTask {
-                task_id: idx as u64,
-                node_preference: None,
-                estimated_duration: Duration::from_millis(10), // Estimated from history
-                memory_requirement: 1024, // Estimated memory usage
-                network_dependency: false,
-            }
-        }).collect()
+        data.into_iter()
+            .enumerate()
+            .map(|(idx, _item)| {
+                DistributedTask {
+                    task_id: idx as u64,
+                    node_preference: None,
+                    estimated_duration: Duration::from_millis(10), // Estimated from history
+                    memory_requirement: 1024,                      // Estimated memory usage
+                    network_dependency: false,
+                }
+            })
+            .collect()
     }
 
     async fn tree_reduce<T, F>(
@@ -281,16 +297,26 @@ impl DistributedScheduler {
         Ok(result)
     }
 
-    fn assign_tasks_to_nodes<'a>(&self, tasks: &'a [DistributedTask], nodes: &[NodeConfig]) -> HashMap<usize, Vec<&'a DistributedTask>> {
+    fn assign_tasks_to_nodes<'a>(
+        &self,
+        tasks: &'a [DistributedTask],
+        nodes: &[NodeConfig],
+    ) -> HashMap<usize, Vec<&'a DistributedTask>> {
         let mut assignments = HashMap::new();
-        
+
         // Round-robin assignment for simplicity
         // Real implementation would use sophisticated load balancing
+        if nodes.is_empty() {
+            return assignments;
+        }
         for (idx, task) in tasks.iter().enumerate() {
             let node_idx = idx % nodes.len();
-            assignments.entry(node_idx).or_insert_with(Vec::new).push(task);
+            assignments
+                .entry(node_idx)
+                .or_insert_with(Vec::new)
+                .push(task);
         }
-        
+
         assignments
     }
 }
@@ -329,7 +355,10 @@ impl FailureHandler {
         }
     }
 
-    async fn execute_with_retry<R>(&self, _assignments: HashMap<usize, Vec<&DistributedTask>>) -> Result<Vec<R>, DistributedError>
+    async fn execute_with_retry<R>(
+        &self,
+        _assignments: HashMap<usize, Vec<&DistributedTask>>,
+    ) -> Result<Vec<R>, DistributedError>
     where
         R: Send + 'static,
     {
@@ -382,7 +411,10 @@ impl<T: Send + Clone + 'static> DistributedIterator<T> {
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + Clone + 'static,
     {
-        let results = self.context.execute_distributed_map(self.data, map_func).await?;
+        let results = self
+            .context
+            .execute_distributed_map(self.data, map_func)
+            .await?;
         Ok(DistributedIterator::new(results, self.context))
     }
 
@@ -391,7 +423,9 @@ impl<T: Send + Clone + 'static> DistributedIterator<T> {
     where
         F: Fn(T, T) -> T + Send + Sync + 'static,
     {
-        self.context.execute_distributed_reduce(self.data, reduce_func).await
+        self.context
+            .execute_distributed_reduce(self.data, reduce_func)
+            .await
     }
 
     /// Collect results from all nodes
@@ -446,7 +480,7 @@ mod tests {
     #[tokio::test]
     async fn test_node_configuration() {
         let mut context = DistributedContext::new();
-        
+
         let node = NodeConfig {
             address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
             cpu_cores: 8,
@@ -462,12 +496,9 @@ mod tests {
                 bandwidth_mbps: 1000.0,
                 reliability_score: 0.99,
             },
-            capabilities: vec![
-                NodeCapability::HighCompute,
-                NodeCapability::LowLatency,
-            ],
+            capabilities: vec![NodeCapability::HighCompute, NodeCapability::LowLatency],
         };
-        
+
         context.add_node(node);
         assert_eq!(context.nodes.len(), 1);
     }
@@ -475,7 +506,7 @@ mod tests {
     #[tokio::test]
     async fn test_data_partitioning() {
         let mut context = DistributedContext::new();
-        
+
         // Add test nodes
         for i in 0..3 {
             let node = NodeConfig {
@@ -492,10 +523,10 @@ mod tests {
             };
             context.add_node(node);
         }
-        
+
         let data = (0..100).collect::<Vec<_>>();
         let partitions = context.partition_data(data, |x| *x % 3).await;
-        
+
         assert_eq!(partitions.len(), 3);
     }
 
@@ -503,10 +534,10 @@ mod tests {
     async fn test_distributed_iterator() {
         let context = DistributedContext::new();
         let data = vec![1, 2, 3, 4, 5];
-        
+
         let dist_iter = DistributedIterator::new(data, context);
         let result = dist_iter.map(|x| x * 2).await;
-        
+
         // Test would verify distributed execution
         assert!(result.is_ok());
     }

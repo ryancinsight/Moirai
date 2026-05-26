@@ -281,7 +281,7 @@ impl<T: Send + 'static> UniversalChannel<T> {
 
 /// Sender half of universal channel
 ///
-/// This wraps core channel functionality with transport-specific serialization
+/// This wraps core channel functionality with transport-specific archive bytes.
 pub struct UniversalSender<T: Send + 'static> {
     transport: Arc<TransportManager>,
     target: Address,
@@ -444,7 +444,7 @@ mod tests {
             _phantom: std::marker::PhantomData,
         };
 
-        // Test sending a simple type (requires serialization)
+        // Test sender construction; typed transport payloads use archive bytes.
         // This test demonstrates channel creation API
         // assert!(sender.send(42).is_ok());
     }

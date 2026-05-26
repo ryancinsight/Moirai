@@ -5,7 +5,7 @@ pub mod epoll;
 
 #[cfg(any(
     target_os = "macos",
-    target_os = "freebsd", 
+    target_os = "freebsd",
     target_os = "openbsd",
     target_os = "netbsd"
 ))]

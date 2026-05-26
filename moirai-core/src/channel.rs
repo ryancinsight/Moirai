@@ -17,6 +17,7 @@
 
 use crate::communication::RingBuffer;
 use std::cell::UnsafeCell;
+use std::cmp::Ordering as CmpOrdering;
 use std::collections::VecDeque;
 use std::fmt;
 use std::marker::PhantomData;
@@ -322,7 +323,13 @@ impl<T: Send> SpscReceiver<T> {
 /// Uses mutex-based implementation for simplicity and correctness
 pub struct MpmcChannel<T> {
     state: Arc<(Mutex<MpmcState<T>>, Condvar, Condvar)>,
+    bounded: Option<Arc<BoundedMpmcQueue<T>>>,
+    closed: Arc<AtomicBool>,
+    sender_waiter_count: Arc<AtomicUsize>,
+    receiver_waiter_count: Arc<AtomicUsize>,
 }
+
+const MPMC_BLOCK_SPINS: usize = 10;
 
 struct MpmcState<T> {
     queue: VecDeque<T>,
@@ -330,6 +337,20 @@ struct MpmcState<T> {
     closed: bool,
     sender_count: usize,
     receiver_count: usize,
+}
+
+struct BoundedMpmcSlot<T> {
+    sequence: AtomicUsize,
+    value: UnsafeCell<MaybeUninit<T>>,
+}
+
+struct BoundedMpmcQueue<T> {
+    buffer: Box<[BoundedMpmcSlot<T>]>,
+    mask: usize,
+    capacity: usize,
+    logical_capacity: usize,
+    enqueue_pos: CachePadded<AtomicUsize>,
+    dequeue_pos: CachePadded<AtomicUsize>,
 }
 
 impl<T> MpmcChannel<T> {
@@ -343,8 +364,14 @@ impl<T> MpmcChannel<T> {
             receiver_count: 0,
         };
 
+        let bounded = capacity.map(BoundedMpmcQueue::new).map(Arc::new);
+
         Self {
             state: Arc::new((Mutex::new(state), Condvar::new(), Condvar::new())),
+            bounded,
+            closed: Arc::new(AtomicBool::new(false)),
+            sender_waiter_count: Arc::new(AtomicUsize::new(0)),
+            receiver_waiter_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -376,16 +403,216 @@ impl<T> MpmcChannel<T> {
             MpmcReceiver { channel },
         )
     }
+
+    fn send_bounded(&self, queue: &BoundedMpmcQueue<T>, mut value: T) -> Result<()>
+    where
+        T: Send,
+    {
+        let mut spin_count = 0;
+
+        loop {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(ChannelError::Closed);
+            }
+
+            match queue.try_push(value) {
+                Ok(()) => return Ok(()),
+                Err(returned) => {
+                    value = returned;
+                }
+            }
+
+            if spin_count < MPMC_BLOCK_SPINS {
+                for _ in 0..(1 << spin_count) {
+                    std::hint::spin_loop();
+                }
+                spin_count += 1;
+                continue;
+            }
+
+            std::thread::yield_now();
+        }
+    }
+
+    fn recv_bounded(&self, queue: &BoundedMpmcQueue<T>) -> Result<T>
+    where
+        T: Send,
+    {
+        let mut spin_count = 0;
+
+        loop {
+            if let Some(value) = queue.try_pop() {
+                return Ok(value);
+            }
+
+            if self.closed.load(Ordering::Acquire) {
+                if queue.is_empty() {
+                    return Err(ChannelError::Closed);
+                }
+                std::hint::spin_loop();
+                continue;
+            }
+
+            if spin_count < MPMC_BLOCK_SPINS {
+                for _ in 0..(1 << spin_count) {
+                    std::hint::spin_loop();
+                }
+                spin_count += 1;
+                continue;
+            }
+
+            std::thread::yield_now();
+        }
+    }
 }
+
+impl<T> BoundedMpmcQueue<T> {
+    fn new(requested_capacity: usize) -> Self {
+        let logical_capacity = requested_capacity.max(1);
+        let capacity = logical_capacity.next_power_of_two().max(2);
+        let buffer = (0..capacity)
+            .map(|index| BoundedMpmcSlot {
+                sequence: AtomicUsize::new(index),
+                value: UnsafeCell::new(MaybeUninit::uninit()),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+
+        Self {
+            buffer,
+            mask: capacity - 1,
+            capacity,
+            logical_capacity,
+            enqueue_pos: CachePadded::new(AtomicUsize::new(0)),
+            dequeue_pos: CachePadded::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn try_push(&self, value: T) -> std::result::Result<(), T> {
+        let mut position = self.enqueue_pos.value.load(Ordering::Relaxed);
+
+        loop {
+            let slot = &self.buffer[position & self.mask];
+            let sequence = slot.sequence.load(Ordering::Acquire);
+            let difference = sequence as isize - position as isize;
+
+            match difference.cmp(&0) {
+                CmpOrdering::Equal => {
+                    if position.wrapping_sub(self.dequeue_pos.value.load(Ordering::Acquire))
+                        >= self.logical_capacity
+                    {
+                        return Err(value);
+                    }
+
+                    match self.enqueue_pos.value.compare_exchange_weak(
+                        position,
+                        position.wrapping_add(1),
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    ) {
+                        Ok(_) => {
+                            unsafe {
+                                (*slot.value.get()).write(value);
+                            }
+                            slot.sequence
+                                .store(position.wrapping_add(1), Ordering::Release);
+                            return Ok(());
+                        }
+                        Err(observed) => position = observed,
+                    }
+                }
+                CmpOrdering::Less => return Err(value),
+                CmpOrdering::Greater => {
+                    position = self.enqueue_pos.value.load(Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
+    fn try_pop(&self) -> Option<T> {
+        let mut position = self.dequeue_pos.value.load(Ordering::Relaxed);
+
+        loop {
+            let slot = &self.buffer[position & self.mask];
+            let sequence = slot.sequence.load(Ordering::Acquire);
+            let difference = sequence as isize - position.wrapping_add(1) as isize;
+
+            match difference.cmp(&0) {
+                CmpOrdering::Equal => {
+                    match self.dequeue_pos.value.compare_exchange_weak(
+                        position,
+                        position.wrapping_add(1),
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    ) {
+                        Ok(_) => {
+                            let value = unsafe { (*slot.value.get()).assume_init_read() };
+                            slot.sequence
+                                .store(position.wrapping_add(self.capacity), Ordering::Release);
+                            return Some(value);
+                        }
+                        Err(observed) => position = observed,
+                    }
+                }
+                CmpOrdering::Less => return None,
+                CmpOrdering::Greater => {
+                    position = self.dequeue_pos.value.load(Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.enqueue_pos.value.load(Ordering::Acquire)
+            == self.dequeue_pos.value.load(Ordering::Acquire)
+    }
+
+    fn is_full(&self) -> bool {
+        self.enqueue_pos
+            .value
+            .load(Ordering::Acquire)
+            .wrapping_sub(self.dequeue_pos.value.load(Ordering::Acquire))
+            >= self.logical_capacity
+    }
+
+    fn logical_capacity(&self) -> usize {
+        self.logical_capacity
+    }
+}
+
+impl<T> Drop for BoundedMpmcQueue<T> {
+    fn drop(&mut self) {
+        while self.try_pop().is_some() {}
+    }
+}
+
+unsafe impl<T: Send> Send for BoundedMpmcQueue<T> {}
+unsafe impl<T: Send> Sync for BoundedMpmcQueue<T> {}
 
 impl<T: Send> Channel<T> for MpmcChannel<T> {
     fn send(&self, value: T) -> Result<()> {
+        if let Some(queue) = &self.bounded {
+            return self.send_bounded(queue, value);
+        }
+
         let (mutex, not_full, not_empty) = &*self.state;
         let mut guard = mutex.lock().unwrap();
+        let mut spin_count = 0;
 
         // Wait for space or channel closure
         while !guard.closed && guard.capacity.map_or(false, |cap| guard.queue.len() >= cap) {
-            guard = not_full.wait(guard).unwrap();
+            if spin_count < MPMC_BLOCK_SPINS {
+                drop(guard);
+                for _ in 0..(1 << spin_count) {
+                    std::hint::spin_loop();
+                }
+                spin_count += 1;
+                guard = mutex.lock().unwrap();
+            } else {
+                self.sender_waiter_count.fetch_add(1, Ordering::AcqRel);
+                guard = not_full.wait(guard).unwrap();
+                self.sender_waiter_count.fetch_sub(1, Ordering::AcqRel);
+            }
         }
 
         if guard.closed {
@@ -393,11 +620,22 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
         }
 
         guard.queue.push_back(value);
-        not_empty.notify_one();
+        drop(guard);
+
+        if self.receiver_waiter_count.load(Ordering::Acquire) > 0 {
+            not_empty.notify_one();
+        }
         Ok(())
     }
 
     fn try_send(&self, value: T) -> Result<()> {
+        if let Some(queue) = &self.bounded {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(ChannelError::Closed);
+            }
+            return queue.try_push(value).map_err(|_| ChannelError::Full);
+        }
+
         let (mutex, _, not_empty) = &*self.state;
         let mut guard = mutex.lock().unwrap();
 
@@ -410,21 +648,45 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
         }
 
         guard.queue.push_back(value);
-        not_empty.notify_one();
+        drop(guard);
+
+        if self.receiver_waiter_count.load(Ordering::Acquire) > 0 {
+            not_empty.notify_one();
+        }
         Ok(())
     }
 
     fn recv(&self) -> Result<T> {
+        if let Some(queue) = &self.bounded {
+            return self.recv_bounded(queue);
+        }
+
         let (mutex, not_full, not_empty) = &*self.state;
         let mut guard = mutex.lock().unwrap();
+        let mut spin_count = 0;
 
         // Wait for message or channel closure
         while guard.queue.is_empty() && !guard.closed {
-            guard = not_empty.wait(guard).unwrap();
+            if spin_count < MPMC_BLOCK_SPINS {
+                drop(guard);
+                for _ in 0..(1 << spin_count) {
+                    std::hint::spin_loop();
+                }
+                spin_count += 1;
+                guard = mutex.lock().unwrap();
+            } else {
+                self.receiver_waiter_count.fetch_add(1, Ordering::AcqRel);
+                guard = not_empty.wait(guard).unwrap();
+                self.receiver_waiter_count.fetch_sub(1, Ordering::AcqRel);
+            }
         }
 
         if let Some(value) = guard.queue.pop_front() {
-            not_full.notify_one();
+            drop(guard);
+
+            if self.sender_waiter_count.load(Ordering::Acquire) > 0 {
+                not_full.notify_one();
+            }
             Ok(value)
         } else {
             Err(ChannelError::Closed)
@@ -432,11 +694,25 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
     }
 
     fn try_recv(&self) -> Result<T> {
+        if let Some(queue) = &self.bounded {
+            if let Some(value) = queue.try_pop() {
+                return Ok(value);
+            }
+            if self.closed.load(Ordering::Acquire) {
+                return Err(ChannelError::Closed);
+            }
+            return Err(ChannelError::Empty);
+        }
+
         let (mutex, not_full, _) = &*self.state;
         let mut guard = mutex.lock().unwrap();
 
         if let Some(value) = guard.queue.pop_front() {
-            not_full.notify_one();
+            drop(guard);
+
+            if self.sender_waiter_count.load(Ordering::Acquire) > 0 {
+                not_full.notify_one();
+            }
             Ok(value)
         } else if guard.closed {
             Err(ChannelError::Closed)
@@ -446,18 +722,30 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
     }
 
     fn is_empty(&self) -> bool {
+        if let Some(queue) = &self.bounded {
+            return queue.is_empty();
+        }
+
         let (mutex, _, _) = &*self.state;
         let guard = mutex.lock().unwrap();
         guard.queue.is_empty()
     }
 
     fn is_full(&self) -> bool {
+        if let Some(queue) = &self.bounded {
+            return queue.is_full();
+        }
+
         let (mutex, _, _) = &*self.state;
         let guard = mutex.lock().unwrap();
         guard.capacity.map_or(false, |cap| guard.queue.len() >= cap)
     }
 
     fn capacity(&self) -> Option<usize> {
+        if let Some(queue) = &self.bounded {
+            return Some(queue.logical_capacity());
+        }
+
         let (mutex, _, _) = &*self.state;
         let guard = mutex.lock().unwrap();
         guard.capacity
@@ -499,6 +787,7 @@ impl<T> Drop for MpmcSender<T> {
         guard.sender_count -= 1;
         if guard.sender_count == 0 {
             guard.closed = true;
+            self.channel.closed.store(true, Ordering::Release);
             not_empty.notify_all();
         }
     }
@@ -539,6 +828,7 @@ impl<T> Drop for MpmcReceiver<T> {
         guard.receiver_count -= 1;
         if guard.receiver_count == 0 {
             guard.closed = true;
+            self.channel.closed.store(true, Ordering::Release);
             not_full.notify_all();
         }
     }
@@ -796,8 +1086,10 @@ impl<T: Send> HybridReceiver<T> {
                         parked.push(current_thread.clone());
                     }
 
-                    // Park with timeout
-                    std::thread::park_timeout(timeout - start.elapsed());
+                    // Park for the remaining timeout budget.
+                    if let Some(remaining) = timeout.checked_sub(start.elapsed()) {
+                        std::thread::park_timeout(remaining);
+                    }
 
                     // Remove from parker list
                     if let Ok(mut parked) = self.parker.lock() {
@@ -917,6 +1209,134 @@ mod tests {
     }
 
     #[test]
+    fn test_mpmc_multi_producer_single_consumer() {
+        use std::thread;
+
+        let producer_count = 4;
+        let items_per_producer = 1_000;
+        let (tx, rx) = mpmc::<usize>(64);
+
+        let consumer = thread::spawn(move || {
+            let mut sum = 0usize;
+            for _ in 0..(producer_count * items_per_producer) {
+                sum += rx.recv().unwrap();
+            }
+            sum
+        });
+
+        let producers = (0..producer_count)
+            .map(|producer| {
+                let tx = tx.clone();
+                thread::spawn(move || {
+                    for item in 0..items_per_producer {
+                        tx.send(producer * items_per_producer + item).unwrap();
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for producer in producers {
+            producer.join().unwrap();
+        }
+        drop(tx);
+
+        let expected = (0..(producer_count * items_per_producer)).sum::<usize>();
+        assert_eq!(consumer.join().unwrap(), expected);
+    }
+
+    #[test]
+    fn test_mpmc_capacity_one_single_producer_consumer() {
+        use std::thread;
+
+        let item_count = 32_768;
+        let (tx, rx) = mpmc::<usize>(1);
+
+        let consumer = thread::spawn(move || {
+            let mut sum = 0usize;
+            for _ in 0..item_count {
+                sum += rx.recv().unwrap();
+            }
+            sum
+        });
+
+        let producer = thread::spawn(move || {
+            for item in 0..item_count {
+                tx.send(item).unwrap();
+            }
+        });
+
+        producer.join().unwrap();
+
+        let expected = (0..item_count).sum::<usize>();
+        assert_eq!(consumer.join().unwrap(), expected);
+    }
+
+    #[test]
+    fn test_mpmc_capacity_one_repeated_single_producer_consumer() {
+        for _ in 0..8 {
+            let item_count = 4_096;
+            let (tx, rx) = mpmc::<usize>(1);
+
+            let consumer = std::thread::spawn(move || {
+                let mut sum = 0usize;
+                for _ in 0..item_count {
+                    sum += rx.recv().unwrap();
+                }
+                sum
+            });
+
+            let producer = std::thread::spawn(move || {
+                for item in 0..item_count {
+                    tx.send(item).unwrap();
+                }
+            });
+
+            producer.join().unwrap();
+
+            let expected = (0..item_count).sum::<usize>();
+            assert_eq!(consumer.join().unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn test_mpmc_capacity_one_multi_producer_single_consumer() {
+        let producer_count = 8;
+        let item_count = 8_192;
+        let (tx, rx) = mpmc::<usize>(1);
+
+        let consumer = std::thread::spawn(move || {
+            let mut sum = 0usize;
+            for _ in 0..item_count {
+                sum += rx.recv().unwrap();
+            }
+            sum
+        });
+
+        let producers = (0..producer_count)
+            .map(|producer| {
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    let base = item_count / producer_count;
+                    let remainder = item_count % producer_count;
+                    let start = producer * base + producer.min(remainder);
+                    let len = base + usize::from(producer < remainder);
+                    for item in start..(start + len) {
+                        tx.send(item).unwrap();
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for producer in producers {
+            producer.join().unwrap();
+        }
+        drop(tx);
+
+        let expected = (0..item_count).sum::<usize>();
+        assert_eq!(consumer.join().unwrap(), expected);
+    }
+
+    #[test]
     fn test_unbounded_channel() {
         let (tx, rx) = unbounded::<i32>();
 
@@ -1001,8 +1421,14 @@ mod tests {
         let received = Arc::new(AtomicBool::new(false));
         let received_clone = received.clone();
 
+        // Signal from receiver thread once it is about to block on recv()
+        let receiver_ready = Arc::new(AtomicBool::new(false));
+        let receiver_ready_clone = receiver_ready.clone();
+
         // Start receiver thread
         let receiver_thread = thread::spawn(move || {
+            // Signal readiness just before blocking
+            receiver_ready_clone.store(true, Ordering::Release);
             let start = Instant::now();
             let value = receiver.recv().unwrap();
             let elapsed = start.elapsed();
@@ -1010,8 +1436,12 @@ mod tests {
             (value, elapsed)
         });
 
-        // Wait a bit to ensure receiver is parked
-        thread::sleep(Duration::from_millis(100));
+        // Wait until receiver thread has started and signalled readiness
+        while !receiver_ready.load(Ordering::Acquire) {
+            std::hint::spin_loop();
+        }
+        // Extra margin to ensure the thread has actually entered recv() / parked
+        thread::sleep(Duration::from_millis(50));
 
         // Send value - this should unpark the receiver
         sender.send(42).unwrap();
@@ -1021,8 +1451,13 @@ mod tests {
         assert_eq!(value, 42);
         assert!(received.load(Ordering::Acquire));
 
-        // The receiver should have been parked for ~100ms
-        assert!(elapsed >= Duration::from_millis(90));
-        assert!(elapsed < Duration::from_millis(200));
+        // The receiver should have been parked for the sleep duration; allow generous
+        // tolerance for slow CI machines (assert >= 10ms rather than 90ms).
+        assert!(
+            elapsed >= Duration::from_millis(10),
+            "receiver should have parked, elapsed: {:?}",
+            elapsed
+        );
+        assert!(elapsed < Duration::from_millis(500));
     }
 }

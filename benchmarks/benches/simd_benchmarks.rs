@@ -7,6 +7,11 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use moirai_utils::global_simd_counter;
 use moirai_utils::simd::*;
+use std::time::Duration;
+
+const SIMD_SAMPLE_SIZE: usize = 10;
+const SIMD_MEASUREMENT_SECONDS: u64 = 1;
+const SIMD_WARM_UP_MILLIS: u64 = 250;
 
 /// Generate test data for benchmarks.
 fn generate_test_data(size: usize) -> (Vec<f32>, Vec<f32>) {
@@ -29,6 +34,9 @@ fn generate_matrix_data() -> ([f32; 16], [f32; 16]) {
 /// Benchmark vector addition operations.
 fn bench_vector_addition(c: &mut Criterion) {
     let mut group = c.benchmark_group("vector_addition");
+    group.sample_size(SIMD_SAMPLE_SIZE);
+    group.measurement_time(Duration::from_secs(SIMD_MEASUREMENT_SECONDS));
+    group.warm_up_time(Duration::from_millis(SIMD_WARM_UP_MILLIS));
 
     for size in [64, 256, 1024, 4096, 16384].iter() {
         let (a, b) = generate_test_data(*size);
@@ -76,6 +84,9 @@ fn bench_vector_addition(c: &mut Criterion) {
 /// Benchmark vector multiplication operations.
 fn bench_vector_multiplication(c: &mut Criterion) {
     let mut group = c.benchmark_group("vector_multiplication");
+    group.sample_size(SIMD_SAMPLE_SIZE);
+    group.measurement_time(Duration::from_secs(SIMD_MEASUREMENT_SECONDS));
+    group.warm_up_time(Duration::from_millis(SIMD_WARM_UP_MILLIS));
 
     for size in [64, 256, 1024, 4096, 16384].iter() {
         let (a, b) = generate_test_data(*size);
@@ -108,6 +119,9 @@ fn bench_vector_multiplication(c: &mut Criterion) {
 /// Benchmark dot product operations.
 fn bench_dot_product(c: &mut Criterion) {
     let mut group = c.benchmark_group("dot_product");
+    group.sample_size(SIMD_SAMPLE_SIZE);
+    group.measurement_time(Duration::from_secs(SIMD_MEASUREMENT_SECONDS));
+    group.warm_up_time(Duration::from_millis(SIMD_WARM_UP_MILLIS));
 
     for size in [64, 256, 1024, 4096, 16384].iter() {
         let (a, b) = generate_test_data(*size);
@@ -152,6 +166,9 @@ fn bench_dot_product(c: &mut Criterion) {
 /// Benchmark matrix multiplication operations.
 fn bench_matrix_multiplication(c: &mut Criterion) {
     let mut group = c.benchmark_group("matrix_multiplication_4x4");
+    group.sample_size(SIMD_SAMPLE_SIZE);
+    group.measurement_time(Duration::from_secs(SIMD_MEASUREMENT_SECONDS));
+    group.warm_up_time(Duration::from_millis(SIMD_WARM_UP_MILLIS));
     let (a, b) = generate_matrix_data();
     let mut result = [0.0f32; 16];
 
@@ -195,6 +212,9 @@ fn bench_matrix_multiplication(c: &mut Criterion) {
 /// Benchmark statistical operations.
 fn bench_statistical_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("statistical_operations");
+    group.sample_size(SIMD_SAMPLE_SIZE);
+    group.measurement_time(Duration::from_secs(SIMD_MEASUREMENT_SECONDS));
+    group.warm_up_time(Duration::from_millis(SIMD_WARM_UP_MILLIS));
 
     for size in [64, 256, 1024, 4096, 16384].iter() {
         let (data, _) = generate_test_data(*size);
@@ -274,6 +294,9 @@ fn bench_statistical_operations(c: &mut Criterion) {
 /// Benchmark SIMD capability detection.
 fn bench_capability_detection(c: &mut Criterion) {
     let mut group = c.benchmark_group("capability_detection");
+    group.sample_size(SIMD_SAMPLE_SIZE);
+    group.measurement_time(Duration::from_secs(SIMD_MEASUREMENT_SECONDS));
+    group.warm_up_time(Duration::from_millis(SIMD_WARM_UP_MILLIS));
 
     group.bench_function("avx2_detection", |bench| {
         bench.iter(|| {
@@ -293,6 +316,9 @@ fn bench_capability_detection(c: &mut Criterion) {
 /// Benchmark performance counter operations.
 fn bench_performance_counters(c: &mut Criterion) {
     let mut group = c.benchmark_group("performance_counters");
+    group.sample_size(SIMD_SAMPLE_SIZE);
+    group.measurement_time(Duration::from_secs(SIMD_MEASUREMENT_SECONDS));
+    group.warm_up_time(Duration::from_millis(SIMD_WARM_UP_MILLIS));
 
     let counter = global_simd_counter();
 
@@ -326,6 +352,9 @@ fn bench_performance_counters(c: &mut Criterion) {
 /// Comprehensive SIMD vs scalar comparison.
 fn bench_comprehensive_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("comprehensive_comparison");
+    group.sample_size(SIMD_SAMPLE_SIZE);
+    group.measurement_time(Duration::from_secs(SIMD_MEASUREMENT_SECONDS));
+    group.warm_up_time(Duration::from_millis(SIMD_WARM_UP_MILLIS));
 
     // Reset counters for clean measurement
     global_simd_counter().reset();
@@ -382,18 +411,24 @@ fn bench_comprehensive_comparison(c: &mut Criterion) {
     group.finish();
 
     // Print performance statistics
-    let stats = global_simd_counter().get_stats();
+    let (vectorized_ops, scalar_ops, vectorized_elements, scalar_elements) =
+        global_simd_counter().get_stats();
+    let total_ops = vectorized_ops + scalar_ops;
+    let utilization_ratio = if total_ops == 0 {
+        0.0
+    } else {
+        vectorized_ops as f64 / total_ops as f64
+    };
+    let element_ratio = if scalar_elements == 0 {
+        0.0
+    } else {
+        vectorized_elements as f64 / scalar_elements as f64
+    };
     println!("\n=== SIMD Performance Statistics ===");
-    println!("Vectorized operations: {}", stats.vectorized_ops);
-    println!("Scalar operations: {}", stats.scalar_ops);
-    println!(
-        "SIMD utilization ratio: {:.2}%",
-        stats.utilization_ratio * 100.0
-    );
-    println!(
-        "Performance improvement factor: {:.2}x",
-        stats.performance_improvement_factor()
-    );
+    println!("Vectorized operations: {vectorized_ops}");
+    println!("Scalar operations: {scalar_ops}");
+    println!("SIMD utilization ratio: {:.2}%", utilization_ratio * 100.0);
+    println!("Vectorized/scalar element ratio: {element_ratio:.2}x");
     println!("AVX2 support: {}", has_avx2_support());
     println!("NEON support: {}", has_neon_support());
 }

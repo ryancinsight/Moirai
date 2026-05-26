@@ -38,7 +38,7 @@ pub struct ExecutorMetrics {
 
     // System metrics
     pub started_at: Instant,
-    pub last_updated: std::sync::Mutex<Instant>,
+    pub last_updated_after_ns: AtomicU64,
 }
 
 impl ExecutorMetrics {
@@ -59,7 +59,7 @@ impl ExecutorMetrics {
             memory_usage: AtomicUsize::new(0),
             cpu_utilization: AtomicU64::new(0),
             started_at: now,
-            last_updated: std::sync::Mutex::new(now),
+            last_updated_after_ns: AtomicU64::new(0),
         }
     }
 
@@ -71,18 +71,10 @@ impl ExecutorMetrics {
 
     /// Record a task completion with execution time
     pub fn record_task_completed(&self, execution_time: Duration) {
-        self.tasks_completed.fetch_add(1, Ordering::Relaxed);
         let exec_nanos = execution_time.as_nanos() as u64;
+        self.tasks_completed.fetch_add(1, Ordering::Relaxed);
         self.total_execution_time
             .fetch_add(exec_nanos, Ordering::Relaxed);
-
-        // Update average (simple approach - more sophisticated methods could be used)
-        let completed = self.tasks_completed.load(Ordering::Relaxed);
-        let total_time = self.total_execution_time.load(Ordering::Relaxed);
-        if completed > 0 {
-            self.average_task_duration
-                .store(total_time / completed, Ordering::Relaxed);
-        }
 
         self.update_timestamp();
     }
@@ -149,7 +141,15 @@ impl ExecutorMetrics {
 
     /// Get average task duration
     pub fn average_task_duration(&self) -> Duration {
-        Duration::from_nanos(self.average_task_duration.load(Ordering::Relaxed))
+        let completed = self.tasks_completed.load(Ordering::Relaxed);
+        let average = self
+            .total_execution_time
+            .load(Ordering::Relaxed)
+            .checked_div(completed)
+            .unwrap_or(0);
+
+        self.average_task_duration.store(average, Ordering::Relaxed);
+        Duration::from_nanos(average)
     }
 
     /// Get worker utilization percentage
@@ -178,11 +178,19 @@ impl ExecutorMetrics {
         self.started_at.elapsed()
     }
 
+    /// Get the last metrics update timestamp.
+    pub fn last_updated(&self) -> Instant {
+        self.started_at
+            .checked_add(Duration::from_nanos(
+                self.last_updated_after_ns.load(Ordering::Relaxed),
+            ))
+            .unwrap_or(self.started_at)
+    }
+
     /// Update the last updated timestamp
     fn update_timestamp(&self) {
-        if let Ok(mut last_updated) = self.last_updated.try_lock() {
-            *last_updated = Instant::now();
-        }
+        self.last_updated_after_ns
+            .store(elapsed_nanos_since(self.started_at), Ordering::Relaxed);
     }
 
     /// Reset all metrics (useful for testing)
@@ -201,6 +209,10 @@ impl ExecutorMetrics {
         self.cpu_utilization.store(0, Ordering::Relaxed);
         self.update_timestamp();
     }
+}
+
+fn elapsed_nanos_since(origin: Instant) -> u64 {
+    origin.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64
 }
 
 impl Default for ExecutorMetrics {

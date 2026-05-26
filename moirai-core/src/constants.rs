@@ -18,8 +18,8 @@ pub const BYTES_TO_MB_FACTOR: f64 = 1024.0 * 1024.0;
 /// Default wait interval for executor polling loop in milliseconds
 pub const DEFAULT_POLL_INTERVAL_MS: u64 = 10;
 
-/// Maximum spin attempts before falling back to blocking
-pub const MAX_SPIN_ATTEMPTS: usize = 100;
+/// Maximum generic spin attempts before falling back to blocking
+pub const MAX_SPIN_ATTEMPTS: usize = 64;
 
 /// Maximum backoff iterations for SpinLock (TBB-inspired)
 pub const SPINLOCK_MAX_BACKOFF: usize = 64;
@@ -56,7 +56,7 @@ pub const SIMD_BENCHMARK_SIZE: usize = 1024;
 
 // Test constants - only included in test builds
 /// Test-specific constants for benchmarking and validation.
-/// 
+///
 /// These constants are only available during testing to ensure consistent
 /// test behavior across different test environments and platforms.
 #[cfg(test)]

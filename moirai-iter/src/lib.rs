@@ -45,7 +45,7 @@ pub use execution::{
 pub use multi_system::{MultiSystemContext, MultiSystemIterator, SystemConfig};
 pub use parallel::{
     IntoParallelIterator, IntoParallelRefIterator, ParallelExtend, ParallelIterator,
-    RangeParIter, VecParIter, VecRefParIter,
+    ParallelSliceMut, RangeParIter, VecParIter, VecRefParIter,
 };
 
 /// Main iterator type that adapts to different execution contexts
@@ -77,12 +77,18 @@ impl<T: Send + Clone + 'static> MoiraiIterator<T> {
 
     /// Create with distributed context for multi-machine processing
     pub fn distributed(data: Vec<T>) -> Self {
-        Self::new(data, ExecutionContext::Distributed(distributed::DistributedContext::new()))
+        Self::new(
+            data,
+            ExecutionContext::Distributed(distributed::DistributedContext::new()),
+        )
     }
 
     /// Create with multi-system context for coordinated compute
     pub fn multi_system(data: Vec<T>) -> Self {
-        Self::new(data, ExecutionContext::MultiSystem(multi_system::MultiSystemContext::new()))
+        Self::new(
+            data,
+            ExecutionContext::MultiSystem(multi_system::MultiSystemContext::new()),
+        )
     }
 
     /// Map operation that preserves the execution context
@@ -286,7 +292,7 @@ pub fn moirai_iter_multi_system<T: Send + Clone + 'static>(data: Vec<T>) -> Moir
     MoiraiIterator::multi_system(data)
 }
 
-/// Parallel range iterator - Rayon compatibility
+/// Parallel range iterator for Moirai's Rayon-style non-indexed subset.
 pub fn par_range(start: usize, end: usize) -> impl ParallelIterator<Item = usize> {
     parallel::RangeParIter::new(start, end)
 }

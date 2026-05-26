@@ -5,7 +5,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -112,15 +112,14 @@ impl TaskMetadata {
 /// Future for waiting on task completion
 pub struct TaskWaitFuture {
     pub(crate) task_id: u64,
-    pub(crate) registry: Arc<Mutex<super::registry::TaskRegistry>>,
+    pub(crate) registry: Arc<super::registry::TaskRegistry>,
 }
 
 impl Future for TaskWaitFuture {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let registry = self.registry.lock().unwrap();
-        if registry.is_completed(self.task_id) {
+        if self.registry.is_completed(self.task_id) {
             Poll::Ready(())
         } else {
             Poll::Pending

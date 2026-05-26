@@ -7,16 +7,18 @@
 
 use crate::error::{SchedulerError, SchedulerResult};
 use crate::platform::*;
-use crate::BoxedTask;
 use core::cell::UnsafeCell;
 use core::cmp::Reverse;
 use core::fmt;
-use core::future::Future;
 use core::num::Wrapping;
-use core::pin::Pin;
 
 #[cfg(feature = "std")]
 use std::time::SystemTime;
+
+#[path = "scheduler/task.rs"]
+mod task;
+
+pub use task::{ScheduledTask, INLINE_SCHEDULED_TASK_WORDS};
 
 /// Padding helper to ensure cache line alignment
 #[repr(align(64))]
@@ -422,7 +424,15 @@ pub trait Scheduler: Send + Sync + 'static {
     /// - Resource constraints (queue full, memory limits)
     /// - Scheduler shutdown or invalid state
     /// - Task validation failures
-    fn schedule(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()>;
+    fn schedule(&self, task: ScheduledTask) -> SchedulerResult<()>;
+
+    /// Schedule a concrete task without exposing a runtime task trait object.
+    fn schedule_task<T>(&self, task: T) -> SchedulerResult<()>
+    where
+        T: crate::task::Task,
+    {
+        self.schedule(ScheduledTask::new(task))
+    }
 
     /// Retrieves the next available task for execution.
     ///
@@ -432,7 +442,7 @@ pub trait Scheduler: Send + Sync + 'static {
     /// # Errors
     /// Returns `SchedulerError` if there's an internal error accessing the queue
     /// or if the scheduler is in an invalid state.
-    fn next_task(&self) -> SchedulerResult<Option<Box<dyn BoxedTask>>>;
+    fn next_task(&self) -> SchedulerResult<Option<ScheduledTask>>;
 
     /// Attempts to steal a task from another scheduler (work-stealing).
     ///
@@ -447,7 +457,16 @@ pub trait Scheduler: Send + Sync + 'static {
     /// - Lock contention or synchronization issues
     /// - Invalid victim scheduler state
     /// - Internal queue corruption
-    fn try_steal(&self, victim: &dyn Scheduler) -> SchedulerResult<Option<Box<dyn BoxedTask>>>;
+    fn try_steal<S>(&self, victim: &S) -> SchedulerResult<Option<ScheduledTask>>
+    where
+        S: Scheduler,
+    {
+        if victim.can_be_stolen_from() {
+            victim.next_task()
+        } else {
+            Ok(None)
+        }
+    }
 
     /// Returns the current number of queued tasks.
     fn load(&self) -> usize;
@@ -648,15 +667,15 @@ pub struct Stats {
 /// Work stealing coordinator that manages steal attempts across schedulers.
 ///
 /// This implementation now uses work-stealing deques for better performance.
-pub struct WorkStealingCoordinator {
-    schedulers: Vec<Box<dyn Scheduler>>,
+pub struct WorkStealingCoordinator<S: Scheduler> {
+    schedulers: Vec<S>,
     strategy: WorkStealingStrategy,
     stats: Arc<Mutex<Vec<Stats>>>,
     /// Global injector queue for load balancing
-    injector: Arc<WorkStealingDeque<Box<dyn BoxedTask>>>,
+    injector: Arc<WorkStealingDeque<ScheduledTask>>,
 }
 
-impl WorkStealingCoordinator {
+impl<S: Scheduler> WorkStealingCoordinator<S> {
     /// Creates a new work-stealing coordinator with the specified strategy.
     #[must_use]
     pub fn new(strategy: WorkStealingStrategy) -> Self {
@@ -669,7 +688,7 @@ impl WorkStealingCoordinator {
     }
 
     /// Register a scheduler with the coordinator.
-    pub fn register_scheduler(&mut self, scheduler: Box<dyn Scheduler>) {
+    pub fn register_scheduler(&mut self, scheduler: S) {
         let id = scheduler.id();
         self.schedulers.push(scheduler);
 
@@ -692,12 +711,12 @@ impl WorkStealingCoordinator {
     }
 
     /// Submit a task to the global injector queue
-    pub fn inject_task(&self, task: Box<dyn BoxedTask>) {
+    pub fn inject_task(&self, task: ScheduledTask) {
         self.injector.push(task);
     }
 
     /// Try to steal from the global injector
-    pub fn steal_from_injector(&self) -> Option<Box<dyn BoxedTask>> {
+    pub fn steal_from_injector(&self) -> Option<ScheduledTask> {
         self.injector.steal()
     }
 
@@ -719,7 +738,7 @@ impl WorkStealingCoordinator {
         &self,
         thief_id: SchedulerId,
         context: &mut StealContext,
-    ) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
+    ) -> SchedulerResult<Option<ScheduledTask>> {
         // First try to steal from global injector (fast path)
         if let Some(task) = self.steal_from_injector() {
             context.attempts = 0;
@@ -785,13 +804,13 @@ impl WorkStealingCoordinator {
     fn attempt_steal_from_victim(
         &self,
         thief_id: SchedulerId,
-        victim_scheduler: &Box<dyn Scheduler>,
+        victim_scheduler: &S,
         context: &mut StealContext,
-    ) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
+    ) -> SchedulerResult<Option<ScheduledTask>> {
         // Find the thief scheduler to perform the steal operation
         if let Some(thief_scheduler) = self.schedulers.iter().find(|s| s.id() == thief_id) {
             // Use the scheduler's built-in try_steal method
-            match thief_scheduler.try_steal(victim_scheduler.as_ref()) {
+            match thief_scheduler.try_steal(victim_scheduler) {
                 Ok(Some(stolen_task)) => {
                     // Add the victim to recent victims list to avoid immediate re-stealing
                     context.recent_victims.push(victim_scheduler.id());
@@ -1005,52 +1024,41 @@ impl WorkStealingCoordinator {
     }
 }
 
-/// Zero-allocation task wrapper that avoids dynamic dispatch
-///
-/// This enum can hold different task types inline without heap allocation,
-/// using static dispatch for better performance in work-stealing queues.
-pub enum TaskSlot<T = ()> {
-    /// A closure-based task
-    Closure(Option<Box<dyn FnOnce() -> T + Send>>),
-    /// A future-based task
-    #[cfg(feature = "std")]
-    Future(Option<Pin<Box<dyn Future<Output = T> + Send>>>),
-    /// Empty slot (for reuse)
-    Empty,
-}
-
-impl<T: Send + 'static> TaskSlot<T> {
-    /// Create a new closure task slot
-    pub fn new_closure<F>(f: F) -> Self
-    where
-        F: FnOnce() -> T + Send + 'static,
-    {
-        TaskSlot::Closure(Some(Box::new(f)))
-    }
-
-    /// Execute the task, consuming it
-    pub fn execute(self) -> Option<T> {
-        match self {
-            TaskSlot::Closure(Some(f)) => Some(f()),
-            #[cfg(feature = "std")]
-            TaskSlot::Future(_) => {
-                // Futures need to be polled in an async context
-                // This would be handled by the async executor
-                None
-            }
-            _ => None,
-        }
-    }
-
-    /// Check if the slot is empty
-    pub fn is_empty(&self) -> bool {
-        matches!(self, TaskSlot::Empty)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::task::{Task, TaskContext, TaskId};
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct TestTask {
+        context: TaskContext,
+        value: usize,
+        sum: Arc<AtomicUsize>,
+    }
+
+    impl TestTask {
+        fn new(id: u64, value: usize, sum: Arc<AtomicUsize>) -> Self {
+            Self {
+                context: TaskContext::new(TaskId::new(id)),
+                value,
+                sum,
+            }
+        }
+    }
+
+    impl Task for TestTask {
+        type Output = usize;
+
+        fn execute(self) -> Self::Output {
+            self.sum.fetch_add(self.value, Ordering::Relaxed);
+            self.value
+        }
+
+        fn context(&self) -> &TaskContext {
+            &self.context
+        }
+    }
 
     #[test]
     fn test_scheduler_id() {
@@ -1116,36 +1124,37 @@ mod tests {
     }
 
     #[test]
-    fn test_taskslot_zero_allocation() {
-        // Test that TaskSlot can be used without heap allocation for small closures
-        let slot = TaskSlot::new_closure(|| 42);
-        assert!(!slot.is_empty());
+    fn test_scheduled_task_zero_object_dispatch() {
+        let sum = Arc::new(AtomicUsize::new(0));
+        let task = ScheduledTask::new(TestTask::new(42, 42, Arc::clone(&sum)));
 
-        // Execute the task
-        let result = slot.execute();
-        assert_eq!(result, Some(42));
+        assert_eq!(task.context().id, TaskId::new(42));
+        task.execute();
+        assert_eq!(sum.load(Ordering::Relaxed), 42);
     }
 
     #[test]
-    fn test_work_stealing_with_taskslot() {
-        let deque = ZeroCopyWorkStealingDeque::<TaskSlot<i32>>::new(16);
+    fn test_work_stealing_with_scheduled_task() {
+        let deque = ZeroCopyWorkStealingDeque::<ScheduledTask>::new(16);
+        let sum = Arc::new(AtomicUsize::new(0));
 
         // Push multiple tasks
         for i in 0..10 {
-            deque.push(TaskSlot::new_closure(move || i * 2));
+            deque.push(ScheduledTask::new(TestTask::new(
+                i as u64,
+                i * 2,
+                Arc::clone(&sum),
+            )));
         }
 
-        // Pop tasks and execute them
-        let mut results = Vec::new();
+        // Pop tasks and execute them.
+        let mut executed = 0;
         while let Some(task) = deque.pop() {
-            if let Some(result) = task.execute() {
-                results.push(result);
-            }
+            task.execute();
+            executed += 1;
         }
 
-        // Verify we got all results (in reverse order due to LIFO)
-        assert_eq!(results.len(), 10);
-        assert_eq!(results[0], 18); // Last pushed (9 * 2)
-        assert_eq!(results[9], 0); // First pushed (0 * 2)
+        assert_eq!(executed, 10);
+        assert_eq!(sum.load(Ordering::Relaxed), (0..10).map(|i| i * 2).sum());
     }
 }

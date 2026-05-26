@@ -6,13 +6,21 @@
 #![allow(dead_code)] // Development structures per ADR requirements - will be used in future iterations
 
 use std::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use futures::stream::{self, StreamExt};
 
 /// Core async iterator trait for async/await compatible iteration
 pub trait AsyncIterator: Send {
     /// The type of items yielded by this async iterator
     type Item: Send;
+
+    /// Materialize the iterator into its logical item sequence.
+    fn into_vec(self) -> Vec<Self::Item>
+    where
+        Self: Sized;
 
     /// Async map operation that transforms each element
     fn map<F, Fut, R>(self, map_fn: F) -> AsyncMap<Self, F>
@@ -25,7 +33,7 @@ pub trait AsyncIterator: Send {
         AsyncMap::new(self, map_fn)
     }
 
-    /// Async filter operation 
+    /// Async filter operation
     fn filter<F, Fut>(self, filter_fn: F) -> AsyncFilter<Self, F>
     where
         Self: Sized,
@@ -149,6 +157,10 @@ impl<T: Send + 'static> AsyncVecIter<T> {
 
 impl<T: Send + 'static> AsyncIterator for AsyncVecIter<T> {
     type Item = T;
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        self.items
+    }
 }
 
 /// Async range iterator
@@ -170,6 +182,10 @@ impl AsyncRangeIter {
 
 impl AsyncIterator for AsyncRangeIter {
     type Item = usize;
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        (self.start..self.end).collect()
+    }
 }
 
 /// Async map operation
@@ -192,6 +208,14 @@ where
     R: Send,
 {
     type Item = R;
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        self.iter
+            .into_vec()
+            .into_iter()
+            .map(|item| futures::executor::block_on((self.map_fn)(item)))
+            .collect()
+    }
 }
 
 /// Async filter operation
@@ -213,17 +237,28 @@ where
     Fut: Future<Output = bool> + Send,
 {
     type Item = I::Item;
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        self.iter
+            .into_vec()
+            .into_iter()
+            .filter(|item| futures::executor::block_on((self.filter_fn)(item)))
+            .collect()
+    }
 }
 
 /// Async for_each operation
 pub struct AsyncForEach<I, F> {
-    iter: I,
+    iter: Option<I>,
     func: F,
 }
 
 impl<I, F> AsyncForEach<I, F> {
     fn new(iter: I, func: F) -> Self {
-        Self { iter, func }
+        Self {
+            iter: Some(iter),
+            func,
+        }
     }
 }
 
@@ -232,26 +267,33 @@ where
     I: AsyncIterator,
     F: Fn(I::Item) -> Fut + Send + Sync,
     Fut: Future<Output = ()> + Send,
+    I: Unpin,
+    F: Unpin,
 {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Simplified implementation - real version would handle async iteration
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.as_mut().get_mut();
+        if let Some(iter) = this.iter.take() {
+            for item in iter.into_vec() {
+                futures::executor::block_on((this.func)(item));
+            }
+        }
         Poll::Ready(())
     }
 }
 
 /// Async collect operation
 pub struct AsyncCollect<I, C> {
-    iter: I,
-    _phantom: std::marker::PhantomData<C>,
+    iter: Option<I>,
+    _phantom: PhantomData<C>,
 }
 
 impl<I, C> AsyncCollect<I, C> {
     fn new(iter: I) -> Self {
         Self {
-            iter,
-            _phantom: std::marker::PhantomData,
+            iter: Some(iter),
+            _phantom: PhantomData,
         }
     }
 }
@@ -260,18 +302,24 @@ impl<I, C> Future for AsyncCollect<I, C>
 where
     I: AsyncIterator,
     C: Default + Extend<I::Item> + Send,
+    I: Unpin,
+    C: Unpin,
 {
     type Output = C;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Simplified implementation
-        Poll::Ready(C::default())
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.as_mut().get_mut();
+        let mut collection = C::default();
+        if let Some(iter) = this.iter.take() {
+            collection.extend(iter.into_vec());
+        }
+        Poll::Ready(collection)
     }
 }
 
 /// Async fold operation
 pub struct AsyncFold<I, T, F> {
-    iter: I,
+    iter: Option<I>,
     accumulator: Option<T>,
     fold_fn: F,
 }
@@ -279,7 +327,7 @@ pub struct AsyncFold<I, T, F> {
 impl<I, T, F> AsyncFold<I, T, F> {
     fn new(iter: I, init: T, fold_fn: F) -> Self {
         Self {
-            iter,
+            iter: Some(iter),
             accumulator: Some(init),
             fold_fn,
         }
@@ -291,26 +339,39 @@ where
     I: AsyncIterator,
     F: Fn(T, I::Item) -> Fut + Send + Sync,
     Fut: Future<Output = T> + Send,
-    T: Send,
+    T: Send + Unpin,
+    I: Unpin,
+    F: Unpin,
 {
     type Output = T;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Simplified implementation
-        let acc = self.accumulator.as_ref().unwrap();
-        Poll::Ready(unsafe { std::ptr::read(acc) })
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.as_mut().get_mut();
+        let mut accumulator = this
+            .accumulator
+            .take()
+            .expect("async fold polled after completion");
+        if let Some(iter) = this.iter.take() {
+            for item in iter.into_vec() {
+                accumulator = futures::executor::block_on((this.fold_fn)(accumulator, item));
+            }
+        }
+        Poll::Ready(accumulator)
     }
 }
 
 /// Async reduce operation
 pub struct AsyncReduce<I, F> {
-    iter: I,
+    iter: Option<I>,
     reduce_fn: F,
 }
 
 impl<I, F> AsyncReduce<I, F> {
     fn new(iter: I, reduce_fn: F) -> Self {
-        Self { iter, reduce_fn }
+        Self {
+            iter: Some(iter),
+            reduce_fn,
+        }
     }
 }
 
@@ -319,12 +380,24 @@ where
     I: AsyncIterator,
     F: Fn(I::Item, I::Item) -> Fut + Send + Sync,
     Fut: Future<Output = I::Item> + Send,
+    I: Unpin,
+    F: Unpin,
 {
     type Output = Option<I::Item>;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Simplified implementation
-        Poll::Ready(None)
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.as_mut().get_mut();
+        let Some(iter) = this.iter.take() else {
+            return Poll::Ready(None);
+        };
+        let mut items = iter.into_vec().into_iter();
+        let Some(mut accumulator) = items.next() else {
+            return Poll::Ready(None);
+        };
+        for item in items {
+            accumulator = futures::executor::block_on((this.reduce_fn)(accumulator, item));
+        }
+        Poll::Ready(Some(accumulator))
     }
 }
 
@@ -341,6 +414,10 @@ impl<I> AsyncParallelAdapter<I> {
 
 impl<I: AsyncIterator> AsyncIterator for AsyncParallelAdapter<I> {
     type Item = I::Item;
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        self.iter.into_vec()
+    }
 }
 
 impl<I: AsyncIterator> AsyncParallelIterator for AsyncParallelAdapter<I> {}
@@ -370,6 +447,22 @@ where
     R: Send,
 {
     type Item = R;
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        let concurrency = self.concurrency.max(1);
+        let map_fn = self.map_fn;
+        let items = self.iter.into_vec();
+        futures::executor::block_on(async move {
+            stream::iter(items)
+                .map(|item| {
+                    let map_fn = &map_fn;
+                    async move { map_fn(item).await }
+                })
+                .buffered(concurrency)
+                .collect()
+                .await
+        })
+    }
 }
 
 /// Parallel async filter with concurrency control
@@ -396,11 +489,31 @@ where
     Fut: Future<Output = bool> + Send,
 {
     type Item = I::Item;
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        let concurrency = self.concurrency.max(1);
+        let filter_fn = self.filter_fn;
+        let items = self.iter.into_vec();
+        futures::executor::block_on(async move {
+            stream::iter(items)
+                .map(|item| {
+                    let filter_fn = &filter_fn;
+                    async move {
+                        let keep = filter_fn(&item).await;
+                        (item, keep)
+                    }
+                })
+                .buffered(concurrency)
+                .filter_map(|(item, keep)| async move { keep.then_some(item) })
+                .collect()
+                .await
+        })
+    }
 }
 
 /// Parallel async for_each with concurrency control
 pub struct ParAsyncForEach<I, F> {
-    iter: I,
+    iter: Option<I>,
     concurrency: usize,
     func: F,
 }
@@ -408,7 +521,7 @@ pub struct ParAsyncForEach<I, F> {
 impl<I, F> ParAsyncForEach<I, F> {
     fn new(iter: I, concurrency: usize, func: F) -> Self {
         Self {
-            iter,
+            iter: Some(iter),
             concurrency,
             func,
         }
@@ -420,11 +533,25 @@ where
     I: AsyncIterator,
     F: Fn(I::Item) -> Fut + Send + Sync,
     Fut: Future<Output = ()> + Send,
+    I: Unpin,
+    F: Unpin,
 {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Simplified implementation - real version would handle parallel async execution
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.as_mut().get_mut();
+        let concurrency = this.concurrency.max(1);
+        if let Some(iter) = this.iter.take() {
+            let func = &this.func;
+            let items = iter.into_vec();
+            futures::executor::block_on(async {
+                stream::iter(items)
+                    .map(|item| async move { func(item).await })
+                    .buffered(concurrency)
+                    .for_each(|_| async {})
+                    .await;
+            });
+        }
         Poll::Ready(())
     }
 }
@@ -432,33 +559,172 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_async_vec_iter() {
         let data = vec![1, 2, 3, 4, 5];
         let iter = data.into_async_iter();
-        
-        let _result: Vec<i32> = iter.collect().await;
-        // Test would verify async iteration behavior
+
+        let result: Vec<i32> = iter.collect().await;
+        assert_eq!(result, vec![1, 2, 3, 4, 5]);
     }
 
     #[tokio::test]
     async fn test_async_map() {
         let data = vec![1, 2, 3, 4, 5];
         let iter = data.into_async_iter();
-        
+
         let doubled = iter.map(|x| async move { x * 2 });
-        let _result: Vec<i32> = doubled.collect().await;
-        // Test would verify async map behavior
+        let result: Vec<i32> = doubled.collect().await;
+        assert_eq!(result, vec![2, 4, 6, 8, 10]);
     }
 
     #[tokio::test]
     async fn test_parallel_async_map() {
         let data = vec![1, 2, 3, 4, 5];
         let iter = data.into_async_iter().into_parallel();
-        
+
         let doubled = iter.par_map(2, |x| async move { x * 2 });
-        let _result: Vec<i32> = doubled.collect().await;
-        // Test would verify parallel async execution with concurrency control
+        let result: Vec<i32> = doubled.collect().await;
+        assert_eq!(result, vec![2, 4, 6, 8, 10]);
+    }
+
+    #[tokio::test]
+    async fn test_parallel_async_map_uses_bounded_in_flight_work() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let result: Vec<usize> = (0..8)
+            .collect::<Vec<_>>()
+            .into_async_iter()
+            .into_parallel()
+            .par_map(3, {
+                let active = Arc::clone(&active);
+                let max_active = Arc::clone(&max_active);
+                move |item| {
+                    let active = Arc::clone(&active);
+                    let max_active = Arc::clone(&max_active);
+                    let mut yielded = false;
+                    futures::future::poll_fn(move |cx| {
+                        if !yielded {
+                            yielded = true;
+                            let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                            max_active.fetch_max(now, Ordering::SeqCst);
+                            cx.waker().wake_by_ref();
+                            return Poll::Pending;
+                        }
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        Poll::Ready(item * 2)
+                    })
+                }
+            })
+            .collect()
+            .await;
+
+        assert_eq!(result, vec![0, 2, 4, 6, 8, 10, 12, 14]);
+        assert_eq!(max_active.load(Ordering::SeqCst), 3);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn test_parallel_async_filter_uses_bounded_in_flight_work() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let result: Vec<usize> = (0..8)
+            .collect::<Vec<_>>()
+            .into_async_iter()
+            .into_parallel()
+            .par_filter(4, {
+                let active = Arc::clone(&active);
+                let max_active = Arc::clone(&max_active);
+                move |item| {
+                    let item = *item;
+                    let active = Arc::clone(&active);
+                    let max_active = Arc::clone(&max_active);
+                    let mut yielded = false;
+                    futures::future::poll_fn(move |cx| {
+                        if !yielded {
+                            yielded = true;
+                            let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                            max_active.fetch_max(now, Ordering::SeqCst);
+                            cx.waker().wake_by_ref();
+                            return Poll::Pending;
+                        }
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        Poll::Ready(item % 2 == 0)
+                    })
+                }
+            })
+            .collect()
+            .await;
+
+        assert_eq!(result, vec![0, 2, 4, 6]);
+        assert_eq!(max_active.load(Ordering::SeqCst), 4);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn test_parallel_async_for_each_uses_bounded_in_flight_work() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let sum = Arc::new(AtomicUsize::new(0));
+        (0..8)
+            .collect::<Vec<_>>()
+            .into_async_iter()
+            .into_parallel()
+            .par_for_each(2, {
+                let active = Arc::clone(&active);
+                let max_active = Arc::clone(&max_active);
+                let sum = Arc::clone(&sum);
+                move |item| {
+                    let active = Arc::clone(&active);
+                    let max_active = Arc::clone(&max_active);
+                    let sum = Arc::clone(&sum);
+                    let mut yielded = false;
+                    futures::future::poll_fn(move |cx| {
+                        if !yielded {
+                            yielded = true;
+                            let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                            max_active.fetch_max(now, Ordering::SeqCst);
+                            cx.waker().wake_by_ref();
+                            return Poll::Pending;
+                        }
+                        sum.fetch_add(item, Ordering::SeqCst);
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        Poll::Ready(())
+                    })
+                }
+            })
+            .await;
+
+        assert_eq!(sum.load(Ordering::SeqCst), 28);
+        assert_eq!(max_active.load(Ordering::SeqCst), 2);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn test_async_filter_fold_reduce_values() {
+        let filtered: Vec<i32> = vec![1, 2, 3, 4, 5, 6]
+            .into_async_iter()
+            .filter(|value| {
+                let value = *value;
+                async move { value % 2 == 0 }
+            })
+            .collect()
+            .await;
+        assert_eq!(filtered, vec![2, 4, 6]);
+
+        let folded = vec![1, 2, 3]
+            .into_async_iter()
+            .fold(10, |acc, item| async move { acc - item })
+            .await;
+        assert_eq!(folded, 4);
+
+        let reduced = vec![1, 2, 3, 4]
+            .into_async_iter()
+            .reduce(|left, right| async move { left + right })
+            .await;
+        assert_eq!(reduced, Some(10));
     }
 }

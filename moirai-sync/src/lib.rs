@@ -12,7 +12,9 @@ use std::collections::HashMap;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::hint;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+#[cfg(target_os = "linux")]
+use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 // Import centralized constants (SSOT compliance)
 use moirai_core::constants::{

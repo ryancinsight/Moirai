@@ -140,13 +140,13 @@ mod tests {
     #[test]
     fn test_xorshift_basic() {
         let mut rng = XorshiftRng::new(12345);
-        
+
         let a = rng.next_u64();
         let b = rng.next_u64();
-        
+
         // Values should be different
         assert_ne!(a, b);
-        
+
         // Should not be zero (very unlikely)
         assert_ne!(a, 0);
         assert_ne!(b, 0);
@@ -155,12 +155,12 @@ mod tests {
     #[test]
     fn test_xorshift_range() {
         let mut rng = XorshiftRng::new(54321);
-        
+
         for _ in 0..100 {
             let val = rng.next_range(10);
             assert!(val < 10);
         }
-        
+
         // Test edge case
         assert_eq!(rng.next_range(0), 0);
     }
@@ -168,10 +168,10 @@ mod tests {
     #[test]
     fn test_xorshift_bool() {
         let mut rng = XorshiftRng::new(98765);
-        
+
         let mut true_count = 0;
         let mut false_count = 0;
-        
+
         for _ in 0..1000 {
             if rng.next_bool() {
                 true_count += 1;
@@ -179,7 +179,7 @@ mod tests {
                 false_count += 1;
             }
         }
-        
+
         // Should have roughly equal distribution (within reason)
         assert!(true_count > 300 && true_count < 700);
         assert!(false_count > 300 && false_count < 700);
@@ -188,7 +188,7 @@ mod tests {
     #[test]
     fn test_xorshift_f64() {
         let mut rng = XorshiftRng::new(13579);
-        
+
         for _ in 0..100 {
             let val = rng.next_f64();
             assert!((0.0..1.0).contains(&val));
@@ -199,7 +199,7 @@ mod tests {
     fn test_xorshift_deterministic() {
         let mut rng1 = XorshiftRng::new(42);
         let mut rng2 = XorshiftRng::new(42);
-        
+
         // Same seed should produce same sequence
         for _ in 0..10 {
             assert_eq!(rng1.next_u64(), rng2.next_u64());
@@ -210,10 +210,10 @@ mod tests {
     fn test_reseed() {
         let mut rng = XorshiftRng::new(1);
         let initial_state = rng.state();
-        
+
         rng.next_u64(); // Change state
         assert_ne!(rng.state(), initial_state);
-        
+
         rng.reseed(1);
         assert_eq!(rng.state(), initial_state);
     }

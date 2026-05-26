@@ -232,12 +232,7 @@ impl<T> LockFreeQueue<T> {
 
                     if self
                         .head
-                        .compare_exchange_weak(
-                            head,
-                            next,
-                            Ordering::Release,
-                            Ordering::Relaxed,
-                        )
+                        .compare_exchange_weak(head, next, Ordering::Release, Ordering::Relaxed)
                         .is_ok()
                     {
                         unsafe {
@@ -306,7 +301,7 @@ mod tests {
     #[test]
     fn test_ring_buffer_full() {
         let buffer = RingBuffer::<i32>::new(2);
-        
+
         buffer.try_push(1).unwrap();
         assert!(buffer.try_push(2).is_err()); // Should be full after 1 item
     }

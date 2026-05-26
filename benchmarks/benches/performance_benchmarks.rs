@@ -1,7 +1,24 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use moirai::Moirai;
-use moirai_core::constants::{CPU_UTILIZATION_PRECISION, BENCHMARK_PRIME_MODULO, DEFAULT_BENCHMARK_OPS, LARGE_BENCHMARK_SIZE, SIMD_BENCHMARK_SIZE};
-use std::sync::Arc;
+use moirai_core::constants::{
+    BENCHMARK_PRIME_MODULO, CPU_UTILIZATION_PRECISION, DEFAULT_BENCHMARK_OPS, LARGE_BENCHMARK_SIZE,
+    SIMD_BENCHMARK_SIZE,
+};
+use std::{sync::Arc, time::Duration};
+
+const BENCHMARK_SAMPLE_SIZE: usize = 10;
+const BENCHMARK_MEASUREMENT_SECONDS: u64 = 1;
+const BENCHMARK_WARM_UP_MILLIS: u64 = 250;
+
+fn expected_parallel_sum(seed: usize) -> usize {
+    (0..DEFAULT_BENCHMARK_OPS)
+        .map(|value| (seed * value) % BENCHMARK_PRIME_MODULO)
+        .sum()
+}
+
+fn expected_stealing_sum(seed: usize, cost: usize) -> usize {
+    (0..(cost * 1000)).map(|value| (seed * value) % 991).sum()
+}
 
 /// Benchmark task scheduling overhead - should be < 1μs per task
 /// Runtime created once outside the benchmark loop
@@ -16,7 +33,12 @@ fn benchmark_task_scheduling_overhead(c: &mut Criterion) {
         b.iter(|| {
             // Only measure the actual task scheduling and execution
             let handle = runtime.spawn_fn(|| black_box(42));
-            black_box(handle.join().expect("Task failed"))
+            let result = handle
+                .join()
+                .expect("task handle must be attached")
+                .expect("task must not fail");
+            assert_eq!(result, 42);
+            black_box(result)
         });
     });
 
@@ -53,8 +75,13 @@ fn benchmark_parallel_scalability(c: &mut Criterion) {
                 }
 
                 // Wait for all tasks to complete
-                for handle in handles {
-                    black_box(handle.join().expect("Task failed"));
+                for (i, handle) in handles.into_iter().enumerate() {
+                    let result = handle
+                        .join()
+                        .expect("task handle must be attached")
+                        .expect("task must not fail");
+                    assert_eq!(result, expected_parallel_sum(i));
+                    black_box(result);
                 }
             });
         });
@@ -80,7 +107,12 @@ fn benchmark_memory_efficiency(c: &mut Criterion) {
             // Create fresh data for each iteration to avoid state carryover
             let large_data = vec![42u64; LARGE_BENCHMARK_SIZE];
             let handle = runtime.spawn_fn(move || black_box(large_data.iter().sum::<u64>()));
-            black_box(handle.join().expect("Task failed"))
+            let result = handle
+                .join()
+                .expect("task handle must be attached")
+                .expect("task must not fail");
+            assert_eq!(result, 42u64 * LARGE_BENCHMARK_SIZE as u64);
+            black_box(result)
         });
     });
 
@@ -106,6 +138,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
             for i in 0..SIMD_BENCHMARK_SIZE {
                 result[i] = data_a[i] + data_b[i];
             }
+            assert_eq!(result, vec![3.0f32; SIMD_BENCHMARK_SIZE]);
             black_box(result)
         });
     });
@@ -115,6 +148,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
         b.iter(|| {
             let mut result = vec![0.0f32; 1024];
             safe_vectorized_add_f32(&data_a, &data_b, &mut result);
+            assert_eq!(result, vec![3.0f32; 1024]);
             black_box(result)
         });
     });
@@ -126,6 +160,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
             for i in 0..1024 {
                 result[i] = data_a[i] * data_b[i];
             }
+            assert_eq!(result, vec![2.0f32; 1024]);
             black_box(result)
         });
     });
@@ -135,6 +170,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
         b.iter(|| {
             let mut result = vec![0.0f32; 1024];
             safe_vectorized_mul_f32(&data_a, &data_b, &mut result);
+            assert_eq!(result, vec![2.0f32; 1024]);
             black_box(result)
         });
     });
@@ -174,10 +210,15 @@ fn benchmark_concurrent_data_structures(c: &mut Criterion) {
 
             // Wait for all tasks to complete
             for handle in handles {
-                handle.join().expect("Task failed");
+                handle
+                    .join()
+                    .expect("task handle must be attached")
+                    .expect("task must not fail");
             }
 
-            black_box(counter.get())
+            let result = counter.get();
+            assert_eq!(result, 10_000);
+            black_box(result)
         });
     });
 
@@ -193,7 +234,7 @@ fn benchmark_concurrent_data_structures(c: &mut Criterion) {
                 let handle = runtime.spawn_fn(move || {
                     for j in 0..100 {
                         let key = format!("key_{}_{}", i, j);
-                        map_clone.insert(key, i * j);
+                        map_clone.insert(key, i * j).expect("map insert failed");
                     }
                 });
                 handles.push(handle);
@@ -201,11 +242,20 @@ fn benchmark_concurrent_data_structures(c: &mut Criterion) {
 
             // Wait for all tasks to complete
             for handle in handles {
-                handle.join().expect("Task failed");
+                handle
+                    .join()
+                    .expect("task handle must be attached")
+                    .expect("task must not fail");
             }
 
-            // Use a simple value for final black_box to prevent optimization
-            black_box(50 * 100) // total expected insertions
+            for i in 0..50 {
+                for j in 0..100 {
+                    let key = format!("key_{}_{}", i, j);
+                    assert_eq!(map.get(&key).expect("map get failed"), Some(i * j));
+                }
+            }
+
+            black_box(50 * 100)
         });
     });
 
@@ -241,8 +291,14 @@ fn benchmark_work_stealing(c: &mut Criterion) {
             }
 
             // Wait for all tasks to complete
-            for handle in handles {
-                black_box(handle.join().expect("Task failed"));
+            for (i, handle) in handles.into_iter().enumerate() {
+                let cost = (i % 10) + 1;
+                let result = handle
+                    .join()
+                    .expect("task handle must be attached")
+                    .expect("task must not fail");
+                assert_eq!(result, expected_stealing_sum(i, cost));
+                let _ = black_box(result);
             }
         });
     });
@@ -277,8 +333,16 @@ fn benchmark_error_handling(c: &mut Criterion) {
             }
 
             // Process all results
-            for handle in handles {
-                let result = handle.join().expect("Task join failed");
+            for (i, handle) in handles.into_iter().enumerate() {
+                let result = handle
+                    .join()
+                    .expect("task handle must be attached")
+                    .expect("task must not fail");
+                if i % 10 == 0 {
+                    assert_eq!(result, Err("intentional error"));
+                } else {
+                    assert_eq!(result, Ok((i * i) as i32));
+                }
                 let _ = black_box(result);
             }
         });
@@ -288,15 +352,21 @@ fn benchmark_error_handling(c: &mut Criterion) {
     runtime.shutdown();
 }
 
-criterion_group!(
-    benches,
-    benchmark_task_scheduling_overhead,
-    benchmark_parallel_scalability,
-    benchmark_memory_efficiency,
-    benchmark_simd_performance,
-    benchmark_concurrent_data_structures,
-    benchmark_work_stealing,
-    benchmark_error_handling
-);
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .sample_size(BENCHMARK_SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS))
+        .warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS))
+        .without_plots();
+    targets =
+        benchmark_task_scheduling_overhead,
+        benchmark_parallel_scalability,
+        benchmark_memory_efficiency,
+        benchmark_simd_performance,
+        benchmark_concurrent_data_structures,
+        benchmark_work_stealing,
+        benchmark_error_handling
+}
 
 criterion_main!(benches);

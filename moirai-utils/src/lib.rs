@@ -1,7 +1,7 @@
 //! Utility functions and data structures for Moirai concurrency library.
 //!
 //! This crate provides modular utility components organized by domain:
-//! 
+//!
 //! - [`cache`] - Cache alignment utilities for performance optimization
 //! - [`atomic`] - Atomic operations and counters for lock-free programming  
 //! - [`queue`] - Lock-free queues and ring buffers for high-performance data structures
@@ -21,13 +21,13 @@ extern crate std;
 extern crate alloc;
 
 // Modular organization following SOC and domain-oriented design
-pub mod cache;
 pub mod atomic;
-pub mod queue;
 pub mod backoff;
-pub mod random;
 pub mod bits;
+pub mod cache;
 pub mod memory;
+pub mod queue;
+pub mod random;
 
 #[cfg(feature = "std")]
 pub mod time;
@@ -37,19 +37,19 @@ pub mod time;
 pub mod simd;
 
 // Re-export commonly used types for convenience
-pub use cache::{CacheAligned, CACHE_LINE_SIZE, align_to_cache_line};
 pub use atomic::AtomicCounter;
-pub use queue::{RingBuffer, LockFreeQueue};
 pub use backoff::Backoff;
+pub use cache::{align_to_cache_line, CacheAligned, CACHE_LINE_SIZE};
+pub use memory::{aligned_vec, prefetch_read, prefetch_write};
+pub use queue::{LockFreeQueue, RingBuffer};
 pub use random::XorshiftRng;
-pub use memory::{prefetch_read, prefetch_write, aligned_vec};
 
 #[cfg(feature = "std")]
-pub use time::{HighResTimer, unix_timestamp_nanos, unix_timestamp_micros, unix_timestamp_millis};
+pub use time::{unix_timestamp_micros, unix_timestamp_millis, unix_timestamp_nanos, HighResTimer};
 
 // SIMD optimization counter for tracking performance improvements
 #[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
-pub use simd::{safe_vectorized_add_f32, safe_vectorized_mul_f32, safe_vectorized_dot_product_f32};
+pub use simd::{safe_vectorized_add_f32, safe_vectorized_dot_product_f32, safe_vectorized_mul_f32};
 
 #[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
 use std::sync::OnceLock;
@@ -202,7 +202,10 @@ mod integration_tests {
     fn test_cache_line_alignment() {
         assert_eq!(align_to_cache_line(1), CACHE_LINE_SIZE);
         assert_eq!(align_to_cache_line(CACHE_LINE_SIZE), CACHE_LINE_SIZE);
-        assert_eq!(align_to_cache_line(CACHE_LINE_SIZE + 1), CACHE_LINE_SIZE * 2);
+        assert_eq!(
+            align_to_cache_line(CACHE_LINE_SIZE + 1),
+            CACHE_LINE_SIZE * 2
+        );
     }
 
     #[cfg(feature = "std")]
@@ -211,7 +214,7 @@ mod integration_tests {
         let timer = HighResTimer::new();
         std::thread::sleep(std::time::Duration::from_millis(1));
         assert!(timer.elapsed_millis() >= 1);
-        
+
         let timestamp = unix_timestamp_millis();
         assert!(timestamp > 0);
     }

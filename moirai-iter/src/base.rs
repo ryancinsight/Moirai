@@ -3,9 +3,8 @@
 //! This module provides the foundational abstractions that reduce code duplication
 //! across different iterator implementations, following DRY and SOLID principles.
 
-use std::future::Future;
 use std::marker::PhantomData;
-use std::pin::Pin;
+use std::ptr::NonNull;
 use std::sync::Arc;
 
 /// A pointer wrapper that is Send but not Sync.
@@ -28,54 +27,6 @@ impl<T> SendPtr<T> {
     pub(crate) unsafe fn as_ptr(&self) -> *mut T {
         self.0
     }
-}
-
-/// Core trait for all execution contexts, providing common functionality.
-/// This follows the Interface Segregation Principle by defining minimal required methods.
-pub trait ExecutionBase: Send + Sync + 'static {
-    /// Execute a function on each item in the collection.
-    fn execute_each<T, F>(
-        &self,
-        items: Vec<T>,
-        func: F,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>
-    where
-        T: Send + Clone + 'static,
-        F: Fn(T) + Send + Sync + Clone + 'static;
-
-    /// Map items to new values.
-    fn execute_map<T, R, F>(
-        &self,
-        items: Vec<T>,
-        func: F,
-    ) -> Pin<Box<dyn Future<Output = Vec<R>> + Send + '_>>
-    where
-        T: Send + Clone + 'static,
-        R: Send + Clone + 'static,
-        F: Fn(T) -> R + Send + Sync + Clone + 'static;
-
-    /// Reduce items to a single value using tree reduction.
-    fn execute_reduce<T, F>(
-        &self,
-        items: Vec<T>,
-        func: F,
-    ) -> Pin<Box<dyn Future<Output = Option<T>> + Send + '_>>
-    where
-        T: Send + Clone + 'static,
-        F: Fn(T, T) -> T + Send + Sync + Clone + 'static,
-    {
-        Box::pin(async move { tree_reduce(items, func) })
-    }
-
-    /// Filter items based on a predicate.
-    fn execute_filter<T, F>(
-        &self,
-        items: Vec<T>,
-        predicate: F,
-    ) -> Pin<Box<dyn Future<Output = Vec<T>> + Send + '_>>
-    where
-        T: Send + Clone + 'static,
-        F: Fn(&T) -> bool + Send + Sync + Clone + 'static;
 }
 
 /// Efficient tree reduction algorithm that works across all execution contexts.
@@ -242,8 +193,78 @@ pub fn get_shared_thread_pool() -> Arc<ThreadPool> {
 /// Simple thread pool implementation.
 /// This is a lightweight alternative to external crates like rayon.
 pub struct ThreadPool {
-    sender: std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>,
+    /// Wrapped in Option so `Drop` can close the channel before joining workers.
+    sender: Option<std::sync::mpsc::Sender<ErasedThreadJob>>,
     workers: Vec<std::thread::JoinHandle<()>>,
+}
+
+/// Heap-stable thread-pool job with monomorphized run/drop functions.
+struct ErasedThreadJob {
+    ptr: NonNull<()>,
+    run: unsafe fn(NonNull<()>),
+    drop: unsafe fn(NonNull<()>),
+    consumed: bool,
+}
+
+// Safety: `ErasedThreadJob` owns a `Send + 'static` job allocation created by
+// `ErasedThreadJob::new`. Moving the erased owner between threads transfers
+// ownership of that allocation.
+unsafe impl Send for ErasedThreadJob {}
+
+impl ErasedThreadJob {
+    fn new<F>(job: F) -> Self
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let ptr = Box::into_raw(Box::new(job)).cast::<()>();
+        Self {
+            ptr: NonNull::new(ptr).expect("Box::into_raw never returns null"),
+            run: run_thread_job::<F>,
+            drop: drop_thread_job::<F>,
+            consumed: false,
+        }
+    }
+
+    fn run(mut self) {
+        self.consumed = true;
+        // Safety: `ptr` was created by `new` for the same concrete job type as
+        // the monomorphized run function stored beside it.
+        unsafe {
+            (self.run)(self.ptr);
+        }
+    }
+}
+
+impl Drop for ErasedThreadJob {
+    fn drop(&mut self) {
+        if !self.consumed {
+            // Safety: unconsumed jobs still own the allocation created in `new`.
+            unsafe {
+                (self.drop)(self.ptr);
+            }
+        }
+    }
+}
+
+unsafe fn run_thread_job<F>(ptr: NonNull<()>)
+where
+    F: FnOnce() + Send + 'static,
+{
+    // Safety: `ErasedThreadJob::new::<F>` created the allocation. Moving the
+    // job out of the box consumes the allocation and executes the closure once.
+    let job = unsafe { *Box::from_raw(ptr.cast::<F>().as_ptr()) };
+    job();
+}
+
+unsafe fn drop_thread_job<F>(ptr: NonNull<()>)
+where
+    F: FnOnce() + Send + 'static,
+{
+    // Safety: the allocation was created by `ErasedThreadJob::new::<F>` and is
+    // reconstructed exactly once for an unexecuted job.
+    unsafe {
+        drop(Box::from_raw(ptr.cast::<F>().as_ptr()));
+    }
 }
 
 impl std::fmt::Debug for ThreadPool {
@@ -256,37 +277,51 @@ impl std::fmt::Debug for ThreadPool {
 
 impl ThreadPool {
     pub fn new(size: usize) -> Self {
-        let (sender, receiver) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send + 'static>>();
+        let (sender, receiver) = std::sync::mpsc::channel::<ErasedThreadJob>();
         let receiver = Arc::new(std::sync::Mutex::new(receiver));
 
         let workers = (0..size)
             .map(|_| {
                 let receiver = receiver.clone();
-                std::thread::spawn(move || {
-                    while let Ok(job) = receiver.lock().unwrap().recv() {
-                        job();
-                    }
+                std::thread::spawn(move || loop {
+                    let job = {
+                        let guard = receiver.lock().unwrap();
+                        match guard.recv() {
+                            Ok(job) => job,
+                            Err(_) => break,
+                        }
+                    };
+                    job.run();
                 })
             })
             .collect();
 
-        Self { sender, workers }
+        Self {
+            sender: Some(sender),
+            workers,
+        }
     }
 
     pub fn execute<F>(&self, job: F)
     where
         F: FnOnce() + Send + 'static,
     {
-        let _ = self.sender.send(Box::new(job));
+        if let Some(s) = &self.sender {
+            let _ = s.send(ErasedThreadJob::new(job));
+        }
     }
 }
 
 impl Drop for ThreadPool {
     fn drop(&mut self) {
-        // The sender will be dropped automatically when self is dropped,
-        // which signals workers to terminate. We just need to join the threads.
+        // Close the sending end BEFORE joining worker threads.
+        // Worker threads loop on `recv()`, which returns `Err` only when every
+        // Sender clone is dropped.  Rust drops struct fields AFTER the `Drop`
+        // impl returns, so without this explicit take() the join loop would
+        // deadlock: join waits for the thread to exit, the thread waits for the
+        // channel to close, the channel never closes while `self.sender` lives.
+        drop(self.sender.take());
 
-        // Join all worker threads to ensure they finish cleanly
         for worker in self.workers.drain(..) {
             let _ = worker.join();
         }
@@ -378,5 +413,47 @@ mod tests {
 
         // Verify all tasks completed
         assert_eq!(counter_clone.load(Ordering::SeqCst), 4);
+    }
+
+    #[test]
+    fn test_erased_thread_job_runs_once() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&counter);
+        let job = ErasedThreadJob::new(move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+        });
+
+        job.run();
+
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_erased_thread_job_drops_unrun_capture() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        struct DropCounter(Arc<AtomicUsize>);
+
+        impl Drop for DropCounter {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let drops = Arc::new(AtomicUsize::new(0));
+        let captured = DropCounter(Arc::clone(&drops));
+        let job = ErasedThreadJob::new(move || drop(captured));
+
+        drop(job);
+
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
     }
 }

@@ -121,11 +121,13 @@ impl fmt::Display for DatabaseError {
     }
 }
 
+type BorrowedConnections = Arc<Mutex<HashMap<u64, (Arc<DatabaseConnection>, Instant)>>>;
+
 /// Connection pool with comprehensive edge case handling
 struct DatabaseConnectionPool {
     connections: Arc<Mutex<Vec<Arc<DatabaseConnection>>>>,
     available_connections: Arc<Mutex<Vec<Arc<DatabaseConnection>>>>,
-    borrowed_connections: Arc<Mutex<HashMap<u64, (Arc<DatabaseConnection>, Instant)>>>,
+    borrowed_connections: BorrowedConnections,
 
     // Configuration
     max_connections: usize,
@@ -224,7 +226,7 @@ impl DatabaseConnectionPool {
     }
 
     /// Borrow a connection from the pool with timeout and retry logic
-    fn get_connection(&self, timeout_ms: u64) -> Result<PooledConnection, DatabaseError> {
+    fn get_connection(&self, timeout_ms: u64) -> Result<PooledConnection<'_>, DatabaseError> {
         if self.is_shutdown.load(Ordering::Relaxed) {
             return Err(DatabaseError::PoolShutdown);
         }
@@ -396,7 +398,7 @@ impl DatabaseConnectionPool {
 
 struct PoolRef {
     available_connections: Arc<Mutex<Vec<Arc<DatabaseConnection>>>>,
-    borrowed_connections: Arc<Mutex<HashMap<u64, (Arc<DatabaseConnection>, Instant)>>>,
+    borrowed_connections: BorrowedConnections,
     idle_timeout_ms: u64,
     max_connection_age_ms: u64,
     connections_destroyed: Arc<AtomicUsize>,
@@ -405,7 +407,7 @@ struct PoolRef {
 
 impl PoolRef {
     fn reap_connections(&self) {
-        let now = Instant::now();
+        let _now = Instant::now();
 
         // Reap idle connections
         if let Ok(mut available) = self.available_connections.lock() {
@@ -430,7 +432,7 @@ impl PoolRef {
 }
 
 struct DeadlockDetector {
-    borrowed_connections: Arc<Mutex<HashMap<u64, (Arc<DatabaseConnection>, Instant)>>>,
+    borrowed_connections: BorrowedConnections,
     connection_timeout_ms: u64,
     is_shutdown: Arc<AtomicBool>,
 }
@@ -726,7 +728,8 @@ struct WorkloadResults {
     average_query_time_ms: u64,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[test]
+fn test_database_connection_pool() -> Result<(), Box<dyn std::error::Error>> {
     println!("Database Connection Pool Edge Case Testing");
     println!("==========================================");
 
@@ -799,11 +802,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_time = Instant::now();
 
     for _ in 0..1000 {
-        match pool.get_connection(100) {
-            Ok(_conn) => {
-                // Connection is automatically returned when dropped
-            }
-            Err(_) => {}
+        if let Ok(_conn) = pool.get_connection(100) {
+            // Connection is automatically returned when dropped
         }
     }
 

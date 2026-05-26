@@ -174,7 +174,10 @@ impl MultiSystemContext {
     /// Add a system to the multi-system cluster
     pub fn add_system(&mut self, system: SystemConfig) {
         Arc::get_mut(&mut self.systems).unwrap().push(system);
-        self.topology_optimizer.lock().unwrap().update_topology(&self.systems);
+        self.topology_optimizer
+            .lock()
+            .unwrap()
+            .update_topology(&self.systems);
     }
 
     /// Partition data across multiple systems with intelligent placement
@@ -189,13 +192,12 @@ impl MultiSystemContext {
     {
         // Analyze data characteristics for optimal placement
         let data_profile = self.analyze_data_characteristics(&data).await;
-        
+
         // Determine optimal system assignments
-        let assignments = self.unified_scheduler.assign_data_to_systems(
-            &data,
-            &data_profile,
-            &self.systems,
-        ).await;
+        let assignments = self
+            .unified_scheduler
+            .assign_data_to_systems(&data, &data_profile, &self.systems)
+            .await;
 
         // Create partitioned iterators
         assignments
@@ -217,18 +219,18 @@ impl MultiSystemContext {
         R: Send + 'static,
     {
         // Determine CPU vs GPU allocation based on workload characteristics
-        let allocation = self.resource_manager.determine_compute_allocation(&data).await;
-        
+        let allocation = self
+            .resource_manager
+            .determine_compute_allocation(&data)
+            .await;
+
         // Execute on appropriate compute units
         let results = match allocation {
-            ComputeAllocation::CpuOnly => {
-                self.execute_cpu_compute(data, cpu_func).await?
-            }
-            ComputeAllocation::GpuOnly => {
-                self.execute_gpu_compute(data, gpu_func).await?
-            }
+            ComputeAllocation::CpuOnly => self.execute_cpu_compute(data, cpu_func).await?,
+            ComputeAllocation::GpuOnly => self.execute_gpu_compute(data, gpu_func).await?,
             ComputeAllocation::Hybrid { cpu_ratio } => {
-                self.execute_hybrid_compute(data, cpu_func, gpu_func, cpu_ratio).await?
+                self.execute_hybrid_compute(data, cpu_func, gpu_func, cpu_ratio)
+                    .await?
             }
         };
 
@@ -245,24 +247,36 @@ impl MultiSystemContext {
         }
     }
 
-    async fn execute_cpu_compute<T, F, R>(&self, data: Vec<T>, func: F) -> Result<Vec<R>, MultiSystemError>
+    async fn execute_cpu_compute<T, F, R>(
+        &self,
+        data: Vec<T>,
+        func: F,
+    ) -> Result<Vec<R>, MultiSystemError>
     where
         T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
         // Execute across CPU cluster with NUMA awareness
-        self.unified_scheduler.execute_numa_aware_compute(data, func).await
+        self.unified_scheduler
+            .execute_numa_aware_compute(data, func)
+            .await
     }
 
-    async fn execute_gpu_compute<T, F, R>(&self, data: Vec<T>, func: F) -> Result<Vec<R>, MultiSystemError>
+    async fn execute_gpu_compute<T, F, R>(
+        &self,
+        data: Vec<T>,
+        func: F,
+    ) -> Result<Vec<R>, MultiSystemError>
     where
         T: Send + Clone + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
         // Execute across GPU cluster with optimal memory management
-        self.unified_scheduler.execute_gpu_cluster_compute(data, func).await
+        self.unified_scheduler
+            .execute_gpu_cluster_compute(data, func)
+            .await
     }
 
     async fn execute_hybrid_compute<T, F, R>(
@@ -284,8 +298,9 @@ impl MultiSystemContext {
         // Execute concurrently on both compute types
         let (cpu_results, gpu_results) = futures::future::join(
             self.execute_cpu_compute(cpu_data.to_vec(), cpu_func),
-            self.execute_gpu_compute(gpu_data.to_vec(), gpu_func)
-        ).await;
+            self.execute_gpu_compute(gpu_data.to_vec(), gpu_func),
+        )
+        .await;
 
         // Combine results
         let mut combined_results = cpu_results?;
@@ -550,12 +565,15 @@ impl<T: Send + Clone + 'static> MultiSystemIterator<T> {
     }
 
     /// Partition and distribute across multiple systems
-    pub async fn distribute_across_systems<F>(self, partition_func: F) -> Vec<MultiSystemIterator<T>>
+    pub async fn distribute_across_systems<F>(
+        self,
+        partition_func: F,
+    ) -> Vec<MultiSystemIterator<T>>
     where
         F: Fn(&T) -> usize + Send + Sync + 'static,
     {
         let partitions = self.context.partition_data(self.data, partition_func).await;
-        
+
         partitions
             .into_iter()
             .map(|_partition| {
@@ -575,10 +593,16 @@ impl<T: Send + Clone + 'static> MultiSystemIterator<T> {
     pub fn system_stats(&self) -> MultiSystemStats {
         MultiSystemStats {
             total_systems: self.context.systems.len(),
-            total_cpu_cores: self.context.systems.iter()
+            total_cpu_cores: self
+                .context
+                .systems
+                .iter()
                 .map(|s| s.cpu_cluster.total_cores)
                 .sum(),
-            total_gpu_devices: self.context.systems.iter()
+            total_gpu_devices: self
+                .context
+                .systems
+                .iter()
                 .filter_map(|s| s.gpu_cluster.as_ref())
                 .map(|g| g.node_count * g.gpus_per_node)
                 .sum(),
@@ -626,7 +650,7 @@ mod tests {
     #[tokio::test]
     async fn test_heterogeneous_system_config() {
         let mut context = MultiSystemContext::new();
-        
+
         let system = SystemConfig {
             node: NodeConfig {
                 address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
@@ -687,7 +711,7 @@ mod tests {
                 WorkloadSpecialization::ScientificComputing,
             ],
         };
-        
+
         context.add_system(system);
         assert_eq!(context.systems.len(), 1);
     }
@@ -696,10 +720,10 @@ mod tests {
     async fn test_multi_system_iterator() {
         let context = MultiSystemContext::new();
         let data = vec![1, 2, 3, 4, 5];
-        
+
         let multi_iter = MultiSystemIterator::new(data, context);
         let result = multi_iter.map_heterogeneous(|x| x * 2).await;
-        
+
         assert!(result.is_ok());
     }
 }

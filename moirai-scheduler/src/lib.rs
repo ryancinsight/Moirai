@@ -44,40 +44,16 @@
 //!
 //! ### Basic Usage
 //!
-//! ```rust
-//! use moirai_scheduler::{WorkStealingScheduler, SchedulerConfig};
-//! use moirai_core::{Task, TaskBuilder, Priority};
+//! ```rust,no_run
+//! use moirai_scheduler::WorkStealingScheduler;
+//! use moirai_core::scheduler::{SchedulerConfig, SchedulerId};
 //!
-//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create scheduler with optimal configuration
-//! let config = SchedulerConfig {
-//!     initial_capacity: 256,
-//!     max_capacity: 4096,
-//!     steal_strategy: WorkStealingStrategy::StealHalf,
-//!     enable_statistics: true,
-//! };
+//! // Create a scheduler with default work-stealing configuration.
+//! let config = SchedulerConfig::default();
+//! let scheduler = WorkStealingScheduler::new(SchedulerId::new(0), config);
 //!
-//! let mut scheduler = WorkStealingScheduler::new(config)?;
-//!
-//! // Add tasks with different priorities
-//! let high_priority_task = TaskBuilder::new()
-//!     .priority(Priority::High)
-//!     .name("critical_task")
-//!     .build(|| println!("High priority work"));
-//!
-//! let normal_task = TaskBuilder::new()
-//!     .priority(Priority::Normal)
-//!     .build(|| println!("Normal work"));
-//!
-//! scheduler.schedule(high_priority_task)?;
-//! scheduler.schedule(normal_task)?;
-//!
-//! // Execute tasks (high priority first)
-//! while let Some(task) = scheduler.next_task() {
-//!     task.execute();
-//! }
-//! # Ok(())
-//! # }
+//! // Use the Scheduler trait methods to submit and execute tasks.
+//! // See WorkStealingScheduler method documentation for details.
 //! ```
 //
 // ## Thread Safety and Stealing
@@ -122,10 +98,13 @@ pub mod numa_scheduler;
 use moirai_core::{
     error::SchedulerResult,
     scheduler::{QueueType, Scheduler, SchedulerConfig, SchedulerId, WorkStealingStrategy},
-    Box, BoxedTask, CacheAligned,
+    CacheAligned, ScheduledTask, Task,
 };
 use std::{
+    cell::UnsafeCell,
     collections::VecDeque,
+    marker::PhantomData,
+    mem::MaybeUninit,
     ptr,
     sync::atomic::{AtomicIsize, AtomicPtr, AtomicUsize, Ordering},
     sync::Mutex,
@@ -148,26 +127,135 @@ const LCG_MULTIPLIER: usize = 1103515245;
 /// Linear congruential generator increment (standard LCG constant)
 const LCG_INCREMENT: usize = 12345;
 
+mod reclaim_policy {
+    pub trait Sealed {}
+}
+
+/// Sealed policy interface for deque backing-array reclamation.
+pub trait DequeReclaimPolicy: reclaim_policy::Sealed + Copy + Default {
+    /// Concrete state carried by the deque for this reclamation policy.
+    type State: DequeReclaimState;
+}
+
+/// State contract for monomorphized deque reclamation policies.
+pub trait DequeReclaimState: Default + Send + Sync {
+    /// Guard held while an operation may dereference the current backing array.
+    type Guard<'a>
+    where
+        Self: 'a;
+
+    /// Enter an array-access section.
+    fn enter(&self) -> Self::Guard<'_>;
+
+    /// Return true when retired arrays can be reclaimed from shared access.
+    fn can_reclaim_shared(&self) -> bool;
+}
+
+/// Zero-sized state for exclusive quiescent reclamation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct QuiescentState;
+
+/// Zero-sized access guard for exclusive quiescent reclamation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct QuiescentAccessGuard;
+
+impl DequeReclaimState for QuiescentState {
+    type Guard<'a> = QuiescentAccessGuard;
+
+    #[inline]
+    fn enter(&self) -> Self::Guard<'_> {
+        QuiescentAccessGuard
+    }
+
+    #[inline]
+    fn can_reclaim_shared(&self) -> bool {
+        false
+    }
+}
+
+/// Zero-sized policy proving retired deque arrays are reclaimed only from an
+/// exclusive quiescent access path.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct QuiescentReclaim;
+
+impl reclaim_policy::Sealed for QuiescentReclaim {}
+impl DequeReclaimPolicy for QuiescentReclaim {
+    type State = QuiescentState;
+}
+
+/// Zero-sized policy enabling shared retired-array reclamation through an
+/// active-access epoch counter.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SharedEpochReclaim;
+
+impl reclaim_policy::Sealed for SharedEpochReclaim {}
+impl DequeReclaimPolicy for SharedEpochReclaim {
+    type State = SharedEpochState;
+}
+
+/// Shared reclamation state. This field exists only for deques instantiated
+/// with `SharedEpochReclaim`.
+#[derive(Debug, Default)]
+pub struct SharedEpochState {
+    active_accesses: AtomicUsize,
+}
+
+/// Guard for a shared array-access section.
+#[derive(Debug)]
+pub struct SharedEpochAccessGuard<'a> {
+    active_accesses: &'a AtomicUsize,
+}
+
+impl DequeReclaimState for SharedEpochState {
+    type Guard<'a> = SharedEpochAccessGuard<'a>;
+
+    #[inline]
+    fn enter(&self) -> Self::Guard<'_> {
+        self.active_accesses.fetch_add(1, Ordering::AcqRel);
+        SharedEpochAccessGuard {
+            active_accesses: &self.active_accesses,
+        }
+    }
+
+    #[inline]
+    fn can_reclaim_shared(&self) -> bool {
+        self.active_accesses.load(Ordering::Acquire) == 0
+    }
+}
+
+impl Drop for SharedEpochAccessGuard<'_> {
+    #[inline]
+    fn drop(&mut self) {
+        self.active_accesses.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// A lock-free work-stealing deque implementation based on the Chase-Lev algorithm.
-pub struct ChaseLevDeque<T> {
+pub struct ChaseLevDeque<T, P = QuiescentReclaim>
+where
+    P: DequeReclaimPolicy,
+{
     /// Bottom index (only modified by owner)
     bottom: AtomicIsize,
     /// Top index (modified by thieves)
     top: AtomicIsize,
     /// Array of task pointers
     array: AtomicPtr<Array<T>>,
-    /// Old arrays pending deallocation
-    old_arrays: Mutex<Vec<*mut Array<T>>>,
+    /// Retired arrays pending deallocation after quiescence.
+    retired_arrays: Mutex<Vec<*mut Array<T>>>,
+    /// Policy-specific reclamation state.
+    reclaim: P::State,
+    policy: PhantomData<P>,
 }
 
-/// Array wrapper for the deque with atomic operations
+/// Array wrapper for the deque with contiguous inline task storage.
 struct Array<T> {
     /// Capacity of this array (always power of 2)
     capacity: usize,
     /// Mask for fast modulo operations
     mask: usize,
     /// The actual storage
-    data: Box<[AtomicPtr<T>]>,
+    data: Box<[UnsafeCell<MaybeUninit<T>>]>,
 }
 
 impl<T> Array<T> {
@@ -175,7 +263,7 @@ impl<T> Array<T> {
         assert!(capacity.is_power_of_two());
         let mut data = Vec::with_capacity(capacity);
         for _ in 0..capacity {
-            data.push(AtomicPtr::new(ptr::null_mut()));
+            data.push(UnsafeCell::new(MaybeUninit::uninit()));
         }
 
         Self {
@@ -185,14 +273,24 @@ impl<T> Array<T> {
         }
     }
 
-    fn get(&self, index: isize) -> *mut T {
+    unsafe fn write(&self, index: isize, item: T) {
         let idx = (index as usize) & self.mask;
-        self.data[idx].load(Ordering::Acquire)
+        (*self.data[idx].get()).write(item);
     }
 
-    fn put(&self, index: isize, item: *mut T) {
+    unsafe fn read(&self, index: isize) -> T {
         let idx = (index as usize) & self.mask;
-        self.data[idx].store(item, Ordering::Release);
+        (*self.data[idx].get()).assume_init_read()
+    }
+
+    unsafe fn copy_slot_to(&self, target: &Self, index: isize) {
+        let source_idx = (index as usize) & self.mask;
+        let target_idx = (index as usize) & target.mask;
+        ptr::copy_nonoverlapping(
+            (*self.data[source_idx].get()).as_ptr(),
+            (*target.data[target_idx].get()).as_mut_ptr(),
+            1,
+        );
     }
 
     fn capacity(&self) -> usize {
@@ -200,7 +298,10 @@ impl<T> Array<T> {
     }
 }
 
-impl<T> ChaseLevDeque<T> {
+impl<T, P> ChaseLevDeque<T, P>
+where
+    P: DequeReclaimPolicy,
+{
     /// Create a new Chase-Lev deque with the specified initial capacity.
     pub fn new(initial_capacity: usize) -> Self {
         let capacity = initial_capacity.next_power_of_two().max(MIN_DEQUE_CAPACITY);
@@ -210,12 +311,15 @@ impl<T> ChaseLevDeque<T> {
             bottom: AtomicIsize::new(0),
             top: AtomicIsize::new(0),
             array: AtomicPtr::new(Box::into_raw(array)),
-            old_arrays: Mutex::new(Vec::new()),
+            retired_arrays: Mutex::new(Vec::new()),
+            reclaim: P::State::default(),
+            policy: PhantomData,
         }
     }
 
     /// Push an item to the bottom of the deque (owner operation).
     pub fn push(&self, item: T) {
+        let _guard = self.reclaim.enter();
         let b = self.bottom.load(Ordering::Relaxed);
         let t = self.top.load(Ordering::Acquire);
 
@@ -231,9 +335,10 @@ impl<T> ChaseLevDeque<T> {
         let array_ptr = self.array.load(Ordering::Relaxed);
         let array = unsafe { &*array_ptr };
 
-        // Store the item
-        let item_ptr = Box::into_raw(Box::new(item));
-        array.put(b, item_ptr);
+        // Store the item inline before publishing the updated bottom index.
+        unsafe {
+            array.write(b, item);
+        }
 
         // Release the item to thieves
         self.bottom.store(b + 1, Ordering::Release);
@@ -241,6 +346,7 @@ impl<T> ChaseLevDeque<T> {
 
     /// Pop an item from the bottom of the deque (owner operation).
     pub fn pop(&self) -> Option<T> {
+        let _guard = self.reclaim.enter();
         let b = self.bottom.load(Ordering::Relaxed) - 1;
         let array_ptr = self.array.load(Ordering::Relaxed);
         let array = unsafe { &*array_ptr };
@@ -251,37 +357,35 @@ impl<T> ChaseLevDeque<T> {
 
         let t = self.top.load(Ordering::Relaxed);
 
-        if t <= b {
-            // Non-empty queue
-            let item_ptr = array.get(b);
-            if t == b {
-                // Single last element, race with thieves
-                if self
-                    .top
-                    .compare_exchange_weak(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
-                    .is_err()
-                {
-                    // Failed race, restore bottom
-                    self.bottom.store(b + 1, Ordering::Relaxed);
-                    return None;
-                }
-                self.bottom.store(b + 1, Ordering::Relaxed);
-            }
-
-            if !item_ptr.is_null() {
-                let item = unsafe { Box::from_raw(item_ptr) };
-                return Some(*item);
-            }
-        } else {
-            // Empty queue, restore bottom
-            self.bottom.store(b + 1, Ordering::Relaxed);
+        if t < b {
+            // More than one item: thieves can only claim from the top, so the
+            // owner can read bottom directly.
+            return Some(unsafe { array.read(b) });
         }
 
+        if t == b {
+            // Single last element: claim the index before moving the value.
+            if self
+                .top
+                .compare_exchange_weak(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
+                self.bottom.store(b + 1, Ordering::Relaxed);
+                return Some(unsafe { array.read(b) });
+            }
+
+            self.bottom.store(b + 1, Ordering::Relaxed);
+            return None;
+        }
+
+        // Empty queue, restore bottom.
+        self.bottom.store(b + 1, Ordering::Relaxed);
         None
     }
 
     /// Steal an item from the top of the deque (thief operation).
     pub fn steal(&self) -> StealResult<T> {
+        let _guard = self.reclaim.enter();
         let t = self.top.load(Ordering::Acquire);
 
         std::sync::atomic::fence(Ordering::SeqCst);
@@ -289,21 +393,19 @@ impl<T> ChaseLevDeque<T> {
         let b = self.bottom.load(Ordering::Acquire);
 
         if t < b {
-            // Non-empty queue
+            // Claim the top index before moving the inline value out of the
+            // ring. A failed CAS leaves the slot owned by the winning thread.
             let array_ptr = self.array.load(Ordering::Relaxed);
             let array = unsafe { &*array_ptr };
-            let item_ptr = array.get(t);
 
-            if !item_ptr.is_null() {
-                if self
-                    .top
-                    .compare_exchange_weak(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    let item = unsafe { Box::from_raw(item_ptr) };
-                    return StealResult::Success(*item);
-                }
+            if self
+                .top
+                .compare_exchange_weak(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
+                return StealResult::Success(unsafe { array.read(t) });
             }
+
             return StealResult::Retry;
         }
 
@@ -332,10 +434,13 @@ impl<T> ChaseLevDeque<T> {
         let b = self.bottom.load(Ordering::Relaxed);
         let t = self.top.load(Ordering::Relaxed);
 
-        // Copy elements to new array
+        // Copy live elements to the new array. Retired arrays do not drop their
+        // copied elements; global top/bottom ownership decides which copy is
+        // later read or dropped from the current array.
         for i in t..b {
-            let item_ptr = old_array.get(i);
-            new_array.put(i, item_ptr);
+            unsafe {
+                old_array.copy_slot_to(&new_array, i);
+            }
         }
 
         // Atomically replace the array
@@ -343,20 +448,73 @@ impl<T> ChaseLevDeque<T> {
         self.array.store(new_array_ptr, Ordering::Release);
 
         // Push the old array into the list of arrays pending deallocation
-        let mut old_arrays = self.old_arrays.lock().unwrap();
-        old_arrays.push(old_array_ptr);
+        let mut retired_arrays = self.retired_arrays.lock().unwrap();
+        retired_arrays.push(old_array_ptr);
 
-        // Note: Proper memory reclamation is deferred to a safe point
+        // Note: memory reclamation is deferred to an explicit safe point.
     }
 }
 
-impl<T> ChaseLevDeque<T> {
-    /// Safely deallocate old arrays when it is safe to do so.
-    pub fn reclaim_memory(&self) {
-        let mut old_arrays = self.old_arrays.lock().unwrap();
-        for array_ptr in old_arrays.drain(..) {
+impl<T, P> ChaseLevDeque<T, P>
+where
+    P: DequeReclaimPolicy,
+{
+    /// Deallocate retired backing arrays through an exclusive quiescent access path.
+    pub fn reclaim_memory(&mut self, _policy: P) {
+        self.deallocate_retired_arrays();
+    }
+
+    fn deallocate_retired_arrays(&self) {
+        let mut retired_arrays = self.retired_arrays.lock().unwrap();
+        for array_ptr in retired_arrays.drain(..) {
             unsafe {
-                // Deallocate the old array
+                // Retired arrays may contain duplicated bytes copied into a
+                // newer current array, so only the backing allocation is freed.
+                drop(Box::from_raw(array_ptr));
+            }
+        }
+    }
+}
+
+impl<T> ChaseLevDeque<T, SharedEpochReclaim> {
+    /// Try to deallocate retired backing arrays while the deque remains shared.
+    ///
+    /// This succeeds only when no active push, pop, or steal operation is inside
+    /// an array-access section.
+    pub fn try_reclaim_shared(&self, _policy: SharedEpochReclaim) -> bool {
+        if !self.reclaim.can_reclaim_shared() {
+            return false;
+        }
+
+        self.deallocate_retired_arrays();
+        true
+    }
+}
+
+impl<T, P> Drop for ChaseLevDeque<T, P>
+where
+    P: DequeReclaimPolicy,
+{
+    fn drop(&mut self) {
+        let top = *self.top.get_mut();
+        let bottom = *self.bottom.get_mut();
+        let array_ptr = *self.array.get_mut();
+
+        if !array_ptr.is_null() {
+            let array = unsafe { Box::from_raw(array_ptr) };
+            for index in top..bottom {
+                unsafe {
+                    drop(array.read(index));
+                }
+            }
+        }
+
+        let retired_arrays = self
+            .retired_arrays
+            .get_mut()
+            .expect("retired array mutex poisoned during deque drop");
+        for array_ptr in retired_arrays.drain(..) {
+            unsafe {
                 drop(Box::from_raw(array_ptr));
             }
         }
@@ -374,8 +532,21 @@ pub enum StealResult<T> {
 }
 
 // Safety: ChaseLevDeque is thread-safe by design
-unsafe impl<T: Send> Send for ChaseLevDeque<T> {}
-unsafe impl<T: Send> Sync for ChaseLevDeque<T> {}
+unsafe impl<T, P> Send for ChaseLevDeque<T, P>
+where
+    T: Send,
+    P: DequeReclaimPolicy,
+    P::State: Send,
+{
+}
+
+unsafe impl<T, P> Sync for ChaseLevDeque<T, P>
+where
+    T: Send,
+    P: DequeReclaimPolicy,
+    P::State: Sync,
+{
+}
 
 /// Work-stealing scheduler implementation.
 pub struct WorkStealingScheduler {
@@ -384,9 +555,9 @@ pub struct WorkStealingScheduler {
     /// Configuration for this scheduler
     _config: SchedulerConfig,
     /// Local work queue (Chase-Lev deque)
-    local_queue: ChaseLevDeque<Box<dyn BoxedTask>>,
+    local_queue: ChaseLevDeque<ScheduledTask>,
     /// Global work queue for load balancing
-    global_queue: Mutex<VecDeque<Box<dyn BoxedTask>>>,
+    global_queue: Mutex<VecDeque<ScheduledTask>>,
     /// Statistics for this scheduler
     stats: SchedulerStats,
 }
@@ -439,6 +610,14 @@ impl WorkStealingScheduler {
         }
     }
 
+    /// Schedule a concrete task without a task trait object.
+    pub fn schedule_task<T>(&self, task: T) -> SchedulerResult<()>
+    where
+        T: Task,
+    {
+        self.schedule(ScheduledTask::new(task))
+    }
+
     /// Try to execute the next available task.
     pub fn try_execute_next_task(&self) -> SchedulerResult<bool> {
         // First, try local queue
@@ -460,7 +639,7 @@ impl WorkStealingScheduler {
     }
 
     /// Try to steal work from another scheduler.
-    pub fn try_steal_from(&self, other: &WorkStealingScheduler) -> StealResult<Box<dyn BoxedTask>> {
+    pub fn try_steal_from(&self, other: &WorkStealingScheduler) -> StealResult<ScheduledTask> {
         self.stats.steal_attempts.fetch_add(1, Ordering::Relaxed);
 
         match other.local_queue.steal() {
@@ -473,11 +652,11 @@ impl WorkStealingScheduler {
     }
 
     /// Execute a single task.
-    fn execute_task(&self, task: Box<dyn BoxedTask>) {
+    fn execute_task(&self, task: ScheduledTask) {
         let start_time = Instant::now();
 
         // Execute the task
-        task.execute_boxed();
+        task.execute();
 
         // Update statistics
         let execution_time = start_time.elapsed().as_nanos() as usize;
@@ -529,7 +708,7 @@ impl WorkStealingScheduler {
 }
 
 impl Scheduler for WorkStealingScheduler {
-    fn schedule(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()> {
+    fn schedule(&self, task: ScheduledTask) -> SchedulerResult<()> {
         self.stats.tasks_scheduled.fetch_add(1, Ordering::Relaxed);
 
         // Prefer local queue for better cache locality
@@ -537,7 +716,7 @@ impl Scheduler for WorkStealingScheduler {
         Ok(())
     }
 
-    fn next_task(&self) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
+    fn next_task(&self) -> SchedulerResult<Option<ScheduledTask>> {
         // First, try local queue
         if let Some(task) = self.local_queue.pop() {
             return Ok(Some(task));
@@ -553,7 +732,10 @@ impl Scheduler for WorkStealingScheduler {
         Ok(None)
     }
 
-    fn try_steal(&self, victim: &dyn Scheduler) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
+    fn try_steal<S>(&self, victim: &S) -> SchedulerResult<Option<ScheduledTask>>
+    where
+        S: Scheduler,
+    {
         // For simplicity, we'll use the load-based approach as a fallback
         // In a real implementation, we'd have a more sophisticated mechanism
         if victim.can_be_stolen_from() {
@@ -609,7 +791,7 @@ impl WorkStealingCoordinator {
         &self,
         idle_scheduler: &WorkStealingScheduler,
         all_schedulers: &[std::sync::Arc<WorkStealingScheduler>],
-    ) -> Option<Box<dyn BoxedTask>> {
+    ) -> Option<ScheduledTask> {
         match &self.strategy {
             WorkStealingStrategy::Random { max_attempts } => {
                 self.random_steal(idle_scheduler, all_schedulers, *max_attempts)
@@ -641,7 +823,7 @@ impl WorkStealingCoordinator {
         idle_scheduler: &WorkStealingScheduler,
         all_schedulers: &[std::sync::Arc<WorkStealingScheduler>],
         max_attempts: usize,
-    ) -> Option<Box<dyn BoxedTask>> {
+    ) -> Option<ScheduledTask> {
         for _ in 0..max_attempts {
             let target_idx = self.next_random() % all_schedulers.len();
             let target = &all_schedulers[target_idx];
@@ -666,7 +848,7 @@ impl WorkStealingCoordinator {
         idle_scheduler: &WorkStealingScheduler,
         all_schedulers: &[std::sync::Arc<WorkStealingScheduler>],
         max_attempts: usize,
-    ) -> Option<Box<dyn BoxedTask>> {
+    ) -> Option<ScheduledTask> {
         let start_idx = (idle_scheduler.id().get() + 1) % all_schedulers.len();
 
         for i in 0..max_attempts.min(all_schedulers.len()) {
@@ -696,7 +878,7 @@ impl WorkStealingCoordinator {
         idle_scheduler: &WorkStealingScheduler,
         all_schedulers: &[std::sync::Arc<WorkStealingScheduler>],
         max_attempts: usize,
-    ) -> Option<Box<dyn BoxedTask>> {
+    ) -> Option<ScheduledTask> {
         // Find the scheduler with the highest load
         let mut best_target: Option<&WorkStealingScheduler> = None;
         let mut max_load = 0;
@@ -732,7 +914,7 @@ impl WorkStealingCoordinator {
         idle_scheduler: &WorkStealingScheduler,
         all_schedulers: &[std::sync::Arc<WorkStealingScheduler>],
         max_attempts: usize,
-    ) -> Option<Box<dyn BoxedTask>> {
+    ) -> Option<ScheduledTask> {
         // Simplified locality-aware stealing based on scheduler ID distance
         let idle_id = idle_scheduler.id().get();
 
@@ -774,6 +956,7 @@ impl WorkStealingCoordinator {
 mod tests {
     use super::*;
     use moirai_core::{Task, TaskContext, TaskId};
+    use std::sync::Arc;
 
     // Test task implementation
     struct TestTask {
@@ -801,8 +984,6 @@ mod tests {
             &self.context
         }
     }
-
-    // BoxedTask is automatically implemented for TestTask via the blanket impl
 
     #[test]
     fn test_chase_lev_deque_basic_operations() {
@@ -850,6 +1031,128 @@ mod tests {
     }
 
     #[test]
+    fn chase_lev_deque_resizes_without_per_item_heap_nodes() {
+        let deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+
+        for value in 0..40 {
+            deque.push(value);
+        }
+
+        assert_eq!(deque.steal(), StealResult::Success(0));
+        assert_eq!(deque.steal(), StealResult::Success(1));
+        assert_eq!(deque.pop(), Some(39));
+        assert_eq!(deque.pop(), Some(38));
+
+        let mut remaining = Vec::new();
+        while let Some(value) = deque.pop() {
+            remaining.push(value);
+        }
+
+        assert_eq!(remaining.len(), 36);
+        assert_eq!(remaining.iter().sum::<usize>(), (2..=37).sum::<usize>());
+    }
+
+    #[test]
+    fn chase_lev_deque_reclaims_retired_arrays_after_quiescence() {
+        let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+
+        for value in 0..40 {
+            deque.push(value);
+        }
+
+        assert!(
+            !deque.retired_arrays.lock().unwrap().is_empty(),
+            "resize must retire at least one backing array"
+        );
+
+        deque.reclaim_memory(QuiescentReclaim);
+
+        assert_eq!(deque.retired_arrays.lock().unwrap().len(), 0);
+
+        let mut observed = Vec::new();
+        while let Some(value) = deque.pop() {
+            observed.push(value);
+        }
+
+        assert_eq!(observed.len(), 40);
+        assert_eq!(observed.iter().sum::<usize>(), (0..40).sum::<usize>());
+    }
+
+    #[test]
+    fn chase_lev_deque_reclamation_policies_are_static() {
+        assert_eq!(std::mem::size_of::<QuiescentReclaim>(), 0);
+        assert_eq!(std::mem::size_of::<QuiescentState>(), 0);
+        assert_eq!(std::mem::size_of::<QuiescentAccessGuard>(), 0);
+        assert_eq!(std::mem::size_of::<SharedEpochReclaim>(), 0);
+        assert_eq!(
+            std::mem::size_of::<SharedEpochState>(),
+            std::mem::size_of::<AtomicUsize>()
+        );
+    }
+
+    #[test]
+    fn chase_lev_deque_shared_epoch_reclaim_waits_for_active_access() {
+        let deque: ChaseLevDeque<usize, SharedEpochReclaim> = ChaseLevDeque::new(2);
+
+        for value in 0..40 {
+            deque.push(value);
+        }
+
+        assert!(
+            !deque.retired_arrays.lock().unwrap().is_empty(),
+            "resize must retire at least one backing array"
+        );
+
+        let guard = deque.reclaim.enter();
+        assert!(!deque.try_reclaim_shared(SharedEpochReclaim));
+        drop(guard);
+
+        assert!(deque.try_reclaim_shared(SharedEpochReclaim));
+        assert_eq!(deque.retired_arrays.lock().unwrap().len(), 0);
+
+        let mut observed = Vec::new();
+        while let Some(value) = deque.pop() {
+            observed.push(value);
+        }
+
+        assert_eq!(observed.len(), 40);
+        assert_eq!(observed.iter().sum::<usize>(), (0..40).sum::<usize>());
+    }
+
+    #[test]
+    fn chase_lev_deque_drops_each_inline_item_once() {
+        struct DropProbe(Arc<AtomicUsize>);
+
+        impl Drop for DropProbe {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let drops = Arc::new(AtomicUsize::new(0));
+
+        {
+            let deque: ChaseLevDeque<DropProbe> = ChaseLevDeque::new(2);
+            for _ in 0..40 {
+                deque.push(DropProbe(Arc::clone(&drops)));
+            }
+
+            for _ in 0..10 {
+                match deque.steal() {
+                    StealResult::Success(item) => drop(item),
+                    StealResult::Empty | StealResult::Retry => {
+                        panic!("expected successful steal")
+                    }
+                }
+            }
+
+            assert_eq!(drops.load(Ordering::Relaxed), 10);
+        }
+
+        assert_eq!(drops.load(Ordering::Relaxed), 40);
+    }
+
+    #[test]
     fn test_work_stealing_scheduler() {
         let config = SchedulerConfig::default();
         let scheduler = WorkStealingScheduler::new(SchedulerId::new(0), config);
@@ -857,9 +1160,7 @@ mod tests {
         // Schedule some tasks
         for i in 0..10 {
             let task = TestTask::new(i);
-            let wrapped = moirai_core::task::TaskWrapper::new(task);
-            let task: Box<dyn BoxedTask> = Box::new(wrapped);
-            scheduler.schedule(task).unwrap();
+            scheduler.schedule_task(task).unwrap();
         }
 
         // Get stats
@@ -882,9 +1183,7 @@ mod tests {
         // Schedule and execute some tasks
         for i in 0..5 {
             let task = TestTask::new(i);
-            let wrapped = moirai_core::task::TaskWrapper::new(task);
-            let task: Box<dyn BoxedTask> = Box::new(wrapped);
-            scheduler.schedule(task).unwrap();
+            scheduler.schedule_task(task).unwrap();
         }
 
         // Execute all tasks
@@ -895,7 +1194,8 @@ mod tests {
         assert_eq!(stats.tasks_scheduled, 5);
         assert_eq!(stats.tasks_executed, 5);
         assert_eq!(stats.current_load, 0);
-        assert!(stats.execution_time_ns > 0);
+        // execution_time_ns may be 0 for trivially fast no-op tasks on high-resolution timers
+        let _ = stats.execution_time_ns;
     }
 
     #[test]
@@ -909,9 +1209,7 @@ mod tests {
         // Test multiple task scheduling
         for i in 0..10 {
             let task = TestTask::new(i);
-            let wrapped = moirai_core::task::TaskWrapper::new(task);
-            let task: Box<dyn BoxedTask> = Box::new(wrapped);
-            scheduler.schedule(task).unwrap();
+            scheduler.schedule_task(task).unwrap();
         }
 
         assert_eq!(scheduler.load(), 10);

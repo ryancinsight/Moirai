@@ -1,13 +1,13 @@
 //! Iterator operations with SIMD support and memory-aware variants.
-//!
-//! This module provides iterators and adapters inspired by:
-//! - Rust's iterator fusion for zero-cost abstractions
-//! - SIMD vectorization from Intel's ISPC
-//! - Streaming patterns from Apache Arrow
-//! - Combinator patterns from functional programming
 
 use std::marker::PhantomData;
 use std::sync::Arc;
+
+mod stateful;
+mod streaming;
+
+pub use self::stateful::{fold_ref, PartitionRef, ScanRef, UpdateInPlace};
+pub use self::streaming::StreamingIter;
 
 /// SIMD lane width for vectorization
 #[cfg(target_arch = "x86_64")]
@@ -366,6 +366,29 @@ pub trait IteratorOpsExt: Iterator + Sized {
         }
     }
 
+    /// Scan with borrowed mutable state without requiring a `'static` closure.
+    fn scan_ref<S, F, U>(self, initial: S, f: F) -> ScanRef<Self, S, F>
+    where
+        F: FnMut(&mut S, Self::Item) -> Option<U>,
+    {
+        ScanRef {
+            iter: self,
+            state: initial,
+            f,
+        }
+    }
+
+    /// Partition items through a predicate adapter.
+    fn partition_ref<F>(self, predicate: F) -> PartitionRef<Self, F>
+    where
+        F: FnMut(&Self::Item) -> bool,
+    {
+        PartitionRef {
+            iter: self,
+            predicate,
+        }
+    }
+
     /// Batch process items
     fn batch<F, U>(self, batch_size: usize, f: F) -> BatchIter<Self, F>
     where
@@ -469,215 +492,5 @@ where
     }
 }
 
-/// Memory-efficient streaming iterator
-pub struct StreamingIter<T> {
-    buffer: Vec<T>,
-    capacity: usize,
-    producer: Box<dyn FnMut() -> Option<T>>,
-}
-
-impl<T> StreamingIter<T> {
-    /// Create a new streaming iterator
-    pub fn new<F>(capacity: usize, producer: F) -> Self
-    where
-        F: FnMut() -> Option<T> + 'static,
-    {
-        Self {
-            buffer: Vec::with_capacity(capacity),
-            capacity,
-            producer: Box::new(producer),
-        }
-    }
-
-    /// Fill the buffer
-    fn fill_buffer(&mut self) {
-        while self.buffer.len() < self.capacity {
-            match (self.producer)() {
-                Some(item) => self.buffer.push(item),
-                None => break,
-            }
-        }
-    }
-}
-
-impl<T> Iterator for StreamingIter<T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.buffer.is_empty() {
-            self.fill_buffer();
-        }
-
-        if self.buffer.is_empty() {
-            None
-        } else {
-            Some(self.buffer.remove(0))
-        }
-    }
-}
-
-/// Zero-copy scan iterator that maintains state without cloning
-///
-/// This iterator applies a stateful transformation to each element,
-/// similar to fold but yielding intermediate results.
-pub struct ScanRef<I, St, F> {
-    iter: I,
-    state: St,
-    f: F,
-}
-
-impl<I, St, F, B> Iterator for ScanRef<I, St, F>
-where
-    I: Iterator,
-    F: FnMut(&mut St, I::Item) -> Option<B>,
-{
-    type Item = B;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        let item = self.iter.next()?;
-        (self.f)(&mut self.state, item)
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let (_, upper) = self.iter.size_hint();
-        (0, upper)
-    }
-}
-
-/// Zero-copy fold that works with borrowed data
-///
-/// This allows folding over iterators of references without cloning
-pub fn fold_ref<I, B, F>(iter: I, init: B, mut f: F) -> B
-where
-    I: Iterator,
-    F: FnMut(B, &I::Item) -> B,
-    I::Item: AsRef<I::Item>,
-{
-    let mut accum = init;
-    for item in iter {
-        accum = f(accum, item.as_ref());
-    }
-    accum
-}
-
-/// Zero-copy partition iterator
-///
-/// Partitions elements into two collections based on a predicate,
-/// working with references to avoid cloning.
-pub struct PartitionRef<I, F> {
-    iter: I,
-    predicate: F,
-}
-
-impl<I, F> PartitionRef<I, F>
-where
-    I: Iterator,
-    F: FnMut(&I::Item) -> bool,
-{
-    /// Consume the iterator and partition into two collections
-    pub fn partition<A, B>(mut self) -> (A, B)
-    where
-        A: Default + Extend<I::Item>,
-        B: Default + Extend<I::Item>,
-    {
-        let mut left = A::default();
-        let mut right = B::default();
-
-        for item in self.iter {
-            if (self.predicate)(&item) {
-                left.extend(Some(item));
-            } else {
-                right.extend(Some(item));
-            }
-        }
-
-        (left, right)
-    }
-}
-
-/// Iterator adapter for in-place modification
-///
-/// This allows modifying elements in-place without creating new allocations
-pub struct UpdateInPlace<'a, T, I, F> {
-    iter: I,
-    updater: F,
-    _phantom: std::marker::PhantomData<&'a mut T>,
-}
-
-impl<'a, T, I, F> Iterator for UpdateInPlace<'a, T, I, F>
-where
-    I: Iterator<Item = &'a mut T>,
-    F: FnMut(&mut T),
-{
-    type Item = &'a mut T;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|item| {
-            (self.updater)(item);
-            item
-        })
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_zero_copy_iter() {
-        let data = vec![1, 2, 3, 4, 5];
-        let iter = ZeroCopyIter::new(&data);
-        let collected: Vec<_> = iter.collect();
-        assert_eq!(collected, vec![&1, &2, &3, &4, &5]);
-    }
-
-    #[test]
-    fn test_chunked_iter() {
-        let data = vec![1, 2, 3, 4, 5, 6, 7];
-        let chunks: Vec<_> = data.into_iter().chunked(3).collect();
-        assert_eq!(chunks, vec![vec![1, 2, 3], vec![4, 5, 6], vec![7]]);
-    }
-
-    #[test]
-    fn test_fused_iter() {
-        let data = vec![1, 2, 3, 4, 5];
-        let result: Vec<_> = data.into_iter().map_filter(|x| x * 2, |x| x > &5).collect();
-        assert_eq!(result, vec![6, 8, 10]);
-    }
-
-    #[test]
-    fn test_window_iter() {
-        let data = vec![1, 2, 3, 4, 5];
-        let windows: Vec<_> = WindowIter::new(&data, 3).collect();
-        assert_eq!(
-            windows,
-            vec![&[1, 2, 3][..], &[2, 3, 4][..], &[3, 4, 5][..]]
-        );
-    }
-
-    #[test]
-    fn test_interleave() {
-        let a = vec![1, 3, 5];
-        let b = vec![2, 4, 6];
-        let result: Vec<_> = a.into_iter().interleave(b).collect();
-        assert_eq!(result, vec![1, 2, 3, 4, 5, 6]);
-    }
-
-    #[test]
-    fn test_batch_iter() {
-        let data = vec![1, 2, 3, 4, 5, 6, 7];
-        let result: Vec<_> = data
-            .into_iter()
-            .batch(3, |batch| batch.iter().sum::<i32>())
-            .collect();
-        assert_eq!(result, vec![6, 15, 7]);
-    }
-}
+mod tests;

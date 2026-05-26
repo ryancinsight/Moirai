@@ -9,15 +9,16 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 /// Watch channel for state monitoring with change notifications
-#[allow(dead_code)] // Fields used for future watch functionality per ADR requirements
 pub struct Watch<T> {
-    state: Arc<Mutex<WatchState<T>>>,
+    _phantom: std::marker::PhantomData<T>,
 }
 
 struct WatchState<T> {
     value: T,
     version: u64,
+    closed: bool,
     receivers: Vec<WatchReceiverState>,
+    next_receiver_id: u64,
 }
 
 struct WatchReceiverState {
@@ -34,7 +35,9 @@ impl<T: Clone + Send + 'static> Watch<T> {
         let state = Arc::new(Mutex::new(WatchState {
             value: initial,
             version: 0,
+            closed: false,
             receivers: Vec::new(),
+            next_receiver_id: 1,
         }));
 
         let sender = WatchSender {
@@ -70,6 +73,9 @@ impl<T: Clone> WatchSender<T> {
     /// Send a new value, notifying all receivers
     pub fn send(&self, value: T) -> Result<(), WatchError> {
         let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(WatchError::Closed);
+        }
         state.value = value;
         state.version += 1;
         let current_version = state.version;
@@ -97,6 +103,9 @@ impl<T: Clone> WatchSender<T> {
         F: FnOnce(&mut T),
     {
         let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(WatchError::Closed);
+        }
         modify(&mut state.value);
         state.version += 1;
 
@@ -116,6 +125,18 @@ impl<T: Clone> WatchSender<T> {
     }
 }
 
+impl<T> Drop for WatchSender<T> {
+    fn drop(&mut self) {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        for receiver in &mut state.receivers {
+            if let Some(waker) = receiver.waker.take() {
+                waker.wake();
+            }
+        }
+    }
+}
+
 /// Receiver half of watch channel
 pub struct WatchReceiver<T> {
     state: Arc<Mutex<WatchState<T>>>,
@@ -127,24 +148,25 @@ impl<T: Clone> WatchReceiver<T> {
     /// Get the current value
     pub fn borrow(&self) -> T {
         let state = self.state.lock().unwrap();
-        let _ = self.version.max(state.version);
         state.value.clone()
     }
 
     /// Wait for the value to change
     pub fn changed(&mut self) -> WatchChanged<'_, T> {
-        WatchChanged {
-            receiver: self,
-            registered: false,
-        }
+        WatchChanged { receiver: self }
     }
 
     /// Check if the value has changed since last check
     pub fn has_changed(&mut self) -> bool {
-        let state = self.state.lock().unwrap();
+        let state_arc = self.state.clone();
+        let mut state = state_arc.lock().unwrap();
         let changed = state.version > self.version;
         if changed {
-            self.version = state.version;
+            let current_version = state.version;
+            self.version = current_version;
+            if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.id) {
+                receiver_state.version = current_version;
+            }
         }
         changed
     }
@@ -153,9 +175,10 @@ impl<T: Clone> WatchReceiver<T> {
 impl<T> Clone for WatchReceiver<T> {
     fn clone(&self) -> Self {
         let mut state = self.state.lock().unwrap();
-        let new_id = state.receivers.len() as u64;
+        let new_id = state.next_receiver_id;
+        state.next_receiver_id += 1;
         let current_version = state.version;
-        
+
         state.receivers.push(WatchReceiverState {
             id: new_id,
             version: current_version,
@@ -165,47 +188,56 @@ impl<T> Clone for WatchReceiver<T> {
         WatchReceiver {
             state: self.state.clone(),
             id: new_id,
-            version: state.version,
+            version: current_version,
         }
     }
 }
 
 impl<T> Drop for WatchReceiver<T> {
     fn drop(&mut self) {
-        let mut state = self.state.lock().unwrap();
-        state.receivers.retain(|r| r.id != self.id);
+        if let Ok(mut state) = self.state.lock() {
+            state.receivers.retain(|r| r.id != self.id);
+        }
     }
 }
 
 /// Future for waiting for watch value changes
 pub struct WatchChanged<'a, T> {
     receiver: &'a mut WatchReceiver<T>,
-    registered: bool,
 }
 
 impl<'a, T: Clone> Future for WatchChanged<'a, T> {
     type Output = Result<(), WatchError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        {
-            let mut state = self.receiver.state.lock().unwrap();
-            
-            if state.version > self.receiver.version {
-                let current_version = state.version;
-                drop(state);  // Release lock before modifying self
-                self.receiver.version = current_version;
-                return Poll::Ready(Ok(()));
-            } else if !self.registered {
-                if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.receiver.id) {
-                    receiver_state.waker = Some(cx.waker().clone());
-                }
+        let state_arc = self.receiver.state.clone();
+        let mut state = state_arc.lock().unwrap();
+
+        if state.closed {
+            return Poll::Ready(Err(WatchError::Closed));
+        }
+
+        let current_version = state.version;
+        if current_version > self.receiver.version {
+            self.receiver.version = current_version;
+            if let Some(receiver_state) = state
+                .receivers
+                .iter_mut()
+                .find(|r| r.id == self.receiver.id)
+            {
+                receiver_state.version = current_version;
             }
+            return Poll::Ready(Ok(()));
         }
-        
-        if !self.registered {
-            self.registered = true;
+
+        if let Some(receiver_state) = state
+            .receivers
+            .iter_mut()
+            .find(|r| r.id == self.receiver.id)
+        {
+            receiver_state.waker = Some(cx.waker().clone());
         }
-        
+
         Poll::Pending
     }
 }

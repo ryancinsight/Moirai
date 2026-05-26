@@ -9,10 +9,10 @@
 
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::fmt;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Represents a market data tick (simplified financial market data)
 #[derive(Debug, Clone)]
@@ -48,7 +48,7 @@ impl fmt::Display for TickType {
 #[derive(Debug, Clone)]
 struct ProcessedData {
     symbol: String,
-    vwap: f64,           // Volume Weighted Average Price
+    vwap: f64, // Volume Weighted Average Price
     total_volume: u64,
     price_change: f64,
     volatility: f64,
@@ -91,22 +91,20 @@ impl CircuitBreaker {
         F: FnOnce() -> Result<T, E>,
         E: fmt::Display,
     {
-        match self.current_state() {
-            CircuitState::Open => {
-                // Check if we should transition to half-open
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64;
-                let last_failure = self.last_failure_time.load(Ordering::Relaxed);
-                
-                if now - last_failure > self.recovery_timeout_ms {
-                    self.state.store(CircuitState::HalfOpen as u8, Ordering::Relaxed);
-                } else {
-                    return Err("Circuit breaker is OPEN".to_string());
-                }
+        if self.current_state() == CircuitState::Open {
+            // Check if we should transition to half-open
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            let last_failure = self.last_failure_time.load(Ordering::Relaxed);
+
+            if now - last_failure > self.recovery_timeout_ms {
+                self.state
+                    .store(CircuitState::HalfOpen as u8, Ordering::Relaxed);
+            } else {
+                return Err("Circuit breaker is OPEN".to_string());
             }
-            _ => {}
         }
 
         match operation() {
@@ -133,7 +131,8 @@ impl CircuitBreaker {
     fn on_success(&self) {
         self.success_count.fetch_add(1, Ordering::Relaxed);
         if self.current_state() == CircuitState::HalfOpen {
-            self.state.store(CircuitState::Closed as u8, Ordering::Relaxed);
+            self.state
+                .store(CircuitState::Closed as u8, Ordering::Relaxed);
             self.failure_count.store(0, Ordering::Relaxed);
         }
     }
@@ -147,7 +146,8 @@ impl CircuitBreaker {
         self.last_failure_time.store(now, Ordering::Relaxed);
 
         if failures >= self.failure_threshold {
-            self.state.store(CircuitState::Open as u8, Ordering::Relaxed);
+            self.state
+                .store(CircuitState::Open as u8, Ordering::Relaxed);
         }
     }
 
@@ -185,7 +185,7 @@ impl<T: Default> MemoryPool<T> {
                 return item;
             }
         }
-        
+
         self.created_count.fetch_add(1, Ordering::Relaxed);
         T::default()
     }
@@ -228,7 +228,7 @@ impl BackpressureController {
 
     fn try_accept(&self) -> bool {
         let current = self.pending_count.load(Ordering::Relaxed);
-        
+
         if current >= self.max_pending {
             self.dropped_count.fetch_add(1, Ordering::Relaxed);
             self.shed_load.store(true, Ordering::Relaxed);
@@ -298,8 +298,10 @@ impl SymbolProcessor {
         // Check for out-of-order delivery (common in high-frequency scenarios)
         if tick.sequence_number <= self.last_sequence {
             self.out_of_order_count.fetch_add(1, Ordering::Relaxed);
-            return Err(format!("Out-of-order tick: {} <= {}", 
-                              tick.sequence_number, self.last_sequence));
+            return Err(format!(
+                "Out-of-order tick: {} <= {}",
+                tick.sequence_number, self.last_sequence
+            ));
         }
 
         self.last_sequence = tick.sequence_number;
@@ -361,9 +363,12 @@ impl SymbolProcessor {
         }
 
         let mean = self.price_history.iter().sum::<f64>() / self.price_history.len() as f64;
-        let variance = self.price_history.iter()
+        let variance = self
+            .price_history
+            .iter()
             .map(|price| (price - mean).powi(2))
-            .sum::<f64>() / self.price_history.len() as f64;
+            .sum::<f64>()
+            / self.price_history.len() as f64;
 
         Ok(variance.sqrt())
     }
@@ -371,8 +376,7 @@ impl SymbolProcessor {
 
 impl DataProcessingPipeline {
     fn new() -> Result<Self, String> {
-        let runtime = Moirai::new()
-            .map_err(|_| "Failed to create Moirai runtime")?;
+        let runtime = Moirai::new().map_err(|_| "Failed to create Moirai runtime")?;
 
         Ok(Self {
             runtime,
@@ -408,51 +412,61 @@ impl DataProcessingPipeline {
             Priority::Normal
         };
 
-        let handle = self.runtime.spawn_fn_with_priority(move || {
-            // Use circuit breaker for resilience
-            let result = circuit_breaker.call(|| -> Result<ProcessedData, &'static str> {
-                // Acquire memory for calculations
-                let _calc_buffer = memory_pool.acquire();
+        let handle = self.runtime.spawn_fn_with_priority(
+            move || {
+                // Use circuit breaker for resilience
+                let result = circuit_breaker.call(|| -> Result<ProcessedData, &'static str> {
+                    // Acquire memory for calculations
+                    let _calc_buffer = memory_pool.acquire();
 
-                // Get or create symbol processor
-                let mut processed_data = {
-                    let mut symbol_processors = processors.write()
-                        .map_err(|_| "Failed to acquire symbol processors lock")?;
-                    
-                    let processor = symbol_processors.entry(tick.symbol.clone())
-                        .or_insert_with(|| SymbolProcessor::new(tick.symbol.clone()));
-                    
-                    processor.process_tick(&tick)
-                        .map_err(|_| "Failed to process tick")?
-                };
+                    // Get or create symbol processor
+                    let mut processed_data = {
+                        let mut symbol_processors = processors
+                            .write()
+                            .map_err(|_| "Failed to acquire symbol processors lock")?;
 
-                // Calculate processing latency
-                let processing_latency = start_time.elapsed().as_nanos() as u64;
-                processed_data.processing_latency_nanos = processing_latency;
+                        let processor = symbol_processors
+                            .entry(tick.symbol.clone())
+                            .or_insert_with(|| SymbolProcessor::new(tick.symbol.clone()));
 
-                // Update statistics
-                processed_count.fetch_add(1, Ordering::Relaxed);
-                total_latency.fetch_add(processing_latency, Ordering::Relaxed);
+                        processor
+                            .process_tick(&tick)
+                            .map_err(|_| "Failed to process tick")?
+                    };
 
-                Ok(processed_data)
-            });
+                    // Calculate processing latency
+                    let processing_latency = start_time.elapsed().as_nanos() as u64;
+                    processed_data.processing_latency_nanos = processing_latency;
 
-            match result {
-                Ok(processed_data) => {
-                    // Simulate downstream processing (e.g., sending to subscribers)
-                    if processed_data.volatility > 0.05 {
-                        // High volatility detected - could trigger alerts
-                        println!("HIGH VOLATILITY ALERT: {} @ {:.4} (vol: {:.4})",
-                                processed_data.symbol, processed_data.vwap, processed_data.volatility);
+                    // Update statistics
+                    processed_count.fetch_add(1, Ordering::Relaxed);
+                    total_latency.fetch_add(processing_latency, Ordering::Relaxed);
+
+                    Ok(processed_data)
+                });
+
+                match result {
+                    Ok(processed_data) => {
+                        // Simulate downstream processing (e.g., sending to subscribers)
+                        if processed_data.volatility > 0.05 {
+                            // High volatility detected - could trigger alerts
+                            println!(
+                                "HIGH VOLATILITY ALERT: {} @ {:.4} (vol: {:.4})",
+                                processed_data.symbol,
+                                processed_data.vwap,
+                                processed_data.volatility
+                            );
+                        }
+                        Ok(())
                     }
-                    Ok(())
+                    Err(e) => {
+                        error_count.fetch_add(1, Ordering::Relaxed);
+                        Err(e)
+                    }
                 }
-                Err(e) => {
-                    error_count.fetch_add(1, Ordering::Relaxed);
-                    Err(e)
-                }
-            }
-        }, priority);
+            },
+            priority,
+        );
 
         // Complete backpressure tracking
         let _ = handle.join();
@@ -465,7 +479,7 @@ impl DataProcessingPipeline {
         let processed = self.processed_count.load(Ordering::Relaxed);
         let errors = self.error_count.load(Ordering::Relaxed);
         let total_latency = self.total_latency_nanos.load(Ordering::Relaxed);
-        
+
         let avg_latency_nanos = if processed > 0 {
             total_latency / processed as u64
         } else {
@@ -476,7 +490,9 @@ impl DataProcessingPipeline {
         let (pool_created, pool_reused, pool_size) = self.memory_pool.stats();
         let (pending, dropped, load_shedding) = self.backpressure.stats();
 
-        let symbol_count = self.symbol_processors.read()
+        let symbol_count = self
+            .symbol_processors
+            .read()
             .map_err(|_| "Failed to read symbol processors")?
             .len();
 
@@ -525,9 +541,15 @@ struct MarketDataGenerator {
 impl MarketDataGenerator {
     fn new() -> Self {
         let symbols = vec![
-            "AAPL".to_string(), "GOOGL".to_string(), "MSFT".to_string(),
-            "AMZN".to_string(), "TSLA".to_string(), "META".to_string(),
-            "NVDA".to_string(), "AMD".to_string(), "INTC".to_string(),
+            "AAPL".to_string(),
+            "GOOGL".to_string(),
+            "MSFT".to_string(),
+            "AMZN".to_string(),
+            "TSLA".to_string(),
+            "META".to_string(),
+            "NVDA".to_string(),
+            "AMD".to_string(),
+            "INTC".to_string(),
             "IBM".to_string(),
         ];
 
@@ -550,25 +572,34 @@ impl MarketDataGenerator {
         }
     }
 
-    fn generate_tick(&self, symbol_index: usize, simulate_error: bool) -> Result<MarketTick, String> {
+    fn generate_tick(
+        &self,
+        symbol_index: usize,
+        simulate_error: bool,
+    ) -> Result<MarketTick, String> {
         if simulate_error {
             return Err("Simulated market data error".to_string());
         }
 
         let symbol = &self.symbols[symbol_index % self.symbols.len()];
         let base_price = self.base_prices[symbol];
-        
+
         // Simulate price movement (±2% random walk)
         let price_change = (fastrand::f64() - 0.5) * 0.04;
         let price = base_price * (1.0 + price_change);
-        
+
         let volume = fastrand::u64(100..10000);
         let timestamp_nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
 
-        let tick_types = [TickType::Trade, TickType::BidQuote, TickType::AskQuote, TickType::Last];
+        let tick_types = [
+            TickType::Trade,
+            TickType::BidQuote,
+            TickType::AskQuote,
+            TickType::Last,
+        ];
         let tick_type = tick_types[fastrand::usize(0..tick_types.len())].clone();
 
         Ok(MarketTick {
@@ -591,7 +622,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n1. Processing normal market data flow...");
     let start_time = Instant::now();
-    
+
     // Process normal flow
     for i in 0..1000 {
         let symbol_index = i % 10;
@@ -609,37 +640,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::thread::sleep(Duration::from_millis(100));
 
     let normal_processing_time = start_time.elapsed();
-    println!("  Normal processing completed in {:?}", normal_processing_time);
+    println!(
+        "  Normal processing completed in {:?}",
+        normal_processing_time
+    );
 
     // Edge Case 1: High-frequency burst
     println!("\n2. Testing high-frequency burst (backpressure scenario)...");
     let burst_start = Instant::now();
-    
+
     for i in 0..5000 {
         let symbol_index = i % 10;
-        match generator.generate_tick(symbol_index, false) {
-            Ok(tick) => {
-                let _ = pipeline.process_tick(tick); // Ignore backpressure errors for this test
-            }
-            Err(_) => {}
+        if let Ok(tick) = generator.generate_tick(symbol_index, false) {
+            let _ = pipeline.process_tick(tick); // Ignore backpressure errors for this test
         }
-        
+
         // Simulate microsecond-level processing
         if i % 100 == 0 {
             std::thread::sleep(Duration::from_micros(1));
         }
     }
-    
+
     let burst_time = burst_start.elapsed();
     println!("  Burst processing completed in {:?}", burst_time);
 
     // Edge Case 2: Error scenario (circuit breaker testing)
     println!("\n3. Testing circuit breaker with simulated errors...");
-    
+
     for i in 0..20 {
         let symbol_index = i % 10;
         let simulate_error = i % 3 == 0; // Inject errors for 1/3 of ticks
-        
+
         match generator.generate_tick(symbol_index, simulate_error) {
             Ok(tick) => {
                 let _ = pipeline.process_tick(tick);
@@ -657,27 +688,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(stats) => {
             println!("  ├─ Ticks processed: {}", stats.processed_ticks);
             println!("  ├─ Processing errors: {}", stats.error_count);
-            println!("  ├─ Average latency: {:.2} μs", stats.avg_latency_nanos as f64 / 1000.0);
+            println!(
+                "  ├─ Average latency: {:.2} μs",
+                stats.avg_latency_nanos as f64 / 1000.0
+            );
             println!("  ├─ Unique symbols: {}", stats.unique_symbols);
-            println!("  ├─ Success rate: {:.2}%", 
-                     (stats.processed_ticks as f64 / (stats.processed_ticks + stats.error_count) as f64) * 100.0);
-            
+            println!(
+                "  ├─ Success rate: {:.2}%",
+                (stats.processed_ticks as f64 / (stats.processed_ticks + stats.error_count) as f64)
+                    * 100.0
+            );
+
             println!("  ├─ Circuit Breaker:");
             println!("  │  ├─ Successes: {}", stats.circuit_success);
             println!("  │  ├─ Failures: {}", stats.circuit_failures);
             println!("  │  └─ State: {:?}", stats.circuit_state);
-            
+
             println!("  ├─ Memory Pool:");
             println!("  │  ├─ Objects created: {}", stats.pool_created);
             println!("  │  ├─ Objects reused: {}", stats.pool_reused);
             println!("  │  ├─ Pool size: {}", stats.pool_size);
-            println!("  │  └─ Reuse rate: {:.2}%", 
-                     (stats.pool_reused as f64 / (stats.pool_created + stats.pool_reused) as f64) * 100.0);
-            
+            println!(
+                "  │  └─ Reuse rate: {:.2}%",
+                (stats.pool_reused as f64 / (stats.pool_created + stats.pool_reused) as f64)
+                    * 100.0
+            );
+
             println!("  └─ Backpressure:");
             println!("     ├─ Pending: {}", stats.pending_count);
             println!("     ├─ Dropped: {}", stats.dropped_count);
-            println!("     └─ Load shedding: {}", if stats.load_shedding { "ACTIVE" } else { "INACTIVE" });
+            println!(
+                "     └─ Load shedding: {}",
+                if stats.load_shedding {
+                    "ACTIVE"
+                } else {
+                    "INACTIVE"
+                }
+            );
         }
         Err(e) => println!("  Failed to get statistics: {}", e),
     }
@@ -687,10 +734,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let total_ticks = 1000 + 5000 + 20; // Normal + burst + error test
     let total_time = start_time.elapsed();
     let throughput = total_ticks as f64 / total_time.as_secs_f64();
-    
+
     println!("  ├─ Total throughput: {:.0} ticks/second", throughput);
-    println!("  ├─ Peak burst rate: {:.0} ticks/second", 
-             5000.0 / burst_time.as_secs_f64());
+    println!(
+        "  ├─ Peak burst rate: {:.0} ticks/second",
+        5000.0 / burst_time.as_secs_f64()
+    );
     println!("  └─ Memory efficiency: High (object pooling active)");
 
     println!("\nHigh-frequency data processing pipeline completed!");

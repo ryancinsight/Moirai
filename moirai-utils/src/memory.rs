@@ -78,7 +78,7 @@ pub fn prefetch_range_read<T>(ptr: *const T, bytes: usize) {
     const CACHE_LINE_SIZE: usize = 64;
     let start = ptr as usize;
     let end = start + bytes;
-    
+
     let mut addr = start & !(CACHE_LINE_SIZE - 1); // Align to cache line
     while addr < end {
         prefetch_read(addr as *const u8);
@@ -108,7 +108,10 @@ pub fn prefetch_slice_read<T>(slice: &[T]) {
 /// # Returns
 /// True if the pointer is aligned to the specified boundary
 pub fn is_aligned<T>(ptr: *const T, alignment: usize) -> bool {
-    debug_assert!(alignment.is_power_of_two(), "Alignment must be a power of 2");
+    debug_assert!(
+        alignment.is_power_of_two(),
+        "Alignment must be a power of 2"
+    );
     (ptr as usize) & (alignment - 1) == 0
 }
 
@@ -138,10 +141,10 @@ mod tests {
     fn test_is_aligned() {
         let data = [1, 2, 3, 4];
         let ptr = data.as_ptr();
-        
+
         // Should be aligned to 1-byte boundary
         assert!(is_aligned(ptr, 1));
-        
+
         // May or may not be aligned to larger boundaries
         // depending on the allocator
     }
@@ -151,7 +154,7 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5];
         // This should not panic
         prefetch_slice_read(&data);
-        
+
         // Test empty slice
         let empty: &[i32] = &[];
         prefetch_slice_read(empty);
@@ -161,7 +164,7 @@ mod tests {
     fn test_prefetch_functions() {
         let data = 42;
         let ptr = &data as *const i32;
-        
+
         // These should not panic
         prefetch_read(ptr);
         prefetch_write(ptr);

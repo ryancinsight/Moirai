@@ -10,7 +10,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex,
     },
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 // Memory size constants
@@ -28,6 +28,7 @@ const PRODUCTION_MAX_ALLOCATION_SIZE: usize = 512 * MEGABYTE;
 const DEFAULT_TASK_SPAWN_RATE: u64 = 10_000;
 const PRODUCTION_TASK_SPAWN_RATE: u64 = 5_000;
 const DEFAULT_RATE_LIMITER_WINDOWS: usize = 10;
+const MAX_REPRESENTABLE_UNIX_NANOS: u64 = u64::MAX - 1;
 
 /// Security levels that can be applied to task execution environments.
 #[allow(clippy::module_name_repetitions)]
@@ -272,6 +273,7 @@ pub struct SecurityAuditor {
     task_spawn_limiter: SlidingWindowRateLimiter,
     memory_allocations: Arc<Mutex<HashMap<String, usize>>>,
     enabled: AtomicBool,
+    last_report_unix_ns: AtomicU64,
 }
 
 impl SecurityAuditor {
@@ -293,6 +295,7 @@ impl SecurityAuditor {
             config,
             events: Arc::new(Mutex::new(Vec::new())),
             enabled: AtomicBool::new(true),
+            last_report_unix_ns: AtomicU64::new(0),
         }
     }
 
@@ -492,9 +495,33 @@ impl SecurityAuditor {
             config: self.config.clone(),
             total_events,
             event_counts,
-            generated_at: SystemTime::now(),
+            generated_at: self.next_report_time(),
         }
     }
+
+    fn next_report_time(&self) -> SystemTime {
+        let observed_now = unix_nanos(SystemTime::now());
+
+        loop {
+            let previous = self.last_report_unix_ns.load(Ordering::Acquire);
+            let next = observed_now.max(previous.saturating_add(1));
+
+            if self
+                .last_report_unix_ns
+                .compare_exchange(previous, next, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return UNIX_EPOCH + Duration::from_nanos(next);
+            }
+        }
+    }
+}
+
+fn unix_nanos(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_nanos()
+        .min(u128::from(MAX_REPRESENTABLE_UNIX_NANOS)) as u64
 }
 
 /// Security audit report.

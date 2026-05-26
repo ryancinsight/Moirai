@@ -16,7 +16,8 @@ pub struct Semaphore {
 
 struct SemaphoreState {
     available: usize,
-    waiters: VecDeque<Waker>,
+    waiters: VecDeque<(u64, Waker, bool)>,
+    next_id: u64,
 }
 
 impl Semaphore {
@@ -26,6 +27,7 @@ impl Semaphore {
             permits: Arc::new(Mutex::new(SemaphoreState {
                 available: permits,
                 waiters: VecDeque::new(),
+                next_id: 0,
             })),
         }
     }
@@ -34,7 +36,7 @@ impl Semaphore {
     pub fn acquire(&self) -> SemaphoreAcquire<'_> {
         SemaphoreAcquire {
             semaphore: self,
-            registered: false,
+            id: None,
         }
     }
 
@@ -56,10 +58,11 @@ impl Semaphore {
 
     fn release(&self) {
         let mut state = self.permits.lock().unwrap();
-        state.available += 1;
-        if let Some(waker) = state.waiters.pop_front() {
-            drop(state);
-            waker.wake();
+        if let Some(waiter) = state.waiters.iter_mut().find(|(_, _, woken)| !*woken) {
+            waiter.2 = true;
+            waiter.1.wake_by_ref();
+        } else {
+            state.available += 1;
         }
     }
 }
@@ -67,7 +70,7 @@ impl Semaphore {
 /// Future for acquiring a semaphore permit
 pub struct SemaphoreAcquire<'a> {
     semaphore: &'a Semaphore,
-    registered: bool,
+    id: Option<u64>,
 }
 
 impl<'a> Future for SemaphoreAcquire<'a> {
@@ -75,18 +78,59 @@ impl<'a> Future for SemaphoreAcquire<'a> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut state = self.semaphore.permits.lock().unwrap();
-        
+
+        // 1. Check if we were already registered and have been granted a permit
+        if let Some(id) = self.id {
+            if let Some(pos) = state.waiters.iter().position(|(w_id, _, _)| *w_id == id) {
+                if state.waiters[pos].2 {
+                    state.waiters.remove(pos);
+                    self.id = None;
+                    return Poll::Ready(SemaphorePermit {
+                        semaphore: self.semaphore,
+                    });
+                } else {
+                    state.waiters[pos].1 = cx.waker().clone();
+                    return Poll::Pending;
+                }
+            }
+        }
+
+        // 2. Try to acquire an available permit
         if state.available > 0 {
             state.available -= 1;
-            Poll::Ready(SemaphorePermit {
-                semaphore: self.semaphore,
-            })
-        } else {
-            if !self.registered {
-                state.waiters.push_back(cx.waker().clone());
-                self.registered = true;
+            if let Some(id) = self.id.take() {
+                state.waiters.retain(|(w_id, _, _)| *w_id != id);
             }
-            Poll::Pending
+            return Poll::Ready(SemaphorePermit {
+                semaphore: self.semaphore,
+            });
+        }
+
+        // 3. Register as a waiter
+        if self.id.is_none() {
+            let id = state.next_id;
+            state.next_id += 1;
+            state.waiters.push_back((id, cx.waker().clone(), false));
+            self.id = Some(id);
+        }
+
+        Poll::Pending
+    }
+}
+
+impl<'a> Drop for SemaphoreAcquire<'a> {
+    fn drop(&mut self) {
+        if let Some(id) = self.id {
+            if let Ok(mut state) = self.semaphore.permits.lock() {
+                if let Some(pos) = state.waiters.iter().position(|(w_id, _, _)| *w_id == id) {
+                    let was_granted = state.waiters[pos].2;
+                    state.waiters.remove(pos);
+                    if was_granted {
+                        drop(state);
+                        self.semaphore.release();
+                    }
+                }
+            }
         }
     }
 }

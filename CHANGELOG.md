@@ -7,7 +7,255 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added `async_iterator_comparison`, a value-checked `moirai-iter::AsyncIterator` ready-pipeline benchmark against Tokio `JoinSet` fan-out.
+- Added `ParallelSliceMut` sorting comparison coverage against Rayon `ParallelSliceMut`.
+- Added `async_fs_comparison`, a value-checked `moirai_async::fs::read` benchmark against Tokio `fs::read`.
+- Added an `async_fs_copy_file` row to `async_fs_comparison`, comparing Moirai platform-copy facade behavior against Tokio `fs::copy` over the same 64 KiB file.
+- Added TCP and UDP loopback value tests for the Moirai-owned async network facade.
+- Added `async_tcp_comparison`, a value-checked Moirai TCP facade echo benchmark against Tokio `TcpListener`/`TcpStream`.
+- Added a persistent TCP stream echo row to `async_tcp_comparison` to isolate established-stream read/write behavior against Tokio `TcpStream`.
+- Added a TCP write-shutdown row to `async_tcp_comparison` to verify payload delivery and peer EOF against Tokio.
+- Added `async_tcp_backpressure_comparison`, a value-checked TCP write-backpressure benchmark against Tokio over bounded socket buffers.
+- Added `async_tcp_readiness_comparison`, a value-checked TCP read-readiness benchmark against Tokio that asserts `Poll::Pending` before peer data and exact payload delivery after release.
+- Added `async_tcp_cancel_safety_comparison`, a value-checked TCP pending-read cancellation benchmark against Tokio that drops a pending borrowed read future before asserting unchanged caller buffer state and later payload delivery.
+- Added `async_io_compat_comparison`, a value-checked benchmark for feature-gated Tokio I/O trait compatibility wrappers over native Moirai readers and writers.
+- Added zero-copy `AsyncReadExt::read_exact` and `AsyncWriteExt::shutdown` futures for the native Moirai I/O trait surface.
+- Added `async_udp_comparison`, a value-checked Moirai UDP facade receive benchmark against Tokio `UdpSocket::recv_from`.
+- Added `map_with` and `map_init` stateful map adapters to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `update` mutation adapter to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `intersperse` separator adapter to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `real_application_mixed_workload`, a value-checked mixed async/parallel/channel benchmark against a Tokio plus Rayon reference path.
+- Refreshed public result-handle, async wake, scheduler handoff, and Criterion variance attribution evidence against Tokio and Rayon comparison rows.
+- Added `sum`, `product`, `min`, and `max` terminal reducers to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `min_by`, `max_by`, `min_by_key`, and `max_by_key` ordered terminal reducers to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `find_map_first` and `find_map_any` predicate terminals to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `find_last` and `find_map_last` reverse-order predicate terminals to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `position_first`, `position_any`, and `position_last` predicate terminals to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `for_each_with` and `for_each_init` stateful side-effect terminals to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `try_for_each_with` and `try_for_each_init` fallible stateful side-effect terminals to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `while_some` optional-stream adapter to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `try_for_each` fallible side-effect terminal to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `try_reduce` fallible reduction terminal to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `copied` and `cloned` borrowed-reference adapters to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `unzip` pair-stream collector to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added PAL async file value tests, PAL TCP/UDP delayed loopback progress tests for the no-active-reactor self-wake path, and a Linux epoll wake-path test.
+- Added a PAL reactor task-handle completion regression test for spawned ready tasks.
+- Added `standalone_deque_reclaim_policy`, a value-checked diagnostic benchmark for `ChaseLevDeque` quiescent versus shared epoch reclamation.
+- Added bounded channel matrix coverage to the Tokio comparison audit, comparison report, and benchmark-contract surface.
+
+### Changed
+- Changed `moirai_async::fs::copy` to delegate to the PAL platform copy operation instead of allocating a user-space 64 KiB transfer buffer.
+- Replaced async iterator terminal placeholder futures with value-semantic `collect`, `for_each`, `fold`, and `reduce` execution over the logical iterator stream.
+- Changed `ParAsyncMap`, `ParAsyncFilter`, and `ParAsyncForEach` to use bounded in-flight polling through their `concurrency` parameter.
+- Raised the unstable sorting sequential threshold so medium slices use Rust's optimized unstable sort until worker dispatch amortizes.
+- Replaced placeholder-only async file tests with value-semantic file operation tests.
+- Removed the obsolete async file placeholder future wrapper and documented Tokio reactor-native I/O compatibility as a deferred PAL boundary rather than a covered facade benchmark.
+- Changed PAL TCP/UDP `WouldBlock` fallback without an active reactor to wake the current task before returning `Pending`.
+- Changed async file, TCP, and UDP Tokio comparison benchmarks so Moirai rows use `Moirai::block_on` instead of `futures::executor::block_on`.
+- Changed the Moirai TCP stream facade to expose TCP_NODELAY for low-latency stream benchmark parity with Tokio.
+- Changed Moirai TCP stream shutdown from a no-op to PAL write-side socket shutdown.
+- Changed the Moirai TCP stream facade to expose `from_std` so tests and benchmarks can wrap preconfigured sockets without copying payload buffers or depending on Tokio.
+- Changed `TokioCompat<T>` and `MoiraiCompat<T>` into transparent conversion wrappers with `From<T>` constructors and value-semantic compatibility tests.
+- Changed the persistent TCP stream benchmark to use the production Moirai `AsyncReadExt::read_exact` and `AsyncWriteExt::write_all` futures.
+- Replaced the PAL reactor pending-only task handle with per-task atomic completion state and waker publication.
+- Replaced PAL platform reactor boxing with compile-target `PlatformReactor` static dispatch.
+- Replaced PAL reactor queued future `Pin<Box<dyn Future>>` storage with bounded inline future storage and monomorphized poll/drop future erasure.
+- Replaced the Linux epoll reactor no-op wake placeholder with an internal `eventfd` wake path.
+- Replaced public core and scheduler `Box<dyn BoxedTask>` / `dyn Scheduler` task surfaces with `ScheduledTask` inline storage and monomorphized execute/drop/context erasure.
+- Replaced standalone scheduler `ChaseLevDeque` per-item boxed task nodes with contiguous `UnsafeCell<MaybeUninit<T>>` ring slots, sealed zero-sized quiescent reclamation, and opt-in shared epoch reclamation.
+- Changed all current comparison benchmark targets to carry explicit Criterion measurement and warm-up bounds under benchmark-contract coverage.
+
 ### Fixed
+- Fixed async `RwLock` release-handoff coverage by adding value-semantic tests for final-reader-to-writer and writer-to-multiple-reader grant paths.
+
+## [0.2.0] - 2026-05-24
+
+### Added
+- Added `moirai-python` as PyO3 wrappers over `moirai::Moirai`, with package documentation and Python/Rust lifecycle tests.
+
+### Removed
+- Removed empty/deprecated `moirai-python` directories left by the earlier standalone backend path.
+- Removed `moirai-python` workload wrappers and dependent comparison artifacts that are not direct runtime bindings: `checksum_indexed`, `mix_indexed`, `mix_rounds_indexed`, `wait_checksum_indexed`, `file_byte_sum`, `file_mix_sum`, `tcp_index_sum`, `u64_file_mix_sum`, `file_header_stat_sum`, `csv_numeric_sum`, `jsonl_numeric_sum`, `rgb_luma_sum`, Python comparison scripts, optional joblib dependency, and generated CSV results.
+
+### Added
+- Added a unified `moirai-executor::schedule` hierarchy with one thread scheduler for sync, blocking, and async-ready tasks.
+- Added zero-sized work-class markers (`SyncTask`, `AsyncTask`, `BlockingTask`) for monomorphized scheduler routing.
+- Added `thread_schedule_comparison` Criterion benchmark comparing Moirai ready-task scheduling against Tokio and Rayon.
+- Added `ThreadScheduler::scope`, `HybridExecutor::scope`, and `Moirai::scope` for borrowed completion-only fan-out on the unified scheduler.
+- Added `ThreadScheduler::for_each_indexed`, `HybridExecutor::for_each_indexed`, and `Moirai::for_each_indexed` for typed indexed fan-out on worker-sized scheduler chunks.
+- Added `ThreadScheduler::map_reduce_indexed`, `HybridExecutor::map_reduce_indexed`, and `Moirai::map_reduce_indexed` for typed indexed map/reduce with one per-chunk result slot.
+- Added `ThreadScheduler::join`, `HybridExecutor::join`, and `Moirai::join` for non-destructive scheduler quiescence waits.
+- Added `has_work` accessors for scheduler, executor, and runtime queued-or-active work detection.
+- Added a mixed unified-scheduler benchmark comparing one Moirai runtime against a Tokio plus Rayon reference for sync completion, async result handles, and indexed reduction.
+- Added ready-work benchmark value assertions so Criterion runs validate computed sums before reporting timings.
+- Added scoped ready-work scaling benchmarks at 64, 256, and 1024 work units.
+- Added scoped unified-scheduler rows and checksum assertions to `industry_comparison`.
+- Added an official Rayon-pattern map/reduce benchmark using `into_par_iter().map(...).sum()` against Moirai indexed reduction.
+- Added `benchmark_contracts` integration tests for benchmark source integrity and comparison-path correctness.
+- Added benchmark contracts for executable bounded Criterion target configuration, spawn smoke values, and SIMD benchmark setup values.
+- Added `docs/rayon_tokio_gap_audit.md` mapping the active scheduler/result-handle/indexed-reduction comparison scope to executable Rayon/Tokio benchmarks and zero-cost invariant checks.
+- Added same-turn Rayon/Tokio quick benchmark refresh evidence for public result handles, scoped ready work, and indexed reduction.
+- Added `public_result_handle_comparison` with real Moirai `TaskHandle`, Tokio `JoinHandle`, and labeled Rayon scope baseline rows.
+- Added `result_handle_diagnostics` Criterion benchmark separating direct result-slot, scheduler submission, scheduled result-slot, registry lifecycle, and full scheduler-backed public spawn/join costs.
+- Added quiescent-barrier rows to `result_handle_diagnostics` to distinguish raw result-handle joins from explicit scheduler process-join barriers.
+- Added a direct public-wrapper component row to `result_handle_diagnostics` covering registry lifecycle, result handles, panic boundaries, and executor metrics without scheduler submission.
+- Added task-id allocation, spawned-metrics, completed-metrics, and no-metrics public-wrapper attribution rows to `result_handle_diagnostics`.
+- Added registry hot-path attribution rows to `result_handle_diagnostics` for mutex lock-only, dense block lookup, slot initialization, lifecycle timestamp publication, aggregate mutex registration, and direct lifecycle cost.
+- Added registry timestamp primitive attribution rows to `result_handle_diagnostics` for precise elapsed-offset sampling, release-store publication, and duration offset arithmetic.
+- Added async state primitive attribution rows to `result_handle_diagnostics` for state claims, `Waker::from(Arc)`, and `wake_by_ref` notification.
+- Added async completion component attribution rows to `result_handle_diagnostics` for completed-state publication, future-present drop, lifecycle completion, result-sender cell send/join, and full ready-completion components.
+- Added scheduler submission attribution rows to `result_handle_diagnostics` for monomorphized worker selection, pending counter publication, selected-worker unpark, priority queue push/pop, combined submission queue publication, and before/after spawn metrics ordering.
+- Added sealed zero-sized scheduler wake-decision diagnostics for empty selected-worker wake, contended wake-all, and saturated no-wake paths.
+- Added a sealed static `BoundedContendedWake` scheduler policy and retained-code benchmark evidence showing the bounded contended wake path ahead of the prior wake-all diagnostic while public rows remain ahead of Tokio/Rayon references.
+- Added a wake-once async result-handle row to `public_result_handle_comparison`, comparing Moirai `spawn_async` against Tokio `JoinHandle` with value assertions.
+- Added an async-ready result-handle row to `public_result_handle_comparison`, separating ready async spawn overhead from wake/requeue overhead.
+- Added a captured-ready public result-handle row to `public_result_handle_comparison`, comparing non-empty task captures against Tokio `JoinHandle` with value assertions.
+- Added an oversized-capture public result-handle row to `public_result_handle_comparison`, exercising the scheduled-job oversized fallback against Tokio `JoinHandle` with value assertions.
+- Added a direct Moirai `scope` single-work row to `public_result_handle_comparison` for a value-checked scoped completion comparison against Rayon `scope`.
+- Added a 1,048,576-iteration release stress test for public `spawn_fn`/`join` result-handle completion.
+- Added Windows IOCP and BSD/macOS kqueue PAL module files so platform reactor module trees resolve.
+- Added rkyv-style transport archive helpers that validate owned message bytes and expose borrowed typed archive views.
+- Added transport archive tests for value semantics, borrowed `String` views, channel receive views, malformed archive rejection, and exact archive-size preallocation.
+- Added `transport_archive_comparison` Criterion benchmark for borrowed archive views versus owned decode references over the same archive bytes and transport path.
+- Added borrowed `str` archive serialization so callers can encode string slices without constructing an owned `String`.
+- Added a benchmark source contract rejecting the previously rejected scheduler inline handoff feature and `InlineHandoffSlot` source shape.
+- Added iterator channel-fusion source contracts rejecting boxed `FusableChannel` split/merge storage, placeholder hash distribution, non-executing pipeline APIs, and O(n) FIFO removal.
+- Added iterator source contracts rejecting the obsolete boxed-future base execution trait and boxed streaming producer storage.
+- Added timer-wheel cancellation source contracts and value-semantic wake suppression tests.
+- Added `moirai-iter::parallel` `filter_map` and `flat_map` adapters with value-semantic tests and benchmark-contract audit markers.
+- Added `moirai-iter::parallel` `inspect`, `panic_fuse`, `chunks`, and `partition` surfaces with value-semantic tests, benchmark-contract audit markers, and Rayon comparison rows in `iterator_adapter_comparison`.
+
+### Changed
+- Routed `HybridExecutor` through the unified scheduler instead of the legacy per-worker `Mutex<VecDeque<_>>` worker implementation.
+- Replaced global task lifecycle mutation during worker execution with per-task shared lifecycle state to reduce registry lock contention.
+- Replaced per-task executor result channels with `TaskHandle::new_pending` and a shared one-shot result slot.
+- Replaced per-priority worker queue locks with one permission-guarded priority queue state per worker.
+- Replaced task lifecycle timestamp mutexes with atomic timestamp offsets and typestate lifecycle tokens.
+- Replaced executor metrics `last_updated` mutex storage with an atomic timestamp offset and `last_updated()` accessor.
+- Moved scheduler metrics refresh from spawn paths to metrics/stat observation paths.
+- Replaced hashed task registry storage with dense direct-indexed task slots for monotonic task IDs.
+- Replaced per-task lifecycle `Arc` allocation with registry-owned lifecycle block storage.
+- Moved average task duration calculation from task completion to stats observation.
+- Coalesced scoped logical jobs into worker-sized scheduler batches so completion-only ready work avoids per-item scheduler submission and result-slot allocation.
+- Coalesced indexed logical work into worker-sized scheduler chunks so indexed ready work shares one typed closure and avoids per-item erased jobs.
+- Replaced per-item aggregation in the indexed reduction benchmark path with per-chunk local reduction and caller-side final reduction.
+- Added a cache-line-derived inline threshold for small indexed reductions, avoiding scheduler wakeup and result-slot allocation when dispatch overhead dominates the reduction work.
+- Changed indexed map/reduce to compute one chunk on the caller thread and schedule only the remaining chunks.
+- Changed indexed map/reduce chunk planning so scheduled chunks must amortize worker wakeup cost before parallel dispatch is used.
+- Changed scheduler pending/active counter ordering so a worker cannot create a transient false quiescent state while moving a job from queued to running.
+- Rewrote `industry_comparison` benchmark to current public APIs and restored all benchmark target compilation.
+- Replaced mutex-protected public task result storage with a single-producer atomic one-shot result cell.
+- Replaced the public result-slot condvar wait path with bounded spin plus single-waiter `thread::park` / `thread::unpark`.
+- Replaced best-effort waiter registration with an explicit `WAITING` result-slot state so completion cannot publish READY before a parked consumer is visible.
+- Replaced the public result-slot waiter mutex with an inline single-waiter cell guarded by the result-slot state machine.
+- Added a sealed zero-sized result wait policy so blocking task-handle joins monomorphize the spin budget without storing runtime policy state.
+- Reduced the blocking result-wait spin budget from 100 to 64 under the same zero-sized policy after diagnostics showed lower pending-spin miss cost while same-run Tokio/Rayon comparison rows remained ahead.
+- Changed task-handle join to keep the first already-ready claim as a direct CAS and use relaxed-load gating only during pending spins before the existing park/unpark fallback.
+- Changed satisfied result completion endpoints and running lifecycle tokens to consume their hot-path drop guards after successful send/complete while preserving drop-based cancellation and panic completion.
+- Preserved the verified `Arc` result-slot ownership model after a raw-pointer endpoint variant failed stress verification.
+- Replaced async public-handle dynamic future dispatch and boxed panic callback with a generic wake-coalesced poll state.
+- Replaced async public-handle boxed future pinning with inline future storage inside the heap-stable async state.
+- Replaced async public-handle lifecycle mutexing with inline lifecycle state guarded by the async poll-owner state machine.
+- Changed async public-handle wake handling to consume one coalesced in-poll wake before scheduler requeue.
+- Replaced async public-handle wrapper waker allocation with a direct `Wake` implementation on the future-state `Arc`.
+- Replaced heap allocation for common small scheduled closures with inline erased job storage and a boxed fallback for oversized closures.
+- Resized inline scheduled-job storage from 16 to 14 machine words while preserving a two-cache-line `InlineJob` footprint and increasing captured-closure inline coverage.
+- Replaced the scheduled-job runtime consumed flag with a post-execute no-op drop function, recovering one inline payload word without changing queue element size.
+- Added async-ready and wake-once rows to `result_handle_diagnostics` so async wake/requeue locality is measured outside the full public comparison target.
+- Replaced production contended scheduler wake-all with the bounded two-worker wake policy, marked out of line so the serial submission branch remains compact.
+- Added lifecycle elapsed-only and atomic-only rows to `result_handle_diagnostics` to isolate timestamp-source cost from lifecycle state stores.
+- Added lifecycle start-instant diagnostic rows to `result_handle_diagnostics` to test token-carried duration timing without changing production lifecycle semantics.
+- Added cached-clock lifecycle diagnostic rows to `result_handle_diagnostics` to quantify the overhead floor of scheduler-local clock sampling without changing production lifecycle semantics.
+- Added an inlined by-reference async scheduling path so in-poll `wake_by_ref` can mark the future state notified without cloning the task `Arc`.
+- Replaced oversized scheduled-job `Box<dyn FnOnce>` dispatch with typed heap storage and static execute/drop function pointers.
+- Replaced the oversized scheduled-job raw-pointer heap variant with a typed boxed closure behind the existing inline job trampoline, preserving the two-cache-line `InlineJob` footprint.
+- Replaced scoped scheduler `Box<dyn FnOnce>` buffering with inline `ScheduledJob` values and direct single-job scheduling.
+- Relaxed the per-worker queue length hint because queue contents are synchronized by the queue mutex and scheduler quiescence is synchronized by global pending/active counters.
+- Enforced Rayon/Tokio runtime dependency boundaries through benchmark contract tests.
+- Replaced `moirai-async::timer::Timeout<F>` heap-pinned future storage with inline generic future storage and in-place pin projection.
+- Replaced `moirai-async::timer::TimerWheel` placeholder cancellation with lazy canceled-ID tracking and split the wheel into a dedicated timer leaf module.
+- Replaced `moirai-async::AsyncExecutor` dynamic future queue dispatch with monomorphized erased-future poll/drop functions and executor-owned task ID allocation.
+- Replaced `moirai-async::AsyncHandle` mutexed result storage and global waker hash-map registration with an inline atomic result/waker slot.
+- Replaced `moirai-iter::channel_fusion` splitter and merger storage with generic concrete channel types so `FusableChannel` calls monomorphize instead of using boxed trait-object dispatch.
+- Replaced channel merger FIFO buffering with `VecDeque` so reads do not shift buffered elements.
+- Replaced `StreamingIter` boxed producer storage with a generic producer type and `VecDeque` FIFO buffering.
+- Split `moirai-iter/src/iter_ops.rs` into streaming, stateful, and test leaves under `moirai-iter/src/iter_ops/`.
+- Split `moirai-iter/src/parallel.rs` into traits, sources, adapters, consumers, and test leaves under `moirai-iter/src/parallel/`.
+- Split new Rayon-style side-effect and chunk adapter implementations into dedicated `parallel/adapters/` leaves so the adapter root stays below the structural line target while preserving generic static dispatch.
+
+### Breaking
+- `moirai-iter::channel_fusion::ChannelSplitter` and `ChannelMerger` now take concrete channel types directly. Callers pass `channel` to `add_channel` instead of `Box::new(channel)`, and all channels in one splitter or merger instance must share the same concrete type or an explicit enum wrapper.
+- Removed `SplitStrategy::Hash` because it was a placeholder branch that always selected channel 0.
+- Removed the non-executing `channel_fusion::Pipeline` builder surface. The existing typed iterator pipeline in `advanced_patterns` remains the implemented pipeline path.
+- Removed the unused `moirai_iter::base::ExecutionBase` boxed-future trait. The active public execution context trait remains `moirai_iter::execution::ExecutionBase`.
+- `StreamingIter` now has the type shape `StreamingIter<T, F>` and monomorphizes the producer closure instead of storing `Box<dyn FnMut()>`.
+- Replaced the public async-handle result-sender mutex with a state-machine-guarded inline sender cell.
+- Replaced the async public-handle future-present atomic flag with a poll-owner inline `UnsafeCell<bool>` flag under the future-state ownership contract.
+- Removed the async public-handle poll-time future-present guard; the async state machine now remains the single poll-permission invariant while `future_present` is only a drop guard.
+- Replaced `moirai-iter::ThreadPool` boxed dynamic job queue dispatch with monomorphized erased-job run/drop functions.
+- Changed indexed scheduler chunk caps to include the caller execution lane alongside worker threads for large reductions.
+- Encoded serial scheduler handoff affinity as `WorkClass::SERIAL_AFFINITY_OFFSET`, preserving monomorphized ZST routing without a runtime policy object.
+- Completed `moirai-async::ErasedTaskFuture` with typed poll/drop function pointers and heap-stable concrete future ownership.
+- Reused running lifecycle completion duration for public result-handle metrics instead of taking duplicate task-local timing samples.
+- Replaced scheduler work availability condition-variable notifications with selected-worker `Thread::unpark`; the condition variable remains for quiescence joins.
+- Changed quiescent single-task scheduling to reuse the stable work-class worker and limited idle spin to local-queue work.
+- Changed scheduler `join` to perform a bounded fast quiescent spin before registering a condition-variable waiter.
+- Narrowed claim-only public result-slot atomic orderings while preserving READY publication acquire/release semantics.
+- Narrowed scheduler execution counter orderings while preserving active-worker acquire/release quiescence publication.
+- Kept Windows QPC lifecycle timing diagnostic-only after production registry promotion regressed the public oversized-capture path; benchmark contracts now reject QPC in the production registry.
+- Removed the chunk vector, boxed wrapper closure, and per-scope `Arc` state from single scoped-job completion.
+- Increased `public_result_handle_comparison` to 20 Criterion samples, 500 ms warm-up, and 2 second measurement windows.
+- Removed the duplicate Tokio async-ready benchmark row; Moirai async-ready now compares against the equivalent ready Tokio `JoinHandle` baseline.
+- Made `performance_benchmarks` and `moirai_benchmarks` executable Criterion targets with bounded sample, warm-up, and measurement windows.
+- Disabled plot generation in `performance_benchmarks` so the public-handle diagnostic Cargo bench path exits under the verification gate.
+- Tightened `performance_benchmarks` so measured task results are value-checked before black-boxing.
+- Bounded SIMD Criterion sample, warm-up, and measurement windows so `simd_benchmarks` completes under the 300s verification gate.
+- Replaced deserialize-to-owned transport safe-channel helpers with zero-copy archive views over transport-owned bytes.
+- Added exact archive-size hints for fixed-size and string transport archives to avoid avoidable `Vec` growth during encoding.
+- Replaced the PAL reactor's internal raw-handle registry key with a transparent integer key while preserving the public `RawFd` API.
+- Removed stale non-executable benchmark estimates from current performance reporting.
+- Separated public-handle diagnostic rows from active competitive batch targets because Rayon scope is not result-handle equivalent.
+- Removed the non-equivalent side-effect-only indexed row from active competitive comparison targets; value-equivalent indexed comparisons now use `map_reduce_indexed`.
+- Split `result_handle_diagnostics` and `benchmark_contracts` into vertical domain file trees with each leaf below the 500-line structural target.
+- Refreshed Rayon/Tokio gap evidence after the registry timestamp primitive split. Public result handles keep Moirai ahead of same-run Tokio references, scoped completion keeps Moirai ahead of Rayon scope, and indexed reduction keeps Moirai ahead of Rayon indexed reduction, while local Criterion baseline regressions keep scheduler handoff and async wake variance on the active optimization path.
+
+### Fixed
+- Removed unused scheduler job queue/execution timestamp measurements from the ready-task hot path.
+- Fixed the 256-item indexed reduction benchmark gap by combining caller participation and amortized chunk planning.
+- Changed task result completion to wake the single consuming waiter instead of broadcasting.
+- Fixed a READY/park lost-wake race in public task-handle joins by making waiter registration part of the result-slot atomic state machine.
+- Reclassified the previous inline-job stress hang to the result-slot lost-wake root cause after debugger verification.
+- Fixed the `performance_benchmarks task_scheduling_overhead` timeout caused by Criterion plot/report generation after measurements completed.
+- Fixed the `moirai-python` local `moirai` dependency version so workspace package resolution matches the `0.2.0` workspace version.
+- Fixed a strict Clippy float-equality test by comparing exact `f64` bit patterns.
+- Fixed `SecurityAuditor::generate_report` to produce monotonic report timestamps under same-tick report generation.
+- Fixed executor reactor channel type inference on non-Unix targets.
+- Fixed strict Clippy Send/Sync analysis for the PAL reactor registry on Windows raw handles.
+- Fixed strict clippy blockers in core CPU-count detection, `Priority` default derivation, and timeout subtraction.
+- Covered scoped scheduler body-error and body-panic cases so registered borrowed jobs complete before errors return or panics resume.
+- Covered async public-handle requeue with a one-worker regression that proves pending futures release the worker before an external wake.
+- Covered async public-handle self-wake completion with a value-semantic one-worker regression.
+- Rejected a larger public result-slot spin threshold after benchmark results showed no statistically significant improvement.
+- Rejected an unconditional load-before-CAS result take path after already-ready result-slot rows regressed.
+- Rejected removing per-task metrics timestamp updates after it failed to improve the ready public result-handle row.
+- Rejected routing public `spawn_fn` through the `SyncTask` work class after the ready public result-handle row regressed.
+- Rejected an inline async result-sender cell after filtered async-ready and wake-once benchmark rows regressed.
+- Rejected per-worker running-bit wake suppression after it added scheduled-job atomic traffic and regressed public result-handle rows.
+- Rejected a direct CAS-only `wake_by_ref` fast path after it improved wake-once but regressed async-ready.
+- Rejected relaxed lifecycle metadata atomics after isolated lifecycle rows improved but the public scheduling gate regressed.
+- Rejected removing the duplicate scheduler worker identity field after the public scheduling gate failed to retain an improvement.
+- Rejected production Windows QPC lifecycle timing after public-path and scheduling-gate regressions; retained the `Instant` registry lifecycle policy.
+- Rejected result-slot write-then-swap publication after public spawn/join and quiescent-barrier diagnostics regressed.
+- Rejected relaxed submit-side scheduler counter loads and increments after the public scheduling gate regressed.
+- Rejected the lock-free registry allocator after it improved one focused ready diagnostic but regressed the scheduling gate and registry component rows; retained the dense-block registry and added a source contract rejecting the concurrent allocator shape.
+- Rejected routing production scheduler wake publication through a shared helper after the scheduling gate classified the candidate as a regression; retained the direct hot-path branch and kept helper-based attribution feature-gated.
+- Released empty trailing registry lifecycle blocks during cleanup while preserving active metadata and dense direct indexing for retained blocks.
+- Removed redundant task-id storage from dense registry task-state slots; metadata ids are now derived from direct slot lookup.
+- Replaced registry lifecycle completion saturating duration arithmetic with a debug-asserted monotonic timestamp invariant and plain subtraction.
+- Removed the explicit running-lifecycle completion `Option` branch while preserving the drop-based implicit completion path.
+- Fixed the partial `ErasedTaskFuture` implementation that blocked async executor benchmark-contract builds.
+- Fixed `moirai-iter::parallel` reduction consumer result types and the empty-vector base case so Rayon adapter contracts compile and empty reductions terminate.
 - Fixed benchmark compilation issues with SIMD functionality
 - Fixed AtomicCounter interface compatibility between modules
 - Fixed float comparison warnings in tests

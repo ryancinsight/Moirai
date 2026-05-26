@@ -1,6 +1,7 @@
 //! NUMA-based iterator execution context.
 
 use std::alloc::{alloc, dealloc, Layout};
+#[cfg(target_os = "linux")]
 use std::ptr;
 use std::sync::Arc;
 
@@ -86,7 +87,7 @@ impl NumaContext {
     }
 
     /// Allocate memory on a specific NUMA node.
-    /// 
+    ///
     /// # Safety
     /// The caller must ensure the returned pointer is properly deallocated
     /// using `numa_free` with the same size.
@@ -127,7 +128,7 @@ impl NumaContext {
     }
 
     /// Free NUMA-allocated memory.
-    /// 
+    ///
     /// # Safety
     /// The pointer must have been allocated with `numa_alloc` and the size
     /// must match the original allocation.

@@ -3,6 +3,7 @@
 //! Provides an async-compatible RwLock that allows multiple concurrent readers
 //! or a single writer, following SLAP principle design.
 
+use std::cell::UnsafeCell;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
@@ -11,18 +12,33 @@ use std::task::{Context, Poll, Waker};
 
 /// Async-aware RwLock
 pub struct RwLock<T> {
-    inner: std::sync::RwLock<T>,
-    read_waiters: Arc<Mutex<VecDeque<Waker>>>,
-    write_waiters: Arc<Mutex<VecDeque<Waker>>>,
+    data: UnsafeCell<T>,
+    state: Arc<Mutex<RwLockState>>,
+}
+
+unsafe impl<T: Send + Sync> Sync for RwLock<T> {}
+unsafe impl<T: Send> Send for RwLock<T> {}
+
+struct RwLockState {
+    readers: usize,
+    writer: bool,
+    read_waiters: VecDeque<(u64, Waker, bool)>,
+    write_waiters: VecDeque<(u64, Waker, bool)>,
+    next_id: u64,
 }
 
 impl<T> RwLock<T> {
     /// Create a new async RwLock
     pub fn new(data: T) -> Self {
         Self {
-            inner: std::sync::RwLock::new(data),
-            read_waiters: Arc::new(Mutex::new(VecDeque::new())),
-            write_waiters: Arc::new(Mutex::new(VecDeque::new())),
+            data: UnsafeCell::new(data),
+            state: Arc::new(Mutex::new(RwLockState {
+                readers: 0,
+                writer: false,
+                read_waiters: VecDeque::new(),
+                write_waiters: VecDeque::new(),
+                next_id: 0,
+            })),
         }
     }
 
@@ -30,7 +46,7 @@ impl<T> RwLock<T> {
     pub fn read(&self) -> RwLockReadFuture<'_, T> {
         RwLockReadFuture {
             lock: self,
-            registered: false,
+            id: None,
         }
     }
 
@@ -38,40 +54,163 @@ impl<T> RwLock<T> {
     pub fn write(&self) -> RwLockWriteFuture<'_, T> {
         RwLockWriteFuture {
             lock: self,
-            registered: false,
+            id: None,
         }
     }
 
     /// Try to acquire a read lock immediately
-    pub fn try_read(&self) -> Option<std::sync::RwLockReadGuard<'_, T>> {
-        self.inner.try_read().ok()
+    pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T>> {
+        let mut state = self.state.lock().unwrap();
+        if !state.writer && state.write_waiters.is_empty() {
+            state.readers += 1;
+            Some(RwLockReadGuard { lock: self })
+        } else {
+            None
+        }
     }
 
     /// Try to acquire a write lock immediately
-    pub fn try_write(&self) -> Option<std::sync::RwLockWriteGuard<'_, T>> {
-        self.inner.try_write().ok()
+    pub fn try_write(&self) -> Option<RwLockWriteGuard<'_, T>> {
+        let mut state = self.state.lock().unwrap();
+        if state.readers == 0 && !state.writer {
+            state.writer = true;
+            Some(RwLockWriteGuard { lock: self })
+        } else {
+            None
+        }
+    }
+
+    fn release_read(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.readers -= 1;
+        if state.readers == 0 {
+            let mut waker = None;
+            for waiter in &mut state.write_waiters {
+                if !waiter.2 {
+                    waiter.2 = true;
+                    waker = Some(waiter.1.clone());
+                    break;
+                }
+            }
+            if waker.is_some() {
+                state.writer = true;
+            }
+            drop(state);
+            if let Some(w) = waker {
+                w.wake();
+            }
+        }
+    }
+
+    fn release_write(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.writer = false;
+
+        let mut reader_wakers = Vec::new();
+        for waiter in &mut state.read_waiters {
+            if !waiter.2 {
+                waiter.2 = true;
+                reader_wakers.push(waiter.1.clone());
+            }
+        }
+
+        state.readers += reader_wakers.len();
+
+        if !reader_wakers.is_empty() {
+            drop(state);
+            for waker in reader_wakers {
+                waker.wake();
+            }
+        } else {
+            let mut waker = None;
+            for waiter in &mut state.write_waiters {
+                if !waiter.2 {
+                    waiter.2 = true;
+                    waker = Some(waiter.1.clone());
+                    break;
+                }
+            }
+            if waker.is_some() {
+                state.writer = true;
+            }
+            drop(state);
+            if let Some(w) = waker {
+                w.wake();
+            }
+        }
     }
 }
 
 /// Future for async read lock acquisition
 pub struct RwLockReadFuture<'a, T> {
     lock: &'a RwLock<T>,
-    registered: bool,
+    id: Option<u64>,
 }
 
 impl<'a, T> Future for RwLockReadFuture<'a, T> {
-    type Output = std::sync::RwLockReadGuard<'a, T>;
+    type Output = RwLockReadGuard<'a, T>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if let Ok(guard) = self.lock.inner.try_read() {
-            Poll::Ready(guard)
-        } else {
-            if !self.registered {
-                let mut waiters = self.lock.read_waiters.lock().unwrap();
-                waiters.push_back(cx.waker().clone());
-                self.registered = true;
+        let mut state = self.lock.state.lock().unwrap();
+
+        // 1. Check if we were already registered and have been granted the lock
+        if let Some(id) = self.id {
+            if let Some(pos) = state
+                .read_waiters
+                .iter()
+                .position(|(w_id, _, _)| *w_id == id)
+            {
+                if state.read_waiters[pos].2 {
+                    state.read_waiters.remove(pos);
+                    self.id = None;
+                    return Poll::Ready(RwLockReadGuard { lock: self.lock });
+                } else {
+                    state.read_waiters[pos].1 = cx.waker().clone();
+                    return Poll::Pending;
+                }
             }
-            Poll::Pending
+        }
+
+        // 2. Try to acquire the read lock
+        if !state.writer && state.write_waiters.is_empty() {
+            state.readers += 1;
+            if let Some(id) = self.id.take() {
+                state.read_waiters.retain(|(w_id, _, _)| *w_id != id);
+            }
+            return Poll::Ready(RwLockReadGuard { lock: self.lock });
+        }
+
+        // 3. Register as a reader waiter
+        if self.id.is_none() {
+            let id = state.next_id;
+            state.next_id += 1;
+            state
+                .read_waiters
+                .push_back((id, cx.waker().clone(), false));
+            self.id = Some(id);
+        }
+
+        Poll::Pending
+    }
+}
+
+impl<'a, T> Drop for RwLockReadFuture<'a, T> {
+    fn drop(&mut self) {
+        if let Some(id) = self.id {
+            if let Ok(mut state) = self.lock.state.lock() {
+                if let Some(pos) = state
+                    .read_waiters
+                    .iter()
+                    .position(|(w_id, _, _)| *w_id == id)
+                {
+                    let was_granted = state.read_waiters[pos].2;
+                    state.read_waiters.remove(pos);
+                    if was_granted {
+                        drop(state);
+                        self.lock.release_read();
+                    }
+                }
+            }
         }
     }
 }
@@ -79,22 +218,205 @@ impl<'a, T> Future for RwLockReadFuture<'a, T> {
 /// Future for async write lock acquisition
 pub struct RwLockWriteFuture<'a, T> {
     lock: &'a RwLock<T>,
-    registered: bool,
+    id: Option<u64>,
 }
 
 impl<'a, T> Future for RwLockWriteFuture<'a, T> {
-    type Output = std::sync::RwLockWriteGuard<'a, T>;
+    type Output = RwLockWriteGuard<'a, T>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if let Ok(guard) = self.lock.inner.try_write() {
-            Poll::Ready(guard)
-        } else {
-            if !self.registered {
-                let mut waiters = self.lock.write_waiters.lock().unwrap();
-                waiters.push_back(cx.waker().clone());
-                self.registered = true;
+        let mut state = self.lock.state.lock().unwrap();
+
+        // 1. Check if we were already registered and have been granted the lock
+        if let Some(id) = self.id {
+            if let Some(pos) = state
+                .write_waiters
+                .iter()
+                .position(|(w_id, _, _)| *w_id == id)
+            {
+                if state.write_waiters[pos].2 {
+                    state.write_waiters.remove(pos);
+                    self.id = None;
+                    return Poll::Ready(RwLockWriteGuard { lock: self.lock });
+                } else {
+                    state.write_waiters[pos].1 = cx.waker().clone();
+                    return Poll::Pending;
+                }
             }
-            Poll::Pending
         }
+
+        // 2. Try to acquire the write lock
+        if state.readers == 0 && !state.writer {
+            state.writer = true;
+            if let Some(id) = self.id.take() {
+                state.write_waiters.retain(|(w_id, _, _)| *w_id != id);
+            }
+            return Poll::Ready(RwLockWriteGuard { lock: self.lock });
+        }
+
+        // 3. Register as a writer waiter
+        if self.id.is_none() {
+            let id = state.next_id;
+            state.next_id += 1;
+            state
+                .write_waiters
+                .push_back((id, cx.waker().clone(), false));
+            self.id = Some(id);
+        }
+
+        Poll::Pending
+    }
+}
+
+impl<'a, T> Drop for RwLockWriteFuture<'a, T> {
+    fn drop(&mut self) {
+        if let Some(id) = self.id {
+            if let Ok(mut state) = self.lock.state.lock() {
+                if let Some(pos) = state
+                    .write_waiters
+                    .iter()
+                    .position(|(w_id, _, _)| *w_id == id)
+                {
+                    let was_granted = state.write_waiters[pos].2;
+                    state.write_waiters.remove(pos);
+                    if was_granted {
+                        drop(state);
+                        self.lock.release_write();
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Guard for RwLock read access
+pub struct RwLockReadGuard<'a, T> {
+    lock: &'a RwLock<T>,
+}
+
+impl<'a, T> std::ops::Deref for RwLockReadGuard<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.lock.data.get() }
+    }
+}
+
+impl<'a, T> Drop for RwLockReadGuard<'a, T> {
+    fn drop(&mut self) {
+        self.lock.release_read();
+    }
+}
+
+/// Guard for RwLock write access
+pub struct RwLockWriteGuard<'a, T> {
+    lock: &'a RwLock<T>,
+}
+
+impl<'a, T> std::ops::Deref for RwLockWriteGuard<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.lock.data.get() }
+    }
+}
+
+impl<'a, T> std::ops::DerefMut for RwLockWriteGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.lock.data.get() }
+    }
+}
+
+impl<'a, T> Drop for RwLockWriteGuard<'a, T> {
+    fn drop(&mut self) {
+        self.lock.release_write();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RwLock;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
+
+    struct NoopWake;
+
+    impl Wake for NoopWake {
+        fn wake(self: Arc<Self>) {}
+    }
+
+    fn poll_future<F>(future: &mut F) -> Poll<F::Output>
+    where
+        F: Future + Unpin,
+    {
+        let waker = Waker::from(Arc::new(NoopWake));
+        let mut context = Context::from_waker(&waker);
+        Pin::new(future).poll(&mut context)
+    }
+
+    #[test]
+    fn last_reader_release_grants_first_waiting_writer() {
+        let lock = RwLock::new(5_u32);
+        let reader = lock.try_read().expect("read lock must be acquired");
+        let mut writer = lock.write();
+
+        assert!(matches!(poll_future(&mut writer), Poll::Pending));
+
+        drop(reader);
+
+        match poll_future(&mut writer) {
+            Poll::Ready(mut guard) => {
+                *guard += 7;
+            }
+            Poll::Pending => panic!("writer waiter must be granted after final reader release"),
+        }
+
+        let reader = lock
+            .try_read()
+            .expect("read lock must be acquired after writer release");
+        assert_eq!(*reader, 12);
+    }
+
+    #[test]
+    fn writer_release_grants_all_registered_readers() {
+        let lock = RwLock::new(11_u32);
+        let writer = lock.try_write().expect("write lock must be acquired");
+        let mut first_reader = lock.read();
+        let mut second_reader = lock.read();
+
+        assert!(matches!(poll_future(&mut first_reader), Poll::Pending));
+        assert!(matches!(poll_future(&mut second_reader), Poll::Pending));
+
+        drop(writer);
+
+        let first_guard = match poll_future(&mut first_reader) {
+            Poll::Ready(guard) => guard,
+            Poll::Pending => panic!("first reader waiter must be granted after writer release"),
+        };
+        let second_guard = match poll_future(&mut second_reader) {
+            Poll::Ready(guard) => guard,
+            Poll::Pending => panic!("second reader waiter must be granted after writer release"),
+        };
+
+        assert_eq!(*first_guard, 11);
+        assert_eq!(*second_guard, 11);
+        assert!(
+            lock.try_write().is_none(),
+            "active granted readers must exclude writers"
+        );
+
+        drop(first_guard);
+        drop(second_guard);
+
+        let mut writer = lock
+            .try_write()
+            .expect("write lock must be acquired after readers release");
+        *writer = 19;
+        drop(writer);
+
+        let reader = lock
+            .try_read()
+            .expect("read lock must be acquired after writer release");
+        assert_eq!(*reader, 19);
     }
 }

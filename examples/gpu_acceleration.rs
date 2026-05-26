@@ -25,13 +25,13 @@ fn demonstrate_fallback() {
 fn main() {
     println!("🌟 Moirai GPU Integration Status");
     println!("================================\n");
-    
+
     #[cfg(feature = "gpu")]
     demonstrate_gpu();
-    
+
     #[cfg(not(feature = "gpu"))]
     demonstrate_fallback();
-    
+
     println!("\n🎯 Key GPU Features Implemented:");
     println!("- Device management and capability detection");
     println!("- GPU buffer pooling with zero-copy principles");
@@ -39,7 +39,7 @@ fn main() {
     println!("- Async GPU task integration with Moirai runtime");
     println!("- Cross-platform support via wgpu-rs");
     println!("- Memory-safe GPU programming");
-    
+
     println!("\n📚 Architecture Highlights:");
     println!("- Follows SOLID principles with composable components");
     println!("- Unix Philosophy: focused GPU compute responsibility");

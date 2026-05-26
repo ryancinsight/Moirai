@@ -1,0 +1,552 @@
+#[test]
+fn timeout_combinator_stores_future_inline() {
+    let source = read_benchmark("../moirai-async/src/timer.rs");
+
+    for required in [
+        "pub struct Timeout<F>",
+        "future: F",
+        "future,",
+        "Pin::new_unchecked(&mut this.future)",
+        "preserves support for",
+    ] {
+        assert!(
+            source.contains(required),
+            "timeout combinator must retain inline generic future storage through {required}"
+        );
+    }
+
+    for prohibited in ["future: Pin<Box<F>>", "Box::pin(future)"] {
+        assert!(
+            !source.contains(prohibited),
+            "timeout combinator must not reintroduce heap-pinned generic future storage through {prohibited}"
+        );
+    }
+}
+
+#[test]
+fn async_executor_uses_monomorphized_erased_future_queue() {
+    let source = read_benchmark("../moirai-async/src/executor.rs");
+
+    for required in [
+        "future: ErasedTaskFuture",
+        "struct ErasedTaskFuture",
+        "poll: unsafe fn(NonNull<()>, &mut Context<'_>) -> Poll<()>",
+        "poll_erased_future::<F>",
+        "drop_erased_future::<F>",
+        "let ptr = Box::into_raw(Box::new(future)).cast::<()>();",
+        "Pin::new_unchecked(&mut *ptr.cast::<F>().as_ptr())",
+        "next_task_id: AtomicU64",
+    ] {
+        assert!(
+            source.contains(required),
+            "async executor must retain monomorphized erased future queue through {required}"
+        );
+    }
+
+    for prohibited in [
+        "Pin<Box<dyn Future<Output = ()>",
+        "future: Box::pin(wrapped_future)",
+        "AtomicU64::new(0).fetch_add",
+    ] {
+        assert!(
+            !source.contains(prohibited),
+            "async executor must not reintroduce {prohibited}"
+        );
+    }
+}
+
+#[test]
+fn async_executor_handle_uses_inline_result_slot() {
+    let source = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-async/src/executor.rs"),
+        read_benchmark("../moirai-async/src/executor/result_slot.rs")
+    );
+
+    for required in [
+        "struct AsyncResultSlot<T>",
+        "result: UnsafeCell<MaybeUninit<T>>",
+        "state: AtomicU8",
+        "waiter: UnsafeCell<MaybeUninit<Waker>>",
+        "const ASYNC_RESULT_WAITING",
+        "const ASYNC_RESULT_UPDATING_WAKER",
+        "fn complete(&self, result: T)",
+        "fn register_waker(&self, waker: &Waker)",
+        "fn begin_completion(&self) -> Option<bool>",
+        "test_ready_task_completion_wakes_registered_handle",
+    ] {
+        assert!(
+            source.contains(required),
+            "async handle result path must retain inline atomic result/waker slot through {required}"
+        );
+    }
+
+    for prohibited in [
+        "result_receiver: Arc<Mutex<Option<T>>>",
+        "struct WakerRegistry",
+        "HashMap<TaskId, Waker>",
+        "register_waker(&self, task_id",
+        "waker_registry",
+    ] {
+        assert!(
+            !source.contains(prohibited),
+            "async handle result path must not reintroduce mutex/hashmap waker storage through {prohibited}"
+        );
+    }
+}
+
+#[test]
+fn indexed_reduce_uses_worker_plus_caller_lane() {
+    let source = read_benchmark("../moirai-executor/src/schedule/runtime/mod.rs");
+
+    for required in [
+        "count.min(worker_count.max(1).saturating_add(1))",
+        "let max_chunks = count.min(worker_count.saturating_add(1));",
+        "assert_eq!(indexed_reduce_chunk_count::<usize>(1024, 4), 5);",
+    ] {
+        assert!(
+            source.contains(required),
+            "indexed scheduling must retain the worker-plus-caller chunk cap through {required}"
+        );
+    }
+
+    assert!(
+        !source.contains("let max_chunks = count.min(worker_count);"),
+        "indexed reduction must not cap chunks at worker-only lanes while the caller computes one chunk"
+    );
+}
+
+#[test]
+fn rayon_tokio_dependencies_stay_out_of_runtime_dependency_sections() {
+    for relative in [
+        "../moirai/Cargo.toml",
+        "../moirai-async/Cargo.toml",
+        "../moirai-core/Cargo.toml",
+        "../moirai-executor/Cargo.toml",
+        "../moirai-gpu/Cargo.toml",
+        "../moirai-iter/Cargo.toml",
+        "../moirai-metrics/Cargo.toml",
+        "../moirai-pal/Cargo.toml",
+        "../moirai-scheduler/Cargo.toml",
+        "../moirai-sync/Cargo.toml",
+        "../moirai-transport/Cargo.toml",
+        "../moirai-utils/Cargo.toml",
+    ] {
+        let manifest = read_benchmark(relative);
+        let dependencies = manifest_section(&manifest, "[dependencies]");
+        for dependency in ["rayon", "tokio"] {
+            assert!(
+                !manifest_section_declares_dependency(dependencies, dependency),
+                "{relative} must not use {dependency} as a runtime dependency"
+            );
+        }
+    }
+
+    let benchmark_manifest = read_benchmark("Cargo.toml");
+    let benchmark_dependencies = manifest_section(&benchmark_manifest, "[dependencies]");
+    for dependency in ["rayon", "tokio"] {
+        assert!(
+            manifest_section_declares_dependency(benchmark_dependencies, dependency),
+            "benchmark crate must retain {dependency} as a comparison dependency"
+        );
+    }
+
+    let public_manifest = read_benchmark("../moirai/Cargo.toml");
+    let public_dev_dependencies = manifest_section(&public_manifest, "[dev-dependencies]");
+    for dependency in ["rayon", "tokio"] {
+        assert!(
+            manifest_section_declares_dependency(public_dev_dependencies, dependency),
+            "public crate examples/tests must retain {dependency} only as a dev comparison dependency"
+        );
+    }
+}
+
+#[test]
+fn async_executor_erases_futures_with_monomorphized_poll_drop() {
+    let source = read_benchmark("../moirai-async/src/executor.rs");
+
+    for required in [
+        "struct ErasedTaskFuture",
+        "poll: unsafe fn(NonNull<()>, &mut Context<'_>) -> Poll<()>",
+        "drop: unsafe fn(NonNull<()>)",
+        "fn new<F>(future: F) -> Self",
+        "Box::into_raw(Box::new(future))",
+        "poll_erased_future::<F>",
+        "drop_erased_future::<F>",
+        "Pin::new_unchecked",
+    ] {
+        assert!(
+            source.contains(required),
+            "async executor future erasure must retain monomorphized storage through {required}"
+        );
+    }
+
+    for prohibited in ["future: Pin<Box", "dyn Future<Output"] {
+        assert!(
+            !source.contains(prohibited),
+            "async executor must not reintroduce heap-pinned dynamic future storage through {prohibited}"
+        );
+    }
+}
+
+#[test]
+fn rayon_tokio_gap_audit_tracks_executable_coverage() {
+    let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
+
+    for required in [
+        "No active comparison gap remains",
+        "Moirai::spawn_fn",
+        "Moirai::spawn_async",
+        "Moirai::scope",
+        "Moirai::map_reduce_indexed",
+        "tokio::spawn",
+        "rayon::scope",
+        "into_par_iter().map(...).sum()",
+        "public_result_handle_comparison",
+        "thread_schedule_comparison",
+        "mixed_unified_schedule",
+        "real_application_mixed_workload",
+        "moirai_real_app_pipeline",
+        "tokio_rayon_real_app_pipeline",
+        "standalone_deque_reclaim_policy",
+        "Tokio plus Rayon",
+        "QuiescentReclaim",
+        "SharedEpochReclaim",
+        "industry_comparison",
+        "result_handle_diagnostics",
+        "transport_archive_comparison",
+        "benchmark_contracts",
+        "WorkClass",
+        "worker plus caller",
+        "boxed inline trampoline",
+        "ArchiveView",
+        "ErasedTaskFuture",
+        "ErasedThreadJob",
+        "ChannelSplitter<T, I, C>",
+        "channel_fusion_uses_typed_channels_without_placeholder_pipeline",
+        "StreamingIter<T, F>",
+        "streaming_iter_uses_monomorphized_producer_and_fifo_buffer",
+        "iterator_base_does_not_expose_boxed_future_execution_trait",
+        "Timeout<F>",
+        "TimerWheel",
+        "timer_wheel_cancellation_is_real_and_lazy",
+        "TokioCompat<T>",
+        "MoiraiCompat<T>",
+        "async_io_compat_comparison",
+        "async_tcp_readiness_comparison",
+        "async_tcp_cancel_safety_comparison",
+        "channel_matrix",
+        "bounded_channel_matrix",
+        "tokio_mpsc",
+        "moirai_mpmc",
+        "Box<dyn FnOnce>",
+        "comparison-example dependencies",
+    ] {
+        assert!(
+            audit.contains(required),
+            "Rayon/Tokio gap audit must track {required}"
+        );
+    }
+
+    for prohibited in [
+        "[ ]".to_owned(),
+        ["simu", "lated"].concat(),
+        ["esti", "mated"].concat(),
+    ] {
+        assert!(
+            !audit.contains(&prohibited),
+            "Rayon/Tokio gap audit must not contain unresolved or non-executable marker {prohibited}"
+        );
+    }
+}
+
+#[test]
+fn rayon_tokio_comparison_report_tracks_bounded_channel_coverage() {
+    let report = read_benchmark("../docs/moirai_rayon_tokio_comparison.md");
+
+    for required in [
+        "Bounded channel transfer",
+        "channel_matrix",
+        "bounded_channel_matrix",
+        "tokio_mpsc",
+        "moirai_mpmc",
+        "tokio::sync::mpsc::channel",
+        "moirai_core::channel::mpmc",
+    ] {
+        assert!(
+            report.contains(required),
+            "Rayon/Tokio comparison report must track bounded channel marker {required}"
+        );
+    }
+}
+
+#[test]
+fn scheduler_join_keeps_fast_quiescent_path_before_condvar_wait() {
+    let source = read_benchmark("../moirai-executor/src/schedule/runtime/mod.rs");
+
+    for required in [
+        "const JOIN_FAST_SPIN_ATTEMPTS",
+        "for _ in 0..JOIN_FAST_SPIN_ATTEMPTS",
+        "core::hint::spin_loop()",
+        "join_waiters.fetch_add(1, Ordering::AcqRel)",
+        "join_waiters.load(Ordering::Acquire) != 0",
+        "wait_signal.notify_all()",
+    ] {
+        assert!(
+            source.contains(required),
+            "scheduler join must retain fast quiescent spin and gated condvar path through {required}"
+        );
+    }
+}
+
+#[test]
+fn ready_task_comparison_paths_compute_the_same_sum() {
+    let moirai = Moirai::builder()
+        .worker_threads(WORKER_THREADS)
+        .build()
+        .expect("Moirai runtime must start");
+
+    let moirai_sum = AtomicUsize::new(0);
+    moirai
+        .scope(|scope| {
+            for value in 0..READY_COUNT {
+                let moirai_sum = &moirai_sum;
+                scope.spawn(move |_| {
+                    moirai_sum.fetch_add(value.wrapping_add(1), Ordering::Relaxed);
+                })?;
+            }
+            Ok(())
+        })
+        .expect("Moirai scope must complete");
+
+    let moirai_indexed_reduce_sum = moirai
+        .map_reduce_indexed(
+            READY_COUNT,
+            0usize,
+            |value| value.wrapping_add(1),
+            usize::wrapping_add,
+        )
+        .expect("Moirai indexed reduction must complete");
+
+    let rayon_sum = AtomicUsize::new(0);
+    let rayon = rayon::ThreadPoolBuilder::new()
+        .num_threads(WORKER_THREADS)
+        .build()
+        .expect("Rayon pool must start");
+    rayon.scope(|scope| {
+        for value in 0..READY_COUNT {
+            let rayon_sum = &rayon_sum;
+            scope.spawn(move |_| {
+                rayon_sum.fetch_add(value.wrapping_add(1), Ordering::Relaxed);
+            });
+        }
+    });
+
+    let tokio = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(WORKER_THREADS)
+        .enable_all()
+        .build()
+        .expect("Tokio runtime must start");
+    let tokio_sum = tokio.block_on(async {
+        let handles = (0..READY_COUNT)
+            .map(|value| tokio::spawn(async move { value.wrapping_add(1) }))
+            .collect::<Vec<_>>();
+
+        let mut sum = 0usize;
+        for handle in handles {
+            sum = sum.wrapping_add(handle.await.expect("Tokio task must complete"));
+        }
+        sum
+    });
+
+    let expected = expected_ready_sum(READY_COUNT);
+    assert_eq!(moirai_sum.load(Ordering::Relaxed), expected);
+    assert_eq!(moirai_indexed_reduce_sum, expected);
+    assert_eq!(rayon_sum.load(Ordering::Relaxed), expected);
+    assert_eq!(tokio_sum, expected);
+
+    moirai.shutdown();
+}
+
+#[test]
+fn mixed_unified_comparison_paths_compute_the_same_sum() {
+    const MIXED_COUNT: usize = 17;
+
+    let moirai = Moirai::builder()
+        .worker_threads(WORKER_THREADS)
+        .build()
+        .expect("Moirai runtime must start");
+
+    let moirai_async_handles = (0..MIXED_COUNT)
+        .map(|value| moirai.spawn_async(async move { value.wrapping_add(1) }))
+        .collect::<Vec<_>>();
+    let moirai_scope_sum = AtomicUsize::new(0);
+    moirai
+        .scope(|scope| {
+            for value in 0..MIXED_COUNT {
+                let moirai_scope_sum = &moirai_scope_sum;
+                scope.spawn(move |_| {
+                    moirai_scope_sum.fetch_add(value.wrapping_add(1), Ordering::Relaxed);
+                })?;
+            }
+            Ok(())
+        })
+        .expect("Moirai mixed scope must complete");
+    let mut moirai_sum = moirai_scope_sum.load(Ordering::Relaxed).wrapping_add(
+        moirai
+            .map_reduce_indexed(
+                MIXED_COUNT,
+                0usize,
+                |value| value.wrapping_add(1),
+                usize::wrapping_add,
+            )
+            .expect("Moirai mixed indexed reduction must complete"),
+    );
+    for handle in moirai_async_handles {
+        moirai_sum = moirai_sum.wrapping_add(
+            handle
+                .join()
+                .expect("Moirai mixed async handle must be attached")
+                .expect("Moirai mixed async task must complete"),
+        );
+    }
+
+    let rayon = rayon::ThreadPoolBuilder::new()
+        .num_threads(WORKER_THREADS)
+        .build()
+        .expect("Rayon pool must start");
+    let tokio = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(WORKER_THREADS)
+        .enable_all()
+        .build()
+        .expect("Tokio runtime must start");
+
+    let tokio_rayon_sum = tokio.block_on(async {
+        let async_handles = (0..MIXED_COUNT)
+            .map(|value| tokio::spawn(async move { value.wrapping_add(1) }))
+            .collect::<Vec<_>>();
+
+        let rayon_scope_sum = AtomicUsize::new(0);
+        rayon.scope(|scope| {
+            for value in 0..MIXED_COUNT {
+                let rayon_scope_sum = &rayon_scope_sum;
+                scope.spawn(move |_| {
+                    rayon_scope_sum.fetch_add(value.wrapping_add(1), Ordering::Relaxed);
+                });
+            }
+        });
+        let mut sum = rayon_scope_sum
+            .load(Ordering::Relaxed)
+            .wrapping_add(rayon.install(|| {
+                (0..MIXED_COUNT)
+                    .into_par_iter()
+                    .map(|value| value.wrapping_add(1))
+                    .sum::<usize>()
+            }));
+        for handle in async_handles {
+            sum = sum.wrapping_add(handle.await.expect("Tokio mixed async task must complete"));
+        }
+        sum
+    });
+
+    let expected = expected_ready_sum(MIXED_COUNT).wrapping_mul(3);
+    assert_eq!(moirai_sum, expected);
+    assert_eq!(tokio_rayon_sum, expected);
+
+    moirai.shutdown();
+}
+
+#[test]
+fn real_application_mixed_workload_contract_uses_closed_form_checksum() {
+    const REQUEST_RECORDS: usize = 13;
+    const CHANNEL_RECORDS: usize = 5;
+    const ANALYTICS_RECORDS: usize = 97;
+
+    let async_scope_component = expected_ready_sum(REQUEST_RECORDS).wrapping_mul(8);
+    let channel_component = expected_ready_sum(CHANNEL_RECORDS).wrapping_mul(5);
+    let analytics_component = expected_ready_sum(ANALYTICS_RECORDS).wrapping_mul(3);
+    let expected = async_scope_component
+        .wrapping_add(channel_component)
+        .wrapping_add(analytics_component);
+
+    let (tx, rx) = moirai_core::channel::spsc::<usize>(CHANNEL_RECORDS.next_power_of_two());
+    for value in 0..CHANNEL_RECORDS {
+        tx.send(value.wrapping_add(1).wrapping_mul(5))
+            .expect("Moirai SPSC channel must accept checksum record");
+    }
+    let mut moirai_channel_sum = 0usize;
+    for _ in 0..CHANNEL_RECORDS {
+        moirai_channel_sum = moirai_channel_sum.wrapping_add(
+            rx.recv()
+                .expect("Moirai SPSC channel must receive checksum record"),
+        );
+    }
+
+    let moirai = Moirai::builder()
+        .worker_threads(WORKER_THREADS)
+        .build()
+        .expect("Moirai runtime must start");
+    let moirai_analytics_sum = moirai
+        .map_reduce_indexed(
+            ANALYTICS_RECORDS,
+            0usize,
+            |value| value.wrapping_add(1).wrapping_mul(3),
+            usize::wrapping_add,
+        )
+        .expect("Moirai analytics reduction must complete");
+    let moirai_sum = expected_ready_sum(REQUEST_RECORDS)
+        .wrapping_mul(8)
+        .wrapping_add(moirai_channel_sum)
+        .wrapping_add(moirai_analytics_sum);
+
+    assert_eq!(moirai_channel_sum, channel_component);
+    assert_eq!(moirai_sum, expected);
+    moirai.shutdown();
+}
+
+#[test]
+fn benchmark_spawn_smoke_path_returns_values() {
+    let moirai = Moirai::builder()
+        .worker_threads(2)
+        .build()
+        .expect("Moirai runtime must start");
+
+    let handles = (0..10)
+        .map(|value| {
+            let task = TaskBuilder::new().build(move || value * 2);
+            moirai.spawn(task)
+        })
+        .collect::<Vec<_>>();
+
+    let results = handles
+        .into_iter()
+        .map(|handle| handle.join().expect("task handle must be attached"))
+        .collect::<Result<Vec<_>, _>>()
+        .expect("benchmark smoke tasks must not fail");
+
+    assert_eq!(results, (0..10).map(|value| value * 2).collect::<Vec<_>>());
+    moirai.shutdown();
+}
+
+#[test]
+fn simd_benchmark_setup_computes_expected_values() {
+    let a = vec![1.0; 64];
+    let b = vec![2.0; 64];
+    let mut result = vec![0.0; 64];
+
+    simd::safe_vectorized_add_f32(&a, &b, &mut result);
+
+    assert_eq!(result, vec![3.0; 64]);
+}
+
+#[test]
+fn rayon_map_reduce_reference_matches_closed_form_sum() {
+    let rayon = rayon::ThreadPoolBuilder::new()
+        .num_threads(WORKER_THREADS)
+        .build()
+        .expect("Rayon pool must start");
+
+    let sum: u64 = rayon.install(|| (0..MAP_REDUCE_COUNT).into_par_iter().map(cpu_work).sum());
+
+    assert_eq!(sum, expected_cpu_work_sum(MAP_REDUCE_COUNT));
+}

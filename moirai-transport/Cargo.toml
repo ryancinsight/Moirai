@@ -17,9 +17,8 @@ moirai-core = { workspace = true }
 moirai-scheduler = { workspace = true }
 moirai-utils = { workspace = true }
 
-# Optional: Add serialization support via serde/bincode if cross-process messaging is required
-# serde = { version = "1.0", features = ["derive"] }
-# bincode = "1.3"
+# Cross-boundary typed messaging uses rkyv-style archive views in `safe_channel`.
+# Do not add deserialize-to-owned formats on transport hot paths.
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -137,8 +137,8 @@ let channel2 = SpscChannel::new(1024);
 // Process data through channels
 data.into_iter()
     .split_channels(SplitStrategy::LoadBalanced)
-    .add_channel(Box::new(channel1))
-    .add_channel(Box::new(channel2))
+    .add_channel(channel1)
+    .add_channel(channel2)
     .process()?;
 ```
 

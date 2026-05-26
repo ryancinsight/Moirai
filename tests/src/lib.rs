@@ -1,4 +1,5 @@
 //! Integration tests for Moirai concurrency library.
+#![allow(dead_code, unused_variables)]
 
 #[cfg(test)]
 pub mod principle_based_edge_tests;
@@ -11,6 +12,9 @@ pub mod database_connection_pool_edge_tests;
 
 #[cfg(test)]
 pub mod memory_ordering_edge_tests;
+
+#[cfg(test)]
+pub mod io_compat_tests;
 
 /// Integration tests for the complete Moirai system.
 #[cfg(test)]
@@ -73,7 +77,7 @@ mod integration_tests {
         // Wait for all tasks to complete
         let results: Vec<_> = handles.into_iter().map(|handle| handle.join()).collect();
 
-        let results: Vec<_> = results.into_iter().filter_map(|r| r).collect();
+        let results: Vec<_> = results.into_iter().flatten().collect();
         assert_eq!(results.len(), task_count);
         assert_eq!(counter.load(Ordering::Relaxed), task_count as u32);
 
@@ -280,8 +284,7 @@ mod integration_tests {
         let _timeout_duration = Duration::from_secs(10);
         let results: Vec<_> = handles
             .into_iter()
-            .map(|handle| handle.join())
-            .filter_map(|r| r)
+            .filter_map(|handle| handle.join())
             .collect();
         let duration = start.elapsed();
 
@@ -410,8 +413,8 @@ mod documentation_tests {
         let handle = runtime.spawn_fn(move || {
             let step1 = initial_value;
             let step2 = step1 * 2;
-            let step3 = step2 + 10;
-            step3
+
+            step2 + 10
         });
 
         let result = handle.join().ok_or("Task failed to complete")?;
@@ -447,7 +450,7 @@ mod documentation_tests {
 
         // Moirai approach
         let runtime = Moirai::new()?;
-        let handle = runtime.spawn_fn(|| expensive_computation());
+        let handle = runtime.spawn_fn(expensive_computation);
         let result = handle.join().ok_or("Computation task failed")?;
 
         assert_eq!(result, Ok(499500)); // Sum of 0..1000
@@ -468,7 +471,7 @@ mod documentation_tests {
 
         // Moirai approach using parallel execution for CPU-bound work
         let runtime = Moirai::new()?;
-        let handle = runtime.spawn_fn(|| async_operation());
+        let handle = runtime.spawn_fn(async_operation);
         let result = handle.join().ok_or("Async operation failed")?;
 
         assert_eq!(result, Ok("async completed"));
@@ -540,7 +543,7 @@ mod documentation_tests {
 
         // Wait for all tasks
         for handle in handles {
-            handle.join().ok_or("Task failed in safety test")?;
+            let _ = handle.join().ok_or("Task failed in safety test")?;
         }
 
         // Verify no data races occurred

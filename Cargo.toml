@@ -11,6 +11,7 @@ members = [
     "moirai-metrics",
     "moirai-utils",
     "moirai-gpu",
+    "moirai-python",
     "moirai",
     "benchmarks",
     "tests"
@@ -18,7 +19,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Moirai Team"]
 license = "MIT OR Apache-2.0"
@@ -31,22 +32,25 @@ rust-version = "1.75.0"
 
 [workspace.dependencies]
 # Internal dependencies
-moirai-core = { path = "moirai-core", version = "0.1.0" }
-moirai-executor = { path = "moirai-executor", version = "0.1.0" }
-moirai-scheduler = { path = "moirai-scheduler", version = "0.1.0" }
-moirai-transport = { path = "moirai-transport", version = "0.1.0" }
-moirai-sync = { path = "moirai-sync", version = "0.1.0" }
-moirai-async = { path = "moirai-async", version = "0.1.0" }
-moirai-pal = { path = "moirai-pal", version = "0.1.0" }
-moirai-iter = { path = "moirai-iter", version = "0.1.0" }
-moirai-metrics = { path = "moirai-metrics", version = "0.1.0" }
-moirai-utils = { path = "moirai-utils", version = "0.1.0", features = ["std"] }
-moirai-gpu = { path = "moirai-gpu", version = "0.1.0" }
+moirai-core = { path = "moirai-core", version = "0.2.0" }
+moirai-executor = { path = "moirai-executor", version = "0.2.0" }
+moirai-scheduler = { path = "moirai-scheduler", version = "0.2.0" }
+moirai-transport = { path = "moirai-transport", version = "0.2.0" }
+moirai-sync = { path = "moirai-sync", version = "0.2.0" }
+moirai-async = { path = "moirai-async", version = "0.2.0" }
+moirai-pal = { path = "moirai-pal", version = "0.2.0" }
+moirai-iter = { path = "moirai-iter", version = "0.2.0" }
+moirai-metrics = { path = "moirai-metrics", version = "0.2.0" }
+moirai-utils = { path = "moirai-utils", version = "0.2.0", features = ["std"] }
+moirai-gpu = { path = "moirai-gpu", version = "0.2.0" }
 
 # Development and testing dependencies only (not used in runtime)
 criterion = "0.5"
+fastrand = "2.0"
 proptest = "1.4"
 quickcheck = "1.0"
+quickcheck_macros = "1.0"
+pyo3 = "0.22"
 
 [profile.release]
 lto = true

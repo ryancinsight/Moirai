@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use moirai_core::{
     error::{SchedulerError, SchedulerResult},
     scheduler::{Scheduler, SchedulerId},
-    Box, BoxedTask, Priority,
+    Priority, ScheduledTask, Task,
 };
 
 /// NUMA-aware work stealing scheduler.
@@ -354,9 +354,9 @@ struct NodeQueue {
     /// Node ID
     _node_id: usize,
     /// Local task deque (using existing Chase-Lev implementation)
-    _local_queue: crate::ChaseLevDeque<Box<dyn BoxedTask>>,
+    _local_queue: crate::ChaseLevDeque<ScheduledTask>,
     /// Priority queues for different task priorities
-    priority_queues: [crate::ChaseLevDeque<Box<dyn BoxedTask>>; 4],
+    priority_queues: [crate::ChaseLevDeque<ScheduledTask>; 4],
     /// Queue load metrics
     load_metrics: LoadMetrics,
     /// Lock for exclusive operations
@@ -412,7 +412,7 @@ impl NodeQueue {
         }
     }
 
-    fn push_task(&self, task: Box<dyn BoxedTask>, priority: Priority) {
+    fn push_task(&self, task: ScheduledTask, priority: Priority) {
         let queue_index = match priority {
             Priority::Critical => 0,
             Priority::High => 1,
@@ -426,7 +426,7 @@ impl NodeQueue {
             .fetch_add(1, Ordering::Relaxed);
     }
 
-    fn pop_task(&self) -> Option<Box<dyn BoxedTask>> {
+    fn pop_task(&self) -> Option<ScheduledTask> {
         // Try priority queues in order (highest first)
         for queue in &self.priority_queues {
             if let Some(task) = queue.pop() {
@@ -442,7 +442,7 @@ impl NodeQueue {
         None
     }
 
-    fn steal_task(&self) -> Option<Box<dyn BoxedTask>> {
+    fn steal_task(&self) -> Option<ScheduledTask> {
         // Try to steal from priority queues (lower priority first for fairness)
         for queue in self.priority_queues.iter().rev() {
             if let crate::StealResult::Success(task) = queue.steal() {
@@ -521,14 +521,34 @@ impl NumaAwareScheduler {
             .unwrap_or(0)
     }
 
+    /// Schedule a concrete task without a task trait object.
+    pub fn schedule_task<T>(&self, task: T) -> SchedulerResult<()>
+    where
+        T: Task,
+    {
+        self.schedule(ScheduledTask::new(task))
+    }
+
     /// Schedule a task with NUMA awareness.
     ///
     /// # Arguments
     /// * `task` - The task to schedule
     /// * `preferred_node` - Preferred NUMA node (None = current worker's node)
-    pub fn schedule_on_node(
+    pub fn schedule_on_node<T>(
         &self,
-        task: Box<dyn BoxedTask>,
+        task: T,
+        preferred_node: Option<usize>,
+        priority: Priority,
+    ) -> SchedulerResult<()>
+    where
+        T: Task,
+    {
+        self.schedule_erased_on_node(ScheduledTask::new(task), preferred_node, priority)
+    }
+
+    fn schedule_erased_on_node(
+        &self,
+        task: ScheduledTask,
         preferred_node: Option<usize>,
         priority: Priority,
     ) -> SchedulerResult<()> {
@@ -555,7 +575,7 @@ impl NumaAwareScheduler {
     /// 2. Try adjacent NUMA nodes (sorted by distance)
     /// 3. Try any remaining nodes as last resort
     /// 4. Use adaptive backoff on failures
-    pub fn steal_with_locality(&self, worker_id: usize) -> Option<Box<dyn BoxedTask>> {
+    pub fn steal_with_locality(&self, worker_id: usize) -> Option<ScheduledTask> {
         let start_time = Instant::now();
         self.steal_stats
             .total_attempts
@@ -610,7 +630,7 @@ impl NumaAwareScheduler {
         None
     }
 
-    fn try_steal_from_node(&self, node_id: usize) -> Option<Box<dyn BoxedTask>> {
+    fn try_steal_from_node(&self, node_id: usize) -> Option<ScheduledTask> {
         if let Some(queue) = self.node_queues.get(node_id) {
             if !queue.is_empty() {
                 return queue.steal_task();
@@ -719,14 +739,14 @@ impl NumaAwareScheduler {
 }
 
 impl Scheduler for NumaAwareScheduler {
-    fn schedule(&self, task: Box<dyn BoxedTask>) -> SchedulerResult<()> {
+    fn schedule(&self, task: ScheduledTask) -> SchedulerResult<()> {
         // Use round-robin for basic scheduling
         let node_id =
             self.steal_stats.total_attempts.load(Ordering::Relaxed) % self.node_queues.len();
-        self.schedule_on_node(task, Some(node_id), Priority::Normal)
+        self.schedule_erased_on_node(task, Some(node_id), Priority::Normal)
     }
 
-    fn next_task(&self) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
+    fn next_task(&self) -> SchedulerResult<Option<ScheduledTask>> {
         // Try local node first, then steal with locality
         let worker_id = 0; // Default worker ID
         let worker_node = self.worker_numa_node(worker_id);
@@ -741,7 +761,10 @@ impl Scheduler for NumaAwareScheduler {
         Ok(self.steal_with_locality(worker_id))
     }
 
-    fn try_steal(&self, _victim: &dyn Scheduler) -> SchedulerResult<Option<Box<dyn BoxedTask>>> {
+    fn try_steal<S>(&self, _victim: &S) -> SchedulerResult<Option<ScheduledTask>>
+    where
+        S: Scheduler,
+    {
         // Use our NUMA-aware stealing
         Ok(self.steal_with_locality(0))
     }
@@ -812,8 +835,8 @@ mod tests {
     use std::thread;
 
     use moirai_core::{
-        task::{BoxedTask, TaskContext, TaskId},
-        Priority,
+        task::{TaskContext, TaskId},
+        Priority, Task,
     };
 
     #[test]
@@ -830,7 +853,7 @@ mod tests {
         // Schedule some tasks
         for i in 0..10 {
             let task = Box::new(DummyTask(format!("task-{}", i)));
-            scheduler.schedule(task).unwrap();
+            scheduler.schedule_task(task).unwrap();
         }
 
         let stats = scheduler.statistics();
@@ -913,7 +936,7 @@ mod tests {
                 // Each worker adds tasks and tries to steal work
                 for i in 0..tasks_per_worker {
                     let task = Box::new(DummyTask(format!("worker-{}-task-{}", worker_id, i)));
-                    scheduler.schedule(task).unwrap();
+                    scheduler.schedule_task(task).unwrap();
 
                     // Try to steal some work
                     if i % 10 == 0 {
@@ -1372,10 +1395,10 @@ mod tests {
     // Dummy task for testing
     struct DummyTask(#[allow(dead_code)] String);
 
-    impl BoxedTask for DummyTask {
-        fn execute_boxed(self: Box<Self>) {
-            // Do nothing for test
-        }
+    impl Task for DummyTask {
+        type Output = ();
+
+        fn execute(self) -> Self::Output {}
 
         fn context(&self) -> &TaskContext {
             static DEFAULT_CONTEXT: std::sync::OnceLock<TaskContext> = std::sync::OnceLock::new();

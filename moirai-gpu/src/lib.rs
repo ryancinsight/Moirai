@@ -1,7 +1,7 @@
 //! # Moirai GPU Compute
 //!
 //! Cross-platform GPU compute integration for the Moirai concurrency library.
-//! 
+//!
 //! This crate provides GPU acceleration using wgpu-rs for maximum compatibility
 //! across platforms while maintaining zero-copy principles and following SOLID/CUPID
 //! design patterns.
@@ -54,9 +54,9 @@ pub mod pipeline;
 pub mod task;
 
 // Core exports
-pub use buffer::{GpuBuffer, GpuBufferPool, BufferUsage};
+pub use buffer::{BufferUsage, GpuBuffer, GpuBufferPool};
 pub use compute::{ComputeKernel, ComputeShader, KernelDispatch};
-pub use device::{GpuDevice, GpuDeviceManager, DeviceCapabilities};
+pub use device::{DeviceCapabilities, GpuDevice, GpuDeviceManager};
 pub use error::{GpuError, GpuResult};
 pub use pipeline::{ComputePipeline, PipelineBuilder};
 pub use task::{GpuTask, GpuTaskBuilder, GpuTaskFuture};
@@ -73,39 +73,39 @@ impl GpuContext {
     pub async fn new() -> GpuResult<Self> {
         let device_manager = Arc::new(GpuDeviceManager::new().await?);
         let buffer_pool = Arc::new(GpuBufferPool::new());
-        
+
         Ok(Self {
             device_manager,
             buffer_pool,
         })
     }
-    
+
     /// Create a GPU context with specific device preferences
     pub async fn with_preferences(preferences: DevicePreferences) -> GpuResult<Self> {
         let device_manager = Arc::new(GpuDeviceManager::with_preferences(preferences).await?);
         let buffer_pool = Arc::new(GpuBufferPool::new());
-        
+
         Ok(Self {
             device_manager,
             buffer_pool,
         })
     }
-    
+
     /// Get the primary GPU device
     pub fn device(&self) -> &GpuDevice {
         self.device_manager.primary_device()
     }
-    
+
     /// Get the buffer pool for memory management
     pub fn buffer_pool(&self) -> &GpuBufferPool {
         &self.buffer_pool
     }
-    
+
     /// Create a new compute pipeline
     pub fn create_pipeline(&self, shader_source: &str) -> PipelineBuilder {
         PipelineBuilder::new(self.device().clone(), shader_source)
     }
-    
+
     /// Spawn a GPU task
     pub fn spawn_gpu_task<T>(&self, task: T) -> GpuTaskFuture<T::Output>
     where
@@ -132,8 +132,8 @@ pub struct DevicePreferences {
 impl Default for DevicePreferences {
     fn default() -> Self {
         Self {
-            prefer_discrete: true,
-            min_memory: 256 * 1024 * 1024, // 256MB minimum
+            prefer_discrete: false,
+            min_memory: 0,
             required_features: wgpu::Features::empty(),
             required_limits: wgpu::Limits::default(),
         }
@@ -143,8 +143,8 @@ impl Default for DevicePreferences {
 /// Prelude module for convenient imports
 pub mod prelude {
     pub use crate::{
-        BufferUsage, ComputeKernel, ComputePipeline, DeviceCapabilities, GpuBuffer,
-        GpuBufferPool, GpuContext, GpuDevice, GpuError, GpuResult, GpuTask,
-        GpuTaskBuilder, GpuTaskFuture, KernelDispatch, PipelineBuilder,
+        BufferUsage, ComputeKernel, ComputePipeline, DeviceCapabilities, GpuBuffer, GpuBufferPool,
+        GpuContext, GpuDevice, GpuError, GpuResult, GpuTask, GpuTaskBuilder, GpuTaskFuture,
+        KernelDispatch, PipelineBuilder,
     };
 }

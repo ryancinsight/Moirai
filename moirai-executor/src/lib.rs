@@ -28,17 +28,23 @@ pub mod hybrid;
 pub mod metrics;
 pub mod reactor;
 pub mod registry;
+pub mod schedule;
 pub mod task;
 pub mod types;
-pub mod worker;
 
 // Re-export key types for clean API
 pub use hybrid::HybridExecutor;
 pub use metrics::ExecutorMetrics;
 pub use registry::TaskRegistry;
+pub use schedule::{
+    AsyncTask, BlockingTask, ScheduleMetrics, SchedulerScope, SyncTask, ThreadScheduler, WorkClass,
+};
+#[cfg(feature = "scheduler-diagnostics")]
+pub use schedule::{
+    ContendedWakeDecision, DiagnosticWakeDecision, EmptyWakeDecision, SaturatedWakeDecision,
+};
 pub use task::{TaskMetadata, TaskPerformanceMetrics, TaskWaitFuture};
 pub use types::{IoEvent, WorkerId};
-pub use worker::{Worker, WorkerMetrics};
 
 /// Main executor builder for creating configured instances
 pub struct ExecutorBuilder {
@@ -79,9 +85,11 @@ impl ExecutorBuilder {
 
     /// Build the hybrid executor
     pub fn build(self) -> Result<HybridExecutor, Box<dyn std::error::Error>> {
-        // Create a basic configuration
-        // In practice, this would use the moirai_core::executor::ExecutorConfig
-        let config = moirai_core::executor::ExecutorConfig::default();
+        let config = moirai_core::executor::ExecutorConfig {
+            worker_threads: self.worker_threads,
+            async_threads: self.async_threads,
+            ..moirai_core::executor::ExecutorConfig::default()
+        };
         HybridExecutor::new(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 }

@@ -1,15 +1,17 @@
 //! Async file I/O primitives for Moirai concurrency library.
 //!
-//! This module provides native async file operations without tokio dependencies,
-//! with comprehensive error handling and performance monitoring. Following SLAP 
-//! principle with focused responsibility on file system operations.
+//! This module provides Moirai-owned async file facade operations without Tokio
+//! dependencies. The current facade executes standard-library file operations
+//! to completion at the call boundary and returns ready futures; reactor-native
+//! file readiness remains a separate PAL responsibility.
 
-use std::io::{self, Read, Write, Seek, SeekFrom};
+use moirai_pal::fs::AsyncFile;
+use std::io::{self, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::fs::{File as StdFile, OpenOptions as StdOpenOptions};
-use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use crate::io::{AsyncRead, AsyncWrite};
 
 /// Configuration for file operations
 #[derive(Debug, Clone)]
@@ -93,7 +95,7 @@ impl FileOpenOptions {
 
 /// High-performance async file handle with native implementation
 pub struct File {
-    inner: StdFile,
+    inner: AsyncFile,
     path: PathBuf,
     buffer_size: usize,
     stats: FileStats,
@@ -109,25 +111,6 @@ pub struct FileStats {
     pub seek_operations: u64,
 }
 
-/// Future for async file operations
-pub struct AsyncFileOp<T> {
-    result: Option<io::Result<T>>,
-}
-
-impl<T: std::marker::Unpin> Future for AsyncFileOp<T> {
-    type Output = io::Result<T>;
-
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // For now, return immediately since we're using blocking I/O
-        // In a full implementation, this would use proper async I/O
-        let this = self.get_mut();
-        match this.result.take() {
-            Some(result) => Poll::Ready(result),
-            None => Poll::Pending,
-        }
-    }
-}
-
 impl File {
     /// Open a file with default options (read-only)
     pub async fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
@@ -141,29 +124,20 @@ impl File {
 
     /// Open a file with custom options
     pub async fn open_with_options<P: AsRef<Path>>(
-        path: P, 
-        options: FileOpenOptions
+        path: P,
+        options: FileOpenOptions,
     ) -> io::Result<Self> {
         let path_buf = path.as_ref().to_path_buf();
-        
-        let mut open_options = StdOpenOptions::new();
-        open_options
-            .read(options.read)
-            .write(options.write)
-            .create(options.create)
-            .append(options.append)
-            .truncate(options.truncate);
+        let inner = AsyncFile::open_with_options(
+            &path_buf,
+            options.read,
+            options.write,
+            options.create,
+            options.append,
+            options.truncate,
+        )
+        .await?;
 
-        #[cfg(unix)]
-        if let Some(mode) = options.mode {
-            use std::os::unix::fs::OpenOptionsExt;
-            open_options.mode(mode);
-        }
-
-        // Use blocking I/O wrapped in a future for now
-        // In a full implementation, this would use actual async I/O
-        let inner = open_options.open(&path_buf)?;
-        
         Ok(Self {
             inner,
             path: path_buf,
@@ -175,7 +149,7 @@ impl File {
     /// Read entire file contents into a string
     pub async fn read_to_string(&mut self) -> io::Result<String> {
         let mut contents = String::new();
-        self.inner.read_to_string(&mut contents)?;
+        self.inner.read_to_string(&mut contents).await?;
         self.stats.bytes_read += contents.len() as u64;
         self.stats.read_operations += 1;
         Ok(contents)
@@ -184,7 +158,7 @@ impl File {
     /// Read entire file contents into a byte vector
     pub async fn read_to_end(&mut self) -> io::Result<Vec<u8>> {
         let mut contents = Vec::new();
-        self.inner.read_to_end(&mut contents)?;
+        self.inner.read_to_end(&mut contents).await?;
         self.stats.bytes_read += contents.len() as u64;
         self.stats.read_operations += 1;
         Ok(contents)
@@ -192,7 +166,7 @@ impl File {
 
     /// Read data into a buffer
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let bytes_read = self.inner.read(buf)?;
+        let bytes_read = self.inner.read(buf).await?;
         self.stats.bytes_read += bytes_read as u64;
         self.stats.read_operations += 1;
         Ok(bytes_read)
@@ -200,7 +174,7 @@ impl File {
 
     /// Write data from a buffer
     pub async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let bytes_written = self.inner.write(buf)?;
+        let bytes_written = self.inner.write(buf).await?;
         self.stats.bytes_written += bytes_written as u64;
         self.stats.write_operations += 1;
         Ok(bytes_written)
@@ -208,9 +182,17 @@ impl File {
 
     /// Write all data from a buffer
     pub async fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        self.inner.write_all(buf)?;
-        self.stats.bytes_written += buf.len() as u64;
-        self.stats.write_operations += 1;
+        let mut written = 0;
+        while written < buf.len() {
+            let n = self.write(&buf[written..]).await?;
+            if n == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "failed to write whole buffer",
+                ));
+            }
+            written += n;
+        }
         Ok(())
     }
 
@@ -221,37 +203,37 @@ impl File {
 
     /// Flush any buffered data to disk
     pub async fn flush(&mut self) -> io::Result<()> {
-        self.inner.flush()?;
+        self.inner.flush().await?;
         Ok(())
     }
 
     /// Synchronize all data and metadata to disk
     pub async fn sync_all(&mut self) -> io::Result<()> {
-        self.inner.sync_all()?;
+        self.inner.sync_all().await?;
         Ok(())
     }
 
     /// Synchronize data (but not metadata) to disk
     pub async fn sync_data(&mut self) -> io::Result<()> {
-        self.inner.sync_data()?;
+        self.inner.sync_data().await?;
         Ok(())
     }
 
     /// Seek to a specific position in the file
     pub async fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        let new_pos = self.inner.seek(pos)?;
+        let new_pos = self.inner.seek(pos).await?;
         self.stats.seek_operations += 1;
         Ok(new_pos)
     }
 
     /// Get current position in the file
     pub async fn stream_position(&mut self) -> io::Result<u64> {
-        self.inner.stream_position()
+        self.inner.seek(SeekFrom::Current(0)).await
     }
 
     /// Get file metadata
     pub async fn metadata(&self) -> io::Result<std::fs::Metadata> {
-        self.inner.metadata()
+        self.inner.metadata().await
     }
 
     /// Get file path
@@ -272,6 +254,48 @@ impl File {
     /// Get current buffer size
     pub fn buffer_size(&self) -> usize {
         self.buffer_size
+    }
+}
+
+impl AsyncRead for File {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
+        match Pin::new(&mut self.inner).poll_read(cx, buf) {
+            Poll::Ready(Ok(n)) => {
+                self.stats.bytes_read += n as u64;
+                self.stats.read_operations += 1;
+                Poll::Ready(Ok(n))
+            }
+            res => res,
+        }
+    }
+}
+
+impl AsyncWrite for File {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match Pin::new(&mut self.inner).poll_write(cx, buf) {
+            Poll::Ready(Ok(n)) => {
+                self.stats.bytes_written += n as u64;
+                self.stats.write_operations += 1;
+                Poll::Ready(Ok(n))
+            }
+            res => res,
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -315,24 +339,7 @@ pub async fn append_str<P: AsRef<Path>>(path: P, contents: &str) -> io::Result<(
 
 /// Copy file from source to destination
 pub async fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<u64> {
-    let mut source = File::open(from).await?;
-    let mut dest = File::create(to).await?;
-    
-    let mut buffer = vec![0u8; 64 * 1024]; // 64KB buffer
-    let mut total_bytes = 0u64;
-    
-    loop {
-        let bytes_read = source.read(&mut buffer).await?;
-        if bytes_read == 0 {
-            break;
-        }
-        
-        dest.write_all(&buffer[..bytes_read]).await?;
-        total_bytes += bytes_read as u64;
-    }
-    
-    dest.sync_all().await?;
-    Ok(total_bytes)
+    moirai_pal::fs::copy(from, to).await
 }
 
 /// Remove a file
@@ -363,9 +370,19 @@ pub async fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    // Note: These tests are simplified for the tokio removal
-    // In a full implementation, they would use Moirai's async runtime
+    fn test_path(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "moirai_async_fs_{name}_{}_{}",
+            std::process::id(),
+            nonce
+        ))
+    }
 
     #[test]
     fn test_file_options() {
@@ -393,5 +410,64 @@ mod tests {
         assert_eq!(stats.seek_operations, 0);
     }
 
-    // TODO: Add proper async tests once Moirai's async runtime is integrated
+    #[test]
+    fn test_file_write_read_append_and_stats_values() {
+        let path = test_path("roundtrip.txt");
+        futures::executor::block_on(async {
+            write_str(&path, "alpha")
+                .await
+                .expect("write_str must succeed");
+            append_str(&path, "-beta")
+                .await
+                .expect("append_str must succeed");
+
+            let contents = read_to_string(&path)
+                .await
+                .expect("read_to_string must succeed");
+            assert_eq!(contents, "alpha-beta");
+
+            let mut file = File::open(&path).await.expect("open must succeed");
+            let mut prefix = [0_u8; 5];
+            let bytes_read = file.read(&mut prefix).await.expect("read must succeed");
+            assert_eq!(bytes_read, 5);
+            assert_eq!(&prefix, b"alpha");
+            assert_eq!(file.stats().bytes_read, 5);
+            assert_eq!(file.stats().read_operations, 1);
+
+            let position = file
+                .stream_position()
+                .await
+                .expect("stream_position must succeed");
+            assert_eq!(position, 5);
+            let new_position = file
+                .seek(SeekFrom::Start(6))
+                .await
+                .expect("seek must succeed");
+            assert_eq!(new_position, 6);
+            assert_eq!(file.stats().seek_operations, 1);
+        });
+        std::fs::remove_file(&path).expect("test file cleanup must succeed");
+    }
+
+    #[test]
+    fn test_file_copy_and_directory_values() {
+        let dir = test_path("dir");
+        let source = dir.join("source.bin");
+        let dest = dir.join("dest.bin");
+        futures::executor::block_on(async {
+            create_dir(&dir).await.expect("create_dir must succeed");
+            write(&source, b"0123456789")
+                .await
+                .expect("source write must succeed");
+            let copied = copy(&source, &dest).await.expect("copy must succeed");
+            assert_eq!(copied, 10);
+            let dest_bytes = read(&dest).await.expect("read copied file must succeed");
+            assert_eq!(dest_bytes, b"0123456789");
+            remove_file(&source)
+                .await
+                .expect("remove source must succeed");
+            remove_file(&dest).await.expect("remove dest must succeed");
+            remove_dir(&dir).await.expect("remove dir must succeed");
+        });
+    }
 }

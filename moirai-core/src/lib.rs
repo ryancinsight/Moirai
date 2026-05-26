@@ -93,10 +93,8 @@ pub mod security;
 // Core type definitions
 pub use error::{ExecutorError, SchedulerError, TaskError};
 pub use executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus};
-pub use scheduler::{Scheduler, SchedulerConfig, SchedulerId};
-pub use task::{
-    BoxedTask, Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskHandle, TaskId,
-};
+pub use scheduler::{ScheduledTask, Scheduler, SchedulerConfig, SchedulerId};
+pub use task::{Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskHandle, TaskId};
 
 #[cfg(feature = "std")]
 pub use channel::{
@@ -115,7 +113,7 @@ pub use moirai_utils::CacheAligned;
 
 // Re-export unified data type traits
 pub use dtype::{
-    Dtype, IntegerDtype, FloatDtype, DefaultInt, DefaultUint, DefaultFloat, ComputeContext
+    ComputeContext, DefaultFloat, DefaultInt, DefaultUint, Dtype, FloatDtype, IntegerDtype,
 };
 
 #[cfg(feature = "coroutine")]
@@ -140,8 +138,8 @@ pub use wasm_executor::{WasmExecutor, WasmTask};
 /// Prelude module for convenient imports.
 pub mod prelude {
     pub use crate::{
-        ExecutorError, Priority, Scheduler, SchedulerError, SchedulerId, Task, TaskContext,
-        TaskError, TaskExt, TaskFuture, TaskId, TaskManager, TaskSpawner, TaskStatus,
+        ExecutorError, Priority, ScheduledTask, Scheduler, SchedulerError, SchedulerId, Task,
+        TaskContext, TaskError, TaskExt, TaskFuture, TaskId, TaskManager, TaskSpawner, TaskStatus,
     };
 
     #[cfg(feature = "std")]

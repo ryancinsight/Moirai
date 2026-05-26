@@ -200,15 +200,18 @@
 
 // Re-export core functionality (avoiding ExecutorStats conflict)
 pub use moirai_core::{
-    error::*, 
-    executor::{Executor, ExecutorConfig, ExecutorControl, TaskSpawner}, 
-    scheduler::*, 
-    task::*, 
+    error::*,
+    executor::{Executor, ExecutorConfig, ExecutorControl, TaskSpawner},
+    scheduler::*,
+    task::*,
     Priority, Task, TaskContext, TaskHandle, TaskId,
 };
 
 // Re-export executor functionality
-pub use moirai_executor::HybridExecutor;
+pub use moirai_executor::{BlockingTask, HybridExecutor, SchedulerScope};
+
+/// Completion-only borrowing scope for jobs submitted to the unified scheduler.
+pub type MoiraiScope<'scope> = SchedulerScope<'scope, BlockingTask>;
 
 // Re-export scheduler functionality
 pub use moirai_scheduler::WorkStealingScheduler;
@@ -235,9 +238,14 @@ pub use moirai_metrics::MetricsCollector;
 // Re-export async functionality (specific imports to avoid conflicts)
 #[cfg(feature = "async")]
 pub use moirai_async::{
-    timer::sleep,
     executor::{AsyncExecutor, AsyncHandle},
+    io::{
+        AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, MoiraiCompat,
+        TokioCompat,
+    },
+    timer::{sleep, timeout},
     Timeout,
+    File, FileOpenOptions, TcpListener, TcpStream,
 };
 
 // Re-export iterator functionality
@@ -384,6 +392,68 @@ impl Moirai {
             .expect("Failed to spawn blocking task")
     }
 
+    /// Run a completion-only scoped fan-out on the unified scheduler.
+    ///
+    /// Use this when tasks only need to publish side effects through borrowed
+    /// synchronization primitives and the caller must wait for all tasks before
+    /// continuing. Scoped jobs may be coalesced and start after the scope body
+    /// has finished registering work.
+    ///
+    /// # Errors
+    ///
+    /// Returns an executor error if the runtime is shutting down or if a scoped
+    /// task panics.
+    pub fn scope<'scope, F>(&'scope self, body: F) -> ExecutorResult<()>
+    where
+        F: FnOnce(&MoiraiScope<'scope>) -> ExecutorResult<()>,
+    {
+        self.executor.scope::<BlockingTask, _>(body)
+    }
+
+    /// Run indexed work in worker-sized chunks on the unified scheduler.
+    ///
+    /// Use this for data-parallel fan-out where the caller needs completion,
+    /// not one task handle per item. The closure may borrow data that lives for
+    /// the call because all chunks complete before this method returns.
+    ///
+    /// # Errors
+    ///
+    /// Returns an executor error if the runtime is shutting down or if any
+    /// chunk panics.
+    pub fn for_each_indexed<'scope, F>(&'scope self, count: usize, task: F) -> ExecutorResult<()>
+    where
+        F: Fn(usize) + Send + Sync + 'scope,
+    {
+        self.executor
+            .for_each_indexed::<BlockingTask, _>(count, task)
+    }
+
+    /// Run indexed map/reduce in worker-sized chunks on the unified scheduler.
+    ///
+    /// `identity` must be the neutral element for `reduce`. Use this for
+    /// indexed data-parallel reductions where per-item task handles are not
+    /// required.
+    ///
+    /// # Errors
+    ///
+    /// Returns an executor error if the runtime is shutting down or if any
+    /// chunk panics.
+    pub fn map_reduce_indexed<'scope, T, Map, Reduce>(
+        &'scope self,
+        count: usize,
+        identity: T,
+        map: Map,
+        reduce: Reduce,
+    ) -> ExecutorResult<T>
+    where
+        T: Send + Clone + 'scope,
+        Map: Fn(usize) -> T + Send + Sync + 'scope,
+        Reduce: Fn(T, T) -> T + Send + Sync + 'scope,
+    {
+        self.executor
+            .map_reduce_indexed::<BlockingTask, _, _, _>(count, identity, map, reduce)
+    }
+
     /// Spawn a task with a specific priority.
     ///
     /// Higher priority tasks will be executed before lower priority tasks.
@@ -428,6 +498,26 @@ impl Moirai {
     #[must_use]
     pub fn try_run(&self) -> bool {
         self.executor.try_run()
+    }
+
+    /// Returns true when queued or active runtime work exists.
+    #[must_use]
+    pub fn has_work(&self) -> bool {
+        self.executor.has_work()
+    }
+
+    /// Wait until queued and active runtime work completes without shutting down workers.
+    ///
+    /// Use this as a non-destructive process-fusion barrier when producers have
+    /// finished submitting a batch and the runtime should process all available
+    /// work before the caller continues. New tasks submitted after this method
+    /// observes quiescence belong to a later batch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an executor error if the scheduler join operation fails.
+    pub fn join(&self) -> ExecutorResult<()> {
+        self.executor.join()
     }
 
     /// Shutdown the runtime gracefully.
@@ -568,7 +658,11 @@ impl Moirai {
     ///
     /// Panics if the GPU context is not available or if the task fails to spawn.
     #[cfg(feature = "gpu")]
-    pub fn spawn_gpu<T>(&self, gpu_context: &moirai_gpu::GpuContext, task: T) -> moirai_gpu::GpuTaskFuture<T::Output>
+    pub fn spawn_gpu<T>(
+        &self,
+        gpu_context: &moirai_gpu::GpuContext,
+        task: T,
+    ) -> moirai_gpu::GpuTaskFuture<T::Output>
     where
         T: moirai_gpu::GpuTask + Send + 'static,
         T::Output: Send + 'static,
@@ -867,6 +961,86 @@ mod tests {
         let handle = moirai.spawn_async(async { 42 });
         // Verify the handle was created with a valid task ID
         assert!(handle.id().0 > 0 && handle.id().0 < 100);
+    }
+
+    #[test]
+    fn test_scope_completes_borrowed_jobs() {
+        let moirai = Moirai::builder().worker_threads(2).build().unwrap();
+        let sum = std::sync::atomic::AtomicUsize::new(0);
+
+        moirai
+            .scope(|scope| {
+                for value in 1..=32 {
+                    let sum = &sum;
+                    scope.spawn(move |_| {
+                        sum.fetch_add(value, std::sync::atomic::Ordering::Relaxed);
+                    })?;
+                }
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(sum.load(std::sync::atomic::Ordering::Relaxed), 528);
+        moirai.shutdown();
+    }
+
+    #[test]
+    fn test_indexed_fan_out_completes_borrowed_jobs() {
+        let moirai = Moirai::builder().worker_threads(2).build().unwrap();
+        let sum = std::sync::atomic::AtomicUsize::new(0);
+
+        moirai
+            .for_each_indexed(32, |index| {
+                sum.fetch_add(index + 1, std::sync::atomic::Ordering::Relaxed);
+            })
+            .unwrap();
+
+        assert_eq!(sum.load(std::sync::atomic::Ordering::Relaxed), 528);
+        moirai.shutdown();
+    }
+
+    #[test]
+    fn test_indexed_map_reduce_returns_value() {
+        let moirai = Moirai::builder().worker_threads(2).build().unwrap();
+
+        let sum = moirai
+            .map_reduce_indexed(32, 0usize, |index| index + 1, usize::wrapping_add)
+            .unwrap();
+
+        assert_eq!(sum, 528);
+        moirai.shutdown();
+    }
+
+    #[test]
+    fn test_join_waits_for_public_spawned_tasks() {
+        let moirai = Moirai::builder().worker_threads(2).build().unwrap();
+        let handles = (0..8)
+            .map(|value| moirai.spawn_fn(move || value + 1))
+            .collect::<Vec<_>>();
+
+        assert!(moirai.has_work());
+        moirai.join().unwrap();
+        assert!(!moirai.has_work());
+
+        let results = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(results, (1..=8).collect::<Vec<_>>());
+        moirai.shutdown();
+    }
+
+    #[test]
+    fn test_repeated_public_spawn_join_completes() {
+        let moirai = Moirai::builder().worker_threads(4).build().unwrap();
+
+        for value in 0..1_048_576usize {
+            let handle = moirai.spawn_fn(move || value.wrapping_add(1));
+            assert_eq!(handle.join().unwrap().unwrap(), value.wrapping_add(1));
+        }
+
+        moirai.shutdown();
     }
 
     #[test]

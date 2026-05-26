@@ -49,17 +49,33 @@ pub enum GpuError {
 impl fmt::Display for GpuError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GpuError::DeviceInitFailed(msg) => write!(f, "GPU device initialization failed: {}", msg),
+            GpuError::DeviceInitFailed(msg) => {
+                write!(f, "GPU device initialization failed: {}", msg)
+            }
             GpuError::NoSuitableDevice => write!(f, "No suitable GPU device found"),
             GpuError::BufferAllocationFailed { size, message } => {
-                write!(f, "Buffer allocation failed for {} bytes: {}", size, message)
+                write!(
+                    f,
+                    "Buffer allocation failed for {} bytes: {}",
+                    size, message
+                )
             }
-            GpuError::ShaderCompilationFailed(msg) => write!(f, "Shader compilation failed: {}", msg),
+            GpuError::ShaderCompilationFailed(msg) => {
+                write!(f, "Shader compilation failed: {}", msg)
+            }
             GpuError::PipelineCreationFailed(msg) => write!(f, "Pipeline creation failed: {}", msg),
             GpuError::ComputeDispatchFailed(msg) => write!(f, "Compute dispatch failed: {}", msg),
             GpuError::BufferMappingFailed(msg) => write!(f, "Buffer mapping failed: {}", msg),
-            GpuError::ResourceLimitExceeded { resource, current, limit } => {
-                write!(f, "Resource limit exceeded for {}: {} > {}", resource, current, limit)
+            GpuError::ResourceLimitExceeded {
+                resource,
+                current,
+                limit,
+            } => {
+                write!(
+                    f,
+                    "Resource limit exceeded for {}: {} > {}",
+                    resource, current, limit
+                )
             }
             GpuError::UnsupportedOperation(msg) => write!(f, "Unsupported operation: {}", msg),
             GpuError::ValidationError(msg) => write!(f, "Validation error: {}", msg),

@@ -53,7 +53,7 @@ impl Backoff {
             // For larger steps, yield to the scheduler
             #[cfg(feature = "std")]
             thread::yield_now();
-            
+
             #[cfg(not(feature = "std"))]
             core::hint::spin_loop();
         }
@@ -101,15 +101,15 @@ mod tests {
     #[test]
     fn test_backoff_progression() {
         let backoff = Backoff::with_max_steps(3);
-        
+
         assert_eq!(backoff.current_step(), 0);
-        
+
         backoff.backoff();
         assert_eq!(backoff.current_step(), 1);
-        
+
         backoff.backoff();
         assert_eq!(backoff.current_step(), 2);
-        
+
         backoff.backoff();
         assert_eq!(backoff.current_step(), 3);
         assert!(backoff.is_max());
@@ -118,11 +118,11 @@ mod tests {
     #[test]
     fn test_backoff_reset() {
         let backoff = Backoff::new();
-        
+
         backoff.backoff();
         backoff.backoff();
         assert_ne!(backoff.current_step(), 0);
-        
+
         backoff.reset();
         assert_eq!(backoff.current_step(), 0);
         assert!(!backoff.is_max());

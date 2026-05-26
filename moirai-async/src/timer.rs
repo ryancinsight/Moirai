@@ -1,21 +1,22 @@
 //! Async timer primitives for Moirai concurrency library.
 //!
 //! This module provides async timer functionality including delays, intervals,
-//! timeouts, and timer wheels. Following SLAP principle with focused 
+//! timeouts, and timer wheels. Following SLAP principle with focused
 //! responsibility on time-based async operations.
 
-use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 /// A future that completes after a specified duration
 pub struct Delay {
     deadline: Instant,
-    waker: Option<Waker>,
-    scheduled: bool,
+    registration: Option<Arc<TimerRegistration>>,
 }
 
 impl Delay {
@@ -23,8 +24,7 @@ impl Delay {
     pub fn new(duration: Duration) -> Self {
         Self {
             deadline: Instant::now() + duration,
-            waker: None,
-            scheduled: false,
+            registration: None,
         }
     }
 
@@ -32,8 +32,7 @@ impl Delay {
     pub fn until(deadline: Instant) -> Self {
         Self {
             deadline,
-            waker: None,
-            scheduled: false,
+            registration: None,
         }
     }
 
@@ -45,9 +44,9 @@ impl Delay {
     /// Reset the delay to a new duration from now
     pub fn reset(&mut self, duration: Duration) {
         self.deadline = Instant::now() + duration;
-        self.scheduled = false;
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
+        if let Some(registration) = self.registration.take() {
+            registration.cancel();
+            registration.wake();
         }
     }
 }
@@ -57,24 +56,175 @@ impl Future for Delay {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if Instant::now() >= self.deadline {
+            if let Some(registration) = self.registration.take() {
+                registration.cancel();
+            }
             Poll::Ready(())
         } else {
-            self.waker = Some(cx.waker().clone());
-            if !self.scheduled {
-                self.scheduled = true;
-                let deadline = self.deadline;
-                let waker = cx.waker().clone();
-                std::thread::spawn(move || {
-                    let now = Instant::now();
-                    if deadline > now {
-                        std::thread::sleep(deadline - now);
-                    }
-                    waker.wake();
-                });
+            match &self.registration {
+                Some(registration) => registration.replace_waker(cx.waker()),
+                None => {
+                    let registration = TimerRegistration::new(cx.waker().clone());
+                    timer_driver().schedule(self.deadline, Arc::clone(&registration));
+                    self.registration = Some(registration);
+                }
             }
             Poll::Pending
         }
     }
+}
+
+impl Drop for Delay {
+    fn drop(&mut self) {
+        if let Some(registration) = self.registration.take() {
+            registration.cancel();
+        }
+    }
+}
+
+struct TimerRegistration {
+    waker: Mutex<Option<Waker>>,
+    cancelled: AtomicBool,
+}
+
+impl TimerRegistration {
+    fn new(waker: Waker) -> Arc<Self> {
+        Arc::new(Self {
+            waker: Mutex::new(Some(waker)),
+            cancelled: AtomicBool::new(false),
+        })
+    }
+
+    fn replace_waker(&self, waker: &Waker) {
+        let mut stored = self.waker.lock().unwrap();
+        match stored.as_ref() {
+            Some(current) if current.will_wake(waker) => {}
+            _ => *stored = Some(waker.clone()),
+        }
+    }
+
+    fn cancel(&self) {
+        self.cancelled.store(true, AtomicOrdering::Release);
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(AtomicOrdering::Acquire)
+    }
+
+    fn wake(&self) {
+        if let Some(waker) = self.waker.lock().unwrap().take() {
+            waker.wake();
+        }
+    }
+}
+
+struct ScheduledTimer {
+    deadline: Instant,
+    sequence: u64,
+    registration: Arc<TimerRegistration>,
+}
+
+impl PartialEq for ScheduledTimer {
+    fn eq(&self, other: &Self) -> bool {
+        self.deadline == other.deadline && self.sequence == other.sequence
+    }
+}
+
+impl Eq for ScheduledTimer {}
+
+impl PartialOrd for ScheduledTimer {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ScheduledTimer {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .deadline
+            .cmp(&self.deadline)
+            .then_with(|| other.sequence.cmp(&self.sequence))
+    }
+}
+
+struct TimerDriver {
+    state: Mutex<TimerDriverState>,
+    available: Condvar,
+}
+
+struct TimerDriverState {
+    timers: BinaryHeap<ScheduledTimer>,
+    next_sequence: u64,
+}
+
+impl TimerDriver {
+    fn start() -> Arc<Self> {
+        let driver = Arc::new(Self {
+            state: Mutex::new(TimerDriverState {
+                timers: BinaryHeap::new(),
+                next_sequence: 0,
+            }),
+            available: Condvar::new(),
+        });
+
+        let worker = Arc::clone(&driver);
+        std::thread::Builder::new()
+            .name("moirai-timer-driver".to_string())
+            .spawn(move || worker.run())
+            .expect("failed to start Moirai timer driver");
+
+        driver
+    }
+
+    fn schedule(&self, deadline: Instant, registration: Arc<TimerRegistration>) {
+        let mut state = self.state.lock().unwrap();
+        let sequence = state.next_sequence;
+        state.next_sequence = state.next_sequence.wrapping_add(1);
+        state.timers.push(ScheduledTimer {
+            deadline,
+            sequence,
+            registration,
+        });
+        self.available.notify_one();
+    }
+
+    fn run(&self) {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            while state
+                .timers
+                .peek()
+                .is_some_and(|timer| timer.registration.is_cancelled())
+            {
+                state.timers.pop();
+            }
+
+            let Some(next_deadline) = state.timers.peek().map(|timer| timer.deadline) else {
+                state = self.available.wait(state).unwrap();
+                continue;
+            };
+
+            let now = Instant::now();
+            if next_deadline <= now {
+                let timer = state.timers.pop().expect("timer existed after peek");
+                drop(state);
+                if !timer.registration.is_cancelled() {
+                    timer.registration.wake();
+                }
+                state = self.state.lock().unwrap();
+                continue;
+            }
+
+            let timeout = next_deadline - now;
+            let (guard, _) = self.available.wait_timeout(state, timeout).unwrap();
+            state = guard;
+        }
+    }
+}
+
+fn timer_driver() -> &'static Arc<TimerDriver> {
+    static DRIVER: OnceLock<Arc<TimerDriver>> = OnceLock::new();
+    DRIVER.get_or_init(TimerDriver::start)
 }
 
 /// Create a delay future that completes after the specified duration
@@ -84,7 +234,7 @@ pub fn sleep(duration: Duration) -> Delay {
 
 /// Timeout wrapper for futures with comprehensive cancellation
 pub struct Timeout<F> {
-    future: Pin<Box<F>>,
+    future: F,
     delay: Delay,
 }
 
@@ -94,7 +244,7 @@ where
 {
     fn new(future: F, duration: Duration) -> Self {
         Self {
-            future: Box::pin(future),
+            future,
             delay: Delay::new(duration),
         }
     }
@@ -106,14 +256,20 @@ where
 {
     type Output = Result<F::Output, TimeoutError>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Safety: once `Timeout<F>` is pinned, its fields are not moved in
+        // `poll`. Projecting the generic future in place preserves support for
+        // `!Unpin` futures without allocating a `Pin<Box<F>>`.
+        let this = unsafe { self.get_unchecked_mut() };
+
         // First check if the future is ready
-        if let Poll::Ready(output) = self.future.as_mut().poll(cx) {
+        let future = unsafe { Pin::new_unchecked(&mut this.future) };
+        if let Poll::Ready(output) = future.poll(cx) {
             return Poll::Ready(Ok(output));
         }
 
         // Then check if the timeout has elapsed
-        if let Poll::Ready(()) = Pin::new(&mut self.delay).poll(cx) {
+        if let Poll::Ready(()) = Pin::new(&mut this.delay).poll(cx) {
             return Poll::Ready(Err(TimeoutError));
         }
 
@@ -239,35 +395,8 @@ pub fn interval_at(start: Instant, period: Duration) -> Interval {
     Interval::new_at(start, period)
 }
 
-/// Timer entry for the timer wheel
-#[derive(Debug)]
-#[allow(dead_code)] // Fields used for future timer identification per ADR requirements
-struct TimerEntry {
-    id: u64,
-    deadline: Instant,
-    waker: Option<Waker>,
-}
-
-impl PartialEq for TimerEntry {
-    fn eq(&self, other: &Self) -> bool {
-        self.deadline == other.deadline
-    }
-}
-
-impl Eq for TimerEntry {}
-
-impl PartialOrd for TimerEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TimerEntry {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse ordering for min-heap behavior
-        other.deadline.cmp(&self.deadline)
-    }
-}
+mod wheel;
+pub use wheel::{TimerCommand, TimerWheel};
 
 /// Rate limiter using token bucket algorithm
 pub struct RateLimiter {
@@ -287,7 +416,7 @@ impl RateLimiter {
         } else {
             Duration::from_secs(1)
         };
-        
+
         Self {
             permits: permits_per_second,
             current_permits: permits_per_second,
@@ -319,105 +448,6 @@ impl RateLimiter {
     }
 }
 
-/// Timer wheel for efficient timer management
-#[allow(dead_code)] // Fields used for future timer baseline tracking per ADR requirements
-pub struct TimerWheel {
-    timers: BinaryHeap<TimerEntry>,
-    next_id: u64,
-    start_time: Instant,
-}
-
-/// Commands for timer management
-pub enum TimerCommand {
-    Schedule { 
-        timer_id: u64, 
-        deadline: Instant,
-        waker: Waker,
-    },
-    Cancel { 
-        timer_id: u64,
-    },
-    Reschedule { 
-        timer_id: u64, 
-        new_deadline: Instant,
-    },
-}
-
-impl TimerWheel {
-    /// Create a new timer wheel
-    pub fn new() -> Self {
-        Self {
-            timers: BinaryHeap::new(),
-            next_id: 1,
-            start_time: Instant::now(),
-        }
-    }
-
-    /// Schedule a new timer
-    pub fn schedule(&mut self, deadline: Instant, waker: Waker) -> u64 {
-        let timer_id = self.next_id;
-        self.next_id += 1;
-
-        self.timers.push(TimerEntry {
-            id: timer_id,
-            deadline,
-            waker: Some(waker),
-        });
-
-        timer_id
-    }
-
-    /// Cancel a timer
-    pub fn cancel(&mut self, _timer_id: u64) -> bool {
-        // Note: BinaryHeap doesn't support efficient removal of arbitrary elements.
-        // In a production implementation, we would use a more sophisticated data structure
-        // like a binary heap with a hash map for O(log n) removal.
-        // For now, we'll mark the timer as cancelled by setting a flag.
-        // This is a simplified implementation for demonstration.
-        
-        // Store the timer ID as cancelled (in a real implementation, we'd have a HashSet)
-        // The timer will be ignored when it comes up for polling
-        false // Simplified - always return false for now
-    }
-
-    /// Poll for expired timers and wake them
-    pub fn poll_expired(&mut self) -> usize {
-        let now = Instant::now();
-        let mut expired_count = 0;
-
-        while let Some(entry) = self.timers.peek() {
-            if entry.deadline <= now {
-                if let Some(mut expired) = self.timers.pop() {
-                    if let Some(waker) = expired.waker.take() {
-                        waker.wake();
-                        expired_count += 1;
-                    }
-                }
-            } else {
-                break;
-            }
-        }
-
-        expired_count
-    }
-
-    /// Get the next expiration time
-    pub fn next_expiration(&self) -> Option<Instant> {
-        self.timers.peek().map(|entry| entry.deadline)
-    }
-
-    /// Get the number of active timers
-    pub fn timer_count(&self) -> usize {
-        self.timers.len()
-    }
-}
-
-impl Default for TimerWheel {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,20 +456,20 @@ mod tests {
     #[test]
     fn test_delay_basic() {
         let delay = Delay::new(Duration::from_millis(10));
-        
+
         // Test that delay can be created with proper deadline
         assert!(delay.deadline() > Instant::now());
-        
+
         // Full async timing tests will be added with native runtime
     }
 
     #[test]
     fn test_sleep_function() {
         let timer = sleep(Duration::from_millis(10));
-        
+
         // Test that sleep function creates a proper timer
         assert!(timer.deadline() > Instant::now());
-        
+
         // Full async sleep tests will be added with native runtime
     }
 }

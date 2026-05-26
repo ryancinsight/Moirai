@@ -1,0 +1,21 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "moirai-python"
+version = "0.2.0"
+description = "PyO3 bindings for the Moirai Rust concurrency runtime."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT OR Apache-2.0" }
+authors = [{ name = "Moirai Team" }]
+dependencies = []
+
+[project.optional-dependencies]
+test = []
+
+[tool.maturin]
+module-name = "moirai_python._native"
+python-source = "src"
+features = ["pyo3/extension-module"]

@@ -26,6 +26,7 @@ moirai-utils = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+fastrand = { workspace = true }
 proptest = { workspace = true }
 futures = "0.3"
 rayon = "1.8"
@@ -58,6 +59,23 @@ path = "../examples/moirai_vs_tokio_rayon_comparison.rs"
 [[example]]
 name = "real_world_data_pipeline"
 path = "../examples/real_world_data_pipeline.rs"
+
+[[example]]
+name = "rayon_parallel_patterns"
+path = "../examples/rayon_parallel_patterns.rs"
+
+[[example]]
+name = "tokio_task_fanout"
+path = "../examples/tokio_task_fanout.rs"
+required-features = ["async"]
+
+[[example]]
+name = "tokio_mpsc_pipeline"
+path = "../examples/tokio_mpsc_pipeline.rs"
+
+[[example]]
+name = "tokio_multi_producer_pipeline"
+path = "../examples/tokio_multi_producer_pipeline.rs"
 
 [[example]]
 name = "async_timer"
@@ -120,4 +138,5 @@ compression = ["moirai-transport/compression"]
 metrics = ["moirai-metrics", "moirai-core/metrics", "moirai-transport/metrics"]
 numa = ["moirai-executor/numa", "moirai-scheduler/numa", "moirai-utils/numa"]
 futex = ["moirai-sync/futex"]
+tokio-compat = ["moirai-async/tokio-compat"]
 no-std = ["moirai-core/no-std", "moirai-utils/no-std"]

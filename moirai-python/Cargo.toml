@@ -1,0 +1,20 @@
+[package]
+name = "moirai-python"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+moirai = { path = "../moirai", version = "0.2.0" }
+pyo3 = { workspace = true, features = ["extension-module"] }

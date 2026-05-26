@@ -118,6 +118,16 @@ wg.wait(); // Wait for all tasks
 - **Performance Monitoring**: Real-time metrics and utilization tracking
 - **Zero External Dependencies**: Pure Rust standard library implementation (only `libc` for futex)
 
+### ✅ **PyO3 Python Bindings**
+- **Moirai Wrapper**: `moirai-python` exposes PyO3 wrappers over `moirai::Moirai`; it does not implement a separate scheduler, planner, or backend.
+- **Separated Surface**: Rust FFI stays limited to the native runtime wrapper while Python contains only the facade and lifecycle tests.
+- **No Workload Wrappers**: Benchmark-specific Python functions are excluded unless they correspond to a comparable joblib or Tokio runtime primitive.
+
+```bash
+py -3.13 -m pip install -e moirai-python
+py -3.13 -m unittest discover moirai-python\tests
+```
+
 ## 📚 Quick Start
 
 Add Moirai to your `Cargo.toml`:

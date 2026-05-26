@@ -10,13 +10,13 @@
 
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::fmt;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Represents a user in the chat system
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct User {
     id: u64,
     username: String,
@@ -28,9 +28,27 @@ struct User {
     rooms: Arc<RwLock<HashSet<String>>>,
 }
 
+impl Clone for User {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            username: self.username.clone(),
+            session_id: self.session_id.clone(),
+            connected_at: self.connected_at,
+            last_seen: AtomicU64::new(self.last_seen.load(Ordering::Relaxed)),
+            is_online: AtomicBool::new(self.is_online.load(Ordering::Relaxed)),
+            message_count: AtomicUsize::new(self.message_count.load(Ordering::Relaxed)),
+            rooms: self.rooms.clone(),
+        }
+    }
+}
+
 impl User {
     fn new(id: u64, username: String, session_id: String) -> Self {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         Self {
             id,
             username,
@@ -44,7 +62,10 @@ impl User {
     }
 
     fn update_activity(&self) {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         self.last_seen.store(now, Ordering::Relaxed);
         self.is_online.store(true, Ordering::Relaxed);
     }
@@ -54,40 +75,49 @@ impl User {
     }
 
     fn join_room(&self, room_name: &str) -> Result<(), String> {
-        let mut rooms = self.rooms.write()
+        let mut rooms = self
+            .rooms
+            .write()
             .map_err(|_| "Failed to acquire rooms lock")?;
         rooms.insert(room_name.to_string());
         Ok(())
     }
 
     fn leave_room(&self, room_name: &str) -> Result<(), String> {
-        let mut rooms = self.rooms.write()
+        let mut rooms = self
+            .rooms
+            .write()
             .map_err(|_| "Failed to acquire rooms lock")?;
         rooms.remove(room_name);
         Ok(())
     }
 
     fn is_in_room(&self, room_name: &str) -> bool {
-        self.rooms.read()
+        self.rooms
+            .read()
             .map(|rooms| rooms.contains(room_name))
             .unwrap_or(false)
     }
 
     fn get_rooms(&self) -> Vec<String> {
-        self.rooms.read()
+        self.rooms
+            .read()
             .map(|rooms| rooms.iter().cloned().collect())
             .unwrap_or_default()
     }
 
     fn is_active(&self) -> bool {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let last_seen = self.last_seen.load(Ordering::Relaxed);
         self.is_online.load(Ordering::Relaxed) && (now - last_seen) < 300 // 5 minutes
     }
 }
 
 /// Different types of messages in the chat system
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum MessageType {
     Text,
     Image,
@@ -137,8 +167,17 @@ enum MessagePriority {
 }
 
 impl Message {
-    fn new(sender_id: u64, sender_username: String, room_name: String, message_type: MessageType, content: String) -> Self {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    fn new(
+        sender_id: u64,
+        sender_username: String,
+        room_name: String,
+        message_type: MessageType,
+        content: String,
+    ) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let priority = match message_type {
             MessageType::System => MessagePriority::System,
             MessageType::Heartbeat => MessagePriority::Low,
@@ -167,7 +206,10 @@ impl Message {
 
     fn is_expired(&self) -> bool {
         if let Some(expiry) = self.expiry_time {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
             now > expiry
         } else {
             false
@@ -202,7 +244,10 @@ impl ChatRoom {
         Self {
             name,
             topic,
-            created_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            created_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             users: Arc::new(RwLock::new(HashSet::new())),
             message_history: Arc::new(Mutex::new(VecDeque::new())),
             max_history_size: 1000,
@@ -213,7 +258,9 @@ impl ChatRoom {
     }
 
     fn add_user(&self, user_id: u64) -> Result<bool, String> {
-        let mut users = self.users.write()
+        let mut users = self
+            .users
+            .write()
             .map_err(|_| "Failed to acquire users lock")?;
         let was_new = users.insert(user_id);
         if was_new {
@@ -223,12 +270,14 @@ impl ChatRoom {
     }
 
     fn remove_user(&self, user_id: u64) -> Result<bool, String> {
-        let mut users = self.users.write()
+        let mut users = self
+            .users
+            .write()
             .map_err(|_| "Failed to acquire users lock")?;
         let was_present = users.remove(&user_id);
         if was_present {
             self.active_users.store(users.len(), Ordering::Relaxed);
-            
+
             // Remove from typing users
             if let Ok(mut typing) = self.typing_users.write() {
                 typing.remove(&user_id);
@@ -238,33 +287,42 @@ impl ChatRoom {
     }
 
     fn add_message(&self, message: Message) -> Result<(), String> {
-        let mut history = self.message_history.lock()
+        let mut history = self
+            .message_history
+            .lock()
             .map_err(|_| "Failed to acquire message history lock")?;
-        
+
         // Maintain history size limit
         if history.len() >= self.max_history_size {
             history.pop_front();
         }
-        
+
         history.push_back(message);
         self.total_messages.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     fn get_recent_messages(&self, count: usize) -> Result<Vec<Message>, String> {
-        let history = self.message_history.lock()
+        let history = self
+            .message_history
+            .lock()
             .map_err(|_| "Failed to acquire message history lock")?;
-        
+
         let start_index = history.len().saturating_sub(count);
         Ok(history.iter().skip(start_index).cloned().collect())
     }
 
     fn update_typing_indicator(&self, user_id: u64, is_typing: bool) -> Result<(), String> {
-        let mut typing = self.typing_users.write()
+        let mut typing = self
+            .typing_users
+            .write()
             .map_err(|_| "Failed to acquire typing users lock")?;
-        
+
         if is_typing {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
             typing.insert(user_id, now);
         } else {
             typing.remove(&user_id);
@@ -274,8 +332,12 @@ impl ChatRoom {
 
     fn get_typing_users(&self) -> Vec<u64> {
         if let Ok(typing) = self.typing_users.read() {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-            typing.iter()
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            typing
+                .iter()
                 .filter(|(_, &timestamp)| now - timestamp < 10) // 10 second timeout
                 .map(|(&user_id, _)| user_id)
                 .collect()
@@ -285,7 +347,8 @@ impl ChatRoom {
     }
 
     fn get_user_list(&self) -> Vec<u64> {
-        self.users.read()
+        self.users
+            .read()
             .map(|users| users.iter().cloned().collect())
             .unwrap_or_default()
     }
@@ -339,7 +402,8 @@ impl MessageQueue {
             MessagePriority::Low => &self.low_priority,
         };
 
-        queue.lock()
+        queue
+            .lock()
             .map_err(|_| "Failed to acquire queue lock")?
             .push_back(message);
 
@@ -391,7 +455,7 @@ impl MessageQueue {
     fn mark_delivery_success(&self, delivery_time_ms: u64) {
         self.pending_deliveries.fetch_sub(1, Ordering::Relaxed);
         self.successful_deliveries.fetch_add(1, Ordering::Relaxed);
-        
+
         // Update rolling average delivery latency
         let current_avg = self.delivery_latency.load(Ordering::Relaxed);
         let new_avg = if current_avg == 0 {
@@ -404,9 +468,9 @@ impl MessageQueue {
 
     fn mark_delivery_failure(&self, mut message: Message) {
         self.pending_deliveries.fetch_sub(1, Ordering::Relaxed);
-        
+
         message.increment_delivery_attempt();
-        
+
         if message.can_retry() {
             // Add to retry queue
             if let Ok(mut retry_queue) = self.retry_queue.lock() {
@@ -446,8 +510,13 @@ impl PresenceTracker {
     }
 
     fn update_user_activity(&self, user_id: u64) -> Result<(), String> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let mut activities = self.user_activities.write()
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let mut activities = self
+            .user_activities
+            .write()
             .map_err(|_| "Failed to acquire activities lock")?;
         activities.insert(user_id, now);
         Ok(())
@@ -456,7 +525,10 @@ impl PresenceTracker {
     fn is_user_online(&self, user_id: u64) -> bool {
         if let Ok(activities) = self.user_activities.read() {
             if let Some(&last_activity) = activities.get(&user_id) {
-                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
                 return now - last_activity <= self.offline_threshold_seconds;
             }
         }
@@ -465,8 +537,12 @@ impl PresenceTracker {
 
     fn get_online_users(&self) -> Vec<u64> {
         if let Ok(activities) = self.user_activities.read() {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-            activities.iter()
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            activities
+                .iter()
                 .filter(|(_, &last_activity)| now - last_activity <= self.offline_threshold_seconds)
                 .map(|(&user_id, _)| user_id)
                 .collect()
@@ -476,16 +552,21 @@ impl PresenceTracker {
     }
 
     fn cleanup_offline_users(&self) -> Result<usize, String> {
-        let mut activities = self.user_activities.write()
+        let mut activities = self
+            .user_activities
+            .write()
             .map_err(|_| "Failed to acquire activities lock")?;
-        
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let initial_count = activities.len();
-        
+
         activities.retain(|_, &mut last_activity| {
             now - last_activity <= self.offline_threshold_seconds * 2 // Keep for 2x threshold for grace period
         });
-        
+
         Ok(initial_count - activities.len())
     }
 }
@@ -497,28 +578,28 @@ struct ChatServer {
     rooms: Arc<RwLock<HashMap<String, Arc<ChatRoom>>>>,
     message_queue: Arc<MessageQueue>,
     presence_tracker: Arc<PresenceTracker>,
-    
+
     // Configuration
     max_users: usize,
     max_rooms: usize,
     message_workers: usize,
-    
+
     // Statistics
     total_connections: AtomicUsize,
     active_connections: AtomicUsize,
-    messages_sent: AtomicUsize,
+    messages_sent: Arc<AtomicUsize>,
     messages_received: AtomicUsize,
     server_start_time: u64,
-    
+
     // State
-    is_running: AtomicBool,
+    is_running: Arc<AtomicBool>,
     next_user_id: AtomicU64,
 }
 
 impl ChatServer {
     fn new(max_users: usize, max_rooms: usize, message_workers: usize) -> Result<Self, String> {
         let runtime = Moirai::new().map_err(|_| "Failed to create Moirai runtime")?;
-        
+
         let server = Self {
             runtime,
             users: Arc::new(RwLock::new(HashMap::new())),
@@ -530,10 +611,13 @@ impl ChatServer {
             message_workers,
             total_connections: AtomicUsize::new(0),
             active_connections: AtomicUsize::new(0),
-            messages_sent: AtomicUsize::new(0),
+            messages_sent: Arc::new(AtomicUsize::new(0)),
             messages_received: AtomicUsize::new(0),
-            server_start_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-            is_running: AtomicBool::new(false),
+            server_start_time: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            is_running: Arc::new(AtomicBool::new(false)),
             next_user_id: AtomicU64::new(1),
         };
 
@@ -543,13 +627,16 @@ impl ChatServer {
 
     fn start(&self) -> Result<(), String> {
         self.is_running.store(true, Ordering::Relaxed);
-        println!("Chat server started with {} message workers", self.message_workers);
-        
+        println!(
+            "Chat server started with {} message workers",
+            self.message_workers
+        );
+
         // Start message delivery workers
         for worker_id in 0..self.message_workers {
             self.start_message_worker(worker_id)?;
         }
-        
+
         Ok(())
     }
 
@@ -560,29 +647,36 @@ impl ChatServer {
         let is_running = self.is_running.clone();
         let messages_sent = self.messages_sent.clone();
 
-        let handle = self.runtime.spawn_fn_with_priority(move || {
-            while is_running.load(Ordering::Relaxed) {
-                if let Some(message) = message_queue.dequeue() {
-                    let delivery_start = Instant::now();
-                    let success = Self::deliver_message_worker(&message, &users, &rooms);
-                    let delivery_time = delivery_start.elapsed().as_millis() as u64;
-                    
-                    if success {
-                        message_queue.mark_delivery_success(delivery_time);
-                        messages_sent.fetch_add(1, Ordering::Relaxed);
-                        
-                        if worker_id == 0 && messages_sent.load(Ordering::Relaxed) % 100 == 0 {
-                            println!("Worker {}: Delivered {} messages", worker_id, messages_sent.load(Ordering::Relaxed));
+        let handle = self.runtime.spawn_fn_with_priority(
+            move || {
+                while is_running.load(Ordering::Relaxed) {
+                    if let Some(message) = message_queue.dequeue() {
+                        let delivery_start = Instant::now();
+                        let success = Self::deliver_message_worker(&message, &users, &rooms);
+                        let delivery_time = delivery_start.elapsed().as_millis() as u64;
+
+                        if success {
+                            message_queue.mark_delivery_success(delivery_time);
+                            messages_sent.fetch_add(1, Ordering::Relaxed);
+
+                            if worker_id == 0 && messages_sent.load(Ordering::Relaxed) % 100 == 0 {
+                                println!(
+                                    "Worker {}: Delivered {} messages",
+                                    worker_id,
+                                    messages_sent.load(Ordering::Relaxed)
+                                );
+                            }
+                        } else {
+                            message_queue.mark_delivery_failure(message);
                         }
                     } else {
-                        message_queue.mark_delivery_failure(message);
+                        // No messages to process, wait a bit
+                        std::thread::sleep(Duration::from_millis(10));
                     }
-                } else {
-                    // No messages to process, wait a bit
-                    std::thread::sleep(Duration::from_millis(10));
                 }
-            }
-        }, Priority::High);
+            },
+            Priority::High,
+        );
 
         std::mem::drop(handle);
         Ok(())
@@ -591,7 +685,7 @@ impl ChatServer {
     fn deliver_message_worker(
         message: &Message,
         users: &Arc<RwLock<HashMap<u64, Arc<User>>>>,
-        rooms: &Arc<RwLock<HashMap<String, Arc<ChatRoom>>>>
+        rooms: &Arc<RwLock<HashMap<String, Arc<ChatRoom>>>>,
     ) -> bool {
         // Get the room
         let room = {
@@ -599,7 +693,7 @@ impl ChatServer {
                 Ok(guard) => guard,
                 Err(_) => return false,
             };
-            
+
             match rooms_guard.get(&message.room_name) {
                 Some(room) => room.clone(),
                 None => return false,
@@ -613,11 +707,13 @@ impl ChatServer {
 
         // Get users in the room
         let room_users = room.get_user_list();
-        
+        let room_user_count = room_users.len();
+
         // Simulate message delivery to each user
         let mut delivery_count = 0;
         for user_id in room_users {
-            if user_id != message.sender_id { // Don't echo back to sender
+            if user_id != message.sender_id {
+                // Don't echo back to sender
                 if let Ok(users_guard) = users.read() {
                     if let Some(user) = users_guard.get(&user_id) {
                         if user.is_active() {
@@ -629,22 +725,24 @@ impl ChatServer {
                 }
             }
         }
-        
-        delivery_count > 0 || room_users.len() <= 1 // Success if delivered to someone or only sender in room
+
+        delivery_count > 0 || room_user_count <= 1 // Success if delivered to someone or only sender in room
     }
 
     fn simulate_websocket_delivery(user_id: u64, message: &Message) {
         // Simulate network latency for WebSocket delivery
         let latency_ms = fastrand::u64(1..50);
         std::thread::sleep(Duration::from_millis(latency_ms));
-        
+
         // Simulate occasional delivery failures
-        if fastrand::f64() < 0.02 { // 2% failure rate
+        if fastrand::f64() < 0.02 {
+            // 2% failure rate
             return;
         }
-        
+
         // In a real implementation, this would send the message via WebSocket
-        if fastrand::f64() < 0.1 { // 10% verbose logging
+        if fastrand::f64() < 0.1 {
+            // 10% verbose logging
             println!("  → Delivered message {} to user {}", message.id, user_id);
         }
     }
@@ -655,26 +753,29 @@ impl ChatServer {
         let users = self.users.clone();
         let is_running = self.is_running.clone();
 
-        let handle = self.runtime.spawn_fn_with_priority(move || {
-            while is_running.load(Ordering::Relaxed) {
-                // Clean up offline users
-                if let Ok(cleaned) = presence_tracker.cleanup_offline_users() {
-                    if cleaned > 0 {
-                        println!("Heartbeat service: Cleaned up {} offline users", cleaned);
+        let handle = self.runtime.spawn_fn_with_priority(
+            move || {
+                while is_running.load(Ordering::Relaxed) {
+                    // Clean up offline users
+                    if let Ok(cleaned) = presence_tracker.cleanup_offline_users() {
+                        if cleaned > 0 {
+                            println!("Heartbeat service: Cleaned up {} offline users", cleaned);
+                        }
                     }
-                }
-                
-                // Update user statuses
-                if let Ok(users_guard) = users.read() {
-                    for user in users_guard.values() {
-                        let is_online = presence_tracker.is_user_online(user.id);
-                        user.is_online.store(is_online, Ordering::Relaxed);
+
+                    // Update user statuses
+                    if let Ok(users_guard) = users.read() {
+                        for user in users_guard.values() {
+                            let is_online = presence_tracker.is_user_online(user.id);
+                            user.is_online.store(is_online, Ordering::Relaxed);
+                        }
                     }
+
+                    std::thread::sleep(Duration::from_secs(30)); // Run every 30 seconds
                 }
-                
-                std::thread::sleep(Duration::from_secs(30)); // Run every 30 seconds
-            }
-        }, Priority::Low);
+            },
+            Priority::Low,
+        );
 
         std::mem::drop(handle);
         Ok(())
@@ -692,7 +793,9 @@ impl ChatServer {
 
         // Add to users map
         {
-            let mut users = self.users.write()
+            let mut users = self
+                .users
+                .write()
                 .map_err(|_| "Failed to acquire users lock")?;
             users.insert(user_id, user.clone());
         }
@@ -718,7 +821,9 @@ impl ChatServer {
 
         // Remove from users map
         let was_present = {
-            let mut users = self.users.write()
+            let mut users = self
+                .users
+                .write()
                 .map_err(|_| "Failed to acquire users lock")?;
             users.remove(&user_id).is_some()
         };
@@ -731,22 +836,28 @@ impl ChatServer {
         Ok(())
     }
 
-    fn create_room(&self, room_name: String, topic: Option<String>) -> Result<Arc<ChatRoom>, String> {
+    fn create_room(
+        &self,
+        room_name: String,
+        topic: Option<String>,
+    ) -> Result<Arc<ChatRoom>, String> {
         // Check room limit
         if self.rooms.read().unwrap().len() >= self.max_rooms {
             return Err("Maximum number of rooms reached".to_string());
         }
 
         let room = Arc::new(ChatRoom::new(room_name.clone(), topic));
-        
+
         {
-            let mut rooms = self.rooms.write()
+            let mut rooms = self
+                .rooms
+                .write()
                 .map_err(|_| "Failed to acquire rooms lock")?;
-            
+
             if rooms.contains_key(&room_name) {
                 return Err("Room already exists".to_string());
             }
-            
+
             rooms.insert(room_name.clone(), room.clone());
         }
 
@@ -757,17 +868,25 @@ impl ChatServer {
     fn join_room(&self, user_id: u64, room_name: String) -> Result<(), String> {
         // Get user
         let user = {
-            let users = self.users.read()
+            let users = self
+                .users
+                .read()
                 .map_err(|_| "Failed to acquire users lock")?;
-            users.get(&user_id).cloned()
+            users
+                .get(&user_id)
+                .cloned()
                 .ok_or_else(|| "User not found".to_string())?
         };
 
         // Get room
         let room = {
-            let rooms = self.rooms.read()
+            let rooms = self
+                .rooms
+                .read()
                 .map_err(|_| "Failed to acquire rooms lock")?;
-            rooms.get(&room_name).cloned()
+            rooms
+                .get(&room_name)
+                .cloned()
                 .ok_or_else(|| "Room not found".to_string())?
         };
 
@@ -792,17 +911,25 @@ impl ChatServer {
     fn leave_room(&self, user_id: u64, room_name: String) -> Result<(), String> {
         // Get user
         let user = {
-            let users = self.users.read()
+            let users = self
+                .users
+                .read()
                 .map_err(|_| "Failed to acquire users lock")?;
-            users.get(&user_id).cloned()
+            users
+                .get(&user_id)
+                .cloned()
                 .ok_or_else(|| "User not found".to_string())?
         };
 
         // Get room
         let room = {
-            let rooms = self.rooms.read()
+            let rooms = self
+                .rooms
+                .read()
                 .map_err(|_| "Failed to acquire rooms lock")?;
-            rooms.get(&room_name).cloned()
+            rooms
+                .get(&room_name)
+                .cloned()
                 .ok_or_else(|| "Room not found".to_string())?
         };
 
@@ -826,9 +953,11 @@ impl ChatServer {
 
     fn send_message(&self, message: Message) -> Result<(), String> {
         // Update user activity
-        if message.sender_id != 0 { // Not a system message
-            self.presence_tracker.update_user_activity(message.sender_id)?;
-            
+        if message.sender_id != 0 {
+            // Not a system message
+            self.presence_tracker
+                .update_user_activity(message.sender_id)?;
+
             // Increment user message count
             if let Ok(users) = self.users.read() {
                 if let Some(user) = users.get(&message.sender_id) {
@@ -843,7 +972,12 @@ impl ChatServer {
         Ok(())
     }
 
-    fn send_typing_indicator(&self, user_id: u64, room_name: String, is_typing: bool) -> Result<(), String> {
+    fn send_typing_indicator(
+        &self,
+        user_id: u64,
+        room_name: String,
+        is_typing: bool,
+    ) -> Result<(), String> {
         // Get room and update typing indicator
         if let Ok(rooms) = self.rooms.read() {
             if let Some(room) = rooms.get(&room_name) {
@@ -859,7 +993,12 @@ impl ChatServer {
                     user.username.clone(),
                     room_name,
                     MessageType::TypingIndicator,
-                    if is_typing { "typing" } else { "stopped_typing" }.to_string(),
+                    if is_typing {
+                        "typing"
+                    } else {
+                        "stopped_typing"
+                    }
+                    .to_string(),
                 );
 
                 self.message_queue.enqueue(typing_message)?;
@@ -870,10 +1009,13 @@ impl ChatServer {
     }
 
     fn get_room_info(&self, room_name: &str) -> Result<RoomInfo, String> {
-        let rooms = self.rooms.read()
+        let rooms = self
+            .rooms
+            .read()
             .map_err(|_| "Failed to acquire rooms lock")?;
-        
-        let room = rooms.get(room_name)
+
+        let room = rooms
+            .get(room_name)
             .ok_or_else(|| "Room not found".to_string())?;
 
         let recent_messages = room.get_recent_messages(50)?;
@@ -892,9 +1034,13 @@ impl ChatServer {
     }
 
     fn get_server_stats(&self) -> ServerStats {
-        let (queued, pending, sent, failed, avg_latency) = self.message_queue.stats();
+        let (queued, pending, _sent, failed, avg_latency) = self.message_queue.stats();
         let online_users = self.presence_tracker.get_online_users();
-        let uptime = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() - self.server_start_time;
+        let uptime = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - self.server_start_time;
 
         ServerStats {
             total_connections: self.total_connections.load(Ordering::Relaxed),
@@ -958,8 +1104,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create some rooms
     println!("\n1. Creating chat rooms...");
-    server.create_room("general".to_string(), Some("General discussion".to_string()))?;
-    server.create_room("tech".to_string(), Some("Technology discussions".to_string()))?;
+    server.create_room(
+        "general".to_string(),
+        Some("General discussion".to_string()),
+    )?;
+    server.create_room(
+        "tech".to_string(),
+        Some("Technology discussions".to_string()),
+    )?;
     server.create_room("random".to_string(), None)?;
     println!("  Created 3 chat rooms");
 
@@ -982,7 +1134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             2 => server.join_room(user.id, "random".to_string())?,
             _ => {}
         }
-        
+
         // Some users join multiple rooms
         if i % 5 == 0 {
             server.join_room(user.id, "general".to_string())?;
@@ -992,32 +1144,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Simulate message activity
     println!("\n4. Simulating message activity...");
     let message_start = Instant::now();
-    
+
     // Send various types of messages
     for round in 0..5 {
         println!("  Round {}: Sending messages...", round + 1);
-        
+
         for (i, user) in users.iter().enumerate() {
             let room_name = match i % 3 {
                 0 => "general",
-                1 => "tech", 
+                1 => "tech",
                 2 => "random",
                 _ => "general",
             };
 
             // Send typing indicator
             server.send_typing_indicator(user.id, room_name.to_string(), true)?;
-            
+
             // Simulate typing delay
             std::thread::sleep(Duration::from_millis(fastrand::u64(100..500)));
-            
+
             // Send message
             let message_content = match round {
-                0 => format!("Hello everyone! This is {} joining the conversation.", user.username),
-                1 => format!("I'm working on some interesting {} project!", if i % 2 == 0 { "Rust" } else { "AI" }),
-                2 => format!("Does anyone know about {}?", if i % 2 == 0 { "async programming" } else { "concurrency patterns" }),
-                3 => format!("Great discussion! I learned a lot about {}.", if i % 2 == 0 { "Moirai" } else { "real-time systems" }),
-                4 => format!("Thanks for the chat, everyone! See you later from {}.", user.username),
+                0 => format!(
+                    "Hello everyone! This is {} joining the conversation.",
+                    user.username
+                ),
+                1 => format!(
+                    "I'm working on some interesting {} project!",
+                    if i % 2 == 0 { "Rust" } else { "AI" }
+                ),
+                2 => format!(
+                    "Does anyone know about {}?",
+                    if i % 2 == 0 {
+                        "async programming"
+                    } else {
+                        "concurrency patterns"
+                    }
+                ),
+                3 => format!(
+                    "Great discussion! I learned a lot about {}.",
+                    if i % 2 == 0 {
+                        "Moirai"
+                    } else {
+                        "real-time systems"
+                    }
+                ),
+                4 => format!(
+                    "Thanks for the chat, everyone! See you later from {}.",
+                    user.username
+                ),
                 _ => format!("Message {} from {}", round, user.username),
             };
 
@@ -1030,16 +1205,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
 
             server.send_message(message)?;
-            
+
             // Stop typing
             server.send_typing_indicator(user.id, room_name.to_string(), false)?;
-            
+
             // Random delay between messages
             if i % 3 == 0 {
                 std::thread::sleep(Duration::from_millis(fastrand::u64(50..200)));
             }
         }
-        
+
         // Wait between rounds
         std::thread::sleep(Duration::from_millis(500));
     }
@@ -1103,32 +1278,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Display comprehensive server statistics
     println!("\n8. Final Server Statistics:");
     let stats = server.get_server_stats();
-    
+
     println!("  ├─ Connections:");
     println!("  │  ├─ Total connections: {}", stats.total_connections);
     println!("  │  ├─ Active connections: {}", stats.active_connections);
     println!("  │  └─ Online users: {}", stats.online_users);
-    
+
     println!("  ├─ Rooms:");
     println!("  │  └─ Total rooms: {}", stats.total_rooms);
-    
+
     println!("  ├─ Messages:");
     println!("  │  ├─ Received: {}", stats.messages_received);
     println!("  │  ├─ Sent: {}", stats.messages_sent);
     println!("  │  ├─ Queued: {}", stats.messages_queued);
     println!("  │  ├─ Pending: {}", stats.messages_pending);
     println!("  │  ├─ Failed: {}", stats.messages_failed);
-    println!("  │  └─ Success rate: {:.1}%", 
-             (stats.messages_sent as f64 / stats.messages_received.max(1) as f64) * 100.0);
-    
+    println!(
+        "  │  └─ Success rate: {:.1}%",
+        (stats.messages_sent as f64 / stats.messages_received.max(1) as f64) * 100.0
+    );
+
     println!("  ├─ Performance:");
-    println!("  │  ├─ Avg delivery latency: {}ms", stats.avg_delivery_latency_ms);
-    println!("  │  ├─ Message throughput: {:.1} msg/sec", 
-             stats.messages_sent as f64 / message_time.as_secs_f64());
-    println!("  │  └─ Concurrent efficiency: {:.1}%", 
-             (stats.messages_sent as f64 / (4.0 * message_time.as_secs_f64())) * 100.0);
-    
-    println!("  └─ Uptime: {}m {}s", stats.uptime_seconds / 60, stats.uptime_seconds % 60);
+    println!(
+        "  │  ├─ Avg delivery latency: {}ms",
+        stats.avg_delivery_latency_ms
+    );
+    println!(
+        "  │  ├─ Message throughput: {:.1} msg/sec",
+        stats.messages_sent as f64 / message_time.as_secs_f64()
+    );
+    println!(
+        "  │  └─ Concurrent efficiency: {:.1}%",
+        (stats.messages_sent as f64 / (4.0 * message_time.as_secs_f64())) * 100.0
+    );
+
+    println!(
+        "  └─ Uptime: {}m {}s",
+        stats.uptime_seconds / 60,
+        stats.uptime_seconds % 60
+    );
 
     // Stop server
     server.stop();

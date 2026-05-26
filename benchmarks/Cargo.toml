@@ -13,9 +13,10 @@ moirai-core = { path = "../moirai-core" }
 moirai-executor = { path = "../moirai-executor" }
 moirai-scheduler = { path = "../moirai-scheduler" }
 moirai-sync = { path = "../moirai-sync" }
+moirai-transport = { path = "../moirai-transport" }
 moirai-utils = { path = "../moirai-utils" }
 moirai-iter = { path = "../moirai-iter" }
-moirai-async = { path = "../moirai-async" }
+moirai-async = { path = "../moirai-async", features = ["tokio-compat"] }
 
 # Benchmarking framework
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -46,6 +47,81 @@ harness = false
 name = "simd_benchmarks"
 harness = false
 
+[[bench]]
+name = "thread_schedule_comparison"
+harness = false
+
+[[bench]]
+name = "performance_benchmarks"
+harness = false
+
+[[bench]]
+name = "moirai_benchmarks"
+harness = false
+
+[[bench]]
+name = "public_result_handle_comparison"
+harness = false
+
+[[bench]]
+name = "example_pattern_comparison"
+harness = false
+
+[[bench]]
+name = "channel_matrix"
+harness = false
+
+[[bench]]
+name = "transport_archive_comparison"
+harness = false
+
+[[bench]]
+name = "result_handle_diagnostics"
+harness = false
+
+[[bench]]
+name = "iterator_adapter_comparison"
+harness = false
+
+[[bench]]
+name = "async_iterator_comparison"
+harness = false
+
+[[bench]]
+name = "sorting_comparison"
+harness = false
+
+[[bench]]
+name = "async_fs_comparison"
+harness = false
+
+[[bench]]
+name = "async_udp_comparison"
+harness = false
+
+[[bench]]
+name = "async_tcp_comparison"
+harness = false
+
+[[bench]]
+name = "async_tcp_backpressure_comparison"
+harness = false
+
+[[bench]]
+name = "async_tcp_readiness_comparison"
+harness = false
+
+[[bench]]
+name = "async_tcp_cancel_safety_comparison"
+harness = false
+
+[[bench]]
+name = "async_io_compat_comparison"
+harness = false
+
 [features]
 default = []
 full = ["tokio/full"]
+registry-diagnostics = ["moirai-executor/registry-diagnostics"]
+scheduler-diagnostics = ["moirai-executor/scheduler-diagnostics"]
+result-diagnostics = ["moirai-core/result-diagnostics"]

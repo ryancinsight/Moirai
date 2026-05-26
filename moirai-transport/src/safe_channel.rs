@@ -1,47 +1,79 @@
-//! Safe channel implementation example showing proper serialization
+//! Zero-copy archive channel helpers for transport boundaries.
 //!
-//! This module demonstrates how to safely implement a universal channel
-//! that can handle arbitrary types across different transport boundaries.
-//!
-//! # Safety
-//!
-//! The key to safety is using proper serialization instead of unsafe
-//! memory manipulation. This ensures that:
-//!
-//! 1. Complex types with heap allocations (String, Vec, etc.) are properly serialized
-//! 2. No dangling pointers are created
-//! 3. Memory safety is maintained across transport boundaries
-//! 4. The receiving end can properly reconstruct the original value
+//! The transport owns message bytes. Receivers validate those bytes and expose
+//! typed archived views that borrow from the received buffer instead of
+//! reconstructing owned values. This follows the same architectural rule as
+//! rkyv-style archives: validate once, then read through a borrowed view.
 
 use crate::{Address, TransportError, TransportManager, TransportResult};
-use std::marker::PhantomData;
-use std::sync::Arc;
+use std::{marker::PhantomData, str, sync::Arc};
 
-/// Example of a safe universal sender using a marker trait
-///
-/// In a real implementation, this would use serde::Serialize
-pub trait SafeSerialize: Send + 'static {
-    /// Serialize the value to bytes
-    fn serialize(&self) -> Vec<u8>;
+/// Writes a value into transport-owned archive bytes.
+pub trait ArchiveSerialize: Send + 'static {
+    /// Exact archive byte length when the representation is statically known
+    /// from the value.
+    fn archive_size_hint(&self) -> usize {
+        0
+    }
+
+    /// Append the archived representation to `output`.
+    fn encode_archive(&self, output: &mut Vec<u8>) -> TransportResult<()>;
+
+    /// Create an owned byte buffer suitable for transport.
+    fn archive_bytes(&self) -> TransportResult<Vec<u8>> {
+        let mut output = Vec::with_capacity(self.archive_size_hint());
+        self.encode_archive(&mut output)?;
+        Ok(output)
+    }
 }
 
-/// Example of a safe universal receiver using a marker trait
-///
-/// In a real implementation, this would use serde::Deserialize
-pub trait SafeDeserialize: Sized + Send + 'static {
-    /// Deserialize from bytes
-    fn deserialize(bytes: &[u8]) -> Result<Self, TransportError>;
+/// Validates archive bytes and returns a typed borrowed view.
+pub trait ArchiveView: Send + 'static {
+    /// Borrowed representation backed by the archive byte buffer.
+    type Archived<'a>
+    where
+        Self: 'a;
+
+    /// Validate and view an archived value without allocating an owned value.
+    fn view_archive(bytes: &[u8]) -> TransportResult<Self::Archived<'_>>;
 }
 
-/// Safe universal sender that requires serializable types
-pub struct SafeUniversalSender<T: SafeSerialize> {
+/// Transport message bytes plus a typed archive view contract.
+pub struct ArchivedMessage<T: ArchiveView> {
+    bytes: Vec<u8>,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: ArchiveView> ArchivedMessage<T> {
+    /// Create a message from validated transport bytes.
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self {
+            bytes,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Borrow the typed archived value from the owned message bytes.
+    pub fn get(&self) -> TransportResult<T::Archived<'_>> {
+        T::view_archive(&self.bytes)
+    }
+
+    /// Raw archived bytes for diagnostics or forwarding.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Universal sender for archive-serializable values.
+pub struct ArchivedUniversalSender<T: ArchiveSerialize + ?Sized> {
     transport: Arc<TransportManager>,
     target: Address,
     _phantom: PhantomData<T>,
 }
 
-impl<T: SafeSerialize> SafeUniversalSender<T> {
-    /// Create a new safe sender
+impl<T: ArchiveSerialize + ?Sized> ArchivedUniversalSender<T> {
+    /// Create a new archived sender.
     pub fn new(transport: Arc<TransportManager>, target: Address) -> Self {
         Self {
             transport,
@@ -50,25 +82,21 @@ impl<T: SafeSerialize> SafeUniversalSender<T> {
         }
     }
 
-    /// Safely send a value by serializing it first
-    pub fn send(&self, value: T) -> TransportResult<()> {
-        // Serialize the value safely
-        let serialized = value.serialize();
-
-        // Send the serialized bytes
-        self.transport.send(&self.target, serialized)
+    /// Archive and send a value.
+    pub fn send(&self, value: &T) -> TransportResult<()> {
+        self.transport.send(&self.target, value.archive_bytes()?)
     }
 }
 
-/// Safe universal receiver that requires deserializable types
-pub struct SafeUniversalReceiver<T: SafeDeserialize> {
+/// Universal receiver for zero-copy archive views.
+pub struct ArchivedUniversalReceiver<T: ArchiveView> {
     transport: Arc<TransportManager>,
     source: Address,
     _phantom: PhantomData<T>,
 }
 
-impl<T: SafeDeserialize> SafeUniversalReceiver<T> {
-    /// Create a new safe receiver
+impl<T: ArchiveView> ArchivedUniversalReceiver<T> {
+    /// Create a new archived receiver.
     pub fn new(transport: Arc<TransportManager>, source: Address) -> Self {
         Self {
             transport,
@@ -77,130 +105,145 @@ impl<T: SafeDeserialize> SafeUniversalReceiver<T> {
         }
     }
 
-    /// Safely receive a value by deserializing it
-    pub fn recv(&self) -> TransportResult<T> {
-        // Receive the serialized bytes
-        let bytes = self.transport.recv(&self.source)?;
-
-        // Deserialize safely
-        T::deserialize(&bytes)
+    /// Receive bytes and keep them alive for borrowed archived views.
+    pub fn recv(&self) -> TransportResult<ArchivedMessage<T>> {
+        self.transport
+            .recv(&self.source)
+            .map(ArchivedMessage::from_bytes)
     }
 }
 
-// Example implementations for basic types
-impl SafeSerialize for i32 {
-    fn serialize(&self) -> Vec<u8> {
-        self.to_le_bytes().to_vec()
+impl ArchiveSerialize for i32 {
+    fn archive_size_hint(&self) -> usize {
+        core::mem::size_of::<Self>()
+    }
+
+    fn encode_archive(&self, output: &mut Vec<u8>) -> TransportResult<()> {
+        output.extend_from_slice(&self.to_le_bytes());
+        Ok(())
     }
 }
 
-impl SafeDeserialize for i32 {
-    fn deserialize(bytes: &[u8]) -> Result<Self, TransportError> {
-        if bytes.len() != 4 {
-            return Err(TransportError::Closed);
-        }
+impl ArchiveView for i32 {
+    type Archived<'a> = i32;
+
+    fn view_archive(bytes: &[u8]) -> TransportResult<Self::Archived<'_>> {
         let array: [u8; 4] = bytes.try_into().map_err(|_| TransportError::Closed)?;
         Ok(i32::from_le_bytes(array))
     }
 }
 
-impl SafeSerialize for String {
-    fn serialize(&self) -> Vec<u8> {
-        // Length-prefixed encoding
-        let bytes = self.as_bytes();
-        let len = (bytes.len() as u32).to_le_bytes();
+impl ArchiveSerialize for String {
+    fn archive_size_hint(&self) -> usize {
+        self.as_str().archive_size_hint()
+    }
 
-        let mut result = Vec::with_capacity(4 + bytes.len());
-        result.extend_from_slice(&len);
-        result.extend_from_slice(bytes);
-        result
+    fn encode_archive(&self, output: &mut Vec<u8>) -> TransportResult<()> {
+        self.as_str().encode_archive(output)
     }
 }
 
-impl SafeDeserialize for String {
-    fn deserialize(bytes: &[u8]) -> Result<Self, TransportError> {
+impl ArchiveSerialize for str {
+    fn archive_size_hint(&self) -> usize {
+        core::mem::size_of::<u32>() + self.len()
+    }
+
+    fn encode_archive(&self, output: &mut Vec<u8>) -> TransportResult<()> {
+        let bytes = self.as_bytes();
+        let len = u32::try_from(bytes.len()).map_err(|_| TransportError::Closed)?;
+
+        output.extend_from_slice(&len.to_le_bytes());
+        output.extend_from_slice(bytes);
+        Ok(())
+    }
+}
+
+impl ArchiveView for String {
+    type Archived<'a> = &'a str;
+
+    fn view_archive(bytes: &[u8]) -> TransportResult<Self::Archived<'_>> {
         if bytes.len() < 4 {
             return Err(TransportError::Closed);
         }
 
         let len_bytes: [u8; 4] = bytes[0..4].try_into().map_err(|_| TransportError::Closed)?;
         let len = u32::from_le_bytes(len_bytes) as usize;
-
-        if bytes.len() < 4 + len {
+        let payload = bytes.get(4..4 + len).ok_or(TransportError::Closed)?;
+        if bytes.len() != 4 + len {
             return Err(TransportError::Closed);
         }
 
-        String::from_utf8(bytes[4..4 + len].to_vec()).map_err(|_| TransportError::Closed)
+        str::from_utf8(payload).map_err(|_| TransportError::Closed)
     }
 }
 
-/// Example of how to use serde when available
-///
-/// ```ignore
-/// use serde::{Serialize, Deserialize};
-///
-/// pub struct SerdeUniversalSender<T: Serialize + Send + 'static> {
-///     transport: Arc<TransportManager>,
-///     target: Address,
-///     _phantom: PhantomData<T>,
-/// }
-///
-/// impl<T: Serialize + Send + 'static> SerdeUniversalSender<T> {
-///     pub fn send(&self, value: &T) -> TransportResult<()> {
-///         // Use bincode or another format for serialization
-///         let serialized = bincode::serialize(value)
-///             .map_err(|_| TransportError::Closed)?;
-///         
-///         self.transport.send(&self.target, serialized)
-///     }
-/// }
-///
-/// pub struct SerdeUniversalReceiver<T: DeserializeOwned + Send + 'static> {
-///     transport: Arc<TransportManager>,
-///     source: Address,
-///     _phantom: PhantomData<T>,
-/// }
-///
-/// impl<T: DeserializeOwned + Send + 'static> SerdeUniversalReceiver<T> {
-///     pub fn recv(&self) -> TransportResult<T> {
-///         let bytes = self.transport.recv(&self.source)?;
-///         
-///         bincode::deserialize(&bytes)
-///             .map_err(|_| TransportError::Closed)
-///     }
-/// }
-/// ```
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_safe_serialization() {
-        // Test i32 serialization
+    fn archive_views_validate_value_semantics() {
         let value: i32 = 42;
-        let serialized = value.serialize();
-        let deserialized = i32::deserialize(&serialized).unwrap();
-        assert_eq!(value, deserialized);
+        let archived = value.archive_bytes().unwrap();
+        assert_eq!(archived.capacity(), core::mem::size_of::<i32>());
+        let message = ArchivedMessage::<i32>::from_bytes(archived);
 
-        // Test String serialization
+        assert_eq!(message.get().unwrap(), value);
+
         let value = String::from("Hello, Moirai!");
-        let serialized = value.serialize();
-        let deserialized = String::deserialize(&serialized).unwrap();
-        assert_eq!(value, deserialized);
+        let archived = value.archive_bytes().unwrap();
+        assert_eq!(
+            archived.capacity(),
+            core::mem::size_of::<u32>() + value.len()
+        );
+        let message = ArchivedMessage::<String>::from_bytes(archived);
+
+        assert_eq!(message.get().unwrap(), value.as_str());
     }
 
     #[test]
-    fn test_safe_channel() {
+    fn string_archive_view_borrows_from_message_buffer() {
+        let value = String::from("borrowed archive view");
+        let message = ArchivedMessage::<String>::from_bytes(value.archive_bytes().unwrap());
+        let view = message.get().unwrap();
+
+        let buffer_start = message.as_bytes().as_ptr() as usize;
+        let buffer_end = buffer_start + message.as_bytes().len();
+        let view_start = view.as_ptr() as usize;
+        let view_end = view_start + view.len();
+
+        assert_eq!(view, value);
+        assert!(view_start >= buffer_start);
+        assert!(view_end <= buffer_end);
+    }
+
+    #[test]
+    fn archived_channel_returns_borrowed_view() {
         let transport = Arc::new(TransportManager::new());
-        let address = Address::Local("test".to_string());
+        let address = Address::Local("archive-test".to_string());
+        let sender =
+            ArchivedUniversalSender::<String>::new(Arc::clone(&transport), address.clone());
+        let receiver = ArchivedUniversalReceiver::<String>::new(transport, address);
+        let value = String::from("zero copy receive");
 
-        // Create safe sender and receiver
-        let _sender = SafeUniversalSender::<String>::new(transport.clone(), address.clone());
-        let _receiver = SafeUniversalReceiver::<String>::new(transport, address);
+        sender.send(&value).unwrap();
+        let message = receiver.recv().unwrap();
 
-        // This would work if we had a working transport implementation
-        // sender.send("Hello, safe world!".to_string()).unwrap();
-        // let received = receiver.recv().unwrap();
-        // assert_eq!(received, "Hello, safe world!");
+        assert_eq!(message.get().unwrap(), value.as_str());
+    }
+
+    #[test]
+    fn archive_views_reject_malformed_bytes() {
+        assert!(i32::view_archive(&[1, 2, 3]).is_err());
+        assert!(String::view_archive(&[1, 0, 0]).is_err());
+
+        let declared_length_exceeds_payload = [4, 0, 0, 0, b'a', b'b'];
+        assert!(String::view_archive(&declared_length_exceeds_payload).is_err());
+
+        let trailing_bytes_after_payload = [1, 0, 0, 0, b'a', b'b'];
+        assert!(String::view_archive(&trailing_bytes_after_payload).is_err());
+
+        let invalid_utf8 = [1, 0, 0, 0, 0xff];
+        assert!(String::view_archive(&invalid_utf8).is_err());
     }
 }

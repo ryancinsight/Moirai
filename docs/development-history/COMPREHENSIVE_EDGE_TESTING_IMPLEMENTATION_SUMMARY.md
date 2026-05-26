@@ -122,7 +122,7 @@ This document summarizes the implementation of comprehensive edge case testing f
 // Tests runtime extensibility without modification
 // - Custom task types with edge case operations
 // - Division by zero, integer overflow handling
-// - Memory pressure simulation
+// - Memory pressure workload
 // - Infinite loop detection and prevention
 ```
 
@@ -202,7 +202,7 @@ This document summarizes the implementation of comprehensive edge case testing f
 #### Atomicity Test
 ```rust
 // Tests atomic operations under high contention
-// - Bank account transfer simulation
+// - Bank account transfer workload
 // - 50 threads, 1000 transactions each
 // - Compare-and-swap operation verification
 // - Balance consistency validation

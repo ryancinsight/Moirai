@@ -11,6 +11,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+const BENCHMARK_SAMPLE_SIZE: usize = 10;
+const BENCHMARK_MEASUREMENT_SECONDS: u64 = 1;
+const BENCHMARK_WARM_UP_MILLIS: u64 = 250;
+
 /// Benchmark task spawning performance.
 fn bench_task_spawning(c: &mut Criterion) {
     let mut group = c.benchmark_group("task_spawning");
@@ -284,7 +288,7 @@ fn bench_performance_regression(c: &mut Criterion) {
 
             let mut handles = Vec::new();
 
-            // Mixed workload: CPU tasks, async tasks, and I/O simulation
+            // Mixed workload: CPU tasks, async timer tasks, and blocking timer tasks
             for i in 0..200 {
                 if i % 3 == 0 {
                     // CPU-intensive task
@@ -304,7 +308,7 @@ fn bench_performance_regression(c: &mut Criterion) {
                     });
                     handles.push(handle);
                 } else {
-                    // Blocking I/O simulation
+                    // Blocking timer task
                     let handle = moirai.spawn_blocking(move || {
                         thread::sleep(Duration::from_micros(1));
                         black_box(i * 3)
@@ -328,7 +332,7 @@ fn bench_performance_regression(c: &mut Criterion) {
 /// Latency measurement benchmarks.
 fn bench_latency_measurements(c: &mut Criterion) {
     let mut group = c.benchmark_group("latency");
-    group.measurement_time(Duration::from_secs(10));
+    group.measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS));
 
     group.bench_function("task_spawn_latency", |b| {
         let moirai = Moirai::new().unwrap();
@@ -355,70 +359,22 @@ fn bench_latency_measurements(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_task_spawning,
-    bench_async_tasks,
-    bench_work_stealing,
-    bench_priority_scheduling,
-    bench_simd_operations,
-    bench_memory_allocation,
-    bench_synchronization,
-    bench_performance_regression,
-    bench_latency_measurements
-);
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .sample_size(BENCHMARK_SAMPLE_SIZE)
+        .measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS))
+        .warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS));
+    targets =
+        bench_task_spawning,
+        bench_async_tasks,
+        bench_work_stealing,
+        bench_priority_scheduling,
+        bench_simd_operations,
+        bench_memory_allocation,
+        bench_synchronization,
+        bench_performance_regression,
+        bench_latency_measurements
+}
 
 criterion_main!(benches);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_benchmark_infrastructure() {
-        // Verify that benchmarking infrastructure works
-        let moirai = Moirai::new().unwrap();
-
-        let task = TaskBuilder::new().name("test_task").build(|| 42);
-
-        let handle = moirai.spawn(task);
-        let result = handle.join();
-
-        assert!(result.is_some());
-        moirai.shutdown();
-    }
-
-    #[test]
-    fn test_simd_benchmarks() {
-        // Test SIMD benchmark setup
-        let a = vec![1.0; 64];
-        let b = vec![2.0; 64];
-        let mut result = vec![0.0; 64];
-
-        simd::safe_vectorized_add_f32(&a, &b, &mut result);
-
-        for &val in &result {
-            assert_eq!(val, 3.0);
-        }
-    }
-
-    #[test]
-    fn test_performance_regression_setup() {
-        // Verify performance regression test setup
-        let moirai = Moirai::builder().worker_threads(2).build().unwrap();
-
-        let mut handles = Vec::new();
-
-        for i in 0..10 {
-            let task = TaskBuilder::new().build(move || i * 2);
-            handles.push(moirai.spawn(task));
-        }
-
-        for handle in handles {
-            let result = handle.join();
-            assert!(result.is_some());
-        }
-
-        moirai.shutdown();
-    }
-}

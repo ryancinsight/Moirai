@@ -10,20 +10,23 @@ use std::task::{Context, Poll};
 pub trait GpuTask: Send + 'static {
     /// Output type of the GPU task
     type Output: Send + 'static;
-    
+
     /// Execute the task on the GPU
-    fn execute_gpu(self, device: &GpuDevice) -> impl Future<Output = GpuResult<Self::Output>> + Send;
-    
+    fn execute_gpu(
+        self,
+        device: &GpuDevice,
+    ) -> impl Future<Output = GpuResult<Self::Output>> + Send;
+
     /// Get estimated GPU memory requirements in bytes
     fn estimated_memory_usage(&self) -> u64 {
         0
     }
-    
+
     /// Get estimated computational complexity (for scheduling)
     fn estimated_complexity(&self) -> u32 {
         1
     }
-    
+
     /// Check if this task can run on the given device
     fn can_run_on_device(&self, device: &GpuDevice) -> bool {
         let _ = device;
@@ -52,25 +55,25 @@ where
             device_requirements: None,
         }
     }
-    
+
     /// Set memory usage hint
     pub fn with_memory_hint(mut self, bytes: u64) -> Self {
         self.memory_hint = Some(bytes);
         self
     }
-    
+
     /// Set computational complexity hint
     pub fn with_complexity_hint(mut self, complexity: u32) -> Self {
         self.complexity_hint = Some(complexity);
         self
     }
-    
+
     /// Set required device features
     pub fn with_device_requirements(mut self, features: wgpu::Features) -> Self {
         self.device_requirements = Some(features);
         self
     }
-    
+
     /// Build the configured GPU task
     pub fn build(self) -> ConfiguredGpuTask<T> {
         ConfiguredGpuTask {
@@ -95,7 +98,7 @@ where
     T: GpuTask,
 {
     type Output = T::Output;
-    
+
     async fn execute_gpu(self, device: &GpuDevice) -> GpuResult<Self::Output> {
         // Check device requirements
         if let Some(required_features) = self.device_requirements {
@@ -105,18 +108,20 @@ where
                 ));
             }
         }
-        
+
         self.task.execute_gpu(device).await
     }
-    
+
     fn estimated_memory_usage(&self) -> u64 {
-        self.memory_hint.unwrap_or_else(|| self.task.estimated_memory_usage())
+        self.memory_hint
+            .unwrap_or_else(|| self.task.estimated_memory_usage())
     }
-    
+
     fn estimated_complexity(&self) -> u32 {
-        self.complexity_hint.unwrap_or_else(|| self.task.estimated_complexity())
+        self.complexity_hint
+            .unwrap_or_else(|| self.task.estimated_complexity())
     }
-    
+
     fn can_run_on_device(&self, device: &GpuDevice) -> bool {
         if let Some(required_features) = self.device_requirements {
             if !device.supports_features(required_features) {
@@ -141,17 +146,15 @@ where
     where
         G: GpuTask<Output = T> + Send + 'static,
     {
-        let future = Box::pin(async move {
-            task.execute_gpu(&device).await
-        });
-        
+        let future = Box::pin(async move { task.execute_gpu(&device).await });
+
         Self { future }
     }
 }
 
 impl<T> Future for GpuTaskFuture<T> {
     type Output = GpuResult<T>;
-    
+
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.future.as_mut().poll(cx)
     }
@@ -184,16 +187,16 @@ where
     T::Output: Send + 'static,
 {
     type Output = Result<T::Output, GpuError>;
-    
+
     fn execute(self) -> Self::Output {
         // Use pollster to block on the async GPU task
         pollster::block_on(self.gpu_task.execute_gpu(&self.device))
     }
-    
+
     fn context(&self) -> &TaskContext {
         &self.context
     }
-    
+
     fn estimated_cost(&self) -> u32 {
         self.gpu_task.estimated_complexity()
     }
@@ -225,7 +228,7 @@ where
     T: Send + 'static,
 {
     type Output = T;
-    
+
     async fn execute_gpu(self, device: &GpuDevice) -> GpuResult<Self::Output> {
         (self.func)(device)
     }
@@ -234,7 +237,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_gpu_task_execution() {
         // Simplified test - testing task creation
