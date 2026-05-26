@@ -382,6 +382,38 @@ where
     }
 }
 
+/// Flatten adapter with standard left-to-right nested stream semantics.
+pub struct Flatten<I> {
+    base: I,
+}
+
+impl<I> Flatten<I> {
+    pub(super) fn new(base: I) -> Self {
+        Self { base }
+    }
+}
+
+impl<I> ParallelIterator for Flatten<I>
+where
+    I: ParallelIterator,
+    I::Item: IntoIterator,
+    <I::Item as IntoIterator>::Item: Send + Sync + 'static,
+{
+    type Item = <I::Item as IntoIterator>::Item;
+
+    fn seq_items(self) -> Vec<Self::Item> {
+        self.base.seq_items().into_iter().flatten().collect()
+    }
+
+    fn drive<C, R>(self, consumer: C) -> R
+    where
+        C: Consumer<Self::Item, Result = R> + Send + Sync,
+        R: Send,
+    {
+        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+    }
+}
+
 /// Enumerate adapter for value-semantic index pairing.
 pub struct Enumerate<I> {
     base: I,

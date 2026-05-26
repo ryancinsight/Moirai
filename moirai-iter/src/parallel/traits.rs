@@ -1,7 +1,8 @@
 use super::{
     Chain, Chunks, Cloned, CollectConsumer, Copied, Enumerate, Filter, FilterMap, FindConsumer,
-    FlatMap, Inspect, Intersperse, Map, MapInit, MapWith, NullConsumer, PanicFuse, ReduceConsumer,
-    ReduceWithConsumer, Reduction, Rev, SequentialAdapter, Skip, Take, Update, WhileSome, Zip,
+    FlatMap, Flatten, Inspect, Intersperse, Map, MapInit, MapWith, NullConsumer, PanicFuse,
+    ReduceConsumer, ReduceWithConsumer, Reduction, Rev, SequentialAdapter, Skip, Take, Update,
+    WhileSome, Zip,
 };
 
 /// Core parallel iterator trait for Moirai's Rayon-style non-indexed subset.
@@ -129,6 +130,15 @@ pub trait ParallelIterator: Sized + Send {
         U::Item: Send + Sync + 'static,
     {
         FlatMap::new(self, flat_map_fn)
+    }
+
+    /// Flatten nested item streams with standard left-to-right semantics.
+    fn flatten(self) -> Flatten<Self>
+    where
+        Self::Item: IntoIterator,
+        <Self::Item as IntoIterator>::Item: Send + Sync + 'static,
+    {
+        Flatten::new(self)
     }
 
     /// Pair each element with its zero-based position in the logical sequence.

@@ -35,6 +35,19 @@ pub async fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<
     std::fs::copy(from, to)
 }
 
+/// Write bytes through the platform file-write implementation.
+pub async fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()> {
+    yield_now().await;
+    std::fs::write(path, contents)
+}
+
+/// Append bytes through the platform append implementation.
+pub async fn append<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()> {
+    yield_now().await;
+    let mut file = StdOpenOptions::new().create(true).append(true).open(path)?;
+    file.write_all(contents.as_ref())
+}
+
 /// High-performance cooperative async file handle
 pub struct AsyncFile {
     inner: StdFile,
@@ -207,5 +220,36 @@ mod tests {
 
         std::fs::remove_file(&source).expect("source cleanup must succeed");
         std::fs::remove_file(&dest).expect("dest cleanup must succeed");
+    }
+
+    #[test]
+    fn async_file_write_preserves_source_bytes() {
+        let path = test_path("write.bin");
+        let expected: Vec<u8> = (0_u8..=127).map(|value| value.wrapping_mul(7)).collect();
+
+        block_on(async {
+            write(&path, &expected).await.expect("write must succeed");
+            let actual = std::fs::read(&path).expect("written file must be readable");
+            assert_eq!(actual, expected);
+        });
+
+        std::fs::remove_file(&path).expect("written file cleanup must succeed");
+    }
+
+    #[test]
+    fn async_file_append_preserves_prefix_and_appended_bytes() {
+        let path = test_path("append.bin");
+        let prefix: Vec<u8> = (0_u8..=31).map(|value| value.wrapping_mul(3)).collect();
+        let suffix: Vec<u8> = (0_u8..=31).map(|value| value.wrapping_mul(11)).collect();
+        std::fs::write(&path, &prefix).expect("prefix write must succeed");
+
+        block_on(async {
+            append(&path, &suffix).await.expect("append must succeed");
+            let actual = std::fs::read(&path).expect("appended file must be readable");
+            assert_eq!(&actual[..prefix.len()], prefix.as_slice());
+            assert_eq!(&actual[prefix.len()..], suffix.as_slice());
+        });
+
+        std::fs::remove_file(&path).expect("appended file cleanup must succeed");
     }
 }

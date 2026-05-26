@@ -313,11 +313,9 @@ pub async fn read<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
     file.read_to_end().await
 }
 
-/// Write string to a file (creates/truncates)
+/// Write bytes to a file (creates/truncates)
 pub async fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()> {
-    let mut file = File::create(path).await?;
-    file.write_all(contents.as_ref()).await?;
-    file.sync_all().await
+    moirai_pal::fs::write(path, contents).await
 }
 
 /// Write string to a file (creates/truncates)
@@ -327,9 +325,7 @@ pub async fn write_str<P: AsRef<Path>>(path: P, contents: &str) -> io::Result<()
 
 /// Append data to a file
 pub async fn append<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()> {
-    let mut file = File::open_with_options(path, FileOpenOptions::append_only()).await?;
-    file.write_all(contents.as_ref()).await?;
-    file.sync_all().await
+    moirai_pal::fs::append(path, contents).await
 }
 
 /// Append string to a file

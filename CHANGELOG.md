@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `async_iterator_comparison`, a value-checked `moirai-iter::AsyncIterator` ready-pipeline benchmark against Tokio `JoinSet` fan-out.
 - Added `ParallelSliceMut` sorting comparison coverage against Rayon `ParallelSliceMut`.
 - Added `async_fs_comparison`, a value-checked `moirai_async::fs::read` benchmark against Tokio `fs::read`.
+- Added an `async_fs_write_file` row to `async_fs_comparison`, comparing Moirai platform-write facade behavior against Tokio `fs::write` over the same 64 KiB payload.
 - Added an `async_fs_copy_file` row to `async_fs_comparison`, comparing Moirai platform-copy facade behavior against Tokio `fs::copy` over the same 64 KiB file.
 - Added TCP and UDP loopback value tests for the Moirai-owned async network facade.
 - Added `async_tcp_comparison`, a value-checked Moirai TCP facade echo benchmark against Tokio `TcpListener`/`TcpStream`.
@@ -25,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `map_with` and `map_init` stateful map adapters to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `update` mutation adapter to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `intersperse` separator adapter to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `flatten` nested-stream adapter to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `real_application_mixed_workload`, a value-checked mixed async/parallel/channel benchmark against a Tokio plus Rayon reference path.
 - Refreshed public result-handle, async wake, scheduler handoff, and Criterion variance attribution evidence against Tokio and Rayon comparison rows.
 - Added `sum`, `product`, `min`, and `max` terminal reducers to the Rayon-style parallel iterator subset with value tests and benchmark rows.
@@ -46,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Changed `moirai_async::fs::copy` to delegate to the PAL platform copy operation instead of allocating a user-space 64 KiB transfer buffer.
+- Changed `moirai_async::fs::write` to delegate to the PAL platform write operation over the caller-provided byte slice instead of constructing a facade file handle, updating stats, looping through writes, and unconditionally syncing.
 - Replaced async iterator terminal placeholder futures with value-semantic `collect`, `for_each`, `fold`, and `reduce` execution over the logical iterator stream.
 - Changed `ParAsyncMap`, `ParAsyncFilter`, and `ParAsyncForEach` to use bounded in-flight polling through their `concurrency` parameter.
 - Raised the unstable sorting sequential threshold so medium slices use Rust's optimized unstable sort until worker dispatch amortizes.

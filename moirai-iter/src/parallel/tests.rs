@@ -134,6 +134,13 @@ fn test_parallel_flat_map_preserves_flattened_order() {
 }
 
 #[test]
+fn test_parallel_flatten_preserves_nested_order() {
+    let data = vec![vec![1, 2], Vec::new(), vec![3, 4, 5]];
+    let result: Vec<i32> = data.into_par_iter().flatten().collect();
+    assert_eq!(result, vec![1, 2, 3, 4, 5]);
+}
+
+#[test]
 fn test_parallel_enumerate_pairs_logical_indices() {
     let data = vec![4, 8, 15, 16];
     let result: Vec<(usize, i32)> = data.into_par_iter().enumerate().collect();

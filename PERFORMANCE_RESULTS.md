@@ -164,6 +164,38 @@ Workload: both rows copy the same generated 64 KiB file to a prepared destinatio
 
 Interpretation: this is a covered Moirai-owned file copy facade comparison against `tokio::fs::copy`. The Moirai path delegates to the PAL platform copy operation instead of allocating a user-space transfer buffer. It is not a claim of reactor-native file readiness.
 
+## 2026-05-26 Async File Write Facade Benchmark
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench async_fs_comparison -- async_fs_write_file --quiet
+```
+
+Workload: both rows write the same generated 64 KiB byte payload to prepared destination paths. Setup asserts the written destination bytes equal the generated source bytes for both Moirai and Tokio before timing.
+
+| Benchmark | Result |
+| --- | ---: |
+| `async_fs_write_file/moirai/65536` | 2.8650-3.4698 ms |
+| `async_fs_write_file/tokio/65536` | 2.5939-3.2074 ms |
+
+Interpretation: this is a covered Moirai-owned file write facade comparison against `tokio::fs::write`. The Moirai path delegates to the PAL platform write operation over the caller-provided byte slice and avoids constructing the async file handle, stats state, write loop, and unconditional sync path used by the previous convenience implementation. Tokio is faster in this same-run write row; the row closes coverage, not a performance lead.
+
+## 2026-05-26 Async File Append Facade Benchmark
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench async_fs_comparison -- async_fs_append_file --quiet
+```
+
+Workload: both rows reset a destination file to the same prefix through Criterion batched setup, append the same generated 64 KiB byte payload, and setup asserts prefix plus appended byte equality for both Moirai and Tokio before timing.
+
+| Benchmark | Result |
+| --- | ---: |
+| `async_fs_append_file/moirai/65536` | 272.59-291.93 µs |
+| `async_fs_append_file/tokio/65536` | 190.29-320.18 µs |
+
+Interpretation: this is a covered Moirai-owned file append facade comparison against Tokio append-open/write behavior. The Moirai path delegates to the PAL platform append operation over the caller-provided byte slice and avoids constructing the async file handle, stats state, write loop, and unconditional sync path used by the previous convenience implementation. The same-run confidence intervals overlap.
+
 ## 2026-05-25 Async UDP Facade Benchmark
 
 Command:

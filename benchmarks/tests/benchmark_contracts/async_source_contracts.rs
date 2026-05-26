@@ -91,6 +91,8 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
         "pub async fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()>",
         "pub async fn append<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()>",
         "pub async fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<u64>",
+        "moirai_pal::fs::write(path, contents).await",
+        "moirai_pal::fs::append(path, contents).await",
         "moirai_pal::fs::copy(from, to).await",
         "test_file_write_read_append_and_stats_values",
         "test_file_copy_and_directory_values",
@@ -106,8 +108,14 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
     }
 
     for required in [
+        "pub async fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()>",
+        "std::fs::write(path, contents)",
+        "pub async fn append<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()>",
+        "StdOpenOptions::new().create(true).append(true).open(path)?",
         "pub async fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<u64>",
         "std::fs::copy(from, to)",
+        "async_file_write_preserves_source_bytes",
+        "async_file_append_preserves_prefix_and_appended_bytes",
         "async_file_copy_preserves_source_bytes",
     ] {
         assert!(
@@ -124,6 +132,7 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
         "In a full implementation",
         "vec![0u8; 64 * 1024]",
         "dest.write_all(&buffer",
+        "file.sync_all().await",
     ] {
         assert!(
             !fs_source.contains(prohibited),
@@ -142,6 +151,16 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
         "assert_eq!(moirai_expected, expected)",
         "assert_eq!(tokio_expected, expected)",
         "async_fs_read_to_end",
+        "moirai_write",
+        "tokio_write",
+        "tokio::fs::write",
+        "async_fs_write_file",
+        "moirai_append",
+        "tokio_append",
+        "tokio::fs::OpenOptions::new()",
+        "AsyncWriteExt",
+        "async_fs_append_file",
+        "assert_appended_bytes",
         "moirai_copy",
         "tokio_copy",
         "tokio::fs::copy",
@@ -162,9 +181,13 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
 
     for required in [
         "Tokio file facade read",
+        "Tokio file facade write",
+        "Tokio file facade append",
         "Tokio file facade copy",
         "async_fs_comparison",
         "64 KiB read",
+        "64 KiB write",
+        "64 KiB append",
         "64 KiB copy",
         "Tokio I/O drop-in compatibility",
     ] {
@@ -425,6 +448,8 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "pub async fn open_with_options<P: AsRef<Path>>",
         "async_file_roundtrip_seek_and_metadata_are_value_semantic",
         "async_file_read_to_end_preserves_source_bytes",
+        "async_file_write_preserves_source_bytes",
+        "async_file_append_preserves_prefix_and_appended_bytes",
         "assert_eq!(&suffix, b\"beta\")",
         "assert_eq!(actual, expected)",
     ] {

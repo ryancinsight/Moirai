@@ -57,6 +57,33 @@ fn rayon_filter_flat_pipeline(data: Vec<u64>) -> Vec<u64> {
         .collect::<Vec<_>>()
 }
 
+fn nested_source_data() -> Vec<Vec<u64>> {
+    source_data()
+        .chunks(CHUNK_SIZE)
+        .map(|chunk| chunk.to_vec())
+        .collect()
+}
+
+fn moirai_flatten_pipeline(data: Vec<Vec<u64>>) -> Vec<u64> {
+    MoiraiIntoParallelIterator::into_par_iter(data)
+        .flatten()
+        .map(|value| value.wrapping_mul(13).wrapping_add(5))
+        .filter(|value| value % 7 != 0)
+        .take(WORK_ITEMS / 2)
+        .collect::<Vec<_>>()
+}
+
+fn rayon_flatten_pipeline(data: Vec<Vec<u64>>) -> Vec<u64> {
+    rayon::prelude::IntoParallelIterator::into_par_iter(data)
+        .flatten()
+        .map(|value| value.wrapping_mul(13).wrapping_add(5))
+        .filter(|value| value % 7 != 0)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .take(WORK_ITEMS / 2)
+        .collect()
+}
+
 fn moirai_map_state_pipeline(data: Vec<u64>) -> (Vec<u64>, u64, Vec<u64>, u64) {
     let with_checksum = Arc::new(AtomicU64::new(0));
     let with = MoiraiIntoParallelIterator::into_par_iter(data.clone())
@@ -595,6 +622,27 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(rayon_filter_flat_pipeline(black_box(input.clone()))))
     });
+    group.finish();
+
+    let nested = nested_source_data();
+    let moirai_expected = moirai_flatten_pipeline(nested.clone());
+    let rayon_expected = rayon_flatten_pipeline(nested.clone());
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_adapter_flatten");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_with_input(
+        BenchmarkId::new("moirai", WORK_ITEMS),
+        &nested,
+        |b, input| b.iter(|| black_box(moirai_flatten_pipeline(black_box(input.clone())))),
+    );
+    group.bench_with_input(
+        BenchmarkId::new("rayon", WORK_ITEMS),
+        &nested,
+        |b, input| b.iter(|| black_box(rayon_flatten_pipeline(black_box(input.clone())))),
+    );
     group.finish();
 
     let moirai_expected = moirai_map_state_pipeline(data.clone());

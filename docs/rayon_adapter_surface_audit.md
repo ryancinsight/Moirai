@@ -12,7 +12,7 @@ Moirai does not currently provide full Rayon adapter parity. The supported surfa
 
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`.
 - `IntoParallelRefIterator` for `Vec<T>`.
-- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `enumerate`, `zip`, `copied`, `cloned`, `take`, `skip`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
+- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `copied`, `cloned`, `take`, `skip`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
 - `ParallelExtend<T>` for `Vec<T>`.
 - `ParallelSliceMut` for the slice extension sorting boundary.
 
@@ -35,6 +35,7 @@ Indexed scheduler execution is exposed only through `Moirai::for_each_indexed` a
 | Filter-map adapter | `ParallelIterator::filter_map` and `FilterMap<I, F>` | `test_parallel_filter_map_retains_present_values` validates optional retention semantics | Covered subset |
 | While-some adapter | `ParallelIterator::while_some` and `WhileSome<I>` | `test_parallel_while_some_unwraps_present_prefix`, `test_parallel_while_some_empty_when_first_is_none`, and `iterator_adapter_while_some` benchmark rows | Covered subset |
 | Flat-map adapter | `ParallelIterator::flat_map` and `FlatMap<I, F>` | `test_parallel_flat_map_preserves_flattened_order` validates flattened output order | Covered subset |
+| Flatten adapter | `ParallelIterator::flatten` and `Flatten<I>` | `test_parallel_flatten_preserves_nested_order` and `iterator_adapter_flatten` benchmark rows | Covered subset |
 | Enumerate adapter | `ParallelIterator::enumerate` and `Enumerate<I>` | `test_parallel_enumerate_pairs_logical_indices` validates zero-based logical positions | Covered subset |
 | Zip adapter | `ParallelIterator::zip` and `Zip<I, J>` | `test_parallel_zip_stops_at_shorter_input` validates shortest-input semantics | Covered subset |
 | Borrowed reference materialization adapters | `ParallelIterator::copied` and `ParallelIterator::cloned` | `test_parallel_copied_materializes_borrowed_copy_values`, `test_parallel_cloned_materializes_borrowed_clone_values`, and `iterator_adapter_ref_copy_clone` benchmark rows | Covered subset |
@@ -156,6 +157,10 @@ Completed: `update` is implemented as a mutating adapter that applies `Fn(&mut I
 
 Completed: `intersperse` is implemented as a separator adapter that inserts a cloned separator between adjacent logical items while preserving empty and singleton streams. Tests cover separator insertion and boundary streams, and `iterator_adapter_comparison` now includes `iterator_adapter_intersperse` against Rayon after asserting equal interspersed collections.
 
+### ISSUE-143 [minor]: Add flatten nested-stream adapter
+
+Completed: `flatten` is implemented as a nested-stream adapter over `Item: IntoIterator` with left-to-right value semantics. Tests cover nested vectors with an empty inner stream, and `iterator_adapter_comparison` now includes `iterator_adapter_flatten` against Rayon after asserting equal flattened collections.
+
 ## Benchmark Evidence
 
 `cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence on 2026-05-25 after adding the utility adapter group and removing avoidable partition and inspect allocation overhead:
@@ -164,6 +169,7 @@ Completed: `intersperse` is implemented as a separator adapter that inserts a cl
 | --- | --- | --- | --- |
 | `iterator_adapter_indexed_pipeline` | 35.664-35.796 us | 318.76-322.01 us | Moirai ahead |
 | `iterator_adapter_filter_flat_pipeline` | 22.001-22.292 us | 2.9053-3.0355 ms | Moirai ahead |
+| `iterator_adapter_flatten` | 108.93-137.47 us | 1.2705-1.3079 ms | Moirai ahead |
 | `iterator_adapter_map_state` | 1.2630-1.3841 ms | 4.4604-21.486 ms | Moirai ahead |
 | `iterator_adapter_update` | 35.583-37.854 us | 373.83-393.54 us | Moirai ahead |
 | `iterator_adapter_intersperse` | 91.120-94.203 us | 418.76-433.66 us | Moirai ahead |
