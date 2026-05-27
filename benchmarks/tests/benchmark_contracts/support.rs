@@ -18,7 +18,10 @@ fn benchmark_path(relative: &str) -> PathBuf {
 }
 
 fn read_benchmark(relative: &str) -> String {
-    fs::read_to_string(benchmark_path(relative)).expect("benchmark source must be readable")
+    fs::read_to_string(benchmark_path(relative))
+        .expect("benchmark source must be readable")
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
 }
 
 fn read_result_handle_diagnostics() -> String {
