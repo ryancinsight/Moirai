@@ -199,6 +199,13 @@ fn test_parallel_take_and_skip_saturate_at_bounds() {
 }
 
 #[test]
+fn test_parallel_take_any_and_skip_any_use_bounded_window_semantics() {
+    let data = vec![3, 1, 4, 1, 5, 9];
+    let result: Vec<i32> = data.into_par_iter().take_any(5).skip_any(2).collect();
+    assert_eq!(result, vec![4, 1, 5]);
+}
+
+#[test]
 fn test_parallel_chunks_groups_full_chunks_and_tail() {
     let data = vec![1, 2, 3, 4, 5];
     let result: Vec<Vec<i32>> = data.into_par_iter().chunks(2).collect();

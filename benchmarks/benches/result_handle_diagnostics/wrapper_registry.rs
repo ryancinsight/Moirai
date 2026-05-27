@@ -351,6 +351,96 @@ fn direct_scheduled_public_token_wrapper_components(
 }
 
 #[cfg(feature = "registry-diagnostics")]
+fn direct_scheduled_public_token_wrapper_without_catch(
+    scheduler: &ThreadScheduler,
+    registry: &mut TaskRegistry,
+    next_task_id: &AtomicU64,
+    metrics: &Arc<ExecutorMetrics>,
+) -> usize {
+    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (handle, sender) = TaskHandle::new_pending(TaskId(id));
+    metrics.record_task_spawned();
+    let worker_metrics = Arc::clone(metrics);
+    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
+
+    scheduler
+        .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
+            sender.send(Ok(black_box(READY_VALUE)));
+            worker_metrics.record_task_completed(execution_time);
+        })
+        .expect("scheduler must accept scheduled token wrapper without catch diagnostic job");
+
+    let result = handle
+        .join()
+        .expect("scheduled token wrapper without catch handle must be attached")
+        .expect("scheduled token wrapper without catch handle must contain a value");
+
+    verify_ready_value(result)
+}
+
+#[cfg(feature = "registry-diagnostics")]
+fn direct_scheduled_public_token_wrapper_atomic_result(
+    scheduler: &ThreadScheduler,
+    registry: &mut TaskRegistry,
+    next_task_id: &AtomicU64,
+    metrics: &Arc<ExecutorMetrics>,
+) -> usize {
+    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    metrics.record_task_spawned();
+    let worker_metrics = Arc::clone(metrics);
+    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
+    let result = Arc::new(AtomicUsize::new(0));
+    let worker_result = Arc::clone(&result);
+
+    scheduler
+        .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
+            let task_result = catch_unwind(AssertUnwindSafe(|| black_box(READY_VALUE)));
+            match task_result {
+                Ok(value) => {
+                    worker_result.store(value, Ordering::Release);
+                    worker_metrics.record_task_completed(execution_time);
+                }
+                Err(_) => {
+                    worker_result.store(usize::MAX, Ordering::Release);
+                    worker_metrics.record_task_failed();
+                }
+            }
+        })
+        .expect("scheduler must accept scheduled token wrapper atomic-result job");
+    scheduler
+        .join()
+        .expect("scheduler must reach quiescence after atomic-result wrapper job");
+
+    verify_ready_value(result.load(Ordering::Acquire))
+}
+
+#[cfg(feature = "registry-diagnostics")]
+fn direct_scheduled_public_token_wrapper_without_lifecycle(
+    scheduler: &ThreadScheduler,
+    next_task_id: &AtomicU64,
+) -> usize {
+    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (handle, sender) = TaskHandle::new_pending(TaskId(id));
+
+    scheduler
+        .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
+            let task_result = catch_unwind(AssertUnwindSafe(|| black_box(READY_VALUE)));
+            match task_result {
+                Ok(value) => sender.send(Ok(value)),
+                Err(_) => sender.send(Err(TaskError::Panicked)),
+            }
+        })
+        .expect("scheduler must accept scheduled token wrapper without lifecycle job");
+
+    let result = handle
+        .join()
+        .expect("scheduled token wrapper without lifecycle handle must be attached")
+        .expect("scheduled token wrapper without lifecycle handle must contain a value");
+
+    verify_ready_value(result)
+}
+
+#[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_token_wrapper_oversized_components(
     scheduler: &ThreadScheduler,
     registry: &mut TaskRegistry,
@@ -386,6 +476,45 @@ fn direct_scheduled_public_token_wrapper_oversized_components(
         .expect("scheduled oversized token wrapper handle must contain a value");
 
     verify_oversized_captured_ready_value(result)
+}
+
+#[cfg(feature = "registry-diagnostics")]
+fn direct_scheduled_public_token_wrapper_oversized_storage_only(
+    scheduler: &ThreadScheduler,
+    registry: &mut TaskRegistry,
+    next_task_id: &AtomicU64,
+    metrics: &Arc<ExecutorMetrics>,
+) -> usize {
+    let words = [1usize; OVERSIZED_CAPTURE_WORDS];
+    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (handle, sender) = TaskHandle::new_pending(TaskId(id));
+    metrics.record_task_spawned();
+    let worker_metrics = Arc::clone(metrics);
+    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
+
+    scheduler
+        .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
+            black_box(words);
+            let task_result = catch_unwind(AssertUnwindSafe(|| black_box(READY_VALUE)));
+            match task_result {
+                Ok(value) => {
+                    sender.send(Ok(value));
+                    worker_metrics.record_task_completed(execution_time);
+                }
+                Err(_) => {
+                    sender.send(Err(TaskError::Panicked));
+                    worker_metrics.record_task_failed();
+                }
+            }
+        })
+        .expect("scheduler must accept scheduled oversized storage-only token wrapper job");
+
+    let result = handle
+        .join()
+        .expect("scheduled oversized storage-only token wrapper handle must be attached")
+        .expect("scheduled oversized storage-only token wrapper handle must contain a value");
+
+    verify_ready_value(result)
 }
 
 #[cfg(feature = "registry-diagnostics")]

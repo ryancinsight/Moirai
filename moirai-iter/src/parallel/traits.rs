@@ -167,8 +167,24 @@ pub trait ParallelIterator: Sized + Send {
         Take::new(self, count)
     }
 
+    /// Retain at most `count` items from this non-indexed deterministic stream.
+    fn take_any(self, count: usize) -> Take<Self>
+    where
+        Self::Item: Sync + 'static,
+    {
+        Take::new(self, count)
+    }
+
     /// Discard `count` elements from the logical sequence prefix.
     fn skip(self, count: usize) -> Skip<Self>
+    where
+        Self::Item: Sync + 'static,
+    {
+        Skip::new(self, count)
+    }
+
+    /// Discard `count` items from this non-indexed deterministic stream.
+    fn skip_any(self, count: usize) -> Skip<Self>
     where
         Self::Item: Sync + 'static,
     {

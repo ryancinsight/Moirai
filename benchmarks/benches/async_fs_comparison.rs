@@ -76,6 +76,73 @@ fn tokio_append(runtime: &tokio::runtime::Runtime, path: &PathBuf, contents: &[u
         .expect("tokio fs append must succeed");
 }
 
+fn moirai_metadata_len(runtime: &moirai::Moirai, path: &PathBuf) -> u64 {
+    let metadata = runtime
+        .block_on(moirai_async::fs::metadata(path))
+        .expect("moirai fs metadata must succeed");
+    assert!(metadata.is_file());
+    metadata.len()
+}
+
+fn tokio_metadata_len(runtime: &tokio::runtime::Runtime, path: &PathBuf) -> u64 {
+    let metadata = runtime
+        .block_on(tokio::fs::metadata(path))
+        .expect("tokio fs metadata must succeed");
+    assert!(metadata.is_file());
+    metadata.len()
+}
+
+fn prepare_rename_file(source: &PathBuf, dest: &PathBuf, contents: &[u8]) {
+    let _ = std::fs::remove_file(source);
+    let _ = std::fs::remove_file(dest);
+    std::fs::write(source, contents).expect("rename benchmark source must be writable");
+}
+
+fn assert_renamed_bytes(path: &PathBuf, expected: &[u8]) {
+    let actual = std::fs::read(path).expect("renamed file must be readable");
+    assert_eq!(actual, expected);
+}
+
+fn moirai_rename(runtime: &moirai::Moirai, source: &PathBuf, dest: &PathBuf) -> u64 {
+    runtime
+        .block_on(moirai_async::fs::rename(source, dest))
+        .expect("moirai fs rename must succeed");
+    assert!(!source.exists());
+    moirai_metadata_len(runtime, dest)
+}
+
+fn tokio_rename(runtime: &tokio::runtime::Runtime, source: &PathBuf, dest: &PathBuf) -> u64 {
+    runtime
+        .block_on(tokio::fs::rename(source, dest))
+        .expect("tokio fs rename must succeed");
+    assert!(!source.exists());
+    tokio_metadata_len(runtime, dest)
+}
+
+fn prepare_remove_file(path: &PathBuf, contents: &[u8]) {
+    let _ = std::fs::remove_file(path);
+    std::fs::write(path, contents).expect("remove benchmark source must be writable");
+}
+
+fn assert_existing_bytes(path: &PathBuf, expected: &[u8]) {
+    let actual = std::fs::read(path).expect("prepared file must be readable");
+    assert_eq!(actual, expected);
+}
+
+fn moirai_remove_file(runtime: &moirai::Moirai, path: &PathBuf) {
+    runtime
+        .block_on(moirai_async::fs::remove_file(path))
+        .expect("moirai fs remove_file must succeed");
+    assert!(!path.exists());
+}
+
+fn tokio_remove_file(runtime: &tokio::runtime::Runtime, path: &PathBuf) {
+    runtime
+        .block_on(tokio::fs::remove_file(path))
+        .expect("tokio fs remove_file must succeed");
+    assert!(!path.exists());
+}
+
 fn moirai_copy(runtime: &moirai::Moirai, source: &PathBuf, dest: &PathBuf) -> u64 {
     let copied = runtime
         .block_on(moirai_async::fs::copy(source, dest))
@@ -116,6 +183,12 @@ fn async_fs_comparison(c: &mut Criterion) {
     let tokio_append_path = benchmark_path("tokio-append");
     let moirai_copy_path = benchmark_path("moirai-copy");
     let tokio_copy_path = benchmark_path("tokio-copy");
+    let moirai_rename_source_path = benchmark_path("moirai-rename-source");
+    let moirai_rename_dest_path = benchmark_path("moirai-rename-dest");
+    let tokio_rename_source_path = benchmark_path("tokio-rename-source");
+    let tokio_rename_dest_path = benchmark_path("tokio-rename-dest");
+    let moirai_remove_path = benchmark_path("moirai-remove");
+    let tokio_remove_path = benchmark_path("tokio-remove");
     let runtime = Builder::new_multi_thread()
         .worker_threads(num_cpus::get().max(1))
         .enable_all()
@@ -137,6 +210,41 @@ fn async_fs_comparison(c: &mut Criterion) {
     reset_append_file(&tokio_append_path);
     tokio_append(&runtime, &tokio_append_path, &expected);
     assert_appended_bytes(&tokio_append_path, &expected);
+    assert_eq!(
+        moirai_metadata_len(&moirai_runtime, &path),
+        READ_BYTES as u64
+    );
+    assert_eq!(tokio_metadata_len(&runtime, &path), READ_BYTES as u64);
+    prepare_rename_file(
+        &moirai_rename_source_path,
+        &moirai_rename_dest_path,
+        &expected,
+    );
+    assert_eq!(
+        moirai_rename(
+            &moirai_runtime,
+            &moirai_rename_source_path,
+            &moirai_rename_dest_path
+        ),
+        READ_BYTES as u64
+    );
+    assert_renamed_bytes(&moirai_rename_dest_path, &expected);
+    prepare_rename_file(
+        &tokio_rename_source_path,
+        &tokio_rename_dest_path,
+        &expected,
+    );
+    assert_eq!(
+        tokio_rename(&runtime, &tokio_rename_source_path, &tokio_rename_dest_path),
+        READ_BYTES as u64
+    );
+    assert_renamed_bytes(&tokio_rename_dest_path, &expected);
+    prepare_remove_file(&moirai_remove_path, &expected);
+    assert_existing_bytes(&moirai_remove_path, &expected);
+    moirai_remove_file(&moirai_runtime, &moirai_remove_path);
+    prepare_remove_file(&tokio_remove_path, &expected);
+    assert_existing_bytes(&tokio_remove_path, &expected);
+    tokio_remove_file(&runtime, &tokio_remove_path);
     assert_eq!(
         moirai_copy(&moirai_runtime, &path, &moirai_copy_path),
         READ_BYTES as u64
@@ -224,6 +332,105 @@ fn async_fs_comparison(c: &mut Criterion) {
     );
     group.finish();
 
+    let mut group = c.benchmark_group("async_fs_metadata_file");
+    group.sample_size(SAMPLE_SIZE);
+    group.bench_with_input(BenchmarkId::new("moirai", READ_BYTES), &path, |b, input| {
+        b.iter(|| {
+            black_box(moirai_metadata_len(
+                black_box(&moirai_runtime),
+                black_box(input),
+            ))
+        })
+    });
+    group.bench_with_input(BenchmarkId::new("tokio", READ_BYTES), &path, |b, input| {
+        b.iter(|| black_box(tokio_metadata_len(&runtime, black_box(input))))
+    });
+    group.finish();
+
+    let moirai_rename_input = (
+        &moirai_rename_source_path,
+        &moirai_rename_dest_path,
+        expected.as_slice(),
+    );
+    let tokio_rename_input = (
+        &tokio_rename_source_path,
+        &tokio_rename_dest_path,
+        expected.as_slice(),
+    );
+    let mut group = c.benchmark_group("async_fs_rename_file");
+    group.sample_size(SAMPLE_SIZE);
+    group.bench_with_input(
+        BenchmarkId::new("moirai", READ_BYTES),
+        &moirai_rename_input,
+        |b, input| {
+            b.iter_batched(
+                || {
+                    prepare_rename_file(input.0, input.1, input.2);
+                    (input.0, input.1)
+                },
+                |(source, dest)| {
+                    black_box(moirai_rename(
+                        black_box(&moirai_runtime),
+                        black_box(source),
+                        black_box(dest),
+                    ))
+                },
+                BatchSize::PerIteration,
+            )
+        },
+    );
+    group.bench_with_input(
+        BenchmarkId::new("tokio", READ_BYTES),
+        &tokio_rename_input,
+        |b, input| {
+            b.iter_batched(
+                || {
+                    prepare_rename_file(input.0, input.1, input.2);
+                    (input.0, input.1)
+                },
+                |(source, dest)| {
+                    black_box(tokio_rename(&runtime, black_box(source), black_box(dest)))
+                },
+                BatchSize::PerIteration,
+            )
+        },
+    );
+    group.finish();
+
+    let moirai_remove_input = (&moirai_remove_path, expected.as_slice());
+    let tokio_remove_input = (&tokio_remove_path, expected.as_slice());
+    let mut group = c.benchmark_group("async_fs_remove_file");
+    group.sample_size(SAMPLE_SIZE);
+    group.bench_with_input(
+        BenchmarkId::new("moirai", READ_BYTES),
+        &moirai_remove_input,
+        |b, input| {
+            b.iter_batched(
+                || {
+                    prepare_remove_file(input.0, input.1);
+                    input.0
+                },
+                |path| moirai_remove_file(black_box(&moirai_runtime), black_box(path)),
+                BatchSize::PerIteration,
+            )
+        },
+    );
+    group.bench_with_input(
+        BenchmarkId::new("tokio", READ_BYTES),
+        &tokio_remove_input,
+        |b, input| {
+            b.iter_batched(
+                || {
+                    prepare_remove_file(input.0, input.1);
+                    input.0
+                },
+                |path| tokio_remove_file(&runtime, black_box(path)),
+                BatchSize::PerIteration,
+            )
+        },
+    );
+    group.finish();
+
     let moirai_copy_input = (&path, &moirai_copy_path);
     let tokio_copy_input = (&path, &tokio_copy_path);
     let mut group = c.benchmark_group("async_fs_copy_file");
@@ -257,6 +464,12 @@ fn async_fs_comparison(c: &mut Criterion) {
     std::fs::remove_file(&tokio_append_path).expect("tokio appended file cleanup must succeed");
     std::fs::remove_file(&moirai_copy_path).expect("moirai copied file cleanup must succeed");
     std::fs::remove_file(&tokio_copy_path).expect("tokio copied file cleanup must succeed");
+    let _ = std::fs::remove_file(&moirai_rename_source_path);
+    let _ = std::fs::remove_file(&moirai_rename_dest_path);
+    let _ = std::fs::remove_file(&tokio_rename_source_path);
+    let _ = std::fs::remove_file(&tokio_rename_dest_path);
+    let _ = std::fs::remove_file(&moirai_remove_path);
+    let _ = std::fs::remove_file(&tokio_remove_path);
 }
 
 criterion_group! {

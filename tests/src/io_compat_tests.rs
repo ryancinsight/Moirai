@@ -1,8 +1,7 @@
 //! Integration tests for Async I/O traits and Tokio compatibility shims.
 
 use moirai::{
-    AsyncReadExt, AsyncWriteExt, File, FileOpenOptions, MoiraiCompat,
-    TcpListener, TokioCompat,
+    AsyncReadExt, AsyncWriteExt, File, FileOpenOptions, MoiraiCompat, TcpListener, TokioCompat,
 };
 use std::io::SeekFrom;
 use tempfile::NamedTempFile;
@@ -13,20 +12,15 @@ fn test_native_file_io() {
     let path = temp_file.path().to_path_buf();
 
     futures::executor::block_on(async {
-        let mut file = File::open_with_options(
-            &path,
-            FileOpenOptions::read_write(),
-        )
-        .await
-        .expect("failed to open file");
+        let mut file = File::open_with_options(&path, FileOpenOptions::read_write())
+            .await
+            .expect("failed to open file");
 
         let data = b"hello, native async I/O!";
         file.write_all(data).await.expect("failed to write data");
         file.flush().await.expect("failed to flush");
 
-        file.seek(SeekFrom::Start(0))
-            .await
-            .expect("failed to seek");
+        file.seek(SeekFrom::Start(0)).await.expect("failed to seek");
 
         let mut buf = vec![0; data.len()];
         let mut read = 0;
@@ -82,12 +76,9 @@ fn test_tokio_compat_file_io() {
         .unwrap();
 
     rt.block_on(async {
-        let file = File::open_with_options(
-            &path,
-            FileOpenOptions::read_write(),
-        )
-        .await
-        .expect("failed to open file");
+        let file = File::open_with_options(&path, FileOpenOptions::read_write())
+            .await
+            .expect("failed to open file");
 
         let mut compat_write = TokioCompat::new(file);
         use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -100,7 +91,10 @@ fn test_tokio_compat_file_io() {
         compat_write.flush().await.expect("failed to flush");
 
         let mut inner_file = compat_write.into_inner();
-        inner_file.seek(SeekFrom::Start(0)).await.expect("failed to seek");
+        inner_file
+            .seek(SeekFrom::Start(0))
+            .await
+            .expect("failed to seek");
 
         let mut compat_read = TokioCompat::new(inner_file);
         let mut buf = Vec::new();
@@ -144,10 +138,7 @@ fn test_tokio_compat_tcp_io() {
             let mut compat_server = TokioCompat::new(server);
             use tokio::io::AsyncReadExt as _;
             let mut buf = vec![0; 64];
-            let n = compat_server
-                .read(&mut buf)
-                .await
-                .expect("failed to read");
+            let n = compat_server.read(&mut buf).await.expect("failed to read");
             assert_eq!(&buf[..n], b"hello from tokio wrapper");
         };
 

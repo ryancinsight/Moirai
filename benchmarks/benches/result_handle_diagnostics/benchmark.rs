@@ -8,12 +8,22 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
         .worker_threads(WORKER_THREADS)
         .build()
         .expect("Moirai runtime must start");
+    let moirai_peer = Moirai::builder()
+        .worker_threads(WORKER_THREADS)
+        .build()
+        .expect("peer Moirai runtime must start");
     let mut executor = HybridExecutor::new(ExecutorConfig {
         worker_threads: WORKER_THREADS,
         thread_name_prefix: "result-handle-hybrid".into(),
         ..ExecutorConfig::default()
     })
     .expect("HybridExecutor diagnostic runtime must start");
+    let mut executor_peer = HybridExecutor::new(ExecutorConfig {
+        worker_threads: WORKER_THREADS,
+        thread_name_prefix: "result-handle-hybrid-peer".into(),
+        ..ExecutorConfig::default()
+    })
+    .expect("peer HybridExecutor diagnostic runtime must start");
     let arc_executor = Arc::new(
         HybridExecutor::new(ExecutorConfig {
             worker_threads: WORKER_THREADS,
@@ -24,6 +34,9 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
     );
     let scheduler = ThreadScheduler::new(WORKER_THREADS, "result-handle-diagnostic")
         .expect("diagnostic scheduler must start");
+
+    assert_eq!(moirai_spawn_join_ready(&moirai_peer), READY_VALUE);
+    assert_eq!(hybrid_spawn_blocking_ready(&executor_peer), READY_VALUE);
 
     group.bench_function("direct_ready_result_slot", |bench| {
         bench.iter(direct_ready_result_slot);
@@ -77,6 +90,10 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
         bench.iter(|| moirai_spawn_join_ready(&moirai));
     });
 
+    group.bench_function("moirai_peer_spawn_join_ready", |bench| {
+        bench.iter(|| moirai_spawn_join_ready(&moirai_peer));
+    });
+
     group.bench_function("moirai_spawn_join_captured_ready", |bench| {
         bench.iter(|| moirai_spawn_join_captured_ready(&moirai));
     });
@@ -84,6 +101,13 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
     group.bench_function("moirai_spawn_join_oversized_captured_ready", |bench| {
         bench.iter(|| moirai_spawn_join_oversized_captured_ready(&moirai));
     });
+
+    group.bench_function(
+        "moirai_peer_spawn_join_oversized_captured_ready",
+        |bench| {
+            bench.iter(|| moirai_spawn_join_oversized_captured_ready(&moirai_peer));
+        },
+    );
 
     group.bench_function("moirai_spawn_join_oversized_capture_read_one", |bench| {
         bench.iter(|| moirai_spawn_join_oversized_capture_read_one(&moirai));
@@ -106,6 +130,10 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
         bench.iter(|| hybrid_spawn_blocking_ready(&executor));
     });
 
+    group.bench_function("hybrid_peer_spawn_blocking_ready", |bench| {
+        bench.iter(|| hybrid_spawn_blocking_ready(&executor_peer));
+    });
+
     group.bench_function("arc_hybrid_spawn_blocking_ready", |bench| {
         bench.iter(|| arc_hybrid_spawn_blocking_ready(&arc_executor));
     });
@@ -117,6 +145,13 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
     group.bench_function("hybrid_spawn_blocking_oversized_captured_ready", |bench| {
         bench.iter(|| hybrid_spawn_blocking_oversized_captured_ready(&executor));
     });
+
+    group.bench_function(
+        "hybrid_peer_spawn_blocking_oversized_captured_ready",
+        |bench| {
+            bench.iter(|| hybrid_spawn_blocking_oversized_captured_ready(&executor_peer));
+        },
+    );
 
     group.bench_function(
         "arc_hybrid_spawn_blocking_oversized_captured_ready",
@@ -473,6 +508,56 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
 
     #[cfg(feature = "registry-diagnostics")]
     group.bench_function(
+        "direct_scheduled_public_token_wrapper_without_catch",
+        |bench| {
+            let mut registry = TaskRegistry::new();
+            let next_task_id = AtomicU64::new(1);
+            let metrics = Arc::new(ExecutorMetrics::new());
+            bench.iter(|| {
+                direct_scheduled_public_token_wrapper_without_catch(
+                    &scheduler,
+                    &mut registry,
+                    &next_task_id,
+                    &metrics,
+                )
+            });
+        },
+    );
+
+    #[cfg(feature = "registry-diagnostics")]
+    group.bench_function(
+        "direct_scheduled_public_token_wrapper_atomic_result",
+        |bench| {
+            let mut registry = TaskRegistry::new();
+            let next_task_id = AtomicU64::new(1);
+            let metrics = Arc::new(ExecutorMetrics::new());
+            bench.iter(|| {
+                direct_scheduled_public_token_wrapper_atomic_result(
+                    &scheduler,
+                    &mut registry,
+                    &next_task_id,
+                    &metrics,
+                )
+            });
+        },
+    );
+
+    #[cfg(feature = "registry-diagnostics")]
+    group.bench_function(
+        "direct_scheduled_public_token_wrapper_without_lifecycle",
+        |bench| {
+            let next_task_id = AtomicU64::new(1);
+            bench.iter(|| {
+                direct_scheduled_public_token_wrapper_without_lifecycle(
+                    &scheduler,
+                    &next_task_id,
+                )
+            });
+        },
+    );
+
+    #[cfg(feature = "registry-diagnostics")]
+    group.bench_function(
         "direct_scheduled_public_token_wrapper_oversized_components",
         |bench| {
             let mut registry = TaskRegistry::new();
@@ -480,6 +565,24 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
             let metrics = Arc::new(ExecutorMetrics::new());
             bench.iter(|| {
                 direct_scheduled_public_token_wrapper_oversized_components(
+                    &scheduler,
+                    &mut registry,
+                    &next_task_id,
+                    &metrics,
+                )
+            });
+        },
+    );
+
+    #[cfg(feature = "registry-diagnostics")]
+    group.bench_function(
+        "direct_scheduled_public_token_wrapper_oversized_storage_only",
+        |bench| {
+            let mut registry = TaskRegistry::new();
+            let next_task_id = AtomicU64::new(1);
+            let metrics = Arc::new(ExecutorMetrics::new());
+            bench.iter(|| {
+                direct_scheduled_public_token_wrapper_oversized_storage_only(
                     &scheduler,
                     &mut registry,
                     &next_task_id,
@@ -610,8 +713,12 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
 
     group.finish();
     scheduler.shutdown();
+    executor_peer
+        .shutdown()
+        .expect("peer HybridExecutor diagnostic runtime must shut down");
     executor
         .shutdown()
         .expect("HybridExecutor diagnostic runtime must shut down");
+    moirai_peer.shutdown();
     moirai.shutdown();
 }

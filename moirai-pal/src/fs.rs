@@ -48,6 +48,24 @@ pub async fn append<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io:
     file.write_all(contents.as_ref())
 }
 
+/// Read file metadata through the platform metadata implementation.
+pub async fn metadata<P: AsRef<Path>>(path: P) -> io::Result<std::fs::Metadata> {
+    yield_now().await;
+    std::fs::metadata(path)
+}
+
+/// Rename a path through the platform rename implementation.
+pub async fn rename<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<()> {
+    yield_now().await;
+    std::fs::rename(from, to)
+}
+
+/// Remove a file through the platform remove implementation.
+pub async fn remove_file<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    yield_now().await;
+    std::fs::remove_file(path)
+}
+
 /// High-performance cooperative async file handle
 pub struct AsyncFile {
     inner: StdFile,
@@ -251,5 +269,51 @@ mod tests {
         });
 
         std::fs::remove_file(&path).expect("appended file cleanup must succeed");
+    }
+
+    #[test]
+    fn async_file_metadata_preserves_file_type_and_length() {
+        let path = test_path("metadata.bin");
+        let expected: Vec<u8> = (0_u8..=95).map(|value| value.wrapping_mul(13)).collect();
+        std::fs::write(&path, &expected).expect("metadata source write must succeed");
+
+        block_on(async {
+            let actual = metadata(&path).await.expect("metadata must succeed");
+            assert!(actual.is_file());
+            assert_eq!(actual.len(), expected.len() as u64);
+        });
+
+        std::fs::remove_file(&path).expect("metadata file cleanup must succeed");
+    }
+
+    #[test]
+    fn async_file_rename_preserves_source_bytes_at_destination() {
+        let source = test_path("rename-source.bin");
+        let dest = test_path("rename-dest.bin");
+        let expected: Vec<u8> = (0_u8..=79).map(|value| value.wrapping_mul(17)).collect();
+        std::fs::write(&source, &expected).expect("rename source write must succeed");
+
+        block_on(async {
+            rename(&source, &dest).await.expect("rename must succeed");
+            assert!(!source.exists());
+            let actual = std::fs::read(&dest).expect("renamed dest read must succeed");
+            assert_eq!(actual, expected);
+        });
+
+        std::fs::remove_file(&dest).expect("renamed file cleanup must succeed");
+    }
+
+    #[test]
+    fn async_file_remove_file_deletes_expected_path() {
+        let path = test_path("remove.bin");
+        let expected: Vec<u8> = (0_u8..=47).map(|value| value.wrapping_mul(19)).collect();
+        std::fs::write(&path, &expected).expect("remove source write must succeed");
+
+        block_on(async {
+            let actual = std::fs::read(&path).expect("remove source read must succeed");
+            assert_eq!(actual, expected);
+            remove_file(&path).await.expect("remove_file must succeed");
+            assert!(!path.exists());
+        });
     }
 }

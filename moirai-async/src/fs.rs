@@ -338,9 +338,19 @@ pub async fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<
     moirai_pal::fs::copy(from, to).await
 }
 
+/// Get file metadata
+pub async fn metadata<P: AsRef<Path>>(path: P) -> io::Result<std::fs::Metadata> {
+    moirai_pal::fs::metadata(path).await
+}
+
+/// Rename a file or directory
+pub async fn rename<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<()> {
+    moirai_pal::fs::rename(from, to).await
+}
+
 /// Remove a file
 pub async fn remove_file<P: AsRef<Path>>(path: P) -> io::Result<()> {
-    std::fs::remove_file(path)
+    moirai_pal::fs::remove_file(path).await
 }
 
 /// Create a directory
@@ -450,6 +460,7 @@ mod tests {
         let dir = test_path("dir");
         let source = dir.join("source.bin");
         let dest = dir.join("dest.bin");
+        let renamed = dir.join("renamed.bin");
         futures::executor::block_on(async {
             create_dir(&dir).await.expect("create_dir must succeed");
             write(&source, b"0123456789")
@@ -459,10 +470,23 @@ mod tests {
             assert_eq!(copied, 10);
             let dest_bytes = read(&dest).await.expect("read copied file must succeed");
             assert_eq!(dest_bytes, b"0123456789");
+            let dest_metadata = metadata(&dest).await.expect("metadata must succeed");
+            assert!(dest_metadata.is_file());
+            assert_eq!(dest_metadata.len(), 10);
+            rename(&dest, &renamed).await.expect("rename must succeed");
+            assert!(!dest.exists());
+            let renamed_bytes = read(&renamed)
+                .await
+                .expect("read renamed file must succeed");
+            assert_eq!(renamed_bytes, b"0123456789");
             remove_file(&source)
                 .await
                 .expect("remove source must succeed");
-            remove_file(&dest).await.expect("remove dest must succeed");
+            assert!(!source.exists());
+            remove_file(&renamed)
+                .await
+                .expect("remove renamed dest must succeed");
+            assert!(!renamed.exists());
             remove_dir(&dir).await.expect("remove dir must succeed");
         });
     }

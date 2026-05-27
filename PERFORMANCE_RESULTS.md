@@ -196,6 +196,54 @@ Workload: both rows reset a destination file to the same prefix through Criterio
 
 Interpretation: this is a covered Moirai-owned file append facade comparison against Tokio append-open/write behavior. The Moirai path delegates to the PAL platform append operation over the caller-provided byte slice and avoids constructing the async file handle, stats state, write loop, and unconditional sync path used by the previous convenience implementation. The same-run confidence intervals overlap.
 
+## 2026-05-26 Async File Metadata Facade Benchmark
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench async_fs_comparison -- async_fs_metadata_file --quiet
+```
+
+Workload: both rows read metadata from the same generated 64 KiB file. Setup asserts `is_file()` and exact 64 KiB length for both Moirai and Tokio before timing.
+
+| Benchmark | Result |
+| --- | ---: |
+| `async_fs_metadata_file/moirai/65536` | 25.187-28.833 µs |
+| `async_fs_metadata_file/tokio/65536` | 85.097-87.725 µs |
+
+Interpretation: this is a covered Moirai-owned file metadata facade comparison against `tokio::fs::metadata`. The Moirai path delegates to the PAL platform metadata operation and avoids constructing the async file handle or stats state. It is not a claim of reactor-native file readiness.
+
+## 2026-05-26 Async File Rename Facade Benchmark
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench async_fs_comparison -- async_fs_rename_file --quiet
+```
+
+Workload: per-iteration setup prepares a 64 KiB source file and an empty destination path for each row. The measured operation renames the source to the destination and asserts source removal plus exact destination length.
+
+| Benchmark | Result |
+| --- | ---: |
+| `async_fs_rename_file/moirai/65536` | 603.37 µs-2.0949 ms |
+| `async_fs_rename_file/tokio/65536` | 3.5253-7.3040 ms |
+
+Interpretation: this is a covered Moirai-owned file rename facade comparison against `tokio::fs::rename`. The Moirai path delegates to the PAL platform rename operation and avoids reading or copying file contents through user-space buffers. It is not a claim of reactor-native file readiness or OS-level cancellation.
+
+## 2026-05-27 Async File Remove Facade Benchmark
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench async_fs_comparison -- async_fs_remove_file --quiet
+```
+
+Workload: per-iteration setup prepares a 64 KiB source file for each row. The measured operation removes that path and asserts the file no longer exists.
+
+| Benchmark | Result |
+| --- | ---: |
+| `async_fs_remove_file/moirai/65536` | 168.50-193.31 µs |
+| `async_fs_remove_file/tokio/65536` | 189.80-211.05 µs |
+
+Interpretation: this is a covered Moirai-owned file remove facade comparison against `tokio::fs::remove_file`. The Moirai path delegates to the PAL platform remove operation and avoids constructing the async file handle or stats state. It is not a claim of reactor-native file readiness or OS-level cancellation.
+
 ## 2026-05-25 Async UDP Facade Benchmark
 
 Command:

@@ -240,12 +240,10 @@ pub use moirai_metrics::MetricsCollector;
 pub use moirai_async::{
     executor::{AsyncExecutor, AsyncHandle},
     io::{
-        AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, MoiraiCompat,
-        TokioCompat,
+        AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, MoiraiCompat, TokioCompat,
     },
     timer::{sleep, timeout},
-    Timeout,
-    File, FileOpenOptions, TcpListener, TcpStream,
+    File, FileOpenOptions, TcpListener, TcpStream, Timeout,
 };
 
 // Re-export iterator functionality

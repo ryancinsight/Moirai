@@ -20,8 +20,8 @@ Moirai is a unified concurrency runtime that combines async-ready task execution
 The repository's active comparison evidence supports this conclusion:
 
 - Moirai is strongest when one runtime must coordinate sync work, async result handles, and indexed reductions without composing separate Tokio and Rayon runtimes.
-- Rayon remains the broader and more mature choice for full ecosystem data-parallel ergonomics, but Moirai now covers the audited non-indexed adapter subset, terminal reducers, predicate terminals, reference materialization, `flatten`, `intersperse`, `while_some`, `try_for_each`, `try_reduce`, `unzip`, and a dedicated sorting slice-extension boundary with value-checked Rayon comparison rows.
-- Tokio remains the broader and more mature async ecosystem runtime because Moirai's active audit covers task-result rows, async iterator rows, file facade read/write/append/copy rows, and Moirai-owned TCP/UDP facade value benchmarks, not Tokio reactor-native I/O drop-in compatibility.
+- Rayon remains the broader and more mature choice for full ecosystem data-parallel ergonomics, but Moirai now covers the audited non-indexed adapter subset, terminal reducers, predicate terminals, reference materialization, `flatten`, `take_any`, `skip_any`, `intersperse`, `while_some`, `try_for_each`, `try_reduce`, `unzip`, and a dedicated sorting slice-extension boundary with value-checked Rayon comparison rows.
+- Tokio remains the broader and more mature async ecosystem runtime because Moirai's active audit covers task-result rows, async iterator rows, file facade read/write/append/metadata/rename/remove/copy rows, and Moirai-owned TCP/UDP facade value benchmarks, not Tokio reactor-native I/O drop-in compatibility.
 - Moirai's competitive benchmark rows are value-checked and keep Tokio/Rayon as benchmark-only dependencies, not production runtime dependencies.
 
 ## Architectural Model
@@ -125,7 +125,7 @@ flowchart LR
     io_work --> moirai_sched
 ```
 
-This split captures the supported comparison boundary. Moirai and Rayon both cover indexed CPU work and the audited adapter/sorting rows. Tokio and Moirai both cover result-bearing async task semantics, bounded channel transfer, async iterator pipelines, file facade read/write/append/copy operations, and UDP facade receives in matched rows. Tokio remains the primary runtime for broad async I/O integration, and Rayon remains the primary runtime for broad parallel iterator coverage.
+This split captures the supported comparison boundary. Moirai and Rayon both cover indexed CPU work and the audited adapter/sorting rows. Tokio and Moirai both cover result-bearing async task semantics, bounded channel transfer, async iterator pipelines, file facade read/write/append/metadata/rename/remove/copy operations, and UDP facade receives in matched rows. Tokio remains the primary runtime for broad async I/O integration, and Rayon remains the primary runtime for broad parallel iterator coverage.
 
 ## Moirai Strengths
 
@@ -255,6 +255,8 @@ Rayon's execution model is optimized for CPU-bound work stealing and rich iterat
 - `cloned`
 - `take`
 - `skip`
+- `take_any`
+- `skip_any`
 - `chain`
 - `intersperse`
 - `rev`
@@ -331,6 +333,9 @@ Use Rayon over Moirai when:
 | File facade read | `moirai_async::fs::read` | `tokio::fs::read` | Covered |
 | File facade write | `moirai_async::fs::write` through PAL platform write | `tokio::fs::write` | Covered |
 | File facade append | `moirai_async::fs::append` through PAL platform append | `tokio::fs::OpenOptions::append` plus `write_all` | Covered |
+| File facade metadata | `moirai_async::fs::metadata` through PAL platform metadata | `tokio::fs::metadata` | Covered |
+| File facade rename | `moirai_async::fs::rename` through PAL platform rename | `tokio::fs::rename` | Covered |
+| File facade remove | `moirai_async::fs::remove_file` through PAL platform remove | `tokio::fs::remove_file` | Covered |
 | File facade copy | `moirai_async::fs::copy` through PAL platform copy | `tokio::fs::copy` | Covered |
 | Moirai-owned network facade value semantics | TCP loopback read/write, TCP write shutdown EOF, TCP write backpressure, TCP read readiness, TCP pending-read cancellation safety, and UDP loopback send/receive | Tokio TCP loopback echo, TCP write shutdown, TCP write backpressure, TCP read readiness, TCP pending-read cancellation safety, and UDP loopback receive are benchmarked against the same payloads or readiness contract | Covered facade slice |
 | Tokio TCP loopback accept/echo | `moirai_async::net::TcpListener`/`TcpStream` | `tokio::net::TcpListener`/`TcpStream` | Covered facade slice through `async_tcp_comparison` / `async_tcp_loopback_echo` |
@@ -368,7 +373,7 @@ Tokio's scheduler is paired with reactor and timer responsibilities. Moirai's ma
 
 ### Tokio Compatibility Gap
 
-The active audit does not claim drop-in compatibility with every Tokio I/O type. `moirai_async::io` now provides covered native `read_exact`, `write_all`, and `shutdown` extension semantics without allocating extension-future state, plus feature-gated transparent `TokioCompat<T>` and `MoiraiCompat<T>` wrappers for `tokio::io` trait interoperability. `moirai-async::fs::{read, write, append, copy}` have covered 64 KiB benchmark rows against `tokio::fs::{read, write, copy}` and Tokio append-open/write; the Moirai write and append facades delegate to PAL platform operations over the caller slice, and the Moirai copy facade delegates to PAL platform copy instead of allocating a user-space transfer buffer. `moirai-async::net` has Moirai-owned TCP loopback accept/echo, TCP persistent stream echo, TCP write shutdown, TCP write backpressure, TCP read readiness, TCP pending-read cancellation safety, and UDP loopback receive benchmark rows against Tokio plus TCP/UDP module value tests. The TCP targets are `async_tcp_comparison` with rows `async_tcp_loopback_echo`, `async_tcp_stream_echo`, and `async_tcp_write_shutdown`, `async_tcp_backpressure_comparison` with row `async_tcp_write_backpressure`, `async_tcp_readiness_comparison` with row `async_tcp_read_readiness`, and `async_tcp_cancel_safety_comparison` with row `async_tcp_pending_read_cancel_safety`; the UDP target is `async_udp_comparison` and its row is `async_udp_loopback_recv_from`. Moirai rows in runtime-driven I/O comparison benchmarks use `Moirai::block_on`, while readiness and cancellation rows directly poll readiness contracts for both Moirai and Tokio. PAL TCP types register active-reactor wakers and self-wake when no active reactor is installed; PAL TCP shutdown delegates to `StdTcpStream::shutdown(Shutdown::Write)`; PAL reactor task handles publish ready-task completion; PAL reactor platform dispatch avoids `dyn` dispatch; PAL queued futures use bounded inline storage plus monomorphized poll/drop dispatch in the covered native path. Tokio reactor-native I/O drop-in compatibility remains deferred until PAL file readiness, OS I/O cancellation, and full reactor-native behavior are specified and benchmarked.
+The active audit does not claim drop-in compatibility with every Tokio I/O type. `moirai_async::io` now provides covered native `read_exact`, `write_all`, and `shutdown` extension semantics without allocating extension-future state, plus feature-gated transparent `TokioCompat<T>` and `MoiraiCompat<T>` wrappers for `tokio::io` trait interoperability. `moirai-async::fs::{read, write, append, metadata, rename, remove_file, copy}` have covered 64 KiB benchmark rows against `tokio::fs::{read, write, metadata, rename, remove_file, copy}` and Tokio append-open/write; the Moirai write, append, metadata, rename, and remove facades delegate to PAL platform operations over caller data or path references, and the Moirai copy facade delegates to PAL platform copy instead of allocating a user-space transfer buffer. `moirai-async::net` has Moirai-owned TCP loopback accept/echo, TCP persistent stream echo, TCP write shutdown, TCP write backpressure, TCP read readiness, TCP pending-read cancellation safety, and UDP loopback receive benchmark rows against Tokio plus TCP/UDP module value tests. The TCP targets are `async_tcp_comparison` with rows `async_tcp_loopback_echo`, `async_tcp_stream_echo`, and `async_tcp_write_shutdown`, `async_tcp_backpressure_comparison` with row `async_tcp_write_backpressure`, `async_tcp_readiness_comparison` with row `async_tcp_read_readiness`, and `async_tcp_cancel_safety_comparison` with row `async_tcp_pending_read_cancel_safety`; the UDP target is `async_udp_comparison` and its row is `async_udp_loopback_recv_from`. Moirai rows in runtime-driven I/O comparison benchmarks use `Moirai::block_on`, while readiness and cancellation rows directly poll readiness contracts for both Moirai and Tokio. PAL TCP types register active-reactor wakers and self-wake when no active reactor is installed; PAL TCP shutdown delegates to `StdTcpStream::shutdown(Shutdown::Write)`; PAL reactor task handles publish ready-task completion; PAL reactor platform dispatch avoids `dyn` dispatch; PAL queued futures use bounded inline storage plus monomorphized poll/drop dispatch in the covered native path. Tokio reactor-native I/O drop-in compatibility remains deferred until PAL file readiness, OS I/O cancellation, and full reactor-native behavior are specified and benchmarked.
 
 ### Practical Selection
 
@@ -422,6 +427,7 @@ The current repository records benchmark evidence in `PERFORMANCE_RESULTS.md`, `
 | Iterator indexed pipeline | 35.664-35.796 us | Rayon 318.76-322.01 us | Moirai adapter row is ahead after value assertion |
 | Iterator filter/flat pipeline | 22.001-22.292 us | Rayon 2.9053-3.0355 ms | Moirai adapter row is ahead after value assertion |
 | Iterator flatten | 108.93-137.47 us | Rayon 1.2705-1.3079 ms | `iterator_adapter_flatten` asserts equal nested-vector flattened collections before timing |
+| Iterator take-any/skip-any | 26.930-27.464 us | Rayon 792.01-855.45 us | `iterator_adapter_take_skip_any` asserts equal constant-output retained collections before timing |
 | Iterator stateful map | 1.2630-1.3841 ms | Rayon 4.4604-21.486 ms | `iterator_adapter_map_state` asserts equal `(map_with, map_init)` mapped collections and checksums before timing |
 | Iterator update mutation | 35.583-37.854 us | Rayon 373.83-393.54 us | `iterator_adapter_update` asserts equal updated collections before timing |
 | Iterator intersperse | 91.120-94.203 us | Rayon 418.76-433.66 us | `iterator_adapter_intersperse` asserts equal separator-expanded collections before timing |

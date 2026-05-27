@@ -36,8 +36,9 @@ pub use net::{
 
 // Re-export file I/O functionality
 pub use fs::{
-    append, append_str, copy, create_dir, create_dir_all, read, read_to_string, remove_dir,
-    remove_dir_all, remove_file, write, write_str, File, FileOpenOptions, FileStats,
+    append, append_str, copy, create_dir, create_dir_all, metadata, read, read_to_string,
+    remove_dir, remove_dir_all, remove_file, rename, write, write_str, File, FileOpenOptions,
+    FileStats,
 };
 
 // Re-export sync primitives
