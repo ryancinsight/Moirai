@@ -174,7 +174,7 @@
 - **Type**: Architecture / Benchmark Maintainability
 - **Root Cause**: `result_handle_diagnostics/wrapper_registry.rs` had grown to 736 lines and mixed scheduler tail rows, primitive task-id/metrics rows, wrapper composition rows, and registry-only rows in one file.
 - **Resolution**: Split the diagnostic surface into `scheduler_tail_paths.rs`, `wrapper_primitives.rs`, `wrapper_registry.rs`, `scheduled_wrapper_paths.rs`, and `registry_paths.rs`. Benchmark names, function bodies, feature gates, and production-path contracts remain unchanged; the split changes only source topology and contract loading.
-- **Evidence**: The split leaves measure 97, 11, 162, 320, and 102 lines respectively, keeping each affected leaf below the 500-line structural target without adding runtime abstractions, dynamic dispatch, locks, or synchronization gates.
+- **Evidence**: The split leaves measure 97, 11, 162, 396, and 102 lines respectively, keeping each affected leaf below the 500-line structural target without adding runtime abstractions, dynamic dispatch, locks, or synchronization gates.
 - **Verification**: `cargo test -p moirai-benchmarks --features registry-diagnostics --test benchmark_contracts -- --nocapture`; `cargo clippy -p moirai-benchmarks --features registry-diagnostics --bench result_handle_diagnostics -- -D warnings`; post-split scheduled-wrapper Criterion rows measured external-token components at 612.66-630.43 ns, registry-token components at 535.40-596.19 ns, external-token without metrics at 460.30-497.56 ns, and registry-token without metrics at 445.89-481.73 ns.
 - **Status**: Closed.
 
