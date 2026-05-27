@@ -59,6 +59,23 @@ pub trait AsyncIterator: Send {
         AsyncSkip::new(self, count)
     }
 
+    /// Pair each item with its zero-based logical stream position.
+    fn enumerate(self) -> AsyncEnumerate<Self>
+    where
+        Self: Sized,
+    {
+        AsyncEnumerate::new(self)
+    }
+
+    /// Pair items with another async iterator, stopping at the shorter input.
+    fn zip<J>(self, other: J) -> AsyncZip<Self, J>
+    where
+        Self: Sized,
+        J: AsyncIterator,
+    {
+        AsyncZip::new(self, other)
+    }
+
     /// Async for_each operation with side effects
     fn for_each<F, Fut>(self, func: F) -> AsyncForEach<Self, F>
     where
@@ -314,6 +331,56 @@ where
             items.drain(..self.count);
             items
         }
+    }
+}
+
+/// Async enumerate operation with zero-based logical positions.
+pub struct AsyncEnumerate<I> {
+    iter: I,
+}
+
+impl<I> AsyncEnumerate<I> {
+    fn new(iter: I) -> Self {
+        Self { iter }
+    }
+}
+
+impl<I> AsyncIterator for AsyncEnumerate<I>
+where
+    I: AsyncIterator,
+{
+    type Item = (usize, I::Item);
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        self.iter.into_vec().into_iter().enumerate().collect()
+    }
+}
+
+/// Async zip operation with shortest-input semantics.
+pub struct AsyncZip<I, J> {
+    left: I,
+    right: J,
+}
+
+impl<I, J> AsyncZip<I, J> {
+    fn new(left: I, right: J) -> Self {
+        Self { left, right }
+    }
+}
+
+impl<I, J> AsyncIterator for AsyncZip<I, J>
+where
+    I: AsyncIterator,
+    J: AsyncIterator,
+{
+    type Item = (I::Item, J::Item);
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        self.left
+            .into_vec()
+            .into_iter()
+            .zip(self.right.into_vec())
+            .collect()
     }
 }
 
@@ -664,6 +731,19 @@ mod tests {
 
         let empty: Vec<i32> = vec![1, 2].into_async_iter().skip(3).collect().await;
         assert_eq!(empty, Vec::<i32>::new());
+    }
+
+    #[tokio::test]
+    async fn test_async_enumerate_zip_values() {
+        let right = vec![10, 20, 30, 40].into_async_iter();
+        let result: Vec<(usize, (i32, i32))> = vec![1, 2, 3]
+            .into_async_iter()
+            .zip(right)
+            .enumerate()
+            .collect()
+            .await;
+
+        assert_eq!(result, vec![(0, (1, 10)), (1, (2, 20)), (2, (3, 30))]);
     }
 
     #[tokio::test]

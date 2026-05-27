@@ -335,6 +335,7 @@ fn result_handle_diagnostics_separates_slot_and_scheduler_costs() {
         "direct_public_wrapper_oversized_captured_components",
         "direct_public_wrapper_oversized_capture_read_one_components",
         "direct_scheduled_public_token_wrapper_components",
+        "direct_scheduled_public_token_wrapper_without_metrics",
         "direct_scheduled_public_token_wrapper_without_catch",
         "direct_scheduled_public_token_wrapper_atomic_result",
         "direct_scheduled_public_token_wrapper_without_lifecycle",

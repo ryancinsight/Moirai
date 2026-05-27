@@ -2,6 +2,22 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-05-27 Async Iterator Enumerate/Zip Benchmark
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench async_iterator_comparison -- async_iterator_enumerate_zip_pipeline --quiet
+```
+
+Workload: the Moirai row maps two async iterator inputs, zips them, enumerates the paired stream, and computes an ordered checksum. The Tokio row fans both inputs through `JoinSet`, sorts by source index, zips the ordered streams, enumerates, and computes the same checksum. Both paths assert equal checksums before timing.
+
+| Benchmark | Result |
+| --- | ---: |
+| `async_iterator_enumerate_zip_pipeline/moirai/32768` | 672.68-734.62 µs |
+| `async_iterator_enumerate_zip_pipeline/tokio_joinset/32768` | 48.260-49.144 ms |
+
+Interpretation: this closes the async logical-position and pair-stream adapter slice for `AsyncIterator::enumerate` and `AsyncIterator::zip`. It does not claim Tokio stream ecosystem parity.
+
 ## 2026-05-25 Async TCP Facade Benchmark
 
 Command:
@@ -255,10 +271,10 @@ Workload: the single-directory row creates one directory, asserts it is a direct
 
 | Benchmark | Result |
 | --- | ---: |
-| `async_fs_create_remove_dir/moirai/1` | 251.56-276.02 µs |
-| `async_fs_create_remove_dir/tokio/1` | 443.78-503.63 µs |
-| `async_fs_create_remove_dir_all/moirai/1` | 2.9657-3.5428 ms |
-| `async_fs_create_remove_dir_all/tokio/1` | 4.7569-5.4030 ms |
+| `async_fs_create_remove_dir/moirai/1` | 228.49-251.78 µs |
+| `async_fs_create_remove_dir/tokio/1` | 275.03-287.74 µs |
+| `async_fs_create_remove_dir_all/moirai/1` | 2.8710-3.1976 ms |
+| `async_fs_create_remove_dir_all/tokio/1` | 3.8355-4.2147 ms |
 
 Interpretation: this is a covered Moirai-owned directory facade comparison against Tokio directory creation and removal APIs. The Moirai path delegates to PAL platform directory operations and removes direct async-layer platform ownership. It is not a claim of reactor-native file readiness or OS-level cancellation.
 

@@ -508,6 +508,22 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
 
     #[cfg(feature = "registry-diagnostics")]
     group.bench_function(
+        "direct_scheduled_public_token_wrapper_without_metrics",
+        |bench| {
+            let mut registry = TaskRegistry::new();
+            let next_task_id = AtomicU64::new(1);
+            bench.iter(|| {
+                direct_scheduled_public_token_wrapper_without_metrics(
+                    &scheduler,
+                    &mut registry,
+                    &next_task_id,
+                )
+            });
+        },
+    );
+
+    #[cfg(feature = "registry-diagnostics")]
+    group.bench_function(
         "direct_scheduled_public_token_wrapper_without_catch",
         |bench| {
             let mut registry = TaskRegistry::new();

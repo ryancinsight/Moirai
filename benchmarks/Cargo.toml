@@ -48,6 +48,10 @@ name = "simd_benchmarks"
 harness = false
 
 [[bench]]
+name = "iter_simd_comparison"
+harness = false
+
+[[bench]]
 name = "thread_schedule_comparison"
 harness = false
 

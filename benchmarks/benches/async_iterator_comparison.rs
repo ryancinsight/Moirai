@@ -59,6 +59,22 @@ fn moirai_take_skip_pipeline(data: Vec<u64>) -> Vec<u64> {
         .into_vec()
 }
 
+fn moirai_enumerate_zip_pipeline(left: Vec<u64>, right: Vec<u64>) -> u64 {
+    left.into_async_iter()
+        .map(|value| async move { value.wrapping_mul(3) })
+        .zip(
+            right
+                .into_async_iter()
+                .map(|value| async move { value.wrapping_mul(7) }),
+        )
+        .enumerate()
+        .into_vec()
+        .into_iter()
+        .fold(0_u64, |accumulator, (index, (left, right))| {
+            accumulator.wrapping_add((index as u64) ^ left ^ right)
+        })
+}
+
 async fn tokio_joinset_ready_pipeline(data: Vec<u64>) -> Vec<u64> {
     let mut tasks = JoinSet::new();
     for (index, value) in data.into_iter().enumerate() {
@@ -93,6 +109,39 @@ async fn tokio_joinset_take_skip_pipeline(data: Vec<u64>) -> Vec<u64> {
         .take(WINDOW_TAKE)
         .skip(WINDOW_SKIP)
         .collect()
+}
+
+async fn tokio_joinset_enumerate_zip_pipeline(left: Vec<u64>, right: Vec<u64>) -> u64 {
+    let mut left_tasks = JoinSet::new();
+    for (index, value) in left.into_iter().enumerate() {
+        left_tasks.spawn(async move { (index, value.wrapping_mul(3)) });
+    }
+
+    let mut left_values = Vec::with_capacity(WORK_ITEMS);
+    while let Some(joined) = left_tasks.join_next().await {
+        left_values.push(joined.expect("tokio left benchmark task panicked"));
+    }
+    left_values.sort_unstable_by_key(|(index, _)| *index);
+
+    let mut right_tasks = JoinSet::new();
+    for (index, value) in right.into_iter().enumerate() {
+        right_tasks.spawn(async move { (index, value.wrapping_mul(7)) });
+    }
+
+    let mut right_values = Vec::with_capacity(WORK_ITEMS);
+    while let Some(joined) = right_tasks.join_next().await {
+        right_values.push(joined.expect("tokio right benchmark task panicked"));
+    }
+    right_values.sort_unstable_by_key(|(index, _)| *index);
+
+    left_values
+        .into_iter()
+        .map(|(_, value)| value)
+        .zip(right_values.into_iter().map(|(_, value)| value))
+        .enumerate()
+        .fold(0_u64, |accumulator, (index, (left, right))| {
+            accumulator.wrapping_add((index as u64) ^ left ^ right)
+        })
 }
 
 fn moirai_bounded_yield_pipeline(data: Vec<u64>) -> Vec<u64> {
@@ -197,6 +246,37 @@ fn async_iterator_comparison(c: &mut Criterion) {
                 black_box(
                     runtime.block_on(tokio_joinset_take_skip_pipeline(black_box(input.clone()))),
                 )
+            })
+        },
+    );
+    group.finish();
+
+    let moirai_expected = moirai_enumerate_zip_pipeline(data.clone(), data.clone());
+    let tokio_expected = runtime.block_on(tokio_joinset_enumerate_zip_pipeline(
+        data.clone(),
+        data.clone(),
+    ));
+    assert_eq!(moirai_expected, tokio_expected);
+
+    let mut group = c.benchmark_group("async_iterator_enumerate_zip_pipeline");
+    group.sample_size(SAMPLE_SIZE);
+    group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| {
+            black_box(moirai_enumerate_zip_pipeline(
+                black_box(input.clone()),
+                black_box(input.clone()),
+            ))
+        })
+    });
+    group.bench_with_input(
+        BenchmarkId::new("tokio_joinset", WORK_ITEMS),
+        &data,
+        |b, input| {
+            b.iter(|| {
+                black_box(runtime.block_on(tokio_joinset_enumerate_zip_pipeline(
+                    black_box(input.clone()),
+                    black_box(input.clone()),
+                )))
             })
         },
     );

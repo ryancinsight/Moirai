@@ -1,125 +1,109 @@
-//! SIMD-optimized iterators for high-performance data processing.
+//! SIMD-aware, cache-chunked iterator helpers.
 //!
-//! This module provides SIMD-accelerated iteration patterns that leverage
-//! modern CPU vector instructions for maximum throughput, based on techniques
-//! from "Computer Systems: A Programmer's Perspective" and Intel optimization guides.
+//! This module exposes one generic slice iterator instead of type-suffixed
+//! entry points. Arithmetic executes in `T` through `SimdScalar`; callers choose
+//! the scalar type at the call site and monomorphization removes the trait layer.
 
-// Import centralized constants for consistency
 use moirai_core::constants::CACHE_LINE_SIZE;
+use std::iter::Sum;
+use std::ops::{Add, Mul};
 
-/// Vector processing constants optimized for common CPU architectures
-mod simd_constants {
-    use moirai_core::constants::CACHE_LINE_SIZE;
-
-    /// AVX2 vector width for f32 operations
-    pub const AVX2_F32_WIDTH: usize = 8;
-    /// SSE2 vector width for f32 operations  
-    pub const SSE2_F32_WIDTH: usize = 4;
-    /// Minimum vector size for vectorization to be beneficial
-    pub const MIN_VECTORIZATION_SIZE: usize = 16;
-    /// Cache-friendly chunk size for iterative processing
-    pub const CACHE_FRIENDLY_CHUNK_SIZE: usize = CACHE_LINE_SIZE / std::mem::size_of::<f32>();
+mod sealed {
+    pub trait Sealed {}
 }
 
-/// SIMD-optimized iterator for f32 operations with adaptive vectorization.
+/// Scalar contract for native-precision chunked arithmetic.
 ///
-/// Automatically selects the best vectorization strategy based on:
-/// - Available CPU features (runtime detection)
-/// - Data size and alignment
-/// - Cache characteristics
-pub struct SimdF32Iterator<'a> {
-    data: &'a [f32],
-    chunk_size: usize,
-    use_vectorization: bool,
+/// Implementations are sealed so the crate controls the arithmetic and layout
+/// invariants used by the generic slice operations.
+pub trait SimdScalar:
+    sealed::Sealed + Copy + Send + Sync + Add<Output = Self> + Mul<Output = Self> + Sum<Self> + 'static
+{
+    const ZERO: Self;
 }
 
-impl<'a> SimdF32Iterator<'a> {
-    pub fn new(data: &'a [f32]) -> Self {
-        let (chunk_size, use_vectorization) = Self::determine_optimal_strategy(data);
+impl sealed::Sealed for f32 {}
+impl SimdScalar for f32 {
+    const ZERO: Self = 0.0;
+}
 
-        Self {
-            data,
-            chunk_size,
-            use_vectorization,
-        }
+impl sealed::Sealed for f64 {}
+impl SimdScalar for f64 {
+    const ZERO: Self = 0.0;
+}
+
+impl sealed::Sealed for i32 {}
+impl SimdScalar for i32 {
+    const ZERO: Self = 0;
+}
+
+impl sealed::Sealed for i64 {}
+impl SimdScalar for i64 {
+    const ZERO: Self = 0;
+}
+
+impl sealed::Sealed for u32 {}
+impl SimdScalar for u32 {
+    const ZERO: Self = 0;
+}
+
+impl sealed::Sealed for u64 {}
+impl SimdScalar for u64 {
+    const ZERO: Self = 0;
+}
+
+impl sealed::Sealed for usize {}
+impl SimdScalar for usize {
+    const ZERO: Self = 0;
+}
+
+/// Generic SIMD-aware slice iterator over borrowed data.
+pub struct SimdSliceIter<'a, T> {
+    data: &'a [T],
+}
+
+impl<'a, T: SimdScalar> SimdSliceIter<'a, T> {
+    pub fn new(data: &'a [T]) -> Self {
+        Self { data }
     }
 
-    /// Determine optimal processing strategy based on data characteristics
-    fn determine_optimal_strategy(data: &[f32]) -> (usize, bool) {
-        let len = data.len();
-
-        // Don't vectorize small arrays - overhead isn't worth it
-        if len < simd_constants::MIN_VECTORIZATION_SIZE {
-            return (1, false);
-        }
-
-        #[cfg(target_arch = "x86_64")]
-        {
-            if is_x86_feature_detected!("avx2") {
-                return (simd_constants::AVX2_F32_WIDTH, true);
-            } else if is_x86_feature_detected!("sse2") {
-                return (simd_constants::SSE2_F32_WIDTH, true);
-            }
-        }
-
-        // Fallback for other architectures or when SIMD is not available
-        (simd_constants::CACHE_FRIENDLY_CHUNK_SIZE, false)
+    pub fn add_slice(self, other: &'a [T]) -> Vec<T> {
+        assert_eq!(self.data.len(), other.len(), "slices must have same length");
+        self.zip_map(other, |left, right| left + right)
     }
 
-    /// Apply vectorized addition with another slice using scalar fallback
-    pub fn simd_add(self, other: &'a [f32]) -> Vec<f32> {
-        assert_eq!(self.data.len(), other.len(), "Slices must have same length");
-
-        if self.use_vectorization && self.data.len() >= self.chunk_size {
-            // Use chunked approach for better cache performance
-            self.chunked_add(other)
-        } else {
-            // Use scalar implementation for compatibility
-            self.scalar_add(other)
-        }
-    }
-
-    /// Chunked addition for better cache performance
-    fn chunked_add(self, other: &[f32]) -> Vec<f32> {
-        self.data
-            .chunks(self.chunk_size)
-            .zip(other.chunks(self.chunk_size))
-            .flat_map(|(a_chunk, b_chunk)| a_chunk.iter().zip(b_chunk.iter()).map(|(a, b)| a + b))
-            .collect()
-    }
-
-    /// Scalar addition implementation
-    fn scalar_add(self, other: &[f32]) -> Vec<f32> {
+    pub fn scale(self, scalar: T) -> Vec<T> {
         self.data
             .iter()
-            .zip(other.iter())
-            .map(|(a, b)| a + b)
+            .copied()
+            .map(|value| value * scalar)
             .collect()
     }
 
-    /// Vectorized multiplication with scalar fallback
-    pub fn simd_multiply(self, scalar: f32) -> Vec<f32> {
-        if self.use_vectorization && self.data.len() >= self.chunk_size {
-            // Process in chunks for better cache performance
-            self.data
-                .chunks(self.chunk_size)
-                .flat_map(|chunk| chunk.iter().map(|x| x * scalar))
-                .collect()
-        } else {
-            self.data.iter().map(|x| x * scalar).collect()
-        }
+    pub fn dot(self, other: &'a [T]) -> T {
+        assert_eq!(self.data.len(), other.len(), "slices must have same length");
+
+        self.data
+            .iter()
+            .copied()
+            .zip(other.iter().copied())
+            .fold(T::ZERO, |acc, (left, right)| acc + left * right)
     }
 
-    /// Compute dot product
-    pub fn simd_dot_product(self, other: &[f32]) -> f32 {
-        assert_eq!(self.data.len(), other.len(), "Slices must have same length");
-
-        self.data.iter().zip(other.iter()).map(|(a, b)| a * b).sum()
+    fn zip_map<F>(self, other: &'a [T], mut func: F) -> Vec<T>
+    where
+        F: FnMut(T, T) -> T,
+    {
+        self.data
+            .iter()
+            .copied()
+            .zip(other.iter().copied())
+            .map(|(left, right)| func(left, right))
+            .collect()
     }
 }
 
-/// Cache-friendly iterator that processes data in cache-line sized chunks
-/// for optimal memory access patterns. Based on "What Every Programmer Should Know About Memory".
+/// Cache-friendly iterator that processes data in cache-line sized chunks.
 pub struct CacheFriendlyIterator<T> {
     data: Vec<T>,
     chunk_size: usize,
@@ -127,11 +111,11 @@ pub struct CacheFriendlyIterator<T> {
 
 impl<T: Clone> CacheFriendlyIterator<T> {
     pub fn new(data: Vec<T>) -> Self {
-        let chunk_size = CACHE_LINE_SIZE / std::mem::size_of::<T>().max(1);
+        let scalar_size = std::mem::size_of::<T>().max(1);
+        let chunk_size = (CACHE_LINE_SIZE / scalar_size).max(1);
         Self { data, chunk_size }
     }
 
-    /// Process data in cache-friendly chunks with given function
     pub fn process_chunks<F, R>(self, func: F) -> Vec<R>
     where
         F: FnMut(&[T]) -> R,
@@ -139,56 +123,38 @@ impl<T: Clone> CacheFriendlyIterator<T> {
         self.data.chunks(self.chunk_size).map(func).collect()
     }
 
-    /// Apply function to each element with prefetching hints
     pub fn map_with_prefetch<F, R>(self, func: F) -> Vec<R>
     where
         F: Fn(T) -> R + Sync,
         T: Send,
         R: Send,
     {
-        let chunk_size = self.chunk_size;
-
         self.data
-            .chunks(chunk_size)
-            .flat_map(|chunk| {
-                // Prefetch next chunk if available
-                // In a real implementation, we'd use CPU prefetch instructions
-                chunk.iter().cloned().map(&func).collect::<Vec<_>>()
-            })
+            .chunks(self.chunk_size)
+            .flat_map(|chunk| chunk.iter().cloned().map(&func))
             .collect()
     }
 }
 
-/// SIMD operations for complex parallel processing
+/// Generic chunked operations for slice-oriented processing.
 pub struct SimdOps;
 
 impl SimdOps {
-    /// Parallel reduction using SIMD with tree-based combining
-    /// Based on patterns from "Parallel Programming in C with MPI and OpenMP"
-    pub fn simd_parallel_reduce<T, F, R>(data: &[T], identity: R, op: F) -> R
+    pub fn reduce<T, F, R>(data: &[T], identity: R, op: F) -> R
     where
         T: Copy + Send + Sync,
         F: Fn(R, T) -> R + Sync,
         R: Copy + Send + Sync,
     {
-        if data.is_empty() {
-            return identity;
-        }
-
-        // For now, use standard library reduce as a placeholder
-        // Real implementation would use SIMD instructions and parallel tree reduction
-        data.iter().fold(identity, |acc, &x| op(acc, x))
+        data.iter().copied().fold(identity, op)
     }
 
-    /// SIMD-accelerated filter operation
-    pub fn simd_filter<T, P>(data: Vec<T>, predicate: P) -> Vec<T>
+    pub fn filter<T, P>(data: Vec<T>, predicate: P) -> Vec<T>
     where
         T: Copy,
         P: Fn(&T) -> bool,
     {
-        // Real implementation would use SIMD for the predicate evaluation
-        // and vectorized compaction for collecting results
-        data.into_iter().filter(|x| predicate(x)).collect()
+        data.into_iter().filter(predicate).collect()
     }
 }
 
@@ -197,48 +163,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_simd_addition() {
-        let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-        let b = vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+    fn generic_slice_addition_preserves_values() {
+        let left = vec![1_u32, 2, 3, 4, 5, 6, 7, 8];
+        let right = vec![1_u32, 1, 1, 1, 1, 1, 1, 1];
 
-        let iter = SimdF32Iterator::new(&a);
-        let result = iter.simd_add(&b);
+        let result = SimdSliceIter::new(&left).add_slice(&right);
 
-        let expected = vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
-        assert_eq!(result, expected);
+        assert_eq!(result, vec![2, 3, 4, 5, 6, 7, 8, 9]);
     }
 
     #[test]
-    fn test_simd_multiplication() {
-        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-        let iter = SimdF32Iterator::new(&data);
-        let result = iter.simd_multiply(2.0);
+    fn generic_slice_scale_preserves_native_precision_values() {
+        let data = vec![1.0_f64, 2.0, 3.0, 4.0];
 
-        let expected = vec![2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0];
-        assert_eq!(result, expected);
+        let result = SimdSliceIter::new(&data).scale(2.0);
+
+        assert_eq!(result, vec![2.0, 4.0, 6.0, 8.0]);
     }
 
     #[test]
-    fn test_simd_dot_product() {
-        let a = vec![1.0, 2.0, 3.0, 4.0];
-        let b = vec![2.0, 3.0, 4.0, 5.0];
+    fn generic_slice_dot_preserves_values() {
+        let left = vec![1_i32, 2, 3, 4];
+        let right = vec![2_i32, 3, 4, 5];
 
-        let iter = SimdF32Iterator::new(&a);
-        let result = iter.simd_dot_product(&b);
+        let result = SimdSliceIter::new(&left).dot(&right);
 
-        // 1*2 + 2*3 + 3*4 + 4*5 = 2 + 6 + 12 + 20 = 40
-        assert_eq!(result, 40.0);
+        assert_eq!(result, 40);
     }
 
     #[test]
-    fn test_cache_friendly_iterator() {
-        let data = (0..100).collect::<Vec<i32>>();
+    fn cache_friendly_iterator_processes_large_elements() {
+        #[derive(Clone)]
+        struct Large([u8; CACHE_LINE_SIZE * 2]);
+
+        let data = vec![Large([3; CACHE_LINE_SIZE * 2]); 4];
         let iter = CacheFriendlyIterator::new(data);
 
-        let results = iter.process_chunks(|chunk| chunk.iter().sum::<i32>());
-        let total: i32 = results.iter().sum();
+        let results =
+            iter.process_chunks(|chunk| chunk.iter().map(|item| item.0[0] as usize).sum::<usize>());
+        let total: usize = results.iter().sum();
 
-        // Sum of 0..100 = 99*100/2 = 4950
-        assert_eq!(total, 4950);
+        assert_eq!(total, 12);
+    }
+
+    #[test]
+    fn simd_ops_reduce_and_filter_are_value_semantic() {
+        let data = vec![1_u64, 2, 3, 4, 5, 6];
+
+        let reduced = SimdOps::reduce(&data, 10_u64, |acc, item| acc + item);
+        let filtered = SimdOps::filter(data, |item| item % 2 == 0);
+
+        assert_eq!(reduced, 31);
+        assert_eq!(filtered, vec![2, 4, 6]);
     }
 }

@@ -74,6 +74,14 @@
 - **Verification**: `cargo test -p moirai-iter --all-features test_async_take_skip_window_values -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts async_iterator_terminal_futures_are_value_semantic_and_benchmarked -- --nocapture`; focused clippy for `moirai-iter` and `async_iterator_comparison`; focused benchmark row above.
 - **Status**: Closed.
 
+#### ✅ ISSUE-155 [minor]: Add async iterator enumerate and zip adapters
+- **Type**: Async Iterator / Tokio Gap / Benchmark Infrastructure
+- **Root Cause**: The async iterator surface covered map/filter/window terminals but lacked logical index and pair-stream adapters equivalent to `enumerate` and `zip`.
+- **Resolution**: Added `AsyncIterator::enumerate` and `AsyncIterator::zip` as owned `AsyncEnumerate<I>` and `AsyncZip<I, J>` adapters over the authoritative `into_vec` materialization path. `zip` stops at the shorter stream and `enumerate` assigns zero-based logical positions after upstream adapters.
+- **Evidence**: `cargo bench -p moirai-benchmarks --bench async_iterator_comparison -- async_iterator_enumerate_zip_pipeline --quiet` measured `async_iterator_enumerate_zip_pipeline/moirai/32768` at 672.68-734.62 µs versus `async_iterator_enumerate_zip_pipeline/tokio_joinset/32768` at 48.260-49.144 ms after asserting equal ordered pair/index checksums.
+- **Verification**: `cargo test -p moirai-iter --all-features test_async_enumerate_zip_values -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts async_iterator_terminal_futures_are_value_semantic_and_benchmarked -- --nocapture`; focused clippy for `moirai-iter` and `async_iterator_comparison`; focused benchmark row above.
+- **Status**: Closed.
+
 #### ✅ ISSUE-133 [patch]: Continue same-run performance variance attribution
 - **Type**: Performance / Benchmark Integrity
 - **Root Cause**: Same-run references kept the active comparison gap closed, while Criterion histories showed local variance across scheduler handoff, async wake, oversized captures, and channel rows.
@@ -128,6 +136,14 @@
 - **Resolution**: Added benchmark-contract markers that require the no-catch and atomic-result rows to remain diagnostic rows, and added a hybrid-source contract requiring public handle paths to retain `catch_unwind`, `send_task_result`, `TaskError::Panicked`, and the existing value-semantic panic test. No production panic policy was weakened and no locks, barriers, or scheduler gates were added.
 - **Evidence**: `cargo bench -p moirai-benchmarks --features scheduler-diagnostics,result-diagnostics,registry-diagnostics --bench result_handle_diagnostics -- "direct_scheduled_public_token_wrapper_(components|without_catch|atomic_result|without_lifecycle)"` with isolated `CARGO_TARGET_DIR=target\codex-panic-policy` measured full wrapper at 586.24-602.37 ns, without catch at 485.05-512.79 ns, atomic-result at 514.86-561.70 ns, and without lifecycle at 313.35-357.55 ns. `cargo test -p moirai-executor spawn_blocking_reports_panicked_result -- --nocapture` verified public panic capture still returns `TaskError::Panicked`.
 - **Verification**: `cargo fmt --all`; targeted `benchmark_contracts` for panic containment, registry diagnostics, and result-handle diagnostics; `cargo test -p moirai-executor spawn_blocking_reports_panicked_result -- --nocapture`; focused Criterion row above.
+- **Status**: Closed.
+
+#### ✅ ISSUE-155 [patch]: Split scheduled-wrapper lifecycle and metrics cost
+- **Type**: Performance / Diagnostic Coverage
+- **Root Cause**: `direct_scheduled_public_token_wrapper_components` still combined registry lifecycle restart/completion with metrics spawned/completed publication, so the ready scheduled wrapper could not distinguish lifecycle overhead from metrics overhead.
+- **Resolution**: Added `direct_scheduled_public_token_wrapper_without_metrics`, preserving public-token allocation, registry lifecycle restart/completion, scheduler submission, panic containment, result-slot send, and join while removing metrics publication. No locks, barriers, or scheduler gates were added.
+- **Evidence**: `cargo bench -p moirai-benchmarks --features scheduler-diagnostics,result-diagnostics,registry-diagnostics --bench result_handle_diagnostics -- "direct_scheduled_public_token_wrapper_(components|without_metrics|without_lifecycle)|direct_metrics_record_task_(spawned|completed)|registry_lifecycle_timestamp_publication|direct_registry_lifecycle"` with isolated `CARGO_TARGET_DIR=target\codex-lifecycle-metrics` measured full wrapper at 500.20-511.36 ns, without metrics at 465.76-477.50 ns, and without lifecycle at 403.59-420.74 ns. Standalone metrics measured spawned at 28.183-28.244 ns and completed at 32.126-32.210 ns; direct registry lifecycle measured 85.221-99.555 ns and lifecycle timestamp publication measured 72.304-72.814 ns. Metrics removal accounts for roughly 23-46 ns, while lifecycle removal accounts for roughly 79-108 ns in this run.
+- **Verification**: `cargo fmt --all`; targeted `benchmark_contracts` for registry diagnostics and result-handle diagnostics; focused Criterion row above.
 - **Status**: Closed.
 
 ---
@@ -1224,11 +1240,11 @@
 - **Residual Risk**: This closes the file-remove facade coverage and removes direct async-layer platform ownership. Reactor-native file readiness ownership and OS-level cancellation remain under `ISSUE-130`.
 - **Status**: Completed 2026-05-26.
 
-#### ✅ ISSUE-153 [minor]: Add async directory facade rows
+#### ✅ ISSUE-154 [minor]: Add async directory facade rows
 - **Type**: Tokio Gap Audit / Directory Facade / Zero-Cost Platform Authority
 - **Root Cause**: `moirai_async::fs::{create_dir, create_dir_all, remove_dir, remove_dir_all}` called `std::fs` directly in the async facade and had no Tokio directory facade comparison rows.
 - **Resolution**: Added PAL directory operation authorities, routed async directory operations through PAL, split async fs tests into a child module to keep the main facade under the structural limit, added PAL and async value tests for single and recursive directory state, added `async_fs_dir_comparison`, and strengthened benchmark source contracts for directory routing and Tokio rows.
-- **Evidence**: PAL tests verify single directory creation/removal and nested tree creation/removal with marker bytes. Async facade tests verify copied-file directory cleanup plus recursive tree cleanup. `cargo bench -p moirai-benchmarks --bench async_fs_dir_comparison -- async_fs_create_remove_dir --quiet` measures `async_fs_create_remove_dir/moirai/1` at 251.56-276.02 µs versus Tokio at 443.78-503.63 µs, and `async_fs_create_remove_dir_all/moirai/1` at 2.9657-3.5428 ms versus Tokio at 4.7569-5.4030 ms.
+- **Evidence**: PAL tests verify single directory creation/removal and nested tree creation/removal with marker bytes. Async facade tests verify copied-file directory cleanup plus recursive tree cleanup. `cargo bench -p moirai-benchmarks --bench async_fs_dir_comparison -- --quiet` measures `async_fs_create_remove_dir/moirai/1` at 228.49-251.78 µs versus Tokio at 275.03-287.74 µs, and `async_fs_create_remove_dir_all/moirai/1` at 2.8710-3.1976 ms versus Tokio at 3.8355-4.2147 ms.
 - **Verification**: `cargo test -p moirai-pal fs::tests::async_dir -- --nocapture`; `cargo test -p moirai-async fs::tests::test_ -- --nocapture`; `cargo bench -p moirai-benchmarks --bench async_fs_dir_comparison -- --quiet`; `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`; `cargo clippy -p moirai-pal -- -D warnings`; `cargo clippy -p moirai-async -- -D warnings`; `cargo clippy -p moirai-benchmarks --bench async_fs_dir_comparison -- -D warnings`; `rustfmt --edition 2021 --check`; `git diff --check`.
 - **Residual Risk**: This closes the directory facade ownership and benchmark coverage slice. Reactor-native file readiness ownership and OS-level cancellation remain under `ISSUE-130`.
 - **Status**: Completed 2026-05-27.

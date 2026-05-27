@@ -351,6 +351,35 @@ fn direct_scheduled_public_token_wrapper_components(
 }
 
 #[cfg(feature = "registry-diagnostics")]
+fn direct_scheduled_public_token_wrapper_without_metrics(
+    scheduler: &ThreadScheduler,
+    registry: &mut TaskRegistry,
+    next_task_id: &AtomicU64,
+) -> usize {
+    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (handle, sender) = TaskHandle::new_pending(TaskId(id));
+    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
+
+    scheduler
+        .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
+            black_box(execution_time);
+            let task_result = catch_unwind(AssertUnwindSafe(|| black_box(READY_VALUE)));
+            match task_result {
+                Ok(value) => sender.send(Ok(value)),
+                Err(_) => sender.send(Err(TaskError::Panicked)),
+            }
+        })
+        .expect("scheduler must accept scheduled token wrapper without metrics job");
+
+    let result = handle
+        .join()
+        .expect("scheduled token wrapper without metrics handle must be attached")
+        .expect("scheduled token wrapper without metrics handle must contain a value");
+
+    verify_ready_value(result)
+}
+
+#[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_token_wrapper_without_catch(
     scheduler: &ThreadScheduler,
     registry: &mut TaskRegistry,

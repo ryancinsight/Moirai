@@ -133,6 +133,89 @@ fn streaming_iter_uses_monomorphized_producer_and_fifo_buffer() {
 }
 
 #[test]
+fn iterator_simd_surface_uses_generic_scalar_contract() {
+    let source = read_benchmark("../moirai-iter/src/simd_iter.rs");
+    let benchmark = read_benchmark("benches/iter_simd_comparison.rs");
+    let manifest = read_benchmark("Cargo.toml");
+    let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
+    let backup = benchmark_path("../moirai-iter/src/simd_iter_backup.rs");
+
+    for required in [
+        "pub trait SimdScalar",
+        "mod sealed",
+        "pub struct SimdSliceIter<'a, T>",
+        "impl<'a, T: SimdScalar> SimdSliceIter<'a, T>",
+        "pub fn add_slice(self, other: &'a [T]) -> Vec<T>",
+        "pub fn scale(self, scalar: T) -> Vec<T>",
+        "pub fn dot(self, other: &'a [T]) -> T",
+        "pub struct CacheFriendlyIterator<T>",
+        "(CACHE_LINE_SIZE / scalar_size).max(1)",
+        "pub fn reduce<T, F, R>(data: &[T], identity: R, op: F) -> R",
+        "pub fn filter<T, P>(data: Vec<T>, predicate: P) -> Vec<T>",
+        "generic_slice_addition_preserves_values",
+        "generic_slice_scale_preserves_native_precision_values",
+        "generic_slice_dot_preserves_values",
+        "cache_friendly_iterator_processes_large_elements",
+        "simd_ops_reduce_and_filter_are_value_semantic",
+    ] {
+        assert!(
+            source.contains(required),
+            "SIMD iterator source must retain generic scalar marker {required}"
+        );
+    }
+
+    for prohibited in [
+        "SimdF32Iterator",
+        "simd_add",
+        "simd_multiply",
+        "simd_dot_product",
+        "simd_parallel_reduce",
+        "pub const AVX2_F32_WIDTH",
+        "pub const SSE2_F32_WIDTH",
+        "CACHE_FRIENDLY_CHUNK_SIZE: usize = CACHE_LINE_SIZE / std::mem::size_of::<f32>()",
+        "For now",
+        "placeholder",
+        "Real implementation",
+    ] {
+        assert!(
+            !source.contains(prohibited),
+            "SIMD iterator source must not retain non-generic or placeholder marker {prohibited}"
+        );
+    }
+
+    assert!(
+        !backup.exists(),
+        "stale SIMD backup source must not remain in the repository"
+    );
+
+    for required in [
+        "name = \"iter_simd_comparison\"",
+        "SimdSliceIter::new(left).add_slice(right)",
+        "SimdSliceIter::new(left).dot(right)",
+        "assert_eq!(generic_add(&left, &right), scalar_add(&left, &right))",
+        "assert_eq!(generic_dot(&left, &right), scalar_dot(&left, &right))",
+        "iter_simd_generic_add",
+        "iter_simd_generic_dot",
+    ] {
+        assert!(
+            benchmark.contains(required) || manifest.contains(required),
+            "SIMD iterator benchmark must retain executable marker {required}"
+        );
+    }
+
+    for required in [
+        "Iterator SIMD surface is generic",
+        "iter_simd_comparison",
+        "SimdSliceIter<T>",
+    ] {
+        assert!(
+            audit.contains(required),
+            "Rayon/Tokio audit must retain SIMD cleanup marker {required}"
+        );
+    }
+}
+
+#[test]
 fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
     let audit = read_benchmark("../docs/rayon_adapter_surface_audit.md");
     let adapter_benchmark = read_benchmark("benches/iterator_adapter_comparison.rs");
@@ -570,14 +653,20 @@ fn async_iterator_terminal_futures_are_value_semantic_and_benchmarked() {
         "test_async_map",
         "pub struct AsyncTake<I>",
         "pub struct AsyncSkip<I>",
+        "pub struct AsyncEnumerate<I>",
+        "pub struct AsyncZip<I, J>",
         "fn take(self, count: usize) -> AsyncTake<Self>",
         "fn skip(self, count: usize) -> AsyncSkip<Self>",
+        "fn enumerate(self) -> AsyncEnumerate<Self>",
+        "fn zip<J>(self, other: J) -> AsyncZip<Self, J>",
         "test_async_take_skip_window_values",
+        "test_async_enumerate_zip_values",
         "test_parallel_async_map",
         "test_async_filter_fold_reduce_values",
         "assert_eq!(result, vec![1, 2, 3, 4, 5])",
         "assert_eq!(result, vec![2, 4, 6, 8, 10])",
         "assert_eq!(result, vec![3, 4, 5])",
+        "assert_eq!(result, vec![(0, (1, 10)), (1, (2, 20)), (2, (3, 30))])",
         "assert_eq!(filtered, vec![2, 4, 6])",
         "assert_eq!(folded, 4)",
         "assert_eq!(reduced, Some(10))",
@@ -617,6 +706,8 @@ fn async_iterator_terminal_futures_are_value_semantic_and_benchmarked() {
         "tokio_joinset_ready_pipeline",
         "moirai_take_skip_pipeline",
         "tokio_joinset_take_skip_pipeline",
+        "moirai_enumerate_zip_pipeline",
+        "tokio_joinset_enumerate_zip_pipeline",
         "moirai_bounded_yield_pipeline",
         "tokio_bounded_yield_pipeline",
         "BOUNDED_CONCURRENCY",
@@ -625,6 +716,7 @@ fn async_iterator_terminal_futures_are_value_semantic_and_benchmarked() {
         "assert_eq!(moirai_expected, tokio_expected)",
         "async_iterator_ready_pipeline",
         "async_iterator_take_skip_pipeline",
+        "async_iterator_enumerate_zip_pipeline",
         "async_iterator_bounded_yield_pipeline",
         "tokio_joinset",
     ] {
