@@ -32,7 +32,11 @@ fn read_result_handle_diagnostics() -> String {
         "benches/result_handle_diagnostics/scheduler_paths.rs",
         "benches/result_handle_diagnostics/scheduler_submission_diagnostics.rs",
         "benches/result_handle_diagnostics/scheduler_lifecycle.rs",
+        "benches/result_handle_diagnostics/scheduler_tail_paths.rs",
+        "benches/result_handle_diagnostics/wrapper_primitives.rs",
         "benches/result_handle_diagnostics/wrapper_registry.rs",
+        "benches/result_handle_diagnostics/scheduled_wrapper_paths.rs",
+        "benches/result_handle_diagnostics/registry_paths.rs",
         "benches/result_handle_diagnostics/benchmark.rs",
     ] {
         source.push('\n');

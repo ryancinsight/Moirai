@@ -54,9 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `standalone_deque_reclaim_policy`, a value-checked diagnostic benchmark for `ChaseLevDeque` quiescent versus shared epoch reclamation.
 - Added bounded channel matrix coverage to the Tokio comparison audit, comparison report, and benchmark-contract surface.
 - Added sealed generic `moirai_utils::simd` scalar contracts and a benchmark source contract rejecting the removed type-suffixed utility SIMD public surface.
+- Added registry-local and external-ID token lifecycle diagnostic rows to `result_handle_diagnostics`, with benchmark contracts tying both rows to the production registry token path.
 
 ### Changed
 - Changed utility SIMD benchmarks and benchmark setup contracts to call generic `moirai_utils::simd` operations instead of type-suffixed vector functions.
+- Moved `HybridExecutor` public task ID allocation into `TaskRegistry::register_next_task`, removing the executor-local `AtomicU64` while reusing the existing registry registration boundary.
+- Split `result_handle_diagnostics` wrapper, scheduler-tail, primitive, and registry rows into dedicated vertical leaves while preserving benchmark names and production-path contracts.
 - Changed `moirai_async::fs::copy` to delegate to the PAL platform copy operation instead of allocating a user-space 64 KiB transfer buffer.
 - Changed `moirai_async::fs::write` to delegate to the PAL platform write operation over the caller-provided byte slice instead of constructing a facade file handle, updating stats, looping through writes, and unconditionally syncing.
 - Changed `moirai_async::fs::append` to delegate to the PAL platform append operation over the caller-provided byte slice instead of constructing a facade file handle, updating stats, looping through writes, and unconditionally syncing.

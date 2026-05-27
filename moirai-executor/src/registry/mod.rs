@@ -79,6 +79,13 @@ impl TaskRegistry {
         id
     }
 
+    /// Register a new task and return its ID plus lifecycle mutation token.
+    pub(crate) fn register_next_task(&mut self) -> (u64, TaskLifecycleToken) {
+        let id = self.next_id;
+        let lifecycle = self.register_task_with_id(id);
+        (id, lifecycle)
+    }
+
     /// Register a task with an externally allocated ID.
     pub(crate) fn register_task_with_id(&mut self, id: u64) -> TaskLifecycleToken {
         self.next_id = self.next_id.max(id.saturating_add(1));
@@ -248,6 +255,24 @@ impl TaskRegistry {
     pub fn diagnostic_restart_and_complete_with_token(&mut self, id: u64) -> Duration {
         let lifecycle = self.register_task_with_id(id);
         lifecycle.start(0).complete()
+    }
+
+    /// Diagnostic-only production token lifecycle path with registry-local ID allocation.
+    #[cfg(feature = "registry-diagnostics")]
+    #[doc(hidden)]
+    pub fn diagnostic_register_next_and_complete_with_token(&mut self) -> Duration {
+        let id = self.next_id;
+        let lifecycle = self.register_task_with_id(id);
+        lifecycle.start(0).complete()
+    }
+
+    /// Diagnostic-only production token lifecycle path with registry-local ID output.
+    #[cfg(feature = "registry-diagnostics")]
+    #[doc(hidden)]
+    pub fn diagnostic_register_next_and_complete_with_token_id(&mut self) -> (u64, Duration) {
+        let id = self.next_id;
+        let lifecycle = self.register_task_with_id(id);
+        (id, lifecycle.start(0).complete())
     }
 
     fn ensure_block(&mut self, block_index: usize) {
@@ -461,6 +486,22 @@ mod tests {
         assert!(completed.execution_duration().is_some());
         assert_eq!(completed.execution_duration(), Some(execution_time));
         assert!(registry.is_completed(7));
+    }
+
+    #[test]
+    fn register_next_task_returns_id_and_lifecycle_token() {
+        let mut registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+
+        let running = lifecycle.start(2);
+        let execution_time = running.complete();
+
+        let metadata = registry.get_metadata(task_id).unwrap();
+        assert_eq!(metadata.id, task_id);
+        assert_eq!(metadata.worker_id, Some(2));
+        assert!(metadata.started_at.is_some());
+        assert!(metadata.completed_at.is_some());
+        assert_eq!(metadata.execution_duration(), Some(execution_time));
     }
 
     #[test]

@@ -271,7 +271,8 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
         "task_registry: Arc<Mutex<TaskRegistry>>",
         "task_registry: Arc::new(Mutex::new(TaskRegistry::new()))",
         "let mut registry = self.task_registry.lock().map_err",
-        "Ok(registry.register_task_with_id(task_id.0))",
+        "let (task_id, lifecycle) = registry.register_next_task();",
+        "Ok((TaskId::new(task_id), lifecycle))",
     ] {
         assert!(
             hybrid_source.contains(required),
@@ -283,6 +284,9 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
         "pub(crate) struct ConcurrentTaskRegistry",
         "register_unique_task_with_id",
         "fn register_unique(&self, id: u64)",
+        "next_task_id: AtomicU64",
+        "fn allocate_task_id(&self) -> TaskId",
+        "registry.register_task_with_id(task_id.0)",
     ] {
         assert!(
             !registry_source.contains(prohibited) && !hybrid_source.contains(prohibited),
@@ -294,7 +298,9 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
 #[test]
 fn registry_hot_path_diagnostics_use_production_registry_paths() {
     let registry_source = read_benchmark("../moirai-executor/src/registry/mod.rs");
-    let diagnostics_source = read_benchmark("benches/result_handle_diagnostics/wrapper_registry.rs");
+    let diagnostics_source = read_result_handle_diagnostics();
+    let registry_diagnostics_source =
+        read_benchmark("benches/result_handle_diagnostics/registry_paths.rs");
 
     for required in [
         "pub fn diagnostic_block_lookup(&mut self) -> u64",
@@ -311,6 +317,8 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         "let _lifecycle = self.register_task_with_id(id);",
         "pub fn diagnostic_restart_and_complete_with_token(&mut self, id: u64) -> Duration",
         "lifecycle.start(0).complete()",
+        "pub fn diagnostic_register_next_and_complete_with_token(&mut self) -> Duration",
+        "pub fn diagnostic_register_next_and_complete_with_token_id(&mut self) -> (u64, Duration)",
     ] {
         assert!(
             registry_source.contains(required),
@@ -328,8 +336,14 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         "fn registry_completion_release_publication(completed_after_ns: &AtomicUsize) -> usize",
         "fn registry_duration_offset_math() -> usize",
         "fn direct_external_id_registry_register(",
+        "fn direct_registry_token_lifecycle(",
+        "fn direct_registry_external_token_lifecycle(",
         "fn direct_scheduled_public_token_wrapper_components(",
+        "fn direct_scheduled_public_registry_token_wrapper_components(",
+        "fn direct_scheduled_public_registry_token_wrapper_after_send_quiescent(",
+        "fn direct_scheduled_public_registry_token_wrapper_local_metrics_quiescent(",
         "fn direct_scheduled_public_token_wrapper_without_metrics(",
+        "fn direct_scheduled_public_registry_token_wrapper_without_metrics(",
         "fn direct_scheduled_public_token_wrapper_without_catch(",
         "fn direct_scheduled_public_token_wrapper_atomic_result(",
         "fn direct_scheduled_public_token_wrapper_without_lifecycle(",
@@ -342,6 +356,9 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         "diagnostic_lifecycle_timestamp_publication()",
         "diagnostic_register_external_task_with_id(id)",
         "diagnostic_restart_and_complete_with_token(id)",
+        "diagnostic_register_next_and_complete_with_token()",
+        "diagnostic_register_next_and_complete_with_token_id()",
+        "registry.diagnostic_restart_and_complete_with_token(id)",
         "fn direct_public_token_wrapper_components(",
         "fn direct_public_token_wrapper_after_send_components(",
         "started_after_ns.store(offset, Ordering::Release)",
@@ -356,12 +373,12 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
     }
 
     assert!(
-        !diagnostics_source.contains("completed_after_ns.saturating_sub(started_after_ns)"),
+        !registry_diagnostics_source.contains("completed_after_ns.saturating_sub(started_after_ns)"),
         "registry duration math diagnostic must match production monotonic subtraction"
     );
 
     assert!(
-        !diagnostics_source.contains("READY_VALUE.saturating_add(CAPTURED_READY_VALUE)"),
+        !registry_diagnostics_source.contains("READY_VALUE.saturating_add(CAPTURED_READY_VALUE)"),
         "registry duration diagnostic must not add defensive saturating arithmetic to monotonic fixture setup"
     );
 

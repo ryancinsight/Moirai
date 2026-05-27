@@ -2,6 +2,39 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-05-27 Registry-Local Task ID and Token Lifecycle Split
+
+Commands:
+```bash
+cargo bench -p moirai-benchmarks --bench performance_benchmarks -- task_scheduling_overhead --quiet
+cargo bench -p moirai-benchmarks --bench public_result_handle_comparison -- "public_result_handle_ready/(moirai_spawn_join_ready|tokio_spawn_join_ready|moirai_scope_single_ready|rayon_scope_single_ready)" --quiet
+cargo bench -p moirai-benchmarks --features registry-diagnostics --bench result_handle_diagnostics -- "result_handle_diagnostics/(direct_registry_lifecycle|direct_registry_token_lifecycle|direct_registry_external_token_lifecycle|direct_external_id_registry_register|mutex_registry_register|direct_task_id_allocate)" --quiet
+cargo bench -p moirai-benchmarks --features registry-diagnostics --bench result_handle_diagnostics -- "result_handle_diagnostics/(direct_scheduled_public_(registry_)?token_wrapper_(components|without_metrics)|direct_registry_token_lifecycle)" --quiet
+```
+
+Workload: `HybridExecutor` allocates public task IDs through the existing registry registration critical section, removing the executor-local `AtomicU64`. The comparison rows verify the scheduler gate, Tokio/Rayon public references, and registry-token attribution.
+
+| Benchmark | Result |
+| --- | ---: |
+| `task_scheduling_overhead` | 494.78-502.83 ns |
+| `public_result_handle_ready/moirai_spawn_join_ready` | 488.87-498.00 ns |
+| `public_result_handle_ready/tokio_spawn_join_ready` | 1.5249-2.1615 us |
+| `public_result_handle_ready/moirai_scope_single_ready` | 514.72-525.41 ns |
+| `public_result_handle_ready/rayon_scope_single_ready` | 630.54-641.75 ns |
+| `direct_task_id_allocate` | 6.0550-6.1497 ns |
+| `direct_registry_lifecycle` | 85.619-86.454 ns |
+| `direct_registry_token_lifecycle` | 85.856-91.273 ns |
+| `direct_registry_external_token_lifecycle` | 91.660-94.574 ns |
+| `direct_external_id_registry_register` | 38.484-38.812 ns |
+| `mutex_registry_register` | 44.033-44.423 ns |
+| `direct_scheduled_public_token_wrapper_components` | 515.14-651.83 ns |
+| `direct_scheduled_public_registry_token_wrapper_components` | 503.58-516.52 ns |
+| `direct_scheduled_public_registry_token_wrapper_after_send_quiescent` | 545.92-566.64 ns |
+| `direct_scheduled_public_token_wrapper_without_metrics` | 440.49-447.41 ns |
+| `direct_scheduled_public_registry_token_wrapper_without_metrics` | 422.85-435.93 ns |
+
+Interpretation: registry-local ID allocation passed the scheduler gate and same-run public Tokio/Rayon references. The production token lifecycle is within the public lookup lifecycle range, and scheduled registry-token wrapper rows are faster than the externally supplied ID rows in the same post-split run.
+
 ## 2026-05-27 Generic Utility SIMD Addition Benchmark
 
 Command:
@@ -1138,7 +1171,7 @@ Workload: direct public wrapper components execute without scheduler submission:
 | `result_handle_diagnostics/direct_scheduler_captured_result_slot` | 361.82-374.24 ns, estimate 367.84 ns |
 | `result_handle_diagnostics/direct_scheduler_oversized_captured_result_slot` | 1.1686-1.1831 µs, estimate 1.1753 µs |
 
-Interpretation: public wrapper work is measurable but not the full public spawn/join delta. The next optimization target is scheduler result-handoff variance and capture storage shape. Result-slot ownership, registry-owned ID allocation, and per-handle process joining remain rejected paths.
+Interpretation: public wrapper work is measurable but not the full public spawn/join delta. The next optimization target is scheduler result-handoff variance and capture storage shape. Result-slot ownership and per-handle process joining remain rejected paths; the earlier registry-owned ID allocation rejection is superseded by the verified `register_next_task` retention recorded on 2026-05-27.
 
 ### 2026-05-23 Oversized Capture Fallback Diagnostic
 

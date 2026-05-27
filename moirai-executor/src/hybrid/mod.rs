@@ -12,7 +12,7 @@ use std::{
     pin::Pin,
     ptr::{self, NonNull},
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, Mutex,
     },
     task::{Context, Poll, Wake, Waker},
@@ -79,7 +79,6 @@ pub struct HybridExecutor {
     task_registry: Arc<Mutex<TaskRegistry>>,
     metrics: Arc<ExecutorMetrics>,
     shutdown_signal: Arc<AtomicBool>,
-    next_task_id: AtomicU64,
 }
 
 impl HybridExecutor {
@@ -95,7 +94,6 @@ impl HybridExecutor {
             task_registry: Arc::new(Mutex::new(TaskRegistry::new())),
             metrics,
             shutdown_signal: Arc::new(AtomicBool::new(false)),
-            next_task_id: AtomicU64::new(1),
         })
     }
 
@@ -127,8 +125,7 @@ impl HybridExecutor {
     where
         F: FnOnce() + Send + 'static,
     {
-        let task_id = self.allocate_task_id();
-        let lifecycle = self.register_task(task_id)?;
+        let (task_id, lifecycle) = self.register_task()?;
 
         let metrics = MetricsRef::new(&self.metrics);
         self.scheduler
@@ -224,15 +221,12 @@ impl HybridExecutor {
         Ok(())
     }
 
-    fn allocate_task_id(&self) -> TaskId {
-        TaskId::new(self.next_task_id.fetch_add(1, Ordering::Relaxed))
-    }
-
-    fn register_task(&self, task_id: TaskId) -> ExecutorResult<TaskLifecycleToken> {
+    fn register_task(&self) -> ExecutorResult<(TaskId, TaskLifecycleToken)> {
         let mut registry = self.task_registry.lock().map_err(|_| {
             ExecutorError::ResourceExhausted("task registry lock poisoned".to_string())
         })?;
-        Ok(registry.register_task_with_id(task_id.0))
+        let (task_id, lifecycle) = registry.register_next_task();
+        Ok((TaskId::new(task_id), lifecycle))
     }
 
     fn refresh_scheduler_metrics(&self) {
@@ -255,8 +249,7 @@ impl TaskSpawner for HybridExecutor {
         T::Output: Send + 'static,
     {
         let priority = task.context().priority;
-        let task_id = self.allocate_task_id();
-        let lifecycle = self.register_task(task_id)?;
+        let (task_id, lifecycle) = self.register_task()?;
 
         let (handle, result_sender) = TaskHandle::new_pending(task_id);
         let metrics = MetricsRef::new(&self.metrics);
@@ -278,8 +271,7 @@ impl TaskSpawner for HybridExecutor {
         F: core::future::Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let task_id = self.allocate_task_id();
-        let lifecycle = self.register_task(task_id)?;
+        let (task_id, lifecycle) = self.register_task()?;
 
         let (handle, result_sender) = TaskHandle::new_pending(task_id);
         let state = AsyncFutureState::new(
@@ -300,8 +292,7 @@ impl TaskSpawner for HybridExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let task_id = self.allocate_task_id();
-        let lifecycle = self.register_task(task_id)?;
+        let (task_id, lifecycle) = self.register_task()?;
 
         let (handle, result_sender) = TaskHandle::new_pending(task_id);
         let metrics = MetricsRef::new(&self.metrics);
@@ -328,8 +319,7 @@ impl TaskSpawner for HybridExecutor {
         T: Task + Send + 'static,
         T::Output: Send + 'static,
     {
-        let task_id = self.allocate_task_id();
-        let lifecycle = self.register_task(task_id)?;
+        let (task_id, lifecycle) = self.register_task()?;
 
         let (handle, result_sender) = TaskHandle::new_pending(task_id);
         let metrics = MetricsRef::new(&self.metrics);
