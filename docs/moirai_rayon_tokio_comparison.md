@@ -24,6 +24,8 @@ The repository's active comparison evidence supports this conclusion:
 - Tokio remains the broader and more mature async ecosystem runtime because Moirai's active audit covers task-result rows, async iterator rows, file facade read/write/append/metadata/rename/remove/copy rows, directory facade create/remove rows, and Moirai-owned TCP/UDP facade value benchmarks, not Tokio reactor-native I/O drop-in compatibility.
 - Moirai's competitive benchmark rows are value-checked and keep Tokio/Rayon as benchmark-only dependencies, not production runtime dependencies.
 
+Latest native audit refresh: Moirai ready result handles measured 544.01-571.75 ns versus Tokio 1.3583-1.6227 us, Moirai single scope measured 534.89-543.65 ns versus Rayon 632.16-637.41 ns, Moirai mixed unified work measured 39.666-40.156 us versus Tokio plus Rayon 51.772-53.105 us, and Moirai real-application mixed work measured 89.559-90.721 us versus Tokio plus Rayon 106.88-108.04 us. The refreshed async iterator and selected Rayon adapter rows also remain closed for the documented audited subset.
+
 ## Architectural Model
 
 | Dimension | Moirai | Rayon | Tokio |

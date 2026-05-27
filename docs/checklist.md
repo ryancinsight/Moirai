@@ -35,6 +35,8 @@
 - [x] [patch] ISSUE-161: Move `HybridExecutor` task ID allocation into existing registry registration without adding locks.
 - [x] [patch] ISSUE-162: Add registry-owned scheduled-wrapper attribution rows without changing production synchronization.
 - [x] [patch] ISSUE-163: Attribute registry-owned after-send metrics tail with a quiescent diagnostic row without changing production ordering.
+- [x] [patch] ISSUE-164: Refresh native Rayon/Tokio gap evidence across public handles, scheduler rows, async iterator rows, and selected Rayon adapter rows before branch publication.
+- [x] [patch] ISSUE-165: Add registry-owned worker-local metrics tail diagnostic without changing production metrics.
 
 ---
 

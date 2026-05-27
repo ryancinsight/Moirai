@@ -55,6 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added bounded channel matrix coverage to the Tokio comparison audit, comparison report, and benchmark-contract surface.
 - Added sealed generic `moirai_utils::simd` scalar contracts and a benchmark source contract rejecting the removed type-suffixed utility SIMD public surface.
 - Added registry-local and external-ID token lifecycle diagnostic rows to `result_handle_diagnostics`, with benchmark contracts tying both rows to the production registry token path.
+- Added a registry-owned after-send quiescent diagnostic row to separate public result availability from worker-tail metrics completion.
+- Added a refreshed native Rayon/Tokio gap-closure benchmark snapshot covering result handles, scheduler rows, async iterator rows, and selected Rayon adapter rows.
 
 ### Changed
 - Changed utility SIMD benchmarks and benchmark setup contracts to call generic `moirai_utils::simd` operations instead of type-suffixed vector functions.

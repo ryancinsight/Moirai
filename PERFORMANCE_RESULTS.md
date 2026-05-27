@@ -2,6 +2,48 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-05-27 Native Rayon/Tokio Gap Closure Refresh
+
+Commands:
+```bash
+cargo bench -p moirai-benchmarks --bench public_result_handle_comparison -- public_result_handle_ready --quiet
+cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- "ready_task_schedule|indexed_reduce_schedule|mixed_unified_schedule|real_application_mixed_workload" --quiet
+cargo bench -p moirai-benchmarks --bench async_iterator_comparison -- "async_iterator_(ready_pipeline|take_skip_pipeline|enumerate_zip_pipeline|bounded_yield_pipeline)" --quiet
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- "iterator_adapter_(indexed|filter_flat|flatten|take_skip_any|update|intersperse|try_reduce|terminal_reducers|find_map|position|ref_copy_clone|unzip)" --quiet
+```
+
+Workload: same-run native scheduler, async iterator, and Rayon-style adapter rows after registry-owned task-ID allocation and diagnostic tree splitting. Every row keeps value assertions inside the benchmark source before timing.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Ready result handle | 544.01-571.75 ns | Tokio 1.3583-1.6227 us |
+| Captured result handle | 487.46-506.54 ns | Tokio 1.2880-1.3826 us |
+| Oversized captured result handle | 638.02-736.37 ns | Tokio 1.4152-1.5104 us |
+| Async wake-once result handle | 734.80-894.09 ns | Tokio 1.4993-1.5182 us |
+| Single scoped completion | 534.89-543.65 ns | Rayon 632.16-637.41 ns |
+| Ready scoped schedule | 10.634-11.466 us | Tokio 81.088-82.047 us; Rayon 82.964-83.842 us |
+| Indexed reduction | 879.79-915.68 ns | Rayon 7.9438-8.0862 us |
+| Mixed unified workload | 39.666-40.156 us | Tokio plus Rayon 51.772-53.105 us |
+| Real application mixed workload | 89.559-90.721 us | Tokio plus Rayon 106.88-108.04 us |
+| Async iterator ready pipeline | 296.24-297.32 us | Tokio `JoinSet` 24.665-24.867 ms |
+| Async iterator take/skip pipeline | 86.505-87.440 us | Tokio `JoinSet` 23.828-24.211 ms |
+| Async iterator enumerate/zip pipeline | 272.30-274.50 us | Tokio `JoinSet` 45.560-46.273 ms |
+| Bounded async iterator pipeline | 2.0134-2.0244 ms | Tokio `JoinSet` 10.282-10.360 ms |
+| Iterator indexed pipeline | 110.68-177.31 us | Rayon 318.24-323.68 us |
+| Iterator filter/flat pipeline | 22.482-22.693 us | Rayon 2.8352-3.0191 ms |
+| Iterator flatten | 75.239-76.573 us | Rayon 1.2744-1.3018 ms |
+| Iterator take/skip-any | 14.639-14.739 us | Rayon 1.0011-1.0244 ms |
+| Iterator update | 17.161-17.385 us | Rayon 355.51-361.33 us |
+| Iterator intersperse | 35.564-36.352 us | Rayon 337.54-348.60 us |
+| Iterator try-reduce | 8.6967-8.7589 us | Rayon 74.804-76.607 us |
+| Iterator terminal reducers | 36.051-36.607 us | Rayon 210.00-221.47 us |
+| Iterator find-map | 44.891-45.368 us | Rayon 257.55-271.53 us |
+| Iterator position | 23.683-23.933 us | Rayon 221.01-228.09 us |
+| Iterator copied/cloned materialization | 1.8444-1.8703 ms | Rayon 2.8979-2.9487 ms |
+| Iterator unzip | 29.351-29.744 us | Rayon 493.15-537.41 us |
+
+Interpretation: no active comparison gap remains in the native scheduler/result-handle/indexed-reduction scope. Tokio reactor-native drop-in I/O, WASM browser event-loop integration, and full Rayon ecosystem parity remain documented compatibility boundaries rather than failures in the native scheduler benchmark gate.
+
 ## 2026-05-27 Registry-Local Task ID and Token Lifecycle Split
 
 Commands:
