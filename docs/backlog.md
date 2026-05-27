@@ -29,10 +29,18 @@
 
 #### ⏳ ISSUE-132 [minor]: Maintain bounded Rayon ecosystem expansion
 - **Type**: Compatibility / Benchmark Coverage
-- **Current Evidence**: The audited subset covers transforms, `update`, `intersperse`, utility adapters, terminal reducers, fallible reducers, predicate and position terminals, stateful and fallible side-effect terminals, borrowed reference materialization, `while_some`, `unzip`, and `ParallelSliceMut` sorting with value tests and benchmark rows.
-- **Gap**: Moirai still does not claim full Rayon ecosystem parity or an `IndexedParallelIterator` trait boundary.
+- **Current Evidence**: The audited subset covers transforms, `update`, `intersperse`, utility adapters, terminal reducers, fallible reducers, predicate and position terminals, stateful and fallible side-effect terminals, borrowed reference materialization, `while_some`, `unzip`, bounded exact-size `IndexedParallelIterator::{len, is_empty}` source cardinality, and `ParallelSliceMut` sorting with value tests and benchmark rows.
+- **Gap**: Moirai still does not claim full Rayon ecosystem parity or the full Rayon indexed producer/consumer adapter model.
 - **Next Artifact**: Add future Rayon-style surfaces only with a dedicated Moirai boundary, value-semantic tests, `benchmark_contracts` markers, and same-run Rayon comparison rows.
 - **Status**: Open.
+
+#### ✅ ISSUE-166 [minor]: Add bounded indexed source cardinality boundary
+- **Type**: Iterator API / Benchmark Coverage / Memory
+- **Root Cause**: The Rayon adapter audit still lacked an exact-size source boundary for `len` and `is_empty`, and owned vector iteration retained a duplicate by-value path split between `VecParIter<T>` and `VecNonCloneParIter<T>`.
+- **Resolution**: Added `moirai_iter::parallel::IndexedParallelIterator` for exact-size source iterators, collapsed owned `Vec<T>` iteration to one by-value `VecParIter<T>` backed by `Vec<T>`, and removed the `Arc<Vec<T>>` owned-source allocation path.
+- **Evidence**: `iterator_indexed_boundary` preconstructs Moirai and Rayon sources, asserts equal `(owned_len, empty_flag, range_len)` tuples, and measures Moirai at 1.8682-1.8871 ns versus Rayon at 1.8668-1.8727 ns for the O(1) metadata boundary.
+- **Verification**: `cargo test -p moirai-iter --all-features test_indexed_parallel_iterator_reports_source_lengths -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts rayon_adapter_surface_audit_tracks_current_iterator_scope -- --nocapture`; `cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_indexed_boundary --quiet`.
+- **Status**: Completed 2026-05-27.
 
 #### ✅ ISSUE-141 [minor]: Add Rayon-style update mutation adapter
 - **Type**: Iterator Performance / Benchmark Parity
@@ -998,9 +1006,9 @@
 
 #### ✅ ISSUE-093 [minor]: Define indexed parallel iterator boundary
 - **Type**: Iterator API / Architecture
-- **Root Cause**: `moirai-iter::parallel` has no `IndexedParallelIterator` equivalent while the scheduler exposes indexed work through `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed`.
-- **Resolution**: Documented `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed` as the sole indexed public scheduler paths and constrained `moirai-iter::parallel` wording to a Rayon-style non-indexed adapter subset.
-- **Evidence**: Source docs no longer claim a Rayon-compatible API or matching Rayon API. The adapter audit classifies the indexed iterator trait as a documented runtime-facade boundary rather than an unsupported ambiguity.
+- **Root Cause**: `moirai-iter::parallel` initially had no `IndexedParallelIterator` equivalent while the scheduler exposed indexed work through `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed`.
+- **Resolution**: Documented `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed` as scheduler indexed execution paths and constrained `moirai-iter::parallel` wording away from full Rayon indexed producer/consumer compatibility. ISSUE-166 later added the bounded exact-size source-cardinality trait.
+- **Evidence**: Source docs no longer claim a Rayon-compatible API or matching Rayon API. The adapter audit classifies full indexed producer/consumer adapters as outside the current boundary while allowing the bounded `IndexedParallelIterator::{len, is_empty}` source-cardinality trait.
 - **Verification**: `cargo test -p moirai-benchmarks --test benchmark_contracts rayon_adapter_surface_audit_tracks_current_iterator_scope -- --nocapture`, `cargo test -p moirai-iter --all-features`, `git diff --check`.
 - **Status**: Completed 2026-05-24.
 
@@ -1039,7 +1047,7 @@
 #### ✅ ISSUE-104 [minor]: Optimize indexed and chain/rev adapter benchmarks against Rayon
 - **Type**: Iterator Performance / Benchmark Parity
 - **Root Cause**: Same-run Criterion evidence shows Moirai behind Rayon on `iterator_adapter_indexed_pipeline` and `iterator_adapter_chain_rev_pipeline`.
-- **Resolution**: Removed unused `ParallelContext` fields from pure adapter source structs, eliminating per-source thread-pool allocation from `VecParIter`, `RangeParIter`, `VecNonCloneParIter`, `VecRefParIter`, and `RefVecParIter`. Added internal window/reverse collection hooks so `take`, `skip`, `rev`, `chain`, `enumerate`, and `map` can avoid unnecessary full-stream materialization where the adapter contract permits it.
+- **Resolution**: Removed unused `ParallelContext` fields from pure adapter source structs, eliminating per-source thread-pool allocation from `VecParIter`, `RangeParIter`, `VecRefParIter`, and `RefVecParIter`. Added internal window/reverse collection hooks so `take`, `skip`, `rev`, `chain`, `enumerate`, and `map` can avoid unnecessary full-stream materialization where the adapter contract permits it. ISSUE-166 later collapsed the owned vector source to one by-value `VecParIter<T>`.
 - **Evidence**: `iterator_adapter_comparison` now measures Moirai ahead of Rayon on all current rows: indexed pipeline at 35.045-35.306 us versus Rayon at 324.53-327.34 us, filter/flat pipeline at 21.843-21.920 us versus Rayon at 2.9744-3.0443 ms, and chain/rev pipeline at 17.182-17.294 us versus Rayon at 89.837-99.616 us.
 - **Verification**: `cargo test -p moirai-iter --all-features parallel::tests -- --nocapture`, `cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet`.
 - **Status**: Completed 2026-05-24.
@@ -1327,7 +1335,7 @@
 - **Resolution**: Added `ParallelIterator::{sum, product, min, max}` with value-semantic tests for non-empty and empty streams, and added `iterator_adapter_terminal_reducers` to the Rayon adapter benchmark target.
 - **Evidence**: `iterator_adapter_terminal_reducers` asserts equal `(sum, min, max)` results for Moirai and Rayon before timing. `cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_terminal_reducers --quiet` measured Moirai at 64.686-65.272 us versus Rayon at 218.10-226.27 us.
 - **Verification**: `cargo test -p moirai-iter --all-features parallel -- --nocapture`; `cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_terminal_reducers --quiet`; `cargo test -p moirai-benchmarks --test benchmark_contracts rayon_adapter_surface_audit_tracks_current_iterator_scope -- --nocapture`.
-- **Residual Risk**: This expands the focused Rayon-style subset; it is not full Rayon adapter parity or an `IndexedParallelIterator` implementation.
+- **Residual Risk**: This expands the focused Rayon-style subset; it is not full Rayon adapter parity or a full indexed producer/consumer adapter implementation.
 - **Status**: Completed 2026-05-25.
 
 #### ✅ ISSUE-118 [minor]: Add Rayon-style borrowed reference materialization adapters

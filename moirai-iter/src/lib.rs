@@ -44,8 +44,8 @@ pub use execution::{
 };
 pub use multi_system::{MultiSystemContext, MultiSystemIterator, SystemConfig};
 pub use parallel::{
-    IntoParallelIterator, IntoParallelRefIterator, ParallelExtend, ParallelIterator,
-    ParallelSliceMut, RangeParIter, VecParIter, VecRefParIter,
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelExtend,
+    ParallelIterator, ParallelSliceMut, RangeParIter, VecParIter, VecRefParIter,
 };
 
 /// Main iterator type that adapts to different execution contexts

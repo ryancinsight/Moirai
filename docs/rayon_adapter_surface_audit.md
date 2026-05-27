@@ -12,13 +12,14 @@ Moirai does not currently provide full Rayon adapter parity. The supported surfa
 
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`.
 - `IntoParallelRefIterator` for `Vec<T>`.
+- `IndexedParallelIterator` for exact-size source iterators: by-value `VecParIter<T>`, `VecRefParIter<'_, T>`, `RefVecParIter<'_, T>`, `RangeParIter<usize>`, and exact-size sequential adapters.
 - `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
 - `ParallelExtend<T>` for `Vec<T>`.
 - `ParallelSliceMut` for the slice extension sorting boundary.
 
 The active competitive Rayon comparison remains `Moirai::map_reduce_indexed` versus fixed-pool Rayon `into_par_iter().map(...).sum()`. The `moirai-iter::parallel` trait surface is not the active performance comparison path.
 
-Indexed scheduler execution is exposed only through `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed`. `moirai-iter::parallel` remains a Rayon-style non-indexed adapter subset and must not claim full Rayon compatibility or an `IndexedParallelIterator` boundary.
+Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed`. `moirai-iter::parallel` now also exposes a bounded indexed source boundary for exact source cardinality through `IndexedParallelIterator::{len, is_empty}`. This is not the full Rayon indexed producer/consumer adapter model and must not be documented as full Rayon compatibility.
 
 ## Adapter Matrix
 
@@ -27,6 +28,7 @@ Indexed scheduler execution is exposed only through `Moirai::for_each_indexed` a
 | Owned vector parallel iteration | `impl IntoParallelIterator for Vec<T>` | `moirai-iter/src/parallel/sources.rs`; unit tests for map/filter/reduce | Covered subset |
 | Range parallel iteration | `impl IntoParallelIterator for Range<usize>` | `par_range`; `test_range_parallel` | Covered subset |
 | Borrowed vector iteration | `impl IntoParallelRefIterator for Vec<T>` | `VecRefParIter<'data, T>` and `RefVecParIter<'a, T>` | Covered subset |
+| Indexed source cardinality | `IndexedParallelIterator::{len, is_empty}` for exact-size source iterators | `test_indexed_parallel_iterator_reports_source_lengths`; `iterator_indexed_boundary` against Rayon measured Moirai at 1.8682-1.8871 ns and Rayon at 1.8668-1.8727 ns | Bounded indexed source boundary |
 | Map adapters | `ParallelIterator::map`, `map_with`, `map_init`, `Map<I, F>`, `MapWith<I, T, F>`, and `MapInit<I, Init, F>` | `test_parallel_map`, `test_parallel_map_with_uses_cloned_state`, `test_parallel_map_init_uses_initialized_state`, and `iterator_adapter_map_state` benchmark rows | Covered subset |
 | Mutation adapter | `ParallelIterator::update` and `Update<I, F>` | `test_parallel_update_mutates_items_before_yielding` and `iterator_adapter_update` benchmark rows | Covered subset |
 | Filter adapter | `ParallelIterator::filter` and `Filter<I, F>` | `test_parallel_filter` | Covered subset |
@@ -55,7 +57,7 @@ Indexed scheduler execution is exposed only through `Moirai::for_each_indexed` a
 | Reduce adapters | `reduce`, `reduce_with`, `try_reduce` | `Reduction<T, F>` carries the associative operation through split-combine in the vertical `parallel/consumers.rs` leaf; tests cover empty, split, and fallible reduction values; `iterator_adapter_try_reduce` benchmarks the fallible checksum reducer | Covered subset |
 | Terminal numeric/order reducers | `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key` | `test_parallel_sum_and_product_match_standard_values`, `test_parallel_min_and_max_match_standard_values`, `test_parallel_min_max_by_use_comparator`, `test_parallel_min_max_by_key_use_key_function`, `iterator_adapter_terminal_reducers`, and `iterator_adapter_ordered_reducers` benchmark rows | Covered subset |
 | Fold adapter | `fold` | preserves sequential value semantics because this API has no separate operation for combining partial accumulators | Sequential by contract |
-| Indexed parallel iterator trait | runtime facade only | `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed` are the sole indexed public scheduler paths; no `IndexedParallelIterator` trait or indexed producer surface exists in `moirai-iter::parallel` | Boundary documented |
+| Full indexed producer/consumer adapters | not exposed | `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed` remain the scheduler indexed execution paths; `IndexedParallelIterator` covers exact source cardinality only | Boundary documented |
 | Sorting slice extension boundary | `ParallelSliceMut::{par_sort, par_sort_by, par_sort_by_key, par_sort_unstable, par_sort_unstable_by, par_sort_unstable_by_key}` | sorting unit tests, panic-safety test, and `sorting_comparison` against Rayon `ParallelSliceMut` | Slice extension boundary |
 
 ## Formal Invariants
@@ -76,7 +78,11 @@ Completed: `reduce` and `reduce_with` now combine both halves through the suppli
 
 ### ISSUE-093 [minor]: Define indexed iterator boundary
 
-Completed: `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed` are documented as the sole indexed public scheduler paths. `moirai-iter::parallel` is documented as a Rayon-style non-indexed adapter subset and no longer claims broad Rayon compatibility.
+Completed: `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed` are documented as the scheduler indexed execution paths. `moirai-iter::parallel::IndexedParallelIterator` now covers exact source cardinality for source iterators, while the audit still rejects any claim of the full Rayon indexed producer/consumer adapter model.
+
+### ISSUE-166 [minor]: Add bounded indexed source trait
+
+Completed: `IndexedParallelIterator::{len, is_empty}` is implemented for exact-size source iterators with value tests and a same-run Rayon `iterator_indexed_boundary` benchmark row. Owned vector sources now use one by-value `VecParIter<T>` backed by `Vec<T>` and `split_off`, removing the duplicate non-clone vector source and the prior `Arc<Vec<T>>` allocation path.
 
 ### ISSUE-094 [minor]: Expand adapter surface by priority
 

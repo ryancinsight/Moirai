@@ -1,69 +1,51 @@
 use super::{
-    CollectConsumer, Consumer, IntoParallelIterator, IntoParallelRefIterator, ParallelExtend,
-    ParallelIterator,
+    CollectConsumer, Consumer, IndexedParallelIterator, IntoParallelIterator,
+    IntoParallelRefIterator, ParallelExtend, ParallelIterator,
 };
-use std::sync::Arc;
 
 /// Parallel iterator over a vector.
 pub struct VecParIter<T> {
-    data: Arc<Vec<T>>,
+    data: Vec<T>,
 }
 
-impl<T: Send + Clone + 'static> VecParIter<T> {
+impl<T> VecParIter<T> {
     pub fn new(data: Vec<T>) -> Self {
-        Self {
-            data: Arc::new(data),
-        }
+        Self { data }
     }
 }
 
-impl<T: Send + Sync + Clone + 'static> ParallelIterator for VecParIter<T> {
+impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
     type Item = T;
 
     fn seq_items(self) -> Vec<Self::Item> {
-        Arc::try_unwrap(self.data).unwrap_or_else(|arc| (*arc).clone())
+        self.data
     }
 
-    fn drive<C, R>(self, consumer: C) -> R
+    fn drive<C, R>(mut self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        let chunk_size = (self.data.len() / num_cpus::get()).max(1);
-        let chunks: Vec<_> = self.data.chunks(chunk_size).collect();
-
-        if self.data.is_empty() {
-            return consumer.consume(SequentialIterAdapter::new(std::iter::empty::<T>()));
+        if self.data.len() <= 1 {
+            return consumer.consume(SequentialIterAdapter::new(self.data.into_iter()));
         }
 
-        if chunks.len() == 1 {
-            return consumer.consume(SequentialIterAdapter::new(chunks[0].iter().cloned()));
-        }
-
-        let (left_chunks, right_chunks) = chunks.split_at(chunks.len() / 2);
-
-        let left_data: Vec<T> = left_chunks
-            .iter()
-            .flat_map(|chunk| chunk.iter().cloned())
-            .collect();
-        let right_data: Vec<T> = right_chunks
-            .iter()
-            .flat_map(|chunk| chunk.iter().cloned())
-            .collect();
+        let mid = self.data.len() / 2;
+        let right_data = self.data.split_off(mid);
+        let left_data = std::mem::take(&mut self.data);
 
         let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
 
-        let left_iter = VecParIter {
-            data: Arc::new(left_data),
-        };
-        let right_iter = VecParIter {
-            data: Arc::new(right_data),
-        };
-
-        let left_result = left_iter.drive(left_consumer);
-        let right_result = right_iter.drive(right_consumer);
+        let left_result = left_consumer.consume(VecParIter::new(left_data));
+        let right_result = right_consumer.consume(VecParIter::new(right_data));
 
         C::combine(left_result, right_result)
+    }
+}
+
+impl<T: Send + Sync + 'static> IndexedParallelIterator for VecParIter<T> {
+    fn len(&self) -> usize {
+        self.data.len()
     }
 }
 
@@ -114,6 +96,12 @@ where
     }
 }
 
+impl IndexedParallelIterator for RangeParIter<usize> {
+    fn len(&self) -> usize {
+        self.end.saturating_sub(self.start)
+    }
+}
+
 /// Sequential iterator adapter for compatibility.
 pub struct SequentialAdapter<I> {
     iter: I,
@@ -152,55 +140,21 @@ where
         R: Send,
     {
         let items: Vec<Self::Item> = self.iter.collect();
-        consumer.consume(VecNonCloneParIter::new(items))
+        consumer.consume(VecParIter::new(items))
     }
 }
 
-/// Parallel iterator over a vector that doesn't require Clone.
-pub struct VecNonCloneParIter<T> {
-    data: Vec<T>,
-}
-
-impl<T: Send + Sync + 'static> VecNonCloneParIter<T> {
-    pub fn new(data: Vec<T>) -> Self {
-        Self { data }
+impl<I> IndexedParallelIterator for SequentialIterAdapter<I>
+where
+    I: ExactSizeIterator + Send,
+    I::Item: Send + Sync + 'static,
+{
+    fn len(&self) -> usize {
+        self.iter.len()
     }
 }
 
-impl<T: Send + Sync + 'static> ParallelIterator for VecNonCloneParIter<T> {
-    type Item = T;
-
-    fn seq_items(self) -> Vec<Self::Item> {
-        self.data
-    }
-
-    fn drive<C, R>(mut self, consumer: C) -> R
-    where
-        C: Consumer<Self::Item, Result = R> + Send + Sync,
-        R: Send,
-    {
-        // Sequential base case: hand items directly to the consumer.
-        // Using seq_items avoids the infinite recursion that arose from
-        // consumer.consume(VecNonCloneParIter::new(self.data)) when the consumer
-        // dispatched back through drive.
-        if self.data.len() <= 1 {
-            return consumer.consume(SequentialIterAdapter::new(self.data.into_iter()));
-        }
-
-        let mid = self.data.len() / 2;
-        let right_data = self.data.split_off(mid);
-        let left_data = std::mem::take(&mut self.data);
-
-        let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
-
-        let left_result = left_consumer.consume(VecNonCloneParIter::new(left_data));
-        let right_result = right_consumer.consume(VecNonCloneParIter::new(right_data));
-
-        C::combine(left_result, right_result)
-    }
-}
-
-impl<T: Send + Sync + Clone + 'static> IntoParallelIterator for Vec<T> {
+impl<T: Send + Sync + 'static> IntoParallelIterator for Vec<T> {
     type Item = T;
     type Iter = VecParIter<T>;
 
@@ -246,6 +200,12 @@ impl<'data, T: Send + Sync + 'data> ParallelIterator for VecRefParIter<'data, T>
     }
 }
 
+impl<'data, T: Send + Sync + 'data> IndexedParallelIterator for VecRefParIter<'data, T> {
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+}
+
 /// A parallel iterator specifically for reference vectors.
 pub struct RefVecParIter<'a, T> {
     data: Vec<&'a T>,
@@ -285,6 +245,12 @@ impl<'a, T: Send + Sync> ParallelIterator for RefVecParIter<'a, T> {
         let right_result = right_consumer.consume(RefVecParIter::new(right_data));
 
         C::combine(left_result, right_result)
+    }
+}
+
+impl<'a, T: Send + Sync> IndexedParallelIterator for RefVecParIter<'a, T> {
+    fn len(&self) -> usize {
+        self.data.len()
     }
 }
 

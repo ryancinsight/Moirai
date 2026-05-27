@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `try_reduce` fallible reduction terminal to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `copied` and `cloned` borrowed-reference adapters to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `unzip` pair-stream collector to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `IndexedParallelIterator::{len, is_empty}` for exact-size parallel iterator sources with value tests and a same-run Rayon metadata benchmark row.
 - Added PAL async file value tests, PAL TCP/UDP delayed loopback progress tests for the no-active-reactor self-wake path, and a Linux epoll wake-path test.
 - Added a PAL reactor task-handle completion regression test for spawned ready tasks.
 - Added `standalone_deque_reclaim_policy`, a value-checked diagnostic benchmark for `ChaseLevDeque` quiescent versus shared epoch reclamation.
@@ -209,6 +210,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split `moirai-iter/src/iter_ops.rs` into streaming, stateful, and test leaves under `moirai-iter/src/iter_ops/`.
 - Split `moirai-iter/src/parallel.rs` into traits, sources, adapters, consumers, and test leaves under `moirai-iter/src/parallel/`.
 - Split new Rayon-style side-effect and chunk adapter implementations into dedicated `parallel/adapters/` leaves so the adapter root stays below the structural line target while preserving generic static dispatch.
+- Changed owned `Vec<T>` parallel iteration to use one by-value `VecParIter<T>` backed by `Vec<T>` and `split_off`, removing the prior `Arc<Vec<T>>` owned-source allocation path.
 
 ### Breaking
 - `moirai-iter::channel_fusion::ChannelSplitter` and `ChannelMerger` now take concrete channel types directly. Callers pass `channel` to `add_channel` instead of `Box::new(channel)`, and all channels in one splitter or merger instance must share the same concrete type or an explicit enum wrapper.
@@ -216,6 +218,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the non-executing `channel_fusion::Pipeline` builder surface. The existing typed iterator pipeline in `advanced_patterns` remains the implemented pipeline path.
 - Removed the unused `moirai_iter::base::ExecutionBase` boxed-future trait. The active public execution context trait remains `moirai_iter::execution::ExecutionBase`.
 - `StreamingIter` now has the type shape `StreamingIter<T, F>` and monomorphizes the producer closure instead of storing `Box<dyn FnMut()>`.
+- Removed the public `VecNonCloneParIter<T>` parallel source; owned vector iteration now uses `VecParIter<T>` for clone and non-clone item types.
 - Replaced the public async-handle result-sender mutex with a state-machine-guarded inline sender cell.
 - Replaced the async public-handle future-present atomic flag with a poll-owner inline `UnsafeCell<bool>` flag under the future-state ownership contract.
 - Removed the async public-handle poll-time future-present guard; the async state machine now remains the single poll-permission invariant while `future_present` is only a drop guard.

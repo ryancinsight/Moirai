@@ -1,9 +1,11 @@
 //! Iterator adapter comparison benchmarks against Rayon.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use moirai_iter::parallel::IndexedParallelIterator as MoiraiIndexedParallelIterator;
 use moirai_iter::parallel::IntoParallelIterator as MoiraiIntoParallelIterator;
 use moirai_iter::parallel::IntoParallelRefIterator as MoiraiIntoParallelRefIterator;
 use moirai_iter::parallel::ParallelIterator as MoiraiParallelIterator;
+use rayon::iter::IndexedParallelIterator as RayonIndexedParallelIterator;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -17,6 +19,38 @@ const CHUNK_SIZE: usize = 64;
 
 fn source_data() -> Vec<u64> {
     (0..WORK_ITEMS as u64).collect()
+}
+
+fn moirai_indexed_boundary<Owned, Empty, Range>(
+    owned: &Owned,
+    empty: &Empty,
+    range: &Range,
+) -> (usize, bool, usize)
+where
+    Owned: MoiraiIndexedParallelIterator,
+    Empty: MoiraiIndexedParallelIterator,
+    Range: MoiraiIndexedParallelIterator,
+{
+    let owned_len = MoiraiIndexedParallelIterator::len(owned);
+    let empty_flag = MoiraiIndexedParallelIterator::is_empty(empty);
+    let range_len = MoiraiIndexedParallelIterator::len(range);
+    (owned_len, empty_flag, range_len)
+}
+
+fn rayon_indexed_boundary<Owned, Empty, Range>(
+    owned: &Owned,
+    empty: &Empty,
+    range: &Range,
+) -> (usize, bool, usize)
+where
+    Owned: RayonIndexedParallelIterator,
+    Empty: RayonIndexedParallelIterator,
+    Range: RayonIndexedParallelIterator,
+{
+    let owned_len = RayonIndexedParallelIterator::len(owned);
+    let empty_flag = RayonIndexedParallelIterator::len(empty) == 0;
+    let range_len = RayonIndexedParallelIterator::len(range);
+    (owned_len, empty_flag, range_len)
 }
 
 fn moirai_indexed_pipeline(data: Vec<u64>) -> Vec<u64> {
@@ -620,6 +654,41 @@ fn rayon_unzip_pipeline(data: Vec<u64>) -> (Vec<u64>, Vec<u64>) {
 
 fn iterator_adapter_comparison(c: &mut Criterion) {
     let data = source_data();
+    let moirai_owned = MoiraiIntoParallelIterator::into_par_iter(data.clone());
+    let moirai_empty = MoiraiIntoParallelIterator::into_par_iter(Vec::<u64>::new());
+    let moirai_range = MoiraiIntoParallelIterator::into_par_iter(0..WORK_ITEMS);
+    let rayon_owned = rayon::prelude::IntoParallelIterator::into_par_iter(data.clone());
+    let rayon_empty = rayon::prelude::IntoParallelIterator::into_par_iter(Vec::<u64>::new());
+    let rayon_range = rayon::prelude::IntoParallelIterator::into_par_iter(0..WORK_ITEMS);
+
+    let moirai_expected = moirai_indexed_boundary(&moirai_owned, &moirai_empty, &moirai_range);
+    let rayon_expected = rayon_indexed_boundary(&rayon_owned, &rayon_empty, &rayon_range);
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_indexed_boundary");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_function(BenchmarkId::new("moirai", WORK_ITEMS), |b| {
+        b.iter(|| {
+            black_box(moirai_indexed_boundary(
+                black_box(&moirai_owned),
+                black_box(&moirai_empty),
+                black_box(&moirai_range),
+            ))
+        })
+    });
+    group.bench_function(BenchmarkId::new("rayon", WORK_ITEMS), |b| {
+        b.iter(|| {
+            black_box(rayon_indexed_boundary(
+                black_box(&rayon_owned),
+                black_box(&rayon_empty),
+                black_box(&rayon_range),
+            ))
+        })
+    });
+    group.finish();
+
     let moirai_expected = moirai_indexed_pipeline(data.clone());
     let rayon_expected = rayon_indexed_pipeline(data.clone());
     assert_eq!(moirai_expected, rayon_expected);

@@ -1518,6 +1518,21 @@ Workload: `sorting_comparison` validates stable and unstable Moirai slice sortin
 
 Interpretation: the dedicated `ParallelSliceMut` boundary keeps sorting out of the non-indexed `ParallelIterator` adapter surface while providing value-checked Rayon comparison rows for stable and unstable in-place sorting.
 
+## 2026-05-27 Bounded Indexed Source Boundary
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_indexed_boundary --quiet
+```
+
+Workload: `iterator_indexed_boundary` preconstructs equivalent Moirai and Rayon owned, empty, and range sources, asserts the same `(owned_len, empty_flag, range_len)` tuple, and times only the exact-size metadata calls. Owned Moirai `Vec<T>` sources use the by-value `VecParIter<T>` path without `Arc<Vec<T>>`.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| `iterator_indexed_boundary` | 1.8682-1.8871 ns | Rayon: 1.8668-1.8727 ns |
+
+Interpretation: the bounded `IndexedParallelIterator::{len, is_empty}` source-cardinality boundary is at Rayon metadata-call parity for the audited exact-size source subset. The benchmark does not claim Rayon's full indexed producer/consumer adapter model.
+
 ## Upstream Comparison Patterns
 
 - Tokio comparison rows use the documented `tokio::spawn` plus `JoinHandle` pattern from the Tokio task-spawning guide.

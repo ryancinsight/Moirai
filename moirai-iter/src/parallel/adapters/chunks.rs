@@ -1,4 +1,4 @@
-use super::super::{Consumer, ParallelIterator, VecNonCloneParIter};
+use super::super::{Consumer, ParallelIterator, VecParIter};
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,6 +66,6 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }

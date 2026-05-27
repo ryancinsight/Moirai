@@ -4,7 +4,7 @@ mod side_effect;
 pub use chunks::Chunks;
 pub use side_effect::{Inspect, PanicFuse};
 
-use super::{Consumer, FilterConsumer, MapConsumer, ParallelIterator, VecNonCloneParIter};
+use super::{Consumer, FilterConsumer, MapConsumer, ParallelIterator, VecParIter};
 
 /// Map adapter for parallel iterators.
 pub struct Map<I, F> {
@@ -147,7 +147,7 @@ where
         C: Consumer<Self::Item, Result = R2> + Send + Sync,
         R2: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -188,7 +188,7 @@ where
         C: Consumer<Self::Item, Result = R2> + Send + Sync,
         R2: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -228,7 +228,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -305,7 +305,7 @@ where
         C: Consumer<Self::Item, Result = R2> + Send + Sync,
         R2: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -340,7 +340,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -378,7 +378,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -410,7 +410,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -450,7 +450,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -488,7 +488,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -519,7 +519,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -550,7 +550,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -608,7 +608,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -645,7 +645,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -694,7 +694,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -746,7 +746,7 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 
@@ -799,6 +799,6 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecNonCloneParIter::new(self.seq_items()))
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }

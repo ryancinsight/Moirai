@@ -20,11 +20,11 @@ Moirai is a unified concurrency runtime that combines async-ready task execution
 The repository's active comparison evidence supports this conclusion:
 
 - Moirai is strongest when one runtime must coordinate sync work, async result handles, and indexed reductions without composing separate Tokio and Rayon runtimes.
-- Rayon remains the broader and more mature choice for full ecosystem data-parallel ergonomics, but Moirai now covers the audited non-indexed adapter subset, terminal reducers, predicate terminals, reference materialization, `flatten`, `take_any`, `skip_any`, `intersperse`, `while_some`, `try_for_each`, `try_reduce`, `unzip`, and a dedicated sorting slice-extension boundary with value-checked Rayon comparison rows.
+- Rayon remains the broader and more mature choice for full ecosystem data-parallel ergonomics, but Moirai now covers the audited adapter subset, bounded exact-size indexed source cardinality, terminal reducers, predicate terminals, reference materialization, `flatten`, `take_any`, `skip_any`, `intersperse`, `while_some`, `try_for_each`, `try_reduce`, `unzip`, and a dedicated sorting slice-extension boundary with value-checked Rayon comparison rows.
 - Tokio remains the broader and more mature async ecosystem runtime because Moirai's active audit covers task-result rows, async iterator rows, file facade read/write/append/metadata/rename/remove/copy rows, directory facade create/remove rows, and Moirai-owned TCP/UDP facade value benchmarks, not Tokio reactor-native I/O drop-in compatibility.
 - Moirai's competitive benchmark rows are value-checked and keep Tokio/Rayon as benchmark-only dependencies, not production runtime dependencies.
 
-Latest native audit refresh: Moirai ready result handles measured 544.01-571.75 ns versus Tokio 1.3583-1.6227 us, Moirai single scope measured 534.89-543.65 ns versus Rayon 632.16-637.41 ns, Moirai mixed unified work measured 39.666-40.156 us versus Tokio plus Rayon 51.772-53.105 us, and Moirai real-application mixed work measured 89.559-90.721 us versus Tokio plus Rayon 106.88-108.04 us. The refreshed async iterator and selected Rayon adapter rows also remain closed for the documented audited subset.
+Latest native audit refresh: Moirai ready result handles measured 544.01-571.75 ns versus Tokio 1.3583-1.6227 us, Moirai single scope measured 534.89-543.65 ns versus Rayon 632.16-637.41 ns, Moirai mixed unified work measured 39.666-40.156 us versus Tokio plus Rayon 51.772-53.105 us, Moirai real-application mixed work measured 89.559-90.721 us versus Tokio plus Rayon 106.88-108.04 us, and Moirai indexed source cardinality measured 1.8682-1.8871 ns versus Rayon 1.8668-1.8727 ns. The refreshed async iterator and selected Rayon adapter rows also remain closed for the documented audited subset.
 
 ## Architectural Model
 
@@ -212,6 +212,7 @@ flowchart TB
 | Completion-only scoped fan-out | `Moirai::scope` | `rayon::scope` | Covered |
 | Indexed map/reduce | `Moirai::map_reduce_indexed` | `into_par_iter().map(...).sum()` | Covered |
 | Worker-sized chunk execution | Scheduler chunking with caller participation | Rayon indexed worker pool | Covered |
+| Indexed source cardinality | `IndexedParallelIterator::{len, is_empty}` | Rayon `IndexedParallelIterator::len` | Covered bounded source boundary |
 | Audited parallel iterator style | `moirai-iter::parallel` subset | `ParallelIterator` | Covered subset |
 | Sorting slice extension | `ParallelSliceMut` | Rayon `ParallelSliceMut` | Covered slice boundary |
 
@@ -244,6 +245,7 @@ Rayon's execution model is optimized for CPU-bound work stealing and rich iterat
 
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`
 - `IntoParallelRefIterator` for `Vec<T>`
+- bounded `IndexedParallelIterator::{len, is_empty}` for exact-size source iterators
 - `map`
 - `filter`
 - `inspect`
@@ -300,7 +302,7 @@ Rayon's execution model is optimized for CPU-bound work stealing and rich iterat
 - `ParallelExtend<T>` for `Vec<T>`
 - `ParallelSliceMut` for stable and unstable slice sorting
 
-Moirai also does not expose a full `IndexedParallelIterator` trait boundary in `moirai-iter::parallel`; indexed execution is currently routed through the runtime facade methods. Sorting is implemented through `ParallelSliceMut` because it is a slice-extension boundary, not a `ParallelIterator` adapter.
+Moirai exposes a bounded `IndexedParallelIterator` source-cardinality boundary for exact-size sources, but it does not expose Rayon's full indexed producer/consumer adapter model. Indexed execution remains routed through the runtime facade methods. Sorting is implemented through `ParallelSliceMut` because it is a slice-extension boundary, not a `ParallelIterator` adapter.
 
 ### Practical Selection
 

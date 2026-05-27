@@ -156,6 +156,24 @@ fn test_parallel_zip_stops_at_shorter_input() {
 }
 
 #[test]
+fn test_indexed_parallel_iterator_reports_source_lengths() {
+    let owned = vec![1_u64, 2, 3, 4].into_par_iter();
+    assert_eq!(IndexedParallelIterator::len(&owned), 4);
+    assert!(!IndexedParallelIterator::is_empty(&owned));
+
+    let empty = Vec::<u64>::new().into_par_iter();
+    assert_eq!(IndexedParallelIterator::len(&empty), 0);
+    assert!(IndexedParallelIterator::is_empty(&empty));
+
+    let range = (3..11).into_par_iter();
+    assert_eq!(IndexedParallelIterator::len(&range), 8);
+
+    let borrowed_data = vec![5_u64, 8, 13];
+    let borrowed = borrowed_data.par_iter();
+    assert_eq!(IndexedParallelIterator::len(&borrowed), borrowed_data.len());
+}
+
+#[test]
 fn test_parallel_copied_materializes_borrowed_copy_values() {
     let data = vec![1_u64, 2, 3, 4];
     let result: Vec<u64> = data.par_iter().copied().map(|value| value * 3).collect();
