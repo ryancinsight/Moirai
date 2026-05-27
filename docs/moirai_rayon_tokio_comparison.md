@@ -326,6 +326,7 @@ Use Rayon over Moirai when:
 | Wake/requeue async task | Wake-once `spawn_async` future | Wake-once Tokio task | Covered |
 | Bounded channel transfer | `moirai_core::channel::mpmc` as `moirai_mpmc` in `bounded_channel_matrix` | `tokio::sync::mpsc::channel` as `tokio_mpsc` in `bounded_channel_matrix` | Covered |
 | Ready async iterator pipeline | `moirai-iter::AsyncIterator` map/filter/materialize | Tokio `JoinSet` ready fan-out | Covered |
+| Async iterator logical-window pipeline | `moirai-iter::AsyncIterator` map/take/skip/materialize | Tokio `JoinSet` ready fan-out over the same retained window | Covered |
 | Bounded async iterator pipeline | `moirai-iter::AsyncParallelIterator` bounded `par_map`/`par_filter` | Tokio bounded `JoinSet` fan-out | Covered |
 | Timer fanout | Moirai async sleep fanout | Tokio sleep fanout | Covered for benchmarked fanout |
 | Native I/O extension futures | `moirai_async::io::{AsyncReadExt, AsyncWriteExt}` | Tokio-style `read_exact`, `write_all`, and `shutdown` extension semantics | Covered native trait slice |
@@ -408,6 +409,7 @@ The current repository records benchmark evidence in `PERFORMANCE_RESULTS.md`, `
 | Direct scoped completion | 294.01-313.60 ns | Rayon `scope` 575.96-624.94 ns | `public_result_handle_ready` asserts the scoped value is published before timing |
 | Async sleep fanout | 15.518-15.636 ms | Tokio 15.356-15.597 ms | Intervals overlap; no clear Moirai advantage is claimed |
 | Ready async iterator pipeline, 32,768 items | 404.46-590.99 us | Tokio `JoinSet` 24.904-25.380 ms | Moirai is ahead for equality-checked ready map/filter materialization |
+| Async iterator take/skip pipeline, 32,768 items | 85.602-86.859 us | Tokio `JoinSet` 23.593-23.921 ms | `async_iterator_take_skip_pipeline` asserts equal transformed retained collections before timing |
 | Bounded async iterator one-pending-poll pipeline | 1.9756-1.9836 ms | Tokio `JoinSet` 9.5598-9.7768 ms | Moirai is ahead for bounded in-flight async map/filter |
 | File facade read, 64 KiB | 39.127-45.710 us | Tokio `fs::read` 96.964-100.34 us | Moirai file facade row is ahead after byte equality assertions |
 | File facade write, 64 KiB | 2.8650-3.4698 ms | Tokio `fs::write` 2.5939-3.2074 ms | Moirai delegates to PAL platform write over the caller slice; the Tokio row is faster in this same-run measurement |

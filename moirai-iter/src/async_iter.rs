@@ -43,6 +43,22 @@ pub trait AsyncIterator: Send {
         AsyncFilter::new(self, filter_fn)
     }
 
+    /// Retain at most `count` items from the logical async stream prefix.
+    fn take(self, count: usize) -> AsyncTake<Self>
+    where
+        Self: Sized,
+    {
+        AsyncTake::new(self, count)
+    }
+
+    /// Discard `count` items from the logical async stream prefix.
+    fn skip(self, count: usize) -> AsyncSkip<Self>
+    where
+        Self: Sized,
+    {
+        AsyncSkip::new(self, count)
+    }
+
     /// Async for_each operation with side effects
     fn for_each<F, Fut>(self, func: F) -> AsyncForEach<Self, F>
     where
@@ -244,6 +260,60 @@ where
             .into_iter()
             .filter(|item| futures::executor::block_on((self.filter_fn)(item)))
             .collect()
+    }
+}
+
+/// Async take operation with prefix-bounded value semantics.
+pub struct AsyncTake<I> {
+    iter: I,
+    count: usize,
+}
+
+impl<I> AsyncTake<I> {
+    fn new(iter: I, count: usize) -> Self {
+        Self { iter, count }
+    }
+}
+
+impl<I> AsyncIterator for AsyncTake<I>
+where
+    I: AsyncIterator,
+{
+    type Item = I::Item;
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        let mut items = self.iter.into_vec();
+        items.truncate(self.count);
+        items
+    }
+}
+
+/// Async skip operation with prefix-discarding value semantics.
+pub struct AsyncSkip<I> {
+    iter: I,
+    count: usize,
+}
+
+impl<I> AsyncSkip<I> {
+    fn new(iter: I, count: usize) -> Self {
+        Self { iter, count }
+    }
+}
+
+impl<I> AsyncIterator for AsyncSkip<I>
+where
+    I: AsyncIterator,
+{
+    type Item = I::Item;
+
+    fn into_vec(self) -> Vec<Self::Item> {
+        let mut items = self.iter.into_vec();
+        if self.count >= items.len() {
+            Vec::new()
+        } else {
+            items.drain(..self.count);
+            items
+        }
     }
 }
 
@@ -579,6 +649,21 @@ mod tests {
         let doubled = iter.map(|x| async move { x * 2 });
         let result: Vec<i32> = doubled.collect().await;
         assert_eq!(result, vec![2, 4, 6, 8, 10]);
+    }
+
+    #[tokio::test]
+    async fn test_async_take_skip_window_values() {
+        let result: Vec<i32> = vec![1, 2, 3, 4, 5, 6]
+            .into_async_iter()
+            .take(5)
+            .skip(2)
+            .collect()
+            .await;
+
+        assert_eq!(result, vec![3, 4, 5]);
+
+        let empty: Vec<i32> = vec![1, 2].into_async_iter().skip(3).collect().await;
+        assert_eq!(empty, Vec::<i32>::new());
     }
 
     #[tokio::test]

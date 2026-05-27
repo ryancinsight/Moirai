@@ -16,6 +16,8 @@ const WARM_UP_MILLIS: u64 = 250;
 const WORK_ITEMS: usize = 32_768;
 const DELAYED_WORK_ITEMS: usize = 8_192;
 const BOUNDED_CONCURRENCY: usize = 256;
+const WINDOW_TAKE: usize = WORK_ITEMS / 2;
+const WINDOW_SKIP: usize = 512;
 
 fn source_data() -> Vec<u64> {
     (0..WORK_ITEMS as u64).collect()
@@ -49,6 +51,14 @@ fn moirai_ready_pipeline(data: Vec<u64>) -> Vec<u64> {
         .into_vec()
 }
 
+fn moirai_take_skip_pipeline(data: Vec<u64>) -> Vec<u64> {
+    data.into_async_iter()
+        .map(|value| async move { value.wrapping_mul(5).wrapping_add(1) })
+        .take(WINDOW_TAKE)
+        .skip(WINDOW_SKIP)
+        .into_vec()
+}
+
 async fn tokio_joinset_ready_pipeline(data: Vec<u64>) -> Vec<u64> {
     let mut tasks = JoinSet::new();
     for (index, value) in data.into_iter().enumerate() {
@@ -64,6 +74,25 @@ async fn tokio_joinset_ready_pipeline(data: Vec<u64>) -> Vec<u64> {
     }
     indexed.sort_unstable_by_key(|(index, _)| *index);
     indexed.into_iter().filter_map(|(_, value)| value).collect()
+}
+
+async fn tokio_joinset_take_skip_pipeline(data: Vec<u64>) -> Vec<u64> {
+    let mut tasks = JoinSet::new();
+    for (index, value) in data.into_iter().enumerate() {
+        tasks.spawn(async move { (index, value.wrapping_mul(5).wrapping_add(1)) });
+    }
+
+    let mut indexed = Vec::with_capacity(WORK_ITEMS);
+    while let Some(joined) = tasks.join_next().await {
+        indexed.push(joined.expect("tokio benchmark task panicked"));
+    }
+    indexed.sort_unstable_by_key(|(index, _)| *index);
+    indexed
+        .into_iter()
+        .map(|(_, value)| value)
+        .take(WINDOW_TAKE)
+        .skip(WINDOW_SKIP)
+        .collect()
 }
 
 fn moirai_bounded_yield_pipeline(data: Vec<u64>) -> Vec<u64> {
@@ -146,6 +175,28 @@ fn async_iterator_comparison(c: &mut Criterion) {
         |b, input| {
             b.iter(|| {
                 black_box(runtime.block_on(tokio_joinset_ready_pipeline(black_box(input.clone()))))
+            })
+        },
+    );
+    group.finish();
+
+    let moirai_expected = moirai_take_skip_pipeline(data.clone());
+    let tokio_expected = runtime.block_on(tokio_joinset_take_skip_pipeline(data.clone()));
+    assert_eq!(moirai_expected, tokio_expected);
+
+    let mut group = c.benchmark_group("async_iterator_take_skip_pipeline");
+    group.sample_size(SAMPLE_SIZE);
+    group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(moirai_take_skip_pipeline(black_box(input.clone()))))
+    });
+    group.bench_with_input(
+        BenchmarkId::new("tokio_joinset", WORK_ITEMS),
+        &data,
+        |b, input| {
+            b.iter(|| {
+                black_box(
+                    runtime.block_on(tokio_joinset_take_skip_pipeline(black_box(input.clone()))),
+                )
             })
         },
     );

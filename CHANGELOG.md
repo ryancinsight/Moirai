@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Added `async_iterator_comparison`, a value-checked `moirai-iter::AsyncIterator` ready-pipeline benchmark against Tokio `JoinSet` fan-out.
+- Added `AsyncIterator::take` and `AsyncIterator::skip` logical-window adapters with value tests and a Tokio `JoinSet` comparison row.
 - Added `ParallelSliceMut` sorting comparison coverage against Rayon `ParallelSliceMut`.
 - Added `async_fs_comparison`, a value-checked `moirai_async::fs::read` benchmark against Tokio `fs::read`.
 - Added an `async_fs_write_file` row to `async_fs_comparison`, comparing Moirai platform-write facade behavior against Tokio `fs::write` over the same 64 KiB payload.
@@ -16,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `moirai_async::fs::metadata` and an `async_fs_metadata_file` row to `async_fs_comparison`, comparing Moirai platform-metadata facade behavior against Tokio `fs::metadata` over the same 64 KiB file.
 - Added `moirai_async::fs::rename` and an `async_fs_rename_file` row to `async_fs_comparison`, comparing Moirai platform-rename facade behavior against Tokio `fs::rename` over prepared 64 KiB source files.
 - Added an `async_fs_remove_file` row to `async_fs_comparison`, comparing Moirai platform-remove facade behavior against Tokio `fs::remove_file` over prepared 64 KiB source files.
+- Added `async_fs_dir_comparison`, comparing Moirai directory create/remove and recursive create/remove facade behavior against Tokio directory facade operations.
 - Added an `async_fs_copy_file` row to `async_fs_comparison`, comparing Moirai platform-copy facade behavior against Tokio `fs::copy` over the same 64 KiB file.
 - Added TCP and UDP loopback value tests for the Moirai-owned async network facade.
 - Added `async_tcp_comparison`, a value-checked Moirai TCP facade echo benchmark against Tokio `TcpListener`/`TcpStream`.
@@ -58,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed async file facade metadata lookup to use PAL platform metadata without constructing an async file handle or stats state.
 - Changed async file facade rename to use PAL platform rename without reading or copying file contents through user-space buffers.
 - Changed async file facade removal to use PAL platform remove without constructing an async file handle or stats state.
+- Changed async directory facade creation and removal to use PAL platform directory operations instead of direct async-layer `std::fs` ownership.
 - Replaced async iterator terminal placeholder futures with value-semantic `collect`, `for_each`, `fold`, and `reduce` execution over the logical iterator stream.
 - Changed `ParAsyncMap`, `ParAsyncFilter`, and `ParAsyncForEach` to use bounded in-flight polling through their `concurrency` parameter.
 - Raised the unstable sorting sequential threshold so medium slices use Rust's optimized unstable sort until worker dispatch amortizes.

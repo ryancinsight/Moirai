@@ -79,9 +79,14 @@ fn timer_wheel_cancellation_is_real_and_lazy() {
 
 #[test]
 fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
-    let fs_source = read_benchmark("../moirai-async/src/fs.rs");
+    let fs_source = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-async/src/fs.rs"),
+        read_benchmark("../moirai-async/src/fs/tests.rs")
+    );
     let pal_fs_source = read_benchmark("../moirai-pal/src/fs.rs");
     let fs_benchmark = read_benchmark("benches/async_fs_comparison.rs");
+    let fs_dir_benchmark = read_benchmark("benches/async_fs_dir_comparison.rs");
     let benchmark_manifest = read_benchmark("Cargo.toml");
     let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
 
@@ -94,14 +99,23 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
         "pub async fn metadata<P: AsRef<Path>>(path: P) -> io::Result<std::fs::Metadata>",
         "pub async fn rename<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<()>",
         "pub async fn remove_file<P: AsRef<Path>>(path: P) -> io::Result<()>",
+        "pub async fn create_dir<P: AsRef<Path>>(path: P) -> io::Result<()>",
+        "pub async fn create_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()>",
+        "pub async fn remove_dir<P: AsRef<Path>>(path: P) -> io::Result<()>",
+        "pub async fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()>",
         "moirai_pal::fs::write(path, contents).await",
         "moirai_pal::fs::append(path, contents).await",
         "moirai_pal::fs::copy(from, to).await",
         "moirai_pal::fs::metadata(path).await",
         "moirai_pal::fs::rename(from, to).await",
         "moirai_pal::fs::remove_file(path).await",
+        "moirai_pal::fs::create_dir(path).await",
+        "moirai_pal::fs::create_dir_all(path).await",
+        "moirai_pal::fs::remove_dir(path).await",
+        "moirai_pal::fs::remove_dir_all(path).await",
         "test_file_write_read_append_and_stats_values",
         "test_file_copy_and_directory_values",
+        "test_recursive_directory_values",
         "assert_eq!(contents, \"alpha-beta\")",
         "assert_eq!(file.stats().bytes_read, 5)",
         "assert_eq!(copied, 10)",
@@ -126,12 +140,22 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
         "std::fs::rename(from, to)",
         "pub async fn remove_file<P: AsRef<Path>>(path: P) -> io::Result<()>",
         "std::fs::remove_file(path)",
+        "pub async fn create_dir<P: AsRef<Path>>(path: P) -> io::Result<()>",
+        "std::fs::create_dir(path)",
+        "pub async fn create_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()>",
+        "std::fs::create_dir_all(path)",
+        "pub async fn remove_dir<P: AsRef<Path>>(path: P) -> io::Result<()>",
+        "std::fs::remove_dir(path)",
+        "pub async fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()>",
+        "std::fs::remove_dir_all(path)",
         "async_file_write_preserves_source_bytes",
         "async_file_append_preserves_prefix_and_appended_bytes",
         "async_file_copy_preserves_source_bytes",
         "async_file_metadata_preserves_file_type_and_length",
         "async_file_rename_preserves_source_bytes_at_destination",
         "async_file_remove_file_deletes_expected_path",
+        "async_dir_create_and_remove_preserves_directory_state",
+        "async_dir_all_create_and_remove_deletes_nested_tree",
     ] {
         assert!(
             pal_fs_source.contains(required),
@@ -188,6 +212,17 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
         "tokio_remove_file",
         "tokio::fs::remove_file",
         "async_fs_remove_file",
+        "name = \"async_fs_dir_comparison\"",
+        "moirai_create_remove_dir",
+        "tokio_create_remove_dir",
+        "tokio::fs::create_dir",
+        "tokio::fs::remove_dir",
+        "async_fs_create_remove_dir",
+        "moirai_create_remove_dir_all",
+        "tokio_create_remove_dir_all",
+        "tokio::fs::create_dir_all",
+        "tokio::fs::remove_dir_all",
+        "async_fs_create_remove_dir_all",
         "moirai_copy",
         "tokio_copy",
         "tokio::fs::copy",
@@ -196,7 +231,9 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
         "async_fs_copy_file",
     ] {
         assert!(
-            fs_benchmark.contains(required) || benchmark_manifest.contains(required),
+            fs_benchmark.contains(required)
+                || fs_dir_benchmark.contains(required)
+                || benchmark_manifest.contains(required),
             "async fs benchmark must retain comparison marker {required}"
         );
     }
@@ -204,6 +241,10 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
     assert!(
         !fs_benchmark.contains("futures::executor::block_on"),
         "async fs benchmark must use the Moirai runtime surface for Moirai rows"
+    );
+    assert!(
+        !fs_dir_benchmark.contains("futures::executor::block_on"),
+        "async fs directory benchmark must use the Moirai runtime surface for Moirai rows"
     );
 
     for required in [
@@ -214,7 +255,10 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
         "Tokio file facade rename",
         "Tokio file facade remove",
         "Tokio file facade copy",
+        "Tokio directory facade create/remove",
+        "Tokio directory facade recursive create/remove",
         "async_fs_comparison",
+        "async_fs_dir_comparison",
         "64 KiB read",
         "64 KiB write",
         "64 KiB append",
@@ -222,6 +266,8 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
         "64 KiB rename",
         "64 KiB remove",
         "64 KiB copy",
+        "single directory create/remove",
+        "recursive directory create/remove",
         "Tokio I/O drop-in compatibility",
     ] {
         assert!(
@@ -486,6 +532,8 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "async_file_metadata_preserves_file_type_and_length",
         "async_file_rename_preserves_source_bytes_at_destination",
         "async_file_remove_file_deletes_expected_path",
+        "async_dir_create_and_remove_preserves_directory_state",
+        "async_dir_all_create_and_remove_deletes_nested_tree",
         "assert_eq!(&suffix, b\"beta\")",
         "assert_eq!(actual, expected)",
     ] {

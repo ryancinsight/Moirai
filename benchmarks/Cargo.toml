@@ -96,6 +96,10 @@ name = "async_fs_comparison"
 harness = false
 
 [[bench]]
+name = "async_fs_dir_comparison"
+harness = false
+
+[[bench]]
 name = "async_udp_comparison"
 harness = false
 

@@ -66,6 +66,30 @@ pub async fn remove_file<P: AsRef<Path>>(path: P) -> io::Result<()> {
     std::fs::remove_file(path)
 }
 
+/// Create one directory through the platform directory-create implementation.
+pub async fn create_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    yield_now().await;
+    std::fs::create_dir(path)
+}
+
+/// Create a directory tree through the platform recursive directory-create implementation.
+pub async fn create_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    yield_now().await;
+    std::fs::create_dir_all(path)
+}
+
+/// Remove one empty directory through the platform directory-remove implementation.
+pub async fn remove_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    yield_now().await;
+    std::fs::remove_dir(path)
+}
+
+/// Remove a directory tree through the platform recursive directory-remove implementation.
+pub async fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    yield_now().await;
+    std::fs::remove_dir_all(path)
+}
+
 /// High-performance cooperative async file handle
 pub struct AsyncFile {
     inner: StdFile,
@@ -314,6 +338,41 @@ mod tests {
             assert_eq!(actual, expected);
             remove_file(&path).await.expect("remove_file must succeed");
             assert!(!path.exists());
+        });
+    }
+
+    #[test]
+    fn async_dir_create_and_remove_preserves_directory_state() {
+        let dir = test_path("dir");
+
+        block_on(async {
+            create_dir(&dir).await.expect("create_dir must succeed");
+            let metadata = std::fs::metadata(&dir).expect("created dir metadata must exist");
+            assert!(metadata.is_dir());
+            remove_dir(&dir).await.expect("remove_dir must succeed");
+            assert!(!dir.exists());
+        });
+    }
+
+    #[test]
+    fn async_dir_all_create_and_remove_deletes_nested_tree() {
+        let root = test_path("dir-all");
+        let leaf = root.join("alpha").join("beta");
+        let marker = leaf.join("marker.bin");
+        let expected: Vec<u8> = (0_u8..=31).map(|value| value.wrapping_mul(23)).collect();
+
+        block_on(async {
+            create_dir_all(&leaf)
+                .await
+                .expect("create_dir_all must succeed");
+            assert!(leaf.is_dir());
+            std::fs::write(&marker, &expected).expect("nested marker write must succeed");
+            let actual = std::fs::read(&marker).expect("nested marker read must succeed");
+            assert_eq!(actual, expected);
+            remove_dir_all(&root)
+                .await
+                .expect("remove_dir_all must succeed");
+            assert!(!root.exists());
         });
     }
 }

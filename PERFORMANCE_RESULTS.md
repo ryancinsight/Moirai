@@ -244,6 +244,24 @@ Workload: per-iteration setup prepares a 64 KiB source file for each row. The me
 
 Interpretation: this is a covered Moirai-owned file remove facade comparison against `tokio::fs::remove_file`. The Moirai path delegates to the PAL platform remove operation and avoids constructing the async file handle or stats state. It is not a claim of reactor-native file readiness or OS-level cancellation.
 
+## 2026-05-27 Async Directory Facade Benchmark
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench async_fs_dir_comparison -- --quiet
+```
+
+Workload: the single-directory row creates one directory, asserts it is a directory, removes it, and asserts absence. The recursive row creates a three-level directory tree, writes and reads a marker file to verify the leaf path, removes the root recursively, and asserts root absence.
+
+| Benchmark | Result |
+| --- | ---: |
+| `async_fs_create_remove_dir/moirai/1` | 251.56-276.02 µs |
+| `async_fs_create_remove_dir/tokio/1` | 443.78-503.63 µs |
+| `async_fs_create_remove_dir_all/moirai/1` | 2.9657-3.5428 ms |
+| `async_fs_create_remove_dir_all/tokio/1` | 4.7569-5.4030 ms |
+
+Interpretation: this is a covered Moirai-owned directory facade comparison against Tokio directory creation and removal APIs. The Moirai path delegates to PAL platform directory operations and removes direct async-layer platform ownership. It is not a claim of reactor-native file readiness or OS-level cancellation.
+
 ## 2026-05-25 Async UDP Facade Benchmark
 
 Command:

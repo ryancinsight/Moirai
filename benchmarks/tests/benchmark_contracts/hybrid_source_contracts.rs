@@ -65,3 +65,22 @@ fn public_handle_metrics_reuse_lifecycle_duration() {
         );
     }
 }
+
+#[test]
+fn public_handle_paths_retain_panic_containment() {
+    let source = read_benchmark("../moirai-executor/src/hybrid/mod.rs");
+
+    for required in [
+        "let result = catch_unwind(AssertUnwindSafe(func));",
+        "let result = catch_unwind(AssertUnwindSafe(|| task.execute()));",
+        "send_task_result(result, result_sender, metrics.get(), execution_time)",
+        "sender.send(Err(TaskError::Panicked));",
+        "fn spawn_blocking_reports_panicked_result()",
+        "assert_eq!(handle.join(), Some(Err(moirai_core::TaskError::Panicked)))",
+    ] {
+        assert!(
+            source.contains(required),
+            "public handle panic containment must retain {required}"
+        );
+    }
+}
