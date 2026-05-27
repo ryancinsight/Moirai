@@ -29,6 +29,7 @@
 - `moirai-iter::parallel` now covers `enumerate`, `zip`, `filter_map`, `flat_map`, `take`, `skip`, `chain`, `rev`, `inspect`, `panic_fuse`, `chunks`, and `partition` with value-semantic tests, and `ParallelSliceMut` covers the sorting slice-extension boundary with Rayon benchmark rows.
 - `moirai-iter::channel_fusion` splitters and mergers store concrete `FusableChannel` implementations in `Vec<C>` instead of boxed channel trait objects. The placeholder hash branch and non-executing pipeline builder are removed.
 - `moirai-iter::base` no longer exposes the unused boxed-future `ExecutionBase` trait, and `StreamingIter<T, F>` stores its producer as a concrete generic with `VecDeque` FIFO buffering.
+- `moirai-utils::simd` now exposes generic sealed `SimdScalar`/`SimdReal` operations instead of public type-suffixed vector kernels. The SIMD source is split into a vertical module tree, benchmark call sites consume the generic API, and `simd_benchmarks -- vector_addition` measures generic addition overlapping the native-checked row while staying below scalar loops.
 - PAL reactor `TaskHandle` futures now complete through per-task atomic completion state instead of returning `Pending` unconditionally.
 - PAL reactor platform dispatch now uses compile-target `PlatformReactor` instead of `Box<dyn Reactor>`.
 - PAL reactor queued futures now use bounded inline storage plus monomorphized poll/drop function pointers instead of `Pin<Box<dyn Future<Output = ()>>>`; oversized futures use typed boxed fallback.

@@ -53,8 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a PAL reactor task-handle completion regression test for spawned ready tasks.
 - Added `standalone_deque_reclaim_policy`, a value-checked diagnostic benchmark for `ChaseLevDeque` quiescent versus shared epoch reclamation.
 - Added bounded channel matrix coverage to the Tokio comparison audit, comparison report, and benchmark-contract surface.
+- Added sealed generic `moirai_utils::simd` scalar contracts and a benchmark source contract rejecting the removed type-suffixed utility SIMD public surface.
 
 ### Changed
+- Changed utility SIMD benchmarks and benchmark setup contracts to call generic `moirai_utils::simd` operations instead of type-suffixed vector functions.
 - Changed `moirai_async::fs::copy` to delegate to the PAL platform copy operation instead of allocating a user-space 64 KiB transfer buffer.
 - Changed `moirai_async::fs::write` to delegate to the PAL platform write operation over the caller-provided byte slice instead of constructing a facade file handle, updating stats, looping through writes, and unconditionally syncing.
 - Changed `moirai_async::fs::append` to delegate to the PAL platform append operation over the caller-provided byte slice instead of constructing a facade file handle, updating stats, looping through writes, and unconditionally syncing.
@@ -81,6 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced public core and scheduler `Box<dyn BoxedTask>` / `dyn Scheduler` task surfaces with `ScheduledTask` inline storage and monomorphized execute/drop/context erasure.
 - Replaced standalone scheduler `ChaseLevDeque` per-item boxed task nodes with contiguous `UnsafeCell<MaybeUninit<T>>` ring slots, sealed zero-sized quiescent reclamation, and opt-in shared epoch reclamation.
 - Changed all current comparison benchmark targets to carry explicit Criterion measurement and warm-up bounds under benchmark-contract coverage.
+
+### Breaking
+- Removed public type-suffixed `moirai_utils::simd` vector functions in favor of generic `add`, `mul`, `dot`, `sum`, `mean`, `variance`, and `matrix_mul_square<T, const N>` operations over sealed scalar traits.
 
 ### Fixed
 - Fixed async `RwLock` release-handoff coverage by adding value-semantic tests for final-reader-to-writer and writer-to-multiple-reader grant paths.

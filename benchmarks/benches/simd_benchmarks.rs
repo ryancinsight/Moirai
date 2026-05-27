@@ -50,7 +50,7 @@ fn bench_vector_addition(c: &mut Criterion) {
             size,
             |bench, _| {
                 bench.iter(|| {
-                    safe_vectorized_add_f32(black_box(&a), black_box(&b), black_box(&mut result));
+                    add(black_box(&a), black_box(&b), black_box(&mut result));
                 });
             },
         );
@@ -64,14 +64,13 @@ fn bench_vector_addition(c: &mut Criterion) {
             });
         });
 
-        // Benchmark unsafe vectorized (if AVX2 supported)
-        if has_avx2_support() && *size % 8 == 0 {
+        if has_native_vector_path::<f32>() && *size % 8 == 0 {
             group.bench_with_input(
-                BenchmarkId::new("unsafe_vectorized", size),
+                BenchmarkId::new("native_checked", size),
                 size,
                 |bench, _| {
-                    bench.iter(|| unsafe {
-                        vectorized_add_f32(black_box(&a), black_box(&b), black_box(&mut result));
+                    bench.iter(|| {
+                        add(black_box(&a), black_box(&b), black_box(&mut result));
                     });
                 },
             );
@@ -99,7 +98,7 @@ fn bench_vector_multiplication(c: &mut Criterion) {
             size,
             |bench, _| {
                 bench.iter(|| {
-                    safe_vectorized_mul_f32(black_box(&a), black_box(&b), black_box(&mut result));
+                    mul(black_box(&a), black_box(&b), black_box(&mut result));
                 });
             },
         );
@@ -133,10 +132,7 @@ fn bench_dot_product(c: &mut Criterion) {
             size,
             |bench, _| {
                 bench.iter(|| {
-                    black_box(safe_vectorized_dot_product_f32(
-                        black_box(&a),
-                        black_box(&b),
-                    ));
+                    black_box(dot(black_box(&a), black_box(&b)));
                 });
             },
         );
@@ -176,11 +172,7 @@ fn bench_matrix_multiplication(c: &mut Criterion) {
 
     group.bench_function("safe_vectorized", |bench| {
         bench.iter(|| {
-            safe_vectorized_matrix_mul_4x4_f32(
-                black_box(&a),
-                black_box(&b),
-                black_box(&mut result),
-            );
+            matrix_mul_square::<f32, 4>(black_box(&a), black_box(&b), black_box(&mut result));
         });
     });
 
@@ -198,10 +190,10 @@ fn bench_matrix_multiplication(c: &mut Criterion) {
         });
     });
 
-    if has_avx2_support() {
-        group.bench_function("unsafe_vectorized", |bench| {
-            bench.iter(|| unsafe {
-                vectorized_matrix_mul_4x4_f32(black_box(&a), black_box(&b), black_box(&mut result));
+    if has_native_vector_path::<f32>() {
+        group.bench_function("native_checked", |bench| {
+            bench.iter(|| {
+                matrix_mul_square::<f32, 4>(black_box(&a), black_box(&b), black_box(&mut result));
             });
         });
     }
@@ -227,7 +219,7 @@ fn bench_statistical_operations(c: &mut Criterion) {
             size,
             |bench, _| {
                 bench.iter(|| {
-                    black_box(safe_vectorized_sum_f32(black_box(&data)));
+                    black_box(sum(black_box(&data)));
                 });
             },
         );
@@ -245,7 +237,7 @@ fn bench_statistical_operations(c: &mut Criterion) {
             size,
             |bench, _| {
                 bench.iter(|| {
-                    black_box(safe_vectorized_mean_f32(black_box(&data)));
+                    black_box(mean(black_box(&data)));
                 });
             },
         );
@@ -265,7 +257,7 @@ fn bench_statistical_operations(c: &mut Criterion) {
                 size,
                 |bench, _| {
                     bench.iter(|| {
-                        black_box(safe_vectorized_variance_f32(black_box(&data)));
+                        black_box(variance(black_box(&data)));
                     });
                 },
             );
@@ -369,17 +361,17 @@ fn bench_comprehensive_comparison(c: &mut Criterion) {
     group.bench_function("mixed_workload_vectorized", |bench| {
         bench.iter(|| {
             // Addition
-            safe_vectorized_add_f32(black_box(&a), black_box(&b), black_box(&mut result));
+            add(black_box(&a), black_box(&b), black_box(&mut result));
 
             // Multiplication
-            safe_vectorized_mul_f32(black_box(&a), black_box(&b), black_box(&mut result));
+            mul(black_box(&a), black_box(&b), black_box(&mut result));
 
             // Dot product
-            let _dot = safe_vectorized_dot_product_f32(black_box(&a), black_box(&b));
+            let _dot = dot(black_box(&a), black_box(&b));
 
             // Statistical operations
-            let _sum = safe_vectorized_sum_f32(black_box(&a));
-            let _mean = safe_vectorized_mean_f32(black_box(&a));
+            let _sum = sum(black_box(&a));
+            let _mean = mean(black_box(&a));
 
             black_box(());
         });
@@ -409,28 +401,6 @@ fn bench_comprehensive_comparison(c: &mut Criterion) {
     });
 
     group.finish();
-
-    // Print performance statistics
-    let (vectorized_ops, scalar_ops, vectorized_elements, scalar_elements) =
-        global_simd_counter().get_stats();
-    let total_ops = vectorized_ops + scalar_ops;
-    let utilization_ratio = if total_ops == 0 {
-        0.0
-    } else {
-        vectorized_ops as f64 / total_ops as f64
-    };
-    let element_ratio = if scalar_elements == 0 {
-        0.0
-    } else {
-        vectorized_elements as f64 / scalar_elements as f64
-    };
-    println!("\n=== SIMD Performance Statistics ===");
-    println!("Vectorized operations: {vectorized_ops}");
-    println!("Scalar operations: {scalar_ops}");
-    println!("SIMD utilization ratio: {:.2}%", utilization_ratio * 100.0);
-    println!("Vectorized/scalar element ratio: {element_ratio:.2}x");
-    println!("AVX2 support: {}", has_avx2_support());
-    println!("NEON support: {}", has_neon_support());
 }
 
 criterion_group!(

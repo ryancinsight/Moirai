@@ -47,9 +47,9 @@ pub use random::XorshiftRng;
 #[cfg(feature = "std")]
 pub use time::{unix_timestamp_micros, unix_timestamp_millis, unix_timestamp_nanos, HighResTimer};
 
-// SIMD optimization counter for tracking performance improvements
+// SIMD optimization counter and scalar contracts for performance tracking.
 #[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
-pub use simd::{safe_vectorized_add_f32, safe_vectorized_dot_product_f32, safe_vectorized_mul_f32};
+pub use simd::{has_native_vector_path, SimdReal, SimdScalar};
 
 #[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
 use std::sync::OnceLock;

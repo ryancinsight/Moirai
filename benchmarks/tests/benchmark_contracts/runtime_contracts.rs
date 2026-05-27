@@ -162,6 +162,89 @@ fn rayon_tokio_dependencies_stay_out_of_runtime_dependency_sections() {
 }
 
 #[test]
+fn utility_simd_surface_uses_generic_scalar_contract() {
+    let root = read_benchmark("../moirai-utils/src/simd/mod.rs");
+    let scalar = read_benchmark("../moirai-utils/src/simd/scalar.rs");
+    let arch = read_benchmark("../moirai-utils/src/simd/arch/mod.rs");
+    let lib = read_benchmark("../moirai-utils/src/lib.rs");
+    let simd_benchmark = read_benchmark("benches/simd_benchmarks.rs");
+    let moirai_benchmark = read_benchmark("benches/moirai_benchmarks.rs");
+    let performance_benchmark = read_benchmark("benches/performance_benchmarks.rs");
+
+    let implementation = format!("{root}\n{scalar}\n{arch}\n{lib}");
+    let benchmarks = format!("{simd_benchmark}\n{moirai_benchmark}\n{performance_benchmark}");
+
+    for required in [
+        "mod arch;",
+        "mod scalar;",
+        "pub use scalar::{SimdReal, SimdScalar};",
+        "pub fn has_native_vector_path<T: SimdScalar>() -> bool",
+        "pub fn add<T: SimdScalar>",
+        "pub fn mul<T: SimdScalar>",
+        "pub fn dot<T: SimdScalar>",
+        "pub fn sum<T: SimdScalar>",
+        "pub fn mean<T: SimdReal>",
+        "pub fn variance<T: SimdReal>",
+        "pub fn matrix_mul_square<T: SimdScalar, const N: usize>",
+        "pub trait SimdScalar",
+        "pub trait SimdReal",
+        "sealed::Sealed",
+        "impl SimdScalar for f32",
+        "impl SimdScalar for f64",
+        "impl SimdScalar for u64",
+        "fn uses_native_vector_path(len: usize) -> bool",
+        "fn matrix_mul_square<const N: usize>",
+    ] {
+        assert!(
+            implementation.contains(required),
+            "utility SIMD implementation must retain generic scalar marker {required}"
+        );
+    }
+
+    for required in [
+        "add(black_box(&a), black_box(&b), black_box(&mut result))",
+        "mul(black_box(&a), black_box(&b), black_box(&mut result))",
+        "black_box(dot(black_box(&a), black_box(&b)))",
+        "matrix_mul_square::<f32, 4>",
+        "black_box(sum(black_box(&data)))",
+        "black_box(mean(black_box(&data)))",
+        "black_box(variance(black_box(&data)))",
+        "simd::add(&a, &b, &mut result)",
+        "use moirai_utils::simd::{add, mul};",
+    ] {
+        assert!(
+            benchmarks.contains(required),
+            "SIMD benchmarks must consume generic utility API marker {required}"
+        );
+    }
+
+    for prohibited in [
+        "safe_vectorized_add_f32",
+        "safe_vectorized_mul_f32",
+        "safe_vectorized_dot_product_f32",
+        "safe_vectorized_matrix_mul_4x4_f32",
+        "safe_vectorized_sum_f32",
+        "safe_vectorized_mean_f32",
+        "safe_vectorized_variance_f32",
+        "pub unsafe fn vectorized_add_f32",
+        "pub unsafe fn vectorized_mul_f32",
+        "pub unsafe fn vectorized_dot_product_f32",
+        "pub unsafe fn vectorized_matrix_mul_4x4_f32",
+        "SIMD_F32_WIDTH",
+        "neon_vectorized_add_f32",
+    ] {
+        assert!(
+            !implementation.contains(prohibited),
+            "utility SIMD public surface must not retain type-suffixed marker {prohibited}"
+        );
+        assert!(
+            !benchmarks.contains(prohibited),
+            "SIMD benchmarks must not consume removed type-suffixed marker {prohibited}"
+        );
+    }
+}
+
+#[test]
 fn async_executor_erases_futures_with_monomorphized_poll_drop() {
     let source = read_benchmark("../moirai-async/src/executor.rs");
 
@@ -534,7 +617,7 @@ fn simd_benchmark_setup_computes_expected_values() {
     let b = vec![2.0; 64];
     let mut result = vec![0.0; 64];
 
-    simd::safe_vectorized_add_f32(&a, &b, &mut result);
+    simd::add(&a, &b, &mut result);
 
     assert_eq!(result, vec![3.0; 64]);
 }

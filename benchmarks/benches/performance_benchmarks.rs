@@ -123,7 +123,7 @@ fn benchmark_memory_efficiency(c: &mut Criterion) {
 /// Benchmark SIMD optimization performance improvement
 /// No runtime needed for pure SIMD operations
 fn benchmark_simd_performance(c: &mut Criterion) {
-    use moirai_utils::simd::{safe_vectorized_add_f32, safe_vectorized_mul_f32};
+    use moirai_utils::simd::{add, mul};
 
     let mut group = c.benchmark_group("simd_performance");
 
@@ -147,7 +147,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
     group.bench_function("simd_add", |b| {
         b.iter(|| {
             let mut result = vec![0.0f32; 1024];
-            safe_vectorized_add_f32(&data_a, &data_b, &mut result);
+            add(&data_a, &data_b, &mut result);
             assert_eq!(result, vec![3.0f32; 1024]);
             black_box(result)
         });
@@ -169,7 +169,7 @@ fn benchmark_simd_performance(c: &mut Criterion) {
     group.bench_function("simd_multiply", |b| {
         b.iter(|| {
             let mut result = vec![0.0f32; 1024];
-            safe_vectorized_mul_f32(&data_a, &data_b, &mut result);
+            mul(&data_a, &data_b, &mut result);
             assert_eq!(result, vec![2.0f32; 1024]);
             black_box(result)
         });

@@ -27,7 +27,9 @@
 - [x] [patch] ISSUE-150: Split oversized scheduled-wrapper storage cost with a storage-only same-run row and no synchronization changes.
 - [x] [patch] ISSUE-151: Split scheduled-wrapper `catch_unwind` and result-slot wait costs with same-run rows and no synchronization changes.
 - [x] [patch] ISSUE-153: Preserve public panic policy while bounding static no-catch specialization as diagnostic-only and lock-free.
-- [x] [patch] ISSUE-155: Split scheduled-wrapper lifecycle and metrics cost with a ready-path no-metrics row and no synchronization changes.
+- [x] [patch] ISSUE-156: Split scheduled-wrapper lifecycle and metrics cost with a ready-path no-metrics row and no synchronization changes.
+- [x] [patch] ISSUE-157: Attribute registry lifecycle timestamp publication to elapsed timestamp reads and task-state construction without synchronization changes.
+- [x] [major] ISSUE-158: Replace utility SIMD type-suffixed public API with sealed generic scalar dispatch and benchmark-contract coverage.
 
 ---
 

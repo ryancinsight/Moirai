@@ -188,13 +188,11 @@ fn bench_simd_operations(c: &mut Criterion) {
             });
         });
 
-        // Benchmark SIMD addition (if available)
-        if simd::has_avx2_support() && size % 8 == 0 {
+        // Benchmark native generic addition (if available)
+        if simd::has_native_vector_path::<f32>() && size % 8 == 0 {
             group.bench_with_input(BenchmarkId::new("simd_add", size), &size, |bench, _| {
                 bench.iter(|| {
-                    unsafe {
-                        simd::vectorized_add_f32(&a, &b, &mut result);
-                    }
+                    simd::add(&a, &b, &mut result);
                     black_box(&result);
                 });
             });
@@ -206,7 +204,7 @@ fn bench_simd_operations(c: &mut Criterion) {
             &size,
             |bench, _| {
                 bench.iter(|| {
-                    simd::safe_vectorized_add_f32(&a, &b, &mut result);
+                    simd::add(&a, &b, &mut result);
                     black_box(&result);
                 });
             },

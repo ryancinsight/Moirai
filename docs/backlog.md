@@ -138,12 +138,28 @@
 - **Verification**: `cargo fmt --all`; targeted `benchmark_contracts` for panic containment, registry diagnostics, and result-handle diagnostics; `cargo test -p moirai-executor spawn_blocking_reports_panicked_result -- --nocapture`; focused Criterion row above.
 - **Status**: Closed.
 
-#### ✅ ISSUE-155 [patch]: Split scheduled-wrapper lifecycle and metrics cost
+#### ✅ ISSUE-156 [patch]: Split scheduled-wrapper lifecycle and metrics cost
 - **Type**: Performance / Diagnostic Coverage
 - **Root Cause**: `direct_scheduled_public_token_wrapper_components` still combined registry lifecycle restart/completion with metrics spawned/completed publication, so the ready scheduled wrapper could not distinguish lifecycle overhead from metrics overhead.
 - **Resolution**: Added `direct_scheduled_public_token_wrapper_without_metrics`, preserving public-token allocation, registry lifecycle restart/completion, scheduler submission, panic containment, result-slot send, and join while removing metrics publication. No locks, barriers, or scheduler gates were added.
 - **Evidence**: `cargo bench -p moirai-benchmarks --features scheduler-diagnostics,result-diagnostics,registry-diagnostics --bench result_handle_diagnostics -- "direct_scheduled_public_token_wrapper_(components|without_metrics|without_lifecycle)|direct_metrics_record_task_(spawned|completed)|registry_lifecycle_timestamp_publication|direct_registry_lifecycle"` with isolated `CARGO_TARGET_DIR=target\codex-lifecycle-metrics` measured full wrapper at 500.20-511.36 ns, without metrics at 465.76-477.50 ns, and without lifecycle at 403.59-420.74 ns. Standalone metrics measured spawned at 28.183-28.244 ns and completed at 32.126-32.210 ns; direct registry lifecycle measured 85.221-99.555 ns and lifecycle timestamp publication measured 72.304-72.814 ns. Metrics removal accounts for roughly 23-46 ns, while lifecycle removal accounts for roughly 79-108 ns in this run.
 - **Verification**: `cargo fmt --all`; targeted `benchmark_contracts` for registry diagnostics and result-handle diagnostics; focused Criterion row above.
+- **Status**: Closed.
+
+#### ✅ ISSUE-157 [patch]: Attribute registry lifecycle timestamp publication
+- **Type**: Performance / Diagnostic Coverage
+- **Root Cause**: `ISSUE-156` identified lifecycle as the larger ready-wrapper cost, but the lifecycle diagnostic needed attribution across elapsed timestamp reads, release publications, duration math, and task-state construction.
+- **Resolution**: Reused existing registry diagnostic rows for timestamp attribution instead of adding duplicate source. The evidence shows the lifecycle cost is dominated by elapsed `Instant` reads and state construction, not release stores or duration math. No locks, barriers, scheduler gates, or production synchronization changes were added.
+- **Evidence**: `cargo bench -p moirai-benchmarks --features scheduler-diagnostics,result-diagnostics,registry-diagnostics --bench result_handle_diagnostics -- "registry_(lifecycle_timestamp_publication|task_state_construct|mark_started_existing_slot|mark_completed_existing_slot|elapsed_nanos_since_origin|start_release_publication|completion_release_publication|duration_offset_math)|direct_registry_lifecycle"` with isolated `CARGO_TARGET_DIR=target\codex-lifecycle-timestamp` measured full direct registry lifecycle at 83.861-84.337 ns, lifecycle timestamp publication at 71.665-71.970 ns, elapsed timestamp read at 24.254-24.302 ns, task-state construction at 21.824-21.972 ns, mark-started existing slot at 24.801-24.855 ns, and mark-completed existing slot at 26.906-26.988 ns. Release publication and duration math were sub-nanosecond.
+- **Verification**: Focused Criterion row above.
+- **Status**: Closed.
+
+#### ✅ ISSUE-158 [major]: Replace utility SIMD type-suffixed public API with sealed generic scalar dispatch
+- **Type**: SIMD Utility / API / Benchmark Integrity
+- **Root Cause**: `moirai-utils::simd` exposed public type-suffixed vector functions and a monolithic source file. The API encoded one concrete scalar type in function names and forced benchmarks to depend on representation-specific entry points.
+- **Resolution**: Replaced the public surface with generic `add`, `mul`, `dot`, `sum`, `mean`, `variance`, and `matrix_mul_square<T, const N>` operations over sealed `SimdScalar` and `SimdReal` traits. Native x86 and AArch64 kernels are private backend modules, matrix arity is a const generic, and active benchmarks now consume the generic API.
+- **Evidence**: `cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_addition --quiet` measured generic addition at 12.326-12.437 ns versus scalar 48.944-53.782 ns for 64 values, 222.05-223.32 ns versus scalar 3.1164-3.1295 µs for 4,096 values, and 1.0422-1.0571 µs versus scalar 15.311-16.535 µs for 16,384 values. Native-checked rows stay on the same private backend path for aligned `f32` inputs.
+- **Verification**: `cargo test -p moirai-utils --all-features -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`; strict clippy for `moirai-utils`, `simd_benchmarks`, `moirai_benchmarks`, and `performance_benchmarks`; focused Criterion row above.
 - **Status**: Closed.
 
 ---

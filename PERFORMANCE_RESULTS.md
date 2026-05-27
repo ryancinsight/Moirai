@@ -2,6 +2,25 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-05-27 Generic Utility SIMD Addition Benchmark
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_addition --quiet
+```
+
+Workload: generic `moirai_utils::simd::add<T>` over `f32` slices compared against a scalar loop. The public API is generic and dispatches native vector backends through sealed scalar traits.
+
+| Elements | Generic | Scalar | Native-checked |
+| ---: | ---: | ---: | ---: |
+| 64 | 12.326-12.437 ns | 48.944-53.782 ns | 15.026-16.293 ns |
+| 256 | 15.864-18.333 ns | 225.63-230.11 ns | 20.162-21.402 ns |
+| 1,024 | 45.265-51.112 ns | 768.24-771.60 ns | 31.294-31.425 ns |
+| 4,096 | 222.05-223.32 ns | 3.1164-3.1295 µs | 223.05-225.52 ns |
+| 16,384 | 1.0422-1.0571 µs | 15.311-16.535 µs | 1.2639-1.3559 µs |
+
+Interpretation: the generic API overlaps the native-checked row and remains below the scalar reference. This row verifies the utility SIMD monomorphization path; it is not a Rayon/Tokio scheduler comparison.
+
 ## 2026-05-27 Async Iterator Enumerate/Zip Benchmark
 
 Command:
