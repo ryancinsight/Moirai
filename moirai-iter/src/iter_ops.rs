@@ -1,11 +1,12 @@
 //! Iterator operations with SIMD support and memory-aware variants.
 
 use std::marker::PhantomData;
-use std::sync::Arc;
 
+mod parallel;
 mod stateful;
 mod streaming;
 
+pub use self::parallel::ParallelIter;
 pub use self::stateful::{fold_ref, PartitionRef, ScanRef, UpdateInPlace};
 pub use self::streaming::StreamingIter;
 
@@ -253,88 +254,6 @@ impl<'a, T> Iterator for WindowIter<'a, T> {
             .len()
             .saturating_sub(self.index + self.window_size - 1);
         (remaining, Some(remaining))
-    }
-}
-
-/// Parallel iterator with automatic chunking
-pub struct ParallelIter<T> {
-    data: Arc<Vec<T>>,
-    chunk_size: usize,
-    num_threads: usize,
-}
-
-impl<T: Send + Sync + 'static> ParallelIter<T> {
-    /// Create a new parallel iterator
-    pub fn new(data: Vec<T>) -> Self {
-        let num_threads = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
-        let chunk_size = data.len().div_ceil(num_threads);
-
-        Self {
-            data: Arc::new(data),
-            chunk_size,
-            num_threads,
-        }
-    }
-
-    /// Map operation in parallel
-    pub fn map<F, U>(self, f: F) -> Vec<U>
-    where
-        F: Fn(&T) -> U + Send + Sync + 'static,
-        U: Send + 'static,
-    {
-        use std::thread;
-
-        let mut handles = vec![];
-        let f = Arc::new(f);
-
-        for i in 0..self.num_threads {
-            let data = self.data.clone();
-            let f = f.clone();
-            let start = i * self.chunk_size;
-            let end = ((i + 1) * self.chunk_size).min(data.len());
-
-            let handle =
-                thread::spawn(move || data[start..end].iter().map(|x| f(x)).collect::<Vec<_>>());
-
-            handles.push(handle);
-        }
-
-        handles
-            .into_iter()
-            .flat_map(|h| h.join().unwrap())
-            .collect()
-    }
-
-    /// Reduce operation in parallel
-    pub fn reduce<F>(self, identity: T, f: F) -> T
-    where
-        F: Fn(T, &T) -> T + Send + Sync + 'static,
-        T: Clone,
-    {
-        use std::thread;
-
-        let mut handles = vec![];
-        let f = Arc::new(f);
-
-        for i in 0..self.num_threads {
-            let data = self.data.clone();
-            let f = f.clone();
-            let start = i * self.chunk_size;
-            let end = ((i + 1) * self.chunk_size).min(data.len());
-            let identity = identity.clone();
-
-            let handle =
-                thread::spawn(move || data[start..end].iter().fold(identity, |acc, x| f(acc, x)));
-
-            handles.push(handle);
-        }
-
-        handles
-            .into_iter()
-            .map(|h| h.join().unwrap())
-            .fold(identity, |acc, x| f(acc, &x))
     }
 }
 

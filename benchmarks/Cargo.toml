@@ -88,6 +88,10 @@ name = "iterator_adapter_comparison"
 harness = false
 
 [[bench]]
+name = "iter_ops_parallel_comparison"
+harness = false
+
+[[bench]]
 name = "async_iterator_comparison"
 harness = false
 

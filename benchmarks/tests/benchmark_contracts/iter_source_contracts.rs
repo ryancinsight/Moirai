@@ -133,6 +133,69 @@ fn streaming_iter_uses_monomorphized_producer_and_fifo_buffer() {
 }
 
 #[test]
+fn iter_ops_parallel_iter_uses_scoped_borrowed_chunks() {
+    let source = format!(
+        "{}\n{}\n{}",
+        read_benchmark("../moirai-iter/src/iter_ops.rs"),
+        read_benchmark("../moirai-iter/src/iter_ops/parallel.rs"),
+        read_benchmark("../moirai-iter/src/iter_ops/tests.rs")
+    );
+    let benchmark = read_benchmark("benches/iter_ops_parallel_comparison.rs");
+    let manifest = read_benchmark("Cargo.toml");
+
+    for required in [
+        "mod parallel;",
+        "parallel::ParallelIter",
+        "pub struct ParallelIter<T>",
+        "data: Vec<T>",
+        "DEFAULT_RING_BUFFER_CAPACITY",
+        "should_execute_scoped",
+        "chunk_size > DEFAULT_RING_BUFFER_CAPACITY",
+        "std::thread::scope",
+        ".chunks(chunk_size)",
+        "F: Fn(&T) -> U + Send + Sync",
+        "parallel_iter_map_borrows_data_without_static_closure",
+        "parallel_iter_reduce_matches_sequential_sum",
+        "parallel_iter_reduce_empty_returns_identity",
+    ] {
+        assert!(
+            source.contains(required),
+            "iter_ops ParallelIter must retain scoped borrowed chunk marker {required}"
+        );
+    }
+
+    for required in [
+        "name = \"iter_ops_parallel_comparison\"",
+        "iter_ops_parallel_map",
+        "iter_ops_parallel_reduce",
+        "moirai_parallel_map",
+        "rayon_parallel_map",
+        "moirai_parallel_reduce",
+        "rayon_parallel_reduce",
+        "assert_eq!",
+    ] {
+        assert!(
+            benchmark.contains(required) || manifest.contains(required),
+            "iter_ops ParallelIter benchmark contract must retain marker {required}"
+        );
+    }
+
+    for prohibited in [
+        "data: Arc<Vec<T>>",
+        "Arc::new(data)",
+        "self.data.clone()",
+        "F: Fn(&T) -> U + Send + Sync + 'static",
+        "F: Fn(T, &T) -> T + Send + Sync + 'static",
+        "thread::spawn(move ||",
+    ] {
+        assert!(
+            !source.contains(prohibited),
+            "iter_ops ParallelIter must not reintroduce owned refcount or unscoped worker marker {prohibited}"
+        );
+    }
+}
+
+#[test]
 fn iterator_simd_surface_uses_generic_scalar_contract() {
     let source = read_benchmark("../moirai-iter/src/simd_iter.rs");
     let benchmark = read_benchmark("benches/iter_simd_comparison.rs");

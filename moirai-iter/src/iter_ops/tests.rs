@@ -67,3 +67,30 @@ fn streaming_iter_preserves_fifo_order() {
 
     assert_eq!(values, vec![1, 2, 3, 4]);
 }
+
+#[test]
+fn parallel_iter_map_borrows_data_without_static_closure() {
+    let factor = 3_i32;
+
+    let values = ParallelIter::new(vec![1, 2, 3, 4, 5]).map(|value| *value * factor);
+
+    assert_eq!(values, vec![3, 6, 9, 12, 15]);
+}
+
+#[test]
+fn parallel_iter_reduce_matches_sequential_sum() {
+    let data = (1_u64..=1024).collect::<Vec<_>>();
+    let expected = data.iter().copied().sum::<u64>();
+
+    let reduced = ParallelIter::new(data).reduce(0_u64, |accumulator, value| accumulator + *value);
+
+    assert_eq!(reduced, expected);
+}
+
+#[test]
+fn parallel_iter_reduce_empty_returns_identity() {
+    let reduced = ParallelIter::<u64>::new(Vec::new())
+        .reduce(17_u64, |accumulator, value| accumulator + *value);
+
+    assert_eq!(reduced, 17);
+}

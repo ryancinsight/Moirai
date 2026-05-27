@@ -10,6 +10,7 @@ cargo bench -p moirai-benchmarks --bench public_result_handle_comparison -- publ
 cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- "ready_task_schedule|indexed_reduce_schedule|mixed_unified_schedule|real_application_mixed_workload" --quiet
 cargo bench -p moirai-benchmarks --bench async_iterator_comparison -- "async_iterator_(ready_pipeline|take_skip_pipeline|enumerate_zip_pipeline|bounded_yield_pipeline)" --quiet
 cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- "iterator_adapter_(indexed|filter_flat|flatten|take_skip_any|update|intersperse|try_reduce|terminal_reducers|find_map|position|ref_copy_clone|unzip)" --quiet
+cargo bench -p moirai-benchmarks --bench iter_ops_parallel_comparison -- iter_ops_parallel --quiet
 ```
 
 Workload: same-run native scheduler, async iterator, and Rayon-style adapter rows after registry-owned task-ID allocation and diagnostic tree splitting. Every row keeps value assertions inside the benchmark source before timing.
@@ -41,8 +42,10 @@ Workload: same-run native scheduler, async iterator, and Rayon-style adapter row
 | Iterator position | 23.683-23.933 us | Rayon 221.01-228.09 us |
 | Iterator copied/cloned materialization | 1.8444-1.8703 ms | Rayon 2.8979-2.9487 ms |
 | Iterator unzip | 29.351-29.744 us | Rayon 493.15-537.41 us |
+| Scoped `iter_ops::ParallelIter` map | 7.0830-7.5290 us | Rayon 46.176-47.066 us |
+| Scoped `iter_ops::ParallelIter` reduce | 1.7471-1.7582 us | Rayon 47.637-50.345 us |
 
-Interpretation: no active comparison gap remains in the native scheduler/result-handle/indexed-reduction scope. Tokio reactor-native drop-in I/O, WASM browser event-loop integration, and full Rayon ecosystem parity remain documented compatibility boundaries rather than failures in the native scheduler benchmark gate.
+Interpretation: no active comparison gap remains in the native scheduler/result-handle/indexed-reduction scope. The legacy `iter_ops::ParallelIter` helper now removes the old `Arc<Vec<T>>` data-sharing path and keeps scoped OS-thread fanout behind the bounded scheduler batch-capacity gate, which closes the small-trivial-work Rayon overhead gap for the audited helper rows. Tokio reactor-native drop-in I/O, WASM browser event-loop integration, and full Rayon ecosystem parity remain documented compatibility boundaries rather than failures in the native scheduler benchmark gate.
 
 ## 2026-05-27 Registry-Local Task ID and Token Lifecycle Split
 
