@@ -3,6 +3,25 @@ use super::{
     IntoParallelRefIterator, ParallelExtend, ParallelIterator,
 };
 
+fn move_vec_items_into<T>(source: Vec<T>, target: &mut Vec<T>) {
+    target.clear();
+    let len = source.len();
+    if target.capacity() < len {
+        *target = source;
+        return;
+    }
+
+    let source = std::mem::ManuallyDrop::new(source);
+    // Safety: `target` has capacity for `len` initialized values and was
+    // cleared, so its destination range is uninitialized. `source` is owned by
+    // this function and cannot overlap `target`; `ManuallyDrop` prevents the
+    // moved values from being dropped twice.
+    unsafe {
+        std::ptr::copy_nonoverlapping(source.as_ptr(), target.as_mut_ptr(), len);
+        target.set_len(len);
+    }
+}
+
 /// Parallel iterator over a vector.
 pub struct VecParIter<T> {
     data: Vec<T>,
@@ -46,6 +65,10 @@ impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
 impl<T: Send + Sync + 'static> IndexedParallelIterator for VecParIter<T> {
     fn len(&self) -> usize {
         self.data.len()
+    }
+
+    fn collect_into_vec(self, target: &mut Vec<Self::Item>) {
+        move_vec_items_into(self.data, target);
     }
 }
 
@@ -100,6 +123,11 @@ impl IndexedParallelIterator for RangeParIter<usize> {
     fn len(&self) -> usize {
         self.end.saturating_sub(self.start)
     }
+
+    fn collect_into_vec(self, target: &mut Vec<Self::Item>) {
+        target.clear();
+        target.extend(self.start..self.end);
+    }
 }
 
 /// Sequential iterator adapter for compatibility.
@@ -151,6 +179,11 @@ where
 {
     fn len(&self) -> usize {
         self.iter.len()
+    }
+
+    fn collect_into_vec(self, target: &mut Vec<Self::Item>) {
+        target.clear();
+        target.extend(self.iter);
     }
 }
 
@@ -204,6 +237,11 @@ impl<'data, T: Send + Sync + 'data> IndexedParallelIterator for VecRefParIter<'d
     fn len(&self) -> usize {
         self.data.len()
     }
+
+    fn collect_into_vec(self, target: &mut Vec<Self::Item>) {
+        target.clear();
+        target.extend(self.data.iter());
+    }
 }
 
 /// A parallel iterator specifically for reference vectors.
@@ -251,6 +289,10 @@ impl<'a, T: Send + Sync> ParallelIterator for RefVecParIter<'a, T> {
 impl<'a, T: Send + Sync> IndexedParallelIterator for RefVecParIter<'a, T> {
     fn len(&self) -> usize {
         self.data.len()
+    }
+
+    fn collect_into_vec(self, target: &mut Vec<Self::Item>) {
+        move_vec_items_into(self.data, target);
     }
 }
 

@@ -1,6 +1,6 @@
 //! Iterator adapter comparison benchmarks against Rayon.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use moirai_iter::parallel::IndexedParallelIterator as MoiraiIndexedParallelIterator;
 use moirai_iter::parallel::IntoParallelIterator as MoiraiIntoParallelIterator;
 use moirai_iter::parallel::IntoParallelRefIterator as MoiraiIntoParallelRefIterator;
@@ -63,6 +63,28 @@ where
     let empty_flag = RayonIndexedParallelIterator::len(empty) == 0;
     let range_len = RayonIndexedParallelIterator::len(range);
     (owned_len, empty_flag, range_len)
+}
+
+fn collect_checksum(values: &[u64]) -> u64 {
+    values
+        .iter()
+        .fold(0_u64, |acc, value| acc.wrapping_add(*value))
+}
+
+fn moirai_collect_into_vec_pipeline(data: Vec<u64>, output: &mut Vec<u64>) -> u64 {
+    MoiraiIndexedParallelIterator::collect_into_vec(
+        MoiraiIntoParallelIterator::into_par_iter(data),
+        output,
+    );
+    collect_checksum(output)
+}
+
+fn rayon_collect_into_vec_pipeline(data: Vec<u64>, output: &mut Vec<u64>) -> u64 {
+    RayonIndexedParallelIterator::collect_into_vec(
+        rayon::prelude::IntoParallelIterator::into_par_iter(data),
+        output,
+    );
+    collect_checksum(output)
 }
 
 fn moirai_indexed_pipeline(data: Vec<u64>) -> Vec<u64> {
@@ -711,6 +733,31 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
                 black_box(&rayon_range),
             ))
         })
+    });
+    group.finish();
+
+    let mut moirai_output = Vec::with_capacity(WORK_ITEMS);
+    let mut rayon_output = Vec::with_capacity(WORK_ITEMS);
+    let moirai_expected = moirai_collect_into_vec_pipeline(data.clone(), &mut moirai_output);
+    let rayon_expected = rayon_collect_into_vec_pipeline(data.clone(), &mut rayon_output);
+    assert_eq!(moirai_output, rayon_output);
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_indexed_collect_into_vec");
+    group.sample_size(SAMPLE_SIZE);
+    group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter_batched(
+            || (input.clone(), Vec::with_capacity(WORK_ITEMS)),
+            |(source, mut output)| black_box(moirai_collect_into_vec_pipeline(source, &mut output)),
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
+        b.iter_batched(
+            || (input.clone(), Vec::with_capacity(WORK_ITEMS)),
+            |(source, mut output)| black_box(rayon_collect_into_vec_pipeline(source, &mut output)),
+            BatchSize::SmallInput,
+        )
     });
     group.finish();
 

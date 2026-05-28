@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `try_reduce` fallible reduction terminal to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `copied` and `cloned` borrowed-reference adapters to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `iterator_adapter_non_clone_ref_map`, a value-checked borrowed `Vec<T>::par_iter` benchmark row against Rayon over non-`Clone` values.
+- Added `IndexedParallelIterator::collect_into_vec` for exact-size source iterators with non-`Clone` move tests and a same-run Rayon benchmark row.
 - Added `unzip` pair-stream collector to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `IndexedParallelIterator::{len, is_empty}` for exact-size parallel iterator sources with value tests and a same-run Rayon metadata benchmark row.
 - Added `iter_ops_parallel_comparison`, a value-checked scoped `ParallelIter` map/reduce benchmark against Rayon.
@@ -86,6 +87,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `moirai_iter::distributed` map, reduce, and partition helpers to consume owned partitions, produce value-semantic map results, and remove clone-bound direct distributed item paths.
 - Changed `moirai_iter::multi_system` partition, distribution, and heterogeneous map helpers to consume owned partitions without clone-bound direct item paths and to return value-semantic mapped results.
 - Changed `moirai_iter::parallel::IntoParallelRefIterator for Vec<T>` to borrow non-`Clone` values with `T: Send + Sync + 'data` instead of requiring `T: Clone + 'static`.
+- Changed exact-size vector source collection to bulk-move owned items into caller-provided `Vec` spare capacity without cloning.
 - Changed `ParAsyncMap`, `ParAsyncFilter`, and `ParAsyncForEach` to use bounded in-flight polling through their `concurrency` parameter.
 - Raised the unstable sorting sequential threshold so medium slices use Rust's optimized unstable sort until worker dispatch amortizes.
 - Replaced placeholder-only async file tests with value-semantic file operation tests.

@@ -174,6 +174,30 @@ fn test_indexed_parallel_iterator_reports_source_lengths() {
 }
 
 #[test]
+fn test_indexed_collect_into_vec_moves_non_clone_values() {
+    struct NonCloneValue {
+        value: u64,
+    }
+
+    let data = vec![
+        NonCloneValue { value: 8 },
+        NonCloneValue { value: 13 },
+        NonCloneValue { value: 21 },
+    ];
+    let mut output = Vec::with_capacity(8);
+    output.push(NonCloneValue { value: 999 });
+    let capacity = output.capacity();
+
+    data.into_par_iter().collect_into_vec(&mut output);
+
+    assert_eq!(output.capacity(), capacity);
+    assert_eq!(
+        output.iter().map(|item| item.value).collect::<Vec<_>>(),
+        vec![8, 13, 21]
+    );
+}
+
+#[test]
 fn test_parallel_copied_materializes_borrowed_copy_values() {
     let data = vec![1_u64, 2, 3, 4];
     let result: Vec<u64> = data.par_iter().copied().map(|value| value * 3).collect();

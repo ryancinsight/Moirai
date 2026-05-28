@@ -12,4 +12,14 @@ pub trait IndexedParallelIterator: ParallelIterator {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Move all items into caller-provided storage.
+    ///
+    /// The destination vector is cleared but keeps its allocation, matching the
+    /// bounded source contract for exact-size streams without requiring item
+    /// cloning or allocating a second output vector.
+    fn collect_into_vec(self, target: &mut Vec<Self::Item>) {
+        target.clear();
+        target.extend(self.seq_items());
+    }
 }
