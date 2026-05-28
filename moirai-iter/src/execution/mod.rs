@@ -66,7 +66,7 @@ impl ExecutionContext {
         func: F,
     ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
@@ -92,13 +92,11 @@ impl ExecutionContext {
         func: F,
     ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        // For now, simple sequential async execution
-        // Real implementation would leverage async execution contexts
         let mut results = Vec::with_capacity(items.len());
         for item in items {
             let result = func(item).await;
@@ -114,7 +112,7 @@ impl ExecutionContext {
         predicate: F,
     ) -> Result<Vec<T>, Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(&T) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = bool> + Send + 'static,
     {
@@ -134,7 +132,7 @@ impl ExecutionContext {
         func: F,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
@@ -151,7 +149,7 @@ impl ExecutionContext {
         func: F,
     ) -> Result<Option<T>, Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T, T) -> T + Send + Sync + 'static,
     {
         Ok(items.into_iter().reduce(func))
@@ -222,7 +220,7 @@ impl ParallelContext {
         func: F,
     ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
@@ -230,21 +228,17 @@ impl ParallelContext {
             return Ok(Vec::new());
         }
 
-        let func = Arc::new(func);
-        let chunks: Vec<_> = items
-            .chunks(self.chunk_size)
-            .map(|chunk| chunk.to_vec())
-            .collect();
+        let chunk_size = self.chunk_size.max(1);
 
-        if chunks.len() == 1 {
-            // Single chunk - execute sequentially
-            let results = chunks[0].iter().cloned().map(|item| func(item)).collect();
-            return Ok(results);
+        if items.len() <= chunk_size {
+            return Ok(items.into_iter().map(func).collect());
         }
 
-        // Multiple chunks - execute in parallel using thread pool
-        let mut results = Vec::with_capacity(items.len());
+        let item_count = items.len();
+        let chunks = owned_chunks(items, chunk_size);
+        let mut results = Vec::with_capacity(item_count);
         let (tx, rx) = std::sync::mpsc::channel();
+        let func = Arc::new(func);
 
         for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
             let tx = tx.clone();
@@ -335,17 +329,15 @@ impl AsyncContext {
         func: F,
     ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
-        // Simplified async execution - batched processing
         let mut results = Vec::with_capacity(items.len());
 
-        for batch in items.chunks(self.batch_size) {
+        for batch in owned_chunks(items, self.batch_size) {
             for item in batch {
-                // In real implementation, this would be truly async
-                let result = func(item.clone());
+                let result = func(item);
                 results.push(result);
             }
         }
@@ -534,7 +526,7 @@ impl HybridContext {
         func: F,
     ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
@@ -588,5 +580,63 @@ impl HybridContext {
 impl ExecutionBase for HybridContext {
     fn context_type(&self) -> &'static str {
         "Hybrid"
+    }
+}
+
+fn owned_chunks<T>(items: Vec<T>, chunk_size: usize) -> Vec<Vec<T>> {
+    let chunk_size = chunk_size.max(1);
+    let item_count = items.len();
+    let mut remaining = item_count;
+    let mut iter = items.into_iter();
+    let mut chunks = Vec::with_capacity(item_count.div_ceil(chunk_size));
+
+    while remaining > 0 {
+        let take = remaining.min(chunk_size);
+        chunks.push(iter.by_ref().take(take).collect());
+        remaining -= take;
+    }
+
+    chunks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{owned_chunks, AsyncContext, ParallelContext};
+
+    #[derive(Debug, PartialEq)]
+    struct NonClone(u64);
+
+    #[test]
+    fn owned_chunks_move_values_without_clone_bound() {
+        let chunks = owned_chunks((0..5).map(NonClone).collect(), 2);
+        let values = chunks
+            .into_iter()
+            .flatten()
+            .map(|item| item.0)
+            .collect::<Vec<_>>();
+
+        assert_eq!(values, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn non_clone_parallel_context_execute_iter_consumes_items() {
+        let data = (0..6).map(NonClone).collect::<Vec<_>>();
+
+        let mapped = ParallelContext::with_chunk_size(2)
+            .execute_iter(data, |item| item.0.wrapping_mul(3))
+            .expect("parallel context map should consume non-clone items");
+
+        assert_eq!(mapped, vec![0, 3, 6, 9, 12, 15]);
+    }
+
+    #[test]
+    fn non_clone_async_context_execute_iter_consumes_items() {
+        let data = (0..4).map(NonClone).collect::<Vec<_>>();
+
+        let mapped = AsyncContext::with_batch_size(2)
+            .execute_iter(data, |item| item.0.wrapping_add(1))
+            .expect("async context map should consume non-clone items");
+
+        assert_eq!(mapped, vec![1, 2, 3, 4]);
     }
 }

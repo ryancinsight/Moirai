@@ -35,6 +35,7 @@ This audit covers the active unified-scheduler comparison scope:
 - Iterator indexed source cardinality: `moirai-iter::parallel::IndexedParallelIterator` exposes `len` and `is_empty` for exact-size source iterators, with owned `Vec<T>` iteration stored by value through `VecParIter<T>` instead of `Arc<Vec<T>>`.
 - Iterator scoped chunk helper: `moirai-iter::iter_ops::ParallelIter` owns `Vec<T>` directly, borrows scoped immutable chunks without `Arc<Vec<T>>`, accepts non-`'static` closures, and gates scoped OS-thread fanout behind the bounded scheduler batch capacity.
 - Iterator cache helper: `moirai-iter::cache::ZeroCopyParallelIter` borrows input slices and map closures directly through scoped chunks without `Arc` allocation and keeps small borrowed work on the sequential zero-copy path.
+- Iterator execution contexts: direct `execute_iter` paths move owned chunks and accept non-`Clone` items instead of cloning chunk slices before scheduling.
 
 Drop-in API compatibility with every Tokio I/O type or every Rayon `ParallelIterator` adapter is not part of this scheduler audit. Those are ecosystem extension goals, not active gaps in the unified scheduler comparison.
 
@@ -94,6 +95,7 @@ The 2026-05-27 audit pass keeps that verdict unchanged for covered semantics and
 | Indexed source cardinality | `IndexedParallelIterator::{len, is_empty}` over exact-size sources | Rayon `IndexedParallelIterator::len` over equivalent sources | `iterator_adapter_comparison -- iterator_indexed_boundary`, `benchmark_contracts`, `moirai-iter` unit tests | Covered bounded source boundary |
 | Scoped helper map/reduce | `iter_ops::ParallelIter` scoped borrowed chunks with sequential small-work gate | Rayon `into_par_iter` map and reduce over equivalent owned vectors | `iter_ops_parallel_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 | Borrowed cache helper map/reduce | `ZeroCopyParallelIter` borrowed slice map/reduce with sequential small-work gate | Rayon `par_iter` map and reduce over equivalent borrowed slices | `cache_iterator_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
+| Owned execution-context map | `ParallelContext::execute_iter` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `execution_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 
 ## Mixed Tokio/Rayon Comparison Matrix
 
@@ -199,6 +201,7 @@ Rayon does not expose a per-task result handle equivalent to `TaskHandle<T>`, so
 - Iterator streaming producers remain generic and FIFO buffering does not use `Vec::remove(0)`.
 - Iterator `iter_ops::ParallelIter` must not reintroduce `Arc<Vec<T>>`, closure `Arc` routing, unscoped `thread::spawn`, or `'static` closure bounds on map/reduce.
 - Iterator `ZeroCopyParallelIter::map` must not reintroduce `Arc` wrappers for borrowed data or closures.
+- Iterator execution contexts must not reintroduce `chunk.to_vec()`, `item.clone()` map execution, or `T: Clone` direct map bounds.
 - Iterator base APIs do not expose unused `Pin<Box<dyn Future<...>>>` execution traits.
 - Timer-wheel cancellation must return value-sensitive cancellation results, suppress canceled waker wakeups, and avoid placeholder false returns.
 - Async file facade comparison must assert Moirai bytes and Tokio bytes against the same source bytes before timing for read, write, append, metadata, rename, remove, and copy rows. Async directory facade comparison must assert single directory create/remove state and recursive directory create/remove marker-file state before timing.
@@ -255,6 +258,8 @@ The Rayon adapter utility cleanup adds `inspect`, `panic_fuse`, `chunks`, `parti
 The `iter_ops::ParallelIter` scoped-chunk cleanup removes the legacy `Arc<Vec<T>>` data-sharing path, removes the map/reduce `'static` closure bounds, and keeps scoped OS-thread fanout behind `DEFAULT_RING_BUFFER_CAPACITY` so small trivial work stays on the zero-copy sequential path. `iter_ops_parallel_comparison` measured scoped-helper map at 7.0830-7.5290 µs versus Rayon at 46.176-47.066 µs, and scoped-helper reduce at 1.7471-1.7582 µs versus Rayon at 47.637-50.345 µs after asserting equal map and reduce checksums. This is helper coverage, not a claim of full Rayon adapter parity.
 
 The `ZeroCopyParallelIter` cache-helper cleanup removes `Arc` allocation from scoped map execution over borrowed slices and adds a small-work sequential gate to map, reduce, and for_each. `cache_iterator_comparison` measured borrowed zero-copy map at 422.36-444.66 ns versus Rayon borrowed map at 101.42-289.01 µs, and borrowed zero-copy reduce at 297.25-303.37 ns versus Rayon borrowed reduce at 64.054-165.09 µs after asserting equal checksums. This is cache-helper coverage, not a full Rayon parallel iterator claim.
+
+The execution-context owned-chunk cleanup removes cloned chunk materialization from `ParallelContext::execute_iter` and `AsyncContext::execute_iter`, relaxes direct map bounds from `T: Clone` to `T: Send`, and adds non-`Clone` value tests. `execution_context_comparison` measured owned execution-context map at 120.53-122.07 ns versus Rayon owned map at 29.323-30.104 µs after asserting equal checksums. This is direct execution-context helper coverage, not a full Rayon adapter parity claim.
 
 The sorting slice-extension boundary is now covered by `ParallelSliceMut` and the value-checked `sorting_comparison` benchmark against Rayon `ParallelSliceMut`. The latest same-run benchmark measured stable sort at 76.225-78.202 µs for Moirai versus 143.38-146.10 µs for Rayon, and unstable sort at 48.838-51.041 µs for Moirai versus 66.725-69.234 µs for Rayon.
 

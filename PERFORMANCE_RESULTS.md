@@ -12,6 +12,7 @@ cargo bench -p moirai-benchmarks --bench async_iterator_comparison -- "async_ite
 cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- "iterator_adapter_(indexed|filter_flat|flatten|take_skip_any|update|intersperse|try_reduce|terminal_reducers|find_map|position|ref_copy_clone|unzip)" --quiet
 cargo bench -p moirai-benchmarks --bench iter_ops_parallel_comparison -- iter_ops_parallel --quiet
 cargo bench -p moirai-benchmarks --bench cache_iterator_comparison -- cache_iterator_zero_copy --quiet
+cargo bench -p moirai-benchmarks --bench execution_context_comparison -- execution_context_owned_map --quiet
 ```
 
 Workload: same-run native scheduler, async iterator, and Rayon-style adapter rows after registry-owned task-ID allocation and diagnostic tree splitting. Every row keeps value assertions inside the benchmark source before timing.
@@ -47,8 +48,9 @@ Workload: same-run native scheduler, async iterator, and Rayon-style adapter row
 | Scoped `iter_ops::ParallelIter` reduce | 1.7471-1.7582 us | Rayon 47.637-50.345 us |
 | Borrowed cache zero-copy map | 422.36-444.66 ns | Rayon 101.42-289.01 us |
 | Borrowed cache zero-copy reduce | 297.25-303.37 ns | Rayon 64.054-165.09 us |
+| Owned execution context map | 120.53-122.07 ns | Rayon 29.323-30.104 us |
 
-Interpretation: no active comparison gap remains in the native scheduler/result-handle/indexed-reduction scope. The legacy `iter_ops::ParallelIter` helper now removes the old `Arc<Vec<T>>` data-sharing path and keeps scoped OS-thread fanout behind the bounded scheduler batch-capacity gate, which closes the small-trivial-work Rayon overhead gap for the audited helper rows. `ZeroCopyParallelIter` now borrows slices and closures directly for map execution instead of allocating `Arc` wrappers, and the borrowed cache helper rows stay below the equivalent Rayon borrowed-slice rows for the audited small-work boundary. Tokio reactor-native drop-in I/O, WASM browser event-loop integration, and full Rayon ecosystem parity remain documented compatibility boundaries rather than failures in the native scheduler benchmark gate.
+Interpretation: no active comparison gap remains in the native scheduler/result-handle/indexed-reduction scope. The legacy `iter_ops::ParallelIter` helper now removes the old `Arc<Vec<T>>` data-sharing path and keeps scoped OS-thread fanout behind the bounded scheduler batch-capacity gate, which closes the small-trivial-work Rayon overhead gap for the audited helper rows. `ZeroCopyParallelIter` now borrows slices and closures directly for map execution instead of allocating `Arc` wrappers, and the borrowed cache helper rows stay below the equivalent Rayon borrowed-slice rows for the audited small-work boundary. Direct execution contexts now move owned chunks instead of cloning chunk slices, and the owned execution-context row stays below the equivalent Rayon owned-map row for the audited single-chunk boundary. Tokio reactor-native drop-in I/O, WASM browser event-loop integration, and full Rayon ecosystem parity remain documented compatibility boundaries rather than failures in the native scheduler benchmark gate.
 
 ## 2026-05-27 Registry-Local Task ID and Token Lifecycle Split
 

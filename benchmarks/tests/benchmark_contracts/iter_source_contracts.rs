@@ -249,6 +249,54 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
 }
 
 #[test]
+fn execution_context_iter_consumes_owned_chunks_without_clone() {
+    let source = read_benchmark("../moirai-iter/src/execution/mod.rs");
+    let benchmark = read_benchmark("benches/execution_context_comparison.rs");
+    let manifest = read_benchmark("Cargo.toml");
+
+    for required in [
+        "fn owned_chunks<T>(items: Vec<T>, chunk_size: usize) -> Vec<Vec<T>>",
+        "let mut iter = items.into_iter();",
+        "chunks.push(iter.by_ref().take(take).collect());",
+        "if items.len() <= chunk_size",
+        "return Ok(items.into_iter().map(func).collect());",
+        "non_clone_parallel_context_execute_iter_consumes_items",
+        "non_clone_async_context_execute_iter_consumes_items",
+        "owned_chunks_move_values_without_clone_bound",
+    ] {
+        assert!(
+            source.contains(required),
+            "execution context iterator must retain owned move marker {required}"
+        );
+    }
+
+    for required in [
+        "name = \"execution_context_comparison\"",
+        "execution_context_owned_map",
+        "moirai_parallel_context_map",
+        "rayon_owned_map",
+        "assert_eq!",
+    ] {
+        assert!(
+            benchmark.contains(required) || manifest.contains(required),
+            "execution context benchmark contract must retain marker {required}"
+        );
+    }
+
+    for prohibited in [
+        ".map(|chunk| chunk.to_vec())",
+        "let result = func(item.clone());",
+        "T: Send + Clone + 'static",
+        "Simplified async execution",
+    ] {
+        assert!(
+            !source.contains(prohibited),
+            "execution context iterator must not reintroduce clone-bound owned chunking through {prohibited}"
+        );
+    }
+}
+
+#[test]
 fn iterator_simd_surface_uses_generic_scalar_contract() {
     let source = read_benchmark("../moirai-iter/src/simd_iter.rs");
     let benchmark = read_benchmark("benches/iter_simd_comparison.rs");
