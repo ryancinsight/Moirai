@@ -204,13 +204,20 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
     for required in [
         "pub struct ZeroCopyParallelIter<'a, T>",
         "data: &'a [T]",
-        "if self.data.len() <= self.chunk_size",
+        "fn should_execute_scoped_cache<T>(len: usize, chunk_size: usize) -> bool",
+        "DEFAULT_RING_BUFFER_CAPACITY",
+        "should_execute_scoped_cache::<T>(self.data.len(), self.chunk_size)",
         "return self.data.iter().map(&func).collect();",
         ".chunks(chunk_size).enumerate()",
         "let func_ref = &func",
         "func_ref(item)",
         "zero_copy_parallel_map_borrows_data_and_closure",
         "zero_copy_parallel_map_matches_sequential_values",
+        "fn reduce_owned_pairs<T, F>(items: Vec<T>, func: &F) -> Vec<T>",
+        "current_results = reduce_owned_pairs(current_results, &func);",
+        "reduce_owned_pairs_moves_non_clone_odd_value",
+        "cache_scoped_execution_gate_uses_batch_capacity_floor",
+        "zero_copy_parallel_reduce_accepts_non_clone_reducer",
     ] {
         assert!(
             source.contains(required),
@@ -226,6 +233,9 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
         "rayon_borrowed_map",
         "moirai_zero_copy_reduce",
         "rayon_borrowed_reduce",
+        "cache_iterator_zero_copy_large_reduce",
+        "moirai_zero_copy_large_reduce",
+        "rayon_borrowed_large_reduce",
         "assert_eq!",
     ] {
         assert!(
@@ -240,10 +250,13 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
         "let data = Arc::new(self.data)",
         "Arc::clone(&func)",
         "Arc::clone(&data)",
+        "F: Fn(&T, &T) -> T + Send + Sync + Clone",
+        "let chunk = current_results[chunk_start..chunk_end].to_vec();",
+        "let func = func.clone();",
     ] {
         assert!(
             !source.contains(prohibited),
-            "cache zero-copy parallel iterator must not reintroduce refcounted map routing through {prohibited}"
+            "cache zero-copy parallel iterator must not reintroduce refcounted map or cloned reduce routing through {prohibited}"
         );
     }
 }

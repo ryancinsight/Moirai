@@ -3,6 +3,7 @@
 use std::mem;
 
 use crate::base::SendPtr;
+use moirai_core::constants::DEFAULT_RING_BUFFER_CAPACITY;
 
 /// Wrapper to make const raw pointers Send
 #[allow(dead_code)]
@@ -185,7 +186,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
     where
         F: Fn(&T) + Send + Sync,
     {
-        if self.data.len() <= self.chunk_size {
+        if !should_execute_scoped_cache::<T>(self.data.len(), self.chunk_size) {
             self.data.iter().for_each(func);
             return;
         }
@@ -215,7 +216,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
     {
         use std::mem::MaybeUninit;
 
-        if self.data.len() <= self.chunk_size {
+        if !should_execute_scoped_cache::<T>(self.data.len(), self.chunk_size) {
             return self.data.iter().map(&func).collect();
         }
 
@@ -248,7 +249,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
 
     pub fn reduce<F>(&self, func: F) -> Option<T>
     where
-        F: Fn(&T, &T) -> T + Send + Sync + Clone,
+        F: Fn(&T, &T) -> T + Send + Sync,
         T: Clone + Send,
     {
         if self.data.is_empty() {
@@ -257,14 +258,16 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         if self.data.len() == 1 {
             return Some(self.data[0].clone());
         }
-        if self.data.len() <= self.chunk_size {
+        if !should_execute_scoped_cache::<T>(self.data.len(), self.chunk_size) {
             return self.data.iter().cloned().reduce(|a, b| func(&a, &b));
         }
 
         let mut current_results: Vec<T> = std::thread::scope(|scope| {
             let mut handles = Vec::new();
             for chunk in self.data.chunks(self.chunk_size) {
-                let handle = scope.spawn(|| chunk.iter().cloned().reduce(|a, b| func(&a, &b)));
+                let func_ref = &func;
+                let handle =
+                    scope.spawn(move || chunk.iter().cloned().reduce(|a, b| func_ref(&a, &b)));
                 handles.push(handle);
             }
             handles
@@ -273,38 +276,37 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                 .collect()
         });
         while current_results.len() > 1 {
-            current_results = std::thread::scope(|scope| {
-                let mut handles = Vec::new();
-                let len = current_results.len();
-                let pairs_per_chunk = 32;
-                for chunk_start in (0..len).step_by(pairs_per_chunk * 2) {
-                    let chunk_end = std::cmp::min(chunk_start + pairs_per_chunk * 2, len);
-                    let chunk = current_results[chunk_start..chunk_end].to_vec();
-                    let func = func.clone();
-                    let handle = scope.spawn(move || {
-                        let mut results = Vec::new();
-                        let mut i = 0;
-                        while i < chunk.len() {
-                            if i + 1 < chunk.len() {
-                                results.push(func(&chunk[i], &chunk[i + 1]));
-                                i += 2;
-                            } else {
-                                results.push(chunk[i].clone());
-                                i += 1;
-                            }
-                        }
-                        results
-                    });
-                    handles.push(handle);
-                }
-                handles
-                    .into_iter()
-                    .flat_map(|h| h.join().ok().unwrap_or_default())
-                    .collect()
-            });
+            current_results = reduce_owned_pairs(current_results, &func);
         }
         current_results.into_iter().next()
     }
+}
+
+fn reduce_owned_pairs<T, F>(items: Vec<T>, func: &F) -> Vec<T>
+where
+    F: Fn(&T, &T) -> T,
+{
+    let capacity = items.len().div_ceil(2);
+    let mut iter = items.into_iter();
+    let mut reduced = Vec::with_capacity(capacity);
+
+    while let Some(left) = iter.next() {
+        match iter.next() {
+            Some(right) => reduced.push(func(&left, &right)),
+            None => reduced.push(left),
+        }
+    }
+
+    reduced
+}
+
+#[inline]
+fn should_execute_scoped_cache<T>(len: usize, chunk_size: usize) -> bool {
+    let element_size = mem::size_of::<T>().max(1);
+    let cache_chunk_items = (CACHE_CHUNK_SIZE / element_size).max(1);
+    let scoped_item_floor = cache_chunk_items.saturating_mul(DEFAULT_RING_BUFFER_CAPACITY);
+
+    len > chunk_size && len > scoped_item_floor
 }
 
 /// Extension trait for slices to provide cache-aware iteration
@@ -331,6 +333,8 @@ impl<T: Send + Sync> CacheIterExt<T> for [T] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct NonClone(u64);
 
     #[test]
     fn test_window_iterator() {
@@ -389,5 +393,46 @@ mod tests {
                 .map(|value| value.wrapping_mul(5).wrapping_add(7))
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn reduce_owned_pairs_moves_non_clone_odd_value() {
+        let reduced = reduce_owned_pairs(
+            vec![NonClone(1), NonClone(2), NonClone(3)],
+            &|left, right| NonClone(left.0 + right.0),
+        )
+        .into_iter()
+        .map(|item| item.0)
+        .collect::<Vec<_>>();
+
+        assert_eq!(reduced, vec![3, 3]);
+    }
+
+    #[test]
+    fn cache_scoped_execution_gate_uses_batch_capacity_floor() {
+        let cache_chunk_items = (CACHE_CHUNK_SIZE / std::mem::size_of::<u64>()).max(1);
+        let floor = cache_chunk_items * moirai_core::constants::DEFAULT_RING_BUFFER_CAPACITY;
+
+        assert!(!should_execute_scoped_cache::<u64>(
+            floor,
+            cache_chunk_items
+        ));
+        assert!(should_execute_scoped_cache::<u64>(
+            floor + 1,
+            cache_chunk_items
+        ));
+    }
+
+    #[test]
+    fn zero_copy_parallel_reduce_accepts_non_clone_reducer() {
+        let data = [1_u64, 2, 3, 4];
+        let token = NonClone(1);
+
+        let reduced = data
+            .zero_copy_par_iter()
+            .reduce(move |left, right| left + right + token.0)
+            .expect("reduction should produce a value");
+
+        assert_eq!(reduced, 13);
     }
 }

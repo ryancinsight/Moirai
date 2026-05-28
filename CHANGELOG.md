@@ -51,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `unzip` pair-stream collector to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `IndexedParallelIterator::{len, is_empty}` for exact-size parallel iterator sources with value tests and a same-run Rayon metadata benchmark row.
 - Added `iter_ops_parallel_comparison`, a value-checked scoped `ParallelIter` map/reduce benchmark against Rayon.
-- Added `cache_iterator_comparison`, a value-checked borrowed-slice `ZeroCopyParallelIter` map/reduce benchmark against Rayon.
+- Added `cache_iterator_comparison`, a value-checked borrowed-slice `ZeroCopyParallelIter` map/reduce benchmark against Rayon, including a large borrowed reduce row that exercises the cache scoped-spawn gate.
 - Added `execution_context_comparison`, a value-checked owned `ParallelContext::execute_iter` benchmark against Rayon.
 - Added `numa_context_comparison`, a value-checked owned `NumaContext::execute_iter` benchmark against Rayon.
 - Added `distributed_context_comparison`, a value-checked owned `DistributedContext::execute_distributed_map` benchmark against Rayon.
@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced async iterator terminal placeholder futures with value-semantic `collect`, `for_each`, `fold`, and `reduce` execution over the logical iterator stream.
 - Changed `moirai_iter::iter_ops::ParallelIter` to own `Vec<T>` directly, borrow scoped chunks without `Arc<Vec<T>>`, accept non-`'static` closures, and use the bounded scheduler batch capacity as the scoped-spawn cost gate.
 - Changed `moirai_iter::cache::ZeroCopyParallelIter` map execution to borrow scoped slices and closures directly instead of allocating `Arc` wrappers for borrowed data and functions.
+- Changed `moirai_iter::cache::ZeroCopyParallelIter` reduce execution to move owned intermediate partials through pair compaction, accept non-`Clone` reducer closures, and gate scoped OS-thread fanout behind a scheduler-batch cache-chunk floor.
 - Changed `moirai_iter::execution` direct iterator execution to move owned chunks instead of cloning chunk slices, removing `T: Clone` from direct execution-context map bounds.
 - Changed `moirai_iter::numa` map and reduce execution to consume owned batches instead of cloning chunk slices, removing `T: Clone` from NUMA map and extension bounds.
 - Changed `moirai_iter::distributed` map, reduce, and partition helpers to consume owned partitions, produce value-semantic map results, and remove clone-bound direct distributed item paths.
