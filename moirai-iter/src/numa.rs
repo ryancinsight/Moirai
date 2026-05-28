@@ -156,22 +156,11 @@ impl NumaContext {
         func: F,
     ) -> Result<Vec<R>, Box<dyn std::error::Error + Send + Sync>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
-        // Simple implementation - divide work across NUMA nodes
-        let chunk_size = items.len().div_ceil(self.thread_count);
-        let mut results = Vec::with_capacity(items.len());
-
-        for chunk in items.chunks(chunk_size) {
-            for item in chunk {
-                let result = func(item.clone());
-                results.push(result);
-            }
-        }
-
-        Ok(results)
+        Ok(map_owned_numa_batches(items, self.thread_count, func))
     }
 
     /// Execute a closure with the context
@@ -202,12 +191,11 @@ pub struct NumaIter<T> {
     context: NumaContext,
 }
 
-impl<T: Send + Clone + 'static> NumaIter<T> {
+impl<T: Send + 'static> NumaIter<T> {
     pub async fn for_each<F>(self, func: F)
     where
-        F: Fn(T) + Send + Sync + Clone + 'static,
+        F: Fn(T) + Send + Sync + 'static,
     {
-        // Use the execute_iter method to apply the function
         let _ = self.context.execute_iter(self.items, move |item| {
             func(item);
         });
@@ -215,8 +203,8 @@ impl<T: Send + Clone + 'static> NumaIter<T> {
 
     pub async fn map<R, F>(self, func: F) -> Vec<R>
     where
-        R: Send + Clone + 'static,
-        F: Fn(T) -> R + Send + Sync + Clone + 'static,
+        R: Send + 'static,
+        F: Fn(T) -> R + Send + Sync + 'static,
     {
         self.context
             .execute_iter(self.items, func)
@@ -225,33 +213,13 @@ impl<T: Send + Clone + 'static> NumaIter<T> {
 
     pub async fn reduce<F>(self, func: F) -> Option<T>
     where
-        F: Fn(T, T) -> T + Send + Sync + Clone + 'static,
+        F: Fn(T, T) -> T + Send + Sync + 'static,
     {
-        if self.items.is_empty() {
-            return None;
-        }
-        let items = self.items;
-        let num_nodes = self.context.thread_count.max(1);
-        let chunk_size = items.len().div_ceil(num_nodes);
-        if chunk_size == 0 || items.len() == 1 {
-            return items.into_iter().reduce(func);
-        }
-        let mut node_results = Vec::new();
-        for i in 0..num_nodes {
-            let start = i * chunk_size;
-            let end = ((i + 1) * chunk_size).min(items.len());
-            if start < end {
-                let chunk: Vec<T> = items[start..end].to_vec();
-                if let Some(result) = chunk.into_iter().reduce(func.clone()) {
-                    node_results.push(result);
-                }
-            }
-        }
-        node_results.into_iter().reduce(func)
+        reduce_owned_numa_batches(self.items, self.context.thread_count, func)
     }
 }
 
-impl<T: Send + Clone + 'static> NumaIterExt<T> for Vec<T> {
+impl<T: Send + 'static> NumaIterExt<T> for Vec<T> {
     fn numa_iter(self, policy: NumaPolicy) -> NumaIter<T> {
         NumaIter {
             items: self,
@@ -260,9 +228,102 @@ impl<T: Send + Clone + 'static> NumaIterExt<T> for Vec<T> {
     }
 }
 
+fn map_owned_numa_batches<T, F, R>(items: Vec<T>, batch_count: usize, func: F) -> Vec<R>
+where
+    F: Fn(T) -> R,
+{
+    let item_count = items.len();
+    if item_count == 0 {
+        return Vec::new();
+    }
+
+    let batch_count = batch_count.max(1).min(item_count);
+    let chunk_size = item_count.div_ceil(batch_count);
+    let mut remaining = item_count;
+    let mut iter = items.into_iter();
+    let mut results = Vec::with_capacity(item_count);
+
+    while remaining > 0 {
+        let take = remaining.min(chunk_size);
+        results.extend(iter.by_ref().take(take).map(&func));
+        remaining -= take;
+    }
+
+    results
+}
+
+fn reduce_owned_numa_batches<T, F>(items: Vec<T>, batch_count: usize, func: F) -> Option<T>
+where
+    F: Fn(T, T) -> T,
+{
+    let item_count = items.len();
+    if item_count == 0 {
+        return None;
+    }
+
+    let batch_count = batch_count.max(1).min(item_count);
+    let chunk_size = item_count.div_ceil(batch_count);
+    let mut remaining = item_count;
+    let mut iter = items.into_iter();
+    let mut partials = Vec::with_capacity(batch_count);
+
+    while remaining > 0 {
+        let take = remaining.min(chunk_size);
+        let mut batch = iter.by_ref().take(take);
+        if let Some(first) = batch.next() {
+            partials.push(batch.fold(first, &func));
+        }
+        remaining -= take;
+    }
+
+    partials.into_iter().reduce(func)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, PartialEq)]
+    struct NonClone(u64);
+
+    #[test]
+    fn map_owned_numa_batches_consumes_non_clone_values() {
+        let mapped = map_owned_numa_batches((0..5).map(NonClone).collect(), 2, |item| item.0 + 1);
+
+        assert_eq!(mapped, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn reduce_owned_numa_batches_consumes_non_clone_values() {
+        let reduced =
+            reduce_owned_numa_batches((0..5).map(NonClone).collect(), 3, |left, right| {
+                NonClone(left.0 + right.0)
+            });
+
+        assert_eq!(reduced, Some(NonClone(10)));
+    }
+
+    #[tokio::test]
+    async fn non_clone_numa_map_consumes_items() {
+        let data = (0..4).map(NonClone).collect::<Vec<_>>();
+        let mapped = data
+            .numa_iter(NumaPolicy::Local)
+            .map(|item| item.0 * 2)
+            .await;
+
+        assert_eq!(mapped, vec![0, 2, 4, 6]);
+    }
+
+    #[tokio::test]
+    async fn non_clone_numa_reduce_consumes_items() {
+        let data = (1..5).map(NonClone).collect::<Vec<_>>();
+        let reduced = data
+            .numa_iter(NumaPolicy::Preferred)
+            .reduce(|left, right| NonClone(left.0 * right.0))
+            .await;
+
+        assert_eq!(reduced, Some(NonClone(24)));
+    }
 
     #[tokio::test]
     async fn test_numa_execution() {

@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `iter_ops_parallel_comparison`, a value-checked scoped `ParallelIter` map/reduce benchmark against Rayon.
 - Added `cache_iterator_comparison`, a value-checked borrowed-slice `ZeroCopyParallelIter` map/reduce benchmark against Rayon.
 - Added `execution_context_comparison`, a value-checked owned `ParallelContext::execute_iter` benchmark against Rayon.
+- Added `numa_context_comparison`, a value-checked owned `NumaContext::execute_iter` benchmark against Rayon.
 - Added PAL async file value tests, PAL TCP/UDP delayed loopback progress tests for the no-active-reactor self-wake path, and a Linux epoll wake-path test.
 - Added a PAL reactor task-handle completion regression test for spawned ready tasks.
 - Added `standalone_deque_reclaim_policy`, a value-checked diagnostic benchmark for `ChaseLevDeque` quiescent versus shared epoch reclamation.
@@ -77,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `moirai_iter::iter_ops::ParallelIter` to own `Vec<T>` directly, borrow scoped chunks without `Arc<Vec<T>>`, accept non-`'static` closures, and use the bounded scheduler batch capacity as the scoped-spawn cost gate.
 - Changed `moirai_iter::cache::ZeroCopyParallelIter` map execution to borrow scoped slices and closures directly instead of allocating `Arc` wrappers for borrowed data and functions.
 - Changed `moirai_iter::execution` direct iterator execution to move owned chunks instead of cloning chunk slices, removing `T: Clone` from direct execution-context map bounds.
+- Changed `moirai_iter::numa` map and reduce execution to consume owned batches instead of cloning chunk slices, removing `T: Clone` from NUMA map and extension bounds.
 - Changed `ParAsyncMap`, `ParAsyncFilter`, and `ParAsyncForEach` to use bounded in-flight polling through their `concurrency` parameter.
 - Raised the unstable sorting sequential threshold so medium slices use Rust's optimized unstable sort until worker dispatch amortizes.
 - Replaced placeholder-only async file tests with value-semantic file operation tests.
