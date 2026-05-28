@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `execution_context_comparison`, a value-checked owned `ParallelContext::execute_iter` benchmark against Rayon.
 - Added `numa_context_comparison`, a value-checked owned `NumaContext::execute_iter` benchmark against Rayon.
 - Added `distributed_context_comparison`, a value-checked owned `DistributedContext::execute_distributed_map` benchmark against Rayon.
+- Added `multi_system_context_comparison`, a value-checked owned `MultiSystemContext::execute_heterogeneous_compute` benchmark against Rayon.
 - Added PAL async file value tests, PAL TCP/UDP delayed loopback progress tests for the no-active-reactor self-wake path, and a Linux epoll wake-path test.
 - Added a PAL reactor task-handle completion regression test for spawned ready tasks.
 - Added `standalone_deque_reclaim_policy`, a value-checked diagnostic benchmark for `ChaseLevDeque` quiescent versus shared epoch reclamation.
@@ -81,6 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `moirai_iter::execution` direct iterator execution to move owned chunks instead of cloning chunk slices, removing `T: Clone` from direct execution-context map bounds.
 - Changed `moirai_iter::numa` map and reduce execution to consume owned batches instead of cloning chunk slices, removing `T: Clone` from NUMA map and extension bounds.
 - Changed `moirai_iter::distributed` map, reduce, and partition helpers to consume owned partitions, produce value-semantic map results, and remove clone-bound direct distributed item paths.
+- Changed `moirai_iter::multi_system` partition, distribution, and heterogeneous map helpers to consume owned partitions without clone-bound direct item paths and to return value-semantic mapped results.
 - Changed `ParAsyncMap`, `ParAsyncFilter`, and `ParAsyncForEach` to use bounded in-flight polling through their `concurrency` parameter.
 - Raised the unstable sorting sequential threshold so medium slices use Rust's optimized unstable sort until worker dispatch amortizes.
 - Replaced placeholder-only async file tests with value-semantic file operation tests.

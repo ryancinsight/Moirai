@@ -184,22 +184,19 @@ impl MultiSystemContext {
     pub async fn partition_data<T, F>(
         &self,
         data: Vec<T>,
-        _partition_func: F,
+        partition_func: F,
     ) -> Vec<MoiraiIterator<T>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(&T) -> usize + Send + Sync + 'static,
     {
-        // Analyze data characteristics for optimal placement
         let data_profile = self.analyze_data_characteristics(&data).await;
 
-        // Determine optimal system assignments
         let assignments = self
             .unified_scheduler
-            .assign_data_to_systems(&data, &data_profile, &self.systems)
+            .assign_data_to_systems(data, &data_profile, &self.systems, partition_func)
             .await;
 
-        // Create partitioned iterators
         assignments
             .into_iter()
             .map(|partition| MoiraiIterator::multi_system(partition))
@@ -207,15 +204,16 @@ impl MultiSystemContext {
     }
 
     /// Execute coordinated compute across CPU and GPU clusters
-    pub async fn execute_heterogeneous_compute<T, F, R>(
+    pub async fn execute_heterogeneous_compute<T, CpuF, GpuF, R>(
         &self,
         data: Vec<T>,
-        cpu_func: F,
-        gpu_func: F,
+        cpu_func: CpuF,
+        gpu_func: GpuF,
     ) -> Result<Vec<R>, MultiSystemError>
     where
-        T: Send + Clone + 'static,
-        F: Fn(T) -> R + Send + Sync + 'static,
+        T: Send + 'static,
+        CpuF: Fn(T) -> R + Send + Sync + 'static,
+        GpuF: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
         // Determine CPU vs GPU allocation based on workload characteristics
@@ -240,7 +238,7 @@ impl MultiSystemContext {
     async fn analyze_data_characteristics<T>(&self, data: &[T]) -> DataProfile {
         DataProfile {
             size: data.len(),
-            estimated_compute_intensity: ComputeIntensity::Medium, // Analyze actual characteristics
+            estimated_compute_intensity: ComputeIntensity::Medium,
             memory_access_pattern: MemoryAccessPattern::Sequential,
             parallelizability: ParallelizabilityScore(0.8),
             gpu_suitability: GpuSuitabilityScore(0.6),
@@ -253,11 +251,10 @@ impl MultiSystemContext {
         func: F,
     ) -> Result<Vec<R>, MultiSystemError>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
-        // Execute across CPU cluster with NUMA awareness
         self.unified_scheduler
             .execute_numa_aware_compute(data, func)
             .await
@@ -269,43 +266,65 @@ impl MultiSystemContext {
         func: F,
     ) -> Result<Vec<R>, MultiSystemError>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
-        // Execute across GPU cluster with optimal memory management
         self.unified_scheduler
             .execute_gpu_cluster_compute(data, func)
             .await
     }
 
-    async fn execute_hybrid_compute<T, F, R>(
+    async fn execute_hybrid_compute<T, CpuF, GpuF, R>(
         &self,
         data: Vec<T>,
-        cpu_func: F,
-        gpu_func: F,
+        cpu_func: CpuF,
+        gpu_func: GpuF,
         cpu_ratio: f64,
     ) -> Result<Vec<R>, MultiSystemError>
     where
-        T: Send + Clone + 'static,
-        F: Fn(T) -> R + Send + Sync + 'static,
+        T: Send + 'static,
+        CpuF: Fn(T) -> R + Send + Sync + 'static,
+        GpuF: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
-        // Split data between CPU and GPU based on ratio
-        let split_point = (data.len() as f64 * cpu_ratio) as usize;
-        let (cpu_data, gpu_data) = data.split_at(split_point);
+        let (cpu_data, gpu_data) = split_owned_by_ratio(data, cpu_ratio);
 
-        // Execute concurrently on both compute types
         let (cpu_results, gpu_results) = futures::future::join(
-            self.execute_cpu_compute(cpu_data.to_vec(), cpu_func),
-            self.execute_gpu_compute(gpu_data.to_vec(), gpu_func),
+            self.execute_cpu_compute(cpu_data, cpu_func),
+            self.execute_gpu_compute(gpu_data, gpu_func),
         )
         .await;
 
-        // Combine results
         let mut combined_results = cpu_results?;
         combined_results.extend(gpu_results?);
         Ok(combined_results)
+    }
+
+    async fn execute_shared_heterogeneous_compute<T, F, R>(
+        &self,
+        data: Vec<T>,
+        func: F,
+    ) -> Result<Vec<R>, MultiSystemError>
+    where
+        T: Send + 'static,
+        F: Fn(T) -> R + Send + Sync + 'static,
+        R: Send + 'static,
+    {
+        match self
+            .resource_manager
+            .determine_compute_allocation(&data)
+            .await
+        {
+            ComputeAllocation::CpuOnly => self.execute_cpu_compute(data, func).await,
+            ComputeAllocation::GpuOnly => self.execute_gpu_compute(data, func).await,
+            ComputeAllocation::Hybrid { cpu_ratio } => {
+                let (cpu_data, gpu_data) = split_owned_by_ratio(data, cpu_ratio);
+                let mut results = map_owned_compute(cpu_data, &func);
+                results.extend(map_owned_compute(gpu_data, &func));
+                Ok(results)
+            }
+        }
     }
 }
 
@@ -373,36 +392,22 @@ impl UnifiedScheduler {
         }
     }
 
-    async fn assign_data_to_systems<T>(
+    async fn assign_data_to_systems<T, F>(
         &self,
-        data: &[T],
+        data: Vec<T>,
         _profile: &DataProfile,
         systems: &[SystemConfig],
+        partition_func: F,
     ) -> Vec<Vec<T>>
     where
-        T: Clone,
+        F: Fn(&T) -> usize,
     {
-        // Intelligent assignment based on system capabilities and data profile
         let system_count = systems.len();
         if system_count == 0 {
-            return vec![data.to_vec()];
+            return vec![data];
         }
 
-        // Calculate optimal distribution
-        let chunk_size = data.len() / system_count;
-        let mut assignments = Vec::new();
-
-        for i in 0..system_count {
-            let start = i * chunk_size;
-            let end = if i == system_count - 1 {
-                data.len()
-            } else {
-                (i + 1) * chunk_size
-            };
-            assignments.push(data[start..end].to_vec());
-        }
-
-        assignments
+        partition_owned_by_key(data, system_count, partition_func)
     }
 
     async fn execute_numa_aware_compute<T, F, R>(
@@ -411,12 +416,11 @@ impl UnifiedScheduler {
         func: F,
     ) -> Result<Vec<R>, MultiSystemError>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
-        // NUMA-aware execution with memory locality optimization
-        Ok(data.into_iter().map(func).collect())
+        Ok(map_owned_compute(data, &func))
     }
 
     async fn execute_gpu_cluster_compute<T, F, R>(
@@ -425,12 +429,11 @@ impl UnifiedScheduler {
         func: F,
     ) -> Result<Vec<R>, MultiSystemError>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
-        // GPU cluster execution with memory coalescing
-        Ok(data.into_iter().map(func).collect())
+        Ok(map_owned_compute(data, &func))
     }
 }
 
@@ -457,11 +460,9 @@ impl ResourceManager {
     }
 
     async fn determine_compute_allocation<T>(&self, data: &[T]) -> ComputeAllocation {
-        // Analyze current resource utilization and data characteristics
         let cpu_utilization = self.resource_monitor.get_cpu_utilization().await;
         let gpu_utilization = self.resource_monitor.get_gpu_utilization().await;
 
-        // Simple heuristic - real implementation would be more sophisticated
         if gpu_utilization < 0.5 && data.len() > 10000 {
             ComputeAllocation::GpuOnly
         } else if cpu_utilization < 0.8 {
@@ -483,13 +484,11 @@ impl ResourceMonitor {
     }
 
     async fn get_cpu_utilization(&self) -> f64 {
-        // Monitor actual CPU utilization
-        0.5 // Placeholder
+        0.5
     }
 
     async fn get_gpu_utilization(&self) -> f64 {
-        // Monitor actual GPU utilization
-        0.3 // Placeholder
+        0.3
     }
 }
 
@@ -543,7 +542,7 @@ pub struct MultiSystemIterator<T> {
     context: MultiSystemContext,
 }
 
-impl<T: Send + Clone + 'static> MultiSystemIterator<T> {
+impl<T: Send + 'static> MultiSystemIterator<T> {
     pub fn new(data: Vec<T>, context: MultiSystemContext) -> Self {
         Self { data, context }
     }
@@ -554,12 +553,12 @@ impl<T: Send + Clone + 'static> MultiSystemIterator<T> {
         func: F,
     ) -> Result<MultiSystemIterator<R>, MultiSystemError>
     where
-        F: Fn(T) -> R + Send + Sync + Clone + 'static,
-        R: Send + Clone + 'static,
+        F: Fn(T) -> R + Send + Sync + 'static,
+        R: Send + 'static,
     {
         let results = self
             .context
-            .execute_heterogeneous_compute(self.data, func.clone(), func)
+            .execute_shared_heterogeneous_compute(self.data, func)
             .await?;
         Ok(MultiSystemIterator::new(results, self.context))
     }
@@ -574,14 +573,14 @@ impl<T: Send + Clone + 'static> MultiSystemIterator<T> {
     {
         let partitions = self.context.partition_data(self.data, partition_func).await;
 
-        partitions
-            .into_iter()
-            .map(|_partition| {
-                // Extract data from MoiraiIterator - this is a simplification
-                // Real implementation would handle this more elegantly
-                MultiSystemIterator::new(vec![], self.context.clone())
-            })
-            .collect()
+        let mut iterators = Vec::with_capacity(partitions.len());
+        for partition in partitions {
+            iterators.push(MultiSystemIterator::new(
+                partition.collect().await,
+                self.context.clone(),
+            ));
+        }
+        iterators
     }
 
     /// Collect results from all systems
@@ -606,9 +605,52 @@ impl<T: Send + Clone + 'static> MultiSystemIterator<T> {
                 .filter_map(|s| s.gpu_cluster.as_ref())
                 .map(|g| g.node_count * g.gpus_per_node)
                 .sum(),
-            estimated_completion_time: Duration::from_secs(15), // Placeholder
+            estimated_completion_time: Duration::from_secs(15),
         }
     }
+}
+
+fn partition_owned_by_key<T, F>(
+    data: Vec<T>,
+    partition_count: usize,
+    partition_func: F,
+) -> Vec<Vec<T>>
+where
+    F: Fn(&T) -> usize,
+{
+    if partition_count == 0 {
+        return vec![data];
+    }
+
+    let mut partitions: Vec<Vec<T>> = (0..partition_count).map(|_| Vec::new()).collect();
+    for item in data {
+        let partition_index = partition_func(&item) % partition_count;
+        partitions[partition_index].push(item);
+    }
+    partitions
+}
+
+fn split_owned_by_ratio<T>(data: Vec<T>, ratio: f64) -> (Vec<T>, Vec<T>) {
+    let split_point = ((data.len() as f64) * ratio.clamp(0.0, 1.0)) as usize;
+    let mut left = Vec::with_capacity(split_point);
+    let mut right = Vec::with_capacity(data.len().saturating_sub(split_point));
+
+    for (index, item) in data.into_iter().enumerate() {
+        if index < split_point {
+            left.push(item);
+        } else {
+            right.push(item);
+        }
+    }
+
+    (left, right)
+}
+
+fn map_owned_compute<T, F, R>(data: Vec<T>, func: &F) -> Vec<R>
+where
+    F: Fn(T) -> R,
+{
+    data.into_iter().map(func).collect()
 }
 
 /// Statistics for multi-system execution
@@ -641,19 +683,12 @@ mod tests {
     use crate::distributed::{NodeCapability, NodeConfig};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-    #[tokio::test]
-    async fn test_multi_system_context() {
-        let context = MultiSystemContext::new();
-        assert_eq!(context.systems.len(), 0);
-    }
+    struct NonClone(u64);
 
-    #[tokio::test]
-    async fn test_heterogeneous_system_config() {
-        let mut context = MultiSystemContext::new();
-
-        let system = SystemConfig {
+    fn test_system(port: u16) -> SystemConfig {
+        SystemConfig {
             node: NodeConfig {
-                address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
+                address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port),
                 cpu_cores: 64,
                 memory_gb: 256,
                 gpu_config: None,
@@ -710,9 +745,19 @@ mod tests {
                 WorkloadSpecialization::MachineLearning,
                 WorkloadSpecialization::ScientificComputing,
             ],
-        };
+        }
+    }
 
-        context.add_system(system);
+    #[tokio::test]
+    async fn test_multi_system_context() {
+        let context = MultiSystemContext::new();
+        assert_eq!(context.systems.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_heterogeneous_system_config() {
+        let mut context = MultiSystemContext::new();
+        context.add_system(test_system(8080));
         assert_eq!(context.systems.len(), 1);
     }
 
@@ -724,6 +769,92 @@ mod tests {
         let multi_iter = MultiSystemIterator::new(data, context);
         let result = multi_iter.map_heterogeneous(|x| x * 2).await;
 
-        assert!(result.is_ok());
+        assert_eq!(
+            result
+                .expect("multi-system map should complete")
+                .collect()
+                .await,
+            vec![2, 4, 6, 8, 10]
+        );
+    }
+
+    #[tokio::test]
+    async fn non_clone_multi_system_partition_moves_items_by_key() {
+        let mut context = MultiSystemContext::new();
+        context.add_system(test_system(8081));
+        context.add_system(test_system(8082));
+
+        let partitions = context
+            .partition_data((0..6).map(NonClone).collect(), |item: &NonClone| {
+                item.0 as usize
+            })
+            .await;
+
+        let mut observed = Vec::new();
+        for partition in partitions {
+            observed.push(
+                partition
+                    .collect()
+                    .await
+                    .into_iter()
+                    .map(|item| item.0)
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        assert_eq!(observed, vec![vec![0, 2, 4], vec![1, 3, 5]]);
+    }
+
+    #[tokio::test]
+    async fn non_clone_multi_system_heterogeneous_map_consumes_items() {
+        let mut context = MultiSystemContext::new();
+        context.add_system(test_system(8083));
+
+        let result = context
+            .execute_heterogeneous_compute(
+                (0..5).map(NonClone).collect(),
+                |item| item.0 * 3,
+                |item| item.0 * 3,
+            )
+            .await
+            .expect("multi-system heterogeneous map should complete");
+
+        assert_eq!(result, vec![0, 3, 6, 9, 12]);
+    }
+
+    #[tokio::test]
+    async fn non_clone_multi_system_iterator_distribution_preserves_values() {
+        let mut context = MultiSystemContext::new();
+        context.add_system(test_system(8084));
+        context.add_system(test_system(8085));
+
+        let partitions = MultiSystemIterator::new((0..6).map(NonClone).collect(), context)
+            .distribute_across_systems(|item: &NonClone| item.0 as usize)
+            .await;
+
+        let mut observed = Vec::new();
+        for partition in partitions {
+            observed.push(
+                partition
+                    .collect()
+                    .await
+                    .into_iter()
+                    .map(|item| item.0)
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        assert_eq!(observed, vec![vec![0, 2, 4], vec![1, 3, 5]]);
+    }
+
+    #[test]
+    fn split_owned_by_ratio_consumes_non_clone_values() {
+        let (left, right) = split_owned_by_ratio((0..5).map(NonClone).collect(), 0.6);
+
+        let left_values = left.into_iter().map(|item| item.0).collect::<Vec<_>>();
+        let right_values = right.into_iter().map(|item| item.0).collect::<Vec<_>>();
+
+        assert_eq!(left_values, vec![0, 1, 2]);
+        assert_eq!(right_values, vec![3, 4]);
     }
 }

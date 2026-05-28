@@ -409,6 +409,66 @@ fn distributed_iter_consumes_owned_partitions_without_clone() {
 }
 
 #[test]
+fn multi_system_iter_consumes_owned_partitions_without_clone() {
+    let source = read_benchmark("../moirai-iter/src/multi_system.rs");
+    let benchmark = read_benchmark("benches/multi_system_context_comparison.rs");
+    let manifest = read_benchmark("Cargo.toml");
+
+    for required in [
+        "fn partition_owned_by_key<T, F>(",
+        "fn split_owned_by_ratio<T>(data: Vec<T>, ratio: f64) -> (Vec<T>, Vec<T>)",
+        "fn map_owned_compute<T, F, R>(data: Vec<T>, func: &F) -> Vec<R>",
+        "assign_data_to_systems(data, &data_profile, &self.systems, partition_func)",
+        "partition_owned_by_key(data, system_count, partition_func)",
+        "let (cpu_data, gpu_data) = split_owned_by_ratio(data, cpu_ratio);",
+        "execute_shared_heterogeneous_compute(self.data, func)",
+        "partition.collect().await",
+        "impl<T: Send + 'static> MultiSystemIterator<T>",
+        "non_clone_multi_system_partition_moves_items_by_key",
+        "non_clone_multi_system_heterogeneous_map_consumes_items",
+        "non_clone_multi_system_iterator_distribution_preserves_values",
+        "split_owned_by_ratio_consumes_non_clone_values",
+        "assert_eq!(result, vec![0, 3, 6, 9, 12]);",
+    ] {
+        assert!(
+            source.contains(required),
+            "multi-system iterator must retain owned partition marker {required}"
+        );
+    }
+
+    for required in [
+        "name = \"multi_system_context_comparison\"",
+        "multi_system_context_owned_map",
+        "moirai_multi_system_context_map",
+        "rayon_owned_map",
+        "assert_eq!",
+    ] {
+        assert!(
+            benchmark.contains(required) || manifest.contains(required),
+            "multi-system benchmark contract must retain marker {required}"
+        );
+    }
+
+    for prohibited in [
+        "T: Send + Clone + 'static",
+        "cpu_data.to_vec()",
+        "gpu_data.to_vec()",
+        "return vec![data.to_vec()];",
+        "assignments.push(data[start..end].to_vec());",
+        ".execute_heterogeneous_compute(self.data, func.clone(), func)",
+        "MultiSystemIterator::new(vec![], self.context.clone())",
+        "assert!(result.is_ok())",
+        "Placeholder",
+        "Simplified implementation",
+    ] {
+        assert!(
+            !source.contains(prohibited),
+            "multi-system iterator must not reintroduce clone-bound or placeholder execution through {prohibited}"
+        );
+    }
+}
+
+#[test]
 fn iterator_simd_surface_uses_generic_scalar_contract() {
     let source = read_benchmark("../moirai-iter/src/simd_iter.rs");
     let benchmark = read_benchmark("benches/iter_simd_comparison.rs");

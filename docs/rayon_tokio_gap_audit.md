@@ -38,6 +38,7 @@ This audit covers the active unified-scheduler comparison scope:
 - Iterator execution contexts: direct `execute_iter` paths move owned chunks and accept non-`Clone` items instead of cloning chunk slices before scheduling.
 - NUMA iterator helper: `moirai-iter::numa::NumaContext` and `NumaIter` consume owned batches for map and reduce without clone-bound chunk materialization.
 - Distributed iterator helper: `moirai-iter::distributed::DistributedContext` consumes owned partitions for partition/map/reduce helper paths and returns value-semantic map results.
+- Multi-system iterator helper: `moirai-iter::multi_system::MultiSystemContext` consumes owned partitions through the unified scheduler, distributes real partition iterators, and returns value-semantic heterogeneous map results without clone-bound direct item paths.
 
 Drop-in API compatibility with every Tokio I/O type or every Rayon `ParallelIterator` adapter is not part of this scheduler audit. Those are ecosystem extension goals, not active gaps in the unified scheduler comparison.
 
@@ -51,7 +52,7 @@ No active comparison gap remains in the official scheduler/result-handle/indexed
 - A bounded Criterion benchmark target.
 - A `benchmark_contracts` test that protects benchmark shape, value semantics, and source invariants.
 
-The 2026-05-27 audit pass keeps that verdict unchanged for covered semantics and records the remaining work as deferred ecosystem or cleanup gaps. These gaps are not scheduler comparison failures because they either require non-equivalent API compatibility work or affect inactive legacy files rather than compiled runtime dependency boundaries.
+The 2026-05-28 audit pass keeps that verdict unchanged for covered semantics and records the remaining work as deferred ecosystem or cleanup gaps. These gaps are not scheduler comparison failures because they either require non-equivalent API compatibility work or affect inactive legacy files rather than compiled runtime dependency boundaries.
 
 ## Tokio Comparison Matrix
 
@@ -100,6 +101,7 @@ The 2026-05-27 audit pass keeps that verdict unchanged for covered semantics and
 | Owned execution-context map | `ParallelContext::execute_iter` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `execution_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 | Owned NUMA context map | `NumaContext::execute_iter` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `numa_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 | Owned distributed context map | `DistributedContext::execute_distributed_map` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `distributed_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
+| Owned multi-system context map | `MultiSystemContext::execute_heterogeneous_compute` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `multi_system_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 
 ## Mixed Tokio/Rayon Comparison Matrix
 
@@ -164,6 +166,7 @@ Rayon does not expose a per-task result handle equivalent to `TaskHandle<T>`, so
 | Iterator channel split/merge avoids dynamic dispatch | `ChannelSplitter<T, I, C>` and `ChannelMerger<T, C>` store `Vec<C>` and call `C: FusableChannel<T>` directly | `channel_fusion_uses_typed_channels_without_placeholder_pipeline` and iterator unit tests |
 | Iterator streaming avoids dynamic producer dispatch | `StreamingIter<T, F>` stores `F: FnMut() -> Option<T>` and uses `VecDeque<T>` FIFO buffering | `streaming_iter_uses_monomorphized_producer_and_fifo_buffer` and iterator unit tests |
 | Iterator base avoids boxed futures | obsolete `base::ExecutionBase` boxed-future trait is removed; active context trait remains `execution::ExecutionBase` | `iterator_base_does_not_expose_boxed_future_execution_trait` |
+| Multi-system helpers avoid clone-bound owned partitioning | `partition_owned_by_key`, `split_owned_by_ratio`, and `map_owned_compute` consume `Vec<T>` through `into_iter`; `MultiSystemIterator<T>` only requires `T: Send + 'static` and distributes collected real partitions | `multi_system_iter_consumes_owned_partitions_without_clone`, non-`Clone` multi-system unit tests, and `multi_system_context_comparison` |
 | Utility SIMD API avoids type-suffixed public kernels | `moirai-utils::simd` routes generic operations through sealed `SimdScalar`/`SimdReal` contracts and private ISA modules; `matrix_mul_square<T, const N>` encodes matrix arity as a const generic | `utility_simd_surface_uses_generic_scalar_contract`, utility SIMD unit tests, and `simd_benchmarks` |
 | Result handles avoid channels | atomic one-shot result slot and inline single waiter | task-handle tests and public-handle benchmarks |
 | Transport receive avoids owned decode | `ArchiveView` returns borrowed views over owned message bytes | transport tests and `transport_archive_comparison` |
@@ -189,6 +192,7 @@ Rayon does not expose a per-task result handle equivalent to `TaskHandle<T>`, so
 | `async_tcp_cancel_safety_comparison` | value-checked Moirai TCP facade pending-read cancellation safety against Tokio `tokio::net::TcpStream` with unchanged cancelled buffers and same-payload delivery after release |
 | `async_udp_comparison` | value-checked Moirai UDP facade receive against Tokio `tokio::net::UdpSocket::recv_from` over the same loopback datagram bytes |
 | `simd_benchmarks` | generic utility SIMD rows against scalar loops with native-vector detection, bounded sample, warm-up, and measurement windows |
+| `multi_system_context_comparison` | value-checked owned `MultiSystemContext::execute_heterogeneous_compute` map against Rayon `into_par_iter` over equivalent owned vectors |
 | `benchmark_contracts` | executable source contracts for value assertions, bounded benchmarks, and architecture invariants |
 
 ## Acceptance Criteria
@@ -208,6 +212,7 @@ Rayon does not expose a per-task result handle equivalent to `TaskHandle<T>`, so
 - Iterator execution contexts must not reintroduce `chunk.to_vec()`, `item.clone()` map execution, or `T: Clone` direct map bounds.
 - NUMA iterators must not reintroduce clone-bound direct map execution, cloned chunk materialization, or cloned reduction functions for owned batches.
 - Distributed iterators must not reintroduce clone-bound owned partitions, placeholder empty map execution, or existence-only distributed iterator map tests.
+- Multi-system iterators must not reintroduce clone-bound owned partitions, slice `to_vec()` partitioning, cloned map functions, placeholder empty distribution, placeholder monitoring comments, or existence-only heterogeneous map tests.
 - Iterator base APIs do not expose unused `Pin<Box<dyn Future<...>>>` execution traits.
 - Timer-wheel cancellation must return value-sensitive cancellation results, suppress canceled waker wakeups, and avoid placeholder false returns.
 - Async file facade comparison must assert Moirai bytes and Tokio bytes against the same source bytes before timing for read, write, append, metadata, rename, remove, and copy rows. Async directory facade comparison must assert single directory create/remove state and recursive directory create/remove marker-file state before timing.
@@ -270,6 +275,8 @@ The execution-context owned-chunk cleanup removes cloned chunk materialization f
 The NUMA iterator cleanup removes cloned chunk materialization from `NumaContext::execute_iter` and `NumaIter::reduce`, relaxes NUMA direct map and extension bounds from `T: Clone` to `T: Send`, and adds non-`Clone` value tests. `numa_context_comparison` measured owned NUMA context map at 175.50-204.96 ns versus Rayon owned map at 45.097-142.69 µs after asserting equal checksums. This is NUMA helper coverage, not a full Rayon adapter parity claim.
 
 The distributed iterator cleanup removes cloned partition materialization from `DistributedContext::partition_data`, makes `execute_distributed_map` return real mapped values instead of placeholder empty outputs, relaxes direct distributed map and reduce bounds from `T: Clone` to `T: Send`, and adds non-`Clone` value tests. `distributed_context_comparison` measured owned distributed context map at 389.05-428.30 ns versus Rayon owned map at 72.092-75.365 µs after asserting equal checksums. This is distributed helper coverage, not a full distributed networking or Rayon adapter parity claim.
+
+The multi-system iterator cleanup removes cloned owned partition materialization from `MultiSystemContext::partition_data` and the hybrid split path, relaxes direct heterogeneous map and iterator bounds from `T: Clone` to `T: Send`, makes `MultiSystemIterator::distribute_across_systems` return real partition iterators, and adds non-`Clone` value tests. `multi_system_context_comparison` measured owned multi-system context map at 348.11-354.81 ns versus Rayon owned map at 61.837-78.097 µs after asserting equal checksums. This is multi-system helper coverage, not a full GPU, distributed networking, or Rayon adapter parity claim.
 
 The sorting slice-extension boundary is now covered by `ParallelSliceMut` and the value-checked `sorting_comparison` benchmark against Rayon `ParallelSliceMut`. The latest same-run benchmark measured stable sort at 76.225-78.202 µs for Moirai versus 143.38-146.10 µs for Rayon, and unstable sort at 48.838-51.041 µs for Moirai versus 66.725-69.234 µs for Rayon.
 

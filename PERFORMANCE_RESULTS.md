@@ -2,7 +2,7 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
-## 2026-05-27 Native Rayon/Tokio Gap Closure Refresh
+## 2026-05-28 Native Rayon/Tokio Gap Closure Refresh
 
 Commands:
 ```bash
@@ -15,6 +15,7 @@ cargo bench -p moirai-benchmarks --bench cache_iterator_comparison -- cache_iter
 cargo bench -p moirai-benchmarks --bench execution_context_comparison -- execution_context_owned_map --quiet
 cargo bench -p moirai-benchmarks --bench numa_context_comparison -- numa_context_owned_map --quiet
 cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- distributed_context_owned_map --quiet
+cargo bench -p moirai-benchmarks --bench multi_system_context_comparison -- multi_system_context_owned_map --quiet
 ```
 
 Workload: same-run native scheduler, async iterator, and Rayon-style adapter rows after registry-owned task-ID allocation and diagnostic tree splitting. Every row keeps value assertions inside the benchmark source before timing.
@@ -53,8 +54,9 @@ Workload: same-run native scheduler, async iterator, and Rayon-style adapter row
 | Owned execution context map | 120.53-122.07 ns | Rayon 29.323-30.104 us |
 | Owned NUMA context map | 175.50-204.96 ns | Rayon 45.097-142.69 us |
 | Owned distributed context map | 389.05-428.30 ns | Rayon 72.092-75.365 us |
+| Owned multi-system context map | 348.11-354.81 ns | Rayon 61.837-78.097 us |
 
-Interpretation: no active comparison gap remains in the native scheduler/result-handle/indexed-reduction scope. The legacy `iter_ops::ParallelIter` helper now removes the old `Arc<Vec<T>>` data-sharing path and keeps scoped OS-thread fanout behind the bounded scheduler batch-capacity gate, which closes the small-trivial-work Rayon overhead gap for the audited helper rows. `ZeroCopyParallelIter` now borrows slices and closures directly for map execution instead of allocating `Arc` wrappers, and the borrowed cache helper rows stay below the equivalent Rayon borrowed-slice rows for the audited small-work boundary. Direct execution contexts now move owned chunks instead of cloning chunk slices, and the owned execution-context row stays below the equivalent Rayon owned-map row for the audited single-chunk boundary. NUMA iterator helpers now move owned batches for map and reduce instead of requiring clone-bound chunk materialization, and the owned NUMA context row stays below the equivalent Rayon owned-map row for the audited small-work boundary. Distributed iterator helpers now move owned partitions, produce value-semantic map results instead of placeholder empty outputs, and the owned distributed context row stays below the equivalent Rayon owned-map row for the audited small-work boundary. Tokio reactor-native drop-in I/O, WASM browser event-loop integration, and full Rayon ecosystem parity remain documented compatibility boundaries rather than failures in the native scheduler benchmark gate.
+Interpretation: no active comparison gap remains in the native scheduler/result-handle/indexed-reduction scope. The legacy `iter_ops::ParallelIter` helper now removes the old `Arc<Vec<T>>` data-sharing path and keeps scoped OS-thread fanout behind the bounded scheduler batch-capacity gate, which closes the small-trivial-work Rayon overhead gap for the audited helper rows. `ZeroCopyParallelIter` now borrows slices and closures directly for map execution instead of allocating `Arc` wrappers, and the borrowed cache helper rows stay below the equivalent Rayon borrowed-slice rows for the audited small-work boundary. Direct execution contexts now move owned chunks instead of cloning chunk slices, and the owned execution-context row stays below the equivalent Rayon owned-map row for the audited single-chunk boundary. NUMA iterator helpers now move owned batches for map and reduce instead of requiring clone-bound chunk materialization, and the owned NUMA context row stays below the equivalent Rayon owned-map row for the audited small-work boundary. Distributed iterator helpers now move owned partitions, produce value-semantic map results instead of placeholder empty outputs, and the owned distributed context row stays below the equivalent Rayon owned-map row for the audited small-work boundary. Multi-system iterator helpers now move owned partitions through the unified scheduler, distribute real partition iterators, and return value-semantic heterogeneous map results without `Clone`-bound direct item paths; the owned multi-system context row stays below the equivalent Rayon owned-map row for the audited small-work boundary. Tokio reactor-native drop-in I/O, WASM browser event-loop integration, and full Rayon ecosystem parity remain documented compatibility boundaries rather than failures in the native scheduler benchmark gate.
 
 ## 2026-05-27 Registry-Local Task ID and Token Lifecycle Split
 
