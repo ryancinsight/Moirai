@@ -196,6 +196,59 @@ fn iter_ops_parallel_iter_uses_scoped_borrowed_chunks() {
 }
 
 #[test]
+fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
+    let source = read_benchmark("../moirai-iter/src/cache.rs");
+    let benchmark = read_benchmark("benches/cache_iterator_comparison.rs");
+    let manifest = read_benchmark("Cargo.toml");
+
+    for required in [
+        "pub struct ZeroCopyParallelIter<'a, T>",
+        "data: &'a [T]",
+        "if self.data.len() <= self.chunk_size",
+        "return self.data.iter().map(&func).collect();",
+        ".chunks(chunk_size).enumerate()",
+        "let func_ref = &func",
+        "func_ref(item)",
+        "zero_copy_parallel_map_borrows_data_and_closure",
+        "zero_copy_parallel_map_matches_sequential_values",
+    ] {
+        assert!(
+            source.contains(required),
+            "cache zero-copy parallel iterator must retain borrowed scoped map marker {required}"
+        );
+    }
+
+    for required in [
+        "name = \"cache_iterator_comparison\"",
+        "cache_iterator_zero_copy_map",
+        "cache_iterator_zero_copy_reduce",
+        "moirai_zero_copy_map",
+        "rayon_borrowed_map",
+        "moirai_zero_copy_reduce",
+        "rayon_borrowed_reduce",
+        "assert_eq!",
+    ] {
+        assert!(
+            benchmark.contains(required) || manifest.contains(required),
+            "cache iterator benchmark contract must retain marker {required}"
+        );
+    }
+
+    for prohibited in [
+        "use std::sync::Arc",
+        "let func = Arc::new(func)",
+        "let data = Arc::new(self.data)",
+        "Arc::clone(&func)",
+        "Arc::clone(&data)",
+    ] {
+        assert!(
+            !source.contains(prohibited),
+            "cache zero-copy parallel iterator must not reintroduce refcounted map routing through {prohibited}"
+        );
+    }
+}
+
+#[test]
 fn iterator_simd_surface_uses_generic_scalar_contract() {
     let source = read_benchmark("../moirai-iter/src/simd_iter.rs");
     let benchmark = read_benchmark("benches/iter_simd_comparison.rs");

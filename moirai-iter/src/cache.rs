@@ -1,7 +1,6 @@
 //! Cache-aware iterator utilities.
 
 use std::mem;
-use std::sync::Arc;
 
 use crate::base::SendPtr;
 
@@ -186,6 +185,11 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
     where
         F: Fn(&T) + Send + Sync,
     {
+        if self.data.len() <= self.chunk_size {
+            self.data.iter().for_each(func);
+            return;
+        }
+
         std::thread::scope(|scope| {
             for chunk in self.data.chunks(self.chunk_size) {
                 scope.spawn(|| {
@@ -211,28 +215,26 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
     {
         use std::mem::MaybeUninit;
 
+        if self.data.len() <= self.chunk_size {
+            return self.data.iter().map(&func).collect();
+        }
+
         let mut results: Vec<MaybeUninit<R>> = Vec::with_capacity(self.data.len());
         unsafe {
             results.set_len(self.data.len());
         }
         let results_ptr: *mut MaybeUninit<R> = results.as_mut_ptr();
-        let func = Arc::new(func);
-        let data = Arc::new(self.data);
-        let data_len = self.data.len();
         std::thread::scope(|scope| {
             let chunk_size = self.chunk_size;
-            let num_chunks = data_len.div_ceil(chunk_size);
-            for chunk_idx in 0..num_chunks {
+            for (chunk_idx, chunk) in self.data.chunks(chunk_size).enumerate() {
                 let chunk_start = chunk_idx * chunk_size;
-                let chunk_end = std::cmp::min(chunk_start + chunk_size, data_len);
-                let data = Arc::clone(&data);
-                let func = Arc::clone(&func);
+                let func_ref = &func;
                 let results_ptr_wrapper = SendPtr(unsafe { results_ptr.add(chunk_start) });
                 scope.spawn(move || {
-                    for i in chunk_start..chunk_end {
+                    for (offset, item) in chunk.iter().enumerate() {
                         unsafe {
-                            let result = func(&data[i]);
-                            let result_ptr = results_ptr_wrapper.as_ptr().add(i - chunk_start);
+                            let result = func_ref(item);
+                            let result_ptr = results_ptr_wrapper.as_ptr().add(offset);
                             result_ptr.write(MaybeUninit::new(result));
                         }
                     }
@@ -255,6 +257,10 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         if self.data.len() == 1 {
             return Some(self.data[0].clone());
         }
+        if self.data.len() <= self.chunk_size {
+            return self.data.iter().cloned().reduce(|a, b| func(&a, &b));
+        }
+
         let mut current_results: Vec<T> = std::thread::scope(|scope| {
             let mut handles = Vec::new();
             for chunk in self.data.chunks(self.chunk_size) {
@@ -354,5 +360,34 @@ mod tests {
         });
         let expected_sum: i64 = (0..10000).sum();
         assert_eq!(sum.load(std::sync::atomic::Ordering::Relaxed), expected_sum);
+    }
+
+    #[test]
+    fn zero_copy_parallel_map_borrows_data_and_closure() {
+        let data: Vec<i32> = (0..1024).collect();
+        let factor = 3_i32;
+
+        let mapped = data.zero_copy_par_iter().map(|value| value * factor);
+
+        assert_eq!(
+            mapped,
+            data.iter().map(|value| value * factor).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn zero_copy_parallel_map_matches_sequential_values() {
+        let data: Vec<u64> = (0..10000).collect();
+
+        let mapped = data
+            .zero_copy_par_iter()
+            .map(|value| value.wrapping_mul(5).wrapping_add(7));
+
+        assert_eq!(
+            mapped,
+            data.iter()
+                .map(|value| value.wrapping_mul(5).wrapping_add(7))
+                .collect::<Vec<_>>()
+        );
     }
 }
