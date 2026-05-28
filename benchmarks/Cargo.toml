@@ -104,6 +104,10 @@ name = "numa_context_comparison"
 harness = false
 
 [[bench]]
+name = "distributed_context_comparison"
+harness = false
+
+[[bench]]
 name = "async_iterator_comparison"
 harness = false
 

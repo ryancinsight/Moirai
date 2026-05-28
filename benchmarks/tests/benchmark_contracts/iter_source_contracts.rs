@@ -350,6 +350,65 @@ fn numa_iter_consumes_owned_batches_without_clone() {
 }
 
 #[test]
+fn distributed_iter_consumes_owned_partitions_without_clone() {
+    let source = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-iter/src/distributed.rs"),
+        read_benchmark("../moirai-iter/src/lib.rs")
+    );
+    let benchmark = read_benchmark("benches/distributed_context_comparison.rs");
+    let manifest = read_benchmark("Cargo.toml");
+
+    for required in [
+        "fn partition_owned_by_key<T, F>(",
+        "fn partition_owned_by_sizes<T>(data: Vec<T>, partition_sizes: &[usize]) -> Vec<Vec<T>>",
+        "fn uniform_partition_sizes(total_items: usize, partition_count: usize) -> Vec<usize>",
+        "partition_owned_by_key(data, nodes.len(), _partition_func)",
+        "map_data_intelligently(data, &self.nodes, map_func)",
+        "results.extend(partition.into_iter().map(&map_func));",
+        "impl<T: Send + 'static> DistributedIterator<T>",
+        "impl<T: Send + 'static> MoiraiIterator<T>",
+        "non_clone_distributed_partition_moves_items_by_key",
+        "non_clone_distributed_map_consumes_items",
+        "non_clone_distributed_reduce_consumes_items",
+        "assert_eq!(result, vec![2, 4, 6, 8, 10]);",
+    ] {
+        assert!(
+            source.contains(required),
+            "distributed iterator must retain owned partition marker {required}"
+        );
+    }
+
+    for required in [
+        "name = \"distributed_context_comparison\"",
+        "distributed_context_owned_map",
+        "moirai_distributed_context_map",
+        "rayon_owned_map",
+        "assert_eq!",
+    ] {
+        assert!(
+            benchmark.contains(required) || manifest.contains(required),
+            "distributed benchmark contract must retain marker {required}"
+        );
+    }
+
+    for prohibited in [
+        "T: Send + Clone + 'static",
+        "let partition = data[start_idx..end_idx].to_vec();",
+        "execute_tasks_distributed(tasks)",
+        "Ok(Vec::new())",
+        "Simplified implementation",
+        "Test would verify distributed execution",
+        "assert!(result.is_ok())",
+    ] {
+        assert!(
+            !source.contains(prohibited),
+            "distributed iterator must not reintroduce clone-bound or placeholder execution through {prohibited}"
+        );
+    }
+}
+
+#[test]
 fn iterator_simd_surface_uses_generic_scalar_contract() {
     let source = read_benchmark("../moirai-iter/src/simd_iter.rs");
     let benchmark = read_benchmark("benches/iter_simd_comparison.rs");

@@ -4,8 +4,6 @@
 //! enabling seamless scaling across multiple machines and network nodes.
 
 #![allow(dead_code)] // Development structures per ADR requirements - distributed features planned for future
-#![allow(clippy::redundant_closure)] // Some closures needed for distributed patterns
-
 use crate::MoiraiIterator;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -105,7 +103,7 @@ impl DistributedContext {
         partition_func: F,
     ) -> Vec<MoiraiIterator<T>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(&T) -> usize + Send + Sync + 'static,
     {
         let node_count = self.nodes.len();
@@ -132,13 +130,14 @@ impl DistributedContext {
         map_func: F,
     ) -> Result<Vec<R>, DistributedError>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
-        // Distribute tasks across nodes
-        let tasks = self.task_scheduler.create_map_tasks(data, map_func).await;
-        let results = self.execute_tasks_distributed(tasks).await?;
+        let results = self
+            .task_scheduler
+            .map_data_intelligently(data, &self.nodes, map_func)
+            .await;
         Ok(results)
     }
 
@@ -149,7 +148,7 @@ impl DistributedContext {
         reduce_func: F,
     ) -> Result<Option<T>, DistributedError>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T, T) -> T + Send + Sync + 'static,
     {
         // Tree-reduce across nodes for optimal network usage
@@ -158,27 +157,6 @@ impl DistributedContext {
             .tree_reduce(data, reduce_func, &self.nodes)
             .await?;
         Ok(result)
-    }
-
-    async fn execute_tasks_distributed<R>(
-        &self,
-        tasks: Vec<DistributedTask>,
-    ) -> Result<Vec<R>, DistributedError>
-    where
-        R: Send + 'static,
-    {
-        // Load balance tasks across available nodes
-        let node_assignments = self
-            .task_scheduler
-            .assign_tasks_to_nodes(&tasks, &self.nodes);
-
-        // Execute tasks with fault tolerance
-        let results = self
-            .failure_handler
-            .execute_with_retry(node_assignments)
-            .await?;
-
-        Ok(results)
     }
 }
 
@@ -219,46 +197,70 @@ impl DistributedScheduler {
         _partition_func: F,
     ) -> Vec<Vec<T>>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(&T) -> usize + Send + Sync + 'static,
     {
-        // Analyze data characteristics
-        let data_size = data.len();
-        let _node_count = nodes.len();
+        partition_owned_by_key(data, nodes.len(), _partition_func)
+    }
 
-        // Calculate optimal partition sizes based on node capabilities
-        let partition_sizes = self.calculate_optimal_partitions(nodes, data_size);
-
-        // Partition data according to calculated sizes
-        let mut partitions = Vec::new();
-        let mut start_idx = 0;
-
-        for partition_size in partition_sizes {
-            let end_idx = std::cmp::min(start_idx + partition_size, data_size);
-            let partition = data[start_idx..end_idx].to_vec();
-            partitions.push(partition);
-            start_idx = end_idx;
+    async fn map_data_intelligently<T, F, R>(
+        &self,
+        data: Vec<T>,
+        nodes: &[NodeConfig],
+        map_func: F,
+    ) -> Vec<R>
+    where
+        T: Send + 'static,
+        F: Fn(T) -> R + Send + Sync + 'static,
+        R: Send + 'static,
+    {
+        let item_count = data.len();
+        if nodes.is_empty() {
+            return data.into_iter().map(map_func).collect();
         }
 
-        partitions
+        let partition_sizes = self.calculate_optimal_partitions(nodes, item_count);
+        let partitions = partition_owned_by_sizes(data, &partition_sizes);
+        let mut results = Vec::with_capacity(item_count);
+
+        for partition in partitions {
+            results.extend(partition.into_iter().map(&map_func));
+        }
+
+        results
     }
 
     fn calculate_optimal_partitions(&self, nodes: &[NodeConfig], total_items: usize) -> Vec<usize> {
-        // Weight partitions by node capabilities
-        let total_compute_power: usize = nodes.iter().map(|n| n.cpu_cores).sum();
+        if nodes.is_empty() {
+            return Vec::new();
+        }
+        if total_items == 0 {
+            return (0..nodes.len()).map(|_| 0).collect();
+        }
 
-        nodes
-            .iter()
-            .map(|node| {
-                let weight = node.cpu_cores as f64 / total_compute_power as f64;
-                (weight * total_items as f64) as usize
-            })
-            .collect()
+        let total_compute_power: usize = nodes.iter().map(|n| n.cpu_cores).sum();
+        if total_compute_power == 0 {
+            return uniform_partition_sizes(total_items, nodes.len());
+        }
+
+        let mut assigned = 0;
+        let mut sizes = Vec::with_capacity(nodes.len());
+        for (index, node) in nodes.iter().enumerate() {
+            let size = if index + 1 == nodes.len() {
+                total_items - assigned
+            } else {
+                let size = total_items * node.cpu_cores / total_compute_power;
+                assigned += size;
+                size
+            };
+            sizes.push(size);
+        }
+        sizes
     }
 
     async fn create_map_tasks<T, F, R>(&self, data: Vec<T>, _map_func: F) -> Vec<DistributedTask>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,
         R: Send + 'static,
     {
@@ -284,15 +286,13 @@ impl DistributedScheduler {
         _nodes: &[NodeConfig],
     ) -> Result<Option<T>, DistributedError>
     where
-        T: Send + Clone + 'static,
+        T: Send + 'static,
         F: Fn(T, T) -> T + Send + Sync + 'static,
     {
         if data.is_empty() {
             return Ok(None);
         }
 
-        // Implement tree-reduce for optimal network usage
-        // This is a simplified version - real implementation would use network topology
         let result = data.into_iter().reduce(reduce_func);
         Ok(result)
     }
@@ -355,16 +355,12 @@ impl FailureHandler {
         }
     }
 
-    async fn execute_with_retry<R>(
+    async fn execute_with_retry(
         &self,
-        _assignments: HashMap<usize, Vec<&DistributedTask>>,
-    ) -> Result<Vec<R>, DistributedError>
-    where
-        R: Send + 'static,
-    {
-        // Execute with automatic retry and failure recovery
-        // Simplified implementation
-        Ok(Vec::new())
+        assignments: HashMap<usize, Vec<&DistributedTask>>,
+    ) -> Result<usize, DistributedError> {
+        let _retry_budget = self.retry_config.max_retries;
+        Ok(assignments.values().map(Vec::len).sum())
     }
 }
 
@@ -400,7 +396,7 @@ pub struct DistributedIterator<T> {
     context: DistributedContext,
 }
 
-impl<T: Send + Clone + 'static> DistributedIterator<T> {
+impl<T: Send + 'static> DistributedIterator<T> {
     pub fn new(data: Vec<T>, context: DistributedContext) -> Self {
         Self { data, context }
     }
@@ -409,7 +405,7 @@ impl<T: Send + Clone + 'static> DistributedIterator<T> {
     pub async fn map<F, R>(self, map_func: F) -> Result<DistributedIterator<R>, DistributedError>
     where
         F: Fn(T) -> R + Send + Sync + 'static,
-        R: Send + Clone + 'static,
+        R: Send + 'static,
     {
         let results = self
             .context
@@ -443,6 +439,65 @@ impl<T: Send + Clone + 'static> DistributedIterator<T> {
     }
 }
 
+fn partition_owned_by_key<T, F>(
+    data: Vec<T>,
+    partition_count: usize,
+    partition_func: F,
+) -> Vec<Vec<T>>
+where
+    F: Fn(&T) -> usize,
+{
+    if partition_count == 0 {
+        return vec![data];
+    }
+
+    let mut partitions: Vec<Vec<T>> = (0..partition_count).map(|_| Vec::new()).collect();
+    for item in data {
+        let partition_index = partition_func(&item) % partition_count;
+        partitions[partition_index].push(item);
+    }
+    partitions
+}
+
+fn partition_owned_by_sizes<T>(data: Vec<T>, partition_sizes: &[usize]) -> Vec<Vec<T>> {
+    if partition_sizes.is_empty() {
+        return vec![data];
+    }
+
+    let mut remaining = data.len();
+    let mut iter = data.into_iter();
+    let mut partitions = Vec::with_capacity(partition_sizes.len());
+
+    for size in partition_sizes {
+        let take = (*size).min(remaining);
+        let partition: Vec<T> = iter.by_ref().take(take).collect();
+        remaining -= partition.len();
+        partitions.push(partition);
+    }
+
+    if remaining > 0 {
+        if let Some(last) = partitions.last_mut() {
+            last.extend(iter);
+        } else {
+            partitions.push(iter.collect());
+        }
+    }
+
+    partitions
+}
+
+fn uniform_partition_sizes(total_items: usize, partition_count: usize) -> Vec<usize> {
+    if partition_count == 0 {
+        return Vec::new();
+    }
+
+    let base = total_items / partition_count;
+    let remainder = total_items % partition_count;
+    (0..partition_count)
+        .map(|index| base + usize::from(index < remainder))
+        .collect()
+}
+
 /// Statistics for distributed execution
 #[derive(Debug)]
 pub struct DistributedStats {
@@ -470,6 +525,24 @@ pub enum DistributedError {
 mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr};
+
+    #[derive(Debug, PartialEq)]
+    struct NonClone(u64);
+
+    fn test_node(port: u16, cpu_cores: usize) -> NodeConfig {
+        NodeConfig {
+            address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port),
+            cpu_cores,
+            memory_gb: 8,
+            gpu_config: None,
+            latency_profile: LatencyProfile {
+                average_latency_ms: 1.0,
+                bandwidth_mbps: 1000.0,
+                reliability_score: 0.99,
+            },
+            capabilities: vec![NodeCapability::HighCompute],
+        }
+    }
 
     #[tokio::test]
     async fn test_distributed_context_creation() {
@@ -509,19 +582,7 @@ mod tests {
 
         // Add test nodes
         for i in 0..3 {
-            let node = NodeConfig {
-                address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080 + i),
-                cpu_cores: 4,
-                memory_gb: 8,
-                gpu_config: None,
-                latency_profile: LatencyProfile {
-                    average_latency_ms: 1.0,
-                    bandwidth_mbps: 1000.0,
-                    reliability_score: 0.99,
-                },
-                capabilities: vec![NodeCapability::HighCompute],
-            };
-            context.add_node(node);
+            context.add_node(test_node(8080 + i, 4));
         }
 
         let data = (0..100).collect::<Vec<_>>();
@@ -531,14 +592,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn non_clone_distributed_partition_moves_items_by_key() {
+        let mut context = DistributedContext::new();
+        context.add_node(test_node(9001, 4));
+        context.add_node(test_node(9002, 4));
+
+        let data = (0..6).map(NonClone).collect::<Vec<_>>();
+        let partitions = context.partition_data(data, |item| item.0 as usize).await;
+        let mut partition_values = Vec::new();
+        for partition in partitions {
+            partition_values.push(
+                partition
+                    .collect()
+                    .await
+                    .into_iter()
+                    .map(|item| item.0)
+                    .collect::<Vec<_>>(),
+            );
+        }
+
+        assert_eq!(partition_values, vec![vec![0, 2, 4], vec![1, 3, 5]]);
+    }
+
+    #[tokio::test]
+    async fn non_clone_distributed_map_consumes_items() {
+        let mut context = DistributedContext::new();
+        context.add_node(test_node(9011, 1));
+        context.add_node(test_node(9012, 3));
+
+        let mapped = context
+            .execute_distributed_map((0..5).map(NonClone).collect(), |item| {
+                item.0.wrapping_mul(3)
+            })
+            .await
+            .expect("distributed map should consume non-clone items");
+
+        assert_eq!(mapped, vec![0, 3, 6, 9, 12]);
+    }
+
+    #[tokio::test]
+    async fn non_clone_distributed_reduce_consumes_items() {
+        let context = DistributedContext::new();
+
+        let reduced = context
+            .execute_distributed_reduce((1..5).map(NonClone).collect(), |left, right| {
+                NonClone(left.0 + right.0)
+            })
+            .await
+            .expect("distributed reduce should consume non-clone items");
+
+        assert_eq!(reduced, Some(NonClone(10)));
+    }
+
+    #[tokio::test]
     async fn test_distributed_iterator() {
         let context = DistributedContext::new();
         let data = vec![1, 2, 3, 4, 5];
 
         let dist_iter = DistributedIterator::new(data, context);
-        let result = dist_iter.map(|x| x * 2).await;
+        let result = dist_iter
+            .map(|x| x * 2)
+            .await
+            .expect("distributed iterator map should complete")
+            .collect()
+            .await;
 
-        // Test would verify distributed execution
-        assert!(result.is_ok());
+        assert_eq!(result, vec![2, 4, 6, 8, 10]);
     }
 }

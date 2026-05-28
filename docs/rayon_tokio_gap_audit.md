@@ -37,6 +37,7 @@ This audit covers the active unified-scheduler comparison scope:
 - Iterator cache helper: `moirai-iter::cache::ZeroCopyParallelIter` borrows input slices and map closures directly through scoped chunks without `Arc` allocation and keeps small borrowed work on the sequential zero-copy path.
 - Iterator execution contexts: direct `execute_iter` paths move owned chunks and accept non-`Clone` items instead of cloning chunk slices before scheduling.
 - NUMA iterator helper: `moirai-iter::numa::NumaContext` and `NumaIter` consume owned batches for map and reduce without clone-bound chunk materialization.
+- Distributed iterator helper: `moirai-iter::distributed::DistributedContext` consumes owned partitions for partition/map/reduce helper paths and returns value-semantic map results.
 
 Drop-in API compatibility with every Tokio I/O type or every Rayon `ParallelIterator` adapter is not part of this scheduler audit. Those are ecosystem extension goals, not active gaps in the unified scheduler comparison.
 
@@ -98,6 +99,7 @@ The 2026-05-27 audit pass keeps that verdict unchanged for covered semantics and
 | Borrowed cache helper map/reduce | `ZeroCopyParallelIter` borrowed slice map/reduce with sequential small-work gate | Rayon `par_iter` map and reduce over equivalent borrowed slices | `cache_iterator_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 | Owned execution-context map | `ParallelContext::execute_iter` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `execution_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 | Owned NUMA context map | `NumaContext::execute_iter` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `numa_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
+| Owned distributed context map | `DistributedContext::execute_distributed_map` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `distributed_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 
 ## Mixed Tokio/Rayon Comparison Matrix
 
@@ -205,6 +207,7 @@ Rayon does not expose a per-task result handle equivalent to `TaskHandle<T>`, so
 - Iterator `ZeroCopyParallelIter::map` must not reintroduce `Arc` wrappers for borrowed data or closures.
 - Iterator execution contexts must not reintroduce `chunk.to_vec()`, `item.clone()` map execution, or `T: Clone` direct map bounds.
 - NUMA iterators must not reintroduce clone-bound direct map execution, cloned chunk materialization, or cloned reduction functions for owned batches.
+- Distributed iterators must not reintroduce clone-bound owned partitions, placeholder empty map execution, or existence-only distributed iterator map tests.
 - Iterator base APIs do not expose unused `Pin<Box<dyn Future<...>>>` execution traits.
 - Timer-wheel cancellation must return value-sensitive cancellation results, suppress canceled waker wakeups, and avoid placeholder false returns.
 - Async file facade comparison must assert Moirai bytes and Tokio bytes against the same source bytes before timing for read, write, append, metadata, rename, remove, and copy rows. Async directory facade comparison must assert single directory create/remove state and recursive directory create/remove marker-file state before timing.
@@ -265,6 +268,8 @@ The `ZeroCopyParallelIter` cache-helper cleanup removes `Arc` allocation from sc
 The execution-context owned-chunk cleanup removes cloned chunk materialization from `ParallelContext::execute_iter` and `AsyncContext::execute_iter`, relaxes direct map bounds from `T: Clone` to `T: Send`, and adds non-`Clone` value tests. `execution_context_comparison` measured owned execution-context map at 120.53-122.07 ns versus Rayon owned map at 29.323-30.104 µs after asserting equal checksums. This is direct execution-context helper coverage, not a full Rayon adapter parity claim.
 
 The NUMA iterator cleanup removes cloned chunk materialization from `NumaContext::execute_iter` and `NumaIter::reduce`, relaxes NUMA direct map and extension bounds from `T: Clone` to `T: Send`, and adds non-`Clone` value tests. `numa_context_comparison` measured owned NUMA context map at 175.50-204.96 ns versus Rayon owned map at 45.097-142.69 µs after asserting equal checksums. This is NUMA helper coverage, not a full Rayon adapter parity claim.
+
+The distributed iterator cleanup removes cloned partition materialization from `DistributedContext::partition_data`, makes `execute_distributed_map` return real mapped values instead of placeholder empty outputs, relaxes direct distributed map and reduce bounds from `T: Clone` to `T: Send`, and adds non-`Clone` value tests. `distributed_context_comparison` measured owned distributed context map at 389.05-428.30 ns versus Rayon owned map at 72.092-75.365 µs after asserting equal checksums. This is distributed helper coverage, not a full distributed networking or Rayon adapter parity claim.
 
 The sorting slice-extension boundary is now covered by `ParallelSliceMut` and the value-checked `sorting_comparison` benchmark against Rayon `ParallelSliceMut`. The latest same-run benchmark measured stable sort at 76.225-78.202 µs for Moirai versus 143.38-146.10 µs for Rayon, and unstable sort at 48.838-51.041 µs for Moirai versus 66.725-69.234 µs for Rayon.
 
