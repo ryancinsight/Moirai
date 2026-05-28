@@ -195,6 +195,26 @@ fn test_parallel_cloned_materializes_borrowed_clone_values() {
 }
 
 #[test]
+fn test_non_clone_parallel_ref_iterator_maps_borrowed_values() {
+    struct NonCloneBorrowed {
+        value: u64,
+    }
+
+    let data = vec![
+        NonCloneBorrowed { value: 2 },
+        NonCloneBorrowed { value: 3 },
+        NonCloneBorrowed { value: 5 },
+    ];
+
+    let result = data
+        .par_iter()
+        .map(|item| item.value.wrapping_mul(7))
+        .collect::<Vec<_>>();
+
+    assert_eq!(result, vec![14, 21, 35]);
+}
+
+#[test]
 fn test_parallel_take_keeps_prefix() {
     let data = vec![3, 1, 4, 1, 5];
     let result: Vec<i32> = data.into_par_iter().take(3).collect();

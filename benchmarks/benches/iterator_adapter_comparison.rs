@@ -17,8 +17,20 @@ const WARM_UP_MILLIS: u64 = 250;
 const WORK_ITEMS: usize = 32_768;
 const CHUNK_SIZE: usize = 64;
 
+struct NonCloneBenchValue {
+    value: u64,
+}
+
 fn source_data() -> Vec<u64> {
     (0..WORK_ITEMS as u64).collect()
+}
+
+fn non_clone_source_data() -> Vec<NonCloneBenchValue> {
+    (0..WORK_ITEMS as u64)
+        .map(|value| NonCloneBenchValue {
+            value: value.wrapping_mul(17).wrapping_add(11),
+        })
+        .collect()
 }
 
 fn moirai_indexed_boundary<Owned, Empty, Range>(
@@ -638,6 +650,18 @@ fn rayon_ref_copied_cloned_pipeline(data: &Vec<u64>) -> (Vec<u64>, Vec<String>) 
     (copied, cloned)
 }
 
+fn moirai_non_clone_ref_map(data: &Vec<NonCloneBenchValue>) -> u64 {
+    MoiraiIntoParallelRefIterator::par_iter(data)
+        .map(|item| item.value.wrapping_mul(3).wrapping_add(1))
+        .sum::<u64>()
+}
+
+fn rayon_non_clone_ref_map(data: &Vec<NonCloneBenchValue>) -> u64 {
+    rayon::prelude::IntoParallelRefIterator::par_iter(data)
+        .map(|item| item.value.wrapping_mul(3).wrapping_add(1))
+        .sum::<u64>()
+}
+
 fn moirai_unzip_pipeline(data: Vec<u64>) -> (Vec<u64>, Vec<u64>) {
     MoiraiIntoParallelIterator::into_par_iter(data)
         .map(|value| (value.wrapping_mul(3), value.wrapping_mul(5)))
@@ -654,6 +678,7 @@ fn rayon_unzip_pipeline(data: Vec<u64>) -> (Vec<u64>, Vec<u64>) {
 
 fn iterator_adapter_comparison(c: &mut Criterion) {
     let data = source_data();
+    let non_clone_data = non_clone_source_data();
     let moirai_owned = MoiraiIntoParallelIterator::into_par_iter(data.clone());
     let moirai_empty = MoiraiIntoParallelIterator::into_par_iter(Vec::<u64>::new());
     let moirai_range = MoiraiIntoParallelIterator::into_par_iter(0..WORK_ITEMS);
@@ -1007,6 +1032,24 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(rayon_ref_copied_cloned_pipeline(black_box(input))))
     });
+    group.finish();
+
+    let moirai_expected = moirai_non_clone_ref_map(&non_clone_data);
+    let rayon_expected = rayon_non_clone_ref_map(&non_clone_data);
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_adapter_non_clone_ref_map");
+    group.sample_size(SAMPLE_SIZE);
+    group.bench_with_input(
+        BenchmarkId::new("moirai", WORK_ITEMS),
+        &non_clone_data,
+        |b, input| b.iter(|| black_box(moirai_non_clone_ref_map(black_box(input)))),
+    );
+    group.bench_with_input(
+        BenchmarkId::new("rayon", WORK_ITEMS),
+        &non_clone_data,
+        |b, input| b.iter(|| black_box(rayon_non_clone_ref_map(black_box(input)))),
+    );
     group.finish();
 
     let moirai_expected = moirai_unzip_pipeline(data.clone());

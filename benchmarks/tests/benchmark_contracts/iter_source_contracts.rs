@@ -730,6 +730,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "Moirai::for_each_indexed",
         "Moirai::map_reduce_indexed",
         "impl<T: Send + Sync + 'static> IntoParallelIterator for Vec<T>",
+        "impl<'data, T: Send + Sync + 'data> IntoParallelRefIterator<'data> for Vec<T>",
         "impl IntoParallelIterator for std::ops::Range<usize>",
         "data: Vec<T>",
         "self.data.split_off(mid)",
@@ -755,6 +756,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "test_indexed_parallel_iterator_reports_source_lengths",
         "test_parallel_copied_materializes_borrowed_copy_values",
         "test_parallel_cloned_materializes_borrowed_clone_values",
+        "test_non_clone_parallel_ref_iterator_maps_borrowed_values",
         "test_parallel_take_keeps_prefix",
         "test_parallel_skip_discards_prefix",
         "test_parallel_take_and_skip_saturate_at_bounds",
@@ -804,6 +806,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "Arc<Vec<T>>",
         "VecNonCloneParIter",
         "impl<T: Send + Sync + Clone + 'static> IntoParallelIterator for Vec<T>",
+        "impl<'data, T: Send + Sync + Clone + 'static> IntoParallelRefIterator<'data> for Vec<T>",
     ] {
         assert!(
             !source.contains(prohibited),
@@ -862,6 +865,8 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "rayon_position_pipeline",
         "moirai_ref_copied_cloned_pipeline",
         "rayon_ref_copied_cloned_pipeline",
+        "moirai_non_clone_ref_map",
+        "rayon_non_clone_ref_map",
         "moirai_unzip_pipeline",
         "rayon_unzip_pipeline",
         "assert_eq!(moirai_expected, rayon_expected)",
@@ -886,6 +891,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "iterator_adapter_find_map",
         "iterator_adapter_position",
         "iterator_adapter_ref_copy_clone",
+        "iterator_adapter_non_clone_ref_map",
         "iterator_adapter_unzip",
     ] {
         assert!(

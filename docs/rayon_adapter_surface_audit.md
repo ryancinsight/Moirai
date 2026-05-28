@@ -11,7 +11,7 @@ The audit classifies only repository-local evidence. It does not claim drop-in R
 Moirai does not currently provide full Rayon adapter parity. The supported surface is a focused subset:
 
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`.
-- `IntoParallelRefIterator` for `Vec<T>`.
+- `IntoParallelRefIterator` for `Vec<T>` without requiring `T: Clone + 'static`.
 - `IndexedParallelIterator` for exact-size source iterators: by-value `VecParIter<T>`, `VecRefParIter<'_, T>`, `RefVecParIter<'_, T>`, `RangeParIter<usize>`, and exact-size sequential adapters.
 - `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
 - `ParallelExtend<T>` for `Vec<T>`.
@@ -27,7 +27,7 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | --- | --- | --- | --- |
 | Owned vector parallel iteration | `impl IntoParallelIterator for Vec<T>` | `moirai-iter/src/parallel/sources.rs`; unit tests for map/filter/reduce | Covered subset |
 | Range parallel iteration | `impl IntoParallelIterator for Range<usize>` | `par_range`; `test_range_parallel` | Covered subset |
-| Borrowed vector iteration | `impl IntoParallelRefIterator for Vec<T>` | `VecRefParIter<'data, T>` and `RefVecParIter<'a, T>` | Covered subset |
+| Borrowed vector iteration | `impl IntoParallelRefIterator for Vec<T>` | `VecRefParIter<'data, T>`, `RefVecParIter<'a, T>`, `test_non_clone_parallel_ref_iterator_maps_borrowed_values`, and `iterator_adapter_non_clone_ref_map` | Covered subset |
 | Indexed source cardinality | `IndexedParallelIterator::{len, is_empty}` for exact-size source iterators | `test_indexed_parallel_iterator_reports_source_lengths`; `iterator_indexed_boundary` against Rayon measured Moirai at 1.8682-1.8871 ns and Rayon at 1.8668-1.8727 ns | Bounded indexed source boundary |
 | Map adapters | `ParallelIterator::map`, `map_with`, `map_init`, `Map<I, F>`, `MapWith<I, T, F>`, and `MapInit<I, Init, F>` | `test_parallel_map`, `test_parallel_map_with_uses_cloned_state`, `test_parallel_map_init_uses_initialized_state`, and `iterator_adapter_map_state` benchmark rows | Covered subset |
 | Mutation adapter | `ParallelIterator::update` and `Update<I, F>` | `test_parallel_update_mutates_items_before_yielding` and `iterator_adapter_update` benchmark rows | Covered subset |
@@ -41,6 +41,7 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | Enumerate adapter | `ParallelIterator::enumerate` and `Enumerate<I>` | `test_parallel_enumerate_pairs_logical_indices` validates zero-based logical positions | Covered subset |
 | Zip adapter | `ParallelIterator::zip` and `Zip<I, J>` | `test_parallel_zip_stops_at_shorter_input` validates shortest-input semantics | Covered subset |
 | Borrowed reference materialization adapters | `ParallelIterator::copied` and `ParallelIterator::cloned` | `test_parallel_copied_materializes_borrowed_copy_values`, `test_parallel_cloned_materializes_borrowed_clone_values`, and `iterator_adapter_ref_copy_clone` benchmark rows | Covered subset |
+| Non-Clone borrowed source map | `Vec<T>::par_iter().map(...).sum()` over borrowed non-`Clone` values | `test_non_clone_parallel_ref_iterator_maps_borrowed_values` and `iterator_adapter_non_clone_ref_map` against Rayon | Covered bounded source boundary |
 | Take adapter | `ParallelIterator::take` and `Take<I>` | `test_parallel_take_keeps_prefix` and `test_parallel_take_and_skip_saturate_at_bounds` validate prefix and over-bound behavior | Covered subset |
 | Skip adapter | `ParallelIterator::skip` and `Skip<I>` | `test_parallel_skip_discards_prefix` and `test_parallel_take_and_skip_saturate_at_bounds` validate suffix and over-bound behavior | Covered subset |
 | Bounded any-window adapters | `ParallelIterator::take_any` and `ParallelIterator::skip_any` | `test_parallel_take_any_and_skip_any_use_bounded_window_semantics` and `iterator_adapter_take_skip_any` benchmark rows | Deterministic bounded subset |
@@ -111,6 +112,10 @@ Completed: `sum`, `product`, `min`, and `max` are implemented as terminal `Paral
 ### ISSUE-118 [minor]: Add borrowed reference materialization adapters
 
 Completed: `copied` and `cloned` are implemented as terminal-preserving adapters for borrowed parallel streams. Tests cover `Copy` numeric materialization and cloned `String` values, and `iterator_adapter_comparison` includes `iterator_adapter_ref_copy_clone` against Rayon after asserting equal copied/cloned collections.
+
+### ISSUE-174 [patch]: Remove borrowed vector source Clone/static bound
+
+Completed: `IntoParallelRefIterator<'data> for Vec<T>` now requires `T: Send + Sync + 'data` instead of `T: Clone + 'static`, keeping borrowed source iteration zero-copy for non-`Clone` values. `test_non_clone_parallel_ref_iterator_maps_borrowed_values` verifies borrowed mapping without cloning, and `iterator_adapter_non_clone_ref_map` asserts equal Moirai/Rayon checksums before timing.
 
 ### ISSUE-119 [minor]: Add pair stream unzip collector
 
@@ -198,6 +203,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 | `iterator_adapter_find_map` | 77.948-85.530 us | 238.34-242.20 us | Moirai ahead |
 | `iterator_adapter_position` | 33.601-43.300 us | 13.150-41.006 ms | Moirai ahead |
 | `iterator_adapter_ref_copy_clone` | 1.9997-2.0162 ms | 3.0533-3.1264 ms | Moirai ahead |
+| `iterator_adapter_non_clone_ref_map` | 16.446-17.165 us | 57.328-79.918 us | Moirai ahead |
 | `iterator_adapter_unzip` | 63.013-63.838 us | 648.79-671.82 us | Moirai ahead |
 
 ### ISSUE-104 [minor]: Optimize indexed and chain/rev adapter benchmarks

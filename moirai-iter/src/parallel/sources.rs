@@ -163,7 +163,7 @@ impl<T: Send + Sync + 'static> IntoParallelIterator for Vec<T> {
     }
 }
 
-impl<'data, T: Send + Sync + Clone + 'static> IntoParallelRefIterator<'data> for Vec<T> {
+impl<'data, T: Send + Sync + 'data> IntoParallelRefIterator<'data> for Vec<T> {
     type Item = &'data T;
     type Iter = VecRefParIter<'data, T>;
 
