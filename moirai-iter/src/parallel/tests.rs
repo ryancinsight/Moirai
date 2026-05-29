@@ -288,6 +288,23 @@ fn test_parallel_take_any_and_skip_any_use_bounded_window_semantics() {
 }
 
 #[test]
+fn test_parallel_take_any_while_and_skip_any_while_use_deterministic_prefix_semantics() {
+    let data = vec![2_u64, 4, 6, 9, 12, 14];
+    let taken: Vec<_> = data
+        .clone()
+        .into_par_iter()
+        .take_any_while(|value| *value % 2 == 0)
+        .collect();
+    assert_eq!(taken, vec![2, 4, 6]);
+
+    let skipped: Vec<_> = data
+        .into_par_iter()
+        .skip_any_while(|value| *value % 2 == 0)
+        .collect();
+    assert_eq!(skipped, vec![9, 12, 14]);
+}
+
+#[test]
 fn test_parallel_chunks_groups_full_chunks_and_tail() {
     let data = vec![1, 2, 3, 4, 5];
     let result: Vec<Vec<i32>> = data.into_par_iter().chunks(2).collect();

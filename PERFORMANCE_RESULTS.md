@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-05-29 Iterator Take/Skip-Any-While Adapter Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_take_skip_any_while --quiet
+```
+
+Workload: mapped owned streams are routed through full-pass predicate-window `take_any_while` and `skip_any_while` paths. The benchmark source asserts equal Moirai and Rayon vectors before timing, and unit tests cover deterministic prefix/suffix early-stop semantics. Threshold early-stop equality is not claimed because Rayon permits unordered early-stop behavior for these APIs.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator `take_any_while`/`skip_any_while` | 91.813-102.11 us | Rayon 729.10-756.49 us |
+
+Interpretation: the audited Rayon-style predicate-window subset now includes deterministic prefix/suffix APIs without adding dynamic dispatch or boxed strategy state. The comparison row is intentionally limited to a full-pass predicate window where Rayon and Moirai have identical retained values.
+
 ## 2026-05-29 Iterator Positions Adapter Row
 
 Command:

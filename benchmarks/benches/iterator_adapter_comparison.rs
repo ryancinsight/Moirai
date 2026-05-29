@@ -178,6 +178,32 @@ fn rayon_take_skip_any_pipeline(data: Vec<u64>) -> Vec<u64> {
         .collect()
 }
 
+fn moirai_take_skip_any_while_pipeline(data: Vec<u64>) -> (Vec<u64>, Vec<u64>) {
+    let taken = MoiraiIntoParallelIterator::into_par_iter(data.clone())
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .take_any_while(|value| *value != u64::MAX)
+        .collect::<Vec<_>>();
+    let skipped = MoiraiIntoParallelIterator::into_par_iter(data)
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .skip_any_while(|value| *value == u64::MAX)
+        .collect::<Vec<_>>();
+
+    (taken, skipped)
+}
+
+fn rayon_take_skip_any_while_pipeline(data: Vec<u64>) -> (Vec<u64>, Vec<u64>) {
+    let taken = rayon::prelude::IntoParallelIterator::into_par_iter(data.clone())
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .take_any_while(|value| *value != u64::MAX)
+        .collect::<Vec<_>>();
+    let skipped = rayon::prelude::IntoParallelIterator::into_par_iter(data)
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .skip_any_while(|value| *value == u64::MAX)
+        .collect::<Vec<_>>();
+
+    (taken, skipped)
+}
+
 fn moirai_map_state_pipeline(data: Vec<u64>) -> (Vec<u64>, u64, Vec<u64>, u64) {
     let with_checksum = Arc::new(AtomicU64::new(0));
     let with = MoiraiIntoParallelIterator::into_par_iter(data.clone())
@@ -895,6 +921,26 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     });
     group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(rayon_take_skip_any_pipeline(black_box(input.clone()))))
+    });
+    group.finish();
+
+    let moirai_expected = moirai_take_skip_any_while_pipeline(data.clone());
+    let rayon_expected = rayon_take_skip_any_while_pipeline(data.clone());
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_adapter_take_skip_any_while");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| {
+            black_box(moirai_take_skip_any_while_pipeline(black_box(
+                input.clone(),
+            )))
+        })
+    });
+    group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(rayon_take_skip_any_while_pipeline(black_box(input.clone()))))
     });
     group.finish();
 

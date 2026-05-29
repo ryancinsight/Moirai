@@ -570,17 +570,18 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
     let adapter_benchmark = read_benchmark("benches/iterator_adapter_comparison.rs");
     let benchmark_manifest = read_benchmark("Cargo.toml");
     let adapter_source = format!(
-        "{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
         read_benchmark("../moirai-iter/src/parallel.rs"),
         read_benchmark("../moirai-iter/src/parallel/adapters.rs"),
         read_benchmark("../moirai-iter/src/parallel/adapters/chunks.rs"),
         read_benchmark("../moirai-iter/src/parallel/adapters/pair.rs"),
         read_benchmark("../moirai-iter/src/parallel/adapters/position.rs"),
         read_benchmark("../moirai-iter/src/parallel/adapters/side_effect.rs"),
+        read_benchmark("../moirai-iter/src/parallel/adapters/window.rs"),
         read_benchmark("../moirai-iter/src/parallel/sources.rs")
     );
     let source = format!(
-        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
         read_benchmark("../moirai-iter/src/parallel.rs"),
         read_benchmark("../moirai-iter/src/parallel/fallible.rs"),
         read_benchmark("../moirai-iter/src/parallel/indexed.rs"),
@@ -592,6 +593,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         read_benchmark("../moirai-iter/src/parallel/adapters/pair.rs"),
         read_benchmark("../moirai-iter/src/parallel/adapters/position.rs"),
         read_benchmark("../moirai-iter/src/parallel/adapters/side_effect.rs"),
+        read_benchmark("../moirai-iter/src/parallel/adapters/window.rs"),
         read_benchmark("../moirai-iter/src/parallel/consumers.rs"),
         read_benchmark("../moirai-iter/src/parallel/tests.rs"),
         read_benchmark("../moirai-iter/src/lib.rs")
@@ -617,6 +619,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "ISSUE-105",
         "ISSUE-178",
         "ISSUE-179",
+        "ISSUE-180",
         "Competitive Rayon performance claims must continue using value-checked benchmark paths",
     ] {
         assert!(
@@ -634,8 +637,10 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "mod traits;",
         "mod sources;",
         "mod consumers;",
+        "mod window;",
         "pub trait IndexedParallelIterator",
         "pub use position::{MapPositions, Positions};",
+        "pub use window::{SkipAnyWhile, TakeAnyWhile};",
         "pub use fallible::TryStreamItem;",
         "pub use split::Either;",
         "fn len(&self) -> usize",
@@ -658,6 +663,8 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "fn take_any(self, count: usize) -> Take<Self>",
         "fn skip(self, count: usize) -> Skip<Self>",
         "fn skip_any(self, count: usize) -> Skip<Self>",
+        "fn take_any_while<F>(self, predicate: F) -> TakeAnyWhile<Self, F>",
+        "fn skip_any_while<F>(self, predicate: F) -> SkipAnyWhile<Self, F>",
         "fn chain<J>(self, other: J) -> Chain<Self, J>",
         "fn intersperse(self, separator: Self::Item) -> Intersperse<Self>",
         "fn rev(self) -> Rev<Self>",
@@ -757,6 +764,10 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "pub struct Cloned<I>",
         "pub struct Take<I>",
         "pub struct Skip<I>",
+        "pub struct TakeAnyWhile<I, F>",
+        "pub struct SkipAnyWhile<I, F>",
+        "retained.push(item);",
+        "retained.extend(items);",
         "pub struct Chain<I, J>",
         "pub struct Intersperse<I>",
         "pub struct Rev<I>",
@@ -807,6 +818,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "test_parallel_skip_discards_prefix",
         "test_parallel_take_and_skip_saturate_at_bounds",
         "test_parallel_take_any_and_skip_any_use_bounded_window_semantics",
+        "test_parallel_take_any_while_and_skip_any_while_use_deterministic_prefix_semantics",
         "test_parallel_chain_preserves_left_then_right_order",
         "test_parallel_intersperse_inserts_separator_between_items",
         "test_parallel_intersperse_preserves_empty_and_singleton_streams",
@@ -885,6 +897,8 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "rayon_flatten_pipeline",
         "moirai_take_skip_any_pipeline",
         "rayon_take_skip_any_pipeline",
+        "moirai_take_skip_any_while_pipeline",
+        "rayon_take_skip_any_while_pipeline",
         "moirai_map_state_pipeline",
         "rayon_map_state_pipeline",
         "moirai_update_pipeline",
@@ -936,6 +950,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "iterator_adapter_filter_flat_pipeline",
         "iterator_adapter_flatten",
         "iterator_adapter_take_skip_any",
+        "iterator_adapter_take_skip_any_while",
         "iterator_adapter_map_state",
         "iterator_adapter_update",
         "iterator_adapter_while_some",

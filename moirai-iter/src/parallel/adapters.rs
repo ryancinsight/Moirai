@@ -2,11 +2,13 @@ mod chunks;
 mod pair;
 mod position;
 mod side_effect;
+mod window;
 
 pub use chunks::Chunks;
 pub use pair::{Zip, ZipEq};
 pub use position::{MapPositions, Positions};
 pub use side_effect::{Inspect, PanicFuse};
+pub use window::{SkipAnyWhile, TakeAnyWhile};
 
 use super::{
     fallible, Consumer, FilterConsumer, MapConsumer, ParallelIterator, TryStreamItem, VecParIter,

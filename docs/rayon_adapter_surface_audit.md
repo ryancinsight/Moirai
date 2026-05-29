@@ -13,7 +13,7 @@ Moirai does not currently provide full Rayon adapter parity. The supported surfa
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`.
 - `IntoParallelRefIterator` for `Vec<T>` without requiring `T: Clone + 'static`.
 - `IndexedParallelIterator` for exact-size source iterators: by-value `VecParIter<T>`, `VecRefParIter<'_, T>`, `RefVecParIter<'_, T>`, `RangeParIter<usize>`, exact-size sequential adapters, `len`, `is_empty`, and `collect_into_vec`.
-- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `partition_map`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `positions`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `try_reduce_with`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
+- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `take_any_while`, `skip_any_while`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `partition_map`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `positions`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `try_reduce_with`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
 - `ParallelExtend<T>` for `Vec<T>`.
 - `ParallelSliceMut` for the slice extension sorting boundary.
 
@@ -47,6 +47,7 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | Take adapter | `ParallelIterator::take` and `Take<I>` | `test_parallel_take_keeps_prefix` and `test_parallel_take_and_skip_saturate_at_bounds` validate prefix and over-bound behavior | Covered subset |
 | Skip adapter | `ParallelIterator::skip` and `Skip<I>` | `test_parallel_skip_discards_prefix` and `test_parallel_take_and_skip_saturate_at_bounds` validate suffix and over-bound behavior | Covered subset |
 | Bounded any-window adapters | `ParallelIterator::take_any` and `ParallelIterator::skip_any` | `test_parallel_take_any_and_skip_any_use_bounded_window_semantics` and `iterator_adapter_take_skip_any` benchmark rows | Deterministic bounded subset |
+| Predicate any-window adapters | `ParallelIterator::take_any_while`, `ParallelIterator::skip_any_while`, `TakeAnyWhile<I, F>`, and `SkipAnyWhile<I, F>` | `test_parallel_take_any_while_and_skip_any_while_use_deterministic_prefix_semantics` and the full-pass `iterator_adapter_take_skip_any_while` benchmark row | Deterministic predicate-window subset |
 | Chain adapter | `ParallelIterator::chain` and `Chain<I, J>` | `test_parallel_chain_preserves_left_then_right_order`; benchmarked in `iterator_adapter_comparison` | Covered subset |
 | Intersperse adapter | `ParallelIterator::intersperse` and `Intersperse<I>` | `test_parallel_intersperse_inserts_separator_between_items`, `test_parallel_intersperse_preserves_empty_and_singleton_streams`, and `iterator_adapter_intersperse` benchmark rows | Covered subset |
 | Reverse adapter | `ParallelIterator::rev` and `Rev<I>` | `test_parallel_rev_reverses_logical_order`; benchmarked in `iterator_adapter_comparison` | Covered subset |
@@ -107,6 +108,10 @@ Completed: `try_reduce_with` is implemented over a sealed `TryStreamItem` contra
 ### ISSUE-179 [minor]: Add positions index-stream adapter
 
 Completed: `positions` is implemented as a logical-index stream adapter. The default `Positions<I, F>` adapter yields all matching indices, while mapped streams use a fused `MapPositions<I, MapFn, Predicate>` adapter so mapped values are consumed directly without materializing an intermediate mapped vector. Unit tests cover owned, borrowed, and mapped streams, and `iterator_adapter_comparison` includes `iterator_adapter_positions` against Rayon after asserting equal index vectors.
+
+### ISSUE-180 [minor]: Add predicate any-window adapters
+
+Completed: `take_any_while` and `skip_any_while` are implemented as concrete deterministic predicate-window adapters. Unit tests cover prefix and suffix early-stop value semantics, and `iterator_adapter_comparison` includes a full-pass `iterator_adapter_take_skip_any_while` row against Rayon after asserting equal output vectors. Exact threshold early-stop equality is not claimed because Rayon permits unordered early-stop behavior for these APIs.
 
 ### ISSUE-094 [minor]: Expand adapter surface by priority
 
@@ -202,7 +207,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 
 ## Benchmark Evidence
 
-`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, `try_reduce_with`, and `positions` were refreshed on 2026-05-29 after their implementations landed:
+`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, `try_reduce_with`, `positions`, and `take_any_while`/`skip_any_while` were refreshed on 2026-05-29 after their implementations landed:
 
 | Group | Moirai | Rayon | Status |
 | --- | --- | --- | --- |
@@ -210,6 +215,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 | `iterator_adapter_filter_flat_pipeline` | 22.001-22.292 us | 2.9053-3.0355 ms | Moirai ahead |
 | `iterator_adapter_flatten` | 108.93-137.47 us | 1.2705-1.3079 ms | Moirai ahead |
 | `iterator_adapter_take_skip_any` | 26.930-27.464 us | 792.01-855.45 us | Moirai ahead |
+| `iterator_adapter_take_skip_any_while` | 91.813-102.11 us | 729.10-756.49 us | Moirai ahead |
 | `iterator_adapter_map_state` | 1.2630-1.3841 ms | 4.4604-21.486 ms | Moirai ahead |
 | `iterator_adapter_update` | 35.583-37.854 us | 373.83-393.54 us | Moirai ahead |
 | `iterator_adapter_intersperse` | 91.120-94.203 us | 418.76-433.66 us | Moirai ahead |

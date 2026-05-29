@@ -2,8 +2,8 @@ use super::{fallible, split, TryStreamItem};
 use super::{
     Chain, Chunks, Cloned, CollectConsumer, Copied, Enumerate, Filter, FilterMap, FindConsumer,
     FlatMap, Flatten, Inspect, Intersperse, Map, MapInit, MapWith, NullConsumer, PanicFuse,
-    Positions, ReduceConsumer, ReduceWithConsumer, Reduction, Rev, SequentialAdapter, Skip, Take,
-    Update, WhileSome, Zip, ZipEq,
+    Positions, ReduceConsumer, ReduceWithConsumer, Reduction, Rev, SequentialAdapter, Skip,
+    SkipAnyWhile, Take, TakeAnyWhile, Update, WhileSome, Zip, ZipEq,
 };
 
 /// Core parallel iterator trait for Moirai's Rayon-style non-indexed subset.
@@ -200,6 +200,24 @@ pub trait ParallelIterator: Sized + Send {
         Self::Item: Sync + 'static,
     {
         Skip::new(self, count)
+    }
+
+    /// Retain this deterministic stream prefix while `predicate` returns `true`.
+    fn take_any_while<F>(self, predicate: F) -> TakeAnyWhile<Self, F>
+    where
+        F: Fn(&Self::Item) -> bool + Send + Sync + Clone,
+        Self::Item: Sync + 'static,
+    {
+        TakeAnyWhile::new(self, predicate)
+    }
+
+    /// Discard this deterministic stream prefix while `predicate` returns `true`.
+    fn skip_any_while<F>(self, predicate: F) -> SkipAnyWhile<Self, F>
+    where
+        F: Fn(&Self::Item) -> bool + Send + Sync + Clone,
+        Self::Item: Sync + 'static,
+    {
+        SkipAnyWhile::new(self, predicate)
     }
 
     /// Concatenate this iterator with another iterator of the same item type.

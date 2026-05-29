@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `intersperse` separator adapter to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `flatten` nested-stream adapter to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `take_any` and `skip_any` bounded-window adapters to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `take_any_while` and `skip_any_while` deterministic predicate-window adapters to the Rayon-style parallel iterator subset with value tests and a full-pass same-run Rayon benchmark row.
 - Added `real_application_mixed_workload`, a value-checked mixed async/parallel/channel benchmark against a Tokio plus Rayon reference path.
 - Refreshed public result-handle, async wake, scheduler handoff, and Criterion variance attribution evidence against Tokio and Rayon comparison rows.
 - Added `sum`, `product`, `min`, and `max` terminal reducers to the Rayon-style parallel iterator subset with value tests and benchmark rows.
