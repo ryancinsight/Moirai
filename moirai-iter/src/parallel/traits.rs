@@ -1,4 +1,4 @@
-use super::split;
+use super::{fallible, split, TryStreamItem};
 use super::{
     Chain, Chunks, Cloned, CollectConsumer, Copied, Enumerate, Filter, FilterMap, FindConsumer,
     FlatMap, Flatten, Inspect, Intersperse, Map, MapInit, MapWith, NullConsumer, PanicFuse,
@@ -527,6 +527,21 @@ pub trait ParallelIterator: Sized + Send {
             accumulator = reduce_fn(accumulator, item.into()?)?;
         }
         Ok(accumulator)
+    }
+
+    /// Reduce a fallible item stream without an identity value.
+    fn try_reduce_with<F>(self, reduce_fn: F) -> Option<Self::Item>
+    where
+        Self::Item: TryStreamItem,
+        F: Fn(
+                <Self::Item as TryStreamItem>::Output,
+                <Self::Item as TryStreamItem>::Output,
+            ) -> Self::Item
+            + Send
+            + Sync
+            + Clone,
+    {
+        fallible::try_reduce_with(self, reduce_fn)
     }
 
     /// Sum all items using the standard `Sum` contract for the item stream.

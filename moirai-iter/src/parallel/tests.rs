@@ -365,6 +365,38 @@ fn test_parallel_try_reduce_returns_first_error() {
 }
 
 #[test]
+fn test_parallel_try_reduce_with_result_streams() {
+    let data = vec![Ok::<u64, u64>(1), Ok(2), Ok(3), Ok(4)];
+    let reduced = data
+        .into_par_iter()
+        .try_reduce_with(|left, right| Ok::<u64, u64>(left + right));
+    assert_eq!(reduced, Some(Ok(10)));
+
+    let error = vec![Ok::<u64, u64>(1), Ok(2), Err(7), Ok(4)]
+        .into_par_iter()
+        .try_reduce_with(|left, right| Ok::<u64, u64>(left + right));
+    assert_eq!(error, Some(Err(7)));
+
+    let empty = Vec::<Result<u64, u64>>::new()
+        .into_par_iter()
+        .try_reduce_with(|left, right| Ok::<u64, u64>(left + right));
+    assert_eq!(empty, None);
+}
+
+#[test]
+fn test_parallel_try_reduce_with_option_streams() {
+    let reduced = vec![Some(2_u64), Some(4), Some(6)]
+        .into_par_iter()
+        .try_reduce_with(|left, right| Some(left + right));
+    assert_eq!(reduced, Some(Some(12)));
+
+    let stopped = vec![Some(2_u64), None, Some(6)]
+        .into_par_iter()
+        .try_reduce_with(|left, right| Some(left + right));
+    assert_eq!(stopped, Some(None));
+}
+
+#[test]
 fn test_parallel_reduce_empty_returns_none() {
     let data = Vec::<i32>::new();
     let result = data.into_par_iter().reduce(|a, b| a + b);

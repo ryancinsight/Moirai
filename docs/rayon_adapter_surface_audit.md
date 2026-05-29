@@ -13,7 +13,7 @@ Moirai does not currently provide full Rayon adapter parity. The supported surfa
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`.
 - `IntoParallelRefIterator` for `Vec<T>` without requiring `T: Clone + 'static`.
 - `IndexedParallelIterator` for exact-size source iterators: by-value `VecParIter<T>`, `VecRefParIter<'_, T>`, `RefVecParIter<'_, T>`, `RangeParIter<usize>`, exact-size sequential adapters, `len`, `is_empty`, and `collect_into_vec`.
-- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `partition_map`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
+- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `partition_map`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `try_reduce_with`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
 - `ParallelExtend<T>` for `Vec<T>`.
 - `ParallelSliceMut` for the slice extension sorting boundary.
 
@@ -58,7 +58,7 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | Count adapter | `ParallelIterator::count` | `test_parallel_count` | Covered subset |
 | Predicate adapters | `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last` | `test_parallel_any`, `test_parallel_all`, `test_parallel_find_last_returns_last_matching_value`, `test_parallel_position_terminals_return_logical_indices`, `test_parallel_find_map_first_maps_first_present_value`, `test_parallel_find_map_any_maps_present_value`, `test_parallel_find_map_last_maps_last_present_value`, `iterator_adapter_find_map`, and `iterator_adapter_position` benchmark rows | Covered subset |
 | Side-effect adapters | `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init` | `for_each` is implemented via `map(op).drive(NullConsumer::new())`; `test_parallel_for_each_with_uses_cloned_state`, `test_parallel_for_each_init_uses_initialized_state`, `test_parallel_try_for_each_returns_ok_after_processing_all_items`, `test_parallel_try_for_each_returns_first_error`, `test_parallel_try_for_each_with_uses_cloned_state_and_propagates_error`, `test_parallel_try_for_each_init_uses_initialized_state_and_propagates_error`, `iterator_adapter_for_each_state`, `iterator_adapter_try_for_each_state`, and `iterator_adapter_try_for_each` cover stateful and fallible execution | Covered subset |
-| Reduce adapters | `reduce`, `reduce_with`, `try_reduce` | `Reduction<T, F>` carries the associative operation through split-combine in the vertical `parallel/consumers.rs` leaf; tests cover empty, split, and fallible reduction values; `iterator_adapter_try_reduce` benchmarks the fallible checksum reducer | Covered subset |
+| Reduce adapters | `reduce`, `reduce_with`, `try_reduce`, `try_reduce_with` | `Reduction<T, F>` carries the associative operation through split-combine in the vertical `parallel/consumers.rs` leaf; `try_reduce_with` is bounded by the sealed `TryStreamItem` contract for `Option<T>` and `Result<T, E>`; tests cover empty, split, fallible identity, and fallible no-identity reduction values; `iterator_adapter_try_reduce` and `iterator_adapter_try_reduce_with` benchmark fallible checksum reducers | Covered subset |
 | Terminal numeric/order reducers | `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key` | `test_parallel_sum_and_product_match_standard_values`, `test_parallel_min_and_max_match_standard_values`, `test_parallel_min_max_by_use_comparator`, `test_parallel_min_max_by_key_use_key_function`, `iterator_adapter_terminal_reducers`, and `iterator_adapter_ordered_reducers` benchmark rows | Covered subset |
 | Fold adapter | `fold` | preserves sequential value semantics because this API has no separate operation for combining partial accumulators | Sequential by contract |
 | Full indexed producer/consumer adapters | not exposed | `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed` remain the scheduler indexed execution paths; `IndexedParallelIterator` covers exact source cardinality only | Boundary documented |
@@ -99,6 +99,10 @@ Completed: `zip_eq` is implemented as a statically dispatched `ZipEq<I, J>` adap
 ### ISSUE-177 [minor]: Add partition-map collector
 
 Completed: `partition_map` is implemented as a terminal collector over the public `Either<L, R>` sum type. The implementation routes mapped values into caller-selected collections in one pass over the logical item stream, preserves side-local order, and avoids a Rayon runtime dependency or boxed dispatch. `iterator_adapter_comparison` includes `iterator_adapter_partition_map` against Rayon after asserting equal left and right output vectors.
+
+### ISSUE-178 [minor]: Add fallible no-identity reduction terminal
+
+Completed: `try_reduce_with` is implemented over a sealed `TryStreamItem` contract for `Option<T>` and `Result<T, E>`. The terminal returns `None` for empty streams, `Some(residual)` for first `None` or `Err(_)`, and `Some(success)` for fully reduced streams. `Map<I, F>` has an inherent fast path that streams mapped fallible values into the reducer without an intermediate mapped vector. `iterator_adapter_comparison` includes `iterator_adapter_try_reduce_with` against Rayon after asserting equal outputs.
 
 ### ISSUE-094 [minor]: Expand adapter surface by priority
 
@@ -194,7 +198,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 
 ## Benchmark Evidence
 
-`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq` and `partition_map` were refreshed on 2026-05-29 after their implementations landed:
+`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, and `try_reduce_with` were refreshed on 2026-05-29 after their implementations landed:
 
 | Group | Moirai | Rayon | Status |
 | --- | --- | --- | --- |
@@ -210,6 +214,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 | `iterator_adapter_for_each_state` | 453.72-518.46 us | 7.0571-11.419 ms | Moirai ahead |
 | `iterator_adapter_try_for_each_state` | 720.44 us-1.0202 ms | 5.6971-39.419 ms | Moirai ahead |
 | `iterator_adapter_try_reduce` | 20.183-21.585 us | 75.866-79.962 us | Moirai ahead |
+| `iterator_adapter_try_reduce_with` | 8.5426-8.7513 us | 64.753-66.248 us | Moirai ahead |
 | `iterator_adapter_chain_rev_pipeline` | 17.993-18.389 us | 76.454-80.386 us | Moirai ahead |
 | `iterator_adapter_zip_eq` | 107.34-142.67 us | 364.99-373.05 us | Moirai ahead |
 | `iterator_indexed_collect_into_vec` | 54.745-75.638 us | 95.255-102.59 us | Moirai ahead |

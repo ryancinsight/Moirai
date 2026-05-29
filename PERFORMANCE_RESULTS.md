@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-05-29 Iterator Try-Reduce-With Terminal Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_try_reduce_with --quiet
+```
+
+Workload: owned vector streams are mapped into `Result<u64, u64>` values and reduced with `try_reduce_with` without an identity value. The benchmark source asserts equal Moirai and Rayon `Option<Result<_, _>>` outputs before timing, and unit tests cover success, first-error, empty, and `Option::None` paths.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator `try_reduce_with` | 8.5426-8.7513 us | Rayon 64.753-66.248 us |
+
+Interpretation: the audited Rayon-style fallible reducer subset now includes no-identity fallible reduction over a sealed local `TryStreamItem` contract. The mapped fast path streams transformed fallible values directly into the reducer instead of materializing an intermediate mapped vector.
+
 ## 2026-05-29 Iterator Partition-Map Adapter Row
 
 Command:

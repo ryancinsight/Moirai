@@ -10,6 +10,7 @@
 
 mod adapters;
 mod consumers;
+mod fallible;
 mod indexed;
 mod sorting;
 mod sources;
@@ -23,6 +24,7 @@ pub use adapters::{
     Intersperse, Map, MapInit, MapWith, PanicFuse, Rev, Skip, Take, Update, WhileSome, Zip, ZipEq,
 };
 pub use consumers::Reduction;
+pub use fallible::TryStreamItem;
 pub use indexed::IndexedParallelIterator;
 pub use sorting::ParallelSliceMut;
 pub use sources::{

@@ -6,7 +6,9 @@ pub use chunks::Chunks;
 pub use pair::{Zip, ZipEq};
 pub use side_effect::{Inspect, PanicFuse};
 
-use super::{Consumer, FilterConsumer, MapConsumer, ParallelIterator, VecParIter};
+use super::{
+    fallible, Consumer, FilterConsumer, MapConsumer, ParallelIterator, TryStreamItem, VecParIter,
+};
 
 /// Map adapter for parallel iterators.
 pub struct Map<I, F> {
@@ -17,6 +19,23 @@ pub struct Map<I, F> {
 impl<I, F> Map<I, F> {
     pub(super) fn new(base: I, map_fn: F) -> Self {
         Self { base, map_fn }
+    }
+
+    /// Reduce a mapped fallible stream without materializing mapped items first.
+    pub fn try_reduce_with<ReduceFn, R>(self, reduce_fn: ReduceFn) -> Option<R>
+    where
+        I: ParallelIterator,
+        F: Fn(I::Item) -> R + Send + Sync + Clone,
+        R: TryStreamItem,
+        ReduceFn: Fn(<R as TryStreamItem>::Output, <R as TryStreamItem>::Output) -> R
+            + Send
+            + Sync
+            + Clone,
+    {
+        fallible::try_reduce_with_items(
+            self.base.seq_items().into_iter().map(self.map_fn),
+            reduce_fn,
+        )
     }
 }
 

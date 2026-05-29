@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `while_some` optional-stream adapter to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `try_for_each` fallible side-effect terminal to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `try_reduce` fallible reduction terminal to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `try_reduce_with` fallible no-identity reduction over sealed `Option<T>` and `Result<T, E>` stream items with value tests and a same-run Rayon benchmark row.
 - Added `copied` and `cloned` borrowed-reference adapters to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `iterator_adapter_non_clone_ref_map`, a value-checked borrowed `Vec<T>::par_iter` benchmark row against Rayon over non-`Clone` values.
 - Added `IndexedParallelIterator::collect_into_vec` for exact-size source iterators with non-`Clone` move tests and a same-run Rayon benchmark row.

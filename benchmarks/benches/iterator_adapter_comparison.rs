@@ -428,6 +428,18 @@ fn rayon_try_reduce_pipeline(data: Vec<u64>) -> Result<u64, u64> {
         )
 }
 
+fn moirai_try_reduce_with_pipeline(data: Vec<u64>) -> Option<Result<u64, u64>> {
+    MoiraiIntoParallelIterator::into_par_iter(data)
+        .map(|value| Ok::<u64, u64>(value.wrapping_mul(3).wrapping_add(1)))
+        .try_reduce_with(|left, right| Ok::<u64, u64>(left.wrapping_add(right)))
+}
+
+fn rayon_try_reduce_with_pipeline(data: Vec<u64>) -> Option<Result<u64, u64>> {
+    rayon::prelude::IntoParallelIterator::into_par_iter(data)
+        .map(|value| Ok::<u64, u64>(value.wrapping_mul(3).wrapping_add(1)))
+        .try_reduce_with(|left, right| Ok::<u64, u64>(left.wrapping_add(right)))
+}
+
 fn moirai_chain_rev_pipeline(left: Vec<u64>, right: Vec<u64>) -> Vec<u64> {
     MoiraiIntoParallelIterator::into_par_iter(left)
         .chain(MoiraiIntoParallelIterator::into_par_iter(right))
@@ -979,6 +991,22 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     });
     group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(rayon_try_reduce_pipeline(black_box(input.clone()))))
+    });
+    group.finish();
+
+    let moirai_expected = moirai_try_reduce_with_pipeline(data.clone());
+    let rayon_expected = rayon_try_reduce_with_pipeline(data.clone());
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_adapter_try_reduce_with");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(moirai_try_reduce_with_pipeline(black_box(input.clone()))))
+    });
+    group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(rayon_try_reduce_with_pipeline(black_box(input.clone()))))
     });
     group.finish();
 

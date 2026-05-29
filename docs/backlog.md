@@ -29,7 +29,7 @@
 
 #### ⏳ ISSUE-132 [minor]: Maintain bounded Rayon ecosystem expansion
 - **Type**: Compatibility / Benchmark Coverage
-- **Current Evidence**: The audited subset covers transforms, `update`, `intersperse`, `zip_eq`, `partition_map`, utility adapters, terminal reducers, fallible reducers, predicate and position terminals, stateful and fallible side-effect terminals, borrowed reference materialization, `while_some`, `unzip`, bounded exact-size `IndexedParallelIterator::{len, is_empty, collect_into_vec}` source coverage, and `ParallelSliceMut` sorting with value tests and benchmark rows.
+- **Current Evidence**: The audited subset covers transforms, `update`, `intersperse`, `zip_eq`, `partition_map`, utility adapters, terminal reducers, fallible reducers including `try_reduce_with`, predicate and position terminals, stateful and fallible side-effect terminals, borrowed reference materialization, `while_some`, `unzip`, bounded exact-size `IndexedParallelIterator::{len, is_empty, collect_into_vec}` source coverage, and `ParallelSliceMut` sorting with value tests and benchmark rows.
 - **Gap**: Moirai still does not claim full Rayon ecosystem parity or the full Rayon indexed producer/consumer adapter model.
 - **Next Artifact**: Add future Rayon-style surfaces only with a dedicated Moirai boundary, value-semantic tests, `benchmark_contracts` markers, and same-run Rayon comparison rows.
 - **Status**: Open.
@@ -128,6 +128,14 @@
 - **Resolution**: Added public `Either<L, R>` and `ParallelIterator::partition_map`, routing mapped values into caller-selected collections while preserving side-local order.
 - **Evidence**: `iterator_adapter_comparison` asserts equal Moirai/Rayon left and right output vectors, then measures `iterator_adapter_partition_map` at 32.468-32.719 µs for Moirai versus 587.36-620.15 µs for Rayon.
 - **Verification**: `cargo test -p moirai-iter --all-features test_parallel_partition_map -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts rayon_adapter_surface_audit_tracks_current_iterator_scope -- --nocapture`; `cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_partition_map --quiet`.
+- **Status**: Completed 2026-05-29.
+
+#### ✅ ISSUE-178 [minor]: Add fallible no-identity reduction boundary
+- **Type**: Iterator API / Benchmark Coverage / Performance
+- **Root Cause**: The audited Rayon-style fallible reduction surface covered identity-based `try_reduce` but lacked Rayon's no-identity `try_reduce_with` semantics for empty, residual, and successful fallible streams.
+- **Resolution**: Added sealed `TryStreamItem` implementations for `Option<T>` and `Result<T, E>`, added `ParallelIterator::try_reduce_with`, and added a mapped `Map<I, F>::try_reduce_with` fast path that streams mapped fallible values directly into the reducer without materializing an intermediate mapped vector.
+- **Evidence**: `iterator_adapter_comparison` asserts equal Moirai/Rayon `Option<Result<_, _>>` outputs, then measures `iterator_adapter_try_reduce_with` at 8.5426-8.7513 µs for Moirai versus 64.753-66.248 µs for Rayon.
+- **Verification**: `cargo test -p moirai-iter --all-features try_reduce_with -- --nocapture`; `cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_try_reduce_with --quiet`.
 - **Status**: Completed 2026-05-29.
 
 #### ✅ ISSUE-141 [minor]: Add Rayon-style update mutation adapter
