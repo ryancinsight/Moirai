@@ -27,6 +27,17 @@ fn source_data() -> Vec<u64> {
     (0..WORK_ITEMS as u64).collect()
 }
 
+fn pair_source_data() -> Vec<(u64, u64)> {
+    (0..WORK_ITEMS as u64)
+        .map(|value| {
+            (
+                value.wrapping_mul(3).wrapping_add(1),
+                value.wrapping_mul(5).wrapping_add(7),
+            )
+        })
+        .collect()
+}
+
 fn non_clone_source_data() -> Vec<NonCloneBenchValue> {
     (0..WORK_ITEMS as u64)
         .map(|value| NonCloneBenchValue {
@@ -87,6 +98,32 @@ fn rayon_collect_into_vec_pipeline(data: Vec<u64>, output: &mut Vec<u64>) -> u64
         output,
     );
     collect_checksum(output)
+}
+
+fn moirai_unzip_into_vecs_pipeline(
+    data: Vec<(u64, u64)>,
+    left: &mut Vec<u64>,
+    right: &mut Vec<u64>,
+) -> (u64, u64) {
+    MoiraiIndexedParallelIterator::unzip_into_vecs(
+        MoiraiIntoParallelIterator::into_par_iter(data),
+        left,
+        right,
+    );
+    (collect_checksum(left), collect_checksum(right))
+}
+
+fn rayon_unzip_into_vecs_pipeline(
+    data: Vec<(u64, u64)>,
+    left: &mut Vec<u64>,
+    right: &mut Vec<u64>,
+) -> (u64, u64) {
+    RayonIndexedParallelIterator::unzip_into_vecs(
+        rayon::prelude::IntoParallelIterator::into_par_iter(data),
+        left,
+        right,
+    );
+    (collect_checksum(left), collect_checksum(right))
 }
 
 fn moirai_indexed_pipeline(data: Vec<u64>) -> Vec<u64> {
@@ -857,6 +894,65 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
+    group.finish();
+
+    let pair_data = pair_source_data();
+    let mut moirai_left = Vec::with_capacity(WORK_ITEMS);
+    let mut moirai_right = Vec::with_capacity(WORK_ITEMS);
+    let mut rayon_left = Vec::with_capacity(WORK_ITEMS);
+    let mut rayon_right = Vec::with_capacity(WORK_ITEMS);
+    let moirai_expected =
+        moirai_unzip_into_vecs_pipeline(pair_data.clone(), &mut moirai_left, &mut moirai_right);
+    let rayon_expected =
+        rayon_unzip_into_vecs_pipeline(pair_data.clone(), &mut rayon_left, &mut rayon_right);
+    assert_eq!(moirai_left, rayon_left);
+    assert_eq!(moirai_right, rayon_right);
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_indexed_unzip_into_vecs");
+    group.sample_size(SAMPLE_SIZE);
+    group.bench_with_input(
+        BenchmarkId::new("moirai", WORK_ITEMS),
+        &pair_data,
+        |b, input| {
+            b.iter_batched(
+                || {
+                    (
+                        input.clone(),
+                        Vec::with_capacity(WORK_ITEMS),
+                        Vec::with_capacity(WORK_ITEMS),
+                    )
+                },
+                |(source, mut left, mut right)| {
+                    black_box(moirai_unzip_into_vecs_pipeline(
+                        source, &mut left, &mut right,
+                    ))
+                },
+                BatchSize::SmallInput,
+            )
+        },
+    );
+    group.bench_with_input(
+        BenchmarkId::new("rayon", WORK_ITEMS),
+        &pair_data,
+        |b, input| {
+            b.iter_batched(
+                || {
+                    (
+                        input.clone(),
+                        Vec::with_capacity(WORK_ITEMS),
+                        Vec::with_capacity(WORK_ITEMS),
+                    )
+                },
+                |(source, mut left, mut right)| {
+                    black_box(rayon_unzip_into_vecs_pipeline(
+                        source, &mut left, &mut right,
+                    ))
+                },
+                BatchSize::SmallInput,
+            )
+        },
+    );
     group.finish();
 
     let moirai_expected = moirai_indexed_pipeline(data.clone());

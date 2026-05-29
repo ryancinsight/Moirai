@@ -218,6 +218,38 @@ fn test_indexed_collect_into_vec_moves_non_clone_values() {
 }
 
 #[test]
+fn test_indexed_unzip_into_vecs_moves_non_clone_pairs_into_existing_storage() {
+    struct NonCloneValue {
+        value: u64,
+    }
+
+    let data = vec![
+        (NonCloneValue { value: 1 }, NonCloneValue { value: 10 }),
+        (NonCloneValue { value: 2 }, NonCloneValue { value: 20 }),
+        (NonCloneValue { value: 3 }, NonCloneValue { value: 30 }),
+    ];
+    let mut left = Vec::with_capacity(8);
+    let mut right = Vec::with_capacity(8);
+    left.push(NonCloneValue { value: 999 });
+    right.push(NonCloneValue { value: 888 });
+    let left_capacity = left.capacity();
+    let right_capacity = right.capacity();
+
+    data.into_par_iter().unzip_into_vecs(&mut left, &mut right);
+
+    assert_eq!(left.capacity(), left_capacity);
+    assert_eq!(right.capacity(), right_capacity);
+    assert_eq!(
+        left.iter().map(|item| item.value).collect::<Vec<_>>(),
+        vec![1, 2, 3]
+    );
+    assert_eq!(
+        right.iter().map(|item| item.value).collect::<Vec<_>>(),
+        vec![10, 20, 30]
+    );
+}
+
+#[test]
 fn test_parallel_copied_materializes_borrowed_copy_values() {
     let data = vec![1_u64, 2, 3, 4];
     let result: Vec<u64> = data.par_iter().copied().map(|value| value * 3).collect();

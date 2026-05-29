@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-05-29 Iterator Indexed Unzip-Into-Vecs Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_indexed_unzip_into_vecs --quiet
+```
+
+Workload: exact-size owned pair sources are split into caller-provided left and right `Vec` storage through `IndexedParallelIterator::unzip_into_vecs`. The benchmark source asserts equal Moirai and Rayon output vectors plus side checksums before timing, and unit tests cover non-`Clone` pair movement into preallocated storage.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator indexed `unzip_into_vecs` | 256.72-273.34 us | Rayon 268.81-303.00 us |
+
+Interpretation: the bounded indexed source boundary now includes caller-provided pair splitting in addition to `collect_into_vec`. The implementation reuses destination allocations and moves pair sides exactly once without adding boxed dispatch, dynamic strategy state, or clone bounds.
+
 ## 2026-05-29 Iterator Take/Skip-Any-While Adapter Row
 
 Command:
