@@ -2,7 +2,7 @@ use super::{
     Chain, Chunks, Cloned, CollectConsumer, Copied, Enumerate, Filter, FilterMap, FindConsumer,
     FlatMap, Flatten, Inspect, Intersperse, Map, MapInit, MapWith, NullConsumer, PanicFuse,
     ReduceConsumer, ReduceWithConsumer, Reduction, Rev, SequentialAdapter, Skip, Take, Update,
-    WhileSome, Zip,
+    WhileSome, Zip, ZipEq,
 };
 
 /// Core parallel iterator trait for Moirai's Rayon-style non-indexed subset.
@@ -157,6 +157,16 @@ pub trait ParallelIterator: Sized + Send {
         J::Item: Sync + 'static,
     {
         Zip::new(self, other)
+    }
+
+    /// Pair elements with another parallel iterator and require equal lengths.
+    fn zip_eq<J>(self, other: J) -> ZipEq<Self, J>
+    where
+        J: ParallelIterator,
+        Self::Item: Sync + 'static,
+        J::Item: Sync + 'static,
+    {
+        ZipEq::new(self, other)
     }
 
     /// Retain at most `count` elements from the logical sequence prefix.

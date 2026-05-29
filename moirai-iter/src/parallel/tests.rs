@@ -156,6 +156,26 @@ fn test_parallel_zip_stops_at_shorter_input() {
 }
 
 #[test]
+fn test_parallel_zip_eq_preserves_equal_length_pairs() {
+    let left = vec![1, 2, 3];
+    let right = vec![10, 20, 30];
+    let result: Vec<(i32, i32)> = left
+        .into_par_iter()
+        .zip_eq(right.into_par_iter())
+        .map(|(left, right)| (left * 2, right + 1))
+        .collect();
+    assert_eq!(result, vec![(2, 11), (4, 21), (6, 31)]);
+}
+
+#[test]
+#[should_panic(expected = "zip_eq requires equal input lengths")]
+fn test_parallel_zip_eq_rejects_length_mismatch() {
+    let left = vec![1, 2, 3];
+    let right = vec![10, 20];
+    let _: Vec<(i32, i32)> = left.into_par_iter().zip_eq(right.into_par_iter()).collect();
+}
+
+#[test]
 fn test_indexed_parallel_iterator_reports_source_lengths() {
     let owned = vec![1_u64, 2, 3, 4].into_par_iter();
     assert_eq!(IndexedParallelIterator::len(&owned), 4);

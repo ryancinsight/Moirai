@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `copied` and `cloned` borrowed-reference adapters to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `iterator_adapter_non_clone_ref_map`, a value-checked borrowed `Vec<T>::par_iter` benchmark row against Rayon over non-`Clone` values.
 - Added `IndexedParallelIterator::collect_into_vec` for exact-size source iterators with non-`Clone` move tests and a same-run Rayon benchmark row.
+- Added `zip_eq` equal-length pairing to the Rayon-style parallel iterator subset with value tests, mismatch-panic coverage, and a same-run Rayon benchmark row.
 - Added `unzip` pair-stream collector to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `IndexedParallelIterator::{len, is_empty}` for exact-size parallel iterator sources with value tests and a same-run Rayon metadata benchmark row.
 - Added `iter_ops_parallel_comparison`, a value-checked scoped `ParallelIter` map/reduce benchmark against Rayon.

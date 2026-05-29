@@ -1,7 +1,9 @@
 mod chunks;
+mod pair;
 mod side_effect;
 
 pub use chunks::Chunks;
+pub use pair::{Zip, ZipEq};
 pub use side_effect::{Inspect, PanicFuse};
 
 use super::{Consumer, FilterConsumer, MapConsumer, ParallelIterator, VecParIter};
@@ -442,44 +444,6 @@ where
             .into_iter()
             .enumerate()
             .map(|(offset, item)| (skip + offset, item))
-            .collect()
-    }
-
-    fn drive<C, R>(self, consumer: C) -> R
-    where
-        C: Consumer<Self::Item, Result = R> + Send + Sync,
-        R: Send,
-    {
-        consumer.consume(VecParIter::new(self.seq_items()))
-    }
-}
-
-/// Zip adapter with standard shortest-input value semantics.
-pub struct Zip<I, J> {
-    left: I,
-    right: J,
-}
-
-impl<I, J> Zip<I, J> {
-    pub(super) fn new(left: I, right: J) -> Self {
-        Self { left, right }
-    }
-}
-
-impl<I, J> ParallelIterator for Zip<I, J>
-where
-    I: ParallelIterator,
-    J: ParallelIterator,
-    I::Item: Sync + 'static,
-    J::Item: Sync + 'static,
-{
-    type Item = (I::Item, J::Item);
-
-    fn seq_items(self) -> Vec<Self::Item> {
-        self.left
-            .seq_items()
-            .into_iter()
-            .zip(self.right.seq_items())
             .collect()
     }
 

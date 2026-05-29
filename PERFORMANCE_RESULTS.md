@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-05-29 Iterator Zip-Eq Adapter Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_zip_eq --quiet
+```
+
+Workload: equal-length owned vector streams are paired with `zip_eq`, mapped, filtered, and bounded with `take`. The benchmark source asserts equal Moirai and Rayon output vectors before timing, and unit tests cover both equal-length pairing and mismatch panic semantics.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator `zip_eq` | 107.34-142.67 us | Rayon 364.99-373.05 us |
+
+Interpretation: the audited Rayon-style adapter subset now includes equal-length pair-stream semantics. Full Rayon ecosystem parity and full indexed producer/consumer compatibility remain separate documented boundaries.
+
 ## 2026-05-28 Native Rayon/Tokio Gap Closure Refresh
 
 Commands:

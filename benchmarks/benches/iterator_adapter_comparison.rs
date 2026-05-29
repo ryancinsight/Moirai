@@ -442,6 +442,26 @@ fn rayon_chain_rev_pipeline(left: Vec<u64>, right: Vec<u64>) -> Vec<u64> {
         .collect()
 }
 
+fn moirai_zip_eq_pipeline(left: Vec<u64>, right: Vec<u64>) -> Vec<u64> {
+    MoiraiIntoParallelIterator::into_par_iter(left)
+        .zip_eq(MoiraiIntoParallelIterator::into_par_iter(right))
+        .map(|(left, right)| left.wrapping_mul(3).wrapping_add(right.wrapping_mul(5)))
+        .filter(|value| value % 7 != 0)
+        .take(WORK_ITEMS / 2)
+        .collect::<Vec<_>>()
+}
+
+fn rayon_zip_eq_pipeline(left: Vec<u64>, right: Vec<u64>) -> Vec<u64> {
+    rayon::prelude::IntoParallelIterator::into_par_iter(left)
+        .zip_eq(rayon::prelude::IntoParallelIterator::into_par_iter(right))
+        .map(|(left, right)| left.wrapping_mul(3).wrapping_add(right.wrapping_mul(5)))
+        .filter(|value| value % 7 != 0)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .take(WORK_ITEMS / 2)
+        .collect()
+}
+
 fn moirai_intersperse_pipeline(data: Vec<u64>) -> Vec<u64> {
     MoiraiIntoParallelIterator::into_par_iter(data)
         .filter(|value| value % 3 != 0)
@@ -958,6 +978,32 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("rayon", WORK_ITEMS), |b| {
         b.iter(|| {
             black_box(rayon_chain_rev_pipeline(
+                black_box(left.clone()),
+                black_box(right.clone()),
+            ))
+        })
+    });
+    group.finish();
+
+    let moirai_expected = moirai_zip_eq_pipeline(left.clone(), right.clone());
+    let rayon_expected = rayon_zip_eq_pipeline(left.clone(), right.clone());
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_adapter_zip_eq");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_function(BenchmarkId::new("moirai", WORK_ITEMS), |b| {
+        b.iter(|| {
+            black_box(moirai_zip_eq_pipeline(
+                black_box(left.clone()),
+                black_box(right.clone()),
+            ))
+        })
+    });
+    group.bench_function(BenchmarkId::new("rayon", WORK_ITEMS), |b| {
+        b.iter(|| {
+            black_box(rayon_zip_eq_pipeline(
                 black_box(left.clone()),
                 black_box(right.clone()),
             ))

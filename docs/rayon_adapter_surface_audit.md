@@ -13,7 +13,7 @@ Moirai does not currently provide full Rayon adapter parity. The supported surfa
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`.
 - `IntoParallelRefIterator` for `Vec<T>` without requiring `T: Clone + 'static`.
 - `IndexedParallelIterator` for exact-size source iterators: by-value `VecParIter<T>`, `VecRefParIter<'_, T>`, `RefVecParIter<'_, T>`, `RangeParIter<usize>`, exact-size sequential adapters, `len`, `is_empty`, and `collect_into_vec`.
-- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
+- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
 - `ParallelExtend<T>` for `Vec<T>`.
 - `ParallelSliceMut` for the slice extension sorting boundary.
 
@@ -41,6 +41,7 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | Flatten adapter | `ParallelIterator::flatten` and `Flatten<I>` | `test_parallel_flatten_preserves_nested_order` and `iterator_adapter_flatten` benchmark rows | Covered subset |
 | Enumerate adapter | `ParallelIterator::enumerate` and `Enumerate<I>` | `test_parallel_enumerate_pairs_logical_indices` validates zero-based logical positions | Covered subset |
 | Zip adapter | `ParallelIterator::zip` and `Zip<I, J>` | `test_parallel_zip_stops_at_shorter_input` validates shortest-input semantics | Covered subset |
+| Equal-length zip adapter | `ParallelIterator::zip_eq` and `ZipEq<I, J>` | `test_parallel_zip_eq_preserves_equal_length_pairs`, `test_parallel_zip_eq_rejects_length_mismatch`, and `iterator_adapter_zip_eq` benchmark rows | Covered subset |
 | Borrowed reference materialization adapters | `ParallelIterator::copied` and `ParallelIterator::cloned` | `test_parallel_copied_materializes_borrowed_copy_values`, `test_parallel_cloned_materializes_borrowed_clone_values`, and `iterator_adapter_ref_copy_clone` benchmark rows | Covered subset |
 | Non-Clone borrowed source map | `Vec<T>::par_iter().map(...).sum()` over borrowed non-`Clone` values | `test_non_clone_parallel_ref_iterator_maps_borrowed_values` and `iterator_adapter_non_clone_ref_map` against Rayon | Covered bounded source boundary |
 | Take adapter | `ParallelIterator::take` and `Take<I>` | `test_parallel_take_keeps_prefix` and `test_parallel_take_and_skip_saturate_at_bounds` validate prefix and over-bound behavior | Covered subset |
@@ -89,6 +90,10 @@ Completed: `IndexedParallelIterator::{len, is_empty}` is implemented for exact-s
 ### ISSUE-175 [minor]: Add indexed source collect-into-vec boundary
 
 Completed: `IndexedParallelIterator::collect_into_vec` is implemented for exact-size source iterators. `VecParIter<T>` bulk-moves owned values into caller-provided spare capacity without cloning, range and borrowed-reference sources extend directly without intermediate vectors, and the non-`Clone` unit test verifies moved-value semantics. `iterator_adapter_comparison` includes `iterator_indexed_collect_into_vec` against Rayon after asserting equal output vectors and checksums.
+
+### ISSUE-176 [minor]: Add equal-length zip adapter
+
+Completed: `zip_eq` is implemented as a statically dispatched `ZipEq<I, J>` adapter that materializes both logical streams, asserts equal lengths, and then pairs values without dynamic dispatch or boxed strategy state. Unit tests cover equal-length mapped output and mismatch panic behavior, and `iterator_adapter_comparison` includes `iterator_adapter_zip_eq` against Rayon after asserting equal output vectors.
 
 ### ISSUE-094 [minor]: Expand adapter surface by priority
 
@@ -201,6 +206,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 | `iterator_adapter_try_for_each_state` | 720.44 us-1.0202 ms | 5.6971-39.419 ms | Moirai ahead |
 | `iterator_adapter_try_reduce` | 20.183-21.585 us | 75.866-79.962 us | Moirai ahead |
 | `iterator_adapter_chain_rev_pipeline` | 17.993-18.389 us | 76.454-80.386 us | Moirai ahead |
+| `iterator_adapter_zip_eq` | 107.34-142.67 us | 364.99-373.05 us | Moirai ahead |
 | `iterator_indexed_collect_into_vec` | 54.745-75.638 us | 95.255-102.59 us | Moirai ahead |
 | `iterator_adapter_inspect_chunks_pipeline` | 31.061-31.810 us | 36.916-38.040 us | Moirai ahead |
 | `iterator_adapter_partition_pipeline` | 29.242-30.103 us | 658.16-693.21 us | Moirai ahead |

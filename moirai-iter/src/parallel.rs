@@ -19,7 +19,7 @@ mod traits;
 
 pub use adapters::{
     Chain, Chunks, Cloned, Copied, Enumerate, Filter, FilterMap, FlatMap, Flatten, Inspect,
-    Intersperse, Map, MapInit, MapWith, PanicFuse, Rev, Skip, Take, Update, WhileSome, Zip,
+    Intersperse, Map, MapInit, MapWith, PanicFuse, Rev, Skip, Take, Update, WhileSome, Zip, ZipEq,
 };
 pub use consumers::Reduction;
 pub use indexed::IndexedParallelIterator;
