@@ -664,6 +664,20 @@ fn rayon_position_pipeline(data: Vec<u64>) -> (Option<usize>, Option<usize>, Opt
     (first, any, last)
 }
 
+fn moirai_positions_pipeline(data: Vec<u64>) -> Vec<usize> {
+    MoiraiIntoParallelIterator::into_par_iter(data)
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .positions(|value| value % 11 == 0)
+        .collect::<Vec<_>>()
+}
+
+fn rayon_positions_pipeline(data: Vec<u64>) -> Vec<usize> {
+    rayon::prelude::IntoParallelIterator::into_par_iter(data)
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .positions(|value| value % 11 == 0)
+        .collect()
+}
+
 fn moirai_ref_copied_cloned_pipeline(data: &Vec<u64>) -> (Vec<u64>, Vec<String>) {
     let copied = MoiraiIntoParallelRefIterator::par_iter(data)
         .copied()
@@ -1164,6 +1178,22 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     });
     group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(rayon_position_pipeline(black_box(input.clone()))))
+    });
+    group.finish();
+
+    let moirai_expected = moirai_positions_pipeline(data.clone());
+    let rayon_expected = rayon_positions_pipeline(data.clone());
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_adapter_positions");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(moirai_positions_pipeline(black_box(input.clone()))))
+    });
+    group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(rayon_positions_pipeline(black_box(input.clone()))))
     });
     group.finish();
 

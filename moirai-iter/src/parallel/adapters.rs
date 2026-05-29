@@ -1,9 +1,11 @@
 mod chunks;
 mod pair;
+mod position;
 mod side_effect;
 
 pub use chunks::Chunks;
 pub use pair::{Zip, ZipEq};
+pub use position::{MapPositions, Positions};
 pub use side_effect::{Inspect, PanicFuse};
 
 use super::{
@@ -36,6 +38,20 @@ impl<I, F> Map<I, F> {
             self.base.seq_items().into_iter().map(self.map_fn),
             reduce_fn,
         )
+    }
+
+    /// Return mapped logical indices without materializing the mapped stream.
+    pub fn positions<Predicate, R>(
+        self,
+        predicate: Predicate,
+    ) -> position::MapPositions<I, F, Predicate>
+    where
+        I: ParallelIterator,
+        F: Fn(I::Item) -> R + Send + Sync + Clone,
+        Predicate: Fn(R) -> bool + Send + Sync + Clone,
+        R: Send,
+    {
+        position::MapPositions::new(self.base, self.map_fn, predicate)
     }
 }
 

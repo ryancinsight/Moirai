@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-05-29 Iterator Positions Adapter Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_positions --quiet
+```
+
+Workload: owned vector streams are mapped and then filtered through `positions` to collect every matching logical index. The benchmark source asserts equal Moirai and Rayon index vectors before timing, and unit tests cover owned, borrowed, and mapped streams.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator `positions` | 11.248-11.339 us | Rayon 234.78-239.80 us |
+
+Interpretation: the audited Rayon-style predicate subset now includes an index-stream adapter in addition to single-index terminals. The mapped path routes through a fused `MapPositions` adapter, so mapped values are consumed directly while only matching indices are materialized.
+
 ## 2026-05-29 Iterator Try-Reduce-With Terminal Row
 
 Command:

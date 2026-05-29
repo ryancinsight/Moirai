@@ -602,6 +602,28 @@ fn test_parallel_position_terminals_return_logical_indices() {
 }
 
 #[test]
+fn test_parallel_positions_yields_all_matching_logical_indices() {
+    let data = vec![2_u64, 3, 5, 8, 11, 14, 17, 20];
+    let positions: Vec<usize> = data
+        .clone()
+        .into_par_iter()
+        .positions(|value| value % 3 == 2)
+        .collect();
+    assert_eq!(positions, vec![0, 2, 3, 4, 5, 6, 7]);
+
+    let borrowed_positions: Vec<usize> =
+        data.par_iter().positions(|value| *value % 4 == 0).collect();
+    assert_eq!(borrowed_positions, vec![3, 7]);
+
+    let mapped_positions: Vec<usize> = data
+        .into_par_iter()
+        .map(|value| value + 1)
+        .positions(|value| value % 5 == 0)
+        .collect();
+    assert_eq!(mapped_positions, vec![5]);
+}
+
+#[test]
 fn test_parallel_find_map_first_maps_first_present_value() {
     let data = vec![1_u64, 4, 7, 10, 13];
     let result = data

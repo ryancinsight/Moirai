@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `find_map_first` and `find_map_any` predicate terminals to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `find_last` and `find_map_last` reverse-order predicate terminals to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `position_first`, `position_any`, and `position_last` predicate terminals to the Rayon-style parallel iterator subset with value tests and benchmark rows.
+- Added `positions` to the Rayon-style parallel iterator subset with owned, borrowed, and mapped value tests plus a same-run Rayon benchmark row.
 - Added `for_each_with` and `for_each_init` stateful side-effect terminals to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `try_for_each_with` and `try_for_each_init` fallible stateful side-effect terminals to the Rayon-style parallel iterator subset with value tests and benchmark rows.
 - Added `while_some` optional-stream adapter to the Rayon-style parallel iterator subset with value tests and benchmark rows.

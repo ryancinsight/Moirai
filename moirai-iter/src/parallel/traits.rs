@@ -2,8 +2,8 @@ use super::{fallible, split, TryStreamItem};
 use super::{
     Chain, Chunks, Cloned, CollectConsumer, Copied, Enumerate, Filter, FilterMap, FindConsumer,
     FlatMap, Flatten, Inspect, Intersperse, Map, MapInit, MapWith, NullConsumer, PanicFuse,
-    ReduceConsumer, ReduceWithConsumer, Reduction, Rev, SequentialAdapter, Skip, Take, Update,
-    WhileSome, Zip, ZipEq,
+    Positions, ReduceConsumer, ReduceWithConsumer, Reduction, Rev, SequentialAdapter, Skip, Take,
+    Update, WhileSome, Zip, ZipEq,
 };
 
 /// Core parallel iterator trait for Moirai's Rayon-style non-indexed subset.
@@ -382,6 +382,14 @@ pub trait ParallelIterator: Sized + Send {
         F: Fn(Self::Item) -> bool + Send + Sync + Clone,
     {
         self.seq_items().into_iter().rposition(predicate)
+    }
+
+    /// Return all logical indices whose items match a predicate.
+    fn positions<F>(self, predicate: F) -> Positions<Self, F>
+    where
+        F: Fn(Self::Item) -> bool + Send + Sync + Clone,
+    {
+        Positions::new(self, predicate)
     }
 
     /// Find and map the first matching element in the logical stream.

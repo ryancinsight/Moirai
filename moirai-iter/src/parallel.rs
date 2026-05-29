@@ -21,7 +21,8 @@ mod traits;
 
 pub use adapters::{
     Chain, Chunks, Cloned, Copied, Enumerate, Filter, FilterMap, FlatMap, Flatten, Inspect,
-    Intersperse, Map, MapInit, MapWith, PanicFuse, Rev, Skip, Take, Update, WhileSome, Zip, ZipEq,
+    Intersperse, Map, MapInit, MapPositions, MapWith, PanicFuse, Positions, Rev, Skip, Take,
+    Update, WhileSome, Zip, ZipEq,
 };
 pub use consumers::Reduction;
 pub use fallible::TryStreamItem;
