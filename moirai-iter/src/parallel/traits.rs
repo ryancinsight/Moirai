@@ -1,3 +1,4 @@
+use super::split;
 use super::{
     Chain, Chunks, Cloned, CollectConsumer, Copied, Enumerate, Filter, FilterMap, FindConsumer,
     FlatMap, Flatten, Inspect, Intersperse, Map, MapInit, MapWith, NullConsumer, PanicFuse,
@@ -303,6 +304,18 @@ pub trait ParallelIterator: Sized + Send {
             left_items.into_iter().collect(),
             right_items.into_iter().collect(),
         )
+    }
+
+    /// Split mapped `Either` values into two collections while preserving side-local order.
+    fn partition_map<A, B, P, L, R>(self, predicate: P) -> (A, B)
+    where
+        A: Default + Extend<L> + Send,
+        B: Default + Extend<R> + Send,
+        P: Fn(Self::Item) -> split::Either<L, R> + Send + Sync + Clone,
+        L: Send,
+        R: Send,
+    {
+        split::partition_map(self, predicate)
     }
 
     /// Split a stream of pairs into two collections while preserving order.

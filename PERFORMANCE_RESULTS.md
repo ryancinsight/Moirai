@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-05-29 Iterator Partition-Map Adapter Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_partition_map --quiet
+```
+
+Workload: owned vector streams are mapped and split through `partition_map` using the public `Either<L, R>` sum type. The benchmark source asserts equal Moirai and Rayon left/right output vectors before timing, and unit tests cover side-local output order.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator `partition_map` | 32.468-32.719 us | Rayon 587.36-620.15 us |
+
+Interpretation: the audited Rayon-style adapter subset now includes mapped `Either` splitting without adding a runtime dependency on Rayon or a boxed dispatch path.
+
 ## 2026-05-29 Iterator Zip-Eq Adapter Row
 
 Command:

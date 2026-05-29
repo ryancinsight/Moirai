@@ -13,7 +13,7 @@ Moirai does not currently provide full Rayon adapter parity. The supported surfa
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`.
 - `IntoParallelRefIterator` for `Vec<T>` without requiring `T: Clone + 'static`.
 - `IndexedParallelIterator` for exact-size source iterators: by-value `VecParIter<T>`, `VecRefParIter<'_, T>`, `RefVecParIter<'_, T>`, `RangeParIter<usize>`, exact-size sequential adapters, `len`, `is_empty`, and `collect_into_vec`.
-- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
+- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `partition_map`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
 - `ParallelExtend<T>` for `Vec<T>`.
 - `ParallelSliceMut` for the slice extension sorting boundary.
 
@@ -53,6 +53,7 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | Chunk adapter | `ParallelIterator::chunks` and `Chunks<I>` | `test_parallel_chunks_groups_full_chunks_and_tail` and `test_parallel_chunks_rejects_zero_size`; benchmarked in `iterator_adapter_comparison` | Covered subset |
 | Collect adapter | `ParallelIterator::collect` with `ParallelExtend<T> for Vec<T>` | collect tests and recursion-avoidance implementation | Covered subset |
 | Partition collector | `ParallelIterator::partition` | `test_parallel_partition_preserves_relative_order`; benchmarked in `iterator_adapter_comparison` | Covered subset |
+| Partition-map collector | `ParallelIterator::partition_map` with public `Either<L, R>` | `test_parallel_partition_map_splits_either_streams` and `iterator_adapter_partition_map` benchmark rows | Covered subset |
 | Pair split collector | `ParallelIterator::unzip` | `test_parallel_unzip_splits_pair_streams` and `iterator_adapter_unzip` benchmark rows | Covered subset |
 | Count adapter | `ParallelIterator::count` | `test_parallel_count` | Covered subset |
 | Predicate adapters | `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `find_map_any`, `find_map_first`, `find_map_last` | `test_parallel_any`, `test_parallel_all`, `test_parallel_find_last_returns_last_matching_value`, `test_parallel_position_terminals_return_logical_indices`, `test_parallel_find_map_first_maps_first_present_value`, `test_parallel_find_map_any_maps_present_value`, `test_parallel_find_map_last_maps_last_present_value`, `iterator_adapter_find_map`, and `iterator_adapter_position` benchmark rows | Covered subset |
@@ -94,6 +95,10 @@ Completed: `IndexedParallelIterator::collect_into_vec` is implemented for exact-
 ### ISSUE-176 [minor]: Add equal-length zip adapter
 
 Completed: `zip_eq` is implemented as a statically dispatched `ZipEq<I, J>` adapter that materializes both logical streams, asserts equal lengths, and then pairs values without dynamic dispatch or boxed strategy state. Unit tests cover equal-length mapped output and mismatch panic behavior, and `iterator_adapter_comparison` includes `iterator_adapter_zip_eq` against Rayon after asserting equal output vectors.
+
+### ISSUE-177 [minor]: Add partition-map collector
+
+Completed: `partition_map` is implemented as a terminal collector over the public `Either<L, R>` sum type. The implementation routes mapped values into caller-selected collections in one pass over the logical item stream, preserves side-local order, and avoids a Rayon runtime dependency or boxed dispatch. `iterator_adapter_comparison` includes `iterator_adapter_partition_map` against Rayon after asserting equal left and right output vectors.
 
 ### ISSUE-094 [minor]: Expand adapter surface by priority
 
@@ -189,7 +194,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 
 ## Benchmark Evidence
 
-`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence on 2026-05-25 after adding the utility adapter group and removing avoidable partition and inspect allocation overhead:
+`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq` and `partition_map` were refreshed on 2026-05-29 after their implementations landed:
 
 | Group | Moirai | Rayon | Status |
 | --- | --- | --- | --- |
@@ -210,6 +215,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 | `iterator_indexed_collect_into_vec` | 54.745-75.638 us | 95.255-102.59 us | Moirai ahead |
 | `iterator_adapter_inspect_chunks_pipeline` | 31.061-31.810 us | 36.916-38.040 us | Moirai ahead |
 | `iterator_adapter_partition_pipeline` | 29.242-30.103 us | 658.16-693.21 us | Moirai ahead |
+| `iterator_adapter_partition_map` | 32.468-32.719 us | 587.36-620.15 us | Moirai ahead |
 | `iterator_adapter_terminal_reducers` | 64.686-65.272 us | 218.10-226.27 us | Moirai ahead |
 | `iterator_adapter_ordered_reducers` | 179.38-190.67 us | 3.3072-5.9357 ms | Moirai ahead |
 | `iterator_adapter_find_map` | 77.948-85.530 us | 238.34-242.20 us | Moirai ahead |

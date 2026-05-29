@@ -13,6 +13,7 @@ mod consumers;
 mod indexed;
 mod sorting;
 mod sources;
+mod split;
 #[cfg(test)]
 mod tests;
 mod traits;
@@ -28,6 +29,7 @@ pub use sources::{
     RangeParIter, RefVecParIter, SequentialAdapter, SequentialIterAdapter, VecParIter,
     VecRefParIter,
 };
+pub use split::Either;
 pub use traits::{
     Consumer, IntoParallelIterator, IntoParallelRefIterator, ParallelExtend, ParallelIterator,
 };

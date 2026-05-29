@@ -1,10 +1,12 @@
 //! Iterator adapter comparison benchmarks against Rayon.
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use moirai_iter::parallel::Either as MoiraiEither;
 use moirai_iter::parallel::IndexedParallelIterator as MoiraiIndexedParallelIterator;
 use moirai_iter::parallel::IntoParallelIterator as MoiraiIntoParallelIterator;
 use moirai_iter::parallel::IntoParallelRefIterator as MoiraiIntoParallelRefIterator;
 use moirai_iter::parallel::ParallelIterator as MoiraiParallelIterator;
+use rayon::iter::Either as RayonEither;
 use rayon::iter::IndexedParallelIterator as RayonIndexedParallelIterator;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -718,6 +720,30 @@ fn rayon_unzip_pipeline(data: Vec<u64>) -> (Vec<u64>, Vec<u64>) {
         .unzip()
 }
 
+fn moirai_partition_map_pipeline(data: Vec<u64>) -> (Vec<u64>, Vec<u64>) {
+    MoiraiIntoParallelIterator::into_par_iter(data)
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .partition_map(|value| {
+            if value % 5 == 0 {
+                MoiraiEither::Left(value.wrapping_mul(7))
+            } else {
+                MoiraiEither::Right(value.wrapping_mul(11))
+            }
+        })
+}
+
+fn rayon_partition_map_pipeline(data: Vec<u64>) -> (Vec<u64>, Vec<u64>) {
+    rayon::prelude::IntoParallelIterator::into_par_iter(data)
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .partition_map(|value| {
+            if value % 5 == 0 {
+                RayonEither::Left(value.wrapping_mul(7))
+            } else {
+                RayonEither::Right(value.wrapping_mul(11))
+            }
+        })
+}
+
 fn iterator_adapter_comparison(c: &mut Criterion) {
     let data = source_data();
     let non_clone_data = non_clone_source_data();
@@ -1156,6 +1182,22 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     });
     group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(rayon_unzip_pipeline(black_box(input.clone()))))
+    });
+    group.finish();
+
+    let moirai_expected = moirai_partition_map_pipeline(data.clone());
+    let rayon_expected = rayon_partition_map_pipeline(data.clone());
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_adapter_partition_map");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(moirai_partition_map_pipeline(black_box(input.clone()))))
+    });
+    group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(rayon_partition_map_pipeline(black_box(input.clone()))))
     });
     group.finish();
 }

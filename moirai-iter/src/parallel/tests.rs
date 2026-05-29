@@ -459,6 +459,22 @@ fn test_parallel_partition_preserves_relative_order() {
 }
 
 #[test]
+fn test_parallel_partition_map_splits_either_streams() {
+    let data = vec![1_u64, 2, 3, 4, 5, 6];
+    let (multiples, residuals): (Vec<u64>, Vec<u64>) =
+        data.into_par_iter().partition_map(|value| {
+            if value % 3 == 0 {
+                Either::Left(value.wrapping_mul(10))
+            } else {
+                Either::Right(value.wrapping_add(100))
+            }
+        });
+
+    assert_eq!(multiples, vec![30, 60]);
+    assert_eq!(residuals, vec![101, 102, 104, 105]);
+}
+
+#[test]
 fn test_parallel_unzip_splits_pair_streams() {
     let data = vec![1_u64, 2, 3, 4];
     let (left, right): (Vec<u64>, Vec<u64>) = data

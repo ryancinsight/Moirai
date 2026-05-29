@@ -579,9 +579,10 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         read_benchmark("../moirai-iter/src/parallel/sources.rs")
     );
     let source = format!(
-        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
         read_benchmark("../moirai-iter/src/parallel.rs"),
         read_benchmark("../moirai-iter/src/parallel/indexed.rs"),
+        read_benchmark("../moirai-iter/src/parallel/split.rs"),
         read_benchmark("../moirai-iter/src/parallel/traits.rs"),
         read_benchmark("../moirai-iter/src/parallel/sources.rs"),
         read_benchmark("../moirai-iter/src/parallel/adapters.rs"),
@@ -622,10 +623,12 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
     for required in [
         "pub trait ParallelIterator",
         "mod indexed;",
+        "mod split;",
         "mod traits;",
         "mod sources;",
         "mod consumers;",
         "pub trait IndexedParallelIterator",
+        "pub use split::Either;",
         "fn len(&self) -> usize",
         "fn is_empty(&self) -> bool",
         "fn map<F, R>",
@@ -669,6 +672,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "fn fold<T, F>",
         "fn collect<C>",
         "fn partition<C, F>(self, predicate: F) -> (C, C)",
+        "fn partition_map<A, B, P, L, R>(self, predicate: P) -> (A, B)",
         "fn unzip<A, B, FromA, FromB>(self) -> (FromA, FromB)",
         "fn count(self)",
         "fn find_last<F>(self, predicate: F) -> Option<Self::Item>",
@@ -721,6 +725,9 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "pub struct Zip<I, J>",
         "pub struct ZipEq<I, J>",
         "zip_eq requires equal input lengths",
+        "pub enum Either<L, R>",
+        "Either::Left(value) => left.extend(std::iter::once(value))",
+        "Either::Right(value) => right.extend(std::iter::once(value))",
         "pub struct Copied<I>",
         "pub struct Cloned<I>",
         "pub struct Take<I>",
@@ -785,6 +792,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "test_parallel_chunks_groups_full_chunks_and_tail",
         "test_parallel_chunks_rejects_zero_size",
         "test_parallel_partition_preserves_relative_order",
+        "test_parallel_partition_map_splits_either_streams",
         "test_parallel_unzip_splits_pair_streams",
         "test_parallel_reduce_empty_returns_none",
         "test_parallel_try_reduce_returns_reduced_value",
@@ -887,6 +895,8 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "rayon_non_clone_ref_map",
         "moirai_unzip_pipeline",
         "rayon_unzip_pipeline",
+        "moirai_partition_map_pipeline",
+        "rayon_partition_map_pipeline",
         "assert_eq!(moirai_expected, rayon_expected)",
         "iterator_indexed_boundary",
         "iterator_indexed_collect_into_vec",
@@ -913,6 +923,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "iterator_adapter_ref_copy_clone",
         "iterator_adapter_non_clone_ref_map",
         "iterator_adapter_unzip",
+        "iterator_adapter_partition_map",
     ] {
         assert!(
             adapter_benchmark.contains(required) || benchmark_manifest.contains(required),
