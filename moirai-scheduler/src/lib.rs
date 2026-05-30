@@ -412,6 +412,45 @@ where
         StealResult::Empty
     }
 
+    /// Steal multiple items from this deque, passing all but the first one to the closure
+    /// and returning the first one.
+    pub fn steal_batch_with<F>(&self, mut f: F) -> StealResult<T>
+    where
+        F: FnMut(T),
+    {
+        let _guard = self.reclaim.enter();
+        let t = self.top.load(Ordering::Acquire);
+
+        std::sync::atomic::fence(Ordering::SeqCst);
+
+        let b = self.bottom.load(Ordering::Acquire);
+
+        let len = b - t;
+        if len <= 0 {
+            return StealResult::Empty;
+        }
+
+        let n = (len / 2).max(1) as usize;
+
+        let array_ptr = self.array.load(Ordering::Relaxed);
+        let array = unsafe { &*array_ptr };
+
+        if self
+            .top
+            .compare_exchange_weak(t, t + n as isize, Ordering::SeqCst, Ordering::Relaxed)
+            .is_ok()
+        {
+            let first_item = unsafe { array.read(t) };
+            for i in 1..n {
+                let item = unsafe { array.read(t + i as isize) };
+                f(item);
+            }
+            return StealResult::Success(first_item);
+        }
+
+        StealResult::Retry
+    }
+
     /// Get the current size of the deque.
     pub fn len(&self) -> usize {
         let b = self.bottom.load(Ordering::Relaxed);

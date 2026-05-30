@@ -69,6 +69,7 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
     }
 
     /// Steal older work from another worker, highest priority first.
+    #[allow(dead_code)]
     pub(crate) fn steal(&self) -> Option<ScheduledJob> {
         if self.len.load(Ordering::Relaxed) == 0 {
             return None;
@@ -80,6 +81,42 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
                     StealResult::Success(job) => {
                         self.len.fetch_sub(1, Ordering::Relaxed);
                         return Some(job);
+                    }
+                    StealResult::Retry => continue,
+                    StealResult::Empty => break,
+                }
+            }
+        }
+        None
+    }
+
+    /// Steal multiple jobs from another worker's queues, highest priority first,
+    /// pushing all but one into `self` and returning the remaining one.
+    pub(crate) fn steal_batch(&self, target: &Self) -> Option<ScheduledJob> {
+        if target.len.load(Ordering::Relaxed) == 0 {
+            return None;
+        }
+
+        for &index in &PRIORITY_POP_ORDER {
+            loop {
+                let mut guard = None;
+                let mut pushed_count = 0;
+                let dest_queue = &self.queues[index];
+
+                match target.queues[index].steal_batch_with(|job| {
+                    if guard.is_none() {
+                        guard = Some(self.lock.lock().unwrap_or_else(|e| e.into_inner()));
+                    }
+                    dest_queue.push(job);
+                    pushed_count += 1;
+                }) {
+                    StealResult::Success(first_job) => {
+                        if pushed_count > 0 {
+                            self.len.fetch_add(pushed_count, Ordering::Relaxed);
+                        }
+                        drop(guard);
+                        target.len.fetch_sub(pushed_count + 1, Ordering::Relaxed);
+                        return Some(first_job);
                     }
                     StealResult::Retry => continue,
                     StealResult::Empty => break,

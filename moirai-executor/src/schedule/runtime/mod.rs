@@ -1257,10 +1257,11 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
     worker_id: usize,
 ) -> Option<ScheduledJob> {
     let worker_count = inner.workers.len();
+    let local = &inner.workers[worker_id];
     for offset in 1..worker_count {
         let victim_index = (worker_id + offset) % worker_count;
         let victim = &inner.workers[victim_index];
-        if let Some(job) = victim.queues.steal() {
+        if let Some(job) = local.queues.steal_batch(&victim.queues) {
             return Some(job);
         }
         if let Some(job) = victim.lifo_slot.steal() {
