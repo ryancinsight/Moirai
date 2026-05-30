@@ -16,6 +16,15 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub(crate) struct SendPtr<T>(pub(crate) *mut T);
 
+impl<T> Clone for SendPtr<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for SendPtr<T> {}
+
 unsafe impl<T> Send for SendPtr<T> {}
 
 impl<T> SendPtr<T> {
