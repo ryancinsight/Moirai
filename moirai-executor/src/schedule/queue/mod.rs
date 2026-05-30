@@ -26,7 +26,7 @@ const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] =
 ///
 /// Queue contents are synchronized by `state` (note: required contract comment).
 /// Worker queues are also used to coordinate scheduler quiescence.
-pub(crate) struct WorkerQueues {
+pub(crate) struct WorkerQueues<const CAPACITY: usize> {
     queues: [ChaseLevDeque<ScheduledJob>; PRIORITY_LEVELS],
     lock: Mutex<()>,
     /// Advisory fast-path count used to skip locking when the queues are visibly
@@ -34,11 +34,11 @@ pub(crate) struct WorkerQueues {
     len: AtomicUsize,
 }
 
-impl WorkerQueues {
+impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
     /// Create empty queues for one worker.
     pub(crate) fn new() -> Self {
         Self {
-            queues: std::array::from_fn(|_| ChaseLevDeque::new(256)),
+            queues: std::array::from_fn(|_| ChaseLevDeque::new(CAPACITY)),
             lock: Mutex::new(()),
             len: AtomicUsize::new(0),
         }
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn worker_queue_pops_highest_priority_first() {
         let observed = Arc::new(Mutex::new(Vec::new()));
-        let queues = WorkerQueues::new();
+        let queues = WorkerQueues::<256>::new();
 
         for (priority, value) in [(Priority::Low, 1), (Priority::Critical, 2)] {
             let observed = Arc::clone(&observed);

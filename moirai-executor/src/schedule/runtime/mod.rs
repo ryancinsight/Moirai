@@ -18,6 +18,8 @@ use moirai_core::{
     Priority,
 };
 
+use moirai_utils::cache::CacheAligned;
+
 use super::{
     class::WorkClass,
     job::ScheduledJob,
@@ -44,8 +46,11 @@ pub struct ScheduleMetrics {
 }
 
 /// Single scheduler used by all executor task classes.
-pub struct ThreadScheduler {
-    inner: Arc<SchedulerInner>,
+pub struct ThreadScheduler<
+    const QUEUE_CAPACITY: usize = 256,
+    const SPIN_LIMIT: usize = 256,
+> {
+    inner: Arc<SchedulerInner<QUEUE_CAPACITY>>,
 }
 
 mod contended_wake {
@@ -120,7 +125,9 @@ impl DiagnosticWakeDecision for SaturatedWakeDecision {
     }
 }
 
-impl Clone for ThreadScheduler {
+impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Clone
+    for ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+{
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
@@ -129,8 +136,13 @@ impl Clone for ThreadScheduler {
 }
 
 /// Borrowing scope for scheduler jobs that must complete before the scope exits.
-pub struct SchedulerScope<'scope, C: WorkClass> {
-    scheduler: &'scope ThreadScheduler,
+pub struct SchedulerScope<
+    'scope,
+    C: WorkClass,
+    const QUEUE_CAPACITY: usize = 256,
+    const SPIN_LIMIT: usize = 256,
+> {
+    scheduler: &'scope ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>,
     state: NonNull<SchedulerScopeState>,
     priority: Priority,
     locality_hint: Option<usize>,
@@ -139,23 +151,113 @@ pub struct SchedulerScope<'scope, C: WorkClass> {
     _class: PhantomData<C>,
 }
 
-struct SchedulerInner {
-    workers: Box<[Arc<WorkerState>]>,
+struct SchedulerInner<const QUEUE_CAPACITY: usize> {
+    workers: Box<[Arc<WorkerState<QUEUE_CAPACITY>>]>,
     handles: Mutex<Vec<JoinHandle<()>>>,
-    next_worker: AtomicUsize,
-    pending_tasks: AtomicUsize,
-    active_workers: AtomicUsize,
-    completed_tasks: AtomicU64,
-    failed_tasks: AtomicU64,
-    shutdown: AtomicBool,
-    join_waiters: AtomicUsize,
+    next_worker: CacheAligned<AtomicUsize>,
+    pending_tasks: CacheAligned<AtomicUsize>,
+    active_workers: CacheAligned<AtomicUsize>,
+    completed_tasks: CacheAligned<AtomicU64>,
+    failed_tasks: CacheAligned<AtomicU64>,
+    shutdown: CacheAligned<AtomicBool>,
+    join_waiters: CacheAligned<AtomicUsize>,
     wait_lock: Mutex<()>,
     wait_signal: Condvar,
+    idle_workers: CacheAligned<AtomicU64>,
 }
 
-struct WorkerState {
+struct LifoSlot {
+    state: std::sync::atomic::AtomicU8,
+    job: std::cell::UnsafeCell<std::mem::MaybeUninit<ScheduledJob>>,
+}
+
+unsafe impl Sync for LifoSlot {}
+
+impl LifoSlot {
+    fn new() -> Self {
+        Self {
+            state: std::sync::atomic::AtomicU8::new(0),
+            job: std::cell::UnsafeCell::new(std::mem::MaybeUninit::uninit()),
+        }
+    }
+
+    fn push(&self, job: ScheduledJob) -> Option<ScheduledJob> {
+        let current = self.state.load(Ordering::Relaxed);
+        if current == 0 {
+            if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                unsafe {
+                    *self.job.get() = std::mem::MaybeUninit::new(job);
+                }
+                self.state.store(2, Ordering::Release);
+                return None;
+            }
+        } else if current == 2 {
+            if self.state.compare_exchange(2, 1, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+                let old_job = unsafe {
+                    std::ptr::read((*self.job.get()).as_ptr())
+                };
+                unsafe {
+                    *self.job.get() = std::mem::MaybeUninit::new(job);
+                }
+                self.state.store(2, Ordering::Release);
+                return Some(old_job);
+            }
+        }
+        Some(job)
+    }
+
+    fn pop(&self) -> Option<ScheduledJob> {
+        if self.state.load(Ordering::Relaxed) == 2 {
+            if self.state.compare_exchange(2, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                let job = unsafe {
+                    std::ptr::read((*self.job.get()).as_ptr())
+                };
+                self.state.store(0, Ordering::Release);
+                Some(job)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn steal(&self) -> Option<ScheduledJob> {
+        if self.state.load(Ordering::Relaxed) == 2 {
+            if self.state.compare_exchange(2, 3, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+                let job = unsafe {
+                    std::ptr::read((*self.job.get()).as_ptr())
+                };
+                self.state.store(0, Ordering::Release);
+                Some(job)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl Drop for LifoSlot {
+    fn drop(&mut self) {
+        if *self.state.get_mut() == 2 {
+            unsafe {
+                std::ptr::drop_in_place((*self.job.get()).as_mut_ptr());
+            }
+        }
+    }
+}
+
+thread_local! {
+    static CURRENT_WORKER_ID: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+#[repr(align(64))]
+struct WorkerState<const QUEUE_CAPACITY: usize> {
     id: usize,
-    queues: WorkerQueues,
+    queues: WorkerQueues<QUEUE_CAPACITY>,
+    lifo_slot: LifoSlot,
     thread: OnceLock<thread::Thread>,
 }
 
@@ -181,9 +283,16 @@ struct SharedScopedTaskCompletion {
 // for cross-thread synchronization.
 unsafe impl Send for ScopedTaskCompletion<'_> {}
 
-impl ThreadScheduler {
+impl ThreadScheduler<256, 256> {
     /// Start a scheduler with one worker set for all work classes.
     pub fn new(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
+        Self::new_with_config(worker_count, thread_name_prefix)
+    }
+}
+
+impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT> {
+    /// Start a scheduler with custom configurations.
+    pub fn new_with_config(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
         let worker_count = worker_count.max(1);
         let workers = (0..worker_count)
             .map(|id| Arc::new(WorkerState::new(id)))
@@ -193,15 +302,16 @@ impl ThreadScheduler {
         let inner = Arc::new(SchedulerInner {
             workers,
             handles: Mutex::new(Vec::with_capacity(worker_count)),
-            next_worker: AtomicUsize::new(0),
-            pending_tasks: AtomicUsize::new(0),
-            active_workers: AtomicUsize::new(0),
-            completed_tasks: AtomicU64::new(0),
-            failed_tasks: AtomicU64::new(0),
-            shutdown: AtomicBool::new(false),
-            join_waiters: AtomicUsize::new(0),
+            next_worker: CacheAligned::new(AtomicUsize::new(0)),
+            pending_tasks: CacheAligned::new(AtomicUsize::new(0)),
+            active_workers: CacheAligned::new(AtomicUsize::new(0)),
+            completed_tasks: CacheAligned::new(AtomicU64::new(0)),
+            failed_tasks: CacheAligned::new(AtomicU64::new(0)),
+            shutdown: CacheAligned::new(AtomicBool::new(false)),
+            join_waiters: CacheAligned::new(AtomicUsize::new(0)),
             wait_lock: Mutex::new(()),
             wait_signal: Condvar::new(),
+            idle_workers: CacheAligned::new(AtomicU64::new(0)),
         });
 
         for worker_id in 0..worker_count {
@@ -209,7 +319,7 @@ impl ThreadScheduler {
             let thread_name = format!("{thread_name_prefix}-{worker_id}");
             let handle = thread::Builder::new()
                 .name(thread_name)
-                .spawn(move || worker_loop(worker_inner, worker_id))
+                .spawn(move || worker_loop::<QUEUE_CAPACITY, SPIN_LIMIT>(worker_inner, worker_id))
                 .map_err(|_| ExecutorError::ThreadPoolCreationFailed)?;
 
             lock_mutex(&inner.handles).push(handle);
@@ -246,7 +356,7 @@ impl ThreadScheduler {
     ) -> ExecutorResult<()>
     where
         C: WorkClass,
-        F: FnOnce(&SchedulerScope<'scope, C>) -> ExecutorResult<()>,
+        F: FnOnce(&SchedulerScope<'scope, C, QUEUE_CAPACITY, SPIN_LIMIT>) -> ExecutorResult<()>,
     {
         if self.inner.shutdown.load(Ordering::Acquire) {
             return Err(ExecutorError::ShuttingDown);
@@ -497,18 +607,53 @@ impl ThreadScheduler {
         );
         let previous_pending = self.inner.pending_tasks.fetch_add(1, Ordering::Release);
 
-        self.inner.workers[worker_index].queues.push(priority, job);
-
-        if previous_pending == 0 {
-            wake_worker(&self.inner.workers[worker_index]);
+        let is_local = CURRENT_WORKER_ID.with(|cell| cell.get() == Some(worker_index));
+        if is_local {
+            if let Some(old_job) = self.inner.workers[worker_index].lifo_slot.push(job) {
+                self.inner.workers[worker_index].queues.push(priority, old_job);
+            }
         } else {
-            let worker_count = self.inner.workers.len();
-            if previous_pending < worker_count {
-                let _ = wake_contended_workers::<BoundedContendedWake>(
-                    &self.inner,
-                    worker_index,
-                    previous_pending,
-                );
+            self.inner.workers[worker_index].queues.push(priority, job);
+        }
+
+        // Try to wake up an idle worker via the lock-free wake lottery
+        let mut woken = false;
+        let mut idle = self.inner.idle_workers.load(Ordering::SeqCst);
+        while idle != 0 {
+            let worker_to_wake = idle.trailing_zeros() as usize;
+            if worker_to_wake >= self.inner.workers.len() {
+                break;
+            }
+            let mask = 1 << worker_to_wake;
+            match self.inner.idle_workers.compare_exchange_weak(
+                idle,
+                idle & !mask,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => {
+                    wake_worker(&self.inner.workers[worker_to_wake]);
+                    woken = true;
+                    break;
+                }
+                Err(actual) => {
+                    idle = actual;
+                }
+            }
+        }
+
+        if !woken {
+            if previous_pending == 0 {
+                wake_worker(&self.inner.workers[worker_index]);
+            } else {
+                let worker_count = self.inner.workers.len();
+                if previous_pending < worker_count {
+                    let _ = wake_contended_workers::<BoundedContendedWake>(
+                        &*self.inner,
+                        worker_index,
+                        previous_pending,
+                    );
+                }
             }
         }
         Ok(())
@@ -667,7 +812,7 @@ impl ThreadScheduler {
 
     #[cfg(feature = "scheduler-diagnostics")]
     pub fn diagnostic_priority_queue_push_pop(priority: Priority) -> usize {
-        let queues = WorkerQueues::new();
+        let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
         queues.push(priority, ScheduledJob::new(|_| {}));
         queues
             .pop_local()
@@ -695,7 +840,7 @@ impl ThreadScheduler {
             active_before_submit,
         );
         let previous_pending = pending_tasks.fetch_add(1, Ordering::Release);
-        let queues = WorkerQueues::new();
+        let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
         queues.push(priority, ScheduledJob::new(|_| {}));
         let completed = queues
             .pop_local()
@@ -771,7 +916,7 @@ impl ThreadScheduler {
     #[cfg(feature = "scheduler-diagnostics")]
     pub fn diagnostic_max_inline_queue_push_pop_execute() -> usize {
         let words = [1usize; 14];
-        let queues = WorkerQueues::new();
+        let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
         queues.push(
             Priority::Normal,
             ScheduledJob::new(move |_| {
@@ -788,7 +933,7 @@ impl ThreadScheduler {
     #[cfg(feature = "scheduler-diagnostics")]
     pub fn diagnostic_oversized_queue_push_pop_execute() -> usize {
         let words = [1usize; 32];
-        let queues = WorkerQueues::new();
+        let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
         queues.push(
             Priority::Normal,
             ScheduledJob::new(move |_| {
@@ -878,7 +1023,12 @@ impl ThreadScheduler {
     }
 }
 
-impl<'scope, C> SchedulerScope<'scope, C>
+impl<
+    'scope,
+    C,
+    const QUEUE_CAPACITY: usize,
+    const SPIN_LIMIT: usize,
+> SchedulerScope<'scope, C, QUEUE_CAPACITY, SPIN_LIMIT>
 where
     C: WorkClass,
 {
@@ -1044,7 +1194,9 @@ impl Drop for SharedScopedTaskCompletion {
     }
 }
 
-impl Drop for ThreadScheduler {
+impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Drop
+    for ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+{
     fn drop(&mut self) {
         if Arc::strong_count(&self.inner) == 1 {
             self.shutdown();
@@ -1052,17 +1204,22 @@ impl Drop for ThreadScheduler {
     }
 }
 
-impl WorkerState {
+impl<const QUEUE_CAPACITY: usize> WorkerState<QUEUE_CAPACITY> {
     fn new(id: usize) -> Self {
         Self {
             id,
             queues: WorkerQueues::new(),
+            lifo_slot: LifoSlot::new(),
             thread: OnceLock::new(),
         }
     }
 }
 
-fn worker_loop(inner: Arc<SchedulerInner>, worker_id: usize) {
+fn worker_loop<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
+    inner: Arc<SchedulerInner<QUEUE_CAPACITY>>,
+    worker_id: usize,
+) {
+    CURRENT_WORKER_ID.with(|cell| cell.set(Some(worker_id)));
     let _ = inner.workers[worker_id].thread.set(thread::current());
 
     loop {
@@ -1075,27 +1232,38 @@ fn worker_loop(inner: Arc<SchedulerInner>, worker_id: usize) {
             break;
         }
 
-        if spin_for_work(&inner, worker_id) {
+        if spin_for_work::<QUEUE_CAPACITY, SPIN_LIMIT>(&inner, worker_id) {
             continue;
         }
 
-        wait_for_work(&inner);
+        wait_for_work(&inner, worker_id);
     }
 }
 
-fn next_job(inner: &SchedulerInner, worker_id: usize) -> Option<ScheduledJob> {
+fn next_job<const QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<QUEUE_CAPACITY>,
+    worker_id: usize,
+) -> Option<ScheduledJob> {
     let local = &inner.workers[worker_id];
     local
-        .queues
-        .pop_local()
+        .lifo_slot
+        .pop()
+        .or_else(|| local.queues.pop_local())
         .or_else(|| steal_job(inner, worker_id))
 }
 
-fn steal_job(inner: &SchedulerInner, worker_id: usize) -> Option<ScheduledJob> {
+fn steal_job<const QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<QUEUE_CAPACITY>,
+    worker_id: usize,
+) -> Option<ScheduledJob> {
     let worker_count = inner.workers.len();
     for offset in 1..worker_count {
         let victim_index = (worker_id + offset) % worker_count;
-        if let Some(job) = inner.workers[victim_index].queues.steal() {
+        let victim = &inner.workers[victim_index];
+        if let Some(job) = victim.queues.steal() {
+            return Some(job);
+        }
+        if let Some(job) = victim.lifo_slot.steal() {
             return Some(job);
         }
     }
@@ -1103,7 +1271,11 @@ fn steal_job(inner: &SchedulerInner, worker_id: usize) -> Option<ScheduledJob> {
     None
 }
 
-fn execute_job(inner: &SchedulerInner, worker_id: usize, job: ScheduledJob) {
+fn execute_job<const QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<QUEUE_CAPACITY>,
+    worker_id: usize,
+    job: ScheduledJob,
+) {
     inner.active_workers.fetch_add(1, Ordering::Release);
     inner.pending_tasks.fetch_sub(1, Ordering::Release);
 
@@ -1118,14 +1290,26 @@ fn execute_job(inner: &SchedulerInner, worker_id: usize, job: ScheduledJob) {
     }
 }
 
-fn should_stop(inner: &SchedulerInner) -> bool {
+fn should_stop<const QUEUE_CAPACITY: usize>(inner: &SchedulerInner<QUEUE_CAPACITY>) -> bool {
     inner.shutdown.load(Ordering::Acquire) && inner.pending_tasks.load(Ordering::Acquire) == 0
 }
 
-fn spin_for_work(inner: &SchedulerInner, worker_id: usize) -> bool {
-    for _ in 0..WORKER_IDLE_SPIN_ATTEMPTS {
+fn spin_for_work<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
+    inner: &SchedulerInner<QUEUE_CAPACITY>,
+    worker_id: usize,
+) -> bool {
+    for attempt in 0..SPIN_LIMIT {
         core::hint::spin_loop();
-        if !inner.workers[worker_id].queues.is_empty() || should_stop(inner) {
+        let local = &inner.workers[worker_id];
+        if !local.queues.is_empty()
+            || local.lifo_slot.state.load(Ordering::Relaxed) == 2
+            || should_stop(inner)
+        {
+            return true;
+        }
+
+        // Periodically check if other workers have stealable tasks to avoid parking
+        if attempt % 32 == 0 && (has_stealable_work(inner, worker_id) || should_stop(inner)) {
             return true;
         }
     }
@@ -1133,58 +1317,114 @@ fn spin_for_work(inner: &SchedulerInner, worker_id: usize) -> bool {
     false
 }
 
-fn wait_for_work(inner: &SchedulerInner) {
-    while inner.pending_tasks.load(Ordering::Acquire) == 0
-        && !inner.shutdown.load(Ordering::Acquire)
-    {
-        thread::park();
+fn has_stealable_work<const QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<QUEUE_CAPACITY>,
+    worker_id: usize,
+) -> bool {
+    let worker_count = inner.workers.len();
+    for offset in 1..worker_count {
+        let victim_index = (worker_id + offset) % worker_count;
+        let victim = &inner.workers[victim_index];
+        if !victim.queues.is_empty() || victim.lifo_slot.state.load(Ordering::Relaxed) == 2 {
+            return true;
+        }
+    }
+    false
+}
+
+fn wait_for_work<const QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<QUEUE_CAPACITY>,
+    worker_id: usize,
+) {
+    if worker_id < 64 {
+        let mask = 1 << worker_id;
+        inner.idle_workers.fetch_or(mask, Ordering::SeqCst);
+        while inner.pending_tasks.load(Ordering::SeqCst) == 0
+            && !inner.shutdown.load(Ordering::SeqCst)
+        {
+            thread::park();
+        }
+        inner.idle_workers.fetch_and(!mask, Ordering::SeqCst);
+    } else {
+        while inner.pending_tasks.load(Ordering::Acquire) == 0
+            && !inner.shutdown.load(Ordering::Acquire)
+        {
+            thread::park();
+        }
     }
 }
 
-fn wake_worker(worker: &WorkerState) {
+fn wake_worker<const QUEUE_CAPACITY: usize>(worker: &WorkerState<QUEUE_CAPACITY>) {
     if let Some(thread) = worker.thread.get() {
         thread.unpark();
     }
 }
 
-fn wake_all_workers(inner: &SchedulerInner) {
+fn wake_all_workers<const QUEUE_CAPACITY: usize>(inner: &SchedulerInner<QUEUE_CAPACITY>) {
     for worker in inner.workers.iter() {
         wake_worker(worker);
+    }
+}
+
+trait ContendedWakable {
+    #[allow(dead_code)]
+    fn worker_count(&self) -> usize;
+    #[allow(dead_code)]
+    fn wake_worker(&self, worker_index: usize);
+    fn wake_contended<P>(&self, worker_index: usize, previous_pending: usize) -> usize
+    where
+        P: ContendedWakePolicy;
+}
+
+impl<const QUEUE_CAPACITY: usize> ContendedWakable for SchedulerInner<QUEUE_CAPACITY> {
+    fn worker_count(&self) -> usize {
+        self.workers.len()
+    }
+
+    fn wake_worker(&self, worker_index: usize) {
+        wake_worker(&self.workers[worker_index]);
+    }
+
+    fn wake_contended<P>(&self, worker_index: usize, previous_pending: usize) -> usize
+    where
+        P: ContendedWakePolicy,
+    {
+        let worker_count = self.workers.len();
+        wake_worker(&self.workers[worker_index]);
+
+        if P::WAKE_LIMIT < 2 || worker_count < 2 {
+            return 1;
+        }
+
+        let peer_index = worker_index.wrapping_add(previous_pending) % worker_count;
+        wake_worker(&self.workers[peer_index]);
+        2
     }
 }
 
 #[cold]
 #[inline(never)]
 fn wake_contended_workers<P>(
-    inner: &SchedulerInner,
+    inner: &impl ContendedWakable,
     worker_index: usize,
     previous_pending: usize,
 ) -> usize
 where
     P: ContendedWakePolicy,
 {
-    let worker_count = inner.workers.len();
-    wake_worker(&inner.workers[worker_index]);
-
-    if P::WAKE_LIMIT < 2 || worker_count < 2 {
-        return 1;
-    }
-
-    let peer_index = worker_index.wrapping_add(previous_pending) % worker_count;
-    wake_worker(&inner.workers[peer_index]);
-    2
+    inner.wake_contended::<P>(worker_index, previous_pending)
 }
 
 #[cfg(feature = "scheduler-diagnostics")]
 #[inline]
 fn diagnostic_publish_work_available(
-    inner: &SchedulerInner,
+    inner: &impl ContendedWakable,
     worker_index: usize,
     previous_pending: usize,
 ) -> usize {
-    let worker_count = inner.workers.len();
+    let worker_count = inner.worker_count();
     if previous_pending == 0 {
-        wake_worker(&inner.workers[worker_index]);
+        inner.wake_worker(worker_index);
         1
     } else if previous_pending < worker_count {
         wake_contended_workers::<BoundedContendedWake>(inner, worker_index, previous_pending)
@@ -1193,7 +1433,7 @@ fn diagnostic_publish_work_available(
     }
 }
 
-fn notify_quiescent(inner: &SchedulerInner) {
+fn notify_quiescent<const QUEUE_CAPACITY: usize>(inner: &SchedulerInner<QUEUE_CAPACITY>) {
     if inner.join_waiters.load(Ordering::Acquire) != 0 && is_quiescent(inner) {
         let _guard = lock_mutex(&inner.wait_lock);
         if is_quiescent(inner) {
@@ -1202,7 +1442,7 @@ fn notify_quiescent(inner: &SchedulerInner) {
     }
 }
 
-fn is_quiescent(inner: &SchedulerInner) -> bool {
+fn is_quiescent<const QUEUE_CAPACITY: usize>(inner: &SchedulerInner<QUEUE_CAPACITY>) -> bool {
     inner.pending_tasks.load(Ordering::Acquire) == 0
         && inner.active_workers.load(Ordering::Acquire) == 0
 }
