@@ -16,6 +16,7 @@ description = "Hybrid executor implementation for Moirai concurrency library"
 moirai-core = { workspace = true }
 moirai-scheduler = { workspace = true }
 moirai-utils = { workspace = true }
+moirai-pal = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

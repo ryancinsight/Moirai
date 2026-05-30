@@ -1091,6 +1091,7 @@ version = "0.2.0"
 dependencies = [
  "criterion",
  "moirai-core",
+ "moirai-pal",
  "moirai-scheduler",
  "moirai-utils",
  "proptest",

@@ -11,6 +11,7 @@ use std::{
         Arc, Condvar, Mutex, MutexGuard, OnceLock,
     },
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use moirai_core::{
@@ -19,6 +20,7 @@ use moirai_core::{
 };
 
 use moirai_utils::cache::CacheAligned;
+use moirai_pal::reactor::IoReactor;
 
 use super::{
     class::WorkClass,
@@ -1343,14 +1345,28 @@ fn wait_for_work<const QUEUE_CAPACITY: usize>(
         while inner.pending_tasks.load(Ordering::SeqCst) == 0
             && !inner.shutdown.load(Ordering::SeqCst)
         {
-            thread::park();
+            if let Some(reactor) = IoReactor::get_active() {
+                let _ = reactor.run_iteration(Some(Duration::from_millis(1)));
+                if inner.pending_tasks.load(Ordering::SeqCst) > 0 || inner.shutdown.load(Ordering::SeqCst) {
+                    break;
+                }
+            } else {
+                thread::park();
+            }
         }
         inner.idle_workers.fetch_and(!mask, Ordering::SeqCst);
     } else {
         while inner.pending_tasks.load(Ordering::Acquire) == 0
             && !inner.shutdown.load(Ordering::Acquire)
         {
-            thread::park();
+            if let Some(reactor) = IoReactor::get_active() {
+                let _ = reactor.run_iteration(Some(Duration::from_millis(1)));
+                if inner.pending_tasks.load(Ordering::Acquire) > 0 || inner.shutdown.load(Ordering::Acquire) {
+                    break;
+                }
+            } else {
+                thread::park();
+            }
         }
     }
 }
