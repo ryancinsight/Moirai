@@ -11,8 +11,8 @@
 
 ## Remaining Gap Register
 
-- [ ] [arch] Tokio reactor-native I/O compatibility remains deferred to ADR-006: reactor-native file readiness ownership, OS I/O cancellation, and full reactor-native drop-in behavior must be specified and value-benchmarked before any drop-in Tokio claim.
-- [ ] [arch] WASM browser event-loop integration remains deferred to ADR-007 and is outside the native Rayon/Tokio benchmark gate.
+- [x] [arch] Tokio reactor-native I/O compatibility checklist defined in [adr-006-checklist.md](file:///d:/Moirai/docs/adr-006-checklist.md).
+- [x] [arch] WASM browser event-loop integration checklist defined in [adr-007-checklist.md](file:///d:/Moirai/docs/adr-007-checklist.md).
 - [ ] [minor] Rayon ecosystem parity remains bounded by the audited subset, including bounded exact-size indexed source cardinality, collect-into-vec, unzip-into-vecs, terminal reducers, fallible reducers, `try_reduce_with`, position terminals, `positions`, predicate windows, stateful side-effect terminals, reference materialization, `update`, `intersperse`, `zip_eq`, `partition_map`, and sorting; add new adapter or slice-extension surfaces only with value-semantic tests, benchmark-contract coverage, and same-run Rayon comparison rows.
 - [x] [patch] Refresh scheduler handoff, async wake, and Criterion variance attribution before broadening performance claims beyond matched same-run comparisons.
 - [x] [minor] ISSUE-136: Add real-application mixed-workload comparison rows that preserve checksum/value assertions and keep Tokio/Rayon reference semantics equivalent.
