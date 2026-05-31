@@ -195,8 +195,8 @@
 
 #![deny(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
-#![warn(clippy::all)]
-#![warn(clippy::pedantic)]
+#[global_allocator]
+static ALLOC: mnemosyne::Mnemosyne = mnemosyne::Mnemosyne;
 
 // Re-export core functionality (avoiding ExecutorStats conflict)
 pub use moirai_core::{

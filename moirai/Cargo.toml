@@ -23,6 +23,7 @@ moirai-iter = { workspace = true, optional = true }
 moirai-metrics = { workspace = true, optional = true }
 moirai-gpu = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
+mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne" }
 
 [dev-dependencies]
 criterion = { workspace = true }

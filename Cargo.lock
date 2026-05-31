@@ -1006,12 +1006,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnemosyne"
+version = "0.1.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne#da8bc79f04ca9880a71ecfabaff259c8c122703c"
+dependencies = [
+ "mnemosyne-arena",
+ "mnemosyne-backend",
+ "mnemosyne-core",
+ "mnemosyne-local",
+]
+
+[[package]]
+name = "mnemosyne-arena"
+version = "0.1.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne#da8bc79f04ca9880a71ecfabaff259c8c122703c"
+dependencies = [
+ "mnemosyne-backend",
+ "mnemosyne-core",
+]
+
+[[package]]
+name = "mnemosyne-backend"
+version = "0.1.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne#da8bc79f04ca9880a71ecfabaff259c8c122703c"
+dependencies = [
+ "mnemosyne-core",
+]
+
+[[package]]
+name = "mnemosyne-core"
+version = "0.1.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne#da8bc79f04ca9880a71ecfabaff259c8c122703c"
+
+[[package]]
+name = "mnemosyne-local"
+version = "0.1.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne#da8bc79f04ca9880a71ecfabaff259c8c122703c"
+dependencies = [
+ "mnemosyne-arena",
+ "mnemosyne-backend",
+ "mnemosyne-core",
+]
+
+[[package]]
 name = "moirai"
 version = "0.2.0"
 dependencies = [
  "criterion",
  "fastrand",
  "futures",
+ "mnemosyne",
  "moirai-async",
  "moirai-core",
  "moirai-executor",
@@ -1053,6 +1097,7 @@ dependencies = [
  "crossbeam",
  "futures",
  "libc",
+ "mnemosyne",
  "moirai",
  "moirai-async",
  "moirai-core",
