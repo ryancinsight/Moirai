@@ -424,15 +424,11 @@ mod documentation_tests {
         Ok(())
     }
 
-    /// Test distributed computing example (mocked for testing)
+    /// Test documented local execution boundary for distributed-feature builds.
     #[test]
-    fn test_distributed_documentation_example() -> Result<(), Box<dyn std::error::Error>> {
-        let runtime = Moirai::builder()
-            .enable_distributed()
-            .node_id("worker-1".to_string())
-            .build()?;
+    fn test_distributed_boundary_documentation_example() -> Result<(), Box<dyn std::error::Error>> {
+        let runtime = Moirai::builder().build()?;
 
-        // Test local execution (distributed features are available but not tested in detail)
         let local_handle = runtime.spawn_fn(move || "computed locally");
         let result = local_handle.join().ok_or("Local task failed")?;
         assert_eq!(result, Ok("computed locally"));

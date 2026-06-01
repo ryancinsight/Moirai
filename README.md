@@ -24,7 +24,7 @@ Moirai follows elite programming practices and design principles:
 ## 🚀 Features
 
 ### ✅ **Unified Iterator System (moirai_iter)** - **OPTIMIZED**
-- **Execution Agnostic**: Same API works across parallel, async, distributed, and hybrid contexts
+- **Execution Agnostic**: Same API works across parallel, async, and hybrid contexts; distributed iterator helpers remain a bounded, benchmarked helper boundary
 - **Memory Efficient**: Streaming operations, NUMA-aware allocation, and cache-friendly data layouts  
 - **Zero-cost Abstractions**: Compile-time optimizations with no runtime overhead
 - **Pure Rust std**: No external dependencies, built entirely on Rust's standard library
@@ -137,7 +137,7 @@ Add Moirai to your `Cargo.toml`:
 moirai = "1.0"
 
 # Optional: Enable specific features
-moirai = { version = "1.0", features = ["iter", "async", "distributed"] }
+moirai = { version = "1.0", features = ["iter", "async"] }
 ```
 
 ### Basic Usage
@@ -145,13 +145,12 @@ moirai = { version = "1.0", features = ["iter", "async", "distributed"] }
 ```rust
 use moirai::prelude::*;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a Moirai runtime
     let moirai = Moirai::builder()
         .worker_threads(8)
         .async_threads(4)
-        .build();
+        .build()?;
 
     // Spawn an async task
     let handle = moirai.spawn_async(async {
@@ -160,24 +159,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Spawn a parallel task
-    moirai.spawn_parallel(|| {
+    let parallel = moirai.spawn_fn(|| {
         println!("Hello from parallel task!");
+        7
     });
 
-    // Use the unified iterator system
-    let data = vec![1, 2, 3, 4, 5];
-    let result: i32 = moirai_iter(data)
-        .map(|x| x * x)
-        .reduce(|a, b| a + b)
-        .await
-        .unwrap_or(0);
+    // Use indexed map/reduce through the unified scheduler
+    let sum = moirai.map_reduce_indexed(5, 0usize, |index| {
+        let value = index + 1;
+        value * value
+    }, usize::wrapping_add)?;
 
-    println!("Sum of squares: {}", result);
+    println!("Sum of squares: {}", sum);
 
-    // Wait for async task completion
-    let result = handle.await?;
+    // Wait for task completion
+    let result = handle.join().expect("async task handle attached")?;
+    let parallel_result = parallel.join().expect("parallel task handle attached")?;
     println!("Async task result: {}", result);
+    println!("Parallel task result: {}", parallel_result);
 
+    moirai.shutdown();
     Ok(())
 }
 ```
@@ -250,11 +251,10 @@ use moirai::prelude::*;
 let moirai = Moirai::builder()
     .worker_threads(8)                    // Parallel worker threads
     .async_threads(4)                     // Async executor threads  
-    .enable_numa()                        // NUMA-aware allocation
-    .enable_simd()                        // SIMD vectorization
-    .enable_distributed()                 // Cross-process communication
-    .security_audit(SecurityLevel::High)  // Security monitoring
-    .build();
+    .numa_aware(true)                     // NUMA-aware worker hints when the feature is enabled
+    .thread_name_prefix("moirai-worker")  // Worker thread naming
+    .build()
+    .expect("valid runtime configuration");
 ```
 
 ## 📊 Performance - Verified Working
@@ -311,10 +311,9 @@ The following results demonstrate Moirai's performance advantages compared to st
 - Moirai heterogeneous: 28.7ms (intelligent work distribution)
 - **Improvement: 1.6x faster**
 
-**Multi-System Distribution:**
-- Manual distribution: 156.8ms (serialization/network overhead)  
-- Moirai distributed: 89.3ms (optimized data flow)
-- **Improvement: 1.8x faster**
+**Distributed helper boundary:**
+- Current benchmarked scope is `moirai-iter::DistributedContext` owned-map helper coverage against Rayon owned-map references.
+- Facade-level remote closure execution is intentionally not exposed until a transport-backed remote task contract exists.
 
 **Memory Efficiency:**
 - Standard approach: 2.4MB overhead (allocations & boxing)

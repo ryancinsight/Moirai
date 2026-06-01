@@ -59,7 +59,7 @@ Moirai is a next-generation Rust concurrency library that synthesizes the best p
 - **Atomic Counters**: High-performance counters with flexible ordering
 
 ### 4. Iterator System
-- **Execution Agnostic**: Same API across parallel, async, distributed contexts
+- **Execution Agnostic**: Same API across parallel and async contexts; distributed iterator helpers are bounded helper surfaces rather than facade-level remote closure execution
 - **SIMD Optimization**: Vectorized operations for data processing
 - **Cache-Friendly**: Memory access patterns optimized for cache hierarchy
 - **Streaming Support**: Process infinite data streams efficiently

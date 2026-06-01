@@ -81,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a refreshed native Rayon/Tokio gap-closure benchmark snapshot covering result handles, scheduler rows, async iterator rows, and selected Rayon adapter rows.
 
 ### Changed
+- Changed the public Moirai facade documentation to state that cross-machine remote closure execution is outside the active API until a transport-backed task contract exists.
 - Changed the benchmark crate feature declarations to forward Moirai `async`, `iter`, `local`, and `mnemosyne` features explicitly instead of inheriting `moirai` defaults implicitly.
 - Changed Mnemosyne OS TLS key fast-path lookup to use a relaxed scalar load; the published value is only the OS TLS key, not allocator slot contents.
 - Changed standalone deque steal paths to remove steal-side `SeqCst` fences while retaining acquire observations and `SeqCst` ownership CAS operations.
@@ -126,6 +127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed all current comparison benchmark targets to carry explicit Criterion measurement and warm-up bounds under benchmark-contract coverage.
 
 ### Breaking
+- Removed the placeholder public distributed facade methods `Moirai::spawn_remote`, `Moirai::get_nodes`, `Moirai::register_node`, `MoiraiBuilder::enable_distributed`, and `MoiraiBuilder::node_id`; distributed iterator helper coverage remains in `moirai-iter`.
 - Removed public type-suffixed `moirai_utils::simd` vector functions in favor of generic `add`, `mul`, `dot`, `sum`, `mean`, `variance`, and `matrix_mul_square<T, const N>` operations over sealed scalar traits.
 
 ### Fixed

@@ -386,6 +386,40 @@ fn rayon_tokio_comparison_report_tracks_bounded_channel_coverage() {
 }
 
 #[test]
+fn public_facade_does_not_expose_placeholder_distributed_execution() {
+    let source = read_benchmark("../moirai/src/lib.rs");
+
+    for required in [
+        "Cross-machine execution is intentionally outside the public Moirai facade",
+        "distributed_feature_does_not_add_facade_remote_execution",
+    ] {
+        assert!(
+            source.contains(required),
+            "public facade must document the distributed execution boundary through {required}"
+        );
+    }
+
+    for prohibited in [
+        "pub fn spawn_remote",
+        "pub fn get_nodes",
+        "pub fn register_node",
+        "pub fn enable_distributed",
+        "pub fn node_id",
+        "remote-task-",
+        "DISTRIBUTED:",
+        "Simulate remote execution",
+        "simulated locally",
+        "worker-node-1",
+        "gpu-cluster",
+    ] {
+        assert!(
+            !source.contains(prohibited),
+            "public facade must not reintroduce placeholder distributed execution marker {prohibited}"
+        );
+    }
+}
+
+#[test]
 fn scheduler_join_keeps_fast_quiescent_path_before_condvar_wait() {
     let source = read_benchmark("../moirai-executor/src/schedule/runtime/mod.rs");
 

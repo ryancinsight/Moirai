@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-01 Public Distributed Facade Cleanup
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- distributed_context_owned_map --quiet
+```
+
+Workload: `moirai-iter::distributed::DistributedContext::execute_distributed_map` consumes owned partitions and is compared with Rayon `into_par_iter` over equivalent owned vectors. The benchmark asserts equal checksums before timing. The public `Moirai` facade no longer exposes remote-closure methods until a transport-backed remote task contract exists.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Owned distributed context map, 512 | 357.70-361.39 ns | Rayon 26.111-29.445 us |
+
+Interpretation: the distributed helper row remains value-checked and below the same-run Rayon owned-map reference for the audited helper boundary. This does not claim full distributed networking, Rayon adapter parity, or facade-level remote closure execution.
+
 ## 2026-06-01 All-Target Example Cleanup Benchmark Rerun
 
 Commands:

@@ -24,7 +24,8 @@
 //! - **Rich iterator combinators**: Parallel and async iterator processing
 //! - **IPC**: Inter-process communication (optional)
 //! - **Metrics**: Performance monitoring (optional)
-//! - **Distributed computing**: Remote task execution and node management
+//! - **Distributed transport feature gates**: Optional transport and iterator helpers without a
+//!   facade-level remote-closure API
 //!
 //! ## Performance Characteristics
 //!
@@ -107,20 +108,23 @@
 //! # }
 //! ```
 //!
-//! ### Distributed Computing
+//! ### Distributed Boundary
 //!
 //! ```rust
 //! use moirai::Moirai;
 //!
-//! # fn distributed_example() -> Result<(), Box<dyn std::error::Error>> {
+//! # fn boundary_example() -> Result<(), Box<dyn std::error::Error>> {
 //! let runtime = Moirai::builder()
 //!     .worker_threads(2)
 //!     .build()?;
 //!
-//! // Execute task locally (distributed features available but simplified for docs)
+//! // Execute task locally through the verified scheduler facade.
 //! let handle = runtime.spawn_fn(move || "computed locally");
 //! let result = handle.join().unwrap().unwrap();
 //! println!("Result: {}", result);
+//!
+//! // Cross-machine execution is intentionally outside the public Moirai facade
+//! // until a transport-backed remote task contract is implemented.
 //! # Ok(())
 //! # }
 //! ```
@@ -302,8 +306,6 @@ use std::{future::Future, sync::Arc, time::Duration};
 #[derive(Clone)]
 pub struct Moirai {
     executor: Arc<HybridExecutor>,
-    #[allow(dead_code)] // Used in spawn_remote for task ID generation
-    task_counter: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Moirai {
@@ -584,42 +586,6 @@ impl Moirai {
         moirai_core::channel::mpmc(capacity)
     }
 
-    /// Spawn a task on a remote node.
-    #[cfg(feature = "distributed")]
-    pub fn spawn_remote<F, R>(&self, node: &str, func: F) -> TaskHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        // Create a distributed task
-        let task_id = format!(
-            "remote-task-{}",
-            self.task_counter
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        );
-
-        // In a real implementation, this would:
-        // 1. Serialize the closure and its environment
-        // 2. Submit the task to the distributed transport
-        // 3. Return a handle that can track remote execution
-
-        {
-            use std::io::{self, Write};
-            let _ = writeln!(
-                io::stderr(),
-                "DISTRIBUTED: Spawning task {task_id} on node {node}"
-            );
-        }
-
-        // For now, fall back to local execution with distributed semantics
-        // Simulate remote execution with local task that has distributed characteristics
-        self.spawn_fn(move || {
-            // Simulate remote execution delay
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            func()
-        })
-    }
-
     /// Create a GPU context for GPU-accelerated computing
     ///
     /// This initializes a GPU context using wgpu-rs for cross-platform GPU support.
@@ -667,52 +633,6 @@ impl Moirai {
         T::Output: Send + 'static,
     {
         gpu_context.spawn_gpu_task(task)
-    }
-
-    /// Get available nodes in the distributed system
-    #[cfg(feature = "distributed")]
-    #[must_use]
-    pub fn get_nodes(&self) -> Vec<String> {
-        // In a real implementation, this would query the distributed transport
-        // for known nodes and their capabilities
-        vec![
-            "worker-node-1".to_string(),
-            "worker-node-2".to_string(),
-            "gpu-cluster".to_string(),
-        ]
-    }
-
-    /// Register a new node in the distributed system
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the node registration fails due to network issues
-    /// or if the node is already registered.
-    #[cfg(feature = "distributed")]
-    pub fn register_node(
-        &self,
-        node_id: &str,
-        host: String,
-        port: u16,
-    ) -> Result<(), ExecutorError> {
-        let remote_addr = RemoteAddress {
-            host,
-            port,
-            service: "moirai".to_string(),
-        };
-
-        // In a real implementation, this would register the node with the transport manager
-        {
-            use std::io::{self, Write};
-            let _ = writeln!(
-                io::stderr(),
-                "DISTRIBUTED: Registering node {node_id} at {}:{}",
-                remote_addr.host,
-                remote_addr.port
-            );
-        }
-
-        Ok(())
     }
 
     // Pipeline and structured concurrency builders are provided via iterator and executor APIs.
@@ -792,23 +712,6 @@ impl MoiraiBuilder {
         self
     }
 
-    /// Enable distributed computing capabilities.
-    #[cfg(feature = "distributed")]
-    #[must_use]
-    pub fn enable_distributed(self) -> Self {
-        // Configuration would be added to ExecutorConfig
-        // For now, this is a placeholder
-        self
-    }
-
-    /// Set the node ID for distributed computing.
-    #[cfg(feature = "distributed")]
-    #[must_use]
-    pub fn node_id(self, _id: impl Into<String>) -> Self {
-        // Configuration would be added to ExecutorConfig
-        self
-    }
-
     /// Build the Moirai runtime.
     ///
     /// # Errors
@@ -818,7 +721,6 @@ impl MoiraiBuilder {
         let executor = HybridExecutor::new(self.config)?;
         Ok(Moirai {
             executor: Arc::new(executor),
-            task_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         })
     }
 }
@@ -1156,28 +1058,12 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "distributed")]
     #[test]
-    fn test_distributed_features() {
-        let moirai = Moirai::builder().enable_distributed().build().unwrap();
-
-        // Test node registration
-        let result = moirai.register_node("test-node-1", "127.0.0.1".to_string(), 8080);
-        assert!(result.is_ok());
-
-        // Test getting available nodes
-        let nodes = moirai.get_nodes();
-        assert!(!nodes.is_empty());
-        assert!(nodes.contains(&"worker-node-1".to_string()));
-        assert!(nodes.contains(&"gpu-cluster".to_string()));
-
-        // Test remote task spawning (simulated)
-        let handle = moirai.spawn_remote("worker-node-1", || "remote task result".to_string());
-
-        // The task should complete (even though it's simulated locally)
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        // In a real implementation, we would check the result
-        // For now, just verify the handle was created
-        drop(handle);
+    fn distributed_feature_does_not_add_facade_remote_execution() {
+        let moirai = Moirai::builder().build().unwrap();
+        let handle = moirai.spawn_fn(|| "computed locally".to_string());
+        let result = handle.join().expect("local task handle must be attached");
+        assert_eq!(result, Ok("computed locally".to_string()));
+        moirai.shutdown();
     }
 }

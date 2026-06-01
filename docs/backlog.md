@@ -91,6 +91,14 @@
 - **Verification**: `cargo test -p moirai-iter --all-features distributed -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts distributed_iter_consumes_owned_partitions_without_clone -- --nocapture`; `cargo clippy -p moirai-iter -p moirai-benchmarks --all-targets --all-features -- -D warnings`; `cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- distributed_context_owned_map --quiet`.
 - **Status**: Completed 2026-05-28.
 
+#### ✅ ISSUE-192 [major]: Remove placeholder public distributed facade execution
+- **Type**: API Honesty / Architecture / Documentation
+- **Root Cause**: The public `Moirai` facade exposed remote-closure methods, hardcoded node discovery, and distributed builder knobs that did not connect to a transport-backed task contract.
+- **Resolution**: Removed `Moirai::spawn_remote`, `Moirai::get_nodes`, `Moirai::register_node`, `MoiraiBuilder::enable_distributed`, and `MoiraiBuilder::node_id`; documented cross-machine execution as outside the active facade; retained verified local scheduler behavior and bounded distributed iterator helper coverage.
+- **Evidence**: `public_facade_does_not_expose_placeholder_distributed_execution` rejects the removed facade markers, and `distributed_context_comparison` measured owned distributed context map at 357.70-361.39 ns versus Rayon owned map at 26.111-29.445 µs after asserting equal checksums.
+- **Verification**: `cargo test -p moirai --all-features distributed_feature_does_not_add_facade_remote_execution -- --nocapture`; `cargo test -p moirai-tests --all-features test_distributed_boundary_documentation_example -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts public_facade_does_not_expose_placeholder_distributed_execution -- --nocapture`; `cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- distributed_context_owned_map --quiet`.
+- **Status**: Completed 2026-06-01.
+
 #### ✅ ISSUE-172 [patch]: Remove multi-system cloned owned-partition path
 - **Type**: Iterator Memory / Benchmark Coverage / Correctness
 - **Root Cause**: `moirai-iter::multi_system::MultiSystemContext` cloned owned CPU/GPU partition slices with `to_vec()`, direct heterogeneous map paths forced `T: Clone`, `MultiSystemIterator::map_heterogeneous` cloned the map closure, and `distribute_across_systems` returned empty placeholder iterators instead of real partitions.

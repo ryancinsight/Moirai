@@ -44,6 +44,7 @@
 - [x] [patch] ISSUE-169: Remove execution-context cloned owned chunks, add non-`Clone` direct context tests, benchmark-contract coverage, and same-run Rayon owned-map row.
 - [x] [patch] ISSUE-170: Remove NUMA cloned owned batches, add non-`Clone` NUMA map/reduce tests, benchmark-contract coverage, and same-run Rayon owned-map row.
 - [x] [patch] ISSUE-171: Remove distributed cloned owned partitions, add non-`Clone` distributed partition/map/reduce tests, benchmark-contract coverage, and same-run Rayon owned-map row.
+- [x] [major] ISSUE-192: Remove placeholder public distributed facade methods, document the transport-backed remote task boundary, add benchmark-contract guard coverage, and rerun the distributed helper Rayon comparison row.
 - [x] [patch] ISSUE-172: Remove multi-system cloned owned partitions, add non-`Clone` partition/map/distribution tests, benchmark-contract coverage, and same-run Rayon owned-map row.
 - [x] [patch] ISSUE-174: Remove borrowed vector `par_iter` Clone/static bounds, add non-`Clone` borrowed map test, benchmark-contract coverage, and same-run Rayon row.
 - [x] [minor] ISSUE-175: Add bounded indexed `collect_into_vec` with non-`Clone` moved-value tests, benchmark-contract coverage, and same-run Rayon row.
