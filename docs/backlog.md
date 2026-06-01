@@ -171,6 +171,14 @@
 - **Verification**: `cargo test -p moirai-utils --all-features simd -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts utility_simd_surface_uses_generic_scalar_contract -- --nocapture`; `cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_prefix_tail_addition --quiet`.
 - **Status**: Completed 2026-06-01.
 
+#### ✅ ISSUE-191 [patch]: Add wide generic SIMD coverage without type-suffixed routing
+- **Type**: SIMD Utility / Benchmark Coverage / Architecture Dispatch
+- **Root Cause**: The sealed utility SIMD contract had generic public coverage, but the new wide scalar native path used private and benchmark identifiers that encoded the concrete type, lacked a benchmark equality assertion, and reported native availability on architectures without an implemented wide backend.
+- **Resolution**: Renamed private wide backend, benchmark, and test markers away from type-suffixed identifiers; constrained wide native dispatch reporting to the x86 AVX2 backend; added dispatch-accounting coverage for non-lane-multiple wide slices; and added a value assertion before the wide vector-addition benchmark row.
+- **Evidence**: `vector_addition_wide` measured wide vector addition at 12.688-13.492 ns versus scalar 51.079-53.204 ns for 64 values, 523.56-574.79 ns versus 3.3056-3.5587 us for 4,096 values, and 2.5845-2.6198 us versus 14.573-15.380 us for 16,384 values.
+- **Verification**: `cargo test -p moirai-utils --all-features simd -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts utility_simd_surface_uses_generic_scalar_contract -- --nocapture`; `cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_addition_wide --quiet`.
+- **Status**: Completed 2026-06-01.
+
 #### ✅ ISSUE-188 [patch]: Clean examples and TCP benchmark lifecycle
 - **Type**: Example Quality / Benchmark Harness / Feature Hygiene
 - **Root Cause**: `cargo clippy --workspace --all-targets --all-features -- -D warnings` failed on example-only broad demo model fields plus mechanical style lints, and `async_tcp_comparison` created persistent stream sockets before the loopback group, allowing the server read timeout to close the stream before the persistent-stream benchmark.

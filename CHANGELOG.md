@@ -75,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added bounded channel matrix coverage to the Tokio comparison audit, comparison report, and benchmark-contract surface.
 - Added sealed generic `moirai_utils::simd` scalar contracts and a benchmark source contract rejecting the removed type-suffixed utility SIMD public surface.
 - Added a vector-prefix/tail SIMD benchmark row for non-lane-multiple `f32` slice lengths with value assertions.
+- Added a value-checked wide-real SIMD vector-addition benchmark row under the generic `moirai_utils::simd::add<T>` public API.
 - Added registry-local and external-ID token lifecycle diagnostic rows to `result_handle_diagnostics`, with benchmark contracts tying both rows to the production registry token path.
 - Added a registry-owned after-send quiescent diagnostic row to separate public result availability from worker-tail metrics completion.
 - Added a refreshed native Rayon/Tokio gap-closure benchmark snapshot covering result handles, scheduler rows, async iterator rows, and selected Rayon adapter rows.
@@ -85,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed standalone deque steal paths to remove steal-side `SeqCst` fences while retaining acquire observations and `SeqCst` ownership CAS operations.
 - Changed utility SIMD benchmarks and benchmark setup contracts to call generic `moirai_utils::simd` operations instead of type-suffixed vector functions.
 - Changed generic `f32` SIMD dispatch to process native vector prefixes plus scalar tails for non-lane-multiple lengths and record those operations as vectorized when a native backend is available.
+- Changed utility SIMD wide-real native dispatch reporting to stay x86 AVX2-specific, matching the implemented backend instead of over-reporting native support on unsupported architectures.
 - Moved `HybridExecutor` public task ID allocation into `TaskRegistry::register_next_task`, removing the executor-local `AtomicU64` while reusing the existing registry registration boundary.
 - Split `result_handle_diagnostics` wrapper, scheduler-tail, primitive, and registry rows into dedicated vertical leaves while preserving benchmark names and production-path contracts.
 - Changed `moirai_async::fs::copy` to delegate to the PAL platform copy operation instead of allocating a user-space 64 KiB transfer buffer.
@@ -132,6 +134,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed the scheduler-diagnostics wake-decision path to pass the concrete `SchedulerInner` reference into the static `ContendedWakable` boundary.
 - Fixed strict clippy findings in zero-copy iterator helper pointer captures without changing borrowed chunk semantics.
 - Fixed async `RwLock` release-handoff coverage by adding value-semantic tests for final-reader-to-writer and writer-to-multiple-reader grant paths.
+- Fixed utility SIMD benchmark coverage so the wide vector-addition row asserts expected values before timing and benchmark contracts reject reintroduced type-suffixed private SIMD routing.
 
 ## [0.2.0] - 2026-05-24
 

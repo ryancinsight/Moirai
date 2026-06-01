@@ -446,28 +446,35 @@ fn bench_comprehensive_comparison(c: &mut Criterion) {
     group.finish();
 }
 
-fn generate_test_data_f64(size: usize) -> (Vec<f64>, Vec<f64>) {
+fn generate_wide_test_data(size: usize) -> (Vec<f64>, Vec<f64>) {
     let a: Vec<f64> = (0..size).map(|i| i as f64 * 0.1).collect();
     let b: Vec<f64> = (0..size).map(|i| (size - i) as f64 * 0.1).collect();
     (a, b)
 }
 
-/// Benchmark f64 vector addition operations.
-fn bench_vector_addition_f64(c: &mut Criterion) {
-    let mut group = c.benchmark_group("vector_addition_f64");
+/// Benchmark wide real vector addition operations.
+fn bench_vector_addition_wide(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vector_addition_wide");
     group.sample_size(SIMD_SAMPLE_SIZE);
     group.measurement_time(Duration::from_secs(SIMD_MEASUREMENT_SECONDS));
     group.warm_up_time(Duration::from_millis(SIMD_WARM_UP_MILLIS));
 
     for size in [64, 256, 1024, 4096, 16384].iter() {
-        let (a, b) = generate_test_data_f64(*size);
-        let mut result = vec![0.0f64; *size];
+        let (a, b) = generate_wide_test_data(*size);
+        let mut result = vec![0.0; *size];
+        let expected: Vec<f64> = a
+            .iter()
+            .zip(b.iter())
+            .map(|(left, right)| left + right)
+            .collect();
+
+        add(&a, &b, &mut result);
+        assert_eq!(result, expected);
 
         group.throughput(Throughput::Elements(*size as u64));
 
-        // Benchmark safe vectorized addition
         group.bench_with_input(
-            BenchmarkId::new("safe_vectorized", size),
+            BenchmarkId::new("wide_vectorized", size),
             size,
             |bench, _| {
                 bench.iter(|| {
@@ -476,7 +483,6 @@ fn bench_vector_addition_f64(c: &mut Criterion) {
             },
         );
 
-        // Benchmark scalar implementation for comparison
         group.bench_with_input(BenchmarkId::new("scalar", size), size, |bench, _| {
             bench.iter(|| {
                 for i in 0..*size {
@@ -493,7 +499,7 @@ criterion_group!(
     simd_benches,
     bench_vector_addition,
     bench_vector_prefix_tail_addition,
-    bench_vector_addition_f64,
+    bench_vector_addition_wide,
     bench_vector_multiplication,
     bench_dot_product,
     bench_matrix_multiplication,

@@ -455,6 +455,7 @@ The current repository records benchmark evidence in `PERFORMANCE_RESULTS.md`, `
 | Bounded channel p1/c1 | 1.4157-1.4504 ms | Tokio MPSC 2.5089-2.6101 ms | Moirai MPMC remains ahead in the latest documented bounded workload, with variance tracked |
 | Standalone deque reclamation default | 2.1955-2.2040 us | Shared epoch policy 6.3355-6.4715 us | Diagnostic row keeps zero-sized `QuiescentReclaim` as the production default |
 | Utility SIMD vector prefix/tail | 10.593-11.496 ns (65), 303.97-497.13 ns (4,099), 1.5658-2.0635 us (16,385) | Scalar 54.657-85.843 ns, 3.4924-5.9176 us, 14.469-20.229 us | Zero-cost utility invariant row; not a Rayon/Tokio competitive comparison |
+| Utility SIMD wide vector addition | 12.688-13.492 ns (64), 523.56-574.79 ns (4,096), 2.5845-2.6198 us (16,384) | Scalar 51.079-53.204 ns, 3.3056-3.5587 us, 14.573-15.380 us | Zero-cost utility invariant row with value assertion before timing; not a Rayon/Tokio competitive comparison |
 | Iterator indexed pipeline | 35.664-35.796 us | Rayon 318.76-322.01 us | Moirai adapter row is ahead after value assertion |
 | Iterator indexed unzip-into-vecs | 256.72-273.34 us | Rayon 268.81-303.00 us | `iterator_indexed_unzip_into_vecs` asserts equal side vectors and checksums before timing and unit tests cover non-`Clone` pair movement |
 | Iterator indexed interleave | 401.13-439.28 us | Rayon 433.44-453.31 us | `iterator_indexed_interleave` asserts equal full and shortest interleaved vectors before timing and unit tests cover non-`Clone` movement plus exact shortest-tail drops |

@@ -9,6 +9,7 @@ Commands:
 cargo bench -p moirai-benchmarks --no-run
 cargo bench -p moirai-benchmarks -- --quiet
 cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_prefix_tail_addition --quiet
+cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_addition_wide --quiet
 cargo bench -p moirai-benchmarks --bench public_result_handle_comparison -- public_result_handle_ready --quiet
 cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- --quiet
 cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- standalone_deque_reclaim_policy --quiet
@@ -23,6 +24,9 @@ cargo bench -p moirai-benchmarks --bench async_tcp_comparison -- --quiet
 | SIMD prefix/tail add, 65 | 10.593-11.496 ns | Scalar 54.657-85.843 ns |
 | SIMD prefix/tail add, 4,099 | 303.97-497.13 ns | Scalar 3.4924-5.9176 us |
 | SIMD prefix/tail add, 16,385 | 1.5658-2.0635 us | Scalar 14.469-20.229 us |
+| SIMD wide add, 64 | 12.688-13.492 ns | Scalar 51.079-53.204 ns |
+| SIMD wide add, 4,096 | 523.56-574.79 ns | Scalar 3.3056-3.5587 us |
+| SIMD wide add, 16,384 | 2.5845-2.6198 us | Scalar 14.573-15.380 us |
 | Ready result handle | 509.05-681.55 ns | Tokio 1.5601-2.5055 us |
 | Scoped ready schedule | 12.700-12.955 us | Tokio 2.1801-3.5275 ms; Rayon 47.117-98.944 us |
 | Indexed reduce schedule | 454.94-658.77 ns | Rayon 3.8028-6.6470 us |
@@ -53,6 +57,25 @@ Workload: generic `moirai_utils::simd::add<f32>` runs over non-lane-multiple siz
 | 16,385 | 1.0764-1.0870 us | 12.988-13.049 us |
 
 Interpretation: non-lane-multiple `f32` slices now use a native vector prefix plus scalar tail when the native backend is available, and dispatch accounting records the covered operation as vectorized.
+
+## 2026-06-01 SIMD Wide Vector Addition Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_addition_wide --quiet
+```
+
+Workload: generic `moirai_utils::simd::add<T>` runs over wide real slices and is compared with a scalar loop. The benchmark asserts output equality before timing. This is a zero-cost utility invariant row, not a Rayon/Tokio competitive row.
+
+| Elements | Generic wide | Scalar |
+| ---: | ---: | ---: |
+| 64 | 12.688-13.492 ns | 51.079-53.204 ns |
+| 256 | 18.065-24.843 ns | 202.88-217.19 ns |
+| 1,024 | 60.959-65.341 ns | 796.22-876.43 ns |
+| 4,096 | 523.56-574.79 ns | 3.3056-3.5587 us |
+| 16,384 | 2.5845-2.6198 us | 14.573-15.380 us |
+
+Interpretation: the generic public API dispatches to the private x86 AVX2 wide backend when available, falls back to scalar elsewhere, and keeps benchmark setup value-checked before timing.
 
 ## 2026-06-01 Iterator Collect-Vec-List Row
 

@@ -1,10 +1,29 @@
 use super::*;
 
+fn assert_f32_roundoff(
+    actual: f32,
+    expected: f32,
+    len: usize,
+    operation_count: usize,
+    label: &str,
+) {
+    let operations = len.saturating_mul(operation_count).max(1) as f32;
+    let unit_roundoff = f32::EPSILON;
+    let gamma = operations * unit_roundoff / (1.0 - operations * unit_roundoff);
+    let scale = actual.abs().max(expected.abs()).max(1.0);
+    let tolerance = scale * gamma;
+    assert!(
+        (actual - expected).abs() <= tolerance,
+        "{label}: actual={actual}, expected={expected}, tolerance={tolerance}"
+    );
+}
+
 #[test]
 fn detects_platform_capabilities() {
     let _ = has_avx2_support();
     let _ = has_neon_support();
     let _ = has_native_vector_path::<f32>();
+    let _ = has_native_vector_path::<f64>();
 }
 
 #[test]
@@ -121,10 +140,7 @@ fn unaligned_lengths_preserve_values() {
 
         let result_dot = dot(&left, &right);
         let expected_dot: f32 = left.iter().zip(right.iter()).map(|(x, y)| x * y).sum();
-        assert!(
-            (result_dot - expected_dot).abs() < 1e-4,
-            "dot mismatch at len {len}"
-        );
+        assert_f32_roundoff(result_dot, expected_dot, len, 2, "dot mismatch");
 
         let result_sum = sum(&left);
         let expected_sum: f32 = left.iter().copied().sum();
@@ -141,10 +157,7 @@ fn unaligned_lengths_preserve_values() {
             })
             .sum::<f32>()
             / len as f32;
-        assert!(
-            (result_var - expected_var).abs() < 1e-4,
-            "variance mismatch at len {len}: result={result_var}, expected={expected_var}"
-        );
+        assert_f32_roundoff(result_var, expected_var, len, 5, "variance mismatch");
     }
 }
 
@@ -182,61 +195,58 @@ fn unaligned_vector_prefix_records_vector_dispatch_when_available() {
 }
 
 #[test]
-fn add_preserves_values_f64() {
-    let left = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-    let right = [8.0_f64, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
-    let mut result = [0.0_f64; 8];
+fn add_preserves_wide_values() {
+    let left: [f64; 8] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let right: [f64; 8] = [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
+    let mut result = [0.0; 8];
 
     add(&left, &right, &mut result);
 
-    assert_eq!(result, [9.0_f64; 8]);
+    assert_eq!(result, [9.0; 8]);
 }
 
 #[test]
-fn dot_preserves_values_f64() {
-    let left = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-    let right = [8.0_f64, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
+fn dot_preserves_wide_values() {
+    let left: [f64; 8] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let right: [f64; 8] = [8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
 
     let result = dot(&left, &right);
 
-    assert_eq!(result, 120.0_f64);
+    assert_eq!(result, 120.0);
 }
 
 #[test]
-fn statistics_preserve_values_f64() {
-    let data = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+fn statistics_preserve_wide_values() {
+    let data: [f64; 8] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 
     let total = sum(&data);
     let average = mean(&data);
     let spread = variance(&data);
 
-    assert_eq!(total, 36.0_f64);
-    assert_eq!(average, 4.5_f64);
-    assert_eq!(spread, 5.25_f64);
+    assert_eq!(total, 36.0);
+    assert_eq!(average, 4.5);
+    assert_eq!(spread, 5.25);
 }
 
 #[test]
-fn unaligned_lengths_preserve_values_f64() {
+fn unaligned_lengths_preserve_wide_values() {
     for len in [3, 7, 9, 11, 15, 17, 23, 31, 33] {
         let left: Vec<f64> = (0..len).map(|i| i as f64).collect();
         let right: Vec<f64> = (0..len).map(|i| (len - i) as f64).collect();
 
-        let mut result_add = vec![0.0_f64; len];
+        let mut result_add = vec![0.0; len];
         add(&left, &right, &mut result_add);
         let expected_add: Vec<f64> = left.iter().zip(right.iter()).map(|(x, y)| x + y).collect();
         assert_eq!(result_add, expected_add, "add mismatch at len {len}");
 
-        let mut result_mul = vec![0.0_f64; len];
+        let mut result_mul = vec![0.0; len];
         mul(&left, &right, &mut result_mul);
         let expected_mul: Vec<f64> = left.iter().zip(right.iter()).map(|(x, y)| x * y).collect();
         assert_eq!(result_mul, expected_mul, "mul mismatch at len {len}");
 
         let result_dot = dot(&left, &right);
         let expected_dot: f64 = left.iter().zip(right.iter()).map(|(x, y)| x * y).sum();
-        assert!(
-            (result_dot - expected_dot).abs() < 1e-4,
-            "dot mismatch at len {len}"
-        );
+        assert_eq!(result_dot, expected_dot, "dot mismatch at len {len}");
 
         let result_sum = sum(&left);
         let expected_sum: f64 = left.iter().copied().sum();
@@ -253,9 +263,42 @@ fn unaligned_lengths_preserve_values_f64() {
             })
             .sum::<f64>()
             / len as f64;
-        assert!(
-            (result_var - expected_var).abs() < 1e-4,
+        assert_eq!(
+            result_var, expected_var,
             "variance mismatch at len {len}: result={result_var}, expected={expected_var}"
         );
+    }
+}
+
+#[test]
+fn wide_unaligned_vector_prefix_records_vector_dispatch_when_available() {
+    let counter = crate::global_simd_counter();
+    counter.reset();
+
+    let len = 17;
+    let left: Vec<f64> = (0..len).map(|i| i as f64).collect();
+    let right: Vec<f64> = (0..len).map(|i| (i * 2) as f64).collect();
+    let mut result = vec![0.0; len];
+
+    add(&left, &right, &mut result);
+
+    let expected: Vec<f64> = left
+        .iter()
+        .zip(right.iter())
+        .map(|(left, right)| left + right)
+        .collect();
+    assert_eq!(result, expected);
+
+    let (vectorized_ops, scalar_ops, vectorized_elements, scalar_elements) = counter.get_stats();
+    if has_native_vector_path::<f64>() {
+        assert_eq!(vectorized_ops, 1);
+        assert_eq!(scalar_ops, 0);
+        assert_eq!(vectorized_elements, len);
+        assert_eq!(scalar_elements, 0);
+    } else {
+        assert_eq!(vectorized_ops, 0);
+        assert_eq!(scalar_ops, 1);
+        assert_eq!(vectorized_elements, 0);
+        assert_eq!(scalar_elements, len);
     }
 }

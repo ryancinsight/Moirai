@@ -2,6 +2,8 @@
 
 use core::arch::x86_64::*;
 
+// Backend block width. Single-precision uses one AVX register; the wide-real
+// path uses two four-lane registers per block to keep one prefix/tail contract.
 pub(crate) const LANES: usize = 8;
 
 #[target_feature(enable = "avx2")]
@@ -127,7 +129,7 @@ fn horizontal_sum(values: __m256) -> f32 {
 }
 
 #[target_feature(enable = "avx2")]
-pub(crate) unsafe fn add_f64(left: &[f64], right: &[f64], result: &mut [f64]) {
+pub(crate) unsafe fn add_wide(left: &[f64], right: &[f64], result: &mut [f64]) {
     debug_assert_eq!(left.len(), right.len());
     debug_assert_eq!(left.len(), result.len());
     debug_assert_eq!(left.len() % LANES, 0);
@@ -148,7 +150,7 @@ pub(crate) unsafe fn add_f64(left: &[f64], right: &[f64], result: &mut [f64]) {
 }
 
 #[target_feature(enable = "avx2")]
-pub(crate) unsafe fn mul_f64(left: &[f64], right: &[f64], result: &mut [f64]) {
+pub(crate) unsafe fn mul_wide(left: &[f64], right: &[f64], result: &mut [f64]) {
     debug_assert_eq!(left.len(), right.len());
     debug_assert_eq!(left.len(), result.len());
     debug_assert_eq!(left.len() % LANES, 0);
@@ -169,7 +171,7 @@ pub(crate) unsafe fn mul_f64(left: &[f64], right: &[f64], result: &mut [f64]) {
 }
 
 #[target_feature(enable = "avx2")]
-pub(crate) unsafe fn dot_f64(left: &[f64], right: &[f64]) -> f64 {
+pub(crate) unsafe fn dot_wide(left: &[f64], right: &[f64]) -> f64 {
     debug_assert_eq!(left.len(), right.len());
     debug_assert_eq!(left.len() % LANES, 0);
 
@@ -187,11 +189,11 @@ pub(crate) unsafe fn dot_f64(left: &[f64], right: &[f64]) -> f64 {
         }
     }
 
-    horizontal_sum_f64(_mm256_add_pd(total_v0, total_v1))
+    horizontal_sum_wide(_mm256_add_pd(total_v0, total_v1))
 }
 
 #[target_feature(enable = "avx2")]
-pub(crate) unsafe fn sum_f64(data: &[f64]) -> f64 {
+pub(crate) unsafe fn sum_wide(data: &[f64]) -> f64 {
     debug_assert_eq!(data.len() % LANES, 0);
 
     let mut total_v0 = _mm256_setzero_pd();
@@ -206,11 +208,11 @@ pub(crate) unsafe fn sum_f64(data: &[f64]) -> f64 {
         }
     }
 
-    horizontal_sum_f64(_mm256_add_pd(total_v0, total_v1))
+    horizontal_sum_wide(_mm256_add_pd(total_v0, total_v1))
 }
 
 #[target_feature(enable = "avx2")]
-pub(crate) unsafe fn squared_diff_sum_f64(data: &[f64], mean: f64) -> f64 {
+pub(crate) unsafe fn squared_diff_sum_wide(data: &[f64], mean: f64) -> f64 {
     debug_assert_eq!(data.len() % LANES, 0);
 
     let mean_values = _mm256_set1_pd(mean);
@@ -229,12 +231,12 @@ pub(crate) unsafe fn squared_diff_sum_f64(data: &[f64], mean: f64) -> f64 {
         }
     }
 
-    horizontal_sum_f64(_mm256_add_pd(total_v0, total_v1))
+    horizontal_sum_wide(_mm256_add_pd(total_v0, total_v1))
 }
 
 #[inline]
 #[target_feature(enable = "avx2")]
-fn horizontal_sum_f64(values: __m256d) -> f64 {
+fn horizontal_sum_wide(values: __m256d) -> f64 {
     let high = _mm256_extractf128_pd(values, 1);
     let low = _mm256_castpd256_pd128(values);
     let combined = _mm_add_pd(high, low);

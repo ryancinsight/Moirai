@@ -309,12 +309,12 @@ impl SimdScalar for f64 {
 
     #[inline]
     fn native_vector_available() -> bool {
-        native_vector_available()
+        native_wide_vector_available()
     }
 
     #[inline]
     fn uses_native_vector_path(len: usize) -> bool {
-        uses_native_vector_path(len)
+        uses_native_wide_vector_path(len)
     }
 
     #[inline]
@@ -324,7 +324,7 @@ impl SimdScalar for f64 {
         {
             if let Some(chunk_len) = native_vector_chunk_len(len) {
                 unsafe {
-                    arch::add_f64(
+                    arch::add_wide(
                         &left[..chunk_len],
                         &right[..chunk_len],
                         &mut result[..chunk_len],
@@ -350,7 +350,7 @@ impl SimdScalar for f64 {
         {
             if let Some(chunk_len) = native_vector_chunk_len(len) {
                 unsafe {
-                    arch::mul_f64(
+                    arch::mul_wide(
                         &left[..chunk_len],
                         &right[..chunk_len],
                         &mut result[..chunk_len],
@@ -375,7 +375,7 @@ impl SimdScalar for f64 {
         #[cfg(target_arch = "x86_64")]
         {
             if let Some(chunk_len) = native_vector_chunk_len(len) {
-                let mut sum = unsafe { arch::dot_f64(&left[..chunk_len], &right[..chunk_len]) };
+                let mut sum = unsafe { arch::dot_wide(&left[..chunk_len], &right[..chunk_len]) };
                 if chunk_len < len {
                     sum += scalar_dot(&left[chunk_len..], &right[chunk_len..]);
                 }
@@ -391,7 +391,7 @@ impl SimdScalar for f64 {
         #[cfg(target_arch = "x86_64")]
         {
             if let Some(chunk_len) = native_vector_chunk_len(len) {
-                let mut total = unsafe { arch::sum_f64(&data[..chunk_len]) };
+                let mut total = unsafe { arch::sum_wide(&data[..chunk_len]) };
                 if chunk_len < len {
                     total += data[chunk_len..].iter().copied().sum::<Self>();
                 }
@@ -415,7 +415,7 @@ impl SimdReal for f64 {
         {
             if let Some(chunk_len) = native_vector_chunk_len(len) {
                 let mean = Self::mean_slice(data);
-                let mut total = unsafe { arch::squared_diff_sum_f64(&data[..chunk_len], mean) };
+                let mut total = unsafe { arch::squared_diff_sum_wide(&data[..chunk_len], mean) };
                 if chunk_len < len {
                     total += data[chunk_len..]
                         .iter()
@@ -502,6 +502,31 @@ fn uses_native_vector_path(len: usize) -> bool {
         }
     }
 
+    false
+}
+
+#[inline]
+fn native_wide_vector_available() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if arch::has_avx2_support() {
+            return true;
+        }
+    }
+
+    false
+}
+
+#[inline]
+fn uses_native_wide_vector_path(len: usize) -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if arch::has_avx2_support() && len >= arch::LANES {
+            return true;
+        }
+    }
+
+    let _ = len;
     false
 }
 
