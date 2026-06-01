@@ -55,6 +55,7 @@
 - [x] [patch] ISSUE-187: Add SIMD vector-prefix plus scalar-tail boundary for non-lane-multiple `f32` slice lengths with dispatch-accounting tests, benchmark-contract coverage, and a focused benchmark row.
 - [x] [patch] ISSUE-188: Clean examples under the all-target clippy gate, fix TCP persistent-stream benchmark setup, compile all benchmark targets, and rerun maintained comparison rows.
 - [x] [patch] ISSUE-189: Relax Mnemosyne OS TLS key fast-path lookup to a documented scalar-only relaxed load and verify allocator tests.
+- [x] [patch] ISSUE-190: Remove standalone deque steal-side `SeqCst` fences while retaining acquire observations, `SeqCst` ownership CAS operations, and value-checked deque benchmark coverage.
 - [x] [minor] ISSUE-184: Add Rayon-style serial-inner `flat_map_iter` and `flatten_iter` methods with value tests, benchmark-contract coverage, and corrected same-run Rayon rows.
 - [x] [minor] ISSUE-176: Add Rayon-style `zip_eq` equal-length adapter with value tests, mismatch-panic coverage, benchmark-contract coverage, and same-run Rayon row.
 - [x] [minor] ISSUE-177: Add Rayon-style `partition_map` with public `Either<L, R>`, value tests, benchmark-contract coverage, and same-run Rayon row.

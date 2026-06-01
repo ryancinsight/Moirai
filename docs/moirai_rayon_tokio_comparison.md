@@ -453,7 +453,7 @@ The current repository records benchmark evidence in `PERFORMANCE_RESULTS.md`, `
 | TCP pending-read cancellation, 5 bytes | 299.08-340.01 us | Tokio `TcpStream` 339.36-368.55 us | `async_tcp_pending_read_cancel_safety` drops a pending borrowed read future, asserts the cancelled buffer is unchanged, then asserts exact payload bytes after release |
 | UDP loopback receive, 27 bytes | 6.1554-6.4334 us | Tokio `UdpSocket::recv_from` 6.2846-6.4721 us | Same-payload UDP facade receive intervals overlap closely, with Moirai slightly lower in this run |
 | Bounded channel p1/c1 | 1.4157-1.4504 ms | Tokio MPSC 2.5089-2.6101 ms | Moirai MPMC remains ahead in the latest documented bounded workload, with variance tracked |
-| Standalone deque reclamation default | 2.5038-2.5309 us | Shared epoch policy 6.8529-6.8897 us | Diagnostic row keeps zero-sized `QuiescentReclaim` as the production default |
+| Standalone deque reclamation default | 2.1955-2.2040 us | Shared epoch policy 6.3355-6.4715 us | Diagnostic row keeps zero-sized `QuiescentReclaim` as the production default |
 | Utility SIMD vector prefix/tail | 10.593-11.496 ns (65), 303.97-497.13 ns (4,099), 1.5658-2.0635 us (16,385) | Scalar 54.657-85.843 ns, 3.4924-5.9176 us, 14.469-20.229 us | Zero-cost utility invariant row; not a Rayon/Tokio competitive comparison |
 | Iterator indexed pipeline | 35.664-35.796 us | Rayon 318.76-322.01 us | Moirai adapter row is ahead after value assertion |
 | Iterator indexed unzip-into-vecs | 256.72-273.34 us | Rayon 268.81-303.00 us | `iterator_indexed_unzip_into_vecs` asserts equal side vectors and checksums before timing and unit tests cover non-`Clone` pair movement |

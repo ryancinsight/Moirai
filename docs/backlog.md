@@ -187,6 +187,14 @@
 - **Verification**: `cargo test --workspace --all-features`; `cargo test --manifest-path third_party\Mnemosyne\Cargo.toml --workspace`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
 - **Status**: Completed 2026-06-01.
 
+#### ✅ ISSUE-190 [patch]: Remove standalone deque steal-side fences
+- **Type**: Scheduler Fast Path / Memory Ordering / Benchmark Coverage
+- **Root Cause**: `ChaseLevDeque::steal` and `steal_batch_with` retained steal-side `SeqCst` fences between acquire top and bottom observations even though the successful `SeqCst` top CAS remains the slot ownership transfer.
+- **Resolution**: Removed the two steal-side fences and documented the acquire-observation plus `SeqCst` ownership-CAS invariant at both steal paths.
+- **Evidence**: `standalone_deque_reclaim_policy` measured quiescent reclaim at 2.1955-2.2040 us and shared epoch reclaim at 6.3355-6.4715 us for the same value-checked forced-resize/drain workload. Correctness evidence is test-tier and source-invariant based; no machine-checked memory-model proof was performed.
+- **Verification**: `cargo test --workspace --all-features`; `cargo test -p moirai-benchmarks --test benchmark_contracts`; `cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- standalone_deque_reclaim_policy --quiet`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
+- **Status**: Completed 2026-06-01.
+
 #### ✅ ISSUE-176 [minor]: Add equal-length zip adapter boundary
 - **Type**: Iterator API / Benchmark Coverage
 - **Root Cause**: The audited Rayon-style pairing surface covered shortest-input `zip` but lacked `zip_eq`, leaving no covered adapter with explicit equal-length failure semantics.

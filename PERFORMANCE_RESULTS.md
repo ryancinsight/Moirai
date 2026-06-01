@@ -11,6 +11,7 @@ cargo bench -p moirai-benchmarks -- --quiet
 cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_prefix_tail_addition --quiet
 cargo bench -p moirai-benchmarks --bench public_result_handle_comparison -- public_result_handle_ready --quiet
 cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- --quiet
+cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- standalone_deque_reclaim_policy --quiet
 cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet
 cargo bench -p moirai-benchmarks --bench async_tcp_comparison -- --quiet
 ```
@@ -27,6 +28,7 @@ cargo bench -p moirai-benchmarks --bench async_tcp_comparison -- --quiet
 | Indexed reduce schedule | 454.94-658.77 ns | Rayon 3.8028-6.6470 us |
 | Mixed unified schedule | 39.542-40.067 us | Tokio plus Rayon 605.57-629.84 us |
 | Real application mixed workload | 92.002-94.008 us | Tokio plus Rayon 677.24-694.88 us |
+| Standalone deque quiescent reclaim | 2.1955-2.2040 us | Shared epoch reclaim 6.3355-6.4715 us |
 | Iterator indexed collect-into-vec | 52.772-54.366 us | Rayon 94.521-99.820 us |
 | Iterator collect-vec-list | 75.452-84.155 us | Rayon 471.67-490.59 us |
 | TCP loopback echo, 24 bytes | 309.05-339.12 us | Tokio 358.13-370.59 us |
