@@ -454,7 +454,7 @@ The current repository records benchmark evidence in `PERFORMANCE_RESULTS.md`, `
 | UDP loopback receive, 27 bytes | 6.1554-6.4334 us | Tokio `UdpSocket::recv_from` 6.2846-6.4721 us | Same-payload UDP facade receive intervals overlap closely, with Moirai slightly lower in this run |
 | Bounded channel p1/c1 | 1.4157-1.4504 ms | Tokio MPSC 2.5089-2.6101 ms | Moirai MPMC remains ahead in the latest documented bounded workload, with variance tracked |
 | Standalone deque reclamation default | 2.5038-2.5309 us | Shared epoch policy 6.8529-6.8897 us | Diagnostic row keeps zero-sized `QuiescentReclaim` as the production default |
-| Utility SIMD vector prefix/tail | 10.240-10.334 ns (65), 229.56-353.90 ns (4,099), 1.3296-1.3610 us (16,385) | Scalar 50.068-52.926 ns, 3.3495-3.5301 us, 14.226-14.474 us | Zero-cost utility invariant row; not a Rayon/Tokio competitive comparison |
+| Utility SIMD vector prefix/tail | 11.753-11.796 ns (65), 123.85-124.32 ns (4,099), 1.0764-1.0870 us (16,385) | Scalar 50.164-50.480 ns, 3.1101-3.1287 us, 12.988-13.049 us | Zero-cost utility invariant row; not a Rayon/Tokio competitive comparison |
 | Iterator indexed pipeline | 35.664-35.796 us | Rayon 318.76-322.01 us | Moirai adapter row is ahead after value assertion |
 | Iterator indexed unzip-into-vecs | 256.72-273.34 us | Rayon 268.81-303.00 us | `iterator_indexed_unzip_into_vecs` asserts equal side vectors and checksums before timing and unit tests cover non-`Clone` pair movement |
 | Iterator indexed interleave | 401.13-439.28 us | Rayon 433.44-453.31 us | `iterator_indexed_interleave` asserts equal full and shortest interleaved vectors before timing and unit tests cover non-`Clone` movement plus exact shortest-tail drops |

@@ -13,9 +13,9 @@ Workload: generic `moirai_utils::simd::add<f32>` runs over non-lane-multiple siz
 
 | Elements | Generic prefix/tail | Scalar |
 | ---: | ---: | ---: |
-| 65 | 10.240-10.334 ns | 50.068-52.926 ns |
-| 4,099 | 229.56-353.90 ns | 3.3495-3.5301 us |
-| 16,385 | 1.3296-1.3610 us | 14.226-14.474 us |
+| 65 | 11.753-11.796 ns | 50.164-50.480 ns |
+| 4,099 | 123.85-124.32 ns | 3.1101-3.1287 us |
+| 16,385 | 1.0764-1.0870 us | 12.988-13.049 us |
 
 Interpretation: non-lane-multiple `f32` slices now use a native vector prefix plus scalar tail when the native backend is available, and dispatch accounting records the covered operation as vectorized.
 

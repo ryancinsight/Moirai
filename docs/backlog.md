@@ -167,7 +167,7 @@
 - **Type**: SIMD Utility / Benchmark Coverage / Dispatch Accounting
 - **Root Cause**: Generic `f32` SIMD dispatch only classified lane-multiple lengths as native-vector work, and non-lane-multiple slices lacked a benchmark row proving vector-prefix plus scalar-tail value semantics.
 - **Resolution**: Added `native_vector_chunk_len`, routed add/mul/dot/sum/variance through native vector prefixes plus scalar tails, and made `uses_native_vector_path` classify any length with at least one native lane as vectorized when the CPU backend is available.
-- **Evidence**: `vector_prefix_tail_addition` measured generic prefix/tail addition at 10.240-10.334 ns versus scalar 50.068-52.926 ns for 65 values, 229.56-353.90 ns versus 3.3495-3.5301 us for 4,099 values, and 1.3296-1.3610 us versus 14.226-14.474 us for 16,385 values.
+- **Evidence**: `vector_prefix_tail_addition` measured generic prefix/tail addition at 11.753-11.796 ns versus scalar 50.164-50.480 ns for 65 values, 123.85-124.32 ns versus 3.1101-3.1287 us for 4,099 values, and 1.0764-1.0870 us versus 12.988-13.049 us for 16,385 values.
 - **Verification**: `cargo test -p moirai-utils --all-features simd -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts utility_simd_surface_uses_generic_scalar_contract -- --nocapture`; `cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_prefix_tail_addition --quiet`.
 - **Status**: Completed 2026-06-01.
 
