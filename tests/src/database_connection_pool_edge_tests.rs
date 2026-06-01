@@ -333,7 +333,7 @@ impl DatabaseConnectionPool {
                         }
 
                         pool_ref.reap_connections();
-                        
+
                         // Sleep in 100ms intervals to respond quickly to shutdown
                         for _ in 0..300 {
                             if pool_ref.is_shutdown.load(Ordering::Relaxed) {
@@ -363,7 +363,7 @@ impl DatabaseConnectionPool {
                         }
 
                         deadlock_detector.detect_and_resolve_deadlocks();
-                        
+
                         // Sleep in 100ms intervals to respond quickly to shutdown
                         for _ in 0..100 {
                             if deadlock_detector.is_shutdown.load(Ordering::Relaxed) {
@@ -746,8 +746,8 @@ struct WorkloadResults {
     average_query_time_ms: u64,
 }
 
-#[test]
-fn test_database_connection_pool() -> Result<(), Box<dyn std::error::Error>> {
+fn run_test_database_connection_pool_inner() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+{
     println!("Database Connection Pool Edge Case Testing");
     println!("==========================================");
 
@@ -897,4 +897,18 @@ fn test_database_connection_pool() -> Result<(), Box<dyn std::error::Error>> {
     println!("All scenarios handled appropriately with proper resource management.");
 
     Ok(())
+}
+
+#[test]
+fn test_database_connection_pool() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let res = run_test_database_connection_pool_inner();
+        let _ = tx.send(res);
+    });
+
+    match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(res) => res,
+        Err(_) => Err("Test timed out after 30 seconds (potential hang detected)".into()),
+    }
 }
