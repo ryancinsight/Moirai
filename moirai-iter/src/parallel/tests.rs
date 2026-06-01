@@ -176,6 +176,107 @@ fn test_parallel_zip_eq_rejects_length_mismatch() {
 }
 
 #[test]
+fn test_indexed_interleave_moves_non_clone_values_without_clone_bound() {
+    struct NonCloneValue {
+        value: u64,
+    }
+
+    let left = vec![NonCloneValue { value: 1 }, NonCloneValue { value: 2 }];
+    let right = vec![
+        NonCloneValue { value: 10 },
+        NonCloneValue { value: 20 },
+        NonCloneValue { value: 30 },
+    ];
+    let interleaved: Vec<u64> = left
+        .into_par_iter()
+        .interleave(right)
+        .map(|item| item.value)
+        .collect();
+    assert_eq!(interleaved, vec![1, 10, 2, 20, 30]);
+
+    let longer_left = vec![
+        NonCloneValue { value: 1 },
+        NonCloneValue { value: 2 },
+        NonCloneValue { value: 3 },
+        NonCloneValue { value: 4 },
+    ];
+    let shorter_right = vec![NonCloneValue { value: 10 }, NonCloneValue { value: 20 }];
+    let shortest_left_tail: Vec<u64> = longer_left
+        .into_par_iter()
+        .interleave_shortest(shorter_right)
+        .map(|item| item.value)
+        .collect();
+    assert_eq!(shortest_left_tail, vec![1, 10, 2, 20, 3]);
+
+    let shorter_left = vec![NonCloneValue { value: 1 }, NonCloneValue { value: 2 }];
+    let longer_right = vec![
+        NonCloneValue { value: 10 },
+        NonCloneValue { value: 20 },
+        NonCloneValue { value: 30 },
+    ];
+    let shortest_right_tail: Vec<u64> = shorter_left
+        .into_par_iter()
+        .interleave_shortest(longer_right)
+        .map(|item| item.value)
+        .collect();
+    assert_eq!(shortest_right_tail, vec![1, 10, 2, 20]);
+}
+
+#[test]
+fn test_indexed_interleave_shortest_drops_truncated_tail_once() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    struct DropProbe {
+        value: u64,
+        drops: Arc<AtomicUsize>,
+    }
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn probes(start: u64, count: usize, drops: &Arc<AtomicUsize>) -> Vec<DropProbe> {
+        (0..count)
+            .map(|offset| DropProbe {
+                value: start + offset as u64,
+                drops: Arc::clone(drops),
+            })
+            .collect()
+    }
+
+    let left_drops = Arc::new(AtomicUsize::new(0));
+    let right_drops = Arc::new(AtomicUsize::new(0));
+    let left = probes(1, 5, &left_drops);
+    let right = probes(10, 2, &right_drops);
+    let values = left
+        .into_par_iter()
+        .interleave_shortest(right)
+        .map(|item| item.value)
+        .collect::<Vec<_>>();
+    assert_eq!(values, vec![1, 10, 2, 11, 3]);
+    assert_eq!(left_drops.load(Ordering::SeqCst), 5);
+    assert_eq!(right_drops.load(Ordering::SeqCst), 2);
+
+    let left_drops = Arc::new(AtomicUsize::new(0));
+    let right_drops = Arc::new(AtomicUsize::new(0));
+    let left = probes(1, 2, &left_drops);
+    let right = probes(10, 5, &right_drops);
+    let values = left
+        .into_par_iter()
+        .interleave_shortest(right)
+        .map(|item| item.value)
+        .collect::<Vec<_>>();
+    assert_eq!(values, vec![1, 10, 2, 11]);
+    assert_eq!(left_drops.load(Ordering::SeqCst), 2);
+    assert_eq!(right_drops.load(Ordering::SeqCst), 5);
+}
+
+#[test]
 fn test_indexed_parallel_iterator_reports_source_lengths() {
     let owned = vec![1_u64, 2, 3, 4].into_par_iter();
     assert_eq!(IndexedParallelIterator::len(&owned), 4);

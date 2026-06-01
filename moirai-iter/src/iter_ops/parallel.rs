@@ -5,8 +5,8 @@
 //! no worker owns or refcounts the vector, and all borrows end before the
 //! vector is dropped.
 
-use moirai_core::constants::DEFAULT_RING_BUFFER_CAPACITY;
 use crate::base::{get_shared_thread_pool, SendPtr};
+use moirai_core::constants::DEFAULT_RING_BUFFER_CAPACITY;
 
 /// Parallel iterator with automatic scoped chunking.
 pub struct ParallelIter<T> {
@@ -58,17 +58,13 @@ impl<T: Send + Sync> ParallelIter<T> {
 
         for (idx, chunk) in chunks.into_iter().enumerate() {
             let tx = tx.clone();
-            let results_ptr = results_ptr;
-            let f_ptr_send = f_ptr_send;
-            let chunk_ptr = SendPtr(chunk.as_ptr() as *const T as *mut ());
+            let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
             let chunk_len = chunk.len();
 
             pool.execute(move || {
-                let results_ptr = results_ptr;
-                let f_ptr_send = f_ptr_send;
-                let chunk_ptr = chunk_ptr;
                 unsafe {
-                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                    let chunk_slice =
+                        std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
                     let f_ref = &*(f_ptr_send.as_ptr() as *const F);
                     let chunk_result = chunk_slice.iter().map(f_ref).collect::<Vec<_>>();
                     *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) = Some(chunk_result);
@@ -122,19 +118,13 @@ impl<T: Send + Sync> ParallelIter<T> {
 
         for (idx, chunk) in chunks.into_iter().enumerate() {
             let tx = tx.clone();
-            let results_ptr = results_ptr;
-            let f_ptr_send = f_ptr_send;
-            let identities_ptr = identities_ptr;
-            let chunk_ptr = SendPtr(chunk.as_ptr() as *const T as *mut ());
+            let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
             let chunk_len = chunk.len();
 
             pool.execute(move || {
-                let results_ptr = results_ptr;
-                let f_ptr_send = f_ptr_send;
-                let identities_ptr = identities_ptr;
-                let chunk_ptr = chunk_ptr;
                 unsafe {
-                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                    let chunk_slice =
+                        std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
                     let f_ref = &*(f_ptr_send.as_ptr() as *const F);
                     let chunk_identity = (*(identities_ptr.as_ptr() as *const T).add(idx)).clone();
                     let chunk_result = chunk_slice.iter().fold(chunk_identity, f_ref);

@@ -12,14 +12,14 @@ Moirai does not currently provide full Rayon adapter parity. The supported surfa
 
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`.
 - `IntoParallelRefIterator` for `Vec<T>` without requiring `T: Clone + 'static`.
-- `IndexedParallelIterator` for exact-size source iterators: by-value `VecParIter<T>`, `VecRefParIter<'_, T>`, `RefVecParIter<'_, T>`, `RangeParIter<usize>`, exact-size sequential adapters, `len`, `is_empty`, `collect_into_vec`, and `unzip_into_vecs`.
+- `IndexedParallelIterator` for exact-size source iterators: by-value `VecParIter<T>`, `VecRefParIter<'_, T>`, `RefVecParIter<'_, T>`, `RangeParIter<usize>`, exact-size sequential adapters, `len`, `is_empty`, `collect_into_vec`, `unzip_into_vecs`, `interleave`, and `interleave_shortest`.
 - `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `take_any_while`, `skip_any_while`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `partition_map`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `positions`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `try_reduce_with`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
 - `ParallelExtend<T>` for `Vec<T>`.
 - `ParallelSliceMut` for the slice extension sorting boundary.
 
 The active competitive Rayon comparison remains `Moirai::map_reduce_indexed` versus fixed-pool Rayon `into_par_iter().map(...).sum()`. The `moirai-iter::parallel` trait surface is not the active performance comparison path.
 
-Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed`. `moirai-iter::parallel` now also exposes a bounded indexed source boundary for exact source cardinality through `IndexedParallelIterator::{len, is_empty}`. This is not the full Rayon indexed producer/consumer adapter model and must not be documented as full Rayon compatibility.
+Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed`. `moirai-iter::parallel` now also exposes a bounded indexed source boundary for exact source cardinality, caller-provided collection, pair splitting, and source interleaving. This is not the full Rayon indexed producer/consumer adapter model and must not be documented as full Rayon compatibility.
 
 ## Adapter Matrix
 
@@ -31,6 +31,7 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | Indexed source cardinality | `IndexedParallelIterator::{len, is_empty}` for exact-size source iterators | `test_indexed_parallel_iterator_reports_source_lengths`; `iterator_indexed_boundary` against Rayon measured Moirai at 1.8682-1.8871 ns and Rayon at 1.8668-1.8727 ns | Bounded indexed source boundary |
 | Indexed source collect-into-vec | `IndexedParallelIterator::collect_into_vec` for exact-size source iterators | `test_indexed_collect_into_vec_moves_non_clone_values`; `iterator_indexed_collect_into_vec` against Rayon measured Moirai at 54.745-75.638 us and Rayon at 95.255-102.59 us | Bounded indexed source boundary |
 | Indexed source unzip-into-vecs | `IndexedParallelIterator::unzip_into_vecs` for exact-size pair source iterators | `test_indexed_unzip_into_vecs_moves_non_clone_pairs_into_existing_storage`; `iterator_indexed_unzip_into_vecs` against Rayon measured Moirai at 256.72-273.34 us and Rayon at 268.81-303.00 us | Bounded indexed source boundary |
+| Indexed source interleave | `IndexedParallelIterator::{interleave, interleave_shortest}` for exact-size source iterators | `test_indexed_interleave_moves_non_clone_values_without_clone_bound`; `test_indexed_interleave_shortest_drops_truncated_tail_once`; `iterator_indexed_interleave` against Rayon measured Moirai at 401.13-439.28 us and Rayon at 433.44-453.31 us | Bounded indexed source boundary |
 | Map adapters | `ParallelIterator::map`, `map_with`, `map_init`, `Map<I, F>`, `MapWith<I, T, F>`, and `MapInit<I, Init, F>` | `test_parallel_map`, `test_parallel_map_with_uses_cloned_state`, `test_parallel_map_init_uses_initialized_state`, and `iterator_adapter_map_state` benchmark rows | Covered subset |
 | Mutation adapter | `ParallelIterator::update` and `Update<I, F>` | `test_parallel_update_mutates_items_before_yielding` and `iterator_adapter_update` benchmark rows | Covered subset |
 | Filter adapter | `ParallelIterator::filter` and `Filter<I, F>` | `test_parallel_filter` | Covered subset |
@@ -97,6 +98,10 @@ Completed: `IndexedParallelIterator::collect_into_vec` is implemented for exact-
 ### ISSUE-181 [minor]: Add indexed source unzip-into-vecs boundary
 
 Completed: `IndexedParallelIterator::unzip_into_vecs` is implemented for exact-size pair source iterators. The method clears caller-provided left/right vectors, reserves exact indexed capacity, and moves each pair side into existing storage without requiring `Clone`. Unit tests cover non-`Clone` pair movement and retained allocation capacity, and `iterator_adapter_comparison` includes `iterator_indexed_unzip_into_vecs` against Rayon after asserting equal side vectors and checksums.
+
+### ISSUE-182 [minor]: Add indexed source interleave boundaries
+
+Completed: `IndexedParallelIterator::{interleave, interleave_shortest}` are implemented for exact-size source iterators. Both adapters are concrete generic types, move values from both inputs without requiring `Clone`, and retain Rayon's documented shortest-interleave left-tail rule. Unit tests cover non-`Clone` value movement for full interleave, left-longest shortest interleave, right-longest shortest interleave, and exact tail drops for both shortest-input shapes, and `iterator_adapter_comparison` includes `iterator_indexed_interleave` against Rayon after asserting equal vectors.
 
 ### ISSUE-176 [minor]: Add equal-length zip adapter
 
@@ -212,7 +217,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 
 ## Benchmark Evidence
 
-`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, `try_reduce_with`, `positions`, `take_any_while`/`skip_any_while`, and `unzip_into_vecs` were refreshed on 2026-05-29 after their implementations landed:
+`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, `try_reduce_with`, `positions`, `take_any_while`/`skip_any_while`, and `unzip_into_vecs` were refreshed on 2026-05-29 after their implementations landed. The indexed interleave row was added on 2026-06-01:
 
 | Group | Moirai | Rayon | Status |
 | --- | --- | --- | --- |
@@ -234,6 +239,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 | `iterator_adapter_zip_eq` | 107.34-142.67 us | 364.99-373.05 us | Moirai ahead |
 | `iterator_indexed_collect_into_vec` | 54.745-75.638 us | 95.255-102.59 us | Moirai ahead |
 | `iterator_indexed_unzip_into_vecs` | 256.72-273.34 us | 268.81-303.00 us | Moirai ahead |
+| `iterator_indexed_interleave` | 401.13-439.28 us | 433.44-453.31 us | Moirai ahead |
 | `iterator_adapter_inspect_chunks_pipeline` | 31.061-31.810 us | 36.916-38.040 us | Moirai ahead |
 | `iterator_adapter_partition_pipeline` | 29.242-30.103 us | 658.16-693.21 us | Moirai ahead |
 | `iterator_adapter_partition_map` | 32.468-32.719 us | 587.36-620.15 us | Moirai ahead |

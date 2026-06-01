@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `iterator_adapter_non_clone_ref_map`, a value-checked borrowed `Vec<T>::par_iter` benchmark row against Rayon over non-`Clone` values.
 - Added `IndexedParallelIterator::collect_into_vec` for exact-size source iterators with non-`Clone` move tests and a same-run Rayon benchmark row.
 - Added `IndexedParallelIterator::unzip_into_vecs` for exact-size pair sources with non-`Clone` move tests and a same-run Rayon benchmark row over caller-provided output storage.
+- Added indexed `interleave` and `interleave_shortest` adapters for exact-size sources with non-`Clone` move tests, shortest-tail drop checks, and a same-run Rayon benchmark row.
 - Added `zip_eq` equal-length pairing to the Rayon-style parallel iterator subset with value tests, mismatch-panic coverage, and a same-run Rayon benchmark row.
 - Added `partition_map` with a public `Either<L, R>` sum type to the Rayon-style parallel iterator subset with value tests and a same-run Rayon benchmark row.
 - Added `unzip` pair-stream collector to the Rayon-style parallel iterator subset with value tests and benchmark rows.
@@ -117,6 +118,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed public type-suffixed `moirai_utils::simd` vector functions in favor of generic `add`, `mul`, `dot`, `sum`, `mean`, `variance`, and `matrix_mul_square<T, const N>` operations over sealed scalar traits.
 
 ### Fixed
+- Fixed the scheduler-diagnostics wake-decision path to pass the concrete `SchedulerInner` reference into the static `ContendedWakable` boundary.
+- Fixed strict clippy findings in zero-copy iterator helper pointer captures without changing borrowed chunk semantics.
 - Fixed async `RwLock` release-handoff coverage by adding value-semantic tests for final-reader-to-writer and writer-to-multiple-reader grant paths.
 
 ## [0.2.0] - 2026-05-24

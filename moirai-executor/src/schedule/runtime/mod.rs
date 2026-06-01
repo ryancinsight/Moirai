@@ -19,8 +19,8 @@ use moirai_core::{
     Priority,
 };
 
-use moirai_utils::cache::CacheAligned;
 use moirai_pal::reactor::IoReactor;
+use moirai_utils::cache::CacheAligned;
 
 use super::{
     class::WorkClass,
@@ -48,10 +48,7 @@ pub struct ScheduleMetrics {
 }
 
 /// Single scheduler used by all executor task classes.
-pub struct ThreadScheduler<
-    const QUEUE_CAPACITY: usize = 256,
-    const SPIN_LIMIT: usize = 256,
-> {
+pub struct ThreadScheduler<const QUEUE_CAPACITY: usize = 256, const SPIN_LIMIT: usize = 256> {
     inner: Arc<SchedulerInner<QUEUE_CAPACITY>>,
 }
 
@@ -186,34 +183,41 @@ impl LifoSlot {
     fn push(&self, job: ScheduledJob) -> Option<ScheduledJob> {
         let current = self.state.load(Ordering::Relaxed);
         if current == 0 {
-            if self.state.compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
+            if self
+                .state
+                .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+            {
                 unsafe {
                     *self.job.get() = std::mem::MaybeUninit::new(job);
                 }
                 self.state.store(2, Ordering::Release);
                 return None;
             }
-        } else if current == 2 {
-            if self.state.compare_exchange(2, 1, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
-                let old_job = unsafe {
-                    std::ptr::read((*self.job.get()).as_ptr())
-                };
-                unsafe {
-                    *self.job.get() = std::mem::MaybeUninit::new(job);
-                }
-                self.state.store(2, Ordering::Release);
-                return Some(old_job);
+        } else if current == 2
+            && self
+                .state
+                .compare_exchange(2, 1, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+        {
+            let old_job = unsafe { std::ptr::read((*self.job.get()).as_ptr()) };
+            unsafe {
+                *self.job.get() = std::mem::MaybeUninit::new(job);
             }
+            self.state.store(2, Ordering::Release);
+            return Some(old_job);
         }
         Some(job)
     }
 
     fn pop(&self) -> Option<ScheduledJob> {
         if self.state.load(Ordering::Relaxed) == 2 {
-            if self.state.compare_exchange(2, 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
-                let job = unsafe {
-                    std::ptr::read((*self.job.get()).as_ptr())
-                };
+            if self
+                .state
+                .compare_exchange(2, 1, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+            {
+                let job = unsafe { std::ptr::read((*self.job.get()).as_ptr()) };
                 self.state.store(0, Ordering::Release);
                 Some(job)
             } else {
@@ -226,10 +230,12 @@ impl LifoSlot {
 
     fn steal(&self) -> Option<ScheduledJob> {
         if self.state.load(Ordering::Relaxed) == 2 {
-            if self.state.compare_exchange(2, 3, Ordering::Acquire, Ordering::Relaxed).is_ok() {
-                let job = unsafe {
-                    std::ptr::read((*self.job.get()).as_ptr())
-                };
+            if self
+                .state
+                .compare_exchange(2, 3, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+            {
+                let job = unsafe { std::ptr::read((*self.job.get()).as_ptr()) };
                 self.state.store(0, Ordering::Release);
                 Some(job)
             } else {
@@ -292,7 +298,9 @@ impl ThreadScheduler<256, 256> {
     }
 }
 
-impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT> {
+impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
+    ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+{
     /// Start a scheduler with custom configurations.
     pub fn new_with_config(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
         let worker_count = worker_count.max(1);
@@ -612,7 +620,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> ThreadScheduler<QUEUE
         let is_local = CURRENT_WORKER_ID.with(|cell| cell.get() == Some(worker_index));
         if is_local {
             if let Some(old_job) = self.inner.workers[worker_index].lifo_slot.push(job) {
-                self.inner.workers[worker_index].queues.push(priority, old_job);
+                self.inner.workers[worker_index]
+                    .queues
+                    .push(priority, old_job);
             }
         } else {
             self.inner.workers[worker_index].queues.push(priority, job);
@@ -1021,16 +1031,16 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> ThreadScheduler<QUEUE
     {
         let worker_count = self.inner.workers.len();
         let index = worker_index % worker_count;
-        diagnostic_publish_work_available(&self.inner, index, P::previous_pending(worker_count))
+        diagnostic_publish_work_available(
+            self.inner.as_ref(),
+            index,
+            P::previous_pending(worker_count),
+        )
     }
 }
 
-impl<
-    'scope,
-    C,
-    const QUEUE_CAPACITY: usize,
-    const SPIN_LIMIT: usize,
-> SchedulerScope<'scope, C, QUEUE_CAPACITY, SPIN_LIMIT>
+impl<'scope, C, const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
+    SchedulerScope<'scope, C, QUEUE_CAPACITY, SPIN_LIMIT>
 where
     C: WorkClass,
 {
@@ -1347,7 +1357,9 @@ fn wait_for_work<const QUEUE_CAPACITY: usize>(
         {
             if let Some(reactor) = IoReactor::get_active() {
                 let _ = reactor.run_iteration(Some(Duration::from_millis(1)));
-                if inner.pending_tasks.load(Ordering::SeqCst) > 0 || inner.shutdown.load(Ordering::SeqCst) {
+                if inner.pending_tasks.load(Ordering::SeqCst) > 0
+                    || inner.shutdown.load(Ordering::SeqCst)
+                {
                     break;
                 }
             } else {
@@ -1361,7 +1373,9 @@ fn wait_for_work<const QUEUE_CAPACITY: usize>(
         {
             if let Some(reactor) = IoReactor::get_active() {
                 let _ = reactor.run_iteration(Some(Duration::from_millis(1)));
-                if inner.pending_tasks.load(Ordering::Acquire) > 0 || inner.shutdown.load(Ordering::Acquire) {
+                if inner.pending_tasks.load(Ordering::Acquire) > 0
+                    || inner.shutdown.load(Ordering::Acquire)
+                {
                     break;
                 }
             } else {

@@ -5,7 +5,7 @@ mod side_effect;
 mod window;
 
 pub use chunks::Chunks;
-pub use pair::{Zip, ZipEq};
+pub use pair::{Interleave, InterleaveShortest, Zip, ZipEq};
 pub use position::{MapPositions, Positions};
 pub use side_effect::{Inspect, PanicFuse};
 pub use window::{SkipAnyWhile, TakeAnyWhile};

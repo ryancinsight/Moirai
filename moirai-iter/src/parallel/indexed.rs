@@ -1,4 +1,4 @@
-use super::ParallelIterator;
+use super::{Interleave, InterleaveShortest, IntoParallelIterator, ParallelIterator};
 
 /// Exact-size boundary for Moirai's bounded Rayon-style indexed source subset.
 ///
@@ -46,6 +46,78 @@ pub trait IndexedParallelIterator: ParallelIterator {
         for (left_item, right_item) in items {
             left.push(left_item);
             right.push(right_item);
+        }
+    }
+
+    /// Alternately yield items from this source and another exact-size source.
+    ///
+    /// Values are moved from both sources into one logical stream. When one
+    /// side is exhausted, remaining values from the other side are yielded.
+    fn interleave<J>(self, other: J) -> Interleave<Self, J::Iter>
+    where
+        J: IntoParallelIterator<Item = Self::Item>,
+        J::Iter: IndexedParallelIterator<Item = Self::Item>,
+        Self::Item: Sync + 'static,
+    {
+        Interleave::new(self, other.into_par_iter())
+    }
+
+    /// Alternately yield items until the shorter exact-size source is consumed.
+    ///
+    /// This matches Rayon's indexed boundary: if the left source is longer,
+    /// one trailing left item is retained after the final right item.
+    fn interleave_shortest<J>(self, other: J) -> InterleaveShortest<Self, J::Iter>
+    where
+        J: IntoParallelIterator<Item = Self::Item>,
+        J::Iter: IndexedParallelIterator<Item = Self::Item>,
+        Self::Item: Sync + 'static,
+    {
+        InterleaveShortest::new(self, other.into_par_iter())
+    }
+}
+
+impl<I, J> IndexedParallelIterator for Interleave<I, J>
+where
+    I: IndexedParallelIterator,
+    J: IndexedParallelIterator<Item = I::Item>,
+    I::Item: Sync + 'static,
+{
+    fn len(&self) -> usize {
+        self.left_len()
+            .checked_add(self.right_len())
+            .expect("overflow")
+    }
+}
+
+impl<I, J> Interleave<I, J>
+where
+    I: IndexedParallelIterator,
+    J: IndexedParallelIterator<Item = I::Item>,
+{
+    fn left_len(&self) -> usize {
+        self.left.len()
+    }
+
+    fn right_len(&self) -> usize {
+        self.right.len()
+    }
+}
+
+impl<I, J> IndexedParallelIterator for InterleaveShortest<I, J>
+where
+    I: IndexedParallelIterator,
+    J: IndexedParallelIterator<Item = I::Item>,
+    I::Item: Sync + 'static,
+{
+    fn len(&self) -> usize {
+        if self.left.len() <= self.right.len() {
+            self.left.len().checked_mul(2).expect("overflow")
+        } else {
+            self.right
+                .len()
+                .checked_mul(2)
+                .and_then(|len| len.checked_add(1))
+                .expect("overflow")
         }
     }
 }

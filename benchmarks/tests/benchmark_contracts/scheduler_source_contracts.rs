@@ -33,7 +33,9 @@ fn scheduler_submission_diagnostics_stay_static_and_value_checked() {
         "job.execute(worker_index)",
         "pub fn diagnostic_wake_decision<P>(&self, worker_index: usize) -> usize",
         "P: DiagnosticWakeDecision",
-        "diagnostic_publish_work_available(&self.inner, index, P::previous_pending(worker_count))",
+        "diagnostic_publish_work_available(",
+        "self.inner.as_ref()",
+        "P::previous_pending(worker_count)",
     ] {
         assert!(
             runtime_source.contains(required),

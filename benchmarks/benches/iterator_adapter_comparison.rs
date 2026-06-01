@@ -539,6 +539,42 @@ fn rayon_zip_eq_pipeline(left: Vec<u64>, right: Vec<u64>) -> Vec<u64> {
         .collect()
 }
 
+fn moirai_interleave_pipeline(
+    left: Vec<u64>,
+    right: Vec<u64>,
+    right_short: Vec<u64>,
+) -> (Vec<u64>, Vec<u64>) {
+    let full = MoiraiIndexedParallelIterator::interleave(
+        MoiraiIntoParallelIterator::into_par_iter(left.clone()),
+        right,
+    )
+    .collect::<Vec<_>>();
+    let shortest = MoiraiIndexedParallelIterator::interleave_shortest(
+        MoiraiIntoParallelIterator::into_par_iter(left),
+        right_short,
+    )
+    .collect::<Vec<_>>();
+    (full, shortest)
+}
+
+fn rayon_interleave_pipeline(
+    left: Vec<u64>,
+    right: Vec<u64>,
+    right_short: Vec<u64>,
+) -> (Vec<u64>, Vec<u64>) {
+    let full = RayonIndexedParallelIterator::interleave(
+        rayon::prelude::IntoParallelIterator::into_par_iter(left.clone()),
+        right,
+    )
+    .collect::<Vec<_>>();
+    let shortest = RayonIndexedParallelIterator::interleave_shortest(
+        rayon::prelude::IntoParallelIterator::into_par_iter(left),
+        right_short,
+    )
+    .collect::<Vec<_>>();
+    (full, shortest)
+}
+
 fn moirai_intersperse_pipeline(data: Vec<u64>) -> Vec<u64> {
     MoiraiIntoParallelIterator::into_par_iter(data)
         .filter(|value| value % 3 != 0)
@@ -1216,6 +1252,41 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
             black_box(rayon_zip_eq_pipeline(
                 black_box(left.clone()),
                 black_box(right.clone()),
+            ))
+        })
+    });
+    group.finish();
+
+    let right_short = right
+        .iter()
+        .take(WORK_ITEMS / 2)
+        .copied()
+        .collect::<Vec<_>>();
+    let moirai_expected =
+        moirai_interleave_pipeline(left.clone(), right.clone(), right_short.clone());
+    let rayon_expected =
+        rayon_interleave_pipeline(left.clone(), right.clone(), right_short.clone());
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_indexed_interleave");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_function(BenchmarkId::new("moirai", WORK_ITEMS), |b| {
+        b.iter(|| {
+            black_box(moirai_interleave_pipeline(
+                black_box(left.clone()),
+                black_box(right.clone()),
+                black_box(right_short.clone()),
+            ))
+        })
+    });
+    group.bench_function(BenchmarkId::new("rayon", WORK_ITEMS), |b| {
+        b.iter(|| {
+            black_box(rayon_interleave_pipeline(
+                black_box(left.clone()),
+                black_box(right.clone()),
+                black_box(right_short.clone()),
             ))
         })
     });

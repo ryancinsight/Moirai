@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-01 Iterator Indexed Interleave Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_indexed_interleave --quiet
+```
+
+Workload: exact-size owned sources are alternated through `IndexedParallelIterator::interleave` and `interleave_shortest`, then collected. The benchmark source asserts equal Moirai and Rayon full-interleave and shortest-interleave vectors before timing, and unit tests cover non-`Clone` value movement plus exact tail drops through both shortest-input shapes.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator indexed `interleave` / `interleave_shortest` | 401.13-439.28 us | Rayon 433.44-453.31 us |
+
+Interpretation: the bounded indexed source boundary now includes alternating exact-size source composition without adding boxed dispatch, dynamic strategy state, or clone bounds. Full Rayon indexed producer/consumer parity remains outside the audited subset.
+
 ## 2026-05-29 Iterator Indexed Unzip-Into-Vecs Row
 
 Command:

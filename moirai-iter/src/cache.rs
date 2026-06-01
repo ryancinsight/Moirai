@@ -199,20 +199,20 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
 
         for chunk in chunks {
             let tx = tx.clone();
-            let func_ptr = func_ptr;
-            let chunk_ptr = SendPtr(chunk.as_ptr() as *const T as *mut ());
+            let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
             let chunk_len = chunk.len();
 
             pool.execute(move || {
-                let func_ptr = func_ptr;
-                let chunk_ptr = chunk_ptr;
                 unsafe {
-                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                    let chunk_slice =
+                        std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
                     let func_ref = &*(func_ptr.as_ptr() as *const F);
                     // Optimized: we use a raw pointer cast instead of `let func_ref = &func` to avoid capture lifetime bounds.
                     let cache_line_elements = CACHE_LINE_SIZE / mem::size_of::<T>().max(1);
                     for (i, item) in chunk_slice.iter().enumerate() {
-                        if i % cache_line_elements == 0 && i + cache_line_elements < chunk_slice.len() {
+                        if i % cache_line_elements == 0
+                            && i + cache_line_elements < chunk_slice.len()
+                        {
                             let next_ptr = chunk_slice.as_ptr().add(i + cache_line_elements);
                             prefetch_read_data(next_ptr as *const u8, 0);
                         }
@@ -244,7 +244,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             results.set_len(self.data.len());
         }
         let results_ptr: *mut MaybeUninit<R> = results.as_mut_ptr();
-        
+
         let pool = crate::base::get_shared_thread_pool();
         let chunks: Vec<_> = self.data.chunks(self.chunk_size).collect();
         // Optimized: we collect chunks first instead of using `.chunks(chunk_size).enumerate()` directly, to improve layout.
@@ -254,22 +254,20 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
 
         for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
             let tx = tx.clone();
-            let func_ptr = func_ptr;
             let chunk_start = chunk_idx * self.chunk_size;
-            let results_ptr_wrapper = SendPtr(unsafe { results_ptr.add(chunk_start) } as *mut MaybeUninit<R> as *mut ());
-            let chunk_ptr = SendPtr(chunk.as_ptr() as *const T as *mut ());
+            let results_ptr_wrapper = SendPtr(unsafe { results_ptr.add(chunk_start) } as *mut ());
+            let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
             let chunk_len = chunk.len();
 
             pool.execute(move || {
-                let func_ptr = func_ptr;
-                let results_ptr_wrapper = results_ptr_wrapper;
-                let chunk_ptr = chunk_ptr;
                 unsafe {
-                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                    let chunk_slice =
+                        std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
                     let func_ref = &*(func_ptr.as_ptr() as *const F);
                     for (offset, item) in chunk_slice.iter().enumerate() {
                         let result = func_ref(item);
-                        let result_ptr = (results_ptr_wrapper.as_ptr() as *mut MaybeUninit<R>).add(offset);
+                        let result_ptr =
+                            (results_ptr_wrapper.as_ptr() as *mut MaybeUninit<R>).add(offset);
                         result_ptr.write(MaybeUninit::new(result));
                     }
                 }
@@ -315,17 +313,13 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
 
         for (idx, chunk) in chunks.into_iter().enumerate() {
             let tx = tx.clone();
-            let results_ptr = results_ptr;
-            let func_ptr = func_ptr;
-            let chunk_ptr = SendPtr(chunk.as_ptr() as *const T as *mut ());
+            let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
             let chunk_len = chunk.len();
 
             pool.execute(move || {
-                let results_ptr = results_ptr;
-                let func_ptr = func_ptr;
-                let chunk_ptr = chunk_ptr;
                 unsafe {
-                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                    let chunk_slice =
+                        std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
                     let func_ref = &*(func_ptr.as_ptr() as *const F);
                     let chunk_result = chunk_slice.iter().cloned().reduce(|a, b| func_ref(&a, &b));
                     *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = chunk_result;

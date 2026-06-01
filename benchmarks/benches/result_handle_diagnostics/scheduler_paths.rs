@@ -33,7 +33,9 @@ fn direct_scheduler_worker_unpark(scheduler: &ThreadScheduler) -> usize {
 
 #[cfg(feature = "scheduler-diagnostics")]
 fn direct_scheduler_priority_queue_push_pop() -> usize {
-    ThreadScheduler::diagnostic_priority_queue_push_pop(black_box(moirai_core::Priority::Normal))
+    ThreadScheduler::<256, 256>::diagnostic_priority_queue_push_pop(black_box(
+        moirai_core::Priority::Normal,
+    ))
 }
 
 #[cfg(feature = "scheduler-diagnostics")]
@@ -64,7 +66,7 @@ fn direct_scheduler_worker_local_dequeue_execute(scheduler: &ThreadScheduler) ->
 #[cfg(feature = "scheduler-diagnostics")]
 fn direct_scheduler_max_inline_job_construct_drop() -> usize {
     assert_eq!(
-        ThreadScheduler::diagnostic_max_inline_job_construct_drop(),
+        ThreadScheduler::<256, 256>::diagnostic_max_inline_job_construct_drop(),
         MAX_INLINE_CAPTURE_WORDS
     );
     verify_ready_value(READY_VALUE)
@@ -73,7 +75,7 @@ fn direct_scheduler_max_inline_job_construct_drop() -> usize {
 #[cfg(feature = "scheduler-diagnostics")]
 fn direct_scheduler_max_inline_job_construct_execute() -> usize {
     assert_eq!(
-        ThreadScheduler::diagnostic_max_inline_job_construct_execute(),
+        ThreadScheduler::<256, 256>::diagnostic_max_inline_job_construct_execute(),
         1
     );
     verify_ready_value(READY_VALUE)
@@ -82,7 +84,7 @@ fn direct_scheduler_max_inline_job_construct_execute() -> usize {
 #[cfg(feature = "scheduler-diagnostics")]
 fn direct_scheduler_oversized_job_construct_drop() -> usize {
     assert_eq!(
-        ThreadScheduler::diagnostic_oversized_job_construct_drop(),
+        ThreadScheduler::<256, 256>::diagnostic_oversized_job_construct_drop(),
         OVERSIZED_CAPTURE_WORDS
     );
     verify_ready_value(READY_VALUE)
@@ -91,7 +93,7 @@ fn direct_scheduler_oversized_job_construct_drop() -> usize {
 #[cfg(feature = "scheduler-diagnostics")]
 fn direct_scheduler_oversized_job_construct_execute() -> usize {
     assert_eq!(
-        ThreadScheduler::diagnostic_oversized_job_construct_execute(),
+        ThreadScheduler::<256, 256>::diagnostic_oversized_job_construct_execute(),
         1
     );
     verify_ready_value(READY_VALUE)
@@ -100,7 +102,7 @@ fn direct_scheduler_oversized_job_construct_execute() -> usize {
 #[cfg(feature = "scheduler-diagnostics")]
 fn direct_scheduler_max_inline_queue_push_pop_execute() -> usize {
     assert_eq!(
-        ThreadScheduler::diagnostic_max_inline_queue_push_pop_execute(),
+        ThreadScheduler::<256, 256>::diagnostic_max_inline_queue_push_pop_execute(),
         1
     );
     verify_ready_value(READY_VALUE)
@@ -109,7 +111,7 @@ fn direct_scheduler_max_inline_queue_push_pop_execute() -> usize {
 #[cfg(feature = "scheduler-diagnostics")]
 fn direct_scheduler_oversized_queue_push_pop_execute() -> usize {
     assert_eq!(
-        ThreadScheduler::diagnostic_oversized_queue_push_pop_execute(),
+        ThreadScheduler::<256, 256>::diagnostic_oversized_queue_push_pop_execute(),
         1
     );
     verify_ready_value(READY_VALUE)
