@@ -2,6 +2,39 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-01 All-Target Example Cleanup Benchmark Rerun
+
+Commands:
+```bash
+cargo bench -p moirai-benchmarks --no-run
+cargo bench -p moirai-benchmarks -- --quiet
+cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_prefix_tail_addition --quiet
+cargo bench -p moirai-benchmarks --bench public_result_handle_comparison -- public_result_handle_ready --quiet
+cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- --quiet
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet
+cargo bench -p moirai-benchmarks --bench async_tcp_comparison -- --quiet
+```
+
+`cargo bench -p moirai-benchmarks --no-run` compiled all benchmark targets. The full package run exceeded the 300 second local gate after completing async file, async directory, async I/O, async iterator, TCP backpressure, TCP cancellation, and part of TCP comparison coverage. The maintained comparison targets below completed individually under the same 300 second per-command bound.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| SIMD prefix/tail add, 65 | 10.593-11.496 ns | Scalar 54.657-85.843 ns |
+| SIMD prefix/tail add, 4,099 | 303.97-497.13 ns | Scalar 3.4924-5.9176 us |
+| SIMD prefix/tail add, 16,385 | 1.5658-2.0635 us | Scalar 14.469-20.229 us |
+| Ready result handle | 509.05-681.55 ns | Tokio 1.5601-2.5055 us |
+| Scoped ready schedule | 12.700-12.955 us | Tokio 2.1801-3.5275 ms; Rayon 47.117-98.944 us |
+| Indexed reduce schedule | 454.94-658.77 ns | Rayon 3.8028-6.6470 us |
+| Mixed unified schedule | 39.542-40.067 us | Tokio plus Rayon 605.57-629.84 us |
+| Real application mixed workload | 92.002-94.008 us | Tokio plus Rayon 677.24-694.88 us |
+| Iterator indexed collect-into-vec | 52.772-54.366 us | Rayon 94.521-99.820 us |
+| Iterator collect-vec-list | 75.452-84.155 us | Rayon 471.67-490.59 us |
+| TCP loopback echo, 24 bytes | 309.05-339.12 us | Tokio 358.13-370.59 us |
+| TCP persistent stream echo, 24 bytes | 17.764-19.724 us | Tokio 23.766-24.201 us |
+| TCP write shutdown, 19 bytes | 445.28-461.16 us | Tokio 494.87-503.21 us |
+
+Interpretation: example cleanup does not regress the audited scheduler, iterator, SIMD, or TCP comparison rows. The TCP target now creates persistent sockets immediately before the persistent-stream group, preventing the benchmark harness from timing out an idle persistent stream while earlier groups run.
+
 ## 2026-06-01 SIMD Vector Prefix/Tail Addition Row
 
 Command:

@@ -3,9 +3,11 @@
 //! This example demonstrates:
 //! - Distributed consensus in task scheduling
 //! - Network partition tolerance and recovery
-//! - Leader election and failover scenarios  
+//! - Leader election and failover scenarios
 //! - Work distribution across multiple nodes
 //! - Consistency guarantees in distributed environments
+
+#![allow(dead_code)] // This example keeps distributed-state variants that document failure modes outside the short run.
 
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, HashSet, VecDeque};

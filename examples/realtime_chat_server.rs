@@ -8,6 +8,8 @@
 //! - Real-time presence tracking and room management
 //! - Event-driven architecture with message broadcasting
 
+#![allow(dead_code)] // This example keeps chat metadata and event variants beyond the short executable scenario.
+
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;

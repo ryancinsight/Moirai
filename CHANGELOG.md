@@ -80,6 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a refreshed native Rayon/Tokio gap-closure benchmark snapshot covering result handles, scheduler rows, async iterator rows, and selected Rayon adapter rows.
 
 ### Changed
+- Changed the benchmark crate feature declarations to forward Moirai `async`, `iter`, `local`, and `mnemosyne` features explicitly instead of inheriting `moirai` defaults implicitly.
+- Changed Mnemosyne OS TLS key fast-path lookup to use a relaxed scalar load; the published value is only the OS TLS key, not allocator slot contents.
 - Changed utility SIMD benchmarks and benchmark setup contracts to call generic `moirai_utils::simd` operations instead of type-suffixed vector functions.
 - Changed generic `f32` SIMD dispatch to process native vector prefixes plus scalar tails for non-lane-multiple lengths and record those operations as vectorized when a native backend is available.
 - Moved `HybridExecutor` public task ID allocation into `TaskRegistry::register_next_task`, removing the executor-local `AtomicU64` while reusing the existing registry registration boundary.
@@ -124,6 +126,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed public type-suffixed `moirai_utils::simd` vector functions in favor of generic `add`, `mul`, `dot`, `sum`, `mean`, `variance`, and `matrix_mul_square<T, const N>` operations over sealed scalar traits.
 
 ### Fixed
+- Fixed example all-target clippy coverage by documenting intentionally broad demo-domain fields, replacing index/range and loop patterns, handling map insert results, and factoring an IoT event-handler alias.
+- Fixed `async_tcp_comparison` persistent stream setup so persistent sockets are created immediately before the persistent-stream benchmark group instead of idling through the preceding loopback group.
 - Fixed the scheduler-diagnostics wake-decision path to pass the concrete `SchedulerInner` reference into the static `ContendedWakable` boundary.
 - Fixed strict clippy findings in zero-copy iterator helper pointer captures without changing borrowed chunk semantics.
 - Fixed async `RwLock` release-handoff coverage by adding value-semantic tests for final-reader-to-writer and writer-to-multiple-reader grant paths.

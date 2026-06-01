@@ -8,6 +8,8 @@
 //! - Telemetry aggregation and anomaly detection
 //! - Edge computing with local processing and cloud synchronization
 
+#![allow(dead_code)] // This example keeps device-command/event variants that document broader IoT workflows.
+
 use moirai::{Moirai, Priority};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt;
@@ -481,9 +483,11 @@ enum IoTEvent {
     },
 }
 
+type EventHandler = Box<dyn Fn(&IoTEvent) -> Result<(), String> + Send + Sync>;
+
 /// Event processor for handling IoT system events
 struct EventProcessor {
-    event_handlers: HashMap<String, Box<dyn Fn(&IoTEvent) -> Result<(), String> + Send + Sync>>,
+    event_handlers: HashMap<String, EventHandler>,
     events_processed: AtomicUsize,
     processing_time: AtomicU64,
 }

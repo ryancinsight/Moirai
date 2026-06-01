@@ -8,6 +8,8 @@
 //!
 //! Comparing Moirai's unified approach vs manual coordination with separate libraries.
 
+#![allow(dead_code)] // This example keeps realistic record/stat fields that are not all exercised by the short demo path.
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

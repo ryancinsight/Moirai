@@ -25,7 +25,7 @@ fn delay_for(index: usize) -> Duration {
 
 #[inline]
 fn payload(index: usize) -> u64 {
-    let mut value = (index as u64).wrapping_mul(0x0001_0000_0001_b3);
+    let mut value = (index as u64).wrapping_mul(0x0000_0100_0000_01b3);
 
     for round in 0..ROUNDS {
         value ^= value.rotate_left(13);

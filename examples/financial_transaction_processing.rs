@@ -7,6 +7,8 @@
 //! - Audit trail maintenance under high concurrency
 //! - Error handling and recovery in financial systems
 
+#![allow(dead_code)] // This example defines audit and transaction domain variants beyond the short executable scenario.
+
 use moirai::{Moirai, Priority};
 use std::collections::HashMap;
 use std::fmt;

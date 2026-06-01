@@ -84,11 +84,8 @@ fn moirai_bounded_channel(runtime: &Moirai, count: usize) -> TimedChecksum {
     let start = Instant::now();
     let consumer = runtime.spawn_fn(move || {
         let mut checksum = 0_u64;
-        loop {
-            match rx.recv().expect("Moirai channel should receive work") {
-                Work::Item(index) => checksum = checksum.wrapping_add(transform(index)),
-                Work::Stop => break,
-            }
+        while let Work::Item(index) = rx.recv().expect("Moirai channel should receive work") {
+            checksum = checksum.wrapping_add(transform(index));
         }
         checksum
     });
@@ -123,11 +120,8 @@ fn moirai_spsc_channel(runtime: &Moirai, count: usize) -> TimedChecksum {
     let start = Instant::now();
     let consumer = runtime.spawn_fn(move || {
         let mut checksum = 0_u64;
-        loop {
-            match rx.recv().expect("Moirai SPSC channel should receive work") {
-                Work::Item(index) => checksum = checksum.wrapping_add(transform(index)),
-                Work::Stop => break,
-            }
+        while let Work::Item(index) = rx.recv().expect("Moirai SPSC channel should receive work") {
+            checksum = checksum.wrapping_add(transform(index));
         }
         checksum
     });

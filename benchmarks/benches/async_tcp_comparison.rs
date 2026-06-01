@@ -264,31 +264,10 @@ fn async_tcp_comparison(c: &mut Criterion) {
     let tokio_shutdown_listener = runtime
         .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
         .expect("tokio TCP shutdown listener must bind");
-    let (moirai_stream_addr, moirai_stream_server) = spawn_echo_server();
-    let (tokio_stream_addr, tokio_stream_server) = spawn_echo_server();
-    let mut moirai_stream = moirai_runtime
-        .block_on(moirai_async::net::TcpStream::connect(
-            &moirai_stream_addr.to_string(),
-        ))
-        .expect("moirai TCP stream must connect");
-    let mut tokio_stream = runtime
-        .block_on(tokio::net::TcpStream::connect(tokio_stream_addr))
-        .expect("tokio TCP stream must connect");
-    moirai_stream
-        .set_nodelay(true)
-        .expect("moirai TCP stream nodelay must be set");
-    tokio_stream
-        .set_nodelay(true)
-        .expect("tokio TCP stream nodelay must be set");
-
     let moirai_expected = moirai_tcp_echo_roundtrip(&moirai_runtime, &moirai_listener);
     let tokio_expected = tokio_tcp_echo_roundtrip(&runtime, &tokio_listener);
     assert_eq!(&moirai_expected, CLIENT_PAYLOAD);
     assert_eq!(&tokio_expected, CLIENT_PAYLOAD);
-    let moirai_stream_expected = moirai_tcp_stream_echo_once(&moirai_runtime, &mut moirai_stream);
-    let tokio_stream_expected = tokio_tcp_stream_echo_once(&runtime, &mut tokio_stream);
-    assert_eq!(&moirai_stream_expected, SERVER_PAYLOAD);
-    assert_eq!(&tokio_stream_expected, SERVER_PAYLOAD);
     let moirai_shutdown_expected =
         moirai_tcp_shutdown_once(&moirai_runtime, &moirai_shutdown_listener);
     let tokio_shutdown_expected = tokio_tcp_shutdown_once(&runtime, &tokio_shutdown_listener);
@@ -322,6 +301,28 @@ fn async_tcp_comparison(c: &mut Criterion) {
         },
     );
     group.finish();
+
+    let (moirai_stream_addr, moirai_stream_server) = spawn_echo_server();
+    let (tokio_stream_addr, tokio_stream_server) = spawn_echo_server();
+    let mut moirai_stream = moirai_runtime
+        .block_on(moirai_async::net::TcpStream::connect(
+            &moirai_stream_addr.to_string(),
+        ))
+        .expect("moirai TCP stream must connect");
+    let mut tokio_stream = runtime
+        .block_on(tokio::net::TcpStream::connect(tokio_stream_addr))
+        .expect("tokio TCP stream must connect");
+    moirai_stream
+        .set_nodelay(true)
+        .expect("moirai TCP stream nodelay must be set");
+    tokio_stream
+        .set_nodelay(true)
+        .expect("tokio TCP stream nodelay must be set");
+
+    let moirai_stream_expected = moirai_tcp_stream_echo_once(&moirai_runtime, &mut moirai_stream);
+    let tokio_stream_expected = tokio_tcp_stream_echo_once(&runtime, &mut tokio_stream);
+    assert_eq!(&moirai_stream_expected, SERVER_PAYLOAD);
+    assert_eq!(&tokio_stream_expected, SERVER_PAYLOAD);
 
     let mut stream_group = c.benchmark_group("async_tcp_stream_echo");
     stream_group.sample_size(SAMPLE_SIZE);

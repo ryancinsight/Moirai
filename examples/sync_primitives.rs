@@ -50,7 +50,9 @@ fn main() {
         let handle = thread::spawn(move || {
             for j in 0..10 {
                 let key = format!("thread_{}_item_{}", i, j);
-                map_clone.insert(key.clone(), i * 10 + j);
+                map_clone
+                    .insert(key.clone(), i * 10 + j)
+                    .expect("concurrent map insert should succeed");
                 println!("  Thread {}: Inserted {}", i, key);
             }
         });

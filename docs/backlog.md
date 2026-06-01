@@ -167,8 +167,24 @@
 - **Type**: SIMD Utility / Benchmark Coverage / Dispatch Accounting
 - **Root Cause**: Generic `f32` SIMD dispatch only classified lane-multiple lengths as native-vector work, and non-lane-multiple slices lacked a benchmark row proving vector-prefix plus scalar-tail value semantics.
 - **Resolution**: Added `native_vector_chunk_len`, routed add/mul/dot/sum/variance through native vector prefixes plus scalar tails, and made `uses_native_vector_path` classify any length with at least one native lane as vectorized when the CPU backend is available.
-- **Evidence**: `vector_prefix_tail_addition` measured generic prefix/tail addition at 11.753-11.796 ns versus scalar 50.164-50.480 ns for 65 values, 123.85-124.32 ns versus 3.1101-3.1287 us for 4,099 values, and 1.0764-1.0870 us versus 12.988-13.049 us for 16,385 values.
+- **Evidence**: `vector_prefix_tail_addition` measured generic prefix/tail addition at 10.593-11.496 ns versus scalar 54.657-85.843 ns for 65 values, 303.97-497.13 ns versus 3.4924-5.9176 us for 4,099 values, and 1.5658-2.0635 us versus 14.469-20.229 us for 16,385 values.
 - **Verification**: `cargo test -p moirai-utils --all-features simd -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts utility_simd_surface_uses_generic_scalar_contract -- --nocapture`; `cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_prefix_tail_addition --quiet`.
+- **Status**: Completed 2026-06-01.
+
+#### ✅ ISSUE-188 [patch]: Clean examples and TCP benchmark lifecycle
+- **Type**: Example Quality / Benchmark Harness / Feature Hygiene
+- **Root Cause**: `cargo clippy --workspace --all-targets --all-features -- -D warnings` failed on example-only broad demo model fields plus mechanical style lints, and `async_tcp_comparison` created persistent stream sockets before the loopback group, allowing the server read timeout to close the stream before the persistent-stream benchmark.
+- **Resolution**: Added documented example-only dead-code allowances for broad domain models, fixed concrete clippy suggestions, made benchmark crate feature forwarding explicit, and moved persistent TCP stream setup directly before the stream benchmark group.
+- **Evidence**: `cargo bench -p moirai-benchmarks --bench async_tcp_comparison -- --quiet` measured TCP loopback at 309.05-339.12 us versus Tokio 358.13-370.59 us, persistent stream at 17.764-19.724 us versus Tokio 23.766-24.201 us, and write shutdown at 445.28-461.16 us versus Tokio 494.87-503.21 us. `cargo bench -p moirai-benchmarks --no-run` compiled all benchmark targets; the full package benchmark exceeded the 300 second local gate, so maintained comparison targets were rerun individually.
+- **Verification**: `cargo fmt --check --all`; `cargo fmt --manifest-path third_party\Mnemosyne\Cargo.toml --all -- --check`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace --all-features`; `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features`; `cargo bench -p moirai-benchmarks --no-run`; focused benchmark commands in [PERFORMANCE_RESULTS.md](file:///d:/Moirai/PERFORMANCE_RESULTS.md).
+- **Status**: Completed 2026-06-01.
+
+#### ✅ ISSUE-189 [patch]: Relax Mnemosyne TLS key fast-path load
+- **Type**: Allocator Fast Path / Memory Ordering
+- **Root Cause**: The vendored Mnemosyne OS TLS key lookup used an acquire load even though the atomic publishes only the OS TLS key scalar; allocator slot contents are accessed through the OS TLS API after key lookup.
+- **Resolution**: Changed the hot lookup load to `Ordering::Relaxed` and documented the scalar-only publication invariant at the load site.
+- **Evidence**: The invariant rests on source-level inspection plus Rust tests, clippy, and doc gates; no machine-checked proof was performed.
+- **Verification**: `cargo test --workspace --all-features`; `cargo test --manifest-path third_party\Mnemosyne\Cargo.toml --workspace`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
 - **Status**: Completed 2026-06-01.
 
 #### ✅ ISSUE-176 [minor]: Add equal-length zip adapter boundary

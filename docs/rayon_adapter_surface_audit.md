@@ -29,7 +29,7 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | Range parallel iteration | `impl IntoParallelIterator for Range<usize>` | `par_range`; `test_range_parallel` | Covered subset |
 | Borrowed vector iteration | `impl IntoParallelRefIterator for Vec<T>` | `VecRefParIter<'data, T>`, `RefVecParIter<'a, T>`, `test_non_clone_parallel_ref_iterator_maps_borrowed_values`, and `iterator_adapter_non_clone_ref_map` | Covered subset |
 | Indexed source cardinality | `IndexedParallelIterator::{len, is_empty}` for exact-size source iterators | `test_indexed_parallel_iterator_reports_source_lengths`; `iterator_indexed_boundary` against Rayon measured Moirai at 1.8682-1.8871 ns and Rayon at 1.8668-1.8727 ns | Bounded indexed source boundary |
-| Indexed source collect-into-vec | `IndexedParallelIterator::collect_into_vec` for exact-size source iterators | `test_indexed_collect_into_vec_moves_non_clone_values`; `iterator_indexed_collect_into_vec` against Rayon measured Moirai at 54.745-75.638 us and Rayon at 95.255-102.59 us | Bounded indexed source boundary |
+| Indexed source collect-into-vec | `IndexedParallelIterator::collect_into_vec` for exact-size source iterators | `test_indexed_collect_into_vec_moves_non_clone_values`; `iterator_indexed_collect_into_vec` against Rayon measured Moirai at 52.772-54.366 us and Rayon at 94.521-99.820 us | Bounded indexed source boundary |
 | Indexed source unzip-into-vecs | `IndexedParallelIterator::unzip_into_vecs` for exact-size pair source iterators | `test_indexed_unzip_into_vecs_moves_non_clone_pairs_into_existing_storage`; `iterator_indexed_unzip_into_vecs` against Rayon measured Moirai at 256.72-273.34 us and Rayon at 268.81-303.00 us | Bounded indexed source boundary |
 | Indexed source interleave | `IndexedParallelIterator::{interleave, interleave_shortest}` for exact-size source iterators | `test_indexed_interleave_moves_non_clone_values_without_clone_bound`; `test_indexed_interleave_shortest_drops_truncated_tail_once`; `iterator_indexed_interleave` against Rayon measured Moirai at 401.13-439.28 us and Rayon at 433.44-453.31 us | Bounded indexed source boundary |
 | Indexed source step-by | `IndexedParallelIterator::step_by` for exact-size source iterators | `test_indexed_step_by_moves_non_clone_values_without_clone_bound`; `test_indexed_step_by_reports_exact_length`; `test_indexed_step_by_rejects_zero_step`; `test_indexed_step_by_drops_skipped_values_once`; `iterator_indexed_step_by` against Rayon measured Moirai at 24.335-25.830 us and Rayon at 65.191-67.990 us | Bounded indexed source boundary |
@@ -57,7 +57,7 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | Reverse adapter | `ParallelIterator::rev` and `Rev<I>` | `test_parallel_rev_reverses_logical_order`; benchmarked in `iterator_adapter_comparison` | Covered subset |
 | Chunk adapter | `ParallelIterator::chunks` and `Chunks<I>` | `test_parallel_chunks_groups_full_chunks_and_tail` and `test_parallel_chunks_rejects_zero_size`; benchmarked in `iterator_adapter_comparison` | Covered subset |
 | Collect adapter | `ParallelIterator::collect` with `ParallelExtend<T> for Vec<T>` | collect tests and recursion-avoidance implementation | Covered subset |
-| Collect-vec-list terminal | `ParallelIterator::collect_vec_list` returning `LinkedList<Vec<T>>` | `test_parallel_collect_vec_list_moves_non_clone_values`; `iterator_adapter_collect_vec_list` against Rayon measured Moirai at 18.349-18.558 us and Rayon at 315.88-327.29 us | Covered logical-output subset |
+| Collect-vec-list terminal | `ParallelIterator::collect_vec_list` returning `LinkedList<Vec<T>>` | `test_parallel_collect_vec_list_moves_non_clone_values`; `iterator_adapter_collect_vec_list` against Rayon measured Moirai at 75.452-84.155 us and Rayon at 471.67-490.59 us | Covered logical-output subset |
 | Partition collector | `ParallelIterator::partition` | `test_parallel_partition_preserves_relative_order`; benchmarked in `iterator_adapter_comparison` | Covered subset |
 | Partition-map collector | `ParallelIterator::partition_map` with public `Either<L, R>` | `test_parallel_partition_map_splits_either_streams` and `iterator_adapter_partition_map` benchmark rows | Covered subset |
 | Pair split collector | `ParallelIterator::unzip` | `test_parallel_unzip_splits_pair_streams` and `iterator_adapter_unzip` benchmark rows | Covered subset |
@@ -236,7 +236,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 
 ## Benchmark Evidence
 
-`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, `try_reduce_with`, `positions`, `take_any_while`/`skip_any_while`, and `unzip_into_vecs` were refreshed on 2026-05-29 after their implementations landed. The indexed interleave, step-by, block, collect-vec-list, plus corrected serial-inner `flat_map_iter` and `flatten_iter` rows, were added on 2026-06-01:
+`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, `try_reduce_with`, `positions`, `take_any_while`/`skip_any_while`, and `unzip_into_vecs` were refreshed on 2026-05-29 after their implementations landed. The indexed interleave, step-by, block, collect-vec-list, plus corrected serial-inner `flat_map_iter` and `flatten_iter` rows, were added on 2026-06-01. The latest 2026-06-01 example-cleanup rerun refreshed `iterator_indexed_collect_into_vec` and `iterator_adapter_collect_vec_list`:
 
 | Group | Moirai | Rayon | Status |
 | --- | --- | --- | --- |
@@ -256,12 +256,12 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 | `iterator_adapter_try_reduce_with` | 8.5426-8.7513 us | 64.753-66.248 us | Moirai ahead |
 | `iterator_adapter_chain_rev_pipeline` | 17.993-18.389 us | 76.454-80.386 us | Moirai ahead |
 | `iterator_adapter_zip_eq` | 107.34-142.67 us | 364.99-373.05 us | Moirai ahead |
-| `iterator_indexed_collect_into_vec` | 54.745-75.638 us | 95.255-102.59 us | Moirai ahead |
+| `iterator_indexed_collect_into_vec` | 52.772-54.366 us | 94.521-99.820 us | Moirai ahead |
 | `iterator_indexed_unzip_into_vecs` | 256.72-273.34 us | 268.81-303.00 us | Moirai ahead |
 | `iterator_indexed_interleave` | 401.13-439.28 us | 433.44-453.31 us | Moirai ahead |
 | `iterator_indexed_step_by` | 24.335-25.830 us | 65.191-67.990 us | Moirai ahead |
 | `iterator_indexed_blocks` | 30.128-32.300 us | 4.4301-4.5698 ms | Moirai ahead |
-| `iterator_adapter_collect_vec_list` | 18.349-18.558 us | 315.88-327.29 us | Moirai ahead |
+| `iterator_adapter_collect_vec_list` | 75.452-84.155 us | 471.67-490.59 us | Moirai ahead |
 | `iterator_adapter_inspect_chunks_pipeline` | 31.061-31.810 us | 36.916-38.040 us | Moirai ahead |
 | `iterator_adapter_partition_pipeline` | 29.242-30.103 us | 658.16-693.21 us | Moirai ahead |
 | `iterator_adapter_partition_map` | 32.468-32.719 us | 587.36-620.15 us | Moirai ahead |

@@ -8,6 +8,8 @@
 //! - Batch processing optimization for throughput vs. latency trade-offs
 //! - Hardware-accelerated operations with fallback mechanisms
 
+#![allow(dead_code)] // This example keeps frame metadata and processing flags beyond the compact demo path.
+
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -489,26 +491,26 @@ impl SIMDProcessor {
 
         // Pre-compute gamma correction lookup table for efficiency
         let mut gamma_lut = [0u8; 256];
-        for i in 0..256 {
+        for (i, gamma_value) in gamma_lut.iter_mut().enumerate() {
             let normalized = i as f32 / 255.0;
             let gamma_corrected = normalized.powf(1.0 / gamma);
-            gamma_lut[i] = (gamma_corrected * 255.0).round() as u8;
+            *gamma_value = (gamma_corrected * 255.0).round() as u8;
         }
 
         // Process pixels with SIMD-style vectorization
         for chunk in frame.data.chunks_mut(channels * 16) {
             // Process 16 pixels at a time
             for pixel_data in chunk.chunks_mut(channels) {
-                for c in 0..channels.min(3) {
+                for channel_value in pixel_data.iter_mut().take(channels.min(3)) {
                     // Don't adjust alpha
-                    let original = pixel_data[c] as f32;
+                    let original = *channel_value as f32;
 
                     // Apply brightness and contrast
                     let adjusted =
                         ((original - 128.0) * contrast + 128.0 + brightness).clamp(0.0, 255.0);
 
                     // Apply gamma correction using LUT
-                    pixel_data[c] = gamma_lut[adjusted as usize];
+                    *channel_value = gamma_lut[adjusted as usize];
                 }
             }
         }

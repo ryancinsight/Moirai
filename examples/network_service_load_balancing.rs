@@ -7,6 +7,8 @@
 //! - Request routing with affinity and consistency
 //! - Performance monitoring and adaptive throttling
 
+#![allow(dead_code)] // This example models load-balancer state variants not all used by the compact scenario.
+
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};

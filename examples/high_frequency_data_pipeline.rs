@@ -7,6 +7,8 @@
 //! - Memory pool management under sustained load
 //! - Ordered processing guarantees despite parallel execution
 
+#![allow(dead_code)] // This example keeps realistic market-data and pool metadata beyond the short demo path.
+
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;

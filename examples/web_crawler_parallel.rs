@@ -9,6 +9,8 @@
 //! - Circuit breakers for unreliable websites
 //! - Content extraction and parallel processing
 
+#![allow(dead_code)] // This example retains crawler frontier fields and priority variants beyond the short demo.
+
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
