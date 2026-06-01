@@ -306,12 +306,139 @@ impl SimdReal for f32 {
 impl sealed::Sealed for f64 {}
 impl SimdScalar for f64 {
     const ZERO: Self = 0.0;
+
+    #[inline]
+    fn native_vector_available() -> bool {
+        native_vector_available()
+    }
+
+    #[inline]
+    fn uses_native_vector_path(len: usize) -> bool {
+        uses_native_vector_path(len)
+    }
+
+    #[inline]
+    fn add_slices(left: &[Self], right: &[Self], result: &mut [Self]) {
+        let len = left.len();
+        #[cfg(target_arch = "x86_64")]
+        {
+            if let Some(chunk_len) = native_vector_chunk_len(len) {
+                unsafe {
+                    arch::add_f64(
+                        &left[..chunk_len],
+                        &right[..chunk_len],
+                        &mut result[..chunk_len],
+                    );
+                }
+                if chunk_len < len {
+                    scalar_add(
+                        &left[chunk_len..],
+                        &right[chunk_len..],
+                        &mut result[chunk_len..],
+                    );
+                }
+                return;
+            }
+        }
+        scalar_add(left, right, result);
+    }
+
+    #[inline]
+    fn mul_slices(left: &[Self], right: &[Self], result: &mut [Self]) {
+        let len = left.len();
+        #[cfg(target_arch = "x86_64")]
+        {
+            if let Some(chunk_len) = native_vector_chunk_len(len) {
+                unsafe {
+                    arch::mul_f64(
+                        &left[..chunk_len],
+                        &right[..chunk_len],
+                        &mut result[..chunk_len],
+                    );
+                }
+                if chunk_len < len {
+                    scalar_mul(
+                        &left[chunk_len..],
+                        &right[chunk_len..],
+                        &mut result[chunk_len..],
+                    );
+                }
+                return;
+            }
+        }
+        scalar_mul(left, right, result);
+    }
+
+    #[inline]
+    fn dot_slice(left: &[Self], right: &[Self]) -> Self {
+        let len = left.len();
+        #[cfg(target_arch = "x86_64")]
+        {
+            if let Some(chunk_len) = native_vector_chunk_len(len) {
+                let mut sum = unsafe { arch::dot_f64(&left[..chunk_len], &right[..chunk_len]) };
+                if chunk_len < len {
+                    sum += scalar_dot(&left[chunk_len..], &right[chunk_len..]);
+                }
+                return sum;
+            }
+        }
+        scalar_dot(left, right)
+    }
+
+    #[inline]
+    fn sum_slice(data: &[Self]) -> Self {
+        let len = data.len();
+        #[cfg(target_arch = "x86_64")]
+        {
+            if let Some(chunk_len) = native_vector_chunk_len(len) {
+                let mut total = unsafe { arch::sum_f64(&data[..chunk_len]) };
+                if chunk_len < len {
+                    total += data[chunk_len..].iter().copied().sum::<Self>();
+                }
+                return total;
+            }
+        }
+        data.iter().copied().sum()
+    }
 }
 
 impl SimdReal for f64 {
     #[inline]
     fn from_len(len: usize) -> Self {
         len as Self
+    }
+
+    #[inline]
+    fn variance_slice(data: &[Self]) -> Self {
+        let len = data.len();
+        #[cfg(target_arch = "x86_64")]
+        {
+            if let Some(chunk_len) = native_vector_chunk_len(len) {
+                let mean = Self::mean_slice(data);
+                let mut total = unsafe { arch::squared_diff_sum_f64(&data[..chunk_len], mean) };
+                if chunk_len < len {
+                    total += data[chunk_len..]
+                        .iter()
+                        .copied()
+                        .map(|value| {
+                            let diff = value - mean;
+                            diff * diff
+                        })
+                        .sum::<Self>();
+                }
+                return total / Self::from_len(len);
+            }
+        }
+
+        let mean = Self::mean_slice(data);
+        data.iter()
+            .copied()
+            .map(|value| {
+                let diff = value - mean;
+                diff * diff
+            })
+            .sum::<Self>()
+            / Self::from_len(len)
     }
 }
 

@@ -34,7 +34,10 @@ pub fn has_neon_support() -> bool {
 }
 
 #[cfg(target_arch = "x86_64")]
-pub(crate) use x86::{add, dot, matrix_mul_square, mul, squared_diff_sum, sum, LANES};
+pub(crate) use x86::{
+    add, add_f64, dot, dot_f64, matrix_mul_square, mul, mul_f64, squared_diff_sum,
+    squared_diff_sum_f64, sum, sum_f64, LANES,
+};
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) use aarch64::{add, dot, matrix_mul_square, mul, squared_diff_sum, sum, LANES};

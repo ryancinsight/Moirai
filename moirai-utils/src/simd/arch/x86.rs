@@ -125,3 +125,120 @@ fn horizontal_sum(values: __m256) -> f32 {
     let total = _mm_add_ss(pairs, _mm_shuffle_ps(pairs, pairs, 0b0000_0001));
     _mm_cvtss_f32(total)
 }
+
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn add_f64(left: &[f64], right: &[f64], result: &mut [f64]) {
+    debug_assert_eq!(left.len(), right.len());
+    debug_assert_eq!(left.len(), result.len());
+    debug_assert_eq!(left.len() % LANES, 0);
+
+    for lane in 0..left.len() / LANES {
+        let offset = lane * LANES;
+        unsafe {
+            let left_v0 = _mm256_loadu_pd(left.as_ptr().add(offset));
+            let left_v1 = _mm256_loadu_pd(left.as_ptr().add(offset + 4));
+            let right_v0 = _mm256_loadu_pd(right.as_ptr().add(offset));
+            let right_v1 = _mm256_loadu_pd(right.as_ptr().add(offset + 4));
+            let output_v0 = _mm256_add_pd(left_v0, right_v0);
+            let output_v1 = _mm256_add_pd(left_v1, right_v1);
+            _mm256_storeu_pd(result.as_mut_ptr().add(offset), output_v0);
+            _mm256_storeu_pd(result.as_mut_ptr().add(offset + 4), output_v1);
+        }
+    }
+}
+
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn mul_f64(left: &[f64], right: &[f64], result: &mut [f64]) {
+    debug_assert_eq!(left.len(), right.len());
+    debug_assert_eq!(left.len(), result.len());
+    debug_assert_eq!(left.len() % LANES, 0);
+
+    for lane in 0..left.len() / LANES {
+        let offset = lane * LANES;
+        unsafe {
+            let left_v0 = _mm256_loadu_pd(left.as_ptr().add(offset));
+            let left_v1 = _mm256_loadu_pd(left.as_ptr().add(offset + 4));
+            let right_v0 = _mm256_loadu_pd(right.as_ptr().add(offset));
+            let right_v1 = _mm256_loadu_pd(right.as_ptr().add(offset + 4));
+            let output_v0 = _mm256_mul_pd(left_v0, right_v0);
+            let output_v1 = _mm256_mul_pd(left_v1, right_v1);
+            _mm256_storeu_pd(result.as_mut_ptr().add(offset), output_v0);
+            _mm256_storeu_pd(result.as_mut_ptr().add(offset + 4), output_v1);
+        }
+    }
+}
+
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn dot_f64(left: &[f64], right: &[f64]) -> f64 {
+    debug_assert_eq!(left.len(), right.len());
+    debug_assert_eq!(left.len() % LANES, 0);
+
+    let mut total_v0 = _mm256_setzero_pd();
+    let mut total_v1 = _mm256_setzero_pd();
+    for lane in 0..left.len() / LANES {
+        let offset = lane * LANES;
+        unsafe {
+            let left_v0 = _mm256_loadu_pd(left.as_ptr().add(offset));
+            let left_v1 = _mm256_loadu_pd(left.as_ptr().add(offset + 4));
+            let right_v0 = _mm256_loadu_pd(right.as_ptr().add(offset));
+            let right_v1 = _mm256_loadu_pd(right.as_ptr().add(offset + 4));
+            total_v0 = _mm256_add_pd(total_v0, _mm256_mul_pd(left_v0, right_v0));
+            total_v1 = _mm256_add_pd(total_v1, _mm256_mul_pd(left_v1, right_v1));
+        }
+    }
+
+    horizontal_sum_f64(_mm256_add_pd(total_v0, total_v1))
+}
+
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn sum_f64(data: &[f64]) -> f64 {
+    debug_assert_eq!(data.len() % LANES, 0);
+
+    let mut total_v0 = _mm256_setzero_pd();
+    let mut total_v1 = _mm256_setzero_pd();
+    for lane in 0..data.len() / LANES {
+        let offset = lane * LANES;
+        unsafe {
+            let values_v0 = _mm256_loadu_pd(data.as_ptr().add(offset));
+            let values_v1 = _mm256_loadu_pd(data.as_ptr().add(offset + 4));
+            total_v0 = _mm256_add_pd(total_v0, values_v0);
+            total_v1 = _mm256_add_pd(total_v1, values_v1);
+        }
+    }
+
+    horizontal_sum_f64(_mm256_add_pd(total_v0, total_v1))
+}
+
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn squared_diff_sum_f64(data: &[f64], mean: f64) -> f64 {
+    debug_assert_eq!(data.len() % LANES, 0);
+
+    let mean_values = _mm256_set1_pd(mean);
+    let mut total_v0 = _mm256_setzero_pd();
+    let mut total_v1 = _mm256_setzero_pd();
+
+    for lane in 0..data.len() / LANES {
+        let offset = lane * LANES;
+        unsafe {
+            let values_v0 = _mm256_loadu_pd(data.as_ptr().add(offset));
+            let values_v1 = _mm256_loadu_pd(data.as_ptr().add(offset + 4));
+            let diff_v0 = _mm256_sub_pd(values_v0, mean_values);
+            let diff_v1 = _mm256_sub_pd(values_v1, mean_values);
+            total_v0 = _mm256_add_pd(total_v0, _mm256_mul_pd(diff_v0, diff_v0));
+            total_v1 = _mm256_add_pd(total_v1, _mm256_mul_pd(diff_v1, diff_v1));
+        }
+    }
+
+    horizontal_sum_f64(_mm256_add_pd(total_v0, total_v1))
+}
+
+#[inline]
+#[target_feature(enable = "avx2")]
+fn horizontal_sum_f64(values: __m256d) -> f64 {
+    let high = _mm256_extractf128_pd(values, 1);
+    let low = _mm256_castpd256_pd128(values);
+    let combined = _mm_add_pd(high, low);
+    let shuffled = _mm_shuffle_pd(combined, combined, 1);
+    let total = _mm_add_sd(combined, shuffled);
+    _mm_cvtsd_f64(total)
+}

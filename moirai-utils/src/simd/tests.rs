@@ -180,3 +180,82 @@ fn unaligned_vector_prefix_records_vector_dispatch_when_available() {
         assert_eq!(scalar_elements, len);
     }
 }
+
+#[test]
+fn add_preserves_values_f64() {
+    let left = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let right = [8.0_f64, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
+    let mut result = [0.0_f64; 8];
+
+    add(&left, &right, &mut result);
+
+    assert_eq!(result, [9.0_f64; 8]);
+}
+
+#[test]
+fn dot_preserves_values_f64() {
+    let left = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let right = [8.0_f64, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0];
+
+    let result = dot(&left, &right);
+
+    assert_eq!(result, 120.0_f64);
+}
+
+#[test]
+fn statistics_preserve_values_f64() {
+    let data = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+
+    let total = sum(&data);
+    let average = mean(&data);
+    let spread = variance(&data);
+
+    assert_eq!(total, 36.0_f64);
+    assert_eq!(average, 4.5_f64);
+    assert_eq!(spread, 5.25_f64);
+}
+
+#[test]
+fn unaligned_lengths_preserve_values_f64() {
+    for len in [3, 7, 9, 11, 15, 17, 23, 31, 33] {
+        let left: Vec<f64> = (0..len).map(|i| i as f64).collect();
+        let right: Vec<f64> = (0..len).map(|i| (len - i) as f64).collect();
+
+        let mut result_add = vec![0.0_f64; len];
+        add(&left, &right, &mut result_add);
+        let expected_add: Vec<f64> = left.iter().zip(right.iter()).map(|(x, y)| x + y).collect();
+        assert_eq!(result_add, expected_add, "add mismatch at len {len}");
+
+        let mut result_mul = vec![0.0_f64; len];
+        mul(&left, &right, &mut result_mul);
+        let expected_mul: Vec<f64> = left.iter().zip(right.iter()).map(|(x, y)| x * y).collect();
+        assert_eq!(result_mul, expected_mul, "mul mismatch at len {len}");
+
+        let result_dot = dot(&left, &right);
+        let expected_dot: f64 = left.iter().zip(right.iter()).map(|(x, y)| x * y).sum();
+        assert!(
+            (result_dot - expected_dot).abs() < 1e-4,
+            "dot mismatch at len {len}"
+        );
+
+        let result_sum = sum(&left);
+        let expected_sum: f64 = left.iter().copied().sum();
+        assert_eq!(result_sum, expected_sum, "sum mismatch at len {len}");
+
+        let result_var = variance(&left);
+        let mean_val = mean(&left);
+        let expected_var = left
+            .iter()
+            .copied()
+            .map(|value| {
+                let diff = value - mean_val;
+                diff * diff
+            })
+            .sum::<f64>()
+            / len as f64;
+        assert!(
+            (result_var - expected_var).abs() < 1e-4,
+            "variance mismatch at len {len}: result={result_var}, expected={expected_var}"
+        );
+    }
+}
