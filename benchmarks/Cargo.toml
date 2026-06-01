@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/moirai-rs/moirai"
 
 [dependencies]
-moirai = { path = "../moirai" }
+moirai = { path = "../moirai", default-features = false }
 moirai-core = { path = "../moirai-core" }
 moirai-executor = { path = "../moirai-executor" }
 moirai-scheduler = { path = "../moirai-scheduler" }
@@ -153,8 +153,12 @@ name = "async_io_compat_comparison"
 harness = false
 
 [features]
-default = []
-full = ["tokio/full"]
+default = ["async", "iter", "local", "mnemosyne"]
+async = ["moirai/async"]
+iter = ["moirai/iter"]
+local = ["moirai/local"]
+mnemosyne = ["moirai/mnemosyne"]
+full = ["moirai/full", "tokio/full"]
 registry-diagnostics = ["moirai-executor/registry-diagnostics"]
 scheduler-diagnostics = ["moirai-executor/scheduler-diagnostics"]
 result-diagnostics = ["moirai-core/result-diagnostics"]

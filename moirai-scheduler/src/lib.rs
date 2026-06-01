@@ -387,9 +387,6 @@ where
     pub fn steal(&self) -> StealResult<T> {
         let _guard = self.reclaim.enter();
         let t = self.top.load(Ordering::Acquire);
-
-        std::sync::atomic::fence(Ordering::SeqCst);
-
         let b = self.bottom.load(Ordering::Acquire);
 
         if t < b {
@@ -420,9 +417,6 @@ where
     {
         let _guard = self.reclaim.enter();
         let t = self.top.load(Ordering::Acquire);
-
-        std::sync::atomic::fence(Ordering::SeqCst);
-
         let b = self.bottom.load(Ordering::Acquire);
 
         let len = b - t;

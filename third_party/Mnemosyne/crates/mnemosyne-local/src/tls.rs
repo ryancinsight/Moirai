@@ -450,7 +450,8 @@ impl<B: HasSegmentPool, S: TlsSlotAccess<B>> TlsProvider<B> for NightlyTls<B, S>
 
 #[inline(always)]
 fn get_os_tls_key(atomic_key: &AtomicU32) -> u32 {
-    let mut key = atomic_key.load(Ordering::Acquire);
+    // The atomic publishes only the OS TLS key scalar; slot contents are accessed through OS TLS.
+    let mut key = atomic_key.load(Ordering::Relaxed);
     if key == u32::MAX {
         key = init_os_tls_key(atomic_key);
     }
