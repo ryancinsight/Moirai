@@ -575,6 +575,21 @@ fn rayon_interleave_pipeline(
     (full, shortest)
 }
 
+fn moirai_step_by_pipeline(data: Vec<u64>) -> Vec<u64> {
+    MoiraiIndexedParallelIterator::step_by(MoiraiIntoParallelIterator::into_par_iter(data), 3)
+        .map(|value| value.wrapping_mul(11).wrapping_add(5))
+        .collect::<Vec<_>>()
+}
+
+fn rayon_step_by_pipeline(data: Vec<u64>) -> Vec<u64> {
+    RayonIndexedParallelIterator::step_by(
+        rayon::prelude::IntoParallelIterator::into_par_iter(data),
+        3,
+    )
+    .map(|value| value.wrapping_mul(11).wrapping_add(5))
+    .collect::<Vec<_>>()
+}
+
 fn moirai_intersperse_pipeline(data: Vec<u64>) -> Vec<u64> {
     MoiraiIntoParallelIterator::into_par_iter(data)
         .filter(|value| value % 3 != 0)
@@ -1289,6 +1304,22 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
                 black_box(right_short.clone()),
             ))
         })
+    });
+    group.finish();
+
+    let moirai_expected = moirai_step_by_pipeline(data.clone());
+    let rayon_expected = rayon_step_by_pipeline(data.clone());
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_indexed_step_by");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(moirai_step_by_pipeline(black_box(input.clone()))))
+    });
+    group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(rayon_step_by_pipeline(black_box(input.clone()))))
     });
     group.finish();
 

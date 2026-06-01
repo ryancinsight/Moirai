@@ -277,6 +277,92 @@ fn test_indexed_interleave_shortest_drops_truncated_tail_once() {
 }
 
 #[test]
+fn test_indexed_step_by_moves_non_clone_values_without_clone_bound() {
+    struct NonCloneValue {
+        value: u64,
+    }
+
+    let data = vec![
+        NonCloneValue { value: 1 },
+        NonCloneValue { value: 2 },
+        NonCloneValue { value: 3 },
+        NonCloneValue { value: 4 },
+        NonCloneValue { value: 5 },
+        NonCloneValue { value: 6 },
+    ];
+    let stepped = data
+        .into_par_iter()
+        .step_by(2)
+        .map(|item| item.value)
+        .collect::<Vec<_>>();
+    assert_eq!(stepped, vec![1, 3, 5]);
+
+    let data = vec![
+        NonCloneValue { value: 8 },
+        NonCloneValue { value: 13 },
+        NonCloneValue { value: 21 },
+    ];
+    let stepped = data
+        .into_par_iter()
+        .step_by(8)
+        .map(|item| item.value)
+        .collect::<Vec<_>>();
+    assert_eq!(stepped, vec![8]);
+}
+
+#[test]
+fn test_indexed_step_by_reports_exact_length() {
+    let data = vec![1_u64, 2, 3, 4, 5, 6, 7].into_par_iter().step_by(3);
+    assert_eq!(IndexedParallelIterator::len(&data), 3);
+
+    let empty = Vec::<u64>::new().into_par_iter().step_by(3);
+    assert_eq!(IndexedParallelIterator::len(&empty), 0);
+
+    let single = vec![1_u64].into_par_iter().step_by(3);
+    assert_eq!(IndexedParallelIterator::len(&single), 1);
+}
+
+#[test]
+#[should_panic(expected = "step size must be non-zero")]
+fn test_indexed_step_by_rejects_zero_step() {
+    let _ = vec![1_u64, 2, 3].into_par_iter().step_by(0);
+}
+
+#[test]
+fn test_indexed_step_by_drops_skipped_values_once() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    struct DropProbe {
+        value: u64,
+        drops: Arc<AtomicUsize>,
+    }
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let drops = Arc::new(AtomicUsize::new(0));
+    let data = (0..7)
+        .map(|value| DropProbe {
+            value,
+            drops: Arc::clone(&drops),
+        })
+        .collect::<Vec<_>>();
+    let values = data
+        .into_par_iter()
+        .step_by(3)
+        .map(|item| item.value)
+        .collect::<Vec<_>>();
+    assert_eq!(values, vec![0, 3, 6]);
+    assert_eq!(drops.load(Ordering::SeqCst), 7);
+}
+
+#[test]
 fn test_indexed_parallel_iterator_reports_source_lengths() {
     let owned = vec![1_u64, 2, 3, 4].into_par_iter();
     assert_eq!(IndexedParallelIterator::len(&owned), 4);

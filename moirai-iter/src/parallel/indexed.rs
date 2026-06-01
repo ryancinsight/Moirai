@@ -1,4 +1,4 @@
-use super::{Interleave, InterleaveShortest, IntoParallelIterator, ParallelIterator};
+use super::{Interleave, InterleaveShortest, IntoParallelIterator, ParallelIterator, StepBy};
 
 /// Exact-size boundary for Moirai's bounded Rayon-style indexed source subset.
 ///
@@ -74,6 +74,17 @@ pub trait IndexedParallelIterator: ParallelIterator {
     {
         InterleaveShortest::new(self, other.into_par_iter())
     }
+
+    /// Yield every `step`th item from an exact-size source.
+    ///
+    /// The step size must be non-zero. Skipped items remain owned by the
+    /// consumed source iterator and are dropped exactly once.
+    fn step_by(self, step: usize) -> StepBy<Self>
+    where
+        Self::Item: Sync + 'static,
+    {
+        StepBy::new(self, step)
+    }
 }
 
 impl<I, J> IndexedParallelIterator for Interleave<I, J>
@@ -118,6 +129,21 @@ where
                 .checked_mul(2)
                 .and_then(|len| len.checked_add(1))
                 .expect("overflow")
+        }
+    }
+}
+
+impl<I> IndexedParallelIterator for StepBy<I>
+where
+    I: IndexedParallelIterator,
+    I::Item: Sync + 'static,
+{
+    fn len(&self) -> usize {
+        let len = self.base.len();
+        if len == 0 {
+            0
+        } else {
+            ((len - 1) / self.step()) + 1
         }
     }
 }

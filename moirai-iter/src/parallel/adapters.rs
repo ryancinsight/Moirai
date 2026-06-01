@@ -2,12 +2,14 @@ mod chunks;
 mod pair;
 mod position;
 mod side_effect;
+mod stride;
 mod window;
 
 pub use chunks::Chunks;
 pub use pair::{Interleave, InterleaveShortest, Zip, ZipEq};
 pub use position::{MapPositions, Positions};
 pub use side_effect::{Inspect, PanicFuse};
+pub use stride::StepBy;
 pub use window::{SkipAnyWhile, TakeAnyWhile};
 
 use super::{

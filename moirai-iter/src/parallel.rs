@@ -22,7 +22,7 @@ mod traits;
 pub use adapters::{
     Chain, Chunks, Cloned, Copied, Enumerate, Filter, FilterMap, FlatMap, Flatten, Inspect,
     Interleave, InterleaveShortest, Intersperse, Map, MapInit, MapPositions, MapWith, PanicFuse,
-    Positions, Rev, Skip, SkipAnyWhile, Take, TakeAnyWhile, Update, WhileSome, Zip, ZipEq,
+    Positions, Rev, Skip, SkipAnyWhile, StepBy, Take, TakeAnyWhile, Update, WhileSome, Zip, ZipEq,
 };
 pub use consumers::Reduction;
 pub use fallible::TryStreamItem;

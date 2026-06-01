@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-01 Iterator Indexed Step-By Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_indexed_step_by --quiet
+```
+
+Workload: exact-size owned sources are filtered through `IndexedParallelIterator::step_by(3)`, mapped, and collected. The benchmark source asserts equal Moirai and Rayon output vectors before timing, and unit tests cover non-`Clone` value movement, exact indexed length, zero-step rejection, and skipped-value drops.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator indexed `step_by` | 24.335-25.830 us | Rayon 65.191-67.990 us |
+
+Interpretation: the bounded indexed source boundary now includes fixed-stride exact-size source selection without clone bounds, boxed dispatch, or runtime strategy objects. Full Rayon indexed producer/consumer parity remains outside the audited subset.
+
 ## 2026-06-01 Iterator Indexed Interleave Row
 
 Command:
