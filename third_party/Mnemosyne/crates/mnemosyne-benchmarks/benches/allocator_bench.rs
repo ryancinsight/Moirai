@@ -145,17 +145,22 @@ unsafe extern "system" fn fallback_virtual_alloc_2_from_app(
         unsafe {
             let kernel32 = GetModuleHandleA(c"kernel32.dll".as_ptr() as *const u8);
             if !kernel32.is_null() {
-                let func_ptr = GetProcAddress(kernel32, c"VirtualAlloc2FromApp".as_ptr() as *const u8);
+                let func_ptr =
+                    GetProcAddress(kernel32, c"VirtualAlloc2FromApp".as_ptr() as *const u8);
                 if !func_ptr.is_null() {
                     // Safety: `func_ptr` was resolved for `VirtualAlloc2FromApp`,
                     // whose ABI matches `FuncType`.
-                    return Some(core::mem::transmute::<*mut core::ffi::c_void, FuncType>(func_ptr));
+                    return Some(core::mem::transmute::<*mut core::ffi::c_void, FuncType>(
+                        func_ptr,
+                    ));
                 }
                 let func_ptr2 = GetProcAddress(kernel32, c"VirtualAlloc2".as_ptr() as *const u8);
                 if !func_ptr2.is_null() {
                     // Safety: `func_ptr2` was resolved for `VirtualAlloc2`,
                     // whose ABI matches `FuncType`.
-                    return Some(core::mem::transmute::<*mut core::ffi::c_void, FuncType>(func_ptr2));
+                    return Some(core::mem::transmute::<*mut core::ffi::c_void, FuncType>(
+                        func_ptr2,
+                    ));
                 }
             }
             None
@@ -198,7 +203,8 @@ const MEDIUM_LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked(1024, 8
 const LARGE_LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked(8192, 8) };
 const LARGE_WITHIN_CLASS_LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked(6144, 8) };
 const HUGE_LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked(2 * 1024 * 1024, 4096) };
-const HUGE_REALLOC_SRC_LAYOUT: Layout = unsafe { Layout::from_size_align_unchecked(4 * 1024 * 1024, 4096) };
+const HUGE_REALLOC_SRC_LAYOUT: Layout =
+    unsafe { Layout::from_size_align_unchecked(4 * 1024 * 1024, 4096) };
 const BATCH_ALLOCS: usize = 256;
 const THREADS: usize = 4;
 const THREAD_ALLOCS: usize = 1_000;
@@ -614,7 +620,9 @@ fn bench_allocator_alloc(c: &mut Criterion) {
             group.bench_with_input(BenchmarkId::new("SnMalloc", name), &layout, |b, layout| {
                 b.iter_batched(
                     || (),
-                    |_| unsafe { AllocatedBlock::new(&snmalloc_rs::SnMalloc, *layout, "alloc_only") },
+                    |_| unsafe {
+                        AllocatedBlock::new(&snmalloc_rs::SnMalloc, *layout, "alloc_only")
+                    },
                     BatchSize::SmallInput,
                 )
             });
@@ -763,7 +771,9 @@ fn bench_usable_size(c: &mut Criterion) {
                     alloc_usable_dealloc(&snmalloc_rs::SnMalloc, *layout, |ptr| {
                         match snmalloc_rs::SnMalloc.usable_size(ptr) {
                             Some(size) => size,
-                            None => benchmark_failure("alloc_usable_dealloc", "snmalloc returned None"),
+                            None => {
+                                benchmark_failure("alloc_usable_dealloc", "snmalloc returned None")
+                            }
                         }
                     })
                 })
@@ -820,8 +830,9 @@ fn bench_usable_size_query(c: &mut Criterion) {
 
         if name != "huge/2m" {
             // Safety: `layout` comes from the static valid benchmark layout table.
-            let snmalloc_ptr =
-                unsafe { require_allocated(snmalloc_rs::SnMalloc.alloc(layout), "usable_size_query") };
+            let snmalloc_ptr = unsafe {
+                require_allocated(snmalloc_rs::SnMalloc.alloc(layout), "usable_size_query")
+            };
             group.bench_with_input(
                 BenchmarkId::new("SnMalloc", name),
                 &snmalloc_ptr,
@@ -829,7 +840,9 @@ fn bench_usable_size_query(c: &mut Criterion) {
                     b.iter(
                         || match snmalloc_rs::SnMalloc.usable_size(black_box(*ptr)) {
                             Some(size) => size,
-                            None => benchmark_failure("usable_size_query", "snmalloc returned None"),
+                            None => {
+                                benchmark_failure("usable_size_query", "snmalloc returned None")
+                            }
                         },
                     )
                 },
@@ -861,9 +874,17 @@ fn bench_realloc(c: &mut Criterion) {
     for (name, layout, new_size) in [
         ("within_class_24_to_32", SMALL_WITHIN_CLASS_LAYOUT, 32usize),
         ("cross_class_32_to_64", SMALL_LAYOUT, 64usize),
-        ("within_class_6k_to_8k", LARGE_WITHIN_CLASS_LAYOUT, 8192usize),
+        (
+            "within_class_6k_to_8k",
+            LARGE_WITHIN_CLASS_LAYOUT,
+            8192usize,
+        ),
         ("cross_class_8k_to_16k", LARGE_LAYOUT, 16384usize),
-        ("huge_shrink_4m_to_2m", HUGE_REALLOC_SRC_LAYOUT, 2 * 1024 * 1024usize),
+        (
+            "huge_shrink_4m_to_2m",
+            HUGE_REALLOC_SRC_LAYOUT,
+            2 * 1024 * 1024usize,
+        ),
     ] {
         group.throughput(Throughput::Elements(1));
         group.bench_with_input(

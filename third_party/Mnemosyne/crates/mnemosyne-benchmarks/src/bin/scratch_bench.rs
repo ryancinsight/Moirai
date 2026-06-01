@@ -1,4 +1,4 @@
-use std::alloc::{Layout, GlobalAlloc};
+use std::alloc::{GlobalAlloc, Layout};
 use std::time::Instant;
 
 fn main() {

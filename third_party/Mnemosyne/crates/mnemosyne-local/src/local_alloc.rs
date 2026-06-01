@@ -5,9 +5,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use mnemosyne_arena::{allocate_segment, deallocate_segment, HasSegmentPool};
 use mnemosyne_backend::DefaultBackend;
-use mnemosyne_core::constants::{
-    NUM_SIZE_CLASSES, PAGES_PER_SEGMENT, PAGE_SIZE, SEGMENT_SIZE,
-};
+use mnemosyne_core::constants::{NUM_SIZE_CLASSES, PAGES_PER_SEGMENT, PAGE_SIZE, SEGMENT_SIZE};
 use mnemosyne_core::policy::AllocPolicy;
 use mnemosyne_core::size_class::{class_to_size, size_to_class};
 use mnemosyne_core::types::{Page, Segment, SegmentOwner};
@@ -109,7 +107,10 @@ unsafe fn pop_page_free_block<P: AllocPolicy>(
 /// `page_ptr` must be a valid, live page pointer owned by the current thread
 /// and must be currently linked in the list starting at `head_slot`.
 #[inline(always)]
-unsafe fn unlink_page_from_list(head_slot: &mut Option<NonNull<Page>>, mut page_ptr: NonNull<Page>) {
+unsafe fn unlink_page_from_list(
+    head_slot: &mut Option<NonNull<Page>>,
+    mut page_ptr: NonNull<Page>,
+) {
     let page = page_ptr.as_mut();
     let next = page.next_page;
     let prev = page.prev_page;
@@ -411,7 +412,9 @@ impl<B: HasSegmentPool> ThreadAllocator<B> {
             if let Some(block) = try_reclaim_and_allocate::<P>(active_page) {
                 return block.as_ptr() as *mut u8;
             }
-            if active_page.free.is_none() && active_page.initialized_blocks == active_page.max_blocks() {
+            if active_page.free.is_none()
+                && active_page.initialized_blocks == active_page.max_blocks()
+            {
                 // The page is truly full! Move it to full_pages.
                 unsafe {
                     unlink_page_from_list(self.active_pages.get_unchecked_mut(class), active_ptr);
@@ -441,7 +444,10 @@ impl<B: HasSegmentPool> ThreadAllocator<B> {
                         // Page is no longer full! Move it back to active list.
                         // Safety: page_ptr and class are valid.
                         unsafe {
-                            unlink_page_from_list(self.full_pages.get_unchecked_mut(class), page_ptr);
+                            unlink_page_from_list(
+                                self.full_pages.get_unchecked_mut(class),
+                                page_ptr,
+                            );
                             self.push_active_page(page_ptr, class);
                         }
                     }
@@ -678,10 +684,7 @@ impl<B: HasSegmentPool> ThreadAllocator<B> {
             self.unlink_owned_segment(segment);
         }
 
-        if self
-            .current_segment
-            .is_some_and(|p| p.as_ptr() == segment)
-        {
+        if self.current_segment.is_some_and(|p| p.as_ptr() == segment) {
             self.set_current_segment(None);
             self.next_page_index = 0;
         }
@@ -899,8 +902,7 @@ mod tests {
         mnemosyne_arena::GlobalSegmentPool::new();
     static MOCK_ORPHAN_POOL: mnemosyne_arena::GlobalSegmentPool =
         mnemosyne_arena::GlobalSegmentPool::new();
-    static MOCK_HUGE_POOL: mnemosyne_arena::GlobalHugePool =
-        mnemosyne_arena::GlobalHugePool::new();
+    static MOCK_HUGE_POOL: mnemosyne_arena::GlobalHugePool = mnemosyne_arena::GlobalHugePool::new();
 
     impl MemoryBackend for MockBackend {
         unsafe fn allocate(size: usize) -> *mut u8 {

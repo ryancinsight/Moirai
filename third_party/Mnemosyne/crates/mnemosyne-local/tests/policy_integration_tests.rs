@@ -17,12 +17,12 @@ fn test_secure_policy_zeroing() {
     unsafe {
         let ptr1 = thread_alloc::<SecurePolicy, Backend>(SIZE, ALIGN);
         assert!(!ptr1.is_null());
-        
+
         // Verify it is zero-initialized
         for i in 0..SIZE {
             assert_eq!(*ptr1.add(i), 0);
         }
-        
+
         // Write a sentinel value
         core::ptr::write_bytes(ptr1, 0xAA, SIZE);
         thread_free::<SecurePolicy, Backend>(ptr1);
@@ -47,7 +47,7 @@ fn test_hardened_policy_round_trip() {
         for slot in ptrs.iter_mut() {
             let p = thread_alloc::<HardenedPolicy, Backend>(SIZE, ALIGN);
             assert!(!p.is_null());
-            
+
             // HardenedPolicy also enforces zero initialization
             for j in 0..SIZE {
                 assert_eq!(*p.add(j), 0);
@@ -55,7 +55,7 @@ fn test_hardened_policy_round_trip() {
             core::ptr::write_bytes(p, 0xBB, SIZE);
             *slot = p;
         }
-        
+
         // Deallocate all to ensure free-list operations succeed with encryption enabled.
         for &p in &ptrs {
             thread_free::<HardenedPolicy, Backend>(p);
@@ -79,7 +79,7 @@ fn test_realloc_under_policies() {
 
         let ptr1_re = thread_realloc::<SecurePolicy, Backend>(ptr1, old_layout, new_size);
         assert!(!ptr1_re.is_null());
-        
+
         // Original 16 bytes must be preserved
         for i in 0..16 {
             assert_eq!(*ptr1_re.add(i), 0x77);
@@ -97,7 +97,7 @@ fn test_realloc_under_policies() {
 
         let ptr2_re = thread_realloc::<HardenedPolicy, Backend>(ptr2, old_layout, new_size);
         assert!(!ptr2_re.is_null());
-        
+
         for i in 0..16 {
             assert_eq!(*ptr2_re.add(i), 0x88);
         }

@@ -225,7 +225,9 @@ impl Page {
         // = (offset >> 6) << 16 = offset << 10.
         // The low 6 bits of offset are 0 because Page is 64-byte aligned,
         // so shift left by 10 is perfectly precise and avoids an intermediate right-shift.
-        let page_offset = offset << (crate::constants::PAGE_SHIFT - core::mem::size_of::<Page>().trailing_zeros() as usize);
+        let page_offset = offset
+            << (crate::constants::PAGE_SHIFT
+                - core::mem::size_of::<Page>().trailing_zeros() as usize);
         unsafe { (segment_addr as *mut u8).add(page_offset) }
     }
 
@@ -460,8 +462,8 @@ impl Segment {
 
 #[cfg(test)]
 mod tests {
-    use ::std::alloc::{alloc_zeroed, dealloc, Layout};
     use super::*;
+    use ::std::alloc::{Layout, alloc_zeroed, dealloc};
 
     #[test]
     fn page_struct_size_stays_within_one_cache_line() {
@@ -485,7 +487,10 @@ mod tests {
         )
         .unwrap();
         let segment_ptr = unsafe { alloc_zeroed(layout) as *mut Segment };
-        assert!(!segment_ptr.is_null(), "alloc_zeroed failed to allocate segment");
+        assert!(
+            !segment_ptr.is_null(),
+            "alloc_zeroed failed to allocate segment"
+        );
         let page = unsafe { &mut (*segment_ptr).pages[1] };
         page.block_size = 16;
 
@@ -522,7 +527,10 @@ mod tests {
         )
         .unwrap();
         let segment_ptr = unsafe { alloc_zeroed(layout) as *mut Segment };
-        assert!(!segment_ptr.is_null(), "alloc_zeroed failed to allocate segment");
+        assert!(
+            !segment_ptr.is_null(),
+            "alloc_zeroed failed to allocate segment"
+        );
         let page = unsafe { &mut (*segment_ptr).pages[1] };
         page.block_size = 16;
 
