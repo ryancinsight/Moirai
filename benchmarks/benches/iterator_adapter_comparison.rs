@@ -590,6 +590,38 @@ fn rayon_step_by_pipeline(data: Vec<u64>) -> Vec<u64> {
     .collect::<Vec<_>>()
 }
 
+fn moirai_blocks_pipeline(data: Vec<u64>) -> (Option<u64>, Vec<u64>) {
+    let first = MoiraiIndexedParallelIterator::by_exponential_blocks(
+        MoiraiIntoParallelIterator::into_par_iter(data.clone()),
+    )
+    .map(|value| value.wrapping_mul(17).wrapping_add(3))
+    .find_first(|value| *value >= 4096 && *value % 19 == 0);
+    let collected = MoiraiIndexedParallelIterator::by_uniform_blocks(
+        MoiraiIntoParallelIterator::into_par_iter(data),
+        257,
+    )
+    .map(|value| value.wrapping_mul(13).wrapping_add(7))
+    .filter(|value| value % 5 != 0)
+    .collect::<Vec<_>>();
+    (first, collected)
+}
+
+fn rayon_blocks_pipeline(data: Vec<u64>) -> (Option<u64>, Vec<u64>) {
+    let first = RayonIndexedParallelIterator::by_exponential_blocks(
+        rayon::prelude::IntoParallelIterator::into_par_iter(data.clone()),
+    )
+    .map(|value| value.wrapping_mul(17).wrapping_add(3))
+    .find_first(|value| *value >= 4096 && *value % 19 == 0);
+    let collected = RayonIndexedParallelIterator::by_uniform_blocks(
+        rayon::prelude::IntoParallelIterator::into_par_iter(data),
+        257,
+    )
+    .map(|value| value.wrapping_mul(13).wrapping_add(7))
+    .filter(|value| value % 5 != 0)
+    .collect::<Vec<_>>();
+    (first, collected)
+}
+
 fn moirai_intersperse_pipeline(data: Vec<u64>) -> Vec<u64> {
     MoiraiIntoParallelIterator::into_par_iter(data)
         .filter(|value| value % 3 != 0)
@@ -1320,6 +1352,22 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     });
     group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(rayon_step_by_pipeline(black_box(input.clone()))))
+    });
+    group.finish();
+
+    let moirai_expected = moirai_blocks_pipeline(data.clone());
+    let rayon_expected = rayon_blocks_pipeline(data.clone());
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_indexed_blocks");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(moirai_blocks_pipeline(black_box(input.clone()))))
+    });
+    group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(rayon_blocks_pipeline(black_box(input.clone()))))
     });
     group.finish();
 

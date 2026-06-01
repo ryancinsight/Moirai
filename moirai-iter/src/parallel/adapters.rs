@@ -1,3 +1,4 @@
+mod blocks;
 mod chunks;
 mod pair;
 mod position;
@@ -5,6 +6,7 @@ mod side_effect;
 mod stride;
 mod window;
 
+pub use blocks::{ExponentialBlocks, UniformBlocks};
 pub use chunks::Chunks;
 pub use pair::{Interleave, InterleaveShortest, Zip, ZipEq};
 pub use position::{MapPositions, Positions};

@@ -1,4 +1,7 @@
-use super::{Interleave, InterleaveShortest, IntoParallelIterator, ParallelIterator, StepBy};
+use super::{
+    ExponentialBlocks, Interleave, InterleaveShortest, IntoParallelIterator, ParallelIterator,
+    StepBy, UniformBlocks,
+};
 
 /// Exact-size boundary for Moirai's bounded Rayon-style indexed source subset.
 ///
@@ -84,6 +87,30 @@ pub trait IndexedParallelIterator: ParallelIterator {
         Self::Item: Sync + 'static,
     {
         StepBy::new(self, step)
+    }
+
+    /// Convert this exact-size source into value-preserving exponential blocks.
+    ///
+    /// This bounded adapter preserves logical item order and exposes Rayon's
+    /// block-hint API surface. It does not claim Rayon's full indexed
+    /// producer/consumer block-splitting scheduler model.
+    fn by_exponential_blocks(self) -> ExponentialBlocks<Self>
+    where
+        Self::Item: Sync + 'static,
+    {
+        ExponentialBlocks::new(self)
+    }
+
+    /// Convert this exact-size source into value-preserving uniform blocks.
+    ///
+    /// The block size must be non-zero. This bounded adapter validates the
+    /// block-size contract and preserves logical item order without claiming
+    /// Rayon's full block-splitting producer model.
+    fn by_uniform_blocks(self, block_size: usize) -> UniformBlocks<Self>
+    where
+        Self::Item: Sync + 'static,
+    {
+        UniformBlocks::new(self, block_size)
     }
 }
 

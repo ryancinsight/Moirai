@@ -384,6 +384,42 @@ fn test_indexed_step_by_drops_skipped_values_once() {
 }
 
 #[test]
+fn test_indexed_block_adapters_preserve_values_without_clone_bound() {
+    struct NonCloneValue {
+        value: u64,
+    }
+
+    let exponential = vec![
+        NonCloneValue { value: 1 },
+        NonCloneValue { value: 2 },
+        NonCloneValue { value: 3 },
+    ]
+    .into_par_iter()
+    .by_exponential_blocks()
+    .map(|item| item.value.wrapping_mul(5))
+    .collect::<Vec<_>>();
+    assert_eq!(exponential, vec![5, 10, 15]);
+
+    let uniform = vec![
+        NonCloneValue { value: 8 },
+        NonCloneValue { value: 13 },
+        NonCloneValue { value: 21 },
+        NonCloneValue { value: 34 },
+    ]
+    .into_par_iter()
+    .by_uniform_blocks(2)
+    .map(|item| item.value.wrapping_add(1))
+    .collect::<Vec<_>>();
+    assert_eq!(uniform, vec![9, 14, 22, 35]);
+}
+
+#[test]
+#[should_panic(expected = "block size must be non-zero")]
+fn test_indexed_by_uniform_blocks_rejects_zero_size() {
+    let _ = vec![1_u64, 2, 3].into_par_iter().by_uniform_blocks(0);
+}
+
+#[test]
 fn test_indexed_parallel_iterator_reports_source_lengths() {
     let owned = vec![1_u64, 2, 3, 4].into_par_iter();
     assert_eq!(IndexedParallelIterator::len(&owned), 4);

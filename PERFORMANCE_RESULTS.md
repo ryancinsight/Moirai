@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-01 Iterator Indexed Block Adapter Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_indexed_blocks --quiet
+```
+
+Workload: exact-size owned sources are routed through `IndexedParallelIterator::by_exponential_blocks` before a `find_first` query and through `IndexedParallelIterator::by_uniform_blocks(257)` before a mapped/filtering collection. The benchmark source asserts equal Moirai and Rayon `(first, collected)` outputs before timing. Unit tests cover non-`Clone` value movement, zero-sized block policy markers, and zero-size rejection for uniform blocks.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator indexed block adapters | 30.128-32.300 µs | Rayon 4.4301-4.5698 ms |
+
+Interpretation: the bounded indexed source boundary now includes Rayon-named block adapter methods as value-preserving logical-output adapters without dynamic strategy objects or clone bounds. Full Rayon indexed producer/consumer block-scheduling semantics remain outside the audited subset.
+
 ## 2026-06-01 Iterator Serial-Inner Flatten Rows
 
 Commands:
