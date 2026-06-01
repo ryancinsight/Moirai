@@ -9,6 +9,7 @@ use moirai_iter::parallel::ParallelIterator as MoiraiParallelIterator;
 use rayon::iter::Either as RayonEither;
 use rayon::iter::IndexedParallelIterator as RayonIndexedParallelIterator;
 use rayon::prelude::*;
+use std::collections::LinkedList;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -620,6 +621,36 @@ fn rayon_blocks_pipeline(data: Vec<u64>) -> (Option<u64>, Vec<u64>) {
     .filter(|value| value % 5 != 0)
     .collect::<Vec<_>>();
     (first, collected)
+}
+
+fn summarize_vec_list(list: LinkedList<Vec<u64>>) -> (usize, u64, u64) {
+    let mut len = 0_usize;
+    let mut sum = 0_u64;
+    let mut xor = 0_u64;
+    for segment in list {
+        for value in segment {
+            len += 1;
+            sum = sum.wrapping_add(value);
+            xor ^= value.rotate_left((len % u64::BITS as usize) as u32);
+        }
+    }
+    (len, sum, xor)
+}
+
+fn moirai_collect_vec_list_pipeline(data: Vec<u64>) -> (usize, u64, u64) {
+    let list = MoiraiIntoParallelIterator::into_par_iter(data)
+        .map(|value| value.wrapping_mul(7).wrapping_add(3))
+        .filter(|value| value % 11 != 0)
+        .collect_vec_list();
+    summarize_vec_list(list)
+}
+
+fn rayon_collect_vec_list_pipeline(data: Vec<u64>) -> (usize, u64, u64) {
+    let list = rayon::prelude::IntoParallelIterator::into_par_iter(data)
+        .map(|value| value.wrapping_mul(7).wrapping_add(3))
+        .filter(|value| value % 11 != 0)
+        .collect_vec_list();
+    summarize_vec_list(list)
 }
 
 fn moirai_intersperse_pipeline(data: Vec<u64>) -> Vec<u64> {
@@ -1368,6 +1399,22 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     });
     group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(rayon_blocks_pipeline(black_box(input.clone()))))
+    });
+    group.finish();
+
+    let moirai_expected = moirai_collect_vec_list_pipeline(data.clone());
+    let rayon_expected = rayon_collect_vec_list_pipeline(data.clone());
+    assert_eq!(moirai_expected, rayon_expected);
+
+    let mut group = c.benchmark_group("iterator_adapter_collect_vec_list");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(moirai_collect_vec_list_pipeline(black_box(input.clone()))))
+    });
+    group.bench_with_input(BenchmarkId::new("rayon", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(rayon_collect_vec_list_pipeline(black_box(input.clone()))))
     });
     group.finish();
 

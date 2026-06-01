@@ -2,6 +2,21 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-01 Iterator Collect-Vec-List Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_collect_vec_list --quiet
+```
+
+Workload: owned streams are mapped, filtered, collected through `ParallelIterator::collect_vec_list`, and summarized by flattening the returned segment list. The benchmark source asserts equal flattened `(len, sum, xor)` summaries for Moirai and Rayon before timing. Unit tests cover non-`Clone` value movement and empty-list behavior.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator `collect_vec_list` | 18.349-18.558 µs | Rayon 315.88-327.29 µs |
+
+Interpretation: the bounded Rayon-style subset now includes the `collect_vec_list` terminal return shape without clone bounds or dynamic strategy state. Segment count is not part of the asserted semantic contract.
+
 ## 2026-06-01 Iterator Indexed Block Adapter Row
 
 Command:

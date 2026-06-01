@@ -325,6 +325,21 @@ pub trait ParallelIterator: Sized + Send {
         collection
     }
 
+    /// Collect into a list of owned vector segments.
+    ///
+    /// This bounded terminal mirrors Rayon's public `collect_vec_list` return
+    /// shape while preserving Moirai's logical item stream as one moved
+    /// segment. Segment count is not part of the semantic contract; flattening
+    /// the returned list yields the same logical item sequence as `collect`.
+    fn collect_vec_list(self) -> std::collections::LinkedList<Vec<Self::Item>> {
+        let items = self.seq_items();
+        let mut list = std::collections::LinkedList::new();
+        if !items.is_empty() {
+            list.push_back(items);
+        }
+        list
+    }
+
     /// Partition items into two collections while preserving relative order.
     fn partition<C, F>(self, predicate: F) -> (C, C)
     where

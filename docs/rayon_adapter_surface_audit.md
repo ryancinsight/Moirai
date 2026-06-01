@@ -13,7 +13,7 @@ Moirai does not currently provide full Rayon adapter parity. The supported surfa
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`.
 - `IntoParallelRefIterator` for `Vec<T>` without requiring `T: Clone + 'static`.
 - `IndexedParallelIterator` for exact-size source iterators: by-value `VecParIter<T>`, `VecRefParIter<'_, T>`, `RefVecParIter<'_, T>`, `RangeParIter<usize>`, exact-size sequential adapters, `len`, `is_empty`, `collect_into_vec`, `unzip_into_vecs`, `interleave`, `interleave_shortest`, `step_by`, `by_exponential_blocks`, and `by_uniform_blocks`.
-- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flat_map_iter`, `flatten`, `flatten_iter`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `take_any_while`, `skip_any_while`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `partition_map`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `positions`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `try_reduce_with`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
+- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flat_map_iter`, `flatten`, `flatten_iter`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `take_any_while`, `skip_any_while`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `partition_map`, `unzip`, `collect`, `collect_vec_list`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `positions`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `try_reduce_with`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
 - `ParallelExtend<T>` for `Vec<T>`.
 - `ParallelSliceMut` for the slice extension sorting boundary.
 
@@ -57,6 +57,7 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | Reverse adapter | `ParallelIterator::rev` and `Rev<I>` | `test_parallel_rev_reverses_logical_order`; benchmarked in `iterator_adapter_comparison` | Covered subset |
 | Chunk adapter | `ParallelIterator::chunks` and `Chunks<I>` | `test_parallel_chunks_groups_full_chunks_and_tail` and `test_parallel_chunks_rejects_zero_size`; benchmarked in `iterator_adapter_comparison` | Covered subset |
 | Collect adapter | `ParallelIterator::collect` with `ParallelExtend<T> for Vec<T>` | collect tests and recursion-avoidance implementation | Covered subset |
+| Collect-vec-list terminal | `ParallelIterator::collect_vec_list` returning `LinkedList<Vec<T>>` | `test_parallel_collect_vec_list_moves_non_clone_values`; `iterator_adapter_collect_vec_list` against Rayon measured Moirai at 18.349-18.558 us and Rayon at 315.88-327.29 us | Covered logical-output subset |
 | Partition collector | `ParallelIterator::partition` | `test_parallel_partition_preserves_relative_order`; benchmarked in `iterator_adapter_comparison` | Covered subset |
 | Partition-map collector | `ParallelIterator::partition_map` with public `Either<L, R>` | `test_parallel_partition_map_splits_either_streams` and `iterator_adapter_partition_map` benchmark rows | Covered subset |
 | Pair split collector | `ParallelIterator::unzip` | `test_parallel_unzip_splits_pair_streams` and `iterator_adapter_unzip` benchmark rows | Covered subset |
@@ -112,6 +113,10 @@ Completed: `IndexedParallelIterator::step_by` is implemented for exact-size sour
 ### ISSUE-185 [minor]: Add indexed source block adapter boundary
 
 Completed: `IndexedParallelIterator::{by_exponential_blocks, by_uniform_blocks}` are implemented for exact-size source iterators as value-preserving logical-output adapters. `ExponentialBlocks<I>` and `UniformBlocks<I>` are concrete generic adapters with zero-sized policy markers; `UniformBlocks<I>` validates non-zero block sizes. Unit tests cover non-`Clone` value movement, zero-sized policy markers, and zero-size rejection, and `iterator_adapter_comparison` includes `iterator_indexed_blocks` against Rayon after asserting equal `(first, collected)` outputs. This is not a claim of Rayon's full indexed producer block-scheduling model.
+
+### ISSUE-186 [minor]: Add collect-vec-list terminal boundary
+
+Completed: `ParallelIterator::collect_vec_list` returns Rayon's public `LinkedList<Vec<T>>` terminal shape while preserving Moirai's logical item stream as one moved vector segment. Unit tests cover non-`Clone` value movement and empty-list behavior, and `iterator_adapter_comparison` includes `iterator_adapter_collect_vec_list` against Rayon after asserting equal flattened summaries. Segment count is not claimed as equivalent because Rayon may expose internal split segments.
 
 ### ISSUE-176 [minor]: Add equal-length zip adapter
 
@@ -231,7 +236,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 
 ## Benchmark Evidence
 
-`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, `try_reduce_with`, `positions`, `take_any_while`/`skip_any_while`, and `unzip_into_vecs` were refreshed on 2026-05-29 after their implementations landed. The indexed interleave, step-by, and block rows, plus corrected serial-inner `flat_map_iter` and `flatten_iter` rows, were added on 2026-06-01:
+`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, `try_reduce_with`, `positions`, `take_any_while`/`skip_any_while`, and `unzip_into_vecs` were refreshed on 2026-05-29 after their implementations landed. The indexed interleave, step-by, block, collect-vec-list, plus corrected serial-inner `flat_map_iter` and `flatten_iter` rows, were added on 2026-06-01:
 
 | Group | Moirai | Rayon | Status |
 | --- | --- | --- | --- |
@@ -256,6 +261,7 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 | `iterator_indexed_interleave` | 401.13-439.28 us | 433.44-453.31 us | Moirai ahead |
 | `iterator_indexed_step_by` | 24.335-25.830 us | 65.191-67.990 us | Moirai ahead |
 | `iterator_indexed_blocks` | 30.128-32.300 us | 4.4301-4.5698 ms | Moirai ahead |
+| `iterator_adapter_collect_vec_list` | 18.349-18.558 us | 315.88-327.29 us | Moirai ahead |
 | `iterator_adapter_inspect_chunks_pipeline` | 31.061-31.810 us | 36.916-38.040 us | Moirai ahead |
 | `iterator_adapter_partition_pipeline` | 29.242-30.103 us | 658.16-693.21 us | Moirai ahead |
 | `iterator_adapter_partition_map` | 32.468-32.719 us | 587.36-620.15 us | Moirai ahead |

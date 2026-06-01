@@ -61,6 +61,29 @@ fn test_parallel_filter() {
 }
 
 #[test]
+fn test_parallel_collect_vec_list_moves_non_clone_values() {
+    struct NonCloneValue {
+        value: u64,
+    }
+
+    let data = vec![
+        NonCloneValue { value: 1 },
+        NonCloneValue { value: 2 },
+        NonCloneValue { value: 3 },
+    ];
+
+    let list = data.into_par_iter().collect_vec_list();
+    let flattened: Vec<u64> = list.into_iter().flatten().map(|item| item.value).collect();
+
+    assert_eq!(flattened, vec![1, 2, 3]);
+
+    let empty = Vec::<NonCloneValue>::new()
+        .into_par_iter()
+        .collect_vec_list();
+    assert!(empty.is_empty());
+}
+
+#[test]
 fn test_parallel_inspect_observes_items_without_changing_output() {
     let data = vec![1, 2, 3, 4];
     let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
