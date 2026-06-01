@@ -153,14 +153,14 @@ fn rayon_indexed_pipeline(data: Vec<u64>) -> Vec<u64> {
 fn moirai_filter_flat_pipeline(data: Vec<u64>) -> Vec<u64> {
     MoiraiIntoParallelIterator::into_par_iter(data)
         .filter_map(|value| (value % 3 != 0).then_some(value.wrapping_mul(3)))
-        .flat_map(|value| [value, value.wrapping_add(1)])
+        .flat_map_iter(|value| [value, value.wrapping_add(1)])
         .collect::<Vec<_>>()
 }
 
 fn rayon_filter_flat_pipeline(data: Vec<u64>) -> Vec<u64> {
     rayon::prelude::IntoParallelIterator::into_par_iter(data)
         .filter_map(|value| (value % 3 != 0).then_some(value.wrapping_mul(3)))
-        .flat_map(|value| [value, value.wrapping_add(1)])
+        .flat_map_iter(|value| [value, value.wrapping_add(1)])
         .collect::<Vec<_>>()
 }
 
@@ -173,7 +173,7 @@ fn nested_source_data() -> Vec<Vec<u64>> {
 
 fn moirai_flatten_pipeline(data: Vec<Vec<u64>>) -> Vec<u64> {
     MoiraiIntoParallelIterator::into_par_iter(data)
-        .flatten()
+        .flatten_iter()
         .map(|value| value.wrapping_mul(13).wrapping_add(5))
         .filter(|value| value % 7 != 0)
         .take(WORK_ITEMS / 2)
@@ -182,7 +182,7 @@ fn moirai_flatten_pipeline(data: Vec<Vec<u64>>) -> Vec<u64> {
 
 fn rayon_flatten_pipeline(data: Vec<Vec<u64>>) -> Vec<u64> {
     rayon::prelude::IntoParallelIterator::into_par_iter(data)
-        .flatten()
+        .flatten_iter()
         .map(|value| value.wrapping_mul(13).wrapping_add(5))
         .filter(|value| value % 7 != 0)
         .collect::<Vec<_>>()

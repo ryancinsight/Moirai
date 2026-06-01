@@ -1,4 +1,5 @@
 use super::*;
+use std::cell::RefCell;
 
 #[test]
 fn test_parallel_map() {
@@ -134,10 +135,30 @@ fn test_parallel_flat_map_preserves_flattened_order() {
 }
 
 #[test]
+fn test_parallel_flat_map_iter_accepts_serial_inner_iterators() {
+    let data = vec![1_usize, 2, 3];
+    let result: Vec<usize> = data
+        .into_par_iter()
+        .flat_map_iter(|limit| {
+            let inner = RefCell::new(0..limit);
+            std::iter::from_fn(move || inner.borrow_mut().next())
+        })
+        .collect();
+    assert_eq!(result, vec![0, 0, 1, 0, 1, 2]);
+}
+
+#[test]
 fn test_parallel_flatten_preserves_nested_order() {
     let data = vec![vec![1, 2], Vec::new(), vec![3, 4, 5]];
     let result: Vec<i32> = data.into_par_iter().flatten().collect();
     assert_eq!(result, vec![1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn test_parallel_flatten_iter_preserves_serial_inner_order() {
+    let data = vec![0_usize..2, 2..2, 2..5];
+    let result: Vec<usize> = data.into_par_iter().flatten_iter().collect();
+    assert_eq!(result, vec![0, 1, 2, 3, 4]);
 }
 
 #[test]

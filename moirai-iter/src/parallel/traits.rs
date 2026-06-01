@@ -133,8 +133,27 @@ pub trait ParallelIterator: Sized + Send {
         FlatMap::new(self, flat_map_fn)
     }
 
+    /// Map each element to a serial iterator and flatten the resulting sequence.
+    fn flat_map_iter<F, U>(self, flat_map_fn: F) -> FlatMap<Self, F>
+    where
+        F: Fn(Self::Item) -> U + Send + Sync + Clone,
+        U: IntoIterator,
+        U::Item: Send + Sync + 'static,
+    {
+        FlatMap::new(self, flat_map_fn)
+    }
+
     /// Flatten nested item streams with standard left-to-right semantics.
     fn flatten(self) -> Flatten<Self>
+    where
+        Self::Item: IntoIterator,
+        <Self::Item as IntoIterator>::Item: Send + Sync + 'static,
+    {
+        Flatten::new(self)
+    }
+
+    /// Flatten nested serial iterators with standard left-to-right semantics.
+    fn flatten_iter(self) -> Flatten<Self>
     where
         Self::Item: IntoIterator,
         <Self::Item as IntoIterator>::Item: Send + Sync + 'static,

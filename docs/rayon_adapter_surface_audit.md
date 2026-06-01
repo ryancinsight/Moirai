@@ -13,7 +13,7 @@ Moirai does not currently provide full Rayon adapter parity. The supported surfa
 - `IntoParallelIterator` for `Vec<T>` and `Range<usize>`.
 - `IntoParallelRefIterator` for `Vec<T>` without requiring `T: Clone + 'static`.
 - `IndexedParallelIterator` for exact-size source iterators: by-value `VecParIter<T>`, `VecRefParIter<'_, T>`, `RefVecParIter<'_, T>`, `RangeParIter<usize>`, exact-size sequential adapters, `len`, `is_empty`, `collect_into_vec`, `unzip_into_vecs`, `interleave`, `interleave_shortest`, and `step_by`.
-- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flatten`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `take_any_while`, `skip_any_while`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `partition_map`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `positions`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `try_reduce_with`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
+- `ParallelIterator::map`, `map_with`, `map_init`, `update`, `filter`, `inspect`, `panic_fuse`, `filter_map`, `while_some`, `flat_map`, `flat_map_iter`, `flatten`, `flatten_iter`, `enumerate`, `zip`, `zip_eq`, `copied`, `cloned`, `take`, `skip`, `take_any`, `skip_any`, `take_any_while`, `skip_any_while`, `chain`, `intersperse`, `rev`, `chunks`, `partition`, `partition_map`, `unzip`, `collect`, `count`, `any`, `all`, `find_any`, `find_first`, `find_last`, `position_any`, `position_first`, `position_last`, `positions`, `find_map_any`, `find_map_first`, `find_map_last`, `for_each`, `for_each_with`, `for_each_init`, `try_for_each`, `try_for_each_with`, `try_for_each_init`, `reduce`, `reduce_with`, `try_reduce`, `try_reduce_with`, `sum`, `product`, `min`, `max`, `min_by`, `max_by`, `min_by_key`, `max_by_key`, and `fold`.
 - `ParallelExtend<T>` for `Vec<T>`.
 - `ParallelSliceMut` for the slice extension sorting boundary.
 
@@ -40,8 +40,8 @@ Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `M
 | Panic-fuse adapter | `ParallelIterator::panic_fuse` and `PanicFuse<I>` | `test_parallel_panic_fuse_preserves_values`, `test_parallel_panic_fuse_propagates_panic`, and a zero-sized `PanicFusePolicy` test | Covered subset |
 | Filter-map adapter | `ParallelIterator::filter_map` and `FilterMap<I, F>` | `test_parallel_filter_map_retains_present_values` validates optional retention semantics | Covered subset |
 | While-some adapter | `ParallelIterator::while_some` and `WhileSome<I>` | `test_parallel_while_some_unwraps_present_prefix`, `test_parallel_while_some_empty_when_first_is_none`, and `iterator_adapter_while_some` benchmark rows | Covered subset |
-| Flat-map adapter | `ParallelIterator::flat_map` and `FlatMap<I, F>` | `test_parallel_flat_map_preserves_flattened_order` validates flattened output order | Covered subset |
-| Flatten adapter | `ParallelIterator::flatten` and `Flatten<I>` | `test_parallel_flatten_preserves_nested_order` and `iterator_adapter_flatten` benchmark rows | Covered subset |
+| Flat-map adapters | `ParallelIterator::{flat_map, flat_map_iter}` and `FlatMap<I, F>` | `test_parallel_flat_map_preserves_flattened_order`, `test_parallel_flat_map_iter_accepts_serial_inner_iterators`, and `iterator_adapter_filter_flat_pipeline` against Rayon's `flat_map_iter` validate serial-inner flattened output order | Covered serial-inner subset |
+| Flatten adapters | `ParallelIterator::{flatten, flatten_iter}` and `Flatten<I>` | `test_parallel_flatten_preserves_nested_order`, `test_parallel_flatten_iter_preserves_serial_inner_order`, and `iterator_adapter_flatten` against Rayon's `flatten_iter` validate serial-inner flattened output order | Covered serial-inner subset |
 | Enumerate adapter | `ParallelIterator::enumerate` and `Enumerate<I>` | `test_parallel_enumerate_pairs_logical_indices` validates zero-based logical positions | Covered subset |
 | Zip adapter | `ParallelIterator::zip` and `Zip<I, J>` | `test_parallel_zip_stops_at_shorter_input` validates shortest-input semantics | Covered subset |
 | Equal-length zip adapter | `ParallelIterator::zip_eq` and `ZipEq<I, J>` | `test_parallel_zip_eq_preserves_equal_length_pairs`, `test_parallel_zip_eq_rejects_length_mismatch`, and `iterator_adapter_zip_eq` benchmark rows | Covered subset |
@@ -134,7 +134,7 @@ Completed: added the first priority adapter group, `enumerate` and `zip`, with v
 
 ### ISSUE-101 [minor]: Add filter-map and flat-map Rayon-style adapters
 
-Completed: `filter_map` and `flat_map` are implemented with value-semantic tests for optional retention and flattened-order semantics. No competitive performance claim is attached to this adapter layer.
+Completed: `filter_map` and `flat_map` are implemented with value-semantic tests for optional retention and flattened-order semantics. ISSUE-184 adds the Rayon-named serial-inner `flat_map_iter` comparison row for the same concrete `FlatMap<I, F>` adapter.
 
 ### ISSUE-102 [minor]: Expand utility and slicing adapter groups
 
@@ -212,6 +212,10 @@ Completed: `update` is implemented as a mutating adapter that applies `Fn(&mut I
 
 Completed: `intersperse` is implemented as a separator adapter that inserts a cloned separator between adjacent logical items while preserving empty and singleton streams. Tests cover separator insertion and boundary streams, and `iterator_adapter_comparison` now includes `iterator_adapter_intersperse` against Rayon after asserting equal interspersed collections.
 
+### ISSUE-184 [minor]: Add serial-inner Rayon flatten names
+
+Completed: `flat_map_iter` and `flatten_iter` are implemented as Rayon-named serial-inner adapter methods over the existing concrete `FlatMap<I, F>` and `Flatten<I>` types. Tests cover a non-`Sync` serial inner iterator and serial range flattening, and `iterator_adapter_comparison` now compares Moirai against Rayon's matching `flat_map_iter` and `flatten_iter` APIs after asserting equal output vectors.
+
 ### ISSUE-143 [minor]: Add flatten nested-stream adapter
 
 Completed: `flatten` is implemented as a nested-stream adapter over `Item: IntoIterator` with left-to-right value semantics. Tests cover nested vectors with an empty inner stream, and `iterator_adapter_comparison` now includes `iterator_adapter_flatten` against Rayon after asserting equal flattened collections.
@@ -222,13 +226,13 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 
 ## Benchmark Evidence
 
-`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, `try_reduce_with`, `positions`, `take_any_while`/`skip_any_while`, and `unzip_into_vecs` were refreshed on 2026-05-29 after their implementations landed. The indexed interleave row was added on 2026-06-01:
+`cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- --quiet` produced same-run evidence for the adapter set. Focused rows for `zip_eq`, `partition_map`, `try_reduce_with`, `positions`, `take_any_while`/`skip_any_while`, and `unzip_into_vecs` were refreshed on 2026-05-29 after their implementations landed. The indexed interleave and step-by rows, plus corrected serial-inner `flat_map_iter` and `flatten_iter` rows, were added on 2026-06-01:
 
 | Group | Moirai | Rayon | Status |
 | --- | --- | --- | --- |
 | `iterator_adapter_indexed_pipeline` | 35.664-35.796 us | 318.76-322.01 us | Moirai ahead |
-| `iterator_adapter_filter_flat_pipeline` | 22.001-22.292 us | 2.9053-3.0355 ms | Moirai ahead |
-| `iterator_adapter_flatten` | 108.93-137.47 us | 1.2705-1.3079 ms | Moirai ahead |
+| `iterator_adapter_filter_flat_pipeline` | 79.134-123.35 us | 393.06-405.26 us | Moirai ahead |
+| `iterator_adapter_flatten` | 73.234-74.541 us | 150.08-155.19 us | Moirai ahead |
 | `iterator_adapter_take_skip_any` | 26.930-27.464 us | 792.01-855.45 us | Moirai ahead |
 | `iterator_adapter_take_skip_any_while` | 91.813-102.11 us | 729.10-756.49 us | Moirai ahead |
 | `iterator_adapter_map_state` | 1.2630-1.3841 ms | 4.4604-21.486 ms | Moirai ahead |

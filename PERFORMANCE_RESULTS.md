@@ -2,6 +2,23 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-01 Iterator Serial-Inner Flatten Rows
+
+Commands:
+```bash
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_filter_flat_pipeline --quiet
+cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_flatten --quiet
+```
+
+Workload: owned streams are routed through `filter_map` plus `flat_map_iter`, and nested owned streams are routed through `flatten_iter`. The benchmark source asserts equal Moirai and Rayon output vectors before timing. Unit tests cover left-to-right flattened value order, a non-`Sync` serial inner iterator for `flat_map_iter`, and serial range flattening for `flatten_iter`.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iterator `filter_map`/`flat_map_iter` | 79.134-123.35 µs | Rayon 393.06-405.26 µs |
+| Iterator `flatten_iter` | 73.234-74.541 µs | Rayon 150.08-155.19 µs |
+
+Interpretation: the audited Rayon-style subset now exposes Rayon-named serial-inner flattening methods and benchmarks them against the matching Rayon serial-inner APIs. This does not claim Rayon's nested-parallel `flat_map`/`flatten` producer model.
+
 ## 2026-06-01 Iterator Indexed Step-By Row
 
 Command:
