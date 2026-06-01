@@ -235,6 +235,10 @@ impl DatabaseConnectionPool {
         let start_time = Instant::now();
 
         loop {
+            if self.is_shutdown.load(Ordering::Relaxed) {
+                return Err(DatabaseError::PoolShutdown);
+            }
+
             // Try to get an available connection
             if let Ok(mut available) = self.available_connections.lock() {
                 // Remove unhealthy connections
@@ -329,7 +333,14 @@ impl DatabaseConnectionPool {
                         }
 
                         pool_ref.reap_connections();
-                        thread::sleep(Duration::from_secs(30)); // Run every 30 seconds
+                        
+                        // Sleep in 100ms intervals to respond quickly to shutdown
+                        for _ in 0..300 {
+                            if pool_ref.is_shutdown.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            thread::sleep(Duration::from_millis(100));
+                        }
                     }
                 },
                 Priority::Low,
@@ -352,7 +363,14 @@ impl DatabaseConnectionPool {
                         }
 
                         deadlock_detector.detect_and_resolve_deadlocks();
-                        thread::sleep(Duration::from_secs(10)); // Check every 10 seconds
+                        
+                        // Sleep in 100ms intervals to respond quickly to shutdown
+                        for _ in 0..100 {
+                            if deadlock_detector.is_shutdown.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            thread::sleep(Duration::from_millis(100));
+                        }
                     }
                 },
                 Priority::Normal,
