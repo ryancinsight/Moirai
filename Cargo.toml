@@ -71,3 +71,9 @@ split-debuginfo = "unpacked"
 opt-level = 1
 debug = true
 
+[patch."https://github.com/ryancinsight/Mnemosyne"]
+mnemosyne = { path = "third_party/Mnemosyne/crates/mnemosyne" }
+mnemosyne-local = { path = "third_party/Mnemosyne/crates/mnemosyne-local" }
+mnemosyne-core = { path = "third_party/Mnemosyne/crates/mnemosyne-core" }
+mnemosyne-arena = { path = "third_party/Mnemosyne/crates/mnemosyne-arena" }
+mnemosyne-backend = { path = "third_party/Mnemosyne/crates/mnemosyne-backend" }

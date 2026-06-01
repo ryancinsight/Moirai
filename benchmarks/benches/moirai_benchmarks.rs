@@ -301,7 +301,7 @@ fn bench_performance_regression(c: &mut Criterion) {
                 } else if i % 3 == 1 {
                     // Async task
                     let handle = moirai.spawn_async(async move {
-                        tokio::time::sleep(Duration::from_micros(1)).await;
+                        moirai::sleep(Duration::from_micros(1)).await;
                         black_box(i * 42)
                     });
                     handles.push(handle);

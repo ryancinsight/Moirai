@@ -168,42 +168,86 @@ impl SimdScalar for f32 {
 
     #[inline]
     fn add_slices(left: &[Self], right: &[Self], result: &mut [Self]) {
-        if uses_native_vector_path(left.len()) {
-            unsafe {
-                arch::add(left, right, result);
+        let len = left.len();
+        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+        {
+            if let Some(chunk_len) = native_vector_chunk_len(len) {
+                unsafe {
+                    arch::add(
+                        &left[..chunk_len],
+                        &right[..chunk_len],
+                        &mut result[..chunk_len],
+                    );
+                }
+                if chunk_len < len {
+                    scalar_add(
+                        &left[chunk_len..],
+                        &right[chunk_len..],
+                        &mut result[chunk_len..],
+                    );
+                }
+                return;
             }
-        } else {
-            scalar_add(left, right, result);
         }
+        scalar_add(left, right, result);
     }
 
     #[inline]
     fn mul_slices(left: &[Self], right: &[Self], result: &mut [Self]) {
-        if uses_native_vector_path(left.len()) {
-            unsafe {
-                arch::mul(left, right, result);
+        let len = left.len();
+        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+        {
+            if let Some(chunk_len) = native_vector_chunk_len(len) {
+                unsafe {
+                    arch::mul(
+                        &left[..chunk_len],
+                        &right[..chunk_len],
+                        &mut result[..chunk_len],
+                    );
+                }
+                if chunk_len < len {
+                    scalar_mul(
+                        &left[chunk_len..],
+                        &right[chunk_len..],
+                        &mut result[chunk_len..],
+                    );
+                }
+                return;
             }
-        } else {
-            scalar_mul(left, right, result);
         }
+        scalar_mul(left, right, result);
     }
 
     #[inline]
     fn dot_slice(left: &[Self], right: &[Self]) -> Self {
-        if uses_native_vector_path(left.len()) {
-            unsafe { arch::dot(left, right) }
-        } else {
-            scalar_dot(left, right)
+        let len = left.len();
+        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+        {
+            if let Some(chunk_len) = native_vector_chunk_len(len) {
+                let mut sum = unsafe { arch::dot(&left[..chunk_len], &right[..chunk_len]) };
+                if chunk_len < len {
+                    sum += scalar_dot(&left[chunk_len..], &right[chunk_len..]);
+                }
+                return sum;
+            }
         }
+        scalar_dot(left, right)
     }
 
     #[inline]
     fn sum_slice(data: &[Self]) -> Self {
-        if uses_native_vector_path(data.len()) {
-            unsafe { arch::sum(data) }
-        } else {
-            data.iter().copied().sum()
+        let len = data.len();
+        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+        {
+            if let Some(chunk_len) = native_vector_chunk_len(len) {
+                let mut total = unsafe { arch::sum(&data[..chunk_len]) };
+                if chunk_len < len {
+                    total += data[chunk_len..].iter().copied().sum::<Self>();
+                }
+                return total;
+            }
         }
+        data.iter().copied().sum()
     }
 
     #[inline]
@@ -227,19 +271,35 @@ impl SimdReal for f32 {
 
     #[inline]
     fn variance_slice(data: &[Self]) -> Self {
-        if uses_native_vector_path(data.len()) {
-            unsafe { arch::variance(data) }
-        } else {
-            let mean = Self::mean_slice(data);
-            data.iter()
-                .copied()
-                .map(|value| {
-                    let diff = value - mean;
-                    diff * diff
-                })
-                .sum::<Self>()
-                / Self::from_len(data.len())
+        let len = data.len();
+        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+        {
+            if let Some(chunk_len) = native_vector_chunk_len(len) {
+                let mean = Self::mean_slice(data);
+                let mut total = unsafe { arch::squared_diff_sum(&data[..chunk_len], mean) };
+                if chunk_len < len {
+                    total += data[chunk_len..]
+                        .iter()
+                        .copied()
+                        .map(|value| {
+                            let diff = value - mean;
+                            diff * diff
+                        })
+                        .sum::<Self>();
+                }
+                return total / Self::from_len(len);
+            }
         }
+
+        let mean = Self::mean_slice(data);
+        data.iter()
+            .copied()
+            .map(|value| {
+                let diff = value - mean;
+                diff * diff
+            })
+            .sum::<Self>()
+            / Self::from_len(len)
     }
 }
 
@@ -303,19 +363,27 @@ fn native_vector_available() -> bool {
 fn uses_native_vector_path(len: usize) -> bool {
     #[cfg(target_arch = "x86_64")]
     {
-        if arch::has_avx2_support() && len % arch::LANES == 0 {
+        if arch::has_avx2_support() && len >= arch::LANES {
             return true;
         }
     }
 
     #[cfg(target_arch = "aarch64")]
     {
-        if arch::has_neon_support() && len % arch::LANES == 0 {
+        if arch::has_neon_support() && len >= arch::LANES {
             return true;
         }
     }
 
     false
+}
+
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[inline]
+fn native_vector_chunk_len(len: usize) -> Option<usize> {
+    native_vector_available()
+        .then_some((len / arch::LANES) * arch::LANES)
+        .filter(|chunk_len| *chunk_len != 0)
 }
 
 #[inline]

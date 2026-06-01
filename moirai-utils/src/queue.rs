@@ -4,6 +4,7 @@
 //! different usage patterns, from single-producer/single-consumer to
 //! multi-producer/multi-consumer scenarios.
 
+use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 #[cfg(feature = "std")]
@@ -15,7 +16,7 @@ use alloc::boxed::Box;
 /// A power-of-two sized ring buffer optimized for single-producer, single-consumer scenarios.
 #[repr(align(64))]
 pub struct RingBuffer<T> {
-    data: Box<[Option<T>]>,
+    data: Box<[UnsafeCell<Option<T>>]>,
     capacity: usize,
     mask: usize,
     head: AtomicUsize,
@@ -30,13 +31,13 @@ impl<T> RingBuffer<T> {
 
         #[cfg(feature = "std")]
         let data = (0..capacity)
-            .map(|_| None)
+            .map(|_| UnsafeCell::new(None))
             .collect::<std::vec::Vec<_>>()
             .into_boxed_slice();
 
         #[cfg(not(feature = "std"))]
         let data = (0..capacity)
-            .map(|_| None)
+            .map(|_| UnsafeCell::new(None))
             .collect::<alloc::vec::Vec<_>>()
             .into_boxed_slice();
 
@@ -86,9 +87,10 @@ impl<T> RingBuffer<T> {
             return Err(item); // Buffer is full
         }
 
-        // Safety: We've checked that the slot is available
+        // Safety: We've checked that the slot is available.
+        // Accessing the interior of UnsafeCell under shared reference is safe.
         unsafe {
-            let slot = &mut *(self.data.as_ptr().add(tail) as *mut Option<T>);
+            let slot = &mut *self.data[tail].get();
             *slot = Some(item);
         }
 
@@ -106,9 +108,10 @@ impl<T> RingBuffer<T> {
             return None; // Buffer is empty
         }
 
-        // Safety: We've checked that there's an item available
+        // Safety: We've checked that there's an item available.
+        // Accessing the interior of UnsafeCell under shared reference is safe.
         let item = unsafe {
-            let slot = &mut *(self.data.as_ptr().add(head) as *mut Option<T>);
+            let slot = &mut *self.data[head].get();
             slot.take()
         };
 
@@ -228,13 +231,14 @@ impl<T> LockFreeQueue<T> {
                         continue;
                     }
 
-                    let data = unsafe { (*next).data.take() };
-
                     if self
                         .head
                         .compare_exchange_weak(head, next, Ordering::Release, Ordering::Relaxed)
                         .is_ok()
                     {
+                        // Safety: The CAS succeeded, so we have exclusive ownership of
+                        // the dequeued node's data.
+                        let data = unsafe { (*next).data.take() };
                         unsafe {
                             drop(Box::from_raw(head));
                         }

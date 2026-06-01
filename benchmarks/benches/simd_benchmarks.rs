@@ -80,6 +80,49 @@ fn bench_vector_addition(c: &mut Criterion) {
     group.finish();
 }
 
+/// Benchmark vector addition with scalar tails after a native vector prefix.
+fn bench_vector_prefix_tail_addition(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vector_prefix_tail_addition");
+    group.sample_size(SIMD_SAMPLE_SIZE);
+    group.measurement_time(Duration::from_secs(SIMD_MEASUREMENT_SECONDS));
+    group.warm_up_time(Duration::from_millis(SIMD_WARM_UP_MILLIS));
+
+    for size in [65, 4099, 16385].iter() {
+        let (a, b) = generate_test_data(*size);
+        let mut result = vec![0.0f32; *size];
+        let expected: Vec<f32> = a
+            .iter()
+            .zip(b.iter())
+            .map(|(left, right)| left + right)
+            .collect();
+
+        add(&a, &b, &mut result);
+        assert_eq!(result, expected);
+
+        group.throughput(Throughput::Elements(*size as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("generic_prefix_tail", size),
+            size,
+            |bench, _| {
+                bench.iter(|| {
+                    add(black_box(&a), black_box(&b), black_box(&mut result));
+                });
+            },
+        );
+
+        group.bench_with_input(BenchmarkId::new("scalar", size), size, |bench, _| {
+            bench.iter(|| {
+                for i in 0..*size {
+                    result[i] = black_box(a[i] + b[i]);
+                }
+            });
+        });
+    }
+
+    group.finish();
+}
+
 /// Benchmark vector multiplication operations.
 fn bench_vector_multiplication(c: &mut Criterion) {
     let mut group = c.benchmark_group("vector_multiplication");
@@ -406,6 +449,7 @@ fn bench_comprehensive_comparison(c: &mut Criterion) {
 criterion_group!(
     simd_benches,
     bench_vector_addition,
+    bench_vector_prefix_tail_addition,
     bench_vector_multiplication,
     bench_dot_product,
     bench_matrix_multiplication,

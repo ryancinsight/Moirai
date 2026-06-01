@@ -2,6 +2,23 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-01 SIMD Vector Prefix/Tail Addition Row
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench simd_benchmarks -- vector_prefix_tail_addition --quiet
+```
+
+Workload: generic `moirai_utils::simd::add<f32>` runs over non-lane-multiple sizes and is compared with a scalar loop. The benchmark asserts output equality before timing. This is a zero-cost utility invariant row, not a Rayon/Tokio competitive row.
+
+| Elements | Generic prefix/tail | Scalar |
+| ---: | ---: | ---: |
+| 65 | 10.240-10.334 ns | 50.068-52.926 ns |
+| 4,099 | 229.56-353.90 ns | 3.3495-3.5301 us |
+| 16,385 | 1.3296-1.3610 us | 14.226-14.474 us |
+
+Interpretation: non-lane-multiple `f32` slices now use a native vector prefix plus scalar tail when the native backend is available, and dispatch accounting records the covered operation as vectorized.
+
 ## 2026-06-01 Iterator Collect-Vec-List Row
 
 Command:

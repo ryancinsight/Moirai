@@ -195,6 +195,7 @@
 
 #![deny(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
+#[cfg(feature = "mnemosyne")]
 #[global_allocator]
 static ALLOC: mnemosyne::Mnemosyne = mnemosyne::Mnemosyne;
 

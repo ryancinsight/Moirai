@@ -23,7 +23,7 @@ moirai-iter = { workspace = true, optional = true }
 moirai-metrics = { workspace = true, optional = true }
 moirai-gpu = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
-mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne" }
+mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne", optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -126,8 +126,9 @@ path = "../examples/gpu_acceleration.rs"
 required-features = ["gpu"]
 
 [features]
-default = ["async", "iter", "local"]
+default = ["async", "iter", "local", "mnemosyne"]
 full = ["async", "iter", "distributed", "metrics", "numa", "futex", "encryption", "gpu"]
+mnemosyne = ["dep:mnemosyne"]
 async = ["moirai-async"]
 iter = ["moirai-iter"]
 gpu = ["moirai-gpu"]

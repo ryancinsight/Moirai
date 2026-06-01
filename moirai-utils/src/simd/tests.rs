@@ -19,7 +19,7 @@ fn add_preserves_values() {
 }
 
 #[test]
-fn add_falls_back_on_unaligned_input() {
+fn add_handles_short_unaligned_input() {
     let left = [1.0, 2.0, 3.0];
     let right = [4.0, 5.0, 6.0];
     let mut result = [0.0; 3];
@@ -101,4 +101,82 @@ fn integer_add_and_dot_preserve_native_type() {
 
     assert_eq!(result, [6, 8, 10, 12]);
     assert_eq!(product_sum, 70);
+}
+
+#[test]
+fn unaligned_lengths_preserve_values() {
+    for len in [3, 7, 9, 11, 15, 17, 23, 31, 33] {
+        let left: Vec<f32> = (0..len).map(|i| i as f32).collect();
+        let right: Vec<f32> = (0..len).map(|i| (len - i) as f32).collect();
+
+        let mut result_add = vec![0.0; len];
+        add(&left, &right, &mut result_add);
+        let expected_add: Vec<f32> = left.iter().zip(right.iter()).map(|(x, y)| x + y).collect();
+        assert_eq!(result_add, expected_add, "add mismatch at len {len}");
+
+        let mut result_mul = vec![0.0; len];
+        mul(&left, &right, &mut result_mul);
+        let expected_mul: Vec<f32> = left.iter().zip(right.iter()).map(|(x, y)| x * y).collect();
+        assert_eq!(result_mul, expected_mul, "mul mismatch at len {len}");
+
+        let result_dot = dot(&left, &right);
+        let expected_dot: f32 = left.iter().zip(right.iter()).map(|(x, y)| x * y).sum();
+        assert!(
+            (result_dot - expected_dot).abs() < 1e-4,
+            "dot mismatch at len {len}"
+        );
+
+        let result_sum = sum(&left);
+        let expected_sum: f32 = left.iter().copied().sum();
+        assert_eq!(result_sum, expected_sum, "sum mismatch at len {len}");
+
+        let result_var = variance(&left);
+        let mean_val = mean(&left);
+        let expected_var = left
+            .iter()
+            .copied()
+            .map(|value| {
+                let diff = value - mean_val;
+                diff * diff
+            })
+            .sum::<f32>()
+            / len as f32;
+        assert!(
+            (result_var - expected_var).abs() < 1e-4,
+            "variance mismatch at len {len}: result={result_var}, expected={expected_var}"
+        );
+    }
+}
+
+#[test]
+fn unaligned_vector_prefix_records_vector_dispatch_when_available() {
+    let counter = crate::global_simd_counter();
+    counter.reset();
+
+    let len = 17;
+    let left: Vec<f32> = (0..len).map(|i| i as f32).collect();
+    let right: Vec<f32> = (0..len).map(|i| (i * 2) as f32).collect();
+    let mut result = vec![0.0; len];
+
+    add(&left, &right, &mut result);
+
+    let expected: Vec<f32> = left
+        .iter()
+        .zip(right.iter())
+        .map(|(left, right)| left + right)
+        .collect();
+    assert_eq!(result, expected);
+
+    let (vectorized_ops, scalar_ops, vectorized_elements, scalar_elements) = counter.get_stats();
+    if has_native_vector_path::<f32>() {
+        assert_eq!(vectorized_ops, 1);
+        assert_eq!(scalar_ops, 0);
+        assert_eq!(vectorized_elements, len);
+        assert_eq!(scalar_elements, 0);
+    } else {
+        assert_eq!(vectorized_ops, 0);
+        assert_eq!(scalar_ops, 1);
+        assert_eq!(vectorized_elements, 0);
+        assert_eq!(scalar_elements, len);
+    }
 }

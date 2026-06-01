@@ -167,11 +167,12 @@ fn utility_simd_surface_uses_generic_scalar_contract() {
     let scalar = read_benchmark("../moirai-utils/src/simd/scalar.rs");
     let arch = read_benchmark("../moirai-utils/src/simd/arch/mod.rs");
     let lib = read_benchmark("../moirai-utils/src/lib.rs");
+    let simd_tests = read_benchmark("../moirai-utils/src/simd/tests.rs");
     let simd_benchmark = read_benchmark("benches/simd_benchmarks.rs");
     let moirai_benchmark = read_benchmark("benches/moirai_benchmarks.rs");
     let performance_benchmark = read_benchmark("benches/performance_benchmarks.rs");
 
-    let implementation = format!("{root}\n{scalar}\n{arch}\n{lib}");
+    let implementation = format!("{root}\n{scalar}\n{arch}\n{lib}\n{simd_tests}");
     let benchmarks = format!("{simd_benchmark}\n{moirai_benchmark}\n{performance_benchmark}");
 
     for required in [
@@ -193,7 +194,11 @@ fn utility_simd_surface_uses_generic_scalar_contract() {
         "impl SimdScalar for f64",
         "impl SimdScalar for u64",
         "fn uses_native_vector_path(len: usize) -> bool",
+        "fn native_vector_chunk_len(len: usize) -> Option<usize>",
+        ".then_some((len / arch::LANES) * arch::LANES)",
         "fn matrix_mul_square<const N: usize>",
+        "unaligned_lengths_preserve_values",
+        "unaligned_vector_prefix_records_vector_dispatch_when_available",
     ] {
         assert!(
             implementation.contains(required),
@@ -209,6 +214,8 @@ fn utility_simd_surface_uses_generic_scalar_contract() {
         "black_box(sum(black_box(&data)))",
         "black_box(mean(black_box(&data)))",
         "black_box(variance(black_box(&data)))",
+        "vector_prefix_tail_addition",
+        "generic_prefix_tail",
         "simd::add(&a, &b, &mut result)",
         "use moirai_utils::simd::{add, mul};",
     ] {

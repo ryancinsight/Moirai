@@ -73,10 +73,9 @@ pub(crate) unsafe fn sum(data: &[f32]) -> f32 {
 }
 
 #[target_feature(enable = "avx2")]
-pub(crate) unsafe fn variance(data: &[f32]) -> f32 {
+pub(crate) unsafe fn squared_diff_sum(data: &[f32], mean: f32) -> f32 {
     debug_assert_eq!(data.len() % LANES, 0);
 
-    let mean = unsafe { sum(data) } / data.len() as f32;
     let mean_values = _mm256_set1_ps(mean);
     let mut total = _mm256_setzero_ps();
 
@@ -89,7 +88,7 @@ pub(crate) unsafe fn variance(data: &[f32]) -> f32 {
         }
     }
 
-    horizontal_sum(total) / data.len() as f32
+    horizontal_sum(total)
 }
 
 #[target_feature(enable = "avx2")]
