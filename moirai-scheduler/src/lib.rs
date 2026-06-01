@@ -387,6 +387,7 @@ where
     pub fn steal(&self) -> StealResult<T> {
         let _guard = self.reclaim.enter();
         let t = self.top.load(Ordering::Acquire);
+        // The acquire top load orders this bottom observation; slot ownership is still the SeqCst CAS below.
         let b = self.bottom.load(Ordering::Acquire);
 
         if t < b {
@@ -417,6 +418,7 @@ where
     {
         let _guard = self.reclaim.enter();
         let t = self.top.load(Ordering::Acquire);
+        // The acquire top load orders this bottom observation; slot ownership is still the SeqCst CAS below.
         let b = self.bottom.load(Ordering::Acquire);
 
         let len = b - t;
