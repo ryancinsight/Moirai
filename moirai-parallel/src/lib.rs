@@ -186,6 +186,29 @@ where
         .expect("moirai global executor: enumerate_mut_with");
 }
 
+/// Apply `f` to every index in `0..len` in parallel, scheduled by policy `P`.
+///
+/// Synchronous equivalent of rayon's `(0..len).into_par_iter().for_each(f)`. Use
+/// when the work is keyed by index and writes through external disjoint state
+/// (atomics, per-index channels) rather than returning a value.
+pub fn for_each_index_with<P, F>(len: usize, f: F)
+where
+    P: ExecutionPolicy,
+    F: Fn(usize) + Send + Sync,
+{
+    if len == 0 {
+        return;
+    }
+    if !P::parallelize(len) {
+        (0..len).for_each(f);
+        return;
+    }
+    let f = &f;
+    global()
+        .for_each_indexed::<SyncTask, _>(len, move |i| f(i))
+        .expect("moirai global executor: for_each_index_with");
+}
+
 /// Apply `f` to each consecutive `chunk_size`-element mutable chunk of `data` in
 /// parallel, scheduled by policy `P`. The final chunk may be shorter.
 ///
@@ -739,6 +762,21 @@ mod tests {
             }
         });
         assert_eq!(d2, (0..10).map(|x| x * 10).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn for_each_index_visits_every_index() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let n = 10_000usize;
+        let counter = AtomicUsize::new(0);
+        let sum = (0..n).map(|i| i as u64).sum::<u64>();
+        let acc = std::sync::atomic::AtomicU64::new(0);
+        for_each_index_with::<Adaptive, _>(n, |i| {
+            counter.fetch_add(1, Ordering::Relaxed);
+            acc.fetch_add(i as u64, Ordering::Relaxed);
+        });
+        assert_eq!(counter.load(Ordering::Relaxed), n, "every index visited once");
+        assert_eq!(acc.load(Ordering::Relaxed), sum, "index values summed correctly");
     }
 
     #[test]
