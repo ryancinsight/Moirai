@@ -2,12 +2,21 @@
 
 Concrete contracts and tasks to replace consus's Tokio/rusoto/reqwest S3 transport with a
 pure-Moirai stack built over the existing reactor-bound async sockets (ADR-014/006/013).
-**Status (2026-06-02): P0–P3 DONE + verified + pushed.** P0 (moirai bcf3ed1, net spike
-incl. Windows/IOCP), P1 `moirai-tls` (rustls handshake + fail-closed), P2 `moirai-http`
-(framing/keep-alive/timeout), P3 `consus-io` `s3-moirai` (SigV4 KAT vs AWS vector + mock-S3
-round-trip; production tree tokio-free). **P4 (comparative bench) and P5 (default flip +
-rusoto/tokio removal) are BLOCKED on Docker/MinIO** (unavailable locally) — they need the
-byte-identical rusoto differential as the go/no-go gate; run on CI. Each phase leaves the tree green.
+**Status (2026-06-02): P0–P4 done; P5 partial.**
+- P0 (moirai bcf3ed1): net spike incl. Windows/IOCP. P1 `moirai-tls` (rustls handshake +
+  fail-closed). P2 `moirai-http` (framing/keep-alive/timeout). P3 `consus-io` `s3-moirai`
+  (SigV4 KAT vs AWS vector + mock round-trip; production tree tokio-free).
+- **P4 correctness: DONE** — rusoto↔moirai **byte-identical differential** over GetObject(Range)
+  + HeadObject via an in-process mock (no Docker), passing locally (consus 84139fb). A MinIO
+  CI job (`s3-minio` in `.github/workflows/ci.yml`) exercises moirai-s3 (path-style+SigV4)
+  against a live server via the env-gated `moirai_s3_real_endpoint` test.
+- **P4 comparative performance bench (criterion vs rusoto, localhost + toxiproxy RTT):
+  REMAINING** — best run on CI with MinIO; not yet wired.
+- **P5 partial:** consus-hdf5 production async path is now tokio-free (`async-io` →
+  `consus-io/async-traits`). **REMAINING:** consus-zarr `S3Store` (write/list) on moirai needs
+  moirai-s3 `PutObject`/`ListObjectsV2` (the read path covers only GET/HEAD today); then flip
+  consus default + remove rusoto/tokio from consus production once the perf bench confirms parity.
+Each phase leaves the tree green.
 
 ## 0. Foundation audit (no new code) — `[arch]`
 
