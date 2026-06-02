@@ -721,16 +721,21 @@ Per ADR-014 / ADR-006(async) / ADR-013, Moirai already provides, reactor-backed 
 The transport gap is therefore ONLY the three layers above the socket: TLS, HTTP/1.1, and the S3 surface.
 
 ### Decision
-Add three thin, layered crates forming a DAG over the existing async socket layer; reuse audited sans-I/O libraries for all cryptography and parsing, build only the I/O orchestration glue Moirai must own.
+Split the work by domain along the project's `communication = moirai` / `datatype-and-store = consus` boundary. Moirai ships **store-agnostic** transport only and never learns what S3/AWS is; the S3 *protocol* (a vendor-specific storage-addressing concern) lives in consus on top of Moirai's HTTP. Reuse audited sans-I/O libraries for all cryptography and parsing; build only the I/O orchestration glue each side must own.
 
+**In Moirai (generic communication, two new crates over the existing `moirai-net` sockets):**
 1. `moirai-tls` — TLS 1.2/1.3 client sessions by driving `rustls` (sans-I/O `ClientConnection` state machine) over a `moirai-async` `AsyncTcpStream`. Moirai owns only the read/write pump between socket and rustls plaintext/ciphertext buffers, plus the handshake-completion future. No hand-rolled cryptography. Cert verification via `rustls-platform-verifier`/`webpki-roots`.
-2. `moirai-http` — HTTP/1.1 client over `moirai-tls`/`moirai-net`. Reuse the `http` crate (Request/Response/header types) and `httparse` (sans-I/O head parser). Moirai owns: request serialization, response-body framing (Content-Length + chunked transfer decoding), bounded-capacity keep-alive connection pooling, redirect handling, and per-request deadline via the Moirai timer. HTTP/2 explicitly out of scope (S3 runs over HTTP/1.1).
-3. `moirai-s3` — minimal S3 surface consus needs: `GetObject` with `Range`, `HeadObject`. SigV4 signing (`aws-sigv4`, or a direct HMAC-SHA256 canonical-request impl), credential resolution (env + `~/.aws/credentials`), error-XML decoding (`quick-xml`). Surfaces an `AsyncReadAt` implementor consus consumes in place of the rusoto `S3Reader`.
+2. `moirai-http` — HTTP/1.1 client over `moirai-tls`/`moirai-net`. Reuse the `http` crate (Request/Response/header types) and `httparse` (sans-I/O head parser). Moirai owns: request serialization, response-body framing (Content-Length + chunked transfer decoding), bounded-capacity keep-alive connection pooling, redirect handling, and per-request deadline via the Moirai timer. HTTP/2 explicitly out of scope (S3 runs over HTTP/1.1). **This is Moirai's S3-facing boundary — it knows HTTP, not S3.**
+
+**In consus (storage backend, NOT in Moirai):**
+3. consus S3 client — rebuild consus's existing S3 backend (`consus-io` `io/async_io/s3.rs`, `consus-zarr` `S3Store`; a `consus-s3` crate or `consus-io` module) on `moirai-http` instead of `rusoto_s3` + `reqwest`. Owns the vendor-specific parts: SigV4 signing (`aws-sigv4` or a direct HMAC-SHA256 canonical-request impl), `GetObject(Range)` + `HeadObject`, bucket/key addressing, credential resolution (env + `~/.aws/credentials`), S3 error-XML decoding (`quick-xml`). Surfaces an `AsyncReadAt` implementor in place of the rusoto `S3Reader`. **Rationale:** "where my datasets live and how to address them" is a storage concern; keeping SigV4/GetObject out of Moirai preserves Moirai as a pure, AWS-agnostic communication library (datatype/store = consus, communication = moirai).
 
 ### Reuse-vs-build matrix
-- Reuse (sans-I/O, runtime-agnostic, audited, none Tokio-coupled): `rustls` + roots, `http`, `httparse`, `aws-sigv4`, `quick-xml`, `socket2`.
-- Build (Moirai-owned I/O orchestration): TLS↔socket pump; HTTP connection lifecycle/pool/chunked codec/timeouts; S3 request assembly + `AsyncReadAt` adapter.
-The security-critical and spec-heavy parts (TLS, HTTP grammar, SigV4) are reused; Moirai builds only readiness/lifecycle glue. Hand-rolling TLS is prohibited.
+- Reuse, in **Moirai** (sans-I/O, runtime-agnostic, none Tokio-coupled): `rustls` + roots, `http`, `httparse`, `socket2`.
+- Reuse, in **consus** (S3 protocol, sans-I/O): `aws-sigv4`, `quick-xml`. These AWS/XML deps do NOT enter Moirai's tree.
+- Build in **Moirai**: TLS↔socket pump; HTTP connection lifecycle/pool/chunked codec/timeouts.
+- Build in **consus**: S3 request assembly/signing over `moirai-http` + the `AsyncReadAt` adapter.
+The security-critical and spec-heavy parts (TLS, HTTP grammar, SigV4) are reused; each side builds only its readiness/lifecycle glue. Hand-rolling TLS is prohibited.
 
 ### Execution-model alignment
 All three layers are async-domain → `moirai-async` (AsyncPolicy), never `moirai-parallel`; preserves the parallel≠concurrent split. The hybrid scheduler lets a parallel chunk-decompress await an S3 range fetch on the same pool (unified-runtime invariant). Pure consus format logic stays synchronous (async-contagion prohibition); only the byte-source boundary is async.
@@ -757,17 +762,17 @@ All three layers are async-domain → `moirai-async` (AsyncPolicy), never `moira
 ### Verification plan (evidence tiers per layer)
 - `moirai-tls`: loopback handshake against a rustls server; plaintext-roundtrip differential vs `tokio-rustls`; adversarial cert-validation fail-closed tests.
 - `moirai-http`: local HTTP/1.1 test server; property tests on chunked/Content-Length framing and pool reuse; differential — identical GET via `reqwest` vs `moirai-http` yields byte-identical status/headers/body.
-- `moirai-s3`: SigV4 known-answer tests from AWS's published canonical-request/string-to-sign/signature vectors; differential vs `rusoto_s3` against local MinIO/`s3mock` — byte-identical `GetObject(Range)`/`HeadObject`.
+- consus S3 client (on `moirai-http`): SigV4 known-answer tests from AWS's published canonical-request/string-to-sign/signature vectors; differential vs `rusoto_s3` against local MinIO/`s3mock` — byte-identical `GetObject(Range)`/`HeadObject`.
 - consus integration: existing consus S3 property/integration tests run on both `s3-moirai` and `s3-tokio` against MinIO → byte-identical dataset reads.
 - Comparative benchmarks (criterion; explicit deliverable): ranged-GET throughput + p50/p99 latency + CPU-time/req + allocations, moirai-s3 vs rusoto_s3, against (a) localhost MinIO (RTT≈0, exposes per-request CPU/syscall overhead) and (b) a latency-injected proxy (`toxiproxy`) at realistic RTT (where both converge on network bound). These are the go/no-go evidence for flipping the default; an intermediate regression triggers profiling/optimization (pool warm-up, buffer reuse, vectored writes), not reversion (optimization farsight).
 
 ### Phasing (vertical slices; each leaves the tree green)
 - P0 [arch]: this ADR + spike proving moirai-net loopback echo and a rustls handshake over loopback on Linux **and** Windows. Exit: green TLS-roundtrip integration test.
-- P1 [minor]: `moirai-tls` (rustls glue, cert verification, cancellation-safe).
-- P2 [minor]: `moirai-http` (GET/HEAD, chunked, keep-alive pool, redirect, timeout).
-- P3 [minor]: `moirai-s3` (SigV4, GetObject Range, HeadObject, creds, error XML).
-- P4 [minor]: consus `s3-moirai` backend behind a feature; both backends green on MinIO; comparative bench recorded.
-- P5 [major in consus]: flip consus default to `s3-moirai`; demote rusoto/reqwest to legacy/optional; remove Tokio from consus's production tree (Tokio remains benchmark/reference only, per ADR-001/013).
+- P1 [minor, moirai]: `moirai-tls` (rustls glue, cert verification, cancellation-safe).
+- P2 [minor, moirai]: `moirai-http` (GET/HEAD, chunked, keep-alive pool, redirect, timeout). Moirai's deliverable ends here — it ships generic, AWS-agnostic transport.
+- P3 [minor, consus]: consus S3 client on `moirai-http` (SigV4, GetObject Range, HeadObject, creds, error XML) behind an `s3-moirai` feature alongside legacy `s3-tokio`; both green on MinIO; consus-hdf5 async tests move to `Moirai::block_on`.
+- P4 [minor, consus]: comparative bench recorded (consus-s3-on-moirai-http vs `rusoto_s3`).
+- P5 [major, consus]: flip consus default to `s3-moirai`; demote rusoto/reqwest to legacy/optional; remove Tokio from consus's production tree (Tokio remains benchmark/reference only, per ADR-001/013).
 
 ### Classification & sign-off
 [arch] — new canonical crates + a new transport boundary. Requires ADR sign-off (this document) before P1 opens. Implementation tracked in `docs/adr-015-checklist.md`.

@@ -42,36 +42,37 @@ Contract: HTTP/1.1 client over `moirai-tls`/`moirai-net`, reusing `http` + `http
   `moirai-http` → byte-identical status/headers/body**; slow-loris timeout; server close
   mid-pool; 100-continue.
 
-## 3. `moirai-s3` — `[minor]`
+## 3. consus S3 client on `moirai-http` — `[minor]` (in **consus**, NOT moirai)
 
-Contract: the minimal surface consus uses — `GetObject(Range)`, `HeadObject`.
+Contract: rebuild consus's existing S3 backend (`consus-io` `io/async_io/s3.rs`,
+`consus-zarr` `S3Store`) on `moirai-http`. Moirai stays AWS-agnostic; SigV4/GetObject
+live here. `aws-sigv4` + `quick-xml` are **consus** deps, never moirai's.
 
 - [ ] SigV4 signing via `aws-sigv4` (or direct HMAC-SHA256 canonical-request impl).
-- [ ] Credential resolution: env vars + `~/.aws/credentials`. Region/endpoint/key as
+- [ ] Credential resolution: env vars + `~/.aws/credentials`. Region/endpoint/bucket/key as
   validating newtypes (no primitive obsession).
-- [ ] `GetObject` with `Range` header; `HeadObject`; S3 error-XML decode via `quick-xml`
-  (preserve distinct error modes — `NoSuchKey` etc. — no stringly catch-all).
-- [ ] `S3Reader: AsyncReadAt` adapter matching consus-io's trait.
-- [ ] **Tests**: **SigV4 known-answer tests** (AWS published canonical-request → string-to-sign
-  → signature vectors); **differential vs `rusoto_s3` against local MinIO/`s3mock` →
-  byte-identical `GetObject(Range)` / `HeadObject`**.
-
-## 4. consus integration — `[minor]` (in consus)
-
-- [ ] consus-io feature axis: `s3-moirai` (dep: `moirai-s3`) vs `s3-tokio` (legacy rusoto),
-  both implementing `AsyncReadAt`; no public storage-API change.
+- [ ] `GetObject` with `Range` header + `HeadObject` over `moirai-http`; S3 error-XML decode
+  via `quick-xml` (preserve distinct error modes — `NoSuchKey` etc. — no stringly catch-all).
+- [ ] `S3Reader: AsyncReadAt` adapter (drop-in for the rusoto one).
+- [ ] consus-io/zarr feature axis: `s3-moirai` (dep: `moirai-http`) vs `s3-tokio` (legacy
+  rusoto/reqwest), both implementing `AsyncReadAt`; no public storage-API change.
 - [ ] consus-hdf5 async tests drop `#[tokio::test]` → `Moirai::block_on` (format layer is
   already runtime-agnostic; removes the tokio dev-dep there).
-- [ ] Existing consus S3 property/integration tests green on **both** backends vs MinIO →
-  byte-identical dataset reads.
+- [ ] **Tests**: **SigV4 known-answer tests** (AWS published canonical-request → string-to-sign
+  → signature vectors); **differential vs `rusoto_s3` against local MinIO/`s3mock` →
+  byte-identical `GetObject(Range)` / `HeadObject`**; existing consus S3 property/integration
+  tests green on **both** backends.
 
-## 5. Comparative benchmarks + default flip — `[minor]` → `[major]` (consus)
+## 4. Comparative benchmarks — `[minor]` (consus)
 
 - [ ] criterion harness: ranged-GET throughput, p50/p99 latency, CPU-time/req, allocations —
-  `moirai-s3` vs `rusoto_s3`, against (a) localhost MinIO (RTT≈0) and (b) `toxiproxy`
-  latency-injected (realistic RTT).
+  `s3-moirai` (consus S3 on `moirai-http`) vs `s3-tokio` (`rusoto_s3`), against (a) localhost
+  MinIO (RTT≈0) and (b) `toxiproxy` latency-injected (realistic RTT).
 - [ ] Record results; regression → profile/optimize (pool warm-up, buffer reuse, vectored
-  writes), **not** revert (optimization farsight).
+  writes), **not** revert (optimization farsight). Expect parity (network is latency-bound).
+
+## 5. Default flip + Tokio removal — `[major]` (consus)
+
 - [ ] On parity: flip consus default to `s3-moirai`; demote rusoto/reqwest to legacy/optional;
   remove Tokio from consus production tree (Tokio = benchmark/reference only, per ADR-001/013).
 
@@ -79,6 +80,7 @@ Contract: the minimal surface consus uses — `GetObject(Range)`, `HeadObject`.
 
 - [ ] `cargo fmt --check` → `cargo clippy --all-targets --all-features -D warnings` →
   `cargo nextest run` → `cargo doc --no-deps`.
-- [ ] `cargo deny check` on new deps (rustls, http, httparse, aws-sigv4, quick-xml); MSRV pinned.
+- [ ] `cargo deny check` on new deps — moirai: rustls, http, httparse; consus: aws-sigv4,
+  quick-xml (AWS/XML deps stay out of moirai's tree); MSRV pinned.
 - [ ] `cargo miri test` for any crate with unsafe; `cargo-semver-checks` before each `[minor]`.
 - [ ] CHANGELOG + version bump committed atomically with each phase.
