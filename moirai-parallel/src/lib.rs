@@ -2,30 +2,47 @@
 //!
 //! This crate is the **parallel** domain (throughput over data), distinct from
 //! the **concurrent** domain (`moirai-async`, async tasks/IO). All operations
-//! here are fully synchronous (no `async`, no `.await`), so they are safe to use
-//! inside pure compute kernels without introducing async contagion. They mirror
-//! the common rayon patterns:
+//! here are fully synchronous (no `async`, no `.await`), so they are safe inside
+//! pure compute kernels without async contagion.
 //!
-//! - [`par_for_each`] / [`par_for_each_mut`] — `slice.par_iter[_mut]().for_each`
-//! - [`par_enumerate`] / [`par_enumerate_mut`] — the `.enumerate()` variants
-//! - [`par_map_collect`] — `slice.par_iter().map(f).collect()`
-//! - [`par_map_reduce`] — `slice.par_iter().map(m).reduce(id, r)`
+//! # Execution policies
 //!
-//! Work is split into one chunk per worker thread and dispatched on the shared
-//! process-wide executor ([`moirai_executor::global`]); every task completes
-//! before the call returns, so borrows of the input slice remain valid for the
-//! whole parallel region.
+//! Every operation comes in two forms:
+//!
+//! - A **policy-generic** `*_with(policy, …)` form parameterized by a
+//!   zero-sized [`ExecutionPolicy`] ([`Sequential`], [`Parallel`], [`Adaptive`]).
+//!   Generic code monomorphizes to the chosen strategy with no dynamic dispatch.
+//! - A **`par_*` convenience** form that applies the [`Adaptive`] policy, which
+//!   parallelizes only above [`ADAPTIVE_PARALLEL_THRESHOLD`] elements and runs
+//!   sequentially below it. This is the everyday API: the parallel/sequential
+//!   decision is automatic, not designated by the caller.
+//!
+//! Parallel work is split into one chunk per worker thread and dispatched on the
+//! shared process-wide executor ([`moirai_executor::global`]); every task
+//! completes before the call returns, so borrows of the input remain valid for
+//! the whole region.
+//!
+//! ```
+//! use moirai_parallel::{par_for_each_mut, for_each_mut_with, Parallel};
+//! let mut data: Vec<u64> = (0..10_000).collect();
+//! par_for_each_mut(&mut data, |x| *x *= 2);          // adaptive (auto)
+//! for_each_mut_with(Parallel, &mut data, |x| *x += 1); // forced parallel
+//! ```
 
 #![deny(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
+
+mod policy;
+
+pub use policy::{Adaptive, ExecutionPolicy, Parallel, Sequential, ADAPTIVE_PARALLEL_THRESHOLD};
 
 use moirai_executor::{global, BlockingTask};
 
 /// Pointer wrapper used to hand disjoint `&mut` sub-slices to worker tasks.
 ///
-/// The `Send`/`Sync` impls are sound only because the `*_mut` functions assign
-/// each task a non-overlapping index range, so the pointer is never used to
-/// form aliasing references.
+/// The `Send`/`Sync` impls are sound only because the `*_mut` operations assign
+/// each task a non-overlapping index range, so the pointer is never used to form
+/// aliasing references.
 struct DisjointMutPtr<T>(*mut T);
 
 // SAFETY: callers dereference pairwise-disjoint ranges only, so the pointer
@@ -55,11 +72,10 @@ fn chunk_layout(len: usize) -> (usize, usize) {
     (chunks, len.div_ceil(chunks))
 }
 
-/// Apply `f` to every element of `data` in parallel.
-///
-/// Synchronous equivalent of rayon's `data.par_iter().for_each(f)`.
-pub fn par_for_each<T, F>(data: &[T], f: F)
+/// Apply `f` to every element of `data`, scheduled by `policy`.
+pub fn for_each_with<P, T, F>(policy: P, data: &[T], f: F)
 where
+    P: ExecutionPolicy,
     T: Sync,
     F: Fn(&T) + Send + Sync,
 {
@@ -68,7 +84,7 @@ where
         return;
     }
     let (chunks, chunk) = chunk_layout(n);
-    if chunks <= 1 {
+    if !policy.parallelize(n) || chunks <= 1 {
         data.iter().for_each(f);
         return;
     }
@@ -84,14 +100,13 @@ where
                 f(item);
             }
         })
-        .expect("moirai global executor: par_for_each");
+        .expect("moirai global executor: for_each_with");
 }
 
-/// Apply `f` to every element of `data` in parallel, mutating each in place.
-///
-/// Synchronous equivalent of rayon's `data.par_iter_mut().for_each(f)`.
-pub fn par_for_each_mut<T, F>(data: &mut [T], f: F)
+/// Apply `f` to every element of `data` in place, scheduled by `policy`.
+pub fn for_each_mut_with<P, T, F>(policy: P, data: &mut [T], f: F)
 where
+    P: ExecutionPolicy,
     T: Send,
     F: Fn(&mut T) + Send + Sync,
 {
@@ -100,7 +115,7 @@ where
         return;
     }
     let (chunks, chunk) = chunk_layout(n);
-    if chunks <= 1 {
+    if !policy.parallelize(n) || chunks <= 1 {
         data.iter_mut().for_each(f);
         return;
     }
@@ -113,24 +128,23 @@ where
                 return;
             }
             let end = (start + chunk).min(n);
-            // SAFETY: ranges `[start, end)` are pairwise disjoint across `ci`,
-            // so the `&mut` sub-slices never alias. `data` is mutably borrowed
-            // for the whole call and `for_each_indexed` joins every task before
-            // returning, so `base` remains valid for the duration.
+            // SAFETY: ranges `[start, end)` are pairwise disjoint across `ci`, so
+            // the `&mut` sub-slices never alias; `data` is mutably borrowed for
+            // the whole call and `for_each_indexed` joins every task before
+            // returning, so `base` stays valid.
             let slice =
                 unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
             for item in slice {
                 f(item);
             }
         })
-        .expect("moirai global executor: par_for_each_mut");
+        .expect("moirai global executor: for_each_mut_with");
 }
 
-/// Apply `f(index, &element)` to every element of `data` in parallel.
-///
-/// Synchronous equivalent of rayon's `data.par_iter().enumerate().for_each(f)`.
-pub fn par_enumerate<T, F>(data: &[T], f: F)
+/// Apply `f(index, &element)` to every element of `data`, scheduled by `policy`.
+pub fn enumerate_with<P, T, F>(policy: P, data: &[T], f: F)
 where
+    P: ExecutionPolicy,
     T: Sync,
     F: Fn(usize, &T) + Send + Sync,
 {
@@ -139,7 +153,7 @@ where
         return;
     }
     let (chunks, chunk) = chunk_layout(n);
-    if chunks <= 1 {
+    if !policy.parallelize(n) || chunks <= 1 {
         data.iter().enumerate().for_each(|(i, x)| f(i, x));
         return;
     }
@@ -155,16 +169,14 @@ where
                 f(start + offset, item);
             }
         })
-        .expect("moirai global executor: par_enumerate");
+        .expect("moirai global executor: enumerate_with");
 }
 
-/// Apply `f(index, &mut element)` to every element of `data` in parallel,
-/// mutating each in place.
-///
-/// Synchronous equivalent of rayon's
-/// `data.par_iter_mut().enumerate().for_each(f)`.
-pub fn par_enumerate_mut<T, F>(data: &mut [T], f: F)
+/// Apply `f(index, &mut element)` to every element of `data` in place,
+/// scheduled by `policy`.
+pub fn enumerate_mut_with<P, T, F>(policy: P, data: &mut [T], f: F)
 where
+    P: ExecutionPolicy,
     T: Send,
     F: Fn(usize, &mut T) + Send + Sync,
 {
@@ -173,7 +185,7 @@ where
         return;
     }
     let (chunks, chunk) = chunk_layout(n);
-    if chunks <= 1 {
+    if !policy.parallelize(n) || chunks <= 1 {
         data.iter_mut().enumerate().for_each(|(i, x)| f(i, x));
         return;
     }
@@ -186,68 +198,64 @@ where
                 return;
             }
             let end = (start + chunk).min(n);
-            // SAFETY: ranges `[start, end)` are pairwise disjoint across `ci`,
-            // so the `&mut` sub-slices never alias; `data` outlives the joined
-            // parallel region. See `par_for_each_mut`.
+            // SAFETY: disjoint ranges; see `for_each_mut_with`.
             let slice =
                 unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
             for (offset, item) in slice.iter_mut().enumerate() {
                 f(start + offset, item);
             }
         })
-        .expect("moirai global executor: par_enumerate_mut");
+        .expect("moirai global executor: enumerate_mut_with");
 }
 
-/// Map each element of `data` with `f` in parallel, collecting results into a
-/// `Vec<R>` in the original order.
-///
-/// Synchronous equivalent of rayon's `data.par_iter().map(f).collect()`.
-pub fn par_map_collect<T, R, F>(data: &[T], f: F) -> Vec<R>
+/// Map each element of `data` with `f`, collecting into a `Vec<R>` in order,
+/// scheduled by `policy`.
+pub fn map_collect_with<P, T, R, F>(policy: P, data: &[T], f: F) -> Vec<R>
 where
+    P: ExecutionPolicy,
     T: Sync,
     R: Send,
     F: Fn(&T) -> R + Send + Sync,
 {
     let n = data.len();
+    if !policy.parallelize(n) {
+        return data.iter().map(f).collect();
+    }
     let mut out: Vec<core::mem::MaybeUninit<R>> = Vec::with_capacity(n);
-    // SAFETY: `out` has capacity `n`; every slot is written exactly once below
-    // before being read, and the elements are `MaybeUninit` so `set_len` does
-    // not assume initialization.
+    // SAFETY: capacity is `n`; every slot is written exactly once below before
+    // being read, and `MaybeUninit` makes `set_len` sound without initialization.
     unsafe {
         out.set_len(n);
     }
-    par_enumerate_mut(&mut out, |i, slot| {
+    enumerate_mut_with(Parallel, &mut out, |i, slot| {
         slot.write(f(&data[i]));
     });
-    // SAFETY: `par_enumerate_mut` initialized every slot, and `MaybeUninit<R>`
-    // has the same layout as `R`. Rebuild the `Vec` as `Vec<R>` without
-    // re-allocating or running uninitialized drops.
+    // SAFETY: every slot initialized above; `MaybeUninit<R>` shares `R`'s layout.
     let mut out = core::mem::ManuallyDrop::new(out);
     unsafe { Vec::from_raw_parts(out.as_mut_ptr().cast::<R>(), n, out.capacity()) }
 }
 
-/// Parallel map-reduce over `data`.
+/// Map-reduce over `data`, scheduled by `policy`.
 ///
-/// Each element is mapped with `map`; results are folded within and across
-/// chunks using `reduce`, seeded by `identity`. `reduce` must be associative
-/// and `identity` must be its neutral element, since chunk boundaries and
-/// combination order are unspecified.
-///
-/// Synchronous equivalent of rayon's
-/// `data.par_iter().map(map).reduce(|| identity, reduce)`.
-pub fn par_map_reduce<T, R, M, Rd>(data: &[T], identity: R, map: M, reduce: Rd) -> R
+/// `reduce` must be associative and `identity` its neutral element, since chunk
+/// boundaries and combination order are unspecified.
+pub fn map_reduce_with<P, T, R, M, Rd>(
+    policy: P,
+    data: &[T],
+    identity: R,
+    map: M,
+    reduce: Rd,
+) -> R
 where
+    P: ExecutionPolicy,
     T: Sync,
     R: Send + Sync + Clone,
     M: Fn(&T) -> R + Send + Sync,
     Rd: Fn(R, R) -> R + Send + Sync,
 {
     let n = data.len();
-    if n == 0 {
-        return identity;
-    }
-    let (chunks, chunk) = chunk_layout(n);
-    if chunks <= 1 {
+    let (chunks, chunk) = if n == 0 { (0, 0) } else { chunk_layout(n) };
+    if n == 0 || !policy.parallelize(n) || chunks <= 1 {
         let mut acc = identity;
         for item in data {
             acc = reduce(acc, map(item));
@@ -274,7 +282,64 @@ where
             },
             move |a, b| reduce(a, b),
         )
-        .expect("moirai global executor: par_map_reduce")
+        .expect("moirai global executor: map_reduce_with")
+}
+
+/// Adaptive [`for_each_with`] — `data.par_iter().for_each(f)`.
+pub fn par_for_each<T, F>(data: &[T], f: F)
+where
+    T: Sync,
+    F: Fn(&T) + Send + Sync,
+{
+    for_each_with(Adaptive, data, f);
+}
+
+/// Adaptive [`for_each_mut_with`] — `data.par_iter_mut().for_each(f)`.
+pub fn par_for_each_mut<T, F>(data: &mut [T], f: F)
+where
+    T: Send,
+    F: Fn(&mut T) + Send + Sync,
+{
+    for_each_mut_with(Adaptive, data, f);
+}
+
+/// Adaptive [`enumerate_with`] — `data.par_iter().enumerate().for_each(f)`.
+pub fn par_enumerate<T, F>(data: &[T], f: F)
+where
+    T: Sync,
+    F: Fn(usize, &T) + Send + Sync,
+{
+    enumerate_with(Adaptive, data, f);
+}
+
+/// Adaptive [`enumerate_mut_with`] — `data.par_iter_mut().enumerate().for_each(f)`.
+pub fn par_enumerate_mut<T, F>(data: &mut [T], f: F)
+where
+    T: Send,
+    F: Fn(usize, &mut T) + Send + Sync,
+{
+    enumerate_mut_with(Adaptive, data, f);
+}
+
+/// Adaptive [`map_collect_with`] — `data.par_iter().map(f).collect()`.
+pub fn par_map_collect<T, R, F>(data: &[T], f: F) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T) -> R + Send + Sync,
+{
+    map_collect_with(Adaptive, data, f)
+}
+
+/// Adaptive [`map_reduce_with`] — `data.par_iter().map(map).reduce(id, reduce)`.
+pub fn par_map_reduce<T, R, M, Rd>(data: &[T], identity: R, map: M, reduce: Rd) -> R
+where
+    T: Sync,
+    R: Send + Sync + Clone,
+    M: Fn(&T) -> R + Send + Sync,
+    Rd: Fn(R, R) -> R + Send + Sync,
+{
+    map_reduce_with(Adaptive, data, identity, map, reduce)
 }
 
 #[cfg(test)]
@@ -346,5 +411,32 @@ mod tests {
         let mut one = vec![7u64];
         par_for_each_mut(&mut one, |x| *x += 1);
         assert_eq!(one, vec![8]);
+    }
+
+    #[test]
+    fn policies_select_expected_path_but_same_result() {
+        // Sequential and Parallel must produce identical results; Adaptive runs
+        // sequentially below threshold and parallel above, also identical.
+        let data: Vec<u64> = (0..50_000).collect();
+        let expected: u64 = data.iter().sum();
+        for_each_check(Sequential, &data, expected);
+        for_each_check(Parallel, &data, expected);
+        for_each_check(Adaptive, &data, expected);
+
+        // Below the adaptive threshold the result is still correct (sequential).
+        let small: Vec<u64> = (0..(ADAPTIVE_PARALLEL_THRESHOLD - 1) as u64).collect();
+        let small_expected: u64 = small.iter().sum();
+        assert_eq!(
+            map_reduce_with(Adaptive, &small, 0u64, |&x| x, |a, b| a + b),
+            small_expected
+        );
+    }
+
+    fn for_each_check<P: ExecutionPolicy>(policy: P, data: &[u64], expected: u64) {
+        let acc = AtomicUsize::new(0);
+        for_each_with(policy, data, |&x| {
+            acc.fetch_add(x as usize, Ordering::Relaxed);
+        });
+        assert_eq!(acc.load(Ordering::Relaxed) as u64, expected);
     }
 }

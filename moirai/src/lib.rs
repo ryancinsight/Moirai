@@ -260,12 +260,10 @@ pub use moirai_iter::*;
 pub use moirai_gpu::prelude::*;
 
 // Synchronous data-parallel primitives (rayon-replacement surface), provided by
-// the `moirai-parallel` domain crate.
+// the `moirai-parallel` domain crate: monomorphized ExecutionPolicy + the
+// adaptive `par_*` helpers.
 #[cfg(feature = "parallel")]
-pub use moirai_parallel::{
-    par_enumerate, par_enumerate_mut, par_for_each, par_for_each_mut, par_map_collect,
-    par_map_reduce,
-};
+pub use moirai_parallel::*;
 
 use std::{future::Future, sync::Arc, time::Duration};
 
@@ -751,9 +749,9 @@ pub mod prelude {
     };
 
     #[cfg(feature = "parallel")]
-    pub use crate::{
+    pub use moirai_parallel::{
         par_enumerate, par_enumerate_mut, par_for_each, par_for_each_mut, par_map_collect,
-        par_map_reduce,
+        par_map_reduce, Adaptive, ExecutionPolicy, Parallel, Sequential,
     };
 
     #[cfg(feature = "iter")]
