@@ -327,6 +327,45 @@ where
     unsafe { Vec::from_raw_parts(out.as_mut_ptr().cast::<R>(), len, out.capacity()) }
 }
 
+/// Map each element of `data` in place with `f(index, &mut element)`, collecting
+/// each returned value into a `Vec<R>` in order, scheduled by policy `P`.
+///
+/// The synchronous equivalent of rayon's
+/// `data.par_iter_mut().enumerate().map(f).collect()`: each element is mutated
+/// and produces a result. Use for parallel solve-in-place-and-collect loops.
+pub fn map_collect_mut_with<P, T, R, F>(data: &mut [T], f: F) -> Vec<R>
+where
+    P: ExecutionPolicy,
+    T: Send,
+    R: Send,
+    F: Fn(usize, &mut T) -> R + Send + Sync,
+{
+    let n = data.len();
+    if !P::parallelize(n) {
+        return data.iter_mut().enumerate().map(|(i, x)| f(i, x)).collect();
+    }
+    let mut out: Vec<core::mem::MaybeUninit<R>> = Vec::with_capacity(n);
+    // SAFETY: capacity is `n`; every slot is written exactly once below.
+    unsafe {
+        out.set_len(n);
+    }
+    let data_ptr = DisjointMutPtr(data.as_mut_ptr());
+    let out_ptr = DisjointMutPtr(out.as_mut_ptr());
+    let f = &f;
+    global()
+        .for_each_indexed::<SyncTask, _>(n, move |i| {
+            // SAFETY: each index in `0..n` is visited exactly once, so neither the
+            // input element nor the output slot at `i` aliases another task's.
+            let elem = unsafe { data_ptr.get_mut(i) };
+            let result = f(i, elem);
+            unsafe { out_ptr.get_mut(i).write(result) };
+        })
+        .expect("moirai global executor: map_collect_mut_with");
+    // SAFETY: every slot initialized; `MaybeUninit<R>` shares `R`'s layout.
+    let mut out = core::mem::ManuallyDrop::new(out);
+    unsafe { Vec::from_raw_parts(out.as_mut_ptr().cast::<R>(), n, out.capacity()) }
+}
+
 /// Parallel reduction over the index domain `0..len`, scheduled by policy `P`.
 ///
 /// `map(i)` produces a value for index `i`; results are folded within and across
@@ -537,6 +576,19 @@ mod tests {
         for (i, &v) in data.iter().enumerate() {
             assert_eq!(v, i as u64 + 1 + i as u64);
         }
+    }
+
+    #[test]
+    fn map_collect_mut_mutates_and_collects() {
+        let mut data: Vec<u64> = (0..10_000).collect();
+        let doubled_indices = map_collect_mut_with::<Adaptive, _, _, _>(&mut data, |i, x| {
+            *x += 1; // mutate in place
+            i as u64 // collect the index
+        });
+        for (i, &v) in data.iter().enumerate() {
+            assert_eq!(v, i as u64 + 1);
+        }
+        assert_eq!(doubled_indices, (0..10_000u64).collect::<Vec<_>>());
     }
 
     #[test]
