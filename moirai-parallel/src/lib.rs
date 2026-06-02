@@ -74,6 +74,14 @@ impl<T> DisjointMutPtr<T> {
         // SAFETY: guaranteed by the caller's per-index-once contract.
         unsafe { &mut *self.0.add(i) }
     }
+
+    /// Return the wrapped base pointer. Taking `&self` forces a closure to
+    /// capture the whole (`Send`/`Sync`) wrapper rather than the bare `*mut T`
+    /// field under 2021 disjoint capture.
+    #[inline]
+    fn base(&self) -> *mut T {
+        self.0
+    }
 }
 
 // The executor's `for_each_indexed`/`map_reduce_indexed` already split the index
