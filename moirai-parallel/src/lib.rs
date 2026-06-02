@@ -239,6 +239,32 @@ where
         .expect("moirai global executor: map_reduce_with")
 }
 
+/// Parallel reduction over the index domain `0..len`, scheduled by policy `P`.
+///
+/// `map(i)` produces a value for index `i`; results are folded within and across
+/// chunks with `reduce`, seeded by `identity` (which must be `reduce`'s neutral
+/// element). Use this for index-aligned reductions over multiple slices that
+/// [`map_reduce_with`] cannot express — e.g. a dot product
+/// `reduce_index_with::<Adaptive>(n, T::zero(), |i| a[i] * b[i], |x, y| x + y)`.
+pub fn reduce_index_with<P, R, Map, Red>(len: usize, identity: R, map: Map, reduce: Red) -> R
+where
+    P: ExecutionPolicy,
+    R: Send + Sync + Clone,
+    Map: Fn(usize) -> R + Send + Sync,
+    Red: Fn(R, R) -> R + Send + Sync,
+{
+    if len == 0 || !P::parallelize(len) {
+        let mut acc = identity;
+        for i in 0..len {
+            acc = reduce(acc, map(i));
+        }
+        return acc;
+    }
+    global()
+        .map_reduce_indexed::<SyncTask, _, _, _>(len, identity, map, reduce)
+        .expect("moirai global executor: reduce_index_with")
+}
+
 // ---------------------------------------------------------------------------
 // Extension traits: trait-based, type-selected parallel views over slices
 // ---------------------------------------------------------------------------
@@ -423,6 +449,20 @@ mod tests {
         for (i, &v) in data.iter().enumerate() {
             assert_eq!(v, i as u64 + 1 + i as u64);
         }
+    }
+
+    #[test]
+    fn reduce_index_computes_dot_product() {
+        let a: Vec<u64> = (0..50_000).collect();
+        let b: Vec<u64> = (0..50_000).map(|x| x * 2).collect();
+        let dot = reduce_index_with::<Adaptive, _, _, _>(a.len(), 0u64, |i| a[i] * b[i], |x, y| x + y);
+        let expected: u64 = a.iter().zip(&b).map(|(&x, &y)| x * y).sum();
+        assert_eq!(dot, expected);
+        // sequential policy agrees
+        assert_eq!(
+            reduce_index_with::<Sequential, _, _, _>(a.len(), 0u64, |i| a[i] * b[i], |x, y| x + y),
+            expected
+        );
     }
 
     #[test]
