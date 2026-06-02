@@ -9,6 +9,7 @@ members = [
     "moirai-pal",
     "moirai-iter",
     "moirai-parallel",
+    "moirai-tls",
     "moirai-metrics",
     "moirai-utils",
     "moirai-gpu",
@@ -42,12 +43,21 @@ moirai-async = { path = "moirai-async", version = "0.2.0" }
 moirai-pal = { path = "moirai-pal", version = "0.2.0" }
 moirai-iter = { path = "moirai-iter", version = "0.2.0" }
 moirai-parallel = { path = "moirai-parallel", version = "0.2.0" }
+moirai-tls = { path = "moirai-tls", version = "0.2.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.2.0" }
 moirai-utils = { path = "moirai-utils", version = "0.2.0", features = ["std"] }
 moirai-gpu = { path = "moirai-gpu", version = "0.2.0" }
 
+# Network stack (ADR-015): sans-I/O, runtime-agnostic, NOT tokio-coupled.
+# `ring` crypto provider (no aws-lc-rs NASM/cmake toolchain requirement on Windows).
+futures-io = "0.3"
+futures-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+rustls-pki-types = "1"
+webpki-roots = "0.26"
+
 # Development and testing dependencies only (not used in runtime)
 criterion = "0.5"
+rcgen = "0.13"
 fastrand = "2.0"
 proptest = "1.4"
 quickcheck = "1.0"

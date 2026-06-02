@@ -1,0 +1,24 @@
+[package]
+name = "moirai-tls"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "Async TLS client for the Moirai runtime: rustls driven over Moirai async sockets, no Tokio"
+keywords = ["tls", "rustls", "async", "moirai", "network"]
+categories = ["network-programming", "cryptography"]
+
+[dependencies]
+moirai-async = { workspace = true }
+futures-io = { workspace = true }
+futures-rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+webpki-roots = { workspace = true }
+
+[dev-dependencies]
+moirai = { path = "../moirai", default-features = false, features = ["async"] }
+rcgen = { workspace = true }
