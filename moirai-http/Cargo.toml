@@ -1,0 +1,22 @@
+[package]
+name = "moirai-http"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "Minimal async HTTP/1.1 client over Moirai sockets + moirai-tls, no Tokio"
+keywords = ["http", "client", "async", "moirai", "network"]
+categories = ["network-programming", "web-programming::http-client"]
+
+[dependencies]
+moirai-async = { workspace = true }
+moirai-tls = { workspace = true }
+http = { workspace = true }
+httparse = { workspace = true }
+
+[dev-dependencies]
+moirai = { path = "../moirai", default-features = false, features = ["async"] }
