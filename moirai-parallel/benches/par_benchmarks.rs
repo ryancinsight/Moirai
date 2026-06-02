@@ -32,7 +32,10 @@ fn bench_for_each_mut(c: &mut Criterion) {
         });
         group.bench_with_input(BenchmarkId::new("rayon", n), &n, |b, &n| {
             let mut data: Vec<f64> = (0..n).map(|i| i as f64).collect();
-            b.iter(|| data.par_iter_mut().for_each(|x| *x = black_box(*x) * 1.000_001));
+            b.iter(|| {
+                data.par_iter_mut()
+                    .for_each(|x| *x = black_box(*x) * 1.000_001)
+            });
         });
         group.bench_with_input(BenchmarkId::new("moirai", n), &n, |b, &n| {
             let mut data: Vec<f64> = (0..n).map(|i| i as f64).collect();

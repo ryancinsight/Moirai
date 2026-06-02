@@ -253,7 +253,16 @@ pub use moirai_async::{
 
 // Re-export iterator functionality
 #[cfg(feature = "iter")]
-pub use moirai_iter::*;
+pub use moirai_iter::{
+    async_range, moirai_iter, moirai_iter_async, moirai_iter_distributed, moirai_iter_hybrid,
+    moirai_iter_multi_system, moirai_iter_parallel, par_range, AsyncContext, AsyncIterator,
+    AsyncParallelIterator, DistributedContext, DistributedIterator, ExecutionBase,
+    ExecutionContext, ExecutionStrategy, HybridConfig, HybridContext, IndexedParallelIterator,
+    IntoAsyncIterator, IntoParallelIterator, IntoParallelRefIterator, MoiraiIterator,
+    MultiSystemContext, MultiSystemIterator, NodeConfig, ParallelContext, ParallelExtend,
+    ParallelIterator, PerformanceHistory, RangeParIter, SystemConfig, ThreadPool, VecParIter,
+    VecRefParIter,
+};
 
 // Re-export GPU functionality
 #[cfg(feature = "gpu")]

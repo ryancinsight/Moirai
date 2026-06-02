@@ -233,6 +233,46 @@ Moirai provides a unified API that automatically selects optimal execution strat
 - Transport safe-channel payloads use rkyv-style archive bytes plus borrowed typed views. The transport owns the byte buffer, and `String` receive returns `&str` over that buffer after length and UTF-8 validation, avoiding deserialize-to-owned allocation on the receive path.
 - Transport archive benchmarking compares borrowed views and owned decode references over identical archive bytes and through the same `TransportManager` path. Send-side string archive encoding accepts borrowed `str` so callers do not need to construct an owned `String` before encoding.
 
+---
+
+## ADR-008: Scheduler Route Consumption and Transport Ownership Boundary
+
+**Date**: 2026-06-02
+**Status**: Accepted
+**Context**: Process/server scheduler routing
+
+### Decision
+
+Scheduler route selection and transport execution are separate bounded contexts. `moirai-executor` owns `HybridRouter<P>` and concrete `SchedulerRoute` values. `moirai-transport` consumes those values behind the `scheduler-routes` feature, resolves them to concrete `Address` values, and sends archived payload bytes through the existing transport ownership boundary.
+
+Route values are metadata until a transport backend consumes them. A route benchmark may measure route decisions and address resolution, but it must not claim OS process execution or server execution unless the corresponding process or network backend performs real work and returns value-checked results.
+
+### Rationale
+
+- The scheduler must remain independent of transport crates, process lifecycle APIs, and network backends.
+- The transport crate already owns archive bytes and borrowed `ArchiveView` validation, making it the correct boundary for route-address consumption.
+- Static `RoutePolicy` parameters keep route consumption monomorphized; no `dyn RoutePolicy` is introduced.
+- Server route resolution can produce `RemoteAddress` metadata before a server transport exists, but sending over that route remains a transport backend responsibility.
+- Mnemosyne allocator handoff remains an explicit follow-up because allocator region ownership must be specified before cross-process or cross-server task payload transfer can be claimed.
+
+### Implementation
+
+- `moirai-transport` feature `scheduler-routes` optionally depends on `moirai-executor`.
+- `RouteAddressBook` maps `SchedulerRoute::Thread` and `SchedulerRoute::Process` to local transport addresses and known `SchedulerRoute::Server` targets to remote addresses.
+- `RoutedArchivedSender<P>` archives payloads through `ArchiveSerialize`, sends transport-owned bytes to the selected route address, and returns the selected route or address for value checks.
+- `RoutedArchivedReceiver<P>` receives bytes from a route address and returns `ArchivedMessage<T>` so callers borrow validated views from the owned message buffer.
+- Tests cover local archived route roundtrip, async process route async-lane address resolution, and server route remote endpoint resolution without sending.
+- `NetworkTransport` sends and receives remote payload bytes through a blocking TCP length-prefixed frame with a fixed maximum message size.
+- Remote byte transport is not remote task execution. Task envelopes, result envelopes, scheduler integration, and failure propagation remain separate contracts.
+
+### Deferred Work
+
+- OS process executor lifecycle, including process creation, supervision, shutdown, bounded queues, and failure propagation.
+- Remote task execution over the network byte transport.
+- Production server transport execution with persistent connection lifecycle and backpressure.
+- Mnemosyne allocator ownership handoff for archived task payloads across thread, process, and server boundaries.
+- End-to-end routed execution benchmarks after real process/server execution paths exist.
+
 ### Verification
 
 - `cargo test -p moirai-core --all-features`: 61 passed.

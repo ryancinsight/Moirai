@@ -37,7 +37,11 @@ pub use hybrid::HybridExecutor;
 pub use metrics::ExecutorMetrics;
 pub use registry::TaskRegistry;
 pub use schedule::{
-    AsyncTask, BlockingTask, ScheduleMetrics, SchedulerScope, SyncTask, ThreadScheduler, WorkClass,
+    AsyncLaneId, AsyncLanesPerProcess, AsyncTask, BlockingTask, HybridRoutePolicy, HybridRouter,
+    ProcessCount, ProcessId, ProcessRoute, RoutePolicy, RouteSummary, RouteTopology,
+    ScheduleMetrics, SchedulerRoute, SchedulerScope, ServerCount, ServerId, ServerRoute,
+    ServerRoutePolicy, SyncTask, ThreadId, ThreadRoute, ThreadRoutePolicy, ThreadScheduler,
+    WorkClass, WorkerCount,
 };
 #[cfg(feature = "scheduler-diagnostics")]
 pub use schedule::{
@@ -125,7 +129,7 @@ fn global_arc() -> &'static std::sync::Arc<HybridExecutor> {
 
 /// Borrow the shared process-wide executor.
 pub fn global() -> &'static HybridExecutor {
-    &**global_arc()
+    global_arc()
 }
 
 /// Obtain an owned handle to the shared process-wide executor.

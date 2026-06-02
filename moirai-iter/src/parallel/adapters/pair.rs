@@ -126,8 +126,8 @@ where
 
 /// Zip adapter with Rayon-style equal-length value semantics.
 pub struct ZipEq<I, J> {
-    left: I,
-    right: J,
+    pub(in crate::parallel) left: I,
+    pub(in crate::parallel) right: J,
 }
 
 impl<I, J> ZipEq<I, J> {

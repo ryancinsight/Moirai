@@ -365,9 +365,10 @@ fn numa_iter_consumes_owned_batches_without_clone() {
 #[test]
 fn distributed_iter_consumes_owned_partitions_without_clone() {
     let source = format!(
-        "{}\n{}",
+        "{}\n{}\n{}",
         read_benchmark("../moirai-iter/src/distributed.rs"),
-        read_benchmark("../moirai-iter/src/lib.rs")
+        read_benchmark("../moirai-iter/src/lib.rs"),
+        read_benchmark("../moirai-iter/src/facade/mod.rs")
     );
     let benchmark = read_benchmark("benches/distributed_context_comparison.rs");
     let manifest = read_benchmark("Cargo.toml");
@@ -568,6 +569,7 @@ fn iterator_simd_surface_uses_generic_scalar_contract() {
 fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
     let audit = read_benchmark("../docs/rayon_adapter_surface_audit.md");
     let adapter_benchmark = read_benchmark("benches/iterator_adapter_comparison.rs");
+    let regression_benchmark = read_benchmark("benches/parallel_iterator_regression.rs");
     let benchmark_manifest = read_benchmark("Cargo.toml");
     let adapter_source = format!(
         "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
@@ -583,7 +585,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         read_benchmark("../moirai-iter/src/parallel/sources.rs")
     );
     let source = format!(
-        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
         read_benchmark("../moirai-iter/src/parallel.rs"),
         read_benchmark("../moirai-iter/src/parallel/fallible.rs"),
         read_benchmark("../moirai-iter/src/parallel/indexed.rs"),
@@ -600,6 +602,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         read_benchmark("../moirai-iter/src/parallel/adapters/window.rs"),
         read_benchmark("../moirai-iter/src/parallel/consumers.rs"),
         read_benchmark("../moirai-iter/src/parallel/tests.rs"),
+        read_benchmark("../moirai-iter/src/facade/mod.rs"),
         read_benchmark("../moirai-iter/src/lib.rs")
     );
 
@@ -807,6 +810,12 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "pub struct Chunks<I>",
         "struct ChunkSize(usize)",
         "assert!(value != 0, \"chunk size must be non-zero\");",
+        "pub(in crate::parallel) fn into_parts(self) -> (I, usize)",
+        "Sum mapped chunk outputs without materializing the chunk-output stream",
+        "Sum mapped vector-backed interleaved index/value pairs without building pair streams",
+        "pub(in crate::parallel) fn into_vec(self) -> Vec<T>",
+        "pub(in crate::parallel) fn into_slice(self) -> &'data [T]",
+        "Sum a borrowed copied-map-filter stream without materializing references",
         "pub use adapters::{",
         "Inspect",
         "PanicFuse",
@@ -932,6 +941,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
 
     for required in [
         "name = \"iterator_adapter_comparison\"",
+        "name = \"parallel_iterator_regression\"",
         "moirai_indexed_boundary",
         "rayon_indexed_boundary",
         "moirai_collect_into_vec_pipeline",
@@ -1040,8 +1050,57 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "iterator_adapter_partition_map",
     ] {
         assert!(
-            adapter_benchmark.contains(required) || benchmark_manifest.contains(required),
+            adapter_benchmark.contains(required)
+                || regression_benchmark.contains(required)
+                || benchmark_manifest.contains(required),
             "iterator adapter benchmark must retain comparison marker {required}"
+        );
+    }
+
+    for required in [
+        "parallel_iterator_map_reduce_sizes",
+        "parallel_iterator_zip_filter_collect_sizes",
+        "parallel_iterator_borrowed_positions_sizes",
+        "parallel_iterator_borrowed_copied_reduce_sizes",
+        "parallel_iterator_collect_into_existing_sizes",
+        "parallel_iterator_nested_flatten_reduce_sizes",
+        "parallel_iterator_chunked_map_reduce_sizes",
+        "parallel_iterator_indexed_step_interleave_sizes",
+        "parallel_iterator_partition_unzip_sizes",
+        "parallel_iterator_position_find_sizes",
+        "moirai_map_reduce",
+        "rayon_map_reduce",
+        "moirai_zip_filter_collect",
+        "rayon_zip_filter_collect",
+        "moirai_borrowed_positions",
+        "rayon_borrowed_positions",
+        "moirai_borrowed_copied_reduce",
+        "rayon_borrowed_copied_reduce",
+        "MoiraiIntoParallelRefIterator::par_iter(data)",
+        "rayon::iter::IntoParallelRefIterator::par_iter(data)",
+        "moirai_collect_into_existing",
+        "rayon_collect_into_existing",
+        "MoiraiIndexedParallelIterator::collect_into_vec",
+        "RayonIndexedParallelIterator::collect_into_vec",
+        "moirai_nested_flatten_reduce",
+        "rayon_nested_flatten_reduce",
+        "moirai_chunked_map_reduce",
+        "rayon_chunked_map_reduce",
+        "moirai_indexed_step_interleave",
+        "rayon_indexed_step_interleave",
+        "moirai_partition_unzip",
+        "rayon_partition_unzip",
+        "moirai_position_find",
+        "rayon_position_find",
+        "assert_eq!(",
+        "sample_size(SAMPLE_SIZE)",
+        "measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))",
+        "warm_up_time(Duration::from_millis(WARM_UP_MILLIS))",
+        "without_plots",
+    ] {
+        assert!(
+            regression_benchmark.contains(required),
+            "parallel iterator regression benchmark must retain marker {required}"
         );
     }
 }

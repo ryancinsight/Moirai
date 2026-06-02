@@ -2,7 +2,7 @@
 //! (itself on Moirai sockets), covering Content-Length, chunked transfer-encoding,
 //! `Range`/206 header pass-through, `HEAD` (no body), and keep-alive reuse.
 
-use moirai_async::io::{AsyncReadExt, AsyncWriteExt};
+use moirai_async::io::AsyncWriteExt;
 use moirai_async::net::{TcpListener, TcpStream};
 use moirai_http::HttpClient;
 

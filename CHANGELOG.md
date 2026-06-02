@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added `parallel_iterator_regression`, a focused multi-size Moirai/Rayon benchmark matrix for parallel iterator map/reduce, zip/filter collect, borrowed positions, borrowed copied reduce, collect-into-existing-storage, nested flatten/reduce, chunked map/reduce, indexed step/interleave, partition/unzip, and position/find paths.
+- Added `moirai_executor::schedule::HybridRouter<P>` with sealed zero-sized route policies and concrete thread/process/server/async-lane route values, plus `process_server_scheduler_routing` for value-checked route-decision benchmarks.
+- Added the `moirai-transport/scheduler-routes` feature with route-to-address binding for `SchedulerRoute` values and archived local route send/receive helpers.
+- Added bounded length-prefixed TCP byte transfer for `NetworkTransport` and `TransportManager` remote addresses.
 - Added `async_iterator_comparison`, a value-checked `moirai-iter::AsyncIterator` ready-pipeline benchmark against Tokio `JoinSet` fan-out.
 - Added `AsyncIterator::take` and `AsyncIterator::skip` logical-window adapters with value tests and a Tokio `JoinSet` comparison row.
 - Added `AsyncIterator::enumerate` and `AsyncIterator::zip` logical-position/pairing adapters with value tests and a Tokio `JoinSet` comparison row.
@@ -81,6 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a refreshed native Rayon/Tokio gap-closure benchmark snapshot covering result handles, scheduler rows, async iterator rows, and selected Rayon adapter rows.
 
 ### Changed
+- Changed borrowed vector `positions`, borrowed copied map/filter/sum, chunked map/sum, vector-backed indexed step/interleave enumerate/map/sum, nested flatten/map/filter/sum, and zip_eq/map/filter/collect parallel iterator shapes to avoid intermediate materialization on the focused regression paths.
+- Moved the public `moirai-iter::MoiraiIterator` facade into a vertical `facade` module, preserved execution contexts through the `ExecutionContext` enum instead of string matching, and removed silent error-to-empty fallback branches.
 - Changed the public Moirai facade documentation to state that cross-machine remote closure execution is outside the active API until a transport-backed task contract exists.
 - Changed the benchmark crate feature declarations to forward Moirai `async`, `iter`, `local`, and `mnemosyne` features explicitly instead of inheriting `moirai` defaults implicitly.
 - Changed Mnemosyne OS TLS key fast-path lookup to use a relaxed scalar load; the published value is only the OS TLS key, not allocator slot contents.

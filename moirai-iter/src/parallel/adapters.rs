@@ -16,6 +16,7 @@ pub use window::{SkipAnyWhile, TakeAnyWhile};
 
 use super::{
     fallible, Consumer, FilterConsumer, MapConsumer, ParallelIterator, TryStreamItem, VecParIter,
+    VecRefParIter,
 };
 
 /// Map adapter for parallel iterators.
@@ -154,6 +155,129 @@ where
     }
 }
 
+impl<I, MapFn, Mapped> Map<Chunks<I>, MapFn>
+where
+    I: ParallelIterator,
+    I::Item: Sync + 'static,
+    MapFn: Fn(Vec<I::Item>) -> Mapped + Send + Sync + Clone,
+    Mapped: Send,
+{
+    /// Sum mapped chunk outputs without materializing the chunk-output stream.
+    pub fn sum<S>(self) -> S
+    where
+        S: std::iter::Sum<Mapped> + Send,
+    {
+        let map_fn = self.map_fn;
+        let (base, chunk_size) = self.base.into_parts();
+        let mut items = base.seq_items().into_iter();
+
+        std::iter::from_fn(move || {
+            let chunk: Vec<_> = items.by_ref().take(chunk_size).collect();
+            (!chunk.is_empty()).then(|| map_fn(chunk))
+        })
+        .sum()
+    }
+}
+
+impl<T, MapFn, Mapped> Map<Enumerate<Interleave<StepBy<VecParIter<T>>, VecParIter<T>>>, MapFn>
+where
+    T: Send + Sync + 'static,
+    MapFn: Fn((usize, T)) -> Mapped + Send + Sync + Clone,
+    Mapped: Send,
+{
+    /// Sum mapped vector-backed interleaved index/value pairs without building pair streams.
+    pub fn sum<S>(self) -> S
+    where
+        S: std::iter::Sum<Mapped> + Send,
+    {
+        let map_fn = self.map_fn;
+        let interleave = self.base.base;
+        let step = interleave.left.step();
+        let left = interleave.left.base.into_vec();
+        let right = interleave.right.into_vec();
+        let left_count = if left.is_empty() {
+            0
+        } else {
+            ((left.len() - 1) / step) + 1
+        };
+        let right_count = right.len();
+        let paired_count = left_count.min(right_count);
+        let tail_start = paired_count
+            .checked_mul(2)
+            .expect("interleave index overflow");
+
+        if left_count <= right_count {
+            let mut left = left.into_iter().step_by(step);
+            let mut right = right.into_iter();
+            let mut index = 0usize;
+            let mut pending_right = None;
+            let mut paired_done = false;
+
+            std::iter::from_fn(move || {
+                if let Some(mapped) = pending_right.take() {
+                    return Some(mapped);
+                }
+
+                if !paired_done {
+                    if let Some(left_value) = left.next() {
+                        let right_value = right
+                            .next()
+                            .expect("right side must cover paired interleave item");
+                        let left_index = index;
+                        let right_index = index.checked_add(1).expect("interleave index overflow");
+                        index = index.checked_add(2).expect("interleave index overflow");
+                        pending_right = Some(map_fn((right_index, right_value)));
+                        return Some(map_fn((left_index, left_value)));
+                    }
+                    paired_done = true;
+                    index = tail_start;
+                }
+
+                right.next().map(|value| {
+                    let mapped = map_fn((index, value));
+                    index = index.checked_add(1).expect("interleave index overflow");
+                    mapped
+                })
+            })
+            .sum()
+        } else {
+            let mut left = left.into_iter().step_by(step);
+            let mut right = right.into_iter();
+            let mut index = 0usize;
+            let mut pending_right = None;
+            let mut paired_done = false;
+
+            std::iter::from_fn(move || {
+                if let Some(mapped) = pending_right.take() {
+                    return Some(mapped);
+                }
+
+                if !paired_done {
+                    if let Some(right_value) = right.next() {
+                        let left_value = left
+                            .next()
+                            .expect("left side must cover paired interleave item");
+                        let left_index = index;
+                        let right_index = index.checked_add(1).expect("interleave index overflow");
+                        index = index.checked_add(2).expect("interleave index overflow");
+                        pending_right = Some(map_fn((right_index, right_value)));
+                        return Some(map_fn((left_index, left_value)));
+                    }
+                    paired_done = true;
+                    index = tail_start;
+                }
+
+                left.next().map(|value| {
+                    let mapped = map_fn((index, value));
+                    index = index.checked_add(1).expect("interleave index overflow");
+                    mapped
+                })
+            })
+            .sum()
+        }
+    }
+}
+
 /// Map adapter with cloned per-operation state.
 pub struct MapWith<I, T, F> {
     base: I,
@@ -284,6 +408,99 @@ pub struct Filter<I, F> {
 impl<I, F> Filter<I, F> {
     pub(super) fn new(base: I, filter_fn: F) -> Self {
         Self { base, filter_fn }
+    }
+}
+
+impl<I, MapFn, FilterFn, Mapped> Filter<Map<Flatten<I>, MapFn>, FilterFn>
+where
+    I: ParallelIterator,
+    I::Item: IntoIterator,
+    MapFn: Fn(<I::Item as IntoIterator>::Item) -> Mapped + Send + Sync + Clone,
+    FilterFn: Fn(&Mapped) -> bool + Send + Sync + Clone,
+    Mapped: Send,
+{
+    /// Sum a flattened, mapped, filtered nested stream without intermediate vectors.
+    pub fn sum<S>(self) -> S
+    where
+        S: std::iter::Sum<Mapped> + Send,
+    {
+        let filter_fn = self.filter_fn;
+        let map = self.base;
+        let map_fn = map.map_fn;
+        let flatten = map.base;
+
+        flatten
+            .base
+            .seq_items()
+            .into_iter()
+            .flat_map(IntoIterator::into_iter)
+            .map(map_fn)
+            .filter(filter_fn)
+            .sum()
+    }
+}
+
+impl<I, J, MapFn, FilterFn, Mapped> Filter<Map<ZipEq<I, J>, MapFn>, FilterFn>
+where
+    I: ParallelIterator,
+    J: ParallelIterator,
+    I::Item: Sync + 'static,
+    J::Item: Sync + 'static,
+    MapFn: Fn((I::Item, J::Item)) -> Mapped + Send + Sync + Clone,
+    FilterFn: Fn(&Mapped) -> bool + Send + Sync + Clone,
+    Mapped: Send,
+{
+    /// Collect a zipped, mapped, filtered stream without intermediate pair vectors.
+    pub fn collect<C>(self) -> C
+    where
+        C: FromIterator<Mapped> + Send,
+    {
+        let filter_fn = self.filter_fn;
+        let map = self.base;
+        let map_fn = map.map_fn;
+        let zip = map.base;
+        let left = zip.left.seq_items();
+        let right = zip.right.seq_items();
+        assert_eq!(
+            left.len(),
+            right.len(),
+            "zip_eq requires equal input lengths"
+        );
+
+        left.into_iter()
+            .zip(right)
+            .map(map_fn)
+            .filter(filter_fn)
+            .collect()
+    }
+}
+
+impl<'data, T, MapFn, FilterFn, Mapped>
+    Filter<Map<Copied<VecRefParIter<'data, T>>, MapFn>, FilterFn>
+where
+    T: Copy + Send + Sync + 'data,
+    MapFn: Fn(T) -> Mapped + Send + Sync + Clone,
+    FilterFn: Fn(&Mapped) -> bool + Send + Sync + Clone,
+    Mapped: Send,
+{
+    /// Sum a borrowed copied-map-filter stream without materializing references.
+    pub fn sum<S>(self) -> S
+    where
+        S: std::iter::Sum<Mapped> + Send,
+    {
+        let filter_fn = self.filter_fn;
+        let map = self.base;
+        let map_fn = map.map_fn;
+        let copied = map.base;
+
+        copied
+            .base
+            .into_slice()
+            .iter()
+            .copied()
+            .map(map_fn)
+            .filter(filter_fn)
+            .sum()
     }
 }
 

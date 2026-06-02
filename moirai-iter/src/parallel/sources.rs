@@ -31,6 +31,10 @@ impl<T> VecParIter<T> {
     pub fn new(data: Vec<T>) -> Self {
         Self { data }
     }
+
+    pub(in crate::parallel) fn into_vec(self) -> Vec<T> {
+        self.data
+    }
 }
 
 impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
@@ -214,6 +218,21 @@ impl<'data, T> VecRefParIter<'data, T> {
     fn new(data: &'data Vec<T>) -> Self {
         Self { data }
     }
+
+    pub(in crate::parallel) fn into_slice(self) -> &'data [T] {
+        self.data.as_slice()
+    }
+
+    /// Return matching logical positions without materializing borrowed items.
+    pub fn positions<F>(self, predicate: F) -> VecRefPositions<'data, T, F>
+    where
+        F: Fn(&'data T) -> bool + Send + Sync + Clone,
+    {
+        VecRefPositions {
+            data: self.data,
+            predicate,
+        }
+    }
 }
 
 impl<'data, T: Send + Sync + 'data> ParallelIterator for VecRefParIter<'data, T> {
@@ -241,6 +260,36 @@ impl<'data, T: Send + Sync + 'data> IndexedParallelIterator for VecRefParIter<'d
     fn collect_into_vec(self, target: &mut Vec<Self::Item>) {
         target.clear();
         target.extend(self.data.iter());
+    }
+}
+
+/// Position stream over borrowed vector storage.
+pub struct VecRefPositions<'data, T, F> {
+    data: &'data Vec<T>,
+    predicate: F,
+}
+
+impl<'data, T, F> ParallelIterator for VecRefPositions<'data, T, F>
+where
+    T: Send + Sync + 'data,
+    F: Fn(&'data T) -> bool + Send + Sync + Clone,
+{
+    type Item = usize;
+
+    fn seq_items(self) -> Vec<Self::Item> {
+        self.data
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| (self.predicate)(item).then_some(index))
+            .collect()
+    }
+
+    fn drive<C, R>(self, consumer: C) -> R
+    where
+        C: Consumer<Self::Item, Result = R> + Send + Sync,
+        R: Send,
+    {
+        consumer.consume(VecParIter::new(self.seq_items()))
     }
 }
 

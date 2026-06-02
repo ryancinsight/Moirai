@@ -89,6 +89,14 @@ name = "iterator_adapter_comparison"
 harness = false
 
 [[bench]]
+name = "parallel_iterator_regression"
+harness = false
+
+[[bench]]
+name = "process_server_scheduler_routing"
+harness = false
+
+[[bench]]
 name = "iter_ops_parallel_comparison"
 harness = false
 

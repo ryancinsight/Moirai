@@ -28,6 +28,10 @@ impl<I> Chunks<I> {
             chunk_size: ChunkSize::new(chunk_size),
         }
     }
+
+    pub(in crate::parallel) fn into_parts(self) -> (I, usize) {
+        (self.base, self.chunk_size.get())
+    }
 }
 
 impl<I> ParallelIterator for Chunks<I>

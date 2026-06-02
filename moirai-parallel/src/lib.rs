@@ -205,7 +205,7 @@ where
     }
     let f = &f;
     global()
-        .for_each_indexed::<SyncTask, _>(len, move |i| f(i))
+        .for_each_indexed::<SyncTask, _>(len, f)
         .expect("moirai global executor: for_each_index_with");
 }
 
@@ -226,7 +226,7 @@ where
     }
     let num_chunks = n.div_ceil(chunk_size);
     if !P::parallelize(n) || num_chunks <= 1 {
-        data.chunks_mut(chunk_size).for_each(|c| f(c));
+        data.chunks_mut(chunk_size).for_each(&f);
         return;
     }
     let base = DisjointMutPtr(data.as_mut_ptr());
@@ -392,12 +392,7 @@ where
     // The executor folds each worker chunk locally (seeded by `identity`) then
     // combines chunk results, so `map` is per-element and `reduce` per-pair.
     global()
-        .map_reduce_indexed::<SyncTask, _, _, _>(
-            n,
-            identity,
-            move |i| map(&data[i]),
-            move |a, b| reduce(a, b),
-        )
+        .map_reduce_indexed::<SyncTask, _, _, _>(n, identity, move |i| map(&data[i]), reduce)
         .expect("moirai global executor: map_reduce_with")
 }
 
@@ -637,7 +632,10 @@ pub trait ParallelSlice<T> {
 impl<T> ParallelSlice<T> for [T] {
     #[inline]
     fn par(&self) -> ParRef<'_, T, Adaptive> {
-        ParRef { data: self, _policy: PhantomData }
+        ParRef {
+            data: self,
+            _policy: PhantomData,
+        }
     }
 }
 
@@ -650,7 +648,10 @@ pub trait ParallelSliceMut<T> {
 impl<T> ParallelSliceMut<T> for [T] {
     #[inline]
     fn par_mut(&mut self) -> ParMut<'_, T, Adaptive> {
-        ParMut { data: self, _policy: PhantomData }
+        ParMut {
+            data: self,
+            _policy: PhantomData,
+        }
     }
 }
 
@@ -775,8 +776,16 @@ mod tests {
             counter.fetch_add(1, Ordering::Relaxed);
             acc.fetch_add(i as u64, Ordering::Relaxed);
         });
-        assert_eq!(counter.load(Ordering::Relaxed), n, "every index visited once");
-        assert_eq!(acc.load(Ordering::Relaxed), sum, "index values summed correctly");
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            n,
+            "every index visited once"
+        );
+        assert_eq!(
+            acc.load(Ordering::Relaxed),
+            sum,
+            "index values summed correctly"
+        );
     }
 
     #[test]
@@ -817,7 +826,9 @@ mod tests {
             }
         });
         for i in 0..lanes {
-            assert!(data[i * width..(i + 1) * width].iter().all(|&v| v == i as u64));
+            assert!(data[i * width..(i + 1) * width]
+                .iter()
+                .all(|&v| v == i as u64));
         }
     }
 
@@ -873,7 +884,8 @@ mod tests {
     fn reduce_index_computes_dot_product() {
         let a: Vec<u64> = (0..50_000).collect();
         let b: Vec<u64> = (0..50_000).map(|x| x * 2).collect();
-        let dot = reduce_index_with::<Adaptive, _, _, _>(a.len(), 0u64, |i| a[i] * b[i], |x, y| x + y);
+        let dot =
+            reduce_index_with::<Adaptive, _, _, _>(a.len(), 0u64, |i| a[i] * b[i], |x, y| x + y);
         let expected: u64 = a.iter().zip(&b).map(|(&x, &y)| x * y).sum();
         assert_eq!(dot, expected);
         // sequential policy agrees
@@ -887,7 +899,10 @@ mod tests {
     fn empty_and_single_inputs_are_handled() {
         let empty: Vec<i32> = Vec::new();
         empty.par().for_each(|_| panic!("must not run"));
-        assert_eq!(empty.par().map_reduce(42i64, |&x| x as i64, |a, b| a + b), 42);
+        assert_eq!(
+            empty.par().map_reduce(42i64, |&x| x as i64, |a, b| a + b),
+            42
+        );
         let mut one = vec![7u64];
         one.par_mut().for_each(|x| *x += 1);
         assert_eq!(one, vec![8]);

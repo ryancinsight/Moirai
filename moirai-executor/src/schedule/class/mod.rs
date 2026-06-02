@@ -22,6 +22,9 @@ pub trait WorkClass: sealed::Sealed + Send + Sync + 'static {
 
     /// Stable diagnostic name for this work class.
     const NAME: &'static str;
+
+    /// Whether this work class is eligible for asynchronous lane routing.
+    const USES_ASYNC_LANE: bool;
 }
 
 /// CPU-bound synchronous task marker.
@@ -44,18 +47,21 @@ impl WorkClass for SyncTask {
     const AFFINITY_OFFSET: usize = 0;
     const SERIAL_AFFINITY_OFFSET: usize = 0;
     const NAME: &'static str = "sync";
+    const USES_ASYNC_LANE: bool = false;
 }
 
 impl WorkClass for AsyncTask {
     const AFFINITY_OFFSET: usize = 1;
     const SERIAL_AFFINITY_OFFSET: usize = Self::AFFINITY_OFFSET;
     const NAME: &'static str = "async";
+    const USES_ASYNC_LANE: bool = true;
 }
 
 impl WorkClass for BlockingTask {
     const AFFINITY_OFFSET: usize = 2;
     const SERIAL_AFFINITY_OFFSET: usize = Self::AFFINITY_OFFSET;
     const NAME: &'static str = "blocking";
+    const USES_ASYNC_LANE: bool = false;
 }
 
 #[cfg(test)]

@@ -9,10 +9,16 @@ pub mod class;
 pub mod job;
 pub mod queue;
 pub mod reduce;
+pub mod route;
 pub mod runtime;
 pub mod wake;
 
 pub use class::{AsyncTask, BlockingTask, SyncTask, WorkClass};
+pub use route::{
+    AsyncLaneId, AsyncLanesPerProcess, HybridRoutePolicy, HybridRouter, ProcessCount, ProcessId,
+    ProcessRoute, RoutePolicy, RouteSummary, RouteTopology, SchedulerRoute, ServerCount, ServerId,
+    ServerRoute, ServerRoutePolicy, ThreadId, ThreadRoute, ThreadRoutePolicy, WorkerCount,
+};
 #[cfg(feature = "scheduler-diagnostics")]
 pub use runtime::{
     ContendedWakeDecision, DiagnosticWakeDecision, EmptyWakeDecision, SaturatedWakeDecision,

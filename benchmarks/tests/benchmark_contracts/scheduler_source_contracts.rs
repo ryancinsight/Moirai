@@ -277,3 +277,113 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
         );
     }
 }
+
+#[test]
+fn process_server_scheduler_routing_uses_static_route_policy() {
+    let class_source = read_benchmark("../moirai-executor/src/schedule/class/mod.rs");
+    let schedule_source = read_benchmark("../moirai-executor/src/schedule/mod.rs");
+    let route_source = read_benchmark("../moirai-executor/src/schedule/route/mod.rs");
+    let benchmark_source = read_benchmark("benches/process_server_scheduler_routing.rs");
+    let manifest = read_benchmark("Cargo.toml");
+    let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
+
+    for required in [
+        "const USES_ASYNC_LANE: bool;",
+        "const USES_ASYNC_LANE: bool = true;",
+        "const USES_ASYNC_LANE: bool = false;",
+    ] {
+        assert!(
+            class_source.contains(required),
+            "work-class route contract must retain {required}"
+        );
+    }
+
+    for required in [
+        "pub mod route;",
+        "HybridRouter",
+        "HybridRoutePolicy",
+        "ServerRoutePolicy",
+        "ThreadRoutePolicy",
+        "RouteTopology",
+        "SchedulerRoute",
+        "AsyncLaneId",
+    ] {
+        assert!(
+            schedule_source.contains(required),
+            "scheduler facade must retain route export {required}"
+        );
+    }
+
+    for required in [
+        "pub trait RoutePolicy: route_policy::Sealed + Copy + Default + Send + Sync + 'static",
+        "pub struct HybridRouter<P: RoutePolicy>",
+        "PhantomData<P>",
+        "pub struct ThreadRoutePolicy;",
+        "pub struct HybridRoutePolicy;",
+        "pub struct ServerRoutePolicy;",
+        "pub struct RouteTopology",
+        "pub enum SchedulerRoute",
+        "pub struct ProcessRoute",
+        "pub struct ServerRoute",
+        "pub struct AsyncLaneId",
+        "C::USES_ASYNC_LANE",
+        "pub fn summarize<C: WorkClass>",
+        "route_policies_are_zero_sized",
+        "core::mem::size_of::<HybridRoutePolicy>()",
+    ] {
+        assert!(
+            route_source.contains(required),
+            "route topology implementation must retain {required}"
+        );
+    }
+
+    for required in [
+        "scheduler_route_thread_process_server_summary",
+        "scheduler_route_async_process_lanes",
+        "scheduler_route_policy_overhead",
+        "assert_eq!(observed, expected)",
+        "expected_summary::<C, P>",
+        "HybridRouter::<HybridRoutePolicy>",
+        "HybridRouter::<ServerRoutePolicy>",
+        "sample_size",
+        "measurement_time",
+        "warm_up_time",
+    ] {
+        assert!(
+            benchmark_source.contains(required),
+            "process/server scheduler routing benchmark must retain {required}"
+        );
+    }
+
+    assert!(
+        manifest.contains("name = \"process_server_scheduler_routing\""),
+        "benchmark manifest must register process_server_scheduler_routing"
+    );
+
+    for required in [
+        "Process/server route topology",
+        "process_server_scheduler_routing",
+        "HybridRouter",
+        "Mnemosyne allocator boundary remain follow-up architecture gaps",
+    ] {
+        assert!(
+            audit.contains(required),
+            "Rayon/Tokio gap audit must track process/server routing through {required}"
+        );
+    }
+
+    for source in [route_source, benchmark_source] {
+        for prohibited in [
+            "dyn RoutePolicy",
+            "Box<dyn RoutePolicy",
+            "Command::new",
+            "TcpStream",
+            "tokio::spawn",
+        ] {
+            assert!(
+                !source.contains(prohibited),
+                "route benchmark must not fake execution or use dynamic policy dispatch through {prohibited}"
+            );
+        }
+    }
+}
