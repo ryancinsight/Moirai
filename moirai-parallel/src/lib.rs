@@ -224,6 +224,61 @@ where
         .expect("moirai global executor: for_each_chunk_mut_with");
 }
 
+/// Apply `f(index, a_chunk, b_chunk)` to paired `chunk_size`-element mutable
+/// chunks of two **distinct** buffers in parallel, scheduled by policy `P`.
+///
+/// Synchronous equivalent of
+/// `a.par_chunks_mut(n).zip(b.par_chunks_mut(n)).enumerate().for_each(f)`. The
+/// number of chunks is derived from `a`; `b` is chunked identically, so callers
+/// must ensure `b.len() >= a.len()` (typically equal). The two buffers must not
+/// alias.
+pub fn for_each_chunk_pair_mut_enumerated_with<P, A, B, F>(
+    a: &mut [A],
+    b: &mut [B],
+    chunk_size: usize,
+    f: F,
+) where
+    P: ExecutionPolicy,
+    A: Send,
+    B: Send,
+    F: Fn(usize, &mut [A], &mut [B]) + Send + Sync,
+{
+    let na = a.len();
+    let nb = b.len();
+    if chunk_size == 0 || na == 0 {
+        return;
+    }
+    let num_chunks = na.div_ceil(chunk_size);
+    if !P::parallelize(na) || num_chunks <= 1 {
+        a.chunks_mut(chunk_size)
+            .zip(b.chunks_mut(chunk_size))
+            .enumerate()
+            .for_each(|(i, (ca, cb))| f(i, ca, cb));
+        return;
+    }
+    let abase = DisjointMutPtr(a.as_mut_ptr());
+    let bbase = DisjointMutPtr(b.as_mut_ptr());
+    let f = &f;
+    global()
+        .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
+            let start = c * chunk_size;
+            if start >= na || start >= nb {
+                return;
+            }
+            let ea = (start + chunk_size).min(na);
+            let eb = (start + chunk_size).min(nb);
+            // SAFETY: chunks `[start, e*)` for distinct `c` are pairwise disjoint
+            // within each buffer and each is visited once; `a` and `b` are
+            // distinct, non-aliasing buffers, so the two references never alias.
+            let ca =
+                unsafe { core::slice::from_raw_parts_mut(abase.base().add(start), ea - start) };
+            let cb =
+                unsafe { core::slice::from_raw_parts_mut(bbase.base().add(start), eb - start) };
+            f(c, ca, cb);
+        })
+        .expect("moirai global executor: for_each_chunk_pair_mut_enumerated_with");
+}
+
 /// Like [`for_each_chunk_mut_with`] but also passes the zero-based chunk index to
 /// `f` (synchronous equivalent of
 /// `data.par_chunks_mut(chunk_size).enumerate().for_each(f)`).
@@ -684,6 +739,33 @@ mod tests {
             }
         });
         assert_eq!(d2, (0..10).map(|x| x * 10).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn for_each_chunk_pair_mut_processes_paired_chunks() {
+        let frames = 300usize;
+        let width = 5usize;
+        let mut a: Vec<u64> = vec![0; frames * width];
+        let mut b: Vec<u64> = vec![0; frames * width];
+        for_each_chunk_pair_mut_enumerated_with::<Adaptive, _, _, _>(
+            &mut a,
+            &mut b,
+            width,
+            |i, ca, cb| {
+                for x in ca.iter_mut() {
+                    *x = i as u64;
+                }
+                for (j, y) in cb.iter_mut().enumerate() {
+                    *y = (i * width + j) as u64;
+                }
+            },
+        );
+        for i in 0..frames {
+            assert!(a[i * width..(i + 1) * width].iter().all(|&v| v == i as u64));
+            for j in 0..width {
+                assert_eq!(b[i * width + j], (i * width + j) as u64);
+            }
+        }
     }
 
     #[test]
