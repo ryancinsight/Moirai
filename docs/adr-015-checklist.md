@@ -12,10 +12,14 @@ pure-Moirai stack built over the existing reactor-bound async sockets (ADR-014/0
   against a live server via the env-gated `moirai_s3_real_endpoint` test.
 - **P4 comparative performance bench (criterion vs rusoto, localhost + toxiproxy RTT):
   REMAINING** — best run on CI with MinIO; not yet wired.
-- **P5 partial:** consus-hdf5 production async path is now tokio-free (`async-io` →
-  `consus-io/async-traits`). **REMAINING:** consus-zarr `S3Store` (write/list) on moirai needs
-  moirai-s3 `PutObject`/`ListObjectsV2` (the read path covers only GET/HEAD today); then flip
-  consus default + remove rusoto/tokio from consus production once the perf bench confirms parity.
+- **P5 mostly done:** consus-hdf5 production async path is tokio-free (`async-io` →
+  `consus-io/async-traits`). consus-io gained a full `S3Client` (GET/PUT/DELETE/HEAD/
+  ListObjectsV2 with SigV4 + quick-xml; verified put→get→head→range→list→delete round-trip).
+  consus-zarr `S3MoiraiStore` implements the sync `Store` trait over it via `block_on` —
+  a **complete tokio-free object-store path** (consus-zarr → consus-io S3Client → moirai-http/
+  tls/sockets), verified end-to-end vs an in-process mock (consus b662382). Behind `s3-moirai`,
+  alongside the legacy rusoto `s3`. **REMAINING:** comparative perf bench (criterion vs rusoto;
+  CI/MinIO) and the eventual default flip / rusoto+tokio removal once s3-moirai is battle-tested.
 Each phase leaves the tree green.
 
 ## 0. Foundation audit (no new code) — `[arch]`
