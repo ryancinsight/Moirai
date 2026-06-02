@@ -751,7 +751,8 @@ pub mod prelude {
     #[cfg(feature = "parallel")]
     pub use moirai_parallel::{
         par_enumerate, par_enumerate_mut, par_for_each, par_for_each_mut, par_map_collect,
-        par_map_reduce, Adaptive, ExecutionPolicy, Parallel, Sequential,
+        par_map_reduce, Adaptive, ExecutionPolicy, Parallel, ParallelSlice, ParallelSliceMut,
+        Sequential,
     };
 
     #[cfg(feature = "iter")]

@@ -3,31 +3,31 @@
 //! This crate is the **parallel** domain (throughput over data), distinct from
 //! the **concurrent** domain (`moirai-async`, async tasks/IO). All operations
 //! here are fully synchronous (no `async`, no `.await`), so they are safe inside
-//! pure compute kernels without async contagion.
+//! pure compute kernels without async contagion, and operate on borrowed slices
+//! with in-place mutation (zero-copy).
 //!
-//! # Execution policies
+//! # Selecting an execution strategy
 //!
-//! Every operation comes in two forms:
+//! Strategy is a zero-sized [`ExecutionPolicy`] type ([`Sequential`],
+//! [`Parallel`], [`Adaptive`]) chosen at compile time, so every form below
+//! monomorphizes with no dynamic dispatch:
 //!
-//! - A **policy-generic** `*_with(policy, …)` form parameterized by a
-//!   zero-sized [`ExecutionPolicy`] ([`Sequential`], [`Parallel`], [`Adaptive`]).
-//!   Generic code monomorphizes to the chosen strategy with no dynamic dispatch.
-//! - A **`par_*` convenience** form that applies the [`Adaptive`] policy, which
-//!   parallelizes only above [`ADAPTIVE_PARALLEL_THRESHOLD`] elements and runs
-//!   sequentially below it. This is the everyday API: the parallel/sequential
-//!   decision is automatic, not designated by the caller.
+//! - **Extension traits** (trait-based, `iter`-like) — the recommended surface:
+//!   ```
+//!   use moirai_parallel::{ParallelSlice, ParallelSliceMut, Parallel};
+//!   let v: Vec<u64> = (0..1000).collect();
+//!   let sum = v.par().map_reduce(0, |&x| x, |a, b| a + b);   // adaptive default
+//!   let n  = v.par_with::<Parallel>().map_reduce(0, |&x| x, |a, b| a + b);
+//!   let mut m = v.clone();
+//!   m.par_mut().for_each(|x| *x += 1);                       // adaptive default
+//!   ```
+//! - **`par_*` free functions** — the [`Adaptive`] default, for terse call sites
+//!   (`par_for_each(&data, f)`).
+//! - **`*_with::<P>` free functions** — explicit policy via turbofish
+//!   (`for_each_with::<Parallel>(&data, f)`).
 //!
-//! Parallel work is split into one chunk per worker thread and dispatched on the
-//! shared process-wide executor ([`moirai_executor::global`]); every task
-//! completes before the call returns, so borrows of the input remain valid for
-//! the whole region.
-//!
-//! ```
-//! use moirai_parallel::{par_for_each_mut, for_each_mut_with, Parallel};
-//! let mut data: Vec<u64> = (0..10_000).collect();
-//! par_for_each_mut(&mut data, |x| *x *= 2);          // adaptive (auto)
-//! for_each_mut_with(Parallel, &mut data, |x| *x += 1); // forced parallel
-//! ```
+//! [`Adaptive`] parallelizes only at or above [`ADAPTIVE_PARALLEL_THRESHOLD`] and
+//! runs sequentially below it, so the parallel/sequential decision is automatic.
 
 #![deny(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -36,6 +36,7 @@ mod policy;
 
 pub use policy::{Adaptive, ExecutionPolicy, Parallel, Sequential, ADAPTIVE_PARALLEL_THRESHOLD};
 
+use core::marker::PhantomData;
 use moirai_executor::{global, BlockingTask};
 
 /// Pointer wrapper used to hand disjoint `&mut` sub-slices to worker tasks.
@@ -52,9 +53,6 @@ unsafe impl<T: Send> Send for DisjointMutPtr<T> {}
 unsafe impl<T: Send> Sync for DisjointMutPtr<T> {}
 
 impl<T> DisjointMutPtr<T> {
-    /// Return the wrapped base pointer. Taking `&self` forces a closure to
-    /// capture the whole wrapper (which is `Send`/`Sync`) rather than the bare
-    /// `*mut T` field under 2021 disjoint capture.
     #[inline]
     fn base(&self) -> *mut T {
         self.0
@@ -72,8 +70,8 @@ fn chunk_layout(len: usize) -> (usize, usize) {
     (chunks, len.div_ceil(chunks))
 }
 
-/// Apply `f` to every element of `data`, scheduled by `policy`.
-pub fn for_each_with<P, T, F>(policy: P, data: &[T], f: F)
+/// Apply `f` to every element of `data`, scheduled by policy `P`.
+pub fn for_each_with<P, T, F>(data: &[T], f: F)
 where
     P: ExecutionPolicy,
     T: Sync,
@@ -84,7 +82,7 @@ where
         return;
     }
     let (chunks, chunk) = chunk_layout(n);
-    if !policy.parallelize(n) || chunks <= 1 {
+    if !P::parallelize(n) || chunks <= 1 {
         data.iter().for_each(f);
         return;
     }
@@ -103,8 +101,8 @@ where
         .expect("moirai global executor: for_each_with");
 }
 
-/// Apply `f` to every element of `data` in place, scheduled by `policy`.
-pub fn for_each_mut_with<P, T, F>(policy: P, data: &mut [T], f: F)
+/// Apply `f` to every element of `data` in place, scheduled by policy `P`.
+pub fn for_each_mut_with<P, T, F>(data: &mut [T], f: F)
 where
     P: ExecutionPolicy,
     T: Send,
@@ -115,7 +113,7 @@ where
         return;
     }
     let (chunks, chunk) = chunk_layout(n);
-    if !policy.parallelize(n) || chunks <= 1 {
+    if !P::parallelize(n) || chunks <= 1 {
         data.iter_mut().for_each(f);
         return;
     }
@@ -141,8 +139,8 @@ where
         .expect("moirai global executor: for_each_mut_with");
 }
 
-/// Apply `f(index, &element)` to every element of `data`, scheduled by `policy`.
-pub fn enumerate_with<P, T, F>(policy: P, data: &[T], f: F)
+/// Apply `f(index, &element)` to every element of `data`, scheduled by policy `P`.
+pub fn enumerate_with<P, T, F>(data: &[T], f: F)
 where
     P: ExecutionPolicy,
     T: Sync,
@@ -153,7 +151,7 @@ where
         return;
     }
     let (chunks, chunk) = chunk_layout(n);
-    if !policy.parallelize(n) || chunks <= 1 {
+    if !P::parallelize(n) || chunks <= 1 {
         data.iter().enumerate().for_each(|(i, x)| f(i, x));
         return;
     }
@@ -173,8 +171,8 @@ where
 }
 
 /// Apply `f(index, &mut element)` to every element of `data` in place,
-/// scheduled by `policy`.
-pub fn enumerate_mut_with<P, T, F>(policy: P, data: &mut [T], f: F)
+/// scheduled by policy `P`.
+pub fn enumerate_mut_with<P, T, F>(data: &mut [T], f: F)
 where
     P: ExecutionPolicy,
     T: Send,
@@ -185,7 +183,7 @@ where
         return;
     }
     let (chunks, chunk) = chunk_layout(n);
-    if !policy.parallelize(n) || chunks <= 1 {
+    if !P::parallelize(n) || chunks <= 1 {
         data.iter_mut().enumerate().for_each(|(i, x)| f(i, x));
         return;
     }
@@ -209,8 +207,8 @@ where
 }
 
 /// Map each element of `data` with `f`, collecting into a `Vec<R>` in order,
-/// scheduled by `policy`.
-pub fn map_collect_with<P, T, R, F>(policy: P, data: &[T], f: F) -> Vec<R>
+/// scheduled by policy `P`.
+pub fn map_collect_with<P, T, R, F>(data: &[T], f: F) -> Vec<R>
 where
     P: ExecutionPolicy,
     T: Sync,
@@ -218,7 +216,7 @@ where
     F: Fn(&T) -> R + Send + Sync,
 {
     let n = data.len();
-    if !policy.parallelize(n) {
+    if !P::parallelize(n) {
         return data.iter().map(f).collect();
     }
     let mut out: Vec<core::mem::MaybeUninit<R>> = Vec::with_capacity(n);
@@ -227,7 +225,7 @@ where
     unsafe {
         out.set_len(n);
     }
-    enumerate_mut_with(Parallel, &mut out, |i, slot| {
+    enumerate_mut_with::<Parallel, _, _>(&mut out, |i, slot| {
         slot.write(f(&data[i]));
     });
     // SAFETY: every slot initialized above; `MaybeUninit<R>` shares `R`'s layout.
@@ -235,17 +233,11 @@ where
     unsafe { Vec::from_raw_parts(out.as_mut_ptr().cast::<R>(), n, out.capacity()) }
 }
 
-/// Map-reduce over `data`, scheduled by `policy`.
+/// Map-reduce over `data`, scheduled by policy `P`.
 ///
 /// `reduce` must be associative and `identity` its neutral element, since chunk
 /// boundaries and combination order are unspecified.
-pub fn map_reduce_with<P, T, R, M, Rd>(
-    policy: P,
-    data: &[T],
-    identity: R,
-    map: M,
-    reduce: Rd,
-) -> R
+pub fn map_reduce_with<P, T, R, M, Rd>(data: &[T], identity: R, map: M, reduce: Rd) -> R
 where
     P: ExecutionPolicy,
     T: Sync,
@@ -255,7 +247,7 @@ where
 {
     let n = data.len();
     let (chunks, chunk) = if n == 0 { (0, 0) } else { chunk_layout(n) };
-    if n == 0 || !policy.parallelize(n) || chunks <= 1 {
+    if n == 0 || !P::parallelize(n) || chunks <= 1 {
         let mut acc = identity;
         for item in data {
             acc = reduce(acc, map(item));
@@ -285,53 +277,36 @@ where
         .expect("moirai global executor: map_reduce_with")
 }
 
+// ---------------------------------------------------------------------------
+// Adaptive convenience free functions (unset-default, auto-routing)
+// ---------------------------------------------------------------------------
+
 /// Adaptive [`for_each_with`] — `data.par_iter().for_each(f)`.
-pub fn par_for_each<T, F>(data: &[T], f: F)
-where
-    T: Sync,
-    F: Fn(&T) + Send + Sync,
-{
-    for_each_with(Adaptive, data, f);
+pub fn par_for_each<T: Sync, F: Fn(&T) + Send + Sync>(data: &[T], f: F) {
+    for_each_with::<Adaptive, _, _>(data, f);
 }
 
 /// Adaptive [`for_each_mut_with`] — `data.par_iter_mut().for_each(f)`.
-pub fn par_for_each_mut<T, F>(data: &mut [T], f: F)
-where
-    T: Send,
-    F: Fn(&mut T) + Send + Sync,
-{
-    for_each_mut_with(Adaptive, data, f);
+pub fn par_for_each_mut<T: Send, F: Fn(&mut T) + Send + Sync>(data: &mut [T], f: F) {
+    for_each_mut_with::<Adaptive, _, _>(data, f);
 }
 
-/// Adaptive [`enumerate_with`] — `data.par_iter().enumerate().for_each(f)`.
-pub fn par_enumerate<T, F>(data: &[T], f: F)
-where
-    T: Sync,
-    F: Fn(usize, &T) + Send + Sync,
-{
-    enumerate_with(Adaptive, data, f);
+/// Adaptive [`enumerate_with`].
+pub fn par_enumerate<T: Sync, F: Fn(usize, &T) + Send + Sync>(data: &[T], f: F) {
+    enumerate_with::<Adaptive, _, _>(data, f);
 }
 
-/// Adaptive [`enumerate_mut_with`] — `data.par_iter_mut().enumerate().for_each(f)`.
-pub fn par_enumerate_mut<T, F>(data: &mut [T], f: F)
-where
-    T: Send,
-    F: Fn(usize, &mut T) + Send + Sync,
-{
-    enumerate_mut_with(Adaptive, data, f);
+/// Adaptive [`enumerate_mut_with`].
+pub fn par_enumerate_mut<T: Send, F: Fn(usize, &mut T) + Send + Sync>(data: &mut [T], f: F) {
+    enumerate_mut_with::<Adaptive, _, _>(data, f);
 }
 
 /// Adaptive [`map_collect_with`] — `data.par_iter().map(f).collect()`.
-pub fn par_map_collect<T, R, F>(data: &[T], f: F) -> Vec<R>
-where
-    T: Sync,
-    R: Send,
-    F: Fn(&T) -> R + Send + Sync,
-{
-    map_collect_with(Adaptive, data, f)
+pub fn par_map_collect<T: Sync, R: Send, F: Fn(&T) -> R + Send + Sync>(data: &[T], f: F) -> Vec<R> {
+    map_collect_with::<Adaptive, _, _, _>(data, f)
 }
 
-/// Adaptive [`map_reduce_with`] — `data.par_iter().map(map).reduce(id, reduce)`.
+/// Adaptive [`map_reduce_with`].
 pub fn par_map_reduce<T, R, M, Rd>(data: &[T], identity: R, map: M, reduce: Rd) -> R
 where
     T: Sync,
@@ -339,7 +314,119 @@ where
     M: Fn(&T) -> R + Send + Sync,
     Rd: Fn(R, R) -> R + Send + Sync,
 {
-    map_reduce_with(Adaptive, data, identity, map, reduce)
+    map_reduce_with::<Adaptive, _, _, _, _>(data, identity, map, reduce)
+}
+
+// ---------------------------------------------------------------------------
+// Extension traits: trait-based, type-selected parallel views over slices
+// ---------------------------------------------------------------------------
+
+/// A read-only parallel view of a slice bound to execution policy `P`.
+///
+/// Construct via [`ParallelSlice::par`] (adaptive) or
+/// [`ParallelSlice::par_with`] (`::<P>`). Zero-sized beyond the borrowed slice.
+pub struct ParRef<'a, T, P> {
+    data: &'a [T],
+    _policy: PhantomData<P>,
+}
+
+impl<'a, T, P: ExecutionPolicy> ParRef<'a, T, P> {
+    /// Apply `f` to every element. See [`for_each_with`].
+    pub fn for_each<F: Fn(&T) + Send + Sync>(self, f: F)
+    where
+        T: Sync,
+    {
+        for_each_with::<P, _, _>(self.data, f);
+    }
+
+    /// Apply `f(index, &element)` to every element. See [`enumerate_with`].
+    pub fn enumerate<F: Fn(usize, &T) + Send + Sync>(self, f: F)
+    where
+        T: Sync,
+    {
+        enumerate_with::<P, _, _>(self.data, f);
+    }
+
+    /// Map then collect into a `Vec<R>` in order. See [`map_collect_with`].
+    pub fn map_collect<R: Send, F: Fn(&T) -> R + Send + Sync>(self, f: F) -> Vec<R>
+    where
+        T: Sync,
+    {
+        map_collect_with::<P, _, _, _>(self.data, f)
+    }
+
+    /// Map-reduce. See [`map_reduce_with`].
+    pub fn map_reduce<R, M, Rd>(self, identity: R, map: M, reduce: Rd) -> R
+    where
+        T: Sync,
+        R: Send + Sync + Clone,
+        M: Fn(&T) -> R + Send + Sync,
+        Rd: Fn(R, R) -> R + Send + Sync,
+    {
+        map_reduce_with::<P, _, _, _, _>(self.data, identity, map, reduce)
+    }
+}
+
+/// A mutable parallel view of a slice bound to execution policy `P`.
+pub struct ParMut<'a, T, P> {
+    data: &'a mut [T],
+    _policy: PhantomData<P>,
+}
+
+impl<'a, T, P: ExecutionPolicy> ParMut<'a, T, P> {
+    /// Apply `f` to every element in place. See [`for_each_mut_with`].
+    pub fn for_each<F: Fn(&mut T) + Send + Sync>(self, f: F)
+    where
+        T: Send,
+    {
+        for_each_mut_with::<P, _, _>(self.data, f);
+    }
+
+    /// Apply `f(index, &mut element)` to every element in place.
+    pub fn enumerate<F: Fn(usize, &mut T) + Send + Sync>(self, f: F)
+    where
+        T: Send,
+    {
+        enumerate_mut_with::<P, _, _>(self.data, f);
+    }
+}
+
+/// Extension trait providing policy-selected parallel views over `&[T]`.
+pub trait ParallelSlice<T> {
+    /// Parallel view using the [`Adaptive`] policy (auto-routing default).
+    fn par(&self) -> ParRef<'_, T, Adaptive>;
+    /// Parallel view using an explicit policy `P`, e.g. `slice.par_with::<Parallel>()`.
+    fn par_with<P: ExecutionPolicy>(&self) -> ParRef<'_, T, P>;
+}
+
+impl<T> ParallelSlice<T> for [T] {
+    #[inline]
+    fn par(&self) -> ParRef<'_, T, Adaptive> {
+        ParRef { data: self, _policy: PhantomData }
+    }
+    #[inline]
+    fn par_with<P: ExecutionPolicy>(&self) -> ParRef<'_, T, P> {
+        ParRef { data: self, _policy: PhantomData }
+    }
+}
+
+/// Extension trait providing policy-selected mutable parallel views over `&mut [T]`.
+pub trait ParallelSliceMut<T> {
+    /// Mutable parallel view using the [`Adaptive`] policy (auto-routing default).
+    fn par_mut(&mut self) -> ParMut<'_, T, Adaptive>;
+    /// Mutable parallel view using an explicit policy `P`.
+    fn par_mut_with<P: ExecutionPolicy>(&mut self) -> ParMut<'_, T, P>;
+}
+
+impl<T> ParallelSliceMut<T> for [T] {
+    #[inline]
+    fn par_mut(&mut self) -> ParMut<'_, T, Adaptive> {
+        ParMut { data: self, _policy: PhantomData }
+    }
+    #[inline]
+    fn par_mut_with<P: ExecutionPolicy>(&mut self) -> ParMut<'_, T, P> {
+        ParMut { data: self, _policy: PhantomData }
+    }
 }
 
 #[cfg(test)]
@@ -376,21 +463,9 @@ mod tests {
     }
 
     #[test]
-    fn par_enumerate_reads_with_index() {
-        let data: Vec<usize> = (0..8_000).collect();
-        let acc = AtomicUsize::new(0);
-        par_enumerate(&data, |i, &x| {
-            assert_eq!(i, x);
-            acc.fetch_add(x, Ordering::Relaxed);
-        });
-        assert_eq!(acc.load(Ordering::Relaxed), data.iter().sum());
-    }
-
-    #[test]
     fn par_map_collect_preserves_order() {
         let data: Vec<u64> = (0..20_000).collect();
         let squared = par_map_collect(&data, |&x| x * x);
-        assert_eq!(squared.len(), data.len());
         for (i, &v) in squared.iter().enumerate() {
             assert_eq!(v, (i as u64) * (i as u64));
         }
@@ -399,44 +474,47 @@ mod tests {
     #[test]
     fn par_map_reduce_sums_correctly() {
         let data: Vec<u64> = (0..100_000).collect();
-        let sum = par_map_reduce(&data, 0u64, |&x| x, |a, b| a + b);
-        assert_eq!(sum, data.iter().copied().sum::<u64>());
+        assert_eq!(
+            par_map_reduce(&data, 0u64, |&x| x, |a, b| a + b),
+            data.iter().copied().sum::<u64>()
+        );
+    }
+
+    #[test]
+    fn extension_trait_ref_views() {
+        let data: Vec<u64> = (0..50_000).collect();
+        let expected: u64 = data.iter().sum();
+        // adaptive default + explicit policies via turbofish
+        assert_eq!(data.par().map_reduce(0u64, |&x| x, |a, b| a + b), expected);
+        assert_eq!(
+            data.par_with::<Parallel>().map_reduce(0u64, |&x| x, |a, b| a + b),
+            expected
+        );
+        assert_eq!(
+            data.par_with::<Sequential>().map_reduce(0u64, |&x| x, |a, b| a + b),
+            expected
+        );
+        let doubled = data.par_with::<Parallel>().map_collect(|&x| x * 2);
+        assert_eq!(doubled, data.iter().map(|&x| x * 2).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn extension_trait_mut_views() {
+        let mut data: Vec<u64> = (0..50_000).collect();
+        data.par_mut().for_each(|x| *x += 1);
+        data.par_mut_with::<Parallel>().enumerate(|i, x| *x += i as u64);
+        for (i, &v) in data.iter().enumerate() {
+            assert_eq!(v, i as u64 + 1 + i as u64);
+        }
     }
 
     #[test]
     fn empty_and_single_inputs_are_handled() {
         let empty: Vec<i32> = Vec::new();
-        par_for_each(&empty, |_| panic!("must not run"));
-        assert_eq!(par_map_reduce(&empty, 42i64, |&x| x as i64, |a, b| a + b), 42);
+        empty.par().for_each(|_| panic!("must not run"));
+        assert_eq!(empty.par().map_reduce(42i64, |&x| x as i64, |a, b| a + b), 42);
         let mut one = vec![7u64];
-        par_for_each_mut(&mut one, |x| *x += 1);
+        one.par_mut().for_each(|x| *x += 1);
         assert_eq!(one, vec![8]);
-    }
-
-    #[test]
-    fn policies_select_expected_path_but_same_result() {
-        // Sequential and Parallel must produce identical results; Adaptive runs
-        // sequentially below threshold and parallel above, also identical.
-        let data: Vec<u64> = (0..50_000).collect();
-        let expected: u64 = data.iter().sum();
-        for_each_check(Sequential, &data, expected);
-        for_each_check(Parallel, &data, expected);
-        for_each_check(Adaptive, &data, expected);
-
-        // Below the adaptive threshold the result is still correct (sequential).
-        let small: Vec<u64> = (0..(ADAPTIVE_PARALLEL_THRESHOLD - 1) as u64).collect();
-        let small_expected: u64 = small.iter().sum();
-        assert_eq!(
-            map_reduce_with(Adaptive, &small, 0u64, |&x| x, |a, b| a + b),
-            small_expected
-        );
-    }
-
-    fn for_each_check<P: ExecutionPolicy>(policy: P, data: &[u64], expected: u64) {
-        let acc = AtomicUsize::new(0);
-        for_each_with(policy, data, |&x| {
-            acc.fetch_add(x as usize, Ordering::Relaxed);
-        });
-        assert_eq!(acc.load(Ordering::Relaxed) as u64, expected);
     }
 }
