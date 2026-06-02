@@ -239,6 +239,34 @@ where
         .expect("moirai global executor: map_reduce_with")
 }
 
+/// Parallel map over the index domain `0..len`, collecting into a `Vec<R>` in
+/// order, scheduled by policy `P`.
+///
+/// `map(i)` produces the element at index `i`. Use this for index-aligned maps
+/// over multiple slices that [`map_collect_with`] cannot express — e.g. an
+/// elementwise product `map_collect_index_with::<Adaptive>(n, |i| a[i] * b[i])`.
+pub fn map_collect_index_with<P, R, Map>(len: usize, map: Map) -> Vec<R>
+where
+    P: ExecutionPolicy,
+    R: Send,
+    Map: Fn(usize) -> R + Send + Sync,
+{
+    if !P::parallelize(len) {
+        return (0..len).map(map).collect();
+    }
+    let mut out: Vec<core::mem::MaybeUninit<R>> = Vec::with_capacity(len);
+    // SAFETY: capacity is `len`; every slot is written exactly once below.
+    unsafe {
+        out.set_len(len);
+    }
+    enumerate_mut_with::<Parallel, _, _>(&mut out, |i, slot| {
+        slot.write(map(i));
+    });
+    // SAFETY: every slot initialized; `MaybeUninit<R>` shares `R`'s layout.
+    let mut out = core::mem::ManuallyDrop::new(out);
+    unsafe { Vec::from_raw_parts(out.as_mut_ptr().cast::<R>(), len, out.capacity()) }
+}
+
 /// Parallel reduction over the index domain `0..len`, scheduled by policy `P`.
 ///
 /// `map(i)` produces a value for index `i`; results are folded within and across
@@ -449,6 +477,15 @@ mod tests {
         for (i, &v) in data.iter().enumerate() {
             assert_eq!(v, i as u64 + 1 + i as u64);
         }
+    }
+
+    #[test]
+    fn map_collect_index_zips_two_slices() {
+        let a: Vec<u64> = (0..20_000).collect();
+        let b: Vec<u64> = (0..20_000).map(|x| x + 1).collect();
+        let prod = map_collect_index_with::<Adaptive, _, _>(a.len(), |i| a[i] * b[i]);
+        let expected: Vec<u64> = a.iter().zip(&b).map(|(&x, &y)| x * y).collect();
+        assert_eq!(prod, expected);
     }
 
     #[test]
