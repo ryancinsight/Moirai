@@ -2,7 +2,12 @@
 
 Concrete contracts and tasks to replace consus's Tokio/rusoto/reqwest S3 transport with a
 pure-Moirai stack built over the existing reactor-bound async sockets (ADR-014/006/013).
-Status: **Proposed** — P1 opens only after ADR-015 sign-off. Each phase leaves the tree green.
+**Status (2026-06-02): P0–P3 DONE + verified + pushed.** P0 (moirai bcf3ed1, net spike
+incl. Windows/IOCP), P1 `moirai-tls` (rustls handshake + fail-closed), P2 `moirai-http`
+(framing/keep-alive/timeout), P3 `consus-io` `s3-moirai` (SigV4 KAT vs AWS vector + mock-S3
+round-trip; production tree tokio-free). **P4 (comparative bench) and P5 (default flip +
+rusoto/tokio removal) are BLOCKED on Docker/MinIO** (unavailable locally) — they need the
+byte-identical rusoto differential as the go/no-go gate; run on CI. Each phase leaves the tree green.
 
 ## 0. Foundation audit (no new code) — `[arch]`
 
