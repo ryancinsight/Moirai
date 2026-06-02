@@ -12,22 +12,29 @@
 //! [`Parallel`], [`Adaptive`]) chosen at compile time, so every form below
 //! monomorphizes with no dynamic dispatch:
 //!
-//! - **Extension traits** (trait-based, `iter`-like) — the recommended surface:
+//! - **Extension traits** (the surface) — `slice.par()` / `slice.par_mut()`
+//!   return [`Adaptive`] handles, then `for_each` / `enumerate` / `map_collect` /
+//!   `map_reduce`:
 //!   ```
-//!   use moirai_parallel::{ParallelSlice, ParallelSliceMut, Parallel};
+//!   use moirai_parallel::{ParallelSlice, ParallelSliceMut};
 //!   let v: Vec<u64> = (0..1000).collect();
-//!   let sum = v.par().map_reduce(0, |&x| x, |a, b| a + b);   // adaptive default
-//!   let n  = v.par_with::<Parallel>().map_reduce(0, |&x| x, |a, b| a + b);
+//!   let sum = v.par().map_reduce(0, |&x| x, |a, b| a + b);   // auto-routes
 //!   let mut m = v.clone();
-//!   m.par_mut().for_each(|x| *x += 1);                       // adaptive default
+//!   m.par_mut().for_each(|x| *x += 1);
 //!   ```
-//! - **`*_with::<P>` free functions** — the same operations as plain functions
-//!   with an explicit policy via turbofish (`for_each_with::<Parallel>(&data, f)`),
-//!   for generic contexts without a slice receiver.
+//! - **`*_with::<P>` free functions** — a low-level override that pins the policy
+//!   via turbofish (`for_each_with::<Sequential>(&data, f)`), for the rare case
+//!   that needs to force sequential (determinism / nested regions) or parallel.
+//!   Most code should just use `.par()`.
 //!
-//! [`Adaptive`] parallelizes only at or above [`ADAPTIVE_PARALLEL_THRESHOLD`] and
-//! runs sequentially below it, so the parallel/sequential decision is automatic.
-//! `slice.par()` is the everyday auto-routing default.
+//! Because [`Adaptive`] is itself a zero-sized policy, `.par()` is a fully
+//! monomorphized, zero-cost abstraction that parallelizes only at or above
+//! [`ADAPTIVE_PARALLEL_THRESHOLD`] and runs sequentially below it — the
+//! parallel/sequential decision is automatic, with nothing to designate.
+//!
+//! This crate is sync-only by design: async (I/O concurrency) is a different
+//! operation shape handled at the task level by `moirai-async` / the executor's
+//! `spawn` family, not a data-parallel policy.
 
 #![deny(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -351,12 +358,10 @@ impl<'a, T, P: ExecutionPolicy> ParMut<'a, T, P> {
     }
 }
 
-/// Extension trait providing policy-selected parallel views over `&[T]`.
+/// Extension trait providing an adaptive parallel view over `&[T]`.
 pub trait ParallelSlice<T> {
-    /// Parallel view using the [`Adaptive`] policy (auto-routing default).
+    /// Adaptive, auto-routing parallel view (the everyday entry point).
     fn par(&self) -> ParRef<'_, T, Adaptive>;
-    /// Parallel view using an explicit policy `P`, e.g. `slice.par_with::<Parallel>()`.
-    fn par_with<P: ExecutionPolicy>(&self) -> ParRef<'_, T, P>;
 }
 
 impl<T> ParallelSlice<T> for [T] {
@@ -364,27 +369,17 @@ impl<T> ParallelSlice<T> for [T] {
     fn par(&self) -> ParRef<'_, T, Adaptive> {
         ParRef { data: self, _policy: PhantomData }
     }
-    #[inline]
-    fn par_with<P: ExecutionPolicy>(&self) -> ParRef<'_, T, P> {
-        ParRef { data: self, _policy: PhantomData }
-    }
 }
 
-/// Extension trait providing policy-selected mutable parallel views over `&mut [T]`.
+/// Extension trait providing an adaptive mutable parallel view over `&mut [T]`.
 pub trait ParallelSliceMut<T> {
-    /// Mutable parallel view using the [`Adaptive`] policy (auto-routing default).
+    /// Adaptive, auto-routing mutable parallel view (the everyday entry point).
     fn par_mut(&mut self) -> ParMut<'_, T, Adaptive>;
-    /// Mutable parallel view using an explicit policy `P`.
-    fn par_mut_with<P: ExecutionPolicy>(&mut self) -> ParMut<'_, T, P>;
 }
 
 impl<T> ParallelSliceMut<T> for [T] {
     #[inline]
     fn par_mut(&mut self) -> ParMut<'_, T, Adaptive> {
-        ParMut { data: self, _policy: PhantomData }
-    }
-    #[inline]
-    fn par_mut_with<P: ExecutionPolicy>(&mut self) -> ParMut<'_, T, P> {
         ParMut { data: self, _policy: PhantomData }
     }
 }
@@ -446,28 +441,30 @@ mod tests {
     }
 
     #[test]
-    fn extension_trait_ref_views() {
+    fn adaptive_view_and_explicit_policies_agree() {
         let data: Vec<u64> = (0..50_000).collect();
         let expected: u64 = data.iter().sum();
-        // adaptive default + explicit policies via turbofish
+        // adaptive trait surface
         assert_eq!(data.par().map_reduce(0u64, |&x| x, |a, b| a + b), expected);
+        // explicit policy overrides via the low-level free functions
         assert_eq!(
-            data.par_with::<Parallel>().map_reduce(0u64, |&x| x, |a, b| a + b),
+            map_reduce_with::<Parallel, _, _, _, _>(&data, 0u64, |&x| x, |a, b| a + b),
             expected
         );
         assert_eq!(
-            data.par_with::<Sequential>().map_reduce(0u64, |&x| x, |a, b| a + b),
+            map_reduce_with::<Sequential, _, _, _, _>(&data, 0u64, |&x| x, |a, b| a + b),
             expected
         );
-        let doubled = data.par_with::<Parallel>().map_collect(|&x| x * 2);
+        let doubled = data.par().map_collect(|&x| x * 2);
         assert_eq!(doubled, data.iter().map(|&x| x * 2).collect::<Vec<_>>());
     }
 
     #[test]
-    fn extension_trait_mut_views() {
+    fn mut_view_and_explicit_sequential_agree() {
         let mut data: Vec<u64> = (0..50_000).collect();
         data.par_mut().for_each(|x| *x += 1);
-        data.par_mut_with::<Parallel>().enumerate(|i, x| *x += i as u64);
+        // forced-sequential override produces the same result
+        enumerate_mut_with::<Sequential, _, _>(&mut data, |i, x| *x += i as u64);
         for (i, &v) in data.iter().enumerate() {
             assert_eq!(v, i as u64 + 1 + i as u64);
         }
