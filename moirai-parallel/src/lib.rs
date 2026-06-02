@@ -32,9 +32,13 @@
 //! [`ADAPTIVE_PARALLEL_THRESHOLD`] and runs sequentially below it — the
 //! parallel/sequential decision is automatic, with nothing to designate.
 //!
-//! This crate is sync-only by design: async (I/O concurrency) is a different
-//! operation shape handled at the task level by `moirai-async` / the executor's
-//! `spawn` family, not a data-parallel policy.
+//! These data-parallel ops are synchronous (they return values, not futures),
+//! but they run on the **same unified hybrid scheduler** as async work
+//! ([`moirai_executor::global`]) — not a separate pool. A `.par()` worker task
+//! can therefore spawn or drive async work (`moirai::global().spawn_async`/
+//! `block_on`) on that same runtime, so parallel processing and asynchronous
+//! tasks compose within one process. The sync return shape here is a property of
+//! the *operation*, not an isolation boundary.
 
 #![deny(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]

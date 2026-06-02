@@ -773,8 +773,12 @@ static GLOBAL_RUNTIME: std::sync::OnceLock<Moirai> = std::sync::OnceLock::new();
 /// Panics if the global runtime fails to initialize, which should not happen
 /// under normal circumstances unless there are severe system resource constraints.
 pub fn global() -> &'static Moirai {
-    GLOBAL_RUNTIME
-        .get_or_init(|| Moirai::new().expect("Failed to initialize global Moirai runtime"))
+    // Wrap the SAME shared executor that `moirai-parallel` schedules data-parallel
+    // work on, so async tasks (spawn_async/block_on) and parallel work run on one
+    // unified hybrid scheduler — a parallel worker can drive async work in-process.
+    GLOBAL_RUNTIME.get_or_init(|| Moirai {
+        executor: moirai_executor::shared(),
+    })
 }
 
 /// Spawn an async task on the global runtime.

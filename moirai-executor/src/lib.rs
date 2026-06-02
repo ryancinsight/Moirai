@@ -111,11 +111,28 @@ impl Default for ExecutorBuilder {
 ///
 /// Panics if the executor cannot be initialized, which should not happen under
 /// normal conditions.
-pub fn global() -> &'static HybridExecutor {
-    static GLOBAL_EXECUTOR: std::sync::OnceLock<HybridExecutor> = std::sync::OnceLock::new();
+fn global_arc() -> &'static std::sync::Arc<HybridExecutor> {
+    static GLOBAL_EXECUTOR: std::sync::OnceLock<std::sync::Arc<HybridExecutor>> =
+        std::sync::OnceLock::new();
     GLOBAL_EXECUTOR.get_or_init(|| {
-        ExecutorBuilder::new()
-            .build()
-            .expect("initialize global Moirai executor")
+        std::sync::Arc::new(
+            ExecutorBuilder::new()
+                .build()
+                .expect("initialize global Moirai executor"),
+        )
     })
+}
+
+/// Borrow the shared process-wide executor.
+pub fn global() -> &'static HybridExecutor {
+    &**global_arc()
+}
+
+/// Obtain an owned handle to the shared process-wide executor.
+///
+/// Higher layers (e.g. the `moirai` umbrella's global runtime) wrap this same
+/// `Arc` so that parallel data-parallel work and async tasks run on **one**
+/// unified hybrid scheduler rather than separate thread pools.
+pub fn shared() -> std::sync::Arc<HybridExecutor> {
+    std::sync::Arc::clone(global_arc())
 }
