@@ -704,3 +704,70 @@ Platform-specific async file I/O (e.g., via io_uring or Windows IOCP) remains de
 ### Residual Risk
 
 - Dynamic browser memory management and JS engine garbage collection cycles can introduce non-deterministic latency. Performance testing under browser load is necessary to isolate engine-specific variances.
+
+---
+
+## ADR-015: Native HTTP/S3 Transport Stack (Tokio-Free Object Storage)
+
+**Date**: 2026-06-02
+**Status**: Proposed (requires sign-off before P1 implementation)
+**Change-class**: [arch]
+**Context**: consus's `s3` feature is the last hard Tokio coupling across the atlas repos. `S3Reader` (consus-io `io/async_io/s3.rs`) drives `rusoto_s3` + `reqwest`, both wired to Tokio's concrete reactor/types and not runtime-swappable. consus's async *format* layer (`AsyncReadAt`-generic HDF5 parsers) is already runtime-agnostic and Moirai-drivable via `Moirai::block_on` (tokio there is a dev-dependency test harness only). Only the network transport remains coupled.
+
+### Foundation already in place (do NOT rebuild)
+Per ADR-014 / ADR-006(async) / ADR-013, Moirai already provides, reactor-backed and value-tested:
+- `moirai-pal::net`: async `AsyncTcpStream`/`AsyncTcpListener` over epoll/kqueue/IOCP with waker registration and no-active-reactor self-wake.
+- `moirai-async::{net,io,fs}`: `AsyncRead`/`AsyncWrite`/`AsyncBufRead` traits, `spawn_blocking`, cancellation + backpressure contracts, `Moirai::block_on`.
+The transport gap is therefore ONLY the three layers above the socket: TLS, HTTP/1.1, and the S3 surface.
+
+### Decision
+Add three thin, layered crates forming a DAG over the existing async socket layer; reuse audited sans-I/O libraries for all cryptography and parsing, build only the I/O orchestration glue Moirai must own.
+
+1. `moirai-tls` — TLS 1.2/1.3 client sessions by driving `rustls` (sans-I/O `ClientConnection` state machine) over a `moirai-async` `AsyncTcpStream`. Moirai owns only the read/write pump between socket and rustls plaintext/ciphertext buffers, plus the handshake-completion future. No hand-rolled cryptography. Cert verification via `rustls-platform-verifier`/`webpki-roots`.
+2. `moirai-http` — HTTP/1.1 client over `moirai-tls`/`moirai-net`. Reuse the `http` crate (Request/Response/header types) and `httparse` (sans-I/O head parser). Moirai owns: request serialization, response-body framing (Content-Length + chunked transfer decoding), bounded-capacity keep-alive connection pooling, redirect handling, and per-request deadline via the Moirai timer. HTTP/2 explicitly out of scope (S3 runs over HTTP/1.1).
+3. `moirai-s3` — minimal S3 surface consus needs: `GetObject` with `Range`, `HeadObject`. SigV4 signing (`aws-sigv4`, or a direct HMAC-SHA256 canonical-request impl), credential resolution (env + `~/.aws/credentials`), error-XML decoding (`quick-xml`). Surfaces an `AsyncReadAt` implementor consus consumes in place of the rusoto `S3Reader`.
+
+### Reuse-vs-build matrix
+- Reuse (sans-I/O, runtime-agnostic, audited, none Tokio-coupled): `rustls` + roots, `http`, `httparse`, `aws-sigv4`, `quick-xml`, `socket2`.
+- Build (Moirai-owned I/O orchestration): TLS↔socket pump; HTTP connection lifecycle/pool/chunked codec/timeouts; S3 request assembly + `AsyncReadAt` adapter.
+The security-critical and spec-heavy parts (TLS, HTTP grammar, SigV4) are reused; Moirai builds only readiness/lifecycle glue. Hand-rolling TLS is prohibited.
+
+### Execution-model alignment
+All three layers are async-domain → `moirai-async` (AsyncPolicy), never `moirai-parallel`; preserves the parallel≠concurrent split. The hybrid scheduler lets a parallel chunk-decompress await an S3 range fetch on the same pool (unified-runtime invariant). Pure consus format logic stays synchronous (async-contagion prohibition); only the byte-source boundary is async.
+
+### Variant / abstraction strategy
+- Transport selection (`rustls` vs future native-tls; HTTP/1.1 vs future HTTP/2) behind a sealed `Transport`/`HttpVersion` strategy trait — static dispatch, no `dyn` on the hot path.
+- consus exposes the backend as a feature axis: `s3-moirai` (new) vs `s3-tokio` (legacy rusoto, retained until parity proven), both implementing the same `AsyncReadAt`. No public API change to consus's storage surface.
+- Region/endpoint/credentials as validating newtypes (primitive-obsession prohibition).
+
+### Alternatives considered
+1. Reimplement TLS/crypto from scratch — REJECTED: security-critical, no value over rustls.
+2. Fork reqwest/hyper onto Moirai I/O — REJECTED: hyper is deeply Tokio-coupled; fork maintenance unbounded.
+3. Embed a current-thread Tokio runtime on a Moirai worker to host reqwest (`moirai-async` has a `tokio-compat` feature) — REJECTED as the goal (still ships Tokio) but RETAINED as the documented fallback if an upper layer stalls, so consus is never blocked.
+4. Layered sans-I/O-glue stack over the existing reactor — SELECTED.
+
+### Expected failure modes / risks
+- Windows IOCP async-TCP maturity (dev platform; IOCP is completion- not readiness-based). Mitigation: P1 gate runs moirai-net loopback + TLS-handshake suites on Windows specifically before proceeding.
+- TLS correctness/security — mitigated by reusing rustls + adversarial cert tests (expired / wrong-host / untrusted-root must fail closed).
+- HTTP/1.1 edge cases (chunked trailers, 100-continue, server-initiated close mid-pool, slow-loris) — covered by differential tests vs reqwest against a local server.
+- Connection-pool resource bounds — mandatory bounded capacity (no unbounded queues); idle-eviction timer.
+- Dependency policy: new crates vetted via `cargo deny` and pinned; MSRV checked.
+- Scope creep (HTTP/2, presigned URLs, multipart upload) — out of scope; consus needs only ranged GET + HEAD.
+
+### Verification plan (evidence tiers per layer)
+- `moirai-tls`: loopback handshake against a rustls server; plaintext-roundtrip differential vs `tokio-rustls`; adversarial cert-validation fail-closed tests.
+- `moirai-http`: local HTTP/1.1 test server; property tests on chunked/Content-Length framing and pool reuse; differential — identical GET via `reqwest` vs `moirai-http` yields byte-identical status/headers/body.
+- `moirai-s3`: SigV4 known-answer tests from AWS's published canonical-request/string-to-sign/signature vectors; differential vs `rusoto_s3` against local MinIO/`s3mock` — byte-identical `GetObject(Range)`/`HeadObject`.
+- consus integration: existing consus S3 property/integration tests run on both `s3-moirai` and `s3-tokio` against MinIO → byte-identical dataset reads.
+- Comparative benchmarks (criterion; explicit deliverable): ranged-GET throughput + p50/p99 latency + CPU-time/req + allocations, moirai-s3 vs rusoto_s3, against (a) localhost MinIO (RTT≈0, exposes per-request CPU/syscall overhead) and (b) a latency-injected proxy (`toxiproxy`) at realistic RTT (where both converge on network bound). These are the go/no-go evidence for flipping the default; an intermediate regression triggers profiling/optimization (pool warm-up, buffer reuse, vectored writes), not reversion (optimization farsight).
+
+### Phasing (vertical slices; each leaves the tree green)
+- P0 [arch]: this ADR + spike proving moirai-net loopback echo and a rustls handshake over loopback on Linux **and** Windows. Exit: green TLS-roundtrip integration test.
+- P1 [minor]: `moirai-tls` (rustls glue, cert verification, cancellation-safe).
+- P2 [minor]: `moirai-http` (GET/HEAD, chunked, keep-alive pool, redirect, timeout).
+- P3 [minor]: `moirai-s3` (SigV4, GetObject Range, HeadObject, creds, error XML).
+- P4 [minor]: consus `s3-moirai` backend behind a feature; both backends green on MinIO; comparative bench recorded.
+- P5 [major in consus]: flip consus default to `s3-moirai`; demote rusoto/reqwest to legacy/optional; remove Tokio from consus's production tree (Tokio remains benchmark/reference only, per ADR-001/013).
+
+### Classification & sign-off
+[arch] — new canonical crates + a new transport boundary. Requires ADR sign-off (this document) before P1 opens. Implementation tracked in `docs/adr-015-checklist.md`.
