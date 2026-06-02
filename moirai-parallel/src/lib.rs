@@ -224,6 +224,44 @@ where
         .expect("moirai global executor: for_each_chunk_mut_with");
 }
 
+/// Like [`for_each_chunk_mut_with`] but also passes the zero-based chunk index to
+/// `f` (synchronous equivalent of
+/// `data.par_chunks_mut(chunk_size).enumerate().for_each(f)`).
+pub fn for_each_chunk_mut_enumerated_with<P, T, F>(data: &mut [T], chunk_size: usize, f: F)
+where
+    P: ExecutionPolicy,
+    T: Send,
+    F: Fn(usize, &mut [T]) + Send + Sync,
+{
+    let n = data.len();
+    if n == 0 || chunk_size == 0 {
+        return;
+    }
+    let num_chunks = n.div_ceil(chunk_size);
+    if !P::parallelize(n) || num_chunks <= 1 {
+        data.chunks_mut(chunk_size)
+            .enumerate()
+            .for_each(|(i, c)| f(i, c));
+        return;
+    }
+    let base = DisjointMutPtr(data.as_mut_ptr());
+    let f = &f;
+    global()
+        .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
+            let start = c * chunk_size;
+            if start >= n {
+                return;
+            }
+            let end = (start + chunk_size).min(n);
+            // SAFETY: chunks `[start, end)` for distinct `c` are pairwise disjoint
+            // and each visited exactly once, so no two tasks alias.
+            let chunk =
+                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
+            f(c, chunk);
+        })
+        .expect("moirai global executor: for_each_chunk_mut_enumerated_with");
+}
+
 /// Map each element of `data` with `f`, collecting into a `Vec<R>` in order,
 /// scheduled by policy `P`.
 pub fn map_collect_with<P, T, R, F>(data: &[T], f: F) -> Vec<R>
@@ -646,6 +684,21 @@ mod tests {
             }
         });
         assert_eq!(d2, (0..10).map(|x| x * 10).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn for_each_chunk_mut_enumerated_passes_index() {
+        let lanes = 500usize;
+        let width = 4usize;
+        let mut data: Vec<u64> = vec![0; lanes * width];
+        for_each_chunk_mut_enumerated_with::<Adaptive, _, _>(&mut data, width, |i, chunk| {
+            for x in chunk.iter_mut() {
+                *x = i as u64;
+            }
+        });
+        for i in 0..lanes {
+            assert!(data[i * width..(i + 1) * width].iter().all(|&v| v == i as u64));
+        }
     }
 
     #[test]
