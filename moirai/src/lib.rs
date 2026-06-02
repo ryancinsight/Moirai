@@ -261,7 +261,10 @@ pub use moirai_gpu::prelude::*;
 
 // Synchronous data-parallel primitives (rayon-replacement surface).
 pub mod par;
-pub use par::{par_for_each, par_for_each_mut, par_map_reduce};
+pub use par::{
+    par_enumerate, par_enumerate_mut, par_for_each, par_for_each_mut, par_map_collect,
+    par_map_reduce,
+};
 
 use std::{future::Future, sync::Arc, time::Duration};
 
@@ -743,8 +746,9 @@ impl Default for MoiraiBuilder {
 pub mod prelude {
 
     pub use crate::{
-        par_for_each, par_for_each_mut, par_map_reduce, Moirai, MoiraiBuilder, Priority, Task,
-        TaskBuilder, TaskExt, TaskHandle, TaskId,
+        par_enumerate, par_enumerate_mut, par_for_each, par_for_each_mut, par_map_collect,
+        par_map_reduce, Moirai, MoiraiBuilder, Priority, Task, TaskBuilder, TaskExt, TaskHandle,
+        TaskId,
     };
 
     #[cfg(feature = "iter")]

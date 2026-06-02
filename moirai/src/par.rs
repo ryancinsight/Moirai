@@ -117,6 +117,105 @@ where
         .expect("moirai global runtime: par_for_each_mut");
 }
 
+/// Apply `f(index, &element)` to every element of `data` in parallel.
+///
+/// Synchronous equivalent of rayon's `data.par_iter().enumerate().for_each(f)`.
+pub fn par_enumerate<T, F>(data: &[T], f: F)
+where
+    T: Sync,
+    F: Fn(usize, &T) + Send + Sync,
+{
+    let n = data.len();
+    if n == 0 {
+        return;
+    }
+    let (chunks, chunk) = chunk_layout(n);
+    if chunks <= 1 {
+        data.iter().enumerate().for_each(|(i, x)| f(i, x));
+        return;
+    }
+    let f = &f;
+    global()
+        .for_each_indexed(chunks, move |ci| {
+            let start = ci * chunk;
+            if start >= n {
+                return;
+            }
+            let end = (start + chunk).min(n);
+            for (offset, item) in data[start..end].iter().enumerate() {
+                f(start + offset, item);
+            }
+        })
+        .expect("moirai global runtime: par_enumerate");
+}
+
+/// Apply `f(index, &mut element)` to every element of `data` in parallel,
+/// mutating each in place.
+///
+/// Synchronous equivalent of rayon's
+/// `data.par_iter_mut().enumerate().for_each(f)`.
+pub fn par_enumerate_mut<T, F>(data: &mut [T], f: F)
+where
+    T: Send,
+    F: Fn(usize, &mut T) + Send + Sync,
+{
+    let n = data.len();
+    if n == 0 {
+        return;
+    }
+    let (chunks, chunk) = chunk_layout(n);
+    if chunks <= 1 {
+        data.iter_mut().enumerate().for_each(|(i, x)| f(i, x));
+        return;
+    }
+    let base = DisjointMutPtr(data.as_mut_ptr());
+    let f = &f;
+    global()
+        .for_each_indexed(chunks, move |ci| {
+            let start = ci * chunk;
+            if start >= n {
+                return;
+            }
+            let end = (start + chunk).min(n);
+            // SAFETY: ranges `[start, end)` are pairwise disjoint across `ci`,
+            // so the `&mut` sub-slices never alias; `data` outlives the joined
+            // parallel region. See `par_for_each_mut`.
+            let slice = unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
+            for (offset, item) in slice.iter_mut().enumerate() {
+                f(start + offset, item);
+            }
+        })
+        .expect("moirai global runtime: par_enumerate_mut");
+}
+
+/// Map each element of `data` with `f` in parallel, collecting results into a
+/// `Vec<R>` in the original order.
+///
+/// Synchronous equivalent of rayon's `data.par_iter().map(f).collect()`.
+pub fn par_map_collect<T, R, F>(data: &[T], f: F) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T) -> R + Send + Sync,
+{
+    let n = data.len();
+    let mut out: Vec<core::mem::MaybeUninit<R>> = Vec::with_capacity(n);
+    // SAFETY: `out` has capacity `n`; every slot is written exactly once below
+    // before being read, and the elements are `MaybeUninit` so `set_len` does
+    // not assume initialization.
+    unsafe {
+        out.set_len(n);
+    }
+    par_enumerate_mut(&mut out, |i, slot| {
+        slot.write(f(&data[i]));
+    });
+    // SAFETY: `par_enumerate_mut` initialized every slot, and
+    // `MaybeUninit<R>` has the same layout as `R`. Rebuild the `Vec` as `Vec<R>`
+    // without re-allocating or running uninitialized drops.
+    let mut out = core::mem::ManuallyDrop::new(out);
+    unsafe { Vec::from_raw_parts(out.as_mut_ptr().cast::<R>(), n, out.capacity()) }
+}
+
 /// Parallel map-reduce over `data`.
 ///
 /// Each element is mapped with `map`; results are folded within and across
@@ -198,6 +297,36 @@ mod tests {
         let data: Vec<u64> = (0..100_000).collect();
         let sum = par_map_reduce(&data, 0u64, |&x| x, |a, b| a + b);
         assert_eq!(sum, data.iter().copied().sum::<u64>());
+    }
+
+    #[test]
+    fn par_enumerate_mut_uses_index() {
+        let mut data = vec![0usize; 5_000];
+        par_enumerate_mut(&mut data, |i, x| *x = i * 3);
+        for (i, &v) in data.iter().enumerate() {
+            assert_eq!(v, i * 3);
+        }
+    }
+
+    #[test]
+    fn par_map_collect_preserves_order() {
+        let data: Vec<u64> = (0..20_000).collect();
+        let squared = par_map_collect(&data, |&x| x * x);
+        assert_eq!(squared.len(), data.len());
+        for (i, &v) in squared.iter().enumerate() {
+            assert_eq!(v, (i as u64) * (i as u64));
+        }
+    }
+
+    #[test]
+    fn par_enumerate_reads_with_index() {
+        let data: Vec<usize> = (0..8_000).collect();
+        let acc = AtomicUsize::new(0);
+        par_enumerate(&data, |i, &x| {
+            assert_eq!(i, x);
+            acc.fetch_add(x, Ordering::Relaxed);
+        });
+        assert_eq!(acc.load(Ordering::Relaxed), data.iter().sum());
     }
 
     #[test]
