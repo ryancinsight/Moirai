@@ -239,6 +239,66 @@ where
         .expect("moirai global executor: map_reduce_with")
 }
 
+/// Parallel fold-reduce over the index domain `0..len`, scheduled by policy `P`.
+///
+/// Each worker chunk creates one accumulator with `init()`, folds its indices
+/// into it with `fold`, and the per-chunk accumulators are combined with
+/// `reduce`. Unlike [`reduce_index_with`], `fold` mutates a single accumulator
+/// per chunk (no per-element temporary), which is the efficient shape for
+/// accumulating into a collection — e.g. grouping entries into a `HashMap`.
+/// `reduce` must be associative; `init()` must yield its neutral element.
+pub fn fold_reduce_with<P, A, Init, Fold, Red>(len: usize, init: Init, fold: Fold, reduce: Red) -> A
+where
+    P: ExecutionPolicy,
+    A: Send,
+    Init: Fn() -> A + Send + Sync,
+    Fold: Fn(A, usize) -> A + Send + Sync,
+    Red: Fn(A, A) -> A,
+{
+    if len == 0 {
+        return init();
+    }
+    if !P::parallelize(len) {
+        let mut acc = init();
+        for i in 0..len {
+            acc = fold(acc, i);
+        }
+        return acc;
+    }
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    let chunks = workers.min(len).max(1);
+    let chunk = len.div_ceil(chunks);
+    let mut slots: Vec<Option<A>> = (0..chunks).map(|_| None).collect();
+    let base = DisjointMutPtr(slots.as_mut_ptr());
+    let init_ref = &init;
+    let fold_ref = &fold;
+    global()
+        .for_each_indexed::<SyncTask, _>(chunks, move |ci| {
+            let start = ci * chunk;
+            if start >= len {
+                return;
+            }
+            let end = (start + chunk).min(len);
+            let mut acc = init_ref();
+            for i in start..end {
+                acc = fold_ref(acc, i);
+            }
+            // SAFETY: each `ci` writes its own slot exactly once; slots are
+            // disjoint and `slots` outlives the joined call.
+            unsafe {
+                *base.get_mut(ci) = Some(acc);
+            }
+        })
+        .expect("moirai global executor: fold_reduce_with");
+    slots
+        .into_iter()
+        .flatten()
+        .reduce(reduce)
+        .unwrap_or_else(init)
+}
+
 /// Parallel map over the index domain `0..len`, collecting into a `Vec<R>` in
 /// order, scheduled by policy `P`.
 ///
@@ -477,6 +537,32 @@ mod tests {
         for (i, &v) in data.iter().enumerate() {
             assert_eq!(v, i as u64 + 1 + i as u64);
         }
+    }
+
+    #[test]
+    fn fold_reduce_accumulates_into_collection() {
+        use std::collections::HashMap;
+        let n = 30_000usize;
+        // group i -> sum of i over its (i % 8) bucket
+        let map = fold_reduce_with::<Adaptive, HashMap<usize, u64>, _, _, _>(
+            n,
+            HashMap::new,
+            |mut acc, i| {
+                *acc.entry(i % 8).or_insert(0) += i as u64;
+                acc
+            },
+            |mut a, b| {
+                for (k, v) in b {
+                    *a.entry(k).or_insert(0) += v;
+                }
+                a
+            },
+        );
+        let mut expected: HashMap<usize, u64> = HashMap::new();
+        for i in 0..n {
+            *expected.entry(i % 8).or_insert(0) += i as u64;
+        }
+        assert_eq!(map, expected);
     }
 
     #[test]
