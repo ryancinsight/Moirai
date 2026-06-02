@@ -21,13 +21,13 @@
 //!   let mut m = v.clone();
 //!   m.par_mut().for_each(|x| *x += 1);                       // adaptive default
 //!   ```
-//! - **`par_*` free functions** — the [`Adaptive`] default, for terse call sites
-//!   (`par_for_each(&data, f)`).
-//! - **`*_with::<P>` free functions** — explicit policy via turbofish
-//!   (`for_each_with::<Parallel>(&data, f)`).
+//! - **`*_with::<P>` free functions** — the same operations as plain functions
+//!   with an explicit policy via turbofish (`for_each_with::<Parallel>(&data, f)`),
+//!   for generic contexts without a slice receiver.
 //!
 //! [`Adaptive`] parallelizes only at or above [`ADAPTIVE_PARALLEL_THRESHOLD`] and
 //! runs sequentially below it, so the parallel/sequential decision is automatic.
+//! `slice.par()` is the everyday auto-routing default.
 
 #![deny(missing_docs)]
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -278,46 +278,6 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Adaptive convenience free functions (unset-default, auto-routing)
-// ---------------------------------------------------------------------------
-
-/// Adaptive [`for_each_with`] — `data.par_iter().for_each(f)`.
-pub fn par_for_each<T: Sync, F: Fn(&T) + Send + Sync>(data: &[T], f: F) {
-    for_each_with::<Adaptive, _, _>(data, f);
-}
-
-/// Adaptive [`for_each_mut_with`] — `data.par_iter_mut().for_each(f)`.
-pub fn par_for_each_mut<T: Send, F: Fn(&mut T) + Send + Sync>(data: &mut [T], f: F) {
-    for_each_mut_with::<Adaptive, _, _>(data, f);
-}
-
-/// Adaptive [`enumerate_with`].
-pub fn par_enumerate<T: Sync, F: Fn(usize, &T) + Send + Sync>(data: &[T], f: F) {
-    enumerate_with::<Adaptive, _, _>(data, f);
-}
-
-/// Adaptive [`enumerate_mut_with`].
-pub fn par_enumerate_mut<T: Send, F: Fn(usize, &mut T) + Send + Sync>(data: &mut [T], f: F) {
-    enumerate_mut_with::<Adaptive, _, _>(data, f);
-}
-
-/// Adaptive [`map_collect_with`] — `data.par_iter().map(f).collect()`.
-pub fn par_map_collect<T: Sync, R: Send, F: Fn(&T) -> R + Send + Sync>(data: &[T], f: F) -> Vec<R> {
-    map_collect_with::<Adaptive, _, _, _>(data, f)
-}
-
-/// Adaptive [`map_reduce_with`].
-pub fn par_map_reduce<T, R, M, Rd>(data: &[T], identity: R, map: M, reduce: Rd) -> R
-where
-    T: Sync,
-    R: Send + Sync + Clone,
-    M: Fn(&T) -> R + Send + Sync,
-    Rd: Fn(R, R) -> R + Send + Sync,
-{
-    map_reduce_with::<Adaptive, _, _, _, _>(data, identity, map, reduce)
-}
-
-// ---------------------------------------------------------------------------
 // Extension traits: trait-based, type-selected parallel views over slices
 // ---------------------------------------------------------------------------
 
@@ -435,47 +395,52 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
-    fn par_for_each_visits_every_element_once() {
+    fn for_each_visits_every_element_once() {
         let data: Vec<usize> = (0..10_000).collect();
         let counter = AtomicUsize::new(0);
-        par_for_each(&data, |&x| {
+        data.par().for_each(|&x| {
             counter.fetch_add(x, Ordering::Relaxed);
         });
         assert_eq!(counter.load(Ordering::Relaxed), data.iter().sum());
     }
 
     #[test]
-    fn par_for_each_mut_mutates_in_place() {
+    fn for_each_mut_mutates_in_place() {
         let mut data: Vec<u64> = (0..10_000).collect();
-        par_for_each_mut(&mut data, |x| *x *= 2);
+        data.par_mut().for_each(|x| *x *= 2);
         for (i, &v) in data.iter().enumerate() {
             assert_eq!(v, (i as u64) * 2);
         }
     }
 
     #[test]
-    fn par_enumerate_mut_uses_index() {
+    fn enumerate_mut_uses_index() {
         let mut data = vec![0usize; 5_000];
-        par_enumerate_mut(&mut data, |i, x| *x = i * 3);
+        data.par_mut().enumerate(|i, x| *x = i * 3);
         for (i, &v) in data.iter().enumerate() {
             assert_eq!(v, i * 3);
         }
     }
 
     #[test]
-    fn par_map_collect_preserves_order() {
+    fn map_collect_preserves_order() {
         let data: Vec<u64> = (0..20_000).collect();
-        let squared = par_map_collect(&data, |&x| x * x);
+        let squared = data.par().map_collect(|&x| x * x);
         for (i, &v) in squared.iter().enumerate() {
             assert_eq!(v, (i as u64) * (i as u64));
         }
     }
 
     #[test]
-    fn par_map_reduce_sums_correctly() {
+    fn map_reduce_sums_correctly() {
         let data: Vec<u64> = (0..100_000).collect();
         assert_eq!(
-            par_map_reduce(&data, 0u64, |&x| x, |a, b| a + b),
+            data.par().map_reduce(0u64, |&x| x, |a, b| a + b),
+            data.iter().copied().sum::<u64>()
+        );
+        // free-function form with explicit policy
+        assert_eq!(
+            map_reduce_with::<Sequential, _, _, _, _>(&data, 0u64, |&x| x, |a, b| a + b),
             data.iter().copied().sum::<u64>()
         );
     }

@@ -2,7 +2,7 @@
 //! rayon baselines for differential comparison.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use moirai_parallel::{par_for_each_mut, par_map_reduce};
+use moirai_parallel::{ParallelSlice, ParallelSliceMut};
 use rayon::prelude::*;
 
 fn bench_map_reduce(c: &mut Criterion) {
@@ -17,7 +17,7 @@ fn bench_map_reduce(c: &mut Criterion) {
             b.iter(|| black_box(d.par_iter().copied().sum::<f64>()));
         });
         group.bench_with_input(BenchmarkId::new("moirai", n), &data, |b, d| {
-            b.iter(|| black_box(par_map_reduce(d, 0.0f64, |&x| x, |a, b| a + b)));
+            b.iter(|| black_box(d.par().map_reduce(0.0f64, |&x| x, |a, b| a + b)));
         });
     }
     group.finish();
@@ -36,7 +36,7 @@ fn bench_for_each_mut(c: &mut Criterion) {
         });
         group.bench_with_input(BenchmarkId::new("moirai", n), &n, |b, &n| {
             let mut data: Vec<f64> = (0..n).map(|i| i as f64).collect();
-            b.iter(|| par_for_each_mut(&mut data, |x| *x = black_box(*x) * 1.000_001));
+            b.iter(|| data.par_mut().for_each(|x| *x = black_box(*x) * 1.000_001));
         });
     }
     group.finish();
