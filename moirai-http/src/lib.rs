@@ -127,8 +127,9 @@ impl HttpClient {
         body: Option<&[u8]>,
     ) -> io::Result<Response> {
         let is_head = method.eq_ignore_ascii_case("HEAD");
+        let host_header = origin.host_header();
         let exchange = async {
-            write_request(&mut conn, method, &origin.host, path, headers, body).await?;
+            write_request(&mut conn, method, &host_header, path, headers, body).await?;
             read_response(&mut conn, is_head).await
         };
         let resp = match timeout(self.request_timeout, exchange).await {

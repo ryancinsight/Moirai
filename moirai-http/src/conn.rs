@@ -26,6 +26,18 @@ impl Origin {
     pub fn authority(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
+
+    /// Value for the `Host` header: `host`, or `host:port` when the port is
+    /// non-default for the scheme (443 for https, 80 for http).
+    #[must_use]
+    pub fn host_header(&self) -> String {
+        let default = if self.secure { 443 } else { 80 };
+        if self.port == default {
+            self.host.clone()
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
+    }
 }
 
 /// An established HTTP transport connection.
