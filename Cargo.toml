@@ -8,6 +8,7 @@ members = [
     "moirai-async",
     "moirai-pal",
     "moirai-iter",
+    "moirai-parallel",
     "moirai-metrics",
     "moirai-utils",
     "moirai-gpu",
@@ -40,6 +41,7 @@ moirai-sync = { path = "moirai-sync", version = "0.2.0" }
 moirai-async = { path = "moirai-async", version = "0.2.0" }
 moirai-pal = { path = "moirai-pal", version = "0.2.0" }
 moirai-iter = { path = "moirai-iter", version = "0.2.0" }
+moirai-parallel = { path = "moirai-parallel", version = "0.2.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.2.0" }
 moirai-utils = { path = "moirai-utils", version = "0.2.0", features = ["std"] }
 moirai-gpu = { path = "moirai-gpu", version = "0.2.0" }

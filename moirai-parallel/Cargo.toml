@@ -1,0 +1,25 @@
+[package]
+name = "moirai-parallel"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+description = "Synchronous data-parallel primitives (rayon-style) for the Moirai runtime"
+keywords = ["parallel", "data-parallel", "concurrency", "rayon", "moirai"]
+categories = ["concurrency"]
+
+[dependencies]
+moirai-executor = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+rayon = "1.8"
+
+[[bench]]
+name = "par_benchmarks"
+path = "benches/par_benchmarks.rs"
+harness = false

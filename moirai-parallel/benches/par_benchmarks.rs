@@ -1,8 +1,8 @@
-//! Benchmarks for Moirai's synchronous data-parallel primitives, with
-//! sequential and rayon baselines for differential comparison.
+//! Benchmarks for the synchronous data-parallel primitives, with sequential and
+//! rayon baselines for differential comparison.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use moirai::{par_for_each_mut, par_map_reduce};
+use moirai_parallel::{par_for_each_mut, par_map_reduce};
 use rayon::prelude::*;
 
 fn bench_map_reduce(c: &mut Criterion) {

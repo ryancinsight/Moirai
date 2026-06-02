@@ -259,9 +259,10 @@ pub use moirai_iter::*;
 #[cfg(feature = "gpu")]
 pub use moirai_gpu::prelude::*;
 
-// Synchronous data-parallel primitives (rayon-replacement surface).
-pub mod par;
-pub use par::{
+// Synchronous data-parallel primitives (rayon-replacement surface), provided by
+// the `moirai-parallel` domain crate.
+#[cfg(feature = "parallel")]
+pub use moirai_parallel::{
     par_enumerate, par_enumerate_mut, par_for_each, par_for_each_mut, par_map_collect,
     par_map_reduce,
 };
@@ -746,9 +747,13 @@ impl Default for MoiraiBuilder {
 pub mod prelude {
 
     pub use crate::{
+        Moirai, MoiraiBuilder, Priority, Task, TaskBuilder, TaskExt, TaskHandle, TaskId,
+    };
+
+    #[cfg(feature = "parallel")]
+    pub use crate::{
         par_enumerate, par_enumerate_mut, par_for_each, par_for_each_mut, par_map_collect,
-        par_map_reduce, Moirai, MoiraiBuilder, Priority, Task, TaskBuilder, TaskExt, TaskHandle,
-        TaskId,
+        par_map_reduce,
     };
 
     #[cfg(feature = "iter")]

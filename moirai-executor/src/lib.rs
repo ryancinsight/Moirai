@@ -99,3 +99,23 @@ impl Default for ExecutorBuilder {
         Self::new()
     }
 }
+
+/// Shared, lazily-initialized process-wide executor.
+///
+/// Provides a single default runtime so higher-level crates (e.g.
+/// `moirai-parallel`'s data-parallel primitives) can schedule work without each
+/// constructing — and over-subscribing — their own thread pool. Built once with
+/// the default [`ExecutorBuilder`] configuration on first access.
+///
+/// # Panics
+///
+/// Panics if the executor cannot be initialized, which should not happen under
+/// normal conditions.
+pub fn global() -> &'static HybridExecutor {
+    static GLOBAL_EXECUTOR: std::sync::OnceLock<HybridExecutor> = std::sync::OnceLock::new();
+    GLOBAL_EXECUTOR.get_or_init(|| {
+        ExecutorBuilder::new()
+            .build()
+            .expect("initialize global Moirai executor")
+    })
+}

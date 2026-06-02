@@ -20,6 +20,7 @@ moirai-transport = { workspace = true }
 moirai-sync = { workspace = true }
 moirai-async = { workspace = true, optional = true }
 moirai-iter = { workspace = true, optional = true }
+moirai-parallel = { workspace = true, optional = true }
 moirai-metrics = { workspace = true, optional = true }
 moirai-gpu = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
@@ -131,11 +132,12 @@ path = "../examples/gpu_acceleration.rs"
 required-features = ["gpu"]
 
 [features]
-default = ["async", "iter", "local", "mnemosyne"]
-full = ["async", "iter", "distributed", "metrics", "numa", "futex", "encryption", "gpu"]
+default = ["async", "iter", "parallel", "local", "mnemosyne"]
+full = ["async", "iter", "parallel", "distributed", "metrics", "numa", "futex", "encryption", "gpu"]
 mnemosyne = ["dep:mnemosyne"]
 async = ["moirai-async"]
 iter = ["moirai-iter"]
+parallel = ["moirai-parallel"]
 gpu = ["moirai-gpu"]
 local = ["moirai-transport/local"]
 network = ["moirai-transport/network"]
