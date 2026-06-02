@@ -44,7 +44,7 @@ mod policy;
 pub use policy::{Adaptive, ExecutionPolicy, Parallel, Sequential, ADAPTIVE_PARALLEL_THRESHOLD};
 
 use core::marker::PhantomData;
-use moirai_executor::{global, BlockingTask};
+use moirai_executor::{global, SyncTask};
 
 /// Pointer wrapper used to hand disjoint `&mut` sub-slices to worker tasks.
 ///
@@ -60,22 +60,23 @@ unsafe impl<T: Send> Send for DisjointMutPtr<T> {}
 unsafe impl<T: Send> Sync for DisjointMutPtr<T> {}
 
 impl<T> DisjointMutPtr<T> {
+    /// Return a `&mut` to element `i`.
+    ///
+    /// # Safety
+    /// `i` must be in bounds and visited at most once across all concurrent
+    /// tasks, so the returned reference never aliases another.
     #[inline]
-    fn base(&self) -> *mut T {
-        self.0
+    unsafe fn get_mut<'a>(&self, i: usize) -> &'a mut T {
+        // SAFETY: guaranteed by the caller's per-index-once contract.
+        unsafe { &mut *self.0.add(i) }
     }
 }
 
-/// Compute `(number_of_chunks, chunk_len)` for splitting `len` items across the
-/// runtime's worker threads. Never returns zero chunks for non-empty input.
-#[inline]
-fn chunk_layout(len: usize) -> (usize, usize) {
-    let workers = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
-    let chunks = workers.min(len).max(1);
-    (chunks, len.div_ceil(chunks))
-}
+// The executor's `for_each_indexed`/`map_reduce_indexed` already split the index
+// domain `0..n` into worker-sized chunks and run them on the shared pool, so
+// these wrappers pass the full element count `n` (one index per element) and let
+// the scheduler chunk — pre-chunking here would defeat the reduce heuristic and
+// serialize. `SyncTask` is the CPU-compute work class.
 
 /// Apply `f` to every element of `data`, scheduled by policy `P`.
 pub fn for_each_with<P, T, F>(data: &[T], f: F)
@@ -88,23 +89,13 @@ where
     if n == 0 {
         return;
     }
-    let (chunks, chunk) = chunk_layout(n);
-    if !P::parallelize(n) || chunks <= 1 {
+    if !P::parallelize(n) {
         data.iter().for_each(f);
         return;
     }
     let f = &f;
     global()
-        .for_each_indexed::<BlockingTask, _>(chunks, move |ci| {
-            let start = ci * chunk;
-            if start >= n {
-                return;
-            }
-            let end = (start + chunk).min(n);
-            for item in &data[start..end] {
-                f(item);
-            }
-        })
+        .for_each_indexed::<SyncTask, _>(n, move |i| f(&data[i]))
         .expect("moirai global executor: for_each_with");
 }
 
@@ -119,29 +110,18 @@ where
     if n == 0 {
         return;
     }
-    let (chunks, chunk) = chunk_layout(n);
-    if !P::parallelize(n) || chunks <= 1 {
+    if !P::parallelize(n) {
         data.iter_mut().for_each(f);
         return;
     }
     let base = DisjointMutPtr(data.as_mut_ptr());
     let f = &f;
     global()
-        .for_each_indexed::<BlockingTask, _>(chunks, move |ci| {
-            let start = ci * chunk;
-            if start >= n {
-                return;
-            }
-            let end = (start + chunk).min(n);
-            // SAFETY: ranges `[start, end)` are pairwise disjoint across `ci`, so
-            // the `&mut` sub-slices never alias; `data` is mutably borrowed for
-            // the whole call and `for_each_indexed` joins every task before
-            // returning, so `base` stays valid.
-            let slice =
-                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
-            for item in slice {
-                f(item);
-            }
+        .for_each_indexed::<SyncTask, _>(n, move |i| {
+            // SAFETY: the scheduler visits each index in `0..n` exactly once
+            // across disjoint chunks, so no two tasks alias element `i`; `data`
+            // is borrowed mutably for the whole joined call.
+            f(unsafe { base.get_mut(i) });
         })
         .expect("moirai global executor: for_each_mut_with");
 }
@@ -157,23 +137,13 @@ where
     if n == 0 {
         return;
     }
-    let (chunks, chunk) = chunk_layout(n);
-    if !P::parallelize(n) || chunks <= 1 {
+    if !P::parallelize(n) {
         data.iter().enumerate().for_each(|(i, x)| f(i, x));
         return;
     }
     let f = &f;
     global()
-        .for_each_indexed::<BlockingTask, _>(chunks, move |ci| {
-            let start = ci * chunk;
-            if start >= n {
-                return;
-            }
-            let end = (start + chunk).min(n);
-            for (offset, item) in data[start..end].iter().enumerate() {
-                f(start + offset, item);
-            }
-        })
+        .for_each_indexed::<SyncTask, _>(n, move |i| f(i, &data[i]))
         .expect("moirai global executor: enumerate_with");
 }
 
@@ -189,26 +159,17 @@ where
     if n == 0 {
         return;
     }
-    let (chunks, chunk) = chunk_layout(n);
-    if !P::parallelize(n) || chunks <= 1 {
+    if !P::parallelize(n) {
         data.iter_mut().enumerate().for_each(|(i, x)| f(i, x));
         return;
     }
     let base = DisjointMutPtr(data.as_mut_ptr());
     let f = &f;
     global()
-        .for_each_indexed::<BlockingTask, _>(chunks, move |ci| {
-            let start = ci * chunk;
-            if start >= n {
-                return;
-            }
-            let end = (start + chunk).min(n);
-            // SAFETY: disjoint ranges; see `for_each_mut_with`.
-            let slice =
-                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
-            for (offset, item) in slice.iter_mut().enumerate() {
-                f(start + offset, item);
-            }
+        .for_each_indexed::<SyncTask, _>(n, move |i| {
+            // SAFETY: each index in `0..n` is visited exactly once; see
+            // `for_each_mut_with`.
+            f(i, unsafe { base.get_mut(i) });
         })
         .expect("moirai global executor: enumerate_mut_with");
 }
@@ -253,8 +214,7 @@ where
     Rd: Fn(R, R) -> R + Send + Sync,
 {
     let n = data.len();
-    let (chunks, chunk) = if n == 0 { (0, 0) } else { chunk_layout(n) };
-    if n == 0 || !P::parallelize(n) || chunks <= 1 {
+    if n == 0 || !P::parallelize(n) {
         let mut acc = identity;
         for item in data {
             acc = reduce(acc, map(item));
@@ -263,22 +223,13 @@ where
     }
     let map = &map;
     let reduce = &reduce;
-    let identity_for_map = identity.clone();
+    // The executor folds each worker chunk locally (seeded by `identity`) then
+    // combines chunk results, so `map` is per-element and `reduce` per-pair.
     global()
-        .map_reduce_indexed::<BlockingTask, _, _, _>(
-            chunks,
+        .map_reduce_indexed::<SyncTask, _, _, _>(
+            n,
             identity,
-            move |ci| {
-                let start = ci * chunk;
-                let mut acc = identity_for_map.clone();
-                if start < n {
-                    let end = (start + chunk).min(n);
-                    for item in &data[start..end] {
-                        acc = reduce(acc, map(item));
-                    }
-                }
-                acc
-            },
+            move |i| map(&data[i]),
             move |a, b| reduce(a, b),
         )
         .expect("moirai global executor: map_reduce_with")
