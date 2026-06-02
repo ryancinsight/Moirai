@@ -178,6 +178,44 @@ where
         .expect("moirai global executor: enumerate_mut_with");
 }
 
+/// Apply `f` to each consecutive `chunk_size`-element mutable chunk of `data` in
+/// parallel, scheduled by policy `P`. The final chunk may be shorter.
+///
+/// Synchronous equivalent of rayon's `data.par_chunks_mut(chunk_size).for_each(f)`
+/// — the natural shape for batched/lane-wise transforms.
+pub fn for_each_chunk_mut_with<P, T, F>(data: &mut [T], chunk_size: usize, f: F)
+where
+    P: ExecutionPolicy,
+    T: Send,
+    F: Fn(&mut [T]) + Send + Sync,
+{
+    let n = data.len();
+    if n == 0 || chunk_size == 0 {
+        return;
+    }
+    let num_chunks = n.div_ceil(chunk_size);
+    if !P::parallelize(n) || num_chunks <= 1 {
+        data.chunks_mut(chunk_size).for_each(|c| f(c));
+        return;
+    }
+    let base = DisjointMutPtr(data.as_mut_ptr());
+    let f = &f;
+    global()
+        .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
+            let start = c * chunk_size;
+            if start >= n {
+                return;
+            }
+            let end = (start + chunk_size).min(n);
+            // SAFETY: the chunks `[start, end)` for distinct `c` are pairwise
+            // disjoint and each is visited exactly once, so no two tasks alias.
+            let chunk =
+                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
+            f(chunk);
+        })
+        .expect("moirai global executor: for_each_chunk_mut_with");
+}
+
 /// Map each element of `data` with `f`, collecting into a `Vec<R>` in order,
 /// scheduled by policy `P`.
 pub fn map_collect_with<P, T, R, F>(data: &[T], f: F) -> Vec<R>
@@ -576,6 +614,30 @@ mod tests {
         for (i, &v) in data.iter().enumerate() {
             assert_eq!(v, i as u64 + 1 + i as u64);
         }
+    }
+
+    #[test]
+    fn for_each_chunk_mut_processes_lanes() {
+        // 1000 lanes of 7 elements; set each lane's elements to the lane index.
+        let lanes = 1000usize;
+        let width = 7usize;
+        let mut data: Vec<u64> = vec![0; lanes * width];
+        for_each_chunk_mut_with::<Adaptive, _, _>(&mut data, width, |chunk| {
+            let lane = chunk[0]; // 0 initially; use position via first write instead
+            let _ = lane;
+            for x in chunk.iter_mut() {
+                *x += 1;
+            }
+        });
+        assert!(data.iter().all(|&v| v == 1));
+        // uneven final chunk
+        let mut d2: Vec<u64> = (0..10).collect();
+        for_each_chunk_mut_with::<Parallel, _, _>(&mut d2, 3, |c| {
+            for x in c {
+                *x *= 10;
+            }
+        });
+        assert_eq!(d2, (0..10).map(|x| x * 10).collect::<Vec<_>>());
     }
 
     #[test]
