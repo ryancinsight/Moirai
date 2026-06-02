@@ -259,6 +259,10 @@ pub use moirai_iter::*;
 #[cfg(feature = "gpu")]
 pub use moirai_gpu::prelude::*;
 
+// Synchronous data-parallel primitives (rayon-replacement surface).
+pub mod par;
+pub use par::{par_for_each, par_for_each_mut, par_map_reduce};
+
 use std::{future::Future, sync::Arc, time::Duration};
 
 /// The main Moirai runtime that provides a unified interface for hybrid concurrency.
@@ -739,7 +743,8 @@ impl Default for MoiraiBuilder {
 pub mod prelude {
 
     pub use crate::{
-        Moirai, MoiraiBuilder, Priority, Task, TaskBuilder, TaskExt, TaskHandle, TaskId,
+        par_for_each, par_for_each_mut, par_map_reduce, Moirai, MoiraiBuilder, Priority, Task,
+        TaskBuilder, TaskExt, TaskHandle, TaskId,
     };
 
     #[cfg(feature = "iter")]

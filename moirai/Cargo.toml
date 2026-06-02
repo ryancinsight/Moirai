@@ -33,6 +33,11 @@ futures = "0.3"
 rayon = "1.8"
 tokio = { version = "1.0", features = ["full"] }
 
+[[bench]]
+name = "par_benchmarks"
+path = "benches/par_benchmarks.rs"
+harness = false
+
 [[example]]
 name = "basic_usage"
 path = "../examples/basic_usage.rs"
