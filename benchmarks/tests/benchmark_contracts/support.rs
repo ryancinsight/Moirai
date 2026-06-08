@@ -18,6 +18,92 @@ fn benchmark_path(relative: &str) -> PathBuf {
 }
 
 fn read_benchmark(relative: &str) -> String {
+    let normalized = relative.replace('\\', "/");
+    if normalized == "../moirai-core/src/task.rs" {
+        let mut content = String::new();
+        for file in [
+            "../moirai-core/src/task/mod.rs",
+            "../moirai-core/src/task/handle.rs",
+            "../moirai-core/src/task/traits.rs",
+            "../moirai-core/src/task/builder.rs",
+            "../moirai-core/src/task/future.rs",
+            "../moirai-core/src/task/id_and_context.rs",
+            "../moirai-core/src/task/ext.rs",
+        ] {
+            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
+                content.push_str(&c);
+                content.push('\n');
+            }
+        }
+        return content.replace("\r\n", "\n").replace('\r', "\n");
+    }
+    if normalized == "../moirai-core/src/scheduler.rs" {
+        let mut content = String::new();
+        for file in [
+            "../moirai-core/src/scheduler/mod.rs",
+            "../moirai-core/src/scheduler/coordinator.rs",
+            "../moirai-core/src/scheduler/traits.rs",
+            "../moirai-core/src/scheduler/buffer.rs",
+            "../moirai-core/src/scheduler/config.rs",
+            "../moirai-core/src/scheduler/deque.rs",
+            "../moirai-core/src/scheduler/task.rs",
+        ] {
+            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
+                content.push_str(&c);
+                content.push('\n');
+            }
+        }
+        return content.replace("\r\n", "\n").replace('\r', "\n");
+    }
+    if normalized == "../moirai-executor/src/schedule/runtime/mod.rs" {
+        let mut content = String::new();
+        for file in [
+            "../moirai-executor/src/schedule/runtime/mod.rs",
+            "../moirai-executor/src/schedule/runtime/scheduler.rs",
+            "../moirai-executor/src/schedule/runtime/types.rs",
+            "../moirai-executor/src/schedule/runtime/worker.rs",
+            "../moirai-executor/src/schedule/runtime/tests.rs",
+        ] {
+            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
+                content.push_str(&c);
+                content.push('\n');
+            }
+        }
+        return content.replace("\r\n", "\n").replace('\r', "\n");
+    }
+    if normalized == "../moirai-scheduler/src/lib.rs" {
+        let mut content = String::new();
+        for file in [
+            "../moirai-scheduler/src/lib.rs",
+            "../moirai-scheduler/src/deque.rs",
+            "../moirai-scheduler/src/reclaim.rs",
+            "../moirai-scheduler/src/scheduler.rs",
+        ] {
+            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
+                content.push_str(&c);
+                content.push('\n');
+            }
+        }
+        return content.replace("\r\n", "\n").replace('\r', "\n");
+    }
+    if normalized == "../moirai-scheduler/src/numa_scheduler.rs" {
+        let mut content = String::new();
+        for file in [
+            "../moirai-scheduler/src/numa_scheduler/mod.rs",
+            "../moirai-scheduler/src/numa_scheduler/scheduler.rs",
+            "../moirai-scheduler/src/numa_scheduler/topology.rs",
+            "../moirai-scheduler/src/numa_scheduler/queue.rs",
+            "../moirai-scheduler/src/numa_scheduler/backoff.rs",
+            "../moirai-scheduler/src/numa_scheduler/tests.rs",
+        ] {
+            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
+                content.push_str(&c);
+                content.push('\n');
+            }
+        }
+        return content.replace("\r\n", "\n").replace('\r', "\n");
+    }
+
     fs::read_to_string(benchmark_path(relative))
         .expect("benchmark source must be readable")
         .replace("\r\n", "\n")

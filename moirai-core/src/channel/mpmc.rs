@@ -1,0 +1,543 @@
+//! Multi-Producer Multi-Consumer channel with bounded capacity.
+//!
+//! Uses mutex-based implementation for simplicity and correctness,
+//! with a lock-free `BoundedMpmcQueue` fast-path for bounded cases.
+
+use super::error::{CachePadded, Channel, ChannelError, Result};
+use std::cell::UnsafeCell;
+use std::cmp::Ordering as CmpOrdering;
+use std::collections::VecDeque;
+use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+
+const MPMC_BLOCK_SPINS: usize = 10;
+
+// ---------------------------------------------------------------------------
+// Internal state
+// ---------------------------------------------------------------------------
+
+pub(super) struct MpmcState<T> {
+    pub(super) queue: VecDeque<T>,
+    pub(super) capacity: Option<usize>,
+    pub(super) closed: bool,
+    pub(super) sender_count: usize,
+    pub(super) receiver_count: usize,
+}
+
+struct BoundedMpmcSlot<T> {
+    sequence: AtomicUsize,
+    value: UnsafeCell<MaybeUninit<T>>,
+}
+
+pub(super) struct BoundedMpmcQueue<T> {
+    buffer: Box<[BoundedMpmcSlot<T>]>,
+    mask: usize,
+    capacity: usize,
+    logical_capacity: usize,
+    enqueue_pos: CachePadded<AtomicUsize>,
+    dequeue_pos: CachePadded<AtomicUsize>,
+}
+
+impl<T> BoundedMpmcQueue<T> {
+    pub(super) fn new(requested_capacity: usize) -> Self {
+        let logical_capacity = requested_capacity.max(1);
+        let capacity = logical_capacity.next_power_of_two().max(2);
+        let buffer = (0..capacity)
+            .map(|index| BoundedMpmcSlot {
+                sequence: AtomicUsize::new(index),
+                value: UnsafeCell::new(MaybeUninit::uninit()),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+
+        Self {
+            buffer,
+            mask: capacity - 1,
+            capacity,
+            logical_capacity,
+            enqueue_pos: CachePadded::new(AtomicUsize::new(0)),
+            dequeue_pos: CachePadded::new(AtomicUsize::new(0)),
+        }
+    }
+
+    pub(super) fn try_push(&self, value: T) -> std::result::Result<(), T> {
+        let mut position = self.enqueue_pos.value.load(Ordering::Relaxed);
+
+        loop {
+            let slot = &self.buffer[position & self.mask];
+            let sequence = slot.sequence.load(Ordering::Acquire);
+            let difference = sequence as isize - position as isize;
+
+            match difference.cmp(&0) {
+                CmpOrdering::Equal => {
+                    if position.wrapping_sub(self.dequeue_pos.value.load(Ordering::Acquire))
+                        >= self.logical_capacity
+                    {
+                        return Err(value);
+                    }
+
+                    match self.enqueue_pos.value.compare_exchange_weak(
+                        position,
+                        position.wrapping_add(1),
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    ) {
+                        Ok(_) => {
+                            unsafe {
+                                (*slot.value.get()).write(value);
+                            }
+                            slot.sequence
+                                .store(position.wrapping_add(1), Ordering::Release);
+                            return Ok(());
+                        }
+                        Err(observed) => position = observed,
+                    }
+                }
+                CmpOrdering::Less => return Err(value),
+                CmpOrdering::Greater => {
+                    position = self.enqueue_pos.value.load(Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
+    pub(super) fn try_pop(&self) -> Option<T> {
+        let mut position = self.dequeue_pos.value.load(Ordering::Relaxed);
+
+        loop {
+            let slot = &self.buffer[position & self.mask];
+            let sequence = slot.sequence.load(Ordering::Acquire);
+            let difference = sequence as isize - position.wrapping_add(1) as isize;
+
+            match difference.cmp(&0) {
+                CmpOrdering::Equal => {
+                    match self.dequeue_pos.value.compare_exchange_weak(
+                        position,
+                        position.wrapping_add(1),
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    ) {
+                        Ok(_) => {
+                            let value = unsafe { (*slot.value.get()).assume_init_read() };
+                            slot.sequence
+                                .store(position.wrapping_add(self.capacity), Ordering::Release);
+                            return Some(value);
+                        }
+                        Err(observed) => position = observed,
+                    }
+                }
+                CmpOrdering::Less => return None,
+                CmpOrdering::Greater => {
+                    position = self.dequeue_pos.value.load(Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.enqueue_pos.value.load(Ordering::Acquire)
+            == self.dequeue_pos.value.load(Ordering::Acquire)
+    }
+
+    pub(super) fn is_full(&self) -> bool {
+        self.enqueue_pos
+            .value
+            .load(Ordering::Acquire)
+            .wrapping_sub(self.dequeue_pos.value.load(Ordering::Acquire))
+            >= self.logical_capacity
+    }
+
+    pub(super) fn logical_capacity(&self) -> usize {
+        self.logical_capacity
+    }
+}
+
+impl<T> Drop for BoundedMpmcQueue<T> {
+    fn drop(&mut self) {
+        while self.try_pop().is_some() {}
+    }
+}
+
+unsafe impl<T: Send> Send for BoundedMpmcQueue<T> {}
+unsafe impl<T: Send> Sync for BoundedMpmcQueue<T> {}
+
+// ---------------------------------------------------------------------------
+// MpmcChannel
+// ---------------------------------------------------------------------------
+
+/// Multi-Producer Multi-Consumer channel with bounded capacity
+/// Uses mutex-based implementation for simplicity and correctness
+pub struct MpmcChannel<T> {
+    pub(super) state: Arc<(Mutex<MpmcState<T>>, Condvar, Condvar)>,
+    pub(super) bounded: Option<Arc<BoundedMpmcQueue<T>>>,
+    pub(super) closed: Arc<AtomicBool>,
+    pub(super) sender_waiter_count: Arc<AtomicUsize>,
+    pub(super) receiver_waiter_count: Arc<AtomicUsize>,
+}
+
+impl<T> MpmcChannel<T> {
+    /// Create a new MPMC channel with optional capacity
+    pub fn new(capacity: Option<usize>) -> Self {
+        let state = MpmcState {
+            queue: VecDeque::with_capacity(capacity.unwrap_or(16)),
+            capacity,
+            closed: false,
+            sender_count: 0,
+            receiver_count: 0,
+        };
+
+        let bounded = capacity.map(BoundedMpmcQueue::new).map(Arc::new);
+
+        Self {
+            state: Arc::new((Mutex::new(state), Condvar::new(), Condvar::new())),
+            bounded,
+            closed: Arc::new(AtomicBool::new(false)),
+            sender_waiter_count: Arc::new(AtomicUsize::new(0)),
+            receiver_waiter_count: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Create an unbounded channel
+    pub fn unbounded() -> Self {
+        Self::new(None)
+    }
+
+    /// Create a bounded channel with given capacity
+    pub fn bounded(capacity: usize) -> Self {
+        Self::new(Some(capacity))
+    }
+
+    /// Create a channel pair for ergonomic usage
+    pub fn channel(capacity: Option<usize>) -> (MpmcSender<T>, MpmcReceiver<T>) {
+        let channel = Arc::new(Self::new(capacity));
+        let (mutex, _, _) = &*channel.state;
+
+        {
+            let mut state = mutex.lock().unwrap();
+            state.sender_count = 1;
+            state.receiver_count = 1;
+        }
+
+        (
+            MpmcSender {
+                channel: channel.clone(),
+            },
+            MpmcReceiver { channel },
+        )
+    }
+
+    fn send_bounded(&self, queue: &BoundedMpmcQueue<T>, mut value: T) -> Result<()>
+    where
+        T: Send,
+    {
+        let mut spin_count = 0;
+
+        loop {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(ChannelError::Closed);
+            }
+
+            match queue.try_push(value) {
+                Ok(()) => return Ok(()),
+                Err(returned) => {
+                    value = returned;
+                }
+            }
+
+            if spin_count < MPMC_BLOCK_SPINS {
+                for _ in 0..(1 << spin_count) {
+                    std::hint::spin_loop();
+                }
+                spin_count += 1;
+                continue;
+            }
+
+            std::thread::yield_now();
+        }
+    }
+
+    fn recv_bounded(&self, queue: &BoundedMpmcQueue<T>) -> Result<T>
+    where
+        T: Send,
+    {
+        let mut spin_count = 0;
+
+        loop {
+            if let Some(value) = queue.try_pop() {
+                return Ok(value);
+            }
+
+            if self.closed.load(Ordering::Acquire) {
+                if queue.is_empty() {
+                    return Err(ChannelError::Closed);
+                }
+                std::hint::spin_loop();
+                continue;
+            }
+
+            if spin_count < MPMC_BLOCK_SPINS {
+                for _ in 0..(1 << spin_count) {
+                    std::hint::spin_loop();
+                }
+                spin_count += 1;
+                continue;
+            }
+
+            std::thread::yield_now();
+        }
+    }
+}
+
+impl<T: Send> Channel<T> for MpmcChannel<T> {
+    fn send(&self, value: T) -> Result<()> {
+        if let Some(queue) = &self.bounded {
+            return self.send_bounded(queue, value);
+        }
+
+        let (mutex, not_full, not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+        let mut spin_count = 0;
+
+        // Wait for space or channel closure
+        while !guard.closed && guard.capacity.map_or(false, |cap| guard.queue.len() >= cap) {
+            if spin_count < MPMC_BLOCK_SPINS {
+                drop(guard);
+                for _ in 0..(1 << spin_count) {
+                    std::hint::spin_loop();
+                }
+                spin_count += 1;
+                guard = mutex.lock().unwrap();
+            } else {
+                self.sender_waiter_count.fetch_add(1, Ordering::AcqRel);
+                guard = not_full.wait(guard).unwrap();
+                self.sender_waiter_count.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
+
+        if guard.closed {
+            return Err(ChannelError::Closed);
+        }
+
+        guard.queue.push_back(value);
+        drop(guard);
+
+        if self.receiver_waiter_count.load(Ordering::Acquire) > 0 {
+            not_empty.notify_one();
+        }
+        Ok(())
+    }
+
+    fn try_send(&self, value: T) -> Result<()> {
+        if let Some(queue) = &self.bounded {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(ChannelError::Closed);
+            }
+            return queue.try_push(value).map_err(|_| ChannelError::Full);
+        }
+
+        let (mutex, _, not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+
+        if guard.closed {
+            return Err(ChannelError::Closed);
+        }
+
+        if guard.capacity.map_or(false, |cap| guard.queue.len() >= cap) {
+            return Err(ChannelError::Full);
+        }
+
+        guard.queue.push_back(value);
+        drop(guard);
+
+        if self.receiver_waiter_count.load(Ordering::Acquire) > 0 {
+            not_empty.notify_one();
+        }
+        Ok(())
+    }
+
+    fn recv(&self) -> Result<T> {
+        if let Some(queue) = &self.bounded {
+            return self.recv_bounded(queue);
+        }
+
+        let (mutex, not_full, not_empty) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+        let mut spin_count = 0;
+
+        // Wait for message or channel closure
+        while guard.queue.is_empty() && !guard.closed {
+            if spin_count < MPMC_BLOCK_SPINS {
+                drop(guard);
+                for _ in 0..(1 << spin_count) {
+                    std::hint::spin_loop();
+                }
+                spin_count += 1;
+                guard = mutex.lock().unwrap();
+            } else {
+                self.receiver_waiter_count.fetch_add(1, Ordering::AcqRel);
+                guard = not_empty.wait(guard).unwrap();
+                self.receiver_waiter_count.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
+
+        if let Some(value) = guard.queue.pop_front() {
+            drop(guard);
+
+            if self.sender_waiter_count.load(Ordering::Acquire) > 0 {
+                not_full.notify_one();
+            }
+            Ok(value)
+        } else {
+            Err(ChannelError::Closed)
+        }
+    }
+
+    fn try_recv(&self) -> Result<T> {
+        if let Some(queue) = &self.bounded {
+            if let Some(value) = queue.try_pop() {
+                return Ok(value);
+            }
+            if self.closed.load(Ordering::Acquire) {
+                return Err(ChannelError::Closed);
+            }
+            return Err(ChannelError::Empty);
+        }
+
+        let (mutex, not_full, _) = &*self.state;
+        let mut guard = mutex.lock().unwrap();
+
+        if let Some(value) = guard.queue.pop_front() {
+            drop(guard);
+
+            if self.sender_waiter_count.load(Ordering::Acquire) > 0 {
+                not_full.notify_one();
+            }
+            Ok(value)
+        } else if guard.closed {
+            Err(ChannelError::Closed)
+        } else {
+            Err(ChannelError::Empty)
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        if let Some(queue) = &self.bounded {
+            return queue.is_empty();
+        }
+
+        let (mutex, _, _) = &*self.state;
+        let guard = mutex.lock().unwrap();
+        guard.queue.is_empty()
+    }
+
+    fn is_full(&self) -> bool {
+        if let Some(queue) = &self.bounded {
+            return queue.is_full();
+        }
+
+        let (mutex, _, _) = &*self.state;
+        let guard = mutex.lock().unwrap();
+        guard.capacity.map_or(false, |cap| guard.queue.len() >= cap)
+    }
+
+    fn capacity(&self) -> Option<usize> {
+        if let Some(queue) = &self.bounded {
+            return Some(queue.logical_capacity());
+        }
+
+        let (mutex, _, _) = &*self.state;
+        let guard = mutex.lock().unwrap();
+        guard.capacity
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MpmcSender
+// ---------------------------------------------------------------------------
+
+/// Sender half of MPMC channel
+pub struct MpmcSender<T> {
+    pub(super) channel: Arc<MpmcChannel<T>>,
+}
+
+impl<T: Send> MpmcSender<T> {
+    /// Send a value through the channel, blocking if necessary
+    pub fn send(&self, value: T) -> Result<()> {
+        self.channel.send(value)
+    }
+
+    /// Try to send a value without blocking
+    pub fn try_send(&self, value: T) -> Result<()> {
+        self.channel.try_send(value)
+    }
+}
+
+impl<T> Clone for MpmcSender<T> {
+    fn clone(&self) -> Self {
+        let (mutex, _, _) = &*self.channel.state;
+        let mut guard = mutex.lock().unwrap();
+        guard.sender_count += 1;
+        Self {
+            channel: self.channel.clone(),
+        }
+    }
+}
+
+impl<T> Drop for MpmcSender<T> {
+    fn drop(&mut self) {
+        let (mutex, _, not_empty) = &*self.channel.state;
+        let mut guard = mutex.lock().unwrap();
+        guard.sender_count -= 1;
+        if guard.sender_count == 0 {
+            guard.closed = true;
+            self.channel.closed.store(true, Ordering::Release);
+            not_empty.notify_all();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MpmcReceiver
+// ---------------------------------------------------------------------------
+
+/// Receiver half of MPMC channel
+pub struct MpmcReceiver<T> {
+    pub(super) channel: Arc<MpmcChannel<T>>,
+}
+
+impl<T: Send> MpmcReceiver<T> {
+    /// Receive a value from the channel, blocking if necessary
+    pub fn recv(&self) -> Result<T> {
+        self.channel.recv()
+    }
+
+    /// Try to receive a value without blocking
+    pub fn try_recv(&self) -> Result<T> {
+        self.channel.try_recv()
+    }
+}
+
+impl<T> Clone for MpmcReceiver<T> {
+    fn clone(&self) -> Self {
+        let (mutex, _, _) = &*self.channel.state;
+        let mut guard = mutex.lock().unwrap();
+        guard.receiver_count += 1;
+        Self {
+            channel: self.channel.clone(),
+        }
+    }
+}
+
+impl<T> Drop for MpmcReceiver<T> {
+    fn drop(&mut self) {
+        let (mutex, not_full, _) = &*self.channel.state;
+        let mut guard = mutex.lock().unwrap();
+        guard.receiver_count -= 1;
+        if guard.receiver_count == 0 {
+            guard.closed = true;
+            self.channel.closed.store(true, Ordering::Release);
+            not_full.notify_all();
+        }
+    }
+}

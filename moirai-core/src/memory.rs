@@ -6,32 +6,41 @@
 use std::alloc::{self, Layout};
 use std::mem::{align_of, size_of, MaybeUninit};
 use std::ptr::{self, NonNull};
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::constants::CACHE_LINE_SIZE;
 
+use std::cell::UnsafeCell;
+
 /// Memory pool for reducing allocation overhead.
 /// Implements the object pool pattern from "The Art of Multiprocessor Programming".
 pub struct MemoryPool<T> {
-    /// Stack of available objects
-    free_list: AtomicPtr<PoolNode<T>>,
+    /// Contiguous array of slots
+    slots: Box<[UnsafeCell<Option<T>>]>,
+    /// States: 0 = Empty, 1 = Occupied, 2 = Busy
+    states: Box<[AtomicU8]>,
     /// Current pool size
     size: AtomicUsize,
     /// Maximum pool size to prevent unbounded growth
     max_size: usize,
 }
 
-struct PoolNode<T> {
-    next: *mut PoolNode<T>,
-    data: MaybeUninit<T>,
-}
+unsafe impl<T: Send> Send for MemoryPool<T> {}
+unsafe impl<T: Send> Sync for MemoryPool<T> {}
 
 impl<T> MemoryPool<T> {
     /// Create a new memory pool with specified maximum size
     pub fn new(max_size: usize) -> Self {
+        let mut slots = Vec::with_capacity(max_size);
+        let mut states = Vec::with_capacity(max_size);
+        for _ in 0..max_size {
+            slots.push(UnsafeCell::new(None));
+            states.push(AtomicU8::new(0));
+        }
         Self {
-            free_list: AtomicPtr::new(ptr::null_mut()),
+            slots: slots.into_boxed_slice(),
+            states: states.into_boxed_slice(),
             size: AtomicUsize::new(0),
             max_size,
         }
@@ -42,36 +51,23 @@ impl<T> MemoryPool<T> {
     where
         T: Default,
     {
-        // Try to pop from free list first
-        loop {
-            let head = self.free_list.load(Ordering::Acquire);
-            if head.is_null() {
-                // Pool is empty, allocate new
-                return Box::new(T::default());
-            }
-
-            // Try to remove head from free list
-            let next = unsafe { (*head).next };
-            if self
-                .free_list
-                .compare_exchange_weak(head, next, Ordering::Release, Ordering::Relaxed)
-                .is_ok()
-            {
-                // Successfully removed from list
-                self.size.fetch_sub(1, Ordering::Relaxed);
-
-                // Extract the value and deallocate the node
-                let value = unsafe {
-                    let data = ptr::read(&(*head).data);
-                    // Deallocate the node
-                    let layout = Layout::new::<PoolNode<T>>();
-                    alloc::dealloc(head as *mut u8, layout);
-                    data.assume_init()
-                };
-
-                return Box::new(value);
+        for i in 0..self.max_size {
+            if self.states[i].load(Ordering::Relaxed) == 1 {
+                if self.states[i]
+                    .compare_exchange_weak(1, 2, Ordering::Acquire, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    // Safety: we have exclusive access to slots[i] when state is Busy (2)
+                    let item = unsafe { (*self.slots[i].get()).take() };
+                    self.states[i].store(0, Ordering::Release);
+                    self.size.fetch_sub(1, Ordering::Relaxed);
+                    if let Some(val) = item {
+                        return Box::new(val);
+                    }
+                }
             }
         }
+        Box::new(T::default())
     }
 
     /// Return an object to the pool for reuse
@@ -82,32 +78,19 @@ impl<T> MemoryPool<T> {
             return;
         }
 
-        // Allocate a new node
-        let layout = Layout::new::<PoolNode<T>>();
-        if let Some(ptr) = unsafe { NonNull::new(alloc::alloc(layout) as *mut PoolNode<T>) } {
-            let node = unsafe {
-                ptr::write(
-                    ptr.as_ptr(),
-                    PoolNode {
-                        next: ptr::null_mut(),
-                        data: MaybeUninit::new(item),
-                    },
-                );
-                &mut *ptr.as_ptr()
-            };
-
-            // Add to free list
-            loop {
-                let head = self.free_list.load(Ordering::Acquire);
-                node.next = head;
-
-                if self
-                    .free_list
-                    .compare_exchange_weak(head, node, Ordering::Release, Ordering::Relaxed)
+        for i in 0..self.max_size {
+            if self.states[i].load(Ordering::Relaxed) == 0 {
+                if self.states[i]
+                    .compare_exchange_weak(0, 2, Ordering::Acquire, Ordering::Relaxed)
                     .is_ok()
                 {
+                    // Safety: we have exclusive access to slots[i] when state is Busy (2)
+                    unsafe {
+                        *self.slots[i].get() = Some(item);
+                    }
+                    self.states[i].store(1, Ordering::Release);
                     self.size.fetch_add(1, Ordering::Relaxed);
-                    break;
+                    return;
                 }
             }
         }
@@ -116,21 +99,6 @@ impl<T> MemoryPool<T> {
     /// Get current pool size
     pub fn size(&self) -> usize {
         self.size.load(Ordering::Relaxed)
-    }
-}
-
-impl<T> Drop for MemoryPool<T> {
-    fn drop(&mut self) {
-        // Clean up all nodes in the free list
-        let mut current = self.free_list.load(Ordering::Acquire);
-        while !current.is_null() {
-            unsafe {
-                let next = (*current).next;
-                let layout = Layout::new::<PoolNode<T>>();
-                alloc::dealloc(current as *mut u8, layout);
-                current = next;
-            }
-        }
     }
 }
 
