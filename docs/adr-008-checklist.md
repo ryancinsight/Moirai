@@ -7,11 +7,15 @@
 - [x] Static route policy consumption: `RoutedArchivedSender<P>` and `RoutedArchivedReceiver<P>` remain generic over sealed ZST `RoutePolicy` markers.
 - [x] Server route endpoint resolution: known `ServerId` values resolve to `RemoteAddress` metadata without claiming remote execution.
 - [x] Remote byte transport: `NetworkTransport` sends and receives remote payload bytes through a bounded length-prefixed TCP frame with value tests.
+- [x] Remote task envelopes/results: fixed-format `RemoteTaskEnvelope` and `RemoteTaskResult` archives execute explicit built-in `EchoBytes` and `SumU64` operations through `RemoteTaskServer::serve_one` and `RemoteTaskClient::execute`.
+- [x] Route-to-remote-task scheduler integration: `RoutedRemoteTaskClient<P>` selects `SchedulerRoute::Server` through `HybridRouter<P>`, resolves it through `RouteAddressBook`, and executes a fixed-format remote task.
+- [x] OS process executor lifecycle: `ProcessSupervisor` spawns real OS child processes from `ProcessSpec`, observes `try_wait`/`wait`/bounded wait status, terminates live children, and applies explicit `ProcessDropPolicy` cleanup.
+- [x] Route-to-process task execution: `RoutedProcessTaskClient<P>` binds selected `SchedulerRoute::Process` values to registered `ProcessEndpoint` entries, launches the child process, executes a fixed-format remote task through the child task server, waits for child completion, and returns the value-checked task result with process status.
+- [x] Server transport backpressure: `BoundedRemoteTaskServer` owns one listener lifecycle, accepts fixed-format remote task frames into a bounded `sync_channel`, executes them on a bounded worker set, and returns accepted/completed counts.
+- [x] Arbitrary closure remoting boundary: `RemoteCapabilityToken<C>` uses sealed zero-sized capability markers to admit only fixed-format built-in operations; arbitrary Rust closures and dynamic task traits remain outside the process/server transport contract.
+- [x] Mnemosyne allocator ownership handoff: `TransportPayload<R>` tags owned archive bytes with sealed thread/process/server payload regions, moves buffers between regions without cloning, rejects pointer transfer across process/server regions, and relies on the top-level Mnemosyne global allocator feature for process-local allocations.
+- [x] End-to-end routed execution benchmark: `process_server_routed_execution` measures selected server-route and process-route fixed-format `SumU64` execution with real `RemoteTaskServer`, TCP request/result frames, supervised child process execution, and value assertions.
 
 ## Open
 
-- [ ] OS process executor lifecycle: define child process creation, supervision, shutdown, backpressure, and failure propagation.
-- [ ] Remote task execution: define task envelopes, result envelopes, failure propagation, and scheduler integration over the remote byte transport.
-- [ ] Server transport execution: add persistent connection lifecycle, bounded queues, and backpressure policy before claiming production server execution.
-- [ ] Mnemosyne allocator ownership handoff: define which allocation region owns archived task payloads across thread, process, and server boundaries.
-- [ ] End-to-end routed execution benchmark: benchmark real process/server execution only after the transport backend performs real work and value results return through the scheduler contract.
+No open ADR-008 implementation items remain.

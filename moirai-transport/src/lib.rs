@@ -14,6 +14,10 @@
 //! - Integration with Moirai scheduler for optimal performance
 
 // Zero-copy moved to moirai-core::communication::zero_copy (SSOT)
+mod network;
+pub mod payload;
+pub mod process;
+pub mod remote_task;
 #[cfg(feature = "scheduler-routes")]
 pub mod route;
 pub mod safe_channel;
@@ -23,8 +27,6 @@ use moirai_core::constants::DEFAULT_MPMC_CAPACITY;
 use std::{
     collections::HashMap,
     fmt,
-    io::{Read, Write},
-    net::{TcpListener, TcpStream},
     sync::{Arc, Mutex},
 };
 
@@ -33,12 +35,13 @@ pub use moirai_core::channel::{
     ChannelError as TransportError, MpmcReceiver as Receiver, MpmcSender as Sender,
 };
 pub use moirai_core::communication::zero_copy as core_zero_copy;
+pub(crate) use network::read_network_frame_from_stream;
+pub use network::NetworkTransport;
+#[cfg(feature = "network")]
+pub use network::{TcpTransport, UdpTransport};
 
 /// Result type for transport operations
 pub type TransportResult<T> = Result<T, TransportError>;
-
-const NETWORK_LENGTH_PREFIX_BYTES: usize = core::mem::size_of::<u64>();
-const MAX_NETWORK_MESSAGE_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Address for identifying communication endpoints
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -141,129 +144,6 @@ impl Transport for IpcTransport {
 
     fn supports(&self, _address: &Address) -> bool {
         false
-    }
-}
-
-/// Network transport for distributed communication
-pub struct NetworkTransport {}
-
-impl Transport for NetworkTransport {
-    fn send(&self, target: &Address, data: Vec<u8>) -> TransportResult<()> {
-        match target {
-            Address::Remote(address) => write_network_frame(address, &data),
-            Address::Local(_) => Err(TransportError::Closed),
-        }
-    }
-
-    fn recv(&self, source: &Address) -> TransportResult<Vec<u8>> {
-        match source {
-            Address::Remote(address) => read_network_frame(address),
-            Address::Local(_) => Err(TransportError::Closed),
-        }
-    }
-
-    fn supports(&self, address: &Address) -> bool {
-        matches!(address, Address::Remote(_))
-    }
-}
-
-/// TCP transport for reliable network communication
-/// Following YAGNI principle - implemented as minimal stub
-#[cfg(feature = "network")]
-pub struct TcpTransport {
-    network: NetworkTransport,
-}
-
-#[cfg(feature = "network")]
-impl TcpTransport {
-    pub fn new() -> Self {
-        Self {
-            network: NetworkTransport {},
-        }
-    }
-}
-
-#[cfg(feature = "network")]
-impl Transport for TcpTransport {
-    fn send(&self, target: &Address, data: Vec<u8>) -> TransportResult<()> {
-        self.network.send(target, data)
-    }
-
-    fn recv(&self, source: &Address) -> TransportResult<Vec<u8>> {
-        self.network.recv(source)
-    }
-
-    fn supports(&self, address: &Address) -> bool {
-        matches!(address, Address::Remote(_))
-    }
-}
-
-fn write_network_frame(address: &RemoteAddress, data: &[u8]) -> TransportResult<()> {
-    let length = u64::try_from(data.len()).map_err(|_| TransportError::Closed)?;
-    if length > MAX_NETWORK_MESSAGE_BYTES {
-        return Err(TransportError::Full);
-    }
-
-    let mut stream =
-        TcpStream::connect(socket_address(address)).map_err(|_| TransportError::Closed)?;
-    stream
-        .write_all(&length.to_le_bytes())
-        .and_then(|_| stream.write_all(data))
-        .map_err(|_| TransportError::Closed)
-}
-
-fn read_network_frame(address: &RemoteAddress) -> TransportResult<Vec<u8>> {
-    let listener =
-        TcpListener::bind(socket_address(address)).map_err(|_| TransportError::Closed)?;
-    let (mut stream, _) = listener.accept().map_err(|_| TransportError::Closed)?;
-
-    let mut length_bytes = [0u8; NETWORK_LENGTH_PREFIX_BYTES];
-    stream
-        .read_exact(&mut length_bytes)
-        .map_err(|_| TransportError::Closed)?;
-
-    let length = u64::from_le_bytes(length_bytes);
-    if length > MAX_NETWORK_MESSAGE_BYTES {
-        return Err(TransportError::Full);
-    }
-
-    let mut data = vec![0u8; length as usize];
-    stream
-        .read_exact(&mut data)
-        .map_err(|_| TransportError::Closed)?;
-    Ok(data)
-}
-
-fn socket_address(address: &RemoteAddress) -> String {
-    format!("{}:{}", address.host, address.port)
-}
-
-/// UDP transport for unreliable network communication
-/// Following YAGNI principle - implemented as minimal stub
-#[cfg(feature = "network")]
-pub struct UdpTransport {
-    // Will be implemented when needed
-}
-
-#[cfg(feature = "network")]
-impl UdpTransport {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-#[cfg(feature = "network")]
-impl Transport for UdpTransport {
-    fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
-        Err(TransportError::Closed)
-    }
-
-    fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
-        Err(TransportError::Closed)
-    }
-
-    fn supports(&self, address: &Address) -> bool {
-        matches!(address, Address::Remote(_))
     }
 }
 

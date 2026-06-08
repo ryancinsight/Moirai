@@ -5,8 +5,16 @@
 //! owned by the selected transport backend.
 
 use crate::{
+    payload::{
+        archive_transport_payload, ProcessPayloadRegion, ServerPayloadRegion, ThreadPayloadRegion,
+    },
+    process::{
+        ManagedProcessId, ProcessDropPolicy, ProcessError, ProcessSpec, ProcessStatus,
+        ProcessSupervisor, ProcessWaitPolicy,
+    },
+    remote_task::{RemoteTaskClient, RemoteTaskId, RemoteTaskOperation, RemoteTaskResult},
     safe_channel::{ArchiveSerialize, ArchiveView, ArchivedMessage},
-    Address, RemoteAddress, TransportManager, TransportResult,
+    Address, RemoteAddress, TransportError, TransportManager, TransportResult,
 };
 use moirai_core::Priority;
 use moirai_executor::schedule::{
@@ -78,6 +86,28 @@ impl ServerEndpoint {
     }
 }
 
+/// Supervised child process endpoint for process routes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessEndpoint {
+    /// Process identifier from the scheduler route.
+    pub process: ProcessId,
+    /// Child process command specification.
+    pub spec: ProcessSpec,
+    /// Remote task server address served by the child process.
+    pub task_server: RemoteAddress,
+}
+
+impl ProcessEndpoint {
+    /// Construct a process endpoint.
+    pub fn new(process: ProcessId, spec: ProcessSpec, task_server: RemoteAddress) -> Self {
+        Self {
+            process,
+            spec,
+            task_server,
+        }
+    }
+}
+
 /// Route-to-address resolver.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteAddressBook {
@@ -129,6 +159,45 @@ impl RouteAddressBook {
     }
 }
 
+/// Failure modes for routed process task execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoutedProcessTaskError {
+    /// Selected route was not a process route.
+    NonProcessRoute,
+    /// No endpoint is registered for the selected process route.
+    MissingProcessEndpoint,
+    /// Child process lifecycle failed.
+    Process(ProcessError),
+    /// Remote task transport failed.
+    Transport(TransportError),
+}
+
+impl From<ProcessError> for RoutedProcessTaskError {
+    fn from(error: ProcessError) -> Self {
+        Self::Process(error)
+    }
+}
+
+impl From<TransportError> for RoutedProcessTaskError {
+    fn from(error: TransportError) -> Self {
+        Self::Transport(error)
+    }
+}
+
+/// Result type for routed process task execution.
+pub type RoutedProcessTaskResult<T> = Result<T, RoutedProcessTaskError>;
+
+/// Value result from a supervised process-routed remote task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutedProcessTaskOutput {
+    /// Child process id.
+    pub process_id: ManagedProcessId,
+    /// Remote task result produced by the child process server.
+    pub result: RemoteTaskResult,
+    /// Child process completion status.
+    pub status: ProcessStatus,
+}
+
 /// Archived transport sender driven by scheduler route decisions.
 pub struct RoutedArchivedSender<P: RoutePolicy> {
     transport: Arc<TransportManager>,
@@ -152,7 +221,8 @@ impl<P: RoutePolicy> RoutedArchivedSender<P> {
         T: ArchiveSerialize + ?Sized,
     {
         let address = self.address_book.resolve(route);
-        self.transport.send(&address, value.archive_bytes()?)?;
+        self.transport
+            .send(&address, archive_route_payload(route, value)?)?;
         Ok(address)
     }
 
@@ -172,6 +242,18 @@ impl<P: RoutePolicy> RoutedArchivedSender<P> {
         self.send_route(route, value)?;
         Ok(route)
     }
+}
+
+fn archive_route_payload<T>(route: SchedulerRoute, value: &T) -> TransportResult<Vec<u8>>
+where
+    T: ArchiveSerialize + ?Sized,
+{
+    let payload = archive_transport_payload::<ThreadPayloadRegion, T>(value)?;
+    Ok(match route {
+        SchedulerRoute::Thread(_) => payload.into_bytes(),
+        SchedulerRoute::Process(_) => payload.handoff::<ProcessPayloadRegion>().into_bytes(),
+        SchedulerRoute::Server(_) => payload.handoff::<ServerPayloadRegion>().into_bytes(),
+    })
 }
 
 /// Archived transport receiver driven by scheduler route decisions.
@@ -202,6 +284,134 @@ impl<P: RoutePolicy> RoutedArchivedReceiver<P> {
     }
 }
 
+/// Remote task client driven by scheduler route decisions.
+pub struct RoutedRemoteTaskClient<P: RoutePolicy> {
+    address_book: RouteAddressBook,
+    reply_to: RemoteAddress,
+    _policy: PhantomData<P>,
+}
+
+impl<P: RoutePolicy> RoutedRemoteTaskClient<P> {
+    /// Construct a routed remote task client.
+    pub fn new(address_book: RouteAddressBook, reply_to: RemoteAddress) -> Self {
+        Self {
+            address_book,
+            reply_to,
+            _policy: PhantomData,
+        }
+    }
+
+    /// Execute a remote task against an already selected scheduler route.
+    pub fn execute_route(
+        &self,
+        route: SchedulerRoute,
+        task_id: RemoteTaskId,
+        operation: RemoteTaskOperation,
+    ) -> TransportResult<RemoteTaskResult> {
+        let Address::Remote(server) = self.address_book.resolve(route) else {
+            return Err(TransportError::Closed);
+        };
+
+        RemoteTaskClient::new(server, self.reply_to.clone()).execute(task_id, operation)
+    }
+
+    /// Select a scheduler route and execute a fixed-format remote task there.
+    pub fn execute_selected<C>(
+        &self,
+        router: &moirai_executor::schedule::HybridRouter<P>,
+        priority: Priority,
+        sequence: usize,
+        task_id: RemoteTaskId,
+        operation: RemoteTaskOperation,
+    ) -> TransportResult<(SchedulerRoute, RemoteTaskResult)>
+    where
+        C: WorkClass,
+    {
+        let route = router.select::<C>(priority, sequence);
+        let result = self.execute_route(route, task_id, operation)?;
+        Ok((route, result))
+    }
+}
+
+/// Remote task client that launches a supervised child process for process routes.
+pub struct RoutedProcessTaskClient<P: RoutePolicy> {
+    endpoints: Vec<ProcessEndpoint>,
+    reply_to: RemoteAddress,
+    drop_policy: ProcessDropPolicy,
+    wait_policy: ProcessWaitPolicy,
+    _policy: PhantomData<P>,
+}
+
+impl<P: RoutePolicy> RoutedProcessTaskClient<P> {
+    /// Construct a routed process task client.
+    pub fn new(
+        endpoints: Vec<ProcessEndpoint>,
+        reply_to: RemoteAddress,
+        drop_policy: ProcessDropPolicy,
+        wait_policy: ProcessWaitPolicy,
+    ) -> Self {
+        Self {
+            endpoints,
+            reply_to,
+            drop_policy,
+            wait_policy,
+            _policy: PhantomData,
+        }
+    }
+
+    /// Execute a fixed-format remote task through a selected process route.
+    pub fn execute_route(
+        &self,
+        route: SchedulerRoute,
+        task_id: RemoteTaskId,
+        operation: RemoteTaskOperation,
+    ) -> RoutedProcessTaskResult<RoutedProcessTaskOutput> {
+        let SchedulerRoute::Process(route) = route else {
+            return Err(RoutedProcessTaskError::NonProcessRoute);
+        };
+
+        let endpoint = self
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.process == route.process)
+            .ok_or(RoutedProcessTaskError::MissingProcessEndpoint)?;
+        let supervisor = ProcessSupervisor::new();
+        let mut process = supervisor.spawn(endpoint.spec.clone(), self.drop_policy)?;
+        let process_id = process.id();
+        let result = RemoteTaskClient::new(endpoint.task_server.clone(), self.reply_to.clone())
+            .execute(task_id, operation)?;
+        let status = match process.wait_bounded(self.wait_policy)? {
+            Some(status) => status,
+            None => process
+                .terminate()?
+                .ok_or(RoutedProcessTaskError::Process(ProcessError::WaitFailed))?,
+        };
+
+        Ok(RoutedProcessTaskOutput {
+            process_id,
+            result,
+            status,
+        })
+    }
+
+    /// Select a process route and execute a fixed-format remote task through it.
+    pub fn execute_selected<C>(
+        &self,
+        router: &moirai_executor::schedule::HybridRouter<P>,
+        priority: Priority,
+        sequence: usize,
+        task_id: RemoteTaskId,
+        operation: RemoteTaskOperation,
+    ) -> RoutedProcessTaskResult<(SchedulerRoute, RoutedProcessTaskOutput)>
+    where
+        C: WorkClass,
+    {
+        let route = router.select::<C>(priority, sequence);
+        let output = self.execute_route(route, task_id, operation)?;
+        Ok((route, output))
+    }
+}
+
 fn local_address(
     namespace: &str,
     process: ProcessId,
@@ -223,88 +433,4 @@ fn local_address(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{RouteAddressBook, RouteNamespace, RouteService, RoutedArchivedReceiver};
-    use crate::route::{RoutedArchivedSender, ServerEndpoint};
-    use crate::Address;
-    use moirai_core::Priority;
-    use moirai_executor::schedule::{
-        AsyncLanesPerProcess, AsyncTask, HybridRoutePolicy, HybridRouter, ProcessCount,
-        RouteTopology, SchedulerRoute, ServerCount, ServerId, ServerRoutePolicy, ThreadRoutePolicy,
-        WorkerCount,
-    };
-    use std::sync::Arc;
-
-    fn topology(servers: usize) -> RouteTopology {
-        RouteTopology::new(
-            WorkerCount::new(4),
-            ProcessCount::new(3),
-            AsyncLanesPerProcess::new(2),
-            ServerCount::new(servers),
-        )
-    }
-
-    fn address_book() -> RouteAddressBook {
-        RouteAddressBook::new(
-            RouteNamespace::new("scheduler-route"),
-            vec![ServerEndpoint::new(
-                ServerId::new(0),
-                "127.0.0.1",
-                9700,
-                RouteService::new("moirai-route"),
-            )],
-        )
-    }
-
-    #[test]
-    fn routed_archived_sender_roundtrips_local_thread_route() {
-        let transport = Arc::new(crate::TransportManager::new());
-        let router = HybridRouter::<ThreadRoutePolicy>::new(topology(0));
-        let sender =
-            RoutedArchivedSender::<ThreadRoutePolicy>::new(Arc::clone(&transport), address_book());
-        let receiver = RoutedArchivedReceiver::<ThreadRoutePolicy>::new(transport, address_book());
-        let value = String::from("route-owned archive bytes");
-
-        let route = sender
-            .send_selected::<AsyncTask, str>(&router, Priority::Normal, 7, value.as_str())
-            .unwrap();
-        let message = receiver.recv_route::<String>(route).unwrap();
-
-        assert_eq!(message.get().unwrap(), value.as_str());
-    }
-
-    #[test]
-    fn async_process_route_resolves_to_async_lane_address() {
-        let router = HybridRouter::<HybridRoutePolicy>::new(topology(0));
-        let route = router.select::<AsyncTask>(Priority::High, 5);
-        let address = address_book().resolve(route);
-
-        match address {
-            Address::Local(address) => {
-                assert!(address.contains("/process/"));
-                assert!(address.contains("/thread/"));
-                assert!(address.contains("/async-lane/"));
-            }
-            Address::Remote(_) => panic!("process route must resolve locally without servers"),
-        }
-    }
-
-    #[test]
-    fn server_route_resolves_to_remote_endpoint_without_sending() {
-        let router = HybridRouter::<ServerRoutePolicy>::new(topology(1));
-        let route = (0..64)
-            .map(|sequence| router.select::<AsyncTask>(Priority::Critical, sequence))
-            .find(|route| matches!(route, SchedulerRoute::Server(_)))
-            .expect("test topology must produce a server route");
-        let address = address_book().resolve(route);
-
-        match address {
-            Address::Remote(remote) => {
-                assert_eq!(remote.host, "127.0.0.1");
-                assert_eq!(remote.port, 9700);
-                assert_eq!(remote.service, "moirai-route");
-            }
-            Address::Local(_) => panic!("known server route must resolve remotely"),
-        }
-    }
-}
+mod tests;

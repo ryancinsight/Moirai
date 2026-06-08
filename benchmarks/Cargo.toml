@@ -13,7 +13,7 @@ moirai-core = { path = "../moirai-core" }
 moirai-executor = { path = "../moirai-executor" }
 moirai-scheduler = { path = "../moirai-scheduler" }
 moirai-sync = { path = "../moirai-sync" }
-moirai-transport = { path = "../moirai-transport" }
+moirai-transport = { path = "../moirai-transport", features = ["scheduler-routes"] }
 moirai-utils = { path = "../moirai-utils" }
 moirai-iter = { path = "../moirai-iter" }
 moirai-async = { path = "../moirai-async", features = ["tokio-compat"] }
@@ -94,6 +94,10 @@ harness = false
 
 [[bench]]
 name = "process_server_scheduler_routing"
+harness = false
+
+[[bench]]
+name = "process_server_routed_execution"
 harness = false
 
 [[bench]]

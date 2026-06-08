@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `moirai_executor::schedule::HybridRouter<P>` with sealed zero-sized route policies and concrete thread/process/server/async-lane route values, plus `process_server_scheduler_routing` for value-checked route-decision benchmarks.
 - Added the `moirai-transport/scheduler-routes` feature with route-to-address binding for `SchedulerRoute` values and archived local route send/receive helpers.
 - Added bounded length-prefixed TCP byte transfer for `NetworkTransport` and `TransportManager` remote addresses.
+- Added fixed-format remote task envelopes/results for explicit echo and wrapping-sum request/response execution over remote byte transport.
+- Added selected server-route remote task execution through `RoutedRemoteTaskClient<P>`.
+- Added real OS process lifecycle primitives in `moirai-transport::process`, including `ProcessSupervisor`, `ProcessSpec`, explicit drop policy, bounded wait, termination, and typed process outcomes.
+- Added selected process-route fixed-format task execution through `RoutedProcessTaskClient<P>` and supervised `ProcessEndpoint` child processes.
+- Added `BoundedRemoteTaskServer` for fixed-format remote task execution with persistent listener ownership, bounded request queue capacity, bounded worker count, and accepted/completed value stats.
+- Added sealed zero-sized remote capability tokens for constructing only admitted fixed-format remote task operations and keeping arbitrary closure remoting outside process/server transport routes.
+- Added sealed thread/process/server `TransportPayload<R>` ownership regions for archive byte handoff, with process/server pointer-transfer rejection and Mnemosyne global allocator evidence pinned at the top-level crate feature.
+- Added `process_server_routed_execution`, a value-checked benchmark for selected server-route and process-route fixed-format task execution through real TCP request/result frames and supervised child processes.
 - Added `async_iterator_comparison`, a value-checked `moirai-iter::AsyncIterator` ready-pipeline benchmark against Tokio `JoinSet` fan-out.
 - Added `AsyncIterator::take` and `AsyncIterator::skip` logical-window adapters with value tests and a Tokio `JoinSet` comparison row.
 - Added `AsyncIterator::enumerate` and `AsyncIterator::zip` logical-position/pairing adapters with value tests and a Tokio `JoinSet` comparison row.
@@ -85,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a refreshed native Rayon/Tokio gap-closure benchmark snapshot covering result handles, scheduler rows, async iterator rows, and selected Rayon adapter rows.
 
 ### Changed
+- Removed the local Mnemosyne Git patch override and obsolete repository-local dependency copy, locked Moirai's GitHub Mnemosyne dependency to upstream `ryancinsight/Mnemosyne` `main` commit `4f8d84b91780d2b1f7b27ede29580dffe2bff9c9`, and reran allocator, TLS, Rayon-facing parallel iterator, cache iterator, and process/server routed execution benchmarks.
 - Changed borrowed vector `positions`, borrowed copied map/filter/sum, chunked map/sum, vector-backed indexed step/interleave enumerate/map/sum, nested flatten/map/filter/sum, and zip_eq/map/filter/collect parallel iterator shapes to avoid intermediate materialization on the focused regression paths.
 - Moved the public `moirai-iter::MoiraiIterator` facade into a vertical `facade` module, preserved execution contexts through the `ExecutionContext` enum instead of string matching, and removed silent error-to-empty fallback branches.
 - Changed the public Moirai facade documentation to state that cross-machine remote closure execution is outside the active API until a transport-backed task contract exists.

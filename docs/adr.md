@@ -253,7 +253,7 @@ Route values are metadata until a transport backend consumes them. A route bench
 - The transport crate already owns archive bytes and borrowed `ArchiveView` validation, making it the correct boundary for route-address consumption.
 - Static `RoutePolicy` parameters keep route consumption monomorphized; no `dyn RoutePolicy` is introduced.
 - Server route resolution can produce `RemoteAddress` metadata before a server transport exists, but sending over that route remains a transport backend responsibility.
-- Mnemosyne allocator handoff remains an explicit follow-up because allocator region ownership must be specified before cross-process or cross-server task payload transfer can be claimed.
+- Mnemosyne allocator handoff is an owned-byte transfer contract, not cross-process pointer sharing. Region markers specify whether pointer transfer is valid before a payload crosses a process or server route.
 
 ### Implementation
 
@@ -264,14 +264,18 @@ Route values are metadata until a transport backend consumes them. A route bench
 - Tests cover local archived route roundtrip, async process route async-lane address resolution, and server route remote endpoint resolution without sending.
 - `NetworkTransport` sends and receives remote payload bytes through a blocking TCP length-prefixed frame with a fixed maximum message size.
 - Remote byte transport is not remote task execution. Task envelopes, result envelopes, scheduler integration, and failure propagation remain separate contracts.
+- Remote task envelopes/results are fixed-format archive contracts. Only explicit built-in operations are executable: `EchoBytes` returns the request payload and `SumU64` computes a wrapping sum without materializing the borrowed `u64` archive view.
+- `RoutedRemoteTaskClient<P>` binds `SchedulerRoute::Server` selection to fixed-format remote task execution by resolving the selected route through `RouteAddressBook` and executing `RemoteTaskClient`.
+- OS process lifecycle primitives use `ProcessSupervisor`, `ProcessSpec`, explicit `ProcessDropPolicy`, bounded wait polling, typed `ProcessOutcome`, and `ManagedProcess` drop cleanup around real `std::process::Child` handles.
+- Process lifecycle is real OS process management. It is not process-routed task execution until a scheduler route, request envelope, child process protocol, and result return path are bound together.
+- `RoutedProcessTaskClient<P>` binds selected `SchedulerRoute::Process` values to registered `ProcessEndpoint` entries, launches the configured child process, executes a fixed-format `RemoteTaskEnvelope` through that child's task server, waits under a bounded `ProcessWaitPolicy`, terminates non-exiting children, and returns the `RemoteTaskResult` plus typed `ProcessStatus`.
+- `BoundedRemoteTaskServer` owns one `TcpListener` lifecycle for a bounded run, reads length-prefixed request frames, admits requests through a bounded `sync_channel`, executes them on a bounded worker set, and reports accepted/completed counts. This closes fixed-format server backpressure only; it does not make arbitrary Rust closures remotable.
+- Arbitrary Rust closure remoting remains unsupported by design. `RemoteCapabilityToken<C>` is a sealed zero-sized capability boundary that admits only built-in fixed-format operation payloads and rejects closure or dynamic-task transport at the type surface.
+- `TransportPayload<R>` tags archive bytes with sealed thread, process, and server payload regions. `RoutedArchivedSender<P>` archives in the thread region, consumes the owned buffer into the process or server region when the selected route crosses that boundary, and sends only owned bytes. `RemoteTaskClient` and `BoundedRemoteTaskServer` decode server-region frames into archive views owned by the receiver buffer. Process and server regions set `POINTER_TRANSFER_ALLOWED` to `false`; the top-level `moirai` crate retains the `mnemosyne` global allocator feature for process-local allocation.
 
 ### Deferred Work
 
-- OS process executor lifecycle, including process creation, supervision, shutdown, bounded queues, and failure propagation.
-- Remote task execution over the network byte transport.
-- Production server transport execution with persistent connection lifecycle and backpressure.
-- Mnemosyne allocator ownership handoff for archived task payloads across thread, process, and server boundaries.
-- End-to-end routed execution benchmarks after real process/server execution paths exist.
+No deferred ADR-008 implementation work remains.
 
 ### Verification
 

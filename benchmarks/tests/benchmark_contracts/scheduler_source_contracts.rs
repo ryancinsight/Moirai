@@ -364,7 +364,9 @@ fn process_server_scheduler_routing_uses_static_route_policy() {
         "Process/server route topology",
         "process_server_scheduler_routing",
         "HybridRouter",
-        "Mnemosyne allocator boundary remain follow-up architecture gaps",
+        "arbitrary-closure rejection at the transport capability boundary",
+        "allocator-region handoff for owned payload bytes",
+        "routed execution benchmark coverage",
     ] {
         assert!(
             audit.contains(required),

@@ -1,7 +1,0 @@
-[package]
-name = "mnemosyne-backend"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-mnemosyne-core = { path = "../mnemosyne-core" }
