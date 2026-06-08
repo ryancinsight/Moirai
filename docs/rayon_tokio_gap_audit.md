@@ -4,6 +4,9 @@
 
 This audit covers the active unified-scheduler comparison scope:
 
+- Apollo-facing provider contract: public `moirai` crate re-exports expose
+  chunked mutable scheduling and indexed collect-into-existing-storage with
+  value tests at the dependency boundary Apollo consumes from Git.
 - Public result-bearing task handles: `Moirai::spawn_fn`, `Moirai::spawn_async`, and `TaskHandle::join`.
 - Completion-only parallel work: `Moirai::scope`.
 - Indexed data-parallel work: `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed`.

@@ -11,6 +11,13 @@
 
 ## Remaining Gap Register
 
+- [x] [patch] Add Apollo-facing public `moirai` crate contract tests for chunked
+  mutable scheduling and caller-owned indexed collection. The tests verify
+  complete disjoint element coverage and non-`Clone` movement into existing
+  storage through the Git-consumed public facade.
+- [x] [patch] Remove the stale duplicate top-level `moirai` `par_benchmarks`
+  target; `moirai-parallel` owns the benchmark, and the stale path blocked
+  all-target formatting/lint gates.
 - [x] [arch] Tokio reactor-native I/O compatibility checklist defined in [adr-006-checklist.md](file:///d:/Moirai/docs/adr-006-checklist.md).
 - [x] [arch] WASM browser event-loop integration checklist defined in [adr-007-checklist.md](file:///d:/Moirai/docs/adr-007-checklist.md).
 - [ ] [minor] Rayon ecosystem parity remains bounded by the audited subset, including bounded exact-size indexed source cardinality, collect-into-vec, unzip-into-vecs, interleave, step-by, logical-output block adapters, `collect_vec_list`, terminal reducers, fallible reducers, `try_reduce_with`, position terminals, `positions`, predicate windows, serial-inner `flat_map_iter`/`flatten_iter`, stateful side-effect terminals, reference materialization, `update`, `intersperse`, `zip_eq`, `partition_map`, and sorting; add new adapter or slice-extension surfaces only with value-semantic tests, benchmark-contract coverage, and same-run Rayon comparison rows.

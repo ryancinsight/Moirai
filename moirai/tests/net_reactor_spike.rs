@@ -36,7 +36,10 @@ fn tcp_echo_round_trip_on_unified_runtime() {
             .expect("client connect");
         client.write_all(b"ping").await.expect("client write");
         let mut echo = [0u8; 4];
-        client.read_exact(&mut echo).await.expect("client read echo");
+        client
+            .read_exact(&mut echo)
+            .await
+            .expect("client read echo");
         echo
     });
 

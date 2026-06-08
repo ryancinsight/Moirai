@@ -10,6 +10,15 @@
 
 ## Remaining Gap Register
 
+- [x] [patch] Apollo-facing provider contract tests added at the public `moirai`
+  crate surface. `for_each_chunk_mut_enumerated_with::<Adaptive>` covers every
+  mutable element exactly once across non-even chunk boundaries, and
+  `IndexedParallelIterator::collect_into_vec` moves non-`Clone` values into
+  caller-owned storage without reallocating existing capacity.
+- [x] [patch] Remove stale duplicate `par_benchmarks` declaration from the
+  top-level `moirai` crate. The benchmark target remains in `moirai-parallel`,
+  its owning crate; this restores package all-target gate resolution.
+
 ### Priority P0
 
 #### ✅ ISSUE-130 [arch]: Complete Tokio reactor-native I/O compatibility contract
