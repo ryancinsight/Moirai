@@ -59,7 +59,12 @@ impl CpuTopology {
             Self::detect_linux()
         }
 
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
+        {
+            Self::detect_windows()
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
             // Fallback: assume single NUMA node with all cores
             Some(Self::single_node())
@@ -162,6 +167,80 @@ impl CpuTopology {
             }
         }
         cores
+    }
+
+    #[cfg(target_os = "windows")]
+    fn detect_windows() -> Option<Self> {
+        extern "system" {
+            fn GetNumaHighestNodeNumber(highest_node_number: *mut u32) -> i32;
+            fn GetNumaNodeProcessorMask(node: u8, processor_mask: *mut u64) -> i32;
+        }
+
+        let mut highest_node = 0u32;
+        if unsafe { GetNumaHighestNodeNumber(&mut highest_node) } == 0 {
+            return Some(Self::single_node());
+        }
+
+        let node_count = (highest_node + 1) as usize;
+        let mut numa_nodes = Vec::new();
+        let mut core_to_node = HashMap::new();
+        let mut logical_cores = 0;
+
+        for node_id in 0..node_count {
+            let mut mask = 0u64;
+            if unsafe { GetNumaNodeProcessorMask(node_id as u8, &mut mask) } != 0 && mask != 0 {
+                let mut cores = Vec::new();
+                for core in 0..64 {
+                    if (mask & (1 << core)) != 0 {
+                        cores.push(core as usize);
+                        core_to_node.insert(core as usize, node_id);
+                        logical_cores = logical_cores.max(core as usize + 1);
+                    }
+                }
+                
+                numa_nodes.push(NumaNode {
+                    id: node_id,
+                    cores,
+                    distances: vec![10; node_count],
+                });
+            }
+        }
+
+        if numa_nodes.is_empty() {
+            return Some(Self::single_node());
+        }
+
+        // Fill distances
+        for i in 0..numa_nodes.len() {
+            for j in 0..numa_nodes.len() {
+                numa_nodes[i].distances[j] = if i == j { 10 } else { 20 };
+            }
+        }
+
+        let cache_levels = vec![
+            CacheLevel {
+                level: 1,
+                size: 32 * 1024,
+                shared_cores: vec![],
+            },
+            CacheLevel {
+                level: 2,
+                size: 256 * 1024,
+                shared_cores: vec![],
+            },
+            CacheLevel {
+                level: 3,
+                size: 8 * 1024 * 1024,
+                shared_cores: (0..logical_cores).collect(),
+            },
+        ];
+
+        Some(CpuTopology {
+            numa_nodes,
+            core_to_node,
+            logical_cores,
+            cache_levels,
+        })
     }
 
     /// Create a single-node topology for systems without NUMA.
