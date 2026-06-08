@@ -1077,6 +1077,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "melinoe"
+version = "0.6.0"
+source = "git+https://github.com/ryancinsight/melinoe.git#5bd7fcca27d69ccb2fca3801beaecfbda8495fc9"
+
+[[package]]
 name = "memchr"
 version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1231,6 +1236,7 @@ dependencies = [
  "criterion",
  "fastrand",
  "futures",
+ "melinoe",
  "mnemosyne",
  "moirai-async",
  "moirai-core",
@@ -1395,6 +1401,7 @@ name = "moirai-parallel"
 version = "0.2.0"
 dependencies = [
  "criterion",
+ "melinoe",
  "moirai-executor",
  "rayon",
 ]

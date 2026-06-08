@@ -274,6 +274,9 @@ pub use moirai_gpu::prelude::*;
 #[cfg(feature = "parallel")]
 pub use moirai_parallel::*;
 
+#[cfg(all(feature = "parallel", feature = "melinoe"))]
+pub use moirai_parallel::melinoe_ext::*;
+
 use std::{future::Future, sync::Arc, time::Duration};
 
 /// The main Moirai runtime that provides a unified interface for hybrid concurrency.

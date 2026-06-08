@@ -49,6 +49,7 @@ moirai-http = { path = "moirai-http", version = "0.2.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.2.0" }
 moirai-utils = { path = "moirai-utils", version = "0.2.0", features = ["std"] }
 moirai-gpu = { path = "moirai-gpu", version = "0.2.0" }
+melinoe = { git = "https://github.com/ryancinsight/melinoe.git", default-features = false }
 
 # Network stack (ADR-015): sans-I/O, runtime-agnostic, NOT tokio-coupled.
 # `ring` crypto provider (no aws-lc-rs NASM/cmake toolchain requirement on Windows).

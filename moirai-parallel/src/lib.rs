@@ -55,7 +55,7 @@ use moirai_executor::{global, SyncTask};
 /// The `Send`/`Sync` impls are sound only because the `*_mut` operations assign
 /// each task a non-overlapping index range, so the pointer is never used to form
 /// aliasing references.
-struct DisjointMutPtr<T>(*mut T);
+pub(crate) struct DisjointMutPtr<T>(pub(crate) *mut T);
 
 // SAFETY: callers dereference pairwise-disjoint ranges only, so the pointer
 // never forms aliasing `&mut` references; `T: Send` permits moving element
@@ -70,7 +70,7 @@ impl<T> DisjointMutPtr<T> {
     /// `i` must be in bounds and visited at most once across all concurrent
     /// tasks, so the returned reference never aliases another.
     #[inline]
-    unsafe fn get_mut<'a>(&self, i: usize) -> &'a mut T {
+    pub(crate) unsafe fn get_mut<'a>(&self, i: usize) -> &'a mut T {
         // SAFETY: guaranteed by the caller's per-index-once contract.
         unsafe { &mut *self.0.add(i) }
     }
@@ -79,7 +79,7 @@ impl<T> DisjointMutPtr<T> {
     /// capture the whole (`Send`/`Sync`) wrapper rather than the bare `*mut T`
     /// field under 2021 disjoint capture.
     #[inline]
-    fn base(&self) -> *mut T {
+    pub(crate) fn base(&self) -> *mut T {
         self.0
     }
 }
@@ -655,6 +655,9 @@ impl<T> ParallelSliceMut<T> for [T] {
     }
 }
 
+#[cfg(feature = "melinoe")]
+pub mod melinoe_ext;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -906,5 +909,24 @@ mod tests {
         let mut one = vec![7u64];
         one.par_mut().for_each(|x| *x += 1);
         assert_eq!(one, vec![8]);
+    }
+
+    #[cfg(feature = "melinoe")]
+    #[test]
+    fn test_par_partition_melinoe() {
+        use melinoe::{brand_scope, MelinoeCell};
+        let data = vec![0usize; 16];
+        brand_scope(|token| {
+            let mut cells: Vec<MelinoeCell<'_, usize>> = data.into_iter().map(MelinoeCell::new).collect();
+            super::melinoe_ext::par_partition_for_each(&mut cells, 4, |start, mut shard| {
+                for (j, slot) in shard.iter_mut().enumerate() {
+                    *slot = start + j;
+                }
+            });
+            let snap = token.share();
+            for (i, cell) in cells.iter().enumerate() {
+                assert_eq!(*cell.borrow(snap), i);
+            }
+        });
     }
 }
