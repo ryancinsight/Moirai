@@ -63,3 +63,15 @@ impl ExecutionPolicy for Adaptive {
         len >= ADAPTIVE_PARALLEL_THRESHOLD
     }
 }
+
+/// Run in parallel only for inputs at or above the custom threshold `N`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AdaptiveWithThreshold<const N: usize>;
+
+impl<const N: usize> ExecutionPolicy for AdaptiveWithThreshold<N> {
+    #[inline(always)]
+    fn parallelize(len: usize) -> bool {
+        len >= N
+    }
+}
+

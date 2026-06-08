@@ -762,7 +762,8 @@ pub mod prelude {
 
     #[cfg(feature = "parallel")]
     pub use moirai_parallel::{
-        Adaptive, ExecutionPolicy, Parallel, ParallelSlice, ParallelSliceMut, Sequential,
+        Adaptive, AdaptiveWithThreshold, ExecutionPolicy, Parallel, ParallelSlice,
+        ParallelSliceMut, Sequential,
     };
 
     #[cfg(feature = "iter")]

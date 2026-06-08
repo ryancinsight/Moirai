@@ -45,7 +45,10 @@
 
 mod policy;
 
-pub use policy::{Adaptive, ExecutionPolicy, Parallel, Sequential, ADAPTIVE_PARALLEL_THRESHOLD};
+pub use policy::{
+    Adaptive, AdaptiveWithThreshold, ExecutionPolicy, Parallel, Sequential,
+    ADAPTIVE_PARALLEL_THRESHOLD,
+};
 
 use core::marker::PhantomData;
 use moirai_executor::{global, SyncTask};
