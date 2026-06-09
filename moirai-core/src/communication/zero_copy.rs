@@ -88,11 +88,23 @@ impl<T> MemoryMappedRing<T> {
             .map_err(|_| ZeroCopyError::AlignmentError)?;
 
         let buffer = unsafe {
-            let ptr = std::alloc::alloc(layout) as *mut T;
-            if ptr.is_null() {
-                return Err(ZeroCopyError::MemoryMapFailed);
+            #[cfg(feature = "mnemosyne")]
+            {
+                use core::alloc::GlobalAlloc;
+                let ptr = mnemosyne::Mnemosyne.alloc(layout) as *mut T;
+                if ptr.is_null() {
+                    return Err(ZeroCopyError::MemoryMapFailed);
+                }
+                ptr
             }
-            ptr
+            #[cfg(not(feature = "mnemosyne"))]
+            {
+                let ptr = std::alloc::alloc(layout) as *mut T;
+                if ptr.is_null() {
+                    return Err(ZeroCopyError::MemoryMapFailed);
+                }
+                ptr
+            }
         };
 
         Ok(Self {
@@ -213,7 +225,15 @@ impl<T> Drop for MemoryMappedRing<T> {
                     let idx = pos & (self.capacity - 1);
                     ptr::drop_in_place(ptr.add(idx));
                 }
-                std::alloc::dealloc(ptr as *mut u8, layout);
+                #[cfg(feature = "mnemosyne")]
+                {
+                    use core::alloc::GlobalAlloc;
+                    mnemosyne::Mnemosyne.dealloc(ptr as *mut u8, layout);
+                }
+                #[cfg(not(feature = "mnemosyne"))]
+                {
+                    std::alloc::dealloc(ptr as *mut u8, layout);
+                }
             }
         }
     }

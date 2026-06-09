@@ -113,8 +113,17 @@ impl CacheAlignedAllocator {
         let layout = Layout::from_size_align(size, align).ok()?;
 
         unsafe {
-            let ptr = alloc::alloc(layout);
-            NonNull::new(ptr.cast::<T>())
+            #[cfg(feature = "mnemosyne")]
+            {
+                use core::alloc::GlobalAlloc;
+                let ptr = mnemosyne::Mnemosyne.alloc(layout);
+                NonNull::new(ptr.cast::<T>())
+            }
+            #[cfg(not(feature = "mnemosyne"))]
+            {
+                let ptr = alloc::alloc(layout);
+                NonNull::new(ptr.cast::<T>())
+            }
         }
     }
 
@@ -132,7 +141,15 @@ impl CacheAlignedAllocator {
         let align = align_of::<T>().max(CACHE_LINE_SIZE);
 
         if let Ok(layout) = Layout::from_size_align(size, align) {
-            alloc::dealloc(ptr.as_ptr().cast::<u8>(), layout);
+            #[cfg(feature = "mnemosyne")]
+            {
+                use core::alloc::GlobalAlloc;
+                mnemosyne::Mnemosyne.dealloc(ptr.as_ptr().cast::<u8>(), layout);
+            }
+            #[cfg(not(feature = "mnemosyne"))]
+            {
+                alloc::dealloc(ptr.as_ptr().cast::<u8>(), layout);
+            }
         }
     }
 }

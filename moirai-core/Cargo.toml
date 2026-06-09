@@ -14,6 +14,7 @@ description = "Core abstractions and traits for the Moirai concurrency library"
 
 [dependencies]
 moirai-utils = { workspace = true, features = ["std"] }
+mnemosyne = { workspace = true, optional = true }
 
 # Unix dependencies
 [target.'cfg(unix)'.dependencies]
@@ -43,3 +44,4 @@ metrics = ["moirai-utils/metrics"]
 wasm = ["wasm-bindgen", "js-sys", "web-sys", "no-std"]
 coroutine = ["std"]
 result-diagnostics = ["std"]
+mnemosyne = ["dep:mnemosyne"]

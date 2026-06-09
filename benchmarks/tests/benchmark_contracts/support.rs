@@ -76,7 +76,7 @@ fn read_benchmark(relative: &str) -> String {
             "../moirai-executor/src/schedule/runtime/types.rs",
             "../moirai-executor/src/schedule/runtime/worker.rs",
             "../moirai-executor/src/schedule/runtime/tests.rs",
-            "../moirai-executor/src/schedule/runtime/diagnostics.rs",
+            "../moirai-executor/src/schedule/runtime/scheduler/diagnostics.rs",
         ] {
             if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
                 content.push_str(&c);
