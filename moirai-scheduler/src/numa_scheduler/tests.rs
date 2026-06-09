@@ -3,7 +3,6 @@
 #[cfg(test)]
 mod tests {
     use super::super::scheduler::NumaAwareScheduler;
-    use crate::numa_scheduler::scheduler::{NumaSchedulerError, NumaSchedulerStats};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::thread;
