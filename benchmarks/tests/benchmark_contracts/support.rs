@@ -55,6 +55,19 @@ fn read_benchmark(relative: &str) -> String {
         }
         return content.replace("\r\n", "\n").replace('\r', "\n");
     }
+    if normalized == "../moirai-executor/src/hybrid/mod.rs" {
+        let mut content = String::new();
+        for file in [
+            "../moirai-executor/src/hybrid/mod.rs",
+            "../moirai-executor/src/hybrid/async_state.rs",
+        ] {
+            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
+                content.push_str(&c);
+                content.push('\n');
+            }
+        }
+        return content.replace("\r\n", "\n").replace('\r', "\n");
+    }
     if normalized == "../moirai-executor/src/schedule/runtime/mod.rs" {
         let mut content = String::new();
         for file in [
@@ -63,6 +76,44 @@ fn read_benchmark(relative: &str) -> String {
             "../moirai-executor/src/schedule/runtime/types.rs",
             "../moirai-executor/src/schedule/runtime/worker.rs",
             "../moirai-executor/src/schedule/runtime/tests.rs",
+            "../moirai-executor/src/schedule/runtime/diagnostics.rs",
+        ] {
+            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
+                content.push_str(&c);
+                content.push('\n');
+            }
+        }
+        return content.replace("\r\n", "\n").replace('\r', "\n");
+    }
+    if normalized == "../moirai-iter/src/async_iter.rs" {
+        let mut content = String::new();
+        for file in [
+            "../moirai-iter/src/async_iter.rs",
+            "../moirai-iter/src/async_iter_tests.rs",
+        ] {
+            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
+                content.push_str(&c);
+                content.push('\n');
+            }
+        }
+        return content.replace("\r\n", "\n").replace('\r', "\n");
+    }
+    if normalized == "../moirai-iter/src/parallel/adapters.rs" {
+        let mut content = String::new();
+        for file in [
+            "../moirai-iter/src/parallel/adapters/mod.rs",
+            "../moirai-iter/src/parallel/adapters/map.rs",
+            "../moirai-iter/src/parallel/adapters/filter.rs",
+            "../moirai-iter/src/parallel/adapters/flat.rs",
+            "../moirai-iter/src/parallel/adapters/ref_ops.rs",
+            "../moirai-iter/src/parallel/adapters/slice_ops.rs",
+            "../moirai-iter/src/parallel/adapters/blocks.rs",
+            "../moirai-iter/src/parallel/adapters/chunks.rs",
+            "../moirai-iter/src/parallel/adapters/pair.rs",
+            "../moirai-iter/src/parallel/adapters/position.rs",
+            "../moirai-iter/src/parallel/adapters/side_effect.rs",
+            "../moirai-iter/src/parallel/adapters/stride.rs",
+            "../moirai-iter/src/parallel/adapters/window.rs",
         ] {
             if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
                 content.push_str(&c);
