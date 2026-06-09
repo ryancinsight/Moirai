@@ -52,18 +52,17 @@ impl<T> MemoryPool<T> {
         T: Default,
     {
         for i in 0..self.max_size {
-            if self.states[i].load(Ordering::Relaxed) == 1 {
-                if self.states[i]
+            if self.states[i].load(Ordering::Relaxed) == 1
+                && self.states[i]
                     .compare_exchange_weak(1, 2, Ordering::Acquire, Ordering::Relaxed)
                     .is_ok()
-                {
-                    // Safety: we have exclusive access to slots[i] when state is Busy (2)
-                    let item = unsafe { (*self.slots[i].get()).take() };
-                    self.states[i].store(0, Ordering::Release);
-                    self.size.fetch_sub(1, Ordering::Relaxed);
-                    if let Some(val) = item {
-                        return Box::new(val);
-                    }
+            {
+                // Safety: we have exclusive access to slots[i] when state is Busy (2)
+                let item = unsafe { (*self.slots[i].get()).take() };
+                self.states[i].store(0, Ordering::Release);
+                self.size.fetch_sub(1, Ordering::Relaxed);
+                if let Some(val) = item {
+                    return Box::new(val);
                 }
             }
         }
@@ -79,19 +78,18 @@ impl<T> MemoryPool<T> {
         }
 
         for i in 0..self.max_size {
-            if self.states[i].load(Ordering::Relaxed) == 0 {
-                if self.states[i]
+            if self.states[i].load(Ordering::Relaxed) == 0
+                && self.states[i]
                     .compare_exchange_weak(0, 2, Ordering::Acquire, Ordering::Relaxed)
                     .is_ok()
-                {
-                    // Safety: we have exclusive access to slots[i] when state is Busy (2)
-                    unsafe {
-                        *self.slots[i].get() = Some(item);
-                    }
-                    self.states[i].store(1, Ordering::Release);
-                    self.size.fetch_add(1, Ordering::Relaxed);
-                    return;
+            {
+                // Safety: we have exclusive access to slots[i] when state is Busy (2)
+                unsafe {
+                    *self.slots[i].get() = Some(item);
                 }
+                self.states[i].store(1, Ordering::Release);
+                self.size.fetch_add(1, Ordering::Relaxed);
+                return;
             }
         }
     }

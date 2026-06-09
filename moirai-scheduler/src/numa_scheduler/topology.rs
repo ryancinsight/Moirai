@@ -102,6 +102,11 @@ impl CpuTopology {
     }
 
     fn from_themis(topology: themis::CpuTopology) -> Self {
+        let core_to_node = topology
+            .processor_node_pairs()
+            .map(|(processor, node)| (processor as usize, node.index()))
+            .collect();
+
         let numa_nodes = topology
             .numa_nodes
             .into_iter()
@@ -114,12 +119,6 @@ impl CpuTopology {
                     .collect(),
                 distances: node.distances,
             })
-            .collect();
-
-        let core_to_node = topology
-            .processor_to_node
-            .into_iter()
-            .map(|(processor, node)| (processor as usize, node.index()))
             .collect();
 
         let cache_levels = topology
