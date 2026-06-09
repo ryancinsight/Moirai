@@ -174,7 +174,8 @@ impl NumaAwareScheduler {
         }
 
         // Strategy 2: Try adjacent NUMA nodes
-        for &adjacent_node in &self.topology.adjacent_nodes(worker_node) {
+        let adjacent_nodes = self.topology.adjacent_node_slice(worker_node);
+        for &adjacent_node in adjacent_nodes {
             if let Some(task) = self.try_steal_from_node(adjacent_node) {
                 self.steal_stats
                     .cross_numa_steals
@@ -187,9 +188,7 @@ impl NumaAwareScheduler {
 
         // Strategy 3: Try any remaining nodes
         for (node_id, _) in self.topology.numa_nodes.iter().enumerate() {
-            if node_id != worker_node
-                && !self.topology.adjacent_nodes(worker_node).contains(&node_id)
-            {
+            if node_id != worker_node && !adjacent_nodes.contains(&node_id) {
                 if let Some(task) = self.try_steal_from_node(node_id) {
                     self.steal_stats
                         .cross_numa_steals

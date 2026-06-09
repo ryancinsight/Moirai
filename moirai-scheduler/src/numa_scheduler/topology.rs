@@ -7,6 +7,8 @@ use std::collections::HashMap;
 pub struct CpuTopology {
     /// Number of NUMA nodes.
     pub numa_nodes: Vec<NumaNode>,
+    /// Adjacent NUMA node order by compact node index.
+    pub adjacent_nodes: Vec<Box<[usize]>>,
     /// Mapping from CPU core to NUMA node.
     pub core_to_node: HashMap<usize, usize>,
     /// Total number of logical cores.
@@ -71,19 +73,12 @@ impl CpuTopology {
 
     /// Get adjacent NUMA nodes sorted by distance.
     pub fn adjacent_nodes(&self, node_id: usize) -> Vec<usize> {
-        if let Some(node) = self.numa_nodes.get(node_id) {
-            let mut adjacent: Vec<_> = node
-                .distances
-                .iter()
-                .enumerate()
-                .filter(|(id, _)| *id != node_id)
-                .map(|(id, &distance)| (id, distance))
-                .collect();
-            adjacent.sort_by_key(|&(_, distance)| distance);
-            adjacent.into_iter().map(|(id, _)| id).collect()
-        } else {
-            Vec::new()
-        }
+        self.adjacent_node_slice(node_id).to_vec()
+    }
+
+    /// Get adjacent NUMA nodes sorted by distance without allocation.
+    pub fn adjacent_node_slice(&self, node_id: usize) -> &[usize] {
+        self.adjacent_nodes.get(node_id).map_or(&[], |nodes| nodes)
     }
 
     /// Get distance between two NUMA nodes.
@@ -121,6 +116,19 @@ impl CpuTopology {
             })
             .collect();
 
+        let adjacent_nodes = topology
+            .numa_nodes()
+            .iter()
+            .map(|node| {
+                topology
+                    .adjacent_nodes(node.id)
+                    .iter()
+                    .map(|node_id| node_id.index())
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice()
+            })
+            .collect();
+
         let cache_levels = topology
             .cache_levels()
             .iter()
@@ -137,6 +145,7 @@ impl CpuTopology {
 
         Self {
             numa_nodes,
+            adjacent_nodes,
             core_to_node,
             logical_cores: topology.logical_processors(),
             cache_levels,
