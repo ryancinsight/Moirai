@@ -1,7 +1,6 @@
 //! `NumaAwareScheduler` struct, impl blocks, `Scheduler` trait impl,
 //! `NumaSchedulerStats`, and `NumaSchedulerError`.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -35,7 +34,7 @@ pub struct NumaAwareScheduler {
     /// CPU topology information
     pub(super) topology: Arc<CpuTopology>,
     /// Current worker assignments
-    pub(super) worker_assignments: HashMap<usize, usize>, // worker_id -> numa_node
+    pub(super) worker_assignments: Box<[Option<usize>]>,
     /// Steal attempt statistics
     pub(super) steal_stats: Arc<StealStatistics>,
     /// Adaptive backoff strategy
@@ -64,7 +63,7 @@ impl NumaAwareScheduler {
         Self {
             node_queues,
             topology,
-            worker_assignments: HashMap::new(),
+            worker_assignments: Box::default(),
             steal_stats: Arc::new(StealStatistics {
                 same_numa_steals: AtomicUsize::new(0),
                 cross_numa_steals: AtomicUsize::new(0),
@@ -90,14 +89,20 @@ impl NumaAwareScheduler {
             worker_id % self.topology.numa_nodes.len()
         };
 
-        self.worker_assignments.insert(worker_id, numa_node);
+        if worker_id >= self.worker_assignments.len() {
+            let mut assignments = self.worker_assignments.to_vec();
+            assignments.resize(worker_id + 1, None);
+            self.worker_assignments = assignments.into_boxed_slice();
+        }
+        self.worker_assignments[worker_id] = Some(numa_node);
     }
 
     /// Get the NUMA node for a worker.
     pub fn worker_numa_node(&self, worker_id: usize) -> usize {
         self.worker_assignments
-            .get(&worker_id)
+            .get(worker_id)
             .copied()
+            .flatten()
             .unwrap_or(0)
     }
 
