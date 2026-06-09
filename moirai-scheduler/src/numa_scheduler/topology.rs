@@ -108,29 +108,29 @@ impl CpuTopology {
             .collect();
 
         let numa_nodes = topology
-            .numa_nodes
-            .into_iter()
+            .numa_nodes()
+            .iter()
             .map(|node| NumaNode {
                 id: node.id.index(),
                 cores: node
                     .processors
-                    .into_iter()
-                    .map(|processor| processor as usize)
+                    .iter()
+                    .map(|processor| *processor as usize)
                     .collect(),
-                distances: node.distances,
+                distances: node.distances.to_vec(),
             })
             .collect();
 
         let cache_levels = topology
-            .cache_levels
-            .into_iter()
+            .cache_levels()
+            .iter()
             .map(|cache| CacheLevel {
                 level: cache.level,
                 size: cache.size_bytes,
                 shared_cores: cache
                     .shared_processors
-                    .into_iter()
-                    .map(|processor| processor as usize)
+                    .iter()
+                    .map(|processor| *processor as usize)
                     .collect(),
             })
             .collect();
@@ -138,7 +138,7 @@ impl CpuTopology {
         Self {
             numa_nodes,
             core_to_node,
-            logical_cores: topology.logical_processors,
+            logical_cores: topology.logical_processors(),
             cache_levels,
         }
     }
