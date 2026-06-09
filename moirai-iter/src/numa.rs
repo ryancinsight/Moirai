@@ -76,7 +76,7 @@ impl NumaContext {
                 self.topology
                     .as_ref()
                     .as_ref()
-                    .and_then(|t| t.core_to_node.get(&cpu).copied())
+                    .and_then(|t| t.core_to_numa_node(cpu))
                     .unwrap_or(0)
             }
         }

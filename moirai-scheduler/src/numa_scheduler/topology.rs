@@ -1,20 +1,18 @@
 //! CPU topology adapter backed by Themis placement law.
 
-use std::collections::HashMap;
-
 /// NUMA-aware work stealing scheduler topology.
 #[derive(Debug, Clone)]
 pub struct CpuTopology {
     /// Number of NUMA nodes.
-    pub numa_nodes: Vec<NumaNode>,
+    pub numa_nodes: Box<[NumaNode]>,
     /// Adjacent NUMA node order by compact node index.
-    pub adjacent_nodes: Vec<Box<[usize]>>,
+    pub adjacent_nodes: Box<[Box<[usize]>]>,
     /// Mapping from CPU core to NUMA node.
-    pub core_to_node: HashMap<usize, usize>,
+    pub core_to_node: Box<[Option<usize>]>,
     /// Total number of logical cores.
     pub logical_cores: usize,
     /// Cache hierarchy information.
-    pub cache_levels: Vec<CacheLevel>,
+    pub cache_levels: Box<[CacheLevel]>,
 }
 
 /// NUMA node information.
@@ -23,9 +21,9 @@ pub struct NumaNode {
     /// Node ID.
     pub id: usize,
     /// CPU cores belonging to this node.
-    pub cores: Vec<usize>,
+    pub cores: Box<[usize]>,
     /// Distance to other NUMA nodes.
-    pub distances: Vec<u32>,
+    pub distances: Box<[u32]>,
 }
 
 /// Cache level information.
@@ -36,7 +34,7 @@ pub struct CacheLevel {
     /// Cache size in bytes.
     pub size: usize,
     /// Cores sharing this cache.
-    pub shared_cores: Vec<usize>,
+    pub shared_cores: Box<[usize]>,
 }
 
 impl CpuTopology {
@@ -56,7 +54,7 @@ impl CpuTopology {
 
     /// Get the NUMA node for a given CPU core.
     pub fn core_to_numa_node(&self, core_id: usize) -> Option<usize> {
-        self.core_to_node.get(&core_id).copied()
+        self.core_to_node.get(core_id).copied().flatten()
     }
 
     /// Get cores in the same NUMA node as the given core.
@@ -64,7 +62,7 @@ impl CpuTopology {
         if let Some(node_id) = self.core_to_numa_node(core_id) {
             self.numa_nodes
                 .get(node_id)
-                .map(|node| node.cores.clone())
+                .map(|node| node.cores.to_vec())
                 .unwrap_or_default()
         } else {
             Vec::new()
@@ -97,10 +95,7 @@ impl CpuTopology {
     }
 
     fn from_themis(topology: themis::CpuTopology) -> Self {
-        let core_to_node = topology
-            .processor_node_pairs()
-            .map(|(processor, node)| (processor as usize, node.index()))
-            .collect();
+        let core_to_node = build_core_to_node(topology.logical_processors(), &topology);
 
         let numa_nodes = topology
             .numa_nodes()
@@ -111,10 +106,12 @@ impl CpuTopology {
                     .processors
                     .iter()
                     .map(|processor| *processor as usize)
-                    .collect(),
-                distances: node.distances.to_vec(),
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                distances: node.distances.to_vec().into_boxed_slice(),
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
 
         let adjacent_nodes = topology
             .numa_nodes()
@@ -127,7 +124,8 @@ impl CpuTopology {
                     .collect::<Vec<_>>()
                     .into_boxed_slice()
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
 
         let cache_levels = topology
             .cache_levels()
@@ -139,9 +137,11 @@ impl CpuTopology {
                     .shared_processors
                     .iter()
                     .map(|processor| *processor as usize)
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
 
         Self {
             numa_nodes,
@@ -151,4 +151,20 @@ impl CpuTopology {
             cache_levels,
         }
     }
+}
+
+fn build_core_to_node(
+    logical_cores: usize,
+    topology: &themis::CpuTopology,
+) -> Box<[Option<usize>]> {
+    let max_core = topology
+        .processor_node_pairs()
+        .map(|(processor, _)| processor as usize)
+        .max()
+        .unwrap_or(0);
+    let mut core_to_node = vec![None; logical_cores.max(max_core + 1).max(1)];
+    for (processor, node) in topology.processor_node_pairs() {
+        core_to_node[processor as usize] = Some(node.index());
+    }
+    core_to_node.into_boxed_slice()
 }
