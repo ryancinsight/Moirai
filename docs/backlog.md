@@ -10,9 +10,10 @@ parity and GPU work to fully retire rayon/tokio across the stack:
   `scope` ergonomics, ordered comparator/key reducers, streaming `flat_map_iter`.
 - [ ] [minor] Stage B1 tokio parity: `select!`-equivalent macro ergonomics, IPv6, graceful
   shutdown signal; HTTP/2 only if a consumer needs it.
-- [ ] [arch] Stage D: co-schedule `moirai-gpu` (wgpu) compute with the task-stealing
-  scheduler instead of blocking joins; add a **cuda-oxide** execution lane option and
-  GPU-aware placement so GPU work participates in the unified runtime. ADR.
+- [ ] [arch] Stage D: co-schedule GPU compute (the `hephaestus` substrate — atlas ADR
+  0001 — wgpu + CUDA) with the task-stealing scheduler instead of blocking joins, with
+  GPU-aware placement so device work participates in the unified runtime. `moirai-gpu`
+  either folds into hephaestus or becomes a thin scheduling adapter over it. ADR.
 - [ ] [patch] Consumer audit: confirm leto/coeus/apollo pull no rayon/tokio even
   transitively; provide drop-in shims where a consumer still reaches for them.
 
