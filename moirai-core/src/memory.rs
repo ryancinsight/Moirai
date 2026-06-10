@@ -47,7 +47,7 @@ impl<T> MemoryPool<T> {
     }
 
     /// Allocate an object from the pool or create new if pool is empty
-    pub fn allocate(&self) -> Box<T>
+    pub fn allocate(&self) -> T
     where
         T: Default,
     {
@@ -62,11 +62,11 @@ impl<T> MemoryPool<T> {
                 self.states[i].store(0, Ordering::Release);
                 self.size.fetch_sub(1, Ordering::Relaxed);
                 if let Some(val) = item {
-                    return Box::new(val);
+                    return val;
                 }
             }
         }
-        Box::new(T::default())
+        T::default()
     }
 
     /// Return an object to the pool for reuse
@@ -273,8 +273,8 @@ unsafe impl<T: Send> Sync for UnifiedRingBuffer<T> {}
 
 /// Global memory pool manager for reduced allocation overhead
 pub struct GlobalMemoryManager {
-    /// Pools for different types (using type ID as key would be better but more complex)
-    pools: [MemoryPool<u8>; 8], // Simple array for common sizes
+    /// Pools for common vector capacity classes
+    pools: [MemoryPool<Vec<u8>>; 8],
 }
 
 impl GlobalMemoryManager {
@@ -311,11 +311,43 @@ impl GlobalMemoryManager {
             _ => return None, // Too large for pooling
         };
 
-        // Use the pool_index for actual allocation
-        // For simplicity, just return a new Vec
-        // In production, would use: self.pools[pool_index].acquire()
-        let _ = &self.pools[pool_index]; // Actually use the pools field
-        Some(vec![0u8; size])
+        let mut vec = self.pools[pool_index].allocate();
+        let target_capacity = match pool_index {
+            0 => 8,
+            1 => 16,
+            2 => 32,
+            3 => 64,
+            4 => 128,
+            5 => 256,
+            6 => 512,
+            7 => 1024,
+            _ => unreachable!(),
+        };
+
+        if vec.capacity() < target_capacity {
+            vec = Vec::with_capacity(target_capacity);
+        }
+        vec.resize(size, 0u8);
+        Some(vec)
+    }
+
+    /// Return a vector to the appropriate pool based on capacity
+    pub fn deallocate(&self, mut vec: Vec<u8>) {
+        let capacity = vec.capacity();
+        let pool_index = match capacity {
+            0..=7 => return, // Too small
+            8..=15 => 0,
+            16..=31 => 1,
+            32..=63 => 2,
+            64..=127 => 3,
+            128..=255 => 4,
+            256..=511 => 5,
+            512..=1023 => 6,
+            1024..=2048 => 7,
+            _ => return, // Too large or too small
+        };
+        vec.clear();
+        self.pools[pool_index].deallocate(vec);
     }
 }
 
@@ -335,8 +367,8 @@ mod tests {
         assert_eq!(pool.size(), 0);
 
         // Return items to pool
-        pool.deallocate(*item1);
-        pool.deallocate(*item2);
+        pool.deallocate(item1);
+        pool.deallocate(item2);
 
         // Pool should now have items
         assert_eq!(pool.size(), 2);
@@ -344,6 +376,30 @@ mod tests {
         // Allocate again - should reuse from pool
         let _item3 = pool.allocate();
         assert_eq!(pool.size(), 1);
+    }
+
+    #[test]
+    fn test_global_memory_manager_real_pooling() {
+        let manager = GlobalMemoryManager::instance();
+
+        // Allocate a vector of size 100 (matches pool index 4, size 65..=128)
+        let vec1 = manager.allocate(100).unwrap();
+        assert_eq!(vec1.len(), 100);
+        assert!(vec1.capacity() >= 128);
+
+        // Keep track of the raw pointer of vec1's heap allocation
+        let ptr1 = vec1.as_ptr();
+
+        // Return it to the pool
+        manager.deallocate(vec1);
+
+        // Allocate again - it should reuse the same backing allocation!
+        let vec2 = manager.allocate(100).unwrap();
+        assert_eq!(vec2.len(), 100);
+        let ptr2 = vec2.as_ptr();
+
+        // Under real pooling, the memory allocation is recycled, so the pointer should be the same
+        assert_eq!(ptr1, ptr2);
     }
 
     #[test]
