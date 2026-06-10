@@ -1,5 +1,22 @@
 # Moirai Development Backlog (SSOT)
 
+## Atlas in-house replacement roadmap — moirai slice [arch]
+
+moirai is the Atlas parallel+async SSOT, replacing **both rayon (data-parallel / MIMD)
+and tokio (async)** with one work-stealing scheduler and zero-cost ExecutionPolicy
+dispatch. It is the thread-level **MIMD** counterpart to hermes (SIMD lanes). Remaining
+parity and GPU work to fully retire rayon/tokio across the stack:
+- [ ] [minor] Stage B1 rayon parity: `join(a,b)` divide-and-conquer shorthand, trait-level
+  `scope` ergonomics, ordered comparator/key reducers, streaming `flat_map_iter`.
+- [ ] [minor] Stage B1 tokio parity: `select!`-equivalent macro ergonomics, IPv6, graceful
+  shutdown signal; HTTP/2 only if a consumer needs it.
+- [ ] [arch] Stage D: co-schedule `moirai-gpu` (wgpu) compute with the task-stealing
+  scheduler instead of blocking joins; add a **cuda-oxide** execution lane option and
+  GPU-aware placement so GPU work participates in the unified runtime. ADR.
+- [ ] [patch] Consumer audit: confirm leto/coeus/apollo pull no rayon/tokio even
+  transitively; provide drop-in shims where a consumer still reaches for them.
+
+
 **Project**: Moirai Concurrency Library
 **Version**: 0.2.0
 **Last Updated**: 2026-06-03
