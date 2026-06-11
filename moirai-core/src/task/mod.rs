@@ -86,19 +86,15 @@ pub(crate) mod traits;
 
 // ── Public API re-exports ─────────────────────────────────────────────────────
 
+pub use builder::{BaseTask, Chained, Closure, Group, Mapped, Parameterized, Spawner, TaskBuilder};
+pub use ext::{Catch, ContextualTask, TaskExt};
+pub use future::TaskFuture;
+pub use handle::TaskHandle;
 pub use id_and_context::{Priority, TaskContext, TaskId};
 pub use traits::Task;
-pub use future::TaskFuture;
-pub use builder::{
-    BaseTask, Chained, Closure, Group, Mapped, Parameterized, Spawner, TaskBuilder,
-};
-pub use ext::{Catch, ContextualTask, TaskExt};
-pub use handle::TaskHandle;
 
 #[cfg(feature = "std")]
-pub use handle::{
-    BlockingResultWait, ResultWaitPolicy, TaskResultSender, TaskWrapper,
-};
+pub use handle::{BlockingResultWait, ResultWaitPolicy, TaskResultSender, TaskWrapper};
 
 #[cfg(all(feature = "std", feature = "result-diagnostics"))]
 pub use handle::{

@@ -85,10 +85,10 @@ pub use core::fmt::{self, Debug, Display};
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 #[macro_export]
 macro_rules! thread_local_static {
-    ($(#[$attr:meta])* static $name:ident: $t:ty = $init:expr) => {
+    ($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty = $init:expr) => {
         thread_local! {
             $(#[$attr])*
-            static $name: $t = $init
+            $vis static $name: $t = $init
         }
     };
 }
@@ -96,10 +96,10 @@ macro_rules! thread_local_static {
 #[cfg(any(not(feature = "std"), target_arch = "wasm32"))]
 #[macro_export]
 macro_rules! thread_local_static {
-    ($(#[$attr:meta])* static $name:ident: $t:ty = $init:expr) => {
+    ($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty = $init:expr) => {
         // For no-std or WASM, use a static variable (no thread-local support)
         $(#[$attr])*
-        static $name: $t = $init;
+        $vis static $name: $t = $init;
     };
 }
 

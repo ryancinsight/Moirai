@@ -14,14 +14,19 @@ parity and GPU work to fully retire rayon/tokio across the stack:
   0001 — wgpu + CUDA) with the task-stealing scheduler instead of blocking joins, with
   GPU-aware placement so device work participates in the unified runtime. `moirai-gpu`
   either folds into hephaestus or becomes a thin scheduling adapter over it. ADR.
-- [ ] [arch] Stage D2 — warp-aware execution shaping (atlas ADR 0002): warps are
-  scheduled by SM hardware; moirai owns the software-ownable layer. (1) Occupancy
-  planner: themis `GpuTopology` (SM count, warp width, regs/SM, shared/SM) ×
-  mnemosyne `KernelResourceBudget` (regs/thread, shared/block) → grid/block launch
-  shape, replacing hephaestus's fixed 256-wide workgroups; (2) stream/queue
-  co-scheduling with the host work-stealing scheduler; (3) advanced: persistent
-  kernels with device-side work queues for irregular workloads. Encode shapes as
-  typed policies (ZST where static), never magic numbers in kernels.
+- [~] [arch] Stage D2 — warp-aware execution shaping (atlas ADR 0002): warps are
+  scheduled by SM hardware; moirai owns the software-ownable layer.
+  (1) DELIVERED — occupancy planner (`moirai-gpu::occupancy`): `plan_launch`
+  (work-covering ceil-div grid), `resident_blocks` (themis `GpuTopology` ×
+  mnemosyne `KernelResourceBudget` → device-wide resident capacity; `None`
+  on no-information topologies, never fabricated), and
+  `plan_persistent_launch` (resident capped by covering grid). Grid and
+  residency are deliberately separate quantities. Fully const where the
+  inputs are; Ampere closed-form tests + wgpu-provider no-information case.
+  (2) stream/queue co-scheduling with the host work-stealing scheduler and
+  (3) persistent kernels with device-side work queues remain open; hephaestus
+  consuming these shapes in place of its fixed 256-wide workgroups is the
+  next consumer step.
 - [ ] [patch] Consumer audit: confirm leto/coeus/apollo pull no rayon/tokio even
   transitively; provide drop-in shims where a consumer still reaches for them.
 

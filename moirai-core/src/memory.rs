@@ -335,7 +335,6 @@ impl GlobalMemoryManager {
     pub fn deallocate(&self, mut vec: Vec<u8>) {
         let capacity = vec.capacity();
         let pool_index = match capacity {
-            0..=7 => return, // Too small
             8..=15 => 0,
             16..=31 => 1,
             32..=63 => 2,
@@ -344,7 +343,8 @@ impl GlobalMemoryManager {
             256..=511 => 5,
             512..=1023 => 6,
             1024..=2048 => 7,
-            _ => return, // Too large or too small
+            // Outside the pooled size classes (too small or too large).
+            _ => return,
         };
         vec.clear();
         self.pools[pool_index].deallocate(vec);

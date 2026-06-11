@@ -50,7 +50,9 @@ moirai-metrics = { path = "moirai-metrics", version = "0.2.0" }
 moirai-utils = { path = "moirai-utils", version = "0.2.0", features = ["std"] }
 moirai-gpu = { path = "moirai-gpu", version = "0.2.0" }
 melinoe = { git = "https://github.com/ryancinsight/melinoe.git", default-features = false }
-themis = { git = "https://github.com/ryancinsight/themis", version = "0.5.0", default-features = false, features = ["std"] }
+themis = { git = "https://github.com/ryancinsight/themis", version = "0.6.0", default-features = false, features = ["std"] }
+# Kernel resource budget vocabulary for the GPU occupancy planner (atlas ADR 0002).
+mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", package = "mnemosyne-core", default-features = false }
 mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", default-features = false }
 
 # Network stack (ADR-015): sans-I/O, runtime-agnostic, NOT tokio-coupled.

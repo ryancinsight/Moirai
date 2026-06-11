@@ -50,6 +50,7 @@ pub mod buffer;
 pub mod compute;
 pub mod device;
 pub mod error;
+pub mod occupancy;
 pub mod pipeline;
 pub mod task;
 
@@ -58,6 +59,7 @@ pub use buffer::{BufferUsage, GpuBuffer, GpuBufferPool};
 pub use compute::{ComputeKernel, ComputeShader, KernelDispatch};
 pub use device::{DeviceCapabilities, GpuDevice, GpuDeviceManager};
 pub use error::{GpuError, GpuResult};
+pub use occupancy::{plan_launch, plan_persistent_launch, resident_blocks, LaunchShape};
 pub use pipeline::{ComputePipeline, PipelineBuilder};
 pub use task::{GpuTask, GpuTaskBuilder, GpuTaskFuture};
 

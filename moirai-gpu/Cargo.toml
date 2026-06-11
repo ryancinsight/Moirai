@@ -13,6 +13,8 @@ rust-version.workspace = true
 description = "GPU compute integration for the Moirai concurrency library using wgpu-rs"
 
 [dependencies]
+themis = { workspace = true }
+mnemosyne-core = { workspace = true }
 moirai-core = { workspace = true }
 moirai-utils = { workspace = true, features = ["std"] }
 
@@ -30,7 +32,7 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
-tokio = { version = "1.0", features = ["rt", "macros"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 
 [features]
 default = ["std"]

@@ -1,8 +1,8 @@
 use crate::error::TaskError;
 
+pub use super::builder::Mapped;
 use super::id_and_context::TaskContext;
 use super::traits::Task;
-pub use super::builder::Mapped;
 
 /// Extension methods for tasks.
 pub trait TaskExt: Task + Sized {
