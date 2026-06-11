@@ -1,16 +1,16 @@
 //! Cache-padded ring-buffer backing store for work-stealing deques.
 
 use crate::platform::*;
-use core::cell::UnsafeCell;
 use core::alloc::Layout;
+use core::cell::UnsafeCell;
 use core::ptr::NonNull;
 
 #[allow(unused_imports)]
-#[cfg(feature = "std")]
-use std::alloc::{alloc, dealloc, handle_alloc_error};
-#[allow(unused_imports)]
 #[cfg(not(feature = "std"))]
 use alloc::alloc::{alloc, dealloc, handle_alloc_error};
+#[allow(unused_imports)]
+#[cfg(feature = "std")]
+use std::alloc::{alloc, dealloc, handle_alloc_error};
 
 /// Padding helper to ensure cache line alignment
 #[repr(align(64))]

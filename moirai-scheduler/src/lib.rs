@@ -111,8 +111,8 @@ pub use scheduler::{
 mod tests {
     use super::*;
     use moirai_core::{Task, TaskContext, TaskId};
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     // Test task implementation
     struct TestTask {
@@ -312,7 +312,8 @@ mod tests {
     fn test_work_stealing_scheduler() {
         use moirai_core::scheduler::SchedulerConfig;
         let config = SchedulerConfig::default();
-        let scheduler = WorkStealingScheduler::new(moirai_core::scheduler::SchedulerId::new(0), config);
+        let scheduler =
+            WorkStealingScheduler::new(moirai_core::scheduler::SchedulerId::new(0), config);
 
         // Schedule some tasks
         for i in 0..10 {

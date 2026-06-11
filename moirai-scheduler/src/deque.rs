@@ -41,7 +41,7 @@ impl<T> Array<T> {
         assert!(capacity.is_power_of_two());
         let layout = Layout::array::<UnsafeCell<MaybeUninit<T>>>(capacity)
             .expect("Invalid layout for Array");
-        
+
         let raw_ptr = unsafe {
             #[cfg(feature = "mnemosyne")]
             {
@@ -153,9 +153,7 @@ where
 {
     /// Create a new Chase-Lev deque with the specified initial capacity.
     pub fn new(initial_capacity: usize) -> Self {
-        let capacity = initial_capacity
-            .next_power_of_two()
-            .max(MIN_DEQUE_CAPACITY);
+        let capacity = initial_capacity.next_power_of_two().max(MIN_DEQUE_CAPACITY);
         let array = Box::new(Array::new(capacity));
 
         Self {

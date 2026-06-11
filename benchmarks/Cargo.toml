@@ -17,7 +17,7 @@ moirai-transport = { path = "../moirai-transport", features = ["scheduler-routes
 moirai-utils = { path = "../moirai-utils" }
 moirai-iter = { path = "../moirai-iter" }
 moirai-async = { path = "../moirai-async", features = ["tokio-compat"] }
-mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne" }
+mnemosyne = { workspace = true }
 
 # Benchmarking framework
 criterion = { version = "0.5", features = ["html_reports"] }

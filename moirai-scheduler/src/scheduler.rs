@@ -150,9 +150,7 @@ impl WorkStealingScheduler {
 
         match other.local_queue.steal() {
             StealResult::Success(task) => {
-                self.stats
-                    .successful_steals
-                    .fetch_add(1, Ordering::Relaxed);
+                self.stats.successful_steals.fetch_add(1, Ordering::Relaxed);
                 StealResult::Success(task)
             }
             other_result => other_result,

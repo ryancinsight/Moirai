@@ -24,7 +24,7 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = []
+default = ["mnemosyne"]
 numa = []
 metrics = ["moirai-core/metrics"]
 mnemosyne = ["dep:mnemosyne", "moirai-core/mnemosyne"]
