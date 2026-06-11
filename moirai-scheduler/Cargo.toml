@@ -17,6 +17,7 @@ moirai-core = { workspace = true }
 moirai-utils = { workspace = true }
 num_cpus = "1.16"
 themis = { workspace = true }
+mnemosyne = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -26,3 +27,4 @@ proptest = { workspace = true }
 default = []
 numa = []
 metrics = ["moirai-core/metrics"]
+mnemosyne = ["dep:mnemosyne", "moirai-core/mnemosyne"]

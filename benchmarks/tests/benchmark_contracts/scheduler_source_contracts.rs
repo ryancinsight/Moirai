@@ -173,7 +173,7 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
     }
 
     for required in [
-        "data: Box<[UnsafeCell<MaybeUninit<T>>]>",
+        "ptr: NonNull<UnsafeCell<MaybeUninit<T>>>",
         "unsafe fn write(&self, index: isize, item: T)",
         "unsafe fn read(&self, index: isize) -> T",
         "unsafe fn copy_slot_to(&self, target: &Self, index: isize)",

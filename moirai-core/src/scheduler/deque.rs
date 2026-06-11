@@ -177,6 +177,22 @@ impl<T: Send> WorkStealingDeque<T> {
     }
 }
 
+impl<T> Drop for WorkStealingDeque<T> {
+    fn drop(&mut self) {
+        let bottom = *self.bottom.value.get_mut();
+        let top = *self.top.value.get_mut();
+        let buffer_ptr = *self.buffer.value.get_mut();
+        if !buffer_ptr.is_null() {
+            let buffer = unsafe { Box::from_raw(buffer_ptr) };
+            for i in top..bottom {
+                unsafe {
+                    drop(buffer.get(i));
+                }
+            }
+        }
+    }
+}
+
 // Safety: Tasks are Send
 unsafe impl<T: Send> Send for WorkStealingDeque<T> {}
 unsafe impl<T: Send> Sync for WorkStealingDeque<T> {}
@@ -348,5 +364,24 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
             let old_buffer = Box::from_raw(old_buffer_ptr);
             *self.cached_buffer.get() = Some(old_buffer);
         }
+    }
+}
+
+impl<T> Drop for ZeroCopyWorkStealingDeque<T> {
+    fn drop(&mut self) {
+        let bottom = *self.bottom.value.get_mut();
+        let top = *self.top.value.get_mut();
+        let buffer_ptr = *self.buffer.value.get_mut();
+        if !buffer_ptr.is_null() {
+            let buffer = unsafe { Box::from_raw(buffer_ptr) };
+            for i in top..bottom {
+                unsafe {
+                    drop(buffer.get(i));
+                }
+            }
+        }
+        // Also drop the cached_buffer if any
+        let cached = self.cached_buffer.get_mut();
+        *cached = None;
     }
 }

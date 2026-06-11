@@ -1424,6 +1424,7 @@ name = "moirai-scheduler"
 version = "0.2.0"
 dependencies = [
  "criterion",
+ "mnemosyne",
  "moirai-core",
  "moirai-utils",
  "num_cpus",

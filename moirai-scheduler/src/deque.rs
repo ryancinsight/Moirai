@@ -6,10 +6,12 @@
 
 use crate::reclaim::{DequeReclaimPolicy, DequeReclaimState, QuiescentReclaim, SharedEpochReclaim};
 use std::{
+    alloc::Layout,
     cell::UnsafeCell,
     marker::PhantomData,
     mem::MaybeUninit,
     ptr,
+    ptr::NonNull,
     sync::{
         atomic::{AtomicIsize, AtomicPtr, Ordering},
         Mutex,
@@ -27,47 +29,88 @@ pub(crate) struct Array<T> {
     capacity: usize,
     /// Mask for fast modulo operations
     mask: usize,
-    /// The actual storage
-    data: Box<[UnsafeCell<MaybeUninit<T>>]>,
+    /// Raw pointer to the allocated memory block
+    ptr: NonNull<UnsafeCell<MaybeUninit<T>>>,
 }
+
+unsafe impl<T: Send> Send for Array<T> {}
+unsafe impl<T: Sync> Sync for Array<T> {}
 
 impl<T> Array<T> {
     pub(crate) fn new(capacity: usize) -> Self {
         assert!(capacity.is_power_of_two());
-        let mut data = Vec::with_capacity(capacity);
-        for _ in 0..capacity {
-            data.push(UnsafeCell::new(MaybeUninit::uninit()));
+        let layout = Layout::array::<UnsafeCell<MaybeUninit<T>>>(capacity)
+            .expect("Invalid layout for Array");
+        
+        let raw_ptr = unsafe {
+            #[cfg(feature = "mnemosyne")]
+            {
+                use std::alloc::GlobalAlloc;
+                mnemosyne::Mnemosyne.alloc(layout)
+            }
+            #[cfg(not(feature = "mnemosyne"))]
+            {
+                std::alloc::alloc(layout)
+            }
+        };
+
+        if raw_ptr.is_null() {
+            std::alloc::handle_alloc_error(layout);
         }
+
+        let ptr = NonNull::new(raw_ptr as *mut UnsafeCell<MaybeUninit<T>>).unwrap();
 
         Self {
             capacity,
             mask: capacity - 1,
-            data: data.into_boxed_slice(),
+            ptr,
         }
     }
 
     pub(crate) unsafe fn write(&self, index: isize, item: T) {
         let idx = (index as usize) & self.mask;
-        (*self.data[idx].get()).write(item);
+        let cell_ptr = self.ptr.as_ptr().add(idx);
+        (*(*cell_ptr).get()).write(item);
     }
 
     pub(crate) unsafe fn read(&self, index: isize) -> T {
         let idx = (index as usize) & self.mask;
-        (*self.data[idx].get()).assume_init_read()
+        let cell_ptr = self.ptr.as_ptr().add(idx);
+        (*(*cell_ptr).get()).assume_init_read()
     }
 
     pub(crate) unsafe fn copy_slot_to(&self, target: &Self, index: isize) {
         let source_idx = (index as usize) & self.mask;
         let target_idx = (index as usize) & target.mask;
+        let source_cell = self.ptr.as_ptr().add(source_idx);
+        let target_cell = target.ptr.as_ptr().add(target_idx);
         ptr::copy_nonoverlapping(
-            (*self.data[source_idx].get()).as_ptr(),
-            (*target.data[target_idx].get()).as_mut_ptr(),
+            (*(*source_cell).get()).as_ptr(),
+            (*(*target_cell).get()).as_mut_ptr(),
             1,
         );
     }
 
     pub(crate) fn capacity(&self) -> usize {
         self.capacity
+    }
+}
+
+impl<T> Drop for Array<T> {
+    fn drop(&mut self) {
+        let layout = Layout::array::<UnsafeCell<MaybeUninit<T>>>(self.capacity)
+            .expect("Invalid layout for Array");
+        unsafe {
+            #[cfg(feature = "mnemosyne")]
+            {
+                use std::alloc::GlobalAlloc;
+                mnemosyne::Mnemosyne.dealloc(self.ptr.as_ptr() as *mut u8, layout);
+            }
+            #[cfg(not(feature = "mnemosyne"))]
+            {
+                std::alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
+            }
+        }
     }
 }
 
