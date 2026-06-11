@@ -3,7 +3,7 @@
 //! This module implements unified memory structures, object pools, and
 //! zero-copy operations following literature on high-performance concurrency systems.
 
-use std::alloc::{self, Layout};
+use std::alloc::Layout;
 use std::mem::{align_of, size_of, MaybeUninit};
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
@@ -121,7 +121,7 @@ impl CacheAlignedAllocator {
             }
             #[cfg(not(feature = "mnemosyne"))]
             {
-                let ptr = alloc::alloc(layout);
+                let ptr = std::alloc::alloc(layout);
                 NonNull::new(ptr.cast::<T>())
             }
         }
@@ -148,7 +148,7 @@ impl CacheAlignedAllocator {
             }
             #[cfg(not(feature = "mnemosyne"))]
             {
-                alloc::dealloc(ptr.as_ptr().cast::<u8>(), layout);
+                std::alloc::dealloc(ptr.as_ptr().cast::<u8>(), layout);
             }
         }
     }
