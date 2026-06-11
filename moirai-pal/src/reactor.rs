@@ -580,15 +580,31 @@ impl IoReactor {
     where
         F: FnOnce() -> R,
     {
-        let old = ACTIVE_REACTOR.with(|cell| cell.replace(Some(self as *const IoReactor)));
-        let result = f();
-        ACTIVE_REACTOR.with(|cell| cell.replace(old));
-        result
+        #[cfg(nightly_tls_active)]
+        unsafe {
+            let old = ACTIVE_REACTOR_NIGHTLY;
+            ACTIVE_REACTOR_NIGHTLY = Some(self as *const IoReactor);
+            let result = f();
+            ACTIVE_REACTOR_NIGHTLY = old;
+            result
+        }
+        #[cfg(not(nightly_tls_active))]
+        {
+            let old = ACTIVE_REACTOR.with(|cell| cell.replace(Some(self as *const IoReactor)));
+            let result = f();
+            ACTIVE_REACTOR.with(|cell| cell.replace(old));
+            result
+        }
     }
 
     /// Retrieve the active reactor for the current thread, if any.
     pub fn get_active() -> Option<&'static IoReactor> {
-        if let Some(ptr) = ACTIVE_REACTOR.with(|cell| *cell.borrow()) {
+        #[cfg(nightly_tls_active)]
+        let maybe_ptr = unsafe { ACTIVE_REACTOR_NIGHTLY };
+        #[cfg(not(nightly_tls_active))]
+        let maybe_ptr = ACTIVE_REACTOR.with(|cell| *cell.borrow());
+
+        if let Some(ptr) = maybe_ptr {
             return Some(unsafe { &*ptr });
         }
 
@@ -628,6 +644,11 @@ impl IoReactor {
     }
 }
 
+#[cfg(nightly_tls_active)]
+#[thread_local]
+static mut ACTIVE_REACTOR_NIGHTLY: Option<*const IoReactor> = None;
+
+#[cfg(not(nightly_tls_active))]
 thread_local! {
     static ACTIVE_REACTOR: RefCell<Option<*const IoReactor>> = const { RefCell::new(None) };
 }
