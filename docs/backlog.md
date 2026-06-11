@@ -14,6 +14,14 @@ parity and GPU work to fully retire rayon/tokio across the stack:
   0001 — wgpu + CUDA) with the task-stealing scheduler instead of blocking joins, with
   GPU-aware placement so device work participates in the unified runtime. `moirai-gpu`
   either folds into hephaestus or becomes a thin scheduling adapter over it. ADR.
+- [ ] [arch] Stage D2 — warp-aware execution shaping (atlas ADR 0002): warps are
+  scheduled by SM hardware; moirai owns the software-ownable layer. (1) Occupancy
+  planner: themis `GpuTopology` (SM count, warp width, regs/SM, shared/SM) ×
+  mnemosyne `KernelResourceBudget` (regs/thread, shared/block) → grid/block launch
+  shape, replacing hephaestus's fixed 256-wide workgroups; (2) stream/queue
+  co-scheduling with the host work-stealing scheduler; (3) advanced: persistent
+  kernels with device-side work queues for irregular workloads. Encode shapes as
+  typed policies (ZST where static), never magic numbers in kernels.
 - [ ] [patch] Consumer audit: confirm leto/coeus/apollo pull no rayon/tokio even
   transitively; provide drop-in shims where a consumer still reaches for them.
 
