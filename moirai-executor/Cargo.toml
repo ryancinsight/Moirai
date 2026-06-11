@@ -18,6 +18,7 @@ moirai-scheduler = { workspace = true }
 moirai-utils = { workspace = true }
 moirai-pal = { workspace = true }
 mnemosyne = { workspace = true, optional = true }
+melinoe = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 criterion = { workspace = true }

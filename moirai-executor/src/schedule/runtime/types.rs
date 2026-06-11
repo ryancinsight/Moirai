@@ -244,8 +244,33 @@ impl Drop for LifoSlot {
     }
 }
 
+#[cfg(nightly_tls_active)]
+#[thread_local]
+pub(super) static mut CURRENT_WORKER_ID_NIGHTLY: Option<usize> = None;
+
+#[cfg(not(nightly_tls_active))]
 thread_local! {
     pub(super) static CURRENT_WORKER_ID: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+#[inline(always)]
+pub(super) fn get_current_worker_id() -> Option<usize> {
+    #[cfg(nightly_tls_active)]
+    unsafe {
+        CURRENT_WORKER_ID_NIGHTLY
+    }
+    #[cfg(not(nightly_tls_active))]
+    CURRENT_WORKER_ID.with(|cell| cell.get())
+}
+
+#[inline(always)]
+pub(super) fn set_current_worker_id(id: Option<usize>) {
+    #[cfg(nightly_tls_active)]
+    unsafe {
+        CURRENT_WORKER_ID_NIGHTLY = id;
+    }
+    #[cfg(not(nightly_tls_active))]
+    CURRENT_WORKER_ID.with(|cell| cell.set(id));
 }
 
 #[repr(align(64))]

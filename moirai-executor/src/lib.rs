@@ -13,6 +13,7 @@
 #![allow(clippy::needless_borrow)]
 #![allow(clippy::manual_map)]
 #![allow(clippy::type_complexity)]
+#![cfg_attr(nightly_tls_active, feature(thread_local))]
 //! - **Zero-Copy Task Passing**: Minimal overhead task distribution
 //!
 //! ## Design Principles
@@ -115,15 +116,42 @@ impl Default for ExecutorBuilder {
 ///
 /// Panics if the executor cannot be initialized, which should not happen under
 /// normal conditions.
+#[derive(Copy, Clone)]
+struct SendPtr(usize);
+
+unsafe fn melinoe_executor_bridge(
+    num_tasks: usize,
+    task_fn: unsafe fn(usize, *mut ()),
+    data: *mut (),
+) {
+    let data_ptr = SendPtr(data as usize);
+    let res = global().for_each_indexed::<SyncTask, _>(num_tasks, move |index| {
+        let p = data_ptr;
+        // SAFETY: task_fn is called concurrently on separate indices.
+        unsafe {
+            task_fn(index, p.0 as *mut ());
+        }
+    });
+    if let Err(e) = res {
+        panic!(
+            "Moirai executor failure in Melinoe parallel driver: {:?}",
+            e
+        );
+    }
+}
+
 fn global_arc() -> &'static std::sync::Arc<HybridExecutor> {
     static GLOBAL_EXECUTOR: std::sync::OnceLock<std::sync::Arc<HybridExecutor>> =
         std::sync::OnceLock::new();
     GLOBAL_EXECUTOR.get_or_init(|| {
-        std::sync::Arc::new(
+        let exec = std::sync::Arc::new(
             ExecutorBuilder::new()
                 .build()
                 .expect("initialize global Moirai executor"),
-        )
+        );
+        // Register the global parallel executor in melinoe.
+        melinoe::register_parallel_executor(melinoe_executor_bridge);
+        exec
     })
 }
 

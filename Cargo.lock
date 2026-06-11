@@ -1078,7 +1078,12 @@ dependencies = [
 [[package]]
 name = "melinoe"
 version = "0.6.0"
-source = "git+https://github.com/ryancinsight/melinoe.git#cb4e371c38dac53a33bb72c726c98178a6430842"
+source = "git+https://github.com/ryancinsight/melinoe.git?rev=8140882ce58c9e68f70e242f3509133cc53080d9#8140882ce58c9e68f70e242f3509133cc53080d9"
+
+[[package]]
+name = "melinoe"
+version = "0.6.0"
+source = "git+https://github.com/ryancinsight/melinoe.git#8140882ce58c9e68f70e242f3509133cc53080d9"
 
 [[package]]
 name = "memchr"
@@ -1223,7 +1228,7 @@ dependencies = [
  "criterion",
  "fastrand",
  "futures",
- "melinoe",
+ "melinoe 0.6.0 (git+https://github.com/ryancinsight/melinoe.git)",
  "mnemosyne",
  "moirai-async",
  "moirai-core",
@@ -1306,6 +1311,7 @@ name = "moirai-executor"
 version = "0.2.0"
 dependencies = [
  "criterion",
+ "melinoe 0.6.0 (git+https://github.com/ryancinsight/melinoe.git?rev=8140882ce58c9e68f70e242f3509133cc53080d9)",
  "mnemosyne",
  "moirai-core",
  "moirai-pal",
@@ -1392,7 +1398,7 @@ name = "moirai-parallel"
 version = "0.2.0"
 dependencies = [
  "criterion",
- "melinoe",
+ "melinoe 0.6.0 (git+https://github.com/ryancinsight/melinoe.git?rev=8140882ce58c9e68f70e242f3509133cc53080d9)",
  "moirai-executor",
  "rayon",
 ]
@@ -2507,7 +2513,7 @@ name = "themis"
 version = "0.6.0"
 source = "git+https://github.com/ryancinsight/themis#bdcddfe294f941ef2f84fd4ce38537906b0fec23"
 dependencies = [
- "melinoe",
+ "melinoe 0.6.0 (git+https://github.com/ryancinsight/melinoe.git)",
 ]
 
 [[package]]

@@ -22,8 +22,8 @@ use moirai_utils::cache::CacheAligned;
 use super::super::{class::WorkClass, job::ScheduledJob, reduce::inline_reduction_limit};
 
 use super::types::{
-    BoundedContendedWake, SchedulerInner, SchedulerScope, SchedulerScopeState,
-    ScopedTaskCompletion, SharedScopedTaskCompletion, ThreadScheduler, CURRENT_WORKER_ID,
+    get_current_worker_id, BoundedContendedWake, SchedulerInner, SchedulerScope,
+    SchedulerScopeState, ScopedTaskCompletion, SharedScopedTaskCompletion, ThreadScheduler,
 };
 
 use super::worker::{
@@ -366,7 +366,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         );
         let previous_pending = self.inner.pending_tasks.fetch_add(1, Ordering::Release);
 
-        let is_local = CURRENT_WORKER_ID.with(|cell| cell.get() == Some(worker_index));
+        let is_local = get_current_worker_id() == Some(worker_index);
         if is_local {
             if let Some(old_job) = self.inner.workers[worker_index].lifo_slot.push(job) {
                 self.inner.workers[worker_index]

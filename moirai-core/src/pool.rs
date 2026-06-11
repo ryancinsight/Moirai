@@ -458,11 +458,6 @@ impl<T: Default + Send + 'static> GlobalPool<T> {
     ///
     /// This first checks a thread-local cache before falling back to the global pool.
     pub fn get(&self) -> T {
-        // Try thread-local cache first
-        crate::thread_local_static! {
-            static LOCAL_CACHE: UnsafeCell<Vec<*mut u8>> = UnsafeCell::new(Vec::new())
-        }
-
         // Try global pool
         if let Some(obj) = self.global.pop() {
             return obj;

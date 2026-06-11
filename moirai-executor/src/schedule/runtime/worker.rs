@@ -15,7 +15,7 @@ use moirai_pal::reactor::IoReactor;
 
 use super::super::job::ScheduledJob;
 
-use super::types::{ContendedWakePolicy, SchedulerInner, WorkerState, CURRENT_WORKER_ID};
+use super::types::{set_current_worker_id, ContendedWakePolicy, SchedulerInner, WorkerState};
 
 #[cfg(feature = "scheduler-diagnostics")]
 use super::types::BoundedContendedWake;
@@ -27,7 +27,7 @@ pub(super) fn worker_loop<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
     inner: std::sync::Arc<SchedulerInner<QUEUE_CAPACITY>>,
     worker_id: usize,
 ) {
-    CURRENT_WORKER_ID.with(|cell| cell.set(Some(worker_id)));
+    set_current_worker_id(Some(worker_id));
     let _ = inner.workers[worker_id].thread.set(thread::current());
 
     loop {

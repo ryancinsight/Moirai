@@ -1,6 +1,9 @@
 # Moirai Development Checklist
 
 ## Phase 17: Mnemosyne Worker Maintenance Integration ✅
+- [x] Registered Moirai's global scheduler as Melinoe's `std` partition executor via pushed Melinoe commit `8140882`, so branded partition writes route through Moirai workers.
+- [x] Added a value-semantic scheduler test proving Melinoe partition routing writes every branded cell exactly once through the registered Moirai executor.
+- [x] Removed dead thread-local cache declaration from `moirai-core::pool::GlobalPool::get`; the active implementation uses the global pool path.
 - [x] Added `mnemosyne` as an optional `moirai-executor` dependency and default feature.
 - [x] Forwarded the top-level `moirai/mnemosyne` feature into `moirai-executor/mnemosyne`.
 - [x] Routed idle worker-loop maintenance through `mnemosyne::Mnemosyne` defragmentation sweeps using the provider's top-level backend selector.

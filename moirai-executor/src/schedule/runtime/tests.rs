@@ -374,3 +374,30 @@ fn scheduler_scope_completes_registered_jobs_before_resuming_body_panic() {
     assert!(result.is_err());
     assert_eq!(completed.load(Ordering::Relaxed), 8);
 }
+
+#[test]
+fn test_melinoe_partition_routing() {
+    use melinoe::sync::partition_map;
+    use melinoe::{brand_scope, MelinoeCell};
+
+    let _exec = crate::global();
+
+    brand_scope(|token| {
+        let mut cells: Vec<MelinoeCell<'_, usize>> = (0..32).map(|_| MelinoeCell::new(0)).collect();
+
+        let results = partition_map(&mut cells, 4, |start, mut shard| {
+            for (i, cell) in shard.iter_mut().enumerate() {
+                *cell = start + i;
+            }
+            shard.len()
+        });
+
+        assert_eq!(results.len(), 4);
+        assert_eq!(results.iter().sum::<usize>(), 32);
+
+        let snap = token.share();
+        for (i, cell) in cells.iter().enumerate() {
+            assert_eq!(*cell.borrow(snap), i);
+        }
+    });
+}
