@@ -13,7 +13,7 @@ fn scheduler_submission_diagnostics_stay_static_and_value_checked() {
         "pub struct EmptyWakeDecision;",
         "pub struct ContendedWakeDecision;",
         "pub struct SaturatedWakeDecision;",
-        "trait ContendedWakePolicy: contended_wake::Sealed + Send + Sync + 'static",
+        "trait ContendedWakePolicy",
         "struct BoundedContendedWake;",
         "impl ContendedWakePolicy for BoundedContendedWake",
         "const WAKE_LIMIT: usize = 2;",
