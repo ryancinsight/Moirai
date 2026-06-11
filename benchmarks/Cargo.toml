@@ -165,9 +165,10 @@ name = "async_io_compat_comparison"
 harness = false
 
 [features]
-default = ["async", "iter", "local", "mnemosyne"]
+default = ["async", "iter", "parallel", "local", "mnemosyne"]
 async = ["moirai/async"]
 iter = ["moirai/iter"]
+parallel = ["moirai/parallel"]
 local = ["moirai/local"]
 mnemosyne = ["moirai/mnemosyne"]
 full = ["moirai/full", "tokio/full"]
