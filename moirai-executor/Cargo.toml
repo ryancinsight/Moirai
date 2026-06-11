@@ -17,16 +17,18 @@ moirai-core = { workspace = true }
 moirai-scheduler = { workspace = true }
 moirai-utils = { workspace = true }
 moirai-pal = { workspace = true }
+mnemosyne = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = ["std", "metrics", "async"]
+default = ["std", "metrics", "async", "mnemosyne"]
 std = []
 async = []
 numa = []
 metrics = ["moirai-core/metrics"]
 registry-diagnostics = []
 scheduler-diagnostics = []
+mnemosyne = ["dep:mnemosyne"]

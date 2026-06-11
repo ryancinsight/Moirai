@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Routed default `moirai-executor` worker idle maintenance through Mnemosyne when the runtime is waiting for work, so Moirai's default provider stack performs allocator defragmentation sweeps without Rayon/Tokio involvement.
 - Added Apollo-facing public facade contract tests for chunked mutable
   scheduling and non-`Clone` collect-into-existing-storage behavior.
 - Removed the stale duplicate top-level `moirai` `par_benchmarks` target

@@ -40,11 +40,27 @@ pub(super) fn worker_loop<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
             break;
         }
 
+        run_idle_memory_maintenance();
+
         if spin_for_work::<QUEUE_CAPACITY, SPIN_LIMIT>(&inner, worker_id) {
             continue;
         }
 
         wait_for_work(&inner, worker_id);
+    }
+}
+
+#[inline]
+fn run_idle_memory_maintenance() {
+    #[cfg(feature = "mnemosyne")]
+    {
+        use mnemosyne::{LocalAllocatorSelector, MemoryBackendWrapper, StandardPolicy};
+        let _ =
+            <MemoryBackendWrapper as LocalAllocatorSelector<MemoryBackendWrapper>>::with_allocator(
+                |alloc| unsafe {
+                    alloc.periodic_defragmentation_sweep::<StandardPolicy>();
+                },
+            );
     }
 }
 
