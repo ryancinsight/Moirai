@@ -225,8 +225,7 @@ fn map_collect_index_zips_two_slices() {
 fn reduce_index_computes_dot_product() {
     let a: Vec<u64> = (0..50_000).collect();
     let b: Vec<u64> = (0..50_000).map(|x| x * 2).collect();
-    let dot =
-        reduce_index_with::<Adaptive, _, _, _>(a.len(), 0u64, |i| a[i] * b[i], |x, y| x + y);
+    let dot = reduce_index_with::<Adaptive, _, _, _>(a.len(), 0u64, |i| a[i] * b[i], |x, y| x + y);
     let expected: u64 = a.iter().zip(&b).map(|(&x, &y)| x * y).sum();
     assert_eq!(dot, expected);
     // sequential policy agrees
@@ -255,7 +254,8 @@ fn test_par_partition_melinoe() {
     use melinoe::{brand_scope, MelinoeCell};
     let data = vec![0usize; 16];
     brand_scope(|token| {
-        let mut cells: Vec<MelinoeCell<'_, usize>> = data.into_iter().map(MelinoeCell::new).collect();
+        let mut cells: Vec<MelinoeCell<'_, usize>> =
+            data.into_iter().map(MelinoeCell::new).collect();
         super::melinoe_ext::par_partition_for_each(&mut cells, 4, |start, mut shard| {
             for (j, slot) in shard.iter_mut().enumerate() {
                 *slot = start + j;

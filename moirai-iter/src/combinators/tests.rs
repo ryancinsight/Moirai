@@ -19,8 +19,7 @@ fn test_scan() {
 #[test]
 fn test_flat_map() {
     let data = vec![vec![1, 2], vec![3, 4], vec![5]];
-    let flattened: Vec<_> =
-        CombinatorExt::flat_map(data.into_iter(), |v| v.into_iter()).collect();
+    let flattened: Vec<_> = CombinatorExt::flat_map(data.into_iter(), |v| v.into_iter()).collect();
     assert_eq!(flattened, vec![1, 2, 3, 4, 5]);
 }
 

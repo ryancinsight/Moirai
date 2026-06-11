@@ -2,14 +2,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use moirai_core::Priority;
 
-use crate::schedule::{ThreadScheduler, WorkClass};
 use crate::schedule::job::ScheduledJob;
 use crate::schedule::queue::WorkerQueues;
-use crate::schedule::runtime::worker::{
-    execute_job, next_job, diagnostic_publish_work_available, wake_worker,
-    JOIN_FAST_SPIN_ATTEMPTS, is_quiescent,
-};
 use crate::schedule::runtime::types::DiagnosticWakeDecision;
+use crate::schedule::runtime::worker::{
+    diagnostic_publish_work_available, execute_job, is_quiescent, next_job, wake_worker,
+    JOIN_FAST_SPIN_ATTEMPTS,
+};
+use crate::schedule::{ThreadScheduler, WorkClass};
 
 impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>

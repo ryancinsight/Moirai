@@ -17,6 +17,7 @@ moirai-executor = { workspace = true }
 melinoe = { workspace = true, optional = true }
 
 [features]
+default = ["melinoe"]
 melinoe = ["dep:melinoe"]
 
 [dev-dependencies]

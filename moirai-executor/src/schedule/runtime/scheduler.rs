@@ -1,8 +1,8 @@
 //! `ThreadScheduler` and `SchedulerScope` impl blocks.
 
 use std::{
-    mem,
     marker::PhantomData,
+    mem,
     panic::{catch_unwind, AssertUnwindSafe},
     ptr::NonNull,
     sync::{
@@ -19,21 +19,16 @@ use moirai_core::{
 
 use moirai_utils::cache::CacheAligned;
 
-use super::super::{
-    class::WorkClass,
-    job::ScheduledJob,
-    reduce::inline_reduction_limit,
-};
+use super::super::{class::WorkClass, job::ScheduledJob, reduce::inline_reduction_limit};
 
 use super::types::{
     BoundedContendedWake, SchedulerInner, SchedulerScope, SchedulerScopeState,
-    SharedScopedTaskCompletion, ScopedTaskCompletion, ThreadScheduler, CURRENT_WORKER_ID,
+    ScopedTaskCompletion, SharedScopedTaskCompletion, ThreadScheduler, CURRENT_WORKER_ID,
 };
 
 use super::worker::{
-    indexed_chunk_count, indexed_reduce_chunk_count, inline_map_reduce, is_quiescent,
-    lock_mutex, map_reduce_range, priority_weight,
-    wake_all_workers, wake_contended_workers, wake_worker,
+    indexed_chunk_count, indexed_reduce_chunk_count, inline_map_reduce, is_quiescent, lock_mutex,
+    map_reduce_range, priority_weight, wake_all_workers, wake_contended_workers, wake_worker,
     JOIN_FAST_SPIN_ATTEMPTS,
 };
 

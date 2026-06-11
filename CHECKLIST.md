@@ -1,5 +1,12 @@
 # Moirai Development Checklist
 
+## Phase 16: Default Parallel Branding Integration ✅
+- [x] Enabled `moirai-parallel` Mellinoe integration by default so the parallel crate exposes branded partitioning without opt-in feature plumbing.
+- [x] Added `melinoe` to the `moirai` facade default feature set alongside existing `parallel` and `mnemosyne` defaults.
+- [x] Replaced serial async iterator map/filter/for_each execution with bounded concurrent polling while preserving ordered map/filter results.
+- [x] Verification: `cargo fmt --check`; `cargo test -p moirai-iter execution::tests::async_context --locked`; `cargo test -p moirai-parallel -p moirai --locked`; `cargo clippy -p moirai-iter -p moirai-parallel -p moirai --all-targets -- -D warnings`; `cargo test --locked --workspace --examples`.
+- Evidence: value-semantic async ordering tests, Mellinoe partitioning tests under default features, clippy diagnostics, and workspace example execution.
+
 ## Phase 15: Code Quality & Design Principles Enforcement ✅
 - [x] **MAJOR**: Fixed clippy errors (match_same_arms, manual_let_else) for clean builds
 - [x] **MAJOR**: Implemented underscored parameters (priority/locality hints in HybridExecutor)

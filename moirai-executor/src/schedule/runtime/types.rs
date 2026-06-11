@@ -15,11 +15,7 @@ use moirai_core::Priority;
 
 use moirai_utils::cache::CacheAligned;
 
-use super::super::{
-    class::WorkClass,
-    job::ScheduledJob,
-    queue::WorkerQueues,
-};
+use super::super::{class::WorkClass, job::ScheduledJob, queue::WorkerQueues};
 
 /// Point-in-time scheduler metrics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +41,9 @@ pub(super) mod contended_wake {
     pub trait Sealed {}
 }
 
-pub(super) trait ContendedWakePolicy: contended_wake::Sealed + Send + Sync + 'static {
+pub(super) trait ContendedWakePolicy:
+    contended_wake::Sealed + Send + Sync + 'static
+{
     const WAKE_LIMIT: usize;
 }
 

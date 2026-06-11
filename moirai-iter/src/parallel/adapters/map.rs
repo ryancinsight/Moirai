@@ -1,10 +1,8 @@
-use super::super::{
-    fallible, Consumer, MapConsumer, ParallelIterator, TryStreamItem, VecParIter,
-};
+use super::super::{fallible, Consumer, MapConsumer, ParallelIterator, TryStreamItem, VecParIter};
 use super::chunks::Chunks;
 use super::pair::Interleave;
-use super::stride::StepBy;
 use super::ref_ops::Enumerate;
+use super::stride::StepBy;
 
 /// Map adapter for parallel iterators.
 pub struct Map<I, F> {

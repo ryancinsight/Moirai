@@ -1,9 +1,9 @@
 //! Parallel partitioning drivers for branded Melinoe cell slices.
 
+use super::DisjointMutPtr;
 use melinoe::cell::MelinoeCell;
 use melinoe::region::WriterShard;
 use moirai_executor::{global, SyncTask};
-use super::DisjointMutPtr;
 
 /// Split `cells` into disjoint shards of `chunk_size` and run `f` on each in parallel.
 ///
@@ -33,9 +33,8 @@ pub fn par_partition_for_each<'brand, T, F>(
             let end = (start + chunk_size).min(n);
             // SAFETY: chunks [start, end) for distinct c are pairwise disjoint
             // within the slice, and each is visited exactly once.
-            let chunk_ref = unsafe {
-                core::slice::from_raw_parts_mut(base.base().add(start), end - start)
-            };
+            let chunk_ref =
+                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
             let shard = WriterShard::new(chunk_ref);
             f(start, shard);
         })

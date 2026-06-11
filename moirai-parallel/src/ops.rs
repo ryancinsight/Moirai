@@ -1,6 +1,6 @@
+use super::DisjointMutPtr;
 use crate::policy::{ExecutionPolicy, Parallel};
 use moirai_executor::{global, SyncTask};
-use super::DisjointMutPtr;
 
 /// Apply `f` to every element of `data`, scheduled by policy `P`.
 pub fn for_each_with<P, T, F>(data: &[T], f: F)

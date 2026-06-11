@@ -1,6 +1,6 @@
-use super::super::{Consumer, ParallelIterator, FilterConsumer, VecParIter, VecRefParIter};
-use super::map::Map;
+use super::super::{Consumer, FilterConsumer, ParallelIterator, VecParIter, VecRefParIter};
 use super::flat::Flatten;
+use super::map::Map;
 use super::pair::ZipEq;
 use super::ref_ops::Copied;
 

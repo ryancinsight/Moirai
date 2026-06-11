@@ -15,10 +15,7 @@ use moirai_pal::reactor::IoReactor;
 
 use super::super::job::ScheduledJob;
 
-use super::types::{
-    ContendedWakePolicy, SchedulerInner, WorkerState,
-    CURRENT_WORKER_ID,
-};
+use super::types::{ContendedWakePolicy, SchedulerInner, WorkerState, CURRENT_WORKER_ID};
 
 #[cfg(feature = "scheduler-diagnostics")]
 use super::types::BoundedContendedWake;

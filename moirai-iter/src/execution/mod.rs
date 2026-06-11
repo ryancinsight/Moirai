@@ -9,6 +9,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::base::ThreadPool;
+use futures::StreamExt;
+
+const DEFAULT_ASYNC_CONCURRENCY: usize = 1024;
 
 /// Base trait for all execution contexts
 pub trait ExecutionBase: Send + Sync {
@@ -97,11 +100,16 @@ impl ExecutionContext {
         Fut: std::future::Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        let mut results = Vec::with_capacity(items.len());
-        for item in items {
-            let result = func(item).await;
-            results.push(result);
-        }
+        let concurrency = self.async_concurrency_limit();
+        let func = Arc::new(func);
+        let results = futures::stream::iter(items)
+            .map(|item| {
+                let func = Arc::clone(&func);
+                async move { func(item).await }
+            })
+            .buffered(concurrency)
+            .collect::<Vec<_>>()
+            .await;
         Ok(results)
     }
 
@@ -116,12 +124,20 @@ impl ExecutionContext {
         F: Fn(&T) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = bool> + Send + 'static,
     {
-        let mut results = Vec::new();
-        for item in items {
-            if predicate(&item).await {
-                results.push(item);
-            }
-        }
+        let concurrency = self.async_concurrency_limit();
+        let predicate = Arc::new(predicate);
+        let results = futures::stream::iter(items)
+            .map(|item| {
+                let predicate = Arc::clone(&predicate);
+                async move {
+                    let keep = predicate(&item).await;
+                    (keep, item)
+                }
+            })
+            .buffered(concurrency)
+            .filter_map(|(keep, item)| async move { keep.then_some(item) })
+            .collect::<Vec<_>>()
+            .await;
         Ok(results)
     }
 
@@ -136,9 +152,16 @@ impl ExecutionContext {
         F: Fn(T) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
-        for item in items {
-            func(item).await;
-        }
+        let concurrency = self.async_concurrency_limit();
+        let func = Arc::new(func);
+        futures::stream::iter(items)
+            .map(|item| {
+                let func = Arc::clone(&func);
+                async move { func(item).await }
+            })
+            .buffer_unordered(concurrency)
+            .collect::<Vec<_>>()
+            .await;
         Ok(())
     }
 
@@ -163,6 +186,17 @@ impl ExecutionContext {
             ExecutionContext::Hybrid(ctx) => ctx.context_type(),
             ExecutionContext::Distributed(_) => "Distributed",
             ExecutionContext::MultiSystem(_) => "MultiSystem",
+        }
+    }
+
+    fn async_concurrency_limit(&self) -> usize {
+        match self {
+            ExecutionContext::Async(ctx) => ctx.max_concurrent,
+            ExecutionContext::Hybrid(ctx) => ctx.async_context.max_concurrent,
+            _ => std::thread::available_parallelism()
+                .map(|available| available.get())
+                .unwrap_or(DEFAULT_ASYNC_CONCURRENCY)
+                .max(1),
         }
     }
 }
@@ -601,7 +635,8 @@ fn owned_chunks<T>(items: Vec<T>, chunk_size: usize) -> Vec<Vec<T>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{owned_chunks, AsyncContext, ParallelContext};
+    use super::{owned_chunks, AsyncContext, ExecutionContext, ParallelContext};
+    use std::time::{Duration, Instant};
 
     #[derive(Debug, PartialEq)]
     struct NonClone(u64);
@@ -638,5 +673,43 @@ mod tests {
             .expect("async context map should consume non-clone items");
 
         assert_eq!(mapped, vec![1, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    async fn async_context_map_runs_bounded_concurrently_and_preserves_order() {
+        let context = ExecutionContext::Async(AsyncContext::new().with_max_concurrent(4));
+        let start = Instant::now();
+
+        let mapped = context
+            .execute_async_iter((0..8).collect::<Vec<_>>(), |value| async move {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                value * 2
+            })
+            .await
+            .expect("async map should complete");
+
+        assert_eq!(mapped, vec![0, 2, 4, 6, 8, 10, 12, 14]);
+        assert!(
+            start.elapsed() < Duration::from_millis(120),
+            "bounded concurrent map should not serialize all sleeps"
+        );
+    }
+
+    #[tokio::test]
+    async fn async_context_filter_runs_bounded_concurrently_and_preserves_order() {
+        let context = ExecutionContext::Async(AsyncContext::new().with_max_concurrent(4));
+
+        let filtered = context
+            .execute_async_filter((0..8).collect::<Vec<_>>(), |value| {
+                let value = *value;
+                async move {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                    value % 2 == 0
+                }
+            })
+            .await
+            .expect("async filter should complete");
+
+        assert_eq!(filtered, vec![0, 2, 4, 6]);
     }
 }

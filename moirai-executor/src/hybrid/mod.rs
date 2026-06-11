@@ -28,8 +28,8 @@ use crate::{
     metrics::ExecutorMetrics,
     registry::{TaskLifecycleToken, TaskRegistry},
     schedule::{
-        wake::block_on_current_thread, BlockingTask, SchedulerScope, SyncTask,
-        ThreadScheduler, WorkClass,
+        wake::block_on_current_thread, BlockingTask, SchedulerScope, SyncTask, ThreadScheduler,
+        WorkClass,
     },
 };
 

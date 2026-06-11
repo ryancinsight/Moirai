@@ -1,13 +1,13 @@
 //! Extension trait adding combinator methods to iterators.
 
-use super::scan::Scan;
+use super::cycle::Cycle;
 use super::flat_map::FlatMap;
 use super::inspect::Inspect;
 use super::peekable::Peekable;
+use super::scan::Scan;
 use super::skip::Skip;
 use super::skip_while::SkipWhile;
 use super::step_by::StepBy;
-use super::cycle::Cycle;
 
 /// Extension trait adding combinator methods to iterators
 pub trait CombinatorExt: Iterator + Sized {

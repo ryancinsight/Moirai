@@ -74,4 +74,3 @@ impl<const N: usize> ExecutionPolicy for AdaptiveWithThreshold<N> {
         len >= N
     }
 }
-
