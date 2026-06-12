@@ -58,7 +58,9 @@ fn process_route_sequence(
         .find_map(
             |sequence| match router.select::<AsyncTask>(Priority::High, sequence) {
                 SchedulerRoute::Process(route) => Some((sequence, route.process)),
-                SchedulerRoute::Thread(_) | SchedulerRoute::Server(_) => None,
+                SchedulerRoute::Thread(_)
+                | SchedulerRoute::Server(_)
+                | SchedulerRoute::Accelerator(_) => None,
             },
         )
         .expect("test topology must produce a process route")

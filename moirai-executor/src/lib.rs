@@ -38,6 +38,7 @@ pub use hybrid::HybridExecutor;
 pub use metrics::ExecutorMetrics;
 pub use registry::TaskRegistry;
 pub use schedule::{
+    AcceleratorCounts, AcceleratorId, AcceleratorKind, AcceleratorRoute, AcceleratorRoutePolicy,
     AsyncLaneId, AsyncLanesPerProcess, AsyncTask, BlockingTask, HybridRoutePolicy, HybridRouter,
     ProcessCount, ProcessId, ProcessRoute, RoutePolicy, RouteSummary, RouteTopology,
     ScheduleMetrics, SchedulerRoute, SchedulerScope, ServerCount, ServerId, ServerRoute,

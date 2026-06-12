@@ -282,7 +282,27 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
 fn process_server_scheduler_routing_uses_static_route_policy() {
     let class_source = read_benchmark("../moirai-executor/src/schedule/class/mod.rs");
     let schedule_source = read_benchmark("../moirai-executor/src/schedule/mod.rs");
-    let route_source = read_benchmark("../moirai-executor/src/schedule/route/mod.rs");
+    let route_mod_source = read_benchmark("../moirai-executor/src/schedule/route/mod.rs");
+    let route_policy_source = read_benchmark("../moirai-executor/src/schedule/route/policy.rs");
+    let route_ids_source = read_benchmark("../moirai-executor/src/schedule/route/ids.rs");
+    let route_topology_source =
+        read_benchmark("../moirai-executor/src/schedule/route/topology.rs");
+    let route_decision_source =
+        read_benchmark("../moirai-executor/src/schedule/route/decision.rs");
+    let route_summary_source = read_benchmark("../moirai-executor/src/schedule/route/summary.rs");
+    let route_router_source = read_benchmark("../moirai-executor/src/schedule/route/router.rs");
+    let route_tests_source = read_benchmark("../moirai-executor/src/schedule/route/tests.rs");
+    let route_source = [
+        route_mod_source.as_str(),
+        route_policy_source.as_str(),
+        route_ids_source.as_str(),
+        route_topology_source.as_str(),
+        route_decision_source.as_str(),
+        route_summary_source.as_str(),
+        route_router_source.as_str(),
+        route_tests_source.as_str(),
+    ]
+    .join("\n");
     let benchmark_source = read_benchmark("benches/process_server_scheduler_routing.rs");
     let manifest = read_benchmark("Cargo.toml");
     let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
@@ -304,9 +324,12 @@ fn process_server_scheduler_routing_uses_static_route_policy() {
         "HybridRoutePolicy",
         "ServerRoutePolicy",
         "ThreadRoutePolicy",
+        "AcceleratorRoutePolicy",
         "RouteTopology",
         "SchedulerRoute",
         "AsyncLaneId",
+        "AcceleratorKind",
+        "AcceleratorCounts",
     ] {
         assert!(
             schedule_source.contains(required),
@@ -321,15 +344,27 @@ fn process_server_scheduler_routing_uses_static_route_policy() {
         "pub struct ThreadRoutePolicy;",
         "pub struct HybridRoutePolicy;",
         "pub struct ServerRoutePolicy;",
+        "pub struct AcceleratorRoutePolicy;",
+        "const ENABLE_ACCELERATOR_ROUTES: bool;",
+        "const ACCELERATOR_PERIOD: usize;",
         "pub struct RouteTopology",
         "pub enum SchedulerRoute",
         "pub struct ProcessRoute",
         "pub struct ServerRoute",
         "pub struct AsyncLaneId",
+        "pub struct AcceleratorId",
+        "pub enum AcceleratorKind",
+        "pub struct AcceleratorCounts",
+        "pub struct AcceleratorRoute",
+        "SchedulerRoute::Accelerator",
+        "with_accelerators",
         "C::USES_ASYNC_LANE",
         "pub fn summarize<C: WorkClass>",
         "route_policies_are_zero_sized",
+        "accelerator_policy_routes_metadata_across_device_kinds",
+        "async_accelerator_metadata_retains_async_lane",
         "core::mem::size_of::<HybridRoutePolicy>()",
+        "core::mem::size_of::<AcceleratorRoutePolicy>()",
     ] {
         assert!(
             route_source.contains(required),
@@ -338,13 +373,33 @@ fn process_server_scheduler_routing_uses_static_route_policy() {
     }
 
     for required in [
+        "mod decision;",
+        "mod ids;",
+        "mod policy;",
+        "mod router;",
+        "mod summary;",
+        "mod topology;",
+        "pub use router::HybridRouter;",
+    ] {
+        assert!(
+            route_mod_source.contains(required),
+            "route module hierarchy must retain {required}"
+        );
+    }
+
+    for required in [
         "scheduler_route_thread_process_server_summary",
         "scheduler_route_async_process_lanes",
+        "scheduler_route_accelerator_metadata_summary",
         "scheduler_route_policy_overhead",
         "assert_eq!(observed, expected)",
         "expected_summary::<C, P>",
         "HybridRouter::<HybridRoutePolicy>",
         "HybridRouter::<ServerRoutePolicy>",
+        "HybridRouter::<AcceleratorRoutePolicy>",
+        "AcceleratorCounts::new",
+        "sync_accelerator_metadata",
+        "async_accelerator_metadata",
         "sample_size",
         "measurement_time",
         "warm_up_time",
@@ -362,8 +417,10 @@ fn process_server_scheduler_routing_uses_static_route_policy() {
 
     for required in [
         "Process/server route topology",
+        "Accelerator route metadata",
         "process_server_scheduler_routing",
         "HybridRouter",
+        "AcceleratorRoutePolicy",
         "arbitrary-closure rejection at the transport capability boundary",
         "allocator-region handoff for owned payload bytes",
         "routed execution benchmark coverage",

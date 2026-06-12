@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   source contracts, and a value-checked Rayon comparison benchmark row.
 - Added `parallel_iterator_regression`, a focused multi-size Moirai/Rayon benchmark matrix for parallel iterator map/reduce, zip/filter collect, borrowed positions, borrowed copied reduce, collect-into-existing-storage, nested flatten/reduce, chunked map/reduce, indexed step/interleave, partition/unzip, and position/find paths.
 - Added `moirai_executor::schedule::HybridRouter<P>` with sealed zero-sized route policies and concrete thread/process/server/async-lane route values, plus `process_server_scheduler_routing` for value-checked route-decision benchmarks.
+- Added sealed accelerator route metadata for CPU/GPU/TPU/NPU placement with `AcceleratorRoutePolicy`, `AcceleratorCounts`, `AcceleratorKind`, vertical route leaf modules, and value-checked `scheduler_route_accelerator_metadata_summary` benchmark rows.
 - Added the `moirai-transport/scheduler-routes` feature with route-to-address binding for `SchedulerRoute` values and archived local route send/receive helpers.
 - Added bounded length-prefixed TCP byte transfer for `NetworkTransport` and `TransportManager` remote addresses.
 - Added fixed-format remote task envelopes/results for explicit echo and wrapping-sum request/response execution over remote byte transport.

@@ -15,6 +15,7 @@ pub mod wake;
 
 pub use class::{AsyncTask, BlockingTask, SyncTask, WorkClass};
 pub use route::{
+    AcceleratorCounts, AcceleratorId, AcceleratorKind, AcceleratorRoute, AcceleratorRoutePolicy,
     AsyncLaneId, AsyncLanesPerProcess, HybridRoutePolicy, HybridRouter, ProcessCount, ProcessId,
     ProcessRoute, RoutePolicy, RouteSummary, RouteTopology, SchedulerRoute, ServerCount, ServerId,
     ServerRoute, ServerRoutePolicy, ThreadId, ThreadRoute, ThreadRoutePolicy, WorkerCount,

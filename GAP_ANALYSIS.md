@@ -4,9 +4,11 @@
 
 ### Closed alignment findings
 - `moirai-executor::schedule::route` is the current routing SSOT for thread,
-  process, server, and per-process async-lane placement. Evidence tier:
-  type-level/source audit, backed by value-checked `process_server_scheduler_routing`
-  benchmark contracts.
+  process, server, accelerator metadata, and per-process async-lane placement.
+  Its implementation is split into vertical `policy`, `ids`, `topology`,
+  `decision`, `summary`, and `router` leaves. Evidence tier: type-level/source
+  audit, backed by value-checked `process_server_scheduler_routing` benchmark
+  contracts.
 - `moirai-transport` consumes route metadata through the `scheduler-routes`
   feature and binds server/process routes to bounded fixed-format remote task
   execution. Evidence tier: value-semantic tests and Criterion benchmarks for
@@ -18,6 +20,14 @@
   topology-aware launch-shape and resident-block planning. Evidence tier:
   type-level API plus value-semantic tests over themis topology and Mnemosyne
   kernel resource budgets.
+- `moirai-executor::schedule::route` now includes accelerator route metadata:
+  `AcceleratorRoutePolicy`, `AcceleratorCounts`, `AcceleratorKind`, and
+  `SchedulerRoute::Accelerator` cover CPU/GPU/TPU/NPU placement metadata through
+  sealed ZST policy dispatch. The route module has been split into cohesive
+  leaf files to keep policy, ID/topology, route-decision, summary, and router
+  concerns separate. Evidence tier: type-level/source audit, value-semantic
+  route tests, benchmark contracts, and value-checked
+  `scheduler_route_accelerator_metadata_summary` Criterion rows.
 
 ### Open alignment findings
 - [x] README architecture drift: the public README still framed Moirai mostly as
@@ -25,17 +35,17 @@
   tied to current executable evidence. Resolved in this documentation pass by
   describing Moirai as a unified scheduler/router and by limiting performance
   statements to current benchmark surfaces.
-- [ ] [arch] Accelerator routing gap: `SchedulerRoute` has no typed CPU/GPU/TPU/NPU
-  placement dimension yet. The implemented GPU slice plans launch occupancy but
-  does not participate in `HybridRouter<P>` route decisions or scheduler
-  co-scheduling. Next increment: add a sealed, zero-sized accelerator route
-  policy and value-checked route-summary benchmarks before binding any GPU
-  execution backend.
+- [x] [arch] Accelerator route metadata: `SchedulerRoute` now has typed
+  CPU/GPU/TPU/NPU placement metadata. This is not backend execution; it is the
+  route-decision layer required before GPU/TPU/NPU co-scheduling.
 - [ ] [arch] Device-memory ownership gap: `TransportPayload<R>` distinguishes
   thread/process/server payload regions, but no sealed device/accelerator memory
   region exists for GPU/TPU/NPU handoff. Next increment must keep Mnemosyne-owned
   bytes as the SSOT and reject cross-device pointer transfer unless a backend
   proves the handle semantics.
+- [ ] [arch] Accelerator backend consumption gap: no GPU/TPU/NPU backend consumes
+  `SchedulerRoute::Accelerator` yet. The existing GPU slice plans occupancy only;
+  co-scheduling requires a backend adapter with value and benchmark evidence.
 - [ ] [arch] Public facade gap: process/server route execution is available in
   lower crates through fixed-format capabilities, while the top-level `Moirai`
   facade intentionally does not expose arbitrary remote closure execution. A

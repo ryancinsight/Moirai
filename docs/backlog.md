@@ -21,10 +21,10 @@ architecture definition.
   sealed ZST policies, bounded server/process fixed-format execution, and
   Mnemosyne-owned byte handoff. Remaining: public facade admission for fixed
   capabilities only; arbitrary closure remoting remains rejected.
-- [ ] [arch] Stage D: accelerator route topology. Add CPU/GPU/TPU/NPU placement
+- [x] [arch] Stage D: accelerator route topology. Added CPU/GPU/TPU/NPU placement
   metadata to the scheduler route model with sealed ZST policies, value-checked
   route-summary benchmarks, and benchmark-contract guards before any backend
-  execution claim. The first implementation must not fabricate device execution.
+  execution claim. This is metadata only; no device execution is claimed.
 - [ ] [arch] Stage E: co-schedule GPU compute (the `hephaestus` substrate — atlas ADR
   0001 — wgpu + CUDA) with the task-stealing scheduler instead of blocking joins, with
   GPU-aware placement so device work participates in the unified runtime. `moirai-gpu`
@@ -49,7 +49,7 @@ architecture definition.
 **Project**: Moirai Concurrency Library
 **Version**: 0.2.0
 **Last Updated**: 2026-06-12
-**Status**: Unified scheduler implemented for local CPU worker threads, sync/blocking/async-ready work classes, process-route metadata, server-route metadata, per-process async lanes, bounded fixed-format process/server execution, and Mnemosyne-owned archive-byte handoff. Scoped scheduler batches, indexed map/reduce, mixed async/sync/parallel workloads, process/server route summaries, routed process/server execution, parallel iterator regression rows, and public result handles have value-checked benchmark coverage against accepted Tokio/Rayon references. Accelerator routing is the active architectural gap: GPU occupancy planning exists, but GPU/TPU/NPU placement is not yet part of `SchedulerRoute` and must not be claimed as scheduler co-execution until route metadata, memory-region ownership, backend consumption, and benchmarks are implemented.
+**Status**: Unified scheduler implemented for local CPU worker threads, sync/blocking/async-ready work classes, process-route metadata, server-route metadata, per-process async lanes, accelerator route metadata, bounded fixed-format process/server execution, and Mnemosyne-owned archive-byte handoff. Scoped scheduler batches, indexed map/reduce, mixed async/sync/parallel workloads, process/server route summaries, accelerator route summaries, routed process/server execution, parallel iterator regression rows, and public result handles have value-checked benchmark coverage against accepted Tokio/Rayon references. Accelerator backend execution remains open: GPU occupancy planning exists and CPU/GPU/TPU/NPU metadata is now part of `SchedulerRoute`, but no GPU/TPU/NPU backend consumes that route until device-memory ownership, backend consumption, and benchmarks are implemented.
 
 
 ---
@@ -67,19 +67,26 @@ architecture definition.
 
 ### Priority P0
 
-#### ⏳ ISSUE-199 [arch]: Add accelerator route topology without execution fabrication
+#### ✅ ISSUE-199 [arch]: Add accelerator route topology without execution fabrication
 - **Type**: Scheduler Architecture / Accelerator Placement
 - **Root Cause**: Moirai's stated scheduler target includes CPU, GPU, TPU, and NPU
   placement, but `SchedulerRoute` currently models thread, process, server, and
   async-lane placement only. `moirai-gpu::occupancy` plans launch shapes, but
   accelerator work does not yet participate in `HybridRouter<P>`.
-- **Required Boundary**: Add sealed ZST accelerator route policies, transparent
-  accelerator/device identifiers, and a route-summary benchmark that proves CPU,
-  GPU, TPU, and NPU metadata decisions without claiming backend execution.
-- **Evidence Plan**: Type-level route API, source contracts rejecting `dyn`
-  route policies and placeholder dispatch, and value-checked Criterion rows over
-  deterministic route summaries.
-- **Status**: Open.
+- **Resolution**: Added `AcceleratorRoutePolicy`, `AcceleratorCounts`,
+  `AcceleratorId`, `AcceleratorKind::{Cpu,Gpu,Tpu,Npu}`, and
+  `SchedulerRoute::Accelerator` to the static route model. Accelerator routes
+  include coordinator process/thread/async-lane metadata and do not execute a
+  device backend. Split `moirai-executor::schedule::route` into vertical
+  `policy`, `ids`, `topology`, `decision`, `summary`, and `router` leaves.
+- **Evidence**: Route unit tests assert exact accelerator metadata distribution
+  and async-lane retention. `process_server_scheduler_routing` adds
+  `scheduler_route_accelerator_metadata_summary` rows with independent
+  expected-summary equality before timing. Benchmark contracts require the ZST
+  policy, route variant, device-kind metadata, and benchmark rows while rejecting
+  dynamic route policy dispatch and fabricated execution paths.
+- **Verification**: `cargo fmt -p moirai-executor -p moirai-transport -p moirai-benchmarks --check`; `cargo nextest run -p moirai-executor --all-features route`; `cargo nextest run -p moirai-transport --all-features route`; `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`; `cargo clippy -p moirai-executor -p moirai-transport -p moirai-benchmarks --all-targets --all-features -- -D warnings`; `cargo doc -p moirai-executor -p moirai-transport --all-features --no-deps` with `RUSTDOCFLAGS=-D warnings`; `cargo bench -p moirai-benchmarks --bench process_server_scheduler_routing -- --quick --quiet`; full final gate listed in the micro-sprint summary.
+- **Status**: Completed 2026-06-12.
 
 #### ⏳ ISSUE-200 [arch]: Extend Mnemosyne ownership regions for device handoff
 - **Type**: Memory Architecture / Accelerator Ownership

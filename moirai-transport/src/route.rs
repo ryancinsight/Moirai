@@ -136,6 +136,12 @@ impl RouteAddressBook {
                 route.thread,
                 route.async_lane.map(|lane| lane.get()),
             )),
+            SchedulerRoute::Accelerator(route) => Address::Local(local_address(
+                self.namespace.as_str(),
+                route.process,
+                route.thread,
+                route.async_lane.map(|lane| lane.get()),
+            )),
             SchedulerRoute::Server(route) => self
                 .servers
                 .iter()
@@ -253,6 +259,7 @@ where
         SchedulerRoute::Thread(_) => payload.into_bytes(),
         SchedulerRoute::Process(_) => payload.handoff::<ProcessPayloadRegion>().into_bytes(),
         SchedulerRoute::Server(_) => payload.handoff::<ServerPayloadRegion>().into_bytes(),
+        SchedulerRoute::Accelerator(_) => payload.into_bytes(),
     })
 }
 

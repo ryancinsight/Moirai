@@ -1,9 +1,9 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_core::Priority;
 use moirai_executor::schedule::{
-    AsyncLanesPerProcess, AsyncTask, BlockingTask, HybridRoutePolicy, HybridRouter, ProcessCount,
-    RoutePolicy, RouteSummary, RouteTopology, ServerCount, ServerRoutePolicy, SyncTask, WorkClass,
-    WorkerCount,
+    AcceleratorCounts, AcceleratorKind, AcceleratorRoutePolicy, AsyncLanesPerProcess, AsyncTask,
+    BlockingTask, HybridRoutePolicy, HybridRouter, ProcessCount, RoutePolicy, RouteSummary,
+    RouteTopology, ServerCount, ServerRoutePolicy, SyncTask, WorkClass, WorkerCount,
 };
 use std::time::Duration;
 
@@ -14,6 +14,7 @@ fn route_topology() -> RouteTopology {
         AsyncLanesPerProcess::new(3),
         ServerCount::new(2),
     )
+    .with_accelerators(AcceleratorCounts::new(2, 3, 1, 1))
 }
 
 fn priority_weight(priority: Priority) -> usize {
@@ -42,6 +43,34 @@ fn route_checksum(
         .wrapping_add(async_lane.map_or(0, |lane| lane.wrapping_add(1)))
 }
 
+fn accelerator_target(
+    accelerators: AcceleratorCounts,
+    accelerator_sequence: usize,
+) -> (AcceleratorKind, usize) {
+    let target = accelerator_sequence % accelerators.total();
+    if target < accelerators.cpu() {
+        return (AcceleratorKind::Cpu, target);
+    }
+    let target = target - accelerators.cpu();
+    if target < accelerators.gpu() {
+        return (AcceleratorKind::Gpu, target);
+    }
+    let target = target - accelerators.gpu();
+    if target < accelerators.tpu() {
+        return (AcceleratorKind::Tpu, target);
+    }
+    (AcceleratorKind::Npu, target - accelerators.tpu())
+}
+
+fn accelerator_tag(kind: AcceleratorKind) -> usize {
+    match kind {
+        AcceleratorKind::Cpu => 1,
+        AcceleratorKind::Gpu => 2,
+        AcceleratorKind::Tpu => 3,
+        AcceleratorKind::Npu => 4,
+    }
+}
+
 fn expected_summary<C, P>(topology: RouteTopology, priority: Priority, count: usize) -> RouteSummary
 where
     C: WorkClass,
@@ -66,7 +95,34 @@ where
             None
         };
 
-        if P::ENABLE_SERVER_ROUTES
+        if P::ENABLE_ACCELERATOR_ROUTES
+            && topology.accelerators().total() != 0
+            && route_key % P::ACCELERATOR_PERIOD.max(1) == 0
+        {
+            let accelerator_sequence = route_key / P::ACCELERATOR_PERIOD.max(1);
+            let (kind, accelerator) =
+                accelerator_target(topology.accelerators(), accelerator_sequence);
+            summary.accelerator_routes += 1;
+            if async_lane.is_some() {
+                summary.async_lane_routes += 1;
+            }
+            match kind {
+                AcceleratorKind::Cpu => summary.cpu_routes += 1,
+                AcceleratorKind::Gpu => summary.gpu_routes += 1,
+                AcceleratorKind::Tpu => summary.tpu_routes += 1,
+                AcceleratorKind::Npu => summary.npu_routes += 1,
+            }
+            summary.checksum = route_checksum(
+                summary.checksum,
+                4,
+                accelerator_tag(kind)
+                    .wrapping_mul(1_009)
+                    .wrapping_add(accelerator),
+                process,
+                thread,
+                async_lane,
+            );
+        } else if P::ENABLE_SERVER_ROUTES
             && topology.servers().get() != 0
             && route_key % P::SERVER_PERIOD.max(1) == 0
         {
@@ -98,6 +154,54 @@ where
     }
 
     summary
+}
+
+fn benchmark_accelerator_metadata_summary(c: &mut Criterion) {
+    let topology = route_topology();
+    let router = HybridRouter::<AcceleratorRoutePolicy>::new(topology);
+    let mut group = c.benchmark_group("scheduler_route_accelerator_metadata_summary");
+    group.sample_size(20);
+    group.warm_up_time(Duration::from_millis(300));
+    group.measurement_time(Duration::from_secs(1));
+
+    for count in [16_384usize, 65_536] {
+        let sync_observed =
+            verify_summary::<SyncTask, AcceleratorRoutePolicy>(&router, Priority::Normal, count);
+        assert!(sync_observed.accelerator_routes > 0);
+        assert!(sync_observed.cpu_routes > 0);
+        assert!(sync_observed.gpu_routes > 0);
+        assert!(sync_observed.tpu_routes > 0);
+        assert!(sync_observed.npu_routes > 0);
+        assert_eq!(sync_observed.async_lane_routes, 0);
+        assert_eq!(
+            sync_observed.cpu_routes
+                + sync_observed.gpu_routes
+                + sync_observed.tpu_routes
+                + sync_observed.npu_routes,
+            sync_observed.accelerator_routes
+        );
+        group.bench_function(BenchmarkId::new("sync_accelerator_metadata", count), |b| {
+            b.iter(|| {
+                black_box(
+                    router.summarize::<SyncTask>(black_box(Priority::Normal), black_box(count)),
+                )
+            });
+        });
+
+        let async_observed =
+            verify_summary::<AsyncTask, AcceleratorRoutePolicy>(&router, Priority::Critical, count);
+        assert!(async_observed.accelerator_routes > 0);
+        assert_eq!(async_observed.async_lane_routes, count);
+        group.bench_function(BenchmarkId::new("async_accelerator_metadata", count), |b| {
+            b.iter(|| {
+                black_box(
+                    router.summarize::<AsyncTask>(black_box(Priority::Critical), black_box(count)),
+                )
+            });
+        });
+    }
+
+    group.finish();
 }
 
 fn verify_summary<C, P>(router: &HybridRouter<P>, priority: Priority, count: usize) -> RouteSummary
@@ -247,6 +351,7 @@ criterion_group! {
     targets =
         benchmark_thread_process_server_summary,
         benchmark_async_process_lanes,
+        benchmark_accelerator_metadata_summary,
         benchmark_policy_overhead
 }
 criterion_main!(benches);
