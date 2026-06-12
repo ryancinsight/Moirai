@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scheduling and non-`Clone` collect-into-existing-storage behavior.
 - Removed the stale duplicate top-level `moirai` `par_benchmarks` target
   declaration; `moirai-parallel` remains the benchmark owner.
+- Added `moirai_parallel::{join, join_with}` as a Rayon-style two-closure join
+  surface with static `ExecutionPolicy` dispatch, scoped scheduler flush plus
+  caller-lane execution for forced parallel joins, borrowed non-`'static` tests,
+  source contracts, and a value-checked Rayon comparison benchmark row.
 - Added `parallel_iterator_regression`, a focused multi-size Moirai/Rayon benchmark matrix for parallel iterator map/reduce, zip/filter collect, borrowed positions, borrowed copied reduce, collect-into-existing-storage, nested flatten/reduce, chunked map/reduce, indexed step/interleave, partition/unzip, and position/find paths.
 - Added `moirai_executor::schedule::HybridRouter<P>` with sealed zero-sized route policies and concrete thread/process/server/async-lane route values, plus `process_server_scheduler_routing` for value-checked route-decision benchmarks.
 - Added the `moirai-transport/scheduler-routes` feature with route-to-address binding for `SchedulerRoute` values and archived local route send/receive helpers.

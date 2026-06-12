@@ -96,6 +96,62 @@ fn async_executor_handle_uses_inline_result_slot() {
 }
 
 #[test]
+fn parallel_join_uses_static_policy_and_scoped_scheduler() {
+    let source = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-parallel/src/ops.rs"),
+        read_benchmark("../moirai-parallel/src/policy.rs")
+    );
+
+    for required in [
+        "pub fn join_with<P, A, B, RA, RB>",
+        "pub fn join<A, B, RA, RB>",
+        "fn parallelize_pair() -> bool",
+        "impl ExecutionPolicy for Parallel",
+        "scope::<SyncTask",
+        "scope.spawn(|_|",
+        "scope.flush()?",
+        "left_result = Some(left())",
+        "right_result = Some(right())",
+        "join_with::<crate::Adaptive",
+    ] {
+        assert!(
+            source.contains(required),
+            "parallel join must retain static scoped implementation through {required}"
+        );
+    }
+
+    for prohibited in ["dyn ExecutionPolicy", "Box<dyn", "spawn_fn(", "TaskHandle<"] {
+        assert!(
+            !source.contains(prohibited),
+            "parallel join must not route through dynamic dispatch or per-task handles via {prohibited}"
+        );
+    }
+}
+
+#[test]
+fn parallel_join_benchmark_compares_value_checked_rayon_row() {
+    let source = read_benchmark("../moirai-parallel/benches/par_benchmarks.rs");
+
+    for required in [
+        "fn bench_join(c: &mut Criterion)",
+        "join_sum_pair",
+        "closed_form_sum",
+        "rayon::join",
+        "join_with::<Parallel",
+        "assert_eq!(sequential, expected)",
+        "assert_eq!(rayon, expected)",
+        "assert_eq!(moirai, expected)",
+        "BenchmarkId::new(\"moirai\", n)",
+    ] {
+        assert!(
+            source.contains(required),
+            "parallel join benchmark must retain value-checked Rayon comparison through {required}"
+        );
+    }
+}
+
+#[test]
 fn indexed_reduce_uses_worker_plus_caller_lane() {
     let source = read_benchmark("../moirai-executor/src/schedule/runtime/mod.rs");
 

@@ -29,6 +29,12 @@ pub const ADAPTIVE_PARALLEL_THRESHOLD: usize = 1024;
 pub trait ExecutionPolicy: Send + Sync + 'static {
     /// Return `true` if an operation over `len` elements should run in parallel.
     fn parallelize(len: usize) -> bool;
+
+    /// Return `true` if a fixed two-branch operation should run in parallel.
+    #[inline(always)]
+    fn parallelize_pair() -> bool {
+        Self::parallelize(2)
+    }
 }
 
 /// Always run sequentially (single thread, no scheduling).
@@ -53,6 +59,11 @@ impl ExecutionPolicy for Sequential {
 impl ExecutionPolicy for Parallel {
     #[inline(always)]
     fn parallelize(_len: usize) -> bool {
+        true
+    }
+
+    #[inline(always)]
+    fn parallelize_pair() -> bool {
         true
     }
 }

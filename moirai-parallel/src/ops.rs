@@ -2,6 +2,55 @@ use super::DisjointMutPtr;
 use crate::policy::{ExecutionPolicy, Parallel};
 use moirai_executor::{global, SyncTask};
 
+/// Run two closures to completion and return both results.
+///
+/// This is the synchronous Rayon-style `join` shape. The policy is selected at
+/// compile time; [`Sequential`](crate::Sequential) runs both closures on the
+/// caller, [`Parallel`] schedules the left closure on the unified scheduler and
+/// runs the right closure on the caller lane, and [`crate::Adaptive`] currently
+/// stays sequential for a fixed two-branch join.
+pub fn join_with<P, A, B, RA, RB>(left: A, right: B) -> (RA, RB)
+where
+    P: ExecutionPolicy,
+    A: FnOnce() -> RA + Send,
+    B: FnOnce() -> RB,
+    RA: Send,
+{
+    if !P::parallelize_pair() {
+        return (left(), right());
+    }
+
+    let mut left_result = None;
+    let mut right_result = None;
+    global()
+        .scope::<SyncTask, _>(|scope| {
+            scope.spawn(|_| {
+                left_result = Some(left());
+            })?;
+            scope.flush()?;
+            right_result = Some(right());
+            Ok(())
+        })
+        .expect("moirai global executor: join_with");
+
+    (
+        left_result.expect("scoped join left branch must complete"),
+        right_result.expect("scoped join right branch must complete"),
+    )
+}
+
+/// Adaptive Rayon-style two-closure join.
+///
+/// Use [`join_with`] to force a specific execution policy.
+pub fn join<A, B, RA, RB>(left: A, right: B) -> (RA, RB)
+where
+    A: FnOnce() -> RA + Send,
+    B: FnOnce() -> RB,
+    RA: Send,
+{
+    join_with::<crate::Adaptive, _, _, _, _>(left, right)
+}
+
 /// Apply `f` to every element of `data`, scheduled by policy `P`.
 pub fn for_each_with<P, T, F>(data: &[T], f: F)
 where

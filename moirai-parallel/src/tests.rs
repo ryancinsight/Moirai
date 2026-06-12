@@ -53,6 +53,31 @@ fn map_reduce_sums_correctly() {
 }
 
 #[test]
+fn join_returns_both_branch_values() {
+    let left = [1u64, 2, 3, 4];
+    let right = [10u64, 20, 30];
+
+    let (left_sum, right_sum) = join(|| left.iter().sum::<u64>(), || right.iter().sum::<u64>());
+
+    assert_eq!(left_sum, 10);
+    assert_eq!(right_sum, 60);
+}
+
+#[test]
+fn join_with_parallel_accepts_borrowed_non_static_inputs() {
+    let left = [2u64, 4, 6, 8];
+    let right = [3u64, 6, 9];
+
+    let (left_product, right_product) = join_with::<Parallel, _, _, _, _>(
+        || left.iter().copied().product::<u64>(),
+        || right.iter().copied().product::<u64>(),
+    );
+
+    assert_eq!(left_product, 384);
+    assert_eq!(right_product, 162);
+}
+
+#[test]
 fn adaptive_view_and_explicit_policies_agree() {
     let data: Vec<u64> = (0..50_000).collect();
     let expected: u64 = data.iter().sum();

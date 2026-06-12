@@ -580,7 +580,14 @@ where
         Ok(())
     }
 
-    pub(super) fn flush(&self) -> ExecutorResult<()> {
+    /// Schedule all jobs currently buffered in this scope.
+    ///
+    /// `ThreadScheduler::scope` calls this before waiting, so most callers do
+    /// not need to invoke it directly. It is exposed for two-lane fork/join
+    /// shapes where one branch should enter the scheduler before the caller
+    /// executes the second branch locally. The scope still waits for every
+    /// flushed job before returning, so borrowed data cannot escape.
+    pub fn flush(&self) -> ExecutorResult<()> {
         let jobs = mem::take(&mut *self.jobs.borrow_mut());
         if jobs.is_empty() {
             return Ok(());

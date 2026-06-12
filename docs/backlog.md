@@ -6,8 +6,13 @@ moirai is the Atlas parallel+async SSOT, replacing **both rayon (data-parallel /
 and tokio (async)** with one work-stealing scheduler and zero-cost ExecutionPolicy
 dispatch. It is the thread-level **MIMD** counterpart to hermes (SIMD lanes). Remaining
 parity and GPU work to fully retire rayon/tokio across the stack:
-- [ ] [minor] Stage B1 rayon parity: `join(a,b)` divide-and-conquer shorthand, trait-level
-  `scope` ergonomics, ordered comparator/key reducers, streaming `flat_map_iter`.
+- [~] [minor] Stage B1 rayon parity: `join(a,b)` divide-and-conquer shorthand
+  delivered through `moirai_parallel::{join, join_with}` with static
+  `ExecutionPolicy` dispatch, scoped scheduler flush plus caller-lane execution
+  for forced parallel joins, borrowed non-`'static` tests, source contracts, and
+  a value-checked Rayon comparison benchmark row. Remaining: trait-level
+  `scope` ergonomics, ordered comparator/key reducers, streaming
+  `flat_map_iter`.
 - [ ] [minor] Stage B1 tokio parity: `select!`-equivalent macro ergonomics, IPv6, graceful
   shutdown signal; HTTP/2 only if a consumer needs it.
 - [ ] [arch] Stage D: co-schedule GPU compute (the `hephaestus` substrate — atlas ADR

@@ -90,8 +90,8 @@ pub mod ops;
 pub use ops::{
     enumerate_mut_with, enumerate_with, fold_reduce_with, for_each_chunk_mut_enumerated_with,
     for_each_chunk_mut_with, for_each_chunk_pair_mut_enumerated_with, for_each_index_with,
-    for_each_mut_with, for_each_with, map_collect_index_with, map_collect_mut_with,
-    map_collect_with, map_reduce_with, reduce_index_with,
+    for_each_mut_with, for_each_with, join, join_with, map_collect_index_with,
+    map_collect_mut_with, map_collect_with, map_reduce_with, reduce_index_with,
 };
 
 // ---------------------------------------------------------------------------
