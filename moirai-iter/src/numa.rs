@@ -65,25 +65,7 @@ impl NumaContext {
 
     /// Get the current NUMA node for the calling thread.
     pub fn current_numa_node(&self) -> usize {
-        #[cfg(target_os = "linux")]
-        {
-            unsafe {
-                let mut cpu = 0;
-                let result = libc::sched_getcpu();
-                if result >= 0 {
-                    cpu = result as usize;
-                }
-                self.topology
-                    .as_ref()
-                    .as_ref()
-                    .and_then(|t| t.core_to_numa_node(cpu))
-                    .unwrap_or(0)
-            }
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            0
-        }
+        themis::current_numa_node().index()
     }
 
     /// Allocate memory on a specific NUMA node.

@@ -42,7 +42,6 @@ impl<T: Send + Sync> ParallelIter<T> {
             return data.iter().map(&f).collect();
         }
 
-        let pool = get_shared_thread_pool();
         // Optimized: we use get_shared_thread_pool() instead of std::thread::scope to avoid thread creation overhead.
         let chunks: Vec<_> = data.chunks(chunk_size).collect();
         let num_chunks = chunks.len();
@@ -53,28 +52,44 @@ impl<T: Send + Sync> ParallelIter<T> {
         }
 
         let results_ptr = SendPtr(results.as_mut_ptr() as *mut ());
-        let (tx, rx) = std::sync::mpsc::channel();
         let f_ptr_send = SendPtr(&f as *const F as *const () as *mut ());
 
-        for (idx, chunk) in chunks.into_iter().enumerate() {
-            let tx = tx.clone();
-            let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
-            let chunk_len = chunk.len();
-
-            pool.execute(move || {
+        let run_on_global = moirai_executor::global()
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| {
                 unsafe {
-                    let chunk_slice =
-                        std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                    let chunk = *chunks.get_unchecked(idx);
+                    let chunk_ptr = chunk.as_ptr();
+                    let chunk_len = chunk.len();
+                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
                     let f_ref = &*(f_ptr_send.as_ptr() as *const F);
                     let chunk_result = chunk_slice.iter().map(f_ref).collect::<Vec<_>>();
                     *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) = Some(chunk_result);
                 }
-                let _ = tx.send(());
             });
-        }
 
-        for _ in 0..num_chunks {
-            let _ = rx.recv();
+        if run_on_global.is_err() {
+            let pool = get_shared_thread_pool();
+            let (tx, rx) = std::sync::mpsc::channel();
+            for (idx, chunk) in chunks.into_iter().enumerate() {
+                let tx = tx.clone();
+                let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
+                let chunk_len = chunk.len();
+
+                pool.execute(move || {
+                    unsafe {
+                        let chunk_slice =
+                            std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                        let f_ref = &*(f_ptr_send.as_ptr() as *const F);
+                        let chunk_result = chunk_slice.iter().map(f_ref).collect::<Vec<_>>();
+                        *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) = Some(chunk_result);
+                    }
+                    let _ = tx.send(());
+                });
+            }
+
+            for _ in 0..num_chunks {
+                let _ = rx.recv();
+            }
         }
 
         results.into_iter().flatten().flatten().collect()
@@ -99,7 +114,6 @@ impl<T: Send + Sync> ParallelIter<T> {
             return data.iter().fold(identity, &f);
         }
 
-        let pool = get_shared_thread_pool();
         let chunks: Vec<_> = data.chunks(chunk_size).collect();
         let num_chunks = chunks.len();
 
@@ -113,29 +127,46 @@ impl<T: Send + Sync> ParallelIter<T> {
         let identities_ptr = SendPtr(chunk_identities.as_mut_ptr() as *mut ());
 
         let results_ptr = SendPtr(results.as_mut_ptr() as *mut ());
-        let (tx, rx) = std::sync::mpsc::channel();
         let f_ptr_send = SendPtr(&f as *const F as *const () as *mut ());
 
-        for (idx, chunk) in chunks.into_iter().enumerate() {
-            let tx = tx.clone();
-            let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
-            let chunk_len = chunk.len();
-
-            pool.execute(move || {
+        let run_on_global = moirai_executor::global()
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| {
                 unsafe {
-                    let chunk_slice =
-                        std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                    let chunk = *chunks.get_unchecked(idx);
+                    let chunk_ptr = chunk.as_ptr();
+                    let chunk_len = chunk.len();
+                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
                     let f_ref = &*(f_ptr_send.as_ptr() as *const F);
                     let chunk_identity = (*(identities_ptr.as_ptr() as *const T).add(idx)).clone();
                     let chunk_result = chunk_slice.iter().fold(chunk_identity, f_ref);
                     *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = Some(chunk_result);
                 }
-                let _ = tx.send(());
             });
-        }
 
-        for _ in 0..num_chunks {
-            let _ = rx.recv();
+        if run_on_global.is_err() {
+            let pool = get_shared_thread_pool();
+            let (tx, rx) = std::sync::mpsc::channel();
+            for (idx, chunk) in chunks.into_iter().enumerate() {
+                let tx = tx.clone();
+                let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
+                let chunk_len = chunk.len();
+
+                pool.execute(move || {
+                    unsafe {
+                        let chunk_slice =
+                            std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                        let f_ref = &*(f_ptr_send.as_ptr() as *const F);
+                        let chunk_identity = (*(identities_ptr.as_ptr() as *const T).add(idx)).clone();
+                        let chunk_result = chunk_slice.iter().fold(chunk_identity, f_ref);
+                        *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = Some(chunk_result);
+                    }
+                    let _ = tx.send(());
+                });
+            }
+
+            for _ in 0..num_chunks {
+                let _ = rx.recv();
+            }
         }
 
         results

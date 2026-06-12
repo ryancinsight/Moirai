@@ -1363,6 +1363,7 @@ dependencies = [
  "moirai-utils",
  "num_cpus",
  "proptest",
+ "themis",
  "thiserror",
  "tokio",
 ]

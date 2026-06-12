@@ -191,23 +191,19 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             return;
         }
 
-        let pool = crate::base::get_shared_thread_pool();
         let chunks: Vec<_> = self.data.chunks(self.chunk_size).collect();
         let num_chunks = chunks.len();
-        let (tx, rx) = std::sync::mpsc::channel();
         let func_ptr = SendPtr(&func as *const F as *const () as *mut ());
 
-        for chunk in chunks {
-            let tx = tx.clone();
-            let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
-            let chunk_len = chunk.len();
-
-            pool.execute(move || {
+        let run_on_global = moirai_executor::global()
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| {
                 unsafe {
-                    let chunk_slice =
-                        std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
-                    let func_ref = &*(func_ptr.as_ptr() as *const F);
+                    let chunk = *chunks.get_unchecked(idx);
+                    let chunk_ptr = chunk.as_ptr();
+                    let chunk_len = chunk.len();
+                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
                     // Optimized: we use a raw pointer cast instead of `let func_ref = &func` to avoid capture lifetime bounds.
+                    let func_ref = &*(func_ptr.as_ptr() as *const F);
                     let cache_line_elements = CACHE_LINE_SIZE / mem::size_of::<T>().max(1);
                     for (i, item) in chunk_slice.iter().enumerate() {
                         if i % cache_line_elements == 0
@@ -219,12 +215,39 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                         func_ref(item);
                     }
                 }
-                let _ = tx.send(());
             });
-        }
 
-        for _ in 0..num_chunks {
-            let _ = rx.recv();
+        if run_on_global.is_err() {
+            let pool = crate::base::get_shared_thread_pool();
+            let (tx, rx) = std::sync::mpsc::channel();
+            for chunk in chunks {
+                let tx = tx.clone();
+                let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
+                let chunk_len = chunk.len();
+
+                pool.execute(move || {
+                    unsafe {
+                        let chunk_slice =
+                            std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                        let func_ref = &*(func_ptr.as_ptr() as *const F);
+                        let cache_line_elements = CACHE_LINE_SIZE / mem::size_of::<T>().max(1);
+                        for (i, item) in chunk_slice.iter().enumerate() {
+                            if i % cache_line_elements == 0
+                                && i + cache_line_elements < chunk_slice.len()
+                            {
+                                let next_ptr = chunk_slice.as_ptr().add(i + cache_line_elements);
+                                prefetch_read_data(next_ptr as *const u8, 0);
+                            }
+                            func_ref(item);
+                        }
+                    }
+                    let _ = tx.send(());
+                });
+            }
+
+            for _ in 0..num_chunks {
+                let _ = rx.recv();
+            }
         }
     }
 
@@ -244,39 +267,61 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             results.set_len(self.data.len());
         }
         let results_ptr: *mut MaybeUninit<R> = results.as_mut_ptr();
+        let results_send_ptr = SendPtr(results_ptr);
 
-        let pool = crate::base::get_shared_thread_pool();
-        let chunks: Vec<_> = self.data.chunks(self.chunk_size).collect();
         // Optimized: we collect chunks first instead of using `.chunks(chunk_size).enumerate()` directly, to improve layout.
+        let chunks: Vec<_> = self.data.chunks(self.chunk_size).collect();
         let num_chunks = chunks.len();
-        let (tx, rx) = std::sync::mpsc::channel();
         let func_ptr = SendPtr(&func as *const F as *const () as *mut ());
 
-        for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
-            let tx = tx.clone();
-            let chunk_start = chunk_idx * self.chunk_size;
-            let results_ptr_wrapper = SendPtr(unsafe { results_ptr.add(chunk_start) } as *mut ());
-            let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
-            let chunk_len = chunk.len();
-
-            pool.execute(move || {
+        let run_on_global = moirai_executor::global()
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |chunk_idx| {
                 unsafe {
-                    let chunk_slice =
-                        std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                    let chunk = *chunks.get_unchecked(chunk_idx);
+                    let chunk_start = chunk_idx * self.chunk_size;
+                    let chunk_results_ptr = results_send_ptr.as_ptr().add(chunk_start);
+                    let chunk_ptr = chunk.as_ptr();
+                    let chunk_len = chunk.len();
+
+                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
                     let func_ref = &*(func_ptr.as_ptr() as *const F);
                     for (offset, item) in chunk_slice.iter().enumerate() {
                         let result = func_ref(item);
-                        let result_ptr =
-                            (results_ptr_wrapper.as_ptr() as *mut MaybeUninit<R>).add(offset);
+                        let result_ptr = chunk_results_ptr.add(offset);
                         result_ptr.write(MaybeUninit::new(result));
                     }
                 }
-                let _ = tx.send(());
             });
-        }
 
-        for _ in 0..num_chunks {
-            let _ = rx.recv();
+        if run_on_global.is_err() {
+            let pool = crate::base::get_shared_thread_pool();
+            let (tx, rx) = std::sync::mpsc::channel();
+            for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
+                let tx = tx.clone();
+                let chunk_start = chunk_idx * self.chunk_size;
+                let results_ptr_wrapper = SendPtr(unsafe { results_ptr.add(chunk_start) } as *mut ());
+                let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
+                let chunk_len = chunk.len();
+
+                pool.execute(move || {
+                    unsafe {
+                        let chunk_slice =
+                            std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                        let func_ref = &*(func_ptr.as_ptr() as *const F);
+                        for (offset, item) in chunk_slice.iter().enumerate() {
+                            let result = func_ref(item);
+                            let result_ptr =
+                                (results_ptr_wrapper.as_ptr() as *mut MaybeUninit<R>).add(offset);
+                            result_ptr.write(MaybeUninit::new(result));
+                        }
+                    }
+                    let _ = tx.send(());
+                });
+            }
+
+            for _ in 0..num_chunks {
+                let _ = rx.recv();
+            }
         }
 
         // Convert MaybeUninit<R> to R safely
@@ -298,7 +343,6 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             return self.data.iter().cloned().reduce(|a, b| func(&a, &b));
         }
 
-        let pool = crate::base::get_shared_thread_pool();
         let chunks: Vec<_> = self.data.chunks(self.chunk_size).collect();
         let num_chunks = chunks.len();
 
@@ -308,28 +352,44 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         }
 
         let results_ptr = SendPtr(results.as_mut_ptr() as *mut ());
-        let (tx, rx) = std::sync::mpsc::channel();
         let func_ptr = SendPtr(&func as *const F as *const () as *mut ());
 
-        for (idx, chunk) in chunks.into_iter().enumerate() {
-            let tx = tx.clone();
-            let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
-            let chunk_len = chunk.len();
-
-            pool.execute(move || {
+        let run_on_global = moirai_executor::global()
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| {
                 unsafe {
-                    let chunk_slice =
-                        std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                    let chunk = *chunks.get_unchecked(idx);
+                    let chunk_ptr = chunk.as_ptr();
+                    let chunk_len = chunk.len();
+                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
                     let func_ref = &*(func_ptr.as_ptr() as *const F);
                     let chunk_result = chunk_slice.iter().cloned().reduce(|a, b| func_ref(&a, &b));
                     *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = chunk_result;
                 }
-                let _ = tx.send(());
             });
-        }
 
-        for _ in 0..num_chunks {
-            let _ = rx.recv();
+        if run_on_global.is_err() {
+            let pool = crate::base::get_shared_thread_pool();
+            let (tx, rx) = std::sync::mpsc::channel();
+            for (idx, chunk) in chunks.into_iter().enumerate() {
+                let tx = tx.clone();
+                let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
+                let chunk_len = chunk.len();
+
+                pool.execute(move || {
+                    unsafe {
+                        let chunk_slice =
+                            std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
+                        let func_ref = &*(func_ptr.as_ptr() as *const F);
+                        let chunk_result = chunk_slice.iter().cloned().reduce(|a, b| func_ref(&a, &b));
+                        *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = chunk_result;
+                    }
+                    let _ = tx.send(());
+                });
+            }
+
+            for _ in 0..num_chunks {
+                let _ = rx.recv();
+            }
         }
 
         let mut current_results: Vec<T> = results.into_iter().flatten().collect();

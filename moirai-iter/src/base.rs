@@ -26,6 +26,7 @@ impl<T> Clone for SendPtr<T> {
 impl<T> Copy for SendPtr<T> {}
 
 unsafe impl<T> Send for SendPtr<T> {}
+unsafe impl<T> Sync for SendPtr<T> {}
 
 impl<T> SendPtr<T> {
     /// Get the raw pointer.
