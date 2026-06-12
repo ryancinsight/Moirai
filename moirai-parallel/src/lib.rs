@@ -100,8 +100,7 @@ pub use ops::{
 
 /// A read-only parallel view of a slice bound to execution policy `P`.
 ///
-/// Construct via [`ParallelSlice::par`] (adaptive) or
-/// [`ParallelSlice::par_with`] (`::<P>`). Zero-sized beyond the borrowed slice.
+/// Construct via [`ParallelSlice::par`]. Zero-sized beyond the borrowed slice.
 pub struct ParRef<'a, T, P> {
     data: &'a [T],
     _policy: PhantomData<P>,
