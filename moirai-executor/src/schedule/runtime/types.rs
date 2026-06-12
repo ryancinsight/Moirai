@@ -244,33 +244,23 @@ impl Drop for LifoSlot {
     }
 }
 
-#[cfg(nightly_tls_active)]
-#[thread_local]
-pub(super) static mut CURRENT_WORKER_ID_NIGHTLY: Option<usize> = None;
-
-#[cfg(not(nightly_tls_active))]
-thread_local! {
-    pub(super) static CURRENT_WORKER_ID: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+melinoe::thread_cached! {
+    /// Cached worker ID for the current scheduler thread.
+    pub(super) mod current_worker_id: usize;
 }
 
 #[inline(always)]
 pub(super) fn get_current_worker_id() -> Option<usize> {
-    #[cfg(nightly_tls_active)]
-    unsafe {
-        CURRENT_WORKER_ID_NIGHTLY
-    }
-    #[cfg(not(nightly_tls_active))]
-    CURRENT_WORKER_ID.with(|cell| cell.get())
+    current_worker_id::get()
 }
 
 #[inline(always)]
 pub(super) fn set_current_worker_id(id: Option<usize>) {
-    #[cfg(nightly_tls_active)]
-    unsafe {
-        CURRENT_WORKER_ID_NIGHTLY = id;
+    if let Some(val) = id {
+        current_worker_id::set(val);
+    } else {
+        current_worker_id::clear();
     }
-    #[cfg(not(nightly_tls_active))]
-    CURRENT_WORKER_ID.with(|cell| cell.set(id));
 }
 
 #[repr(align(64))]

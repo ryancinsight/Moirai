@@ -14,7 +14,6 @@ use crate::platform::*;
 use core::fmt;
 use core::mem;
 use core::slice;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[cfg(unix)]
@@ -195,7 +194,8 @@ impl Drop for SharedMemory {
 
 /// Lock-free shared memory queue for IPC
 pub struct SharedQueue<T> {
-    /// Shared memory backing
+    /// Shared memory backing. Never read directly: held so the mapping's
+    /// RAII lifetime covers `meta`/`buffer`, which point into it.
     #[allow(dead_code)]
     memory: SharedMemory,
     /// Queue metadata (stored at beginning of shared memory)
@@ -306,144 +306,6 @@ impl<T: Copy> SharedQueue<T> {
             Some(value)
         }
     }
-}
-
-/// RDMA connection for high-performance networking
-#[allow(dead_code)]
-pub struct RdmaConnection {
-    /// Connection handle (placeholder)
-    handle: usize,
-    /// Remote address as string (to avoid std::net dependency)
-    remote_addr: String,
-    /// Local address as string
-    local_addr: String,
-    /// Queue pair number
-    qp_num: u32,
-}
-
-impl RdmaConnection {
-    /// Connect to an RDMA endpoint
-    pub fn connect(_addr: &str) -> Result<Self, IpcError> {
-        Err(IpcError::Unsupported)
-    }
-
-    /// Register memory region for RDMA
-    pub fn register_memory(&self, _addr: *mut u8, _len: usize) -> Result<u32, IpcError> {
-        Err(IpcError::Unsupported)
-    }
-
-    /// Write data to remote memory
-    pub fn write(
-        &self,
-        _local: *const u8,
-        _remote_addr: u64,
-        _len: usize,
-        _rkey: u32,
-    ) -> Result<(), IpcError> {
-        Err(IpcError::Unsupported)
-    }
-
-    /// Read data from remote memory
-    pub fn read(
-        &self,
-        _local: *mut u8,
-        _remote_addr: u64,
-        _len: usize,
-        _rkey: u32,
-    ) -> Result<(), IpcError> {
-        Err(IpcError::Unsupported)
-    }
-}
-
-/// GPU IPC for CUDA/ROCm interoperability
-#[allow(dead_code)]
-pub struct GpuIpc {
-    /// Device ID
-    device_id: u32,
-    /// Memory handles
-    handles: HashMap<u64, GpuMemHandle>,
-}
-
-#[allow(dead_code)]
-struct GpuMemHandle {
-    /// GPU memory pointer
-    ptr: u64,
-    /// Size of allocation
-    size: usize,
-    /// IPC handle for sharing
-    handle: [u8; 64],
-}
-
-impl GpuIpc {
-    /// Create a new GPU IPC context
-    pub fn new(device_id: u32) -> Self {
-        Self {
-            device_id,
-            handles: HashMap::new(),
-        }
-    }
-
-    /// Create a shareable GPU memory handle
-    pub fn create_handle(&mut self, gpu_ptr: u64, size: usize) -> Result<[u8; 64], IpcError> {
-        // In production, this would use CUDA IPC API
-        // Placeholder handle until GPU IPC is implemented in a dedicated feature gate
-        let handle = [0u8; 64];
-
-        self.handles.insert(
-            gpu_ptr,
-            GpuMemHandle {
-                ptr: gpu_ptr,
-                size,
-                handle,
-            },
-        );
-
-        Ok(handle)
-    }
-
-    /// Open a GPU memory handle from another process
-    pub fn open_handle(&self, _handle: [u8; 64]) -> Result<u64, IpcError> {
-        let _ = _handle;
-        Err(IpcError::Unsupported)
-    }
-}
-
-/// Distributed communication coordinator
-#[allow(dead_code)]
-pub struct DistributedComm {
-    /// Node ID in the cluster
-    node_id: u32,
-    /// Total number of nodes
-    num_nodes: u32,
-}
-
-#[allow(dead_code)]
-enum CommBackend {
-    /// MPI backend
-    Mpi,
-    /// TCP sockets
-    Tcp,
-    /// RDMA
-    Rdma,
-}
-
-/// Reduction operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReduceOp {
-    /// Sum all values
-    Sum,
-    /// Multiply all values
-    Product,
-    /// Find minimum value
-    Min,
-    /// Find maximum value
-    Max,
-    /// Bitwise AND
-    And,
-    /// Bitwise OR
-    Or,
-    /// Bitwise XOR
-    Xor,
 }
 
 #[cfg(test)]

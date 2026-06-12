@@ -3,8 +3,6 @@
 //! This module provides the core executor abstraction for the Moirai runtime.
 //! It defines traits for task spawning, management, and lifecycle control.
 
-use crate::TaskId;
-use core::cell::UnsafeCell;
 
 pub mod builder;
 pub mod config;
@@ -19,39 +17,6 @@ pub use control::ExecutorControl;
 pub use manager::{TaskManager, TaskStats, TaskStatus};
 pub use plugin::ExecutorPlugin;
 pub use spawner::TaskSpawner;
-
-// Thread-local task context for improved locality (inspired by Tokio)
-#[cfg(nightly_tls_active)]
-#[thread_local]
-static mut CURRENT_TASK_NIGHTLY: Option<TaskId> = None;
-
-#[cfg(not(nightly_tls_active))]
-crate::thread_local_static! {
-    static CURRENT_TASK: UnsafeCell<Option<TaskId>> = UnsafeCell::new(None)
-}
-
-/// Get the current task ID if running within a task context
-pub fn current_task_id() -> Option<TaskId> {
-    #[cfg(nightly_tls_active)]
-    unsafe {
-        CURRENT_TASK_NIGHTLY
-    }
-    #[cfg(not(nightly_tls_active))]
-    CURRENT_TASK.with(|cell| unsafe { (*cell.get()).clone() })
-}
-
-/// Set the current task ID for this thread
-#[allow(dead_code)]
-pub(crate) fn set_current_task(id: Option<TaskId>) {
-    #[cfg(nightly_tls_active)]
-    unsafe {
-        CURRENT_TASK_NIGHTLY = id;
-    }
-    #[cfg(not(nightly_tls_active))]
-    CURRENT_TASK.with(|cell| unsafe {
-        *cell.get() = id;
-    });
-}
 
 /// Combined executor trait with all capabilities.
 ///

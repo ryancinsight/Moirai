@@ -7,10 +7,10 @@
 - `moirai-iter::cache::CACHE_LINE_SIZE` re-exports the `moirai-core::constants` SSOT instead of a second copy of the value.
 - themis 0.7.0 / mnemosyne 43a02f3 dependency bumps verified across the workspace (623 tests).
 
-### Open findings (filed)
-- [patch] `moirai-core/src/ipc.rs` carries 6× `#[allow(dead_code)]`; audit whether the suppressed items are platform-conditional (gate per-OS) or genuinely dead (delete).
-- [patch] `moirai-core` feature flags `numa`, `coroutine`, `result-diagnostics` are declared but unused in the tree; document intent or remove.
-- [patch] `moirai-core/src/executor/mod.rs` `set_current_task` suppresses dead_code unconditionally; scope the allow to non-`nightly_tls_active` builds.
+### Open findings — resolved 2026-06-12
+- [x] `ipc.rs` dead-code audit: deleted `RdmaConnection`/`DistributedComm`/`CommBackend` (placeholder scaffolds returning `Unsupported`) and `GpuIpc`/`GpuMemHandle` (`create_handle` fabricated a zeroed handle as `Ok` — a mock; GPU IPC is hephaestus domain). `SharedMemory`/`SharedQueue` (real, tested) remain; the one surviving allow is the documented RAII keep-alive field.
+- [x] Feature-flag finding was a false positive: `numa` gates executor builder/config code, `coroutine` gates lib modules, `result-diagnostics` is forwarded by benchmarks. No change.
+- [x] `set_current_task`: the entire `CURRENT_TASK` TLS block had zero callers — `current_task_id` was a public API that could only return `None`. Deleted outright; worker identity lives in the scheduler runtime (`current_worker_id` via melinoe `thread_cached!`).
 
 ## 2026-05-22 Scheduler Audit Update
 
