@@ -6,7 +6,13 @@
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange)](https://www.rust-lang.org/)
 
-A next-generation concurrency library that synthesizes the best principles from async task scheduling (Tokio-inspired) and parallel work-stealing (Rayon-inspired) into a unified, zero-cost abstraction framework. Named after the Greek Fates who controlled the threads of life, Moirai weaves together async and parallel execution models.
+Moirai is a unified scheduler/router for Rust work placement. It routes admitted
+work across local CPU worker threads, sync/blocking/async-ready work classes,
+supervised process routes, server routes, and per-process async lanes while using
+zero-cost, monomorphized policy types at hot boundaries. Rayon and Tokio parity
+are benchmark gates; the architecture target is a single scheduler hierarchy that
+can grow into GPU, TPU, NPU, and server placement without duplicating algorithms
+or fabricating execution.
 
 ## 🎯 Design Principles
 
@@ -107,9 +113,11 @@ wg.wait(); // Wait for all tasks
 - **Collective Operations**: All-reduce, scatter, gather patterns
 - **Message Router**: Key-based message routing
 
-### ✅ **Production-Ready Runtime**
-- **Hybrid Executor**: Combines async and parallel execution models
-- **Work-Stealing Scheduler**: Intelligent load balancing across CPU cores
+### ✅ **Unified Runtime**
+- **Hybrid Executor**: Combines sync, blocking, async-ready, and indexed CPU work
+- **Work-Stealing Scheduler**: Load balancing across local CPU worker threads
+- **Route Topology**: Sealed ZST policies select thread, process, server, and async-lane metadata without `dyn RoutePolicy`
+- **Process/Server Execution Boundary**: Fixed-format remote tasks execute through transport-backed routes; arbitrary closure remoting is intentionally rejected
 - **NUMA-Aware**: Optimized memory allocation for multi-socket systems
 - **Real-time Support**: Priority inheritance and deadline scheduling
 
@@ -223,17 +231,19 @@ cargo run --example iot_device_management
 
 ## 🏗️ Architecture
 
-Moirai's architecture is built on several key principles:
+Moirai's architecture is a deep, bounded-context scheduler stack:
 
-### Unified Execution Model
-- **Hybrid Runtime**: Seamlessly combines async and parallel execution
-- **Adaptive Scheduling**: Automatically chooses optimal execution strategy
-- **Context Switching**: Zero-cost transitions between execution models
+### Unified Scheduler/Router
+- **Local CPU Layer**: `ThreadScheduler` owns worker queues, work-class routing, scoped batches, and indexed fan-out/reduction.
+- **Route Layer**: `HybridRouter<P>` selects `SchedulerRoute::{Thread, Process, Server}` with per-process async lanes through sealed zero-sized policies.
+- **Transport Layer**: `moirai-transport` consumes route metadata, archives payload bytes, and executes admitted fixed-format process/server tasks.
+- **Accelerator Layer**: `moirai-gpu::occupancy` plans topology-aware launch shapes today; GPU/TPU/NPU scheduler routes remain open architecture items tracked in `GAP_ANALYSIS.md` and `docs/backlog.md`.
 
 ### Memory Efficiency
-- **NUMA Awareness**: Optimized allocation for multi-socket systems
-- **Cache Optimization**: Data structures aligned to cache boundaries
-- **Memory Pools**: Reduced allocation overhead with custom allocators
+- **Mnemosyne Boundary**: Archive payloads move as owned bytes across thread/process/server regions; cross-process pointer transfer is rejected.
+- **NUMA Awareness**: Worker hints and iterator helpers use topology-aware placement where available.
+- **Cache Optimization**: Hot scheduler jobs use inline erased storage and cache-conscious queue/result layouts.
+- **Zero-Copy Views**: Transport archive receivers validate borrowed views over owned message buffers before materializing owned values.
 
 ### Code Organization (Following SOLID/DRY)
 - **Unified Channels**: Single implementation in `moirai_core::channel`
@@ -242,6 +252,7 @@ Moirai's architecture is built on several key principles:
 - **Base Iterator Module**: Common patterns extracted to `moirai_iter::base`
 - **Minimal Sync Primitives**: Focus on value-add over std library
 - **Clean Module Boundaries**: Each module has single responsibility
+- **Route Boundary**: Scheduler route metadata is owned by `moirai-executor`; transport route consumption is owned by `moirai-transport`
 
 ## 🔧 Configuration
 
@@ -259,77 +270,18 @@ let moirai = Moirai::builder()
 
 ## 📊 Performance - Verified Working
 
-Moirai delivers exceptional performance across core workloads with comprehensive benchmarks demonstrating real-world advantages:
+Current performance claims are limited to executable Criterion targets and
+value-semantic tests. The active evidence surfaces are:
 
-- **Task Execution**: ✅ Working - Tasks execute and return results correctly
-- **Channel Communication**: ✅ Working - Producer/consumer patterns functional  
-- **Priority Scheduling**: ✅ Working - High/low priority tasks execute in order
-- **Async Support**: ✅ Working - Async tasks with proper await/delay execution
-- **Parallel Iteration**: ✅ Working - Work distribution across multiple threads
-- **Runtime Lifecycle**: ✅ Working - Clean startup and graceful shutdown
+- **Thread scheduling**: `thread_schedule_comparison`, `industry_comparison`, and `public_result_handle_comparison` compare Moirai scoped work, indexed reduction, mixed workloads, and public result handles against accepted Rayon/Tokio reference rows.
+- **Parallel iterators**: `parallel_iterator_regression`, `iterator_adapter_comparison`, `iter_ops_parallel_comparison`, and `cache_iterator_comparison` provide same-run Rayon comparisons with checksum/value assertions before timing.
+- **Process/server routing**: `process_server_scheduler_routing` validates deterministic route summaries; `process_server_routed_execution` executes fixed-format `SumU64` requests through real server and supervised process routes.
+- **Async I/O**: `async_fs_*`, `async_tcp_*`, `async_udp_comparison`, and `async_io_compat_comparison` compare Moirai-owned facade behavior against Tokio references where the semantics match.
+- **Allocator boundary**: Mnemosyne is resolved through the upstream Git dependency, and allocator/TLS evidence is tracked in `GAP_ANALYSIS.md`.
 
-### Comprehensive Performance Benchmarks
-
-The following results demonstrate Moirai's performance advantages compared to standard library and separate concurrency libraries:
-
-#### Task Spawning Performance
-
-| Tasks | std::thread | Moirai (unified) | Improvement |
-|-------|-------------|------------------|-------------|
-| 100   | 5.5ms       | 4.1ms            | **1.3x faster** |
-| 1,000 | 59.1ms      | 44.3ms           | **1.3x faster** |
-| 5,000 | 292.5ms     | 219.4ms          | **1.3x faster** |
-
-#### Parallel Workload Performance  
-
-| Items | Sequential | Moirai Parallel | Speedup |
-|-------|------------|-----------------|---------|
-| 1,000 | 524.6µs    | 124.9µs         | **4.2x faster** |
-| 5,000 | 2.7ms      | 634.7µs         | **4.2x faster** |
-| 10,000| 3.3ms      | 789.5µs         | **4.2x faster** |
-
-#### Async Task Performance
-
-| Async Tasks | Sequential | Moirai Concurrent | Speedup |
-|-------------|------------|-------------------|---------|
-| 50          | 53.1ms     | 6.2ms             | **8.5x faster** |
-| 200         | 212.4ms    | 25.0ms            | **8.5x faster** |
-| 500         | 531.2ms    | 62.5ms            | **8.5x faster** |
-
-#### Mixed CPU + I/O Workload
-
-| Workload | Separate Libraries | Moirai Unified | Improvement |
-|----------|-------------------|----------------|-------------|
-| 100 CPU + 50 I/O   | 53.1ms | 16.6ms | **3.2x faster** |
-| 500 CPU + 100 I/O  | 106.2ms| 33.2ms | **3.2x faster** |
-| 1000 CPU + 200 I/O | 212.5ms| 66.4ms | **3.2x faster** |
-
-#### Advanced Features Performance
-
-**GPU + CPU Coordination:**
-- Traditional approach: 45.2ms (manual coordination overhead)
-- Moirai heterogeneous: 28.7ms (intelligent work distribution)
-- **Improvement: 1.6x faster**
-
-**Distributed helper boundary:**
-- Current benchmarked scope is `moirai-iter::DistributedContext` owned-map helper coverage against Rayon owned-map references.
-- Facade-level remote closure execution is intentionally not exposed until a transport-backed remote task contract exists.
-
-**Memory Efficiency:**
-- Standard approach: 2.4MB overhead (allocations & boxing)
-- Moirai zero-copy: 0.8MB overhead (optimized memory layout)
-- **Memory savings: 67% reduction**
-
-### Key Performance Advantages
-
-- **Unified Architecture**: Single runtime eliminates context switching overhead between async/parallel execution
-- **Intelligent Scheduling**: Work-stealing scheduler with load balancing provides optimal CPU utilization
-- **Zero-Copy Operations**: Minimal memory allocation overhead with cache-friendly data layouts
-- **Heterogeneous Compute**: Seamless CPU+GPU coordination with intelligent workload distribution
-- **Production Ready**: Advanced I/O, timers, and synchronization with enterprise-grade performance
-- **NUMA Awareness**: Optimized memory allocation and thread placement for modern multi-socket systems
-
-*All benchmarks run on 8-core system. Individual results may vary based on hardware configuration.*
+GPU route co-scheduling, TPU placement, and NPU placement are not claimed as
+implemented scheduler execution. The current GPU evidence is the
+`moirai-gpu::occupancy` launch-shape planner and its value-semantic tests.
 
 ## 🧪 Testing
 
@@ -337,21 +289,23 @@ Moirai includes comprehensive testing:
 
 ```bash
 # Run all tests
-cargo test --workspace --all-features
+cargo nextest run --workspace --all-features
 
 # Run iterator-specific tests
-cargo test -p moirai-iter
+cargo nextest run -p moirai-iter --all-features
 
 # Run integration tests
-cargo test -p moirai-tests
+cargo nextest run -p moirai-tests --all-features
 
-# Run benchmarks (requires nightly)
-cargo +nightly bench
+# Run doctests
+cargo test --doc --workspace --all-features
+
+# Compile benchmark targets
+cargo bench -p moirai-benchmarks --no-run
 ```
 
-**Current Test Status**: 39+ core tests passing with 100% success rate ✅  
-**Example Status**: All examples (basic_usage, async_timer) working end-to-end ✅  
-**Build Status**: Clean compilation with strategic clippy allows ✅
+**Current Version**: 0.2.0
+**Evidence Policy**: value-semantic tests and executable benchmarks only; no placeholder route or device execution claims.
 
 ## 🎯 Design Principle Compliance
 
@@ -370,6 +324,7 @@ cargo +nightly bench
 - **Base Iterator Module**: Extracted common patterns reducing 40% duplication
 - **Simplified Sync**: Removed thin wrappers, focused on value-add primitives
 - **Clean Transport**: Built on top of core channels, not duplicating
+- **Route Topology**: Scheduler route metadata is owned by `moirai-executor`; transport route consumption is owned by `moirai-transport`
 
 ### Phase 15: Code Quality Enforcement (Latest)
 - **Design Principles**: Strict enforcement of SOLID, CUPID, GRASP, DRY, KISS, YAGNI
@@ -405,4 +360,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Moirai v1.0.0** - Production Ready with Optimized Architecture ✅
+**Moirai v0.2.0** - Unified scheduler/router in active development

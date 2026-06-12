@@ -1,5 +1,46 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-06-12 Unified scheduler architecture alignment audit
+
+### Closed alignment findings
+- `moirai-executor::schedule::route` is the current routing SSOT for thread,
+  process, server, and per-process async-lane placement. Evidence tier:
+  type-level/source audit, backed by value-checked `process_server_scheduler_routing`
+  benchmark contracts.
+- `moirai-transport` consumes route metadata through the `scheduler-routes`
+  feature and binds server/process routes to bounded fixed-format remote task
+  execution. Evidence tier: value-semantic tests and Criterion benchmarks for
+  `process_server_routed_execution`.
+- Mnemosyne integration is an allocator and owned-byte handoff boundary, not a
+  cross-process pointer-sharing claim. Evidence tier: source audit of
+  `TransportPayload<R>` region markers and the upstream Git dependency lock.
+- `moirai-gpu::occupancy` owns the current accelerator-adjacent planning slice:
+  topology-aware launch-shape and resident-block planning. Evidence tier:
+  type-level API plus value-semantic tests over themis topology and Mnemosyne
+  kernel resource budgets.
+
+### Open alignment findings
+- [x] README architecture drift: the public README still framed Moirai mostly as
+  a Tokio/Rayon synthesis and contained old illustrative timing/GPU claims not
+  tied to current executable evidence. Resolved in this documentation pass by
+  describing Moirai as a unified scheduler/router and by limiting performance
+  statements to current benchmark surfaces.
+- [ ] [arch] Accelerator routing gap: `SchedulerRoute` has no typed CPU/GPU/TPU/NPU
+  placement dimension yet. The implemented GPU slice plans launch occupancy but
+  does not participate in `HybridRouter<P>` route decisions or scheduler
+  co-scheduling. Next increment: add a sealed, zero-sized accelerator route
+  policy and value-checked route-summary benchmarks before binding any GPU
+  execution backend.
+- [ ] [arch] Device-memory ownership gap: `TransportPayload<R>` distinguishes
+  thread/process/server payload regions, but no sealed device/accelerator memory
+  region exists for GPU/TPU/NPU handoff. Next increment must keep Mnemosyne-owned
+  bytes as the SSOT and reject cross-device pointer transfer unless a backend
+  proves the handle semantics.
+- [ ] [arch] Public facade gap: process/server route execution is available in
+  lower crates through fixed-format capabilities, while the top-level `Moirai`
+  facade intentionally does not expose arbitrary remote closure execution. A
+  future facade must route only admitted capability types, not closure remoting.
+
 ## 2026-06-12 Stack architecture audit (cross-repo)
 
 ### Closed

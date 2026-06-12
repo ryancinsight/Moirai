@@ -2,10 +2,12 @@
 
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 
-moirai is the Atlas parallel+async SSOT, replacing **both rayon (data-parallel / MIMD)
-and tokio (async)** with one work-stealing scheduler and zero-cost ExecutionPolicy
-dispatch. It is the thread-level **MIMD** counterpart to hermes (SIMD lanes). Remaining
-parity and GPU work to fully retire rayon/tokio across the stack:
+moirai is the Atlas unified scheduler/router SSOT. It replaces **both rayon
+(data-parallel / MIMD) and tokio (async)** at the local runtime layer, then routes
+admitted work across the hierarchy the stack actually owns: local CPU worker
+threads, supervised processes, per-process async lanes, server routes, and future
+accelerator routes. Rayon/Tokio parity remains a regression gate, not the
+architecture definition.
 - [~] [minor] Stage B1 rayon parity: `join(a,b)` divide-and-conquer shorthand
   delivered through `moirai_parallel::{join, join_with}` with static
   `ExecutionPolicy` dispatch, scoped scheduler flush plus caller-lane execution
@@ -15,11 +17,19 @@ parity and GPU work to fully retire rayon/tokio across the stack:
   `flat_map_iter`.
 - [ ] [minor] Stage B1 tokio parity: `select!`-equivalent macro ergonomics, IPv6, graceful
   shutdown signal; HTTP/2 only if a consumer needs it.
-- [ ] [arch] Stage D: co-schedule GPU compute (the `hephaestus` substrate — atlas ADR
+- [~] [arch] Stage C: process/server route hierarchy. Delivered route metadata,
+  sealed ZST policies, bounded server/process fixed-format execution, and
+  Mnemosyne-owned byte handoff. Remaining: public facade admission for fixed
+  capabilities only; arbitrary closure remoting remains rejected.
+- [ ] [arch] Stage D: accelerator route topology. Add CPU/GPU/TPU/NPU placement
+  metadata to the scheduler route model with sealed ZST policies, value-checked
+  route-summary benchmarks, and benchmark-contract guards before any backend
+  execution claim. The first implementation must not fabricate device execution.
+- [ ] [arch] Stage E: co-schedule GPU compute (the `hephaestus` substrate — atlas ADR
   0001 — wgpu + CUDA) with the task-stealing scheduler instead of blocking joins, with
   GPU-aware placement so device work participates in the unified runtime. `moirai-gpu`
   either folds into hephaestus or becomes a thin scheduling adapter over it. ADR.
-- [~] [arch] Stage D2 — warp-aware execution shaping (atlas ADR 0002): warps are
+- [~] [arch] Stage E2 — warp-aware execution shaping (atlas ADR 0002): warps are
   scheduled by SM hardware; moirai owns the software-ownable layer.
   (1) DELIVERED — occupancy planner (`moirai-gpu::occupancy`): `plan_launch`
   (work-covering ceil-div grid), `resident_blocks` (themis `GpuTopology` ×
@@ -38,8 +48,8 @@ parity and GPU work to fully retire rayon/tokio across the stack:
 
 **Project**: Moirai Concurrency Library
 **Version**: 0.2.0
-**Last Updated**: 2026-06-03
-**Status**: Unified scheduler implemented; scoped scheduler batches exceed Tokio/Rayon ready-work benchmark baselines; indexed map/reduce matches normalized Rayon fixed-pool indexed CPU work and uses worker-plus-caller chunk caps; mixed sync completion, async result, and indexed reduction work has a value-checked unified-scheduler comparison against a Tokio plus Rayon two-engine reference; real-application mixed workload coverage combines async fan-out, scoped request work, indexed analytics, bounded channel transfer, and closed-form checksums against a Tokio plus Rayon reference; non-destructive scheduler join drains fused work batches with a bounded fast quiescent spin before condvar waiting; public per-task handles use atomic result slots with state-machine-gated inline waiter cells; sync/blocking public jobs avoid per-spawn metrics `Arc` refcount churn; production registry lifecycle timing retains the `Instant` policy while QPC remains diagnostic-only; registry hot-path diagnostics split lock acquisition, dense block lookup, slot initialization, timestamp publication, aggregate mutex registration, and direct lifecycle cost; scheduler primitive diagnostics split serial worker selection, pending-counter mutation, selected-worker unpark, and queue push/pop behind an explicit feature gate; dense registry task-state slots no longer store redundant task IDs because metadata IDs are derived from direct slot lookup; async public handles use inline future/lifecycle/result-sender storage with a poll-owner future-present flag, wake-coalesced inline repoll, inlined by-reference wake scheduling, and direct future-state wakers; async RwLock release handoff has value-semantic grant tests for final-reader-to-writer and writer-to-multiple-reader paths; scheduler workers use per-worker unparks, quiescent work-class routing, and narrowed execution counter orderings; scoped jobs buffer inline `ScheduledJob` values instead of boxed `dyn FnOnce` closures; scoped single-job completion avoids per-scope heap state; async executor queued futures use monomorphized poll/drop tables instead of `dyn Future`; async executor handles use inline atomic result/waker slots instead of mutexed result storage and global waker hash maps; async timeout composition stores concrete futures inline instead of heap-pinned `Pin<Box<F>>`; timer-wheel cancellation uses lazy canceled-ID state and value-semantic wake suppression tests; iterator thread-pool jobs use monomorphized erased run/drop functions instead of boxed `dyn FnOnce` queue items; iterator channel split/merge uses monomorphized concrete channel types instead of boxed `dyn FusableChannel` objects; iterator streaming uses a generic producer and FIFO `VecDeque` buffering; `iter_ops::ParallelIter` owns `Vec<T>` directly, borrows scoped chunks, accepts non-`'static` closures, and gates scoped OS-thread fanout by bounded scheduler batch capacity; `ZeroCopyParallelIter` borrows slice data and map closures directly without `Arc` wrappers, moves reduce partials through owned pair compaction, accepts non-`Clone` reducer closures, and gates scoped OS-thread fanout behind one scheduler batch of cache chunks; direct execution contexts move owned chunks without clone-bound map inputs; NUMA iterator helpers move owned map/reduce batches without clone-bound direct map inputs; distributed iterator helpers move owned partitions and return value-semantic map results without clone-bound direct map inputs; multi-system iterator helpers move owned partitions, distribute real partition iterators, and return value-semantic heterogeneous map results without clone-bound direct map inputs; Rayon adapter surface is audited as a covered subset with value-preserving reductions, sequential fold semantics, documented indexed runtime boundary, bounded exact-size indexed source cardinality, indexed collect-into-vec and unzip-into-vecs over caller-provided storage, indexed interleave, step-by, and logical-output block adapters, value-tested enumerate/zip/zip_eq/filter_map/flat_map/flat_map_iter/flatten/flatten_iter/take/skip/take_any/skip_any/take_any_while/skip_any_while/chain/intersperse/rev/inspect/panic_fuse/chunks/partition/partition_map/positions/update/while_some/try_for_each/unzip adapters, terminal numeric, ordered, find-map, position, and reverse-order predicate reducers, fallible reducers, stateful side-effect terminals, borrowed reference materialization adapters, non-Clone borrowed vector source mapping without Clone/static bounds, a bounded `collect_vec_list` terminal boundary, and a covered sorting slice-extension boundary; async iterator terminal futures and bounded async iterator pipelines have value-checked Tokio `JoinSet` comparison rows; small scheduled jobs use 14-word inline erased storage within a two-cache-line job footprint; oversized scheduled jobs use one typed boxed closure behind the inline job trampoline; public core and scheduler task APIs route through `ScheduledTask` inline storage without `Box<dyn BoxedTask>` or `dyn Scheduler`; standalone scheduler `ChaseLevDeque` stores queued items in contiguous `MaybeUninit<T>` ring slots instead of per-item boxed nodes and selects retired-array reclamation through monomorphized sealed policies: zero-sized quiescent state by default and opt-in shared epoch active-access tracking; `standalone_deque_reclaim_policy` quantifies the shared epoch cost against the zero-sized default; utility SIMD `f32` paths process native vector prefixes plus scalar tails for non-lane-multiple lengths with value tests and a focused benchmark row; transport safe-channel payloads use rkyv-style archive views over owned bytes; PAL reactor task handles now complete through per-task atomic state; PAL reactor queued futures use bounded inline storage with monomorphized poll/drop dispatch and typed boxed fallback only for oversized futures; PAL platform reactor dispatch is compile-time selected; async file/TCP/UDP comparison rows use `Moirai::block_on` for Moirai paths; feature-gated Tokio I/O wrappers, file write/append/metadata/rename/remove/copy, directory create/remove, TCP read readiness, and TCP pending-read cancellation rows have value-checked Tokio comparison coverage; explicit Rayon/Tokio gap audit maps accepted comparisons to executable tests, benchmarks, runtime dependency-boundary contracts, deferred Tokio reactor-native I/O compatibility, deferred WASM browser event-loop integration, bounded Rayon ecosystem parity, and completed inactive legacy-source cleanup
+**Last Updated**: 2026-06-12
+**Status**: Unified scheduler implemented for local CPU worker threads, sync/blocking/async-ready work classes, process-route metadata, server-route metadata, per-process async lanes, bounded fixed-format process/server execution, and Mnemosyne-owned archive-byte handoff. Scoped scheduler batches, indexed map/reduce, mixed async/sync/parallel workloads, process/server route summaries, routed process/server execution, parallel iterator regression rows, and public result handles have value-checked benchmark coverage against accepted Tokio/Rayon references. Accelerator routing is the active architectural gap: GPU occupancy planning exists, but GPU/TPU/NPU placement is not yet part of `SchedulerRoute` and must not be claimed as scheduler co-execution until route metadata, memory-region ownership, backend consumption, and benchmarks are implemented.
 
 
 ---
@@ -56,6 +66,48 @@ parity and GPU work to fully retire rayon/tokio across the stack:
   its owning crate; this restores package all-target gate resolution.
 
 ### Priority P0
+
+#### ⏳ ISSUE-199 [arch]: Add accelerator route topology without execution fabrication
+- **Type**: Scheduler Architecture / Accelerator Placement
+- **Root Cause**: Moirai's stated scheduler target includes CPU, GPU, TPU, and NPU
+  placement, but `SchedulerRoute` currently models thread, process, server, and
+  async-lane placement only. `moirai-gpu::occupancy` plans launch shapes, but
+  accelerator work does not yet participate in `HybridRouter<P>`.
+- **Required Boundary**: Add sealed ZST accelerator route policies, transparent
+  accelerator/device identifiers, and a route-summary benchmark that proves CPU,
+  GPU, TPU, and NPU metadata decisions without claiming backend execution.
+- **Evidence Plan**: Type-level route API, source contracts rejecting `dyn`
+  route policies and placeholder dispatch, and value-checked Criterion rows over
+  deterministic route summaries.
+- **Status**: Open.
+
+#### ⏳ ISSUE-200 [arch]: Extend Mnemosyne ownership regions for device handoff
+- **Type**: Memory Architecture / Accelerator Ownership
+- **Root Cause**: `TransportPayload<R>` currently tags archive bytes as thread,
+  process, or server payload regions. Device/accelerator transfer needs an
+  explicit region boundary so future GPU/TPU/NPU routes cannot imply pointer
+  transfer across incompatible memory spaces.
+- **Required Boundary**: Add sealed device-region markers and compile-time
+  pointer-transfer constants that default to rejected cross-device pointer
+  movement unless a backend proves handle semantics.
+- **Evidence Plan**: Value tests for same-buffer owned-byte handoff, source
+  contracts rejecting raw pointer transfer for device/server/process regions,
+  and documentation in ADR-008 or a new accelerator routing ADR.
+- **Status**: Open.
+
+#### ⏳ ISSUE-201 [minor]: Expose public fixed-capability routed execution
+- **Type**: Public Facade / Distributed Execution
+- **Root Cause**: Lower crates can execute fixed-format process/server tasks, but
+  the top-level `Moirai` facade still intentionally rejects arbitrary remote
+  closures. A public facade must admit only sealed capability types and preserve
+  route ownership boundaries.
+- **Required Boundary**: Add public capability-driven APIs over existing routed
+  process/server clients without reintroducing closure remoting, node discovery
+  placeholders, or remote pointer transfer.
+- **Evidence Plan**: Value-semantic facade tests, benchmark-contract guards
+  against removed placeholder distributed methods, and a focused routed-execution
+  benchmark row through the public API.
+- **Status**: Open.
 
 #### ✅ ISSUE-130 [arch]: Complete Tokio reactor-native I/O compatibility contract
 - **Type**: Architecture / Compatibility
