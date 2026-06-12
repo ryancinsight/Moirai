@@ -1,5 +1,17 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-06-12 Stack architecture audit (cross-repo)
+
+### Closed
+- `moirai-iter` NUMA detection delegates to `themis::current_numa_node` (topology SSOT) instead of a local libc walk that returned 0 off-Linux.
+- `moirai-iter::cache::CACHE_LINE_SIZE` re-exports the `moirai-core::constants` SSOT instead of a second copy of the value.
+- themis 0.7.0 / mnemosyne 43a02f3 dependency bumps verified across the workspace (623 tests).
+
+### Open findings (filed)
+- [patch] `moirai-core/src/ipc.rs` carries 6× `#[allow(dead_code)]`; audit whether the suppressed items are platform-conditional (gate per-OS) or genuinely dead (delete).
+- [patch] `moirai-core` feature flags `numa`, `coroutine`, `result-diagnostics` are declared but unused in the tree; document intent or remove.
+- [patch] `moirai-core/src/executor/mod.rs` `set_current_task` suppresses dead_code unconditionally; scope the allow to non-`nightly_tls_active` builds.
+
 ## 2026-05-22 Scheduler Audit Update
 
 ### Closed Gaps
