@@ -218,7 +218,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                 }
             });
 
-        if run_on_global.is_err() {
+        if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = crate::base::get_shared_thread_pool();
             let (tx, rx) = std::sync::mpsc::channel();
             for chunk in chunks {
@@ -294,7 +294,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                 }
             });
 
-        if run_on_global.is_err() {
+        if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = crate::base::get_shared_thread_pool();
             let (tx, rx) = std::sync::mpsc::channel();
             for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
@@ -368,7 +368,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                 }
             });
 
-        if run_on_global.is_err() {
+        if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = crate::base::get_shared_thread_pool();
             let (tx, rx) = std::sync::mpsc::channel();
             for (idx, chunk) in chunks.into_iter().enumerate() {

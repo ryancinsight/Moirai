@@ -67,7 +67,7 @@ impl<T: Send + Sync> ParallelIter<T> {
                 }
             });
 
-        if run_on_global.is_err() {
+        if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = get_shared_thread_pool();
             let (tx, rx) = std::sync::mpsc::channel();
             for (idx, chunk) in chunks.into_iter().enumerate() {
@@ -143,7 +143,7 @@ impl<T: Send + Sync> ParallelIter<T> {
                 }
             });
 
-        if run_on_global.is_err() {
+        if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = get_shared_thread_pool();
             let (tx, rx) = std::sync::mpsc::channel();
             for (idx, chunk) in chunks.into_iter().enumerate() {

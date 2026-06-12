@@ -7,12 +7,36 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
-/// A pointer wrapper that is Send but not Sync.
-/// Used for zero-copy operations where we need to send raw pointers between threads.
+/// Decides whether a failed global-executor indexed fan-out may be retried
+/// on the shared thread pool.
+///
+/// Only `ShuttingDown` is returned before any chunk closure runs, so it is
+/// the only error for which a retry cannot duplicate caller side effects.
+/// Every other error (a chunk panic, a mid-loop spawn failure) is reported
+/// after `state.wait()` — some chunks have already executed, and re-running
+/// the full index domain would apply the caller's closure twice to those
+/// items. That violated invariant is unrecoverable here, so it propagates as
+/// a panic (matching rayon's panic-propagation semantics).
+pub(crate) fn pool_fallback_permitted(
+    fan_out: &Result<(), moirai_core::error::ExecutorError>,
+) -> bool {
+    match fan_out {
+        Ok(()) => false,
+        Err(moirai_core::error::ExecutorError::ShuttingDown) => true,
+        Err(error) => panic!(
+            "invariant: indexed fan-out failed after partial execution ({error}); \
+             retrying would duplicate caller side effects"
+        ),
+    }
+}
+
+/// A pointer wrapper shared across worker threads for zero-copy fan-out.
 ///
 /// # Safety
 /// The pointer must remain valid for the lifetime of the SendPtr.
-/// The user must ensure proper synchronization when accessing the pointed data.
+/// `Send`/`Sync` only assert the *pointer value* may move or be shared across
+/// threads; every dereference site is `unsafe` and owns the proof that the
+/// accessed region is disjoint per worker (chunked indices) or read-only.
 #[derive(Debug)]
 pub(crate) struct SendPtr<T>(pub(crate) *mut T);
 
@@ -381,6 +405,22 @@ mod tests {
         let result = process_in_batches(items, 3, |chunk| vec![chunk.iter().sum::<i32>()]);
         // [1,2,3] = 6, [4,5,6] = 15, [7,8] = 15
         assert_eq!(result, vec![6, 15, 15]);
+    }
+
+    #[test]
+    fn pool_fallback_only_on_pre_execution_shutdown() {
+        use moirai_core::error::ExecutorError;
+        assert!(!pool_fallback_permitted(&Ok(())));
+        assert!(pool_fallback_permitted(&Err(ExecutorError::ShuttingDown)));
+    }
+
+    #[test]
+    #[should_panic(expected = "partial execution")]
+    fn pool_fallback_rejects_partial_execution_errors() {
+        use moirai_core::error::ExecutorError;
+        let _ = pool_fallback_permitted(&Err(ExecutorError::SpawnFailed(
+            moirai_core::error::TaskError::Panicked,
+        )));
     }
 
     #[test]
