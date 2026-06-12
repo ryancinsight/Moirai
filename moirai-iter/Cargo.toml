@@ -32,6 +32,8 @@ proptest = { workspace = true }
 tokio = { version = "1", features = ["rt", "macros", "time"] }
 
 [features]
-default = []
+default = ["parallel", "mnemosyne-memory"]
+parallel = []
+mnemosyne-memory = []
 async = ["moirai-async"]
 metrics = ["moirai-core/metrics"]

@@ -12,8 +12,8 @@ thread_local! {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub(crate) static GLOBAL_REACTOR: std::sync::OnceLock<std::sync::Arc<IoReactor>> = std::sync::OnceLock::new();
-
+pub(crate) static GLOBAL_REACTOR: std::sync::OnceLock<std::sync::Arc<IoReactor>> =
+    std::sync::OnceLock::new();
 
 impl IoReactor {
     /// Run a closure with this reactor set as the thread-local active reactor.
@@ -52,7 +52,9 @@ impl IoReactor {
         #[cfg(not(target_os = "windows"))]
         {
             let reactor = GLOBAL_REACTOR.get_or_init(|| {
-                let r = std::sync::Arc::new(IoReactor::new().expect("failed to create global IoReactor"));
+                let r = std::sync::Arc::new(
+                    IoReactor::new().expect("failed to create global IoReactor"),
+                );
                 let r_clone = std::sync::Arc::clone(&r);
                 std::thread::Builder::new()
                     .name("moirai-global-reactor".to_string())

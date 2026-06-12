@@ -15,6 +15,11 @@ rust-version.workspace = true
 name = "_native"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["parallel", "mnemosyne-memory"]
+parallel = ["moirai/parallel"]
+mnemosyne-memory = ["moirai/mnemosyne-memory"]
+
 [dependencies]
 moirai = { path = "../moirai", version = "0.2.0" }
 pyo3 = { workspace = true, features = ["extension-module"] }

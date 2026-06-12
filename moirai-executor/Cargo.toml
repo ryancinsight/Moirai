@@ -25,11 +25,13 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = ["std", "metrics", "async", "mnemosyne"]
+default = ["std", "metrics", "async", "parallel", "mnemosyne-memory"]
 std = []
 async = []
+parallel = []
 numa = []
 metrics = ["moirai-core/metrics"]
 registry-diagnostics = []
 scheduler-diagnostics = []
 mnemosyne = ["dep:mnemosyne"]
+mnemosyne-memory = ["mnemosyne"]

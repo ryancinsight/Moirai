@@ -14,6 +14,12 @@ pub struct ReactorTaskFutureStorage {
     pub words: [MaybeUninit<usize>; INLINE_REACTOR_TASK_WORDS],
 }
 
+impl Default for ReactorTaskFutureStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReactorTaskFutureStorage {
     pub fn new() -> Self {
         Self {
@@ -130,6 +136,12 @@ pub fn reactor_future_fits<F>() -> bool {
         && align_of::<F>() <= align_of::<ErasedReactorTaskFuture>()
 }
 
+/// Polls an inline-stored future of concrete type `F`.
+///
+/// # Safety
+/// `storage` must have been initialized as `F` by
+/// `ErasedReactorTaskFuture::new_inline::<F>`, not yet consumed by `take`,
+/// and address-stable for the call duration.
 pub unsafe fn poll_inline_reactor_future<F>(
     storage: *mut ReactorTaskFutureStorage,
     context: &mut Context<'_>,
@@ -143,6 +155,11 @@ where
     future.poll(context)
 }
 
+/// Drops an inline-stored future of concrete type `F` in place.
+///
+/// # Safety
+/// `storage` must hold an initialized `F` (via `new_inline::<F>`) that has
+/// not already been dropped or consumed by `take`.
 pub unsafe fn drop_inline_reactor_future<F>(storage: *mut ReactorTaskFutureStorage)
 where
     F: Future<Output = ()> + Send + 'static,
@@ -152,6 +169,11 @@ where
     unsafe { ptr::drop_in_place((*storage).as_mut_ptr::<F>()) };
 }
 
+/// Drops a boxed future stored inline as `Box<F>`.
+///
+/// # Safety
+/// `storage` must hold an initialized `Box<F>` (via `new_boxed::<F>`) that
+/// has not already been dropped or consumed by `take`.
 pub unsafe fn drop_boxed_reactor_future<F>(storage: *mut ReactorTaskFutureStorage)
 where
     F: Future<Output = ()> + Send + 'static,
@@ -161,6 +183,11 @@ where
     unsafe { ptr::drop_in_place((*storage).as_mut_ptr::<Box<F>>()) };
 }
 
+/// Polls a boxed future stored inline as `Box<F>`.
+///
+/// # Safety
+/// `storage` must hold an initialized `Box<F>` (via `new_boxed::<F>`) that
+/// has not been consumed by `take`; the box keeps `F` heap-stable.
 pub unsafe fn poll_boxed_reactor_future<F>(
     storage: *mut ReactorTaskFutureStorage,
     context: &mut Context<'_>,

@@ -36,12 +36,14 @@ proptest = { workspace = true }
 wasm-bindgen-test = "0.3"
 
 [features]
-default = ["std", "mnemosyne"]
+default = ["std", "parallel", "mnemosyne-memory"]
 no-std = []
 std = []
+parallel = []
 numa = []
 metrics = ["moirai-utils/metrics"]
 wasm = ["wasm-bindgen", "js-sys", "web-sys", "no-std"]
 coroutine = ["std"]
 result-diagnostics = ["std"]
 mnemosyne = ["dep:mnemosyne"]
+mnemosyne-memory = ["mnemosyne"]

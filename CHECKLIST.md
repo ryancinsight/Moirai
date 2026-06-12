@@ -1,5 +1,17 @@
 # Moirai Development Checklist
 
+## Phase 18: Default Provider Feature Contract
+- [x] [patch] Added default `parallel` and `mnemosyne-memory` features to every
+  Moirai package. Existing Mnemosyne-backed crates forward `mnemosyne-memory`
+  to the established `mnemosyne` provider feature; non-provider leaf crates use
+  zero-dependency markers.
+- [x] [patch] Applied rustfmt-required import/closure formatting in existing
+  Moirai iterator/reactor files so the formatting gate is clean.
+- Evidence: `cargo metadata --no-deps --locked --format-version 1`; full Atlas
+  feature-policy metadata audit; `cargo fmt --check`; `git diff --check`.
+  Residual: compile/test gates were blocked before rustc by denied access to
+  `target/debug/.cargo-lock`.
+
 ## Phase 17: Mnemosyne Worker Maintenance Integration ✅
 - [x] Registered Moirai's global scheduler as Melinoe's `std` partition executor via pushed Melinoe commit `8140882`, so branded partition writes route through Moirai workers.
 - [x] Added a value-semantic scheduler test proving Melinoe partition routing writes every branded cell exactly once through the registered Moirai executor.

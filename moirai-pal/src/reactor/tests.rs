@@ -1,5 +1,5 @@
 use super::core::IoReactor;
-use super::future::{reactor_future_fits, INLINE_REACTOR_TASK_WORDS, ReactorTaskFutureStorage};
+use super::future::{reactor_future_fits, ReactorTaskFutureStorage, INLINE_REACTOR_TASK_WORDS};
 use super::task::TaskId;
 use futures::task::noop_waker_ref;
 use std::future::Future;

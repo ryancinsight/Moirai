@@ -17,11 +17,14 @@ fn benchmark_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
 }
 
-fn read_benchmark(relative: &str) -> String {
-    let normalized = relative.replace('\\', "/");
-    if normalized == "../moirai-core/src/task.rs" {
-        let mut content = String::new();
-        for file in [
+/// Pre-split module aliases: contract tests address a module by its original
+/// single-file path; after a vertical split the alias maps to every leaf file
+/// so source markers keep matching the whole module. A new split adds one
+/// table row, not a new branch.
+const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
+    (
+        "../moirai-core/src/task.rs",
+        &[
             "../moirai-core/src/task/mod.rs",
             "../moirai-core/src/task/handle.rs",
             "../moirai-core/src/task/traits.rs",
@@ -29,17 +32,11 @@ fn read_benchmark(relative: &str) -> String {
             "../moirai-core/src/task/future.rs",
             "../moirai-core/src/task/id_and_context.rs",
             "../moirai-core/src/task/ext.rs",
-        ] {
-            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
-                content.push_str(&c);
-                content.push('\n');
-            }
-        }
-        return content.replace("\r\n", "\n").replace('\r', "\n");
-    }
-    if normalized == "../moirai-core/src/scheduler.rs" {
-        let mut content = String::new();
-        for file in [
+        ],
+    ),
+    (
+        "../moirai-core/src/scheduler.rs",
+        &[
             "../moirai-core/src/scheduler/mod.rs",
             "../moirai-core/src/scheduler/coordinator.rs",
             "../moirai-core/src/scheduler/traits.rs",
@@ -47,60 +44,36 @@ fn read_benchmark(relative: &str) -> String {
             "../moirai-core/src/scheduler/config.rs",
             "../moirai-core/src/scheduler/deque.rs",
             "../moirai-core/src/scheduler/task.rs",
-        ] {
-            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
-                content.push_str(&c);
-                content.push('\n');
-            }
-        }
-        return content.replace("\r\n", "\n").replace('\r', "\n");
-    }
-    if normalized == "../moirai-executor/src/hybrid/mod.rs" {
-        let mut content = String::new();
-        for file in [
+        ],
+    ),
+    (
+        "../moirai-executor/src/hybrid/mod.rs",
+        &[
             "../moirai-executor/src/hybrid/mod.rs",
             "../moirai-executor/src/hybrid/async_state.rs",
-        ] {
-            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
-                content.push_str(&c);
-                content.push('\n');
-            }
-        }
-        return content.replace("\r\n", "\n").replace('\r', "\n");
-    }
-    if normalized == "../moirai-executor/src/schedule/runtime/mod.rs" {
-        let mut content = String::new();
-        for file in [
+        ],
+    ),
+    (
+        "../moirai-executor/src/schedule/runtime/mod.rs",
+        &[
             "../moirai-executor/src/schedule/runtime/mod.rs",
             "../moirai-executor/src/schedule/runtime/scheduler.rs",
             "../moirai-executor/src/schedule/runtime/types.rs",
             "../moirai-executor/src/schedule/runtime/worker.rs",
             "../moirai-executor/src/schedule/runtime/tests.rs",
             "../moirai-executor/src/schedule/runtime/scheduler/diagnostics.rs",
-        ] {
-            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
-                content.push_str(&c);
-                content.push('\n');
-            }
-        }
-        return content.replace("\r\n", "\n").replace('\r', "\n");
-    }
-    if normalized == "../moirai-iter/src/async_iter.rs" {
-        let mut content = String::new();
-        for file in [
+        ],
+    ),
+    (
+        "../moirai-iter/src/async_iter.rs",
+        &[
             "../moirai-iter/src/async_iter.rs",
             "../moirai-iter/src/async_iter_tests.rs",
-        ] {
-            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
-                content.push_str(&c);
-                content.push('\n');
-            }
-        }
-        return content.replace("\r\n", "\n").replace('\r', "\n");
-    }
-    if normalized == "../moirai-iter/src/parallel/adapters.rs" {
-        let mut content = String::new();
-        for file in [
+        ],
+    ),
+    (
+        "../moirai-iter/src/parallel/adapters.rs",
+        &[
             "../moirai-iter/src/parallel/adapters/mod.rs",
             "../moirai-iter/src/parallel/adapters/map.rs",
             "../moirai-iter/src/parallel/adapters/filter.rs",
@@ -114,39 +87,50 @@ fn read_benchmark(relative: &str) -> String {
             "../moirai-iter/src/parallel/adapters/side_effect.rs",
             "../moirai-iter/src/parallel/adapters/stride.rs",
             "../moirai-iter/src/parallel/adapters/window.rs",
-        ] {
-            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
-                content.push_str(&c);
-                content.push('\n');
-            }
-        }
-        return content.replace("\r\n", "\n").replace('\r', "\n");
-    }
-    if normalized == "../moirai-scheduler/src/lib.rs" {
-        let mut content = String::new();
-        for file in [
+        ],
+    ),
+    (
+        "../moirai-scheduler/src/lib.rs",
+        &[
             "../moirai-scheduler/src/lib.rs",
             "../moirai-scheduler/src/deque.rs",
             "../moirai-scheduler/src/reclaim.rs",
             "../moirai-scheduler/src/scheduler.rs",
-        ] {
-            if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
-                content.push_str(&c);
-                content.push('\n');
-            }
-        }
-        return content.replace("\r\n", "\n").replace('\r', "\n");
-    }
-    if normalized == "../moirai-scheduler/src/numa_scheduler.rs" {
-        let mut content = String::new();
-        for file in [
+        ],
+    ),
+    (
+        "../moirai-scheduler/src/numa_scheduler.rs",
+        &[
             "../moirai-scheduler/src/numa_scheduler/mod.rs",
             "../moirai-scheduler/src/numa_scheduler/scheduler.rs",
             "../moirai-scheduler/src/numa_scheduler/topology.rs",
             "../moirai-scheduler/src/numa_scheduler/queue.rs",
             "../moirai-scheduler/src/numa_scheduler/backoff.rs",
             "../moirai-scheduler/src/numa_scheduler/tests.rs",
-        ] {
+        ],
+    ),
+    (
+        "../moirai-pal/src/reactor.rs",
+        &[
+            "../moirai-pal/src/reactor/mod.rs",
+            "../moirai-pal/src/reactor/core.rs",
+            "../moirai-pal/src/reactor/future.rs",
+            "../moirai-pal/src/reactor/task.rs",
+            "../moirai-pal/src/reactor/metrics.rs",
+            "../moirai-pal/src/reactor/tls.rs",
+            "../moirai-pal/src/reactor/tests.rs",
+        ],
+    ),
+];
+
+fn read_benchmark(relative: &str) -> String {
+    let normalized = relative.replace('\\', "/");
+    if let Some((_, leaves)) = SPLIT_MODULE_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == normalized)
+    {
+        let mut content = String::new();
+        for file in *leaves {
             if let Ok(c) = fs::read_to_string(benchmark_path(file)) {
                 content.push_str(&c);
                 content.push('\n');

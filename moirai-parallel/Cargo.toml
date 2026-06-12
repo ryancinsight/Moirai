@@ -17,7 +17,9 @@ moirai-executor = { workspace = true }
 melinoe = { workspace = true, optional = true }
 
 [features]
-default = ["melinoe"]
+default = ["parallel", "mnemosyne-memory", "melinoe"]
+parallel = []
+mnemosyne-memory = []
 melinoe = ["dep:melinoe"]
 
 [dev-dependencies]

@@ -55,16 +55,14 @@ impl<T: Send + Sync> ParallelIter<T> {
         let f_ptr_send = SendPtr(&f as *const F as *const () as *mut ());
 
         let run_on_global = moirai_executor::global()
-            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| {
-                unsafe {
-                    let chunk = *chunks.get_unchecked(idx);
-                    let chunk_ptr = chunk.as_ptr();
-                    let chunk_len = chunk.len();
-                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
-                    let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-                    let chunk_result = chunk_slice.iter().map(f_ref).collect::<Vec<_>>();
-                    *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) = Some(chunk_result);
-                }
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| unsafe {
+                let chunk = *chunks.get_unchecked(idx);
+                let chunk_ptr = chunk.as_ptr();
+                let chunk_len = chunk.len();
+                let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
+                let f_ref = &*(f_ptr_send.as_ptr() as *const F);
+                let chunk_result = chunk_slice.iter().map(f_ref).collect::<Vec<_>>();
+                *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) = Some(chunk_result);
             });
 
         if crate::base::pool_fallback_permitted(&run_on_global) {
@@ -81,7 +79,8 @@ impl<T: Send + Sync> ParallelIter<T> {
                             std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
                         let f_ref = &*(f_ptr_send.as_ptr() as *const F);
                         let chunk_result = chunk_slice.iter().map(f_ref).collect::<Vec<_>>();
-                        *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) = Some(chunk_result);
+                        *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) =
+                            Some(chunk_result);
                     }
                     let _ = tx.send(());
                 });
@@ -130,17 +129,15 @@ impl<T: Send + Sync> ParallelIter<T> {
         let f_ptr_send = SendPtr(&f as *const F as *const () as *mut ());
 
         let run_on_global = moirai_executor::global()
-            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| {
-                unsafe {
-                    let chunk = *chunks.get_unchecked(idx);
-                    let chunk_ptr = chunk.as_ptr();
-                    let chunk_len = chunk.len();
-                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
-                    let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-                    let chunk_identity = (*(identities_ptr.as_ptr() as *const T).add(idx)).clone();
-                    let chunk_result = chunk_slice.iter().fold(chunk_identity, f_ref);
-                    *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = Some(chunk_result);
-                }
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| unsafe {
+                let chunk = *chunks.get_unchecked(idx);
+                let chunk_ptr = chunk.as_ptr();
+                let chunk_len = chunk.len();
+                let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
+                let f_ref = &*(f_ptr_send.as_ptr() as *const F);
+                let chunk_identity = (*(identities_ptr.as_ptr() as *const T).add(idx)).clone();
+                let chunk_result = chunk_slice.iter().fold(chunk_identity, f_ref);
+                *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = Some(chunk_result);
             });
 
         if crate::base::pool_fallback_permitted(&run_on_global) {
@@ -156,7 +153,8 @@ impl<T: Send + Sync> ParallelIter<T> {
                         let chunk_slice =
                             std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
                         let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-                        let chunk_identity = (*(identities_ptr.as_ptr() as *const T).add(idx)).clone();
+                        let chunk_identity =
+                            (*(identities_ptr.as_ptr() as *const T).add(idx)).clone();
                         let chunk_result = chunk_slice.iter().fold(chunk_identity, f_ref);
                         *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = Some(chunk_result);
                     }

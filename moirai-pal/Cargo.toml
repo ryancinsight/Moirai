@@ -50,5 +50,7 @@ proptest = { workspace = true }
 futures = "0.3"
 
 [features]
-default = []
+default = ["parallel", "mnemosyne-memory"]
+parallel = []
+mnemosyne-memory = []
 metrics = ["moirai-core/metrics"]

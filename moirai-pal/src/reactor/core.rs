@@ -8,9 +8,9 @@ use std::sync::{
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
-use crate::{create_reactor, Event, Interest, PlatformReactor, RawFd, Reactor};
 use super::metrics::ReactorMetrics;
 use super::task::{ReactorTaskState, TaskHandle, TaskId};
+use crate::{create_reactor, Event, Interest, PlatformReactor, RawFd, Reactor};
 
 /// Send/Sync-safe internal key for platform handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

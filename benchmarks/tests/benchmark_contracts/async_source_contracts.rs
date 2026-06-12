@@ -501,7 +501,16 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
     let pal_lib = read_benchmark("../moirai-pal/src/lib.rs");
     let pal_fs = read_benchmark("../moirai-pal/src/fs.rs");
     let pal_net = read_benchmark("../moirai-pal/src/net.rs");
-    let pal_reactor = read_benchmark("../moirai-pal/src/reactor.rs");
+    let pal_reactor = [
+        "../moirai-pal/src/reactor/core.rs",
+        "../moirai-pal/src/reactor/future.rs",
+        "../moirai-pal/src/reactor/task.rs",
+        "../moirai-pal/src/reactor/tests.rs",
+        "../moirai-pal/src/reactor/tls.rs",
+    ]
+    .into_iter()
+    .map(read_benchmark)
+    .collect::<String>();
     let epoll_reactor = read_benchmark("../moirai-pal/src/unix/epoll.rs");
     let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
 

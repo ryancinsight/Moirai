@@ -26,8 +26,10 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = ["local"]
+default = ["local", "parallel", "mnemosyne-memory"]
 local = []  # In-memory and shared memory transports
+parallel = []
+mnemosyne-memory = []
 scheduler-routes = ["moirai-executor"]
 network = []  # TCP/UDP network transports
 distributed = ["network"]  # Full distributed computing support

@@ -21,6 +21,8 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = []
+default = ["parallel", "mnemosyne-memory"]
+parallel = []
+mnemosyne-memory = []
 tracing = []
 profiling = []

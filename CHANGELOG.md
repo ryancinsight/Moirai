@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Default `parallel` and `mnemosyne-memory` feature contracts across every
+  Moirai package. Crates with existing Mnemosyne-backed runtime behavior expose
+  `mnemosyne-memory` as the canonical default forwarding feature; provider-free
+  leaf crates expose zero-dependency markers.
 - Registered Moirai's global scheduler as Melinoe's `std` partition executor, so branded partition writes can run on the existing Moirai worker pool instead of spawning raw scoped threads.
 - Routed default `moirai-executor` worker idle maintenance through Mnemosyne when the runtime is waiting for work, so Moirai's default provider stack performs allocator defragmentation sweeps without Rayon/Tokio involvement.
 - Added Apollo-facing public facade contract tests for chunked mutable

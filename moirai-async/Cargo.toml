@@ -31,7 +31,9 @@ proptest = { workspace = true }
 tempfile = "3.0"
 
 [features]
-default = []
+default = ["parallel", "mnemosyne-memory"]
+parallel = []
+mnemosyne-memory = []
 io = []
 timers = []
 metrics = ["moirai-core/metrics"]

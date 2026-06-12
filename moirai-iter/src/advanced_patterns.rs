@@ -16,8 +16,7 @@ use std::sync::Arc;
 /// Zero-copy iterator that operates directly on channel streams
 pub struct StreamingIterator<T> {
     receiver: UnifiedReceiver<T>,
-    buffer: Vec<T>,
-    buffer_pos: usize,
+    buffer: std::vec::IntoIter<T>,
     batch_size: usize,
     finished: bool,
 }
@@ -27,8 +26,7 @@ impl<T> StreamingIterator<T> {
     pub fn new(receiver: UnifiedReceiver<T>, batch_size: usize) -> Self {
         Self {
             receiver,
-            buffer: Vec::with_capacity(batch_size),
-            buffer_pos: 0,
+            buffer: Vec::new().into_iter(),
             batch_size,
             finished: false,
         }
@@ -39,9 +37,6 @@ impl<T> StreamingIterator<T> {
         if self.finished {
             return false;
         }
-
-        self.buffer.clear();
-        self.buffer_pos = 0;
 
         // Try to fill buffer with batch receive
         let new_items = self.receiver.recv_batch(self.batch_size);
@@ -55,13 +50,13 @@ impl<T> StreamingIterator<T> {
             // Channel is empty but not closed - try single receive
             match self.receiver.try_recv() {
                 Ok(item) => {
-                    self.buffer.push(item);
+                    self.buffer = vec![item].into_iter();
                     true
                 }
                 Err(_) => false,
             }
         } else {
-            self.buffer.extend(new_items);
+            self.buffer = new_items.into_iter();
             true
         }
     }
@@ -72,16 +67,13 @@ impl<T> Iterator for StreamingIterator<T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         // Check if we have items in buffer
-        if self.buffer_pos < self.buffer.len() {
-            // Use remove instead of swap_remove to maintain order
-            let item = self.buffer.remove(self.buffer_pos);
-            // Don't increment buffer_pos since we removed the item
+        if let Some(item) = self.buffer.next() {
             return Some(item);
         }
 
         // Buffer is empty, try to refill
         if self.fill_buffer() {
-            self.next()
+            self.buffer.next()
         } else {
             None
         }
@@ -89,7 +81,7 @@ impl<T> Iterator for StreamingIterator<T> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         // We can't know the exact size since it depends on the channel
-        (0, None)
+        (self.buffer.len(), None)
     }
 }
 

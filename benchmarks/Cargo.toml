@@ -165,12 +165,13 @@ name = "async_io_compat_comparison"
 harness = false
 
 [features]
-default = ["async", "iter", "parallel", "local", "mnemosyne"]
+default = ["async", "iter", "parallel", "local", "mnemosyne-memory"]
 async = ["moirai/async"]
 iter = ["moirai/iter"]
 parallel = ["moirai/parallel"]
 local = ["moirai/local"]
 mnemosyne = ["moirai/mnemosyne"]
+mnemosyne-memory = ["mnemosyne"]
 full = ["moirai/full", "tokio/full"]
 registry-diagnostics = ["moirai-executor/registry-diagnostics"]
 scheduler-diagnostics = ["moirai-executor/scheduler-diagnostics"]

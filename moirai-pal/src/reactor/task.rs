@@ -13,6 +13,9 @@ use super::future::ErasedReactorTaskFuture;
 pub struct TaskId(pub(crate) u64);
 
 impl TaskId {
+    // `new` mints a process-unique id from a global counter; a `Default` impl
+    // would misrepresent that side effect as a neutral value.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(1);
         Self(COUNTER.fetch_add(1, Ordering::SeqCst))
@@ -58,6 +61,12 @@ impl ReactorTaskState {
 pub struct TaskCompletion {
     pub(crate) completed: AtomicBool,
     pub(crate) waker: Mutex<Option<Waker>>,
+}
+
+impl Default for TaskCompletion {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TaskCompletion {

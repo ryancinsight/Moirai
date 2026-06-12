@@ -23,7 +23,9 @@ quickcheck_macros = { workspace = true }
 fastrand = "2.0"
 
 [features]
-default = []
+default = ["parallel", "mnemosyne-memory"]
+parallel = []
+mnemosyne-memory = []
 expensive-tests = []
 property-tests = []
 quickcheck-tests = []

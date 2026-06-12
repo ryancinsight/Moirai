@@ -276,8 +276,9 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         let func_ptr = SendPtr(&func as *const F as *const () as *mut ());
 
         let run_on_global = moirai_executor::global()
-            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |chunk_idx| {
-                unsafe {
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(
+                num_chunks,
+                |chunk_idx| unsafe {
                     let chunk = *chunks.get_unchecked(chunk_idx);
                     let chunk_start = chunk_idx * self.chunk_size;
                     let chunk_results_ptr = results_send_ptr.as_ptr().add(chunk_start);
@@ -291,8 +292,8 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                         let result_ptr = chunk_results_ptr.add(offset);
                         result_ptr.write(MaybeUninit::new(result));
                     }
-                }
-            });
+                },
+            );
 
         if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = crate::base::get_shared_thread_pool();
@@ -300,7 +301,8 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
                 let tx = tx.clone();
                 let chunk_start = chunk_idx * self.chunk_size;
-                let results_ptr_wrapper = SendPtr(unsafe { results_ptr.add(chunk_start) } as *mut ());
+                let results_ptr_wrapper =
+                    SendPtr(unsafe { results_ptr.add(chunk_start) } as *mut ());
                 let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
                 let chunk_len = chunk.len();
 
@@ -356,16 +358,14 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         let func_ptr = SendPtr(&func as *const F as *const () as *mut ());
 
         let run_on_global = moirai_executor::global()
-            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| {
-                unsafe {
-                    let chunk = *chunks.get_unchecked(idx);
-                    let chunk_ptr = chunk.as_ptr();
-                    let chunk_len = chunk.len();
-                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
-                    let func_ref = &*(func_ptr.as_ptr() as *const F);
-                    let chunk_result = chunk_slice.iter().cloned().reduce(|a, b| func_ref(&a, &b));
-                    *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = chunk_result;
-                }
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| unsafe {
+                let chunk = *chunks.get_unchecked(idx);
+                let chunk_ptr = chunk.as_ptr();
+                let chunk_len = chunk.len();
+                let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
+                let func_ref = &*(func_ptr.as_ptr() as *const F);
+                let chunk_result = chunk_slice.iter().cloned().reduce(|a, b| func_ref(&a, &b));
+                *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = chunk_result;
             });
 
         if crate::base::pool_fallback_permitted(&run_on_global) {
@@ -381,7 +381,8 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                         let chunk_slice =
                             std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
                         let func_ref = &*(func_ptr.as_ptr() as *const F);
-                        let chunk_result = chunk_slice.iter().cloned().reduce(|a, b| func_ref(&a, &b));
+                        let chunk_result =
+                            chunk_slice.iter().cloned().reduce(|a, b| func_ref(&a, &b));
                         *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = chunk_result;
                     }
                     let _ = tx.send(());

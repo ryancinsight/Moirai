@@ -12,6 +12,11 @@ description = "Minimal async HTTP/1.1 client over Moirai sockets + moirai-tls, n
 keywords = ["http", "client", "async", "moirai", "network"]
 categories = ["network-programming", "web-programming::http-client"]
 
+[features]
+default = ["parallel", "mnemosyne-memory"]
+parallel = []
+mnemosyne-memory = []
+
 [dependencies]
 moirai-async = { workspace = true }
 moirai-tls = { workspace = true }

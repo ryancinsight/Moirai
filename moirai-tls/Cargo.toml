@@ -12,6 +12,11 @@ description = "Async TLS client for the Moirai runtime: rustls driven over Moira
 keywords = ["tls", "rustls", "async", "moirai", "network"]
 categories = ["network-programming", "cryptography"]
 
+[features]
+default = ["parallel", "mnemosyne-memory"]
+parallel = []
+mnemosyne-memory = []
+
 [dependencies]
 moirai-async = { workspace = true }
 futures-io = { workspace = true }

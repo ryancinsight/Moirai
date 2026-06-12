@@ -128,9 +128,10 @@ path = "../examples/gpu_acceleration.rs"
 required-features = ["gpu"]
 
 [features]
-default = ["async", "iter", "parallel", "local", "mnemosyne", "melinoe"]
+default = ["async", "iter", "parallel", "local", "mnemosyne-memory", "melinoe"]
 full = ["async", "iter", "parallel", "distributed", "metrics", "numa", "futex", "encryption", "gpu"]
 mnemosyne = ["dep:mnemosyne", "moirai-core/mnemosyne", "moirai-executor/mnemosyne"]
+mnemosyne-memory = ["mnemosyne"]
 no-global-alloc = []
 melinoe = ["dep:melinoe", "moirai-parallel/melinoe"]
 async = ["moirai-async"]
