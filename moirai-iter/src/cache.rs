@@ -17,8 +17,9 @@ impl<T> SendConstPtr<T> {
     }
 }
 
-/// Cache line size for most modern x86_64 processors
-pub const CACHE_LINE_SIZE: usize = 64;
+/// Cache line size, re-exported from the moirai-core constants SSOT so the
+/// crate never carries a second copy of the value.
+pub use moirai_core::constants::CACHE_LINE_SIZE;
 
 /// Chunk size for cache-friendly iteration (L1 cache half)
 pub const CACHE_CHUNK_SIZE: usize = 16384; // 16KB
