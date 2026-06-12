@@ -9,7 +9,7 @@ Command:
 cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- distributed_context_owned_map --quiet
 ```
 
-Workload: `moirai-iter::distributed::DistributedContext::execute_distributed_map` consumes owned partitions and is compared with Rayon `into_par_iter` over equivalent owned vectors. The benchmark asserts equal checksums before timing. The public `Moirai` facade no longer exposes remote-closure methods until a transport-backed remote task contract exists.
+Workload: `moirai-iter::distributed::DistributedContext::execute_distributed_map` consumes owned partitions and is compared with Rayon `into_par_iter` over equivalent owned vectors. The benchmark asserts equal checksums before timing. The public `Moirai` facade does not expose remote-closure methods; later routed execution coverage admits only sealed fixed-format capability tasks.
 
 | Benchmark | Moirai | Reference |
 | --- | ---: | ---: |

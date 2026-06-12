@@ -53,14 +53,8 @@ pub(super) fn worker_loop<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
 }
 
 #[cfg(feature = "mnemosyne")]
-#[cfg(nightly_tls_active)]
-#[thread_local]
-static mut LAST_MAINTENANCE_TIME: Option<std::time::Instant> = None;
-
-#[cfg(feature = "mnemosyne")]
-#[cfg(not(nightly_tls_active))]
-thread_local! {
-    static LAST_MAINTENANCE_TIME: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+melinoe::thread_cached! {
+    mod last_maintenance_time: std::time::Instant;
 }
 
 #[inline]
@@ -73,35 +67,16 @@ fn run_idle_memory_maintenance() {
         }
 
         let now = std::time::Instant::now();
-        let should_run = {
-            #[cfg(nightly_tls_active)]
-            unsafe {
-                if let Some(last) = LAST_MAINTENANCE_TIME {
-                    if now.duration_since(last) >= std::time::Duration::from_millis(500) {
-                        LAST_MAINTENANCE_TIME = Some(now);
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    LAST_MAINTENANCE_TIME = Some(now);
-                    true
-                }
+        let should_run = if let Some(last) = last_maintenance_time::get() {
+            if now.duration_since(last) >= std::time::Duration::from_millis(500) {
+                last_maintenance_time::set(now);
+                true
+            } else {
+                false
             }
-            #[cfg(not(nightly_tls_active))]
-            LAST_MAINTENANCE_TIME.with(|cell| {
-                if let Some(last) = cell.get() {
-                    if now.duration_since(last) >= std::time::Duration::from_millis(500) {
-                        cell.set(Some(now));
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    cell.set(Some(now));
-                    true
-                }
-            })
+        } else {
+            last_maintenance_time::set(now);
+            true
         };
 
         if should_run {

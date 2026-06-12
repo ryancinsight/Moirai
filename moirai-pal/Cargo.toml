@@ -14,6 +14,7 @@ description = "Platform Abstraction Layer for Moirai async I/O operations"
 
 [dependencies]
 moirai-core = { workspace = true }
+melinoe = { workspace = true, features = ["std"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

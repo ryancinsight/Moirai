@@ -182,9 +182,11 @@ impl TaskFactory {
 moirai.pipeline()
     .async_stage(|data| async_process(data))
     .parallel_stage(|data| cpu_process(data))
-    .remote_stage("gpu-cluster", |data| gpu_process(data))
     .execute(stream)
 ```
+
+Process and server routes are submitted through the fixed-capability routed
+facade rather than arbitrary remote pipeline closures.
 
 ### ✅ **Unix Philosophy**
 **Status: EXCELLENT**

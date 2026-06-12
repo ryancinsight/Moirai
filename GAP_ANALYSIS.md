@@ -35,6 +35,20 @@
   archive buffer. Evidence tier: type-level/source audit, value-semantic
   payload and route tests, benchmark contracts, and value-checked
   `device_region_owned_handoff` Criterion row.
+- The top-level `Moirai` facade now exposes fixed-capability routed server and
+  process execution through `execute_routed_server_task` and
+  `execute_routed_process_task`. The public API admits only sealed
+  `RemoteCapabilityToken<C>` plus matching `IntoRemoteOperation<C>` payloads.
+  Evidence tier: type-level/source audit, value-semantic facade tests,
+  benchmark contracts, and value-checked public routed execution benchmark rows.
+- `moirai_core::communication::zero_copy` now uses vertical error, ring,
+  channel, adaptive, and router leaves below the 500-line structural target
+  while preserving the public re-export surface. Evidence tier: source audit,
+  core crate tests, and benchmark-contract coverage.
+- Executor idle-maintenance TLS and PAL active-reactor TLS now share the
+  Melinoe `thread_cached!` abstraction instead of maintaining duplicated
+  nightly/stable thread-local branches. Evidence tier: source audit plus
+  feature-path clippy coverage for `moirai-executor` and `moirai-pal`.
 
 ### Open alignment findings
 - [x] README architecture drift: the public README still framed Moirai mostly as
@@ -52,10 +66,10 @@
 - [ ] [arch] Accelerator backend consumption gap: no GPU/TPU/NPU backend consumes
   `SchedulerRoute::Accelerator` yet. The existing GPU slice plans occupancy only;
   co-scheduling requires a backend adapter with value and benchmark evidence.
-- [ ] [arch] Public facade gap: process/server route execution is available in
-  lower crates through fixed-format capabilities, while the top-level `Moirai`
-  facade intentionally does not expose arbitrary remote closure execution. A
-  future facade must route only admitted capability types, not closure remoting.
+- [x] [minor] Public facade gap: process/server route execution is now
+  available through the top-level `Moirai` facade for fixed-format sealed
+  capability tasks. Arbitrary remote closure execution and node discovery
+  placeholders remain absent by construction.
 
 ## 2026-06-12 Stack architecture audit (cross-repo)
 

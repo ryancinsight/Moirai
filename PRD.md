@@ -107,7 +107,6 @@ Moirai is a next-generation concurrency library that synthesizes the best princi
 let moirai = Moirai::builder()
     .worker_threads(8)
     .async_threads(4)
-    .enable_distributed() // Enable cross-process/machine communication
     .build();
 
 // Async task execution
@@ -116,20 +115,29 @@ moirai.spawn_async(async { /* async work */ }).await;
 // Parallel task execution
 moirai.spawn_parallel(|| { /* CPU-intensive work */ });
 
-// Cross-process task execution
-moirai.spawn_remote("worker-node-1", || { /* remote work */ }).await;
+// Cross-process/server task execution uses sealed fixed-format capabilities.
+let task = FixedRemoteTask::new(
+    RemoteTaskId::new(1),
+    RemoteCapabilityToken::<SumU64Capability>::new(),
+    vec![1, 2, 3, 4],
+);
+let (_route, result) = moirai.execute_routed_server_task::<AsyncTask, ServerRoutePolicy, _, _>(
+    &router,
+    Priority::Normal,
+    sequence,
+    server_target,
+    task,
+)?;
 
-// Universal communication - same API regardless of location
+// Universal communication - route metadata decides the transport boundary
 let (tx, rx) = moirai.channel::<String>();
-tx.send_to("process-2", "Hello").await?; // Cross-process
-tx.send_to("thread-local", "Hi").await?; // Same thread
-tx.send_to("remote:192.168.1.100", "Hey").await?; // Remote machine
+tx.send("Hello".to_string())?;
+let message = rx.recv()?;
 
-// Hybrid pipeline with distributed stages
+// Hybrid pipeline composition remains local unless a fixed capability route is selected
 moirai.pipeline()
     .async_stage(|data| async move { /* I/O */ })
     .parallel_stage(|data| { /* CPU */ })
-    .remote_stage("gpu-cluster", |data| { /* GPU compute */ })
     .execute(input_stream)
     .collect();
 ```

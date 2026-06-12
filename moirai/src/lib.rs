@@ -123,8 +123,8 @@
 //! let result = handle.join().unwrap().unwrap();
 //! println!("Result: {}", result);
 //!
-//! // Cross-machine execution is intentionally outside the public Moirai facade
-//! // until a transport-backed remote task contract is implemented.
+//! // Cross-machine execution uses fixed-format capability tokens; arbitrary
+//! // remote closure execution is intentionally outside the public facade.
 //! # Ok(())
 //! # }
 //! ```
@@ -227,6 +227,32 @@ pub use moirai_transport::{
     Address, InMemoryTransport, RemoteAddress, TransportError, TransportManager, TransportResult,
     UniversalChannel, UniversalReceiver, UniversalSender,
 };
+
+#[cfg(feature = "distributed")]
+mod routed;
+
+#[cfg(feature = "distributed")]
+pub use moirai_executor::schedule::{
+    AsyncTask, HybridRoutePolicy, HybridRouter, RoutePolicy, RouteTopology, SchedulerRoute,
+    ServerRoutePolicy, SyncTask, ThreadRoutePolicy, WorkClass,
+};
+
+#[cfg(feature = "distributed")]
+pub use moirai_transport::{
+    process::{ProcessDropPolicy, ProcessSpec, ProcessWaitPolicy},
+    remote_task::{
+        EchoBytesCapability, IntoRemoteOperation, RemoteCapability, RemoteCapabilityToken,
+        RemoteTaskId, RemoteTaskOperationKind, RemoteTaskOutput, RemoteTaskResult,
+        SumU64Capability,
+    },
+    route::{
+        ProcessEndpoint, RouteAddressBook, RouteNamespace, RouteService, RoutedProcessTaskError,
+        RoutedProcessTaskOutput, ServerEndpoint,
+    },
+};
+
+#[cfg(feature = "distributed")]
+pub use routed::{FixedRemoteTask, RoutedProcessTarget, RoutedServerTarget};
 
 // Re-export channel functionality from core
 pub use moirai_core::channel;
@@ -1088,7 +1114,7 @@ mod tests {
     }
 
     #[test]
-    fn distributed_feature_does_not_add_facade_remote_execution() {
+    fn distributed_feature_does_not_add_facade_remote_closure_execution() {
         let moirai = Moirai::builder().build().unwrap();
         let handle = moirai.spawn_fn(|| "computed locally".to_string());
         let result = handle.join().expect("local task handle must be attached");

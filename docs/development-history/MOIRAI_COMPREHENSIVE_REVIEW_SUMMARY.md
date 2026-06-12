@@ -203,9 +203,11 @@ pub trait ExecutorControl {
 moirai.pipeline()
     .async_stage(|data| async_process(data))
     .parallel_stage(|data| cpu_process(data))
-    .remote_stage("gpu-cluster", |data| gpu_process(data))
     .execute(stream);
 ```
+
+Process and server routes are submitted through fixed-capability routed task
+facades instead of arbitrary remote closure stages.
 
 **Unix Philosophy (9.8/10):**
 - Single purpose for each module

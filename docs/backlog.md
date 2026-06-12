@@ -49,7 +49,7 @@ architecture definition.
 **Project**: Moirai Concurrency Library
 **Version**: 0.2.0
 **Last Updated**: 2026-06-12
-**Status**: Unified scheduler implemented for local CPU worker threads, sync/blocking/async-ready work classes, process-route metadata, server-route metadata, per-process async lanes, accelerator route metadata, bounded fixed-format process/server execution, and Mnemosyne-owned archive-byte handoff across thread/process/server/device payload regions. Scoped scheduler batches, indexed map/reduce, mixed async/sync/parallel workloads, process/server route summaries, accelerator route summaries, routed process/server execution, device-region handoff, parallel iterator regression rows, and public result handles have value-checked benchmark coverage against accepted Tokio/Rayon references. Accelerator backend execution remains open: GPU occupancy planning exists and CPU/GPU/TPU/NPU metadata is now part of `SchedulerRoute`, but no GPU/TPU/NPU backend consumes that route until backend consumption and benchmarks are implemented.
+**Status**: Unified scheduler implemented for local CPU worker threads, sync/blocking/async-ready work classes, process-route metadata, server-route metadata, per-process async lanes, accelerator route metadata, bounded fixed-format process/server execution, public fixed-capability routed process/server facade execution, and Mnemosyne-owned archive-byte handoff across thread/process/server/device payload regions. Scoped scheduler batches, indexed map/reduce, mixed async/sync/parallel workloads, process/server route summaries, accelerator route summaries, routed process/server execution, public routed facade execution, device-region handoff, parallel iterator regression rows, and public result handles have value-checked benchmark coverage against accepted Tokio/Rayon references. Accelerator backend execution remains open: GPU occupancy planning exists and CPU/GPU/TPU/NPU metadata is now part of `SchedulerRoute`, but no GPU/TPU/NPU backend consumes that route until backend consumption and benchmarks are implemented.
 
 
 ---
@@ -108,19 +108,25 @@ architecture definition.
 - **Verification**: `cargo fmt -p moirai-transport -p moirai-benchmarks --check`; `cargo nextest run -p moirai-transport --all-features payload route`; `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`; `cargo clippy -p moirai-transport -p moirai-benchmarks --all-targets --all-features -- -D warnings`; `cargo doc -p moirai-transport --all-features --no-deps` with `RUSTDOCFLAGS=-D warnings`; `cargo bench -p moirai-benchmarks --bench transport_archive_comparison -- --quick --quiet`; full final gate listed in the micro-sprint summary.
 - **Status**: Completed 2026-06-12.
 
-#### ⏳ ISSUE-201 [minor]: Expose public fixed-capability routed execution
+#### ✅ ISSUE-201 [minor]: Expose public fixed-capability routed execution
 - **Type**: Public Facade / Distributed Execution
 - **Root Cause**: Lower crates can execute fixed-format process/server tasks, but
   the top-level `Moirai` facade still intentionally rejects arbitrary remote
   closures. A public facade must admit only sealed capability types and preserve
   route ownership boundaries.
-- **Required Boundary**: Add public capability-driven APIs over existing routed
-  process/server clients without reintroducing closure remoting, node discovery
-  placeholders, or remote pointer transfer.
-- **Evidence Plan**: Value-semantic facade tests, benchmark-contract guards
-  against removed placeholder distributed methods, and a focused routed-execution
-  benchmark row through the public API.
-- **Status**: Open.
+- **Resolution**: Added `moirai::routed` as a vertical public facade leaf with
+  `FixedRemoteTask<C, P>`, `RoutedServerTarget`, and `RoutedProcessTarget`.
+  `Moirai::execute_routed_server_task` and
+  `Moirai::execute_routed_process_task` delegate to existing transport clients
+  after converting only sealed `RemoteCapabilityToken<C>` and matching
+  `IntoRemoteOperation<C>` payloads into fixed-format operations.
+- **Evidence**: Facade tests execute real server and supervised-process
+  `SumU64` tasks through the public API. Benchmark contracts require the public
+  methods, capability token boundary, lack of dynamic remote task dispatch, and
+  public routed benchmark rows. `process_server_routed_execution` adds
+  `public_server_route_sum_u64` and `public_process_route_sum_u64`.
+- **Verification**: `cargo fmt -p moirai -p moirai-benchmarks --check`; `cargo nextest run -p moirai --features distributed routed`; `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`; `cargo clippy -p moirai -p moirai-benchmarks --all-targets --features distributed -- -D warnings`; `cargo doc -p moirai --features distributed --no-deps` with `RUSTDOCFLAGS=-D warnings`; `cargo bench -p moirai-benchmarks --bench process_server_routed_execution -- --quick --quiet`; full final gate listed in the micro-sprint summary.
+- **Status**: Completed 2026-06-12.
 
 #### ✅ ISSUE-130 [arch]: Complete Tokio reactor-native I/O compatibility contract
 - **Type**: Architecture / Compatibility

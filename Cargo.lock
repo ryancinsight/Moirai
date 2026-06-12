@@ -1388,6 +1388,7 @@ dependencies = [
  "futures",
  "js-sys",
  "libc",
+ "melinoe 0.7.0 (git+https://github.com/ryancinsight/melinoe.git?rev=85134e46378b08dd01b1037fb125f2bef3874843)",
  "moirai-core",
  "proptest",
  "wasm-bindgen",

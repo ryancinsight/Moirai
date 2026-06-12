@@ -444,13 +444,30 @@ fn rayon_tokio_comparison_report_tracks_bounded_channel_coverage() {
 #[test]
 fn public_facade_does_not_expose_placeholder_distributed_execution() {
     let source = read_benchmark("../moirai/src/lib.rs");
+    let routed = read_benchmark("../moirai/src/routed.rs");
+    let manifest = read_benchmark("../moirai/Cargo.toml");
+    let source_all = format!("{source}\n{routed}\n{manifest}");
 
     for required in [
-        "Cross-machine execution is intentionally outside the public Moirai facade",
-        "distributed_feature_does_not_add_facade_remote_execution",
+        "mod routed;",
+        "pub use routed::{FixedRemoteTask, RoutedProcessTarget, RoutedServerTarget};",
+        "moirai-transport/scheduler-routes",
+        "pub struct FixedRemoteTask<C: RemoteCapability, Payload>",
+        "pub struct RoutedServerTarget",
+        "pub struct RoutedProcessTarget",
+        "pub fn execute_routed_server_task<W, P, C, Payload>",
+        "pub fn execute_routed_process_task<W, P, C, Payload>",
+        "RemoteCapabilityToken<C>",
+        "Payload: IntoRemoteOperation<C>",
+        "build_remote_operation(task.payload, task.token)",
+        "RoutedRemoteTaskClient::<P>::new",
+        "RoutedProcessTaskClient::<P>::new",
+        "public_facade_executes_fixed_capability_server_route",
+        "public_facade_executes_fixed_capability_process_route",
+        "distributed_feature_does_not_add_facade_remote_closure_execution",
     ] {
         assert!(
-            source.contains(required),
+            source_all.contains(required),
             "public facade must document the distributed execution boundary through {required}"
         );
     }
@@ -467,10 +484,70 @@ fn public_facade_does_not_expose_placeholder_distributed_execution() {
         "simulated locally",
         "worker-node-1",
         "gpu-cluster",
+        "Box<dyn RemoteCapability",
+        "dyn RemoteCapability",
+        "dyn RemoteTask",
     ] {
         assert!(
-            !source.contains(prohibited),
+            !source_all.contains(prohibited),
             "public facade must not reintroduce placeholder distributed execution marker {prohibited}"
+        );
+    }
+}
+
+#[test]
+fn core_zero_copy_primitives_use_vertical_leaf_modules() {
+    let communication = read_benchmark("../moirai-core/src/communication.rs");
+    let module = read_benchmark("../moirai-core/src/communication/zero_copy/mod.rs");
+    let error = read_benchmark("../moirai-core/src/communication/zero_copy/error.rs");
+    let ring = read_benchmark("../moirai-core/src/communication/zero_copy/ring.rs");
+    let channel = read_benchmark("../moirai-core/src/communication/zero_copy/channel.rs");
+    let adaptive = read_benchmark("../moirai-core/src/communication/zero_copy/adaptive.rs");
+    let router = read_benchmark("../moirai-core/src/communication/zero_copy/router.rs");
+
+    for required in [
+        "pub mod zero_copy;",
+        "AdaptiveBatchChannel",
+        "DomainId",
+        "MemoryMappedRing",
+        "ZeroCopyChannel",
+        "ZeroCopyError",
+        "ZeroCopyRouter",
+    ] {
+        assert!(
+            communication.contains(required),
+            "communication facade must retain zero-copy export {required}"
+        );
+    }
+
+    for required in [
+        "mod adaptive;",
+        "mod channel;",
+        "mod error;",
+        "mod ring;",
+        "mod router;",
+        "pub use adaptive::{",
+        "pub use channel::{ZeroCopyChannel, ZeroCopyReceiver, ZeroCopySender};",
+        "pub use error::{ZeroCopyError, ZeroCopyResult};",
+        "pub use ring::MemoryMappedRing;",
+        "pub use router::{DomainId, ZeroCopyRouter};",
+    ] {
+        assert!(
+            module.contains(required),
+            "zero-copy module hierarchy must retain {required}"
+        );
+    }
+
+    for (source, required) in [
+        (error.as_str(), "pub enum ZeroCopyError"),
+        (ring.as_str(), "pub struct MemoryMappedRing<T>"),
+        (channel.as_str(), "pub struct ZeroCopyChannel<T>"),
+        (adaptive.as_str(), "pub struct AdaptiveBatchChannel<T>"),
+        (router.as_str(), "pub struct ZeroCopyRouter<T>"),
+    ] {
+        assert!(
+            source.contains(required),
+            "zero-copy leaf must retain {required}"
         );
     }
 }

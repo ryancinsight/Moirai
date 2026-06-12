@@ -236,7 +236,7 @@ Moirai's architecture is a deep, bounded-context scheduler stack:
 ### Unified Scheduler/Router
 - **Local CPU Layer**: `ThreadScheduler` owns worker queues, work-class routing, scoped batches, and indexed fan-out/reduction.
 - **Route Layer**: `HybridRouter<P>` selects `SchedulerRoute::{Thread, Process, Server, Accelerator}` with per-process async lanes and CPU/GPU/TPU/NPU accelerator metadata through sealed zero-sized policies.
-- **Transport Layer**: `moirai-transport` consumes route metadata, archives payload bytes, and executes admitted fixed-format process/server tasks.
+- **Transport Layer**: `moirai-transport` consumes route metadata, archives payload bytes, and executes admitted fixed-format process/server tasks; the public `Moirai` facade admits those paths only through sealed capability tokens.
 - **Accelerator Layer**: `moirai-gpu::occupancy` plans topology-aware launch shapes today; GPU/TPU/NPU backend execution remains an open architecture item tracked in `GAP_ANALYSIS.md` and `docs/backlog.md`.
 
 ### Memory Efficiency
@@ -247,7 +247,7 @@ Moirai's architecture is a deep, bounded-context scheduler stack:
 
 ### Code Organization (Following SOLID/DRY)
 - **Unified Channels**: Single implementation in `moirai_core::channel`
-- **Zero-Copy Primitives (SSOT)**: Consolidated in `moirai_core::communication::zero_copy` (send returns `Result<(), (T, ZeroCopyError)>` on failure to prevent data loss)
+- **Zero-Copy Primitives (SSOT)**: Consolidated in vertical `moirai_core::communication::zero_copy` leaves for error, ring, channel, adaptive batching, and routing (send returns `Result<(), (T, ZeroCopyError)>` on failure to prevent data loss)
 - **Iterator Windows/Chunks**: Consolidated in `moirai_iter::windows` (no duplicates in `base`)
 - **Base Iterator Module**: Common patterns extracted to `moirai_iter::base`
 - **Minimal Sync Primitives**: Focus on value-add over std library

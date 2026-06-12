@@ -140,7 +140,11 @@ parallel = ["moirai-parallel"]
 gpu = ["moirai-gpu"]
 local = ["moirai-transport/local"]
 network = ["moirai-transport/network"]
-distributed = ["moirai-transport/distributed", "network"]
+distributed = [
+    "moirai-transport/distributed",
+    "moirai-transport/scheduler-routes",
+    "network",
+]
 encryption = ["moirai-transport/encryption"]
 compression = ["moirai-transport/compression"]
 metrics = ["moirai-metrics", "moirai-core/metrics", "moirai-transport/metrics"]

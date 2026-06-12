@@ -325,7 +325,6 @@ pub mod transport {
 moirai.pipeline()
     .async_stage(|data| async_process(data))
     .parallel_stage(|data| cpu_process(data))
-    .remote_stage("gpu-cluster", |data| gpu_process(data))
     .execute(stream);
 
 // Trait composition
@@ -337,6 +336,9 @@ let executor = HybridExecutor::new()
     .with_transport(UniversalTransport::new())
     .build();
 ```
+
+Process and server routes compose through fixed-capability routed task facades;
+arbitrary remote closure stages are outside the current public API.
 
 ---
 
