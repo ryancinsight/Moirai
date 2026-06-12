@@ -53,6 +53,12 @@ pub(super) fn worker_loop<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
 }
 
 #[cfg(feature = "mnemosyne")]
+#[cfg(nightly_tls_active)]
+#[thread_local]
+static mut LAST_MAINTENANCE_TIME: Option<std::time::Instant> = None;
+
+#[cfg(feature = "mnemosyne")]
+#[cfg(not(nightly_tls_active))]
 thread_local! {
     static LAST_MAINTENANCE_TIME: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
 }
@@ -62,19 +68,36 @@ fn run_idle_memory_maintenance() {
     #[cfg(feature = "mnemosyne")]
     {
         let now = std::time::Instant::now();
-        let should_run = LAST_MAINTENANCE_TIME.with(|cell| {
-            if let Some(last) = cell.get() {
-                if now.duration_since(last) >= std::time::Duration::from_millis(500) {
+        let should_run = {
+            #[cfg(nightly_tls_active)]
+            unsafe {
+                if let Some(last) = LAST_MAINTENANCE_TIME {
+                    if now.duration_since(last) >= std::time::Duration::from_millis(500) {
+                        LAST_MAINTENANCE_TIME = Some(now);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    LAST_MAINTENANCE_TIME = Some(now);
+                    true
+                }
+            }
+            #[cfg(not(nightly_tls_active))]
+            LAST_MAINTENANCE_TIME.with(|cell| {
+                if let Some(last) = cell.get() {
+                    if now.duration_since(last) >= std::time::Duration::from_millis(500) {
+                        cell.set(Some(now));
+                        true
+                    } else {
+                        false
+                    }
+                } else {
                     cell.set(Some(now));
                     true
-                } else {
-                    false
                 }
-            } else {
-                cell.set(Some(now));
-                true
-            }
-        });
+            })
+        };
 
         if should_run {
             use mnemosyne::{LocalAllocatorSelector, MemoryBackendWrapper, StandardPolicy};
