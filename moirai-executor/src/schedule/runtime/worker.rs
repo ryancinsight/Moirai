@@ -67,6 +67,11 @@ thread_local! {
 fn run_idle_memory_maintenance() {
     #[cfg(feature = "mnemosyne")]
     {
+        use mnemosyne::{LocalAllocatorSelector, MemoryBackendWrapper, StandardPolicy};
+        if <MemoryBackendWrapper as LocalAllocatorSelector<MemoryBackendWrapper>>::get_allocator_ptr_raw().is_null() {
+            return;
+        }
+
         let now = std::time::Instant::now();
         let should_run = {
             #[cfg(nightly_tls_active)]
@@ -100,15 +105,12 @@ fn run_idle_memory_maintenance() {
         };
 
         if should_run {
-            use mnemosyne::{LocalAllocatorSelector, MemoryBackendWrapper, StandardPolicy};
-            if !<MemoryBackendWrapper as LocalAllocatorSelector<MemoryBackendWrapper>>::get_allocator_ptr_raw().is_null() {
-                let _ =
-                    <MemoryBackendWrapper as LocalAllocatorSelector<MemoryBackendWrapper>>::with_allocator(
-                        |alloc| unsafe {
-                            alloc.periodic_defragmentation_sweep::<StandardPolicy>();
-                        },
-                    );
-            }
+            let _ =
+                <MemoryBackendWrapper as LocalAllocatorSelector<MemoryBackendWrapper>>::with_allocator(
+                    |alloc| unsafe {
+                        alloc.periodic_defragmentation_sweep::<StandardPolicy>();
+                    },
+                );
         }
     }
 }
