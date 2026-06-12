@@ -14,8 +14,9 @@
   execution. Evidence tier: value-semantic tests and Criterion benchmarks for
   `process_server_routed_execution`.
 - Mnemosyne integration is an allocator and owned-byte handoff boundary, not a
-  cross-process pointer-sharing claim. Evidence tier: source audit of
-  `TransportPayload<R>` region markers and the upstream Git dependency lock.
+  cross-process or cross-device pointer-sharing claim. Evidence tier: source
+  audit of `TransportPayload<R>` region markers, value-semantic payload tests,
+  and the upstream Git dependency lock.
 - `moirai-gpu::occupancy` owns the current accelerator-adjacent planning slice:
   topology-aware launch-shape and resident-block planning. Evidence tier:
   type-level API plus value-semantic tests over themis topology and Mnemosyne
@@ -28,6 +29,12 @@
   concerns separate. Evidence tier: type-level/source audit, value-semantic
   route tests, benchmark contracts, and value-checked
   `scheduler_route_accelerator_metadata_summary` Criterion rows.
+- `moirai-transport::payload` now includes a sealed `DevicePayloadRegion` and
+  `PayloadBoundary::Device`; process, server, and device regions reject pointer
+  transfer while zero-copy `TransportPayload<R>::handoff` moves the same owned
+  archive buffer. Evidence tier: type-level/source audit, value-semantic
+  payload and route tests, benchmark contracts, and value-checked
+  `device_region_owned_handoff` Criterion row.
 
 ### Open alignment findings
 - [x] README architecture drift: the public README still framed Moirai mostly as
@@ -38,11 +45,10 @@
 - [x] [arch] Accelerator route metadata: `SchedulerRoute` now has typed
   CPU/GPU/TPU/NPU placement metadata. This is not backend execution; it is the
   route-decision layer required before GPU/TPU/NPU co-scheduling.
-- [ ] [arch] Device-memory ownership gap: `TransportPayload<R>` distinguishes
-  thread/process/server payload regions, but no sealed device/accelerator memory
-  region exists for GPU/TPU/NPU handoff. Next increment must keep Mnemosyne-owned
-  bytes as the SSOT and reject cross-device pointer transfer unless a backend
-  proves the handle semantics.
+- [x] [arch] Device-memory ownership gap: `TransportPayload<R>` now
+  distinguishes thread/process/server/device payload regions. Device handoff
+  moves owned archive bytes without cloning and rejects pointer transfer by
+  type-level region constant; this is not accelerator backend execution.
 - [ ] [arch] Accelerator backend consumption gap: no GPU/TPU/NPU backend consumes
   `SchedulerRoute::Accelerator` yet. The existing GPU slice plans occupancy only;
   co-scheduling requires a backend adapter with value and benchmark evidence.
@@ -148,10 +154,10 @@
 - `moirai-iter::MoiraiIterator` now lives in a vertical `facade` leaf, carries `ExecutionContext` directly across transforms instead of reconstructing contexts through string matching, and rejects hidden empty-output fallbacks on execution failure.
 - `parallel_iterator_regression` adds focused multi-size Moirai/Rayon rows for parallel iterator throughput regression checks independent of the broader adapter suite, including borrowed copied reductions, chunked map/reduce, indexed step/interleave, partition/unzip, and position/find terminals.
 - `moirai-executor::schedule::route` now defines concrete thread/process/server/async-lane route values, sealed zero-sized `RoutePolicy` markers, and `HybridRouter<P>` for monomorphized route decisions. `process_server_scheduler_routing` benchmarks value-checked route summaries for sync, async, and blocking work classes without fabricating OS process or server execution.
-- `moirai-transport/scheduler-routes` now consumes `SchedulerRoute` values through `RouteAddressBook`, `RoutedArchivedSender<P>`, and `RoutedArchivedReceiver<P>`, binding route metadata to transport-owned archive bytes for local roundtrips and to remote endpoint metadata for known server routes. `TransportPayload<R>` now tags those archive bytes with sealed thread/process/server ownership regions.
+- `moirai-transport/scheduler-routes` now consumes `SchedulerRoute` values through `RouteAddressBook`, `RoutedArchivedSender<P>`, and `RoutedArchivedReceiver<P>`, binding route metadata to transport-owned archive bytes for local roundtrips and to remote endpoint metadata for known server routes. `TransportPayload<R>` now tags those archive bytes with sealed thread/process/server/device ownership regions.
 - `NetworkTransport` now transfers remote payload bytes over a bounded length-prefixed TCP frame and `TransportManager` routes `Address::Remote` through that real byte path. Remote task envelopes/results use server-region owned payload frames.
 - `RemoteTaskEnvelope` and `RemoteTaskResult` now provide fixed-format request/response archives over the remote byte transport for explicit `EchoBytes` and `SumU64` operations. `RemoteCapabilityToken<C>` adds a sealed zero-sized capability boundary for building only admitted fixed-format operations, and `TransportPayload<R>` defines the allocator ownership handoff.
-- `RoutedRemoteTaskClient<P>` now binds selected `SchedulerRoute::Server` values to fixed-format remote task execution through `RouteAddressBook` and `RemoteTaskClient`. Arbitrary closure remoting is rejected by the fixed-format capability boundary; process/server payload pointer transfer is rejected by region constants.
+- `RoutedRemoteTaskClient<P>` now binds selected `SchedulerRoute::Server` values to fixed-format remote task execution through `RouteAddressBook` and `RemoteTaskClient`. Arbitrary closure remoting is rejected by the fixed-format capability boundary; process/server/device payload pointer transfer is rejected by region constants.
 - `moirai-transport::process` now provides real OS process lifecycle primitives: `ProcessSupervisor` spawns child processes from `ProcessSpec`, observes blocking and bounded wait status, terminates live children, and applies explicit drop cleanup policy.
 - `RoutedProcessTaskClient<P>` now binds selected `SchedulerRoute::Process` values to supervised child process execution through registered `ProcessEndpoint` entries and fixed-format remote task request/response. This is explicit built-in task execution only; arbitrary closure remoting is outside the admitted capability set.
 - `BoundedRemoteTaskServer` now owns one listener lifecycle and admits fixed-format request frames through bounded `sync_channel` capacity and a bounded worker set. This closes bounded server execution for explicit built-in remote tasks only; arbitrary closure remoting is rejected by sealed capability construction.

@@ -6,7 +6,8 @@
 
 use crate::{
     payload::{
-        archive_transport_payload, ProcessPayloadRegion, ServerPayloadRegion, ThreadPayloadRegion,
+        archive_transport_payload, DevicePayloadRegion, ProcessPayloadRegion, ServerPayloadRegion,
+        ThreadPayloadRegion,
     },
     process::{
         ManagedProcessId, ProcessDropPolicy, ProcessError, ProcessSpec, ProcessStatus,
@@ -259,7 +260,7 @@ where
         SchedulerRoute::Thread(_) => payload.into_bytes(),
         SchedulerRoute::Process(_) => payload.handoff::<ProcessPayloadRegion>().into_bytes(),
         SchedulerRoute::Server(_) => payload.handoff::<ServerPayloadRegion>().into_bytes(),
-        SchedulerRoute::Accelerator(_) => payload.into_bytes(),
+        SchedulerRoute::Accelerator(_) => payload.handoff::<DevicePayloadRegion>().into_bytes(),
     })
 }
 

@@ -235,12 +235,12 @@ Moirai's architecture is a deep, bounded-context scheduler stack:
 
 ### Unified Scheduler/Router
 - **Local CPU Layer**: `ThreadScheduler` owns worker queues, work-class routing, scoped batches, and indexed fan-out/reduction.
-- **Route Layer**: `HybridRouter<P>` selects `SchedulerRoute::{Thread, Process, Server}` with per-process async lanes through sealed zero-sized policies.
+- **Route Layer**: `HybridRouter<P>` selects `SchedulerRoute::{Thread, Process, Server, Accelerator}` with per-process async lanes and CPU/GPU/TPU/NPU accelerator metadata through sealed zero-sized policies.
 - **Transport Layer**: `moirai-transport` consumes route metadata, archives payload bytes, and executes admitted fixed-format process/server tasks.
-- **Accelerator Layer**: `moirai-gpu::occupancy` plans topology-aware launch shapes today; GPU/TPU/NPU scheduler routes remain open architecture items tracked in `GAP_ANALYSIS.md` and `docs/backlog.md`.
+- **Accelerator Layer**: `moirai-gpu::occupancy` plans topology-aware launch shapes today; GPU/TPU/NPU backend execution remains an open architecture item tracked in `GAP_ANALYSIS.md` and `docs/backlog.md`.
 
 ### Memory Efficiency
-- **Mnemosyne Boundary**: Archive payloads move as owned bytes across thread/process/server regions; cross-process pointer transfer is rejected.
+- **Mnemosyne Boundary**: Archive payloads move as owned bytes across thread/process/server/device regions; cross-process and cross-device pointer transfer is rejected.
 - **NUMA Awareness**: Worker hints and iterator helpers use topology-aware placement where available.
 - **Cache Optimization**: Hot scheduler jobs use inline erased storage and cache-conscious queue/result layouts.
 - **Zero-Copy Views**: Transport archive receivers validate borrowed views over owned message buffers before materializing owned values.

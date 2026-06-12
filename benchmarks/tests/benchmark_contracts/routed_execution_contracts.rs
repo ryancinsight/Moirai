@@ -18,11 +18,13 @@ fn transport_payload_regions_define_mnemosyne_handoff_boundary() {
         "Thread",
         "Process",
         "Server",
+        "Device",
         "pub trait PayloadRegion: sealed::Sealed + Copy + Default + Send + Sync + 'static",
         "const POINTER_TRANSFER_ALLOWED: bool",
         "pub struct ThreadPayloadRegion",
         "pub struct ProcessPayloadRegion",
         "pub struct ServerPayloadRegion",
+        "pub struct DevicePayloadRegion",
         "pub struct TransportPayload<R: PayloadRegion>",
         "_region: PhantomData<R>",
         "pub fn handoff<Target: PayloadRegion>(self) -> TransportPayload<Target>",
@@ -43,6 +45,7 @@ fn transport_payload_regions_define_mnemosyne_handoff_boundary() {
         "archive_route_payload(route, value)",
         "payload.handoff::<ProcessPayloadRegion>().into_bytes()",
         "payload.handoff::<ServerPayloadRegion>().into_bytes()",
+        "payload.handoff::<DevicePayloadRegion>().into_bytes()",
         "TransportPayload::<ServerPayloadRegion>::from_bytes(bytes)",
     ] {
         assert!(

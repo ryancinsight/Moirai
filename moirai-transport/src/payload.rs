@@ -16,6 +16,8 @@ pub enum PayloadBoundary {
     Process,
     /// Payload is handed to a server route.
     Server,
+    /// Payload is handed to an accelerator/device route.
+    Device,
 }
 
 /// Sealed payload ownership region.
@@ -57,6 +59,17 @@ impl sealed::Sealed for ServerPayloadRegion {}
 
 impl PayloadRegion for ServerPayloadRegion {
     const BOUNDARY: PayloadBoundary = PayloadBoundary::Server;
+    const POINTER_TRANSFER_ALLOWED: bool = false;
+}
+
+/// Accelerator/device payload region.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct DevicePayloadRegion;
+
+impl sealed::Sealed for DevicePayloadRegion {}
+
+impl PayloadRegion for DevicePayloadRegion {
+    const BOUNDARY: PayloadBoundary = PayloadBoundary::Device;
     const POINTER_TRANSFER_ALLOWED: bool = false;
 }
 
@@ -128,8 +141,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        archive_transport_payload, PayloadBoundary, PayloadRegion, ProcessPayloadRegion,
-        ServerPayloadRegion, ThreadPayloadRegion, TransportPayload,
+        archive_transport_payload, DevicePayloadRegion, PayloadBoundary, PayloadRegion,
+        ProcessPayloadRegion, ServerPayloadRegion, ThreadPayloadRegion, TransportPayload,
     };
     use core::mem::size_of;
 
@@ -137,6 +150,7 @@ mod tests {
         assert!(ThreadPayloadRegion::POINTER_TRANSFER_ALLOWED);
         assert!(!ProcessPayloadRegion::POINTER_TRANSFER_ALLOWED);
         assert!(!ServerPayloadRegion::POINTER_TRANSFER_ALLOWED);
+        assert!(!DevicePayloadRegion::POINTER_TRANSFER_ALLOWED);
     };
 
     #[test]
@@ -144,6 +158,7 @@ mod tests {
         assert_eq!(size_of::<ThreadPayloadRegion>(), 0);
         assert_eq!(size_of::<ProcessPayloadRegion>(), 0);
         assert_eq!(size_of::<ServerPayloadRegion>(), 0);
+        assert_eq!(size_of::<DevicePayloadRegion>(), 0);
     }
 
     #[test]
@@ -151,6 +166,7 @@ mod tests {
         assert_eq!(ThreadPayloadRegion::BOUNDARY, PayloadBoundary::Thread);
         assert_eq!(ProcessPayloadRegion::BOUNDARY, PayloadBoundary::Process);
         assert_eq!(ServerPayloadRegion::BOUNDARY, PayloadBoundary::Server);
+        assert_eq!(DevicePayloadRegion::BOUNDARY, PayloadBoundary::Device);
     }
 
     #[test]
@@ -159,12 +175,14 @@ mod tests {
         let ptr = bytes.as_ptr();
         let thread_payload = TransportPayload::<ThreadPayloadRegion>::from_bytes(bytes);
         let process_payload = thread_payload.handoff::<ProcessPayloadRegion>();
+        let device_payload = process_payload.handoff::<DevicePayloadRegion>();
 
         assert_eq!(
-            process_payload.as_bytes(),
+            device_payload.as_bytes(),
             b"mnemosyne-owned archive payload"
         );
-        assert_eq!(process_payload.as_bytes().as_ptr(), ptr);
+        assert_eq!(device_payload.as_bytes().as_ptr(), ptr);
+        assert!(!TransportPayload::<DevicePayloadRegion>::pointer_transfer_allowed());
     }
 
     #[test]

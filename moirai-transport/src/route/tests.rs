@@ -10,8 +10,9 @@ use crate::{
 };
 use moirai_core::Priority;
 use moirai_executor::schedule::{
-    AsyncLanesPerProcess, AsyncTask, HybridRoutePolicy, HybridRouter, ProcessCount, RouteTopology,
-    SchedulerRoute, ServerCount, ServerId, ServerRoutePolicy, ThreadRoutePolicy, WorkerCount,
+    AcceleratorCounts, AcceleratorRoutePolicy, AsyncLanesPerProcess, AsyncTask, HybridRoutePolicy,
+    HybridRouter, ProcessCount, RouteTopology, SchedulerRoute, ServerCount, ServerId,
+    ServerRoutePolicy, SyncTask, ThreadRoutePolicy, WorkerCount,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -81,6 +82,21 @@ fn routed_archived_sender_roundtrips_local_thread_route() {
     let message = receiver.recv_route::<String>(route).unwrap();
 
     assert_eq!(message.get().unwrap(), value.as_str());
+}
+
+#[test]
+fn accelerator_route_archives_owned_device_payload_bytes() {
+    let router = HybridRouter::<AcceleratorRoutePolicy>::new(
+        topology(0).with_accelerators(AcceleratorCounts::new(1, 1, 1, 1)),
+    );
+    let route = router.select::<SyncTask>(Priority::Normal, 6);
+    let value = String::from("device-owned archive bytes");
+
+    let bytes = super::archive_route_payload(route, &value).unwrap();
+
+    assert!(matches!(route, SchedulerRoute::Accelerator(_)));
+    assert_eq!(bytes[..4], 26u32.to_le_bytes());
+    assert_eq!(&bytes[4..], value.as_bytes());
 }
 
 #[test]

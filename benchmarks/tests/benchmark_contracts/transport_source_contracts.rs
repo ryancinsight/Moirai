@@ -42,6 +42,10 @@ fn transport_archive_benchmark_compares_real_borrowed_and_owned_paths() {
         "owned_decode_reference",
         "archived_transport_borrowed_view",
         "raw_transport_owned_decode_reference",
+        "transport_payload_region_handoff",
+        "device_region_owned_handoff",
+        "DevicePayloadRegion",
+        "payload.handoff::<DevicePayloadRegion>()",
         "ArchivedUniversalSender::<str>",
         "ArchivedUniversalReceiver::<String>",
         "TransportManager::new()",
@@ -113,6 +117,7 @@ fn scheduler_routes_bind_to_archived_transport_without_fake_remote_execution() {
         "archive_transport_payload::<ThreadPayloadRegion, T>(value)",
         "payload.handoff::<ProcessPayloadRegion>().into_bytes()",
         "payload.handoff::<ServerPayloadRegion>().into_bytes()",
+        "payload.handoff::<DevicePayloadRegion>().into_bytes()",
         "pub fn recv_route<T>(&self, route: SchedulerRoute) -> TransportResult<ArchivedMessage<T>>",
         "pub fn execute_route(",
         "pub fn execute_selected<C>",
@@ -126,6 +131,7 @@ fn scheduler_routes_bind_to_archived_transport_without_fake_remote_execution() {
         "T: ArchiveView",
         "router.select::<C>(priority, sequence)",
         "route-owned archive bytes",
+        "accelerator_route_archives_owned_device_payload_bytes",
         "server_route_resolves_to_remote_endpoint_without_sending",
         "routed_remote_task_client_executes_selected_server_route",
         "routed_process_task_client_executes_selected_process_route",
@@ -155,7 +161,7 @@ fn scheduler_routes_bind_to_archived_transport_without_fake_remote_execution() {
         "ADR-008: Scheduler Route Consumption and Transport Ownership Boundary",
         "Route values are metadata until a transport backend consumes them",
         "Mnemosyne allocator handoff is an owned-byte transfer contract",
-        "TransportPayload<R>` tags archive bytes with sealed thread, process, and server payload regions",
+        "TransportPayload<R>` tags archive bytes with sealed thread, process, server, and device payload regions",
     ] {
         assert!(adr.contains(required), "ADR-008 must retain {required}");
     }

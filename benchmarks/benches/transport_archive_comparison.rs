@@ -5,8 +5,9 @@
 //! archive bytes into an owned `String`, so the benchmark isolates the receive
 //! allocation avoided by rkyv-style archive views.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use moirai_transport::{
+    payload::{DevicePayloadRegion, ThreadPayloadRegion, TransportPayload},
     safe_channel::{
         ArchiveSerialize, ArchivedMessage, ArchivedUniversalReceiver, ArchivedUniversalSender,
     },
@@ -95,6 +96,19 @@ fn owned_transport_roundtrip(
     verify_len(owned.as_str(), expected)
 }
 
+fn device_region_handoff(
+    payload: TransportPayload<ThreadPayloadRegion>,
+    expected_bytes: &[u8],
+) -> usize {
+    let ptr = payload.as_bytes().as_ptr();
+    let device_payload = payload.handoff::<DevicePayloadRegion>();
+
+    assert_eq!(device_payload.as_bytes(), expected_bytes);
+    assert_eq!(device_payload.as_bytes().as_ptr(), ptr);
+    assert!(!TransportPayload::<DevicePayloadRegion>::pointer_transfer_allowed());
+    black_box(device_payload.len())
+}
+
 fn bench_transport_archives(c: &mut Criterion) {
     let expected = payload();
     let archive_bytes = expected
@@ -155,6 +169,22 @@ fn bench_transport_archives(c: &mut Criterion) {
     });
 
     roundtrip_group.finish();
+
+    let mut handoff_group = c.benchmark_group("transport_payload_region_handoff");
+    handoff_group.sample_size(SAMPLE_SIZE);
+    handoff_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    handoff_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    handoff_group.throughput(Throughput::Bytes(archive_bytes.len() as u64));
+
+    handoff_group.bench_function("device_region_owned_handoff", |bench| {
+        bench.iter_batched(
+            || TransportPayload::<ThreadPayloadRegion>::from_bytes(archive_bytes.clone()),
+            |payload| device_region_handoff(payload, black_box(&archive_bytes)),
+            BatchSize::SmallInput,
+        );
+    });
+
+    handoff_group.finish();
 }
 
 criterion_group! {
