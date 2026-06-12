@@ -1,14 +1,11 @@
-//! Inter-process and inter-system communication infrastructure.
+//! Same-machine inter-process communication over shared memory.
 //!
-//! This module provides efficient communication between:
-//! - Different processes on the same machine
-//! - Different machines over the network
-//! - Different devices (GPU, FPGA, etc.)
-//!
-//! Inspired by:
-//! - MPI for distributed computing
-//! - RDMA for low-latency networking
-//! - CUDA IPC for GPU communication
+//! Scope: a named [`SharedMemory`] mapping (POSIX `shm_open`/`mmap`, Windows
+//! `CreateFileMappingW`/`MapViewOfFile`) and a lock-free single-producer
+//! single-consumer [`SharedQueue`] laid out inside it. Cross-machine and
+//! cross-device transport is out of scope here: GPU interop is the
+//! hephaestus substrate's domain, network transport lives in
+//! moirai-transport.
 
 use crate::platform::*;
 use core::fmt;
@@ -26,8 +23,6 @@ pub enum IpcError {
     SystemError(i32),
     /// Invalid argument
     InvalidArgument,
-    /// Operation or feature is not supported on this platform/configuration
-    Unsupported,
     /// Resource not found
     NotFound,
     /// Permission denied
@@ -39,7 +34,6 @@ impl fmt::Display for IpcError {
         match self {
             IpcError::SystemError(code) => write!(f, "System error: {}", code),
             IpcError::InvalidArgument => write!(f, "Invalid argument"),
-            IpcError::Unsupported => write!(f, "Unsupported operation"),
             IpcError::NotFound => write!(f, "Resource not found"),
             IpcError::PermissionDenied => write!(f, "Permission denied"),
         }
@@ -52,6 +46,57 @@ impl core::error::Error for IpcError {}
 #[cfg(unix)]
 fn last_os_error() -> IpcError {
     unsafe { IpcError::SystemError(*libc::__errno_location()) }
+}
+
+/// Convert OS error to IpcError
+#[cfg(windows)]
+fn last_os_error() -> IpcError {
+    extern "system" {
+        fn GetLastError() -> u32;
+    }
+    // SAFETY: `GetLastError` takes no arguments and reads thread-local state.
+    unsafe { IpcError::SystemError(GetLastError() as i32) }
+}
+
+/// Raw Win32 file-mapping bindings (extern decls keep the crate free of a
+/// windows-sys dependency, matching the platform-query style elsewhere).
+#[cfg(windows)]
+mod win {
+    pub const PAGE_READWRITE: u32 = 0x04;
+    pub const FILE_MAP_ALL_ACCESS: u32 = 0x000F_001F;
+    /// Pseudo-handle selecting a pagefile-backed mapping.
+    pub const INVALID_HANDLE_VALUE: usize = usize::MAX;
+
+    extern "system" {
+        pub fn CreateFileMappingW(
+            file: usize,
+            attributes: *mut core::ffi::c_void,
+            protect: u32,
+            size_high: u32,
+            size_low: u32,
+            name: *const u16,
+        ) -> usize;
+        pub fn OpenFileMappingW(desired_access: u32, inherit: i32, name: *const u16) -> usize;
+        pub fn MapViewOfFile(
+            mapping: usize,
+            desired_access: u32,
+            offset_high: u32,
+            offset_low: u32,
+            size: usize,
+        ) -> *mut core::ffi::c_void;
+        pub fn UnmapViewOfFile(address: *const core::ffi::c_void) -> i32;
+        pub fn CloseHandle(handle: usize) -> i32;
+    }
+
+    /// NUL-terminated UTF-16 mapping name; the unix-style leading `/` is
+    /// dropped so one logical name addresses the same object on both
+    /// platforms.
+    pub fn wide_name(name: &str) -> Vec<u16> {
+        name.trim_start_matches('/')
+            .encode_utf16()
+            .chain(core::iter::once(0))
+            .collect()
+    }
 }
 
 /// Shared memory segment for zero-copy IPC
@@ -159,6 +204,79 @@ impl SharedMemory {
         }
     }
 
+    /// Create a new shared memory segment
+    #[cfg(windows)]
+    pub fn create(name: &str, size: usize) -> Result<Self, IpcError> {
+        if size == 0 {
+            return Err(IpcError::InvalidArgument);
+        }
+        let wide = win::wide_name(name);
+
+        // SAFETY: `CreateFileMappingW` receives a NUL-terminated UTF-16 name
+        // and a pagefile-backed pseudo-handle; `MapViewOfFile` maps `size`
+        // bytes of the returned mapping. Both pointers are valid for the
+        // duration of the calls and failure paths release the handle.
+        unsafe {
+            let handle = win::CreateFileMappingW(
+                win::INVALID_HANDLE_VALUE,
+                core::ptr::null_mut(),
+                win::PAGE_READWRITE,
+                (size as u64 >> 32) as u32,
+                size as u32,
+                wide.as_ptr(),
+            );
+            if handle == 0 {
+                return Err(last_os_error());
+            }
+
+            let ptr = win::MapViewOfFile(handle, win::FILE_MAP_ALL_ACCESS, 0, 0, size);
+            if ptr.is_null() {
+                let error = last_os_error();
+                win::CloseHandle(handle);
+                return Err(error);
+            }
+
+            Ok(Self {
+                ptr: ptr as *mut u8,
+                size,
+                handle,
+                owner: true,
+            })
+        }
+    }
+
+    /// Open an existing shared memory segment
+    #[cfg(windows)]
+    pub fn open(name: &str, size: usize) -> Result<Self, IpcError> {
+        if size == 0 {
+            return Err(IpcError::InvalidArgument);
+        }
+        let wide = win::wide_name(name);
+
+        // SAFETY: as in `create`; `OpenFileMappingW` only reads the
+        // NUL-terminated name, and failure paths release the handle.
+        unsafe {
+            let handle = win::OpenFileMappingW(win::FILE_MAP_ALL_ACCESS, 0, wide.as_ptr());
+            if handle == 0 {
+                return Err(last_os_error());
+            }
+
+            let ptr = win::MapViewOfFile(handle, win::FILE_MAP_ALL_ACCESS, 0, 0, size);
+            if ptr.is_null() {
+                let error = last_os_error();
+                win::CloseHandle(handle);
+                return Err(error);
+            }
+
+            Ok(Self {
+                ptr: ptr as *mut u8,
+                size,
+                handle,
+                owner: false,
+            })
+        }
+    }
+
     /// Get a slice of the shared memory
     pub fn as_slice(&self) -> &[u8] {
         unsafe { slice::from_raw_parts(self.ptr, self.size) }
@@ -170,24 +288,27 @@ impl SharedMemory {
     }
 }
 
-#[cfg(unix)]
 impl Drop for SharedMemory {
     fn drop(&mut self) {
+        #[cfg(unix)]
+        // SAFETY: `ptr`/`size`/`fd` come from the successful `mmap`/`shm_open`
+        // in `create`/`open` and are released exactly once here.
         unsafe {
-            #[cfg(unix)]
-            {
-                // Unmap memory
-                libc::munmap(self.ptr as *mut libc::c_void, self.size);
-
-                // Close file descriptor
-                libc::close(self.fd);
-
-                // Unlink if owner
-                if self.owner {
-                    // Note: We don't have the name here, so unlinking
-                    // should be done explicitly by the user
-                }
-            }
+            libc::munmap(self.ptr as *mut libc::c_void, self.size);
+            libc::close(self.fd);
+            // Unlinking the name requires the name, which is not stored;
+            // owners unlink explicitly when the object must be destroyed.
+            let _ = self.owner;
+        }
+        #[cfg(windows)]
+        // SAFETY: `ptr`/`handle` come from the successful
+        // `MapViewOfFile`/`CreateFileMappingW` in `create`/`open` and are
+        // released exactly once here. Windows file mappings are kernel
+        // refcounted, so no owner-side unlink exists.
+        unsafe {
+            win::UnmapViewOfFile(self.ptr as *const core::ffi::c_void);
+            win::CloseHandle(self.handle);
+            let _ = self.owner;
         }
     }
 }
@@ -313,7 +434,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(unix)]
     fn test_shared_memory() {
         let name = "/moirai_test_shm";
         let size = 1024;
@@ -333,7 +453,21 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    fn open_of_missing_segment_reports_system_error() {
+        let result = SharedMemory::open("/moirai_test_no_such_segment", 64);
+        assert!(matches!(result, Err(IpcError::SystemError(_))));
+    }
+
+    #[test]
+    fn zero_size_segment_is_rejected_on_windows() {
+        #[cfg(windows)]
+        {
+            let result = SharedMemory::create("/moirai_test_zero", 0);
+            assert!(matches!(result, Err(IpcError::InvalidArgument)));
+        }
+    }
+
+    #[test]
     fn test_shared_queue() {
         let name = "/moirai_test_queue";
         let capacity = 10;

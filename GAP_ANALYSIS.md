@@ -50,6 +50,7 @@
 
 ### Open findings — resolved 2026-06-12
 - [x] `ipc.rs` dead-code audit: deleted `RdmaConnection`/`DistributedComm`/`CommBackend` (placeholder scaffolds returning `Unsupported`) and `GpuIpc`/`GpuMemHandle` (`create_handle` fabricated a zeroed handle as `Ok` — a mock; GPU IPC is hephaestus domain). `SharedMemory`/`SharedQueue` (real, tested) remain; the one surviving allow is the documented RAII keep-alive field.
+- [x] IPC completion (follow-up): `SharedMemory` gained the real Windows half (`CreateFileMappingW`/`MapViewOfFile`/`UnmapViewOfFile`, raw extern decls — no windows-sys dep) and the module is gated `any(unix, windows)`, so the shared-memory queue runs on the primary dev platform; the round-trip tests execute on both OS families plus negative paths (missing segment, zero size). Module doc rewritten to the actual same-machine scope; the unconstructible `Unsupported` error variant is gone. Residual: the unix branch is compile-verified only in CI (Windows dev host).
 - [x] Feature-flag finding was a false positive: `numa` gates executor builder/config code, `coroutine` gates lib modules, `result-diagnostics` is forwarded by benchmarks. No change.
 - [x] `set_current_task`: the entire `CURRENT_TASK` TLS block had zero callers — `current_task_id` was a public API that could only return `None`. Deleted outright; worker identity lives in the scheduler runtime (`current_worker_id` via melinoe `thread_cached!`).
 

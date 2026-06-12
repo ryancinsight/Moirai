@@ -77,7 +77,7 @@ pub mod coroutine;
 #[cfg(feature = "std")]
 pub mod communication;
 
-#[cfg(all(unix, feature = "std"))]
+#[cfg(all(any(unix, windows), feature = "std"))]
 pub mod ipc;
 
 #[cfg(all(target_arch = "wasm32", feature = "wasm"))]

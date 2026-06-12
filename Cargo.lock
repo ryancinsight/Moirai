@@ -1078,7 +1078,7 @@ dependencies = [
 [[package]]
 name = "melinoe"
 version = "0.7.0"
-source = "git+https://github.com/ryancinsight/melinoe.git?rev=cee0b23fa22acbd3d8c5d602ab59b16b65c12f76#cee0b23fa22acbd3d8c5d602ab59b16b65c12f76"
+source = "git+https://github.com/ryancinsight/melinoe.git?rev=85134e46378b08dd01b1037fb125f2bef3874843#85134e46378b08dd01b1037fb125f2bef3874843"
 
 [[package]]
 name = "melinoe"
@@ -1313,7 +1313,7 @@ name = "moirai-executor"
 version = "0.2.0"
 dependencies = [
  "criterion",
- "melinoe 0.7.0 (git+https://github.com/ryancinsight/melinoe.git?rev=cee0b23fa22acbd3d8c5d602ab59b16b65c12f76)",
+ "melinoe 0.7.0 (git+https://github.com/ryancinsight/melinoe.git?rev=85134e46378b08dd01b1037fb125f2bef3874843)",
  "mnemosyne",
  "moirai-core",
  "moirai-pal",
@@ -1401,7 +1401,7 @@ name = "moirai-parallel"
 version = "0.2.0"
 dependencies = [
  "criterion",
- "melinoe 0.7.0 (git+https://github.com/ryancinsight/melinoe.git?rev=cee0b23fa22acbd3d8c5d602ab59b16b65c12f76)",
+ "melinoe 0.7.0 (git+https://github.com/ryancinsight/melinoe.git?rev=85134e46378b08dd01b1037fb125f2bef3874843)",
  "moirai-executor",
  "rayon",
 ]
