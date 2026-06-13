@@ -274,7 +274,11 @@ Current performance claims are limited to executable Criterion targets and
 value-semantic tests. The active evidence surfaces are:
 
 - **Thread scheduling**: `thread_schedule_comparison`, `industry_comparison`, and `public_result_handle_comparison` compare Moirai scoped work, indexed reduction, mixed workloads, and public result handles against accepted Rayon/Tokio reference rows.
-- **Parallel iterators**: `parallel_iterator_regression`, `iterator_adapter_comparison`, `iter_ops_parallel_comparison`, and `cache_iterator_comparison` provide same-run Rayon comparisons with checksum/value assertions before timing.
+- **Iterator paths**: `parallel_iterator_regression`,
+  `iterator_adapter_comparison`, `iter_ops_parallel_comparison`,
+  `cache_iterator_comparison`, and `async_iterator_comparison` provide
+  same-run Rayon/Tokio comparisons with checksum/value assertions before
+  timing.
 - **Process/server routing**: `process_server_scheduler_routing` validates deterministic route summaries; `process_server_routed_execution` executes fixed-format `SumU64` requests through real server and supervised process routes.
 - **Async I/O**: `async_fs_*`, `async_tcp_*`, `async_udp_comparison`, and `async_io_compat_comparison` compare Moirai-owned facade behavior against Tokio references where the semantics match.
 - **Allocator boundary**: Mnemosyne is resolved through the upstream Git dependency, and allocator/TLS evidence is tracked in `GAP_ANALYSIS.md`.

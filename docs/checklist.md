@@ -62,6 +62,12 @@
   Melinoe `thread_cached!` modules, removing duplicated nightly/stable TLS
   branches while preserving active reactor restoration and Mnemosyne idle
   maintenance cadence.
+- [x] [patch] Split `moirai-iter::async_iter` into vertical traits, sources,
+  adapters, consumers, and bounded-parallel leaves; remove unused source cursor
+  fields and guard the source sizes plus benchmark-contract module coverage.
+- [x] [major] Remove unused exported `thread_local_static!` platform macro after
+  confirming no workspace references remain; runtime TLS ownership lives at
+  concrete std/Melinoe call sites.
 - [x] [minor] ISSUE-166: Add bounded `IndexedParallelIterator` source cardinality with value tests, benchmark-contract coverage, same-run Rayon metadata benchmark, and by-value owned vector source storage.
 - [x] [patch] ISSUE-167: Move `iter_ops::ParallelIter` into a vertical leaf, remove `Arc<Vec<T>>` and `'static` closure bounds, add scoped borrowed chunk tests, benchmark-contract coverage, and same-run Rayon map/reduce rows.
 - [x] [patch] ISSUE-168: Remove `ZeroCopyParallelIter::map` `Arc` wrappers, add borrowed scoped chunk tests, benchmark-contract coverage, and same-run Rayon borrowed map/reduce rows.

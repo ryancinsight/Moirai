@@ -49,6 +49,11 @@
   Melinoe `thread_cached!` abstraction instead of maintaining duplicated
   nightly/stable thread-local branches. Evidence tier: source audit plus
   feature-path clippy coverage for `moirai-executor` and `moirai-pal`.
+- `moirai-iter::async_iter` now uses vertical traits, sources, adapters,
+  consumers, and bounded-parallel leaves. Dead source cursor fields and the
+  inherited module-wide dead-code suppression are removed. Evidence tier:
+  source audit, structural size tests, benchmark-contract coverage, iterator
+  nextest coverage, clippy, and refreshed async iterator Criterion rows.
 
 ### Open alignment findings
 - [x] README architecture drift: the public README still framed Moirai mostly as

@@ -2,6 +2,29 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-13 Async Iterator Vertical Split Refresh
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench async_iterator_comparison -- --quick --quiet
+```
+
+Workload: same value-checked async iterator pipelines after splitting
+`moirai-iter::async_iter` into vertical leaves and removing unused source
+cursor fields. Each Moirai and Tokio row asserts equal output before timing.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Async iterator ready pipeline | 373.81-377.53 us | Tokio `JoinSet` 26.226-27.019 ms |
+| Async iterator take/skip pipeline | 154.00-154.96 us | Tokio `JoinSet` 25.101-26.116 ms |
+| Async iterator enumerate/zip pipeline | 572.72-579.71 us | Tokio `JoinSet` 48.887-50.156 ms |
+| Bounded async iterator pipeline | 2.0485-2.0568 ms | Tokio `JoinSet` 10.801-10.935 ms |
+
+Interpretation: the vertical split and source-layout cleanup preserve the
+covered async iterator advantage over the same-run Tokio `JoinSet` references.
+This is empirical benchmark evidence for the audited async iterator subset, not
+a claim of full Tokio stream ecosystem parity.
+
 ## 2026-06-01 Public Distributed Facade Cleanup
 
 Command:

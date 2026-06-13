@@ -111,6 +111,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a refreshed native Rayon/Tokio gap-closure benchmark snapshot covering result handles, scheduler rows, async iterator rows, and selected Rayon adapter rows.
 
 ### Changed
+- Split `moirai-iter::async_iter` into vertical traits, sources, adapters,
+  consumers, and bounded-parallel leaves; removed dead source cursor fields so
+  `AsyncVecIter<T>` stays the size of `Vec<T>` and `AsyncRangeIter` stays the
+  size of `Range<usize>`.
 - Consolidated executor idle-maintenance and PAL active-reactor thread-local
   state through Melinoe `thread_cached!` leaves, removing duplicated nightly
   `#[thread_local]` and stable `thread_local!` branches.
@@ -167,6 +171,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed all current comparison benchmark targets to carry explicit Criterion measurement and warm-up bounds under benchmark-contract coverage.
 
 ### Breaking
+- Removed the unused exported `thread_local_static!` platform macro. Internal
+  runtime TLS now uses concrete std TLS or Melinoe `thread_cached!` sites.
 - Removed the placeholder public distributed facade methods `Moirai::spawn_remote`, `Moirai::get_nodes`, `Moirai::register_node`, `MoiraiBuilder::enable_distributed`, and `MoiraiBuilder::node_id`; distributed iterator helper coverage remains in `moirai-iter`.
 - Removed public type-suffixed `moirai_utils::simd` vector functions in favor of generic `add`, `mul`, `dot`, `sum`, `mean`, `variance`, and `matrix_mul_square<T, const N>` operations over sealed scalar traits.
 

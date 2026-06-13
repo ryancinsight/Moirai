@@ -128,6 +128,26 @@ architecture definition.
 - **Verification**: `cargo fmt -p moirai -p moirai-benchmarks --check`; `cargo nextest run -p moirai --features distributed routed`; `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`; `cargo clippy -p moirai -p moirai-benchmarks --all-targets --features distributed -- -D warnings`; `cargo doc -p moirai --features distributed --no-deps` with `RUSTDOCFLAGS=-D warnings`; `cargo bench -p moirai-benchmarks --bench process_server_routed_execution -- --quick --quiet`; full final gate listed in the micro-sprint summary.
 - **Status**: Completed 2026-06-12.
 
+#### ✅ ISSUE-202 [patch]/[major]: Split async iterator leaves and remove obsolete TLS macro
+- **Type**: Iterator Architecture / Memory Layout / Breaking API Cleanup
+- **Root Cause**: `moirai-iter::async_iter` was still a monolithic source file,
+  retained a module-wide dead-code suppression, and stored unused cursor fields
+  in source iterators. `moirai-core::thread_local_static!` was an exported but
+  unused platform macro after runtime TLS ownership moved to concrete std and
+  Melinoe call sites.
+- **Resolution**: Split async iterator implementation into vertical `traits`,
+  `sources`, `adapters`, `consumers`, and `parallel` leaves. Removed the
+  dead-code suppression, removed the unused vector/range cursor fields, and
+  deleted the obsolete exported platform TLS macro.
+- **Evidence**: `async_source_iterators_do_not_store_unused_cursors` asserts
+  `AsyncVecIter<T>` has `Vec<T>` layout size and `AsyncRangeIter` has
+  `Range<usize>` layout size. Benchmark contracts require the vertical leaves
+  and reject the removed cursor fields and module-level dead-code suppression.
+  `async_iterator_comparison` keeps all value-checked Moirai rows ahead of
+  Tokio `JoinSet` rows in the refreshed run.
+- **Verification**: `cargo fmt -p moirai-core -p moirai-iter -p moirai-benchmarks --check`; `cargo clippy -p moirai-iter -p moirai-core -p moirai-benchmarks --all-targets --all-features -- -D warnings`; `cargo nextest run -p moirai-iter --all-features`; `cargo test -p moirai-benchmarks --test benchmark_contracts async_iterator_terminal_futures_are_value_semantic_and_benchmarked -- --nocapture`; `cargo doc -p moirai-iter -p moirai-core --all-features --no-deps` with `RUSTDOCFLAGS=-D warnings`; `cargo bench -p moirai-benchmarks --bench async_iterator_comparison -- --quick --quiet`.
+- **Status**: Completed 2026-06-12.
+
 #### ✅ ISSUE-130 [arch]: Complete Tokio reactor-native I/O compatibility contract
 - **Type**: Architecture / Compatibility
 - **Current Evidence**: `moirai_async::io` covers zero-copy native `read_exact`, `write_all`, and `shutdown` extension semantics plus feature-gated transparent `TokioCompat<T>` and `MoiraiCompat<T>` wrappers with value tests and `async_io_compat_comparison`; `async_fs_comparison` covers the Moirai-owned file facade read, platform-write, platform-append, platform-metadata, platform-rename, platform-remove, and platform-copy operations against Tokio file facade references; `async_fs_dir_comparison` covers Moirai-owned directory facade single create/remove and recursive create/remove operations against Tokio directory facade references; `async_tcp_comparison` covers same-payload TCP loopback accept/echo, persistent stream echo, and write shutdown against Tokio; `async_tcp_backpressure_comparison` covers bounded TCP write backpressure against Tokio; `async_tcp_readiness_comparison` covers pending-before-data TCP read readiness against Tokio; `async_tcp_cancel_safety_comparison` covers pending-read cancellation safety against Tokio; `async_udp_comparison` covers same-payload UDP loopback receive against Tokio; PAL native file/socket/reactor paths have value tests and static dispatch contracts.
