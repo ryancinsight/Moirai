@@ -54,6 +54,12 @@
   inherited module-wide dead-code suppression are removed. Evidence tier:
   source audit, structural size tests, benchmark-contract coverage, iterator
   nextest coverage, clippy, and refreshed async iterator Criterion rows.
+- `moirai-iter::base` adapter wrappers no longer hide fields behind
+  `#[allow(dead_code)]`; public accessors and consuming `into_parts` methods
+  make each field part of the typed API, and base tests now live in a vertical
+  `base/tests.rs` leaf. Evidence tier: source audit, value-semantic unit tests,
+  benchmark-contract coverage, clippy, and refreshed iterator map/reduce
+  Criterion rows.
 
 ### Open alignment findings
 - [x] README architecture drift: the public README still framed Moirai mostly as

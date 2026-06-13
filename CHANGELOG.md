@@ -111,6 +111,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a refreshed native Rayon/Tokio gap-closure benchmark snapshot covering result handles, scheduler rows, async iterator rows, and selected Rayon adapter rows.
 
 ### Changed
+- Replaced `moirai-iter::base` adapter dead-field suppressions with live
+  accessor and `into_parts` APIs for `BaseIterator`, `MapAdapter`,
+  `FilterAdapter`, and `BatchAdapter`; moved base tests into a vertical
+  `base/tests.rs` leaf.
 - Split `moirai-iter::async_iter` into vertical traits, sources, adapters,
   consumers, and bounded-parallel leaves; removed dead source cursor fields so
   `AsyncVecIter<T>` stays the size of `Vec<T>` and `AsyncRangeIter` stays the

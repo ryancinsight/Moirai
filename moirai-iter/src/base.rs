@@ -57,7 +57,6 @@ impl<T> SendPtr<T> {
     ///
     /// # Safety
     /// The caller must ensure the pointer is valid and properly synchronized.
-    #[allow(dead_code)]
     pub(crate) unsafe fn as_ptr(&self) -> *mut T {
         self.0
     }
@@ -105,9 +104,7 @@ where
 /// Base iterator wrapper that provides common functionality.
 /// This follows the Decorator pattern to add behavior without modifying the original iterator.
 pub struct BaseIterator<I, C> {
-    #[allow(dead_code)]
     pub(crate) inner: I,
-    #[allow(dead_code)]
     pub(crate) context: Arc<C>,
 }
 
@@ -121,6 +118,24 @@ impl<I, C> BaseIterator<I, C> {
 
     pub fn with_context(inner: I, context: Arc<C>) -> Self {
         Self { inner, context }
+    }
+
+    /// Borrow the wrapped iterator.
+    #[must_use]
+    pub const fn inner(&self) -> &I {
+        &self.inner
+    }
+
+    /// Borrow the shared execution context.
+    #[must_use]
+    pub fn context(&self) -> &Arc<C> {
+        &self.context
+    }
+
+    /// Consume the wrapper and return its components without cloning.
+    #[must_use]
+    pub fn into_parts(self) -> (I, Arc<C>) {
+        (self.inner, self.context)
     }
 }
 
@@ -155,9 +170,7 @@ impl<T: Send> FromMoiraiIterator<T> for Vec<T> {
 /// Common adapter for mapping operations.
 /// This reduces duplication across different iterator types.
 pub struct MapAdapter<I, F, T, R> {
-    #[allow(dead_code)]
     pub(crate) inner: I,
-    #[allow(dead_code)]
     pub(crate) func: F,
     pub(crate) _phantom: PhantomData<(T, R)>,
 }
@@ -170,13 +183,29 @@ impl<I, F, T, R> MapAdapter<I, F, T, R> {
             _phantom: PhantomData,
         }
     }
+
+    /// Borrow the wrapped iterator.
+    #[must_use]
+    pub const fn inner(&self) -> &I {
+        &self.inner
+    }
+
+    /// Borrow the map function.
+    #[must_use]
+    pub const fn function(&self) -> &F {
+        &self.func
+    }
+
+    /// Consume the adapter and return its components without cloning.
+    #[must_use]
+    pub fn into_parts(self) -> (I, F) {
+        (self.inner, self.func)
+    }
 }
 
 /// Common adapter for filter operations.
 pub struct FilterAdapter<I, F, T> {
-    #[allow(dead_code)]
     pub(crate) inner: I,
-    #[allow(dead_code)]
     pub(crate) predicate: F,
     pub(crate) _phantom: PhantomData<T>,
 }
@@ -189,13 +218,29 @@ impl<I, F, T> FilterAdapter<I, F, T> {
             _phantom: PhantomData,
         }
     }
+
+    /// Borrow the wrapped iterator.
+    #[must_use]
+    pub const fn inner(&self) -> &I {
+        &self.inner
+    }
+
+    /// Borrow the predicate.
+    #[must_use]
+    pub const fn predicate(&self) -> &F {
+        &self.predicate
+    }
+
+    /// Consume the adapter and return its components without cloning.
+    #[must_use]
+    pub fn into_parts(self) -> (I, F) {
+        (self.inner, self.predicate)
+    }
 }
 
 /// Common adapter for batching operations.
 pub struct BatchAdapter<I> {
-    #[allow(dead_code)]
     pub(crate) inner: I,
-    #[allow(dead_code)]
     pub(crate) size: usize,
 }
 
@@ -205,6 +250,24 @@ impl<I> BatchAdapter<I> {
             inner,
             size: size.max(1),
         }
+    }
+
+    /// Borrow the wrapped iterator.
+    #[must_use]
+    pub const fn inner(&self) -> &I {
+        &self.inner
+    }
+
+    /// Return the normalized batch size.
+    #[must_use]
+    pub const fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Consume the adapter and return its components without cloning.
+    #[must_use]
+    pub fn into_parts(self) -> (I, usize) {
+        (self.inner, self.size)
     }
 }
 
@@ -385,125 +448,5 @@ impl PerformanceMetrics {
 // Refer to `moirai_iter::windows` for `Windows`, `WindowsMut`, `Chunks`, `ChunksMut`, and `ChunksExact`.
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_tree_reduce() {
-        let items = vec![1, 2, 3, 4, 5];
-        let result = tree_reduce(items, |a, b| a + b);
-        assert_eq!(result, Some(15));
-
-        let empty: Vec<i32> = vec![];
-        let result = tree_reduce(empty, |a, b| a + b);
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_process_in_batches() {
-        let items = vec![1, 2, 3, 4, 5, 6, 7, 8];
-        let result = process_in_batches(items, 3, |chunk| vec![chunk.iter().sum::<i32>()]);
-        // [1,2,3] = 6, [4,5,6] = 15, [7,8] = 15
-        assert_eq!(result, vec![6, 15, 15]);
-    }
-
-    #[test]
-    fn pool_fallback_only_on_pre_execution_shutdown() {
-        use moirai_core::error::ExecutorError;
-        assert!(!pool_fallback_permitted(&Ok(())));
-        assert!(pool_fallback_permitted(&Err(ExecutorError::ShuttingDown)));
-    }
-
-    #[test]
-    #[should_panic(expected = "partial execution")]
-    fn pool_fallback_rejects_partial_execution_errors() {
-        use moirai_core::error::ExecutorError;
-        let _ = pool_fallback_permitted(&Err(ExecutorError::SpawnFailed(
-            moirai_core::error::TaskError::Panicked,
-        )));
-    }
-
-    #[test]
-    fn test_tree_reduce_parallel() {
-        let items: Vec<i32> = (1..=1000).collect();
-        let result = tree_reduce(items, |a, b| a + b);
-        assert_eq!(result, Some(500500));
-    }
-
-    #[test]
-    fn test_thread_pool_graceful_shutdown() {
-        use std::sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        };
-
-        let counter = Arc::new(AtomicUsize::new(0));
-        let counter_clone = counter.clone();
-
-        {
-            let pool = ThreadPool::new(2);
-
-            // Submit fewer, faster tasks
-            for _ in 0..4 {
-                let counter = counter.clone();
-                pool.execute(move || {
-                    // Fast operation without sleep
-                    counter.fetch_add(1, Ordering::SeqCst);
-                });
-            }
-
-            // Allow tasks to complete (reduced wait time)
-            for _ in 0..10 {
-                if counter.load(Ordering::SeqCst) == 4 {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-        } // Pool is dropped here
-
-        // Verify all tasks completed
-        assert_eq!(counter_clone.load(Ordering::SeqCst), 4);
-    }
-
-    #[test]
-    fn test_erased_thread_job_runs_once() {
-        use std::sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        };
-
-        let counter = Arc::new(AtomicUsize::new(0));
-        let observed = Arc::clone(&counter);
-        let job = ErasedThreadJob::new(move || {
-            observed.fetch_add(1, Ordering::SeqCst);
-        });
-
-        job.run();
-
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn test_erased_thread_job_drops_unrun_capture() {
-        use std::sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        };
-
-        struct DropCounter(Arc<AtomicUsize>);
-
-        impl Drop for DropCounter {
-            fn drop(&mut self) {
-                self.0.fetch_add(1, Ordering::SeqCst);
-            }
-        }
-
-        let drops = Arc::new(AtomicUsize::new(0));
-        let captured = DropCounter(Arc::clone(&drops));
-        let job = ErasedThreadJob::new(move || drop(captured));
-
-        drop(job);
-
-        assert_eq!(drops.load(Ordering::SeqCst), 1);
-    }
-}
+#[path = "base/tests.rs"]
+mod tests;

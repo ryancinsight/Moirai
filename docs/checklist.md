@@ -68,6 +68,10 @@
 - [x] [major] Remove unused exported `thread_local_static!` platform macro after
   confirming no workspace references remain; runtime TLS ownership lives at
   concrete std/Melinoe call sites.
+- [x] [patch] Replace `moirai-iter::base` adapter dead-field suppressions with
+  live accessor and `into_parts` APIs, value tests, and benchmark-contract
+  guards; move base tests into a vertical leaf while preserving monomorphized
+  iterator benchmark performance.
 - [x] [minor] ISSUE-166: Add bounded `IndexedParallelIterator` source cardinality with value tests, benchmark-contract coverage, same-run Rayon metadata benchmark, and by-value owned vector source storage.
 - [x] [patch] ISSUE-167: Move `iter_ops::ParallelIter` into a vertical leaf, remove `Arc<Vec<T>>` and `'static` closure bounds, add scoped borrowed chunk tests, benchmark-contract coverage, and same-run Rayon map/reduce rows.
 - [x] [patch] ISSUE-168: Remove `ZeroCopyParallelIter::map` `Arc` wrappers, add borrowed scoped chunk tests, benchmark-contract coverage, and same-run Rayon borrowed map/reduce rows.

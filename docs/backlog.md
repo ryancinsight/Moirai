@@ -148,6 +148,23 @@ architecture definition.
 - **Verification**: `cargo fmt -p moirai-core -p moirai-iter -p moirai-benchmarks --check`; `cargo clippy -p moirai-iter -p moirai-core -p moirai-benchmarks --all-targets --all-features -- -D warnings`; `cargo nextest run -p moirai-iter --all-features`; `cargo test -p moirai-benchmarks --test benchmark_contracts async_iterator_terminal_futures_are_value_semantic_and_benchmarked -- --nocapture`; `cargo doc -p moirai-iter -p moirai-core --all-features --no-deps` with `RUSTDOCFLAGS=-D warnings`; `cargo bench -p moirai-benchmarks --bench async_iterator_comparison -- --quick --quiet`.
 - **Status**: Completed 2026-06-12.
 
+#### ✅ ISSUE-203 [patch]: Remove iterator base adapter dead-field suppressions
+- **Type**: Iterator Architecture / API Hygiene / Memory Evidence
+- **Root Cause**: `moirai-iter::base` kept field-level `#[allow(dead_code)]`
+  suppressions on adapter wrappers. The fields were real adapter state, but the
+  suppressions hid that from lint evidence and made future drift harder to
+  detect.
+- **Resolution**: Added typed `inner`, function/predicate/context/size
+  accessors and consuming `into_parts` APIs for `BaseIterator`, `MapAdapter`,
+  `FilterAdapter`, and `BatchAdapter`; removed the dead-code suppressions and
+  moved base tests into a vertical `base/tests.rs` leaf.
+- **Evidence**: `base_adapters_expose_components_without_dead_fields` asserts
+  exact component values and zero-clone consuming access. Benchmark contracts
+  require the accessors and reject dead-code suppressions in `base.rs`.
+  `iter_ops_parallel_comparison` keeps covered map/reduce rows ahead of Rayon.
+- **Verification**: `cargo nextest run -p moirai-iter --all-features base`; `cargo clippy -p moirai-iter --all-targets --all-features -- -D warnings`; `cargo test -p moirai-benchmarks --test benchmark_contracts iterator_base_does_not_expose_boxed_future_execution_trait -- --nocapture`; `cargo bench -p moirai-benchmarks --bench iter_ops_parallel_comparison -- --quick --quiet`.
+- **Status**: Completed 2026-06-13.
+
 #### ✅ ISSUE-130 [arch]: Complete Tokio reactor-native I/O compatibility contract
 - **Type**: Architecture / Compatibility
 - **Current Evidence**: `moirai_async::io` covers zero-copy native `read_exact`, `write_all`, and `shutdown` extension semantics plus feature-gated transparent `TokioCompat<T>` and `MoiraiCompat<T>` wrappers with value tests and `async_io_compat_comparison`; `async_fs_comparison` covers the Moirai-owned file facade read, platform-write, platform-append, platform-metadata, platform-rename, platform-remove, and platform-copy operations against Tokio file facade references; `async_fs_dir_comparison` covers Moirai-owned directory facade single create/remove and recursive create/remove operations against Tokio directory facade references; `async_tcp_comparison` covers same-payload TCP loopback accept/echo, persistent stream echo, and write shutdown against Tokio; `async_tcp_backpressure_comparison` covers bounded TCP write backpressure against Tokio; `async_tcp_readiness_comparison` covers pending-before-data TCP read readiness against Tokio; `async_tcp_cancel_safety_comparison` covers pending-read cancellation safety against Tokio; `async_udp_comparison` covers same-payload UDP loopback receive against Tokio; PAL native file/socket/reactor paths have value tests and static dispatch contracts.

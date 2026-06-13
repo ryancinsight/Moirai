@@ -2,6 +2,25 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-13 Iterator Base Adapter Cleanup Refresh
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench iter_ops_parallel_comparison -- --quick --quiet
+```
+
+Workload: same value-checked `moirai-iter::iter_ops::ParallelIter` map/reduce
+rows after replacing base adapter dead-field suppressions with accessor and
+`into_parts` APIs.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iter ops parallel map, 8,192 | 7.4445-7.6436 us | Rayon 57.798-57.920 us |
+| Iter ops parallel reduce, 8,192 | 1.7509-1.7544 us | Rayon 51.995-52.786 us |
+
+Interpretation: the adapter-base cleanup does not regress the covered
+monomorphized iterator map/reduce paths against the same-run Rayon references.
+
 ## 2026-06-13 Async Iterator Vertical Split Refresh
 
 Command:

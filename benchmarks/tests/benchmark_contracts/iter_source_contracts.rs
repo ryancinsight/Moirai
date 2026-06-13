@@ -1,6 +1,10 @@
 #[test]
 fn iter_thread_pool_uses_monomorphized_erased_jobs() {
-    let source = read_benchmark("../moirai-iter/src/base.rs");
+    let source = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-iter/src/base.rs"),
+        read_benchmark("../moirai-iter/src/base/tests.rs")
+    );
 
     for required in [
         "sender: Option<std::sync::mpsc::Sender<ErasedThreadJob>>",
@@ -35,7 +39,27 @@ fn iter_thread_pool_uses_monomorphized_erased_jobs() {
 
 #[test]
 fn iterator_base_does_not_expose_boxed_future_execution_trait() {
-    let source = read_benchmark("../moirai-iter/src/base.rs");
+    let source = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-iter/src/base.rs"),
+        read_benchmark("../moirai-iter/src/base/tests.rs")
+    );
+
+    for required in [
+        "pub const fn inner(&self) -> &I",
+        "pub fn context(&self) -> &Arc<C>",
+        "pub fn into_parts(self) -> (I, Arc<C>)",
+        "pub const fn function(&self) -> &F",
+        "pub const fn predicate(&self) -> &F",
+        "pub const fn size(&self) -> usize",
+        "#[path = \"base/tests.rs\"]",
+        "base_adapters_expose_components_without_dead_fields",
+    ] {
+        assert!(
+            source.contains(required),
+            "iterator base adapters must expose live fields through {required}"
+        );
+    }
 
     for prohibited in [
         "pub trait ExecutionBase: Send + Sync + 'static",
@@ -44,6 +68,7 @@ fn iterator_base_does_not_expose_boxed_future_execution_trait() {
         "execute_each<T, F>",
         "execute_map<T, R, F>",
         "execute_filter<T, F>",
+        "#[allow(dead_code)]",
     ] {
         assert!(
             !source.contains(prohibited),
