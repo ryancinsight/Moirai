@@ -1,6 +1,19 @@
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::task::Poll;
+
+#[test]
+fn async_source_iterators_do_not_store_unused_cursors() {
+    assert_eq!(
+        std::mem::size_of::<AsyncVecIter<u64>>(),
+        std::mem::size_of::<Vec<u64>>()
+    );
+    assert_eq!(
+        std::mem::size_of::<AsyncRangeIter>(),
+        std::mem::size_of::<std::ops::Range<usize>>()
+    );
+}
 
 #[tokio::test]
 async fn test_async_vec_iter() {

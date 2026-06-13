@@ -76,33 +76,6 @@ pub use std::fmt::{self, Debug, Display};
 #[cfg(not(feature = "std"))]
 pub use core::fmt::{self, Debug, Display};
 
-// Thread-local storage abstraction
-
-/// Creates a thread-local static variable with platform-specific implementation.
-///
-/// This macro provides a unified interface for thread-local storage across
-/// different platforms (std and `no_std` environments).
-#[cfg(all(feature = "std", not(target_arch = "wasm32")))]
-#[macro_export]
-macro_rules! thread_local_static {
-    ($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty = $init:expr) => {
-        thread_local! {
-            $(#[$attr])*
-            $vis static $name: $t = $init
-        }
-    };
-}
-
-#[cfg(any(not(feature = "std"), target_arch = "wasm32"))]
-#[macro_export]
-macro_rules! thread_local_static {
-    ($(#[$attr:meta])* $vis:vis static $name:ident: $t:ty = $init:expr) => {
-        // For no-std or WASM, use a static variable (no thread-local support)
-        $(#[$attr])*
-        $vis static $name: $t = $init;
-    };
-}
-
 // Time abstraction for no-std environments
 #[cfg(not(feature = "std"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

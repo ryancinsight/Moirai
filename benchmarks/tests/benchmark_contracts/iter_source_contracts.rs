@@ -1212,15 +1212,32 @@ fn sorting_slice_extension_is_value_semantic_and_benchmarked() {
 
 #[test]
 fn async_iterator_terminal_futures_are_value_semantic_and_benchmarked() {
-    let async_source = read_benchmark("../moirai-iter/src/async_iter.rs");
+    let async_source = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        read_benchmark("../moirai-iter/src/async_iter/traits.rs"),
+        read_benchmark("../moirai-iter/src/async_iter/sources.rs"),
+        read_benchmark("../moirai-iter/src/async_iter/adapters.rs"),
+        read_benchmark("../moirai-iter/src/async_iter/consumers.rs"),
+        read_benchmark("../moirai-iter/src/async_iter/parallel.rs"),
+        read_benchmark("../moirai-iter/src/async_iter/mod.rs"),
+        read_benchmark("../moirai-iter/src/async_iter_tests.rs")
+    );
     let async_benchmark = read_benchmark("benches/async_iterator_comparison.rs");
     let benchmark_manifest = read_benchmark("Cargo.toml");
 
     for required in [
         "fn into_vec(self) -> Vec<Self::Item>",
+        "mod adapters;",
+        "mod consumers;",
+        "mod parallel;",
+        "mod sources;",
+        "mod traits;",
         "pub struct AsyncCollect<I, C>",
         "iter: Option<I>",
         "collection.extend(iter.into_vec())",
+        "pub struct AsyncVecIter<T> {\n    items: Vec<T>,\n}",
+        "pub struct AsyncRangeIter {\n    start: usize,\n    end: usize,\n}",
+        "async_source_iterators_do_not_store_unused_cursors",
         "pub struct AsyncFold<I, T, F>",
         "accumulator: Option<T>",
         "async fold polled after completion",
@@ -1270,6 +1287,9 @@ fn async_iterator_terminal_futures_are_value_semantic_and_benchmarked() {
         "Test would verify",
         "Simplified implementation",
         "let _result",
+        "#![allow(dead_code)]",
+        "index: usize",
+        "current: usize",
     ] {
         assert!(
             !async_source.contains(prohibited),
