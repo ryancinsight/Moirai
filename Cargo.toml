@@ -49,11 +49,11 @@ moirai-http = { path = "moirai-http", version = "0.2.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.2.0" }
 moirai-utils = { path = "moirai-utils", version = "0.2.0", features = ["std"] }
 moirai-gpu = { path = "moirai-gpu", version = "0.2.0" }
-melinoe = { git = "https://github.com/ryancinsight/melinoe.git", rev = "85134e46378b08dd01b1037fb125f2bef3874843", default-features = false }
-themis = { git = "https://github.com/ryancinsight/themis", version = "0.8.0", default-features = false, features = ["std"] }
+melinoe = { git = "https://github.com/ryancinsight/melinoe.git", version = "0.7.0", default-features = false }
+themis = { git = "https://github.com/ryancinsight/themis", version = "0.9", default-features = false, features = ["std"] }
 # Kernel resource budget vocabulary for the GPU occupancy planner (atlas ADR 0002).
-mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "1e014d25461b322345c15fb3cf9467b5388616dd", package = "mnemosyne-core", default-features = false }
-mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "1e014d25461b322345c15fb3cf9467b5388616dd", default-features = false }
+mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", version = "0.1.0", package = "mnemosyne-core", default-features = false }
+mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", version = "0.2.0", default-features = false }
 
 # Network stack (ADR-015): sans-I/O, runtime-agnostic, NOT tokio-coupled.
 # `ring` crypto provider (no aws-lc-rs NASM/cmake toolchain requirement on Windows).
@@ -91,3 +91,12 @@ split-debuginfo = "unpacked"
 [profile.test]
 opt-level = 1
 debug = true
+
+# ── Dependency patches ─────────────────────────────────────────────────────────
+# Redirect GitHub-hosted mnemosyne to the local workspace which has the
+# updated themis = "0.9" constraint (the pinned GitHub rev still has 0.8.0).
+[patch."https://github.com/ryancinsight/Mnemosyne.git"]
+mnemosyne        = { path = "../mnemosyne/crates/mnemosyne" }
+mnemosyne-core   = { path = "../mnemosyne/crates/mnemosyne-core" }
+mnemosyne-arena  = { path = "../mnemosyne/crates/mnemosyne-arena" }
+mnemosyne-local  = { path = "../mnemosyne/crates/mnemosyne-local" }
