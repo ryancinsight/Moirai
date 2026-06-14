@@ -131,6 +131,17 @@ impl<'a, T, P: ExecutionPolicy> ParRef<'a, T, P> {
         map_collect_with::<P, _, _, _>(self.data, f)
     }
 
+    /// Map each `(index, &element)` pair, then collect into a `Vec<R>` in order.
+    ///
+    /// This is the indexed counterpart to [`Self::map_collect`]. It exposes the
+    /// logical slice index without requiring callers to derive it from pointers.
+    pub fn map_collect_index<R: Send, F: Fn(usize, &T) -> R + Send + Sync>(self, f: F) -> Vec<R>
+    where
+        T: Sync,
+    {
+        map_collect_index_with::<P, _, _>(self.data.len(), |i| f(i, &self.data[i]))
+    }
+
     /// Map-reduce. See [`map_reduce_with`].
     pub fn map_reduce<R, M, Rd>(self, identity: R, map: M, reduce: Rd) -> R
     where

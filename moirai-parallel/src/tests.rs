@@ -39,6 +39,16 @@ fn map_collect_preserves_order() {
 }
 
 #[test]
+fn map_collect_index_preserves_logical_indices() {
+    let data: Vec<u64> = (10_000..30_000).collect();
+    let indexed = data.par().map_collect_index(|i, &x| (i, x - 10_000));
+    for (i, &(logical_index, shifted_value)) in indexed.iter().enumerate() {
+        assert_eq!(logical_index, i);
+        assert_eq!(shifted_value, i as u64);
+    }
+}
+
+#[test]
 fn map_reduce_sums_correctly() {
     let data: Vec<u64> = (0..100_000).collect();
     assert_eq!(
