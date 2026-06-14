@@ -91,12 +91,3 @@ split-debuginfo = "unpacked"
 [profile.test]
 opt-level = 1
 debug = true
-
-# ── Dependency patches ─────────────────────────────────────────────────────────
-# Redirect GitHub-hosted mnemosyne to the local workspace which has the
-# updated themis = "0.9" constraint (the pinned GitHub rev still has 0.8.0).
-[patch."https://github.com/ryancinsight/Mnemosyne.git"]
-mnemosyne        = { path = "../mnemosyne/crates/mnemosyne" }
-mnemosyne-core   = { path = "../mnemosyne/crates/mnemosyne-core" }
-mnemosyne-arena  = { path = "../mnemosyne/crates/mnemosyne-arena" }
-mnemosyne-local  = { path = "../mnemosyne/crates/mnemosyne-local" }

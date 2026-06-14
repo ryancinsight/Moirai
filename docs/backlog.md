@@ -165,6 +165,26 @@ architecture definition.
 - **Verification**: `cargo nextest run -p moirai-iter --all-features base`; `cargo clippy -p moirai-iter --all-targets --all-features -- -D warnings`; `cargo test -p moirai-benchmarks --test benchmark_contracts iterator_base_does_not_expose_boxed_future_execution_trait -- --nocapture`; `cargo bench -p moirai-benchmarks --bench iter_ops_parallel_comparison -- --quick --quiet`.
 - **Status**: Completed 2026-06-13.
 
+#### ✅ ISSUE-204 [patch]: Correct Mnemosyne remote lock resolution
+- **Type**: Dependency Resolution / Documentation Reconciliation
+- **Root Cause**: The PM artifacts recorded the local Mnemosyne patch override
+  as removed, but the root workspace still contained
+  `[patch."https://github.com/ryancinsight/Mnemosyne.git"]` entries resolving
+  Mnemosyne crates from `../mnemosyne`.
+- **Resolution**: Removed the root patch override and regenerated `Cargo.lock`
+  so `mnemosyne`, `mnemosyne-core`, `mnemosyne-arena`,
+  `mnemosyne-backend`, `mnemosyne-local`, `mnemosyne-decay`,
+  `mnemosyne-hardened`, and `mnemosyne-prof` resolve from upstream GitHub
+  `main` commit `8a428c4ce72786ff4a28a94342d8e724a36319a3`.
+- **Evidence**: `git ls-remote` reported upstream `main` at
+  `8a428c4ce72786ff4a28a94342d8e724a36319a3`; `cargo check` compiled the
+  Mnemosyne-consuming Moirai crates against `git+https://github.com/ryancinsight/Mnemosyne.git#8a428c4c`;
+  focused route, payload, and iterator tests passed; benchmark contracts
+  passed; same-run quick benchmarks kept covered iterator rows ahead of Rayon
+  and measured real routed process/server execution.
+- **Verification**: `cargo check -p moirai-executor -p moirai-transport -p moirai-iter -p moirai-gpu -p moirai --all-features`; `cargo nextest run -p moirai-executor -p moirai-transport -p moirai-iter --all-features route payload base`; `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`; `cargo bench -p moirai-benchmarks --bench iter_ops_parallel_comparison -- --quick --quiet`; `cargo bench -p moirai-benchmarks --bench process_server_routed_execution -- --quick --quiet`.
+- **Status**: Completed 2026-06-14.
+
 #### ✅ ISSUE-130 [arch]: Complete Tokio reactor-native I/O compatibility contract
 - **Type**: Architecture / Compatibility
 - **Current Evidence**: `moirai_async::io` covers zero-copy native `read_exact`, `write_all`, and `shutdown` extension semantics plus feature-gated transparent `TokioCompat<T>` and `MoiraiCompat<T>` wrappers with value tests and `async_io_compat_comparison`; `async_fs_comparison` covers the Moirai-owned file facade read, platform-write, platform-append, platform-metadata, platform-rename, platform-remove, and platform-copy operations against Tokio file facade references; `async_fs_dir_comparison` covers Moirai-owned directory facade single create/remove and recursive create/remove operations against Tokio directory facade references; `async_tcp_comparison` covers same-payload TCP loopback accept/echo, persistent stream echo, and write shutdown against Tokio; `async_tcp_backpressure_comparison` covers bounded TCP write backpressure against Tokio; `async_tcp_readiness_comparison` covers pending-before-data TCP read readiness against Tokio; `async_tcp_cancel_safety_comparison` covers pending-read cancellation safety against Tokio; `async_udp_comparison` covers same-payload UDP loopback receive against Tokio; PAL native file/socket/reactor paths have value tests and static dispatch contracts.

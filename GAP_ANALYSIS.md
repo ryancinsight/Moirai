@@ -60,6 +60,11 @@
   `base/tests.rs` leaf. Evidence tier: source audit, value-semantic unit tests,
   benchmark-contract coverage, clippy, and refreshed iterator map/reduce
   Criterion rows.
+- The root workspace no longer patches GitHub Mnemosyne dependencies to the
+  sibling `../mnemosyne` checkout. `Cargo.lock` resolves the Mnemosyne crate set
+  from `git+https://github.com/ryancinsight/Mnemosyne.git#8a428c4ce72786ff4a28a94342d8e724a36319a3`.
+  Evidence tier: remote head check, lockfile source audit, focused build/tests,
+  benchmark contracts, and same-run iterator plus routed execution benchmarks.
 
 ### Open alignment findings
 - [x] README architecture drift: the public README still framed Moirai mostly as
@@ -187,7 +192,16 @@
 - `RoutedProcessTaskClient<P>` now binds selected `SchedulerRoute::Process` values to supervised child process execution through registered `ProcessEndpoint` entries and fixed-format remote task request/response. This is explicit built-in task execution only; arbitrary closure remoting is outside the admitted capability set.
 - `BoundedRemoteTaskServer` now owns one listener lifecycle and admits fixed-format request frames through bounded `sync_channel` capacity and a bounded worker set. This closes bounded server execution for explicit built-in remote tasks only; arbitrary closure remoting is rejected by sealed capability construction.
 - `process_server_routed_execution` now benchmarks selected server-route and process-route fixed-format `SumU64` execution end to end. The server row uses a real `RemoteTaskServer` thread and TCP request/result frames. The process row launches the benchmark binary in child-server mode through `ProcessSupervisor`, sends the fixed-format task through the selected process route, waits for child completion, and asserts the returned value and process status.
-- Moirai now resolves Mnemosyne through the upstream Git dependency instead of the local patch override. `Cargo.lock` pins `mnemosyne`, `mnemosyne-core`, `mnemosyne-arena`, `mnemosyne-backend`, `mnemosyne-local`, `mnemosyne-decay`, `mnemosyne-hardened`, `mnemosyne-heap`, and `mnemosyne-prof` to `git+https://github.com/ryancinsight/Mnemosyne#4f8d84b91780d2b1f7b27ede29580dffe2bff9c9`. The 2026-06-03 rerun used a clean temporary upstream clone for Mnemosyne allocator/TLS benches, measured Mnemosyne allocator cycle and cross-thread handoff rows below same-run System, MiMalloc, and SnMalloc medians, kept scoped and zero-copy parallel iterator rows below same-run Rayon medians, and measured isolated process/server routed execution at 503.39-507.33 ms for server-route `SumU64` and 517.25-517.35 ms for process-route `SumU64`.
+- Moirai now resolves Mnemosyne through the upstream Git dependency instead of
+  the local patch override. `Cargo.lock` pins `mnemosyne`, `mnemosyne-core`,
+  `mnemosyne-arena`, `mnemosyne-backend`, `mnemosyne-local`,
+  `mnemosyne-decay`, `mnemosyne-hardened`, and `mnemosyne-prof` to
+  `git+https://github.com/ryancinsight/Mnemosyne#8a428c4ce72786ff4a28a94342d8e724a36319a3`.
+  The 2026-06-14 rerun compiled Mnemosyne-consuming crates against the GitHub
+  source, passed focused route/payload/iterator tests and benchmark contracts,
+  kept `iter_ops_parallel_comparison` map/reduce rows ahead of same-run Rayon,
+  and measured real routed server/process execution through the fixed-format
+  route benchmark.
 
 ### 2026-05-23 Active Scope Closure
 - No active comparison gap remains in the scheduler/result-handle/indexed-reduction scope.

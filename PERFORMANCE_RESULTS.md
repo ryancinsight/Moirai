@@ -2,6 +2,33 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-14 GitHub Mnemosyne Lock Refresh
+
+Commands:
+```bash
+cargo bench -p moirai-benchmarks --bench iter_ops_parallel_comparison -- --quick --quiet
+cargo bench -p moirai-benchmarks --bench process_server_routed_execution -- --quick --quiet
+```
+
+Workload: same value-checked iterator and routed process/server benchmark
+surfaces after removing the root Mnemosyne Git patch override and resolving
+Mnemosyne crates from upstream GitHub `main` commit
+`8a428c4ce72786ff4a28a94342d8e724a36319a3`.
+
+| Benchmark | Moirai | Reference |
+| --- | ---: | ---: |
+| Iter ops parallel map, 8,192 | 7.5727-7.6503 us | Rayon 56.427-57.710 us |
+| Iter ops parallel reduce, 8,192 | 2.2375-2.3035 us | Rayon 57.059-58.798 us |
+| Server route `SumU64`, 1 | 510.59-514.32 ms | fixed-format route benchmark |
+| Process route `SumU64`, 1 | 520.92-769.96 ms | fixed-format route benchmark |
+| Public server route `SumU64`, 1 | 1.0050 s | public facade route benchmark |
+| Public process route `SumU64`, 1 | 1.0229 s | public facade route benchmark |
+
+Interpretation: the GitHub Mnemosyne lock refresh preserves the covered
+Moirai iterator rows ahead of same-run Rayon references and keeps real
+process/server route execution value-checked. The process/server rows measure
+real TCP/server and child-process orchestration, not local placeholder routing.
+
 ## 2026-06-13 Iterator Base Adapter Cleanup Refresh
 
 Command:
