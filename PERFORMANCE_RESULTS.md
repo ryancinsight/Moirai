@@ -2,6 +2,27 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-14 Metrics Collector Cleanup
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench metrics_collector_comparison -- --quick --quiet
+```
+
+Workload: real `moirai-metrics` counter, collector, and exporter paths after
+replacing placeholder storage with shared atomic handles, bounded histogram
+state, value snapshots, and deterministic Prometheus text export.
+
+| Benchmark | Time |
+| --- | ---: |
+| Counter handle add/get | 7.4428-7.4532 ns |
+| Collector snapshot, 32 counters + 32 gauges + 32 histograms | 4.0582-4.0687 us |
+| Prometheus export, 32 counters + 32 gauges + 32 histograms | 52.560-53.181 us |
+
+Interpretation: the metrics crate now has executable benchmark coverage for
+real input-sensitive storage and export paths. These rows are internal
+observability evidence, not a Rayon/Tokio competitive comparison.
+
 ## 2026-06-14 GitHub Mnemosyne Lock Refresh
 
 Commands:

@@ -1272,6 +1272,7 @@ dependencies = [
  "moirai-core",
  "moirai-executor",
  "moirai-iter",
+ "moirai-metrics",
  "moirai-scheduler",
  "moirai-sync",
  "moirai-transport",

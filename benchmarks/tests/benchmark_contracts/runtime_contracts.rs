@@ -218,6 +218,70 @@ fn rayon_tokio_dependencies_stay_out_of_runtime_dependency_sections() {
 }
 
 #[test]
+fn metrics_crate_uses_real_storage_and_export() {
+    let lib = read_benchmark("../moirai-metrics/src/lib.rs");
+    let collector = read_benchmark("../moirai-metrics/src/collector.rs");
+    let counter = read_benchmark("../moirai-metrics/src/counter.rs");
+    let gauge = read_benchmark("../moirai-metrics/src/gauge.rs");
+    let histogram = read_benchmark("../moirai-metrics/src/histogram.rs");
+    let exporter = read_benchmark("../moirai-metrics/src/exporter.rs");
+    let tests = read_benchmark("../moirai-metrics/src/tests.rs");
+    let benchmark = read_benchmark("benches/metrics_collector_comparison.rs");
+    let combined = [
+        lib.as_str(),
+        collector.as_str(),
+        counter.as_str(),
+        gauge.as_str(),
+        histogram.as_str(),
+        exporter.as_str(),
+        tests.as_str(),
+        benchmark.as_str(),
+    ]
+    .join("\n");
+
+    for required in [
+        "mod collector;",
+        "mod counter;",
+        "mod exporter;",
+        "mod gauge;",
+        "mod histogram;",
+        "mod snapshot;",
+        "Arc<AtomicU64>",
+        "Arc<AtomicI64>",
+        "Arc<Mutex<HistogramState>>",
+        "pub fn try_record(&self, value: f64) -> Result<(), HistogramError>",
+        "pub fn collect(&self) -> MetricsSnapshot",
+        "pub fn export(&self, snapshot: &MetricsSnapshot) -> String",
+        "metrics_handles_share_named_storage",
+        "prometheus_exporter_emits_deterministic_values",
+        "metrics_collector_comparison",
+        "counter_handle_add_get",
+        "collector_snapshot_32_each",
+        "prometheus_export_32_each",
+    ] {
+        assert!(
+            combined.contains(required),
+            "metrics crate must retain real storage/export marker {required}"
+        );
+    }
+
+    for prohibited in [
+        "Placeholder",
+        "placeholder",
+        "#[allow(dead_code)]",
+        "pub fn export(&self, _snapshot: &MetricsSnapshot) -> String",
+        "MetricsSnapshot::default()",
+        "pub struct Metrics {\n}",
+        "pub struct Histogram {\n}",
+    ] {
+        assert!(
+            !combined.contains(prohibited),
+            "metrics crate must not reintroduce placeholder marker {prohibited}"
+        );
+    }
+}
+
+#[test]
 fn utility_simd_surface_uses_generic_scalar_contract() {
     let root = read_benchmark("../moirai-utils/src/simd/mod.rs");
     let scalar = read_benchmark("../moirai-utils/src/simd/scalar.rs");

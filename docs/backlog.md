@@ -185,6 +185,29 @@ architecture definition.
 - **Verification**: `cargo check -p moirai-executor -p moirai-transport -p moirai-iter -p moirai-gpu -p moirai --all-features`; `cargo nextest run -p moirai-executor -p moirai-transport -p moirai-iter --all-features route payload base`; `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`; `cargo bench -p moirai-benchmarks --bench iter_ops_parallel_comparison -- --quick --quiet`; `cargo bench -p moirai-benchmarks --bench process_server_routed_execution -- --quick --quiet`.
 - **Status**: Completed 2026-06-14.
 
+#### ✅ ISSUE-205 [patch]: Replace metrics placeholder storage
+- **Type**: Metrics Architecture / Observability / Benchmark Coverage
+- **Root Cause**: `moirai-metrics` exposed placeholder `Metrics`,
+  `Histogram`, and `PrometheusExporter` implementations; `MetricsCollector`
+  returned an empty default snapshot and hid real fields behind
+  `#[allow(dead_code)]`.
+- **Resolution**: Split the crate into vertical collector, counter, gauge,
+  histogram, snapshot, and exporter leaves. Counters and gauges use shared
+  atomic handles, histograms use bounded mutex-protected finite-sample state,
+  snapshots copy current values, and the Prometheus exporter emits
+  deterministic text from real snapshot inputs.
+- **Evidence**: Unit tests assert shared named storage, exact snapshot values,
+  histogram statistics, finite-sample rejection, and deterministic Prometheus
+  output. Benchmark contracts require the vertical leaves, shared storage, real
+  export path, and `metrics_collector_comparison` rows while rejecting the
+  removed placeholder markers.
+- **Verification**: `cargo nextest run -p moirai-metrics --all-features`;
+  `cargo clippy -p moirai-metrics --all-targets --all-features -- -D warnings`;
+  `cargo test -p moirai-benchmarks --test benchmark_contracts metrics_crate_uses_real_storage_and_export -- --nocapture`;
+  `cargo bench -p moirai-benchmarks --bench metrics_collector_comparison --no-run`;
+  `cargo bench -p moirai-benchmarks --bench metrics_collector_comparison -- --quick --quiet`.
+- **Status**: Completed 2026-06-14.
+
 #### ✅ ISSUE-130 [arch]: Complete Tokio reactor-native I/O compatibility contract
 - **Type**: Architecture / Compatibility
 - **Current Evidence**: `moirai_async::io` covers zero-copy native `read_exact`, `write_all`, and `shutdown` extension semantics plus feature-gated transparent `TokioCompat<T>` and `MoiraiCompat<T>` wrappers with value tests and `async_io_compat_comparison`; `async_fs_comparison` covers the Moirai-owned file facade read, platform-write, platform-append, platform-metadata, platform-rename, platform-remove, and platform-copy operations against Tokio file facade references; `async_fs_dir_comparison` covers Moirai-owned directory facade single create/remove and recursive create/remove operations against Tokio directory facade references; `async_tcp_comparison` covers same-payload TCP loopback accept/echo, persistent stream echo, and write shutdown against Tokio; `async_tcp_backpressure_comparison` covers bounded TCP write backpressure against Tokio; `async_tcp_readiness_comparison` covers pending-before-data TCP read readiness against Tokio; `async_tcp_cancel_safety_comparison` covers pending-read cancellation safety against Tokio; `async_udp_comparison` covers same-payload UDP loopback receive against Tokio; PAL native file/socket/reactor paths have value tests and static dispatch contracts.

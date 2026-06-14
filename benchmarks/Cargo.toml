@@ -17,6 +17,7 @@ moirai-transport = { path = "../moirai-transport", features = ["scheduler-routes
 moirai-utils = { path = "../moirai-utils" }
 moirai-iter = { path = "../moirai-iter" }
 moirai-async = { path = "../moirai-async", features = ["tokio-compat"] }
+moirai-metrics = { path = "../moirai-metrics" }
 mnemosyne = { workspace = true }
 
 # Benchmarking framework
@@ -162,6 +163,10 @@ harness = false
 
 [[bench]]
 name = "async_io_compat_comparison"
+harness = false
+
+[[bench]]
+name = "metrics_collector_comparison"
 harness = false
 
 [features]

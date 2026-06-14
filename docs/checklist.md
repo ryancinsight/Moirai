@@ -77,6 +77,10 @@
   `8a428c4ce72786ff4a28a94342d8e724a36319a3`, and rerun focused route,
   payload, iterator, benchmark-contract, parallel-iterator, and routed
   process/server checks.
+- [x] [patch] ISSUE-205: Replace `moirai-metrics` placeholders with vertical
+  real collector/counter/gauge/histogram/snapshot/exporter leaves, add
+  value-semantic tests, add benchmark-contract guards, and add the
+  `metrics_collector_comparison` Criterion target.
 - [x] [minor] ISSUE-166: Add bounded `IndexedParallelIterator` source cardinality with value tests, benchmark-contract coverage, same-run Rayon metadata benchmark, and by-value owned vector source storage.
 - [x] [patch] ISSUE-167: Move `iter_ops::ParallelIter` into a vertical leaf, remove `Arc<Vec<T>>` and `'static` closure bounds, add scoped borrowed chunk tests, benchmark-contract coverage, and same-run Rayon map/reduce rows.
 - [x] [patch] ISSUE-168: Remove `ZeroCopyParallelIter::map` `Arc` wrappers, add borrowed scoped chunk tests, benchmark-contract coverage, and same-run Rayon borrowed map/reduce rows.

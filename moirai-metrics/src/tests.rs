@@ -1,0 +1,89 @@
+use super::{Histogram, Metrics, MetricsCollector, PrometheusExporter};
+
+fn assert_close(actual: f64, expected: f64) {
+    let tolerance = f64::EPSILON * 16.0 * expected.abs().max(1.0);
+    assert!(
+        (actual - expected).abs() <= tolerance,
+        "actual {actual} expected {expected} tolerance {tolerance}"
+    );
+}
+
+#[test]
+fn metrics_handles_share_named_storage() {
+    let metrics = Metrics::new();
+
+    let first = metrics.counter("tasks_total");
+    let second = metrics.counter("tasks_total");
+    first.increment();
+    second.add(4);
+
+    let gauge = metrics.gauge("active_workers");
+    gauge.set(3);
+    metrics.gauge("active_workers").decrement();
+
+    let histogram = metrics.histogram("task_seconds");
+    histogram.record(1.0);
+    metrics
+        .histogram("task_seconds")
+        .try_record(2.0)
+        .expect("finite histogram sample must be accepted");
+
+    let snapshot = metrics.collect();
+    assert_eq!(snapshot.counters["tasks_total"], 5);
+    assert_eq!(snapshot.gauges["active_workers"], 2);
+    assert_eq!(snapshot.histograms["task_seconds"].count, 2);
+    assert_eq!(snapshot.histograms["task_seconds"].sum, 3.0);
+}
+
+#[test]
+fn histogram_stats_are_value_semantic() {
+    let histogram = Histogram::new();
+    for sample in [1.0, 2.0, 4.0] {
+        histogram
+            .try_record(sample)
+            .expect("finite histogram sample must be accepted");
+    }
+
+    let stats = histogram.stats();
+    assert_eq!(stats.count, 3);
+    assert_eq!(stats.sum, 7.0);
+    assert_eq!(stats.min, 1.0);
+    assert_eq!(stats.max, 4.0);
+    assert_close(stats.mean, 7.0 / 3.0);
+    assert_close(stats.stddev, (14.0_f64 / 9.0).sqrt());
+
+    assert!(histogram.try_record(f64::NAN).is_err());
+    assert_eq!(histogram.stats(), stats);
+}
+
+#[test]
+fn collector_snapshot_contains_registered_values() {
+    let collector = MetricsCollector::new();
+    collector.counter("requests_total").add(7);
+    collector.gauge("queue_depth").set(-2);
+    collector.histogram("latency_seconds").record(0.25);
+
+    let snapshot = collector.collect();
+    assert!(snapshot.timestamp > 0);
+    assert_eq!(snapshot.counters["requests_total"], 7);
+    assert_eq!(snapshot.gauges["queue_depth"], -2);
+    assert_eq!(snapshot.histograms["latency_seconds"].count, 1);
+    assert_eq!(snapshot.histograms["latency_seconds"].mean, 0.25);
+}
+
+#[test]
+fn prometheus_exporter_emits_deterministic_values() {
+    let collector = MetricsCollector::new();
+    collector.counter("requests.total").add(3);
+    collector.gauge("workers:active").set(2);
+    collector.histogram("latency seconds").record(0.5);
+
+    let output = PrometheusExporter::new().export(&collector.collect());
+    assert!(output.contains("# TYPE requests_total counter"));
+    assert!(output.contains("requests_total 3"));
+    assert!(output.contains("# TYPE workers:active gauge"));
+    assert!(output.contains("workers:active 2"));
+    assert!(output.contains("# TYPE latency_seconds_count gauge"));
+    assert!(output.contains("latency_seconds_count 1"));
+    assert!(output.contains("latency_seconds_sum 0.5"));
+}

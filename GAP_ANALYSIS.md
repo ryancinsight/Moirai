@@ -65,6 +65,12 @@
   from `git+https://github.com/ryancinsight/Mnemosyne.git#8a428c4ce72786ff4a28a94342d8e724a36319a3`.
   Evidence tier: remote head check, lockfile source audit, focused build/tests,
   benchmark contracts, and same-run iterator plus routed execution benchmarks.
+- `moirai-metrics` no longer contains placeholder storage or empty snapshot /
+  export paths. The crate is split into collector, counter, gauge, histogram,
+  snapshot, and exporter leaves; snapshots and Prometheus output are derived
+  from real registered metric handles. Evidence tier: source audit,
+  value-semantic unit tests, benchmark-contract coverage, clippy, and
+  value-checked `metrics_collector_comparison` Criterion rows.
 
 ### Open alignment findings
 - [x] README architecture drift: the public README still framed Moirai mostly as

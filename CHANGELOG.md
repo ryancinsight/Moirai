@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added sealed zero-sized remote capability tokens for constructing only admitted fixed-format remote task operations and keeping arbitrary closure remoting outside process/server transport routes.
 - Added sealed thread/process/server/device `TransportPayload<R>` ownership regions for archive byte handoff, with process/server/device pointer-transfer rejection and Mnemosyne global allocator evidence pinned at the top-level crate feature.
 - Added `process_server_routed_execution`, a value-checked benchmark for selected server-route and process-route fixed-format task execution through real TCP request/result frames and supervised child processes.
+- Added `metrics_collector_comparison`, a value-checked Criterion target for
+  shared counter handles, fixed-size metric snapshots, and Prometheus export.
 - Added `async_iterator_comparison`, a value-checked `moirai-iter::AsyncIterator` ready-pipeline benchmark against Tokio `JoinSet` fan-out.
 - Added `AsyncIterator::take` and `AsyncIterator::skip` logical-window adapters with value tests and a Tokio `JoinSet` comparison row.
 - Added `AsyncIterator::enumerate` and `AsyncIterator::zip` logical-position/pairing adapters with value tests and a Tokio `JoinSet` comparison row.
@@ -131,6 +133,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from upstream GitHub `main` commit
   `8a428c4ce72786ff4a28a94342d8e724a36319a3`.
 - Removed the local Mnemosyne Git patch override and obsolete repository-local dependency copy, locked Moirai's GitHub Mnemosyne dependency to upstream `ryancinsight/Mnemosyne` `main` commit `4f8d84b91780d2b1f7b27ede29580dffe2bff9c9`, and reran allocator, TLS, Rayon-facing parallel iterator, cache iterator, and process/server routed execution benchmarks.
+- Replaced `moirai-metrics` placeholder storage with vertical collector,
+  counter, gauge, histogram, snapshot, and exporter leaves backed by real
+  shared state and deterministic value snapshots.
 - Changed borrowed vector `positions`, borrowed copied map/filter/sum, chunked map/sum, vector-backed indexed step/interleave enumerate/map/sum, nested flatten/map/filter/sum, and zip_eq/map/filter/collect parallel iterator shapes to avoid intermediate materialization on the focused regression paths.
 - Moved the public `moirai-iter::MoiraiIterator` facade into a vertical `facade` module, preserved execution contexts through the `ExecutionContext` enum instead of string matching, and removed silent error-to-empty fallback branches.
 - Changed the public Moirai facade documentation to state that cross-machine remote closure execution is outside the active API until a transport-backed task contract exists.
