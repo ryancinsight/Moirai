@@ -78,6 +78,50 @@ fn timer_wheel_cancellation_is_real_and_lazy() {
 }
 
 #[test]
+fn pal_timer_future_waits_until_deadline() {
+    let source = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-pal/src/timer.rs"),
+        read_benchmark("../moirai-pal/src/timer/tests.rs")
+    );
+    let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
+
+    for required in [
+        "struct TimerState",
+        "completed: AtomicBool",
+        "sleeper_started: AtomicBool",
+        "waker: Mutex<Option<std::task::Waker>>",
+        "fn spawn_sleeper",
+        "std::thread::sleep(deadline.duration_since(now))",
+        "Poll::Pending",
+        "pal_timer_is_pending_before_deadline_and_wakes",
+        "pal_timer_zero_duration_completes_immediately",
+    ] {
+        assert!(
+            source.contains(required),
+            "PAL timer future must retain real deadline marker {required}"
+        );
+    }
+
+    assert!(
+        audit.contains("PAL platform timer future"),
+        "Rayon/Tokio audit must retain PAL timer boundary"
+    );
+
+    for prohibited in [
+        "Placeholder for platform-agnostic timer operations",
+        "This will be fully implemented",
+        "In a real implementation",
+        "For now, yield once",
+    ] {
+        assert!(
+            !source.contains(prohibited),
+            "PAL timer future must not reintroduce placeholder marker {prohibited}"
+        );
+    }
+}
+
+#[test]
 fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
     let fs_source = format!(
         "{}\n{}",

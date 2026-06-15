@@ -81,6 +81,10 @@
   real collector/counter/gauge/histogram/snapshot/exporter leaves, add
   value-semantic tests, add benchmark-contract guards, and add the
   `metrics_collector_comparison` Criterion target.
+- [x] [patch] ISSUE-206: Replace `moirai-pal::timer::Timer` immediate-ready
+  placeholder behavior with a deadline-sensitive future that registers a waker,
+  returns `Pending` before the deadline, wakes at completion, and has
+  benchmark-contract source guards.
 - [x] [minor] ISSUE-166: Add bounded `IndexedParallelIterator` source cardinality with value tests, benchmark-contract coverage, same-run Rayon metadata benchmark, and by-value owned vector source storage.
 - [x] [patch] ISSUE-167: Move `iter_ops::ParallelIter` into a vertical leaf, remove `Arc<Vec<T>>` and `'static` closure bounds, add scoped borrowed chunk tests, benchmark-contract coverage, and same-run Rayon map/reduce rows.
 - [x] [patch] ISSUE-168: Remove `ZeroCopyParallelIter::map` `Arc` wrappers, add borrowed scoped chunk tests, benchmark-contract coverage, and same-run Rayon borrowed map/reduce rows.

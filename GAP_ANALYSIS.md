@@ -71,6 +71,11 @@
   from real registered metric handles. Evidence tier: source audit,
   value-semantic unit tests, benchmark-contract coverage, clippy, and
   value-checked `metrics_collector_comparison` Criterion rows.
+- `moirai-pal::timer::Timer` no longer completes before its deadline. It stores
+  real completion/waker state, returns `Pending` before the deadline, wakes the
+  registered task from a single sleeper thread, and completes immediately only
+  for elapsed timers. Evidence tier: source audit, value-semantic unit tests,
+  and benchmark-contract coverage.
 
 ### Open alignment findings
 - [x] README architecture drift: the public README still framed Moirai mostly as

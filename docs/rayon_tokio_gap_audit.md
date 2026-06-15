@@ -15,6 +15,10 @@ This audit covers the active unified-scheduler comparison scope:
 - Transport receive memory behavior: `ArchiveView` over transport-owned bytes.
 - Async timeout composition: `Timeout<F>` stores the concrete future inline.
 - Async timer cancellation: `TimerWheel` tracks cancelled timer IDs lazily and verifies that cancelled expired timers do not wake.
+- PAL platform timer future: `moirai-pal::timer::Timer` returns `Pending`
+  before its deadline, stores a registered waker, and wakes from a single
+  sleeper thread at completion instead of returning immediate-ready placeholder
+  success.
 - Native async I/O extension futures: `AsyncReadExt::read_exact` and `AsyncWriteExt::shutdown` borrow caller-owned buffers/writers directly, preserve partial read progress on cancellation, and are covered by value tests.
 - Feature-gated Tokio I/O trait compatibility: transparent `TokioCompat<T>` and `MoiraiCompat<T>` wrappers preserve byte semantics in both directions, with `async_io_compat_comparison` measuring native extension futures against Tokio extension traits over the same in-memory readers and writers.
 - Async file and directory facade: `moirai_async::fs::{read, write, append, metadata, rename, remove_file, copy}` have value-checked 64 KiB Tokio file facade read, write, append, metadata, rename, remove, and copy comparisons in `async_fs_comparison`; `moirai_async::fs::{create_dir, create_dir_all, remove_dir, remove_dir_all}` have value-checked Tokio directory facade comparisons in `async_fs_dir_comparison`; `write`, `append`, `metadata`, `rename`, `remove_file`, and directory operations delegate to PAL platform operations, and `copy` delegates to the PAL platform copy operation instead of allocating a user-space transfer buffer.
