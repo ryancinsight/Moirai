@@ -76,6 +76,13 @@
   registered task from a single sleeper thread, and completes immediately only
   for elapsed timers. Evidence tier: source audit, value-semantic unit tests,
   and benchmark-contract coverage.
+- `moirai-iter::distributed::DistributedIterator::execution_stats` no longer
+  reports a fixed 10 second placeholder completion estimate. Estimates are now
+  derived from task count, node CPU capacity, reliability, latency, and
+  aggregate bandwidth, with zero-task, local-fallback, and extreme-telemetry
+  saturation value tests. Evidence tier: source audit, value-semantic unit
+  tests, benchmark-contract coverage, clippy, docs, and value-checked
+  `distributed_context_stats` Criterion rows.
 
 ### Open alignment findings
 - [x] README architecture drift: the public README still framed Moirai mostly as

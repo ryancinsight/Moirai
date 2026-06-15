@@ -85,6 +85,11 @@
   placeholder behavior with a deadline-sensitive future that registers a waker,
   returns `Pending` before the deadline, wakes at completion, and has
   benchmark-contract source guards.
+- [x] [patch] ISSUE-207: Replace the distributed iterator fixed 10 second
+  completion estimate with an input-sensitive model over task count, node CPU
+  capacity, reliability, latency, and bandwidth; add value tests,
+  saturation coverage for extreme telemetry, benchmark-contract guards, and the
+  `distributed_context_stats` Criterion row.
 - [x] [minor] ISSUE-166: Add bounded `IndexedParallelIterator` source cardinality with value tests, benchmark-contract coverage, same-run Rayon metadata benchmark, and by-value owned vector source storage.
 - [x] [patch] ISSUE-167: Move `iter_ops::ParallelIter` into a vertical leaf, remove `Arc<Vec<T>>` and `'static` closure bounds, add scoped borrowed chunk tests, benchmark-contract coverage, and same-run Rayon map/reduce rows.
 - [x] [patch] ISSUE-168: Remove `ZeroCopyParallelIter::map` `Arc` wrappers, add borrowed scoped chunk tests, benchmark-contract coverage, and same-run Rayon borrowed map/reduce rows.

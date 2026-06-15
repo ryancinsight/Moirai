@@ -410,6 +410,14 @@ fn distributed_iter_consumes_owned_partitions_without_clone() {
         "non_clone_distributed_partition_moves_items_by_key",
         "non_clone_distributed_map_consumes_items",
         "non_clone_distributed_reduce_consumes_items",
+        "fn estimate_completion_time(nodes: &[NodeConfig], task_count: usize) -> Duration",
+        "fn duration_from_secs_saturating(seconds: f64) -> Duration",
+        "fn finite_non_negative(value: f64, fallback: f64) -> f64",
+        "fn finite_clamped(value: f64, min: f64, max: f64, fallback: f64) -> f64",
+        "distributed_stats_zero_tasks_have_zero_estimate",
+        "distributed_stats_local_estimate_scales_with_tasks",
+        "distributed_stats_estimate_uses_node_capacity_latency_and_bandwidth",
+        "distributed_stats_estimate_saturates_extreme_node_metrics",
         "assert_eq!(result, vec![2, 4, 6, 8, 10]);",
     ] {
         assert!(
@@ -421,7 +429,9 @@ fn distributed_iter_consumes_owned_partitions_without_clone() {
     for required in [
         "name = \"distributed_context_comparison\"",
         "distributed_context_owned_map",
+        "distributed_context_stats",
         "moirai_distributed_context_map",
+        "moirai_distributed_stats",
         "rayon_owned_map",
         "assert_eq!",
     ] {
@@ -438,6 +448,8 @@ fn distributed_iter_consumes_owned_partitions_without_clone() {
         "Ok(Vec::new())",
         "Simplified implementation",
         "Test would verify distributed execution",
+        "Duration::from_secs(10)",
+        "Placeholder",
         "assert!(result.is_ok())",
     ] {
         assert!(

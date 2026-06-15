@@ -10,6 +10,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+const LOCAL_TASK_ESTIMATE_SECS: f64 = 0.000_1;
+const ESTIMATED_TASK_BYTES: f64 = 64.0;
+
 /// Configuration for a distributed compute node
 #[derive(Debug, Clone)]
 pub struct NodeConfig {
@@ -434,7 +437,10 @@ impl<T: Send + 'static> DistributedIterator<T> {
         DistributedStats {
             total_nodes: self.context.nodes.len(),
             total_tasks: self.data.len(),
-            estimated_completion_time: Duration::from_secs(10), // Placeholder
+            estimated_completion_time: estimate_completion_time(
+                &self.context.nodes,
+                self.data.len(),
+            ),
         }
     }
 }
@@ -498,6 +504,80 @@ fn uniform_partition_sizes(total_items: usize, partition_count: usize) -> Vec<us
         .collect()
 }
 
+fn estimate_completion_time(nodes: &[NodeConfig], task_count: usize) -> Duration {
+    if task_count == 0 {
+        return Duration::ZERO;
+    }
+
+    if nodes.is_empty() {
+        return duration_from_secs_saturating(task_count as f64 * LOCAL_TASK_ESTIMATE_SECS);
+    }
+
+    let effective_parallelism = nodes
+        .iter()
+        .map(|node| {
+            let reliability =
+                finite_clamped(node.latency_profile.reliability_score, 0.01, 1.0, 1.0);
+            node.cpu_cores.max(1) as f64 * reliability
+        })
+        .sum::<f64>()
+        .max(1.0);
+    let compute_waves = (task_count as f64 / effective_parallelism).ceil();
+    let compute_seconds = compute_waves * LOCAL_TASK_ESTIMATE_SECS;
+
+    let latency_seconds = nodes
+        .iter()
+        .map(|node| finite_non_negative(node.latency_profile.average_latency_ms, 0.0))
+        .sum::<f64>()
+        / nodes.len() as f64
+        / 1_000.0;
+
+    let aggregate_bandwidth_mbps = nodes
+        .iter()
+        .map(|node| finite_non_negative(node.latency_profile.bandwidth_mbps, 0.0))
+        .sum::<f64>();
+    let network_seconds = if aggregate_bandwidth_mbps > 0.0 {
+        task_count as f64 * ESTIMATED_TASK_BYTES * 8.0 / (aggregate_bandwidth_mbps * 1_000_000.0)
+    } else {
+        0.0
+    };
+
+    duration_from_secs_saturating(compute_seconds + latency_seconds + network_seconds)
+}
+
+fn duration_from_secs_saturating(seconds: f64) -> Duration {
+    if !seconds.is_finite() {
+        return Duration::MAX;
+    }
+
+    if seconds <= 0.0 {
+        return Duration::ZERO;
+    }
+
+    let max_seconds = Duration::MAX.as_secs() as f64;
+    if seconds >= max_seconds {
+        Duration::MAX
+    } else {
+        Duration::from_secs_f64(seconds)
+    }
+}
+
+fn finite_non_negative(value: f64, fallback: f64) -> f64 {
+    if value.is_finite() && value >= 0.0 {
+        value
+    } else {
+        fallback
+    }
+}
+
+fn finite_clamped(value: f64, min: f64, max: f64, fallback: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(min, max)
+    } else {
+        fallback
+    }
+}
+
 /// Statistics for distributed execution
 #[derive(Debug)]
 pub struct DistributedStats {
@@ -542,6 +622,21 @@ mod tests {
             },
             capabilities: vec![NodeCapability::HighCompute],
         }
+    }
+
+    fn measured_node(
+        port: u16,
+        cpu_cores: usize,
+        average_latency_ms: f64,
+        bandwidth_mbps: f64,
+    ) -> NodeConfig {
+        let mut node = test_node(port, cpu_cores);
+        node.latency_profile = LatencyProfile {
+            average_latency_ms,
+            bandwidth_mbps,
+            reliability_score: 1.0,
+        };
+        node
     }
 
     #[tokio::test]
@@ -658,5 +753,61 @@ mod tests {
             .await;
 
         assert_eq!(result, vec![2, 4, 6, 8, 10]);
+    }
+
+    #[test]
+    fn distributed_stats_zero_tasks_have_zero_estimate() {
+        let context = DistributedContext::new();
+        let iterator = DistributedIterator::<u64>::new(Vec::new(), context);
+
+        let stats = iterator.execution_stats();
+
+        assert_eq!(stats.total_nodes, 0);
+        assert_eq!(stats.total_tasks, 0);
+        assert_eq!(stats.estimated_completion_time, Duration::ZERO);
+    }
+
+    #[test]
+    fn distributed_stats_local_estimate_scales_with_tasks() {
+        let context = DistributedContext::new();
+        let iterator = DistributedIterator::new((0..8_u64).collect(), context);
+
+        let stats = iterator.execution_stats();
+
+        assert_eq!(stats.total_nodes, 0);
+        assert_eq!(stats.total_tasks, 8);
+        assert_eq!(stats.estimated_completion_time, Duration::from_micros(800));
+    }
+
+    #[test]
+    fn distributed_stats_estimate_uses_node_capacity_latency_and_bandwidth() {
+        let mut context = DistributedContext::new();
+        context.add_node(measured_node(9101, 4, 2.0, 128.0));
+        context.add_node(measured_node(9102, 4, 2.0, 128.0));
+        let iterator = DistributedIterator::new((0..16_u64).collect(), context);
+
+        let stats = iterator.execution_stats();
+
+        assert_eq!(stats.total_nodes, 2);
+        assert_eq!(stats.total_tasks, 16);
+        assert_eq!(
+            stats.estimated_completion_time,
+            Duration::from_nanos(2_232_000)
+        );
+    }
+
+    #[test]
+    fn distributed_stats_estimate_saturates_extreme_node_metrics() {
+        let mut context = DistributedContext::new();
+        let mut node = measured_node(9101, 1, f64::MAX, 0.0);
+        node.latency_profile.reliability_score = f64::NAN;
+        context.add_node(node);
+        let iterator = DistributedIterator::new(vec![1_u64], context);
+
+        let stats = iterator.execution_stats();
+
+        assert_eq!(stats.total_nodes, 1);
+        assert_eq!(stats.total_tasks, 1);
+        assert_eq!(stats.estimated_completion_time, Duration::MAX);
     }
 }

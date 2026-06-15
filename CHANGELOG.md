@@ -139,6 +139,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced the PAL timer immediate-ready placeholder with a deadline-sensitive
   future that registers a waker, returns `Pending` before the deadline, and
   wakes at completion.
+- Replaced the distributed iterator fixed 10 second completion estimate with an
+  input-sensitive model using task count, node CPU capacity, reliability,
+  latency, and aggregate bandwidth, including saturating behavior for extreme
+  telemetry.
 - Changed borrowed vector `positions`, borrowed copied map/filter/sum, chunked map/sum, vector-backed indexed step/interleave enumerate/map/sum, nested flatten/map/filter/sum, and zip_eq/map/filter/collect parallel iterator shapes to avoid intermediate materialization on the focused regression paths.
 - Moved the public `moirai-iter::MoiraiIterator` facade into a vertical `facade` module, preserved execution contexts through the `ExecutionContext` enum instead of string matching, and removed silent error-to-empty fallback branches.
 - Changed the public Moirai facade documentation to state that cross-machine remote closure execution is outside the active API until a transport-backed task contract exists.

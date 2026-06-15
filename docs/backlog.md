@@ -48,7 +48,7 @@ architecture definition.
 
 **Project**: Moirai Concurrency Library
 **Version**: 0.2.0
-**Last Updated**: 2026-06-12
+**Last Updated**: 2026-06-15
 **Status**: Unified scheduler implemented for local CPU worker threads, sync/blocking/async-ready work classes, process-route metadata, server-route metadata, per-process async lanes, accelerator route metadata, bounded fixed-format process/server execution, public fixed-capability routed process/server facade execution, and Mnemosyne-owned archive-byte handoff across thread/process/server/device payload regions. Scoped scheduler batches, indexed map/reduce, mixed async/sync/parallel workloads, process/server route summaries, accelerator route summaries, routed process/server execution, public routed facade execution, device-region handoff, parallel iterator regression rows, and public result handles have value-checked benchmark coverage against accepted Tokio/Rayon references. Accelerator backend execution remains open: GPU occupancy planning exists and CPU/GPU/TPU/NPU metadata is now part of `SchedulerRoute`, but no GPU/TPU/NPU backend consumes that route until backend consumption and benchmarks are implemented.
 
 
@@ -222,6 +222,31 @@ architecture definition.
   require the real timer state and reject the removed placeholder markers.
 - **Verification**: `cargo nextest run -p moirai-pal --all-features timer`;
   `cargo test -p moirai-benchmarks --test benchmark_contracts pal_timer_future_waits_until_deadline -- --nocapture`.
+- **Status**: Completed 2026-06-15.
+
+#### ✅ ISSUE-207 [patch]: Replace distributed iterator fixed completion estimate
+- **Type**: Iterator Distributed Stats / Performance Evidence / Benchmark Coverage
+- **Root Cause**: `moirai-iter::distributed::DistributedIterator::execution_stats`
+  returned a fixed 10 second completion estimate for every non-empty workload.
+  This made the stats path input-insensitive and preserved an explicit
+  placeholder in the distributed iterator helper.
+- **Resolution**: Replaced the fixed estimate with a deterministic model derived
+  from task count, node CPU capacity, node reliability, average latency, and
+  aggregate bandwidth. Empty workloads report zero duration; local fallback
+  estimates scale with task count instead of returning a constant. Extreme
+  finite telemetry saturates to `Duration::MAX` instead of panicking.
+- **Evidence**: Distributed iterator tests assert zero-task, local scaling, and
+  node-capacity/latency/bandwidth estimates plus saturation for extreme node
+  metrics. Benchmark contracts require the estimator helpers and stats
+  benchmark row while rejecting the removed `Duration::from_secs(10)`
+  placeholder. `distributed_context_comparison` adds
+  `distributed_context_stats/moirai/512`.
+- **Verification**: `cargo fmt -p moirai-iter -p moirai-benchmarks --check`;
+  `cargo nextest run -p moirai-iter --all-features distributed`;
+  `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`;
+  `cargo clippy -p moirai-iter -p moirai-benchmarks --all-targets --all-features -- -D warnings`;
+  `cargo doc -p moirai-iter --all-features --no-deps` with
+  `RUSTDOCFLAGS=-D warnings`; `cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- --quick --quiet`.
 - **Status**: Completed 2026-06-15.
 
 #### ✅ ISSUE-130 [arch]: Complete Tokio reactor-native I/O compatibility contract

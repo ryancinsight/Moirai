@@ -2,7 +2,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_iter::distributed::{
-    DistributedContext, GpuConfig, LatencyProfile, NodeCapability, NodeConfig,
+    DistributedContext, DistributedIterator, GpuConfig, LatencyProfile, NodeCapability, NodeConfig,
 };
 use rayon::prelude::*;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -64,6 +64,17 @@ fn rayon_owned_map(data: Vec<u64>) -> u64 {
         .sum()
 }
 
+fn moirai_distributed_stats(context: &DistributedContext, data: Vec<u64>) -> Duration {
+    let stats = DistributedIterator::new(data, context.clone()).execution_stats();
+    assert_eq!(stats.total_nodes, 2);
+    assert_eq!(stats.total_tasks, WORK_ITEMS);
+    assert_eq!(
+        stats.estimated_completion_time,
+        Duration::from_nanos(14_131_072)
+    );
+    stats.estimated_completion_time
+}
+
 fn distributed_context_comparison(c: &mut Criterion) {
     let data = source_data();
     let context = distributed_context();
@@ -74,6 +85,10 @@ fn distributed_context_comparison(c: &mut Criterion) {
     assert_eq!(
         moirai_distributed_context_map(&runtime, &context, data.clone()),
         rayon_owned_map(data.clone())
+    );
+    assert_eq!(
+        moirai_distributed_stats(&context, data.clone()),
+        Duration::from_nanos(14_131_072)
     );
 
     let mut group = c.benchmark_group("distributed_context_owned_map");
@@ -93,6 +108,15 @@ fn distributed_context_comparison(c: &mut Criterion) {
         b.iter(|| black_box(rayon_owned_map(black_box(input.clone()))))
     });
     group.finish();
+
+    let mut stats_group = c.benchmark_group("distributed_context_stats");
+    stats_group.sample_size(SAMPLE_SIZE);
+    stats_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    stats_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    stats_group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
+        b.iter(|| black_box(moirai_distributed_stats(&context, black_box(input.clone()))))
+    });
+    stats_group.finish();
 }
 
 criterion_group!(benches, distributed_context_comparison);

@@ -2,6 +2,28 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
+## 2026-06-15 Distributed Iterator Stats Estimate
+
+Command:
+```bash
+cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- --quick --quiet
+```
+
+Workload: same distributed owned-map comparison target after replacing the
+fixed distributed iterator completion estimate with a deterministic model over
+task count, node CPU capacity, reliability, latency, and aggregate bandwidth.
+
+| Benchmark | Time |
+| --- | ---: |
+| Distributed owned map, Moirai, 512 | 353.85-356.87 ns |
+| Distributed owned map, Rayon, 512 | 28.813-29.297 us |
+| Distributed stats estimate, Moirai, 512 | 63.107-64.868 ns |
+
+Interpretation: the distributed iterator helper keeps the covered owned-map row
+ahead of the same-run Rayon reference while the stats row measures the new
+input-sensitive estimate path. This is distributed helper evidence; it does not
+claim process/server remote execution for arbitrary iterator closures.
+
 ## 2026-06-14 Metrics Collector Cleanup
 
 Command:
