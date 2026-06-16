@@ -2,13 +2,13 @@
 //!
 //! Cross-platform GPU compute integration for the Moirai concurrency library.
 //!
-//! This crate provides GPU acceleration using wgpu-rs for maximum compatibility
-//! across platforms while maintaining zero-copy principles and following SOLID/CUPID
-//! design patterns.
+//! This crate provides backend-independent GPU launch planning by default and,
+//! with the `wgpu-backend` feature, GPU acceleration using wgpu-rs.
 //!
 //! ## Features
 //!
-//! - Cross-platform GPU compute using wgpu-rs
+//! - Backend-independent launch planning through [`occupancy`]
+//! - Optional cross-platform GPU compute using wgpu-rs
 //! - Zero-copy buffer management with automatic memory mapping
 //! - Async compute pipeline integration
 //! - SIMD-fallback for unsupported hardware
@@ -44,32 +44,47 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+#[cfg(feature = "wgpu-backend")]
 use std::sync::Arc;
 
+#[cfg(feature = "wgpu-backend")]
 pub mod buffer;
+#[cfg(feature = "wgpu-backend")]
 pub mod compute;
+#[cfg(feature = "wgpu-backend")]
 pub mod device;
+#[cfg(feature = "wgpu-backend")]
 pub mod error;
 pub mod occupancy;
+#[cfg(feature = "wgpu-backend")]
 pub mod pipeline;
+#[cfg(feature = "wgpu-backend")]
 pub mod task;
 
 // Core exports
+#[cfg(feature = "wgpu-backend")]
 pub use buffer::{BufferUsage, GpuBuffer, GpuBufferPool};
+#[cfg(feature = "wgpu-backend")]
 pub use compute::{ComputeKernel, ComputeShader, KernelDispatch};
+#[cfg(feature = "wgpu-backend")]
 pub use device::{DeviceCapabilities, GpuDevice, GpuDeviceManager};
+#[cfg(feature = "wgpu-backend")]
 pub use error::{GpuError, GpuResult};
 pub use occupancy::{plan_launch, plan_persistent_launch, resident_blocks, LaunchShape};
+#[cfg(feature = "wgpu-backend")]
 pub use pipeline::{ComputePipeline, PipelineBuilder};
+#[cfg(feature = "wgpu-backend")]
 pub use task::{GpuTask, GpuTaskBuilder, GpuTaskFuture};
 
 /// GPU compute context that manages devices and resources
+#[cfg(feature = "wgpu-backend")]
 #[derive(Clone)]
 pub struct GpuContext {
     device_manager: Arc<GpuDeviceManager>,
     buffer_pool: Arc<GpuBufferPool>,
 }
 
+#[cfg(feature = "wgpu-backend")]
 impl GpuContext {
     /// Create a new GPU context with automatic device detection
     pub async fn new() -> GpuResult<Self> {
@@ -119,6 +134,7 @@ impl GpuContext {
 }
 
 /// Device selection preferences
+#[cfg(feature = "wgpu-backend")]
 #[derive(Debug, Clone)]
 pub struct DevicePreferences {
     /// Prefer discrete GPU over integrated
@@ -131,6 +147,7 @@ pub struct DevicePreferences {
     pub required_limits: wgpu::Limits,
 }
 
+#[cfg(feature = "wgpu-backend")]
 impl Default for DevicePreferences {
     fn default() -> Self {
         Self {
@@ -144,6 +161,8 @@ impl Default for DevicePreferences {
 
 /// Prelude module for convenient imports
 pub mod prelude {
+    pub use crate::{plan_launch, plan_persistent_launch, resident_blocks, LaunchShape};
+    #[cfg(feature = "wgpu-backend")]
     pub use crate::{
         BufferUsage, ComputeKernel, ComputePipeline, DeviceCapabilities, GpuBuffer, GpuBufferPool,
         GpuContext, GpuDevice, GpuError, GpuResult, GpuTask, GpuTaskBuilder, GpuTaskFuture,

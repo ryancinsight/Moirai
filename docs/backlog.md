@@ -38,6 +38,8 @@ architecture definition.
   `plan_persistent_launch` (resident capped by covering grid). Grid and
   residency are deliberately separate quantities. Fully const where the
   inputs are; Ampere closed-form tests + wgpu-provider no-information case.
+  Planner-only consumers can disable default features to avoid the optional
+  WGPU runtime backend.
   (2) stream/queue co-scheduling with the host work-stealing scheduler and
   (3) persistent kernels with device-side work queues remain open; hephaestus
   consuming these shapes in place of its fixed 256-wide workgroups is the
