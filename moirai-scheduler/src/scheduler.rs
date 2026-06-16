@@ -438,11 +438,24 @@ impl WorkStealingCoordinator {
 
     /// Simple linear congruential generator for random numbers.
     fn next_random(&self) -> usize {
-        let current = self.rng_state.load(Ordering::Relaxed);
-        let next = current
+        thread_local! {
+            static THREAD_RNG_STATE: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+        }
+        let owner = self as *const Self as usize;
+        let (cached_owner, mut state) = THREAD_RNG_STATE.get();
+        if cached_owner != owner {
+            state = 0;
+        }
+        if state == 0 {
+            state = self.rng_state.fetch_add(1, Ordering::Relaxed);
+            if state == 0 {
+                state = 1;
+            }
+        }
+        let next = state
             .wrapping_mul(LCG_MULTIPLIER)
             .wrapping_add(LCG_INCREMENT);
-        self.rng_state.store(next, Ordering::Relaxed);
+        THREAD_RNG_STATE.set((owner, next));
         next
     }
 }
