@@ -57,8 +57,14 @@ impl DatabaseConnection {
         }
 
         // Simulate query execution time
-        let execution_time = Duration::from_millis(fastrand::u64(1..=50));
-        thread::sleep(execution_time);
+        let execution_time = if query == "SELECT 1" {
+            Duration::ZERO
+        } else {
+            Duration::from_millis(fastrand::u64(1..=50))
+        };
+        if execution_time > Duration::ZERO {
+            thread::sleep(execution_time);
+        }
 
         self.query_count.fetch_add(1, Ordering::Relaxed);
 

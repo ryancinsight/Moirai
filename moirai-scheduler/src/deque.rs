@@ -202,9 +202,12 @@ where
 
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
-            // On TSO architectures (x86/x86_64), a SeqCst store acts as a memory fence and is
-            // faster than a relaxed store followed by an explicit SeqCst fence (which emits mfence).
-            self.bottom.store(b, Ordering::SeqCst);
+            let t = self.top.load(Ordering::Relaxed);
+            if b > t + 1 {
+                self.bottom.store(b, Ordering::Release);
+            } else {
+                self.bottom.store(b, Ordering::SeqCst);
+            }
         }
         #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         {

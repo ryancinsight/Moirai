@@ -93,11 +93,13 @@
 // # }
 // ```
 
+pub mod block_deque;
 pub mod deque;
 pub mod numa_scheduler;
 pub mod reclaim;
 pub mod scheduler;
 
+pub use block_deque::BlockBasedDeque;
 pub use deque::{ChaseLevDeque, StealResult};
 pub use reclaim::{
     DequeReclaimPolicy, DequeReclaimState, QuiescentAccessGuard, QuiescentReclaim, QuiescentState,
@@ -382,5 +384,164 @@ mod tests {
 
         assert_eq!(executed_count, 10);
         assert_eq!(scheduler.load(), 0);
+    }
+
+    #[test]
+    fn test_block_based_deque_basic_operations() {
+        let deque: BlockBasedDeque<i32> = BlockBasedDeque::new();
+
+        // Push and pop
+        deque.push(1);
+        deque.push(2);
+        deque.push(3);
+
+        assert_eq!(deque.len(), 3);
+        assert!(!deque.is_empty());
+
+        // Worker pop is LIFO
+        assert_eq!(deque.pop(), Some(3));
+        assert_eq!(deque.pop(), Some(2));
+        assert_eq!(deque.pop(), Some(1));
+        assert_eq!(deque.pop(), None);
+
+        assert!(deque.is_empty());
+    }
+
+    #[test]
+    fn test_block_based_deque_steal() {
+        let deque: BlockBasedDeque<i32> = BlockBasedDeque::new();
+
+        // Push some items
+        for i in 1..=5 {
+            deque.push(i);
+        }
+
+        // Steal from top (FIFO)
+        assert_eq!(deque.steal(), StealResult::Success(1));
+        assert_eq!(deque.steal(), StealResult::Success(2));
+
+        // Pop from bottom (LIFO)
+        assert_eq!(deque.pop(), Some(5));
+        assert_eq!(deque.pop(), Some(4));
+
+        // Steal the last item
+        assert_eq!(deque.steal(), StealResult::Success(3));
+
+        // Should be empty now
+        assert_eq!(deque.steal(), StealResult::Empty);
+        assert_eq!(deque.pop(), None);
+    }
+
+    #[test]
+    fn test_block_based_deque_bulk_steal() {
+        let deque: BlockBasedDeque<i32> = BlockBasedDeque::new();
+
+        for i in 1..=10 {
+            deque.push(i);
+        }
+
+        let mut stolen = Vec::new();
+        let first = deque.steal_batch_with(|item| stolen.push(item));
+
+        assert_eq!(first, StealResult::Success(1));
+        // We stole half of 10 items, which is 5.
+        // First item is 1, so the other 4 stolen items should be 2, 3, 4, 5.
+        assert_eq!(stolen, vec![2, 3, 4, 5]);
+
+        // Remaining elements should be 6, 7, 8, 9, 10
+        assert_eq!(deque.pop(), Some(10));
+        assert_eq!(deque.pop(), Some(9));
+    }
+
+    #[test]
+    fn test_block_based_deque_drops_each_item_once() {
+        struct DropProbe(Arc<AtomicUsize>);
+
+        impl Drop for DropProbe {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let drops = Arc::new(AtomicUsize::new(0));
+
+        {
+            let deque: BlockBasedDeque<DropProbe> = BlockBasedDeque::new();
+            for _ in 0..100 {
+                deque.push(DropProbe(Arc::clone(&drops)));
+            }
+
+            for _ in 0..20 {
+                match deque.steal() {
+                    StealResult::Success(item) => drop(item),
+                    StealResult::Empty | StealResult::Retry => {
+                        panic!("expected successful steal")
+                    }
+                }
+            }
+
+            assert_eq!(drops.load(Ordering::Relaxed), 20);
+        }
+
+        assert_eq!(drops.load(Ordering::Relaxed), 100);
+    }
+
+    #[test]
+    fn test_block_based_deque_multithreaded() {
+        use std::thread;
+
+        let deque = Arc::new(BlockBasedDeque::new());
+        let num_items = 1000;
+
+        // Push from worker thread
+        for i in 0..num_items {
+            deque.push(i);
+        }
+
+        // Spawn thieves
+        let deque_clone1 = deque.clone();
+        let handle1 = thread::spawn(move || {
+            let mut stolen = Vec::new();
+            for _ in 0..(num_items / 2) {
+                if let StealResult::Success(item) = deque_clone1.steal() {
+                    stolen.push(item);
+                }
+            }
+            stolen
+        });
+
+        let deque_clone2 = deque.clone();
+        let handle2 = thread::spawn(move || {
+            let mut stolen = Vec::new();
+            for _ in 0..(num_items / 2) {
+                if let StealResult::Success(item) = deque_clone2.steal() {
+                    stolen.push(item);
+                }
+            }
+            stolen
+        });
+
+        // Worker thread also pops
+        let mut popped = Vec::new();
+        while let Some(item) = deque.pop() {
+            popped.push(item);
+        }
+
+        let stolen1 = handle1.join().unwrap();
+        let stolen2 = handle2.join().unwrap();
+
+        // Verify total items processed matches exactly
+        let total_processed = stolen1.len() + stolen2.len() + popped.len();
+        assert_eq!(total_processed, num_items);
+
+        // Verify no duplicate items
+        let mut all_items = Vec::new();
+        all_items.extend(stolen1);
+        all_items.extend(stolen2);
+        all_items.extend(popped);
+        all_items.sort();
+        for i in 0..num_items {
+            assert_eq!(all_items[i], i);
+        }
     }
 }

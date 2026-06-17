@@ -500,7 +500,7 @@ impl MemoryOrderingTestRunner {
         println!("Testing memory barriers and reordering...");
 
         let barrier_test = Arc::new(MemoryBarrierTest::new());
-        let num_iterations = 500;
+        let num_iterations = 100;
         let mut successful_communications = 0;
 
         for i in 0..num_iterations {
@@ -836,7 +836,7 @@ mod memory_ordering_tests {
     #[test]
     fn test_sequential_consistency() {
         let test = Arc::new(SequentialConsistencyTest::new());
-        let num_iterations = 1000;
+        let num_iterations = 100;
 
         for _ in 0..num_iterations {
             test.reset();

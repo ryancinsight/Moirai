@@ -161,6 +161,23 @@ impl WorkStealingScheduler {
         }
     }
 
+    /// Try to steal a batch of tasks from another scheduler and push them to self's local queue.
+    /// Returns the first stolen task.
+    pub fn try_steal_batch_from(&self, other: &WorkStealingScheduler) -> StealResult<ScheduledTask> {
+        self.stats.steal_attempts.fetch_add(1, Ordering::Relaxed);
+
+        let dest_queue = &self.local_queue;
+        match other.local_queue.steal_batch_with(|task| {
+            dest_queue.push(task);
+        }) {
+            StealResult::Success(task) => {
+                self.stats.successful_steals.fetch_add(1, Ordering::Relaxed);
+                StealResult::Success(task)
+            }
+            other_result => other_result,
+        }
+    }
+
     /// Execute a single task.
     fn execute_task(&self, task: ScheduledTask) {
         let start_time = Instant::now();
@@ -329,7 +346,7 @@ impl WorkStealingCoordinator {
                 continue;
             }
 
-            match idle_scheduler.try_steal_from(target) {
+            match idle_scheduler.try_steal_batch_from(target) {
                 StealResult::Success(task) => return Some(task),
                 StealResult::Retry => continue,
                 StealResult::Empty => continue,
@@ -356,7 +373,7 @@ impl WorkStealingCoordinator {
                 continue;
             }
 
-            match idle_scheduler.try_steal_from(target) {
+            match idle_scheduler.try_steal_batch_from(target) {
                 StealResult::Success(task) => return Some(task),
                 StealResult::Retry => {
                     // For round-robin, we give each scheduler one chance
@@ -393,7 +410,7 @@ impl WorkStealingCoordinator {
 
         if let Some(target) = best_target {
             for _ in 0..max_attempts {
-                match idle_scheduler.try_steal_from(target) {
+                match idle_scheduler.try_steal_batch_from(target) {
                     StealResult::Success(task) => return Some(task),
                     StealResult::Retry => continue,
                     StealResult::Empty => break,
@@ -427,7 +444,7 @@ impl WorkStealingCoordinator {
         candidates.sort_by_key(|(_, distance)| *distance);
 
         for (target, _) in candidates.iter().take(max_attempts) {
-            match idle_scheduler.try_steal_from(target) {
+            match idle_scheduler.try_steal_batch_from(target) {
                 StealResult::Success(task) => return Some(task),
                 StealResult::Retry => continue,
                 StealResult::Empty => continue,
