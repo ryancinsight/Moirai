@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use crate::StealResult;
 
 const BLOCK_SIZE: usize = 64;
+const MAX_BATCH_STEAL: usize = 16;
 
 struct Block<T> {
     data: [UnsafeCell<MaybeUninit<T>>; BLOCK_SIZE],
@@ -91,18 +92,12 @@ impl<T> BlockBasedDeque<T> {
 
         if b > 0 {
             let new_b = b - 1;
-
             self.bottom.store(new_b, Ordering::Relaxed);
             std::sync::atomic::fence(Ordering::SeqCst);
 
             let head = self.head.load(Ordering::Relaxed);
-            let t = if head == tail {
-                unsafe { (*tail).top.load(Ordering::Acquire) }
-            } else {
-                0
-            };
-
             if head == tail {
+                let t = unsafe { (*tail).top.load(Ordering::Acquire) };
                 if t < new_b {
                     let item = unsafe {
                         let cell = &(*tail).data[new_b];
@@ -136,7 +131,6 @@ impl<T> BlockBasedDeque<T> {
                     let cell = &(*tail).data[new_b];
                     cell.get().read().assume_init()
                 };
-                self.bottom.store(new_b, Ordering::Release);
                 self.len.fetch_sub(1, Ordering::Relaxed);
                 Some(item)
             }
@@ -222,79 +216,21 @@ impl<T> BlockBasedDeque<T> {
     where
         F: FnMut(T),
     {
-        let head = self.head.load(Ordering::Acquire);
-        let tail = self.tail.load(Ordering::Acquire);
-        let t = unsafe { (*head).top.load(Ordering::Acquire) };
-        let b = self.bottom.load(Ordering::Acquire);
+        let first_item = match self.steal() {
+            StealResult::Success(item) => item,
+            StealResult::Empty => return StealResult::Empty,
+            StealResult::Retry => return StealResult::Retry,
+        };
 
-        if head == tail {
-            if t >= b {
-                return StealResult::Empty;
-            }
-            let len = b - t;
-            let n = (len / 2).max(1);
-            if unsafe { &*head }
-                .top
-                .compare_exchange(t, t + n, Ordering::SeqCst, Ordering::Relaxed)
-                .is_ok()
-            {
-                let first_item = unsafe {
-                    let cell = &(*head).data[t];
-                    cell.get().read().assume_init()
-                };
-                for i in 1..n {
-                    let item = unsafe {
-                        let cell = &(*head).data[t + i];
-                        cell.get().read().assume_init()
-                    };
-                    f(item);
-                }
-                self.len.fetch_sub(n, Ordering::Relaxed);
-                StealResult::Success(first_item)
-            } else {
-                StealResult::Retry
-            }
-        } else {
-            if t < BLOCK_SIZE {
-                let len = BLOCK_SIZE - t;
-                let n = (len / 2).max(1);
-                if unsafe { &*head }
-                    .top
-                    .compare_exchange(t, t + n, Ordering::SeqCst, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    let first_item = unsafe {
-                        let cell = &(*head).data[t];
-                        cell.get().read().assume_init()
-                    };
-                    for i in 1..n {
-                        let item = unsafe {
-                            let cell = &(*head).data[t + i];
-                            cell.get().read().assume_init()
-                        };
-                        f(item);
-                    }
-                    self.len.fetch_sub(n, Ordering::Relaxed);
-                    StealResult::Success(first_item)
-                } else {
-                    StealResult::Retry
-                }
-            } else {
-                let next = unsafe { (*head).next.load(Ordering::Acquire) };
-                if next.is_null() {
-                    return StealResult::Empty;
-                }
-                if self
-                    .head
-                    .compare_exchange(head, next, Ordering::SeqCst, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    let mut retired = self.retired_blocks.lock().unwrap();
-                    retired.push(head);
-                }
-                StealResult::Retry
+        let batch_extra = (self.len().saturating_sub(1) / 2).min(MAX_BATCH_STEAL - 1);
+        for _ in 0..batch_extra {
+            match self.steal() {
+                StealResult::Success(item) => f(item),
+                StealResult::Empty | StealResult::Retry => break,
             }
         }
+
+        StealResult::Success(first_item)
     }
 
     /// Deallocate retired blocks through an exclusive quiescent access path.
