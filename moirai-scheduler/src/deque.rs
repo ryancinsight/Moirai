@@ -20,6 +20,7 @@ use std::{
 
 /// Minimum capacity for Chase-Lev deque to ensure efficient operations.
 pub(crate) const MIN_DEQUE_CAPACITY: usize = 16;
+const MAX_BATCH_STEAL: usize = 16;
 
 // ── Array ─────────────────────────────────────────────────────────────────────
 
@@ -200,20 +201,8 @@ where
         let array_ptr = self.array.load(Ordering::Relaxed);
         let array = unsafe { &*array_ptr };
 
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        {
-            let t = self.top.load(Ordering::Relaxed);
-            if b > t + 1 {
-                self.bottom.store(b, Ordering::Release);
-            } else {
-                self.bottom.store(b, Ordering::SeqCst);
-            }
-        }
-        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-        {
-            self.bottom.store(b, Ordering::Relaxed);
-            std::sync::atomic::fence(Ordering::SeqCst);
-        }
+        self.bottom.store(b, Ordering::Relaxed);
+        std::sync::atomic::fence(Ordering::SeqCst);
 
         let t = self.top.load(Ordering::Relaxed);
 
@@ -247,23 +236,42 @@ where
     pub fn steal(&self) -> StealResult<T> {
         let _guard = self.reclaim.enter();
         let t = self.top.load(Ordering::Acquire);
-        // The acquire top load orders this bottom observation; slot ownership is still the SeqCst CAS below.
+        // SeqCst fence between the top and bottom loads so a thief observes a
+        // consistent (top, bottom) snapshot relative to a concurrent owner
+        // `pop`. It pairs with the store-plus-SeqCst-fence in `pop` to impose one
+        // total order over the two indices (Lê, Pop, Cohen & Nardelli,
+        // "Correct and Efficient Work-Stealing for Weak Memory Models",
+        // PPoPP 2013).
+        std::sync::atomic::fence(Ordering::SeqCst);
         let b = self.bottom.load(Ordering::Acquire);
 
         if t < b {
-            // Claim the top index before moving the inline value out of the
-            // ring. A failed CAS leaves the slot owned by the winning thread.
-            let array_ptr = self.array.load(Ordering::Relaxed);
+            let array_ptr = self.array.load(Ordering::Acquire);
             let array = unsafe { &*array_ptr };
+
+            // Read the value BEFORE claiming the slot, then claim with the CAS.
+            // A successful CAS proves `top` never left `t`, hence the owner did
+            // not advance `top` to make room for `capacity` further pushes, hence
+            // it could not have lapped the ring and overwritten `array[t]`
+            // between this read and the claim. Reading *after* the CAS admitted
+            // exactly that wraparound race (and the missing fence admitted a torn
+            // snapshot), duplicating one item and losing another under
+            // multi-thief contention.
+            let value = unsafe { array.read(t) };
 
             if self
                 .top
                 .compare_exchange_weak(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
                 .is_ok()
             {
-                return StealResult::Success(unsafe { array.read(t) });
+                return StealResult::Success(value);
             }
 
+            // Lost the claim: the slot still logically owns this value and the
+            // winning consumer will read the same bytes. `value` is a bitwise
+            // `ptr::read` copy, so forget it rather than drop it here — dropping
+            // would double-free the slot's contents.
+            std::mem::forget(value);
             return StealResult::Retry;
         }
 
@@ -278,7 +286,8 @@ where
     {
         let _guard = self.reclaim.enter();
         let t = self.top.load(Ordering::Acquire);
-        // The acquire top load orders this bottom observation; slot ownership is still the SeqCst CAS below.
+        // SeqCst fence for a consistent (top, bottom) snapshot — see `steal`.
+        std::sync::atomic::fence(Ordering::SeqCst);
         let b = self.bottom.load(Ordering::Acquire);
 
         let len = b - t;
@@ -286,24 +295,39 @@ where
             return StealResult::Empty;
         }
 
-        let n = (len / 2).max(1) as usize;
+        let n = ((len / 2).max(1) as usize).min(MAX_BATCH_STEAL);
 
-        let array_ptr = self.array.load(Ordering::Relaxed);
+        let array_ptr = self.array.load(Ordering::Acquire);
         let array = unsafe { &*array_ptr };
+
+        // Read the whole batch BEFORE claiming it (read-before-CAS; see `steal`
+        // for the wraparound-safety argument). The batch is capped and buffered
+        // on the stack so the steal path remains allocation-free.
+        // Safety: an uninitialized `[MaybeUninit<T>; N]` is valid because
+        // `MaybeUninit<T>` may hold uninitialized bytes.
+        let mut items: [MaybeUninit<T>; MAX_BATCH_STEAL] =
+            unsafe { MaybeUninit::uninit().assume_init() };
+        for (i, slot) in items.iter_mut().enumerate().take(n) {
+            slot.write(unsafe { array.read(t + i as isize) });
+        }
 
         if self
             .top
             .compare_exchange_weak(t, t + n as isize, Ordering::SeqCst, Ordering::Relaxed)
             .is_ok()
         {
-            let first_item = unsafe { array.read(t) };
-            for i in 1..n {
-                let item = unsafe { array.read(t + i as isize) };
-                f(item);
+            // Safety: slots `0..n` were initialized by the loop above and are
+            // each read exactly once after the CAS transfers logical ownership.
+            let first_item = unsafe { items[0].assume_init_read() };
+            for slot in items.iter().take(n).skip(1) {
+                f(unsafe { slot.assume_init_read() });
             }
             return StealResult::Success(first_item);
         }
 
+        // Lost the claim: the slots still own these values. Discard the
+        // speculative `ptr::read` copies without running their destructors,
+        // avoiding a double-free of the slot contents.
         StealResult::Retry
     }
 

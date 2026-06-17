@@ -152,6 +152,10 @@ impl WorkStealingScheduler {
     pub fn try_steal_from(&self, other: &WorkStealingScheduler) -> StealResult<ScheduledTask> {
         self.stats.steal_attempts.fetch_add(1, Ordering::Relaxed);
 
+        if other.local_queue.is_empty() {
+            return StealResult::Empty;
+        }
+
         match other.local_queue.steal() {
             StealResult::Success(task) => {
                 self.stats.successful_steals.fetch_add(1, Ordering::Relaxed);
@@ -168,6 +172,10 @@ impl WorkStealingScheduler {
         other: &WorkStealingScheduler,
     ) -> StealResult<ScheduledTask> {
         self.stats.steal_attempts.fetch_add(1, Ordering::Relaxed);
+
+        if other.local_queue.is_empty() {
+            return StealResult::Empty;
+        }
 
         let dest_queue = &self.local_queue;
         match other.local_queue.steal_batch_with(|task| {
