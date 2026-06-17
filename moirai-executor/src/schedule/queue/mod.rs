@@ -1,9 +1,6 @@
 //! Priority-aware worker queues.
 
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Mutex,
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use moirai_core::Priority;
 use moirai_scheduler::{ChaseLevDeque, QuiescentReclaim, StealResult};
@@ -20,16 +17,17 @@ const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] =
 
 /// Per-worker task queues partitioned by priority using lock-free Chase-Lev deques.
 ///
-/// Local pop operations and push operations are serialized by a Mutex to support
-/// multi-producer scheduling from arbitrary threads. Steal operations are entirely
-/// lock-free and proceed without acquiring the mutex.
+/// Local pop operations and push operations are lock-free. Local operations (from the owner thread)
+/// proceed directly on the private SPSC deques, while non-local schedules place tasks into the
+/// lock-free multi-producer injector queue. Steal operations are entirely lock-free and proceed
+/// without acquiring any locks.
 ///
 /// Queue contents are synchronized by `state` (note: required contract comment).
 /// Worker queues are also used to coordinate scheduler quiescence.
 pub(crate) struct WorkerQueues<const CAPACITY: usize> {
-    queues: [ChaseLevDeque<ScheduledJob>; PRIORITY_LEVELS],
-    lock: Mutex<()>,
-    /// Advisory fast-path count used to skip locking when the queues are visibly
+    local_queues: [ChaseLevDeque<ScheduledJob>; PRIORITY_LEVELS],
+    injector: moirai_utils::queue::LockFreeQueue<(Priority, ScheduledJob)>,
+    /// Advisory fast-path count used to skip checking when the queues are visibly
     /// empty.
     len: AtomicUsize,
 }
@@ -38,17 +36,22 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
     /// Create empty queues for one worker.
     pub(crate) fn new() -> Self {
         Self {
-            queues: std::array::from_fn(|_| ChaseLevDeque::new(CAPACITY)),
-            lock: Mutex::new(()),
+            local_queues: std::array::from_fn(|_| ChaseLevDeque::new(CAPACITY)),
+            injector: moirai_utils::queue::LockFreeQueue::new(),
             len: AtomicUsize::new(0),
         }
     }
 
-    /// Push a job into its priority queue.
-    pub(crate) fn push(&self, priority: Priority, job: ScheduledJob) {
+    /// Push a job from the owner thread (local push).
+    pub(crate) fn push_local(&self, priority: Priority, job: ScheduledJob) {
         let index = priority_index(priority);
-        let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
-        self.queues[index].push(job);
+        self.local_queues[index].push(job);
+        self.len.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Push a job from an external thread (non-local push).
+    pub(crate) fn push_external(&self, priority: Priority, job: ScheduledJob) {
+        self.injector.enqueue((priority, job));
         self.len.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -58,14 +61,33 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
             return None;
         }
 
-        let _guard = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        // First, check private local queues
         for &index in &PRIORITY_POP_ORDER {
-            if let Some(job) = self.queues[index].pop() {
+            if let Some(job) = self.local_queues[index].pop() {
                 self.len.fetch_sub(1, Ordering::Relaxed);
                 return Some(job);
             }
         }
+
+        // If local queues are empty, try to drain the injector queue
+        self.drain_injector();
+
+        // Try local queues again
+        for &index in &PRIORITY_POP_ORDER {
+            if let Some(job) = self.local_queues[index].pop() {
+                self.len.fetch_sub(1, Ordering::Relaxed);
+                return Some(job);
+            }
+        }
+
         None
+    }
+
+    fn drain_injector(&self) {
+        while let Some((priority, job)) = self.injector.try_dequeue() {
+            let index = priority_index(priority);
+            self.local_queues[index].push(job);
+        }
     }
 
     /// Steal older work from another worker, highest priority first.
@@ -75,9 +97,10 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
             return None;
         }
 
+        // 1. Try to steal from target's local queues
         for &index in &PRIORITY_POP_ORDER {
             loop {
-                match self.queues[index].steal() {
+                match self.local_queues[index].steal() {
                     StealResult::Success(job) => {
                         self.len.fetch_sub(1, Ordering::Relaxed);
                         return Some(job);
@@ -87,6 +110,13 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
                 }
             }
         }
+
+        // 2. Try to steal from target's injector
+        if let Some((_, job)) = self.injector.try_dequeue() {
+            self.len.fetch_sub(1, Ordering::Relaxed);
+            return Some(job);
+        }
+
         None
     }
 
@@ -97,16 +127,13 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
             return None;
         }
 
+        // 1. Try to steal from target's local queues
         for &index in &PRIORITY_POP_ORDER {
             loop {
-                let mut guard = None;
                 let mut pushed_count = 0;
-                let dest_queue = &self.queues[index];
+                let dest_queue = &self.local_queues[index];
 
-                match target.queues[index].steal_batch_with(|job| {
-                    if guard.is_none() {
-                        guard = Some(self.lock.lock().unwrap_or_else(|e| e.into_inner()));
-                    }
+                match target.local_queues[index].steal_batch_with(|job| {
                     dest_queue.push(job);
                     pushed_count += 1;
                 }) {
@@ -114,7 +141,6 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
                         if pushed_count > 0 {
                             self.len.fetch_add(pushed_count, Ordering::Relaxed);
                         }
-                        drop(guard);
                         target.len.fetch_sub(pushed_count + 1, Ordering::Relaxed);
                         return Some(first_job);
                     }
@@ -123,6 +149,27 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
                 }
             }
         }
+
+        // 2. Try to steal from target's injector
+        if let Some((_priority, first_job)) = target.injector.try_dequeue() {
+            let mut pushed_count = 0;
+            // Dequeue a batch (up to 15 more tasks to form a batch of 16)
+            while pushed_count < 15 {
+                if let Some((p, job)) = target.injector.try_dequeue() {
+                    let dest_queue = &self.local_queues[priority_index(p)];
+                    dest_queue.push(job);
+                    pushed_count += 1;
+                } else {
+                    break;
+                }
+            }
+            if pushed_count > 0 {
+                self.len.fetch_add(pushed_count, Ordering::Relaxed);
+            }
+            target.len.fetch_sub(pushed_count + 1, Ordering::Relaxed);
+            return Some(first_job);
+        }
+
         None
     }
 
@@ -134,7 +181,7 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
     /// Deallocate retired backing arrays through an exclusive quiescent access path.
     #[allow(dead_code)]
     pub(crate) fn reclaim_memory(&mut self) {
-        for queue in &mut self.queues {
+        for queue in &mut self.local_queues {
             queue.reclaim_memory(QuiescentReclaim);
         }
     }
@@ -170,7 +217,7 @@ mod tests {
 
         for (priority, value) in [(Priority::Low, 1), (Priority::Critical, 2)] {
             let observed = Arc::clone(&observed);
-            queues.push(
+            queues.push_local(
                 priority,
                 ScheduledJob::new(move |_| {
                     observed.lock().unwrap().push(value);

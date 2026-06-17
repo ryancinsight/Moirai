@@ -95,6 +95,8 @@ pub struct WorkStealingScheduler {
     local_queue: ChaseLevDeque<ScheduledTask>,
     /// Global work queue for load balancing
     global_queue: Mutex<VecDeque<ScheduledTask>>,
+    /// Track the length of the global work queue atomically to prevent lock contention on load()
+    global_len: AtomicUsize,
     /// Statistics for this scheduler
     stats: SchedulerStats,
 }
@@ -112,6 +114,7 @@ impl WorkStealingScheduler {
             _config: config,
             local_queue: ChaseLevDeque::new(initial_capacity),
             global_queue: Mutex::new(VecDeque::new()),
+            global_len: AtomicUsize::new(0),
             stats: SchedulerStats::default(),
         }
     }
@@ -135,6 +138,7 @@ impl WorkStealingScheduler {
         // Then try global queue
         if let Ok(mut global) = self.global_queue.try_lock() {
             if let Some(task) = global.pop_front() {
+                self.global_len.fetch_sub(1, Ordering::Relaxed);
                 drop(global); // Release lock before execution
                 self.execute_task(task);
                 return Ok(true);
@@ -182,11 +186,7 @@ impl WorkStealingScheduler {
     /// Get current load (number of queued tasks).
     pub fn load(&self) -> usize {
         let local_load = self.local_queue.len();
-        let global_load = self
-            .global_queue
-            .lock()
-            .map(|queue| queue.len())
-            .unwrap_or(0);
+        let global_load = self.global_len.load(Ordering::Relaxed);
         local_load + global_load
     }
 
@@ -231,6 +231,7 @@ impl Scheduler for WorkStealingScheduler {
         // Then try global queue
         if let Ok(mut global) = self.global_queue.try_lock() {
             if let Some(task) = global.pop_front() {
+                self.global_len.fetch_sub(1, Ordering::Relaxed);
                 return Ok(Some(task));
             }
         }
