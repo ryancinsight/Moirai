@@ -239,7 +239,13 @@ impl<T> MpmcChannel<T> {
             }
 
             match queue.try_push(value) {
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    if self.receiver_waiter_count.load(Ordering::SeqCst) > 0 {
+                        let (_, _, not_empty) = &*self.state;
+                        not_empty.notify_one();
+                    }
+                    return Ok(());
+                }
                 Err(returned) => {
                     value = returned;
                 }
@@ -253,7 +259,33 @@ impl<T> MpmcChannel<T> {
                 continue;
             }
 
-            std::thread::yield_now();
+            // Fallback to condvar wait to prevent CPU contention and busy-looping
+            let (mutex, not_full, _) = &*self.state;
+            let mut guard = mutex.lock().unwrap();
+
+            if self.closed.load(Ordering::Acquire) || guard.closed {
+                return Err(ChannelError::Closed);
+            }
+
+            self.sender_waiter_count.fetch_add(1, Ordering::SeqCst);
+
+            match queue.try_push(value) {
+                Ok(()) => {
+                    self.sender_waiter_count.fetch_sub(1, Ordering::SeqCst);
+                    drop(guard);
+                    if self.receiver_waiter_count.load(Ordering::SeqCst) > 0 {
+                        let (_, _, not_empty) = &*self.state;
+                        not_empty.notify_one();
+                    }
+                    return Ok(());
+                }
+                Err(returned) => {
+                    value = returned;
+                }
+            }
+
+            guard = not_full.wait(guard).unwrap();
+            self.sender_waiter_count.fetch_sub(1, Ordering::SeqCst);
         }
     }
 
@@ -265,6 +297,10 @@ impl<T> MpmcChannel<T> {
 
         loop {
             if let Some(value) = queue.try_pop() {
+                if self.sender_waiter_count.load(Ordering::SeqCst) > 0 {
+                    let (_, not_full, _) = &*self.state;
+                    not_full.notify_one();
+                }
                 return Ok(value);
             }
 
@@ -284,7 +320,26 @@ impl<T> MpmcChannel<T> {
                 continue;
             }
 
-            std::thread::yield_now();
+            // Fallback to condvar wait to prevent CPU contention and busy-looping
+            let (mutex, _, not_empty) = &*self.state;
+            let mut guard = mutex.lock().unwrap();
+
+            if let Some(value) = queue.try_pop() {
+                drop(guard);
+                if self.sender_waiter_count.load(Ordering::SeqCst) > 0 {
+                    let (_, not_full, _) = &*self.state;
+                    not_full.notify_one();
+                }
+                return Ok(value);
+            }
+
+            if self.closed.load(Ordering::Acquire) || guard.closed {
+                return Err(ChannelError::Closed);
+            }
+
+            self.receiver_waiter_count.fetch_add(1, Ordering::SeqCst);
+            guard = not_empty.wait(guard).unwrap();
+            self.receiver_waiter_count.fetch_sub(1, Ordering::SeqCst);
         }
     }
 }

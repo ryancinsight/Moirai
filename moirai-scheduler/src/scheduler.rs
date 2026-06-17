@@ -163,7 +163,10 @@ impl WorkStealingScheduler {
 
     /// Try to steal a batch of tasks from another scheduler and push them to self's local queue.
     /// Returns the first stolen task.
-    pub fn try_steal_batch_from(&self, other: &WorkStealingScheduler) -> StealResult<ScheduledTask> {
+    pub fn try_steal_batch_from(
+        &self,
+        other: &WorkStealingScheduler,
+    ) -> StealResult<ScheduledTask> {
         self.stats.steal_attempts.fetch_add(1, Ordering::Relaxed);
 
         let dest_queue = &self.local_queue;

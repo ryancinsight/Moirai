@@ -12,6 +12,7 @@ const BLOCK_SIZE: usize = 64;
 struct Block<T> {
     data: [UnsafeCell<MaybeUninit<T>>; BLOCK_SIZE],
     next: AtomicPtr<Block<T>>,
+    top: AtomicUsize,
 }
 
 impl<T> Block<T> {
@@ -24,12 +25,10 @@ impl<T> Block<T> {
             }
             // Initialize data with raw cell wrappers without array initialization overhead
             for i in 0..BLOCK_SIZE {
-                std::ptr::write(
-                    &mut (*ptr).data[i],
-                    UnsafeCell::new(MaybeUninit::uninit()),
-                );
+                std::ptr::write(&mut (*ptr).data[i], UnsafeCell::new(MaybeUninit::uninit()));
             }
             std::ptr::write(&mut (*ptr).next, AtomicPtr::new(std::ptr::null_mut()));
+            std::ptr::write(&mut (*ptr).top, AtomicUsize::new(0));
             ptr
         }
     }
@@ -39,7 +38,6 @@ impl<T> Block<T> {
 pub struct BlockBasedDeque<T> {
     head: AtomicPtr<Block<T>>,
     tail: AtomicPtr<Block<T>>,
-    top: AtomicUsize,
     bottom: AtomicUsize,
     len: AtomicUsize,
     retired_blocks: Mutex<Vec<*mut Block<T>>>,
@@ -56,7 +54,6 @@ impl<T> BlockBasedDeque<T> {
         Self {
             head: AtomicPtr::new(first_block),
             tail: AtomicPtr::new(first_block),
-            top: AtomicUsize::new(0),
             bottom: AtomicUsize::new(0),
             len: AtomicUsize::new(0),
             retired_blocks: Mutex::new(Vec::new()),
@@ -100,7 +97,7 @@ impl<T> BlockBasedDeque<T> {
             {
                 let head = self.head.load(Ordering::Relaxed);
                 let t = if head == tail {
-                    self.top.load(Ordering::Relaxed)
+                    unsafe { (*tail).top.load(Ordering::Relaxed) }
                 } else {
                     0
                 };
@@ -118,7 +115,7 @@ impl<T> BlockBasedDeque<T> {
 
             let head = self.head.load(Ordering::Relaxed);
             let t = if head == tail {
-                self.top.load(Ordering::Acquire)
+                unsafe { (*tail).top.load(Ordering::Acquire) }
             } else {
                 0
             };
@@ -130,10 +127,9 @@ impl<T> BlockBasedDeque<T> {
                         cell.get().read().assume_init()
                     };
                     self.len.fetch_sub(1, Ordering::Relaxed);
-                    return Some(item);
-                }
-                if t == new_b {
-                    if self
+                    Some(item)
+                } else if t == new_b {
+                    if unsafe { &*tail }
                         .top
                         .compare_exchange(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
                         .is_ok()
@@ -144,11 +140,15 @@ impl<T> BlockBasedDeque<T> {
                         };
                         self.bottom.store(new_b + 1, Ordering::Relaxed);
                         self.len.fetch_sub(1, Ordering::Relaxed);
-                        return Some(item);
+                        Some(item)
+                    } else {
+                        self.bottom.store(new_b + 1, Ordering::Relaxed);
+                        None
                     }
+                } else {
+                    self.bottom.store(new_b + 1, Ordering::Relaxed);
+                    None
                 }
-                self.bottom.store(new_b + 1, Ordering::Relaxed);
-                return None;
             } else {
                 let item = unsafe {
                     let cell = &(*tail).data[new_b];
@@ -156,7 +156,7 @@ impl<T> BlockBasedDeque<T> {
                 };
                 self.bottom.store(new_b, Ordering::Release);
                 self.len.fetch_sub(1, Ordering::Relaxed);
-                return Some(item);
+                Some(item)
             }
         } else {
             // If the tail block is empty, but head != tail, we can steal from our own head.
@@ -177,17 +177,32 @@ impl<T> BlockBasedDeque<T> {
 
     /// Steal an item from the top of the deque.
     pub fn steal(&self) -> StealResult<T> {
-        loop {
-            let head = self.head.load(Ordering::Acquire);
-            let tail = self.tail.load(Ordering::Acquire);
-            let t = self.top.load(Ordering::Acquire);
-            let b = self.bottom.load(Ordering::Acquire);
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let t = unsafe { (*head).top.load(Ordering::Acquire) };
+        let b = self.bottom.load(Ordering::Acquire);
 
-            if head == tail {
-                if t >= b {
-                    return StealResult::Empty;
-                }
-                if self
+        if head == tail {
+            if t >= b {
+                return StealResult::Empty;
+            }
+            if unsafe { &*head }
+                .top
+                .compare_exchange(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
+                let item = unsafe {
+                    let cell = &(*head).data[t];
+                    cell.get().read().assume_init()
+                };
+                self.len.fetch_sub(1, Ordering::Relaxed);
+                StealResult::Success(item)
+            } else {
+                StealResult::Retry
+            }
+        } else {
+            if t < BLOCK_SIZE {
+                if unsafe { &*head }
                     .top
                     .compare_exchange(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
                     .is_ok()
@@ -197,40 +212,24 @@ impl<T> BlockBasedDeque<T> {
                         cell.get().read().assume_init()
                     };
                     self.len.fetch_sub(1, Ordering::Relaxed);
-                    return StealResult::Success(item);
-                }
-                return StealResult::Retry;
-            } else {
-                if t < BLOCK_SIZE {
-                    if self
-                        .top
-                        .compare_exchange(t, t + 1, Ordering::SeqCst, Ordering::Relaxed)
-                        .is_ok()
-                    {
-                        let item = unsafe {
-                            let cell = &(*head).data[t];
-                            cell.get().read().assume_init()
-                        };
-                        self.len.fetch_sub(1, Ordering::Relaxed);
-                        return StealResult::Success(item);
-                    }
-                    return StealResult::Retry;
+                    StealResult::Success(item)
                 } else {
-                    let next = unsafe { (*head).next.load(Ordering::Acquire) };
-                    if next.is_null() {
-                        return StealResult::Empty;
-                    }
-                    if self
-                        .head
-                        .compare_exchange(head, next, Ordering::SeqCst, Ordering::Relaxed)
-                        .is_ok()
-                    {
-                        self.top.store(0, Ordering::Release);
-                        let mut retired = self.retired_blocks.lock().unwrap();
-                        retired.push(head);
-                    }
-                    return StealResult::Retry;
+                    StealResult::Retry
                 }
+            } else {
+                let next = unsafe { (*head).next.load(Ordering::Acquire) };
+                if next.is_null() {
+                    return StealResult::Empty;
+                }
+                if self
+                    .head
+                    .compare_exchange(head, next, Ordering::SeqCst, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    let mut retired = self.retired_blocks.lock().unwrap();
+                    retired.push(head);
+                }
+                StealResult::Retry
             }
         }
     }
@@ -241,19 +240,43 @@ impl<T> BlockBasedDeque<T> {
     where
         F: FnMut(T),
     {
-        loop {
-            let head = self.head.load(Ordering::Acquire);
-            let tail = self.tail.load(Ordering::Acquire);
-            let t = self.top.load(Ordering::Acquire);
-            let b = self.bottom.load(Ordering::Acquire);
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        let t = unsafe { (*head).top.load(Ordering::Acquire) };
+        let b = self.bottom.load(Ordering::Acquire);
 
-            if head == tail {
-                if t >= b {
-                    return StealResult::Empty;
+        if head == tail {
+            if t >= b {
+                return StealResult::Empty;
+            }
+            let len = b - t;
+            let n = (len / 2).max(1);
+            if unsafe { &*head }
+                .top
+                .compare_exchange(t, t + n, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
+                let first_item = unsafe {
+                    let cell = &(*head).data[t];
+                    cell.get().read().assume_init()
+                };
+                for i in 1..n {
+                    let item = unsafe {
+                        let cell = &(*head).data[t + i];
+                        cell.get().read().assume_init()
+                    };
+                    f(item);
                 }
-                let len = b - t;
+                self.len.fetch_sub(n, Ordering::Relaxed);
+                StealResult::Success(first_item)
+            } else {
+                StealResult::Retry
+            }
+        } else {
+            if t < BLOCK_SIZE {
+                let len = BLOCK_SIZE - t;
                 let n = (len / 2).max(1);
-                if self
+                if unsafe { &*head }
                     .top
                     .compare_exchange(t, t + n, Ordering::SeqCst, Ordering::Relaxed)
                     .is_ok()
@@ -270,49 +293,24 @@ impl<T> BlockBasedDeque<T> {
                         f(item);
                     }
                     self.len.fetch_sub(n, Ordering::Relaxed);
-                    return StealResult::Success(first_item);
-                }
-                return StealResult::Retry;
-            } else {
-                if t < BLOCK_SIZE {
-                    let len = BLOCK_SIZE - t;
-                    let n = (len / 2).max(1);
-                    if self
-                        .top
-                        .compare_exchange(t, t + n, Ordering::SeqCst, Ordering::Relaxed)
-                        .is_ok()
-                    {
-                        let first_item = unsafe {
-                            let cell = &(*head).data[t];
-                            cell.get().read().assume_init()
-                        };
-                        for i in 1..n {
-                            let item = unsafe {
-                                let cell = &(*head).data[t + i];
-                                cell.get().read().assume_init()
-                            };
-                            f(item);
-                        }
-                        self.len.fetch_sub(n, Ordering::Relaxed);
-                        return StealResult::Success(first_item);
-                    }
-                    return StealResult::Retry;
+                    StealResult::Success(first_item)
                 } else {
-                    let next = unsafe { (*head).next.load(Ordering::Acquire) };
-                    if next.is_null() {
-                        return StealResult::Empty;
-                    }
-                    if self
-                        .head
-                        .compare_exchange(head, next, Ordering::SeqCst, Ordering::Relaxed)
-                        .is_ok()
-                    {
-                        self.top.store(0, Ordering::Release);
-                        let mut retired = self.retired_blocks.lock().unwrap();
-                        retired.push(head);
-                    }
-                    return StealResult::Retry;
+                    StealResult::Retry
                 }
+            } else {
+                let next = unsafe { (*head).next.load(Ordering::Acquire) };
+                if next.is_null() {
+                    return StealResult::Empty;
+                }
+                if self
+                    .head
+                    .compare_exchange(head, next, Ordering::SeqCst, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    let mut retired = self.retired_blocks.lock().unwrap();
+                    retired.push(head);
+                }
+                StealResult::Retry
             }
         }
     }
@@ -352,11 +350,7 @@ impl<T> Drop for BlockBasedDeque<T> {
         while !curr.is_null() {
             let next = unsafe { (*curr).next.load(Ordering::Relaxed) };
             unsafe {
-                let start = if curr == head {
-                    self.top.load(Ordering::Relaxed)
-                } else {
-                    0
-                };
+                let start = (*curr).top.load(Ordering::Relaxed);
                 let b = if curr == self.tail.load(Ordering::Relaxed) {
                     self.bottom.load(Ordering::Relaxed)
                 } else {

@@ -540,8 +540,8 @@ mod tests {
         all_items.extend(stolen2);
         all_items.extend(popped);
         all_items.sort();
-        for i in 0..num_items {
-            assert_eq!(all_items[i], i);
+        for (i, &item) in all_items.iter().enumerate() {
+            assert_eq!(item, i);
         }
     }
 }
