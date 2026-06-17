@@ -98,6 +98,7 @@ pub mod deque;
 pub mod numa_scheduler;
 pub mod reclaim;
 pub mod scheduler;
+pub mod split_deque;
 
 pub use block_deque::BlockBasedDeque;
 pub use deque::{ChaseLevDeque, StealResult};
@@ -108,6 +109,7 @@ pub use reclaim::{
 pub use scheduler::{
     SchedulerStats, SchedulerStatsSnapshot, WorkStealingCoordinator, WorkStealingScheduler,
 };
+pub use split_deque::SplitDeque;
 
 #[cfg(test)]
 mod tests {
@@ -543,5 +545,57 @@ mod tests {
         for (i, &item) in all_items.iter().enumerate() {
             assert_eq!(item, i);
         }
+    }
+
+    #[test]
+    fn test_split_deque_basic_operations() {
+        let deque: SplitDeque<i32, 8> = SplitDeque::new();
+
+        // Push and pop within threshold
+        deque.push(1);
+        deque.push(2);
+        deque.push(3);
+
+        assert_eq!(deque.len(), 3);
+        assert!(!deque.is_empty());
+
+        // Worker pop is LIFO
+        assert_eq!(deque.pop(), Some(3));
+        assert_eq!(deque.pop(), Some(2));
+        assert_eq!(deque.pop(), Some(1));
+        assert_eq!(deque.pop(), None);
+
+        assert!(deque.is_empty());
+    }
+
+    #[test]
+    fn test_split_deque_threshold_offloading() {
+        // Threshold is 4. When we push 5 items:
+        // 5th push triggers offload.
+        // Drains first 2 items (1, 2) from private to shared.
+        // Private gets 5.
+        // Private has: [3, 4, 5], Shared has: [1, 2].
+        let deque: SplitDeque<i32, 4> = SplitDeque::new();
+
+        deque.push(1);
+        deque.push(2);
+        deque.push(3);
+        deque.push(4);
+
+        // No offload yet
+        assert_eq!(deque.steal(), StealResult::Empty);
+
+        deque.push(5);
+
+        // First 2 items should have been offloaded to shared (FIFO steal order)
+        assert_eq!(deque.steal(), StealResult::Success(1));
+        assert_eq!(deque.steal(), StealResult::Success(2));
+        assert_eq!(deque.steal(), StealResult::Empty); // Only 1 and 2 were offloaded
+
+        // Owner pops remaining items (LIFO)
+        assert_eq!(deque.pop(), Some(5));
+        assert_eq!(deque.pop(), Some(4));
+        assert_eq!(deque.pop(), Some(3));
+        assert_eq!(deque.pop(), None);
     }
 }

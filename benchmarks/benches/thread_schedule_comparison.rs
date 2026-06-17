@@ -6,7 +6,9 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use moirai::Moirai;
 use moirai_core::channel::spsc;
-use moirai_scheduler::{BlockBasedDeque, ChaseLevDeque, QuiescentReclaim, SharedEpochReclaim};
+use moirai_scheduler::{
+    BlockBasedDeque, ChaseLevDeque, QuiescentReclaim, SharedEpochReclaim, SplitDeque,
+};
 use rayon::prelude::*;
 use std::{
     sync::atomic::{AtomicUsize, Ordering},
@@ -88,6 +90,19 @@ fn moirai_deque_shared_epoch_reclaim_sum(count: usize) -> usize {
 
 fn moirai_block_based_deque_sum(count: usize) -> usize {
     let deque: BlockBasedDeque<usize> = BlockBasedDeque::new();
+    for value in 0..count {
+        deque.push(black_box(value.wrapping_add(1)));
+    }
+
+    let mut sum = 0usize;
+    while let Some(value) = deque.pop() {
+        sum = sum.wrapping_add(value);
+    }
+    sum
+}
+
+fn moirai_split_deque_sum(count: usize) -> usize {
+    let deque: SplitDeque<usize> = SplitDeque::new();
     for value in 0..count {
         deque.push(black_box(value.wrapping_add(1)));
     }
@@ -636,6 +651,15 @@ fn bench_standalone_deque_reclaim_policy(c: &mut Criterion) {
         b.iter(|| {
             verify_ready_sum(
                 moirai_block_based_deque_sum(DEQUE_RECLAIM_ITEMS),
+                DEQUE_RECLAIM_ITEMS,
+            )
+        });
+    });
+
+    group.bench_function("moirai_split_deque", |b| {
+        b.iter(|| {
+            verify_ready_sum(
+                moirai_split_deque_sum(DEQUE_RECLAIM_ITEMS),
                 DEQUE_RECLAIM_ITEMS,
             )
         });

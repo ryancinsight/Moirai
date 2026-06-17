@@ -92,26 +92,8 @@ impl<T> BlockBasedDeque<T> {
         if b > 0 {
             let new_b = b - 1;
 
-            // TSO Fence-Free pop optimization:
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            {
-                let head = self.head.load(Ordering::Relaxed);
-                let t = if head == tail {
-                    unsafe { (*tail).top.load(Ordering::Relaxed) }
-                } else {
-                    0
-                };
-                if new_b > t + 1 {
-                    self.bottom.store(new_b, Ordering::Release);
-                } else {
-                    self.bottom.store(new_b, Ordering::SeqCst);
-                }
-            }
-            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-            {
-                self.bottom.store(new_b, Ordering::Relaxed);
-                std::sync::atomic::fence(Ordering::SeqCst);
-            }
+            self.bottom.store(new_b, Ordering::Relaxed);
+            std::sync::atomic::fence(Ordering::SeqCst);
 
             let head = self.head.load(Ordering::Relaxed);
             let t = if head == tail {

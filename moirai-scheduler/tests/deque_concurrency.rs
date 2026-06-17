@@ -1,8 +1,8 @@
 //! Concurrency safety tests for the lock-free work-stealing deques.
 //!
 //! These validate the core work-stealing safety property under real thread
-//! contention, for both [`ChaseLevDeque`] and [`BlockBasedDeque`]: with a single
-//! owner (push/pop from the bottom) and many thieves (steal from the top),
+//! contention, for [`ChaseLevDeque`], [`BlockBasedDeque`], and [`SplitDeque`]:
+//! with a single owner (push/pop from the bottom) and many thieves (steal from the top),
 //! **every pushed item is consumed exactly once** — no loss, no duplication, no
 //! torn value. This is the empirical complement to the weak-memory fence
 //! discipline (Lê, Pop, Cohen & Nardelli, PPoPP 2013); a `loom` exhaustive model
@@ -15,7 +15,7 @@
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use moirai_scheduler::{BlockBasedDeque, ChaseLevDeque, StealResult};
+use moirai_scheduler::{BlockBasedDeque, ChaseLevDeque, SplitDeque, StealResult};
 
 /// One generic harness over both deque implementations. The method names match
 /// the inherent ones; in the generic test body only the trait methods are in
@@ -43,6 +43,21 @@ impl<T: Send> WorkStealer<T> for ChaseLevDeque<T> {
 }
 
 impl<T: Send> WorkStealer<T> for BlockBasedDeque<T> {
+    fn w_push(&self, item: T) {
+        self.push(item);
+    }
+    fn w_pop(&self) -> Option<T> {
+        self.pop()
+    }
+    fn w_steal(&self) -> StealResult<T> {
+        self.steal()
+    }
+    fn w_steal_batch(&self, f: &mut dyn FnMut(T)) -> StealResult<T> {
+        self.steal_batch_with(f)
+    }
+}
+
+impl<T: Send> WorkStealer<T> for SplitDeque<T> {
     fn w_push(&self, item: T) {
         self.push(item);
     }
@@ -151,15 +166,28 @@ where
         &duplicated[..duplicated.len().min(8)],
         out_of_range.load(Ordering::Relaxed),
     );
-    assert_eq!(consumed.load(Ordering::Relaxed), n, "consumed count mismatch");
+    assert_eq!(
+        consumed.load(Ordering::Relaxed),
+        n,
+        "consumed count mismatch"
+    );
 }
 
 fn chase_lev(n: usize, thieves: usize, capacity: usize, batch: bool) {
-    exactly_once_inner(Arc::new(ChaseLevDeque::<usize>::new(capacity)), n, thieves, batch);
+    exactly_once_inner(
+        Arc::new(ChaseLevDeque::<usize>::new(capacity)),
+        n,
+        thieves,
+        batch,
+    );
 }
 
 fn block_based(n: usize, thieves: usize, batch: bool) {
     exactly_once_inner(Arc::new(BlockBasedDeque::<usize>::new()), n, thieves, batch);
+}
+
+fn split(n: usize, thieves: usize, batch: bool) {
+    exactly_once_inner(Arc::new(SplitDeque::<usize>::new()), n, thieves, batch);
 }
 
 // ── ChaseLevDeque ───────────────────────────────────────────────────────────
@@ -215,5 +243,28 @@ fn block_based_exactly_once_single_thief() {
 fn block_based_batch_exactly_once_high_thief_contention() {
     for _ in 0..8 {
         block_based(30_000, 8, true);
+    }
+}
+
+// ── SplitDeque ──────────────────────────────────────────────────────────────
+
+#[test]
+fn split_exactly_once_high_thief_contention() {
+    for _ in 0..8 {
+        split(50_000, 8, false);
+    }
+}
+
+#[test]
+fn split_exactly_once_single_thief() {
+    for _ in 0..16 {
+        split(20_000, 1, false);
+    }
+}
+
+#[test]
+fn split_batch_exactly_once_high_thief_contention() {
+    for _ in 0..8 {
+        split(30_000, 8, true);
     }
 }

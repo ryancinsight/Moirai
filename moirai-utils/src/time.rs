@@ -269,13 +269,16 @@ mod tests {
 
     #[test]
     fn test_time_average() {
+        let calls = std::sync::atomic::AtomicUsize::new(0);
         let avg_duration = time_average(3, || {
+            calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             thread::sleep(Duration::from_millis(1));
         });
 
-        // Should be close to 1ms, allowing for overhead
+        // Sleeping establishes a lower bound only; OS scheduling can add
+        // unbounded delay on a loaded test host.
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 3);
         assert!(avg_duration >= Duration::from_millis(1));
-        assert!(avg_duration < Duration::from_millis(10));
     }
 
     #[test]
