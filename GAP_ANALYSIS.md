@@ -20,7 +20,9 @@
 - `moirai-gpu::occupancy` owns the current accelerator-adjacent planning slice:
   topology-aware launch-shape and resident-block planning. Evidence tier:
   type-level API plus value-semantic tests over themis topology and Mnemosyne
-  kernel resource budgets.
+  kernel resource budgets. The planner is available without `wgpu-backend`, so
+  external Atlas GPU backends can consume launch planning without inheriting
+  Moirai's concrete WGPU runtime dependency.
 - `moirai-executor::schedule::route` now includes accelerator route metadata:
   `AcceleratorRoutePolicy`, `AcceleratorCounts`, `AcceleratorKind`, and
   `SchedulerRoute::Accelerator` cover CPU/GPU/TPU/NPU placement metadata through

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `moirai-gpu`: made the concrete WGPU execution stack optional behind the
+  `wgpu-backend` feature while keeping `occupancy` launch planning available
+  with `default-features = false`. Atlas GPU backends can consume Moirai
+  launch planning without inheriting Moirai's concrete WGPU runtime version.
+
 ### Added
 - Default `parallel` and `mnemosyne-memory` feature contracts across every
   Moirai package. Crates with existing Mnemosyne-backed runtime behavior expose

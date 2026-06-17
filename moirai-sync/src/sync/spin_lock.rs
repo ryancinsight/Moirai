@@ -1,4 +1,5 @@
 use std::cell::UnsafeCell;
+use std::fmt;
 use std::hint;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,6 +21,15 @@ const SPINLOCK_INITIAL_BACKOFF: usize = 1;
 pub struct SpinLock<T> {
     locked: AtomicBool,
     data: UnsafeCell<T>,
+}
+
+impl<T> fmt::Debug for SpinLock<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let locked = self.locked.load(Ordering::Relaxed);
+        f.debug_struct("SpinLock")
+            .field("locked", &locked)
+            .finish_non_exhaustive()
+    }
 }
 
 unsafe impl<T: Send> Send for SpinLock<T> {}
@@ -45,11 +55,12 @@ impl<T> SpinLock<T> {
         let mut total_spins = 0;
 
         loop {
-            // Fast path: try to acquire immediately
-            if self
-                .locked
-                .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_ok()
+            // Read-before-CAS: only attempt atomic write if lock is observed unlocked
+            if !self.locked.load(Ordering::Relaxed)
+                && self
+                    .locked
+                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_ok()
             {
                 return SpinLockGuard {
                     lock: self,

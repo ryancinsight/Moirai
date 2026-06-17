@@ -1,4 +1,5 @@
 use std::cell::UnsafeCell;
+use std::fmt;
 use std::hint;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -52,7 +53,30 @@ pub struct FutexMutex<T> {
     state: AtomicI32, // 0 = unlocked, 1 = locked, 2 = locked with waiters
     #[cfg(not(target_os = "linux"))]
     locked: AtomicBool,
+    #[cfg(not(target_os = "linux"))]
+    waiters: std::sync::atomic::AtomicUsize,
+    #[cfg(not(target_os = "linux"))]
+    fallback: std::sync::Mutex<()>,
+    #[cfg(not(target_os = "linux"))]
+    condvar: std::sync::Condvar,
     data: UnsafeCell<T>,
+}
+
+impl<T> fmt::Debug for FutexMutex<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        #[cfg(target_os = "linux")]
+        let state = self.state.load(Ordering::Relaxed);
+        #[cfg(not(target_os = "linux"))]
+        let locked = self.locked.load(Ordering::Relaxed);
+
+        let mut d = f.debug_struct("FutexMutex");
+        #[cfg(target_os = "linux")]
+        d.field("state", &state);
+        #[cfg(not(target_os = "linux"))]
+        d.field("locked", &locked);
+
+        d.finish_non_exhaustive()
+    }
 }
 
 unsafe impl<T: Send> Send for FutexMutex<T> {}
@@ -66,6 +90,12 @@ impl<T> FutexMutex<T> {
             state: AtomicI32::new(0),
             #[cfg(not(target_os = "linux"))]
             locked: AtomicBool::new(false),
+            #[cfg(not(target_os = "linux"))]
+            waiters: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(not(target_os = "linux"))]
+            fallback: std::sync::Mutex::new(()),
+            #[cfg(not(target_os = "linux"))]
+            condvar: std::sync::Condvar::new(),
             data: UnsafeCell::new(data),
         }
     }
@@ -101,7 +131,11 @@ impl<T> FutexMutex<T> {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            !self.locked.swap(true, Ordering::Acquire)
+            if self.locked.load(Ordering::Relaxed) {
+                false
+            } else {
+                !self.locked.swap(true, Ordering::Acquire)
+            }
         }
     }
 
@@ -132,13 +166,14 @@ impl<T> FutexMutex<T> {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            while self.locked.load(Ordering::Relaxed) {
-                std::thread::yield_now();
-            }
-            while self.locked.swap(true, Ordering::Acquire) {
-                while self.locked.load(Ordering::Relaxed) {
-                    std::thread::yield_now();
+            self.waiters.fetch_add(1, Ordering::Relaxed);
+            let mut guard = self.fallback.lock().unwrap();
+            loop {
+                if !self.locked.swap(true, Ordering::Acquire) {
+                    self.waiters.fetch_sub(1, Ordering::Relaxed);
+                    return;
                 }
+                guard = self.condvar.wait(guard).unwrap();
             }
         }
     }
@@ -153,6 +188,10 @@ impl<T> FutexMutex<T> {
         #[cfg(not(target_os = "linux"))]
         {
             self.locked.store(false, Ordering::Release);
+            if self.waiters.load(Ordering::Relaxed) > 0 {
+                let _guard = self.fallback.lock().unwrap();
+                self.condvar.notify_one();
+            }
         }
     }
 }

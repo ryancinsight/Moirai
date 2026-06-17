@@ -200,9 +200,17 @@ where
         let array_ptr = self.array.load(Ordering::Relaxed);
         let array = unsafe { &*array_ptr };
 
-        self.bottom.store(b, Ordering::Relaxed);
-
-        std::sync::atomic::fence(Ordering::SeqCst);
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            // On TSO architectures (x86/x86_64), a SeqCst store acts as a memory fence and is
+            // faster than a relaxed store followed by an explicit SeqCst fence (which emits mfence).
+            self.bottom.store(b, Ordering::SeqCst);
+        }
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        {
+            self.bottom.store(b, Ordering::Relaxed);
+            std::sync::atomic::fence(Ordering::SeqCst);
+        }
 
         let t = self.top.load(Ordering::Relaxed);
 

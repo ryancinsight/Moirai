@@ -1,8 +1,18 @@
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// An atomic counter with convenience methods.
 pub struct AtomicCounter {
     inner: AtomicU64,
+}
+
+impl fmt::Debug for AtomicCounter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = self.inner.load(Ordering::Relaxed);
+        f.debug_struct("AtomicCounter")
+            .field("value", &value)
+            .finish()
+    }
 }
 
 impl AtomicCounter {

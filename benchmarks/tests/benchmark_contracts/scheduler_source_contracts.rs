@@ -29,7 +29,7 @@ fn scheduler_submission_diagnostics_stay_static_and_value_checked() {
         "AtomicUsize::new(0)",
         "self.select_worker_for_state::<C>(",
         "pending_tasks.fetch_add(1, Ordering::Release)",
-        "queues.push(priority, ScheduledJob::new(|_| {}))",
+        "queues.push_external(priority, ScheduledJob::new(|_| {}))",
         "job.execute(worker_index)",
         "pub fn diagnostic_wake_decision<P>(&self, worker_index: usize) -> usize",
         "P: DiagnosticWakeDecision",

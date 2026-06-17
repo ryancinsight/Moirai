@@ -10,7 +10,7 @@ documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-description = "GPU compute integration for the Moirai concurrency library using wgpu-rs"
+description = "GPU launch planning and optional wgpu compute integration for the Moirai concurrency library"
 
 [dependencies]
 themis = { workspace = true }
@@ -19,12 +19,12 @@ moirai-core = { workspace = true }
 moirai-utils = { workspace = true, features = ["std"] }
 
 # GPU compute dependencies
-wgpu = "0.19"
-pollster = "0.3"
-bytemuck = { version = "1.14", features = ["derive"] }
+wgpu = { version = "0.19", optional = true }
+pollster = { version = "0.3", optional = true }
+bytemuck = { version = "1.14", features = ["derive"], optional = true }
 
 # Async runtime support
-futures = "0.3"
+futures = { version = "0.3", optional = true }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -35,10 +35,11 @@ proptest = { workspace = true }
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 
 [features]
-default = ["std", "parallel", "mnemosyne-memory"]
+default = ["std", "parallel", "mnemosyne-memory", "wgpu-backend"]
 std = []
 parallel = []
 mnemosyne-memory = []
+wgpu-backend = ["dep:bytemuck", "dep:futures", "dep:pollster", "dep:wgpu"]
 serde = ["dep:serde"]
 
 [[bench]]

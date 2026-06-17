@@ -87,18 +87,21 @@ impl fmt::Display for GpuError {
 
 impl std::error::Error for GpuError {}
 
+#[cfg(feature = "wgpu-backend")]
 impl From<wgpu::CreateSurfaceError> for GpuError {
     fn from(err: wgpu::CreateSurfaceError) -> Self {
         GpuError::WgpuError(err.to_string())
     }
 }
 
+#[cfg(feature = "wgpu-backend")]
 impl From<wgpu::RequestDeviceError> for GpuError {
     fn from(err: wgpu::RequestDeviceError) -> Self {
         GpuError::DeviceInitFailed(err.to_string())
     }
 }
 
+#[cfg(feature = "wgpu-backend")]
 impl From<wgpu::BufferAsyncError> for GpuError {
     fn from(err: wgpu::BufferAsyncError) -> Self {
         GpuError::BufferMappingFailed(err.to_string())

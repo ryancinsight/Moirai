@@ -1,7 +1,8 @@
 use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
+use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 // Import centralized constants (SSOT compliance)
 use moirai_core::constants::DEFAULT_CONCURRENT_MAP_SEGMENTS;
@@ -9,8 +10,16 @@ use moirai_core::constants::DEFAULT_CONCURRENT_MAP_SEGMENTS;
 /// Concurrent hash map with segment-based locking for scalability.
 /// This provides better scalability than a single mutex-protected HashMap.
 pub struct ConcurrentHashMap<K, V, S = RandomState> {
-    pub(crate) segments: Vec<Mutex<HashMap<K, V, S>>>,
+    pub(crate) segments: Vec<RwLock<HashMap<K, V, S>>>,
     pub(crate) hasher: S,
+}
+
+impl<K, V, S> fmt::Debug for ConcurrentHashMap<K, V, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConcurrentHashMap")
+            .field("segments_count", &self.segments.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<K: Hash + Eq, V> ConcurrentHashMap<K, V> {
@@ -24,7 +33,7 @@ impl<K: Hash + Eq, V> ConcurrentHashMap<K, V> {
         let num_segments = num_segments.next_power_of_two();
 
         let segments = (0..num_segments)
-            .map(|_| Mutex::new(HashMap::new()))
+            .map(|_| RwLock::new(HashMap::new()))
             .collect();
 
         Self {
@@ -53,27 +62,27 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
     /// Insert a key-value pair.
     ///
     /// Returns the previous value if the key existed, or None if it was a new key.
-    /// Uses Result to handle potential poisoned mutex errors.
+    /// Uses Result to handle potential poisoned rwlock errors.
     pub fn insert(&self, key: K, value: V) -> Result<Option<V>, String> {
         let idx = self.segment_index(&key);
         Ok(self.segments[idx]
-            .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .write()
+            .map_err(|_| "RwLock poisoned".to_string())?
             .insert(key, value))
     }
 
     /// Get a value by key.
     ///
     /// Returns the cloned value if found, or None if not found.
-    /// Uses Result to handle potential poisoned mutex errors.
+    /// Uses Result to handle potential poisoned rwlock errors.
     pub fn get(&self, key: &K) -> Result<Option<V>, String>
     where
         V: Clone,
     {
         let idx = self.segment_index(key);
         Ok(self.segments[idx]
-            .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .read()
+            .map_err(|_| "RwLock poisoned".to_string())?
             .get(key)
             .cloned())
     }
@@ -81,24 +90,24 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
     /// Remove a key-value pair.
     ///
     /// Returns the removed value if the key existed, or None if it didn't exist.
-    /// Uses Result to handle potential poisoned mutex errors.
+    /// Uses Result to handle potential poisoned rwlock errors.
     pub fn remove(&self, key: &K) -> Result<Option<V>, String> {
         let idx = self.segment_index(key);
         Ok(self.segments[idx]
-            .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .write()
+            .map_err(|_| "RwLock poisoned".to_string())?
             .remove(key))
     }
 
     /// Check if a key exists.
     ///
     /// Returns true if the key exists, false otherwise.
-    /// Uses Result to handle potential poisoned mutex errors.
+    /// Uses Result to handle potential poisoned rwlock errors.
     pub fn contains_key(&self, key: &K) -> Result<bool, String> {
         let idx = self.segment_index(key);
         Ok(self.segments[idx]
-            .lock()
-            .map_err(|_| "Mutex poisoned".to_string())?
+            .read()
+            .map_err(|_| "RwLock poisoned".to_string())?
             .contains_key(key))
     }
 }

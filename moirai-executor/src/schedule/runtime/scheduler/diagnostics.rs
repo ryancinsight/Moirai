@@ -41,7 +41,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
     pub fn diagnostic_priority_queue_push_pop(priority: Priority) -> usize {
         let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
-        queues.push(priority, ScheduledJob::new(|_| {}));
+        queues.push_external(priority, ScheduledJob::new(|_| {}));
         queues
             .pop_local()
             .map(|job| usize::from(job.execute(0)))
@@ -68,7 +68,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         );
         let previous_pending = pending_tasks.fetch_add(1, Ordering::Release);
         let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
-        queues.push(priority, ScheduledJob::new(|_| {}));
+        queues.push_external(priority, ScheduledJob::new(|_| {}));
         let completed = queues
             .pop_local()
             .map(|job| usize::from(job.execute(worker_index)))
@@ -90,7 +90,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         self.inner.pending_tasks.fetch_add(1, Ordering::Release);
         self.inner.workers[index]
             .queues
-            .push(Priority::Normal, ScheduledJob::new(|_| {}));
+            .push_external(Priority::Normal, ScheduledJob::new(|_| {}));
 
         next_job(&self.inner, index)
             .map(|job| {
@@ -137,7 +137,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     pub fn diagnostic_max_inline_queue_push_pop_execute() -> usize {
         let words = [1usize; 14];
         let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
-        queues.push(
+        queues.push_external(
             Priority::Normal,
             ScheduledJob::new(move |_| {
                 std::hint::black_box(words.iter().copied().sum::<usize>());
@@ -153,7 +153,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     pub fn diagnostic_oversized_queue_push_pop_execute() -> usize {
         let words = [1usize; 32];
         let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
-        queues.push(
+        queues.push_external(
             Priority::Normal,
             ScheduledJob::new(move |_| {
                 std::hint::black_box(words.iter().copied().sum::<usize>());
@@ -170,7 +170,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let index = worker_index % self.inner.workers.len();
         let words = [1usize; 14];
         self.inner.pending_tasks.fetch_add(1, Ordering::Release);
-        self.inner.workers[index].queues.push(
+        self.inner.workers[index].queues.push_external(
             Priority::Normal,
             ScheduledJob::new(move |_| {
                 std::hint::black_box(words.iter().copied().sum::<usize>());
@@ -189,7 +189,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let index = worker_index % self.inner.workers.len();
         let words = [1usize; 32];
         self.inner.pending_tasks.fetch_add(1, Ordering::Release);
-        self.inner.workers[index].queues.push(
+        self.inner.workers[index].queues.push_external(
             Priority::Normal,
             ScheduledJob::new(move |_| {
                 std::hint::black_box(words.iter().copied().sum::<usize>());

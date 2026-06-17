@@ -371,10 +371,12 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             if let Some(old_job) = self.inner.workers[worker_index].lifo_slot.push(job) {
                 self.inner.workers[worker_index]
                     .queues
-                    .push(priority, old_job);
+                    .push_local(priority, old_job);
             }
         } else {
-            self.inner.workers[worker_index].queues.push(priority, job);
+            self.inner.workers[worker_index]
+                .queues
+                .push_external(priority, job);
         }
 
         // Try to wake up an idle worker via the lock-free wake lottery

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::hint;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -6,6 +7,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub struct WaitGroup {
     counter: AtomicU64,
     generation: AtomicU64,
+}
+
+impl fmt::Debug for WaitGroup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let counter = self.counter.load(Ordering::Relaxed);
+        let generation = self.generation.load(Ordering::Relaxed);
+        f.debug_struct("WaitGroup")
+            .field("counter", &counter)
+            .field("generation", &generation)
+            .finish()
+    }
 }
 
 impl WaitGroup {
