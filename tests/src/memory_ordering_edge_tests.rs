@@ -293,6 +293,8 @@ enum AccessPattern {
 struct SequentialConsistencyTest {
     x: AtomicUsize,
     y: AtomicUsize,
+    r1: AtomicUsize,
+    r2: AtomicUsize,
     violations: AtomicUsize,
 }
 
@@ -301,6 +303,8 @@ impl SequentialConsistencyTest {
         Self {
             x: AtomicUsize::new(0),
             y: AtomicUsize::new(0),
+            r1: AtomicUsize::new(999),
+            r2: AtomicUsize::new(999),
             violations: AtomicUsize::new(0),
         }
     }
@@ -308,26 +312,20 @@ impl SequentialConsistencyTest {
     fn thread1(&self) {
         self.x.store(1, Ordering::Relaxed);
         let y_val = self.y.load(Ordering::Relaxed);
-
-        // In sequential consistency, at least one thread should see the other's write
-        if y_val == 0 {
-            // This is fine, thread1 executed before thread2
-        }
+        self.r1.store(y_val, Ordering::Relaxed);
     }
 
     fn thread2(&self) {
         self.y.store(1, Ordering::Relaxed);
         let x_val = self.x.load(Ordering::Relaxed);
-
-        // Sequential consistency violation if both threads see 0
-        if x_val == 0 {
-            self.violations.fetch_add(1, Ordering::Relaxed);
-        }
+        self.r2.store(x_val, Ordering::Relaxed);
     }
 
     fn reset(&self) {
         self.x.store(0, Ordering::Relaxed);
         self.y.store(0, Ordering::Relaxed);
+        self.r1.store(999, Ordering::Relaxed);
+        self.r2.store(999, Ordering::Relaxed);
     }
 
     fn violation_count(&self) -> usize {
@@ -849,6 +847,10 @@ mod memory_ordering_tests {
 
             t1.join().unwrap();
             t2.join().unwrap();
+
+            if test.r1.load(Ordering::Relaxed) == 0 && test.r2.load(Ordering::Relaxed) == 0 {
+                test.violations.fetch_add(1, Ordering::Relaxed);
+            }
         }
 
         let violations = test.violation_count();

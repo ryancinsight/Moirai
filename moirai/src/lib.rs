@@ -970,20 +970,33 @@ mod tests {
     #[test]
     fn test_join_waits_for_public_spawned_tasks() {
         let moirai = Moirai::builder().worker_threads(2).build().unwrap();
-        let handles = (0..8)
-            .map(|value| moirai.spawn_fn(move || value + 1))
-            .collect::<Vec<_>>();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
 
+        let b = barrier.clone();
+        let handle1 = moirai.spawn_fn(move || {
+            b.wait();
+            1
+        });
+        let b = barrier.clone();
+        let handle2 = moirai.spawn_fn(move || {
+            b.wait();
+            2
+        });
+
+        // Verify there is active/queued work
         assert!(moirai.has_work());
+
+        // Release the tasks from the barrier
+        barrier.wait();
+
         moirai.join().unwrap();
         assert!(!moirai.has_work());
 
-        let results = handles
-            .into_iter()
-            .map(|handle| handle.join().unwrap().unwrap())
-            .collect::<Vec<_>>();
-
-        assert_eq!(results, (1..=8).collect::<Vec<_>>());
+        let results = vec![
+            handle1.join().unwrap().unwrap(),
+            handle2.join().unwrap().unwrap(),
+        ];
+        assert_eq!(results, vec![1, 2]);
         moirai.shutdown();
     }
 
