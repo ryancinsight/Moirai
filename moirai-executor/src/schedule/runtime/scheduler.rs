@@ -84,6 +84,13 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             lock_mutex(&inner.handles).push(handle);
         }
 
+        // Wait until all workers have registered their thread handles
+        for worker in inner.workers.iter() {
+            while worker.thread.get().is_none() {
+                std::thread::yield_now();
+            }
+        }
+
         Ok(Self { inner })
     }
 
@@ -214,7 +221,6 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             if let Err(error) =
                 self.schedule_scoped_job::<C, _>(priority, locality_hint, scoped_job)
             {
-                state.complete_task();
                 schedule_result = Err(error);
                 break;
             }
@@ -316,7 +322,6 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             if let Err(error) =
                 self.schedule_scoped_job::<C, _>(priority, locality_hint, scoped_job)
             {
-                state.complete_task();
                 schedule_result = Err(error);
                 break;
             }
@@ -416,6 +421,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                         worker_index,
                         previous_pending,
                     );
+                } else {
+                    let wake_index = worker_index.wrapping_add(previous_pending) % worker_count;
+                    wake_worker(&self.inner.workers[wake_index]);
                 }
             }
         }
