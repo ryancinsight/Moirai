@@ -425,6 +425,35 @@ impl Drop for ThreadPool {
     }
 }
 
+/// A guard that waits for all spawned tasks in a channel to complete when dropped.
+/// This prevents use-after-free when unwinding panics.
+pub(crate) struct PoolJoinGuard {
+    rx: std::sync::mpsc::Receiver<()>,
+    count: usize,
+}
+
+impl PoolJoinGuard {
+    pub(crate) fn new(rx: std::sync::mpsc::Receiver<()>, count: usize) -> Self {
+        Self { rx, count }
+    }
+
+    /// Wait for all tasks to finish.
+    pub(crate) fn wait(mut self) {
+        for _ in 0..self.count {
+            let _ = self.rx.recv();
+        }
+        self.count = 0; // Prevent waiting again in drop
+    }
+}
+
+impl Drop for PoolJoinGuard {
+    fn drop(&mut self) {
+        for _ in 0..self.count {
+            let _ = self.rx.recv();
+        }
+    }
+}
+
 /// Performance metrics for adaptive execution.
 #[derive(Debug, Clone)]
 pub struct PerformanceMetrics {

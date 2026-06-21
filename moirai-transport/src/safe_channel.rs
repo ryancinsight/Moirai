@@ -168,8 +168,9 @@ impl ArchiveView for String {
 
         let len_bytes: [u8; 4] = bytes[0..4].try_into().map_err(|_| TransportError::Closed)?;
         let len = u32::from_le_bytes(len_bytes) as usize;
-        let payload = bytes.get(4..4 + len).ok_or(TransportError::Closed)?;
-        if bytes.len() != 4 + len {
+        let end = len.checked_add(4).ok_or(TransportError::Closed)?;
+        let payload = bytes.get(4..end).ok_or(TransportError::Closed)?;
+        if bytes.len() != end {
             return Err(TransportError::Closed);
         }
 

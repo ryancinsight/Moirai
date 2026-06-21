@@ -79,31 +79,24 @@ impl<I: Iterator> PrefetchExt for I {}
 /// Optimized slice iterator with prefetching
 pub struct PrefetchSliceIter<'a, T> {
     slice: &'a [T],
-    position: usize,
     prefetch_distance: usize,
 }
 
 impl<'a, T> PrefetchSliceIter<'a, T> {
     pub fn new(slice: &'a [T]) -> Self {
-        let iter = Self {
-            slice,
-            position: 0,
-            prefetch_distance: PREFETCH_DISTANCE,
-        };
+        let prefetch_distance = PREFETCH_DISTANCE;
 
         // Prefetch initial data
-        iter.prefetch_at(0);
-
-        iter
-    }
-
-    #[inline(always)]
-    fn prefetch_at(&self, index: usize) {
-        if index + self.prefetch_distance < self.slice.len() {
+        if !slice.is_empty() && prefetch_distance < slice.len() {
             unsafe {
-                let future_ptr = self.slice.as_ptr().add(index + self.prefetch_distance);
-                prefetch_read_data(future_ptr as *const u8, 0); // L1 cache
+                let future_ptr = slice.as_ptr().add(prefetch_distance);
+                prefetch_read_data(future_ptr as *const u8, 0);
             }
+        }
+
+        Self {
+            slice,
+            prefetch_distance,
         }
     }
 }
@@ -113,29 +106,31 @@ impl<'a, T> Iterator for PrefetchSliceIter<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.position >= self.slice.len() {
+        if self.slice.is_empty() {
             return None;
         }
 
-        let item = &self.slice[self.position];
-
         // Prefetch future data
-        self.prefetch_at(self.position + 1);
+        if self.prefetch_distance < self.slice.len() {
+            unsafe {
+                let future_ptr = self.slice.as_ptr().add(self.prefetch_distance);
+                prefetch_read_data(future_ptr as *const u8, 0);
+            }
+        }
 
-        self.position += 1;
-        Some(item)
+        let (first, rest) = self.slice.split_at(1);
+        self.slice = rest;
+        Some(&first[0])
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.slice.len() - self.position;
-        (remaining, Some(remaining))
+        (self.slice.len(), Some(self.slice.len()))
     }
 }
 
 /// Prefetching iterator for mutable slices
 pub struct PrefetchSliceIterMut<'a, T> {
     slice: &'a mut [T],
-    position: usize,
     prefetch_distance: usize,
 }
 
@@ -153,7 +148,6 @@ impl<'a, T> PrefetchSliceIterMut<'a, T> {
 
         Self {
             slice,
-            position: 0,
             prefetch_distance,
         }
     }
@@ -164,28 +158,26 @@ impl<'a, T> Iterator for PrefetchSliceIterMut<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.position >= self.slice.len() {
+        if self.slice.is_empty() {
             return None;
         }
 
         // Prefetch future data for writing
-        if self.position + self.prefetch_distance + 1 < self.slice.len() {
+        if self.prefetch_distance < self.slice.len() {
             unsafe {
-                let future_ptr = self
-                    .slice
-                    .as_mut_ptr()
-                    .add(self.position + self.prefetch_distance + 1);
+                let future_ptr = self.slice.as_mut_ptr().add(self.prefetch_distance);
                 prefetch_write_data(future_ptr as *mut u8, 0);
             }
         }
 
-        let item = unsafe {
-            // Safe because we check bounds and never create overlapping mutable references
-            &mut *(self.slice.as_mut_ptr().add(self.position))
-        };
+        let slice = std::mem::take(&mut self.slice);
+        let (first, rest) = slice.split_at_mut(1);
+        self.slice = rest;
+        Some(&mut first[0])
+    }
 
-        self.position += 1;
-        Some(item)
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.slice.len(), Some(self.slice.len()))
     }
 }
 

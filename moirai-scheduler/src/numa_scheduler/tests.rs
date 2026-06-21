@@ -576,3 +576,23 @@ impl Task for DummyTask {
         DEFAULT_CONTEXT.get_or_init(|| TaskContext::new(TaskId::new(0)))
     }
 }
+
+#[test]
+fn test_numa_scheduler_worker_id_tracking() {
+    use super::scheduler::{current_worker_id, set_current_worker_id};
+    
+    // Set worker ID on main thread
+    set_current_worker_id(42);
+    assert_eq!(current_worker_id(), 42);
+
+    // Spawn a thread and verify it defaults to 0 and can be set independently
+    let handle = std::thread::spawn(|| {
+        assert_eq!(current_worker_id(), 0);
+        set_current_worker_id(100);
+        assert_eq!(current_worker_id(), 100);
+    });
+
+    handle.join().unwrap();
+    // Verify main thread worker ID is still 42
+    assert_eq!(current_worker_id(), 42);
+}

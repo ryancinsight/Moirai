@@ -54,9 +54,27 @@ impl<T> SpscChannel<T> {
         (
             SpscSender {
                 channel: channel.clone(),
+                _marker: PhantomData,
             },
-            SpscReceiver { channel },
+            SpscReceiver {
+                channel,
+                _marker: PhantomData,
+            },
         )
+    }
+}
+
+impl<T> Drop for SpscChannel<T> {
+    fn drop(&mut self) {
+        let tail = self.tail.value.load(Ordering::Relaxed);
+        let head = self.head.value.load(Ordering::Relaxed);
+        let len = head.wrapping_sub(tail);
+        for i in 0..len {
+            unsafe {
+                let slot = &mut *self.buffer[(tail.wrapping_add(i)) & self.mask].get();
+                slot.assume_init_drop();
+            }
+        }
     }
 }
 
@@ -66,7 +84,7 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
         let mut spin_count = 0;
         loop {
             // Check if channel is closed first
-            if self.closed.load(Ordering::Relaxed) {
+            if self.closed.load(Ordering::Acquire) {
                 return Err(ChannelError::Closed);
             }
 
@@ -101,7 +119,7 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
     }
 
     fn try_send(&self, value: T) -> Result<()> {
-        if self.closed.load(Ordering::Relaxed) {
+        if self.closed.load(Ordering::Acquire) {
             return Err(ChannelError::Closed);
         }
 
@@ -153,7 +171,7 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
         let head = self.head.value.load(Ordering::Acquire);
 
         if tail == head {
-            if self.closed.load(Ordering::Relaxed) {
+            if self.closed.load(Ordering::Acquire) {
                 return Err(ChannelError::Closed);
             }
             return Err(ChannelError::Empty);
@@ -191,14 +209,7 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
 /// Sender half of SPSC channel
 pub struct SpscSender<T> {
     pub(super) channel: Arc<SpscChannel<T>>,
-}
-
-impl<T> Clone for SpscSender<T> {
-    fn clone(&self) -> Self {
-        Self {
-            channel: self.channel.clone(),
-        }
-    }
+    _marker: PhantomData<std::cell::Cell<()>>,
 }
 
 impl<T: Send> SpscSender<T> {
@@ -216,14 +227,7 @@ impl<T: Send> SpscSender<T> {
 /// Receiver half of SPSC channel
 pub struct SpscReceiver<T> {
     pub(super) channel: Arc<SpscChannel<T>>,
-}
-
-impl<T> Clone for SpscReceiver<T> {
-    fn clone(&self) -> Self {
-        Self {
-            channel: self.channel.clone(),
-        }
-    }
+    _marker: PhantomData<std::cell::Cell<()>>,
 }
 
 impl<T: Send> SpscReceiver<T> {
@@ -235,5 +239,17 @@ impl<T: Send> SpscReceiver<T> {
     /// Try to receive a value without blocking
     pub fn try_recv(&self) -> Result<T> {
         self.channel.try_recv()
+    }
+}
+
+impl<T> Drop for SpscSender<T> {
+    fn drop(&mut self) {
+        self.channel.closed.store(true, Ordering::Release);
+    }
+}
+
+impl<T> Drop for SpscReceiver<T> {
+    fn drop(&mut self) {
+        self.channel.closed.store(true, Ordering::Release);
     }
 }

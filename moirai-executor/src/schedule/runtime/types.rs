@@ -33,7 +33,7 @@ pub struct ScheduleMetrics {
 }
 
 /// Single scheduler used by all executor task classes.
-pub struct ThreadScheduler<const QUEUE_CAPACITY: usize = 256, const SPIN_LIMIT: usize = 256> {
+pub struct ThreadScheduler<const QUEUE_CAPACITY: usize = 256, const SPIN_LIMIT: usize = 131072> {
     pub(super) inner: Arc<SchedulerInner<QUEUE_CAPACITY>>,
 }
 
@@ -126,7 +126,7 @@ pub struct SchedulerScope<
     'scope,
     C: WorkClass,
     const QUEUE_CAPACITY: usize = 256,
-    const SPIN_LIMIT: usize = 256,
+    const SPIN_LIMIT: usize = 131072,
 > {
     pub(super) scheduler: &'scope ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>,
     pub(super) state: NonNull<SchedulerScopeState>,
@@ -311,6 +311,14 @@ impl SchedulerScopeState {
     }
 
     pub(super) fn wait(&self) {
+        // Spin-wait for a short duration before acquiring the lock and parking
+        for _ in 0..131_072 {
+            if self.pending_tasks.load(Ordering::Acquire) == 0 {
+                return;
+            }
+            core::hint::spin_loop();
+        }
+
         let mut guard = super::worker::lock_mutex(&self.wait_lock);
         while self.pending_tasks.load(Ordering::Acquire) != 0 {
             guard = self

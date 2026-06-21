@@ -57,12 +57,12 @@ impl AdaptiveThreshold {
         let cur = self.current() as f64;
         let mut new_threshold = if throughput > avg * 1.1 {
             if latency < Duration::from_micros(100) {
-                cur * (1.0 + self.adaptation_rate)
+                (cur * (1.0 + self.adaptation_rate)).ceil()
             } else {
                 cur
             }
         } else if throughput < avg * 0.9 {
-            cur * (1.0 - self.adaptation_rate)
+            (cur * (1.0 - self.adaptation_rate)).floor()
         } else {
             cur
         };
@@ -337,3 +337,31 @@ pub struct BatchStats {
     /// Time since last flush operation
     pub time_since_last_flush: Duration,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_adaptive_threshold_growth_and_shrinkage() {
+        let threshold = AdaptiveThreshold::new(2, 1, 10, 0.1);
+        assert_eq!(threshold.current(), 2);
+
+        std::thread::sleep(Duration::from_millis(110));
+        threshold.update(150.0, Duration::from_micros(50));
+        assert_eq!(threshold.current(), 2);
+
+        std::thread::sleep(Duration::from_millis(110));
+        threshold.update(200.0, Duration::from_micros(50));
+        assert_eq!(threshold.current(), 3);
+
+        std::thread::sleep(Duration::from_millis(110));
+        threshold.update(300.0, Duration::from_micros(50));
+        assert_eq!(threshold.current(), 4);
+
+        std::thread::sleep(Duration::from_millis(110));
+        threshold.update(10.0, Duration::from_micros(50));
+        assert_eq!(threshold.current(), 3);
+    }
+}
+

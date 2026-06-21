@@ -1,0 +1,121 @@
+use std::mem::MaybeUninit;
+use std::ptr::{self, NonNull};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+use super::allocator::CacheAlignedAllocator;
+use super::pool::MemoryPool;
+
+/// Zero-copy ring buffer with unified memory management.
+pub struct UnifiedRingBuffer<T> {
+    /// Cache-aligned buffer storage
+    buffer: NonNull<MaybeUninit<T>>,
+    /// Buffer capacity (always power of 2)
+    capacity: usize,
+    /// Mask for fast modulo operations
+    mask: usize,
+    /// Producer position
+    head: AtomicUsize,
+    /// Consumer position  
+    tail: AtomicUsize,
+    /// Associated memory pool for overflow handling
+    pool: Arc<MemoryPool<T>>,
+}
+
+impl<T> UnifiedRingBuffer<T> {
+    /// Create a new unified ring buffer with specified capacity
+    pub fn new(capacity: usize) -> Option<Self> {
+        let capacity = capacity.next_power_of_two().max(2);
+        let buffer = CacheAlignedAllocator::allocate::<MaybeUninit<T>>(capacity)?;
+
+        Some(Self {
+            buffer,
+            capacity,
+            mask: capacity - 1,
+            head: AtomicUsize::new(0),
+            tail: AtomicUsize::new(0),
+            pool: Arc::new(MemoryPool::new(capacity * 2)),
+        })
+    }
+
+    /// Try to push an item using zero-copy semantics
+    pub fn try_push(&self, item: T) -> Result<(), T> {
+        let head = self.head.load(Ordering::Relaxed);
+        let next_head = (head + 1) & self.mask;
+        let tail = self.tail.load(Ordering::Acquire);
+
+        if next_head == tail {
+            // Buffer is full
+            return Err(item);
+        }
+
+        unsafe {
+            let slot = self.buffer.as_ptr().add(head & self.mask);
+            ptr::write((*slot).as_mut_ptr(), item);
+        }
+
+        self.head.store(next_head, Ordering::Release);
+        Ok(())
+    }
+
+    /// Try to pop an item using zero-copy semantics
+    pub fn try_pop(&self) -> Option<T> {
+        let tail = self.tail.load(Ordering::Relaxed);
+        let head = self.head.load(Ordering::Acquire);
+
+        if tail == head {
+            // Buffer is empty
+            return None;
+        }
+
+        let item = unsafe {
+            let slot = self.buffer.as_ptr().add(tail & self.mask);
+            ptr::read((*slot).as_ptr())
+        };
+
+        self.tail.store((tail + 1) & self.mask, Ordering::Release);
+        Some(item)
+    }
+
+    /// Get buffer capacity
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Check if buffer is empty
+    pub fn is_empty(&self) -> bool {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        head == tail
+    }
+
+    /// Get current buffer size
+    pub fn len(&self) -> usize {
+        let head = self.head.load(Ordering::Acquire);
+        let tail = self.tail.load(Ordering::Acquire);
+        (head.wrapping_sub(tail)) & self.mask
+    }
+
+    /// Get associated memory pool for overflow handling
+    pub fn overflow_pool(&self) -> &Arc<MemoryPool<T>> {
+        &self.pool
+    }
+}
+
+impl<T> Drop for UnifiedRingBuffer<T> {
+    fn drop(&mut self) {
+        // Clean up remaining items
+        #[allow(clippy::redundant_pattern_matching)]
+        while let Some(_) = self.try_pop() {
+            // Items are dropped automatically
+        }
+
+        // Deallocate buffer
+        unsafe {
+            CacheAlignedAllocator::deallocate(self.buffer, self.capacity);
+        }
+    }
+}
+
+unsafe impl<T: Send> Send for UnifiedRingBuffer<T> {}
+unsafe impl<T: Send> Sync for UnifiedRingBuffer<T> {}

@@ -5,7 +5,7 @@
 //! no worker owns or refcounts the vector, and all borrows end before the
 //! vector is dropped.
 
-use crate::base::{get_shared_thread_pool, SendPtr};
+use crate::base::{get_shared_thread_pool, PoolJoinGuard, SendPtr};
 use moirai_core::constants::DEFAULT_RING_BUFFER_CAPACITY;
 
 /// Parallel iterator with automatic scoped chunking.
@@ -68,6 +68,7 @@ impl<T: Send + Sync> ParallelIter<T> {
         if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = get_shared_thread_pool();
             let (tx, rx) = std::sync::mpsc::channel();
+            let guard = PoolJoinGuard::new(rx, num_chunks);
             for (idx, chunk) in chunks.into_iter().enumerate() {
                 let tx = tx.clone();
                 let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
@@ -86,9 +87,8 @@ impl<T: Send + Sync> ParallelIter<T> {
                 });
             }
 
-            for _ in 0..num_chunks {
-                let _ = rx.recv();
-            }
+            drop(tx);
+            guard.wait();
         }
 
         results.into_iter().flatten().flatten().collect()
@@ -143,6 +143,7 @@ impl<T: Send + Sync> ParallelIter<T> {
         if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = get_shared_thread_pool();
             let (tx, rx) = std::sync::mpsc::channel();
+            let guard = PoolJoinGuard::new(rx, num_chunks);
             for (idx, chunk) in chunks.into_iter().enumerate() {
                 let tx = tx.clone();
                 let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
@@ -162,9 +163,8 @@ impl<T: Send + Sync> ParallelIter<T> {
                 });
             }
 
-            for _ in 0..num_chunks {
-                let _ = rx.recv();
-            }
+            drop(tx);
+            guard.wait();
         }
 
         results

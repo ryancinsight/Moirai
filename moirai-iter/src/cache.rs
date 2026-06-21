@@ -2,7 +2,7 @@
 
 use std::mem;
 
-use crate::base::SendPtr;
+use crate::base::{PoolJoinGuard, SendPtr};
 use moirai_core::constants::DEFAULT_RING_BUFFER_CAPACITY;
 
 /// Wrapper to make const raw pointers Send
@@ -221,6 +221,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = crate::base::get_shared_thread_pool();
             let (tx, rx) = std::sync::mpsc::channel();
+            let guard = PoolJoinGuard::new(rx, num_chunks);
             for chunk in chunks {
                 let tx = tx.clone();
                 let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
@@ -246,9 +247,8 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                 });
             }
 
-            for _ in 0..num_chunks {
-                let _ = rx.recv();
-            }
+            drop(tx);
+            guard.wait();
         }
     }
 
@@ -298,6 +298,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = crate::base::get_shared_thread_pool();
             let (tx, rx) = std::sync::mpsc::channel();
+            let guard = PoolJoinGuard::new(rx, num_chunks);
             for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
                 let tx = tx.clone();
                 let chunk_start = chunk_idx * self.chunk_size;
@@ -322,9 +323,8 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                 });
             }
 
-            for _ in 0..num_chunks {
-                let _ = rx.recv();
-            }
+            drop(tx);
+            guard.wait();
         }
 
         // Convert MaybeUninit<R> to R safely
@@ -371,6 +371,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         if crate::base::pool_fallback_permitted(&run_on_global) {
             let pool = crate::base::get_shared_thread_pool();
             let (tx, rx) = std::sync::mpsc::channel();
+            let guard = PoolJoinGuard::new(rx, num_chunks);
             for (idx, chunk) in chunks.into_iter().enumerate() {
                 let tx = tx.clone();
                 let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
@@ -389,9 +390,8 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
                 });
             }
 
-            for _ in 0..num_chunks {
-                let _ = rx.recv();
-            }
+            drop(tx);
+            guard.wait();
         }
 
         let mut current_results: Vec<T> = results.into_iter().flatten().collect();

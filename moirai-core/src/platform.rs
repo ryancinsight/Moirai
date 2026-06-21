@@ -26,12 +26,12 @@ pub use core::time::Duration;
 // Platform-specific atomic operations
 #[cfg(feature = "std")]
 pub use std::sync::atomic::{
-    compiler_fence, fence, AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering,
+    compiler_fence, fence, AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering,
 };
 
 #[cfg(not(feature = "std"))]
 pub use core::sync::atomic::{
-    compiler_fence, fence, AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering,
+    compiler_fence, fence, AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering,
 };
 
 // Platform-specific cell types

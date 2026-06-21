@@ -121,6 +121,19 @@ impl<T> FutexMutex<T> {
         }
     }
 
+    /// Try to lock the mutex without spinning or blocking.
+    /// Returns `Some(FutexMutexGuard)` if successful, `None` otherwise.
+    pub fn try_lock(&self) -> Option<FutexMutexGuard<'_, T>> {
+        if self.try_lock_immediate() {
+            Some(FutexMutexGuard {
+                mutex: self,
+                _phantom: std::marker::PhantomData,
+            })
+        } else {
+            None
+        }
+    }
+
     #[inline]
     fn try_lock_immediate(&self) -> bool {
         #[cfg(target_os = "linux")]

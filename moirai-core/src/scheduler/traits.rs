@@ -39,6 +39,17 @@ pub trait Scheduler: Send + Sync + 'static {
     /// or if the scheduler is in an invalid state.
     fn next_task(&self) -> SchedulerResult<Option<ScheduledTask>>;
 
+    /// Attempt to steal a task directly from this scheduler.
+    ///
+    /// This should execute a concurrency-safe, thief-side steal operation (such as
+    /// a Chase-Lev deque steal) rather than popping from the producer end.
+    ///
+    /// # Errors
+    /// Returns `SchedulerError` if the steal operation fails due to internal errors.
+    fn steal_task(&self) -> SchedulerResult<Option<ScheduledTask>> {
+        Ok(None)
+    }
+
     /// Attempts to steal a task from another scheduler (work-stealing).
     ///
     /// # Arguments
@@ -56,11 +67,7 @@ pub trait Scheduler: Send + Sync + 'static {
     where
         S: Scheduler,
     {
-        if victim.can_be_stolen_from() {
-            victim.next_task()
-        } else {
-            Ok(None)
-        }
+        victim.steal_task()
     }
 
     /// Returns the current number of queued tasks.

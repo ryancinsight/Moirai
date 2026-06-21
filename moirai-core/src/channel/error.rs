@@ -2,17 +2,7 @@
 
 use std::fmt;
 
-/// Padding to prevent false sharing between CPU cores
-#[repr(align(64))]
-pub(super) struct CachePadded<T> {
-    pub(super) value: T,
-}
-
-impl<T> CachePadded<T> {
-    pub(super) const fn new(value: T) -> Self {
-        Self { value }
-    }
-}
+pub(super) use moirai_utils::cache::CachePadded;
 
 /// Error types for channel operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

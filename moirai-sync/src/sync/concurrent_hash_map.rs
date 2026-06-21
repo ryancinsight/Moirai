@@ -71,6 +71,40 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
             .insert(key, value))
     }
 
+    /// Get a value by key, or insert it if it is not present.
+    ///
+    /// Executes atomically under the segment's write lock, ensuring that the
+    /// `default` closure runs exactly once on a cache miss and no concurrent insert
+    /// can overwrite it.
+    pub fn get_or_insert_with<F>(&self, key: K, default: F) -> Result<V, String>
+    where
+        F: FnOnce() -> V,
+        V: Clone,
+    {
+        let idx = self.segment_index(&key);
+        // Phase 1: Fast-path with read lock
+        {
+            let shard = self.segments[idx]
+                .read()
+                .map_err(|_| "RwLock poisoned".to_string())?;
+            if let Some(value) = shard.get(&key) {
+                return Ok(value.clone());
+            }
+        }
+
+        // Phase 2: Slow-path with write lock
+        let mut shard = self.segments[idx]
+            .write()
+            .map_err(|_| "RwLock poisoned".to_string())?;
+        if let Some(value) = shard.get(&key) {
+            Ok(value.clone())
+        } else {
+            let value = default();
+            shard.insert(key, value.clone());
+            Ok(value)
+        }
+    }
+
     /// Get a value by key.
     ///
     /// Returns the cloned value if found, or None if not found.

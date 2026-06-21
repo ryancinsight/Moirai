@@ -38,6 +38,7 @@ impl TaskPerformanceMetrics {
 
     /// Record task completion
     pub fn record_completion(&mut self, execution_time: Duration) {
+        self.total_tasks += 1;
         self.completed_tasks += 1;
         self.total_execution_time += execution_time;
         self.average_completion_time =
@@ -47,6 +48,7 @@ impl TaskPerformanceMetrics {
 
     /// Record task failure
     pub fn record_failure(&mut self) {
+        self.total_tasks += 1;
         self.failed_tasks += 1;
         self.last_updated = Instant::now();
     }
@@ -118,11 +120,45 @@ pub struct TaskWaitFuture {
 impl Future for TaskWaitFuture {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.registry.is_completed(self.task_id) {
             Poll::Ready(())
         } else {
-            Poll::Pending
+            self.registry.register_waker(self.task_id, cx.waker());
+            if self.registry.is_completed(self.task_id) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_performance_metrics_tracking() {
+        let mut metrics = TaskPerformanceMetrics::new();
+        assert_eq!(metrics.total_tasks, 0);
+        assert_eq!(metrics.success_rate(), MAX_SUCCESS_RATE);
+
+        // Record a completion
+        metrics.record_completion(Duration::from_millis(100));
+        assert_eq!(metrics.total_tasks, 1);
+        assert_eq!(metrics.completed_tasks, 1);
+        assert_eq!(metrics.failed_tasks, 0);
+        assert_eq!(metrics.average_completion_time, Duration::from_millis(100));
+        assert_eq!(metrics.success_rate(), 100.0);
+
+        // Record a failure
+        metrics.record_failure();
+        assert_eq!(metrics.total_tasks, 2);
+        assert_eq!(metrics.completed_tasks, 1);
+        assert_eq!(metrics.failed_tasks, 1);
+        // Completed tasks = 1 out of 2 total tasks -> 50% success rate
+        assert_eq!(metrics.success_rate(), 50.0);
+    }
+}
+

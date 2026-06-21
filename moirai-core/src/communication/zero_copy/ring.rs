@@ -15,6 +15,8 @@ pub struct MemoryMappedRing<T> {
     capacity: usize,
     producer_cursor: AtomicUsize,
     consumer_cursor: AtomicUsize,
+    producer_lock: AtomicBool,
+    consumer_lock: AtomicBool,
     buffer_size: usize,
     _element_size: usize,
     closed: AtomicBool,
@@ -67,6 +69,8 @@ impl<T> MemoryMappedRing<T> {
             capacity,
             producer_cursor: AtomicUsize::new(0),
             consumer_cursor: AtomicUsize::new(0),
+            producer_lock: AtomicBool::new(false),
+            consumer_lock: AtomicBool::new(false),
             buffer_size,
             _element_size: element_size,
             closed: AtomicBool::new(false),
@@ -81,12 +85,22 @@ impl<T> MemoryMappedRing<T> {
     /// # Returns
     /// `Ok(())` on success, or `Err((value, error))` if the send fails
     pub fn send_zero_copy(&self, value: T) -> Result<(), (T, ZeroCopyError)> {
+        while self
+            .producer_lock
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            core::hint::spin_loop();
+        }
+
         if self.closed.load(Ordering::Acquire) {
+            self.producer_lock.store(false, Ordering::Release);
             return Err((value, ZeroCopyError::Closed));
         }
         let p = self.producer_cursor.load(Ordering::Relaxed);
         let c = self.consumer_cursor.load(Ordering::Acquire);
         if p.wrapping_sub(c) >= self.capacity {
+            self.producer_lock.store(false, Ordering::Release);
             return Err((value, ZeroCopyError::Full));
         }
 
@@ -97,6 +111,8 @@ impl<T> MemoryMappedRing<T> {
         }
         self.producer_cursor
             .store(p.wrapping_add(1), Ordering::Release);
+
+        self.producer_lock.store(false, Ordering::Release);
         Ok(())
     }
 
@@ -105,20 +121,32 @@ impl<T> MemoryMappedRing<T> {
     /// # Returns
     /// The received value or a `ZeroCopyError` if no value is available
     pub fn recv_zero_copy(&self) -> ZeroCopyResult<T> {
+        while self
+            .consumer_lock
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            core::hint::spin_loop();
+        }
+
         let c = self.consumer_cursor.load(Ordering::Relaxed);
         let p = self.producer_cursor.load(Ordering::Acquire);
         if c == p {
-            return if self.closed.load(Ordering::Acquire) {
-                Err(ZeroCopyError::Closed)
+            let err = if self.closed.load(Ordering::Acquire) {
+                ZeroCopyError::Closed
             } else {
-                Err(ZeroCopyError::Empty)
+                ZeroCopyError::Empty
             };
+            self.consumer_lock.store(false, Ordering::Release);
+            return Err(err);
         }
         let ptr = self.buffer.load(Ordering::Relaxed);
         let idx = c & (self.capacity - 1);
         let value = unsafe { ptr::read(ptr.add(idx)) };
         self.consumer_cursor
             .store(c.wrapping_add(1), Ordering::Release);
+
+        self.consumer_lock.store(false, Ordering::Release);
         Ok(value)
     }
 
@@ -181,8 +209,9 @@ impl<T> Drop for MemoryMappedRing<T> {
             unsafe {
                 let c = self.consumer_cursor.load(Ordering::Relaxed);
                 let p = self.producer_cursor.load(Ordering::Relaxed);
-                for pos in c..p {
-                    let idx = pos & (self.capacity - 1);
+                let len = p.wrapping_sub(c);
+                for i in 0..len {
+                    let idx = (c.wrapping_add(i)) & (self.capacity - 1);
                     ptr::drop_in_place(ptr.add(idx));
                 }
                 #[cfg(feature = "mnemosyne")]

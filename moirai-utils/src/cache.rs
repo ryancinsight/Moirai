@@ -55,6 +55,43 @@ impl<T: core::fmt::Debug> core::fmt::Debug for CacheAligned<T> {
     }
 }
 
+/// Padding to prevent false sharing between CPU cores.
+#[repr(align(64))]
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CachePadded<T> {
+    /// The padded value.
+    pub value: T,
+}
+
+impl<T> CachePadded<T> {
+    /// Create a new cache-padded value.
+    pub const fn new(value: T) -> Self {
+        Self { value }
+    }
+}
+
+impl<T> core::ops::Deref for CachePadded<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T> core::ops::DerefMut for CachePadded<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+impl<T: core::fmt::Debug> core::fmt::Debug for CachePadded<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CachePadded")
+            .field("value", &self.value)
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,5 +108,12 @@ mod tests {
         let aligned = CacheAligned::new(42);
         assert_eq!(*aligned, 42);
         assert_eq!(aligned.get(), &42);
+    }
+
+    #[test]
+    fn test_cache_padded_wrapper() {
+        let padded = CachePadded::new(42);
+        assert_eq!(*padded, 42);
+        assert_eq!(padded.value, 42);
     }
 }

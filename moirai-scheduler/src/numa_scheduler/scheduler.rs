@@ -11,6 +11,20 @@ use moirai_core::{
     Priority, ScheduledTask, Task,
 };
 
+std::thread_local! {
+    static CURRENT_WORKER_ID: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Set the worker ID for the current thread in the NUMA scheduler context.
+pub fn set_current_worker_id(id: usize) {
+    CURRENT_WORKER_ID.with(|cell| cell.set(id));
+}
+
+/// Get the worker ID for the current thread in the NUMA scheduler context.
+pub fn current_worker_id() -> usize {
+    CURRENT_WORKER_ID.with(|cell| cell.get())
+}
+
 use super::backoff::AdaptiveBackoff;
 use super::queue::{NodeQueue, StealStatistics};
 use super::topology::CpuTopology;
@@ -332,7 +346,7 @@ impl Scheduler for NumaAwareScheduler {
 
     fn next_task(&self) -> SchedulerResult<Option<ScheduledTask>> {
         // Try local node first, then steal with locality
-        let worker_id = 0; // Default worker ID
+        let worker_id = current_worker_id();
         let worker_node = self.worker_numa_node(worker_id);
 
         if let Some(queue) = self.node_queues.get(worker_node) {
@@ -345,12 +359,15 @@ impl Scheduler for NumaAwareScheduler {
         Ok(self.steal_with_locality(worker_id))
     }
 
+    fn steal_task(&self) -> SchedulerResult<Option<ScheduledTask>> {
+        Ok(self.steal_with_locality(current_worker_id()))
+    }
+
     fn try_steal<S>(&self, _victim: &S) -> SchedulerResult<Option<ScheduledTask>>
     where
         S: Scheduler,
     {
-        // Use our NUMA-aware stealing
-        Ok(self.steal_with_locality(0))
+        _victim.steal_task()
     }
 
     fn load(&self) -> usize {

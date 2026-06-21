@@ -48,10 +48,12 @@ impl Runtime {
     }
 
     /// Waits for currently queued and active Moirai work to complete.
-    fn join(&self) -> PyResult<()> {
-        self.inner
-            .join()
-            .map_err(|error| PyValueError::new_err(error.to_string()))
+    fn join(&self, py: Python<'_>) -> PyResult<()> {
+        py.allow_threads(|| {
+            self.inner
+                .join()
+                .map_err(|error| PyValueError::new_err(error.to_string()))
+        })
     }
 
     /// Shuts the wrapped Moirai runtime down.

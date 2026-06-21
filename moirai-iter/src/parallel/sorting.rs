@@ -1,6 +1,6 @@
 //! Parallel slice sorting implementation.
 
-use crate::base::{get_shared_thread_pool, SendPtr, ThreadPool};
+use crate::base::{get_shared_thread_pool, PoolJoinGuard, SendPtr, ThreadPool};
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 
@@ -151,6 +151,7 @@ where
 
     let (tx, rx) = std::sync::mpsc::channel();
     let pool_clone = Arc::clone(pool);
+    let guard = PoolJoinGuard::new(rx, 1);
 
     pool.execute(move || {
         let left_ptr = left_ptr;
@@ -164,7 +165,7 @@ where
     });
 
     par_sort_unstable_by_impl(right, compare, pool);
-    let _ = rx.recv();
+    guard.wait();
 }
 
 fn par_merge_sort_impl<T, F>(slice: &mut [T], compare: &F, pool: &Arc<ThreadPool>)
@@ -188,10 +189,32 @@ where
 
     let (tx, rx) = std::sync::mpsc::channel();
     let pool_clone = Arc::clone(pool);
+    let guard = PoolJoinGuard::new(rx, 1);
 
+    pub_execute_merge::<T, F>(pool, tx, left_ptr, left_len, compare_ptr, pool_clone);
+
+    par_merge_sort_impl(right, compare, pool);
+    guard.wait();
+
+    merge(slice, mid, compare);
+}
+
+// Helper to keep closures distinct
+fn pub_execute_merge<T, F>(
+    pool: &ThreadPool,
+    tx: std::sync::mpsc::Sender<()>,
+    left_ptr: SendPtr<()>,
+    left_len: usize,
+    compare_ptr: SendPtr<()>,
+    pool_clone: Arc<ThreadPool>,
+) where
+    T: Send,
+    F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
+{
     pool.execute(move || {
         let left_ptr = left_ptr;
         let compare_ptr = compare_ptr;
+        let pool_clone = pool_clone;
         unsafe {
             let left_slice = std::slice::from_raw_parts_mut(left_ptr.as_ptr() as *mut T, left_len);
             let compare_ref = &*(compare_ptr.as_ptr() as *const F);
@@ -199,11 +222,6 @@ where
         }
         let _ = tx.send(());
     });
-
-    par_merge_sort_impl(right, compare, pool);
-    let _ = rx.recv();
-
-    merge(slice, mid, compare);
 }
 
 struct MergeGuard<'a, T> {

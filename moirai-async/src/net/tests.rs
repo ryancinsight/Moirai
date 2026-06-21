@@ -1,7 +1,7 @@
 use super::*;
 use crate::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::future::Future;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream as StdTcpStream};
 use std::pin::Pin;
 use std::task::{Context, Poll};

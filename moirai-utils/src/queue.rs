@@ -5,7 +5,7 @@
 //! multi-producer/multi-consumer scenarios.
 
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[cfg(feature = "std")]
 use std::boxed::Box;
@@ -134,128 +134,111 @@ impl<T> RingBuffer<T> {
 unsafe impl<T: Send> Send for RingBuffer<T> {}
 unsafe impl<T: Send> Sync for RingBuffer<T> {}
 
-/// A lock-free, multi-producer, multi-consumer queue using a linked list structure.
-pub struct LockFreeQueue<T> {
-    head: AtomicPtr<Node<T>>,
-    tail: AtomicPtr<Node<T>>,
+#[cfg(feature = "std")]
+use std::collections::VecDeque;
+
+#[cfg(not(feature = "std"))]
+use alloc::collections::VecDeque;
+
+#[repr(align(64))]
+struct SpinLock<T> {
+    lock: AtomicBool,
+    data: UnsafeCell<T>,
 }
 
-struct Node<T> {
-    data: Option<T>,
-    next: AtomicPtr<Node<T>>,
-}
+unsafe impl<T: Send> Send for SpinLock<T> {}
+unsafe impl<T: Send> Sync for SpinLock<T> {}
 
-impl<T> Node<T> {
-    fn new(data: Option<T>) -> Box<Self> {
-        Box::new(Self {
-            data,
-            next: AtomicPtr::new(core::ptr::null_mut()),
-        })
+impl<T> SpinLock<T> {
+    const fn new(data: T) -> Self {
+        Self {
+            lock: AtomicBool::new(false),
+            data: UnsafeCell::new(data),
+        }
+    }
+
+    fn lock(&self) -> SpinLockGuard<'_, T> {
+        let mut backoff: usize = 1;
+        loop {
+            // Read-before-CAS: check first without writing to avoid cache line bouncing
+            if !self.lock.load(Ordering::Relaxed)
+                && self
+                    .lock
+                    .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+                    .is_ok()
+            {
+                return SpinLockGuard { lock: self };
+            }
+
+            for _ in 0..backoff {
+                core::hint::spin_loop();
+            }
+
+            if backoff < 64 {
+                backoff = backoff.saturating_mul(2);
+            }
+
+            #[cfg(feature = "std")]
+            {
+                if backoff >= 64 {
+                    std::thread::yield_now();
+                    backoff = 1; // Reset backoff after yielding
+                }
+            }
+        }
     }
 }
 
-impl<T> LockFreeQueue<T> {
-    /// Create a new lock-free queue.
-    pub fn new() -> Self {
-        let dummy = Node::new(None);
-        let dummy_ptr = Box::into_raw(dummy);
+struct SpinLockGuard<'a, T> {
+    lock: &'a SpinLock<T>,
+}
 
+impl<T> core::ops::Deref for SpinLockGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.lock.data.get() }
+    }
+}
+
+impl<T> core::ops::DerefMut for SpinLockGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.lock.data.get() }
+    }
+}
+
+impl<T> Drop for SpinLockGuard<'_, T> {
+    fn drop(&mut self) {
+        self.lock.lock.store(false, Ordering::Release);
+    }
+}
+
+/// A thread-safe, multi-producer, multi-consumer queue.
+pub struct LockFreeQueue<T> {
+    inner: SpinLock<VecDeque<T>>,
+}
+
+impl<T> LockFreeQueue<T> {
+    /// Create a new queue.
+    pub fn new() -> Self {
         Self {
-            head: AtomicPtr::new(dummy_ptr),
-            tail: AtomicPtr::new(dummy_ptr),
+            inner: SpinLock::new(VecDeque::new()),
         }
     }
 
     /// Enqueue an item to the back of the queue.
     pub fn enqueue(&self, item: T) {
-        let new_node = Box::into_raw(Node::new(Some(item)));
-
-        loop {
-            let tail = self.tail.load(Ordering::Acquire);
-            let next = unsafe { (*tail).next.load(Ordering::Acquire) };
-
-            if tail == self.tail.load(Ordering::Acquire) {
-                if next.is_null() {
-                    if unsafe {
-                        (*tail).next.compare_exchange_weak(
-                            next,
-                            new_node,
-                            Ordering::Release,
-                            Ordering::Relaxed,
-                        )
-                    }
-                    .is_ok()
-                    {
-                        break;
-                    }
-                } else {
-                    let _ = self.tail.compare_exchange_weak(
-                        tail,
-                        next,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                    );
-                }
-            }
-        }
-
-        let _ = self.tail.compare_exchange_weak(
-            self.tail.load(Ordering::Acquire),
-            new_node,
-            Ordering::Release,
-            Ordering::Relaxed,
-        );
+        self.inner.lock().push_back(item);
     }
 
     /// Try to dequeue an item from the front of the queue.
     /// Returns `None` if the queue is empty.
     pub fn try_dequeue(&self) -> Option<T> {
-        loop {
-            let head = self.head.load(Ordering::Acquire);
-            let tail = self.tail.load(Ordering::Acquire);
-            let next = unsafe { (*head).next.load(Ordering::Acquire) };
-
-            if head == self.head.load(Ordering::Acquire) {
-                if head == tail {
-                    if next.is_null() {
-                        return None; // Queue is empty
-                    }
-                    let _ = self.tail.compare_exchange_weak(
-                        tail,
-                        next,
-                        Ordering::Release,
-                        Ordering::Relaxed,
-                    );
-                } else {
-                    if next.is_null() {
-                        continue;
-                    }
-
-                    if self
-                        .head
-                        .compare_exchange_weak(head, next, Ordering::Release, Ordering::Relaxed)
-                        .is_ok()
-                    {
-                        // Safety: The CAS succeeded, so we have exclusive ownership of
-                        // the dequeued node's data.
-                        let data = unsafe { (*next).data.take() };
-                        unsafe {
-                            drop(Box::from_raw(head));
-                        }
-                        return data;
-                    }
-                }
-            }
-        }
+        self.inner.lock().pop_front()
     }
 
     /// Check if the queue is empty.
     pub fn is_empty(&self) -> bool {
-        let head = self.head.load(Ordering::Acquire);
-        let tail = self.tail.load(Ordering::Acquire);
-        let next = unsafe { (*head).next.load(Ordering::Acquire) };
-
-        head == tail && next.is_null()
+        self.inner.lock().is_empty()
     }
 }
 
@@ -264,24 +247,6 @@ impl<T> Default for LockFreeQueue<T> {
         Self::new()
     }
 }
-
-impl<T> Drop for LockFreeQueue<T> {
-    fn drop(&mut self) {
-        while self.try_dequeue().is_some() {}
-
-        // Clean up the dummy node
-        let head = self.head.load(Ordering::Acquire);
-        if !head.is_null() {
-            unsafe {
-                drop(Box::from_raw(head));
-            }
-        }
-    }
-}
-
-// Safety: LockFreeQueue is safe to send between threads
-unsafe impl<T: Send> Send for LockFreeQueue<T> {}
-unsafe impl<T: Send> Sync for LockFreeQueue<T> {}
 
 #[cfg(test)]
 mod tests {

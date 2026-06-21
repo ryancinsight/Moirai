@@ -66,6 +66,37 @@ mod tests {
     }
 
     #[test]
+    fn test_hybrid_channel_async() {
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::task::{Context, Poll, Waker, RawWaker, RawWakerVTable};
+
+        fn dummy_raw_waker() -> RawWaker {
+            fn clone_raw(_: *const ()) -> RawWaker { dummy_raw_waker() }
+            fn wake_raw(_: *const ()) {}
+            fn wake_by_ref_raw(_: *const ()) {}
+            fn drop_raw(_: *const ()) {}
+            static VTABLE: RawWakerVTable = RawWakerVTable::new(clone_raw, wake_raw, wake_by_ref_raw, drop_raw);
+            RawWaker::new(std::ptr::null(), &VTABLE)
+        }
+
+        let (tx, rx) = HybridChannel::<i32>::new(4);
+        let mut recv_fut = rx.recv_async();
+
+        let waker = unsafe { Waker::from_raw(dummy_raw_waker()) };
+        let mut cx = Context::from_waker(&waker);
+
+        // First poll: empty channel -> Poll::Pending
+        assert!(matches!(Pin::new(&mut recv_fut).poll(&mut cx), Poll::Pending));
+
+        // Send value
+        tx.send(100).unwrap();
+
+        // Second poll: has value -> Poll::Ready(Ok(100))
+        assert!(matches!(Pin::new(&mut recv_fut).poll(&mut cx), Poll::Ready(Ok(100))));
+    }
+
+    #[test]
     fn test_spsc_channel() {
         let (tx, rx) = spsc::<i32>(4);
 
@@ -79,6 +110,13 @@ mod tests {
 
         // Channel should be empty
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_spsc_thread_safety_bounds() {
+        fn assert_send<T: Send>() {}
+        assert_send::<SpscSender<i32>>();
+        assert_send::<SpscReceiver<i32>>();
     }
 
     #[test]
@@ -250,18 +288,17 @@ mod tests {
         // Fill the channel
         tx.send(1).unwrap();
         tx.send(2).unwrap();
-
-        // Spawn a thread that will send after a delay
-        let tx_clone = tx.clone();
+        // Spawn a thread that will receive after a delay
         let handle = thread::spawn(move || {
             thread::sleep(Duration::from_millis(50));
             // This will unblock the main thread's send
-            rx.recv().unwrap();
+            let val = rx.recv().unwrap();
+            (val, rx)
         });
 
         // This send should block until the spawned thread receives
         let start = Instant::now();
-        tx_clone.send(3).unwrap();
+        tx.send(3).unwrap();
         let elapsed = start.elapsed();
 
         // Verify that we blocked for approximately the sleep duration
@@ -270,7 +307,7 @@ mod tests {
             "Send should have blocked"
         );
 
-        handle.join().unwrap();
+        let _ = handle.join().unwrap();
     }
 
     #[test]
@@ -348,5 +385,50 @@ mod tests {
             elapsed
         );
         assert!(elapsed < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn test_spsc_drop_sender() {
+        let (tx, rx) = spsc::<i32>(2);
+        std::mem::drop(tx);
+        assert_eq!(rx.recv(), Err(ChannelError::Closed));
+        assert_eq!(rx.try_recv(), Err(ChannelError::Closed));
+    }
+
+    #[test]
+    fn test_spsc_drop_receiver() {
+        let (tx, rx) = spsc::<i32>(1);
+        tx.send(1).unwrap();
+        tx.send(2).unwrap();
+
+        let rx_thread = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::mem::drop(rx);
+        });
+
+        // This send will block because the channel is full, and should unblock with Closed when receiver drops
+        assert_eq!(tx.send(3), Err(ChannelError::Closed));
+        rx_thread.join().unwrap();
+    }
+
+    #[test]
+    fn test_hybrid_drop_sender() {
+        let (tx, rx) = HybridChannel::<i32>::new(2);
+        let rx_thread = std::thread::spawn(move || {
+            rx.recv()
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::mem::drop(tx);
+
+        assert_eq!(rx_thread.join().unwrap(), Err(ChannelError::Closed));
+    }
+
+    #[test]
+    fn test_hybrid_drop_receiver() {
+        let (tx, rx) = HybridChannel::<i32>::new(2);
+        std::mem::drop(rx);
+        assert_eq!(tx.send(1), Err(ChannelError::Closed));
+        assert_eq!(tx.try_send(1), Err(ChannelError::Closed));
     }
 }

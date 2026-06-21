@@ -67,7 +67,7 @@ impl<T> BoundedMpmcQueue<T> {
         loop {
             let slot = &self.buffer[position & self.mask];
             let sequence = slot.sequence.load(Ordering::Acquire);
-            let difference = sequence as isize - position as isize;
+            let difference = sequence.wrapping_sub(position) as isize;
 
             match difference.cmp(&0) {
                 CmpOrdering::Equal => {
@@ -108,7 +108,7 @@ impl<T> BoundedMpmcQueue<T> {
         loop {
             let slot = &self.buffer[position & self.mask];
             let sequence = slot.sequence.load(Ordering::Acquire);
-            let difference = sequence as isize - position.wrapping_add(1) as isize;
+            let difference = sequence.wrapping_sub(position.wrapping_add(1)) as isize;
 
             match difference.cmp(&0) {
                 CmpOrdering::Equal => {

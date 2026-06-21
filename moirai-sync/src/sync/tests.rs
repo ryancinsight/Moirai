@@ -61,6 +61,25 @@ fn test_futex_mutex() {
 }
 
 #[test]
+fn test_futex_mutex_try_lock() {
+    let mutex = FutexMutex::new(42);
+
+    // Uncontended try_lock should succeed
+    {
+        let guard = mutex.try_lock();
+        assert!(guard.is_some());
+        assert_eq!(*guard.unwrap(), 42);
+    }
+
+    // Contended try_lock should return None
+    {
+        let _guard = mutex.lock();
+        let try_guard = mutex.try_lock();
+        assert!(try_guard.is_none());
+    }
+}
+
+#[test]
 fn test_lock_free_stack() {
     let stack = Arc::new(LockFreeStack::new());
     let mut handles = vec![];
@@ -242,4 +261,120 @@ fn test_spinlock_send_sync() {
     });
 
     assert_eq!(handle.join().unwrap(), 42);
+}
+
+use super::resource_pool::{ShardedResourcePool, SizeBounded};
+
+struct TestResource {
+    id: usize,
+    size: u64,
+}
+
+impl SizeBounded for TestResource {
+    fn size(&self) -> u64 {
+        self.size
+    }
+}
+
+#[test]
+fn test_sharded_resource_pool_basic() {
+    let pool = ShardedResourcePool::<TestResource>::new(16, 1024);
+
+    // Recycle some elements
+    pool.recycle(TestResource { id: 1, size: 100 });
+    pool.recycle(TestResource { id: 2, size: 100 });
+
+    // Since we are on the same thread, we should pop the same shard in LIFO order (id: 2 first)
+    let res1 = pool.take_at_least(100).expect("should find resource");
+    assert_eq!(res1.id, 2);
+
+    let res2 = pool.take_at_least(100).expect("should find resource");
+    assert_eq!(res2.id, 1);
+
+    // Binned matching: requesting size 50 should return any resource of size >= 50
+    pool.recycle(TestResource { id: 3, size: 128 });
+    let res3 = pool.take_at_least(50).expect("should match bin >= 50");
+    assert_eq!(res3.size, 128);
+}
+
+#[test]
+fn test_sharded_resource_pool_steals_from_other_shards() {
+    let pool = Arc::new(ShardedResourcePool::<TestResource>::new(16, 1024));
+
+    // Thread 1 recycles an item
+    let pool_clone = pool.clone();
+    let handle1 = thread::spawn(move || {
+        pool_clone.recycle(TestResource { id: 42, size: 256 });
+    });
+    handle1.join().unwrap();
+
+    // Thread 2 pops the item (forcing a cross-shard steal)
+    let pool_clone = pool.clone();
+    let handle2 = thread::spawn(move || {
+        let res = pool_clone.take_at_least(256).expect("should steal resource");
+        assert_eq!(res.id, 42);
+    });
+    handle2.join().unwrap();
+}
+
+#[test]
+fn test_sharded_resource_pool_fifo_eviction() {
+    // Max buffers = 4 per pool, which maps to (4/4).max(1) = 1 max buffer per shard.
+    // Max bytes = 1000 per pool, which maps to 250 max bytes per shard.
+    let pool = ShardedResourcePool::<TestResource>::new(4, 1000);
+
+    // Recycle elements onto local shard. Since shard limit is 1, each new recycle will evict the previous one.
+    pool.recycle(TestResource { id: 1, size: 100 });
+    pool.recycle(TestResource { id: 2, size: 100 });
+
+    // The first element (id: 1) should be evicted, leaving only id: 2
+    let res = pool.take_at_least(100).expect("should find resource");
+    assert_eq!(res.id, 2);
+    assert!(pool.take_at_least(100).is_none());
+}
+
+#[test]
+fn test_concurrent_hashmap_get_or_insert_with() {
+    let map = Arc::new(ConcurrentHashMap::<String, i32>::new());
+    let mut handles = vec![];
+
+    for i in 0..10 {
+        let map = map.clone();
+        handles.push(thread::spawn(move || {
+            let val = map.get_or_insert_with("shared_key".to_string(), || i).unwrap();
+            // All threads should resolve to the same value (the first thread that gets write lock)
+            assert!((0..10).contains(&val));
+            val
+        }));
+    }
+
+    let mut values = vec![];
+    for handle in handles {
+        values.push(handle.join().unwrap());
+    }
+
+    // Verify all threads got the exact same value
+    let first = values[0];
+    assert!(values.iter().all(|&v| v == first));
+}
+
+#[test]
+fn test_sharded_resource_pool_vecdeque_fifo() {
+    // Max buffers = 8, which means 2 max buffers per shard
+    let pool = ShardedResourcePool::<TestResource>::new(8, 1000);
+
+    // Recycle three resources. With max buffer limit of 2, the first should be evicted.
+    pool.recycle(TestResource { id: 1, size: 100 });
+    pool.recycle(TestResource { id: 2, size: 100 });
+    pool.recycle(TestResource { id: 3, size: 100 });
+
+    // Resource 1 should be evicted (FIFO eviction order for oldest)
+    // The remaining should be id: 3 and id: 2, retrieved in LIFO order (3 first, then 2)
+    let res1 = pool.take_at_least(100).expect("should retrieve");
+    assert_eq!(res1.id, 3);
+
+    let res2 = pool.take_at_least(100).expect("should retrieve");
+    assert_eq!(res2.id, 2);
+
+    assert!(pool.take_at_least(100).is_none());
 }

@@ -13,5 +13,8 @@ mod tests;
 
 pub use backoff::AdaptiveBackoff;
 pub use queue::StealStatistics;
-pub use scheduler::{NumaAwareScheduler, NumaSchedulerError, NumaSchedulerStats};
+pub use scheduler::{
+    current_worker_id, set_current_worker_id, NumaAwareScheduler, NumaSchedulerError,
+    NumaSchedulerStats,
+};
 pub use topology::{CacheLevel, CpuTopology, NumaNode};

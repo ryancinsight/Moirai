@@ -1,8 +1,8 @@
 //! Chase-Lev work-stealing deque and zero-copy variant.
 
-use super::buffer::{Buffer, CachePadded};
+use super::buffer::Buffer;
+use moirai_utils::cache::CachePadded;
 use crate::platform::*;
-use core::cell::UnsafeCell;
 
 /// Chase-Lev work-stealing deque implementation (inspired by Rayon)
 ///
@@ -17,6 +17,8 @@ pub struct WorkStealingDeque<T> {
     top: CachePadded<AtomicUsize>,
     /// Ring buffer for tasks
     buffer: CachePadded<AtomicPtr<Buffer<T>>>,
+    /// Retired buffers to prevent use-after-free by concurrent stealers
+    retired_buffers: Mutex<Vec<*mut Buffer<T>>>,
     _phantom: PhantomData<T>,
 }
 
@@ -36,6 +38,7 @@ impl<T: Send> WorkStealingDeque<T> {
             buffer: CachePadded {
                 value: AtomicPtr::new(buffer),
             },
+            retired_buffers: Mutex::new(Vec::new()),
             _phantom: PhantomData,
         }
     }
@@ -64,10 +67,11 @@ impl<T: Send> WorkStealingDeque<T> {
             }
             // Swap buffer pointer
             let old_ptr = self.buffer.value.swap(new_buffer, Ordering::Release);
-            // Drop old buffer box safely
-            unsafe {
-                drop(Box::from_raw(old_ptr));
-            }
+            // Retire old buffer instead of dropping immediately to avoid Use-After-Free
+            self.retired_buffers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(old_ptr);
         }
 
         let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
@@ -190,6 +194,17 @@ impl<T> Drop for WorkStealingDeque<T> {
                 }
             }
         }
+
+        // Clean up retired buffers to prevent memory leaks
+        if let Ok(mut retired) = self.retired_buffers.lock() {
+            for ptr in retired.drain(..) {
+                if !ptr.is_null() {
+                    unsafe {
+                        drop(Box::from_raw(ptr));
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -208,8 +223,8 @@ pub struct ZeroCopyWorkStealingDeque<T> {
     top: CachePadded<AtomicUsize>,
     /// Current buffer
     buffer: CachePadded<AtomicPtr<Buffer<T>>>,
-    /// Cached buffer for reuse
-    cached_buffer: UnsafeCell<Option<Box<Buffer<T>>>>,
+    /// Retired buffers to prevent use-after-free by concurrent stealers
+    retired_buffers: Mutex<Vec<*mut Buffer<T>>>,
 }
 
 impl<T> ZeroCopyWorkStealingDeque<T> {
@@ -226,7 +241,7 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
             buffer: CachePadded {
                 value: AtomicPtr::new(Box::into_raw(buffer)),
             },
-            cached_buffer: UnsafeCell::new(None),
+            retired_buffers: Mutex::new(Vec::new()),
         }
     }
 
@@ -337,16 +352,8 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
 
     /// Grow the buffer with zero-copy transfer
     fn grow(&self, bottom: usize, top: usize, old_buffer: &Buffer<T>) {
-        let _size = bottom.wrapping_sub(top);
         let new_capacity = old_buffer.capacity() * 2;
-
-        // Try to reuse cached buffer
-        let new_buffer = unsafe {
-            (*self.cached_buffer.get())
-                .take()
-                .filter(|b| b.capacity() >= new_capacity)
-                .unwrap_or_else(|| Box::new(Buffer::new(new_capacity)))
-        };
+        let new_buffer = Box::new(Buffer::new(new_capacity));
 
         // Zero-copy transfer of elements
         for i in top..bottom {
@@ -359,11 +366,11 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
         let new_buffer_ptr = Box::into_raw(new_buffer);
         let old_buffer_ptr = self.buffer.value.swap(new_buffer_ptr, Ordering::Release);
 
-        // Cache the old buffer for reuse
-        unsafe {
-            let old_buffer = Box::from_raw(old_buffer_ptr);
-            *self.cached_buffer.get() = Some(old_buffer);
-        }
+        // Retire the old buffer pointer safely to avoid Use-After-Free
+        self.retired_buffers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(old_buffer_ptr);
     }
 }
 
@@ -380,8 +387,15 @@ impl<T> Drop for ZeroCopyWorkStealingDeque<T> {
                 }
             }
         }
-        // Also drop the cached_buffer if any
-        let cached = self.cached_buffer.get_mut();
-        *cached = None;
+        // Clean up retired buffers
+        if let Ok(mut retired) = self.retired_buffers.lock() {
+            for ptr in retired.drain(..) {
+                if !ptr.is_null() {
+                    unsafe {
+                        drop(Box::from_raw(ptr));
+                    }
+                }
+            }
+        }
     }
 }
