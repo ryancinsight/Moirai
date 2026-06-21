@@ -112,26 +112,30 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         // Try local shard first
         let local_shard = &self.shards[local_idx];
         
-        // 1. Search the start_bin for a buffer >= size (since start_bin contains elements of varying sizes)
+        if local_shard.retained_count.load(Ordering::Acquire) > 0
+            && local_shard.retained_bytes.load(Ordering::Acquire) >= size
         {
-            let mut guard = local_shard.bins[start_bin].lock();
-            if let Some(pos) = guard.iter().rposition(|item| item.size() >= size) {
-                let item = guard.remove(pos).expect("element exists at pos");
-                let item_size = item.size();
-                local_shard.retained_bytes.fetch_sub(item_size, Ordering::Release);
-                local_shard.retained_count.fetch_sub(1, Ordering::Release);
-                return Some(item);
+            // 1. Search the start_bin for a buffer >= size (since start_bin contains elements of varying sizes)
+            {
+                let mut guard = local_shard.bins[start_bin].lock();
+                if let Some(pos) = guard.iter().rposition(|item| item.size() >= size) {
+                    let item = guard.remove(pos).expect("element exists at pos");
+                    let item_size = item.size();
+                    local_shard.retained_bytes.fetch_sub(item_size, Ordering::Release);
+                    local_shard.retained_count.fetch_sub(1, Ordering::Release);
+                    return Some(item);
+                }
             }
-        }
 
-        // 2. Search larger bins (all elements in larger bins are guaranteed to be >= size)
-        for b in (start_bin + 1)..64 {
-            let mut guard = local_shard.bins[b].lock();
-            if let Some(item) = guard.pop_back() {
-                let item_size = item.size();
-                local_shard.retained_bytes.fetch_sub(item_size, Ordering::Release);
-                local_shard.retained_count.fetch_sub(1, Ordering::Release);
-                return Some(item);
+            // 2. Search larger bins (all elements in larger bins are guaranteed to be >= size)
+            for b in (start_bin + 1)..64 {
+                let mut guard = local_shard.bins[b].lock();
+                if let Some(item) = guard.pop_back() {
+                    let item_size = item.size();
+                    local_shard.retained_bytes.fetch_sub(item_size, Ordering::Release);
+                    local_shard.retained_count.fetch_sub(1, Ordering::Release);
+                    return Some(item);
+                }
             }
         }
 
@@ -139,6 +143,13 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         for i in 1..4 {
             let other_idx = (local_idx + i) % 4;
             let other_shard = &self.shards[other_idx];
+
+            // Fast path check: if the other shard does not have any items or does not have enough bytes, skip it.
+            if other_shard.retained_count.load(Ordering::Acquire) == 0
+                || other_shard.retained_bytes.load(Ordering::Acquire) < size
+            {
+                continue;
+            }
 
             // 1. Search start_bin of other shard
             if let Some(mut guard) = other_shard.bins[start_bin].try_lock() {
