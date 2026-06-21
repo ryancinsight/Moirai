@@ -241,7 +241,8 @@ impl<T> MpmcChannel<T> {
             match queue.try_push(value) {
                 Ok(()) => {
                     if self.receiver_waiter_count.load(Ordering::SeqCst) > 0 {
-                        let (_, _, not_empty) = &*self.state;
+                        let (mutex, _, not_empty) = &*self.state;
+                        let _guard = mutex.lock().unwrap();
                         not_empty.notify_one();
                     }
                     return Ok(());
@@ -298,7 +299,8 @@ impl<T> MpmcChannel<T> {
         loop {
             if let Some(value) = queue.try_pop() {
                 if self.sender_waiter_count.load(Ordering::SeqCst) > 0 {
-                    let (_, not_full, _) = &*self.state;
+                    let (mutex, not_full, _) = &*self.state;
+                    let _guard = mutex.lock().unwrap();
                     not_full.notify_one();
                 }
                 return Ok(value);
@@ -325,11 +327,11 @@ impl<T> MpmcChannel<T> {
             let mut guard = mutex.lock().unwrap();
 
             if let Some(value) = queue.try_pop() {
-                drop(guard);
                 if self.sender_waiter_count.load(Ordering::SeqCst) > 0 {
                     let (_, not_full, _) = &*self.state;
                     not_full.notify_one();
                 }
+                drop(guard);
                 return Ok(value);
             }
 
@@ -388,7 +390,13 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ChannelError::Closed);
             }
-            return queue.try_push(value).map_err(|_| ChannelError::Full);
+            queue.try_push(value).map_err(|_| ChannelError::Full)?;
+            if self.receiver_waiter_count.load(Ordering::SeqCst) > 0 {
+                let (mutex, _, not_empty) = &*self.state;
+                let _guard = mutex.lock().unwrap();
+                not_empty.notify_one();
+            }
+            return Ok(());
         }
 
         let (mutex, _, not_empty) = &*self.state;
@@ -451,6 +459,11 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
     fn try_recv(&self) -> Result<T> {
         if let Some(queue) = &self.bounded {
             if let Some(value) = queue.try_pop() {
+                if self.sender_waiter_count.load(Ordering::SeqCst) > 0 {
+                    let (mutex, not_full, _) = &*self.state;
+                    let _guard = mutex.lock().unwrap();
+                    not_full.notify_one();
+                }
                 return Ok(value);
             }
             if self.closed.load(Ordering::Acquire) {
