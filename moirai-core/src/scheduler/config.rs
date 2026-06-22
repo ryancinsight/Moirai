@@ -107,8 +107,9 @@ pub struct StealContext {
     pub attempts: usize,
     /// Timestamp of the last successful steal
     pub last_success: Option<SystemTime>,
-    /// List of recently attempted victim schedulers
-    pub recent_victims: Vec<SchedulerId>,
+    /// Ring of recently attempted victim schedulers (bounded, O(1) eviction).
+    /// Using VecDeque for O(1) pop_front rotation instead of O(n) Vec::remove(0).
+    pub recent_victims: std::collections::VecDeque<SchedulerId>,
     /// Current backoff delay for failed steals
     pub backoff_delay: core::time::Duration,
 }
@@ -118,7 +119,7 @@ impl Default for StealContext {
         Self {
             attempts: 0,
             last_success: None,
-            recent_victims: Vec::new(),
+            recent_victims: std::collections::VecDeque::new(),
             backoff_delay: core::time::Duration::from_millis(10),
         }
     }

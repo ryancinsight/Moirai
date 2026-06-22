@@ -99,14 +99,10 @@ impl<T: Send> WorkStealingDeque<T> {
         if top <= new_bottom {
             // Non-empty
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Relaxed) };
-            // Ensure new_bottom is within buffer bounds before reading
-            let capacity = buffer.capacity();
-            if new_bottom >= capacity {
-                // Out of bounds, restore bottom and return None
-                self.bottom.value.store(bottom, Ordering::Relaxed);
-                return None;
-            }
-
+            // The buffer uses wrapping index arithmetic (get/put both apply a
+            // power-of-two mask), so new_bottom is always a valid logical index.
+            // A raw capacity check here is incorrect and would spuriously return
+            // None when bottom wraps past the buffer size.
             let task = unsafe { buffer.get(new_bottom) };
 
             if top == new_bottom {
@@ -152,6 +148,10 @@ impl<T: Send> WorkStealingDeque<T> {
             }
 
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Acquire) };
+            // SAFETY: read-before-CAS is the canonical Chase-Lev steal protocol.
+            // On CAS failure, `mem::forget(task)` below prevents the destructor
+            // from running on this speculative copy — the CAS winner will read
+            // and own the slot independently.
             let task = unsafe { buffer.get(top) };
 
             // Try to increment top
@@ -169,6 +169,7 @@ impl<T: Send> WorkStealingDeque<T> {
                 return Some(task);
             }
 
+            std::mem::forget(task); // Prevent drop on CAS failure — winner owns this slot
             // CAS failed, retry
         }
     }
@@ -195,13 +196,19 @@ impl<T> Drop for WorkStealingDeque<T> {
             }
         }
 
-        // Clean up retired buffers to prevent memory leaks
-        if let Ok(mut retired) = self.retired_buffers.lock() {
-            for ptr in retired.drain(..) {
-                if !ptr.is_null() {
-                    unsafe {
-                        drop(Box::from_raw(ptr));
-                    }
+        // H-8 fix: use `get_mut()` (available on `&mut self`) to bypass the
+        // `Mutex` entirely rather than `lock()` which returns Err on poisoning
+        // — a poisoned lock would silently skip the drain and leak all retired
+        // buffer pointers.
+        for ptr in self
+            .retired_buffers
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+        {
+            if !ptr.is_null() {
+                unsafe {
+                    drop(Box::from_raw(ptr));
                 }
             }
         }
@@ -327,6 +334,9 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
 
         if top < bottom {
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Acquire) };
+            // SAFETY: read-before-CAS is the canonical Chase-Lev steal protocol.
+            // On CAS failure, `mem::forget(task)` below prevents the destructor
+            // from running on this speculative copy.
             let task = unsafe { buffer.get(top) };
 
             // Try to increment top
@@ -343,6 +353,7 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
             {
                 Some(task)
             } else {
+                std::mem::forget(task); // Prevent drop on CAS failure
                 None
             }
         } else {
@@ -387,13 +398,16 @@ impl<T> Drop for ZeroCopyWorkStealingDeque<T> {
                 }
             }
         }
-        // Clean up retired buffers
-        if let Ok(mut retired) = self.retired_buffers.lock() {
-            for ptr in retired.drain(..) {
-                if !ptr.is_null() {
-                    unsafe {
-                        drop(Box::from_raw(ptr));
-                    }
+        // H-8 fix: use `get_mut()` to bypass the poisoned-mutex leak path.
+        for ptr in self
+            .retired_buffers
+            .get_mut()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+        {
+            if !ptr.is_null() {
+                unsafe {
+                    drop(Box::from_raw(ptr));
                 }
             }
         }

@@ -220,6 +220,9 @@ where
             let array_ptr = self.array.load(Ordering::Acquire);
             let array = unsafe { &*array_ptr };
 
+            // SAFETY: We read before the CAS; if the CAS fails a concurrent
+            // stealer or the owner claimed this slot, so we must not use
+            // `value`.  `mem::forget` below prevents a double-free.
             let value = unsafe { array.read(t) };
 
             if self
@@ -257,7 +260,7 @@ where
         let array = unsafe { &*array_ptr };
 
         let mut items: [MaybeUninit<T>; MAX_BATCH_STEAL] =
-            unsafe { MaybeUninit::uninit().assume_init() };
+            [const { MaybeUninit::uninit() }; MAX_BATCH_STEAL];
         for (i, slot) in items.iter_mut().enumerate().take(n) {
             slot.write(unsafe { array.read(t.wrapping_add(i as isize)) });
         }
@@ -274,6 +277,12 @@ where
             return StealResult::Success(first_item);
         }
 
+        // CAS lost: the CAS winner also performed assume_init_read on the same
+        // slots (they observed the same `t`); both hold bitwise copies.  The
+        // winner legitimately owns theirs.  `MaybeUninit<T>` does NOT invoke
+        // `T::drop()` on scope exit, so `items` goes out of scope here with no
+        // destructor calls — correct, because any destructor call would
+        // double-decrement Arc ref-counts / double-free alongside the winner.
         StealResult::Retry
     }
 

@@ -52,6 +52,7 @@ pub struct SharedMemory {
     #[cfg(windows)]
     handle: usize,
     /// Whether this instance owns the memory
+    #[cfg_attr(windows, allow(dead_code))]
     owner: bool,
 }
 
@@ -224,13 +225,11 @@ impl Drop for SharedMemory {
         unsafe {
             libc::munmap(self.ptr as *mut libc::c_void, self.size);
             libc::close(self.fd);
-            let _ = self.owner;
         }
         #[cfg(windows)]
         unsafe {
             win::UnmapViewOfFile(self.ptr as *const core::ffi::c_void);
             win::CloseHandle(self.handle);
-            let _ = self.owner;
         }
     }
 }

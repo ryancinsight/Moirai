@@ -42,7 +42,7 @@ fn test_shared_queue() {
     let capacity = 10;
 
     // Create queue
-    let queue = SharedQueue::<u32>::create(name, capacity).unwrap();
+    let mut queue = SharedQueue::<u32>::create(name, capacity).unwrap();
 
     // Send some values
     queue.send(1).unwrap();

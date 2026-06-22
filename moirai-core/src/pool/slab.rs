@@ -158,7 +158,13 @@ impl<T> SlabAllocator<T> {
         Some(value)
     }
 
-    /// Get a reference to the value at the given index
+    /// Get a reference to the value at the given index.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that no concurrent `remove` call targets `idx`
+    /// while the returned reference is live.  For shared (multi-threaded) access
+    /// use [`get_cloned`] instead.
     pub fn get(&self, idx: usize) -> Option<&T> {
         if idx >= self.entries.len() {
             return None;
@@ -168,6 +174,34 @@ impl<T> SlabAllocator<T> {
 
         if entry.occupied.load(Ordering::Acquire) {
             Some(unsafe { &*(*entry.value.get()).as_ptr() })
+        } else {
+            None
+        }
+    }
+
+    /// Get a clone of the value at the given index.
+    ///
+    /// Safer than [`get`] for concurrent read access: the value is copied out
+    /// before the reference is released.  A second `Acquire` load after the
+    /// clone detects a concurrent `remove` — if the slot was freed between the
+    /// first load and the clone, `None` is returned and the clone is discarded.
+    pub fn get_cloned(&self, idx: usize) -> Option<T>
+    where
+        T: Clone,
+    {
+        if idx >= self.entries.len() {
+            return None;
+        }
+        let entry = &self.entries[idx];
+        if entry.occupied.load(Ordering::Acquire) {
+            let value = unsafe { (*(*entry.value.get()).as_ptr()).clone() };
+            // Re-check: if remove() ran between the first load and the clone,
+            // the clone may be of moved-from memory.  Confirm slot is still live.
+            if entry.occupied.load(Ordering::Acquire) {
+                Some(value)
+            } else {
+                None
+            }
         } else {
             None
         }

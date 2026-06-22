@@ -4,7 +4,6 @@ use crate::{Priority, TaskId};
 /// Task wrapper for object pooling.
 ///
 /// This wrapper allows tasks to be reset and reused, reducing allocation overhead.
-/// Now uses inline storage to avoid pointer chasing.
 pub struct TaskWrapper<T> {
     inner: Option<T>,
     task_id: Option<TaskId>,
@@ -13,9 +12,6 @@ pub struct TaskWrapper<T> {
     creation_time: Instant,
     /// Number of times this wrapper has been reset
     reset_count: usize,
-    /// Inline storage for small tasks to avoid allocation
-    #[allow(dead_code)]
-    inline_storage: [u8; 64],
 }
 
 impl<T> Default for TaskWrapper<T> {
@@ -26,7 +22,6 @@ impl<T> Default for TaskWrapper<T> {
             priority: Priority::Normal,
             creation_time: Instant::now(),
             reset_count: 0,
-            inline_storage: [0; 64],
         }
     }
 }
@@ -41,7 +36,6 @@ impl<T> TaskWrapper<T> {
             priority: Priority::Normal,
             creation_time: Instant::now(),
             reset_count: 0,
-            inline_storage: [0; 64],
         }
     }
 

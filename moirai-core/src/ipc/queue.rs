@@ -79,7 +79,7 @@ impl<T: Copy> SharedQueue<T> {
     }
 
     /// Send a value
-    pub fn send(&self, value: T) -> Result<(), T> {
+    pub fn send(&mut self, value: T) -> Result<(), T> {
         unsafe {
             if (*self.meta).closed.load(Ordering::Relaxed) {
                 return Err(value);
@@ -102,7 +102,7 @@ impl<T: Copy> SharedQueue<T> {
     }
 
     /// Receive a value
-    pub fn recv(&self) -> Option<T> {
+    pub fn recv(&mut self) -> Option<T> {
         unsafe {
             let tail = (*self.meta).tail.load(Ordering::Relaxed);
             let head = (*self.meta).head.load(Ordering::Acquire);

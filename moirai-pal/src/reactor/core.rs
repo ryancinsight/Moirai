@@ -82,12 +82,9 @@ impl IoReactor {
 
         // Update peak FD count metric
         let current_count = fds.len() as u64;
-        let peak = self.metrics.peak_fd_count.load(Ordering::Relaxed);
-        if current_count > peak {
-            self.metrics
-                .peak_fd_count
-                .store(current_count, Ordering::Relaxed);
-        }
+        self.metrics
+            .peak_fd_count
+            .fetch_max(current_count, Ordering::Relaxed);
 
         Ok(())
     }

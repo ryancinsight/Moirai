@@ -242,6 +242,24 @@ impl<'a, T: Clone> Future for WatchChanged<'a, T> {
     }
 }
 
+impl<'a, T> Drop for WatchChanged<'a, T> {
+    fn drop(&mut self) {
+        // If this future is dropped while pending, the waker stored in
+        // `receiver_state.waker` would be called by the next `send()` on a
+        // now-deallocated task allocation — a use-after-free of the waker.
+        // Clear it here so the sender only wakes live futures.
+        if let Ok(mut state) = self.receiver.state.lock() {
+            if let Some(receiver_state) = state
+                .receivers
+                .iter_mut()
+                .find(|r| r.id == self.receiver.id)
+            {
+                receiver_state.waker = None;
+            }
+        }
+    }
+}
+
 /// Error types for watch channel operations
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WatchError {

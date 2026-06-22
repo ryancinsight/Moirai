@@ -160,12 +160,14 @@ impl<S: Scheduler> WorkStealingCoordinator<S> {
             // Use the scheduler's built-in try_steal method
             match thief_scheduler.try_steal(victim_scheduler) {
                 Ok(Some(stolen_task)) => {
-                    // Add the victim to recent victims list to avoid immediate re-stealing
-                    context.recent_victims.push(victim_scheduler.id());
+                    // Add the victim to recent victims list to avoid immediate re-stealing.
+                    // M-16 fix: use push_back/pop_front (O(1)) on VecDeque rather than
+                    // Vec::remove(0) which is O(n) due to element shifting.
+                    context.recent_victims.push_back(victim_scheduler.id());
 
                     // Limit the recent victims list size
                     if context.recent_victims.len() > 10 {
-                        context.recent_victims.remove(0);
+                        context.recent_victims.pop_front();
                     }
 
                     Ok(Some(stolen_task))
