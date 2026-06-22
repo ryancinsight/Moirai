@@ -36,7 +36,7 @@ impl WaitGroup {
 
     /// Decrement the wait group counter.
     pub fn done(&self) {
-        let old = self.counter.fetch_sub(1, Ordering::Release);
+        let old = self.counter.fetch_sub(1, Ordering::AcqRel);
         if old == 1 {
             // Last one out, increment generation to wake waiters
             self.generation.fetch_add(1, Ordering::Release);

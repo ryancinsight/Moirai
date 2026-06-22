@@ -218,9 +218,9 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         drop(evicted);
 
         let mut guard = local_shard.bins[bin_idx].lock();
+        guard.push_back(item);
         local_shard.retained_bytes.fetch_add(size, Ordering::Release);
         local_shard.retained_count.fetch_add(1, Ordering::Release);
-        guard.push_back(item);
     }
 
     /// Clear all pooled resources.

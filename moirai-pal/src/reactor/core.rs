@@ -157,9 +157,7 @@ impl IoReactor {
     /// Process all pending tasks in the queue.
     fn process_pending_tasks(&self) {
         let mut tasks = self.task_queue.lock().unwrap();
-        let mut completed_tasks = Vec::new();
-
-        for (index, task) in tasks.iter_mut().enumerate() {
+        for task in tasks.iter_mut() {
             // Create a simple noop waker compatible with MSRV 1.75.0
             // Using standard library patterns per Rust Book Ch.16
             use std::task::{RawWaker, RawWakerVTable, Waker};
@@ -178,7 +176,6 @@ impl IoReactor {
             match task.poll_future(&mut context) {
                 Poll::Ready(()) => {
                     task.complete();
-                    completed_tasks.push(index);
                     self.metrics.tasks_executed.fetch_add(1, Ordering::Relaxed);
                 }
                 Poll::Pending => {
@@ -187,10 +184,8 @@ impl IoReactor {
             }
         }
 
-        // Remove completed tasks (in reverse order to maintain indices)
-        for &index in completed_tasks.iter().rev() {
-            tasks.remove(index);
-        }
+        // Cleanly retain only pending tasks (O(n) linear filter, avoiding O(n^2) removals)
+        tasks.retain(|task| !task.completion.completed.load(Ordering::Acquire));
     }
 
     /// Handle a single I/O event.

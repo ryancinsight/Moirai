@@ -7,7 +7,7 @@ use super::error::{ChannelError, Result};
 use crate::communication::RingBuffer;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
@@ -22,11 +22,12 @@ pub struct HybridChannel<T> {
     /// Parking mechanism for efficient blocking
     parker: Arc<Mutex<Vec<std::thread::Thread>>>,
     /// Waker registration for zero-cost async polling
-    async_wakers: Arc<Mutex<Vec<Waker>>>,
+    async_wakers: Arc<Mutex<Vec<(u64, Waker)>>>,
     parked_count: Arc<AtomicUsize>,
     waker_count: Arc<AtomicUsize>,
     closed: Arc<AtomicBool>,
     sender_count: Arc<AtomicUsize>,
+    next_id: Arc<AtomicU64>,
 }
 
 impl<T: Send> HybridChannel<T> {
@@ -42,6 +43,7 @@ impl<T: Send> HybridChannel<T> {
             waker_count: Arc::new(AtomicUsize::new(0)),
             closed: Arc::new(AtomicBool::new(false)),
             sender_count: Arc::new(AtomicUsize::new(1)),
+            next_id: Arc::new(AtomicU64::new(0)),
         };
 
         channel.split()
@@ -59,6 +61,7 @@ impl<T: Send> HybridChannel<T> {
             waker_count: self.waker_count.clone(),
             closed: self.closed.clone(),
             sender_count: self.sender_count.clone(),
+            next_id: self.next_id.clone(),
         };
 
         let receiver = HybridReceiver {
@@ -70,6 +73,7 @@ impl<T: Send> HybridChannel<T> {
             parked_count: self.parked_count,
             waker_count: self.waker_count,
             closed: self.closed,
+            next_id: self.next_id,
         };
 
         (sender, receiver)
@@ -106,11 +110,12 @@ pub struct HybridSender<T> {
     async_notifier: Arc<AtomicBool>,
     sync_notifier: Arc<AtomicBool>,
     parker: Arc<Mutex<Vec<std::thread::Thread>>>,
-    async_wakers: Arc<Mutex<Vec<Waker>>>,
+    async_wakers: Arc<Mutex<Vec<(u64, Waker)>>>,
     parked_count: Arc<AtomicUsize>,
     waker_count: Arc<AtomicUsize>,
     closed: Arc<AtomicBool>,
     sender_count: Arc<AtomicUsize>,
+    next_id: Arc<AtomicU64>,
 }
 
 impl<T: Send> HybridSender<T> {
@@ -141,7 +146,7 @@ impl<T: Send> HybridSender<T> {
         // Wake any waiting async tasks if there are any
         if self.waker_count.load(Ordering::Relaxed) > 0 {
             if let Ok(mut wakers) = self.async_wakers.lock() {
-                for waker in wakers.drain(..) {
+                for (_, waker) in wakers.drain(..) {
                     waker.wake();
                 }
                 self.waker_count.store(0, Ordering::Release);
@@ -184,7 +189,7 @@ impl<T: Send> HybridSender<T> {
                     // Wake any waiting async tasks if there are any
                     if self.waker_count.load(Ordering::Relaxed) > 0 {
                         if let Ok(mut wakers) = self.async_wakers.lock() {
-                            for waker in wakers.drain(..) {
+                            for (_, waker) in wakers.drain(..) {
                                 waker.wake();
                             }
                             self.waker_count.store(0, Ordering::Release);
@@ -232,6 +237,7 @@ impl<T> Clone for HybridSender<T> {
             waker_count: self.waker_count.clone(),
             closed: self.closed.clone(),
             sender_count: self.sender_count.clone(),
+            next_id: self.next_id.clone(),
         }
     }
 }
@@ -252,7 +258,7 @@ impl<T> Drop for HybridSender<T> {
             // Wake any waiting async tasks if there are any
             if self.waker_count.load(Ordering::Relaxed) > 0 {
                 if let Ok(mut wakers) = self.async_wakers.lock() {
-                    for waker in wakers.drain(..) {
+                    for (_, waker) in wakers.drain(..) {
                         waker.wake();
                     }
                     self.waker_count.store(0, Ordering::Release);
@@ -274,10 +280,11 @@ pub struct HybridReceiver<T> {
     #[allow(dead_code)]
     sync_notifier: Arc<AtomicBool>,
     parker: Arc<Mutex<Vec<std::thread::Thread>>>,
-    async_wakers: Arc<Mutex<Vec<Waker>>>,
+    async_wakers: Arc<Mutex<Vec<(u64, Waker)>>>,
     parked_count: Arc<AtomicUsize>,
     waker_count: Arc<AtomicUsize>,
     closed: Arc<AtomicBool>,
+    next_id: Arc<AtomicU64>,
 }
 
 impl<T: Send> HybridReceiver<T> {
@@ -411,7 +418,7 @@ impl<T: Send> HybridReceiver<T> {
     pub fn recv_async(&self) -> RecvFuture<'_, T> {
         RecvFuture {
             receiver: self,
-            waker: None,
+            id: None,
         }
     }
 }
@@ -431,7 +438,7 @@ impl<T> Drop for HybridReceiver<T> {
         // Wake any waiting async tasks (just in case) if there are any
         if self.waker_count.load(Ordering::Relaxed) > 0 {
             if let Ok(mut wakers) = self.async_wakers.lock() {
-                for waker in wakers.drain(..) {
+                for (_, waker) in wakers.drain(..) {
                     waker.wake();
                 }
                 self.waker_count.store(0, Ordering::Release);
@@ -447,7 +454,7 @@ impl<T> Drop for HybridReceiver<T> {
 /// Future implementation for zero-cost async receive
 pub struct RecvFuture<'a, T> {
     receiver: &'a HybridReceiver<T>,
-    waker: Option<Waker>,
+    id: Option<u64>,
 }
 
 impl<T: Send> Future for RecvFuture<'_, T> {
@@ -475,21 +482,16 @@ impl<T: Send> Future for RecvFuture<'_, T> {
             }
 
             let waker = cx.waker();
-            // If we previously registered a different waker, remove it first
-            if let Some(old_waker) = &this.waker {
-                if !old_waker.will_wake(waker) {
-                    let old_len = wakers.len();
-                    wakers.retain(|w| !w.will_wake(old_waker));
-                    let removed = old_len - wakers.len();
-                    if removed > 0 {
-                        this.receiver.waker_count.fetch_sub(removed, Ordering::Release);
-                    }
+            if let Some(id) = this.id {
+                if let Some(pos) = wakers.iter().position(|(w_id, _)| *w_id == id) {
+                    wakers[pos].1.clone_from(waker);
+                } else {
+                    wakers.push((id, waker.clone()));
                 }
-            }
-
-            if !wakers.iter().any(|w| w.will_wake(waker)) {
-                wakers.push(waker.clone());
-                this.waker = Some(waker.clone());
+            } else {
+                let id = this.receiver.next_id.fetch_add(1, Ordering::Relaxed);
+                wakers.push((id, waker.clone()));
+                this.id = Some(id);
                 this.receiver.waker_count.fetch_add(1, Ordering::Release);
             }
         }
@@ -500,13 +502,11 @@ impl<T: Send> Future for RecvFuture<'_, T> {
 
 impl<T> Drop for RecvFuture<'_, T> {
     fn drop(&mut self) {
-        if let Some(waker) = &self.waker {
+        if let Some(id) = self.id {
             if let Ok(mut wakers) = self.receiver.async_wakers.lock() {
-                let old_len = wakers.len();
-                wakers.retain(|w| !w.will_wake(waker));
-                let removed = old_len - wakers.len();
-                if removed > 0 {
-                    self.receiver.waker_count.fetch_sub(removed, Ordering::Release);
+                if let Some(pos) = wakers.iter().position(|(w_id, _)| *w_id == id) {
+                    wakers.remove(pos);
+                    self.receiver.waker_count.fetch_sub(1, Ordering::Release);
                 }
             }
         }

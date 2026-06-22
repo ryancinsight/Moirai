@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use super::allocator::CacheAlignedAllocator;
 use super::pool::MemoryPool;
@@ -20,6 +20,8 @@ pub struct UnifiedRingBuffer<T> {
     tail: AtomicUsize,
     /// Associated memory pool for overflow handling
     pool: Arc<MemoryPool<T>>,
+    write_lock: Mutex<()>,
+    read_lock: Mutex<()>,
 }
 
 impl<T> UnifiedRingBuffer<T> {
@@ -35,11 +37,14 @@ impl<T> UnifiedRingBuffer<T> {
             head: AtomicUsize::new(0),
             tail: AtomicUsize::new(0),
             pool: Arc::new(MemoryPool::new(capacity * 2)),
+            write_lock: Mutex::new(()),
+            read_lock: Mutex::new(()),
         })
     }
 
     /// Try to push an item using zero-copy semantics
     pub fn try_push(&self, item: T) -> Result<(), T> {
+        let _guard = self.write_lock.lock().unwrap();
         let head = self.head.load(Ordering::Relaxed);
         let next_head = (head + 1) & self.mask;
         let tail = self.tail.load(Ordering::Acquire);
@@ -60,6 +65,7 @@ impl<T> UnifiedRingBuffer<T> {
 
     /// Try to pop an item using zero-copy semantics
     pub fn try_pop(&self) -> Option<T> {
+        let _guard = self.read_lock.lock().unwrap();
         let tail = self.tail.load(Ordering::Relaxed);
         let head = self.head.load(Ordering::Acquire);
 

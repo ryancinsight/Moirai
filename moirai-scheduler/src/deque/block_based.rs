@@ -89,8 +89,8 @@ impl<T> BlockBasedDeque<T> {
                 cell.get().write(MaybeUninit::new(item));
                 (*tail).next.store(new_block, Ordering::Release);
             }
-            self.tail.store(new_block, Ordering::Release);
             self.bottom.store(1, Ordering::Release);
+            self.tail.store(new_block, Ordering::Release);
         }
         self.len.fetch_add(1, Ordering::Relaxed);
     }
@@ -101,10 +101,11 @@ impl<T> BlockBasedDeque<T> {
 
         if b > 0 {
             let new_b = b - 1;
-            self.bottom.store(new_b, Ordering::Relaxed);
+            self.bottom.store(new_b, Ordering::Release);
+            std::sync::atomic::fence(Ordering::SeqCst);
 
             // Fast path: if head != tail, they are different blocks, no contention!
-            let head = self.head.load(Ordering::Relaxed);
+            let head = self.head.load(Ordering::Acquire);
             if head != tail {
                 let item = unsafe {
                     let cell = &(*tail).data[new_b];
@@ -115,7 +116,6 @@ impl<T> BlockBasedDeque<T> {
             }
 
             // Fallback path: same block, execute standard Chase-Lev synchronization
-            std::sync::atomic::fence(Ordering::SeqCst);
             let t = unsafe { (*tail).top.load(Ordering::Acquire) };
             if t < new_b {
                 let item = unsafe {
