@@ -91,7 +91,12 @@ impl<T> SpinLock<T> {
 
     /// Try to lock without spinning.
     pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T>> {
-        if !self.locked.swap(true, Ordering::Acquire) {
+        if !self.locked.load(Ordering::Relaxed)
+            && self
+                .locked
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+        {
             Some(SpinLockGuard {
                 lock: self,
                 _phantom: std::marker::PhantomData,
