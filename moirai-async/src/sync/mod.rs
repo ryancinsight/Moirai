@@ -271,4 +271,49 @@ mod tests {
         // Now it should return Ready(Ok(42))
         assert!(matches!(rx.poll_recv(&mut context), Poll::Ready(Ok(42))));
     }
+
+    #[test]
+    fn test_notify_cancellation_safety() {
+        use crate::sync::Notify;
+        use std::future::Future;
+        use std::task::Context;
+        use futures::task::noop_waker;
+
+        let notify = Notify::new();
+        let waker = noop_waker();
+        let mut context = Context::from_waker(&waker);
+
+        let mut f1 = Box::pin(notify.notified());
+        let mut f2 = Box::pin(notify.notified());
+
+        // Poll both to register them as waiters
+        assert!(f1.as_mut().poll(&mut context).is_pending());
+        assert!(f2.as_mut().poll(&mut context).is_pending());
+
+        // Notify once, which grants permit to f1
+        notify.notify_one();
+
+        // Drop f1 before it is polled. This should transfer the permit to f2.
+        drop(f1);
+
+        // Now f2 should be ready
+        assert!(f2.as_mut().poll(&mut context).is_ready());
+
+        // Second case: no other pending waiters, permit is restored to state
+        let notify = Notify::new();
+        let mut f1 = Box::pin(notify.notified());
+
+        // Poll to register f1 as a waiter
+        assert!(f1.as_mut().poll(&mut context).is_pending());
+
+        // Notify once, granting permit to f1
+        notify.notify_one();
+
+        // Drop f1. This should restore the permit back to notify's state.
+        drop(f1);
+
+        // Now a new future should be ready immediately
+        let mut f3 = Box::pin(notify.notified());
+        assert!(f3.as_mut().poll(&mut context).is_ready());
+    }
 }

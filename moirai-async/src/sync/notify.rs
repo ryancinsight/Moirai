@@ -9,6 +9,13 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WaiterState {
+    Pending,
+    NotifiedOne,
+    NotifiedAll,
+}
+
 /// Notification primitive for efficient task coordination
 pub struct Notify {
     state: Arc<Mutex<NotifyState>>,
@@ -16,7 +23,7 @@ pub struct Notify {
 
 struct NotifyState {
     notified: bool,
-    waiters: VecDeque<(u64, Waker, bool)>,
+    waiters: VecDeque<(u64, Waker, WaiterState)>,
     next_id: u64,
 }
 
@@ -43,8 +50,12 @@ impl Notify {
     /// Notify one waiting task
     pub fn notify_one(&self) {
         let mut state = self.state.lock().unwrap();
-        if let Some(waiter) = state.waiters.iter_mut().find(|(_, _, woken)| !*woken) {
-            waiter.2 = true;
+        if let Some(waiter) = state
+            .waiters
+            .iter_mut()
+            .find(|(_, _, s)| *s == WaiterState::Pending)
+        {
+            waiter.2 = WaiterState::NotifiedOne;
             waiter.1.wake_by_ref();
         } else {
             state.notified = true;
@@ -57,8 +68,8 @@ impl Notify {
         state.notified = false;
         let mut wakers = Vec::new();
         for waiter in &mut state.waiters {
-            if !waiter.2 {
-                waiter.2 = true;
+            if waiter.2 == WaiterState::Pending {
+                waiter.2 = WaiterState::NotifiedAll;
                 wakers.push(waiter.1.clone());
             }
         }
@@ -100,21 +111,26 @@ impl<'a> Future for NotifyFuture<'a> {
         // 2. Check if already registered
         if let Some(id) = self.id {
             if let Some(pos) = state.waiters.iter().position(|(w_id, _, _)| *w_id == id) {
-                if state.waiters[pos].2 {
-                    // Woken! Remove ourselves and return Ready
-                    state.waiters.remove(pos);
-                    self.id = None;
-                    Poll::Ready(())
-                } else {
-                    // Update waker
-                    state.waiters[pos].1 = cx.waker().clone();
-                    Poll::Pending
+                match state.waiters[pos].2 {
+                    WaiterState::NotifiedOne | WaiterState::NotifiedAll => {
+                        // Woken! Remove ourselves and return Ready
+                        state.waiters.remove(pos);
+                        self.id = None;
+                        Poll::Ready(())
+                    }
+                    WaiterState::Pending => {
+                        // Update waker
+                        state.waiters[pos].1 = cx.waker().clone();
+                        Poll::Pending
+                    }
                 }
             } else {
                 // Re-register if lost
                 let new_id = state.next_id;
                 state.next_id += 1;
-                state.waiters.push_back((new_id, cx.waker().clone(), false));
+                state
+                    .waiters
+                    .push_back((new_id, cx.waker().clone(), WaiterState::Pending));
                 self.id = Some(new_id);
                 Poll::Pending
             }
@@ -122,7 +138,9 @@ impl<'a> Future for NotifyFuture<'a> {
             // First time polling, register a new waiter
             let id = state.next_id;
             state.next_id += 1;
-            state.waiters.push_back((id, cx.waker().clone(), false));
+            state
+                .waiters
+                .push_back((id, cx.waker().clone(), WaiterState::Pending));
             self.id = Some(id);
             Poll::Pending
         }
@@ -133,7 +151,27 @@ impl<'a> Drop for NotifyFuture<'a> {
     fn drop(&mut self) {
         if let Some(id) = self.id {
             if let Ok(mut state) = self.notify.state.lock() {
-                state.waiters.retain(|(w_id, _, _)| *w_id != id);
+                let mut was_notified_one = false;
+                if let Some(pos) = state.waiters.iter().position(|(w_id, _, _)| *w_id == id) {
+                    if state.waiters[pos].2 == WaiterState::NotifiedOne {
+                        was_notified_one = true;
+                    }
+                    state.waiters.remove(pos);
+                }
+
+                if was_notified_one {
+                    // Transfer the permit: either notify another Pending waiter or save in notified
+                    if let Some(waiter) = state
+                        .waiters
+                        .iter_mut()
+                        .find(|(_, _, s)| *s == WaiterState::Pending)
+                    {
+                        waiter.2 = WaiterState::NotifiedOne;
+                        waiter.1.wake_by_ref();
+                    } else {
+                        state.notified = true;
+                    }
+                }
             }
         }
     }
