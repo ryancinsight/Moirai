@@ -48,22 +48,55 @@ impl<T, const N: usize> PrivateStack<T, N> {
         P: DequeReclaimPolicy,
     {
         let count = self.len / 2;
+        let mut guard = OffloadGuard {
+            stack: self,
+            moved: 0,
+            count,
+        };
 
-        for item in self.items.iter_mut().take(count) {
-            shared.push(unsafe { item.assume_init_read() });
+        for i in 0..count {
+            let item = unsafe { guard.stack.items[i].assume_init_read() };
+            guard.moved += 1;
+            shared.push(item);
         }
+    }
+}
 
-        let retained = self.len - count;
-        if retained > 0 {
+struct OffloadGuard<'a, T, const N: usize> {
+    stack: &'a mut PrivateStack<T, N>,
+    moved: usize,
+    count: usize,
+}
+
+impl<'a, T, const N: usize> Drop for OffloadGuard<'a, T, N> {
+    fn drop(&mut self) {
+        if self.moved < self.count {
+            // A panic occurred during one of the pushes.
+            // Shift the remaining initialized elements to the front of the stack.
+            let remaining_to_move = self.count - self.moved;
+            let retained = self.stack.len - self.count;
             unsafe {
                 std::ptr::copy(
-                    self.items.as_ptr().add(count),
-                    self.items.as_mut_ptr(),
-                    retained,
+                    self.stack.items.as_ptr().add(self.moved),
+                    self.stack.items.as_mut_ptr(),
+                    remaining_to_move + retained,
                 );
             }
+            self.stack.len -= self.moved;
+        } else {
+            // Normal execution: all `count` elements successfully offloaded.
+            let retained = self.stack.len - self.count;
+            if retained > 0 {
+                unsafe {
+                    std::ptr::copy(
+                        self.stack.items.as_ptr().add(self.count),
+                        self.stack.items.as_mut_ptr(),
+                        retained,
+                    );
+                }
+            }
+            self.stack.len = retained;
         }
-        self.len = retained;
     }
 }
 
@@ -129,5 +162,57 @@ where
 {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct DropProbe(Arc<AtomicUsize>);
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn test_private_stack_offload_panic_safety() {
+        let drop_count = Arc::new(AtomicUsize::new(0));
+        let mut stack: PrivateStack<DropProbe, 8> = PrivateStack::new();
+
+        // Push 6 items
+        for _ in 0..6 {
+            stack.push(DropProbe(drop_count.clone()));
+        }
+
+        // We want to offload 3 items (len/2)
+        // Simulate a panic after 1 item is moved
+        {
+            let mut guard = OffloadGuard {
+                stack: &mut stack,
+                moved: 0,
+                count: 3,
+            };
+
+            // Simulating reading/moving the first item
+            let item = unsafe { guard.stack.items[0].assume_init_read() };
+            guard.moved += 1;
+            // The item is successfully pushed/moved. Let's drop it here representing successful move
+            drop(item);
+            assert_eq!(drop_count.load(Ordering::Relaxed), 1);
+
+            // Now the guard drops, simulating a panic during the second push
+        }
+
+        assert_eq!(stack.len, 5);
+        assert_eq!(drop_count.load(Ordering::Relaxed), 1);
+
+        // When stack drops, the remaining 5 items should be dropped exactly once
+        drop(stack);
+        assert_eq!(drop_count.load(Ordering::Relaxed), 6);
     }
 }

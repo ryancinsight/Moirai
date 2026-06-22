@@ -69,6 +69,7 @@ impl NodeQueue {
     }
 
     pub(super) fn push_task(&self, task: ScheduledTask, priority: Priority) {
+        let _guard = self._exclusive_lock.lock().unwrap();
         let queue_index = match priority {
             Priority::Critical => 0,
             Priority::High => 1,
@@ -83,6 +84,7 @@ impl NodeQueue {
     }
 
     pub(super) fn pop_task(&self) -> Option<ScheduledTask> {
+        let _guard = self._exclusive_lock.lock().unwrap();
         // Try priority queues in order (highest first)
         for queue in &self.priority_queues {
             if let Some(task) = queue.pop() {
@@ -99,6 +101,7 @@ impl NodeQueue {
     }
 
     pub(super) fn steal_task(&self) -> Option<ScheduledTask> {
+        let _guard = self._exclusive_lock.lock().unwrap();
         // Try to steal from priority queues (lower priority first for fairness)
         for queue in self.priority_queues.iter().rev() {
             if let crate::StealResult::Success(task) = queue.steal() {
