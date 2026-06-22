@@ -181,6 +181,57 @@ impl<T: Clone> BroadcastReceiver<T> {
             position: current_sequence,
         }
     }
+
+    /// Poll to receive a message, registering waker if empty.
+    pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<T, BroadcastError>> {
+        let mut state = self.state.lock().unwrap();
+
+        if state.messages.is_empty() {
+            if state.closed {
+                return Poll::Ready(Err(BroadcastError::Closed));
+            }
+            if let Some(receiver_state) = state
+                .receivers
+                .iter_mut()
+                .find(|r| r.id == self.id)
+            {
+                receiver_state.waker = Some(cx.waker().clone());
+            }
+            return Poll::Pending;
+        }
+
+        // Lagging check
+        let oldest_seq = state.messages.front().unwrap().0;
+        if self.position + 1 < oldest_seq {
+            self.position = oldest_seq - 1;
+            return Poll::Ready(Err(BroadcastError::Lagged));
+        }
+
+        // Find message at our position
+        let mut found_msg = None;
+        for (seq, message) in &state.messages {
+            if *seq > self.position {
+                self.position = *seq;
+                found_msg = Some(message.clone());
+                break;
+            }
+        }
+
+        if let Some(message) = found_msg {
+            Poll::Ready(Ok(message))
+        } else if state.closed {
+            Poll::Ready(Err(BroadcastError::Closed))
+        } else {
+            if let Some(receiver_state) = state
+                .receivers
+                .iter_mut()
+                .find(|r| r.id == self.id)
+            {
+                receiver_state.waker = Some(cx.waker().clone());
+            }
+            Poll::Pending
+        }
+    }
 }
 
 impl<T: Clone> Clone for BroadcastReceiver<T> {
@@ -206,27 +257,7 @@ impl<'a, T: Clone> Future for BroadcastRecv<'a, T> {
     type Output = Result<T, BroadcastError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.receiver.try_recv() {
-            Ok(message) => Poll::Ready(Ok(message)),
-            Err(BroadcastError::Lagged) => Poll::Ready(Err(BroadcastError::Lagged)),
-            Err(BroadcastError::Closed) => Poll::Ready(Err(BroadcastError::Closed)),
-            Err(BroadcastError::Empty) => {
-                let state_arc = self.receiver.state.clone();
-                let mut state = state_arc.lock().unwrap();
-                if state.closed {
-                    Poll::Ready(Err(BroadcastError::Closed))
-                } else {
-                    if let Some(receiver_state) = state
-                        .receivers
-                        .iter_mut()
-                        .find(|r| r.id == self.receiver.id)
-                    {
-                        receiver_state.waker = Some(cx.waker().clone());
-                    }
-                    Poll::Pending
-                }
-            }
-        }
+        self.receiver.poll_recv(cx)
     }
 }
 

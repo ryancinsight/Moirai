@@ -255,4 +255,20 @@ mod tests {
             Poll::Ready((10, 20))
         ));
     }
+
+    #[test]
+    fn test_broadcast_waker_registration() {
+        let (tx, mut rx) = Broadcast::new(2);
+        let waker = futures::task::noop_waker();
+        let mut context = Context::from_waker(&waker);
+
+        // Initially empty, should return Pending and register the waker
+        assert!(rx.poll_recv(&mut context).is_pending());
+
+        // Send a message
+        tx.send(42).unwrap();
+
+        // Now it should return Ready(Ok(42))
+        assert!(matches!(rx.poll_recv(&mut context), Poll::Ready(Ok(42))));
+    }
 }
