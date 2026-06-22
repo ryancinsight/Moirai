@@ -1,13 +1,37 @@
 use crate::platform::*;
 use super::stack::CachePadded;
 
+#[cfg(target_pointer_width = "64")]
+mod pack {
+    pub const INDEX_MASK: usize = 0xFFFF_FFFF;
+    pub const GEN_SHIFT: u32 = 32;
+}
+
+#[cfg(not(target_pointer_width = "64"))]
+mod pack {
+    pub const INDEX_MASK: usize = 0xFFFF;
+    pub const GEN_SHIFT: u32 = 16;
+}
+
+use pack::*;
+
+#[inline]
+fn pack(index: usize, generation: usize) -> usize {
+    (index & INDEX_MASK) | (generation << GEN_SHIFT)
+}
+
+#[inline]
+fn unpack(val: usize) -> (usize, usize) {
+    (val & INDEX_MASK, val >> GEN_SHIFT)
+}
+
 /// Slab allocator for efficient task storage (inspired by Tokio)
 ///
 /// This provides O(1) allocation and deallocation with minimal fragmentation.
 pub struct SlabAllocator<T> {
     /// Storage for all items
     entries: Box<[SlabEntry<T>]>,
-    /// Next free slot
+    /// Next free slot (generation-packed to prevent ABA)
     next_free: AtomicUsize,
     /// Number of allocated items
     len: CachePadded<AtomicUsize>,
@@ -30,6 +54,10 @@ impl<T> SlabAllocator<T> {
     /// Create a new slab allocator with the given capacity
     #[must_use]
     pub fn new(capacity: usize) -> Self {
+        assert!(
+            capacity <= INDEX_MASK,
+            "Capacity exceeds maximum allowed for SlabAllocator"
+        );
         let mut entries = Vec::with_capacity(capacity);
 
         // Initialize free list
@@ -43,7 +71,7 @@ impl<T> SlabAllocator<T> {
 
         Self {
             entries: entries.into_boxed_slice(),
-            next_free: AtomicUsize::new(0),
+            next_free: AtomicUsize::new(pack(0, 0)),
             len: CachePadded {
                 value: AtomicUsize::new(0),
             },
@@ -55,19 +83,22 @@ impl<T> SlabAllocator<T> {
     /// Returns the index of the allocated slot, or None if full
     pub fn insert(&self, value: T) -> Option<usize> {
         loop {
-            let free_idx = self.next_free.load(Ordering::Acquire);
+            let packed_free = self.next_free.load(Ordering::Acquire);
+            let (free_idx, gen) = unpack(packed_free);
 
             if free_idx >= self.entries.len() {
                 return None; // Slab is full
             }
 
             let entry = &self.entries[free_idx];
-            let next = entry.next.load(Ordering::Relaxed);
+            let next_idx = entry.next.load(Ordering::Relaxed);
+
+            let new_packed = pack(next_idx, gen.wrapping_add(1));
 
             // Try to claim this slot
             if self
                 .next_free
-                .compare_exchange_weak(free_idx, next, Ordering::Release, Ordering::Relaxed)
+                .compare_exchange_weak(packed_free, new_packed, Ordering::Release, Ordering::Relaxed)
                 .is_ok()
             {
                 // Successfully claimed the slot
@@ -108,12 +139,15 @@ impl<T> SlabAllocator<T> {
 
         // Add to free list
         loop {
-            let current_free = self.next_free.load(Ordering::Relaxed);
-            entry.next.store(current_free, Ordering::Relaxed);
+            let packed_free = self.next_free.load(Ordering::Relaxed);
+            let (free_idx, gen) = unpack(packed_free);
+            entry.next.store(free_idx, Ordering::Relaxed);
+
+            let new_packed = pack(idx, gen.wrapping_add(1));
 
             if self
                 .next_free
-                .compare_exchange_weak(current_free, idx, Ordering::Release, Ordering::Relaxed)
+                .compare_exchange_weak(packed_free, new_packed, Ordering::Release, Ordering::Relaxed)
                 .is_ok()
             {
                 break;
@@ -142,5 +176,23 @@ impl<T> SlabAllocator<T> {
     /// Get the number of allocated items
     pub fn len(&self) -> usize {
         self.len.value.load(Ordering::Relaxed)
+    }
+
+    /// Check if the slab allocator is empty
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl<T> Drop for SlabAllocator<T> {
+    fn drop(&mut self) {
+        // Iterate through all entries and drop occupied ones
+        for entry in self.entries.iter_mut() {
+            if *entry.occupied.get_mut() {
+                unsafe {
+                    entry.value.get_mut().assume_init_drop();
+                }
+            }
+        }
     }
 }
