@@ -29,14 +29,14 @@ fn test_slab_allocator() {
     let idx1 = slab.insert("hello").unwrap();
     let idx2 = slab.insert("world").unwrap();
 
-    assert_eq!(slab.get(idx1), Some(&"hello"));
-    assert_eq!(slab.get(idx2), Some(&"world"));
+    assert_eq!(unsafe { slab.get(idx1) }, Some(&"hello"));
+    assert_eq!(unsafe { slab.get(idx2) }, Some(&"world"));
     assert_eq!(slab.len(), 2);
 
     // Test removal
     assert_eq!(slab.remove(idx1), Some("hello"));
     assert_eq!(slab.len(), 1);
-    assert_eq!(slab.get(idx1), None);
+    assert_eq!(unsafe { slab.get(idx1) }, None);
 
     // Test reuse of slot
     let idx3 = slab.insert("reused").unwrap();

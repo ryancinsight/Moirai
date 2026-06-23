@@ -339,8 +339,27 @@ impl<T> ChaseLevDeque<T, SharedEpochReclaim> {
             return false;
         }
 
-        self.deallocate_retired_arrays();
-        true
+        let mut retired = self
+            .retired_arrays
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+
+        if retired.is_empty() {
+            return false;
+        }
+
+        if self.reclaim.active_accesses() == 0 {
+            for array_ptr in retired.drain(..) {
+                if !array_ptr.is_null() {
+                    unsafe {
+                        drop(Box::from_raw(array_ptr));
+                    }
+                }
+            }
+            true
+        } else {
+            false
+        }
     }
 }
 

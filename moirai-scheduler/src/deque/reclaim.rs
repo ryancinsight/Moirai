@@ -88,6 +88,14 @@ pub struct SharedEpochState {
     active_accesses: AtomicUsize,
 }
 
+impl SharedEpochState {
+    /// Get the current number of active accesses.
+    #[inline]
+    pub fn active_accesses(&self) -> usize {
+        self.active_accesses.load(Ordering::Acquire)
+    }
+}
+
 /// Guard for a shared array-access section.
 #[derive(Debug)]
 pub struct SharedEpochAccessGuard<'a> {

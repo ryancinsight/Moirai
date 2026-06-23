@@ -175,7 +175,7 @@ impl<T> SlabAllocator<T> {
     /// The caller must ensure that no concurrent `remove` call targets `idx`
     /// while the returned reference is live. Concurrent read access to different
     /// indices is safe, but concurrent read/write to the same index requires external synchronization.
-    pub fn get(&self, idx: usize) -> Option<&T> {
+    pub unsafe fn get(&self, idx: usize) -> Option<&T> {
         if idx >= self.entries.len() {
             return None;
         }
@@ -183,7 +183,7 @@ impl<T> SlabAllocator<T> {
         let entry = &self.entries[idx];
 
         if entry.occupied.load(Ordering::Acquire) {
-            Some(unsafe { &*(*entry.value.get()).as_ptr() })
+            Some(&*(*entry.value.get()).as_ptr())
         } else {
             None
         }
