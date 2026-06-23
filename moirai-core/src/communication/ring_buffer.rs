@@ -23,7 +23,6 @@ pub struct RingBuffer<T> {
 }
 
 unsafe impl<T: Send> Send for RingBuffer<T> {}
-unsafe impl<T: Send> Sync for RingBuffer<T> {}
 
 impl<T> RingBuffer<T> {
     /// Create a new ring buffer with given capacity

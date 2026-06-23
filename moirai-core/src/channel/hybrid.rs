@@ -493,6 +493,9 @@ impl<T> Drop for RecvFuture<'_, T> {
     }
 }
 
+unsafe impl<T: Send> Send for HybridSender<T> {}
+unsafe impl<T: Send> Send for HybridReceiver<T> {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

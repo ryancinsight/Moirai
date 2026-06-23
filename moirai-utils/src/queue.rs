@@ -132,7 +132,6 @@ impl<T> RingBuffer<T> {
 
 // Safety: RingBuffer is safe to send between threads
 unsafe impl<T: Send> Send for RingBuffer<T> {}
-unsafe impl<T: Send> Sync for RingBuffer<T> {}
 
 #[cfg(feature = "std")]
 use std::collections::VecDeque;
