@@ -149,7 +149,7 @@ pub(super) struct SchedulerInner<const QUEUE_CAPACITY: usize> {
     pub(super) join_waiters: CacheAligned<AtomicUsize>,
     pub(super) wait_lock: Mutex<()>,
     pub(super) wait_signal: Condvar,
-    pub(super) idle_workers: CacheAligned<AtomicU64>,
+    pub(super) idle_workers: super::idle::IdleBitset,
 }
 
 pub(super) struct LifoSlot {

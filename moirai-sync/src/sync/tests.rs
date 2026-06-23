@@ -61,6 +61,42 @@ fn test_futex_mutex() {
 }
 
 #[test]
+fn test_futex_mutex_blocking_path_no_lost_wakeup() {
+    // Regression for the non-Linux fallback lost-wakeup: `unlock` checked the
+    // `waiters` count with a StoreLoad-reorderable load relative to releasing
+    // `locked`, so a waiter registering concurrently could be skipped and left
+    // parked on the condvar forever. To exercise the *blocking* path (not the
+    // adaptive spin), each critical section holds the lock long enough that
+    // contending threads exhaust their spin budget and must block. If a wakeup
+    // is lost, a thread never reacquires and the test hangs into the nextest
+    // timeout. The exact final count also proves no update was lost.
+    const THREADS: usize = 16;
+    const ITERS: usize = 200;
+
+    let mutex = Arc::new(FutexMutex::new(0u64));
+    let mut handles = vec![];
+    for _ in 0..THREADS {
+        let mutex = mutex.clone();
+        handles.push(thread::spawn(move || {
+            for _ in 0..ITERS {
+                let mut guard = mutex.lock();
+                let prev = *guard;
+                // Spin briefly while holding the lock to force other threads
+                // past the spin budget and onto the blocking/condvar path.
+                for _ in 0..256 {
+                    hint::spin_loop();
+                }
+                *guard = prev + 1;
+            }
+        }));
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    assert_eq!(*mutex.lock(), (THREADS * ITERS) as u64);
+}
+
+#[test]
 fn test_futex_mutex_try_lock() {
     let mutex = FutexMutex::new(42);
 

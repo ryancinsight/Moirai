@@ -192,40 +192,27 @@ fn wait_for_work<const QUEUE_CAPACITY: usize>(
     worker_id: usize,
 ) {
     use std::sync::atomic::Ordering;
-    if worker_id < 64 {
-        let mask = 1 << worker_id;
-        inner.idle_workers.fetch_or(mask, Ordering::SeqCst);
-        while inner.pending_tasks.load(Ordering::SeqCst) == 0
-            && !inner.shutdown.load(Ordering::SeqCst)
-        {
-            if let Some(reactor) = IoReactor::get_active() {
-                let _ = reactor.run_iteration(Some(Duration::from_millis(1)));
-                if inner.pending_tasks.load(Ordering::SeqCst) > 0
-                    || inner.shutdown.load(Ordering::SeqCst)
-                {
-                    break;
-                }
-            } else {
-                thread::park();
+    // Register this worker as parked in the wake bitset, then re-check
+    // `pending_tasks` under the same SeqCst order. The `set` and the load form
+    // the worker half of the store-buffer handshake with `schedule_job`'s SeqCst
+    // increment + bitset scan, which is what rules out a lost wakeup. Every
+    // worker registers (no id < 64 special case), so large pools have no
+    // unreachable workers.
+    inner.idle_workers.set(worker_id);
+    while inner.pending_tasks.load(Ordering::SeqCst) == 0 && !inner.shutdown.load(Ordering::SeqCst)
+    {
+        if let Some(reactor) = IoReactor::get_active() {
+            let _ = reactor.run_iteration(Some(Duration::from_millis(1)));
+            if inner.pending_tasks.load(Ordering::SeqCst) > 0
+                || inner.shutdown.load(Ordering::SeqCst)
+            {
+                break;
             }
-        }
-        inner.idle_workers.fetch_and(!mask, Ordering::SeqCst);
-    } else {
-        while inner.pending_tasks.load(Ordering::Acquire) == 0
-            && !inner.shutdown.load(Ordering::Acquire)
-        {
-            if let Some(reactor) = IoReactor::get_active() {
-                let _ = reactor.run_iteration(Some(Duration::from_millis(1)));
-                if inner.pending_tasks.load(Ordering::Acquire) > 0
-                    || inner.shutdown.load(Ordering::Acquire)
-                {
-                    break;
-                }
-            } else {
-                thread::park();
-            }
+        } else {
+            thread::park();
         }
     }
+    inner.idle_workers.clear(worker_id);
 }
 
 pub(super) fn wake_worker<const QUEUE_CAPACITY: usize>(worker: &WorkerState<QUEUE_CAPACITY>) {

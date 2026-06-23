@@ -180,6 +180,14 @@ impl<T> FutexMutex<T> {
         #[cfg(not(target_os = "linux"))]
         {
             self.waiters.fetch_add(1, Ordering::Relaxed);
+            // SeqCst fence pairs with the one in `unlock`: it separates this
+            // waiter's `waiters` store from its `locked` load (the swap below) in
+            // the global SeqCst order. Without it the two sides form an unguarded
+            // store-buffer pattern (waiter stores `waiters`/loads `locked`,
+            // unlocker stores `locked`/loads `waiters`) in which both loads may
+            // observe stale values: the unlocker sees `waiters == 0` and skips the
+            // notify while this waiter sees `locked == true` and sleeps forever.
+            std::sync::atomic::fence(Ordering::SeqCst);
             let mut guard = self.fallback.lock().unwrap();
             loop {
                 if !self.locked.swap(true, Ordering::Acquire) {
@@ -201,7 +209,14 @@ impl<T> FutexMutex<T> {
         #[cfg(not(target_os = "linux"))]
         {
             self.locked.store(false, Ordering::Release);
-            if self.waiters.load(Ordering::Relaxed) > 0 {
+            // SeqCst fence pairs with the one in `lock_slow`: it separates this
+            // unlock's `locked` store from the `waiters` load below so the pair of
+            // accesses participates in the global SeqCst order. Without it, a
+            // StoreLoad reorder could let this load observe `waiters == 0` while a
+            // concurrently-registering waiter has not yet been made visible,
+            // skipping the wakeup and stranding that waiter on the condvar.
+            std::sync::atomic::fence(Ordering::SeqCst);
+            if self.waiters.load(Ordering::Acquire) > 0 {
                 let _guard = self.fallback.lock().unwrap();
                 self.condvar.notify_one();
             }

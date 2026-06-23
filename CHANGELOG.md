@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `moirai-executor` thread scheduler: closed a producer/worker lost-wakeup. A
+  parking worker performs `idle_workers` set (SeqCst) then `pending_tasks` load
+  (SeqCst), but `schedule_job` incremented `pending_tasks` with `Release`, which
+  is not in the SeqCst total order; the resulting store-buffer race allowed a
+  worker to observe no work while the producer observed no idle worker, leaving
+  a submitted task stranded until an unrelated submission. The increment is now
+  `SeqCst` (free on x86, where `lock xadd` is already a full barrier) and stays
+  ordered before the queue push so the `execute_job` decrement cannot underflow.
+- `moirai-executor` thread scheduler: replaced the single-`AtomicU64` idle map
+  with a multi-word `IdleBitset` so workers with id >= 64 are registered in and
+  reachable by the wake lottery. On pools larger than 64 workers, high-index
+  workers were previously invisible to the wake path and stayed parked under
+  load (a throughput stall). Added `IdleBitset` unit tests plus a 100-worker
+  multi-round end-to-end wake regression.
+- `moirai-sync` `FutexMutex` (non-Linux/Windows fallback path): closed a lost
+  wakeup in the condvar fallback. `unlock` released `locked` (Release) then read
+  `waiters` (Relaxed); StoreLoad reordering let the `waiters` check float ahead
+  of the release, so a concurrently-registering waiter could be skipped and left
+  parked forever. Added paired `SeqCst` fences (waiter and unlocker) and a
+  high-contention blocking-path regression test.
+- `moirai-scheduler` NUMA `BackoffStrategy::record_failure`: use `saturating_mul`
+  for the exponential delay so a pathologically large base delay cannot overflow
+  (panic under `overflow-checks`).
+
 ### Changed
 - `moirai-gpu`: made the concrete WGPU execution stack optional behind the
   `wgpu-backend` feature while keeping `occupancy` launch planning available
