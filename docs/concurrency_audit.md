@@ -4,6 +4,33 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 12 (2026-06-23) — deferred items from round 11 completed
+
+All seven round-11 deferred items implemented, each with documentation and
+value-checked tests (13 new tests; workspace 739 pass).
+
+- **net listener accept-cancel reservation leak** — RAII `ReservationGuard`
+  releases the reservation on any early exit (error or future cancellation),
+  disarmed only after `add_connection_reserved`. (`listener.rs`)
+- **net `TcpStream::drop` leak + addr collision** — connections keyed by unique
+  `ConnectionId`; `Drop` untracks by the id captured at accept, never re-querying
+  a possibly-reset socket. (`types.rs`, `stream.rs`, `listener.rs`)
+- **`resource_pool.recycle` capacity overshoot** — reserve-before-insert so
+  concurrent recyclers evict on a shared, fresh view; bounded by `saturating_sub`.
+  (`resource_pool.rs`)
+- **ipc `SharedQueue` hardening** — zero-capacity, size-overflow, and over-aligned
+  `T` rejected via `layout_for`; `T: bytemuck::Pod` closes the invalid-bit-pattern
+  read; capacity recorded in the header and validated by `open`. (`ipc/queue.rs`)
+  NOTE: the round-11 `memory.rs` munmap concern was a **false alarm** — `mmap` and
+  `munmap` use the same `self.size`, so the lengths are consistent.
+- **timer `wheel.rs` tombstone growth** — `active` membership index makes `cancel`
+  a no-op for non-live ids, preserving `cancelled ⊆ active`. (`timer/wheel.rs`)
+- **`adaptive.flush_batch` unbounded spin** — bounded no-progress retries, then
+  requeue and return `WouldBlock` backpressure. (`zero_copy/adaptive.rs`)
+- **hybrid channel `Send` soundness cliff** — documented SAFETY on the manual
+  impls plus a self-validating compile-time guard that makes a future `Clone` on
+  either SPSC half a build error. (`channel/hybrid.rs`, `communication/ring_buffer.rs`)
+
 ## Round 11 (2026-06-23)
 
 ### Fixed (this round)

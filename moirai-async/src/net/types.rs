@@ -38,9 +38,19 @@ pub struct ServerStats {
     pub bytes_sent: AtomicU64,
 }
 
+/// Unique, monotonically-assigned identifier for a tracked connection.
+///
+/// Connections are keyed by id rather than by peer [`SocketAddr`] so that
+/// (a) a stream can be removed from the pool at drop time without re-querying
+/// the (possibly already-reset) socket, and (b) two connections sharing a peer
+/// address (NAT, rapid address reuse) cannot collide in the tracking map.
+pub type ConnectionId = u64;
+
 /// Connection information tracking
 #[derive(Debug, Clone)]
 pub struct ConnectionInfo {
+    /// Peer address captured at accept/connect time (never re-queried).
+    pub peer_addr: std::net::SocketAddr,
     pub connected_at: Instant,
     pub bytes_received: u64,
     pub bytes_sent: u64,
@@ -50,8 +60,9 @@ pub struct ConnectionInfo {
 /// Connection pool for managing active connections
 #[derive(Debug)]
 pub struct ConnectionPool {
-    active_connections: Mutex<HashMap<std::net::SocketAddr, ConnectionInfo>>,
+    active_connections: Mutex<HashMap<ConnectionId, ConnectionInfo>>,
     reserved_connections: AtomicUsize,
+    next_connection_id: AtomicU64,
     max_connections: Option<usize>,
 }
 
@@ -60,6 +71,7 @@ impl ConnectionPool {
         Self {
             active_connections: Mutex::new(HashMap::new()),
             reserved_connections: AtomicUsize::new(0),
+            next_connection_id: AtomicU64::new(0),
             max_connections,
         }
     }
@@ -87,31 +99,40 @@ impl ConnectionPool {
         }
     }
 
-    pub fn add_connection(&self, addr: std::net::SocketAddr) {
-        let mut connections = self.active_connections.lock().unwrap();
-        connections.insert(
-            addr,
+    /// Register a connection and return its unique id. The id is what the owning
+    /// stream stores and later passes to [`Self::remove_connection`].
+    pub fn add_connection(&self, addr: std::net::SocketAddr) -> ConnectionId {
+        let id = self.next_connection_id.fetch_add(1, Ordering::Relaxed);
+        let now = Instant::now();
+        self.active_connections.lock().unwrap().insert(
+            id,
             ConnectionInfo {
-                connected_at: Instant::now(),
+                peer_addr: addr,
+                connected_at: now,
                 bytes_received: 0,
                 bytes_sent: 0,
-                last_activity: Instant::now(),
+                last_activity: now,
             },
         );
+        id
     }
 
-    pub fn add_connection_reserved(&self, addr: std::net::SocketAddr) {
-        self.add_connection(addr);
+    /// Convert a successful reservation into a tracked connection, returning the
+    /// new connection id. Releases exactly the one reservation taken by
+    /// [`Self::try_reserve`].
+    pub fn add_connection_reserved(&self, addr: std::net::SocketAddr) -> ConnectionId {
+        let id = self.add_connection(addr);
         if self.max_connections.is_some() {
             self.reserved_connections.fetch_sub(1, Ordering::SeqCst);
         }
+        id
     }
 
-    pub fn remove_connection(&self, addr: &std::net::SocketAddr) -> bool {
+    pub fn remove_connection(&self, id: ConnectionId) -> bool {
         self.active_connections
             .lock()
             .unwrap()
-            .remove(addr)
+            .remove(&id)
             .is_some()
     }
 
@@ -126,7 +147,7 @@ impl ConnectionPool {
         }
     }
 
-    pub fn get_active_connections(&self) -> HashMap<std::net::SocketAddr, ConnectionInfo> {
+    pub fn get_active_connections(&self) -> HashMap<ConnectionId, ConnectionInfo> {
         self.active_connections.lock().unwrap().clone()
     }
 

@@ -21,7 +21,7 @@ moirai-utils = { workspace = true, features = ["std"] }
 # GPU compute dependencies
 wgpu = { version = "0.19", optional = true }
 pollster = { version = "0.3", optional = true }
-bytemuck = { version = "1.14", features = ["derive"], optional = true }
+bytemuck = { workspace = true, features = ["derive"], optional = true }
 
 # Async runtime support
 futures = { version = "0.3", optional = true }

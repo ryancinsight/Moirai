@@ -192,23 +192,38 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         let local_shard = &self.shards[local_idx];
         let bin_idx = bin_index(size);
 
-        // Evict oldest items if recycling would exceed limits
-        let mut evicted = Vec::new();
-        let mut current_bytes = local_shard.retained_bytes.load(Ordering::Acquire);
-        let mut current_count = local_shard.retained_count.load(Ordering::Acquire);
+        // Reserve this item's count and bytes up front, before inserting, so the
+        // eviction decision below sees a total that already includes this item
+        // *and* every other concurrent recycler's in-flight contribution. The
+        // prior load-decide-insert sequence read the counters, decided no
+        // eviction was needed, then inserted — allowing N concurrent recyclers to
+        // each skip eviction and overshoot the shard cap by up to N-1 buffers
+        // (and exceed the byte budget). `fetch_add` returns the pre-add value, so
+        // `+ 1` / `+ size` is this shard's total with our reservation applied.
+        let mut current_count = local_shard.retained_count.fetch_add(1, Ordering::AcqRel) + 1;
+        let mut current_bytes = local_shard.retained_bytes.fetch_add(size, Ordering::AcqRel) + size;
 
-        while current_count >= self.shard_max_buffers || current_bytes + size > self.shard_max_bytes
-        {
+        // Evict oldest items (FIFO) until the shard — counting our reserved item —
+        // is within both limits, or no further eviction is possible. The local
+        // `current_*` counters are decremented per eviction (rather than
+        // re-loaded) so the loop terminates under sustained concurrent recycling
+        // instead of chasing a moving atomic snapshot; a single item always fits
+        // because `size <= shard_max_bytes` and `shard_max_buffers >= 1`.
+        let mut evicted = Vec::new();
+        while current_count > self.shard_max_buffers || current_bytes > self.shard_max_bytes {
             let mut progress = false;
             for b in 0..64 {
                 if let Some(mut guard) = local_shard.bins[b].try_lock() {
                     if let Some(removed) = guard.pop_front() {
-                        // Evict oldest (FIFO)
                         let removed_size = removed.size();
+                        // Decrements remove already-inserted items, never our
+                        // reservation, so the net total keeps counting our item.
+                        local_shard.retained_count.fetch_sub(1, Ordering::Release);
                         local_shard
                             .retained_bytes
                             .fetch_sub(removed_size, Ordering::Release);
-                        local_shard.retained_count.fetch_sub(1, Ordering::Release);
+                        current_count -= 1;
+                        current_bytes = current_bytes.saturating_sub(removed_size);
                         evicted.push(removed);
                         progress = true;
                         break;
@@ -218,18 +233,13 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
             if !progress {
                 break;
             }
-            current_bytes = local_shard.retained_bytes.load(Ordering::Acquire);
-            current_count = local_shard.retained_count.load(Ordering::Acquire);
         }
 
         drop(evicted);
 
-        let mut guard = local_shard.bins[bin_idx].lock();
-        guard.push_back(item);
-        local_shard
-            .retained_bytes
-            .fetch_add(size, Ordering::Release);
-        local_shard.retained_count.fetch_add(1, Ordering::Release);
+        // The counters already account for this item (reserved above); inserting
+        // it makes the bin contents consistent with the published totals.
+        local_shard.bins[bin_idx].lock().push_back(item);
     }
 
     /// Clear all pooled resources.

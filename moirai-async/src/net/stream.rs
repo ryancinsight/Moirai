@@ -6,13 +6,18 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crate::io::{AsyncRead, AsyncWrite};
-use crate::net::types::{ConnectionPool, ServerStats};
+use crate::net::types::{ConnectionId, ConnectionPool, ServerStats};
 
 /// Native async TCP stream with statistics tracking
 pub struct TcpStream {
     inner: AsyncTcpStream,
     stats: Arc<ServerStats>,
     connection_pool: Arc<ConnectionPool>,
+    /// Pool tracking id assigned at accept time, or `None` for client-side
+    /// streams (`connect`/`from_std`) that are not pool-tracked. `Drop` removes
+    /// by this id rather than re-querying the socket, so a connection is
+    /// untracked exactly once even if the peer has already reset.
+    connection_id: Option<ConnectionId>,
 }
 
 impl TcpStream {
@@ -20,11 +25,13 @@ impl TcpStream {
         inner: AsyncTcpStream,
         stats: Arc<ServerStats>,
         connection_pool: Arc<ConnectionPool>,
+        connection_id: Option<ConnectionId>,
     ) -> Self {
         Self {
             inner,
             stats,
             connection_pool,
+            connection_id,
         }
     }
 
@@ -38,7 +45,7 @@ impl TcpStream {
         let stats = Arc::new(ServerStats::default());
         let connection_pool = Arc::new(ConnectionPool::new(None));
 
-        Ok(Self::new(inner, stats, connection_pool))
+        Ok(Self::new(inner, stats, connection_pool, None))
     }
 
     /// Wrap an existing TCP stream in the Moirai TCP facade.
@@ -46,7 +53,7 @@ impl TcpStream {
         let inner = AsyncTcpStream::from_std(stream)?;
         let stats = Arc::new(ServerStats::default());
         let connection_pool = Arc::new(ConnectionPool::new(None));
-        Ok(Self::new(inner, stats, connection_pool))
+        Ok(Self::new(inner, stats, connection_pool, None))
     }
 
     /// Read data from the stream
@@ -95,11 +102,14 @@ impl TcpStream {
 
 impl Drop for TcpStream {
     fn drop(&mut self) {
-        let Ok(addr) = self.inner.peer_addr() else {
+        // Untrack by the id captured at accept time. Re-querying `peer_addr()`
+        // here would fail on an already-reset socket and leak the pool slot plus
+        // the `active_connections` counter for the process lifetime.
+        let Some(id) = self.connection_id else {
             return;
         };
 
-        if self.connection_pool.remove_connection(&addr) {
+        if self.connection_pool.remove_connection(id) {
             self.stats
                 .active_connections
                 .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);

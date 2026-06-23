@@ -363,6 +363,114 @@ fn test_udp_loopback_send_recv_and_stats_values() {
     });
 }
 
+#[test]
+fn connection_pool_assigns_unique_ids_and_removes_by_id() {
+    let pool = ConnectionPool::new(Some(4));
+    let addr: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+
+    let id_a = pool.add_connection(addr);
+    let id_b = pool.add_connection(addr); // same peer address, distinct connection
+    assert_ne!(
+        id_a, id_b,
+        "ids must be unique even for an identical peer addr"
+    );
+    assert_eq!(pool.connection_count(), 2);
+
+    // Removing one connection by id leaves the other intact (no address collision).
+    assert!(pool.remove_connection(id_a));
+    assert_eq!(pool.connection_count(), 1);
+    assert!(
+        !pool.remove_connection(id_a),
+        "double remove must be a no-op"
+    );
+    assert!(pool.remove_connection(id_b));
+    assert_eq!(pool.connection_count(), 0);
+
+    // The retained ConnectionInfo carries the captured peer address.
+    let id_c = pool.add_connection(addr);
+    assert_eq!(pool.get_active_connections()[&id_c].peer_addr, addr);
+}
+
+#[test]
+fn connection_pool_reservation_accounting_is_balanced() {
+    let pool = ConnectionPool::new(Some(2));
+    let addr: SocketAddr = "127.0.0.1:5001".parse().unwrap();
+
+    assert!(pool.try_reserve());
+    assert!(pool.try_reserve());
+    assert!(!pool.try_reserve(), "two reservations exhaust the cap of 2");
+
+    // Cancelling a reservation (the cancel-leak path) restores capacity exactly.
+    pool.cancel_reservation();
+    assert!(pool.has_capacity());
+    assert!(pool.try_reserve());
+
+    // Converting reservations into tracked connections releases them so the cap
+    // continues to reflect reserved + active, never double-counting.
+    let _id0 = pool.add_connection_reserved(addr);
+    let _id1 = pool.add_connection_reserved(addr);
+    assert_eq!(pool.connection_count(), 2);
+    assert!(!pool.has_capacity());
+}
+
+#[test]
+fn listener_accept_cancellation_does_not_leak_reservations() {
+    futures::executor::block_on(async {
+        let config = TcpServerConfig {
+            max_connections: Some(2),
+            nodelay: true,
+            keep_alive: None,
+            timeout: Some(Duration::from_secs(2)),
+        };
+        let listener = TcpListener::bind_with_config("127.0.0.1:0", config)
+            .await
+            .expect("listener bind must succeed");
+        let addr = listener.local_addr().expect("listener address must exist");
+
+        // Poll-then-drop several pending accept futures. Each reserves a slot on
+        // first poll and is cancelled while `inner.accept()` is pending. Without
+        // the RAII reservation guard these would leak and permanently exhaust the
+        // cap of 2, making every real accept below fail with WouldBlock.
+        for _ in 0..5 {
+            let mut accept = std::pin::pin!(listener.accept());
+            let waker = futures::task::noop_waker();
+            let mut context = Context::from_waker(&waker);
+            assert!(matches!(
+                Future::poll(accept.as_mut(), &mut context),
+                Poll::Pending
+            ));
+        }
+
+        // The full cap must still be available: accept two real connections.
+        let client_a = std::thread::spawn(move || StdTcpStream::connect(addr).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let (stream_a, _peer_a) = accept_before(&listener, deadline).await;
+        let conn_a = client_a.join().unwrap();
+
+        let client_b = std::thread::spawn(move || StdTcpStream::connect(addr).unwrap());
+        let (stream_b, _peer_b) = accept_before(&listener, deadline).await;
+        let conn_b = client_b.join().unwrap();
+
+        assert_eq!(listener.stats().active_connections, 2);
+
+        // Dropping a tracked stream untracks exactly that connection by id, even
+        // though its peer socket may be torn down, restoring one slot.
+        drop(stream_a);
+        drop(conn_a);
+        assert_eq!(listener.stats().active_connections, 1);
+
+        // The freed slot is reusable: a third connection now accepts.
+        let client_c = std::thread::spawn(move || StdTcpStream::connect(addr).unwrap());
+        let (stream_c, _peer_c) = accept_before(&listener, deadline).await;
+        let conn_c = client_c.join().unwrap();
+        assert_eq!(listener.stats().active_connections, 2);
+
+        drop(stream_b);
+        drop(stream_c);
+        drop((conn_b, conn_c));
+    });
+}
+
 async fn accept_before(listener: &TcpListener, deadline: Instant) -> (TcpStream, SocketAddr) {
     loop {
         match listener.accept().await {

@@ -7,7 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `moirai-core` `SharedQueue<T>` now bounds `T` by `bytemuck::Pod` (was `Copy`):
+  shared-memory contents are written by one process and read as `T` by another,
+  so the element type must be valid for every bit pattern. `bytemuck` is promoted
+  to a workspace SSOT dependency (also adopted by `moirai-gpu`).
+- `moirai-async` `ConnectionPool` is now keyed by a unique `ConnectionId` instead
+  of peer `SocketAddr`; `ConnectionInfo` gains a `peer_addr` field and
+  `add_connection`/`add_connection_reserved` return the id. Streams untrack by id
+  at drop. (Pre-1.0 breaking change to the connection-pool surface.)
+
 ### Fixed
+- `moirai-async` TCP listener: `accept` no longer leaks a connection-pool
+  reservation when the accept future is cancelled (dropped while pending). The
+  reservation is held in an RAII guard released on every early exit, so a
+  cancelled accept can no longer permanently exhaust `max_connections`.
+- `moirai-async` `TcpStream::drop`: untrack the connection by the id captured at
+  accept time instead of re-querying `peer_addr()`, which fails on an
+  already-reset socket and leaked the pool slot plus the `active_connections`
+  counter. Unique-id keying also removes the address-reuse collision that could
+  undercount connections.
+- `moirai-sync` `ShardedResourcePool::recycle`: reserve count/bytes before
+  inserting so concurrent recyclers observe each other and evict on a fresh view.
+  The prior load-decide-insert let N concurrent recyclers each skip eviction and
+  overshoot the shard cap (and byte budget) by up to N-1.
+- `moirai-core` `SharedQueue`: reject zero capacity (`% capacity` divide-by-zero),
+  reject `capacity * size_of::<T>()` / total-size overflow (undersized mapping →
+  out-of-bounds access) and over-aligned element types, and record capacity in
+  the segment header so `open` validates it (a mismatched peer view is rejected
+  rather than faulting on access).
+- `moirai-async` `TimerWheel`: cancelling an already-fired or never-scheduled
+  timer is now a no-op, fixing unbounded growth of the `cancelled` tombstone set
+  (a membership index keeps the invariant `cancelled ⊆ active`).
+- `moirai-core` `AdaptiveBatchSender::flush_batch`: bound consecutive no-progress
+  retries and surface `WouldBlock` backpressure instead of spinning forever when a
+  receiver stalls without closing.
+- `moirai-core` hybrid SPSC channel: documented the `Send` soundness contract on
+  the manual `unsafe impl`s and added a self-validating compile-time guard that
+  turns any future `Clone` on `HybridSender`/`HybridReceiver` into a build error
+  (a second producer/consumer would race the `!Sync` ring).
 - `moirai-executor` thread scheduler: closed a producer/worker lost-wakeup. A
   parking worker performs `idle_workers` set (SeqCst) then `pending_tasks` load
   (SeqCst), but `schedule_job` incremented `pending_tasks` with `Release`, which

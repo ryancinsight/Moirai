@@ -22,6 +22,14 @@ pub struct RingBuffer<T> {
     consumer_seq: CachePadded<AtomicUsize>,
 }
 
+// SAFETY: the ring owns its `T` values inside `UnsafeCell<MaybeUninit<T>>`, so it
+// may move between threads exactly when `T: Send`. It is deliberately NOT `Sync`:
+// concurrent shared access is only sound under the single-producer/single-consumer
+// discipline (producer touches `producer_seq` + tail slots, consumer touches
+// `consumer_seq` + head slots, never the same slot), which is enforced by the
+// non-`Clone` `HybridSender`/`HybridReceiver` halves rather than by the type
+// system here. Granting `Sync` would permit two producers (or two consumers) to
+// race the same end, so it is intentionally withheld.
 unsafe impl<T: Send> Send for RingBuffer<T> {}
 
 impl<T> RingBuffer<T> {

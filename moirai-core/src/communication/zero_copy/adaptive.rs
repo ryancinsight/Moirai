@@ -224,8 +224,16 @@ impl<T> AdaptiveBatchSender<T> {
     fn flush_batch(&self) -> ZeroCopyResult<()> {
         use std::thread;
 
+        // Bound consecutive no-progress retries so a receiver that has stalled
+        // but not closed cannot spin this sender forever (which would also trip
+        // the test timeout). On exhaustion the unsent items are returned to the
+        // batch buffer and the caller receives `WouldBlock` backpressure — the
+        // same requeue contract as the `Closed` path below, never a lost item.
+        const MAX_NO_PROGRESS_RETRIES: u32 = 1024;
+
         // Local queue of items to send; we guarantee all buffered items are sent before returning Ok
         let mut pending: VecDeque<T> = VecDeque::new();
+        let mut no_progress: u32 = 0;
 
         loop {
             // If we do not have local pending items, drain from the shared buffer
@@ -244,6 +252,7 @@ impl<T> AdaptiveBatchSender<T> {
             }
 
             // Try to send as many as possible without holding any locks
+            let before = pending.len();
             while let Some(v) = pending.pop_front() {
                 match self.sender.send(v) {
                     Ok(()) => {}
@@ -274,11 +283,28 @@ impl<T> AdaptiveBatchSender<T> {
                 }
             }
 
-            // If we still have pending items, the channel was full; yield and retry
-            if !pending.is_empty() {
-                thread::yield_now();
+            if pending.is_empty() {
+                // All drained this round; loop to refill or exit via the Ok path.
+                no_progress = 0;
+                continue;
             }
-            // Otherwise, loop will drain again and likely exit updating last_flush
+
+            // Items remain: the channel is full/blocked. Track whether this round
+            // made any progress; if too many consecutive rounds send nothing, the
+            // receiver is stalled — requeue and surface backpressure.
+            if pending.len() == before {
+                no_progress += 1;
+                if no_progress >= MAX_NO_PROGRESS_RETRIES {
+                    let mut buf = self.batch_buffer.lock().unwrap();
+                    for x in std::mem::take(&mut pending).into_iter().rev() {
+                        buf.push_front(x);
+                    }
+                    return Err(ZeroCopyError::WouldBlock);
+                }
+            } else {
+                no_progress = 0;
+            }
+            thread::yield_now();
         }
     }
 
@@ -362,5 +388,32 @@ mod tests {
         std::thread::sleep(Duration::from_millis(110));
         threshold.update(10.0, Duration::from_micros(50));
         assert_eq!(threshold.current(), 3);
+    }
+
+    #[test]
+    fn flush_batch_surfaces_backpressure_instead_of_spinning() {
+        // Regression: a receiver that is alive but never receives leaves the
+        // underlying channel permanently full; `flush_batch` previously spun on
+        // `yield_now` forever. It must instead exhaust its bounded retry budget
+        // and return `WouldBlock` (the test would hang into the nextest timeout
+        // if it regressed). The receiver is kept alive so the channel is Full,
+        // not Closed.
+        let (sender, receiver) =
+            AdaptiveBatchChannel::<u32>::new(1, Duration::from_millis(1)).expect("channel");
+
+        // Buffer more items than the capacity-1 channel can ever hold.
+        for i in 0..64u32 {
+            let _ = sender.send_adaptive(i);
+        }
+
+        let result = sender.flush();
+        assert!(
+            matches!(result, Err(ZeroCopyError::WouldBlock)),
+            "stalled-but-open receiver must yield WouldBlock, got {result:?}"
+        );
+
+        // Keep the receiver alive until after the assertion so the channel state
+        // under test is Full rather than Closed.
+        drop(receiver);
     }
 }

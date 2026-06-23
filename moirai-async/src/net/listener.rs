@@ -48,13 +48,15 @@ impl TcpListener {
             ));
         }
 
-        let (stream, addr) = match self.inner.accept().await {
-            Ok(res) => res,
-            Err(e) => {
-                self.connection_pool.cancel_reservation();
-                return Err(e);
-            }
-        };
+        // Hold the reservation in an RAII guard so it is released on *every*
+        // early exit out of this `await` point — an I/O error (the `?` below) or,
+        // critically, cancellation when the caller drops the `accept` future
+        // while `inner.accept()` is pending. Without the guard a cancelled accept
+        // permanently leaks a reservation, and after `max_connections` such
+        // cancellations the listener rejects all further connections.
+        let mut reservation = ReservationGuard::new(&self.connection_pool);
+
+        let (stream, addr) = self.inner.accept().await?;
 
         // Update statistics
         self.stats
@@ -64,11 +66,19 @@ impl TcpListener {
             .active_connections
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        // Track connection and release reservation
-        self.connection_pool.add_connection_reserved(addr);
+        // Convert the reservation into a tracked connection. `add_connection_reserved`
+        // releases the reservation itself, so disarm the guard to avoid a double
+        // release.
+        let connection_id = self.connection_pool.add_connection_reserved(addr);
+        reservation.disarm();
 
         Ok((
-            TcpStream::new(stream, self.stats.clone(), self.connection_pool.clone()),
+            TcpStream::new(
+                stream,
+                self.stats.clone(),
+                self.connection_pool.clone(),
+                Some(connection_id),
+            ),
             addr,
         ))
     }
@@ -98,5 +108,34 @@ impl TcpListener {
     /// Return the local socket address this listener is bound to.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()
+    }
+}
+
+/// RAII guard that releases a connection-pool reservation unless disarmed.
+///
+/// Armed on construction; [`Self::disarm`] is called once the reservation has
+/// been converted into a tracked connection. If the guard is dropped while still
+/// armed — an I/O error or future cancellation between `try_reserve` and commit —
+/// it calls `cancel_reservation`, so reservations are never leaked.
+struct ReservationGuard<'a> {
+    pool: &'a ConnectionPool,
+    armed: bool,
+}
+
+impl<'a> ReservationGuard<'a> {
+    fn new(pool: &'a ConnectionPool) -> Self {
+        Self { pool, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ReservationGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.pool.cancel_reservation();
+        }
     }
 }

@@ -493,8 +493,65 @@ impl<T> Drop for RecvFuture<'_, T> {
     }
 }
 
+// SAFETY: `HybridSender`/`HybridReceiver` each hold an `Arc<RingBuffer<T>>`,
+// which is not auto-`Send` because `RingBuffer` is `!Sync` (a single-producer /
+// single-consumer structure). These manual impls assert the SPSC contract: the
+// channel hands out exactly one sender and one receiver, each touching a
+// disjoint end of the ring (producer_seq vs consumer_seq), so the single
+// producer and single consumer may live on different threads without ever
+// aliasing the same slot or sequence. Soundness therefore requires that neither
+// half is `Clone` — a second sender or receiver would create two producers or
+// two consumers racing the same end. The `spsc_send_invariant` guard below turns
+// any future `Clone` impl on a half into a compile error so this contract cannot
+// be silently broken.
 unsafe impl<T: Send> Send for HybridSender<T> {}
 unsafe impl<T: Send> Send for HybridReceiver<T> {}
+
+/// Compile-time guard protecting the SPSC `Send` soundness contract above.
+///
+/// The manual `unsafe impl Send` on each half is sound only while each half is
+/// the unique owner of its endpoint. Adding `Clone` to either would allow two
+/// producers/consumers on the `!Sync` ring — latent UB with no other compile
+/// error. This module statically asserts neither half is `Clone`, and includes a
+/// positive/negative control proving the detector itself is wired correctly.
+const _: () = {
+    use core::marker::PhantomData;
+
+    struct Probe<T>(PhantomData<T>);
+    // Trait default: "not Clone". Shadowed by the inherent const only when the
+    // probed type actually implements `Clone` (autoref/inherent specialization).
+    trait CloneProbe {
+        const IS_CLONE: bool = false;
+    }
+    impl<T> CloneProbe for Probe<T> {}
+    impl<T: Clone> Probe<T> {
+        const IS_CLONE: bool = true;
+    }
+
+    struct NeverClone;
+
+    // Controls: the detector must report `true` for a known-`Clone` type and
+    // `false` for a known-non-`Clone` type, otherwise the assertions below would
+    // be vacuous.
+    assert!(
+        Probe::<u32>::IS_CLONE,
+        "Clone detector failed positive control"
+    );
+    assert!(
+        !Probe::<NeverClone>::IS_CLONE,
+        "Clone detector failed negative control"
+    );
+
+    // The actual invariant: the SPSC halves must not be `Clone`.
+    assert!(
+        !Probe::<HybridSender<u8>>::IS_CLONE,
+        "HybridSender must not be Clone: a second producer would race the SPSC ring"
+    );
+    assert!(
+        !Probe::<HybridReceiver<u8>>::IS_CLONE,
+        "HybridReceiver must not be Clone: a second consumer would race the SPSC ring"
+    );
+};
 
 #[cfg(test)]
 mod tests {
