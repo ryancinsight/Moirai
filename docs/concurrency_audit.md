@@ -4,6 +4,58 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 13 (2026-06-23) — broadened audit (async sync, security, networking, transport)
+
+Fanned out adversarial audits over previously-uncovered areas. The async
+executor/waker/timer/result_slot were independently verified **sound** (one
+fragility note: `AsyncTask`'s `Sync` rests on an external `future_lock` decoupled
+from the `UnsafeCell` — consider folding into `Mutex<ErasedTaskFuture>`).
+
+### Fixed (7 new tests; workspace 746 pass)
+- **http codec OOM (untrusted input)** — `read_response` sized allocations from
+  wire-supplied Content-Length / chunk-size / EOF / header lengths with no cap.
+  Added a `max_response_bytes` budget enforced at the single `fill()` chokepoint
+  + upfront Content-Length rejection. (`moirai-http/codec.rs`, `lib.rs`)
+- **security auditor unbounded memory + O(n²)** — `Vec` + per-insert O(n)
+  `retain`, bounded only by a week/month retention → millions of entries under a
+  spawn storm. Now `VecDeque` + hard count cap + front-pop eviction +
+  `checked_sub`. (`security/auditor.rs`)
+- **broadcast missing `Drop`** — cancelled `BroadcastRecv` left a stale waker
+  (spurious-wake + retention); added the `Drop` clearing it. (`sync/broadcast.rs`)
+- **transport unbounded blocking** — accepted/connected TCP streams had no
+  read/write timeout; a stalled peer pinned the thread. Added `NETWORK_IO_TIMEOUT`
+  on `NetworkTransport` and the remote-task server. (`transport/network.rs`,
+  `remote_task/server.rs`)
+- **rate-limiter numerical hardening** — saturating window-advance arithmetic +
+  documented approximate semantics. (`security/limiter.rs`)
+
+### Investigated and found SOUND (do not re-chase)
+- **`block_based.rs` (round-11 "non-shippable" claim) — REFUTED.** The
+  `head != tail` fast path is correct (stealers touch only the head block via
+  `top`, owner pops the tail block; disjoint while unequal). `bottom` has one
+  writer (the single owner) + Acquire/Release reader stealers. Block reclamation
+  is gated by `reclaim_memory(&mut self)`/`Drop` (Rust aliasing enforces stealer
+  quiescence), and blocks are retired only when exhausted (`top == BLOCK_SIZE`),
+  so no data is read from a retired block. Same over-claim pattern as round 11's
+  chase_lev/deque verdicts.
+- **limiter line-107 "overflow panic" — FALSE on 64-bit** (`(elapsed/dur)*dur ≤
+  elapsed < u64::MAX`); clear-loop window logic is correct. Only the TOCTOU
+  (inherent to a multi-counter sliding window, approximate by design) is real.
+- **async executor / waker / result_slot / timer driver — SOUND** (uses
+  `std::task::Wake`/`Arc`, not a hand-rolled `RawWakerVTable`; state machines and
+  park/notify orderings verified).
+
+### Real but DEFERRED (next-round candidates)
+- `moirai-transport` `MessageRouter`/`ConnectionManager` (lib.rs): unwired,
+  untested stubs; `publish` builds a throwaway `InMemoryTransport` per send and
+  silently drops the message (the tested router is `moirai-core`'s). Redesign to
+  a shared transport or remove — breaking public API, needs an ADR.
+- `moirai-core` `unified_channel`: `overflow_count` is an advisory mirror read
+  outside the lock (drain liveness); `send` drops `T` on `Full` instead of
+  returning it. Document or restructure.
+- No `loom` model checking is actually wired (only referenced in a comment) —
+  the lock-free deques rely on hand-proof + stress tests.
+
 ## Round 12 (2026-06-23) — deferred items from round 11 completed
 
 All seven round-11 deferred items implemented, each with documentation and

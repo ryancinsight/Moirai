@@ -1,7 +1,14 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Hard ceiling on retained audit events. The time-based `audit_retention`
+/// window defaults to days/weeks, so under a sustained spawn rate a purely
+/// time-bounded buffer would grow to millions of entries before eviction. This
+/// count cap bounds memory regardless of the retention window; the oldest events
+/// (front of the deque) are dropped first.
+pub(crate) const MAX_AUDIT_EVENTS: usize = 16_384;
 
 use super::config::{
     SecurityConfig, SecurityEvent, DEFAULT_RATE_LIMITER_WINDOWS, MAX_REPRESENTABLE_UNIX_NANOS,
@@ -13,7 +20,7 @@ use crate::{error::ExecutorError, Priority, TaskId};
 #[allow(clippy::module_name_repetitions)]
 pub struct SecurityAuditor {
     config: SecurityConfig,
-    events: Arc<Mutex<Vec<SecurityEvent>>>,
+    events: Arc<Mutex<VecDeque<SecurityEvent>>>,
     task_spawn_limiter: SlidingWindowRateLimiter,
     memory_allocations: Arc<Mutex<HashMap<String, usize>>>,
     enabled: AtomicBool,
@@ -37,7 +44,7 @@ impl SecurityAuditor {
             ),
             memory_allocations: Arc::new(Mutex::new(HashMap::new())),
             config,
-            events: Arc::new(Mutex::new(Vec::new())),
+            events: Arc::new(Mutex::new(VecDeque::new())),
             enabled: AtomicBool::new(true),
             last_report_unix_ns: AtomicU64::new(0),
         }
@@ -178,22 +185,31 @@ impl SecurityAuditor {
         });
     }
 
-    /// Record a security event with automatic cleanup.
+    /// Record a security event with bounded, amortized-O(1) cleanup.
     fn record_event(&self, event: SecurityEvent) {
         if let Ok(mut events) = self.events.lock() {
-            events.push(event);
+            events.push_back(event);
 
-            // Clean up old events based on retention policy
-            let cutoff = SystemTime::now() - self.config.audit_retention;
-            events.retain(|event| {
-                let timestamp = match event {
-                    SecurityEvent::TaskSpawn { timestamp, .. }
-                    | SecurityEvent::MemoryAnomalous { timestamp, .. }
-                    | SecurityEvent::RaceCondition { timestamp, .. }
-                    | SecurityEvent::ResourceExhaustion { timestamp, .. } => *timestamp,
-                };
-                timestamp > cutoff
-            });
+            // Hard memory bound: drop the oldest (front) beyond the count cap.
+            while events.len() > MAX_AUDIT_EVENTS {
+                events.pop_front();
+            }
+
+            // Time-based eviction. Events are appended in (approximately)
+            // timestamp order, so expired ones cluster at the front; pop them
+            // instead of scanning the whole buffer on every insert (the prior
+            // `retain` was O(n) per call -> O(n^2) under a spawn storm, all while
+            // holding this mutex). `checked_sub` avoids a panic if the system
+            // clock is set absurdly close to the epoch.
+            if let Some(cutoff) = SystemTime::now().checked_sub(self.config.audit_retention) {
+                while let Some(front) = events.front() {
+                    if event_timestamp(front) <= cutoff {
+                        events.pop_front();
+                    } else {
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -203,7 +219,7 @@ impl SecurityAuditor {
     #[must_use]
     pub fn get_events(&self) -> Vec<SecurityEvent> {
         match self.events.lock() {
-            Ok(events) => events.clone(),
+            Ok(events) => events.iter().cloned().collect(),
             Err(_) => {
                 // Lock is poisoned, return empty vector to maintain stability
                 Vec::new()
@@ -259,6 +275,15 @@ impl SecurityAuditor {
                 return UNIX_EPOCH + Duration::from_nanos(next);
             }
         }
+    }
+}
+
+fn event_timestamp(event: &SecurityEvent) -> SystemTime {
+    match event {
+        SecurityEvent::TaskSpawn { timestamp, .. }
+        | SecurityEvent::MemoryAnomalous { timestamp, .. }
+        | SecurityEvent::RaceCondition { timestamp, .. }
+        | SecurityEvent::ResourceExhaustion { timestamp, .. } => *timestamp,
     }
 }
 

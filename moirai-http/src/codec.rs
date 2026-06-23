@@ -5,6 +5,13 @@ use std::io;
 
 use moirai_async::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+/// Default ceiling on the total bytes buffered while parsing one response
+/// (status line + headers + body). A response — or a malicious/compromised peer
+/// trickling bytes — that exceeds this is rejected rather than allowed to drive
+/// unbounded allocation. Matches the transport-layer frame cap (16 MiB) scaled
+/// up for whole HTTP responses.
+pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+
 /// A parsed HTTP response.
 #[derive(Debug, Clone)]
 pub struct Response {
@@ -76,14 +83,19 @@ struct Buffered<'a, S> {
     stream: &'a mut S,
     buf: Vec<u8>,
     pos: usize,
+    /// Hard ceiling on `buf.len()`. Every read funnels through `fill`, so this is
+    /// the single chokepoint bounding total allocation regardless of which body
+    /// framing (Content-Length, chunked, EOF) or header stream a peer sends.
+    limit: usize,
 }
 
 impl<'a, S: AsyncReadExt + Unpin> Buffered<'a, S> {
-    fn new(stream: &'a mut S) -> Self {
+    fn new(stream: &'a mut S, limit: usize) -> Self {
         Self {
             stream,
-            buf: Vec::with_capacity(8192),
+            buf: Vec::with_capacity(8192.min(limit.max(1))),
             pos: 0,
+            limit,
         }
     }
 
@@ -92,10 +104,26 @@ impl<'a, S: AsyncReadExt + Unpin> Buffered<'a, S> {
     }
 
     /// Read more bytes from the stream into the buffer. Returns bytes read (0 = EOF).
+    ///
+    /// Enforces the response-size budget: a peer cannot grow `buf` past `limit`
+    /// by trickling bytes (slowloris) or by advertising a huge Content-Length /
+    /// chunk size, since every byte the parser buffers passes through here.
     async fn fill(&mut self) -> io::Result<usize> {
+        if self.buf.len() >= self.limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "response exceeds maximum size",
+            ));
+        }
         let mut tmp = [0u8; 8192];
         let n = self.stream.read(&mut tmp).await?;
         self.buf.extend_from_slice(&tmp[..n]);
+        if self.buf.len() > self.limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "response exceeds maximum size",
+            ));
+        }
         Ok(n)
     }
 
@@ -167,8 +195,9 @@ impl<'a, S: AsyncReadExt + Unpin> Buffered<'a, S> {
 pub async fn read_response<S: AsyncReadExt + Unpin>(
     stream: &mut S,
     is_head: bool,
+    max_response_bytes: usize,
 ) -> io::Result<Response> {
-    let mut r = Buffered::new(stream);
+    let mut r = Buffered::new(stream, max_response_bytes);
 
     // Read until the header block is complete.
     let (status, headers) = loop {
@@ -227,6 +256,14 @@ pub async fn read_response<S: AsyncReadExt + Unpin>(
     } else if chunked {
         (r.read_chunked().await?, true)
     } else if let Some(len) = content_length {
+        // Reject an oversized advertised length up front with a clear error,
+        // rather than reading until `fill` trips the buffer ceiling.
+        if len > max_response_bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Content-Length exceeds maximum response size",
+            ));
+        }
         (r.read_n(len).await?, true)
     } else {
         // No framing: body runs to EOF; the connection cannot be reused.
@@ -250,4 +287,89 @@ fn eof(what: &str) -> io::Error {
         io::ErrorKind::UnexpectedEof,
         format!("connection closed while reading {what}"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    use moirai_async::io::AsyncRead;
+
+    /// In-memory reader that yields a fixed byte script, then EOF. Never returns
+    /// `Pending`, so the response future resolves on a single poll.
+    struct MockReader {
+        data: Vec<u8>,
+        pos: usize,
+    }
+
+    impl MockReader {
+        fn new(data: Vec<u8>) -> Self {
+            Self { data, pos: 0 }
+        }
+    }
+
+    impl AsyncRead for MockReader {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &mut [u8],
+        ) -> Poll<io::Result<usize>> {
+            let remaining = self.data.len() - self.pos;
+            let n = remaining.min(buf.len());
+            buf[..n].copy_from_slice(&self.data[self.pos..self.pos + n]);
+            self.pos += n;
+            Poll::Ready(Ok(n))
+        }
+    }
+
+    fn read(data: Vec<u8>, max: usize) -> io::Result<Response> {
+        moirai::block_on(read_response(&mut MockReader::new(data), false, max))
+    }
+
+    #[test]
+    fn oversized_content_length_is_rejected_up_front() {
+        // A peer advertises a body far larger than the cap; the body is never
+        // actually sent. The upfront check must reject without reading it.
+        let resp = b"HTTP/1.1 200 OK\r\nContent-Length: 999999999\r\n\r\n".to_vec();
+        let err = read(resp, 4096).expect_err("oversized Content-Length must be rejected");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn eof_delimited_body_over_limit_is_rejected() {
+        // No Content-Length and no chunked framing => read-to-EOF. A body larger
+        // than the cap must trip the buffer ceiling rather than allocate it all.
+        let mut resp = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+        resp.extend(std::iter::repeat(b'x').take(64 * 1024));
+        let err = read(resp, 8 * 1024).expect_err("EOF body over the cap must be rejected");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn chunked_body_over_limit_is_rejected() {
+        // Cumulative chunked decoding must be bounded: many chunks summing past
+        // the cap are rejected, not accumulated without limit.
+        let mut resp = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+        for _ in 0..64 {
+            resp.extend_from_slice(b"1000\r\n"); // 0x1000 = 4096-byte chunk
+            resp.extend(std::iter::repeat(b'y').take(0x1000));
+            resp.extend_from_slice(b"\r\n");
+        }
+        resp.extend_from_slice(b"0\r\n\r\n");
+        let err = read(resp, 16 * 1024).expect_err("chunked body over the cap must be rejected");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn well_framed_response_under_limit_parses() {
+        // Control: a legitimate small response within the budget parses cleanly,
+        // proving the cap does not reject valid traffic.
+        let resp = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello".to_vec();
+        let parsed = read(resp, 64 * 1024).expect("valid response must parse");
+        assert_eq!(parsed.status, 200);
+        assert_eq!(parsed.body, b"hello");
+        assert_eq!(parsed.header("content-length"), Some("5"));
+    }
 }
