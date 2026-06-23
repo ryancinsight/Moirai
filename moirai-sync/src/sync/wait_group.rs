@@ -47,8 +47,17 @@ impl WaitGroup {
     /// Wait for the counter to reach zero.
     pub fn wait(&self) {
         let gen = self.generation.load(Ordering::Acquire);
+        let mut backoff: usize = 1;
         while self.counter.load(Ordering::Acquire) > 0 {
-            hint::spin_loop();
+            for _ in 0..backoff {
+                hint::spin_loop();
+            }
+            if backoff < 64 {
+                backoff = backoff.saturating_mul(2);
+            } else {
+                std::thread::yield_now();
+                backoff = 1;
+            }
             if self.generation.load(Ordering::Acquire) != gen {
                 break;
             }
