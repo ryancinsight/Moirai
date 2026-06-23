@@ -149,6 +149,9 @@ mod tests {
         }
 
         assert_eq!(executed, 10);
-        assert_eq!(sum.load(Ordering::Relaxed), (0..10).map(|i| i * 2).sum::<usize>());
+        assert_eq!(
+            sum.load(Ordering::Relaxed),
+            (0..10).map(|i| i * 2).sum::<usize>()
+        );
     }
 }

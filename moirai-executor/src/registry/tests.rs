@@ -3,8 +3,8 @@
 mod tests {
     use std::time::Duration;
 
-    use super::super::state::TASK_STATE_BLOCK_SIZE;
     use super::super::registry::TaskRegistry;
+    use super::super::state::TASK_STATE_BLOCK_SIZE;
 
     #[test]
     fn lifecycle_token_records_started_and_completed_metadata() {

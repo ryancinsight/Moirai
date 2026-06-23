@@ -580,7 +580,7 @@ impl Task for DummyTask {
 #[test]
 fn test_numa_scheduler_worker_id_tracking() {
     use super::scheduler::{current_worker_id, set_current_worker_id};
-    
+
     // Set worker ID on main thread
     set_current_worker_id(42);
     assert_eq!(current_worker_id(), 42);

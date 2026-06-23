@@ -28,8 +28,8 @@ use crate::{
 
 mod async_state;
 pub(crate) mod control;
-pub(crate) mod spawner;
 pub(crate) mod manager;
+pub(crate) mod spawner;
 #[cfg(test)]
 mod tests;
 

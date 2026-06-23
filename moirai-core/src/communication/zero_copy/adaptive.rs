@@ -364,4 +364,3 @@ mod tests {
         assert_eq!(threshold.current(), 3);
     }
 }
-

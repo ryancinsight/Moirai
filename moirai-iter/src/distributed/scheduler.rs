@@ -1,9 +1,9 @@
+use super::balancer::LoadBalancer;
+use super::config::{NodeCapability, NodeConfig};
+use super::iter::{partition_owned_by_key, partition_owned_by_sizes, uniform_partition_sizes};
+use super::DistributedError;
 use std::collections::HashMap;
 use std::time::Duration;
-use super::config::{NodeConfig, NodeCapability};
-use super::balancer::LoadBalancer;
-use super::DistributedError;
-use super::iter::{partition_owned_by_key, partition_owned_by_sizes, uniform_partition_sizes};
 
 /// Distributed task representation
 #[derive(Debug)]
@@ -69,7 +69,11 @@ impl DistributedScheduler {
         results
     }
 
-    pub(super) fn calculate_optimal_partitions(&self, nodes: &[NodeConfig], total_items: usize) -> Vec<usize> {
+    pub(super) fn calculate_optimal_partitions(
+        &self,
+        nodes: &[NodeConfig],
+        total_items: usize,
+    ) -> Vec<usize> {
         if nodes.is_empty() {
             return Vec::new();
         }
@@ -97,7 +101,11 @@ impl DistributedScheduler {
         sizes
     }
 
-    pub(super) async fn create_map_tasks<T, F, R>(&self, data: Vec<T>, _map_func: F) -> Vec<DistributedTask>
+    pub(super) async fn create_map_tasks<T, F, R>(
+        &self,
+        data: Vec<T>,
+        _map_func: F,
+    ) -> Vec<DistributedTask>
     where
         T: Send + 'static,
         F: Fn(T) -> R + Send + Sync + 'static,

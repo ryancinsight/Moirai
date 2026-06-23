@@ -19,6 +19,6 @@ pub use moirai_core::pool::LockFreeStack;
 
 // Re-export sync submodule items directly at crate root
 pub use self::sync::{
-    AtomicCounter, ConcurrentHashMap, FutexMutex, FutexMutexGuard, SpinLock, SpinLockGuard,
-    WaitGroup, SizeBounded, ShardedResourcePool,
+    AtomicCounter, ConcurrentHashMap, FutexMutex, FutexMutexGuard, ShardedResourcePool,
+    SizeBounded, SpinLock, SpinLockGuard, WaitGroup,
 };

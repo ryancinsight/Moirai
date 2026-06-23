@@ -1,10 +1,10 @@
 //! Parallel execution context.
 
-use std::sync::Arc;
-use std::fmt::Debug;
-use crate::base::ThreadPool;
 use super::base::ExecutionBase;
 use super::hybrid::owned_chunks;
+use crate::base::ThreadPool;
+use std::fmt::Debug;
+use std::sync::Arc;
 
 /// Parallel execution context for CPU-bound work
 #[derive(Clone)]

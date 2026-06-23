@@ -4,13 +4,13 @@
 //! zero-copy buffer ownership, zero-cost extension futures, and
 //! monomorphization goals.
 
-pub mod traits;
-pub mod ext;
 pub mod compat;
+pub mod ext;
+pub mod traits;
 
-pub use traits::{AsyncRead, AsyncWrite, AsyncBufRead};
-pub use ext::{AsyncReadExt, Read, ReadExact, AsyncWriteExt, Write, WriteAll, Flush, Shutdown};
-pub use compat::{TokioCompat, MoiraiCompat};
+pub use compat::{MoiraiCompat, TokioCompat};
+pub use ext::{AsyncReadExt, AsyncWriteExt, Flush, Read, ReadExact, Shutdown, Write, WriteAll};
+pub use traits::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 #[cfg(test)]
 mod tests;

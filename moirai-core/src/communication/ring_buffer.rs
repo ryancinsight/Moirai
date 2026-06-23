@@ -1,7 +1,7 @@
+use moirai_utils::cache::CachePadded;
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use moirai_utils::cache::CachePadded;
 
 /// Zero-copy ring buffer for high-throughput streaming
 ///

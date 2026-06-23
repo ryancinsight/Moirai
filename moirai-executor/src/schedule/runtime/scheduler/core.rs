@@ -1,14 +1,14 @@
 //! ThreadScheduler core implementation.
 
 use std::{
+    marker::PhantomData,
+    panic::{catch_unwind, AssertUnwindSafe},
+    ptr::NonNull,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
     thread,
-    panic::{catch_unwind, AssertUnwindSafe},
-    marker::PhantomData,
-    ptr::NonNull,
 };
 
 use moirai_core::{
@@ -282,7 +282,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
 
         let state = Arc::new(SchedulerScopeState::new());
-        let slots = Arc::new(super::super::super::reduce::ReduceSlots::new(chunk_count - 1));
+        let slots = Arc::new(super::super::super::reduce::ReduceSlots::new(
+            chunk_count - 1,
+        ));
         let map = &map;
         let reduce = &reduce;
         let mut schedule_result = Ok(());

@@ -161,4 +161,3 @@ mod tests {
         assert_eq!(metrics.success_rate(), 50.0);
     }
 }
-

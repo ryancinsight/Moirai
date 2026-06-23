@@ -1,13 +1,13 @@
 //! Core implementation of the adaptive UnifiedChannel.
 
 use std::collections::VecDeque;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Mutex;
 
-use crate::memory::UnifiedRingBuffer;
 use super::config::ChannelConfig;
 use super::error::UnifiedChannelError;
-use super::stats::{ChannelStats, ChannelStatistics};
+use super::stats::{ChannelStatistics, ChannelStats};
+use crate::memory::UnifiedRingBuffer;
 
 /// Unified channel that adapts to different usage patterns
 pub struct UnifiedChannel<T> {
@@ -71,7 +71,7 @@ impl<T> UnifiedChannel<T> {
 
         // Fallback: lock overflow queue
         let mut overflow = self.overflow_queue.lock().unwrap();
-        
+
         // Recheck if we can drain first (in case space opened up)
         self.drain_locked(&mut overflow);
 

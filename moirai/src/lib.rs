@@ -305,18 +305,18 @@ pub use moirai_parallel::*;
 pub use moirai_parallel::melinoe_ext::*;
 
 // Submodules
-mod runtime;
 mod builder;
 mod global;
 /// Convenience functions for common operations.
 ///
 /// Common imports for Moirai users.
 pub mod prelude;
+mod runtime;
 
 #[cfg(test)]
 mod tests;
 
 // Facade re-exports
-pub use runtime::Moirai;
 pub use builder::MoiraiBuilder;
-pub use global::{global, spawn_async, spawn_fn, block_on};
+pub use global::{block_on, global, spawn_async, spawn_fn};
+pub use runtime::Moirai;

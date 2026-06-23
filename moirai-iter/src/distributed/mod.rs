@@ -1,21 +1,21 @@
 #![allow(dead_code)]
 
-pub mod config;
 pub mod balancer;
+pub mod config;
+pub mod context;
 pub mod failure;
 pub mod iter;
 pub mod scheduler;
-pub mod context;
 
 #[cfg(test)]
 mod tests;
 
-pub use config::{NodeConfig, GpuConfig, GpuSpecialization, LatencyProfile, NodeCapability};
 pub use balancer::LoadBalancer;
-pub use failure::{FailureHandler, RetryConfig, BackoffStrategy};
+pub use config::{GpuConfig, GpuSpecialization, LatencyProfile, NodeCapability, NodeConfig};
+pub use context::DistributedContext;
+pub use failure::{BackoffStrategy, FailureHandler, RetryConfig};
 pub use iter::{DistributedIterator, DistributedStats};
 pub use scheduler::{DistributedScheduler, DistributedTask, TaskPerformance};
-pub use context::DistributedContext;
 
 /// Errors that can occur during distributed processing
 #[derive(Debug, thiserror::Error)]

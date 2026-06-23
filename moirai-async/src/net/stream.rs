@@ -1,12 +1,12 @@
+use moirai_pal::net::AsyncTcpStream;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use moirai_pal::net::AsyncTcpStream;
 
 use crate::io::{AsyncRead, AsyncWrite};
-use crate::net::types::{ServerStats, ConnectionPool};
+use crate::net::types::{ConnectionPool, ServerStats};
 
 /// Native async TCP stream with statistics tracking
 pub struct TcpStream {

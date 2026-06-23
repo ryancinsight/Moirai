@@ -1,7 +1,10 @@
-use super::chase_lev::{ChaseLevDeque, StealResult};
 use super::block_based::BlockBasedDeque;
+use super::chase_lev::{ChaseLevDeque, StealResult};
+use super::reclaim::{
+    DequeReclaimState, QuiescentAccessGuard, QuiescentReclaim, QuiescentState, SharedEpochReclaim,
+    SharedEpochState,
+};
 use super::split::SplitDeque;
-use super::reclaim::{QuiescentReclaim, QuiescentState, QuiescentAccessGuard, SharedEpochReclaim, SharedEpochState, DequeReclaimState};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 

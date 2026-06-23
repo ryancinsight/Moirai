@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::task::Waker;
-use std::sync::Arc;
 
 pub(super) struct TimerRegistration {
     waker: Mutex<Option<Waker>>,

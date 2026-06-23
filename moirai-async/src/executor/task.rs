@@ -1,10 +1,10 @@
+use moirai_core::{Priority, TaskId};
 use std::future::Future;
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicBool;
 use std::task::{Context, Poll};
 use std::time::Instant;
-use moirai_core::{Priority, TaskId};
 
 #[allow(dead_code)]
 pub(super) struct AsyncTask {

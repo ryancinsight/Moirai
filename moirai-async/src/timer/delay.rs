@@ -1,11 +1,11 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use std::sync::Arc;
 
-use crate::timer::registration::TimerRegistration;
 use crate::timer::driver::timer_driver;
+use crate::timer::registration::TimerRegistration;
 
 /// A future that completes after a specified duration
 pub struct Delay {

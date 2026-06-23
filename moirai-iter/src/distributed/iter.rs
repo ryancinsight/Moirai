@@ -1,7 +1,7 @@
-use std::time::Duration;
-use super::context::DistributedContext;
 use super::config::NodeConfig;
+use super::context::DistributedContext;
 use super::DistributedError;
+use std::time::Duration;
 
 const LOCAL_TASK_ESTIMATE_SECS: f64 = 0.000_1;
 const ESTIMATED_TASK_BYTES: f64 = 64.0;

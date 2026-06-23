@@ -190,11 +190,7 @@ impl<T: Clone> BroadcastReceiver<T> {
             if state.closed {
                 return Poll::Ready(Err(BroadcastError::Closed));
             }
-            if let Some(receiver_state) = state
-                .receivers
-                .iter_mut()
-                .find(|r| r.id == self.id)
-            {
+            if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.id) {
                 receiver_state.waker = Some(cx.waker().clone());
             }
             return Poll::Pending;
@@ -222,11 +218,7 @@ impl<T: Clone> BroadcastReceiver<T> {
         } else if state.closed {
             Poll::Ready(Err(BroadcastError::Closed))
         } else {
-            if let Some(receiver_state) = state
-                .receivers
-                .iter_mut()
-                .find(|r| r.id == self.id)
-            {
+            if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.id) {
                 receiver_state.waker = Some(cx.waker().clone());
             }
             Poll::Pending

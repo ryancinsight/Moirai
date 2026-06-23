@@ -1,7 +1,7 @@
+use crate::channel::{mpmc, ChannelError, MpmcReceiver, MpmcSender};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, RwLock};
-use crate::channel::{mpmc, ChannelError, MpmcReceiver, MpmcSender};
 
 /// Topic-based publish/subscribe system built on channels
 pub struct PubSub<K: Hash + Eq + Clone, V: Clone + Send + 'static> {

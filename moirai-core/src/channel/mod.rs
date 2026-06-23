@@ -64,14 +64,17 @@ mod tests {
     fn test_hybrid_channel_async() {
         use std::future::Future;
         use std::pin::Pin;
-        use std::task::{Context, Poll, Waker, RawWaker, RawWakerVTable};
+        use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
         fn dummy_raw_waker() -> RawWaker {
-            fn clone_raw(_: *const ()) -> RawWaker { dummy_raw_waker() }
+            fn clone_raw(_: *const ()) -> RawWaker {
+                dummy_raw_waker()
+            }
             fn wake_raw(_: *const ()) {}
             fn wake_by_ref_raw(_: *const ()) {}
             fn drop_raw(_: *const ()) {}
-            static VTABLE: RawWakerVTable = RawWakerVTable::new(clone_raw, wake_raw, wake_by_ref_raw, drop_raw);
+            static VTABLE: RawWakerVTable =
+                RawWakerVTable::new(clone_raw, wake_raw, wake_by_ref_raw, drop_raw);
             RawWaker::new(std::ptr::null(), &VTABLE)
         }
 
@@ -82,13 +85,19 @@ mod tests {
         let mut cx = Context::from_waker(&waker);
 
         // First poll: empty channel -> Poll::Pending
-        assert!(matches!(Pin::new(&mut recv_fut).poll(&mut cx), Poll::Pending));
+        assert!(matches!(
+            Pin::new(&mut recv_fut).poll(&mut cx),
+            Poll::Pending
+        ));
 
         // Send value
         tx.send(100).unwrap();
 
         // Second poll: has value -> Poll::Ready(Ok(100))
-        assert!(matches!(Pin::new(&mut recv_fut).poll(&mut cx), Poll::Ready(Ok(100))));
+        assert!(matches!(
+            Pin::new(&mut recv_fut).poll(&mut cx),
+            Poll::Ready(Ok(100))
+        ));
     }
 
     #[test]
@@ -409,9 +418,7 @@ mod tests {
     #[test]
     fn test_hybrid_drop_sender() {
         let (tx, rx) = HybridChannel::<i32>::new(2);
-        let rx_thread = std::thread::spawn(move || {
-            rx.recv()
-        });
+        let rx_thread = std::thread::spawn(move || rx.recv());
 
         std::thread::sleep(std::time::Duration::from_millis(50));
         std::mem::drop(tx);

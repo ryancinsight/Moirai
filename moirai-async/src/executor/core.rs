@@ -1,10 +1,10 @@
+use moirai_core::{Priority, TaskId};
+use moirai_pal::reactor::IoReactor;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Waker};
 use std::time::Instant;
-use moirai_core::{Priority, TaskId};
-use moirai_pal::reactor::IoReactor;
 
 use crate::executor::handle::AsyncHandle;
 use crate::executor::result_slot::AsyncResultSlot;
@@ -201,9 +201,7 @@ mod tests {
     fn test_task_spawning() {
         let executor = AsyncExecutor::new().unwrap();
 
-        let _handle = executor.spawn(async {
-            42
-        });
+        let _handle = executor.spawn(async { 42 });
 
         let stats = executor.stats();
         assert_eq!(stats.tasks_spawned, 1);

@@ -276,14 +276,12 @@ impl WorkStealingCoordinator {
             WorkStealingStrategy::LocalityAware { max_attempts, .. } => {
                 self.locality_aware_steal(idle_scheduler, all_schedulers, *max_attempts)
             }
-            WorkStealingStrategy::Adaptive { base_strategy, .. } => {
-                match base_strategy.as_ref() {
-                    WorkStealingStrategy::Random { max_attempts } => {
-                        self.random_steal(idle_scheduler, all_schedulers, *max_attempts)
-                    }
-                    _ => None,
+            WorkStealingStrategy::Adaptive { base_strategy, .. } => match base_strategy.as_ref() {
+                WorkStealingStrategy::Random { max_attempts } => {
+                    self.random_steal(idle_scheduler, all_schedulers, *max_attempts)
                 }
-            }
+                _ => None,
+            },
         }
     }
 
@@ -403,7 +401,8 @@ impl WorkStealingCoordinator {
 
                 let load = scheduler.load();
                 if load > 0 {
-                    let distance = ((scheduler.id().get() as i32) - (idle_id as i32)).abs() as usize;
+                    let distance =
+                        ((scheduler.id().get() as i32) - (idle_id as i32)).abs() as usize;
                     if distance < min_distance {
                         min_distance = distance;
                         best_idx = Some(idx);

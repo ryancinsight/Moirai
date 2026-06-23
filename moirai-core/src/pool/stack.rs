@@ -61,9 +61,7 @@ impl<T> LockFreeStack<T> {
                 next: AtomicU32::new(i as u32 + 1),
             });
         }
-        nodes[capacity - 1]
-            .next
-            .store(SENTINEL, Ordering::Relaxed);
+        nodes[capacity - 1].next.store(SENTINEL, Ordering::Relaxed);
 
         Self {
             nodes: nodes.into_boxed_slice(),

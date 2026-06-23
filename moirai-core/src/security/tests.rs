@@ -1,7 +1,7 @@
+use super::auditor::SecurityAuditor;
 use super::config::{SecurityConfig, SecurityLevel};
 use super::limiter::SlidingWindowRateLimiter;
-use super::auditor::SecurityAuditor;
-use crate::{TaskId, Priority, error::ExecutorError};
+use crate::{error::ExecutorError, Priority, TaskId};
 
 #[test]
 fn test_security_config_defaults() {

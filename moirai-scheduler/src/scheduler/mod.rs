@@ -5,4 +5,6 @@ mod core;
 #[cfg(test)]
 mod tests;
 
-pub use core::{SchedulerStats, SchedulerStatsSnapshot, WorkStealingCoordinator, WorkStealingScheduler};
+pub use core::{
+    SchedulerStats, SchedulerStatsSnapshot, WorkStealingCoordinator, WorkStealingScheduler,
+};

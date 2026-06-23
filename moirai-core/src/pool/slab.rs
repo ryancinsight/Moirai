@@ -1,5 +1,5 @@
-use crate::platform::*;
 use super::stack::CachePadded;
+use crate::platform::*;
 
 #[cfg(target_pointer_width = "64")]
 mod pack {
@@ -98,7 +98,12 @@ impl<T> SlabAllocator<T> {
             // Try to claim this slot
             if self
                 .next_free
-                .compare_exchange_weak(packed_free, new_packed, Ordering::Release, Ordering::Relaxed)
+                .compare_exchange_weak(
+                    packed_free,
+                    new_packed,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                )
                 .is_ok()
             {
                 // Successfully claimed the slot
@@ -147,7 +152,12 @@ impl<T> SlabAllocator<T> {
 
             if self
                 .next_free
-                .compare_exchange_weak(packed_free, new_packed, Ordering::Release, Ordering::Relaxed)
+                .compare_exchange_weak(
+                    packed_free,
+                    new_packed,
+                    Ordering::Release,
+                    Ordering::Relaxed,
+                )
                 .is_ok()
             {
                 break;

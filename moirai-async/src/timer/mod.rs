@@ -3,17 +3,17 @@
 //! Following SLAP principle with focused responsibility on time-based async operations.
 
 pub mod delay;
-pub(super) mod registration;
 pub(super) mod driver;
-pub mod timeout;
 pub mod interval;
 pub mod limiter;
+pub(super) mod registration;
+pub mod timeout;
 pub mod wheel;
 
 pub use delay::Delay;
-pub use timeout::{Timeout, TimeoutError};
 pub use interval::Interval;
 pub use limiter::{RateLimiter, RatePermit};
+pub use timeout::{Timeout, TimeoutError};
 pub use wheel::{TimerCommand, TimerWheel};
 
 use std::future::Future;

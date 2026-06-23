@@ -1,9 +1,9 @@
+use moirai_pal::net::AsyncUdpSocket;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use moirai_pal::net::AsyncUdpSocket;
 
-use crate::net::types::{UdpConfig, UdpStats, UdpSocketStats};
+use crate::net::types::{UdpConfig, UdpSocketStats, UdpStats};
 
 /// Native async UDP socket
 pub struct UdpSocket {

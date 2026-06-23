@@ -311,7 +311,9 @@ fn test_sharded_resource_pool_steals_from_other_shards() {
     // Thread 2 pops the item (forcing a cross-shard steal)
     let pool_clone = pool.clone();
     let handle2 = thread::spawn(move || {
-        let res = pool_clone.take_at_least(256).expect("should steal resource");
+        let res = pool_clone
+            .take_at_least(256)
+            .expect("should steal resource");
         assert_eq!(res.id, 42);
     });
     handle2.join().unwrap();
@@ -341,7 +343,9 @@ fn test_concurrent_hashmap_get_or_insert_with() {
     for i in 0..10 {
         let map = map.clone();
         handles.push(thread::spawn(move || {
-            let val = map.get_or_insert_with("shared_key".to_string(), || i).unwrap();
+            let val = map
+                .get_or_insert_with("shared_key".to_string(), || i)
+                .unwrap();
             // All threads should resolve to the same value (the first thread that gets write lock)
             assert!((0..10).contains(&val));
             val

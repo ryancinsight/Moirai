@@ -1,5 +1,5 @@
-use crate::platform::*;
 use super::stack::LockFreeStack;
+use crate::platform::*;
 
 /// Global object pool for cross-thread sharing.
 ///

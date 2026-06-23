@@ -1,11 +1,11 @@
 //! Unit tests for execution contexts.
 
-use super::hybrid::owned_chunks;
 use super::async_ctx::AsyncContext;
 use super::base::ExecutionContext;
+use super::hybrid::owned_chunks;
 use super::parallel::ParallelContext;
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, PartialEq)]
 struct NonClone(u64);
@@ -62,7 +62,12 @@ async fn async_context_map_runs_bounded_concurrently_and_preserves_order() {
                 let active = active_count.fetch_add(1, Ordering::SeqCst) + 1;
                 let mut current = max_observed.load(Ordering::SeqCst);
                 while active > current {
-                    match max_observed.compare_exchange_weak(current, active, Ordering::SeqCst, Ordering::SeqCst) {
+                    match max_observed.compare_exchange_weak(
+                        current,
+                        active,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    ) {
                         Ok(_) => break,
                         Err(actual) => current = actual,
                     }

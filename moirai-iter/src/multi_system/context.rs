@@ -1,15 +1,15 @@
-use std::sync::{Arc, Mutex};
+use super::allocation::ComputeAllocation;
 use super::config::SystemConfig;
-use super::scheduler::UnifiedScheduler;
-use super::resource::ResourceManager;
+use super::iter::{map_owned_compute, split_owned_by_ratio};
 use super::optimizer::TopologyOptimizer;
 use super::profile::{
-    DataProfile, ComputeIntensity, MemoryAccessPattern, ParallelizabilityScore, GpuSuitabilityScore,
+    ComputeIntensity, DataProfile, GpuSuitabilityScore, MemoryAccessPattern, ParallelizabilityScore,
 };
-use super::allocation::ComputeAllocation;
+use super::resource::ResourceManager;
+use super::scheduler::UnifiedScheduler;
 use super::MultiSystemError;
-use super::iter::{split_owned_by_ratio, map_owned_compute};
 use crate::MoiraiIterator;
+use std::sync::{Arc, Mutex};
 
 /// Multi-system execution context
 #[derive(Clone)]

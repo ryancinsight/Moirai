@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::time::Duration;
 use super::scheduler::DistributedTask;
 use super::DistributedError;
+use std::collections::HashMap;
+use std::time::Duration;
 
 /// Failure handler for distributed execution
 pub struct FailureHandler {

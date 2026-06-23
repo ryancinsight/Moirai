@@ -1,11 +1,11 @@
 use crate::{MoiraiBuilder, MoiraiScope};
+#[cfg(feature = "metrics")]
+use moirai_core::executor::Executor;
 use moirai_core::{
     error::*,
     executor::{ExecutorControl, TaskSpawner},
     Priority, Task, TaskBuilder, TaskHandle,
 };
-#[cfg(feature = "metrics")]
-use moirai_core::executor::Executor;
 use moirai_executor::{BlockingTask, HybridExecutor};
 use std::{future::Future, sync::Arc, time::Duration};
 

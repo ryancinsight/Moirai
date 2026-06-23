@@ -8,7 +8,7 @@ use crate::communication::RingBuffer;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
@@ -496,20 +496,23 @@ impl<T> Drop for RecvFuture<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::task::{Context, Poll};
     use std::future::Future;
     use std::pin::Pin;
+    use std::task::{Context, Poll};
 
     #[test]
     fn test_recv_future_waker_cleanup_on_drop() {
-        use std::task::{Waker, RawWaker, RawWakerVTable};
+        use std::task::{RawWaker, RawWakerVTable, Waker};
 
         fn dummy_raw_waker() -> RawWaker {
-            fn clone_raw(_: *const ()) -> RawWaker { dummy_raw_waker() }
+            fn clone_raw(_: *const ()) -> RawWaker {
+                dummy_raw_waker()
+            }
             fn wake_raw(_: *const ()) {}
             fn wake_by_ref_raw(_: *const ()) {}
             fn drop_raw(_: *const ()) {}
-            static VTABLE: RawWakerVTable = RawWakerVTable::new(clone_raw, wake_raw, wake_by_ref_raw, drop_raw);
+            static VTABLE: RawWakerVTable =
+                RawWakerVTable::new(clone_raw, wake_raw, wake_by_ref_raw, drop_raw);
             RawWaker::new(std::ptr::null(), &VTABLE)
         }
 
@@ -534,14 +537,17 @@ mod tests {
 
     #[test]
     fn test_hybrid_channel_lost_wakeup() {
-        use std::task::{Waker, RawWaker, RawWakerVTable};
+        use std::task::{RawWaker, RawWakerVTable, Waker};
 
         fn dummy_raw_waker() -> RawWaker {
-            fn clone_raw(_: *const ()) -> RawWaker { dummy_raw_waker() }
+            fn clone_raw(_: *const ()) -> RawWaker {
+                dummy_raw_waker()
+            }
             fn wake_raw(_: *const ()) {}
             fn wake_by_ref_raw(_: *const ()) {}
             fn drop_raw(_: *const ()) {}
-            static VTABLE: RawWakerVTable = RawWakerVTable::new(clone_raw, wake_raw, wake_by_ref_raw, drop_raw);
+            static VTABLE: RawWakerVTable =
+                RawWakerVTable::new(clone_raw, wake_raw, wake_by_ref_raw, drop_raw);
             RawWaker::new(std::ptr::null(), &VTABLE)
         }
 

@@ -1,9 +1,9 @@
+use crate::executor::result_slot::AsyncResultSlot;
+use moirai_core::TaskId;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use moirai_core::TaskId;
-use crate::executor::result_slot::AsyncResultSlot;
 
 /// A handle to an async task that can be awaited.
 pub struct AsyncHandle<T> {

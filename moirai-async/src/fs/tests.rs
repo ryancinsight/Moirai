@@ -1,6 +1,6 @@
 use super::*;
-use std::path::PathBuf;
 use std::io::SeekFrom;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn test_path(name: &str) -> PathBuf {

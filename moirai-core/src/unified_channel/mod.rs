@@ -2,25 +2,25 @@
 
 use std::sync::Arc;
 
-/// Error types.
-pub mod error;
 /// Config types.
 pub mod config;
-/// Stats tracking.
-pub mod stats;
 /// Core logic.
 pub mod core;
-/// Sender half.
-pub mod sender;
+/// Error types.
+pub mod error;
 /// Receiver half.
 pub mod receiver;
+/// Sender half.
+pub mod sender;
+/// Stats tracking.
+pub mod stats;
 
-pub use error::UnifiedChannelError;
 pub use config::ChannelConfig;
-pub use stats::ChannelStatistics;
 pub use core::UnifiedChannel;
-pub use sender::UnifiedSender;
+pub use error::UnifiedChannelError;
 pub use receiver::UnifiedReceiver;
+pub use sender::UnifiedSender;
+pub use stats::ChannelStatistics;
 
 /// Create a unified channel pair with default configuration
 pub fn unified_channel<T>(

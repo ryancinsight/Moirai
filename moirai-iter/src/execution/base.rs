@@ -1,11 +1,11 @@
 //! Base trait and enum for execution contexts.
 
-use std::sync::Arc;
 use futures::StreamExt;
+use std::sync::Arc;
 
-use super::parallel::ParallelContext;
 use super::async_ctx::AsyncContext;
 use super::hybrid::HybridContext;
+use super::parallel::ParallelContext;
 use crate::distributed::DistributedContext;
 use crate::multi_system::MultiSystemContext;
 

@@ -73,12 +73,7 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
     #[must_use]
     pub fn new(max_buffers: usize, max_bytes: u64) -> Self {
         Self {
-            shards: [
-                Shard::new(),
-                Shard::new(),
-                Shard::new(),
-                Shard::new(),
-            ],
+            shards: [Shard::new(), Shard::new(), Shard::new(), Shard::new()],
             shard_max_buffers: (max_buffers / 4).max(1),
             shard_max_bytes: max_bytes / 4,
         }
@@ -111,7 +106,7 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
 
         // Try local shard first
         let local_shard = &self.shards[local_idx];
-        
+
         if local_shard.retained_count.load(Ordering::Acquire) > 0
             && local_shard.retained_bytes.load(Ordering::Acquire) >= size
         {
@@ -121,7 +116,9 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
                 if let Some(pos) = guard.iter().rposition(|item| item.size() >= size) {
                     let item = guard.remove(pos).expect("element exists at pos");
                     let item_size = item.size();
-                    local_shard.retained_bytes.fetch_sub(item_size, Ordering::Release);
+                    local_shard
+                        .retained_bytes
+                        .fetch_sub(item_size, Ordering::Release);
                     local_shard.retained_count.fetch_sub(1, Ordering::Release);
                     return Some(item);
                 }
@@ -132,7 +129,9 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
                 let mut guard = local_shard.bins[b].lock();
                 if let Some(item) = guard.pop_back() {
                     let item_size = item.size();
-                    local_shard.retained_bytes.fetch_sub(item_size, Ordering::Release);
+                    local_shard
+                        .retained_bytes
+                        .fetch_sub(item_size, Ordering::Release);
                     local_shard.retained_count.fetch_sub(1, Ordering::Release);
                     return Some(item);
                 }
@@ -156,7 +155,9 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
                 if let Some(pos) = guard.iter().rposition(|item| item.size() >= size) {
                     let item = guard.remove(pos).expect("element exists at pos");
                     let item_size = item.size();
-                    other_shard.retained_bytes.fetch_sub(item_size, Ordering::Release);
+                    other_shard
+                        .retained_bytes
+                        .fetch_sub(item_size, Ordering::Release);
                     other_shard.retained_count.fetch_sub(1, Ordering::Release);
                     return Some(item);
                 }
@@ -167,7 +168,9 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
                 if let Some(mut guard) = other_shard.bins[b].try_lock() {
                     if let Some(item) = guard.pop_back() {
                         let item_size = item.size();
-                        other_shard.retained_bytes.fetch_sub(item_size, Ordering::Release);
+                        other_shard
+                            .retained_bytes
+                            .fetch_sub(item_size, Ordering::Release);
                         other_shard.retained_count.fetch_sub(1, Ordering::Release);
                         return Some(item);
                     }
@@ -194,13 +197,17 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         let mut current_bytes = local_shard.retained_bytes.load(Ordering::Acquire);
         let mut current_count = local_shard.retained_count.load(Ordering::Acquire);
 
-        while current_count >= self.shard_max_buffers || current_bytes + size > self.shard_max_bytes {
+        while current_count >= self.shard_max_buffers || current_bytes + size > self.shard_max_bytes
+        {
             let mut progress = false;
             for b in 0..64 {
                 if let Some(mut guard) = local_shard.bins[b].try_lock() {
-                    if let Some(removed) = guard.pop_front() { // Evict oldest (FIFO)
+                    if let Some(removed) = guard.pop_front() {
+                        // Evict oldest (FIFO)
                         let removed_size = removed.size();
-                        local_shard.retained_bytes.fetch_sub(removed_size, Ordering::Release);
+                        local_shard
+                            .retained_bytes
+                            .fetch_sub(removed_size, Ordering::Release);
                         local_shard.retained_count.fetch_sub(1, Ordering::Release);
                         evicted.push(removed);
                         progress = true;
@@ -219,7 +226,9 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
 
         let mut guard = local_shard.bins[bin_idx].lock();
         guard.push_back(item);
-        local_shard.retained_bytes.fetch_add(size, Ordering::Release);
+        local_shard
+            .retained_bytes
+            .fetch_add(size, Ordering::Release);
         local_shard.retained_count.fetch_add(1, Ordering::Release);
     }
 

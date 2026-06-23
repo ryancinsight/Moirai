@@ -1,7 +1,7 @@
+use crate::channel::{ChannelError, MpmcSender};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, RwLock};
-use crate::channel::{ChannelError, MpmcSender};
 
 /// Router for message-based communication patterns
 pub struct MessageRouter<K: Hash + Eq + Clone, V: Send + 'static> {

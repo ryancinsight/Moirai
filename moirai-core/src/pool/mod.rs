@@ -5,17 +5,17 @@
 //! - Lock-free stacks for thread-safe pooling
 //! - Thread-local caching for hot paths
 
-mod stack;
-mod slab;
-mod wrapper;
-mod thread_local;
 mod global;
+mod slab;
+mod stack;
+mod thread_local;
+mod wrapper;
 
 #[cfg(test)]
 mod tests;
 
-pub use stack::{LockFreeStack, CachePadded};
-pub use slab::SlabAllocator;
-pub use wrapper::TaskWrapper;
-pub use thread_local::ThreadLocalPool;
 pub use global::{GlobalPool, PoolStats, TaskPool};
+pub use slab::SlabAllocator;
+pub use stack::{CachePadded, LockFreeStack};
+pub use thread_local::ThreadLocalPool;
+pub use wrapper::TaskWrapper;

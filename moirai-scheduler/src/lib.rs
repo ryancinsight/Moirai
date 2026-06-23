@@ -57,13 +57,13 @@
 //! ```
 
 pub mod deque;
-pub mod scheduler;
 pub mod numa_scheduler;
+pub mod scheduler;
 
 pub use deque::{
-    BlockBasedDeque, ChaseLevDeque, DequeReclaimPolicy, DequeReclaimState,
-    QuiescentAccessGuard, QuiescentReclaim, QuiescentState, SharedEpochAccessGuard,
-    SharedEpochReclaim, SharedEpochState, SplitDeque, StealResult,
+    BlockBasedDeque, ChaseLevDeque, DequeReclaimPolicy, DequeReclaimState, QuiescentAccessGuard,
+    QuiescentReclaim, QuiescentState, SharedEpochAccessGuard, SharedEpochReclaim, SharedEpochState,
+    SplitDeque, StealResult,
 };
 pub use scheduler::{
     SchedulerStats, SchedulerStatsSnapshot, WorkStealingCoordinator, WorkStealingScheduler,

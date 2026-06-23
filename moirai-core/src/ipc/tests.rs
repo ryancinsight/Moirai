@@ -1,6 +1,6 @@
+use super::error::IpcError;
 use super::memory::SharedMemory;
 use super::queue::SharedQueue;
-use super::error::IpcError;
 
 #[test]
 fn test_shared_memory() {

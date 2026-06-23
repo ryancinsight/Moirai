@@ -27,7 +27,10 @@ impl<T> Block<T> {
                 std::ptr::write(&mut (*ptr).data[i], UnsafeCell::new(MaybeUninit::uninit()));
             }
             std::ptr::write(&mut (*ptr).next, AtomicPtr::new(std::ptr::null_mut()));
-            std::ptr::write(&mut (*ptr).next_retired, AtomicPtr::new(std::ptr::null_mut()));
+            std::ptr::write(
+                &mut (*ptr).next_retired,
+                AtomicPtr::new(std::ptr::null_mut()),
+            );
             std::ptr::write(&mut (*ptr).top, AtomicUsize::new(0));
             ptr
         }
@@ -76,7 +79,9 @@ impl<T> BlockBasedDeque<T> {
                 if let Some(block) = free.pop() {
                     unsafe {
                         (*block).next.store(std::ptr::null_mut(), Ordering::Relaxed);
-                        (*block).next_retired.store(std::ptr::null_mut(), Ordering::Relaxed);
+                        (*block)
+                            .next_retired
+                            .store(std::ptr::null_mut(), Ordering::Relaxed);
                         (*block).top.store(0, Ordering::Relaxed);
                     }
                     block
@@ -254,7 +259,9 @@ impl<T> BlockBasedDeque<T> {
     }
 
     pub fn reclaim_memory(&mut self) {
-        let mut curr = self.retired_head.swap(std::ptr::null_mut(), Ordering::Acquire);
+        let mut curr = self
+            .retired_head
+            .swap(std::ptr::null_mut(), Ordering::Acquire);
         let mut free = self.free_blocks.lock().unwrap();
         while !curr.is_null() {
             let next = unsafe { (*curr).next_retired.load(Ordering::Relaxed) };
@@ -301,7 +308,9 @@ impl<T> Drop for BlockBasedDeque<T> {
             curr = next;
         }
 
-        let mut curr = self.retired_head.swap(std::ptr::null_mut(), Ordering::Acquire);
+        let mut curr = self
+            .retired_head
+            .swap(std::ptr::null_mut(), Ordering::Acquire);
         while !curr.is_null() {
             let next = unsafe { (*curr).next_retired.load(Ordering::Relaxed) };
             unsafe {

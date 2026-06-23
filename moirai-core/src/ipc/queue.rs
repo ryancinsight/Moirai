@@ -15,6 +15,8 @@ pub struct SharedQueue<T> {
     capacity: usize,
 }
 
+unsafe impl<T: Send> Send for SharedQueue<T> {}
+
 #[repr(C, align(64))]
 struct QueueMetadata {
     /// Producer position, cache-line aligned

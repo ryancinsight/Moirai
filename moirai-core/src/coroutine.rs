@@ -248,13 +248,16 @@ where
 {
     type Output = Result<C::Return, TaskError>;
 
-    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let Some(coroutine) = self.coroutine.as_mut() else {
             return Poll::Ready(Err(TaskError::AlreadyCompleted));
         };
 
         match coroutine.resume() {
-            CoroutineResult::Yielded(_) => Poll::Pending,
+            CoroutineResult::Yielded(_) => {
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
             CoroutineResult::Complete(value) => {
                 self.coroutine = None;
                 Poll::Ready(Ok(value))

@@ -1,8 +1,8 @@
-use super::stack::LockFreeStack;
-use super::slab::SlabAllocator;
-use super::wrapper::TaskWrapper;
 use super::global::GlobalPool;
-use crate::{TaskId, Priority};
+use super::slab::SlabAllocator;
+use super::stack::LockFreeStack;
+use super::wrapper::TaskWrapper;
+use crate::{Priority, TaskId};
 
 #[test]
 fn test_lock_free_stack() {

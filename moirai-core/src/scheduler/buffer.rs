@@ -12,7 +12,6 @@ use alloc::alloc::{alloc, dealloc, handle_alloc_error};
 #[cfg(feature = "std")]
 use std::alloc::{alloc, dealloc, handle_alloc_error};
 
-
 pub(super) struct Buffer<T> {
     /// Capacity mask (capacity - 1 for fast modulo)
     pub(super) mask: usize,

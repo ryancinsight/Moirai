@@ -1,10 +1,10 @@
+use moirai_pal::net::AsyncTcpListener;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use moirai_pal::net::AsyncTcpListener;
 
-use crate::net::types::{TcpServerConfig, ServerStats, ConnectionPool, TcpServerStats};
 use crate::net::stream::TcpStream;
+use crate::net::types::{ConnectionPool, ServerStats, TcpServerConfig, TcpServerStats};
 
 /// Native async TCP listener with connection management
 pub struct TcpListener {

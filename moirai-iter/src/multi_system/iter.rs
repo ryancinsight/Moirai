@@ -1,6 +1,6 @@
-use std::time::Duration;
 use super::context::MultiSystemContext;
 use super::MultiSystemError;
+use std::time::Duration;
 
 /// Multi-system iterator for coordinated processing
 pub struct MultiSystemIterator<T> {

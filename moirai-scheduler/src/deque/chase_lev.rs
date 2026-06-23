@@ -267,7 +267,12 @@ where
 
         if self
             .top
-            .compare_exchange_weak(t, t.wrapping_add(n as isize), Ordering::SeqCst, Ordering::Relaxed)
+            .compare_exchange_weak(
+                t,
+                t.wrapping_add(n as isize),
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            )
             .is_ok()
         {
             let first_item = unsafe { items[0].assume_init_read() };
@@ -381,11 +386,13 @@ where
     T: Send,
     P: DequeReclaimPolicy,
     P::State: Send,
-{}
+{
+}
 
 unsafe impl<T, P> Sync for ChaseLevDeque<T, P>
 where
     T: Send,
     P: DequeReclaimPolicy,
     P::State: Sync,
-{}
+{
+}

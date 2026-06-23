@@ -1,8 +1,8 @@
 //! Chase-Lev work-stealing deque and zero-copy variant.
 
 use super::buffer::Buffer;
-use moirai_utils::cache::CachePadded;
 use crate::platform::*;
+use moirai_utils::cache::CachePadded;
 
 /// Chase-Lev work-stealing deque implementation (inspired by Rayon)
 ///
@@ -170,7 +170,7 @@ impl<T: Send> WorkStealingDeque<T> {
             }
 
             std::mem::forget(task); // Prevent drop on CAS failure — winner owns this slot
-            // CAS failed, retry
+                                    // CAS failed, retry
         }
     }
 

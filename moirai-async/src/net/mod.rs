@@ -4,13 +4,13 @@
 //! sockets without Tokio dependencies.
 
 pub mod listener;
-pub mod stream;
 pub mod socket;
+pub mod stream;
 pub mod types;
 
 pub use listener::TcpListener;
-pub use stream::TcpStream;
 pub use socket::UdpSocket;
+pub use stream::TcpStream;
 pub use types::{
     ConnectionInfo, ConnectionPool, ConnectionStats, ServerStats, TcpServerConfig, TcpServerStats,
     UdpConfig, UdpSocketStats, UdpStats,

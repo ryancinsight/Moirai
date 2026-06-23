@@ -1,5 +1,5 @@
-use std::time::Duration;
 use crate::timer::interval::Interval;
+use std::time::Duration;
 
 /// Rate limiter using token bucket algorithm
 pub struct RateLimiter {

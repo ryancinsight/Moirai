@@ -3,12 +3,12 @@
 //! This module provides comprehensive security auditing, memory safety validation,
 //! and vulnerability assessment capabilities for production deployment.
 
+mod auditor;
 mod config;
 mod limiter;
-mod auditor;
 
 #[cfg(test)]
 mod tests;
 
-pub use config::{SecurityLevel, SecurityEvent, SecurityConfig};
-pub use auditor::{SecurityAuditor, Report};
+pub use auditor::{Report, SecurityAuditor};
+pub use config::{SecurityConfig, SecurityEvent, SecurityLevel};

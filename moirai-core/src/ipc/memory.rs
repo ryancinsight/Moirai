@@ -54,6 +54,9 @@ pub struct SharedMemory {
     /// Whether this instance owns the memory
     #[cfg_attr(windows, allow(dead_code))]
     owner: bool,
+    /// Name of the segment (Unix only, to allow shm_unlink on drop)
+    #[cfg(unix)]
+    name: Option<std::ffi::CString>,
 }
 
 unsafe impl Send for SharedMemory {}
@@ -99,6 +102,7 @@ impl SharedMemory {
                 size,
                 fd,
                 owner: true,
+                name: Some(c_name),
             })
         }
     }
@@ -137,6 +141,7 @@ impl SharedMemory {
                 size,
                 fd,
                 owner: false,
+                name: None,
             })
         }
     }
@@ -225,6 +230,11 @@ impl Drop for SharedMemory {
         unsafe {
             libc::munmap(self.ptr as *mut libc::c_void, self.size);
             libc::close(self.fd);
+            if self.owner {
+                if let Some(ref name) = self.name {
+                    libc::shm_unlink(name.as_ptr());
+                }
+            }
         }
         #[cfg(windows)]
         unsafe {

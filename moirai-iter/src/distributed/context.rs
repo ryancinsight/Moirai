@@ -1,10 +1,10 @@
-use std::net::SocketAddr;
-use std::sync::Arc;
 use super::config::NodeConfig;
-use super::scheduler::DistributedScheduler;
 use super::failure::FailureHandler;
+use super::scheduler::DistributedScheduler;
 use super::DistributedError;
 use crate::MoiraiIterator;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 /// Distributed execution context for multi-machine processing
 #[derive(Clone)]

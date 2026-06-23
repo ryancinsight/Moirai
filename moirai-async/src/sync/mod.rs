@@ -275,9 +275,9 @@ mod tests {
     #[test]
     fn test_notify_cancellation_safety() {
         use crate::sync::Notify;
+        use futures::task::noop_waker;
         use std::future::Future;
         use std::task::Context;
-        use futures::task::noop_waker;
 
         let notify = Notify::new();
         let waker = noop_waker();

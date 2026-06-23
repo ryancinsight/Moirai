@@ -4,9 +4,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use super::async_ctx::AsyncContext;
 use super::base::ExecutionBase;
 use super::parallel::ParallelContext;
-use super::async_ctx::AsyncContext;
 
 /// Hybrid context that adapts between parallel and async execution
 #[derive(Clone)]

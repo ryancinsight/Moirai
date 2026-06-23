@@ -8,12 +8,7 @@ use moirai_core::{
     Priority,
 };
 
-use super::{
-    async_state::AsyncFutureState,
-    send_task_result,
-    MetricsRef,
-    HybridExecutor,
-};
+use super::{async_state::AsyncFutureState, send_task_result, HybridExecutor, MetricsRef};
 use crate::schedule::{BlockingTask, SyncTask};
 
 impl TaskSpawner for HybridExecutor {

@@ -1,12 +1,12 @@
+use moirai_pal::fs::AsyncFile;
 use std::io::{self, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use moirai_pal::fs::AsyncFile;
 
-use crate::io::{AsyncRead, AsyncWrite};
 use crate::fs::options::FileOpenOptions;
 use crate::fs::stats::FileStats;
+use crate::io::{AsyncRead, AsyncWrite};
 
 /// High-performance async file handle with native implementation
 pub struct File {

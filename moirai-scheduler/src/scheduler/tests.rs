@@ -31,8 +31,7 @@ impl Task for TestTask {
 fn test_work_stealing_scheduler() {
     use moirai_core::scheduler::SchedulerConfig;
     let config = SchedulerConfig::default();
-    let scheduler =
-        WorkStealingScheduler::new(moirai_core::scheduler::SchedulerId::new(0), config);
+    let scheduler = WorkStealingScheduler::new(moirai_core::scheduler::SchedulerId::new(0), config);
 
     for i in 0..10 {
         let task = TestTask::new(i);
@@ -96,7 +95,7 @@ fn test_local_scheduler() {
 
 #[test]
 fn test_try_steal_safety_and_correctness() {
-    use moirai_core::scheduler::{SchedulerConfig, SchedulerId, Scheduler};
+    use moirai_core::scheduler::{Scheduler, SchedulerConfig, SchedulerId};
     use moirai_core::ScheduledTask;
 
     let scheduler1 = WorkStealingScheduler::new(SchedulerId::new(1), SchedulerConfig::default());
@@ -123,30 +122,41 @@ fn test_try_steal_safety_and_correctness() {
 
 #[test]
 fn test_locality_aware_steal_visited_tracking() {
-    use moirai_core::scheduler::{SchedulerConfig, SchedulerId, WorkStealingStrategy, Scheduler};
     use super::core::WorkStealingCoordinator;
-    use std::sync::Arc;
+    use moirai_core::scheduler::{Scheduler, SchedulerConfig, SchedulerId, WorkStealingStrategy};
     use moirai_core::ScheduledTask;
+    use std::sync::Arc;
 
-    let idle_scheduler = WorkStealingScheduler::new(SchedulerId::new(999), SchedulerConfig::default());
+    let idle_scheduler =
+        WorkStealingScheduler::new(SchedulerId::new(999), SchedulerConfig::default());
 
     let mut all_schedulers = Vec::new();
     for i in 0..260 {
-        all_schedulers.push(Arc::new(WorkStealingScheduler::new(SchedulerId::new(i), SchedulerConfig::default())));
+        all_schedulers.push(Arc::new(WorkStealingScheduler::new(
+            SchedulerId::new(i),
+            SchedulerConfig::default(),
+        )));
     }
 
     // Schedule tasks on schedulers 255 and 256
     let task1 = TestTask::new(1001);
     let task2 = TestTask::new(1002);
-    all_schedulers[255].schedule(ScheduledTask::new(task1)).unwrap();
-    all_schedulers[256].schedule(ScheduledTask::new(task2)).unwrap();
+    all_schedulers[255]
+        .schedule(ScheduledTask::new(task1))
+        .unwrap();
+    all_schedulers[256]
+        .schedule(ScheduledTask::new(task2))
+        .unwrap();
 
-    let coordinator = WorkStealingCoordinator::new(WorkStealingStrategy::LocalityAware { max_attempts: 4, locality_factor: 0.5 });
+    let coordinator = WorkStealingCoordinator::new(WorkStealingStrategy::LocalityAware {
+        max_attempts: 4,
+        locality_factor: 0.5,
+    });
 
     // Steal first task (should be from 256 as it is closer to 999 than 255)
     let stolen1 = coordinator.steal_work(&idle_scheduler, &all_schedulers);
     assert!(stolen1.is_some());
-    
+
     // Steal second task (should be from 255 since 256 is now empty)
     let stolen2 = coordinator.steal_work(&idle_scheduler, &all_schedulers);
     assert!(stolen2.is_some());
