@@ -151,6 +151,12 @@ impl<T: Send> WorkStealingDeque<T> {
 
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Acquire) };
 
+            // SAFETY: read-before-CAS is the canonical Chase-Lev steal protocol.
+            // On CAS failure, `mem::forget(task)` below prevents the destructor
+            // from running on this speculative copy — the CAS winner will read
+            // and own the slot independently.
+            let task = unsafe { buffer.get(top) };
+
             // Try to increment top
             if self
                 .top
@@ -163,12 +169,10 @@ impl<T: Send> WorkStealingDeque<T> {
                 )
                 .is_ok()
             {
-                // SAFETY: We won the CAS, establishing exclusive ownership of this slot.
-                // No other stealer or owner can access it, making this read safe and data-race-free.
-                let task = unsafe { buffer.get(top) };
                 return Some(task);
             }
 
+            std::mem::forget(task); // Prevent drop on CAS failure — winner owns this slot
             // CAS failed, retry
         }
     }
@@ -334,6 +338,11 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
         if top < bottom {
             let buffer = unsafe { &*self.buffer.value.load(Ordering::Acquire) };
 
+            // SAFETY: read-before-CAS is the canonical Chase-Lev steal protocol.
+            // On CAS failure, `mem::forget(task)` below prevents the destructor
+            // from running on this speculative copy.
+            let task = unsafe { buffer.get(top) };
+
             // Try to increment top
             if self
                 .top
@@ -346,11 +355,9 @@ impl<T> ZeroCopyWorkStealingDeque<T> {
                 )
                 .is_ok()
             {
-                // SAFETY: We won the CAS, establishing exclusive ownership of this slot.
-                // No other stealer or owner can access it, making this read safe and data-race-free.
-                let task = unsafe { buffer.get(top) };
                 Some(task)
             } else {
+                std::mem::forget(task); // Prevent drop on CAS failure
                 None
             }
         } else {

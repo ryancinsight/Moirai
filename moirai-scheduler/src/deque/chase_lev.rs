@@ -220,17 +220,21 @@ where
             let array_ptr = self.array.load(Ordering::Acquire);
             let array = unsafe { &*array_ptr };
 
+            // SAFETY: read-before-CAS is the canonical Chase-Lev steal protocol.
+            // On CAS failure, `mem::forget(value)` prevents the destructor from
+            // running on this speculative copy — the CAS winner will read and
+            // own the slot independently.
+            let value = unsafe { array.read(t) };
+
             if self
                 .top
                 .compare_exchange_weak(t, t.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed)
                 .is_ok()
             {
-                // SAFETY: We won the CAS, establishing exclusive ownership of this slot.
-                // No other stealer or owner can access it, making this read safe and data-race-free.
-                let value = unsafe { array.read(t) };
                 return StealResult::Success(value);
             }
 
+            std::mem::forget(value);
             return StealResult::Retry;
         }
 
@@ -256,6 +260,12 @@ where
         let array_ptr = self.array.load(Ordering::Acquire);
         let array = unsafe { &*array_ptr };
 
+        let mut items: [MaybeUninit<T>; MAX_BATCH_STEAL] =
+            [const { MaybeUninit::uninit() }; MAX_BATCH_STEAL];
+        for (i, slot) in items.iter_mut().enumerate().take(n) {
+            slot.write(unsafe { array.read(t.wrapping_add(i as isize)) });
+        }
+
         if self
             .top
             .compare_exchange_weak(
@@ -266,14 +276,6 @@ where
             )
             .is_ok()
         {
-            // SAFETY: We won the CAS, establishing exclusive ownership of these `n` slots.
-            // We can now safely read the values without data race or UAF risk.
-            let mut items: [MaybeUninit<T>; MAX_BATCH_STEAL] =
-                [const { MaybeUninit::uninit() }; MAX_BATCH_STEAL];
-            for (i, slot) in items.iter_mut().enumerate().take(n) {
-                slot.write(unsafe { array.read(t.wrapping_add(i as isize)) });
-            }
-
             let first_item = unsafe { items[0].assume_init_read() };
             for slot in items.iter().take(n).skip(1) {
                 f(unsafe { slot.assume_init_read() });
