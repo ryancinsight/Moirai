@@ -4,6 +4,35 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 14 (2026-06-23) — deferred items from round 13 completed
+
+All three named round-13 deferred items implemented with documentation and tests.
+
+- **transport `MessageRouter`/`ConnectionManager` stubs** → made real.
+  `MessageRouter<T: Transport>` routes published messages to subscriber addresses
+  through a shared transport (was a throwaway `InMemoryTransport` per send that
+  dropped every message); added `unsubscribe`/`subscriber_count`. `ConnectionManager`
+  gained `state`/`is_connected`/`connected_addresses` so tracked state is usable.
+  4 new value-checked tests. (`transport/lib.rs`)
+- **`unified_channel` send-drops-on-Full + duplicate logic** → `send` now
+  delegates to `try_send` (DRY: ~45 lines of duplicated overflow logic removed)
+  with the consume-on-`Full` contract documented and `try_send` as the recovery
+  path; `overflow_count` documented as advisory (a missed drain never loses a
+  message — `recv` pops directly from the overflow queue). New test. (`unified_channel/core.rs`)
+- **no `loom` wired** → added a faithful loom model of the Chase-Lev steal/pop
+  protocol (`tests/loom_chase_lev.rs`, `cfg(loom)`-gated) mirroring the exact
+  production atomic orderings; loom exhaustively verifies exactly-once across all
+  pop/steal interleavings. `loom` is a `cfg(loom)`-only dev-dep (normal builds
+  unaffected). Run: `RUSTFLAGS="--cfg loom" cargo test -p moirai-scheduler --test loom_chase_lev`.
+
+### Newly discovered / DEFERRED
+- `moirai-transport` `UniversalSender::send`/`UniversalReceiver::recv` and
+  `IpcTransport` are still mock stubs (return constant errors, ignore input).
+  Making them real needs a serialization design (the archive/`payload` path) or
+  an IPC backend (could reuse `moirai-core::ipc::SharedQueue`); the
+  `test_universal_channel` has a commented-out assertion. Out of this round's
+  named scope — either implement or remove (breaking, needs an ADR).
+
 ## Round 13 (2026-06-23) — broadened audit (async sync, security, networking, transport)
 
 Fanned out adversarial audits over previously-uncovered areas. The async

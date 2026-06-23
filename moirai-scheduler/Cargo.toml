@@ -23,6 +23,15 @@ mnemosyne = { workspace = true, optional = true }
 criterion = { workspace = true }
 proptest = { workspace = true }
 
+# loom model checker — only compiled under `--cfg loom` (see tests/loom_chase_lev.rs).
+[target.'cfg(loom)'.dev-dependencies]
+loom = { workspace = true }
+
+# Register the `loom` cfg so the gate stays warning-clean (it is set via
+# `RUSTFLAGS="--cfg loom"`, not a Cargo feature).
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+
 [features]
 default = ["parallel", "mnemosyne-memory"]
 parallel = []

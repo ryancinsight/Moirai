@@ -15,7 +15,12 @@ pub struct UnifiedChannel<T> {
     pub(crate) ring_buffer: UnifiedRingBuffer<T>,
     /// Unbounded/pooled lock-free fallback overflow queue
     pub(crate) overflow_queue: Mutex<VecDeque<T>>,
-    /// Number of elements currently in the overflow queue (atomic fast path check)
+    /// Advisory count of elements in the overflow queue, mutated under
+    /// `overflow_queue`'s lock and read lock-free on the fast path. It is only a
+    /// hint: a stale read can cause `recv`/`send` to skip an opportunistic drain
+    /// into the ring buffer, but never loses a message — `recv` pops directly from
+    /// `overflow_queue` whenever the ring is empty, so a missed drain is at worst
+    /// a fast-path optimization miss reconciled by the next locked operation.
     pub(crate) overflow_count: AtomicUsize,
     /// Configuration parameters
     pub(crate) config: ChannelConfig,
@@ -50,62 +55,20 @@ impl<T> UnifiedChannel<T> {
         Self::new(config)
     }
 
-    /// Send a message with automatic overflow handling
-    pub fn send(&self, mut message: T) -> Result<(), UnifiedChannelError> {
-        if self.is_closed.load(Ordering::Acquire) {
-            return Err(UnifiedChannelError::Closed);
-        }
-
-        // Fast path: if no overflow has occurred, try to push directly to ring buffer
-        if self.overflow_count.load(Ordering::Acquire) == 0 {
-            match self.ring_buffer.try_push(message) {
-                Ok(()) => {
-                    self.stats.record_send();
-                    return Ok(());
-                }
-                Err(msg) => {
-                    message = msg;
-                }
-            }
-        }
-
-        // Fallback: lock overflow queue
-        let mut overflow = self.overflow_queue.lock().unwrap();
-
-        // Recheck if we can drain first (in case space opened up)
-        self.drain_locked(&mut overflow);
-
-        // If overflow queue is empty and ring buffer has space, push to ring buffer
-        if overflow.is_empty() {
-            match self.ring_buffer.try_push(message) {
-                Ok(()) => {
-                    self.stats.record_send();
-                    return Ok(());
-                }
-                Err(msg) => {
-                    message = msg;
-                }
-            }
-        }
-
-        // Otherwise, enqueue to overflow queue if pooling is enabled
-        if self.config.enable_pooling {
-            if overflow.len() < self.config.max_pool_size {
-                overflow.push_back(message);
-                self.overflow_count.store(overflow.len(), Ordering::Release);
-                self.stats.record_send();
-                self.stats.record_overflow();
-                self.stats.record_contention();
-                Ok(())
-            } else {
-                Err(UnifiedChannelError::Full)
-            }
-        } else {
-            Err(UnifiedChannelError::Full)
-        }
+    /// Send a message with automatic overflow handling (non-blocking).
+    ///
+    /// Returns `Err(UnifiedChannelError::Full)` when both the ring buffer and the
+    /// overflow pool are full (or pooling is disabled), and `Err(Closed)` when the
+    /// channel is closed. In both error cases the `message` is **consumed** (dropped):
+    /// the failure is surfaced explicitly, but the value cannot be recovered. A
+    /// caller that needs the value back to retry must use [`Self::try_send`], which
+    /// returns it in the error. This delegates to `try_send` (single SSOT for the
+    /// send path) rather than duplicating the overflow logic.
+    pub fn send(&self, message: T) -> Result<(), UnifiedChannelError> {
+        self.try_send(message).map_err(|(_message, err)| err)
     }
 
-    /// Try to send without blocking
+    /// Try to send without blocking, returning the message back on failure.
     pub fn try_send(&self, mut message: T) -> Result<(), (T, UnifiedChannelError)> {
         if self.is_closed.load(Ordering::Acquire) {
             return Err((message, UnifiedChannelError::Closed));
