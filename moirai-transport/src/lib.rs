@@ -14,6 +14,8 @@
 //! - Integration with Moirai scheduler for optimal performance
 
 // Zero-copy moved to moirai-core::communication::zero_copy (SSOT)
+#[cfg(any(unix, windows))]
+mod ipc;
 mod network;
 pub mod payload;
 pub mod process;
@@ -35,10 +37,19 @@ pub use moirai_core::channel::{
     ChannelError as TransportError, MpmcReceiver as Receiver, MpmcSender as Sender,
 };
 pub use moirai_core::communication::zero_copy as core_zero_copy;
+/// Shared-memory same-machine IPC transport (Unix/Windows only).
+#[cfg(any(unix, windows))]
+pub use ipc::IpcTransport;
 pub use network::NetworkTransport;
 pub(crate) use network::{read_network_frame_from_stream, NETWORK_IO_TIMEOUT};
 #[cfg(feature = "network")]
 pub use network::{TcpTransport, UdpTransport};
+// The canonical typed cross-boundary channel: rkyv-style archive serialization
+// over a transport (zero-copy borrowed views on receive).
+pub use safe_channel::{
+    ArchiveSerialize, ArchiveView, ArchivedMessage, ArchivedUniversalReceiver,
+    ArchivedUniversalSender,
+};
 
 /// Result type for transport operations
 pub type TransportResult<T> = Result<T, TransportError>;
@@ -130,23 +141,6 @@ impl Transport for InMemoryTransport {
     }
 }
 
-/// IPC transport for inter-process communication
-pub struct IpcTransport {}
-
-impl Transport for IpcTransport {
-    fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
-        Err(TransportError::WouldBlock)
-    }
-
-    fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
-        Err(TransportError::Empty)
-    }
-
-    fn supports(&self, _address: &Address) -> bool {
-        false
-    }
-}
-
 /// Transport manager that routes messages to appropriate transport
 pub struct TransportManager {
     transports: Vec<Box<dyn Transport>>,
@@ -157,7 +151,6 @@ impl TransportManager {
         Self {
             transports: vec![
                 Box::new(InMemoryTransport::new()),
-                Box::new(IpcTransport {}),
                 Box::new(NetworkTransport {}),
             ],
         }
@@ -182,80 +175,15 @@ impl TransportManager {
     }
 }
 
-/// Universal channel that works across different transport boundaries
-///
-/// This is a wrapper around core channel implementations that adds
-/// transport-specific functionality following DRY principle.
-pub struct UniversalChannel<T: Send + 'static> {
-    sender: UniversalSender<T>,
-    receiver: UniversalReceiver<T>,
-}
-
-impl<T: Send + 'static> UniversalChannel<T> {
-    /// Create a new universal channel
-    pub fn new(transport: Arc<TransportManager>, address: Address) -> Self {
-        Self {
-            sender: UniversalSender {
-                transport: transport.clone(),
-                target: address.clone(),
-                _phantom: std::marker::PhantomData,
-            },
-            receiver: UniversalReceiver {
-                _transport: transport,
-                _source: address,
-                _phantom: std::marker::PhantomData,
-            },
-        }
-    }
-
-    /// Split into sender and receiver halves
-    pub fn split(self) -> (UniversalSender<T>, UniversalReceiver<T>) {
-        (self.sender, self.receiver)
-    }
-}
-
-/// Sender half of universal channel
-///
-/// This wraps core channel functionality with transport-specific archive bytes.
-pub struct UniversalSender<T: Send + 'static> {
-    transport: Arc<TransportManager>,
-    target: Address,
-    _phantom: std::marker::PhantomData<T>,
-}
-
-impl<T: Send + 'static> UniversalSender<T> {
-    /// Send a message to the target address
-    pub fn send(&self, _value: T) -> TransportResult<()> {
-        Err(TransportError::Closed)
-    }
-}
-
-impl<T: Send + 'static> Clone for UniversalSender<T> {
-    fn clone(&self) -> Self {
-        Self {
-            transport: self.transport.clone(),
-            target: self.target.clone(),
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-unsafe impl<T: Send + 'static> Send for UniversalSender<T> {}
-unsafe impl<T: Send + 'static> Sync for UniversalSender<T> {}
-
-/// Receiver half of universal channel
-pub struct UniversalReceiver<T: Send + 'static> {
-    _transport: Arc<TransportManager>,
-    _source: Address,
-    _phantom: std::marker::PhantomData<T>,
-}
-
-impl<T: Send + 'static> UniversalReceiver<T> {
-    /// Receive a message from the source address
-    pub fn recv(&self) -> TransportResult<T> {
-        Err(TransportError::Closed)
-    }
-}
+// A typed cross-boundary channel over a transport is provided by the rkyv-style
+// archive channels in `safe_channel` (`ArchivedUniversalSender<T: ArchiveSerialize>`
+// / `ArchivedUniversalReceiver<T: ArchiveView>`), re-exported below. The previous
+// `UniversalChannel<T: Send>` / `UniversalSender` / `UniversalReceiver` were
+// non-functional placeholders (their `send`/`recv` ignored their argument and
+// returned `Closed`): a channel generic over an arbitrary `Send` `T` cannot
+// serialize the value for transport without a serialization bound, which is
+// exactly what the archive traits add. They were removed in favor of the working
+// archive channels rather than left as mocks.
 
 /// Remote address for cross-machine communication
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -452,20 +380,6 @@ mod tests {
             transport2.recv(&Address::Local("t2".to_string())).unwrap(),
             vec![2]
         );
-    }
-
-    #[test]
-    fn test_universal_channel() {
-        let transport_manager = TransportManager::new();
-        let _sender = UniversalSender::<String> {
-            transport: Arc::new(transport_manager),
-            target: Address::Local("test_sender".to_string()),
-            _phantom: std::marker::PhantomData,
-        };
-
-        // Test sender construction; typed transport payloads use archive bytes.
-        // This test demonstrates channel creation API
-        // assert!(sender.send(42).is_ok());
     }
 
     #[test]

@@ -222,10 +222,16 @@ pub type MoiraiScope<'scope> = SchedulerScope<'scope, BlockingTask>;
 // Re-export scheduler functionality
 pub use moirai_scheduler::WorkStealingScheduler;
 
-// Re-export transport functionality
+// Re-export transport functionality. The typed cross-boundary channel is the
+// rkyv-style archive pair (`ArchivedUniversalSender`/`ArchivedUniversalReceiver`);
+// the old non-functional `Universal*` placeholders were removed.
+/// Shared-memory same-machine IPC transport (Unix/Windows only).
+#[cfg(any(unix, windows))]
+pub use moirai_transport::IpcTransport;
 pub use moirai_transport::{
-    Address, InMemoryTransport, RemoteAddress, TransportError, TransportManager, TransportResult,
-    UniversalChannel, UniversalReceiver, UniversalSender,
+    Address, ArchiveSerialize, ArchiveView, ArchivedMessage, ArchivedUniversalReceiver,
+    ArchivedUniversalSender, InMemoryTransport, RemoteAddress, TransportError, TransportManager,
+    TransportResult,
 };
 
 #[cfg(feature = "distributed")]
