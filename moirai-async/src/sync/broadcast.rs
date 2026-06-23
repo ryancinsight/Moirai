@@ -252,6 +252,22 @@ impl<'a, T: Clone> Future for BroadcastRecv<'a, T> {
     }
 }
 
+impl<'a, T> Drop for BroadcastRecv<'a, T> {
+    fn drop(&mut self) {
+        // Clear the waker registered by `poll_recv` so a cancelled recv future
+        // does not leave a stale waker that the next `send` would spuriously wake
+        // (and retain until overwritten). This mirrors `WatchChanged::drop`. The
+        // future holds `&mut BroadcastReceiver`, so it is the unique registrant
+        // for this receiver id — clearing here cannot drop another future's waker.
+        if let Ok(mut state) = self.receiver.state.lock() {
+            let id = self.receiver.id;
+            if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == id) {
+                receiver_state.waker = None;
+            }
+        }
+    }
+}
+
 /// Error types for broadcast channel operations
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BroadcastError {
@@ -274,3 +290,65 @@ impl std::fmt::Display for BroadcastError {
 }
 
 impl std::error::Error for BroadcastError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::task::Wake;
+
+    struct CountingWake(Arc<AtomicUsize>);
+    impl Wake for CountingWake {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Release);
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn cancelled_recv_clears_waker_and_is_not_spuriously_woken() {
+        let (tx, mut rx) = Broadcast::<u32>::new(8);
+        let count = Arc::new(AtomicUsize::new(0));
+        let waker = Waker::from(Arc::new(CountingWake(Arc::clone(&count))));
+        let mut cx = Context::from_waker(&waker);
+
+        {
+            let mut fut = rx.recv();
+            assert!(Pin::new(&mut fut).poll(&mut cx).is_pending());
+            // `fut` is dropped here; its Drop must clear the registered waker.
+        }
+
+        // The cancelled future's waker must not fire on the next send.
+        tx.send(42).expect("send must succeed");
+        assert_eq!(
+            count.load(Ordering::Acquire),
+            0,
+            "a cancelled recv future must not be spuriously woken"
+        );
+
+        // The message is still deliverable to a fresh recv on the same receiver.
+        assert_eq!(rx.try_recv(), Ok(42));
+    }
+
+    #[test]
+    fn live_recv_is_woken_on_send() {
+        // Control: a still-live registered waker IS woken by send.
+        let (tx, mut rx) = Broadcast::<u32>::new(8);
+        let count = Arc::new(AtomicUsize::new(0));
+        let waker = Waker::from(Arc::new(CountingWake(Arc::clone(&count))));
+        let mut cx = Context::from_waker(&waker);
+
+        let mut fut = rx.recv();
+        assert!(Pin::new(&mut fut).poll(&mut cx).is_pending());
+        tx.send(7).expect("send must succeed");
+        assert_eq!(
+            count.load(Ordering::Acquire),
+            1,
+            "a live recv future must be woken by send"
+        );
+        // Keep `fut` alive across the send so its waker stays registered.
+        drop(fut);
+    }
+}

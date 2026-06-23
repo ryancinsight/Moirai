@@ -11,6 +11,10 @@ use std::{
 const NETWORK_LENGTH_PREFIX_BYTES: usize = core::mem::size_of::<u64>();
 const MAX_NETWORK_MESSAGE_BYTES: u64 = 16 * 1024 * 1024;
 const NETWORK_CONNECT_ATTEMPTS: usize = 64;
+/// Bound on a single blocking read/write so a peer that connects then stalls
+/// mid-frame cannot pin the calling thread indefinitely. A timeout surfaces as
+/// `TransportError::Closed` rather than an unbounded hang.
+pub(crate) const NETWORK_IO_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Network transport for distributed communication.
 pub struct NetworkTransport {}
@@ -80,6 +84,11 @@ fn read_network_frame(address: &RemoteAddress) -> TransportResult<Vec<u8>> {
     let listener =
         TcpListener::bind(socket_address(address)).map_err(|_| TransportError::Closed)?;
     let (mut stream, _) = listener.accept().map_err(|_| TransportError::Closed)?;
+    // Bound the frame read: a peer that connects then stalls must not hang the
+    // thread forever in `read_exact`.
+    stream
+        .set_read_timeout(Some(NETWORK_IO_TIMEOUT))
+        .map_err(|_| TransportError::Closed)?;
     read_network_frame_from_stream(&mut stream)
 }
 
@@ -124,7 +133,14 @@ fn connect_network_stream(address: &RemoteAddress) -> TransportResult<TcpStream>
     let socket = socket_address(address);
     for attempt in 0..NETWORK_CONNECT_ATTEMPTS {
         match TcpStream::connect(&socket) {
-            Ok(stream) => return Ok(stream),
+            Ok(stream) => {
+                // Bound writes so a peer whose receive buffer fills (and never
+                // drains) cannot block the sender indefinitely.
+                stream
+                    .set_write_timeout(Some(NETWORK_IO_TIMEOUT))
+                    .map_err(|_| TransportError::Closed)?;
+                return Ok(stream);
+            }
             Err(_) if attempt + 1 < NETWORK_CONNECT_ATTEMPTS => {
                 thread::sleep(Duration::from_millis(1));
             }

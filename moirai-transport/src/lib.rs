@@ -35,8 +35,8 @@ pub use moirai_core::channel::{
     ChannelError as TransportError, MpmcReceiver as Receiver, MpmcSender as Sender,
 };
 pub use moirai_core::communication::zero_copy as core_zero_copy;
-pub(crate) use network::read_network_frame_from_stream;
 pub use network::NetworkTransport;
+pub(crate) use network::{read_network_frame_from_stream, NETWORK_IO_TIMEOUT};
 #[cfg(feature = "network")]
 pub use network::{TcpTransport, UdpTransport};
 

@@ -22,7 +22,7 @@ use std::str::FromStr;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use codec::{read_response, write_request};
+use codec::{read_response, write_request, DEFAULT_MAX_RESPONSE_BYTES};
 use conn::Conn;
 use moirai_async::timer::timeout;
 use moirai_tls::TlsConnector;
@@ -33,6 +33,7 @@ pub struct HttpClient {
     pool: Mutex<HashMap<Origin, Vec<Conn>>>,
     max_idle_per_host: usize,
     request_timeout: Duration,
+    max_response_bytes: usize,
 }
 
 impl Default for HttpClient {
@@ -56,12 +57,20 @@ impl HttpClient {
             pool: Mutex::new(HashMap::new()),
             max_idle_per_host: 8,
             request_timeout: Duration::from_secs(30),
+            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
         }
     }
 
     /// Set the per-request timeout (applied to the full write+read cycle).
     pub fn set_timeout(&mut self, dur: Duration) {
         self.request_timeout = dur;
+    }
+
+    /// Set the maximum bytes buffered while parsing one response (headers +
+    /// body). Responses exceeding this — including a peer trickling bytes or
+    /// advertising an oversized Content-Length — are rejected with `InvalidData`.
+    pub fn set_max_response_bytes(&mut self, n: usize) {
+        self.max_response_bytes = n;
     }
 
     /// Set the maximum idle connections retained per origin.
@@ -130,7 +139,7 @@ impl HttpClient {
         let host_header = origin.host_header();
         let exchange = async {
             write_request(&mut conn, method, &host_header, path, headers, body).await?;
-            read_response(&mut conn, is_head).await
+            read_response(&mut conn, is_head, self.max_response_bytes).await
         };
         let resp = match timeout(self.request_timeout, exchange).await {
             Ok(result) => result?,

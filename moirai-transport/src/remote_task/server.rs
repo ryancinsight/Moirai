@@ -4,6 +4,7 @@ use crate::{
     read_network_frame_from_stream,
     safe_channel::ArchivedMessage,
     Address, NetworkTransport, RemoteAddress, Transport, TransportError, TransportResult,
+    NETWORK_IO_TIMEOUT,
 };
 use std::{
     net::TcpListener,
@@ -136,6 +137,11 @@ impl BoundedRemoteTaskServer {
         let mut accepted = 0usize;
         for _ in 0..limit.get() {
             let (mut stream, _) = listener.accept().map_err(|_| TransportError::Closed)?;
+            // Bound the per-connection frame read so a stalled peer cannot wedge
+            // the single-threaded accept loop and starve all workers.
+            stream
+                .set_read_timeout(Some(NETWORK_IO_TIMEOUT))
+                .map_err(|_| TransportError::Closed)?;
             let bytes = read_network_frame_from_stream(&mut stream)?;
             sender.send(bytes).map_err(|_| TransportError::Closed)?;
             accepted += 1;

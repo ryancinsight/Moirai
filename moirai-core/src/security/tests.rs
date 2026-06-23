@@ -1,4 +1,4 @@
-use super::auditor::SecurityAuditor;
+use super::auditor::{SecurityAuditor, MAX_AUDIT_EVENTS};
 use super::config::{SecurityConfig, SecurityLevel};
 use super::limiter::SlidingWindowRateLimiter;
 use crate::{error::ExecutorError, Priority, TaskId};
@@ -24,6 +24,23 @@ fn test_security_auditor_basic() {
     // Check that event was recorded
     let events = auditor.get_events();
     assert!(!events.is_empty());
+}
+
+#[test]
+fn audit_event_buffer_is_bounded_under_flood() {
+    // Production retention is a month, so time-based eviction never fires here.
+    // The hard count cap must still bound the buffer, fixing the prior unbounded
+    // growth (and O(n^2) retain-per-insert) under a sustained event flood.
+    let auditor = SecurityAuditor::new(SecurityConfig::production());
+    for i in 0..(MAX_AUDIT_EVENTS + 5_000) {
+        auditor.audit_race_condition(&format!("flood event {i}"));
+    }
+    let events = auditor.get_events();
+    assert_eq!(
+        events.len(),
+        MAX_AUDIT_EVENTS,
+        "event buffer must be bounded by the count cap"
+    );
 }
 
 #[test]

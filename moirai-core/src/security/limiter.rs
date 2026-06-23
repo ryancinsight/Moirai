@@ -61,6 +61,12 @@ impl SlidingWindowRateLimiter {
     /// Check if a request is allowed and increment the counter if so.
     ///
     /// Returns true if the request is allowed, false if rate limited.
+    ///
+    /// This is an *approximate* limiter: the count is summed across windows and
+    /// the increment-then-revert is not atomic with the check, so under high
+    /// concurrency the effective cap may be exceeded transiently by up to the
+    /// number of racing callers. That is acceptable for its purpose (best-effort
+    /// task-spawn throttling / DoS dampening), not a hard quota.
     pub(crate) fn try_acquire(&self) -> bool {
         #[allow(clippy::cast_possible_truncation)]
         let now_ns = SystemTime::now()
@@ -104,7 +110,12 @@ impl SlidingWindowRateLimiter {
                 if elapsed_ns >= self.window_duration_ns {
                     #[allow(clippy::cast_possible_truncation)]
                     let windows_to_advance = (elapsed_ns / self.window_duration_ns) as usize;
-                    let new_window_start = window_start + (windows_to_advance as u64 * self.window_duration_ns);
+                    // Saturating time arithmetic (numerical_discipline): although
+                    // `(elapsed / dur) * dur <= elapsed` cannot overflow a u64 on a
+                    // 64-bit target, the time math must not rely on unchecked ops.
+                    let new_window_start = window_start.saturating_add(
+                        (windows_to_advance as u64).saturating_mul(self.window_duration_ns),
+                    );
 
                     let old_window = self.current_window.load(Ordering::Relaxed);
                     let new_window = old_window.wrapping_add(windows_to_advance);
@@ -115,7 +126,8 @@ impl SlidingWindowRateLimiter {
                         self.windows[clear_idx].store(0, Ordering::Relaxed);
                     }
 
-                    self.window_start_ns.store(new_window_start, Ordering::Release);
+                    self.window_start_ns
+                        .store(new_window_start, Ordering::Release);
                     self.current_window.store(new_window, Ordering::Release);
                 }
             }
