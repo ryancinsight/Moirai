@@ -131,8 +131,7 @@ impl<T: Clone> BroadcastReceiver<T> {
 
     /// Try to receive a message immediately
     pub fn try_recv(&mut self) -> Result<T, BroadcastError> {
-        let state_arc = self.state.clone();
-        let state = state_arc.lock().unwrap();
+        let state = self.state.lock().unwrap();
 
         if state.messages.is_empty() {
             if state.closed {

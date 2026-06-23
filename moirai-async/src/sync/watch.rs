@@ -158,8 +158,7 @@ impl<T: Clone> WatchReceiver<T> {
 
     /// Check if the value has changed since last check
     pub fn has_changed(&mut self) -> bool {
-        let state_arc = self.state.clone();
-        let mut state = state_arc.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let changed = state.version > self.version;
         if changed {
             let current_version = state.version;
@@ -210,20 +209,20 @@ impl<'a, T: Clone> Future for WatchChanged<'a, T> {
     type Output = Result<(), WatchError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let state_arc = self.receiver.state.clone();
-        let mut state = state_arc.lock().unwrap();
+        let receiver = &mut *self.receiver;
+        let mut state = receiver.state.lock().unwrap();
 
         if state.closed {
             return Poll::Ready(Err(WatchError::Closed));
         }
 
         let current_version = state.version;
-        if current_version > self.receiver.version {
-            self.receiver.version = current_version;
+        if current_version > receiver.version {
+            receiver.version = current_version;
             if let Some(receiver_state) = state
                 .receivers
                 .iter_mut()
-                .find(|r| r.id == self.receiver.id)
+                .find(|r| r.id == receiver.id)
             {
                 receiver_state.version = current_version;
             }
@@ -233,7 +232,7 @@ impl<'a, T: Clone> Future for WatchChanged<'a, T> {
         if let Some(receiver_state) = state
             .receivers
             .iter_mut()
-            .find(|r| r.id == self.receiver.id)
+            .find(|r| r.id == receiver.id)
         {
             receiver_state.waker = Some(cx.waker().clone());
         }
