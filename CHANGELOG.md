@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `moirai-scheduler`: a `loom` exhaustive-interleaving model of the Chase-Lev
+  steal/pop ordering protocol (`tests/loom_chase_lev.rs`, gated behind
+  `--cfg loom`), machine-checking the exactly-once invariant across all
+  interleavings. `loom` is wired as a `cfg(loom)`-only dev-dependency, so normal
+  builds and CI are unaffected.
+- `moirai-transport`: `MessageRouter::{unsubscribe, subscriber_count}` and
+  `ConnectionManager::{state, is_connected, connected_addresses}` query methods;
+  `ConnectionState` is now a public, `Copy` enum.
+
+### Fixed
+- `moirai-transport` `MessageRouter::publish` now actually delivers messages.
+  The previous implementation constructed a throwaway `InMemoryTransport` per
+  send and silently discarded every published message; it now routes through a
+  shared transport and returns the delivered-subscriber count.
+
+### Changed
+- `moirai-transport` `MessageRouter` is generic over its backing `Transport`
+  and takes the transport at construction (`MessageRouter::new(transport)`), so
+  delivery is real and zero-cost. (Pre-1.0 breaking change to a previously
+  non-functional API.)
+- `moirai-core` `UnifiedChannel::send` now delegates to `try_send` (single SSOT
+  for the send path, ~45 lines of duplicate overflow logic removed) and
+  documents that it consumes the message on `Full`/`Closed`; callers needing the
+  value back to retry use `try_send`. `overflow_count` is documented as advisory.
+
 ### Security
 - `moirai-http` response parsing now enforces a `max_response_bytes` budget
   (default 64 MiB, configurable via `HttpClient::set_max_response_bytes`). A

@@ -98,3 +98,28 @@ fn test_unified_channel_adaptive_overflow_fifo() {
     // Now empty
     assert!(receiver.recv().is_err());
 }
+
+#[test]
+fn try_send_returns_value_on_full_send_consumes() {
+    // Ring capacity 1, no overflow pool: the channel holds exactly one item.
+    let config = ChannelConfig {
+        capacity: 1,
+        enable_pooling: false,
+        max_pool_size: 0,
+        ..Default::default()
+    };
+    let (sender, receiver) = unified_channel_with_config::<i32>(config).unwrap();
+
+    sender.send(1).unwrap();
+
+    // `try_send` hands the rejected value back so the caller can retry it.
+    let err = sender.try_send(2).expect_err("channel is full");
+    assert_eq!(err, (2, UnifiedChannelError::Full));
+
+    // `send` surfaces the same failure but consumes the value (documented).
+    assert_eq!(sender.send(3), Err(UnifiedChannelError::Full));
+
+    // The one buffered item is still intact and retrievable.
+    assert_eq!(receiver.recv().unwrap(), 1);
+    assert!(receiver.recv().is_err());
+}

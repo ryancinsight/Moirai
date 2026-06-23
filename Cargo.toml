@@ -76,6 +76,9 @@ proptest = "1.4"
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
 pyo3 = "0.22"
+# Exhaustive-interleaving model checker for lock-free code (gated behind
+# `--cfg loom`; not built in normal/CI test runs).
+loom = "0.7"
 
 [profile.release]
 lto = true

@@ -271,46 +271,104 @@ impl fmt::Display for RemoteAddress {
     }
 }
 
-/// Message routing for pub/sub patterns
-pub struct MessageRouter {
-    subscriptions: Arc<Mutex<HashMap<String, Vec<Address>>>>,
+/// Topic-based pub/sub router that delivers published messages to every
+/// subscribed [`Address`] over a shared transport.
+///
+/// The router is generic over the backing [`Transport`] so delivery is
+/// monomorphized and zero-cost; the transport must be the *same instance* the
+/// subscribers receive from (e.g. one `Arc<InMemoryTransport>`), since in-memory
+/// channels are keyed by address within a single transport instance. The prior
+/// implementation constructed a throwaway `InMemoryTransport` per send and so
+/// silently discarded every message.
+pub struct MessageRouter<T: Transport> {
+    transport: Arc<T>,
+    subscriptions: Mutex<HashMap<String, Vec<Address>>>,
 }
 
-impl MessageRouter {
-    pub fn new() -> Self {
+impl<T: Transport> MessageRouter<T> {
+    /// Create a router that delivers over `transport`.
+    pub fn new(transport: Arc<T>) -> Self {
         Self {
-            subscriptions: Arc::new(Mutex::new(HashMap::new())),
+            transport,
+            subscriptions: Mutex::new(HashMap::new()),
         }
     }
 
+    /// Subscribe `address` to `topic`. Duplicate (topic, address) pairs are
+    /// ignored so a message is delivered to each subscriber exactly once.
     pub fn subscribe(&self, topic: &str, address: Address) {
         let mut subs = self.subscriptions.lock().unwrap();
-        subs.entry(topic.to_string())
-            .or_insert_with(Vec::new)
-            .push(address);
+        let entry = subs.entry(topic.to_string()).or_default();
+        if !entry.contains(&address) {
+            entry.push(address);
+        }
     }
 
-    pub fn publish(&self, topic: &str, _data: Vec<u8>) -> TransportResult<()> {
-        let subs = self.subscriptions.lock().unwrap();
-        if let Some(addresses) = subs.get(topic) {
-            for addr in addresses {
-                let _ = InMemoryTransport::new().send(addr, _data.clone());
+    /// Remove `address` from `topic`. Returns `true` if a subscription was
+    /// removed.
+    pub fn unsubscribe(&self, topic: &str, address: &Address) -> bool {
+        let mut subs = self.subscriptions.lock().unwrap();
+        if let Some(entry) = subs.get_mut(topic) {
+            let before = entry.len();
+            entry.retain(|a| a != address);
+            let removed = entry.len() != before;
+            if entry.is_empty() {
+                subs.remove(topic);
             }
+            return removed;
         }
-        Ok(())
+        false
+    }
+
+    /// Publish `data` to every subscriber of `topic` via the shared transport.
+    ///
+    /// Returns the number of subscribers the message was delivered to. Delivery
+    /// is fail-fast: the first transport error is propagated (after the
+    /// subscribers ahead of it have already received the message).
+    ///
+    /// # Errors
+    /// Propagates the first per-subscriber transport send error.
+    pub fn publish(&self, topic: &str, data: Vec<u8>) -> TransportResult<usize> {
+        // Snapshot the subscriber list so the transport sends happen without the
+        // subscriptions lock held (a subscriber's send must not block resubscribe).
+        let targets: Vec<Address> = {
+            let subs = self.subscriptions.lock().unwrap();
+            match subs.get(topic) {
+                Some(addresses) => addresses.clone(),
+                None => return Ok(0),
+            }
+        };
+
+        let mut delivered = 0;
+        for addr in &targets {
+            self.transport.send(addr, data.clone())?;
+            delivered += 1;
+        }
+        Ok(delivered)
+    }
+
+    /// Number of distinct addresses subscribed to `topic`.
+    pub fn subscriber_count(&self, topic: &str) -> usize {
+        self.subscriptions
+            .lock()
+            .unwrap()
+            .get(topic)
+            .map_or(0, Vec::len)
     }
 }
 
-/// Connection manager for maintaining persistent connections
+/// Tracks the connection state of remote/local endpoints.
 pub struct ConnectionManager {
     connections: Arc<Mutex<HashMap<Address, ConnectionState>>>,
 }
 
-#[derive(Debug)]
-enum ConnectionState {
+/// Observable state of a tracked connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionState {
+    /// The endpoint is currently connected.
     Connected,
+    /// The endpoint was connected and has since disconnected.
     Disconnected,
-    // Connecting, // Will be used when async connection is implemented
 }
 
 impl ConnectionManager {
@@ -320,16 +378,42 @@ impl ConnectionManager {
         }
     }
 
+    /// Mark `address` as connected.
     pub fn connect(&self, address: &Address) -> TransportResult<()> {
         let mut conns = self.connections.lock().unwrap();
         conns.insert(address.clone(), ConnectionState::Connected);
         Ok(())
     }
 
+    /// Mark `address` as disconnected.
     pub fn disconnect(&self, address: &Address) -> TransportResult<()> {
         let mut conns = self.connections.lock().unwrap();
         conns.insert(address.clone(), ConnectionState::Disconnected);
         Ok(())
+    }
+
+    /// Current tracked state of `address`, or `None` if never seen.
+    #[must_use]
+    pub fn state(&self, address: &Address) -> Option<ConnectionState> {
+        self.connections.lock().unwrap().get(address).copied()
+    }
+
+    /// Whether `address` is currently connected.
+    #[must_use]
+    pub fn is_connected(&self, address: &Address) -> bool {
+        self.state(address) == Some(ConnectionState::Connected)
+    }
+
+    /// All currently-connected addresses.
+    #[must_use]
+    pub fn connected_addresses(&self) -> Vec<Address> {
+        self.connections
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, state)| **state == ConnectionState::Connected)
+            .map(|(addr, _)| addr.clone())
+            .collect()
     }
 }
 
@@ -426,5 +510,69 @@ mod tests {
             port,
             service: "moirai-test".to_string(),
         }
+    }
+
+    #[test]
+    fn message_router_delivers_to_each_subscriber_once() {
+        let transport = Arc::new(InMemoryTransport::new());
+        let router = MessageRouter::new(Arc::clone(&transport));
+        let sub_a = Address::Local("sub_a".to_string());
+        let sub_b = Address::Local("sub_b".to_string());
+
+        router.subscribe("topic", sub_a.clone());
+        router.subscribe("topic", sub_b.clone());
+        router.subscribe("topic", sub_a.clone()); // duplicate ignored
+        assert_eq!(router.subscriber_count("topic"), 2);
+
+        let delivered = router.publish("topic", vec![1, 2, 3]).unwrap();
+        assert_eq!(delivered, 2);
+
+        // Both subscribers actually receive the message through the shared
+        // transport (the prior throwaway-transport implementation delivered none).
+        assert_eq!(transport.recv(&sub_a).unwrap(), vec![1, 2, 3]);
+        assert_eq!(transport.recv(&sub_b).unwrap(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn message_router_unknown_topic_delivers_nothing() {
+        let transport = Arc::new(InMemoryTransport::new());
+        let router = MessageRouter::new(transport);
+        assert_eq!(router.publish("absent", vec![0]).unwrap(), 0);
+    }
+
+    #[test]
+    fn message_router_unsubscribe_stops_delivery() {
+        let transport = Arc::new(InMemoryTransport::new());
+        let router = MessageRouter::new(Arc::clone(&transport));
+        let sub = Address::Local("s".to_string());
+
+        router.subscribe("t", sub.clone());
+        assert!(router.unsubscribe("t", &sub));
+        assert!(
+            !router.unsubscribe("t", &sub),
+            "second unsubscribe is a no-op"
+        );
+        assert_eq!(router.subscriber_count("t"), 0);
+        assert_eq!(router.publish("t", vec![9]).unwrap(), 0);
+    }
+
+    #[test]
+    fn connection_manager_tracks_and_reports_state() {
+        let mgr = ConnectionManager::new();
+        let addr = Address::Local("node".to_string());
+
+        assert_eq!(mgr.state(&addr), None);
+        assert!(!mgr.is_connected(&addr));
+        assert!(mgr.connected_addresses().is_empty());
+
+        mgr.connect(&addr).unwrap();
+        assert!(mgr.is_connected(&addr));
+        assert_eq!(mgr.state(&addr), Some(ConnectionState::Connected));
+        assert_eq!(mgr.connected_addresses(), vec![addr.clone()]);
+
+        mgr.disconnect(&addr).unwrap();
+        assert!(!mgr.is_connected(&addr));
+        assert_eq!(mgr.state(&addr), Some(ConnectionState::Disconnected));
+        assert!(mgr.connected_addresses().is_empty());
     }
 }
