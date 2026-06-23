@@ -4,6 +4,38 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 15 (2026-06-23) — completed the remaining transport mocks
+
+Resolved the round-14 newly-discovered mock stubs. Key clarification: the
+codebase's "serialization" is a hand-rolled **rkyv-*style*** archive system
+(`safe_channel.rs`: `ArchiveSerialize`/`ArchiveView`/`ArchivedMessage`), NOT the
+`rkyv` crate.
+
+- **`UniversalChannel`/`UniversalSender`/`UniversalReceiver` mocks** → removed.
+  Their `send`/`recv` ignored the argument and returned `Closed`; a channel
+  generic over arbitrary `Send` `T` cannot serialize without a serialization
+  bound — which is exactly what the **already-working, tested**
+  `ArchivedUniversalSender<T: ArchiveSerialize>`/`ArchivedUniversalReceiver<T:
+  ArchiveView>` provide. Surfaced those at the transport crate root and the
+  `moirai` umbrella as the canonical typed channel; removed the mock test (and its
+  commented-out assertion).
+- **`IpcTransport` stub** → replaced with a **real** shared-memory IPC transport
+  (`src/ipc.rs`) backed by `moirai_core::ipc::SharedQueue<IpcFrame>` (a Pod
+  length-prefixed frame, ≤ ~4 KiB/message). Used directly (not in
+  `TransportManager`, to avoid the `Local`-address overlap with
+  `InMemoryTransport`); Unix/Windows only. 3 tests: in-process FIFO round-trip,
+  cross-handle attach (two handles = two processes), oversized/non-local rejection.
+
+### Real but DEFERRED (next-round candidates)
+- A real IPC transport selectable through `TransportManager` would need a distinct
+  `Address::Ipc` variant (rippling ~41 `Address::` match sites) and a cross-process
+  segment-creation protocol (`SharedQueue::create` re-inits metadata, so two
+  concurrent first-touch creators race). `IpcTransport` today is direct-use and
+  single-frame; multi-frame fragmentation + manager integration is an ADR-worthy
+  feature.
+- `moirai-async` `io/traits.rs`/`io/mod.rs` carry pre-existing conditional unused
+  imports that warn under reduced feature sets (clean under `--all-features`).
+
 ## Round 14 (2026-06-23) — deferred items from round 13 completed
 
 All three named round-13 deferred items implemented with documentation and tests.

@@ -1513,6 +1513,7 @@ dependencies = [
 name = "moirai-transport"
 version = "0.2.0"
 dependencies = [
+ "bytemuck",
  "criterion",
  "moirai-core",
  "moirai-executor",

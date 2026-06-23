@@ -17,6 +17,8 @@ moirai-core = { workspace = true }
 moirai-executor = { workspace = true, optional = true }
 moirai-scheduler = { workspace = true }
 moirai-utils = { workspace = true }
+# Pod frame for the shared-memory IPC transport (see src/ipc.rs).
+bytemuck = { workspace = true }
 
 # Cross-boundary typed messaging uses rkyv-style archive views in `safe_channel`.
 # Do not add deserialize-to-owned formats on transport hot paths.
