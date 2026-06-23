@@ -304,11 +304,18 @@ impl<T> TaskResultSlot<T> {
 #[cfg(feature = "std")]
 impl<T> Drop for TaskResultSlot<T> {
     fn drop(&mut self) {
-        if self.state.load(Ordering::Acquire) == RESULT_READY {
+        let state = *self.state.get_mut();
+        if state == RESULT_READY {
             // Safety: READY means the cell is initialized and no consuming join
             // took it because `drop` has exclusive access to the slot.
             unsafe {
                 self.result.get_mut().assume_init_drop();
+            }
+        } else if state == RESULT_WAITING {
+            // Safety: WAITING means the waiter thread handle is initialized and
+            // no producer unparked it because `drop` has exclusive access.
+            unsafe {
+                self.waiter.get_mut().assume_init_drop();
             }
         }
     }
