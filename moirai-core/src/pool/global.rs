@@ -1,5 +1,5 @@
 use crate::platform::*;
-use super::stack::{LockFreeStack, CachePadded};
+use super::stack::LockFreeStack;
 
 /// Global object pool for cross-thread sharing.
 ///
@@ -9,8 +9,6 @@ pub struct GlobalPool<T> {
     global: LockFreeStack<T>,
     /// Maximum size of the pool
     max_size: usize,
-    /// Current size (may be approximate)
-    current_size: CachePadded<AtomicUsize>,
 }
 
 impl<T: Default + Send + 'static> GlobalPool<T> {
@@ -20,9 +18,6 @@ impl<T: Default + Send + 'static> GlobalPool<T> {
         Self {
             global: LockFreeStack::new(),
             max_size,
-            current_size: CachePadded {
-                value: AtomicUsize::new(0),
-            },
         }
     }
 
@@ -41,19 +36,15 @@ impl<T: Default + Send + 'static> GlobalPool<T> {
 
     /// Return an object to the pool.
     pub fn put(&self, obj: T) {
-        let current = self.current_size.value.load(Ordering::Relaxed);
-        if current < self.max_size {
+        if self.global.len() < self.max_size {
             self.global.push(obj);
-            self.current_size.value.fetch_add(1, Ordering::Relaxed);
         }
         // Otherwise drop the object
     }
 
     /// Clear all objects from the pool.
     pub fn clear(&self) {
-        while self.global.pop().is_some() {
-            self.current_size.value.fetch_sub(1, Ordering::Relaxed);
-        }
+        while self.global.pop().is_some() {}
     }
 }
 
