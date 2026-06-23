@@ -1,22 +1,29 @@
 use std::fmt;
-use std::hint;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex};
 
 /// A wait group for synchronizing multiple threads (Go-inspired).
 /// This provides value beyond standard library primitives.
 pub struct WaitGroup {
-    counter: AtomicU64,
-    generation: AtomicU64,
+    state: Mutex<WaitGroupState>,
+    cond: Condvar,
+}
+
+struct WaitGroupState {
+    counter: u64,
 }
 
 impl fmt::Debug for WaitGroup {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let counter = self.counter.load(Ordering::Relaxed);
-        let generation = self.generation.load(Ordering::Relaxed);
+        let state = self.state.lock().unwrap();
         f.debug_struct("WaitGroup")
-            .field("counter", &counter)
-            .field("generation", &generation)
+            .field("counter", &state.counter)
             .finish()
+    }
+}
+
+impl Default for WaitGroup {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -24,43 +31,37 @@ impl WaitGroup {
     /// Create a new wait group.
     pub fn new() -> Self {
         Self {
-            counter: AtomicU64::new(0),
-            generation: AtomicU64::new(0),
+            state: Mutex::new(WaitGroupState { counter: 0 }),
+            cond: Condvar::new(),
         }
     }
 
     /// Add to the wait group counter.
     pub fn add(&self, delta: u64) {
-        self.counter.fetch_add(delta, Ordering::Release);
+        if delta == 0 {
+            return;
+        }
+        let mut state = self.state.lock().unwrap();
+        state.counter = state.counter.checked_add(delta).expect("WaitGroup counter overflow");
     }
 
     /// Decrement the wait group counter.
     pub fn done(&self) {
-        let old = self.counter.fetch_sub(1, Ordering::AcqRel);
-        if old == 1 {
-            // Last one out, increment generation to wake waiters
-            self.generation.fetch_add(1, Ordering::Release);
-            std::thread::yield_now(); // Give waiters a chance to wake
+        let mut state = self.state.lock().unwrap();
+        if state.counter == 0 {
+            panic!("WaitGroup counter decremented below zero");
+        }
+        state.counter -= 1;
+        if state.counter == 0 {
+            self.cond.notify_all();
         }
     }
 
     /// Wait for the counter to reach zero.
     pub fn wait(&self) {
-        let gen = self.generation.load(Ordering::Acquire);
-        let mut backoff: usize = 1;
-        while self.counter.load(Ordering::Acquire) > 0 {
-            for _ in 0..backoff {
-                hint::spin_loop();
-            }
-            if backoff < 64 {
-                backoff = backoff.saturating_mul(2);
-            } else {
-                std::thread::yield_now();
-                backoff = 1;
-            }
-            if self.generation.load(Ordering::Acquire) != gen {
-                break;
-            }
+        let mut state = self.state.lock().unwrap();
+        while state.counter > 0 {
+            state = self.cond.wait(state).unwrap();
         }
     }
 }

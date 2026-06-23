@@ -9,6 +9,7 @@ use crate::net::types::{ConnectionPool, ServerStats, TcpServerConfig, TcpServerS
 /// Native async TCP listener with connection management
 pub struct TcpListener {
     inner: AsyncTcpListener,
+    #[allow(dead_code)]
     config: TcpServerConfig,
     stats: Arc<ServerStats>,
     connection_pool: Arc<ConnectionPool>,
@@ -40,27 +41,20 @@ impl TcpListener {
 
     /// Accept the next incoming connection
     pub async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        if !self.connection_pool.has_capacity() {
+        if !self.connection_pool.try_reserve() {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "Connection limit reached",
             ));
         }
 
-        if let Some(max) = self.config.max_connections {
-            let current = self
-                .stats
-                .active_connections
-                .load(std::sync::atomic::Ordering::Relaxed);
-            if current >= max as u64 {
-                return Err(io::Error::new(
-                    io::ErrorKind::WouldBlock,
-                    "Connection limit reached",
-                ));
+        let (stream, addr) = match self.inner.accept().await {
+            Ok(res) => res,
+            Err(e) => {
+                self.connection_pool.cancel_reservation();
+                return Err(e);
             }
-        }
-
-        let (stream, addr) = self.inner.accept().await?;
+        };
 
         // Update statistics
         self.stats
@@ -70,8 +64,8 @@ impl TcpListener {
             .active_connections
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        // Track connection
-        self.connection_pool.add_connection(addr);
+        // Track connection and release reservation
+        self.connection_pool.add_connection_reserved(addr);
 
         Ok((
             TcpStream::new(stream, self.stats.clone(), self.connection_pool.clone()),

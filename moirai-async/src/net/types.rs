@@ -1,7 +1,7 @@
 //! Network configuration and statistics types.
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -51,6 +51,7 @@ pub struct ConnectionInfo {
 #[derive(Debug)]
 pub struct ConnectionPool {
     active_connections: Mutex<HashMap<std::net::SocketAddr, ConnectionInfo>>,
+    reserved_connections: AtomicUsize,
     max_connections: Option<usize>,
 }
 
@@ -58,7 +59,31 @@ impl ConnectionPool {
     pub fn new(max_connections: Option<usize>) -> Self {
         Self {
             active_connections: Mutex::new(HashMap::new()),
+            reserved_connections: AtomicUsize::new(0),
             max_connections,
+        }
+    }
+
+    pub fn try_reserve(&self) -> bool {
+        let max = match self.max_connections {
+            Some(m) => m,
+            None => return true,
+        };
+
+        let connections = self.active_connections.lock().unwrap();
+        let current = connections.len();
+        let reserved = self.reserved_connections.load(Ordering::Acquire);
+        if current + reserved < max {
+            self.reserved_connections.fetch_add(1, Ordering::SeqCst);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn cancel_reservation(&self) {
+        if self.max_connections.is_some() {
+            self.reserved_connections.fetch_sub(1, Ordering::SeqCst);
         }
     }
 
@@ -75,6 +100,13 @@ impl ConnectionPool {
         );
     }
 
+    pub fn add_connection_reserved(&self, addr: std::net::SocketAddr) {
+        self.add_connection(addr);
+        if self.max_connections.is_some() {
+            self.reserved_connections.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
     pub fn remove_connection(&self, addr: &std::net::SocketAddr) -> bool {
         self.active_connections
             .lock()
@@ -85,7 +117,11 @@ impl ConnectionPool {
 
     pub fn has_capacity(&self) -> bool {
         match self.max_connections {
-            Some(max) => self.connection_count() < max,
+            Some(max) => {
+                let current = self.connection_count();
+                let reserved = self.reserved_connections.load(Ordering::Relaxed);
+                current + reserved < max
+            }
             None => true,
         }
     }

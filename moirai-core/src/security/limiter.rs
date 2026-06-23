@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 /// Lock-free sliding window rate limiter for high-performance rate limiting.
@@ -18,6 +19,8 @@ pub(crate) struct SlidingWindowRateLimiter {
     max_requests: usize,
     /// Number of windows in the sliding window
     num_windows: usize,
+    /// Lock to serialize window transitions
+    update_lock: Mutex<()>,
 }
 
 impl SlidingWindowRateLimiter {
@@ -51,6 +54,7 @@ impl SlidingWindowRateLimiter {
             window_duration_ns,
             max_requests,
             num_windows,
+            update_lock: Mutex::new(()),
         }
     }
 
@@ -92,34 +96,27 @@ impl SlidingWindowRateLimiter {
         let elapsed_ns = now_ns.saturating_sub(window_start);
 
         if elapsed_ns >= self.window_duration_ns {
-            // Calculate how many windows we need to advance
-            #[allow(clippy::cast_possible_truncation)]
-            let windows_to_advance = (elapsed_ns / self.window_duration_ns) as usize;
+            // Acquire lock to update window parameters safely without race conditions
+            if let Ok(_guard) = self.update_lock.try_lock() {
+                // Re-check under lock
+                let window_start = self.window_start_ns.load(Ordering::Relaxed);
+                let elapsed_ns = now_ns.saturating_sub(window_start);
+                if elapsed_ns >= self.window_duration_ns {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let windows_to_advance = (elapsed_ns / self.window_duration_ns) as usize;
+                    let new_window_start = window_start + (windows_to_advance as u64 * self.window_duration_ns);
 
-            // Try to update the window start time atomically
-            let new_window_start =
-                window_start + (windows_to_advance as u64 * self.window_duration_ns);
+                    let old_window = self.current_window.load(Ordering::Relaxed);
+                    let new_window = old_window.wrapping_add(windows_to_advance);
 
-            // Use compare_exchange to ensure only one thread updates the window
-            if self
-                .window_start_ns
-                .compare_exchange_weak(
-                    window_start,
-                    new_window_start,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
-                .is_ok()
-            {
-                // Successfully updated window start, now update current window
-                let old_window = self.current_window.load(Ordering::Acquire);
-                let new_window = old_window.wrapping_add(windows_to_advance);
-                self.current_window.store(new_window, Ordering::Release);
+                    // Clear the windows that we're moving past
+                    for i in 1..=windows_to_advance.min(self.num_windows) {
+                        let clear_idx = (old_window + i) % self.num_windows;
+                        self.windows[clear_idx].store(0, Ordering::Relaxed);
+                    }
 
-                // Clear the windows that we're moving past
-                for i in 1..=windows_to_advance.min(self.num_windows) {
-                    let clear_idx = (old_window + i) % self.num_windows;
-                    self.windows[clear_idx].store(0, Ordering::Release);
+                    self.window_start_ns.store(new_window_start, Ordering::Release);
+                    self.current_window.store(new_window, Ordering::Release);
                 }
             }
         }
