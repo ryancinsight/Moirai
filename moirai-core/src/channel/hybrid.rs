@@ -6,6 +6,7 @@
 use super::error::{ChannelError, Result};
 use crate::communication::RingBuffer;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -26,7 +27,6 @@ pub struct HybridChannel<T> {
     parked_count: Arc<AtomicUsize>,
     waker_count: Arc<AtomicUsize>,
     closed: Arc<AtomicBool>,
-    sender_count: Arc<AtomicUsize>,
     next_id: Arc<AtomicU64>,
 }
 
@@ -42,7 +42,6 @@ impl<T: Send> HybridChannel<T> {
             parked_count: Arc::new(AtomicUsize::new(0)),
             waker_count: Arc::new(AtomicUsize::new(0)),
             closed: Arc::new(AtomicBool::new(false)),
-            sender_count: Arc::new(AtomicUsize::new(1)),
             next_id: Arc::new(AtomicU64::new(0)),
         };
 
@@ -60,8 +59,7 @@ impl<T: Send> HybridChannel<T> {
             parked_count: self.parked_count.clone(),
             waker_count: self.waker_count.clone(),
             closed: self.closed.clone(),
-            sender_count: self.sender_count.clone(),
-            next_id: self.next_id.clone(),
+            _marker: PhantomData,
         };
 
         let receiver = HybridReceiver {
@@ -74,6 +72,7 @@ impl<T: Send> HybridChannel<T> {
             waker_count: self.waker_count,
             closed: self.closed,
             next_id: self.next_id,
+            _marker: PhantomData,
         };
 
         (sender, receiver)
@@ -114,8 +113,7 @@ pub struct HybridSender<T> {
     parked_count: Arc<AtomicUsize>,
     waker_count: Arc<AtomicUsize>,
     closed: Arc<AtomicBool>,
-    sender_count: Arc<AtomicUsize>,
-    next_id: Arc<AtomicU64>,
+    _marker: PhantomData<std::cell::Cell<()>>,
 }
 
 impl<T: Send> HybridSender<T> {
@@ -224,45 +222,25 @@ impl<T: Send> HybridSender<T> {
     }
 }
 
-impl<T> Clone for HybridSender<T> {
-    fn clone(&self) -> Self {
-        self.sender_count.fetch_add(1, Ordering::SeqCst);
-        Self {
-            ring: self.ring.clone(),
-            async_notifier: self.async_notifier.clone(),
-            sync_notifier: self.sync_notifier.clone(),
-            parker: self.parker.clone(),
-            async_wakers: self.async_wakers.clone(),
-            parked_count: self.parked_count.clone(),
-            waker_count: self.waker_count.clone(),
-            closed: self.closed.clone(),
-            sender_count: self.sender_count.clone(),
-            next_id: self.next_id.clone(),
-        }
-    }
-}
-
 impl<T> Drop for HybridSender<T> {
     fn drop(&mut self) {
-        if self.sender_count.fetch_sub(1, Ordering::SeqCst) == 1 {
-            self.closed.store(true, Ordering::Release);
-            // Unpark any waiting threads if there are any
-            if self.parked_count.load(Ordering::Relaxed) > 0 {
-                if let Ok(mut parked) = self.parker.lock() {
-                    for thread in parked.drain(..) {
-                        thread.unpark();
-                    }
-                    self.parked_count.store(0, Ordering::Release);
+        self.closed.store(true, Ordering::Release);
+        // Unpark any waiting threads if there are any
+        if self.parked_count.load(Ordering::Relaxed) > 0 {
+            if let Ok(mut parked) = self.parker.lock() {
+                for thread in parked.drain(..) {
+                    thread.unpark();
                 }
+                self.parked_count.store(0, Ordering::Release);
             }
-            // Wake any waiting async tasks if there are any
-            if self.waker_count.load(Ordering::Relaxed) > 0 {
-                if let Ok(mut wakers) = self.async_wakers.lock() {
-                    for (_, waker) in wakers.drain(..) {
-                        waker.wake();
-                    }
-                    self.waker_count.store(0, Ordering::Release);
+        }
+        // Wake any waiting async tasks if there are any
+        if self.waker_count.load(Ordering::Relaxed) > 0 {
+            if let Ok(mut wakers) = self.async_wakers.lock() {
+                for (_, waker) in wakers.drain(..) {
+                    waker.wake();
                 }
+                self.waker_count.store(0, Ordering::Release);
             }
         }
     }
@@ -285,6 +263,7 @@ pub struct HybridReceiver<T> {
     waker_count: Arc<AtomicUsize>,
     closed: Arc<AtomicBool>,
     next_id: Arc<AtomicU64>,
+    _marker: PhantomData<std::cell::Cell<()>>,
 }
 
 impl<T: Send> HybridReceiver<T> {

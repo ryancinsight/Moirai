@@ -58,11 +58,6 @@ mod tests {
         // Test drain
         let values = rx.drain();
         assert_eq!(values, vec![0, 1, 2, 3]);
-
-        // Test clone
-        let tx2 = tx.clone();
-        tx2.send(100).unwrap();
-        assert_eq!(rx.recv().unwrap(), 100);
     }
 
     #[test]
