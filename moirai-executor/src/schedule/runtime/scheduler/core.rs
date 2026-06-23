@@ -58,7 +58,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             join_waiters: CacheAligned::new(AtomicUsize::new(0)),
             wait_lock: std::sync::Mutex::new(()),
             wait_signal: std::sync::Condvar::new(),
-            idle_workers: CacheAligned::new(std::sync::atomic::AtomicU64::new(0)),
+            idle_workers: super::super::idle::IdleBitset::new(worker_count),
         });
 
         for worker_id in 0..worker_count {
@@ -364,7 +364,18 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             pending_before_submit,
             active_before_submit,
         );
-        let previous_pending = self.inner.pending_tasks.fetch_add(1, Ordering::Release);
+        // SeqCst (not Release): this increment is one half of a store-buffer /
+        // Dekker handshake with a parking worker, which does
+        // `idle_workers.fetch_or(mask, SeqCst)` then `pending_tasks.load(SeqCst)`
+        // before parking, while the producer below does this increment then
+        // `idle_workers.load(SeqCst)`. Correctness requires all four accesses to
+        // share one SeqCst total order; a Release RMW is NOT in that order, which
+        // permits the worker to read `pending == 0` AND the producer to read the
+        // worker's idle bit as clear — a lost wakeup that stalls the task until an
+        // unrelated submission. The increment must stay BEFORE the push so the
+        // `execute_job` decrement (worker.rs) can never underflow from 0.
+        // (On x86 `lock xadd` is already full-barrier, so this is free.)
+        let previous_pending = self.inner.pending_tasks.fetch_add(1, Ordering::SeqCst);
 
         let is_local = get_current_worker_id() == Some(worker_index);
         if is_local {
@@ -379,30 +390,13 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                 .push_external(priority, job);
         }
 
-        // Try to wake up an idle worker via the lock-free wake lottery
+        // Try to wake up an idle worker via the lock-free wake lottery. The
+        // bitset spans every worker (not just the first 64), so high-index
+        // workers on large pools are reachable directly rather than stranded.
         let mut woken = false;
-        let mut idle = self.inner.idle_workers.load(Ordering::SeqCst);
-        while idle != 0 {
-            let worker_to_wake = idle.trailing_zeros() as usize;
-            if worker_to_wake >= self.inner.workers.len() {
-                break;
-            }
-            let mask = 1 << worker_to_wake;
-            match self.inner.idle_workers.compare_exchange_weak(
-                idle,
-                idle & !mask,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
-                Ok(_) => {
-                    wake_worker(&self.inner.workers[worker_to_wake]);
-                    woken = true;
-                    break;
-                }
-                Err(actual) => {
-                    idle = actual;
-                }
-            }
+        if let Some(worker_to_wake) = self.inner.idle_workers.claim_one(self.inner.workers.len()) {
+            wake_worker(&self.inner.workers[worker_to_wake]);
+            woken = true;
         }
 
         if !woken {

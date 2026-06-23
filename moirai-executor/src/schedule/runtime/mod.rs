@@ -1,5 +1,6 @@
 //! Unified thread scheduler runtime.
 
+pub(super) mod idle;
 pub mod scheduler;
 pub mod types;
 pub mod worker;

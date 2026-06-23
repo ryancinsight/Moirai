@@ -34,7 +34,13 @@ impl AdaptiveBackoff {
     /// Record a failed steal operation and increase backoff.
     pub fn record_failure(&self) {
         let failures = self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
-        let new_delay = (self.base_delay_ns * (1 << failures.min(10))).min(self.max_delay_ns);
+        // saturating_mul: the exponential factor (up to 1<<10) can overflow the
+        // product under `overflow-checks` for a pathologically large base delay;
+        // saturate to the configured cap instead of panicking.
+        let new_delay = self
+            .base_delay_ns
+            .saturating_mul(1u64 << failures.min(10))
+            .min(self.max_delay_ns);
         self.current_delay_ns
             .store(new_delay as usize, Ordering::Relaxed);
     }

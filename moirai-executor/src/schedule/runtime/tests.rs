@@ -67,6 +67,46 @@ fn scheduler_runs_all_work_classes_on_one_worker_set() {
 }
 
 #[test]
+fn large_pool_wakes_high_index_workers_across_idle_cycles() {
+    // Regression for the single-AtomicU64 idle map: workers with id >= 64 were
+    // never registered in the wake bitmap, so on a pool larger than 64 they
+    // could not be targeted by the wake lottery. With a multi-word bitset every
+    // worker is addressable. Drive several submit -> quiesce -> submit cycles so
+    // the whole pool parks between rounds and must be re-woken each round; a
+    // lost/unreachable wakeup would either drop a task (count mismatch) or hang
+    // into the nextest timeout.
+    const WORKERS: usize = 100;
+    const ROUNDS: usize = 4;
+    const TASKS_PER_ROUND: usize = 400;
+
+    let scheduler = ThreadScheduler::new(WORKERS, "test-large-pool").unwrap();
+    let completed = Arc::new(AtomicUsize::new(0));
+
+    for _ in 0..ROUNDS {
+        let (sender, receiver) = mpsc::channel();
+        for _ in 0..TASKS_PER_ROUND {
+            let completed = Arc::clone(&completed);
+            let sender = sender.clone();
+            scheduler
+                .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+                    completed.fetch_add(1, Ordering::AcqRel);
+                    sender.send(()).unwrap();
+                })
+                .unwrap();
+        }
+        drop(sender);
+        // Barrier: every task of this round must complete before the next round,
+        // forcing the pool to fully quiesce (all workers park) in between.
+        for _ in 0..TASKS_PER_ROUND {
+            receiver.recv().unwrap();
+        }
+    }
+
+    scheduler.shutdown();
+    assert_eq!(completed.load(Ordering::Acquire), ROUNDS * TASKS_PER_ROUND);
+}
+
+#[test]
 fn quiescent_single_task_selection_reuses_work_class_worker() {
     let scheduler = ThreadScheduler::new(4, "test-quiescent-route").unwrap();
     let first = scheduler.select_worker::<BlockingTask>(Priority::Normal, None);
