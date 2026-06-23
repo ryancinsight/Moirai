@@ -418,3 +418,71 @@ fn test_sharded_resource_pool_vecdeque_fifo() {
 
     assert!(pool.take_at_least(100).is_none());
 }
+
+#[test]
+fn test_sharded_resource_pool_recycle_enforces_byte_budget() {
+    // 4 shards: per-shard byte cap = 1000/4 = 250, buffer cap = 100/4 = 25.
+    // All recycles on this thread land in one shard, so the byte cap binds: at
+    // most two 100-byte items (200 <= 250; a third would be 300 > 250).
+    let pool = ShardedResourcePool::<TestResource>::new(100, 1000);
+    for id in 0..10 {
+        pool.recycle(TestResource { id, size: 100 });
+    }
+
+    let mut total_bytes = 0;
+    let mut count = 0;
+    while let Some(item) = pool.take_at_least(1) {
+        total_bytes += item.size();
+        count += 1;
+    }
+    assert!(
+        total_bytes <= 250,
+        "retained bytes {total_bytes} exceeds the per-shard byte budget of 250"
+    );
+    assert!(
+        count <= 2,
+        "retained count {count} exceeds the byte-derived bound of 2"
+    );
+}
+
+#[test]
+fn test_sharded_resource_pool_concurrent_recycle_respects_total_cap() {
+    // Aggregate cap = 4 shards * (16 / 4) = 16 buffers; the byte cap is large so
+    // the buffer cap binds. Reserve-before-insert recycle must keep each shard
+    // within its cap under concurrent recycle+take, and the counter arithmetic
+    // must never underflow (which would panic under `overflow-checks`). A persisted
+    // overshoot or underflow is the regression this guards.
+    const MAX_BUFFERS: usize = 16;
+    let pool = Arc::new(ShardedResourcePool::<TestResource>::new(
+        MAX_BUFFERS,
+        1 << 20,
+    ));
+
+    let mut handles = Vec::new();
+    for t in 0..8 {
+        let pool = Arc::clone(&pool);
+        handles.push(thread::spawn(move || {
+            for i in 0..2000 {
+                pool.recycle(TestResource {
+                    id: t * 100_000 + i,
+                    size: 64,
+                });
+                if i % 3 == 0 {
+                    let _ = pool.take_at_least(1);
+                }
+            }
+        }));
+    }
+    for handle in handles {
+        handle.join().expect("recycle worker must not panic");
+    }
+
+    let mut retained = 0;
+    while pool.take_at_least(1).is_some() {
+        retained += 1;
+    }
+    assert!(
+        retained <= MAX_BUFFERS,
+        "retained {retained} exceeds the aggregate cap of {MAX_BUFFERS}"
+    );
+}

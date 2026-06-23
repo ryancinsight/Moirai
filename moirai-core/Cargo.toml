@@ -15,6 +15,10 @@ description = "Core abstractions and traits for the Moirai concurrency library"
 [dependencies]
 moirai-utils = { workspace = true, features = ["std"] }
 mnemosyne = { workspace = true, optional = true }
+# Pod bound for shared-memory IPC payloads (any-bit-pattern validity across the
+# process trust boundary). no_std-compatible; only reached by the std+OS-gated
+# `ipc` module.
+bytemuck = { workspace = true }
 
 # Unix dependencies
 [target.'cfg(unix)'.dependencies]

@@ -64,6 +64,10 @@ webpki-roots = "0.26"
 http = "1"
 httparse = "1"
 
+# Plain-old-data marker traits (zero-cost bit-pattern validity for shared-memory
+# IPC and GPU buffers). SSOT version for every workspace member.
+bytemuck = "1.14"
+
 # Development and testing dependencies only (not used in runtime)
 criterion = "0.5"
 rcgen = "0.13"

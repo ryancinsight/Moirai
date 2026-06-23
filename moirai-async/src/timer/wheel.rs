@@ -39,6 +39,13 @@ impl Ord for TimerEntry {
 /// Timer wheel for efficient timer management.
 pub struct TimerWheel {
     timers: BinaryHeap<TimerEntry>,
+    /// Ids currently present in `timers`. Inserted on `schedule`, removed when an
+    /// entry is popped (fired or drained). Used so `cancel` can tell whether a
+    /// timer is still live without an O(n) heap scan.
+    active: HashSet<u64>,
+    /// Cancelled-but-not-yet-popped ids; entries are skipped when they reach the
+    /// heap head. Invariant: `cancelled ⊆ active`, so every tombstone is reclaimed
+    /// when its entry is popped — the set cannot grow without bound.
     cancelled: HashSet<u64>,
     next_id: u64,
 }
@@ -64,6 +71,7 @@ impl TimerWheel {
     pub fn new() -> Self {
         Self {
             timers: BinaryHeap::new(),
+            active: HashSet::new(),
             cancelled: HashSet::new(),
             next_id: 1,
         }
@@ -74,6 +82,7 @@ impl TimerWheel {
         let timer_id = self.next_id;
         self.next_id = self.next_id.saturating_add(1);
 
+        self.active.insert(timer_id);
         self.timers.push(TimerEntry {
             id: timer_id,
             deadline,
@@ -83,13 +92,37 @@ impl TimerWheel {
         timer_id
     }
 
-    /// Cancel a timer by ID.
+    /// Cancel a timer by ID. Returns `true` if a live timer was cancelled.
+    ///
+    /// Cancelling an id that was never scheduled or has already fired/drained is
+    /// a no-op: such an id has no entry left in the heap, so recording a tombstone
+    /// for it would never be reclaimed and would leak unboundedly.
     pub fn cancel(&mut self, timer_id: u64) -> bool {
-        if timer_id == 0 || timer_id >= self.next_id {
+        if !self.active.contains(&timer_id) {
             return false;
         }
 
         self.cancelled.insert(timer_id)
+    }
+
+    /// Pop the heap head, keeping the `active` membership index in sync.
+    fn pop_head(&mut self) -> TimerEntry {
+        let entry = self.timers.pop().expect("entry existed after peek");
+        self.active.remove(&entry.id);
+        entry
+    }
+
+    /// Drain cancelled entries sitting at the heap head, reclaiming their
+    /// tombstones.
+    fn drain_cancelled_head(&mut self) {
+        while self
+            .timers
+            .peek()
+            .is_some_and(|entry| self.cancelled.contains(&entry.id))
+        {
+            let entry = self.pop_head();
+            self.cancelled.remove(&entry.id);
+        }
     }
 
     /// Poll for expired timers and wake them.
@@ -97,24 +130,14 @@ impl TimerWheel {
         let now = Instant::now();
         let mut expired_count = 0;
 
-        while self
-            .timers
-            .peek()
-            .is_some_and(|entry| self.cancelled.contains(&entry.id))
-        {
-            let entry = self
-                .timers
-                .pop()
-                .expect("cancelled timer existed after peek");
-            self.cancelled.remove(&entry.id);
-        }
+        self.drain_cancelled_head();
 
         while self
             .timers
             .peek()
             .is_some_and(|entry| entry.deadline <= now)
         {
-            let mut expired = self.timers.pop().expect("expired timer existed after peek");
+            let mut expired = self.pop_head();
             if self.cancelled.remove(&expired.id) {
                 continue;
             }
@@ -130,27 +153,20 @@ impl TimerWheel {
 
     /// Get the next expiration time.
     pub fn next_expiration(&mut self) -> Option<Instant> {
-        while self
-            .timers
-            .peek()
-            .is_some_and(|entry| self.cancelled.contains(&entry.id))
-        {
-            let entry = self
-                .timers
-                .pop()
-                .expect("cancelled timer existed after peek");
-            self.cancelled.remove(&entry.id);
-        }
-
+        self.drain_cancelled_head();
         self.timers.peek().map(|entry| entry.deadline)
     }
 
-    /// Get the number of active timers.
+    /// Get the number of live (scheduled, not cancelled) timers.
     pub fn timer_count(&self) -> usize {
-        self.timers
-            .iter()
-            .filter(|entry| !self.cancelled.contains(&entry.id))
-            .count()
+        // `cancelled ⊆ active`, so this never underflows.
+        self.active.len() - self.cancelled.len()
+    }
+
+    /// Number of outstanding cancellation tombstones (test-only invariant probe).
+    #[cfg(test)]
+    fn tombstone_count(&self) -> usize {
+        self.cancelled.len()
     }
 }
 
@@ -215,6 +231,49 @@ mod tests {
         assert_ne!(cancelled, active);
         assert_eq!(wheel.poll_expired(), 1);
         assert_eq!(wake_count.load(Ordering::Acquire), 1);
+        assert_eq!(wheel.timer_count(), 0);
+    }
+
+    #[test]
+    fn timer_wheel_cancel_after_expiry_does_not_leak_tombstones() {
+        // Regression: cancelling an already-fired timer used to insert a tombstone
+        // into `cancelled` that was never reclaimed (the entry was gone from the
+        // heap), growing the set without bound across a long-running wheel.
+        let mut wheel = TimerWheel::new();
+        let wake_count = Arc::new(AtomicUsize::new(0));
+        let id = wheel.schedule(
+            Instant::now() - Duration::from_millis(1),
+            counting_waker(Arc::clone(&wake_count)),
+        );
+
+        assert_eq!(wheel.poll_expired(), 1);
+        assert_eq!(wheel.tombstone_count(), 0);
+
+        // Cancelling the fired timer, or any never-scheduled id, is a no-op and
+        // leaves no tombstone behind.
+        assert!(!wheel.cancel(id));
+        assert!(!wheel.cancel(9_999));
+        assert_eq!(wheel.tombstone_count(), 0);
+        assert_eq!(wheel.timer_count(), 0);
+    }
+
+    #[test]
+    fn timer_wheel_cancelled_then_fired_reclaims_tombstone() {
+        // A cancelled-but-still-queued timer leaves exactly one tombstone, which
+        // is reclaimed when the entry is drained on the next poll.
+        let mut wheel = TimerWheel::new();
+        let wake_count = Arc::new(AtomicUsize::new(0));
+        let id = wheel.schedule(
+            Instant::now() - Duration::from_millis(1),
+            counting_waker(Arc::clone(&wake_count)),
+        );
+
+        assert!(wheel.cancel(id));
+        assert_eq!(wheel.tombstone_count(), 1);
+
+        assert_eq!(wheel.poll_expired(), 0);
+        assert_eq!(wake_count.load(Ordering::Acquire), 0);
+        assert_eq!(wheel.tombstone_count(), 0, "tombstone must be reclaimed");
         assert_eq!(wheel.timer_count(), 0);
     }
 }
