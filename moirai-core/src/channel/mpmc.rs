@@ -155,7 +155,20 @@ impl<T> BoundedMpmcQueue<T> {
 
 impl<T> Drop for BoundedMpmcQueue<T> {
     fn drop(&mut self) {
-        while self.try_pop().is_some() {}
+        let dequeue_pos = *self.dequeue_pos.value.get_mut();
+        let enqueue_pos = *self.enqueue_pos.value.get_mut();
+        let len = enqueue_pos.wrapping_sub(dequeue_pos);
+
+        for i in 0..len {
+            let pos = dequeue_pos.wrapping_add(i);
+            let slot = &mut self.buffer[pos & self.mask];
+            let sequence = *slot.sequence.get_mut();
+            if sequence == pos.wrapping_add(1) {
+                unsafe {
+                    (*slot.value.get()).assume_init_drop();
+                }
+            }
+        }
     }
 }
 
