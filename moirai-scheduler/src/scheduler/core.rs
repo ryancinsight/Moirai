@@ -17,8 +17,8 @@ use std::time::Instant;
 
 const DEFAULT_CHASELEV_CAPACITY: usize = 1024;
 const DEFAULT_QUEUE_CAPACITY: usize = 256;
-const LCG_MULTIPLIER: usize = 1103515245;
-const LCG_INCREMENT: usize = 12345;
+// LCG constants removed: next_random now uses thread-local xorshift64 seeded
+// from thread ID XOR coordinator address (no shared atomic on the hot path).
 
 // ── SchedulerStats ────────────────────────────────────────────────────────────
 
@@ -30,7 +30,14 @@ pub struct SchedulerStats {
     tasks_executed: CacheAligned<AtomicUsize>,
     steal_attempts: CacheAligned<AtomicUsize>,
     successful_steals: CacheAligned<AtomicUsize>,
+    /// Accumulated execution time in nanoseconds.  Only updated when the
+    /// `metrics` feature is active; kept in the struct for snapshot ABI
+    /// stability so callers can always read a consistent zero.
+    #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
     execution_time_ns: CacheAligned<AtomicUsize>,
+    /// Wall-clock timestamp of the last task completion.  Only updated under
+    /// `metrics`; allow dead-code when the feature is off.
+    #[cfg_attr(not(feature = "metrics"), allow(dead_code))]
     last_activity: CacheAligned<AtomicUsize>,
 }
 
@@ -256,17 +263,17 @@ impl Scheduler for WorkStealingScheduler {
 
 // ── WorkStealingCoordinator ───────────────────────────────────────────────────
 
+/// Coordinates work-stealing across the pool of schedulers.
+///
+/// The `rng_state` field has been removed; steal randomization now uses a
+/// fully thread-local xorshift64 RNG (see `next_random`).
 pub struct WorkStealingCoordinator {
     strategy: WorkStealingStrategy,
-    rng_state: AtomicUsize,
 }
 
 impl WorkStealingCoordinator {
     pub fn new(strategy: WorkStealingStrategy) -> Self {
-        Self {
-            strategy,
-            rng_state: AtomicUsize::new(1),
-        }
+        Self { strategy }
     }
 
     pub fn steal_work(
@@ -441,24 +448,33 @@ impl WorkStealingCoordinator {
     }
 
     fn next_random(&self) -> usize {
+        // Thread-local xorshift64 RNG: seeded once from the thread ID (no
+        // shared atomic after initialization).  The owner pointer is cached so
+        // threads that work with multiple coordinator instances each maintain
+        // their own independent stream.
         thread_local! {
-            static THREAD_RNG_STATE: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+            static THREAD_RNG_STATE: std::cell::Cell<(usize, usize)> =
+                const { std::cell::Cell::new((0, 0)) };
         }
         let owner = self as *const Self as usize;
         let (cached_owner, mut state) = THREAD_RNG_STATE.get();
-        if cached_owner != owner {
-            state = 0;
+        if cached_owner != owner || state == 0 {
+            // Seed from thread ID XOR coordinator address — no shared atomic.
+            let tid = {
+                // Map the opaque `ThreadId` to a usize via its debug repr hash.
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                std::thread::current().id().hash(&mut h);
+                h.finish() as usize
+            };
+            state = (tid ^ owner).wrapping_add(1);
+            if state == 0 { state = 0xdeadbeef; }
         }
-        if state == 0 {
-            state = self.rng_state.fetch_add(1, Ordering::Relaxed);
-            if state == 0 {
-                state = 1;
-            }
-        }
-        let next = state
-            .wrapping_mul(LCG_MULTIPLIER)
-            .wrapping_add(LCG_INCREMENT);
-        THREAD_RNG_STATE.set((owner, next));
-        next
+        // xorshift64
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        THREAD_RNG_STATE.set((owner, state));
+        state
     }
 }
