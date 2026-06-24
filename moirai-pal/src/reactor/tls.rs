@@ -4,7 +4,6 @@ melinoe::thread_cached! {
     pub(crate) mod active_reactor: *const IoReactor;
 }
 
-#[cfg(not(target_os = "windows"))]
 pub(crate) static GLOBAL_REACTOR: std::sync::OnceLock<std::sync::Arc<IoReactor>> =
     std::sync::OnceLock::new();
 
@@ -41,34 +40,22 @@ impl IoReactor {
             return Some(unsafe { &*ptr });
         }
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            let reactor = GLOBAL_REACTOR.get_or_init(|| {
-                let r = std::sync::Arc::new(
-                    IoReactor::new().expect("failed to create global IoReactor"),
-                );
-                let r_clone = std::sync::Arc::clone(&r);
-                std::thread::Builder::new()
-                    .name("moirai-global-reactor".to_string())
-                    .spawn(move || {
-                        let _ = r_clone.run();
-                    })
-                    .expect("failed to spawn global reactor thread");
-                r
-            });
-            Some(&**reactor)
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            // No implicit global reactor on Windows. The IOCP backend completes
-            // posted *overlapped operations*, not socket *readiness*, so it cannot
-            // drive the readiness-based futures in `net.rs`. Returning `None` makes
-            // those futures use the cooperative self-wake fallback
-            // (`wake_without_active_reactor`), which is correct (used by the net
-            // tests) though it busy-polls. A readiness-capable Windows reactor
-            // (AFD/`\Device\Afd` polling) is a separate, larger feature.
-            None
-        }
+        // Lazily start a process-global reactor on its own thread. The reactor is
+        // readiness-based on every platform: epoll (Linux), kqueue (BSD/macOS), and
+        // `WSAPoll` (Windows). Sockets registering a waker are driven by this
+        // reactor instead of the cooperative busy-poll fallback in `net.rs`.
+        let reactor = GLOBAL_REACTOR.get_or_init(|| {
+            let r =
+                std::sync::Arc::new(IoReactor::new().expect("failed to create global IoReactor"));
+            let r_clone = std::sync::Arc::clone(&r);
+            std::thread::Builder::new()
+                .name("moirai-global-reactor".to_string())
+                .spawn(move || {
+                    let _ = r_clone.run();
+                })
+                .expect("failed to spawn global reactor thread");
+            r
+        });
+        Some(&**reactor)
     }
 }
