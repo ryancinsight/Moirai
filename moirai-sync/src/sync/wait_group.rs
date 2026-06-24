@@ -42,7 +42,10 @@ impl WaitGroup {
             return;
         }
         let mut state = self.state.lock().unwrap();
-        state.counter = state.counter.checked_add(delta).expect("WaitGroup counter overflow");
+        state.counter = state
+            .counter
+            .checked_add(delta)
+            .expect("WaitGroup counter overflow");
     }
 
     /// Decrement the wait group counter.

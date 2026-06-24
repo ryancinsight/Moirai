@@ -219,21 +219,13 @@ impl<'a, T: Clone> Future for WatchChanged<'a, T> {
         let current_version = state.version;
         if current_version > receiver.version {
             receiver.version = current_version;
-            if let Some(receiver_state) = state
-                .receivers
-                .iter_mut()
-                .find(|r| r.id == receiver.id)
-            {
+            if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == receiver.id) {
                 receiver_state.version = current_version;
             }
             return Poll::Ready(Ok(()));
         }
 
-        if let Some(receiver_state) = state
-            .receivers
-            .iter_mut()
-            .find(|r| r.id == receiver.id)
-        {
+        if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == receiver.id) {
             receiver_state.waker = Some(cx.waker().clone());
         }
 
