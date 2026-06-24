@@ -4,6 +4,44 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 17 (2026-06-23) — completed the deferred pal reactor readiness fix
+
+Resolved the big round-16 deferred item: the pal I/O reactor lost-edge model.
+
+### Fixed
+- **epoll/kqueue lost-edge hang (Linux/BSD)** — switched both backends from
+  edge-triggered (`EPOLLET` / `EV_CLEAR`) to **level-triggered**. The reactor
+  registers a waker only after a `WouldBlock`, so an edge-triggered fd dropped any
+  readiness arriving in the register window or already present at registration →
+  permanent hang. Level-triggered re-reports readiness every `epoll_wait`/`kevent`
+  until the I/O consumes it, which self-heals that race and the
+  `unregister`+`register` interest-widening window — fixing the bug **without** a
+  core.rs change (the net.rs futures register the executor's real waker, which the
+  reactor then wakes). (`unix/epoll.rs`, `unix/kqueue.rs`)
+- epoll/kqueue timeout `as c_int`/`as time_t` truncation → saturating casts.
+
+### Verification note
+This Windows/MSYS2 host cannot compile-check the `#[cfg(unix)]` epoll/kqueue code
+(the MSYS2 rustc has no cross std and shadows rustup). Verified instead by: (1) the
+changes are trivial (removing flags from OR-expressions; saturating casts); (2) the
+non-trivial `libc::c_int::MAX`/`libc::time_t::MAX` cast syntax was compiled+run via
+a standalone snippet; (3) level-triggered semantics are textbook; (4) the full
+Windows workspace (755 tests) still passes. Linux/BSD CI confirms compilation.
+
+### Resolved as non-issues (no change needed)
+- **cache.rs `ZeroCopyParallelIter::map` panic-leak** — the type is **dead code**
+  (declared only to satisfy a benchmark source-contract, never constructed), so the
+  leak is unreachable; and even if reached it is memory-safe and panic-path-only
+  (matches rayon). A full fix needs per-chunk owned `Vec<R>` (hot-path allocation
+  cost) — not worth it for unreachable code.
+
+### Remaining DEFERRED (genuine major feature, Windows-only)
+- A readiness-capable **Windows reactor** (AFD/`\Device\Afd` polling) so Windows
+  async sockets don't busy-poll via the fallback. The IOCP backend cannot deliver
+  readiness (only overlapped-op completion); Windows currently returns `None` from
+  `get_active()` and uses the working cooperative fallback. This is an ADR-worthy
+  feature, not an incremental fix.
+
 ## Round 16 (2026-06-23) — platform layer (pal reactor/timer), iter/utils unsafe
 
 Fanned out adversarial audits over the previously-uncovered `moirai-pal` (I/O

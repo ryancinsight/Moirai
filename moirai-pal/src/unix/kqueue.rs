@@ -51,20 +51,18 @@ impl Reactor for KqueueReactor {
             ));
         }
 
+        // Level-triggered (no EV_CLEAR): the reactor registers a waker only after
+        // a `WouldBlock`, so an edge-triggered filter would drop readiness that
+        // arrived in the register window (or was already present at registration),
+        // hanging the task. Without EV_CLEAR, kevent re-reports readiness until
+        // the I/O consumes it — self-healing the race. (The WAKE_IDENT user event
+        // keeps EV_CLEAR: it is a one-shot self-wake, not fd readiness.)
         let mut changes = Vec::with_capacity(2);
         if interest.readable {
-            changes.push(fd_event(
-                fd,
-                libc::EVFILT_READ,
-                libc::EV_ADD | libc::EV_CLEAR,
-            ));
+            changes.push(fd_event(fd, libc::EVFILT_READ, libc::EV_ADD));
         }
         if interest.writable {
-            changes.push(fd_event(
-                fd,
-                libc::EVFILT_WRITE,
-                libc::EV_ADD | libc::EV_CLEAR,
-            ));
+            changes.push(fd_event(fd, libc::EVFILT_WRITE, libc::EV_ADD));
         }
 
         submit_changes(self.kqueue_fd, &mut changes)?;
@@ -195,7 +193,9 @@ fn zeroed_event() -> libc::kevent {
 
 fn duration_to_timespec(duration: Duration) -> libc::timespec {
     libc::timespec {
-        tv_sec: duration.as_secs() as libc::time_t,
+        // Saturate: `as_secs()` is u64; a multi-century timeout would wrap a raw
+        // `as time_t` to a negative value where `time_t` is 32-bit.
+        tv_sec: duration.as_secs().min(libc::time_t::MAX as u64) as libc::time_t,
         tv_nsec: duration.subsec_nanos() as libc::c_long,
     }
 }
