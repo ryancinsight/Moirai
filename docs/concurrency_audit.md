@@ -4,6 +4,43 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 18 (2026-06-23) — built the deferred Windows readiness reactor
+
+Completed the last big deferred component: a real readiness reactor on Windows.
+
+### Added — `WsaPollReactor` (`windows/poll.rs`)
+The IOCP backend signals completions of *posted overlapped ops*, not socket
+*readiness*, so it could never wake the readiness-based `net.rs` futures; Windows
+async sockets fell back to a 100%-CPU busy-poll. Replaced IOCP with a `WSAPoll`
+reactor (the Windows `poll(2)` analogue), which reports per-socket
+readable/writable and is therefore the right signal. Key properties:
+- **Level-triggered** by nature → self-heals the same lost-edge race the
+  epoll/kqueue level-triggered fix closed (round 17).
+- **Self-cleaning**: a socket closed without `unregister_fd` surfaces as
+  `POLLNVAL` and is dropped from the interest set, so a stale fd never wedges the
+  poll loop. (No net.rs deregistration plumbing needed.)
+- **Wake**: a loopback UDP socket interrupts a blocking `WSAPoll` promptly on a
+  new registration or shutdown.
+
+`get_active()` now activates the process-global reactor on **every** platform
+(epoll/kqueue/WSAPoll), so Windows async I/O is driven by real readiness instead
+of busy-polling. `IocpReactor` was removed (dead/broken). Concurrent
+`poll_events` from the reactor thread and executor workers is safe (stateless
+WSAPoll + locked interest map + single-take wakers), matching pre-existing Linux
+behaviour.
+
+### Verification (all on Windows — the live platform)
+Full workspace 758 tests pass with the reactor active; the entire async net suite
+(loopback, backpressure, readiness-before-data, cancellation, EOF) now routes
+through the reactor; plus direct reactor tests for readiness delivery, wake
+interruption, and `POLLNVAL` self-cleaning.
+
+### Remaining note (not a defect)
+The reactor's `process_pending_tasks` uses a noop waker, but its task queue
+(`reactor.spawn`) has no production callers — the live path is fd-readiness →
+executor waker, so this is moot. A real Arc-waker would only matter if reactor
+task-spawning is ever used.
+
 ## Round 17 (2026-06-23) — completed the deferred pal reactor readiness fix
 
 Resolved the big round-16 deferred item: the pal I/O reactor lost-edge model.

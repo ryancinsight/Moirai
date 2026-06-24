@@ -94,7 +94,7 @@ pub type PlatformReactor = unix::kqueue::KqueueReactor;
 
 /// Reactor implementation selected by the compile target.
 #[cfg(windows)]
-pub type PlatformReactor = windows::iocp::IocpReactor;
+pub type PlatformReactor = windows::poll::WsaPollReactor;
 
 /// Reactor implementation selected by the compile target.
 #[cfg(target_arch = "wasm32")]
@@ -204,7 +204,7 @@ pub fn create_reactor() -> io::Result<PlatformReactor> {
     return unix::kqueue::KqueueReactor::new();
 
     #[cfg(windows)]
-    return windows::iocp::IocpReactor::new();
+    return windows::poll::WsaPollReactor::new();
 
     #[cfg(target_arch = "wasm32")]
     return wasm::WebReactor::new();

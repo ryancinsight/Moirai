@@ -249,7 +249,7 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn tcp_accept_read_write_self_wakes_without_active_reactor() {
+    fn tcp_accept_read_write_round_trip_via_reactor() {
         block_on(async {
             let listener =
                 AsyncTcpListener::bind("127.0.0.1:0".parse().expect("loopback address must parse"))
@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn udp_recv_self_wakes_without_active_reactor() {
+    fn udp_recv_round_trip_via_reactor() {
         block_on(async {
             let receiver =
                 AsyncUdpSocket::bind("127.0.0.1:0".parse().expect("loopback address must parse"))
