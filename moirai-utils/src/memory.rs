@@ -77,12 +77,18 @@ pub fn aligned_vec<T: Clone>(value: T, count: usize) -> CacheAligned<Vec<T>> {
 pub fn prefetch_range_read<T>(ptr: *const T, bytes: usize) {
     const CACHE_LINE_SIZE: usize = 64;
     let start = ptr as usize;
-    let end = start + bytes;
+    // Saturating/checked address arithmetic: a range ending near `usize::MAX`
+    // must not overflow (which panics under `overflow-checks`). Prefetch hints
+    // are non-faulting, so the only requirement is that the loop terminates.
+    let end = start.saturating_add(bytes);
 
     let mut addr = start & !(CACHE_LINE_SIZE - 1); // Align to cache line
     while addr < end {
         prefetch_read(addr as *const u8);
-        addr += CACHE_LINE_SIZE;
+        match addr.checked_add(CACHE_LINE_SIZE) {
+            Some(next) => addr = next,
+            None => break,
+        }
     }
 }
 
