@@ -77,7 +77,14 @@ impl EpollReactor {
 
     /// Convert Interest to epoll events.
     fn interest_to_epoll_events(interest: Interest) -> u32 {
-        let mut events = libc::EPOLLET as u32; // Edge-triggered mode
+        // Level-triggered (no EPOLLET): the reactor registers a waker only after
+        // a `WouldBlock`, so an edge-triggered registration would lose any
+        // readiness that arrived between the failed syscall and registration (or
+        // any readiness already present at registration, which emits no edge),
+        // hanging the task. Level-triggered re-reports readiness on every
+        // `epoll_wait` until the I/O actually consumes it, which self-heals that
+        // race and the `unregister`+`register` interest-widening window.
+        let mut events = 0u32;
 
         if interest.readable {
             events |= libc::EPOLLIN as u32;
@@ -148,7 +155,10 @@ impl Reactor for EpollReactor {
         let mut events = vec![libc::epoll_event { events: 0, u64: 0 }; MAX_EVENTS];
 
         let timeout_ms = match timeout {
-            Some(duration) => duration.as_millis() as libc::c_int,
+            // Saturate: `as_millis()` is u128; a multi-week timeout would wrap a
+            // raw `as c_int` to a negative value (turning a finite wait into an
+            // infinite block or a garbage short timeout).
+            Some(duration) => duration.as_millis().min(libc::c_int::MAX as u128) as libc::c_int,
             None => -1, // Block indefinitely
         };
 
@@ -253,7 +263,8 @@ mod tests {
 
         assert_ne!(events & libc::EPOLLIN as u32, 0);
         assert_ne!(events & libc::EPOLLOUT as u32, 0);
-        assert_ne!(events & libc::EPOLLET as u32, 0);
+        // Level-triggered: EPOLLET must NOT be set (see interest_to_epoll_events).
+        assert_eq!(events & libc::EPOLLET as u32, 0);
     }
 
     #[test]

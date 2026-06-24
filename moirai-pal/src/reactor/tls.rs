@@ -61,6 +61,13 @@ impl IoReactor {
 
         #[cfg(target_os = "windows")]
         {
+            // No implicit global reactor on Windows. The IOCP backend completes
+            // posted *overlapped operations*, not socket *readiness*, so it cannot
+            // drive the readiness-based futures in `net.rs`. Returning `None` makes
+            // those futures use the cooperative self-wake fallback
+            // (`wake_without_active_reactor`), which is correct (used by the net
+            // tests) though it busy-polls. A readiness-capable Windows reactor
+            // (AFD/`\Device\Afd` polling) is a separate, larger feature.
             None
         }
     }
