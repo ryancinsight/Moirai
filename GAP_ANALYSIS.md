@@ -1,5 +1,35 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-06-24 Lock-free / reactor concurrency re-audit
+
+Paranoid re-audit of `moirai-sync` primitives, the `moirai-scheduler` work-stealing
+deques, and the `moirai-async` reactor/waker via independent adversarial passes.
+
+### Fixed
+- `moirai-sync::FutexMutex` (Linux) lost-wakeup deadlock — slow-path acquired via
+  `CAS 0 -> 1`, erasing the waiters marker; now `swap(2)` per Drepper/std. Real
+  defect, Linux-only. Evidence tier: differential against the Rust-std `futex`
+  mutex reference algorithm + traced interleaving; Windows fallback path
+  value-verified; Linux build/run verification is CI-side (cannot cross-compile
+  the workspace from the Windows dev host).
+- `moirai-async::Notify` — `notify_waiters` destroyed a `notify_one` permit;
+  fixed with a red->green regression test (`Mutex`-serialized, fully verified).
+
+### Examined and ruled NOT a defect (paranoid false-positive control)
+- `moirai-scheduler::chase_lev::pop` x86 fence-free fast path (`b - t >= 16`
+  returns without the SeqCst fence): this is the **published Morrison-Afek
+  bounded-TSO fence-free pop**; the 16-element margin is exactly what makes the
+  relaxed `top` load safe against concurrent thieves, not a missing fence. Sound
+  as written. (Minor consideration, not a defect: the `MAX_BATCH_STEAL = 16`
+  margin must exceed the count of simultaneously-stealing workers; on a machine
+  with >16 active thieves the fence-free bound would need revisiting.)
+- `moirai-sync::{spin_lock, concurrent_hash_map, resource_pool, atomic_counter,
+  wait_group}` and the non-Linux `FutexMutex` fallback: orderings and the
+  SeqCst-fence store-buffer guards are correct; no real defect.
+- `moirai-async::{handle, result_slot, rwlock, broadcast, waker}`: register-then-
+  recheck and waker re-registration are correct on every `Pending` path; result
+  publish/consume pairing (Release store / Acquire CAS) is sound.
+
 ## 2026-06-12 Unified scheduler architecture alignment audit
 
 ### Closed alignment findings

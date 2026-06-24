@@ -156,25 +156,41 @@ impl<T> FutexMutex<T> {
     fn lock_slow(&self) {
         #[cfg(target_os = "linux")]
         {
-            loop {
-                let state = self.state.load(Ordering::Relaxed);
-
-                if state == 0
-                    && self
-                        .state
-                        .compare_exchange_weak(0, 1, Ordering::Acquire, Ordering::Relaxed)
-                        .is_ok()
+            // Three-state futex mutex (Drepper / Rust std `futex` mutex):
+            // 0 = unlocked, 1 = locked (no waiters), 2 = locked with waiters.
+            //
+            // A single uncontended attempt may leave the state at 1; every other
+            // acquisition through this slow path acquires by `swap(2)`, which
+            // conservatively preserves the "waiters present" marker. Acquiring
+            // via `CAS 0 -> 1` after a wakeup would erase that marker while other
+            // waiters are still parked, so the next `unlock` (which only wakes
+            // when `swap(0)` observes 2) would skip the wake and strand them — a
+            // lost-wakeup deadlock.
+            let mut state = self.state.load(Ordering::Relaxed);
+            if state == 0 {
+                match self
+                    .state
+                    .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
                 {
-                    return;
+                    Ok(_) => return,
+                    Err(s) => state = s,
+                }
+            }
+
+            loop {
+                // Mark as contended and check whether it was actually free.
+                if state != 2 {
+                    state = self.state.swap(2, Ordering::Acquire);
+                    if state == 0 {
+                        return;
+                    }
                 }
 
-                if state == 1 {
-                    self.state
-                        .compare_exchange_weak(1, 2, Ordering::Relaxed, Ordering::Relaxed)
-                        .ok();
-                }
-
+                // Sleep only while the state is still 2; `futex_wait` rechecks
+                // the value atomically, so a concurrent unlock to 0 cannot be
+                // missed here.
                 futex::futex_wait(self.state.as_ptr(), 2);
+                state = self.state.load(Ordering::Relaxed);
             }
         }
         #[cfg(not(target_os = "linux"))]

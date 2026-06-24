@@ -62,10 +62,14 @@ impl Notify {
         }
     }
 
-    /// Notify all waiting tasks
+    /// Notify all waiting tasks.
+    ///
+    /// Wakes every currently-registered waiter. This is independent of the
+    /// single-permit `notify_one` mechanism: a permit stored by a prior
+    /// `notify_one` (issued with no waiters present) is left intact, so a
+    /// subsequent `notified()` still observes it.
     pub fn notify_waiters(&self) {
         let mut state = self.state.lock().unwrap();
-        state.notified = false;
         let mut wakers = Vec::new();
         for waiter in &mut state.waiters {
             if waiter.2 == WaiterState::Pending {

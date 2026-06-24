@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `moirai-sync::FutexMutex` (Linux): fixed a lost-wakeup **deadlock** in the
+  three-state futex slow path. `lock_slow` acquired a woken-up contended lock via
+  `CAS 0 -> 1`, erasing the "waiters present" marker (state 2) even when other
+  waiters were still parked; the next `unlock` (which only `futex_wake`s when
+  `swap(0)` observes 2) then skipped the wake, stranding those waiters forever.
+  The slow path now acquires by `swap(2)` (Drepper / Rust-std algorithm), so the
+  marker is conservatively preserved across hand-offs. Linux-only path;
+  Windows/fallback path unchanged and value-verified.
+- `moirai-async::Notify`: `notify_waiters()` no longer destroys a permit stored
+  by a prior `notify_one()` issued with no waiters present. The two mechanisms
+  are independent (matching `tokio::sync::Notify`); previously `notify_waiters`
+  cleared the single-permit flag, so a subsequent `notified().await` could block
+  forever. Regression test `notify_waiters_preserves_stored_notify_one_permit`.
+
 ### Added
 - `moirai-pal`: a **real readiness reactor on Windows** (`WsaPollReactor`, backed
   by `WSAPoll`), replacing the non-functional IOCP backend. The IOCP completion

@@ -316,4 +316,24 @@ mod tests {
         let mut f3 = Box::pin(notify.notified());
         assert!(f3.as_mut().poll(&mut context).is_ready());
     }
+
+    #[test]
+    fn notify_waiters_preserves_stored_notify_one_permit() {
+        // A `notify_one` issued with no waiters stores a single permit. An
+        // unrelated `notify_waiters` (which only wakes currently-registered
+        // waiters) must not destroy that stored permit, or the next
+        // `notified()` would block forever.
+        let waker = futures::task::noop_waker();
+        let mut context = Context::from_waker(&waker);
+
+        let notify = Notify::new();
+        notify.notify_one(); // store a permit (no waiters registered)
+        notify.notify_waiters(); // must leave the stored permit intact
+
+        let mut fut = Box::pin(notify.notified());
+        assert!(
+            fut.as_mut().poll(&mut context).is_ready(),
+            "notify_one permit must survive notify_waiters when no waiters are registered"
+        );
+    }
 }
