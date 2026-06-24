@@ -1,7 +1,12 @@
+// These are used only by the `tokio-compat` trait-bridge impls below.
+#[cfg(feature = "tokio-compat")]
 use std::io;
+#[cfg(feature = "tokio-compat")]
 use std::pin::Pin;
+#[cfg(feature = "tokio-compat")]
 use std::task::{Context, Poll};
 
+#[cfg(feature = "tokio-compat")]
 use crate::io::traits::{AsyncRead, AsyncWrite};
 
 #[cfg(feature = "tokio-compat")]

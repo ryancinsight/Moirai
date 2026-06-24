@@ -62,3 +62,15 @@ fn pal_timer_zero_duration_completes_immediately() {
         Poll::Ready(Ok(()))
     ));
 }
+
+#[test]
+fn pal_timer_extreme_duration_does_not_panic() {
+    // Regression: `Instant::now() + Duration::MAX` panics on overflow. The
+    // deadline computation must clamp/`checked_add` instead, yielding a far-future
+    // deadline rather than aborting.
+    let timer = super::Timer::new(Duration::MAX);
+    assert!(timer.deadline() > std::time::Instant::now());
+
+    let timer = super::Timer::new(Duration::from_secs(u64::MAX));
+    assert!(timer.deadline() > std::time::Instant::now());
+}

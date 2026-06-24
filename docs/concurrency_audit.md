@@ -4,6 +4,47 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 16 (2026-06-23) — platform layer (pal reactor/timer), iter/utils unsafe
+
+Fanned out adversarial audits over the previously-uncovered `moirai-pal` (I/O
+reactor + epoll/kqueue/iocp event loops + timer) and the `unsafe` in `moirai-iter`
+/ `moirai-utils`. The iter/utils parallel-fan-out and SIMD came back essentially
+clean (disjoint-by-chunk raw pointers; SIMD uses unaligned loads + runtime ISA
+gates; sort/merge panic-safe via `MaybeUninit` + restore guards).
+
+### Fixed
+- **pal `with_active` UAF-on-panic** — a panic in the closure skipped the manual
+  thread-local restore, leaving a dangling reactor pointer a later `get_active()`
+  would dereference. Now an RAII guard restores on unwind. (`reactor/tls.rs`)
+- **pal `Timer::new` overflow panic** — `Instant::now() + Duration::MAX` panicked;
+  now clamped + `checked_add`. (`timer.rs`)
+- **iter `numa_free` munmap-on-heap UB** — the mmap→global-alloc fallback made the
+  free path probe with `munmap` on a possibly-heap pointer (UB). Linux `numa_alloc`
+  now returns null on mmap failure (mmap-only), so `munmap` is always correct.
+- **utils `prefetch_range_read` address overflow** — saturating/checked arithmetic.
+- **async `io::compat`** — feature-gated `tokio-compat`-only imports (warning-clean).
+
+### Verified clean / non-issues
+- `moirai-iter` (base/cache/sorting/sources/pair/prefetch/parallel) and
+  `moirai-utils` (queue/atomic/simd/memory) + `moirai-parallel` (ops) — no UB,
+  data race, or double-free. SIMD `target_feature(avx2)` calling `_mm_dp_ps`
+  (sse4.1) is sound (Rust's `avx2` transitively implies `sse4.1`).
+
+### Real but DEFERRED (significant, Linux/non-Windows; not the live platform)
+- **pal I/O reactor readiness model** — two independent audits flag that the
+  edge-triggered (`EPOLLET`) registrations with a register-after-`WouldBlock`
+  pattern have a lost-edge window (readiness arriving between the failed syscall
+  and `epoll_ctl` is never redelivered → hang), and that the Windows IOCP backend
+  cannot deliver *readiness* (it only completes posted overlapped ops). **On
+  Windows `get_active()` returns `None`**, so the live platform uses the busy-spin
+  fallback and never hits these — but the Linux/BSD reactor needs a level-triggered
+  (or re-check-after-arm) redesign + a real `Arc`-based waker through
+  `process_pending_tasks`. This is an ADR-worthy reactor rearchitecture.
+- epoll/kqueue timeout `as c_int`/`as time_t` truncation (saturate) — Linux/BSD
+  only; deferred because they can't be compiled/verified on this Windows host.
+- `iter/cache.rs` `map` leaks already-computed results if the user closure panics
+  (cross-thread disjoint `MaybeUninit` writes make cleanup-tracking intricate).
+
 ## Round 15 (2026-06-23) — completed the remaining transport mocks
 
 Resolved the round-14 newly-discovered mock stubs. Key clarification: the

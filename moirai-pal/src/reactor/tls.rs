@@ -14,15 +14,23 @@ impl IoReactor {
     where
         F: FnOnce() -> R,
     {
-        let old = active_reactor::get();
-        active_reactor::set(self as *const IoReactor);
-        let result = f();
-        if let Some(old_ptr) = old {
-            active_reactor::set(old_ptr);
-        } else {
-            active_reactor::clear();
+        // Restore the previous thread-local reactor on scope exit via RAII. If
+        // `f` panics, a manual restore would be skipped, leaving a dangling
+        // `self` pointer in the thread-local that a later `get_active()` would
+        // dereference (use-after-free once `self` is dropped during unwinding).
+        struct Restore(Option<*const IoReactor>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                match self.0 {
+                    Some(old) => active_reactor::set(old),
+                    None => active_reactor::clear(),
+                }
+            }
         }
-        result
+
+        let _restore = Restore(active_reactor::get());
+        active_reactor::set(self as *const IoReactor);
+        f()
     }
 
     /// Retrieve the active reactor for the current thread, if any.

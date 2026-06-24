@@ -70,9 +70,17 @@ impl NumaContext {
 
     /// Allocate memory on a specific NUMA node.
     ///
+    /// On Linux this `mmap`s an anonymous region and `mbind`s it to `node`,
+    /// returning a null pointer if the mapping fails. On other platforms it uses
+    /// the global allocator (node is ignored). Returning null on failure — rather
+    /// than falling back to the global allocator on Linux — keeps the allocation
+    /// source unambiguous: every non-null Linux pointer is `mmap`-backed, so
+    /// [`Self::numa_free`] can free it correctly. A heap pointer passed to
+    /// `munmap` is undefined behavior, which the prior fallback risked.
+    ///
     /// # Safety
-    /// The caller must ensure the returned pointer is properly deallocated
-    /// using `numa_free` with the same size.
+    /// The caller must deallocate the returned (non-null) pointer with
+    /// [`Self::numa_free`] using the same `size`.
     pub unsafe fn numa_alloc(&self, size: usize, node: usize) -> *mut u8 {
         #[cfg(target_os = "linux")]
         {
@@ -84,22 +92,20 @@ impl NumaContext {
                 -1,
                 0,
             );
-            if addr != libc::MAP_FAILED {
-                let nodemask = 1u64 << node;
-                libc::syscall(
-                    libc::SYS_mbind,
-                    addr,
-                    size,
-                    2,
-                    &nodemask as *const u64,
-                    64,
-                    0,
-                );
-                addr as *mut u8
-            } else {
-                let layout = Layout::from_size_align_unchecked(size, 64);
-                alloc(layout)
+            if addr == libc::MAP_FAILED {
+                return ptr::null_mut();
             }
+            let nodemask = 1u64 << node;
+            libc::syscall(
+                libc::SYS_mbind,
+                addr,
+                size,
+                2,
+                &nodemask as *const u64,
+                64,
+                0,
+            );
+            addr as *mut u8
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -112,15 +118,17 @@ impl NumaContext {
     /// Free NUMA-allocated memory.
     ///
     /// # Safety
-    /// The pointer must have been allocated with `numa_alloc` and the size
-    /// must match the original allocation.
+    /// `ptr` must be a non-null pointer returned by [`Self::numa_alloc`] with the
+    /// same `size`. On Linux every such pointer is `mmap`-backed (see
+    /// `numa_alloc`), so it is unmapped with `munmap`; on other platforms it is
+    /// returned to the global allocator.
     pub unsafe fn numa_free(&self, ptr: *mut u8, size: usize) {
         #[cfg(target_os = "linux")]
         {
-            if libc::munmap(ptr as *mut libc::c_void, size) != 0 {
-                let layout = Layout::from_size_align_unchecked(size, 64);
-                dealloc(ptr, layout);
-            }
+            // Every non-null Linux allocation is mmap-backed; munmap is the
+            // matching free. (No heap fallback path exists, so munmap is never
+            // applied to a heap pointer.)
+            libc::munmap(ptr as *mut libc::c_void, size);
         }
         #[cfg(not(target_os = "linux"))]
         {

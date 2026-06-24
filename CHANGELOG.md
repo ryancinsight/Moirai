@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `moirai-pal` `IoReactor::with_active`: restore the previous thread-local reactor
+  via RAII so a panic in the closure cannot leave a dangling reactor pointer in
+  the thread-local that a later `get_active()` would dereference (use-after-free
+  on unwind).
+- `moirai-pal` `Timer::new`: clamp the duration and use `checked_add` so a
+  near-`Duration::MAX` timeout no longer panics the deadline computation
+  (`Instant::now() + duration` overflow).
+- `moirai-iter` `NumaAllocator`: on Linux, `numa_alloc` returns null on `mmap`
+  failure instead of falling back to the global allocator, so every non-null
+  pointer is `mmap`-backed and `numa_free`'s `munmap` is never applied to a heap
+  pointer (which was undefined behavior).
+- `moirai-utils` `prefetch_range_read`: saturating/checked address arithmetic so
+  a range ending near `usize::MAX` cannot overflow (panic under `overflow-checks`).
+- `moirai-async` `io::compat`: feature-gate the `tokio-compat`-only imports so the
+  crate is warning-clean without the feature.
+
 ### Added
 - `moirai-transport` `IpcTransport`: a **real** same-machine inter-process
   transport over shared memory (`moirai_core::ipc::SharedQueue`), replacing the
