@@ -130,10 +130,30 @@ where
 
 // ── TaskResultSlot (private) ──────────────────────────────────────────────────
 
+/// One-shot cell carrying the result of a single scheduled task.
+///
+/// # Cache-line layout
+///
+/// The `state` field is the synchronisation point between the *producer*
+/// (the worker that executes the task and writes the result) and the
+/// *consumer* (the thread that called `JoinHandle::wait`).  Keeping
+/// `state` on its own 64-byte cache line prevents false sharing:
+/// the producer invalidates only its line when storing `RESULT_READY`,
+/// and the consumer accesses `result`/`waiter` on a separate line.
+///
+/// `#[repr(align(64))]` on `TaskResultSlot` itself aligns the start of
+/// the struct to a cache line; `_pad` pushes `result` and `waiter` past
+/// the first 64 bytes so they land on a second line.
 #[cfg(feature = "std")]
+#[repr(align(64))]
 struct TaskResultSlot<T> {
-    result: UnsafeCell<MaybeUninit<Result<T, TaskError>>>,
+    /// Synchronisation state — written by the producer, read by consumer.
+    /// Placed first so it occupies the beginning of the first cache line.
     state: AtomicU8,
+    /// Padding to push `result` and `waiter` onto a separate cache line,
+    /// eliminating producer-consumer false sharing on the `state` field.
+    _pad: [u8; 63],
+    result: UnsafeCell<MaybeUninit<Result<T, TaskError>>>,
     waiter: UnsafeCell<MaybeUninit<thread::Thread>>,
 }
 
@@ -151,8 +171,9 @@ unsafe impl<T: Send> Sync for TaskResultSlot<T> {}
 impl<T> TaskResultSlot<T> {
     fn new() -> Self {
         Self {
-            result: UnsafeCell::new(MaybeUninit::uninit()),
             state: AtomicU8::new(RESULT_PENDING),
+            _pad: [0u8; 63],
+            result: UnsafeCell::new(MaybeUninit::uninit()),
             waiter: UnsafeCell::new(MaybeUninit::uninit()),
         }
     }

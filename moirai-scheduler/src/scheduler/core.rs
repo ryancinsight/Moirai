@@ -10,8 +10,10 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Mutex,
     },
-    time::Instant,
 };
+
+#[cfg(feature = "metrics")]
+use std::time::Instant;
 
 const DEFAULT_CHASELEV_CAPACITY: usize = 1024;
 const DEFAULT_QUEUE_CAPACITY: usize = 256;
@@ -152,22 +154,31 @@ impl WorkStealingScheduler {
     }
 
     fn execute_task(&self, task: ScheduledTask) {
+        // Time the task only when the `metrics` feature is active; on hot
+        // compute paths (matmul rows, SIMD kernels) two timer reads per task
+        // add ~15-30 ns overhead that dwarfs micro-tasks.
+        #[cfg(feature = "metrics")]
         let start_time = Instant::now();
 
         task.execute();
 
-        let execution_time = start_time.elapsed().as_nanos() as usize;
+        // `tasks_executed` is a relaxed atomic on the owning thread — cheap.
         self.stats.tasks_executed.fetch_add(1, Ordering::Relaxed);
-        self.stats
-            .execution_time_ns
-            .fetch_add(execution_time, Ordering::Relaxed);
-        self.stats.last_activity.store(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as usize,
-            Ordering::Relaxed,
-        );
+
+        #[cfg(feature = "metrics")]
+        {
+            let execution_time = start_time.elapsed().as_nanos() as usize;
+            self.stats
+                .execution_time_ns
+                .fetch_add(execution_time, Ordering::Relaxed);
+            self.stats.last_activity.store(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as usize,
+                Ordering::Relaxed,
+            );
+        }
     }
 
     pub fn load(&self) -> usize {
