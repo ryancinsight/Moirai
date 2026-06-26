@@ -94,3 +94,32 @@ fn parallel_iter_reduce_empty_returns_identity() {
 
     assert_eq!(reduced, 17);
 }
+
+#[test]
+fn scan_ref_threads_state_and_borrows_a_non_static_local() {
+    // `scan_ref` accepts a non-`'static` `FnMut`, so the closure can both thread
+    // the scan state (`state`) and borrow a stack local (`running`) by mutable
+    // reference — the property `scan` cannot offer.
+    let data = [1, 2, 3, 4, 5];
+    let mut running = 0;
+    let prefix_sums: Vec<i32> = data
+        .iter()
+        .scan_ref(0, |state, &value| {
+            *state += value;
+            running = *state;
+            Some(*state)
+        })
+        .collect();
+
+    assert_eq!(prefix_sums, vec![1, 3, 6, 10, 15]);
+    assert_eq!(running, 15);
+}
+
+#[test]
+fn partition_ref_splits_by_predicate_into_two_collections() {
+    let (evens, odds): (Vec<i32>, Vec<i32>) =
+        (1..=10).partition_ref(|value| value % 2 == 0).partition();
+
+    assert_eq!(evens, vec![2, 4, 6, 8, 10]);
+    assert_eq!(odds, vec![1, 3, 5, 7, 9]);
+}
