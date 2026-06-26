@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Scheduler DIP seam: `moirai_executor::schedule::{WorkScheduler, WorkSubmit,
+  SchedulerControl, DataParallel}` — ISP-segregated role traits implemented by
+  `ThreadScheduler`. `HybridExecutor<S: WorkScheduler = ThreadScheduler>` now
+  depends on this contract rather than the concrete scheduler, so a substitute
+  (e.g. a single-threaded `wasm32` scheduler) can be plugged in via
+  `HybridExecutor<S>`; the default type parameter keeps every existing call site
+  unchanged.
+
 ### Removed
+- **Breaking:** removed the dead, mis-shaped passive scheduler abstraction from
+  `moirai-core`: the `Scheduler` trait, the `ScheduledTask` erased-task type
+  (+ `INLINE_SCHEDULED_TASK_WORDS`), and the `SchedulerConfig`/
+  `WorkStealingStrategy`/`QueueType`/`StealContext`/`Stats` config vocabulary.
+  None had a production consumer — `ThreadScheduler` is active (owns workers and
+  executes internally), so the passive `next_task`/`steal_task` contract could
+  only ever be a mock. The live erased-task type is the executor's `ScheduledJob`
+  and the canonical abstraction is the new `WorkScheduler` seam. `SchedulerId`
+  (the one live export, used by metrics aggregation) is retained.
 - **Breaking:** redundant work-stealing scheduler implementations consolidated
   onto the canonical runtime scheduler (`moirai_executor::ThreadScheduler`,
   which already executes every `spawn*`/`block_on`/`scope`). Removed

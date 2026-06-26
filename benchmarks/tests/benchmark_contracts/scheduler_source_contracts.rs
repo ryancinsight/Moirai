@@ -101,54 +101,19 @@ fn scheduler_submission_diagnostics_stay_static_and_value_checked() {
 
 #[test]
 fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
-    let core_scheduler = read_benchmark("../moirai-core/src/scheduler.rs");
-    let core_task = read_benchmark("../moirai-core/src/scheduler/task.rs");
     let core_lib = read_benchmark("../moirai-core/src/lib.rs");
     let task_source = read_benchmark("../moirai-core/src/task.rs");
     let scheduler_source = read_benchmark("../moirai-scheduler/src/lib.rs");
     let numa_source = read_benchmark("../moirai-scheduler/src/numa_scheduler.rs");
     let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
 
+    // The dead passive `moirai-core` `Scheduler` trait and its `ScheduledTask`
+    // were removed: the live erased-task type is the executor's `ScheduledJob`
+    // (its inline, no-boxing erasure is guarded in `source_contracts.rs`), and
+    // the canonical scheduler abstraction is the executor's `WorkScheduler`
+    // seam. `moirai-core` retains only `SchedulerId`.
     for required in [
-        "pub const INLINE_SCHEDULED_TASK_WORDS: usize = 14;",
-        "pub struct ScheduledTask",
-        "storage: UnsafeCell<ScheduledTaskStorage>",
-        "execute: unsafe fn(*mut ScheduledTaskStorage)",
-        "drop_task: unsafe fn(*mut ScheduledTaskStorage)",
-        "context: unsafe fn(*const ScheduledTaskStorage) -> *const TaskContext",
-        "pub fn new<T>(task: T) -> Self",
-        "T: Task",
-        "Self::new_boxed(task)",
-        "execute_inline_task::<T>",
-        "drop_inline_task::<T>",
-        "context_inline_task::<T>",
-        "execute_boxed_task::<T>",
-        "drop_boxed_task::<T>",
-        "context_boxed_task::<T>",
-        "scheduled_task_storage_budget_is_static_and_bounded",
-        "scheduled_task_executes_inline_and_oversized_tasks",
-    ] {
-        assert!(
-            core_task.contains(required),
-            "core ScheduledTask erasure must retain {required}"
-        );
-    }
-
-    for required in [
-        "pub use task::{ScheduledTask, INLINE_SCHEDULED_TASK_WORDS};",
-        "fn schedule(&self, task: ScheduledTask) -> SchedulerResult<()>",
-        "fn schedule_task<T>(&self, task: T) -> SchedulerResult<()>",
-        "fn next_task(&self) -> SchedulerResult<Option<ScheduledTask>>",
-        "fn try_steal<S>(&self, victim: &S) -> SchedulerResult<Option<ScheduledTask>>",
-    ] {
-        assert!(
-            core_scheduler.contains(required),
-            "core scheduler surface must retain static task dispatch through {required}"
-        );
-    }
-
-    for required in [
-        "pub use scheduler::{ScheduledTask, Scheduler, SchedulerConfig, SchedulerId};",
+        "pub use scheduler::SchedulerId;",
         "Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskHandle, TaskId",
     ] {
         assert!(
@@ -226,13 +191,7 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
         );
     }
 
-    for source in [
-        &core_scheduler,
-        &core_task,
-        &task_source,
-        &scheduler_source,
-        &numa_source,
-    ] {
+    for source in [&task_source, &scheduler_source, &numa_source] {
         for prohibited in [
             "BoxedTask",
             "Box<dyn BoxedTask",
@@ -256,8 +215,7 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
 
     for required in [
         "Public scheduler task dispatch is concrete",
-        "ScheduledTask",
-        "INLINE_SCHEDULED_TASK_WORDS",
+        "ScheduledJob",
         "ThreadScheduler",
     ] {
         assert!(

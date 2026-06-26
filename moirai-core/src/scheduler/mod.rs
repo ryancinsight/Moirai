@@ -1,94 +1,49 @@
-//! Scheduler trait and implementations.
+//! Scheduler identity.
 //!
-//! This module provides advanced scheduling algorithms inspired by:
-//! - Rayon's work-stealing deque (Chase-Lev algorithm)
-//! - Tokio's async notification system
-//! - OpenMP's low-overhead synchronization
+//! The canonical work-stealing scheduler abstraction lives in `moirai-executor`
+//! as the [`WorkScheduler`] seam, implemented by `ThreadScheduler` and consumed
+//! by `HybridExecutor`. This module retains only [`SchedulerId`], the scheduler
+//! identifier used by metrics aggregation — the passive `Scheduler` trait,
+//! `ScheduledTask`, and the standalone deques/config that once lived here were
+//! dead duplicates of the executor's live types and have been removed.
+//!
+//! [`WorkScheduler`]: https://docs.rs/moirai-executor
 
-pub mod config;
-pub mod task;
-pub(crate) mod traits;
+use core::fmt;
 
-pub use config::{Config, QueueType, SchedulerConfig, Stats, StealContext, WorkStealingStrategy};
-pub use task::{ScheduledTask, INLINE_SCHEDULED_TASK_WORDS};
-pub use traits::{Scheduler, SchedulerId};
+/// A unique identifier for a scheduler instance.
+#[allow(clippy::module_name_repetitions)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SchedulerId(usize);
+
+impl SchedulerId {
+    /// Creates a new scheduler ID.
+    #[must_use]
+    pub const fn new(id: usize) -> Self {
+        Self(id)
+    }
+
+    /// Returns the raw ID value.
+    #[must_use]
+    pub const fn get(&self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Display for SchedulerId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Scheduler({})", self.0)
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::task::{Task, TaskContext, TaskId};
-    use core::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
-
-    struct TestTask {
-        context: TaskContext,
-        value: usize,
-        sum: Arc<AtomicUsize>,
-    }
-
-    impl TestTask {
-        fn new(id: u64, value: usize, sum: Arc<AtomicUsize>) -> Self {
-            Self {
-                context: TaskContext::new(TaskId::new(id)),
-                value,
-                sum,
-            }
-        }
-    }
-
-    impl Task for TestTask {
-        type Output = usize;
-
-        fn execute(self) -> Self::Output {
-            self.sum.fetch_add(self.value, Ordering::Relaxed);
-            self.value
-        }
-
-        fn context(&self) -> &TaskContext {
-            &self.context
-        }
-    }
+    use super::SchedulerId;
 
     #[test]
-    fn test_scheduler_id() {
+    fn scheduler_id_round_trips_and_displays() {
         let id = SchedulerId::new(42);
         assert_eq!(id.get(), 42);
         assert_eq!(format!("{id}"), "Scheduler(42)");
-    }
-
-    #[test]
-    fn test_work_stealing_strategy_default() {
-        let strategy = WorkStealingStrategy::default();
-        matches!(strategy, WorkStealingStrategy::Random { max_attempts: 3 });
-    }
-
-    #[test]
-    fn test_scheduler_config_default() {
-        let config = Config::default();
-        assert_eq!(config.max_local_queue_size, 1024);
-        assert!(config.enable_metrics);
-        assert_eq!(
-            config.work_stealing_strategy,
-            WorkStealingStrategy::default()
-        );
-    }
-
-    #[test]
-    fn test_steal_context_default() {
-        let ctx = StealContext::default();
-        assert_eq!(ctx.attempts, 0);
-        assert!(ctx.last_success.is_none());
-        assert!(ctx.recent_victims.is_empty());
-        assert_eq!(ctx.backoff_delay, core::time::Duration::from_millis(10)); // Default backoff
-    }
-
-    #[test]
-    fn test_scheduled_task_zero_object_dispatch() {
-        let sum = Arc::new(AtomicUsize::new(0));
-        let task = ScheduledTask::new(TestTask::new(42, 42, Arc::clone(&sum)));
-
-        assert_eq!(task.context().id, TaskId::new(42));
-        task.execute();
-        assert_eq!(sum.load(Ordering::Relaxed), 42);
     }
 }
