@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime rather than the removed scheduler types directly.
 
 ### Changed
+- `ThreadScheduler` default `SPIN_LIMIT` reduced from 131072 to 8192. With the
+  idle-worker park fix above, a parked worker now wakes in ~8 µs, so the old
+  ~1 ms pre-park busy-spin only bought ~700 ns wake latency at a large idle-CPU
+  cost. 8192 (~60 µs of spin) keeps a short burst-catch window while parking
+  quickly. Sustained throughput is unchanged (measured flat across spin budgets;
+  the spin never engages while work is available). `SPIN_LIMIT` remains a const
+  generic, so latency-critical deployments can raise it.
 - `ThreadScheduler` now selects work-steal victims from a thread-local
   xorshift64 random origin instead of fixed round-robin, spreading post-barrier
   steal contention across victims (Blumofe–Leiserson). Full-ring coverage and

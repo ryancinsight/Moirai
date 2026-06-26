@@ -33,7 +33,15 @@ pub struct ScheduleMetrics {
 }
 
 /// Single scheduler used by all executor task classes.
-pub struct ThreadScheduler<const QUEUE_CAPACITY: usize = 256, const SPIN_LIMIT: usize = 131072> {
+///
+/// `SPIN_LIMIT` is how many times an idle worker re-checks for work (with
+/// `spin_loop`) before parking. The default 8192 (~60 µs on this class of x86)
+/// catches work arriving in a short burst while still parking quickly to avoid
+/// idle-CPU waste; a parked worker is then woken in ~8 µs. Sustained throughput
+/// is independent of this value (the spin never engages while work is
+/// available), so latency-critical deployments can raise it for sub-µs wake
+/// latency at the cost of more pre-park busy-spin.
+pub struct ThreadScheduler<const QUEUE_CAPACITY: usize = 256, const SPIN_LIMIT: usize = 8192> {
     pub(super) inner: Arc<SchedulerInner<QUEUE_CAPACITY>>,
 }
 
@@ -126,7 +134,7 @@ pub struct SchedulerScope<
     'scope,
     C: WorkClass,
     const QUEUE_CAPACITY: usize = 256,
-    const SPIN_LIMIT: usize = 131072,
+    const SPIN_LIMIT: usize = 8192,
 > {
     pub(super) scheduler: &'scope ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>,
     pub(super) state: NonNull<SchedulerScopeState>,

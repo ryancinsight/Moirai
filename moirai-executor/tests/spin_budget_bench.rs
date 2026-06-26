@@ -61,6 +61,35 @@ fn wake_latency<const SPIN: usize>(gap: Duration, iters: usize) -> (Duration, Du
     )
 }
 
+/// Submit `tasks` with no gaps (sustained load) and time full drain. Under
+/// sustained load workers never run out of work, so the spin budget should not
+/// engage and throughput should be independent of `SPIN`.
+fn sustained_drain<const SPIN: usize>(tasks: usize) -> Duration {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let sched = ThreadScheduler::<256, SPIN>::new_with_config(WORKERS, "spin-bench").unwrap();
+    for _ in 0..(WORKERS * 4) {
+        let _ = submit_and_wait(&sched);
+    }
+
+    let counter = Arc::new(AtomicUsize::new(0));
+    let start = Instant::now();
+    for _ in 0..tasks {
+        let counter = Arc::clone(&counter);
+        sched
+            .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+                counter.fetch_add(1, Ordering::Relaxed);
+            })
+            .unwrap();
+    }
+    sched.join().unwrap();
+    let elapsed = start.elapsed();
+    assert_eq!(counter.load(Ordering::Relaxed), tasks);
+    sched.shutdown();
+    elapsed
+}
+
 #[test]
 #[ignore = "timing instrument; run with --ignored --nocapture"]
 fn spin_budget_wake_latency() {
@@ -79,5 +108,17 @@ fn spin_budget_wake_latency() {
                 result.0, result.1, result.2
             );
         }
+    }
+
+    eprintln!("\n== sustained drain (spin should not engage; expect flat) ==");
+    const TASKS: usize = 300_000;
+    for trial in 0..3 {
+        let t0 = sustained_drain::<131072>(TASKS);
+        let t1 = sustained_drain::<8192>(TASKS);
+        let t2 = sustained_drain::<1024>(TASKS);
+        let t3 = sustained_drain::<128>(TASKS);
+        eprintln!(
+            "trial {trial}  131072: {t0:>10?} | 8192: {t1:>10?} | 1024: {t2:>10?} | 128: {t3:>10?}"
+        );
     }
 }

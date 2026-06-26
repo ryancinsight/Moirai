@@ -27,7 +27,7 @@ use super::super::worker::{
     is_quiescent, lock_mutex, priority_weight, wake_all_workers, wake_contended_workers,
     wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
 };
-impl ThreadScheduler<256, 131072> {
+impl ThreadScheduler<256, 8192> {
     /// Start a scheduler with one worker set for all work classes.
     pub fn new(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
         Self::new_with_config(worker_count, thread_name_prefix)
