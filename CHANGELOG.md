@@ -50,6 +50,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compile-time assertion locks the ≥64-byte alignment invariant.
 
 ### Fixed
+- `moirai-executor` scheduler: idle workers no longer redundantly drive the
+  global `IoReactor` with a 1 ms `run_iteration` while waiting for work. That
+  poll is not interruptible by `unpark` and rounds up to the OS timer
+  granularity (~15 ms on Windows), so once a pool had parked, scheduling sync
+  work to it stalled for ~15 ms — a latency the large `SPIN_LIMIT` (~6 ms of
+  pre-park busy-spin) was masking. Idle workers now simply `park()`; async I/O
+  readiness is driven by moirai-pal's dedicated global reactor thread, whose
+  wakers reschedule their tasks through the same `schedule_job` path, so a
+  parked worker is woken identically for async completions and fresh sync work.
+  Measured submit→execute wake latency under intermittent load drops from
+  ~15 ms to ~8 µs (8-worker pool, Windows). Verified by the new
+  `spin_budget_bench` instrument.
 - `moirai-pal` reactor: `IoReactor::get_active()` no longer panics if the
   process-global readiness reactor cannot be created or its driver thread cannot
   be spawned — it now caches and returns `None`, so socket operations degrade

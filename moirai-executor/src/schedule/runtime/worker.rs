@@ -3,15 +3,12 @@
 use std::{
     sync::{Mutex, MutexGuard},
     thread,
-    time::Duration,
 };
 
 use moirai_core::{
     error::{ExecutorError, ExecutorResult},
     Priority,
 };
-
-use moirai_pal::reactor::IoReactor;
 
 use super::super::job::ScheduledJob;
 
@@ -235,16 +232,18 @@ fn wait_for_work<const QUEUE_CAPACITY: usize>(
     inner.idle_workers.set(worker_id);
     while inner.pending_tasks.load(Ordering::SeqCst) == 0 && !inner.shutdown.load(Ordering::SeqCst)
     {
-        if let Some(reactor) = IoReactor::get_active() {
-            let _ = reactor.run_iteration(Some(Duration::from_millis(1)));
-            if inner.pending_tasks.load(Ordering::SeqCst) > 0
-                || inner.shutdown.load(Ordering::SeqCst)
-            {
-                break;
-            }
-        } else {
-            thread::park();
-        }
+        // Park until `schedule_job` unparks us. Async I/O readiness is driven by
+        // moirai_pal's dedicated global reactor thread, whose wakers reschedule
+        // their tasks through `schedule_job` — so a parked worker is woken the
+        // same way for an async completion as for fresh sync work, and never
+        // needs to drive the reactor itself.
+        //
+        // Workers previously ran a 1 ms `reactor.run_iteration` here. That poll
+        // is not interruptible by `unpark` and rounds up to the OS timer
+        // granularity (~15 ms on Windows), so scheduling sync work to an idle
+        // pool stalled until the poll returned — a latency the large `SPIN_LIMIT`
+        // was masking. Parking restores microsecond wake latency.
+        thread::park();
     }
     inner.idle_workers.clear(worker_id);
 }
