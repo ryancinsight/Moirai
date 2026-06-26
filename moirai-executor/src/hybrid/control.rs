@@ -3,8 +3,9 @@ use std::sync::atomic::Ordering;
 use moirai_core::executor::{Executor, ExecutorControl, ExecutorStats};
 
 use super::HybridExecutor;
+use crate::schedule::WorkScheduler;
 
-impl ExecutorControl for HybridExecutor {
+impl<S: WorkScheduler> ExecutorControl for HybridExecutor<S> {
     fn block_on<F>(&self, future: F) -> F::Output
     where
         F: core::future::Future,
@@ -39,7 +40,7 @@ impl ExecutorControl for HybridExecutor {
     }
 }
 
-impl Executor for HybridExecutor {
+impl<S: WorkScheduler> Executor for HybridExecutor<S> {
     #[cfg(feature = "metrics")]
     fn stats(&self) -> ExecutorStats {
         self.refresh_scheduler_metrics();

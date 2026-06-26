@@ -9,9 +9,9 @@ use moirai_core::{
 };
 
 use super::{async_state::AsyncFutureState, send_task_result, HybridExecutor, MetricsRef};
-use crate::schedule::{BlockingTask, SyncTask};
+use crate::schedule::{BlockingTask, SyncTask, WorkScheduler};
 
-impl TaskSpawner for HybridExecutor {
+impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
     fn spawn<T>(&self, task: T) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task + Send + 'static,

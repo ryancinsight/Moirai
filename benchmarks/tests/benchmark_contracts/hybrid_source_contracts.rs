@@ -3,7 +3,7 @@ fn async_public_handle_path_uses_inline_future_state() {
     let source = read_benchmark("../moirai-executor/src/hybrid/mod.rs");
 
     for required in [
-        "struct AsyncFutureState<F>",
+        "struct AsyncFutureState<S, F>",
         "future: UnsafeCell<MaybeUninit<F>>",
         "lifecycle: UnsafeCell<AsyncLifecycle>",
         "result_sender: UnsafeCell<Option<TaskResultSender<F::Output>>>",
@@ -15,7 +15,7 @@ fn async_public_handle_path_uses_inline_future_state() {
         "fn take_result_sender(&self) -> Option<TaskResultSender<F::Output>>",
         "fn schedule_by_ref(self: &Arc<Self>) -> ExecutorResult<()>",
         "let _ = self.schedule_by_ref();",
-        "impl<F> Wake for AsyncFutureState<F>",
+        "impl<S, F> Wake for AsyncFutureState<S, F>",
     ] {
         assert!(
             source.contains(required),
