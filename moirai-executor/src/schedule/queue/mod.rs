@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use moirai_core::Priority;
 use moirai_scheduler::{ChaseLevDeque, QuiescentReclaim, StealResult};
+use moirai_utils::CacheAligned;
 
 use super::job::ScheduledJob;
 
@@ -28,8 +29,10 @@ pub(crate) struct WorkerQueues<const CAPACITY: usize> {
     local_queues: [ChaseLevDeque<ScheduledJob>; PRIORITY_LEVELS],
     injector: moirai_utils::queue::LockFreeQueue<(Priority, ScheduledJob)>,
     /// Advisory fast-path count used to skip checking when the queues are visibly
-    /// empty.
-    len: AtomicUsize,
+    /// empty. The owner writes it on every push/pop and thieves write it on every
+    /// `steal_batch`, so it is cache-line isolated to keep those cross-thread RMWs
+    /// from false-sharing with the multi-producer `injector` metadata above.
+    len: CacheAligned<AtomicUsize>,
 }
 
 impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
@@ -38,7 +41,7 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
         Self {
             local_queues: std::array::from_fn(|_| ChaseLevDeque::new(CAPACITY)),
             injector: moirai_utils::queue::LockFreeQueue::new(),
-            len: AtomicUsize::new(0),
+            len: CacheAligned::new(AtomicUsize::new(0)),
         }
     }
 
