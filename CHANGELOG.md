@@ -47,6 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forever. Regression test `notify_waiters_preserves_stored_notify_one_permit`.
 
 ### Added
+- `Moirai::spawn_detached` (and `TaskSpawner::spawn_detached`): a fire-and-forget
+  spawn that returns no handle and skips the per-task `Arc<TaskResultSlot>`
+  allocation and atomic refcount that result-bearing spawns require — the
+  cheapest dispatch path for background work whose output is not needed.
+  Lifecycle/metrics tracking and shutdown drain are preserved, and panics are
+  isolated. The trait method has a non-breaking default (routes through
+  `spawn_blocking`); `HybridExecutor` overrides it for the no-allocation path.
 - `moirai-pal`: a **real readiness reactor on Windows** (`WsaPollReactor`, backed
   by `WSAPoll`), replacing the non-functional IOCP backend. The IOCP completion
   model signals completions of *posted overlapped operations*, not socket

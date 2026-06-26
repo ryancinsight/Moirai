@@ -141,6 +141,27 @@ impl Moirai {
             .expect("Failed to spawn blocking task")
     }
 
+    /// Spawn a fire-and-forget closure whose result is discarded.
+    ///
+    /// This is the cheapest dispatch path: it returns no handle and skips the
+    /// per-task result-slot allocation that [`spawn_fn`](Self::spawn_fn)
+    /// performs, making it the right choice for background work whose output is
+    /// not needed (event handlers, logging, cache warming). The task is still
+    /// drained on [`shutdown`](Self::shutdown).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the executor fails to spawn the task, which should not happen
+    /// unless the runtime is shutting down.
+    pub fn spawn_detached<F>(&self, func: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.executor
+            .spawn_detached(func)
+            .expect("Failed to spawn detached task");
+    }
+
     /// Run a completion-only scoped fan-out on the unified scheduler.
     ///
     /// Use this when tasks only need to publish side effects through borrowed
