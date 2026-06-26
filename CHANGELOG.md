@@ -7,7 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Scheduler DIP seam: `moirai_executor::schedule::{WorkScheduler, WorkSubmit,
+  SchedulerControl, DataParallel}` — ISP-segregated role traits implemented by
+  `ThreadScheduler`. `HybridExecutor<S: WorkScheduler = ThreadScheduler>` now
+  depends on this contract rather than the concrete scheduler, so a substitute
+  (e.g. a single-threaded `wasm32` scheduler) can be plugged in via
+  `HybridExecutor<S>`; the default type parameter keeps every existing call site
+  unchanged.
+
+### Removed
+- **Breaking:** removed the dead, mis-shaped passive scheduler abstraction from
+  `moirai-core`: the `Scheduler` trait, the `ScheduledTask` erased-task type
+  (+ `INLINE_SCHEDULED_TASK_WORDS`), and the `SchedulerConfig`/
+  `WorkStealingStrategy`/`QueueType`/`StealContext`/`Stats` config vocabulary.
+  None had a production consumer — `ThreadScheduler` is active (owns workers and
+  executes internally), so the passive `next_task`/`steal_task` contract could
+  only ever be a mock. The live erased-task type is the executor's `ScheduledJob`
+  and the canonical abstraction is the new `WorkScheduler` seam. `SchedulerId`
+  (the one live export, used by metrics aggregation) is retained.
+- **Breaking:** redundant work-stealing scheduler implementations consolidated
+  onto the canonical runtime scheduler (`moirai_executor::ThreadScheduler`,
+  which already executes every `spawn*`/`block_on`/`scope`). Removed
+  `moirai_scheduler::{WorkStealingScheduler, WorkStealingCoordinator,
+  SchedulerStats, SchedulerStatsSnapshot}`, `moirai_scheduler::numa_scheduler::
+  {NumaAwareScheduler, NumaSchedulerStats, NumaSchedulerError, StealStatistics}`,
+  the generic `moirai_core::scheduler::WorkStealingCoordinator`, and the
+  `moirai::WorkStealingScheduler` re-export. None were on any runtime code path.
+  `moirai-scheduler` is now a primitives crate: the lock-free deques
+  (`ChaseLevDeque`/`BlockBasedDeque`/`SplitDeque`) and NUMA primitives
+  (`CpuTopology`, `AdaptiveBackoff`) it still provides are retained and
+  unchanged. Migration: construct the runtime via `moirai::Moirai`/the global
+  runtime rather than the removed scheduler types directly.
+
+### Changed
+- `ThreadScheduler` default `SPIN_LIMIT` reduced from 131072 to 8192. With the
+  idle-worker park fix above, a parked worker now wakes in ~8 µs, so the old
+  ~1 ms pre-park busy-spin only bought ~700 ns wake latency at a large idle-CPU
+  cost. 8192 (~60 µs of spin) keeps a short burst-catch window while parking
+  quickly. Sustained throughput is unchanged (measured flat across spin budgets;
+  the spin never engages while work is available). `SPIN_LIMIT` remains a const
+  generic, so latency-critical deployments can raise it.
+- `ThreadScheduler` now selects work-steal victims from a thread-local
+  xorshift64 random origin instead of fixed round-robin, spreading post-barrier
+  steal contention across victims (Blumofe–Leiserson). Full-ring coverage and
+  worst-case scan cost are unchanged.
+- `ChaseLevDeque` isolates its `bottom` (owner) and `top` (thief) indices onto
+  separate cache lines, eliminating intra- and inter-deque false sharing; a
+  compile-time assertion locks the ≥64-byte alignment invariant.
+
 ### Fixed
+- `moirai-executor` scheduler: idle workers no longer redundantly drive the
+  global `IoReactor` with a 1 ms `run_iteration` while waiting for work. That
+  poll is not interruptible by `unpark` and rounds up to the OS timer
+  granularity (~15 ms on Windows), so once a pool had parked, scheduling sync
+  work to it stalled for ~15 ms — a latency the large `SPIN_LIMIT` (~6 ms of
+  pre-park busy-spin) was masking. Idle workers now simply `park()`; async I/O
+  readiness is driven by moirai-pal's dedicated global reactor thread, whose
+  wakers reschedule their tasks through the same `schedule_job` path, so a
+  parked worker is woken identically for async completions and fresh sync work.
+  Measured submit→execute wake latency under intermittent load drops from
+  ~15 ms to ~8 µs (8-worker pool, Windows). Verified by the new
+  `spin_budget_bench` instrument.
+- `moirai-pal` reactor: `IoReactor::get_active()` no longer panics if the
+  process-global readiness reactor cannot be created or its driver thread cannot
+  be spawned — it now caches and returns `None`, so socket operations degrade
+  gracefully to the cooperative busy-poll self-wake fallback in `net.rs` instead
+  of aborting. This makes that fallback (previously unreachable, since the old
+  code always returned `Some` or panicked) a real, tested path; the async
+  TCP/UDP self-wake-without-reactor round-trips are now value-verified.
 - `moirai-sync::FutexMutex` (Linux): fixed a lost-wakeup **deadlock** in the
   three-state futex slow path. `lock_slow` acquired a woken-up contended lock via
   `CAS 0 -> 1`, erasing the "waiters present" marker (state 2) even when other
@@ -23,6 +91,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forever. Regression test `notify_waiters_preserves_stored_notify_one_permit`.
 
 ### Added
+- `Moirai::spawn_detached` (and `TaskSpawner::spawn_detached`): a fire-and-forget
+  spawn that returns no handle and skips the per-task `Arc<TaskResultSlot>`
+  allocation and atomic refcount that result-bearing spawns require — the
+  cheapest dispatch path for background work whose output is not needed.
+  Lifecycle/metrics tracking and shutdown drain are preserved, and panics are
+  isolated. The trait method has a non-breaking default (routes through
+  `spawn_blocking`); `HybridExecutor` overrides it for the no-allocation path.
 - `moirai-pal`: a **real readiness reactor on Windows** (`WsaPollReactor`, backed
   by `WSAPoll`), replacing the non-functional IOCP backend. The IOCP completion
   model signals completions of *posted overlapped operations*, not socket

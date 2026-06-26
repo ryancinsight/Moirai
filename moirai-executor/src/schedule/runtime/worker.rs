@@ -3,15 +3,12 @@
 use std::{
     sync::{Mutex, MutexGuard},
     thread,
-    time::Duration,
 };
 
 use moirai_core::{
     error::{ExecutorError, ExecutorResult},
     Priority,
 };
-
-use moirai_pal::reactor::IoReactor;
 
 use super::super::job::ScheduledJob;
 
@@ -108,8 +105,21 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
 ) -> Option<ScheduledJob> {
     let worker_count = inner.workers.len();
     let local = &inner.workers[worker_id];
-    for offset in 1..worker_count {
-        let victim_index = (worker_id + offset) % worker_count;
+    // Randomized victim order. Deterministic round-robin makes every idle
+    // worker probe victims in the same `worker_id+1, +2, …` sequence, so after a
+    // fork/join barrier (scope, map_reduce_indexed) the freshly-idle workers
+    // pile onto the same victims' `top` CAS in lockstep. A thread-local
+    // xorshift64 start spreads the first — and most contended — steal attempt
+    // across victims (Blumofe–Leiserson randomized work-stealing). The full
+    // ring is still scanned, so coverage and worst-case cost are unchanged.
+    let start = next_steal_start();
+    // Scan the full ring from a random origin, skipping self, so all
+    // `worker_count - 1` victims are still covered regardless of `start`.
+    for offset in 0..worker_count {
+        let victim_index = (start.wrapping_add(offset)) % worker_count;
+        if victim_index == worker_id {
+            continue;
+        }
         let victim = &inner.workers[victim_index];
         if let Some(job) = local.queues.steal_batch(&victim.queues) {
             return Some(job);
@@ -120,6 +130,27 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
     }
 
     None
+}
+
+/// Thread-local xorshift64 producing a randomized starting victim index.
+///
+/// Seeded lazily from the per-thread RNG cell's own address (stable and unique
+/// per worker thread, forced non-zero), so it needs no shared atomic on the hot
+/// path — the seed source is contention-free by construction.
+fn next_steal_start() -> usize {
+    use std::cell::Cell;
+    thread_local!(static RNG: Cell<u64> = const { Cell::new(0) });
+    RNG.with(|cell| {
+        let mut x = cell.get();
+        if x == 0 {
+            x = (cell as *const Cell<u64> as u64) | 1;
+        }
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        cell.set(x);
+        x as usize
+    })
 }
 
 pub(super) fn execute_job<const QUEUE_CAPACITY: usize>(
@@ -201,16 +232,18 @@ fn wait_for_work<const QUEUE_CAPACITY: usize>(
     inner.idle_workers.set(worker_id);
     while inner.pending_tasks.load(Ordering::SeqCst) == 0 && !inner.shutdown.load(Ordering::SeqCst)
     {
-        if let Some(reactor) = IoReactor::get_active() {
-            let _ = reactor.run_iteration(Some(Duration::from_millis(1)));
-            if inner.pending_tasks.load(Ordering::SeqCst) > 0
-                || inner.shutdown.load(Ordering::SeqCst)
-            {
-                break;
-            }
-        } else {
-            thread::park();
-        }
+        // Park until `schedule_job` unparks us. Async I/O readiness is driven by
+        // moirai_pal's dedicated global reactor thread, whose wakers reschedule
+        // their tasks through `schedule_job` — so a parked worker is woken the
+        // same way for an async completion as for fresh sync work, and never
+        // needs to drive the reactor itself.
+        //
+        // Workers previously ran a 1 ms `reactor.run_iteration` here. That poll
+        // is not interruptible by `unpark` and rounds up to the OS timer
+        // granularity (~15 ms on Windows), so scheduling sync work to an idle
+        // pool stalled until the poll returned — a latency the large `SPIN_LIMIT`
+        // was masking. Parking restores microsecond wake latency.
+        thread::park();
     }
     inner.idle_workers.clear(worker_id);
 }
@@ -364,8 +397,22 @@ where
     accumulator
 }
 
+/// Minimum number of index iterations per scheduled chunk.
+///
+/// Each chunk beyond the first requires one `thread::unpark()` + one SeqCst
+/// fence on the submission path (~200–500 ns on x86/ARM). Below this element
+/// count per chunk, dispatch overhead exceeds the benefit of parallelism.
+/// Mirrors the guard `indexed_reduce_chunk_count` applies via
+/// `inline_reduction_limit`, but expressed as a fixed floor independent of
+/// element size (index-only ops have no type parameter to derive from).
+pub(super) const MIN_ELEMENTS_PER_CHUNK: usize = 256;
+
 pub(super) fn indexed_chunk_count(count: usize, worker_count: usize) -> usize {
-    count.min(worker_count.max(1).saturating_add(1))
+    let max_by_workers = count.min(worker_count.max(1).saturating_add(1));
+    // Cap chunk count so every scheduled chunk processes at least
+    // MIN_ELEMENTS_PER_CHUNK iterations, keeping dispatch overhead sub-dominant.
+    let max_by_size = count.div_ceil(MIN_ELEMENTS_PER_CHUNK).max(1);
+    max_by_workers.min(max_by_size)
 }
 
 pub(super) fn indexed_reduce_chunk_count<T>(count: usize, worker_count: usize) -> usize {
@@ -383,4 +430,46 @@ pub(super) fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+mod indexed_chunk_count_tests {
+    use super::{indexed_chunk_count, MIN_ELEMENTS_PER_CHUNK};
+
+    #[test]
+    fn collapses_to_one_chunk_below_min_elements() {
+        // 255 elements with 8 workers: size cap = ceil(255/256) = 1, so inline.
+        assert_eq!(indexed_chunk_count(255, 8), 1);
+        assert_eq!(indexed_chunk_count(1, 8), 1);
+        assert_eq!(indexed_chunk_count(0, 8), 0);
+    }
+
+    #[test]
+    fn exactly_min_elements_gives_one_chunk() {
+        // Exactly MIN_ELEMENTS_PER_CHUNK is still one chunk (ceil(256/256) = 1).
+        assert_eq!(indexed_chunk_count(MIN_ELEMENTS_PER_CHUNK, 8), 1);
+    }
+
+    #[test]
+    fn scales_with_element_count_not_just_workers() {
+        // 1024 elements, 8 workers: max_by_workers = 9, max_by_size = ceil(1024/256) = 4.
+        assert_eq!(indexed_chunk_count(1024, 8), 4);
+        // 2048 elements, 8 workers: max_by_workers = 9, max_by_size = 8.
+        assert_eq!(indexed_chunk_count(2048, 8), 8);
+        // 2304 elements, 8 workers: max_by_workers = 9, max_by_size = ceil(2304/256) = 9.
+        assert_eq!(indexed_chunk_count(2304, 8), 9);
+    }
+
+    #[test]
+    fn never_exceeds_worker_count_plus_one() {
+        // Large counts are still bounded by worker_count + 1.
+        assert_eq!(indexed_chunk_count(1_000_000, 8), 9);
+    }
+
+    #[test]
+    fn single_worker_always_one_chunk() {
+        // max_by_workers = min(n, 2); but for n=1 → 1.
+        assert_eq!(indexed_chunk_count(1024, 1), 2);
+        assert_eq!(indexed_chunk_count(128, 1), 1);
+    }
 }

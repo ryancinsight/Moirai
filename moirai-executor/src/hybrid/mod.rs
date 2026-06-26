@@ -23,7 +23,7 @@ use moirai_core::{
 use crate::{
     metrics::ExecutorMetrics,
     registry::{TaskLifecycleToken, TaskRegistry},
-    schedule::{SchedulerScope, SyncTask, ThreadScheduler, WorkClass},
+    schedule::{SchedulerScope, SyncTask, ThreadScheduler, WorkClass, WorkScheduler},
 };
 
 mod async_state;
@@ -61,15 +61,21 @@ impl MetricsRef {
 }
 
 /// Main hybrid executor that coordinates sync, async, and blocking tasks.
-pub struct HybridExecutor {
+///
+/// Generic over the work-stealing runtime `S` behind the
+/// [`WorkScheduler`](crate::schedule::WorkScheduler) seam; the default
+/// [`ThreadScheduler`] backs the production runtime, while the parameter lets a
+/// substitute (e.g. a single-threaded `wasm32` scheduler) be plugged in without
+/// touching this façade.
+pub struct HybridExecutor<S: WorkScheduler = ThreadScheduler> {
     config: ExecutorConfig,
-    scheduler: ThreadScheduler,
+    scheduler: S,
     task_registry: Arc<Mutex<TaskRegistry>>,
     metrics: Arc<ExecutorMetrics>,
     shutdown_signal: Arc<AtomicBool>,
 }
 
-impl HybridExecutor {
+impl HybridExecutor<ThreadScheduler> {
     /// Create a new hybrid executor with the given configuration.
     pub fn new(config: ExecutorConfig) -> ExecutorResult<Self> {
         let scheduler = ThreadScheduler::new(config.worker_threads, &config.thread_name_prefix)?;
@@ -85,6 +91,26 @@ impl HybridExecutor {
         })
     }
 
+    /// Run a scoped fan-out directly on the unified scheduler.
+    ///
+    /// This path is for completion-only work that does not require per-task
+    /// result handles or lifecycle metadata. It preserves borrowing semantics
+    /// by waiting for all spawned jobs before returning.
+    ///
+    /// `scope` is inherent to the default [`ThreadScheduler`] backing because its
+    /// signature exposes a concrete [`SchedulerScope`] borrow handle, which is
+    /// outside the substitutable [`WorkScheduler`](crate::schedule::WorkScheduler)
+    /// seam.
+    pub fn scope<'scope, C, F>(&'scope self, body: F) -> ExecutorResult<()>
+    where
+        C: WorkClass,
+        F: FnOnce(&SchedulerScope<'scope, C>) -> ExecutorResult<()>,
+    {
+        self.scheduler.scope::<C, _>(Priority::Normal, None, body)
+    }
+}
+
+impl<S: WorkScheduler> HybridExecutor<S> {
     /// Get executor configuration.
     pub fn config(&self) -> &ExecutorConfig {
         &self.config
@@ -130,19 +156,6 @@ impl HybridExecutor {
 
         self.metrics.record_task_spawned();
         Ok(task_id)
-    }
-
-    /// Run a scoped fan-out directly on the unified scheduler.
-    ///
-    /// This path is for completion-only work that does not require per-task
-    /// result handles or lifecycle metadata. It preserves borrowing semantics
-    /// by waiting for all spawned jobs before returning.
-    pub fn scope<'scope, C, F>(&'scope self, body: F) -> ExecutorResult<()>
-    where
-        C: WorkClass,
-        F: FnOnce(&SchedulerScope<'scope, C>) -> ExecutorResult<()>,
-    {
-        self.scheduler.scope::<C, _>(Priority::Normal, None, body)
     }
 
     /// Run indexed work in worker-sized chunks on the unified scheduler.
@@ -230,9 +243,9 @@ impl HybridExecutor {
     }
 }
 
-impl Drop for HybridExecutor {
+impl<S: WorkScheduler> Drop for HybridExecutor<S> {
     fn drop(&mut self) {
-        let _ = HybridExecutor::shutdown(self);
+        let _ = Self::shutdown(self);
     }
 }
 

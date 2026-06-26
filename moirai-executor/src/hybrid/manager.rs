@@ -9,8 +9,9 @@ use moirai_core::{
 };
 
 use super::HybridExecutor;
+use crate::schedule::WorkScheduler;
 
-impl TaskManager for HybridExecutor {
+impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
     fn cancel_task(&self, id: TaskId) -> ExecutorResult<()> {
         let registry = self.task_registry.lock().map_err(|_| {
             ExecutorError::ResourceExhausted("task registry lock poisoned".to_string())

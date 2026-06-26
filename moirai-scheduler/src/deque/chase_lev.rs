@@ -1,4 +1,5 @@
 use super::reclaim::{DequeReclaimPolicy, DequeReclaimState, QuiescentReclaim, SharedEpochReclaim};
+use moirai_core::CacheAligned;
 use std::{
     alloc::Layout,
     cell::UnsafeCell,
@@ -14,6 +15,12 @@ use std::{
 
 pub(crate) const MIN_DEQUE_CAPACITY: usize = 16;
 const MAX_BATCH_STEAL: usize = 16;
+
+// Compile-time guarantee of the false-sharing fix: wrapping `bottom`/`top` in
+// `CacheAligned` forces the whole deque to ≥64-byte alignment, so two deques in
+// a priority array (`[ChaseLevDeque<_>; N]`) can never share a cache line.
+// Alignment is independent of `T`, so `u8` is a representative witness.
+const _: () = assert!(core::mem::align_of::<ChaseLevDeque<u8>>() >= 64);
 
 // ── Array ─────────────────────────────────────────────────────────────────────
 
@@ -120,8 +127,14 @@ pub struct ChaseLevDeque<T, P = QuiescentReclaim>
 where
     P: DequeReclaimPolicy,
 {
-    pub(crate) bottom: AtomicIsize,
-    pub(crate) top: AtomicIsize,
+    // `bottom` is written only by the owning worker (push/pop); `top` is
+    // CAS'd by thieves (steal). Co-locating them on one cache line makes every
+    // steal invalidate the owner's `bottom` line and vice versa, so each is
+    // isolated to its own 64-byte line. This also forces the whole struct to
+    // 64-byte alignment, eliminating false sharing between adjacent deques in
+    // the per-worker priority array (`[ChaseLevDeque<_>; PRIORITY_LEVELS]`).
+    pub(crate) bottom: CacheAligned<AtomicIsize>,
+    pub(crate) top: CacheAligned<AtomicIsize>,
     array: AtomicPtr<Array<T>>,
     pub(crate) retired_arrays: Mutex<Vec<*mut Array<T>>>,
     pub(crate) reclaim: P::State,
@@ -137,8 +150,8 @@ where
         let array = Box::new(Array::new(capacity));
 
         Self {
-            bottom: AtomicIsize::new(0),
-            top: AtomicIsize::new(0),
+            bottom: CacheAligned::new(AtomicIsize::new(0)),
+            top: CacheAligned::new(AtomicIsize::new(0)),
             array: AtomicPtr::new(Box::into_raw(array)),
             retired_arrays: Mutex::new(Vec::new()),
             reclaim: P::State::default(),
@@ -368,8 +381,10 @@ where
     P: DequeReclaimPolicy,
 {
     fn drop(&mut self) {
-        let top = *self.top.get_mut();
-        let bottom = *self.bottom.get_mut();
+        // `.0.get_mut()` reaches the inner atomic: `CacheAligned` has its own
+        // inherent `get_mut` that would otherwise shadow `AtomicIsize::get_mut`.
+        let top = *self.top.0.get_mut();
+        let bottom = *self.bottom.0.get_mut();
         let array_ptr = *self.array.get_mut();
 
         if !array_ptr.is_null() {

@@ -66,6 +66,30 @@ pub trait TaskSpawner: Send + Sync + 'static {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static;
 
+    /// Spawns a fire-and-forget task whose result is discarded.
+    ///
+    /// Unlike [`spawn_blocking`](Self::spawn_blocking), the caller receives no
+    /// handle, so an implementation can avoid the per-task
+    /// `Arc<TaskResultSlot>` heap allocation and its atomic reference counting
+    /// that result-bearing spawns require. The task is still tracked for
+    /// graceful-shutdown drain and metrics; it always runs to completion (there
+    /// is no handle to drop, so dropping is not a cancellation path).
+    ///
+    /// The provided default routes through
+    /// [`spawn_blocking`](Self::spawn_blocking) and discards the handle, so it
+    /// still allocates a result slot; implementations should override it to
+    /// skip that allocation.
+    ///
+    /// # Errors
+    /// Returns `TaskError::SpawnFailed` under the same conditions as
+    /// [`spawn`](Self::spawn).
+    fn spawn_detached<F>(&self, func: F) -> ExecutorResult<()>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.spawn_blocking(func).map(drop)
+    }
+
     /// Spawns a task with specific priority and scheduling hints.
     ///
     /// # Arguments

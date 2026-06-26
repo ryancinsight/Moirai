@@ -42,6 +42,64 @@ mod tests {
     }
 
     #[test]
+    fn spawn_detached_runs_every_task_and_drains_on_shutdown() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let executor = HybridExecutor::new(ExecutorConfig {
+            worker_threads: 4,
+            ..ExecutorConfig::default()
+        })
+        .unwrap();
+
+        const TASKS: usize = 256;
+        let counter = Arc::new(AtomicUsize::new(0));
+        for _ in 0..TASKS {
+            let c = Arc::clone(&counter);
+            // Returns `()`: no handle, no `Arc<TaskResultSlot>` allocated.
+            executor
+                .spawn_detached(move || {
+                    c.fetch_add(1, Ordering::Relaxed);
+                })
+                .unwrap();
+        }
+
+        // `shutdown` drains all pending work before returning, so every detached
+        // closure must have executed exactly once.
+        executor.shutdown();
+        assert_eq!(counter.load(Ordering::Relaxed), TASKS);
+    }
+
+    #[test]
+    fn spawn_detached_isolates_panics() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let executor = HybridExecutor::new(ExecutorConfig {
+            worker_threads: 1,
+            ..ExecutorConfig::default()
+        })
+        .unwrap();
+
+        // A panicking detached task must not abort its worker thread.
+        executor
+            .spawn_detached(|| panic!("detached task panic"))
+            .unwrap();
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let c = Arc::clone(&counter);
+        executor
+            .spawn_detached(move || {
+                c.fetch_add(1, Ordering::Relaxed);
+            })
+            .unwrap();
+
+        executor.shutdown();
+        // The single worker survived the panic and ran the following task.
+        assert_eq!(counter.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
     fn spawn_async_uses_unified_scheduler() {
         let executor = HybridExecutor::new(ExecutorConfig {
             worker_threads: 2,

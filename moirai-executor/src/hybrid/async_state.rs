@@ -21,7 +21,7 @@ use moirai_core::{
 use crate::{
     metrics::ExecutorMetrics,
     registry::{RunningTaskToken, TaskLifecycleToken},
-    schedule::{AsyncTask, ThreadScheduler},
+    schedule::{AsyncTask, WorkSubmit},
 };
 
 const ASYNC_IDLE: u8 = 0;
@@ -37,11 +37,11 @@ pub(super) enum AsyncLifecycle {
     Completed,
 }
 
-pub(crate) struct AsyncFutureState<F>
+pub(crate) struct AsyncFutureState<S, F>
 where
     F: Future,
 {
-    scheduler: ThreadScheduler,
+    scheduler: S,
     future: UnsafeCell<MaybeUninit<F>>,
     lifecycle: UnsafeCell<AsyncLifecycle>,
     result_sender: UnsafeCell<Option<TaskResultSender<F::Output>>>,
@@ -53,9 +53,11 @@ where
 // Safety: `state` serializes all future polling. Wakers may schedule work
 // concurrently, but they only mutate atomics and never touch the future cell.
 // The future cell is dropped either by the unique polling thread after Ready or
-// panic, or by `Drop` after the last `Arc` reference is gone.
-unsafe impl<F> Send for AsyncFutureState<F>
+// panic, or by `Drop` after the last `Arc` reference is gone. The scheduler `S`
+// is itself `Send + Sync`, so sharing it across wakers is sound.
+unsafe impl<S, F> Send for AsyncFutureState<S, F>
 where
+    S: Send + Sync,
     F: Future + Send,
     F::Output: Send,
 {
@@ -64,20 +66,22 @@ where
 // Safety: see the `Send` impl. Shared references are used only for atomic
 // scheduling, metrics, and fields guarded by the single poll owner selected by
 // the async state machine.
-unsafe impl<F> Sync for AsyncFutureState<F>
+unsafe impl<S, F> Sync for AsyncFutureState<S, F>
 where
+    S: Send + Sync,
     F: Future + Send,
     F::Output: Send,
 {
 }
 
-impl<F> AsyncFutureState<F>
+impl<S, F> AsyncFutureState<S, F>
 where
+    S: WorkSubmit,
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
     pub(crate) fn new(
-        scheduler: ThreadScheduler,
+        scheduler: S,
         future: F,
         lifecycle: TaskLifecycleToken,
         result_sender: TaskResultSender<F::Output>,
@@ -310,7 +314,7 @@ where
     }
 }
 
-impl<F> Drop for AsyncFutureState<F>
+impl<S, F> Drop for AsyncFutureState<S, F>
 where
     F: Future,
 {
@@ -325,8 +329,9 @@ where
     }
 }
 
-impl<F> Wake for AsyncFutureState<F>
+impl<S, F> Wake for AsyncFutureState<S, F>
 where
+    S: WorkSubmit,
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {

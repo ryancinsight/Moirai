@@ -168,3 +168,21 @@ fn build_core_to_node(
     }
     core_to_node.into_boxed_slice()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::CpuTopology;
+
+    #[test]
+    fn single_node_topology_covers_all_cores_under_one_node() {
+        let topo = CpuTopology::single_node();
+        // A non-NUMA system is modelled as exactly one node.
+        assert_eq!(topo.numa_nodes.len(), 1);
+        assert!(topo.logical_cores >= 1);
+        // Core 0 resolves to the sole node, and that node owns every logical core.
+        assert_eq!(topo.core_to_numa_node(0), Some(0));
+        assert_eq!(topo.cores_in_same_node(0).len(), topo.logical_cores);
+        // A single node has no other node to be adjacent to.
+        assert!(topo.adjacent_nodes(0).is_empty());
+    }
+}

@@ -11,6 +11,7 @@ pub mod queue;
 pub mod reduce;
 pub mod route;
 pub mod runtime;
+pub mod seam;
 pub mod wake;
 
 pub use class::{AsyncTask, BlockingTask, SyncTask, WorkClass};
@@ -25,3 +26,4 @@ pub use runtime::{
     ContendedWakeDecision, DiagnosticWakeDecision, EmptyWakeDecision, SaturatedWakeDecision,
 };
 pub use runtime::{ScheduleMetrics, SchedulerScope, ThreadScheduler};
+pub use seam::{DataParallel, SchedulerControl, WorkScheduler, WorkSubmit};

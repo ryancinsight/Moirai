@@ -94,7 +94,7 @@ pub mod security;
 // Core type definitions
 pub use error::{ExecutorError, SchedulerError, TaskError};
 pub use executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus};
-pub use scheduler::{ScheduledTask, Scheduler, SchedulerConfig, SchedulerId};
+pub use scheduler::SchedulerId;
 pub use task::{Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskHandle, TaskId};
 
 #[cfg(feature = "std")]
@@ -139,8 +139,8 @@ pub use wasm_executor::{WasmExecutor, WasmTask};
 /// Prelude module for convenient imports.
 pub mod prelude {
     pub use crate::{
-        ExecutorError, Priority, ScheduledTask, Scheduler, SchedulerError, SchedulerId, Task,
-        TaskContext, TaskError, TaskExt, TaskFuture, TaskId, TaskManager, TaskSpawner, TaskStatus,
+        ExecutorError, Priority, SchedulerError, SchedulerId, Task, TaskContext, TaskError,
+        TaskExt, TaskFuture, TaskId, TaskManager, TaskSpawner, TaskStatus,
     };
 
     #[cfg(feature = "std")]

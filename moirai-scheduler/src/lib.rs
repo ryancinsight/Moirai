@@ -1,70 +1,39 @@
-//! # Work-Stealing Scheduler Implementation
+//! # Work-Stealing Primitives
 //!
-//! This module provides a high-performance work-stealing scheduler based on the Chase-Lev
-//! algorithm, optimized for both single-threaded performance and multi-threaded scalability.
+//! Lock-free work-stealing deques and NUMA-topology primitives. These are the
+//! reusable building blocks consumed by the canonical runtime scheduler
+//! (`moirai_executor`'s `ThreadScheduler`); this crate intentionally provides
+//! no scheduler of its own.
 //!
-//! ## Algorithm Overview
+//! ## Deques
 //!
-//! The scheduler uses a lock-free work-stealing deque that allows:
-//! - **Local Access**: O(1) push/pop operations for the owning thread
-//! - **Work Stealing**: O(1) steal operations from other threads
+//! Three lock-free work-stealing deques, all single-owner / multi-thief:
+//! - [`ChaseLevDeque`] — the canonical Chase-Lev deque: O(1) wait-free local
+//!   push/pop for the owner, lock-free steal for thieves, dynamic resizing,
+//!   and `bottom`/`top` isolated to separate cache lines to avoid false sharing.
+//! - [`BlockBasedDeque`] — linked fixed-size blocks; bounded per-push work.
+//! - [`SplitDeque`] — a private owner stack backed by a shared deque, reducing
+//!   steal contention when spawn rate greatly exceeds steal rate.
+//!
+//! Correctness is covered by exactly-once concurrency stress tests and a `loom`
+//! exhaustive model of the Chase-Lev steal/pop ordering protocol.
+//!
+//! ## NUMA primitives
+//!
+//! [`numa`] exposes [`CpuTopology`](numa::CpuTopology) for hardware NUMA/cache
+//! topology discovery and [`AdaptiveBackoff`](numa::AdaptiveBackoff) for
+//! spin/yield/sleep backoff — the inputs for NUMA-aware victim selection in the
+//! runtime.
 
 #![allow(clippy::redundant_closure)]
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::cast_abs_to_unsigned)]
 
-//! - **Dynamic Resizing**: Automatic capacity adjustment under load
-//! - **Memory Efficiency**: Minimal memory overhead per task
-//!
-//! ## Safety Guarantees
-//!
-//! - **Memory Safety**: All operations are memory-safe using atomic operations
-//! - **ABA Prevention**: Epoch-based memory reclamation prevents ABA problems
-//! - **Data Race Freedom**: Lock-free design eliminates data races
-//! - **Progress Guarantee**: Wait-free operations for local thread, lock-free for stealing
-//!
-//! ## Performance Characteristics
-//!
-//! - **Local Operations**: < 10ns per push/pop (single-threaded)
-//! - **Steal Operations**: < 50ns per steal attempt (multi-threaded)
-//! - **Contention Handling**: Exponential backoff reduces cache line bouncing
-//! - **Scalability**: Linear scaling up to 128 threads (tested)
-//! - **Memory Overhead**: 8 bytes per task slot + array metadata
-//!
-//! ## Work-Stealing Strategies
-//!
-//! The scheduler supports multiple work-stealing strategies:
-//!
-//! - **StealHalf**: Take half of available tasks (default, good load distribution)
-//! - **StealOne**: Take one task at a time (minimal disruption)
-//! - **StealQuarter**: Take 25% of tasks (balanced approach)
-//! - **Adaptive**: Dynamically adjust based on queue sizes and contention
-//!
-//! ## Examples
-//!
-//! ### Basic Usage
-//!
-//! ```rust,no_run
-//! use moirai_scheduler::WorkStealingScheduler;
-//! use moirai_core::scheduler::{SchedulerConfig, SchedulerId};
-//!
-//! // Create a scheduler with default work-stealing configuration.
-//! let config = SchedulerConfig::default();
-//! let scheduler = WorkStealingScheduler::new(SchedulerId::new(0), config);
-//!
-//! // Use the Scheduler trait methods to submit and execute tasks.
-//! // See WorkStealingScheduler method documentation for details.
-//! ```
-
 pub mod deque;
-pub mod numa_scheduler;
-pub mod scheduler;
+pub mod numa;
 
 pub use deque::{
     BlockBasedDeque, ChaseLevDeque, DequeReclaimPolicy, DequeReclaimState, QuiescentAccessGuard,
     QuiescentReclaim, QuiescentState, SharedEpochAccessGuard, SharedEpochReclaim, SharedEpochState,
     SplitDeque, StealResult,
-};
-pub use scheduler::{
-    SchedulerStats, SchedulerStatsSnapshot, WorkStealingCoordinator, WorkStealingScheduler,
 };
