@@ -108,8 +108,21 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
 ) -> Option<ScheduledJob> {
     let worker_count = inner.workers.len();
     let local = &inner.workers[worker_id];
-    for offset in 1..worker_count {
-        let victim_index = (worker_id + offset) % worker_count;
+    // Randomized victim order. Deterministic round-robin makes every idle
+    // worker probe victims in the same `worker_id+1, +2, …` sequence, so after a
+    // fork/join barrier (scope, map_reduce_indexed) the freshly-idle workers
+    // pile onto the same victims' `top` CAS in lockstep. A thread-local
+    // xorshift64 start spreads the first — and most contended — steal attempt
+    // across victims (Blumofe–Leiserson randomized work-stealing). The full
+    // ring is still scanned, so coverage and worst-case cost are unchanged.
+    let start = next_steal_start();
+    // Scan the full ring from a random origin, skipping self, so all
+    // `worker_count - 1` victims are still covered regardless of `start`.
+    for offset in 0..worker_count {
+        let victim_index = (start.wrapping_add(offset)) % worker_count;
+        if victim_index == worker_id {
+            continue;
+        }
         let victim = &inner.workers[victim_index];
         if let Some(job) = local.queues.steal_batch(&victim.queues) {
             return Some(job);
@@ -120,6 +133,27 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
     }
 
     None
+}
+
+/// Thread-local xorshift64 producing a randomized starting victim index.
+///
+/// Seeded lazily from the per-thread RNG cell's own address (stable and unique
+/// per worker thread, forced non-zero), so it needs no shared atomic on the hot
+/// path — the seed source is contention-free by construction.
+fn next_steal_start() -> usize {
+    use std::cell::Cell;
+    thread_local!(static RNG: Cell<u64> = const { Cell::new(0) });
+    RNG.with(|cell| {
+        let mut x = cell.get();
+        if x == 0 {
+            x = (cell as *const Cell<u64> as u64) | 1;
+        }
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        cell.set(x);
+        x as usize
+    })
 }
 
 pub(super) fn execute_job<const QUEUE_CAPACITY: usize>(
