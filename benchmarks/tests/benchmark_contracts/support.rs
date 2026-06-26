@@ -75,7 +75,6 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         "../moirai-core/src/scheduler.rs",
         &[
             "../moirai-core/src/scheduler/mod.rs",
-            "../moirai-core/src/scheduler/coordinator.rs",
             "../moirai-core/src/scheduler/traits.rs",
             "../moirai-core/src/scheduler/buffer.rs",
             "../moirai-core/src/scheduler/config.rs",
@@ -193,20 +192,14 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-scheduler/src/deque/block_based.rs",
             "../moirai-scheduler/src/deque/split.rs",
             "../moirai-scheduler/src/deque/tests.rs",
-            "../moirai-scheduler/src/scheduler/mod.rs",
-            "../moirai-scheduler/src/scheduler/core.rs",
-            "../moirai-scheduler/src/scheduler/tests.rs",
         ],
     ),
     (
         "../moirai-scheduler/src/numa_scheduler.rs",
         &[
             "../moirai-scheduler/src/numa_scheduler/mod.rs",
-            "../moirai-scheduler/src/numa_scheduler/scheduler.rs",
             "../moirai-scheduler/src/numa_scheduler/topology.rs",
-            "../moirai-scheduler/src/numa_scheduler/queue.rs",
             "../moirai-scheduler/src/numa_scheduler/backoff.rs",
-            "../moirai-scheduler/src/numa_scheduler/tests.rs",
         ],
     ),
     (

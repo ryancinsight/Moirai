@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **Breaking:** redundant work-stealing scheduler implementations consolidated
+  onto the canonical runtime scheduler (`moirai_executor::ThreadScheduler`,
+  which already executes every `spawn*`/`block_on`/`scope`). Removed
+  `moirai_scheduler::{WorkStealingScheduler, WorkStealingCoordinator,
+  SchedulerStats, SchedulerStatsSnapshot}`, `moirai_scheduler::numa_scheduler::
+  {NumaAwareScheduler, NumaSchedulerStats, NumaSchedulerError, StealStatistics}`,
+  the generic `moirai_core::scheduler::WorkStealingCoordinator`, and the
+  `moirai::WorkStealingScheduler` re-export. None were on any runtime code path.
+  `moirai-scheduler` is now a primitives crate: the lock-free deques
+  (`ChaseLevDeque`/`BlockBasedDeque`/`SplitDeque`) and NUMA primitives
+  (`CpuTopology`, `AdaptiveBackoff`) it still provides are retained and
+  unchanged. Migration: construct the runtime via `moirai::Moirai`/the global
+  runtime rather than the removed scheduler types directly.
+
+### Changed
+- `ThreadScheduler` now selects work-steal victims from a thread-local
+  xorshift64 random origin instead of fixed round-robin, spreading post-barrier
+  steal contention across victims (Blumofe–Leiserson). Full-ring coverage and
+  worst-case scan cost are unchanged.
+- `ChaseLevDeque` isolates its `bottom` (owner) and `top` (thief) indices onto
+  separate cache lines, eliminating intra- and inter-deque false sharing; a
+  compile-time assertion locks the ≥64-byte alignment invariant.
+
 ### Fixed
 - `moirai-sync::FutexMutex` (Linux): fixed a lost-wakeup **deadlock** in the
   three-state futex slow path. `lock_slow` acquired a woken-up contended lock via

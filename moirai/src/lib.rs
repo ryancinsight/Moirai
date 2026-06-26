@@ -219,9 +219,6 @@ pub use moirai_executor::{BlockingTask, HybridExecutor, SchedulerScope};
 /// Completion-only borrowing scope for jobs submitted to the unified scheduler.
 pub type MoiraiScope<'scope> = SchedulerScope<'scope, BlockingTask>;
 
-// Re-export scheduler functionality
-pub use moirai_scheduler::WorkStealingScheduler;
-
 // Re-export transport functionality. The typed cross-boundary channel is the
 // rkyv-style archive pair (`ArchivedUniversalSender`/`ArchivedUniversalReceiver`);
 // the old non-functional `Universal*` placeholders were removed.

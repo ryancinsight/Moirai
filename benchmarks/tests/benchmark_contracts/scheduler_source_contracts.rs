@@ -140,9 +140,6 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
         "fn schedule_task<T>(&self, task: T) -> SchedulerResult<()>",
         "fn next_task(&self) -> SchedulerResult<Option<ScheduledTask>>",
         "fn try_steal<S>(&self, victim: &S) -> SchedulerResult<Option<ScheduledTask>>",
-        "pub struct WorkStealingCoordinator<S: Scheduler>",
-        "schedulers: Vec<S>",
-        "injector: Arc<WorkStealingDeque<ScheduledTask>>",
     ] {
         assert!(
             core_scheduler.contains(required),
@@ -198,41 +195,34 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
         "chase_lev_deque_reclamation_policies_are_static",
         "chase_lev_deque_shared_epoch_reclaim_waits_for_active_access",
         "chase_lev_deque_drops_each_inline_item_once",
-        "local_queue: ChaseLevDeque<ScheduledTask>",
-        "global_queue: Mutex<VecDeque<ScheduledTask>>",
-        "pub fn schedule_task<T>(&self, task: T) -> SchedulerResult<()>",
-        "self.schedule(ScheduledTask::new(task))",
-        "pub fn try_steal_from(&self, other: &WorkStealingScheduler) -> StealResult<ScheduledTask>",
-        "fn execute_task(&self, task: ScheduledTask)",
-        "task.execute();",
-        "fn schedule(&self, task: ScheduledTask) -> SchedulerResult<()>",
-        "fn next_task(&self) -> SchedulerResult<Option<ScheduledTask>>",
-        "fn try_steal<S>(&self, victim: &S) -> SchedulerResult<Option<ScheduledTask>>",
-        ") -> Option<ScheduledTask>",
     ] {
         assert!(
             scheduler_source.contains(required),
-            "moirai-scheduler work-stealing surface must retain {required}"
+            "moirai-scheduler work-stealing deque surface must retain {required}"
         );
     }
 
-    for required in [
-        "_local_queue: crate::ChaseLevDeque<ScheduledTask>",
-        "priority_queues: [crate::ChaseLevDeque<ScheduledTask>; 4]",
-        "fn push_task(&self, task: ScheduledTask, priority: Priority)",
-        "fn pop_task(&self) -> Option<ScheduledTask>",
-        "fn steal_task(&self) -> Option<ScheduledTask>",
-        "pub fn schedule_task<T>(&self, task: T) -> SchedulerResult<()>",
-        "pub fn schedule_on_node<T>",
-        "fn schedule_erased_on_node(",
-        "pub fn steal_with_locality(&self, worker_id: usize) -> Option<ScheduledTask>",
-        "fn schedule(&self, task: ScheduledTask) -> SchedulerResult<()>",
-        "fn next_task(&self) -> SchedulerResult<Option<ScheduledTask>>",
-        "fn try_steal<S>(&self, _victim: &S) -> SchedulerResult<Option<ScheduledTask>>",
+    // moirai-scheduler intentionally provides no scheduler of its own: the
+    // canonical runtime scheduler is moirai-executor's ThreadScheduler. Guard
+    // that the removed WorkStealingScheduler / NumaAwareScheduler do not creep
+    // back in, and that numa_scheduler exposes only topology/backoff primitives.
+    for primitive in [
+        "pub use backoff::AdaptiveBackoff;",
+        "pub use topology::{CacheLevel, CpuTopology, NumaNode};",
     ] {
         assert!(
-            numa_source.contains(required),
-            "NUMA scheduler surface must retain {required}"
+            numa_source.contains(primitive),
+            "numa_scheduler must retain the {primitive} primitive"
+        );
+    }
+    for removed in [
+        "struct WorkStealingScheduler",
+        "struct WorkStealingCoordinator",
+        "struct NumaAwareScheduler",
+    ] {
+        assert!(
+            !scheduler_source.contains(removed) && !numa_source.contains(removed),
+            "consolidated scheduler crate must not reintroduce {removed}"
         );
     }
 
@@ -268,8 +258,7 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
         "Public scheduler task dispatch is concrete",
         "ScheduledTask",
         "INLINE_SCHEDULED_TASK_WORDS",
-        "WorkStealingScheduler",
-        "NumaAwareScheduler",
+        "ThreadScheduler",
     ] {
         assert!(
             audit.contains(required),

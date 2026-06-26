@@ -7,13 +7,11 @@
 
 pub(super) mod buffer;
 pub mod config;
-pub mod coordinator;
 pub mod deque;
 pub mod task;
 pub(crate) mod traits;
 
 pub use config::{Config, QueueType, SchedulerConfig, Stats, StealContext, WorkStealingStrategy};
-pub use coordinator::WorkStealingCoordinator;
 pub use deque::{WorkStealingDeque, ZeroCopyWorkStealingDeque};
 pub use task::{ScheduledTask, INLINE_SCHEDULED_TASK_WORDS};
 pub use traits::{Scheduler, SchedulerId};
