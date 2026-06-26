@@ -105,6 +105,7 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-executor/src/schedule/runtime/mod.rs",
             "../moirai-executor/src/schedule/runtime/scheduler/mod.rs",
             "../moirai-executor/src/schedule/runtime/scheduler/core.rs",
+            "../moirai-executor/src/schedule/runtime/scheduler/data_parallel.rs",
             "../moirai-executor/src/schedule/runtime/scheduler/scope.rs",
             "../moirai-executor/src/schedule/runtime/types.rs",
             "../moirai-executor/src/schedule/runtime/worker.rs",
