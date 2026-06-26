@@ -18,6 +18,56 @@ use moirai_executor::schedule::{SyncTask, ThreadScheduler};
 const WORKERS: usize = 8;
 const WAIT: Duration = Duration::from_secs(2);
 
+/// Raw OS `unpark` -> park-wake latency floor, to compare against the
+/// scheduler's submit->execute latency. A parked helper thread reports how long
+/// after `unpark` it observed the wakeup; the 50 us pre-sleep ensures it is
+/// genuinely parked (so no token short-circuits `park`), and is excluded from
+/// the measured interval.
+fn park_unpark_floor(iters: usize) -> (Duration, Duration) {
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    let sent: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
+    let (ready_tx, ready_rx) = mpsc::channel::<()>();
+    let (woke_tx, woke_rx) = mpsc::channel::<Option<Duration>>();
+    let sent_for_parker = Arc::clone(&sent);
+
+    let parker = thread::spawn(move || loop {
+        ready_tx.send(()).unwrap();
+        thread::park();
+        let woke = Instant::now();
+        match sent_for_parker.lock().unwrap().take() {
+            Some(at) => woke_tx.send(Some(woke.duration_since(at))).unwrap(),
+            None => {
+                woke_tx.send(None).unwrap();
+                break;
+            }
+        }
+    });
+
+    let mut samples = Vec::with_capacity(iters);
+    for _ in 0..iters {
+        ready_rx.recv().unwrap();
+        thread::sleep(Duration::from_micros(50));
+        *sent.lock().unwrap() = Some(Instant::now());
+        parker.thread().unpark();
+        if let Some(latency) = woke_rx.recv().unwrap() {
+            samples.push(latency);
+        }
+    }
+    // Shutdown: leave `sent` as None so the parker exits after the next unpark.
+    ready_rx.recv().unwrap();
+    parker.thread().unpark();
+    let _ = woke_rx.recv().unwrap();
+    parker.join().unwrap();
+
+    samples.sort_unstable();
+    (
+        samples[samples.len() / 2],
+        samples[samples.len() * 99 / 100],
+    )
+}
+
 fn submit_and_wait<const SPIN: usize>(
     sched: &ThreadScheduler<256, SPIN>,
 ) -> Result<Duration, mpsc::RecvTimeoutError> {
@@ -109,6 +159,14 @@ fn spin_budget_wake_latency() {
             );
         }
     }
+
+    eprintln!("\n== raw OS park/unpark floor vs scheduler parked-wake ==");
+    let (floor_med, floor_p99) = park_unpark_floor(2000);
+    // spin=1 ⇒ workers park almost immediately, so this is the scheduler's
+    // parked submit->execute path (schedule + wake + reach the closure).
+    let (sched_med, sched_p99, _) = wake_latency::<1>(Duration::from_micros(500), 2000);
+    eprintln!("os park/unpark floor: median {floor_med:?}  p99 {floor_p99:?}");
+    eprintln!("scheduler parked wake: median {sched_med:?}  p99 {sched_p99:?}");
 
     eprintln!("\n== sustained drain (spin should not engage; expect flat) ==");
     const TASKS: usize = 300_000;
