@@ -4,8 +4,16 @@ melinoe::thread_cached! {
     pub(crate) mod active_reactor: *const IoReactor;
 }
 
-pub(crate) static GLOBAL_REACTOR: std::sync::OnceLock<std::sync::Arc<IoReactor>> =
+pub(crate) static GLOBAL_REACTOR: std::sync::OnceLock<Option<std::sync::Arc<IoReactor>>> =
     std::sync::OnceLock::new();
+
+#[cfg(test)]
+thread_local! {
+    /// Test-only switch that suppresses the lazily-started global reactor for
+    /// the current thread, so `get_active` returns `None` and socket operations
+    /// take the cooperative busy-poll self-wake fallback in `net.rs`.
+    static FORCE_NO_REACTOR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 impl IoReactor {
     /// Run a closure with this reactor set as the thread-local active reactor.
@@ -33,29 +41,55 @@ impl IoReactor {
     }
 
     /// Retrieve the active reactor for the current thread, if any.
+    ///
+    /// Returns the thread-local reactor when one is installed via
+    /// [`with_active`](Self::with_active); otherwise lazily starts a
+    /// process-global readiness reactor (epoll/kqueue/`WSAPoll`) on its own
+    /// thread. If that reactor cannot be created or its driver thread cannot be
+    /// spawned, this caches and returns `None` so socket operations degrade to
+    /// the cooperative busy-poll self-wake fallback in `net.rs` rather than
+    /// panicking — readiness still makes progress, just without an event loop.
     pub fn get_active() -> Option<&'static IoReactor> {
-        let maybe_ptr = active_reactor::get();
-
-        if let Some(ptr) = maybe_ptr {
+        if let Some(ptr) = active_reactor::get() {
             return Some(unsafe { &*ptr });
         }
 
-        // Lazily start a process-global reactor on its own thread. The reactor is
-        // readiness-based on every platform: epoll (Linux), kqueue (BSD/macOS), and
-        // `WSAPoll` (Windows). Sockets registering a waker are driven by this
-        // reactor instead of the cooperative busy-poll fallback in `net.rs`.
-        let reactor = GLOBAL_REACTOR.get_or_init(|| {
-            let r =
-                std::sync::Arc::new(IoReactor::new().expect("failed to create global IoReactor"));
-            let r_clone = std::sync::Arc::clone(&r);
-            std::thread::Builder::new()
-                .name("moirai-global-reactor".to_string())
-                .spawn(move || {
-                    let _ = r_clone.run();
-                })
-                .expect("failed to spawn global reactor thread");
-            r
-        });
-        Some(&**reactor)
+        #[cfg(test)]
+        if FORCE_NO_REACTOR.with(std::cell::Cell::get) {
+            return None;
+        }
+
+        GLOBAL_REACTOR
+            .get_or_init(|| {
+                let reactor = std::sync::Arc::new(IoReactor::new().ok()?);
+                let driver = std::sync::Arc::clone(&reactor);
+                std::thread::Builder::new()
+                    .name("moirai-global-reactor".to_string())
+                    .spawn(move || {
+                        let _ = driver.run();
+                    })
+                    .ok()?;
+                Some(reactor)
+            })
+            .as_deref()
+    }
+
+    /// Test-only: run `f` with the global reactor suppressed for this thread, so
+    /// [`get_active`](Self::get_active) returns `None` and socket operations
+    /// exercise the `net.rs` busy-poll self-wake fallback deterministically.
+    #[cfg(test)]
+    pub(crate) fn with_reactor_disabled<F, R>(f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                FORCE_NO_REACTOR.with(|cell| cell.set(self.0));
+            }
+        }
+
+        let _restore = Restore(FORCE_NO_REACTOR.with(|cell| cell.replace(true)));
+        f()
     }
 }

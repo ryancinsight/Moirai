@@ -50,6 +50,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compile-time assertion locks the ≥64-byte alignment invariant.
 
 ### Fixed
+- `moirai-pal` reactor: `IoReactor::get_active()` no longer panics if the
+  process-global readiness reactor cannot be created or its driver thread cannot
+  be spawned — it now caches and returns `None`, so socket operations degrade
+  gracefully to the cooperative busy-poll self-wake fallback in `net.rs` instead
+  of aborting. This makes that fallback (previously unreachable, since the old
+  code always returned `Some` or panicked) a real, tested path; the async
+  TCP/UDP self-wake-without-reactor round-trips are now value-verified.
 - `moirai-sync::FutexMutex` (Linux): fixed a lost-wakeup **deadlock** in the
   three-state futex slow path. `lock_slow` acquired a woken-up contended lock via
   `CAS 0 -> 1`, erasing the "waiters present" marker (state 2) even when other

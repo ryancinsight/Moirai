@@ -249,85 +249,105 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn tcp_accept_read_write_round_trip_via_reactor() {
-        block_on(async {
-            let listener =
-                AsyncTcpListener::bind("127.0.0.1:0".parse().expect("loopback address must parse"))
-                    .await
-                    .expect("listener bind must succeed");
-            let addr = listener.local_addr().expect("listener address must exist");
+    fn tcp_accept_read_write_self_wakes_without_active_reactor() {
+        // Suppress the global reactor for this thread, so `accept`/`read`/
+        // `write` make progress only via the `wake_without_active_reactor`
+        // self-wake fallback (busy-poll). The 10 ms client delay guarantees the
+        // first poll observes `WouldBlock` and takes that path.
+        IoReactor::with_reactor_disabled(|| {
+            assert!(
+                IoReactor::get_active().is_none(),
+                "self-wake path requires no active reactor"
+            );
+            block_on(async {
+                let listener = AsyncTcpListener::bind(
+                    "127.0.0.1:0".parse().expect("loopback address must parse"),
+                )
+                .await
+                .expect("listener bind must succeed");
+                let addr = listener.local_addr().expect("listener address must exist");
 
-            let client = std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(10));
-                let mut stream =
-                    StdTcpStream::connect(addr).expect("client connection must succeed");
-                stream
-                    .set_read_timeout(Some(Duration::from_secs(2)))
-                    .expect("client read timeout must be set");
-                stream
-                    .set_write_timeout(Some(Duration::from_secs(2)))
-                    .expect("client write timeout must be set");
-                stream
-                    .write_all(b"ping")
-                    .expect("client write must succeed");
+                let client = std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(10));
+                    let mut stream =
+                        StdTcpStream::connect(addr).expect("client connection must succeed");
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .expect("client read timeout must be set");
+                    stream
+                        .set_write_timeout(Some(Duration::from_secs(2)))
+                        .expect("client write timeout must be set");
+                    stream
+                        .write_all(b"ping")
+                        .expect("client write must succeed");
 
-                let mut echo = [0_u8; 4];
-                stream
-                    .read_exact(&mut echo)
-                    .expect("client echo must be readable");
-                assert_eq!(&echo, b"pong");
+                    let mut echo = [0_u8; 4];
+                    stream
+                        .read_exact(&mut echo)
+                        .expect("client echo must be readable");
+                    assert_eq!(&echo, b"pong");
+                });
+
+                let (mut stream, peer) = listener.accept().await.expect("accept must complete");
+                assert_eq!(peer.ip(), addr.ip());
+
+                let mut inbound = [0_u8; 4];
+                let read = stream.read(&mut inbound).await.expect("read must complete");
+                assert_eq!(read, 4);
+                assert_eq!(&inbound, b"ping");
+
+                let mut written = 0;
+                while written < 4 {
+                    let n = stream
+                        .write(&b"pong"[written..])
+                        .await
+                        .expect("write must complete");
+                    assert_ne!(n, 0);
+                    written += n;
+                }
+
+                client.join().expect("client thread must complete");
             });
-
-            let (mut stream, peer) = listener.accept().await.expect("accept must complete");
-            assert_eq!(peer.ip(), addr.ip());
-
-            let mut inbound = [0_u8; 4];
-            let read = stream.read(&mut inbound).await.expect("read must complete");
-            assert_eq!(read, 4);
-            assert_eq!(&inbound, b"ping");
-
-            let mut written = 0;
-            while written < 4 {
-                let n = stream
-                    .write(&b"pong"[written..])
-                    .await
-                    .expect("write must complete");
-                assert_ne!(n, 0);
-                written += n;
-            }
-
-            client.join().expect("client thread must complete");
         });
     }
 
     #[test]
-    fn udp_recv_round_trip_via_reactor() {
-        block_on(async {
-            let receiver =
-                AsyncUdpSocket::bind("127.0.0.1:0".parse().expect("loopback address must parse"))
-                    .await
-                    .expect("receiver bind must succeed");
-            let target = receiver.local_addr().expect("receiver address must exist");
-
-            let sender = std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(10));
-                let socket =
-                    std::net::UdpSocket::bind("127.0.0.1:0").expect("sender bind must succeed");
-                let sent = socket
-                    .send_to(b"datagram", target)
-                    .expect("datagram send must succeed");
-                assert_eq!(sent, 8);
-            });
-
-            let mut buf = [0_u8; 16];
-            let (received, _peer) = receiver
-                .recv_from(&mut buf)
+    fn udp_recv_self_wakes_without_active_reactor() {
+        // As above: with the global reactor suppressed, `recv_from` completes
+        // only through the self-wake busy-poll fallback.
+        IoReactor::with_reactor_disabled(|| {
+            assert!(
+                IoReactor::get_active().is_none(),
+                "self-wake path requires no active reactor"
+            );
+            block_on(async {
+                let receiver = AsyncUdpSocket::bind(
+                    "127.0.0.1:0".parse().expect("loopback address must parse"),
+                )
                 .await
-                .expect("recv_from must complete");
-            assert_eq!(received, 8);
-            assert_eq!(&buf[..received], b"datagram");
+                .expect("receiver bind must succeed");
+                let target = receiver.local_addr().expect("receiver address must exist");
 
-            sender.join().expect("sender thread must complete");
+                let sender = std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(10));
+                    let socket =
+                        std::net::UdpSocket::bind("127.0.0.1:0").expect("sender bind must succeed");
+                    let sent = socket
+                        .send_to(b"datagram", target)
+                        .expect("datagram send must succeed");
+                    assert_eq!(sent, 8);
+                });
+
+                let mut buf = [0_u8; 16];
+                let (received, _peer) = receiver
+                    .recv_from(&mut buf)
+                    .await
+                    .expect("recv_from must complete");
+                assert_eq!(received, 8);
+                assert_eq!(&buf[..received], b"datagram");
+
+                sender.join().expect("sender thread must complete");
+            });
         });
     }
 }
