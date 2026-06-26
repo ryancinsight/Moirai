@@ -20,17 +20,17 @@
 //!
 //! ## NUMA primitives
 //!
-//! [`numa_scheduler`] exposes [`CpuTopology`](numa_scheduler::CpuTopology) for
-//! hardware NUMA/cache topology discovery and
-//! [`AdaptiveBackoff`](numa_scheduler::AdaptiveBackoff) for spin/yield/sleep
-//! backoff — the inputs for NUMA-aware victim selection in the runtime.
+//! [`numa`] exposes [`CpuTopology`](numa::CpuTopology) for hardware NUMA/cache
+//! topology discovery and [`AdaptiveBackoff`](numa::AdaptiveBackoff) for
+//! spin/yield/sleep backoff — the inputs for NUMA-aware victim selection in the
+//! runtime.
 
 #![allow(clippy::redundant_closure)]
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::cast_abs_to_unsigned)]
 
 pub mod deque;
-pub mod numa_scheduler;
+pub mod numa;
 
 pub use deque::{
     BlockBasedDeque, ChaseLevDeque, DequeReclaimPolicy, DequeReclaimState, QuiescentAccessGuard,
