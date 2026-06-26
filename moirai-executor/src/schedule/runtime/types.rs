@@ -148,7 +148,6 @@ pub struct SchedulerScope<
 pub(super) struct SchedulerInner<const QUEUE_CAPACITY: usize> {
     pub(super) workers: Box<[Arc<WorkerState<QUEUE_CAPACITY>>]>,
     pub(super) handles: Mutex<Vec<JoinHandle<()>>>,
-    pub(super) next_worker: CacheAligned<AtomicUsize>,
     pub(super) pending_tasks: CacheAligned<AtomicUsize>,
     pub(super) active_workers: CacheAligned<AtomicUsize>,
     pub(super) completed_tasks: CacheAligned<AtomicU64>,

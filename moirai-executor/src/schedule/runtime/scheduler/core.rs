@@ -27,6 +27,24 @@ use super::super::worker::{
     is_quiescent, lock_mutex, priority_weight, wake_all_workers, wake_contended_workers,
     wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
 };
+/// A per-thread round-robin ticket for spreading queued submissions across
+/// workers. Replaces a process-shared `AtomicUsize` that every producer thread
+/// RMW'd on each submit: that counter's cache line bounced between all producing
+/// cores under high submit rates. Each producer now rotates its own thread-local
+/// sequence — contention-free, and still a uniform spread (the value is only a
+/// load-balancing hint, not a synchronization point). A single producer still
+/// rotates `0, 1, 2, …`, preserving the round-robin the runtime tests pin.
+#[inline]
+fn next_round_robin_ticket() -> usize {
+    use std::cell::Cell;
+    thread_local!(static TICKET: Cell<usize> = const { Cell::new(0) });
+    TICKET.with(|cell| {
+        let ticket = cell.get();
+        cell.set(ticket.wrapping_add(1));
+        ticket
+    })
+}
+
 impl ThreadScheduler<256, 8192> {
     /// Start a scheduler with one worker set for all work classes.
     pub fn new(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
@@ -48,7 +66,6 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let inner = Arc::new(SchedulerInner {
             workers,
             handles: std::sync::Mutex::new(Vec::with_capacity(worker_count)),
-            next_worker: CacheAligned::new(AtomicUsize::new(0)),
             pending_tasks: CacheAligned::new(AtomicUsize::new(0)),
             active_workers: CacheAligned::new(AtomicUsize::new(0)),
             completed_tasks: CacheAligned::new(std::sync::atomic::AtomicU64::new(0)),
@@ -337,7 +354,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                 % worker_count;
         }
 
-        let ticket = self.inner.next_worker.fetch_add(1, Ordering::Relaxed);
+        let ticket = next_round_robin_ticket();
         ticket
             .wrapping_add(C::AFFINITY_OFFSET)
             .wrapping_add(priority_weight(priority))
