@@ -104,7 +104,7 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
     let core_lib = read_benchmark("../moirai-core/src/lib.rs");
     let task_source = read_benchmark("../moirai-core/src/task.rs");
     let scheduler_source = read_benchmark("../moirai-scheduler/src/lib.rs");
-    let numa_source = read_benchmark("../moirai-scheduler/src/numa_scheduler.rs");
+    let numa_source = read_benchmark("../moirai-scheduler/src/numa.rs");
     let audit = read_benchmark("../docs/rayon_tokio_gap_audit.md");
 
     // The dead passive `moirai-core` `Scheduler` trait and its `ScheduledTask`
@@ -170,14 +170,14 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
     // moirai-scheduler intentionally provides no scheduler of its own: the
     // canonical runtime scheduler is moirai-executor's ThreadScheduler. Guard
     // that the removed WorkStealingScheduler / NumaAwareScheduler do not creep
-    // back in, and that numa_scheduler exposes only topology/backoff primitives.
+    // back in, and that numa module exposes only topology/backoff primitives.
     for primitive in [
         "pub use backoff::AdaptiveBackoff;",
         "pub use topology::{CacheLevel, CpuTopology, NumaNode};",
     ] {
         assert!(
             numa_source.contains(primitive),
-            "numa_scheduler must retain the {primitive} primitive"
+            "numa module must retain the {primitive} primitive"
         );
     }
     for removed in [

@@ -6,7 +6,7 @@ use std::ptr;
 use std::sync::Arc;
 
 use crate::ExecutionBase;
-use moirai_scheduler::numa_scheduler::CpuTopology;
+use moirai_scheduler::numa::CpuTopology;
 
 /// NUMA memory allocation policy
 #[derive(Debug, Clone, Copy)]
