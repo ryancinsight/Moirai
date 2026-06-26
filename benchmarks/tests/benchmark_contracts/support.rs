@@ -76,9 +76,7 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         &[
             "../moirai-core/src/scheduler/mod.rs",
             "../moirai-core/src/scheduler/traits.rs",
-            "../moirai-core/src/scheduler/buffer.rs",
             "../moirai-core/src/scheduler/config.rs",
-            "../moirai-core/src/scheduler/deque.rs",
             "../moirai-core/src/scheduler/task.rs",
         ],
     ),
