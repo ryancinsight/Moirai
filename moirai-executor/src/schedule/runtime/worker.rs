@@ -109,7 +109,7 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
     // worker probe victims in the same `worker_id+1, +2, …` sequence, so after a
     // fork/join barrier (scope, map_reduce_indexed) the freshly-idle workers
     // pile onto the same victims' `top` CAS in lockstep. A thread-local
-    // xorshift64 start spreads the first — and most contended — steal attempt
+    // xorshift64 start spreads the first -- and most contended -- steal attempt
     // across victims (Blumofe–Leiserson randomized work-stealing). The full
     // ring is still scanned, so coverage and worst-case cost are unchanged.
     let start = next_steal_start();
@@ -136,7 +136,7 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
 ///
 /// Seeded lazily from the per-thread RNG cell's own address (stable and unique
 /// per worker thread, forced non-zero), so it needs no shared atomic on the hot
-/// path — the seed source is contention-free by construction.
+/// path -- the seed source is contention-free by construction.
 fn next_steal_start() -> usize {
     use std::cell::Cell;
     thread_local!(static RNG: Cell<u64> = const { Cell::new(0) });
@@ -208,8 +208,20 @@ fn has_stealable_work<const QUEUE_CAPACITY: usize>(
 ) -> bool {
     use std::sync::atomic::Ordering;
     let worker_count = inner.workers.len();
-    for offset in 1..worker_count {
-        let victim_index = (worker_id + offset) % worker_count;
+    // Bounded randomized probe: instead of scanning all `worker_count - 1`
+    // victims every 32 spins (O(N) per check, cache-line churn on large pools),
+    // probe at most `STEAL_PROBE_LIMIT` victims starting from a random offset.
+    // Missing stealable work is harmless - the worker continues spinning and
+    // `steal_job` (called from `next_job`) still scans the full ring. The probe
+    // only needs to find *some* victim with work to break out of the spin early.
+    const STEAL_PROBE_LIMIT: usize = 8;
+    let start = next_steal_start();
+    let probe_count = worker_count.min(STEAL_PROBE_LIMIT);
+    for offset in 0..probe_count {
+        let victim_index = (start.wrapping_add(offset)) % worker_count;
+        if victim_index == worker_id {
+            continue;
+        }
         let victim = &inner.workers[victim_index];
         if !victim.queues.is_empty() || victim.lifo_slot.state.load(Ordering::Relaxed) == 2 {
             return true;
@@ -234,14 +246,14 @@ fn wait_for_work<const QUEUE_CAPACITY: usize>(
     {
         // Park until `schedule_job` unparks us. Async I/O readiness is driven by
         // moirai_pal's dedicated global reactor thread, whose wakers reschedule
-        // their tasks through `schedule_job` — so a parked worker is woken the
+        // their tasks through `schedule_job` -- so a parked worker is woken the
         // same way for an async completion as for fresh sync work, and never
         // needs to drive the reactor itself.
         //
         // Workers previously ran a 1 ms `reactor.run_iteration` here. That poll
         // is not interruptible by `unpark` and rounds up to the OS timer
         // granularity (~15 ms on Windows), so scheduling sync work to an idle
-        // pool stalled until the poll returned — a latency the large `SPIN_LIMIT`
+        // pool stalled until the poll returned -- a latency the large `SPIN_LIMIT`
         // was masking. Parking restores microsecond wake latency.
         thread::park();
     }
