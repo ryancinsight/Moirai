@@ -94,9 +94,11 @@ impl Default for Gauge {
 /// Thread-safe histogram for value distributions.
 #[derive(Debug)]
 pub struct Histogram {
+    /// Per-magnitude-bucket sample counts. The total sample count is their sum
+    /// (SSOT), so `record` does not hammer a separate globally-contended
+    /// `count` atomic on every call.
     buckets: [AtomicU64; 16],
     sum: AtomicU64,
-    count: AtomicU64,
 }
 
 impl Histogram {
@@ -128,7 +130,6 @@ impl Histogram {
                 new_atomic(),
             ],
             sum: AtomicU64::new(0),
-            count: AtomicU64::new(0),
         }
     }
 
@@ -149,12 +150,15 @@ impl Histogram {
 
         self.buckets[bucket_index].fetch_add(1, Ordering::Relaxed);
         self.sum.fetch_add(value, Ordering::Relaxed);
-        self.count.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Get the total count of recorded values.
+    ///
+    /// Derived from the bucket counts (every `record` increments exactly one
+    /// bucket), so it reflects the recorded samples without a dedicated
+    /// contended counter. O(number of buckets) and read-side only.
     pub fn count(&self) -> u64 {
-        self.count.load(Ordering::Relaxed)
+        self.buckets.iter().map(|b| b.load(Ordering::Relaxed)).sum()
     }
 
     /// Get the sum of all recorded values.
