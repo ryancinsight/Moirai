@@ -29,7 +29,7 @@ use moirai_core::constants::DEFAULT_MPMC_CAPACITY;
 use std::{
     collections::HashMap,
     fmt,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 
 // Re-export core channel types for compatibility
@@ -84,34 +84,41 @@ pub trait Transport: Send + Sync {
     fn supports(&self, address: &Address) -> bool;
 }
 
+/// A local in-memory channel: the sender/receiver pair for one `Address::Local` id.
+type LocalChannel = (MpmcSender<Vec<u8>>, MpmcReceiver<Vec<u8>>);
+
 /// In-memory transport for local communication
 pub struct InMemoryTransport {
-    channels: Arc<Mutex<HashMap<String, MpmcSender<Vec<u8>>>>>,
-    receivers: Arc<Mutex<HashMap<String, MpmcReceiver<Vec<u8>>>>>,
+    /// One `RwLock`-guarded map of `id -> (sender, receiver)`. Steady-state
+    /// `send`/`recv` resolve an existing channel under a *concurrent read* lock
+    /// and clone the cloned handle (the MPMC channel itself is lock-free), so
+    /// they no longer serialize through a global mutex per message. The write
+    /// lock is taken only to create a new channel.
+    channels: Arc<RwLock<HashMap<String, LocalChannel>>>,
 }
 
 impl InMemoryTransport {
     pub fn new() -> Self {
         Self {
-            channels: Arc::new(Mutex::new(HashMap::new())),
-            receivers: Arc::new(Mutex::new(HashMap::new())),
+            channels: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    fn get_or_create_channel(&self, id: &str) -> (MpmcSender<Vec<u8>>, MpmcReceiver<Vec<u8>>) {
-        let mut channels = self.channels.lock().unwrap();
-        let mut receivers = self.receivers.lock().unwrap();
-
-        if let Some(sender) = channels.get(id) {
-            if let Some(receiver) = receivers.get(id) {
-                return (sender.clone(), receiver.clone());
-            }
+    fn get_or_create_channel(&self, id: &str) -> LocalChannel {
+        // Fast path: an existing channel — the steady-state case after the first
+        // message — is resolved under a concurrent read lock.
+        if let Some(pair) = self.channels.read().unwrap().get(id) {
+            return pair.clone();
         }
-
-        let (tx, rx) = mpmc(DEFAULT_MPMC_CAPACITY);
-        channels.insert(id.to_string(), tx.clone());
-        receivers.insert(id.to_string(), rx.clone());
-        (tx, rx)
+        // Slow path: create under the write lock, re-checking in case another
+        // thread created the same id while we waited for the lock.
+        let mut channels = self.channels.write().unwrap();
+        if let Some(pair) = channels.get(id) {
+            return pair.clone();
+        }
+        let pair = mpmc(DEFAULT_MPMC_CAPACITY);
+        channels.insert(id.to_string(), pair.clone());
+        pair
     }
 }
 
