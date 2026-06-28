@@ -6,7 +6,7 @@ use super::adapters::{
     AsyncEnumerate, AsyncFilter, AsyncMap, AsyncParallelAdapter, AsyncSkip, AsyncTake, AsyncZip,
 };
 use super::consumers::{AsyncCollect, AsyncFold, AsyncForEach, AsyncReduce};
-use super::parallel::{ParAsyncFilter, ParAsyncForEach, ParAsyncMap};
+use super::parallel::{self, ParAsyncFilter, ParAsyncMap};
 
 /// Core async iterator trait for async/await compatible iteration
 pub trait AsyncIterator: Send {
@@ -144,14 +144,17 @@ pub trait AsyncParallelIterator: AsyncIterator {
         ParAsyncFilter::new(self, concurrency, filter_fn)
     }
 
-    /// Execute side effects in parallel with async operations
-    fn par_for_each<F, Fut>(self, concurrency: usize, func: F) -> ParAsyncForEach<Self, F>
+    /// Execute side effects in parallel with async operations.
+    ///
+    /// Returns a real `Future` driven by the caller's runtime; unlike a blocking
+    /// consumer it never blocks the async executor.
+    fn par_for_each<F, Fut>(self, concurrency: usize, func: F) -> impl Future<Output = ()> + Send
     where
         Self: Sized,
         F: Fn(Self::Item) -> Fut + Send + Sync,
         Fut: Future<Output = ()> + Send,
     {
-        ParAsyncForEach::new(self, concurrency, func)
+        parallel::for_each(self, concurrency, func)
     }
 }
 

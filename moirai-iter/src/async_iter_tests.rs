@@ -185,6 +185,31 @@ async fn test_parallel_async_for_each_uses_bounded_in_flight_work() {
 }
 
 #[tokio::test]
+async fn par_for_each_drives_runtime_timers_without_blocking_the_executor() {
+    // Each item awaits a real tokio timer. A blocking implementation (driving
+    // the work with `block_on` inside `poll`) cannot advance the outer runtime's
+    // reactor while it blocks, so the timers never fire and this hangs. A
+    // cooperative future yields and the runtime drives the timers to completion.
+    let count = Arc::new(AtomicUsize::new(0));
+    let count_for_items = Arc::clone(&count);
+
+    (0..4)
+        .collect::<Vec<_>>()
+        .into_async_iter()
+        .into_parallel()
+        .par_for_each(2, move |_| {
+            let count = Arc::clone(&count_for_items);
+            async move {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                count.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .await;
+
+    assert_eq!(count.load(Ordering::SeqCst), 4);
+}
+
+#[tokio::test]
 async fn test_async_filter_fold_reduce_values() {
     let filtered: Vec<i32> = vec![1, 2, 3, 4, 5, 6]
         .into_async_iter()

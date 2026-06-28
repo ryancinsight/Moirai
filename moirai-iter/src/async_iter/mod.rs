@@ -10,7 +10,7 @@ pub use adapters::{
     AsyncEnumerate, AsyncFilter, AsyncMap, AsyncParallelAdapter, AsyncSkip, AsyncTake, AsyncZip,
 };
 pub use consumers::{AsyncCollect, AsyncFold, AsyncForEach, AsyncReduce};
-pub use parallel::{ParAsyncFilter, ParAsyncForEach, ParAsyncMap};
+pub use parallel::{ParAsyncFilter, ParAsyncMap};
 pub use sources::{AsyncRangeIter, AsyncVecIter};
 pub use traits::{AsyncIterator, AsyncParallelIterator, IntoAsyncIterator};
 

@@ -2,8 +2,6 @@
 
 use futures::stream::{self, StreamExt};
 use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
 use super::traits::AsyncIterator;
 
@@ -96,47 +94,22 @@ where
     }
 }
 
-/// Parallel async for_each with concurrency control
-pub struct ParAsyncForEach<I, F> {
-    iter: Option<I>,
-    concurrency: usize,
-    func: F,
-}
-
-impl<I, F> ParAsyncForEach<I, F> {
-    pub(super) fn new(iter: I, concurrency: usize, func: F) -> Self {
-        Self {
-            iter: Some(iter),
-            concurrency,
-            func,
-        }
-    }
-}
-
-impl<I, F, Fut> Future for ParAsyncForEach<I, F>
+/// Parallel async for_each with concurrency control.
+///
+/// Returns a real `Future` driven by the caller's runtime — it never blocks the
+/// executor. `for_each` is order-independent, so it uses `buffer_unordered`
+/// (no head-of-line blocking) while still keeping at most `concurrency` item
+/// futures in flight.
+pub(super) async fn for_each<I, F, Fut>(iter: I, concurrency: usize, func: F)
 where
     I: AsyncIterator,
     F: Fn(I::Item) -> Fut + Send + Sync,
     Fut: Future<Output = ()> + Send,
-    I: Unpin,
-    F: Unpin,
 {
-    type Output = ();
-
-    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.as_mut().get_mut();
-        let concurrency = this.concurrency.max(1);
-        if let Some(iter) = this.iter.take() {
-            let func = &this.func;
-            let items = iter.into_vec();
-            futures::executor::block_on(async {
-                stream::iter(items)
-                    .map(|item| async move { func(item).await })
-                    .buffered(concurrency)
-                    .for_each(|_| async {})
-                    .await;
-            });
-        }
-        Poll::Ready(())
-    }
+    let items = iter.into_vec();
+    stream::iter(items)
+        .map(func)
+        .buffer_unordered(concurrency.max(1))
+        .for_each(|()| async {})
+        .await;
 }
