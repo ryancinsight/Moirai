@@ -1,5 +1,20 @@
 # Moirai Development Checklist
 
+## Phase 20: Async RwLock Waiter Map ✅
+- [x] [patch] Completed the `moirai-async::sync::RwLock` waiter storage
+  migration from `VecDeque` tuples to keyed `BTreeMap<u64, RwWaiter>` state.
+- [x] [patch] Routed read/write future poll, cancellation, writer grant, and
+  reader-batch wakeup through the same waiter state so the O(log n) removal
+  contract compiles and preserves FIFO-by-monotonic-id handoff.
+- [x] [patch] Fixed the `ConnectionId` Rustdoc peer-address link to
+  `std::net::SocketAddr`, keeping rustdoc warning-clean.
+- Evidence: `rustup run nightly cargo fmt -p moirai-async --check`; `rustup run
+  nightly cargo check -p moirai-async --all-targets`; `rustup run nightly cargo
+  clippy -p moirai-async --all-targets --all-features -- -D warnings`; `rustup
+  run nightly cargo nextest run -p moirai-async`; `rustup run nightly cargo test
+  --doc -p moirai-async`; `rustup run nightly cargo doc -p moirai-async
+  --all-features --no-deps`; `git diff --check`.
+
 ## Phase 19: Concurrent Stream Module Export ✅
 - [x] [minor] Completed the `parallel_stream` -> `stream` module rename by
   exporting `moirai_iter::stream` from `moirai-iter`.

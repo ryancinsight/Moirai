@@ -40,7 +40,7 @@ pub struct ServerStats {
 
 /// Unique, monotonically-assigned identifier for a tracked connection.
 ///
-/// Connections are keyed by id rather than by peer [`SocketAddr`] so that
+/// Connections are keyed by id rather than by peer [`std::net::SocketAddr`] so that
 /// (a) a stream can be removed from the pool at drop time without re-querying
 /// the (possibly already-reset) socket, and (b) two connections sharing a peer
 /// address (NAT, rapid address reuse) cannot collide in the tracking map.

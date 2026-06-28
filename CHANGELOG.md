@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime rather than the removed scheduler types directly.
 
 ### Changed
+- `moirai-async`: Completed the async `RwLock` waiter-map refactor by routing
+  reader and writer registration, wakeup, and cancellation through keyed
+  `BTreeMap` waiter state. This preserves FIFO-by-monotonic-id handoff while
+  avoiding linear removal under contention.
+- `moirai-async`: Fixed the `ConnectionId` Rustdoc link to
+  `std::net::SocketAddr`, keeping the package documentation warning-clean.
 - `moirai-iter`: Completed the stream module rename by exporting
   `moirai_iter::stream` and naming the extension contract
   `ConcurrentStreamExt` / `concurrent_*`.
