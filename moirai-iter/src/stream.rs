@@ -45,6 +45,20 @@
 //!   sequential/distributed split is a [`Either`], so there is no `Box<dyn>` on
 //!   the data path.
 //!
+//! # Performance — sizing `limit`
+//!
+//! The distributed path (`limit > 1`) pays a per-item dispatch cost: the spawn,
+//! the one-shot hand-back, and a cross-thread wake. Measured on a 24-core
+//! x86-64 box with identity item work (`tests/stream_overhead.rs`): ~0.8 µs per
+//! item distributed, versus ~70 ns per item on the `limit == 1` inline path
+//! (~12× cheaper). The spawn and cross-thread wake dominate that 0.8 µs; the
+//! one-shot is a minority of it.
+//!
+//! Consequence: distribution is a net win only when **per-item work exceeds
+//! roughly a microsecond**. Below that, the dispatch overhead dominates — prefer
+//! `limit == 1` or the inline [`StreamExt`] combinators. The bounded `limit`
+//! already exposes this choice; the measurement just sizes the crossover.
+//!
 //! ```no_run
 //! use futures::StreamExt;
 //! use moirai_iter::stream::ConcurrentStreamExt;
