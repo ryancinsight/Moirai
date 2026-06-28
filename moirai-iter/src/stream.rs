@@ -51,13 +51,25 @@
 //! the one-shot hand-back, and a cross-thread wake. Measured on a 24-core
 //! x86-64 box with identity item work (`tests/stream_overhead.rs`): ~0.8 µs per
 //! item distributed, versus ~70 ns per item on the `limit == 1` inline path
-//! (~12× cheaper). The spawn and cross-thread wake dominate that 0.8 µs; the
-//! one-shot is a minority of it.
+//! (~12× cheaper).
+//!
+//! Of that ~0.8 µs the one-shot is only ~0.1 µs (~1/8); the scheduler dispatch —
+//! task allocation, enqueue, and cross-thread wake — dominates the rest. So the
+//! per-item overhead is intrinsic to handing one item to another worker, not an
+//! artifact this layer can cheaply shave.
 //!
 //! Consequence: distribution is a net win only when **per-item work exceeds
-//! roughly a microsecond**. Below that, the dispatch overhead dominates — prefer
-//! `limit == 1` or the inline [`StreamExt`] combinators. The bounded `limit`
-//! already exposes this choice; the measurement just sizes the crossover.
+//! roughly a microsecond**. Below that the dispatch overhead dominates, and the
+//! right tool depends on the shape of the work:
+//!
+//! - **Lazy, item-at-a-time, latency-bound (I/O):** prefer `limit == 1` or the
+//!   inline [`StreamExt`] combinators — the work, when it is real, amortizes the
+//!   hop itself.
+//! - **Eager bulk of many cheap CPU items:** use the parallel iterators
+//!   ([`crate::moirai_iter_parallel`]), which **chunk** the data and spawn once
+//!   per chunk — amortizing the same dispatch cost over hundreds of items. This
+//!   stream deliberately trades that batching away for per-item laziness; it is
+//!   not the tool for bulk cheap compute, and does not duplicate it.
 //!
 //! ```no_run
 //! use futures::StreamExt;
