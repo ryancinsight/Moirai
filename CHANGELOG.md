@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `moirai-iter`: Added bounded concurrent stream adapters
+  `ConcurrentStreamExt::concurrent_filter_map` and
+  `ConcurrentStreamExt::concurrent_filter`.
 - Scheduler DIP seam: `moirai_executor::schedule::{WorkScheduler, WorkSubmit,
   SchedulerControl, DataParallel}` — ISP-segregated role traits implemented by
   `ThreadScheduler`. `HybridExecutor<S: WorkScheduler = ThreadScheduler>` now
@@ -41,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime rather than the removed scheduler types directly.
 
 ### Changed
+- `moirai-iter`: Completed the stream module rename by exporting
+  `moirai_iter::stream` and naming the extension contract
+  `ConcurrentStreamExt` / `concurrent_*`.
 - `ThreadScheduler` default `SPIN_LIMIT` reduced from 131072 to 8192. With the
   idle-worker park fix above, a parked worker now wakes in ~8 µs, so the old
   ~1 ms pre-park busy-spin only bought ~700 ns wake latency at a large idle-CPU

@@ -1,5 +1,18 @@
 # Moirai Development Checklist
 
+## Phase 19: Concurrent Stream Module Export ✅
+- [x] [minor] Completed the `parallel_stream` -> `stream` module rename by
+  exporting `moirai_iter::stream` from `moirai-iter`.
+- [x] [minor] Renamed the stream extension trait and methods to
+  `ConcurrentStreamExt` / `concurrent_*`, matching the bounded-concurrency
+  contract rather than promising CPU parallelism for every async item future.
+- [x] [minor] Added fused `concurrent_filter_map` and `concurrent_filter`
+  stream adapters with value-semantic coverage.
+- Evidence: `cargo fmt --check -p moirai-iter`; `cargo clippy -p moirai-iter
+  --all-targets --all-features -- -D warnings`; `cargo nextest run -p
+  moirai-iter stream` -> 10 passed; `cargo doc -p moirai-iter --all-features
+  --no-deps`.
+
 ## Phase 18: Default Provider Feature Contract
 - [x] [patch] Added default `parallel` and `mnemosyne-memory` features to every
   Moirai package. Existing Mnemosyne-backed crates forward `mnemosyne-memory`
