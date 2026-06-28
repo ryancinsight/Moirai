@@ -97,6 +97,27 @@ fn concurrent_map_with_limit_one_runs_inline_and_sequentially() {
 }
 
 #[test]
+fn concurrent_map_ordered_preserves_input_order() {
+    const ITEMS: u64 = 64;
+
+    // NOTE: results are NOT sorted below — the ordered combinator must yield in
+    // input order even though completion order is deliberately inverted.
+    let results: Vec<u64> = futures::executor::block_on(
+        futures::stream::iter(0..ITEMS)
+            .concurrent_map_ordered(8, |x| async move {
+                // Early items take longer, so they complete after later ones.
+                let hold = 16u64.saturating_sub(x);
+                std::thread::sleep(Duration::from_millis(hold));
+                x * 2
+            })
+            .collect(),
+    );
+
+    let expected: Vec<u64> = (0..ITEMS).map(|x| x * 2).collect();
+    assert_eq!(results, expected, "ordered map must preserve input order");
+}
+
+#[test]
 fn concurrent_for_each_visits_every_item_exactly_once() {
     let count = Arc::new(AtomicUsize::new(0));
     let count_for_items = Arc::clone(&count);
