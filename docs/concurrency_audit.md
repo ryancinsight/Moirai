@@ -46,11 +46,41 @@ order for bare `SeqCst` atomics in the store-buffer shape — it needs an
 explicit `fence(SeqCst)` to represent the StoreLoad barrier (same device as
 `loom_chase_lev.rs`). The fence lives in the model only, not in production.
 
-### Remaining residual contention risk
-- **H1** — `Mutex<TaskRegistry>` taken per spawn. Highest remaining value, but
-  soundness-coupled (`NonNull` into block storage); needs a registry-ownership
-  restructure, not a lock swap. Deferred pending a soundness review and
-  coordination with concurrent executor work.
+### Investigated and rejected — H1 (per-spawn registry `Mutex`)
+H1 proposed sharding/lock-freeing the per-spawn `Mutex<TaskRegistry>`. A
+soundness+performance review closes it as **not viable**, on two independent
+grounds:
+
+1. **Already A/B-tested and rejected (authoritative).** A concurrent
+   registry allocator (`ConcurrentTaskRegistry` + `next_task_id: AtomicU64` +
+   `allocate_task_id`) was previously implemented, benchmarked, and rejected:
+   it regressed `task_scheduling_overhead` (558–595 ns vs the mutex baseline)
+   while only marginally helping the isolated spawn/join number — see
+   `docs/adr.md` (the "Lock-free registry allocator A/B" and "rejected after a
+   scheduling-gate regression" entries). The lock is **not** the bottleneck:
+   per the ADR attribution it is ~26–31 ns (lock-only) / ~44–50 ns (full
+   mutex registration), while slot initialization (108–133 ns) and lifecycle
+   timestamp publication (161–177 ns) dominate. `source_contracts.rs`
+   (`executor_registry_registration_rejects_regressed_lock_free_allocator`)
+   enforces the rejection; a sharded reimplementation in this round failed it
+   as designed and was reverted (not test-weakened).
+2. **The real next target is slot-init / timestamp publication**, not the
+   lock (ADR). Any future registry work should attack those, keeping the
+   accepted dense-block `Arc<Mutex<TaskRegistry>>` shape.
+
+### New residual risk — pre-existing `cleanup_completed` aliasing UB (latent)
+miri (Stacked **and** Tree Borrows) reports UB in
+`registry::tests::lifecycle_blocks_preserve_sparse_metadata_and_cleanup_completed_slots`:
+the `cleanup_completed` `&mut`-through-`Vec` slot access conflicts with the
+`TaskState` aliasing established when a `TaskLifecycleToken`'s
+`NonNull<TaskState>` is derived from `slot.insert(..)` (a `&mut`). It is
+pre-existing (independent of any H1 change — `register_task_with_id`/`start`/
+`cleanup_completed` are unmodified) and **production-unreachable today**:
+`cleanup_completed` has no production caller (test-only). Still a real latent
+defect — if cleanup is ever wired, it is UB. Fix direction: derive the slot
+pointer through a raw-pointer/`UnsafeCell` path so token access and registry
+`&mut` access do not alias under the borrow model; verify the fix under
+`cargo miri test -p moirai-executor registry::tests`.
 
 ## Round 18 (2026-06-23) — built the deferred Windows readiness reactor
 
