@@ -30,6 +30,7 @@ pub mod iter_ops;
 pub mod multi_system;
 pub mod numa;
 pub mod parallel;
+pub mod parallel_stream;
 pub mod prefetch;
 pub mod simd_iter;
 pub mod windows;
