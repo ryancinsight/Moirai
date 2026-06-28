@@ -3,7 +3,7 @@
 //! Provides notification mechanisms for waking up waiting async tasks,
 //! following SLAP principle with focused responsibility.
 
-use std::collections::VecDeque;
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -16,6 +16,11 @@ enum WaiterState {
     NotifiedAll,
 }
 
+struct Waiter {
+    waker: Waker,
+    state: WaiterState,
+}
+
 /// Notification primitive for efficient task coordination
 pub struct Notify {
     state: Arc<Mutex<NotifyState>>,
@@ -23,8 +28,28 @@ pub struct Notify {
 
 struct NotifyState {
     notified: bool,
-    waiters: VecDeque<(u64, Waker, WaiterState)>,
+    /// Registered waiters keyed by a monotonic id. Keyed (rather than a linear
+    /// `VecDeque`) so per-waiter `poll`/drop lookups and removals are O(log n)
+    /// instead of O(n) — the lock is held for less time per operation, which
+    /// matters when many tasks wait on one `Notify`. Because ids increase
+    /// monotonically, in-order iteration is still FIFO, preserving
+    /// `notify_one` fairness (oldest pending waiter first).
+    waiters: BTreeMap<u64, Waiter>,
     next_id: u64,
+}
+
+impl NotifyState {
+    /// Mark the oldest pending waiter as `NotifiedOne` and return its waker to
+    /// wake (outside the lock if the caller prefers). Returns `None` if no
+    /// waiter is pending.
+    fn notify_oldest_pending(&mut self) -> Option<Waker> {
+        let waiter = self
+            .waiters
+            .values_mut()
+            .find(|w| w.state == WaiterState::Pending)?;
+        waiter.state = WaiterState::NotifiedOne;
+        Some(waiter.waker.clone())
+    }
 }
 
 impl Notify {
@@ -33,7 +58,7 @@ impl Notify {
         Self {
             state: Arc::new(Mutex::new(NotifyState {
                 notified: false,
-                waiters: VecDeque::new(),
+                waiters: BTreeMap::new(),
                 next_id: 0,
             })),
         }
@@ -50,15 +75,9 @@ impl Notify {
     /// Notify one waiting task
     pub fn notify_one(&self) {
         let mut state = self.state.lock().unwrap();
-        if let Some(waiter) = state
-            .waiters
-            .iter_mut()
-            .find(|(_, _, s)| *s == WaiterState::Pending)
-        {
-            waiter.2 = WaiterState::NotifiedOne;
-            waiter.1.wake_by_ref();
-        } else {
-            state.notified = true;
+        match state.notify_oldest_pending() {
+            Some(waker) => waker.wake(),
+            None => state.notified = true,
         }
     }
 
@@ -71,10 +90,10 @@ impl Notify {
     pub fn notify_waiters(&self) {
         let mut state = self.state.lock().unwrap();
         let mut wakers = Vec::new();
-        for waiter in &mut state.waiters {
-            if waiter.2 == WaiterState::Pending {
-                waiter.2 = WaiterState::NotifiedAll;
-                wakers.push(waiter.1.clone());
+        for waiter in state.waiters.values_mut() {
+            if waiter.state == WaiterState::Pending {
+                waiter.state = WaiterState::NotifiedAll;
+                wakers.push(waiter.waker.clone());
             }
         }
         drop(state);
@@ -97,6 +116,22 @@ pub struct NotifyFuture<'a> {
     id: Option<u64>,
 }
 
+impl<'a> NotifyFuture<'a> {
+    /// Register a fresh pending waiter and record its id on the future.
+    fn register(&mut self, state: &mut NotifyState, waker: Waker) {
+        let id = state.next_id;
+        state.next_id += 1;
+        state.waiters.insert(
+            id,
+            Waiter {
+                waker,
+                state: WaiterState::Pending,
+            },
+        );
+        self.id = Some(id);
+    }
+}
+
 impl<'a> Future for NotifyFuture<'a> {
     type Output = ();
 
@@ -107,45 +142,36 @@ impl<'a> Future for NotifyFuture<'a> {
         if state.notified {
             state.notified = false;
             if let Some(id) = self.id.take() {
-                state.waiters.retain(|(w_id, _, _)| *w_id != id);
+                state.waiters.remove(&id);
             }
             return Poll::Ready(());
         }
 
         // 2. Check if already registered
         if let Some(id) = self.id {
-            if let Some(pos) = state.waiters.iter().position(|(w_id, _, _)| *w_id == id) {
-                match state.waiters[pos].2 {
-                    WaiterState::NotifiedOne | WaiterState::NotifiedAll => {
-                        // Woken! Remove ourselves and return Ready
-                        state.waiters.remove(pos);
-                        self.id = None;
-                        Poll::Ready(())
-                    }
-                    WaiterState::Pending => {
-                        // Update waker
-                        state.waiters[pos].1 = cx.waker().clone();
-                        Poll::Pending
-                    }
+            match state.waiters.get(&id).map(|w| w.state) {
+                Some(WaiterState::NotifiedOne | WaiterState::NotifiedAll) => {
+                    // Woken! Remove ourselves and return Ready.
+                    state.waiters.remove(&id);
+                    self.id = None;
+                    Poll::Ready(())
                 }
-            } else {
-                // Re-register if lost
-                let new_id = state.next_id;
-                state.next_id += 1;
-                state
-                    .waiters
-                    .push_back((new_id, cx.waker().clone(), WaiterState::Pending));
-                self.id = Some(new_id);
-                Poll::Pending
+                Some(WaiterState::Pending) => {
+                    // Refresh the stored waker in case it changed.
+                    state.waiters.get_mut(&id).unwrap().waker = cx.waker().clone();
+                    Poll::Pending
+                }
+                None => {
+                    // Our registration was lost; re-register.
+                    let waker = cx.waker().clone();
+                    self.register(&mut state, waker);
+                    Poll::Pending
+                }
             }
         } else {
-            // First time polling, register a new waiter
-            let id = state.next_id;
-            state.next_id += 1;
-            state
-                .waiters
-                .push_back((id, cx.waker().clone(), WaiterState::Pending));
-            self.id = Some(id);
+            // First time polling, register a new waiter.
+            let waker = cx.waker().clone();
+            self.register(&mut state, waker);
             Poll::Pending
         }
     }
@@ -155,25 +181,15 @@ impl<'a> Drop for NotifyFuture<'a> {
     fn drop(&mut self) {
         if let Some(id) = self.id {
             if let Ok(mut state) = self.notify.state.lock() {
-                let mut was_notified_one = false;
-                if let Some(pos) = state.waiters.iter().position(|(w_id, _, _)| *w_id == id) {
-                    if state.waiters[pos].2 == WaiterState::NotifiedOne {
-                        was_notified_one = true;
-                    }
-                    state.waiters.remove(pos);
-                }
+                let removed = state.waiters.remove(&id);
 
-                if was_notified_one {
-                    // Transfer the permit: either notify another Pending waiter or save in notified
-                    if let Some(waiter) = state
-                        .waiters
-                        .iter_mut()
-                        .find(|(_, _, s)| *s == WaiterState::Pending)
-                    {
-                        waiter.2 = WaiterState::NotifiedOne;
-                        waiter.1.wake_by_ref();
-                    } else {
-                        state.notified = true;
+                // If we were holding a single-task permit but never observed it,
+                // hand it to the next pending waiter (or store it) so it is not
+                // lost.
+                if removed.is_some_and(|w| w.state == WaiterState::NotifiedOne) {
+                    match state.notify_oldest_pending() {
+                        Some(waker) => waker.wake(),
+                        None => state.notified = true,
                     }
                 }
             }
