@@ -50,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime rather than the removed scheduler types directly.
 
 ### Changed
+- `moirai-executor`: Completed the task-registry stable-slot migration by
+  keeping `TaskStateBlock` slots private behind `UnsafeCell` accessors. Registry
+  production paths, diagnostics, and benchmark source contracts now route
+  through `get`/`insert`/`clear`/`states`, preserving stable
+  `TaskLifecycleToken` pointers without exposing block internals.
 - `moirai-executor`: Replaced the hybrid executor's single global task-registry
   mutex with `ShardedTaskRegistry`, using a lock-free global task id allocator
   and per-shard `TaskRegistry` locks. Manager status/stat/wait paths now call

@@ -190,7 +190,11 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
 
     for required in [
         "blocks: Vec<TaskStateBlock>",
-        "slots: Box<[Option<TaskState>]>",
+        // Dense inline slots, now interior-mutable so a lifecycle token's stable
+        // `NonNull<TaskState>` is sound under the aliasing model while the
+        // registry mutates sibling slots. `UnsafeCell` is zero-cost: same dense
+        // layout and address stability, no per-task allocation.
+        "slots: Box<[UnsafeCell<Option<TaskState>>]>",
         "fn ensure_block(&mut self, block_index: usize)",
         "TaskLifecycleToken {",
     ] {

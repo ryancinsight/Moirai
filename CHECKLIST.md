@@ -1,5 +1,21 @@
 # Moirai Development Checklist
 
+## Phase 23: Task Registry Stable Slot Access ✅
+- [x] [patch] Kept `TaskStateBlock` slot storage private behind
+  `UnsafeCell`-based `get`/`insert`/`clear`/`states` methods so lifecycle
+  tokens receive stable `NonNull<TaskState>` pointers without exposing block
+  internals.
+- [x] [patch] Routed registry production paths, diagnostics, active/completed
+  counts, and cleanup through the block accessor API.
+- [x] [patch] Updated benchmark source-contract assertions to pin the dense
+  `UnsafeCell<Option<TaskState>>` representation and zero-allocation stable-slot
+  invariant.
+- Evidence: `rustup run nightly cargo fmt -p moirai-executor --check`; `rustup
+  run nightly cargo check -p moirai-executor --all-targets`; `rustup run
+  nightly cargo clippy -p moirai-executor --all-targets -- -D warnings`;
+  `rustup run nightly cargo nextest run -p moirai-executor` (61/61, 1 skipped);
+  `rustup run nightly cargo doc -p moirai-executor --no-deps`.
+
 ## Phase 22: Sharded Task Registry ✅
 - [x] [patch] Replaced the hybrid executor's single `Arc<Mutex<TaskRegistry>>`
   with `Arc<ShardedTaskRegistry>` so task registration and metadata reads route

@@ -17,7 +17,7 @@ impl TaskRegistry {
         self.next_id = self.next_id.saturating_add(1);
         let (block_index, slot_index) = task_location(id);
         self.ensure_block(block_index);
-        let slot_occupied = self.blocks[block_index].slots[slot_index].is_some();
+        let slot_occupied = self.blocks[block_index].get(slot_index).is_some();
         std::hint::black_box(slot_occupied);
         id
     }
@@ -31,7 +31,7 @@ impl TaskRegistry {
         self.next_id = self.next_id.saturating_add(1);
         let (block_index, slot_index) = task_location(id);
         self.ensure_block(block_index);
-        let _ = self.blocks[block_index].slots[slot_index].insert(TaskState::new());
+        let _ = self.blocks[block_index].insert(slot_index);
         id
     }
 

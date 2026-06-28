@@ -1,4 +1,4 @@
-use std::{ptr::NonNull, time::Duration};
+use std::time::Duration;
 
 use super::super::task::TaskMetadata;
 use super::state::{task_location, TaskState, TaskStateBlock};
@@ -42,14 +42,17 @@ impl TaskRegistry {
         let (block_index, slot_index) = task_location(id);
         self.ensure_block(block_index);
 
-        let slot = &mut self.blocks[block_index].slots[slot_index];
+        let block = &self.blocks[block_index];
         assert!(
-            !slot.as_ref().is_some_and(|state| !state.is_completed()),
+            !block
+                .get(slot_index)
+                .is_some_and(|state| !state.is_completed()),
             "task ID must not be re-registered while active"
         );
 
-        let state = NonNull::from(slot.insert(TaskState::new()));
-        TaskLifecycleToken { state }
+        TaskLifecycleToken {
+            state: block.insert(slot_index),
+        }
     }
 
     /// Mark a task as started.
@@ -81,14 +84,14 @@ impl TaskRegistry {
     /// Remove old completed tasks to prevent retained task metadata growth.
     pub fn cleanup_completed(&mut self, older_than: Duration) {
         let cutoff = std::time::Instant::now() - older_than;
-        for block in &mut self.blocks {
-            for slot in &mut *block.slots {
-                if slot
-                    .as_ref()
+        for block in &self.blocks {
+            for slot_index in 0..block.len() {
+                if block
+                    .get(slot_index)
                     .and_then(TaskState::completed_at)
                     .is_some_and(|completed| completed <= cutoff)
                 {
-                    *slot = None;
+                    block.clear(slot_index);
                 }
             }
         }
@@ -103,8 +106,8 @@ impl TaskRegistry {
     pub fn active_count(&self) -> usize {
         self.blocks
             .iter()
-            .flat_map(|block| block.slots.iter())
-            .filter(|slot| slot.as_ref().is_some_and(|state| !state.is_completed()))
+            .flat_map(|block| block.states())
+            .filter(|state| !state.is_completed())
             .count()
     }
 
@@ -113,8 +116,8 @@ impl TaskRegistry {
     pub fn completed_count(&self) -> usize {
         self.blocks
             .iter()
-            .flat_map(|block| block.slots.iter())
-            .filter(|slot| slot.as_ref().is_some_and(TaskState::is_completed))
+            .flat_map(|block| block.states())
+            .filter(|state| state.is_completed())
             .count()
     }
 
@@ -126,11 +129,7 @@ impl TaskRegistry {
 
     pub(super) fn state(&self, task_id: u64) -> Option<&TaskState> {
         let (block_index, slot_index) = task_location(task_id);
-        self.blocks
-            .get(block_index)?
-            .slots
-            .get(slot_index)?
-            .as_ref()
+        self.blocks.get(block_index)?.get(slot_index)
     }
 
     /// Register a waker to be notified when the task completes.

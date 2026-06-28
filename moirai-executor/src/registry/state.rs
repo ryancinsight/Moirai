@@ -1,4 +1,6 @@
 use std::{
+    cell::UnsafeCell,
+    ptr::NonNull,
     sync::atomic::{AtomicU64, AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
@@ -9,9 +11,28 @@ pub(crate) const NO_WORKER: usize = usize::MAX;
 pub(crate) const TIMESTAMP_NOT_RECORDED: u64 = u64::MAX;
 pub(crate) const TASK_STATE_BLOCK_SIZE: usize = 1024;
 
-#[derive(Debug)]
+/// One fixed-size block of task-state slots.
+///
+/// Slots are `UnsafeCell` so the block can hand a stable `NonNull<TaskState>`
+/// (via [`TaskStateBlock::insert`]) to a `TaskLifecycleToken` while the registry
+/// keeps reading and structurally mutating other slots. All access goes through
+/// the methods below, which touch a slot only through its own `UnsafeCell` —
+/// never a `&mut`/`&` spanning the whole slice — so a live token's pointer into
+/// one slot is never invalidated by activity on another.
+///
+/// # Safety contract (relied on by every slot accessor below)
+/// 1. The owning [`super::TaskRegistry`] is shared only as
+///    `Arc<Mutex<TaskRegistry>>`, so at most one registry method touches these
+///    blocks at a time (no registry-vs-registry races).
+/// 2. A slot's [`TaskState`] is interior-mutable (atomics + a `Mutex`). A
+///    `TaskLifecycleToken` accesses only those fields through its `NonNull`,
+///    without the registry mutex; that aliases the registry's shared reads of
+///    the same fields soundly because all such access is atomic/locked.
+/// 3. The registry writes a slot's `Option` only when no token aliases it:
+///    `insert` targets a fresh unoccupied id; `clear` targets a completed slot
+///    whose token has been consumed.
 pub(super) struct TaskStateBlock {
-    pub(super) slots: Box<[Option<TaskState>]>,
+    slots: Box<[UnsafeCell<Option<TaskState>>]>,
 }
 
 /// Shared lifecycle state for one task.
@@ -116,7 +137,7 @@ impl TaskState {
 
 impl TaskStateBlock {
     pub(super) fn new() -> Self {
-        let slots = std::iter::repeat_with(|| None)
+        let slots = std::iter::repeat_with(|| UnsafeCell::new(None))
             .take(TASK_STATE_BLOCK_SIZE)
             .collect::<Vec<_>>()
             .into_boxed_slice();
@@ -124,8 +145,69 @@ impl TaskStateBlock {
         Self { slots }
     }
 
+    /// Number of slots in the block.
+    pub(super) fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Shared view of the state at `slot`, if the slot is occupied and in range.
+    pub(super) fn get(&self, slot: usize) -> Option<&TaskState> {
+        // SAFETY: per the struct's safety contract, we form only a shared
+        // `&TaskState` to interior-mutable state; the registry never writes this
+        // slot's `Option` while a token to it is live, and concurrent token
+        // access touches only the same state's atomics/mutex.
+        self.slots
+            .get(slot)
+            .and_then(|cell| unsafe { (*cell.get()).as_ref() })
+    }
+
+    /// Insert a fresh state at `slot`, returning a stable pointer to it.
+    pub(super) fn insert(&self, slot: usize) -> NonNull<TaskState> {
+        let cell = self.slots[slot].get();
+        // SAFETY: per the struct's safety contract, both the write and the
+        // pointer derivation go through this slot's own `UnsafeCell` raw pointer,
+        // never a `&mut`/`&` spanning the slice, so live tokens into sibling
+        // slots stay valid. Assigning through the place drops any prior
+        // (completed) state. The returned pointer is derived from a *shared*
+        // view of the freshly written state: the token uses it only for the
+        // state's interior-mutable (atomic/mutex) fields, so shared provenance
+        // suffices and stays valid under both Stacked and Tree Borrows (a
+        // `&mut`-derived pointer would be disabled by later shared reads).
+        unsafe {
+            *cell = Some(TaskState::new());
+            NonNull::from((*cell).as_ref().unwrap_unchecked())
+        }
+    }
+
+    /// Clear the state at `slot`, dropping it.
+    pub(super) fn clear(&self, slot: usize) {
+        // SAFETY: per the struct's safety contract, callers clear only completed
+        // slots whose token has been consumed, so no live pointer aliases the
+        // dropped state; the write is through this slot's own `UnsafeCell`.
+        unsafe {
+            *self.slots[slot].get() = None;
+        }
+    }
+
+    /// Iterate shared views of the occupied states in this block.
+    pub(super) fn states(&self) -> impl Iterator<Item = &TaskState> {
+        // SAFETY: as in `get` — shared views of interior-mutable state.
+        self.slots
+            .iter()
+            .filter_map(|cell| unsafe { (*cell.get()).as_ref() })
+    }
+
     pub(super) fn is_empty(&self) -> bool {
-        self.slots.iter().all(Option::is_none)
+        self.states().next().is_none()
+    }
+}
+
+impl std::fmt::Debug for TaskStateBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaskStateBlock")
+            .field("slots", &self.slots.len())
+            .field("occupied", &self.states().count())
+            .finish()
     }
 }
 
