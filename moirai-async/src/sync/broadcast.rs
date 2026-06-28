@@ -3,7 +3,7 @@
 //! Provides broadcast channel implementation that allows one sender to
 //! broadcast messages to multiple receivers with SLAP-compliant design.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -18,13 +18,17 @@ struct BroadcastState<T> {
     messages: VecDeque<(u64, T)>,
     sequence: u64,
     closed: bool,
-    receivers: Vec<BroadcastReceiverState>,
+    /// Receiver state keyed by receiver id. Keyed (rather than a linear `Vec`)
+    /// so the per-`poll_recv` and per-drop lookup of a receiver's waker slot is
+    /// O(log n) instead of O(n), shortening lock-hold when many receivers
+    /// subscribe to one channel. The send/sender-drop fan-out iterates all
+    /// receivers regardless, which is inherently O(n).
+    receivers: BTreeMap<u64, BroadcastReceiverState>,
     capacity: usize,
     next_receiver_id: u64,
 }
 
 struct BroadcastReceiverState {
-    id: u64,
     waker: Option<Waker>,
 }
 
@@ -37,7 +41,7 @@ impl<T: Clone + Send + 'static> Broadcast<T> {
             messages: VecDeque::new(),
             sequence: 0,
             closed: false,
-            receivers: Vec::new(),
+            receivers: BTreeMap::new(),
             capacity,
             next_receiver_id: 1,
         }));
@@ -57,7 +61,7 @@ impl<T: Clone + Send + 'static> Broadcast<T> {
             let mut state_guard = state.lock().unwrap();
             state_guard
                 .receivers
-                .push(BroadcastReceiverState { id: 0, waker: None });
+                .insert(0, BroadcastReceiverState { waker: None });
         }
 
         (sender, receiver)
@@ -89,7 +93,7 @@ impl<T: Clone> BroadcastSender<T> {
 
         // Wake all receivers
         let receiver_count = state.receivers.len();
-        for receiver in &mut state.receivers {
+        for receiver in state.receivers.values_mut() {
             if let Some(waker) = receiver.waker.take() {
                 waker.wake();
             }
@@ -108,7 +112,7 @@ impl<T> Drop for BroadcastSender<T> {
     fn drop(&mut self) {
         let mut state = self.state.lock().unwrap();
         state.closed = true;
-        for receiver in &mut state.receivers {
+        for receiver in state.receivers.values_mut() {
             if let Some(waker) = receiver.waker.take() {
                 waker.wake();
             }
@@ -169,10 +173,9 @@ impl<T: Clone> BroadcastReceiver<T> {
         state.next_receiver_id += 1;
         let current_sequence = state.sequence;
 
-        state.receivers.push(BroadcastReceiverState {
-            id: new_id,
-            waker: None,
-        });
+        state
+            .receivers
+            .insert(new_id, BroadcastReceiverState { waker: None });
 
         BroadcastReceiver {
             state: self.state.clone(),
@@ -189,7 +192,7 @@ impl<T: Clone> BroadcastReceiver<T> {
             if state.closed {
                 return Poll::Ready(Err(BroadcastError::Closed));
             }
-            if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.id) {
+            if let Some(receiver_state) = state.receivers.get_mut(&self.id) {
                 receiver_state.waker = Some(cx.waker().clone());
             }
             return Poll::Pending;
@@ -217,7 +220,7 @@ impl<T: Clone> BroadcastReceiver<T> {
         } else if state.closed {
             Poll::Ready(Err(BroadcastError::Closed))
         } else {
-            if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.id) {
+            if let Some(receiver_state) = state.receivers.get_mut(&self.id) {
                 receiver_state.waker = Some(cx.waker().clone());
             }
             Poll::Pending
@@ -234,7 +237,7 @@ impl<T: Clone> Clone for BroadcastReceiver<T> {
 impl<T> Drop for BroadcastReceiver<T> {
     fn drop(&mut self) {
         if let Ok(mut state) = self.state.lock() {
-            state.receivers.retain(|r| r.id != self.id);
+            state.receivers.remove(&self.id);
         }
     }
 }
@@ -261,7 +264,7 @@ impl<'a, T> Drop for BroadcastRecv<'a, T> {
         // for this receiver id — clearing here cannot drop another future's waker.
         if let Ok(mut state) = self.receiver.state.lock() {
             let id = self.receiver.id;
-            if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == id) {
+            if let Some(receiver_state) = state.receivers.get_mut(&id) {
                 receiver_state.waker = None;
             }
         }
