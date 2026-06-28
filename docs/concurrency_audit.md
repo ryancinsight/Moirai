@@ -4,6 +4,54 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 19 (2026-06-28) — lock-hold contention sweep + loom-modeled wake handshake
+
+Reduced per-operation lock-hold across the async sync primitives and the core
+histogram, and model-checked the scheduler's lost-wakeup handshake.
+
+### Reduced — O(n) → O(log n) waiter/receiver scans (moirai-async)
+Every `moirai-async` sync primitive kept its waiters/receivers in a linear
+`Vec`/`VecDeque` of `(id, …)` and did `position`/`find`/`retain`-by-id on each
+poll/drop, holding the single state `Mutex` for O(n) — so lock-hold grew with
+waiter/subscriber count. Re-keyed each by a monotonic id in a
+`BTreeMap<u64, _>` (O(log n) lookup/remove; in-order iteration stays FIFO since
+ids are monotonic, so all fairness semantics hold): `Notify`, `Semaphore`,
+`RwLock` (both read/write queues), `Watch`, `Broadcast`. The subtle
+state-machine regressions (permit storage/transfer, reader-batch grant,
+cancellation waker-clear) all pass.
+
+### Reduced — histogram hot-path atomics 3 → 2 (moirai-core)
+`Histogram::record` did three contended `fetch_add`s per sample (a bucket,
+`sum`, `count`). `count` is redundant — each record increments exactly one
+bucket, so `count == Σbuckets` always — so it was removed and `count()` now
+derives from the bucket sum. Drops a globally-contended atomic from every
+record and removes the `sum`/`count` false-sharing. SSOT (per-bucket counts
+are the single source of the sample count).
+
+### Verified sound — the SeqCst park/wake handshake (closes the deferred M3 risk)
+The `pending_tasks` ↔ idle-bitset Dekker handshake (`scheduler/core.rs` +
+`idle.rs`) carried a deferred "can the `SeqCst` be weakened to cut the barrier
+cost?" question. Added a `cfg(loom)` exhaustive model
+(`tests/loom_wake_handshake.rs`; the crate now wires the `loom` dev-dep +
+`unexpected_cfgs` lint mirroring `moirai-scheduler`) of the four-access
+ordering. Finding: with the SC StoreLoad barrier present no interleaving loses
+a wakeup; weakening any access to Acquire/Release readmits the store-buffer
+outcome (lost wakeup). The `SeqCst` is therefore **necessary and sufficient** —
+it cannot be weakened (no contention win there), and an explicit production
+fence is **unwarranted** (x86's `lock` RMW already fences; bare `SeqCst` atoms
+carry the guarantee per the Rust memory model).
+
+loom caveat (documented in the test): loom does not fully model the SC total
+order for bare `SeqCst` atomics in the store-buffer shape — it needs an
+explicit `fence(SeqCst)` to represent the StoreLoad barrier (same device as
+`loom_chase_lev.rs`). The fence lives in the model only, not in production.
+
+### Remaining residual contention risk
+- **H1** — `Mutex<TaskRegistry>` taken per spawn. Highest remaining value, but
+  soundness-coupled (`NonNull` into block storage); needs a registry-ownership
+  restructure, not a lock swap. Deferred pending a soundness review and
+  coordination with concurrent executor work.
+
 ## Round 18 (2026-06-23) — built the deferred Windows readiness reactor
 
 Completed the last big deferred component: a real readiness reactor on Windows.

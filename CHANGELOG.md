@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `moirai-executor`: loom model of the scheduler park/wake handshake
+  (`tests/loom_wake_handshake.rs`, `cfg(loom)`-gated) — exhaustively verifies
+  the `pending_tasks`/idle-bitset `SeqCst` Dekker handshake never loses a
+  wakeup, the model-checked evidence that the `SeqCst` ordering is necessary
+  and sufficient. The crate now wires the `cfg(loom)` dev-dependency mirroring
+  `moirai-scheduler`.
 - `moirai-iter`: Added bounded concurrent stream adapters
   `ConcurrentStreamExt::concurrent_filter_map` and
   `ConcurrentStreamExt::concurrent_filter`.
@@ -48,6 +54,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reader and writer registration, wakeup, and cancellation through keyed
   `BTreeMap` waiter state. This preserves FIFO-by-monotonic-id handoff while
   avoiding linear removal under contention.
+- `moirai-async`: Extended the same keyed-`BTreeMap` refactor to the rest of the
+  sync primitives — `Notify`, `Semaphore` (waiters) and `Watch`, `Broadcast`
+  (receivers) — replacing O(n) `position`/`find`/`retain`-by-id scans under the
+  state lock with O(log n) keyed lookup/remove. FIFO fairness, permit
+  storage/transfer, reader-batch grant, and cancellation waker-clear semantics
+  are unchanged.
+- `moirai-core`: `Histogram::record` no longer increments a dedicated `count`
+  atomic — `count()` derives from the bucket sum (`count == Σbuckets`). Drops a
+  globally-contended atomic from every record and the `sum`/`count` false
+  sharing; SSOT for the sample count. `count()` is now O(buckets), read-side
+  only.
 - `moirai-async`: Fixed the `ConnectionId` Rustdoc link to
   `std::net::SocketAddr`, keeping the package documentation warning-clean.
 - `moirai-iter`: Completed the stream module rename by exporting
