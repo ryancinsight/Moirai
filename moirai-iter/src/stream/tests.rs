@@ -62,33 +62,38 @@ fn concurrent_map_bounds_in_flight_concurrency_to_limit() {
 }
 
 #[test]
-fn concurrent_filter_map_keeps_and_transforms_selected_items() {
-    // Keep evens, map them to x*10.
-    let mut results: Vec<u64> = futures::executor::block_on(
-        futures::stream::iter(0..100u64)
-            .concurrent_filter_map(8, |x| async move { (x % 2 == 0).then_some(x * 10) })
-            .collect(),
-    );
-    results.sort_unstable();
+fn concurrent_map_with_limit_one_runs_inline_and_sequentially() {
+    const ITEMS: u64 = 50;
 
-    let expected: Vec<u64> = (0..100u64).filter(|x| x % 2 == 0).map(|x| x * 10).collect();
-    assert_eq!(results, expected);
-}
+    let in_flight = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let in_flight_for_items = Arc::clone(&in_flight);
+    let peak_for_items = Arc::clone(&peak);
 
-#[test]
-fn concurrent_filter_retains_only_matching_items() {
     let mut results: Vec<u64> = futures::executor::block_on(
-        futures::stream::iter(0..100u64)
-            .concurrent_filter(8, |x| {
-                let x = *x;
-                async move { x % 3 == 0 }
+        futures::stream::iter(0..ITEMS)
+            .concurrent_map(1, move |x| {
+                let in_flight = Arc::clone(&in_flight_for_items);
+                let peak = Arc::clone(&peak_for_items);
+                async move {
+                    let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(now, Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(1));
+                    in_flight.fetch_sub(1, Ordering::SeqCst);
+                    x * 2
+                }
             })
             .collect(),
     );
     results.sort_unstable();
 
-    let expected: Vec<u64> = (0..100u64).filter(|x| x % 3 == 0).collect();
-    assert_eq!(results, expected);
+    assert_eq!(results, (0..ITEMS).map(|x| x * 2).collect::<Vec<_>>());
+    // limit == 1 must never overlap: exactly one item is ever in flight.
+    assert_eq!(
+        peak.load(Ordering::SeqCst),
+        1,
+        "limit == 1 must run sequentially with no concurrency"
+    );
 }
 
 #[test]

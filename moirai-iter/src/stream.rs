@@ -1,22 +1,33 @@
 //! Concurrent stream combinators dispatched to the unified hybrid scheduler.
 //!
-//! The caller expresses **bounded concurrency** — how many item futures may be
-//! in flight at once — and the hybrid `ThreadScheduler` decides *how* to run
-//! them: cooperatively on its async lane, or in parallel across worker threads,
-//! and (in future) across processes. The combinators never assume the work is
-//! CPU-parallel; an item future may be I/O-bound and never leave one core. That
-//! is why the API says `concurrent`, not `parallel`: concurrency is the
+//! The caller expresses **how much concurrency the work warrants** via `limit`,
+//! and the combinator does no more than that:
+//!
+//! - `limit == 1` — the work does not warrant concurrency: each item future runs
+//!   **inline and sequentially** on the consuming thread, with no spawn, no
+//!   cross-thread hop, and no channel. This is the zero-overhead path.
+//! - `limit > 1` — items are **distributed across the scheduler's worker
+//!   threads**, up to `limit` in flight, so the hybrid `ThreadScheduler` runs
+//!   them in parallel.
+//!
+//! The API says `concurrent`, not `parallel`, because at `limit > 1` an item
+//! future may still be I/O-bound and never saturate a core; concurrency is the
 //! contract, the execution mechanism is the scheduler's to optimize.
+//!
+//! Only operations whose per-item work is heavy enough to outweigh a thread hop
+//! belong here. **Cheap, sequential operations — filtering on a simple
+//! predicate, light maps — should use the standard [`StreamExt`] combinators**
+//! (`map`, `filter`, `filter_map`), which run inline; they compose directly with
+//! `concurrent_map`, e.g. `stream.concurrent_map(n, heavy).filter_map(cheap)`.
 //!
 //! Design, building on the lessons of the [`parallel-stream`](https://docs.rs/parallel-stream)
 //! crate but routed through moirai's own infrastructure:
 //!
-//! - **Unified scheduler.** Each item future is spawned on
+//! - **Unified scheduler.** At `limit > 1` each item future is spawned on
 //!   [`moirai_executor::global()`] — the same work-stealing scheduler that backs
-//!   `spawn_async` and the parallel iterators — so the scheduler load-balances
-//!   the items rather than a separate ambient runtime. The result is handed back
-//!   through a one-shot channel so the consuming stream awaits it
-//!   *cooperatively*; it never blocks a worker the way `TaskHandle::join` would.
+//!   `spawn_async` and the parallel iterators. The result is handed back through
+//!   a one-shot channel so the consuming stream awaits it *cooperatively*; it
+//!   never blocks a worker the way `TaskHandle::join` would.
 //! - **Bounded by construction.** `limit` caps in-flight item futures via
 //!   [`StreamExt::buffer_unordered`] — the central lesson from `parallel-stream`:
 //!   stream fan-out must be bounded, never unbounded.
@@ -38,6 +49,7 @@
 
 use std::future::Future;
 
+use futures::future::Either;
 use futures::stream::{Stream, StreamExt};
 use moirai_core::executor::TaskSpawner;
 
@@ -72,15 +84,16 @@ where
 /// scheduler.
 ///
 /// Implemented for every [`Stream`]; bring it into scope to call the
-/// `concurrent_*` methods on any stream. The `limit` argument bounds in-flight
-/// item futures; the scheduler decides whether that concurrency is realized as
-/// async multiplexing or thread/process parallelism.
+/// `concurrent_*` methods on any stream. See the [module docs](self) for when to
+/// reach for these versus the inline [`StreamExt`] combinators.
 pub trait ConcurrentStreamExt: Stream + Sized {
     /// Map each item through the async `f`, keeping up to `limit` item futures
-    /// in flight on the scheduler and yielding results in completion order
-    /// (unordered — no head-of-line blocking).
+    /// in flight and yielding results in completion order (unordered — no
+    /// head-of-line blocking).
     ///
-    /// `limit` is clamped to at least 1.
+    /// `limit == 1` runs each item inline and sequentially with no spawn or
+    /// cross-thread hop; `limit > 1` distributes items across the scheduler's
+    /// worker threads. `limit` is clamped to at least 1.
     fn concurrent_map<F, Fut, R>(self, limit: usize, mut f: F) -> impl Stream<Item = R> + Send
     where
         Self: Send + 'static,
@@ -89,54 +102,29 @@ pub trait ConcurrentStreamExt: Stream + Sized {
         Fut: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        // `f` runs sequentially here to *produce* each item future; the futures
-        // themselves are what the scheduler runs concurrently.
-        self.map(move |item| spawn_on_scheduler(f(item)))
-            .buffer_unordered(limit.max(1))
-    }
-
-    /// Map and filter in one pass: each item is mapped through the async `f` to
-    /// an `Option<R>` with up to `limit` futures in flight; `None` results are
-    /// dropped. The fused form avoids yielding rejected items downstream.
-    ///
-    /// `limit` is clamped to at least 1.
-    fn concurrent_filter_map<F, Fut, R>(self, limit: usize, f: F) -> impl Stream<Item = R> + Send
-    where
-        Self: Send + 'static,
-        Self::Item: Send + 'static,
-        F: FnMut(Self::Item) -> Fut + Send + 'static,
-        Fut: Future<Output = Option<R>> + Send + 'static,
-        R: Send + 'static,
-    {
-        self.concurrent_map(limit, f)
-            .filter_map(|maybe| async move { maybe })
-    }
-
-    /// Retain items for which the async predicate `f` returns `true`, evaluating
-    /// up to `limit` predicates in flight on the scheduler.
-    ///
-    /// The predicate is `Fn` + `Clone` because each in-flight item owns its own
-    /// invocation; typical predicates are zero-sized fn items or `Copy`
-    /// closures, so the clone is free. `limit` is clamped to at least 1.
-    fn concurrent_filter<F, Fut>(self, limit: usize, f: F) -> impl Stream<Item = Self::Item> + Send
-    where
-        Self: Send + 'static,
-        Self::Item: Send + 'static,
-        F: Fn(&Self::Item) -> Fut + Clone + Send + 'static,
-        Fut: Future<Output = bool> + Send + 'static,
-    {
-        self.concurrent_filter_map(limit, move |item| {
-            // Clone the predicate into each item's future so it can borrow the
-            // item it owns; the original `f` stays available for the next item.
-            let f = f.clone();
-            async move { f(&item).await.then_some(item) }
+        let limit = limit.max(1);
+        // `f` runs sequentially here to *produce* each item future; whether that
+        // future then runs inline (Right) or on a worker (Left) is the only
+        // difference between the sequential and distributed paths.
+        self.map(move |item| {
+            let fut = f(item);
+            if limit == 1 {
+                // No concurrency requested: stay on this thread.
+                // buffer_unordered(1) polls exactly one at a time, i.e. sequentially.
+                Either::Right(fut)
+            } else {
+                Either::Left(spawn_on_scheduler(fut))
+            }
         })
+        .buffer_unordered(limit)
     }
 
-    /// Run the async `f` for every item with up to `limit` futures in flight on
-    /// the scheduler, completing once every item is done.
+    /// Run the async `f` for every item with up to `limit` futures in flight,
+    /// completing once every item is done.
     ///
-    /// `limit` is clamped to at least 1.
+    /// Follows the same `limit` semantics as
+    /// [`concurrent_map`](Self::concurrent_map): `1` is sequential and inline,
+    /// `> 1` distributes across workers. `limit` is clamped to at least 1.
     fn concurrent_for_each<F, Fut>(self, limit: usize, f: F) -> impl Future<Output = ()> + Send
     where
         Self: Send + 'static,
