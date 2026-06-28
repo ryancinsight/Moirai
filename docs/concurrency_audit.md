@@ -68,19 +68,29 @@ grounds:
    lock (ADR). Any future registry work should attack those, keeping the
    accepted dense-block `Arc<Mutex<TaskRegistry>>` shape.
 
-### New residual risk — pre-existing `cleanup_completed` aliasing UB (latent)
-miri (Stacked **and** Tree Borrows) reports UB in
-`registry::tests::lifecycle_blocks_preserve_sparse_metadata_and_cleanup_completed_slots`:
-the `cleanup_completed` `&mut`-through-`Vec` slot access conflicts with the
-`TaskState` aliasing established when a `TaskLifecycleToken`'s
-`NonNull<TaskState>` is derived from `slot.insert(..)` (a `&mut`). It is
-pre-existing (independent of any H1 change — `register_task_with_id`/`start`/
-`cleanup_completed` are unmodified) and **production-unreachable today**:
-`cleanup_completed` has no production caller (test-only). Still a real latent
-defect — if cleanup is ever wired, it is UB. Fix direction: derive the slot
-pointer through a raw-pointer/`UnsafeCell` path so token access and registry
-`&mut` access do not alias under the borrow model; verify the fix under
-`cargo miri test -p moirai-executor registry::tests`.
+### Fixed — registry slot-aliasing UB (was pre-existing, both borrow models)
+miri (Stacked **and** Tree Borrows) reported UB in the registry: any `&mut`/`&`
+spanning the `Box<[Option<TaskState>]>` slot slice (`cleanup_completed`'s
+`&mut *block.slots`, and `register_task_with_id`'s `&mut`-IndexMut) retags the
+whole slice and invalidates a live `TaskLifecycleToken`'s `NonNull<TaskState>`
+into a sibling slot. miri only *caught* it in the single-threaded cleanup test
+(the threaded executor is not run under miri), but the same `&mut`-slice retag
+sits on the production register path, so it was a real latent defect, not
+test-only.
+
+Fix: slots are now `Box<[UnsafeCell<Option<TaskState>>]>`, with all slot access
+encapsulated in `TaskStateBlock` accessors (`get`/`insert`/`clear`/`states`)
+that touch a slot only through its own `UnsafeCell` raw pointer — never a
+`&mut`/`&` over the slice. The token pointer is derived from a *shared* view of
+the freshly-written state (`NonNull::from((*cell).as_ref()…)`), not a `&mut`,
+because the token only ever reaches the state's interior-mutable (atomic/mutex)
+fields; a `&mut`-derived pointer is what Tree Borrows disables on later shared
+reads. `UnsafeCell` is zero-cost: same dense inline layout, address stability,
+and no per-task allocation, so the ADR's accepted dense-block policy and its
+benchmark contracts hold (contract source strings updated to the accessor
+shape, not weakened). Verified: `cargo miri test -p moirai-executor
+registry::tests` passes under **both** `-Zmiri-stacked-borrows` (default) and
+`-Zmiri-tree-borrows`; full workspace green.
 
 ## Round 18 (2026-06-23) — built the deferred Windows readiness reactor
 

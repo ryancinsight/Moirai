@@ -244,8 +244,12 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         "pub fn diagnostic_slot_initialize(&mut self) -> u64",
         "pub fn diagnostic_lifecycle_timestamp_publication() -> Duration",
         "self.ensure_block(block_index);",
-        "self.blocks[block_index].slots[slot_index]",
-        "NonNull::from(slot.insert(TaskState::new()))",
+        // Diagnostics and production register/lookup now share the same
+        // `TaskStateBlock` accessors (interior-mutable `UnsafeCell` slots), so
+        // the diagnostic block-lookup and slot-init paths still exercise the
+        // exact production code rather than a divergent copy.
+        "self.blocks[block_index].get(slot_index)",
+        "self.blocks[block_index].insert(slot_index)",
         "fn snapshot(&self, id: u64) -> TaskMetadata",
         "id,\n            created_at",
         "let started_after_ns = state.mark_started(0);",
