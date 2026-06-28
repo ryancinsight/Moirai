@@ -63,7 +63,7 @@ impl MetricsRef {
 /// Main hybrid executor that coordinates sync, async, and blocking tasks.
 ///
 /// Generic over the work-stealing runtime `S` behind the
-/// [`WorkScheduler`](crate::schedule::WorkScheduler) seam; the default
+/// [`WorkScheduler`] seam; the default
 /// [`ThreadScheduler`] backs the production runtime, while the parameter lets a
 /// substitute (e.g. a single-threaded `wasm32` scheduler) be plugged in without
 /// touching this façade.
@@ -99,7 +99,7 @@ impl HybridExecutor<ThreadScheduler> {
     ///
     /// `scope` is inherent to the default [`ThreadScheduler`] backing because its
     /// signature exposes a concrete [`SchedulerScope`] borrow handle, which is
-    /// outside the substitutable [`WorkScheduler`](crate::schedule::WorkScheduler)
+    /// outside the substitutable [`WorkScheduler`]
     /// seam.
     pub fn scope<'scope, C, F>(&'scope self, body: F) -> ExecutorResult<()>
     where

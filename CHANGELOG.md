@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime rather than the removed scheduler types directly.
 
 ### Changed
+- `moirai-executor`: Synchronized `Cargo.lock` with the existing
+  `cfg(loom)` dev-dependency and removed redundant explicit Rustdoc link
+  targets from the hybrid executor docs so the package rustdoc gate is
+  warning-clean.
 - `moirai-async`: Completed the async `RwLock` waiter-map refactor by routing
   reader and writer registration, wakeup, and cancellation through keyed
   `BTreeMap` waiter state. This preserves FIFO-by-monotonic-id handoff while

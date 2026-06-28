@@ -1,5 +1,19 @@
 # Moirai Development Checklist
 
+## Phase 21: Executor Lockfile and Rustdoc Hygiene ✅
+- [x] [patch] Synchronized `Cargo.lock` with the existing `cfg(loom)`
+  `moirai-executor` dev-dependency so locked builds resolve the model-checking
+  dependency edge.
+- [x] [patch] Removed redundant explicit `WorkScheduler` Rustdoc link targets
+  from `moirai-executor::hybrid`, keeping the package rustdoc gate
+  warning-clean.
+- Evidence: `rustup run nightly cargo fmt -p moirai-executor --check`;
+  `rustup run nightly cargo check -p moirai-executor --all-targets`; `rustup
+  run nightly cargo clippy -p moirai-executor --all-targets -- -D warnings`;
+  `rustup run nightly cargo nextest run -p moirai-executor`; `rustup run
+  nightly cargo test --doc -p moirai-executor`; `rustup run nightly cargo doc
+  -p moirai-executor --no-deps`; `git diff --check`.
+
 ## Phase 20: Async RwLock Waiter Map ✅
 - [x] [patch] Completed the `moirai-async::sync::RwLock` waiter storage
   migration from `VecDeque` tuples to keyed `BTreeMap<u64, RwWaiter>` state.
