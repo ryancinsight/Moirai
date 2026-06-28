@@ -1,5 +1,21 @@
 # Moirai Development Checklist
 
+## Phase 22: Sharded Task Registry ✅
+- [x] [patch] Replaced the hybrid executor's single `Arc<Mutex<TaskRegistry>>`
+  with `Arc<ShardedTaskRegistry>` so task registration and metadata reads route
+  through per-shard registry locks.
+- [x] [patch] Added sharded registry coverage proving dense global IDs,
+  global-to-local metadata reporting, lifecycle-token completion, and unknown
+  task lookup behavior.
+- [x] [patch] Updated manager status/stat/wait paths to use the sharded
+  registry facade directly and removed stale warning sources.
+- Evidence: `rustup run nightly cargo fmt -p moirai-executor --check`; `rustup
+  run nightly cargo check -p moirai-executor --all-targets`; `rustup run
+  nightly cargo clippy -p moirai-executor --all-targets -- -D warnings`;
+  `rustup run nightly cargo nextest run -p moirai-executor` (62/62, 1 skipped);
+  `rustup run nightly cargo doc -p moirai-executor --no-deps`; `git diff
+  --check`.
+
 ## Phase 21: Executor Lockfile and Rustdoc Hygiene ✅
 - [x] [patch] Synchronized `Cargo.lock` with the existing `cfg(loom)`
   `moirai-executor` dev-dependency so locked builds resolve the model-checking

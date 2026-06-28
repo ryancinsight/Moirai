@@ -50,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime rather than the removed scheduler types directly.
 
 ### Changed
+- `moirai-executor`: Replaced the hybrid executor's single global task-registry
+  mutex with `ShardedTaskRegistry`, using a lock-free global task id allocator
+  and per-shard `TaskRegistry` locks. Manager status/stat/wait paths now call
+  the sharded facade directly, with tests covering global id routing,
+  lifecycle-token completion, and unknown lookups.
 - `moirai-executor`: Synchronized `Cargo.lock` with the existing
   `cfg(loom)` dev-dependency and removed redundant explicit Rustdoc link
   targets from the hybrid executor docs so the package rustdoc gate is
