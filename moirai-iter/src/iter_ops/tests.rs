@@ -1,4 +1,5 @@
 use super::*;
+use proptest::prelude::*;
 
 #[test]
 fn zero_copy_iter_yields_borrowed_items() {
@@ -122,4 +123,35 @@ fn partition_ref_splits_by_predicate_into_two_collections() {
 
     assert_eq!(evens, vec![2, 4, 6, 8, 10]);
     assert_eq!(odds, vec![1, 3, 5, 7, 9]);
+}
+
+// ── Property-based differential parity: parallel ops vs the sequential oracle ──
+//
+// The example tests above pin specific inputs; these generalize the invariant
+// "the parallel result equals the sequential reference" over arbitrary inputs.
+// `wrapping_*` keeps the associative reduction well-defined (no overflow panic)
+// so the parallel partition-and-combine must match the sequential fold exactly.
+
+proptest! {
+    /// `ParallelIter::reduce` with an associative+commutative op equals the
+    /// sequential fold, for any input length and values.
+    #[test]
+    fn prop_parallel_reduce_matches_sequential(data in prop::collection::vec(any::<u64>(), 0..600)) {
+        let expected = data.iter().fold(0_u64, |acc, &value| acc.wrapping_add(value));
+        let reduced =
+            ParallelIter::new(data.clone()).reduce(0_u64, |acc, value| acc.wrapping_add(*value));
+        prop_assert_eq!(reduced, expected);
+    }
+
+    /// `ParallelIter::map` is order-preserving and element-wise: the parallel
+    /// result equals the sequential map for any input and multiplier.
+    #[test]
+    fn prop_parallel_map_matches_sequential(
+        data in prop::collection::vec(any::<i64>(), 0..600),
+        factor in any::<i64>(),
+    ) {
+        let expected: Vec<i64> = data.iter().map(|&value| value.wrapping_mul(factor)).collect();
+        let mapped = ParallelIter::new(data.clone()).map(|value| (*value).wrapping_mul(factor));
+        prop_assert_eq!(mapped, expected);
+    }
 }
