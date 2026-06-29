@@ -302,3 +302,36 @@ fn test_par_partition_melinoe() {
         }
     });
 }
+
+// ── Property-based parallel-vs-sequential parity ──
+//
+// The example tests above pin fixed inputs; these generalize the invariant
+// "the adaptive/parallel path equals the forced-sequential path" over arbitrary
+// inputs. `wrapping_*` keeps the reduction associative so partition-and-combine
+// must match the sequential fold exactly.
+
+proptest::proptest! {
+    /// `par().map_reduce` equals the crate's own forced-`Sequential` path for any
+    /// input, with an associative+commutative combine.
+    #[test]
+    fn prop_map_reduce_parallel_matches_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<u64>(), 0..600),
+    ) {
+        let par = data.par().map_reduce(0u64, |&x| x, |a, b| a.wrapping_add(b));
+        let seq =
+            map_reduce_with::<Sequential, _, _, _, _>(&data, 0u64, |&x| x, |a, b| a.wrapping_add(b));
+        proptest::prop_assert_eq!(par, seq);
+    }
+
+    /// `par().map_collect` is order-preserving and element-wise: equals the
+    /// sequential map for any input and multiplier.
+    #[test]
+    fn prop_map_collect_parallel_matches_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<i64>(), 0..600),
+        factor in proptest::prelude::any::<i64>(),
+    ) {
+        let par = data.par().map_collect(|&x| x.wrapping_mul(factor));
+        let seq: Vec<i64> = data.iter().map(|&x| x.wrapping_mul(factor)).collect();
+        proptest::prop_assert_eq!(par, seq);
+    }
+}
