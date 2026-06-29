@@ -334,4 +334,18 @@ proptest::proptest! {
         let seq: Vec<i64> = data.iter().map(|&x| x.wrapping_mul(factor)).collect();
         proptest::prop_assert_eq!(par, seq);
     }
+
+    /// `par_mut().for_each` applies the per-element transform to every element
+    /// exactly once: the in-place parallel mutation equals the sequential one
+    /// for any input (disjoint element ownership, no skips or double-writes).
+    #[test]
+    fn prop_for_each_mut_parallel_matches_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<i64>(), 0..600),
+    ) {
+        let mut par = data.clone();
+        par.par_mut().for_each(|x| *x = x.wrapping_mul(3).wrapping_add(7));
+        let mut seq = data;
+        seq.iter_mut().for_each(|x| *x = x.wrapping_mul(3).wrapping_add(7));
+        proptest::prop_assert_eq!(par, seq);
+    }
 }
