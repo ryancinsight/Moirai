@@ -1195,4 +1195,47 @@ proptest::proptest! {
             .find_map(|&value| (value % divisor == r).then_some(value.wrapping_mul(17)));
         proptest::prop_assert_eq!(par, seq);
     }
+
+    /// `min_by_key`/`max_by_key` select the element with the extremal key under a
+    /// custom key function — the comparator path, distinct from `min`/`max`. The
+    /// extremal *key* is unique even when several elements share it, so comparing
+    /// result keys is tie-break-agnostic between the parallel and sequential
+    /// choice of which equal-keyed element is returned.
+    #[test]
+    fn prop_min_max_by_key_match_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<u64>(), 0..600),
+    ) {
+        let key = |value: &u64| value.rotate_left(7) ^ value.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        let par_min = data.clone().into_par_iter().min_by_key(key);
+        let par_max = data.clone().into_par_iter().max_by_key(key);
+        let seq_min = data.iter().copied().min_by_key(key);
+        let seq_max = data.iter().copied().max_by_key(key);
+        proptest::prop_assert_eq!(par_min.map(|v| key(&v)), seq_min.map(|v| key(&v)));
+        proptest::prop_assert_eq!(par_max.map(|v| key(&v)), seq_max.map(|v| key(&v)));
+    }
+
+    /// `find_map_any` may return *any* shard's match (order-unspecified), so the
+    /// contract is consistency, not identity: it yields `Some` exactly when a
+    /// match exists, and any value it yields is a genuine mapped match of some
+    /// element actually present in the input.
+    #[test]
+    fn prop_find_map_any_is_a_valid_match(
+        data in proptest::collection::vec(proptest::prelude::any::<u64>(), 0..600),
+        divisor in 1u64..16,
+        remainder in 0u64..16,
+    ) {
+        let r = remainder % divisor;
+        let par = data
+            .clone()
+            .into_par_iter()
+            .find_map_any(|value| (value % divisor == r).then_some(value.wrapping_mul(11)));
+        let any_match = data.iter().any(|value| value % divisor == r);
+        proptest::prop_assert_eq!(par.is_some(), any_match);
+        if let Some(mapped) = par {
+            let valid = data
+                .iter()
+                .any(|&value| value % divisor == r && value.wrapping_mul(11) == mapped);
+            proptest::prop_assert!(valid);
+        }
+    }
 }
