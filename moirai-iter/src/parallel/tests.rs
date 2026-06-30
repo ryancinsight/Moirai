@@ -1146,4 +1146,53 @@ proptest::proptest! {
         let seq = data.into_iter().reduce(|a, b| a.wrapping_add(b));
         proptest::prop_assert_eq!(par, seq);
     }
+
+    /// Parallel `min`/`max` equal the sequential extrema for any input (`None`
+    /// on empty). The per-shard partial extrema must combine to the global one.
+    #[test]
+    fn prop_min_max_match_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<u64>(), 0..600),
+    ) {
+        let par_min = data.clone().into_par_iter().min();
+        let par_max = data.clone().into_par_iter().max();
+        proptest::prop_assert_eq!(par_min, data.iter().copied().min());
+        proptest::prop_assert_eq!(par_max, data.iter().copied().max());
+    }
+
+    /// Parallel `all`/`any` equal the sequential short-circuiting predicates for
+    /// any input and predicate — every shard's verdict must fold to the global
+    /// one (all => conjunction, any => disjunction), including the empty case.
+    #[test]
+    fn prop_all_any_match_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<u64>(), 0..600),
+        divisor in 1u64..16,
+        remainder in 0u64..16,
+    ) {
+        let r = remainder % divisor;
+        let par_all = data.clone().into_par_iter().all(|value| *value % divisor == r);
+        let par_any = data.clone().into_par_iter().any(|value| *value % divisor == r);
+        proptest::prop_assert_eq!(par_all, data.iter().all(|value| value % divisor == r));
+        proptest::prop_assert_eq!(par_any, data.iter().any(|value| value % divisor == r));
+    }
+
+    /// `find_map_last` returns the mapped *last* (highest-index) match in
+    /// iteration order — the reverse-search dual of find_map_first — matching
+    /// the sequential reverse find_map, with shards searching concurrently.
+    #[test]
+    fn prop_find_map_last_matches_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<u64>(), 0..600),
+        divisor in 1u64..16,
+        remainder in 0u64..16,
+    ) {
+        let r = remainder % divisor;
+        let par = data
+            .clone()
+            .into_par_iter()
+            .find_map_last(|value| (value % divisor == r).then_some(value.wrapping_mul(17)));
+        let seq = data
+            .iter()
+            .rev()
+            .find_map(|&value| (value % divisor == r).then_some(value.wrapping_mul(17)));
+        proptest::prop_assert_eq!(par, seq);
+    }
 }
