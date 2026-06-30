@@ -348,4 +348,17 @@ proptest::proptest! {
         seq.iter_mut().for_each(|x| *x = x.wrapping_mul(3).wrapping_add(7));
         proptest::prop_assert_eq!(par, seq);
     }
+
+    /// `fold_reduce_with` over the index range `0..len` with an associative+
+    /// commutative combine equals its own forced-`Sequential` path for any
+    /// length — the per-partition index folds must reduce to the same total.
+    #[test]
+    fn prop_fold_reduce_parallel_matches_sequential(len in 0usize..2000) {
+        let init = || 0u64;
+        let fold = |acc: u64, i: usize| acc.wrapping_add(i as u64);
+        let reduce = |a: u64, b: u64| a.wrapping_add(b);
+        let par = fold_reduce_with::<Parallel, u64, _, _, _>(len, init, fold, reduce);
+        let seq = fold_reduce_with::<Sequential, u64, _, _, _>(len, init, fold, reduce);
+        proptest::prop_assert_eq!(par, seq);
+    }
 }
