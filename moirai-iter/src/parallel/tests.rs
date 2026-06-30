@@ -1086,3 +1086,30 @@ fn test_parallel_all() {
     assert!(data.clone().into_par_iter().all(|x| *x % 2 == 0));
     assert!(!data.into_par_iter().all(|x| *x > 5));
 }
+
+// ── Property-based parallel-search parity ──
+//
+// The example tests above pin fixed predicates; this generalizes the invariant
+// that `positions` collects *every* matching logical index in *ascending order*
+// — the sequential enumerate-filter-positions oracle — across the parallel
+// shard boundaries, for arbitrary data and predicate. Order preservation is the
+// error-prone part: shards run concurrently but their matches must merge back in
+// index order with none dropped or duplicated.
+proptest::proptest! {
+    #[test]
+    fn prop_parallel_positions_match_sequential_filter(
+        data in proptest::collection::vec(proptest::prelude::any::<u64>(), 0..600),
+        divisor in 1u64..16,
+        remainder in 0u64..16,
+    ) {
+        let r = remainder % divisor;
+        let par: Vec<usize> = data.par_iter().positions(|value| *value % divisor == r).collect();
+        let seq: Vec<usize> = data
+            .iter()
+            .enumerate()
+            .filter(|(_, value)| **value % divisor == r)
+            .map(|(index, _)| index)
+            .collect();
+        proptest::prop_assert_eq!(par, seq);
+    }
+}
