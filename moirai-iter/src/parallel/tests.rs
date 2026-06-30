@@ -1112,4 +1112,38 @@ proptest::proptest! {
             .collect();
         proptest::prop_assert_eq!(par, seq);
     }
+
+    /// `find_map_first` returns the mapped value of the *first* element (in
+    /// iteration order) for which the closure yields `Some`, matching the
+    /// sequential `Iterator::find_map` — even though shards search concurrently,
+    /// the lowest-index match must win (or `None` when nothing matches).
+    #[test]
+    fn prop_find_map_first_matches_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<u64>(), 0..600),
+        divisor in 1u64..16,
+        remainder in 0u64..16,
+    ) {
+        let r = remainder % divisor;
+        let par = data
+            .clone()
+            .into_par_iter()
+            .find_map_first(|value| (value % divisor == r).then_some(value.wrapping_mul(11)));
+        let seq = data
+            .iter()
+            .find_map(|&value| (value % divisor == r).then_some(value.wrapping_mul(11)));
+        proptest::prop_assert_eq!(par, seq);
+    }
+
+    /// `reduce` (no identity) folds with an associative+commutative op and equals
+    /// the sequential `Iterator::reduce` for any input — `None` on empty, the
+    /// combined value otherwise. Distinct code path from the identity-seeded
+    /// reduce: the parallel combine of per-shard partials must not diverge.
+    #[test]
+    fn prop_reduce_no_identity_matches_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<u64>(), 0..600),
+    ) {
+        let par = data.clone().into_par_iter().reduce(|a, b| a.wrapping_add(b));
+        let seq = data.into_iter().reduce(|a, b| a.wrapping_add(b));
+        proptest::prop_assert_eq!(par, seq);
+    }
 }
