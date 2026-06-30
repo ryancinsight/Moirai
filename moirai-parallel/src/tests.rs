@@ -361,4 +361,21 @@ proptest::proptest! {
         let seq = fold_reduce_with::<Sequential, u64, _, _, _>(len, init, fold, reduce);
         proptest::prop_assert_eq!(par, seq);
     }
+
+    /// `map_collect_index` threads the logical index and is order-preserving:
+    /// the parallel result equals the sequential `enumerate().map()` for any
+    /// input, so each shard sees the correct global index and the pieces
+    /// concatenate in order.
+    #[test]
+    fn prop_map_collect_index_parallel_matches_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<i64>(), 0..600),
+    ) {
+        let par = data.par().map_collect_index(|i, &x| (i as i64).wrapping_mul(x));
+        let seq: Vec<i64> = data
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| (i as i64).wrapping_mul(x))
+            .collect();
+        proptest::prop_assert_eq!(par, seq);
+    }
 }
