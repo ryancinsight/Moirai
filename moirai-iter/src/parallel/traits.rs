@@ -2,8 +2,8 @@ use super::{fallible, split, TryStreamItem};
 use super::{
     Chain, Chunks, Cloned, CollectConsumer, Copied, Enumerate, Filter, FilterMap, FindConsumer,
     FlatMap, Flatten, Inspect, Intersperse, Map, MapInit, MapWith, NullConsumer, PanicFuse,
-    Positions, ReduceConsumer, ReduceWithConsumer, Reduction, Rev, SequentialAdapter, Skip,
-    SkipAnyWhile, Take, TakeAnyWhile, Update, WhileSome, Zip, ZipEq,
+    Positions, ReduceConsumer, Reduction, Rev, SequentialAdapter, Skip, SkipAnyWhile, Take,
+    TakeAnyWhile, Update, WhileSome, Zip, ZipEq,
 };
 
 /// Core parallel iterator trait for Moirai's Rayon-style non-indexed subset.
@@ -569,7 +569,7 @@ pub trait ParallelIterator: Sized + Send {
         F: Fn(Self::Item, Self::Item) -> Self::Item + Send + Sync + Clone,
         Self::Item: Sync + Clone,
     {
-        let reduction: Reduction<Self::Item, F> = self.drive(ReduceWithConsumer::new(reduce_fn));
+        let reduction: Reduction<Self::Item, F> = self.drive(ReduceConsumer::new(reduce_fn));
         reduction.into_value()
     }
 

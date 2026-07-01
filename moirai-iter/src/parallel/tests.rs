@@ -1238,4 +1238,19 @@ proptest::proptest! {
             proptest::prop_assert!(valid);
         }
     }
+
+    /// `reduce_with` carries the same associative-combine contract as `reduce`
+    /// and must equal the sequential `Iterator::reduce` for any input (`None` on
+    /// empty). The two methods now drive one shared `ReduceConsumer`; this pins
+    /// the public `reduce_with` surface to an independent sequential oracle so a
+    /// future re-divergence of the two terminals cannot silently regress its
+    /// value semantics.
+    #[test]
+    fn prop_reduce_with_matches_sequential(
+        data in proptest::collection::vec(proptest::prelude::any::<u64>(), 0..600),
+    ) {
+        let par = data.clone().into_par_iter().reduce_with(|a, b| a.wrapping_add(b));
+        let seq = data.into_iter().reduce(|a, b| a.wrapping_add(b));
+        proptest::prop_assert_eq!(par, seq);
+    }
 }

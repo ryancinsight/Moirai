@@ -119,6 +119,11 @@ where
     }
 }
 
+/// Parallel associative-reduce consumer: collects each shard's items, reduces
+/// them left-to-right, and combines partial `Reduction`s in shard order. Single
+/// SSOT backing both the `reduce` and `reduce_with` terminals — their contracts
+/// (associative `Fn(Item, Item) -> Item`, `Option` result, `None` on empty) are
+/// identical, so they share this one combine path rather than duplicating it.
 pub struct ReduceConsumer<F> {
     reduce_fn: F,
 }
@@ -246,52 +251,6 @@ where
 
     fn combine(left: Self::Result, right: Self::Result) -> Self::Result {
         left.or(right)
-    }
-}
-
-pub struct ReduceWithConsumer<F> {
-    reduce_fn: F,
-}
-
-impl<F> ReduceWithConsumer<F> {
-    pub(super) fn new(reduce_fn: F) -> Self {
-        Self { reduce_fn }
-    }
-}
-
-impl<F, T> Consumer<T> for ReduceWithConsumer<F>
-where
-    F: Fn(T, T) -> T + Send + Sync + Clone,
-    T: Send + Sync + Clone,
-{
-    type Result = Reduction<T, F>;
-
-    fn consume<I>(self, iter: I) -> Self::Result
-    where
-        I: ParallelIterator<Item = T>,
-    {
-        let data: Vec<T> = iter.drive(CollectConsumer::new());
-
-        let reduce_fn = self.reduce_fn;
-        let value = data.into_iter().reduce(&reduce_fn);
-        Reduction::new(value, reduce_fn)
-    }
-
-    fn split_at(self, _index: usize) -> (Self, Self) {
-        (
-            ReduceWithConsumer::new(self.reduce_fn.clone()),
-            ReduceWithConsumer::new(self.reduce_fn),
-        )
-    }
-
-    fn combine(left: Self::Result, right: Self::Result) -> Self::Result {
-        let reduce_fn = left.reduce_fn;
-        let value = match (left.value, right.value) {
-            (Some(left), Some(right)) => Some(reduce_fn(left, right)),
-            (Some(value), None) | (None, Some(value)) => Some(value),
-            (None, None) => None,
-        };
-        Reduction::new(value, reduce_fn)
     }
 }
 
