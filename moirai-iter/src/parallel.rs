@@ -40,5 +40,5 @@ pub use traits::{
 
 use consumers::{
     CollectConsumer, FilterConsumer, FindConsumer, InspectConsumer, MapConsumer, NullConsumer,
-    ReduceConsumer, ReduceWithConsumer,
+    ReduceConsumer,
 };
