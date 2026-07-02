@@ -13,6 +13,13 @@ pub(super) struct AsyncTask {
     pub(super) future: std::cell::UnsafeCell<ErasedTaskFuture>,
     pub(super) future_lock: std::sync::Mutex<()>,
     pub(super) is_queued: AtomicBool,
+    /// Set once the future returns `Poll::Ready`. Polling a completed
+    /// `async` block again panics ("resumed after completion"), so every
+    /// enqueue/poll path checks this first: a stale reactor waker fired after
+    /// the task already finished (e.g. `timeout(read)` completing via the
+    /// timer while the socket's registered read-waker is still live) must not
+    /// re-enqueue or re-poll the future.
+    pub(super) completed: AtomicBool,
     pub(super) priority: Priority,
     pub(super) created_at: Instant,
 }

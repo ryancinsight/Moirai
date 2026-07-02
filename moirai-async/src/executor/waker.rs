@@ -14,6 +14,15 @@ impl std::task::Wake for ExecutorWaker {
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
+        // A completed task's waker may still be held live by the reactor (a
+        // read-waker registered against a socket fd, say) and fire after the
+        // task finished via another path. Re-enqueuing it would poll a future
+        // that already returned `Ready` and panic, so drop the wake for a
+        // completed task. `process_pending_tasks` re-checks `completed` to
+        // close the wake-races-completion window authoritatively.
+        if self.task.completed.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
         if !self
             .task
             .is_queued

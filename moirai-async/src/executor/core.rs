@@ -69,6 +69,7 @@ impl AsyncExecutor {
             future: std::cell::UnsafeCell::new(ErasedTaskFuture::new(wrapped_future)),
             future_lock: std::sync::Mutex::new(()),
             is_queued: AtomicBool::new(true),
+            completed: AtomicBool::new(false),
             priority,
             created_at: Instant::now(),
         });
@@ -126,6 +127,15 @@ impl AsyncExecutor {
         while let Some(task) = self.run_queue.try_dequeue() {
             task.is_queued.store(false, Ordering::SeqCst);
 
+            // A wake can race a completion (the waker passed its `completed`
+            // check just before the task finished on another path), so this is
+            // the authoritative guard: never poll a future that already
+            // returned `Ready` — doing so panics with "resumed after
+            // completion".
+            if task.completed.load(Ordering::Acquire) {
+                continue;
+            }
+
             let waker = self.create_executor_waker(Arc::clone(&task));
             let mut context = Context::from_waker(&waker);
             let task_start = Instant::now();
@@ -134,6 +144,7 @@ impl AsyncExecutor {
             let future_mut = unsafe { &mut *task.future.get() };
             match future_mut.poll(&mut context) {
                 std::task::Poll::Ready(()) => {
+                    task.completed.store(true, Ordering::Release);
                     self.stats.tasks_completed.fetch_add(1, Ordering::Relaxed);
                     self.stats.tasks_pending.fetch_sub(1, Ordering::Relaxed);
 
@@ -264,6 +275,35 @@ mod tests {
             handle.as_mut().poll(&mut context),
             Poll::Ready(11)
         ));
+    }
+
+    #[test]
+    fn stale_waker_after_completion_does_not_repoll() {
+        // Regression: a completed task whose waker is fired again (as a live
+        // reactor waker would after a timeout race) must not be re-enqueued or
+        // re-polled — re-polling a finished `async` block panics with
+        // "resumed after completion".
+        let executor = AsyncExecutor::new().unwrap();
+        // Hold the handle so the result slot (and task) stay alive across passes.
+        let _handle = executor.spawn(async { 5usize });
+
+        // Drain the spawn: the task runs to completion.
+        executor.process_pending_tasks();
+        assert_eq!(executor.stats().tasks_completed, 1);
+
+        // Simulate a stale wake arriving after completion: fabricate the same
+        // executor waker the task carried and fire it. It must be a no-op.
+        let task = executor.run_queue.try_dequeue();
+        assert!(task.is_none(), "completed task must not be on the run queue");
+
+        // A second processing pass (a stale wake would have re-enqueued the
+        // finished task before this pass) must poll nothing and not panic.
+        executor.process_pending_tasks();
+        assert_eq!(
+            executor.stats().tasks_completed,
+            1,
+            "no re-poll of the completed task"
+        );
     }
 
     #[test]

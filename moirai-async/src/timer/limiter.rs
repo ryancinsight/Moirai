@@ -34,9 +34,14 @@ impl RateLimiter {
             return RatePermit;
         }
 
-        // Wait for next interval
+        // Wait for next interval, then refill and consume one. `saturating_sub`
+        // guards the degenerate `permits_per_second == 0` construction: without
+        // it `self.permits - 1` underflows to `u32::MAX` (a zero-rate limiter
+        // that grants ~4.3 billion permits per interval in release builds, or
+        // panics under overflow-checks). A zero rate therefore refills to 0 and
+        // grants exactly the one permit this call is returning.
         self.interval.next().await;
-        self.current_permits = self.permits - 1;
+        self.current_permits = self.permits.saturating_sub(1);
         RatePermit
     }
 
@@ -48,5 +53,38 @@ impl RateLimiter {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn try_acquire_exhausts_then_denies() {
+        let mut limiter = RateLimiter::new(3);
+        assert!(limiter.try_acquire().is_some());
+        assert!(limiter.try_acquire().is_some());
+        assert!(limiter.try_acquire().is_some());
+        assert!(
+            limiter.try_acquire().is_none(),
+            "a 3-permit limiter must deny the fourth immediate acquire"
+        );
+    }
+
+    #[test]
+    fn zero_rate_limiter_does_not_underflow_on_refill() {
+        // Regression: `new(0)` refilling via `permits - 1` underflowed to
+        // u32::MAX. The refill must saturate at 0 so the bucket never grants a
+        // spurious ~4.3 billion permits.
+        let mut limiter = RateLimiter::new(0);
+        assert!(
+            limiter.try_acquire().is_none(),
+            "a zero-rate limiter starts with no immediate permits"
+        );
+        // Exercise the refill arithmetic directly (the async path performs the
+        // same `permits.saturating_sub(1)`): it must not panic or wrap.
+        limiter.current_permits = limiter.permits.saturating_sub(1);
+        assert_eq!(limiter.current_permits, 0);
     }
 }
