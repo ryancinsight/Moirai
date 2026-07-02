@@ -55,7 +55,6 @@ pub mod platform;
 pub mod constants;
 
 // Core modules
-pub mod dtype;
 pub mod error;
 pub mod executor;
 pub mod memory;
@@ -80,15 +79,6 @@ pub mod communication;
 #[cfg(all(any(unix, windows), feature = "std"))]
 pub mod ipc;
 
-#[cfg(all(target_arch = "wasm32", feature = "wasm"))]
-pub mod wasm_executor;
-
-#[cfg(feature = "metrics")]
-pub mod metrics;
-
-#[cfg(feature = "std")]
-pub mod security;
-
 // pub mod hybrid; // Removed: Duplicate implementation, using moirai-executor::HybridExecutor instead
 
 // Core type definitions
@@ -112,11 +102,6 @@ pub use unified_channel::{
 // Re-export CacheAligned from moirai-utils for convenience
 pub use moirai_utils::CacheAligned;
 
-// Re-export unified data type traits
-pub use dtype::{
-    ComputeContext, DefaultFloat, DefaultInt, DefaultUint, Dtype, FloatDtype, IntegerDtype,
-};
-
 #[cfg(feature = "coroutine")]
 pub use coroutine::{
     Coroutine, CoroutineExt, CoroutineFuture, CoroutineIterator, CoroutineResult, CoroutineState,
@@ -132,10 +117,6 @@ pub type BoxError = Box<dyn core::error::Error + Send + Sync>;
 /// Type alias for results with boxed errors.
 pub type Result<T> = core::result::Result<T, BoxError>;
 
-// Platform-specific re-exports
-#[cfg(all(target_arch = "wasm32", feature = "wasm"))]
-pub use wasm_executor::{WasmExecutor, WasmTask};
-
 /// Prelude module for convenient imports.
 pub mod prelude {
     pub use crate::{
@@ -148,7 +129,4 @@ pub mod prelude {
         mpmc, spsc, unbounded, Channel, ChannelError, MpmcReceiver, MpmcSender, SpscReceiver,
         SpscSender,
     };
-
-    #[cfg(all(target_arch = "wasm32", feature = "wasm"))]
-    pub use crate::{WasmExecutor, WasmTask};
 }

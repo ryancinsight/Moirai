@@ -159,7 +159,7 @@ struct Slot<T> {
 /// # Capacity
 ///
 /// The queue is bounded. [`LockFreeQueue::new`] creates a queue with
-/// [`DEFAULT_QUEUE_CAPACITY`] slots. [`LockFreeQueue::with_capacity`] allows
+/// `DEFAULT_QUEUE_CAPACITY` slots. [`LockFreeQueue::with_capacity`] allows
 /// a custom power-of-two capacity. When the queue is full, [`enqueue`]
 /// retries with exponential backoff (preserving the unblocked-sender
 /// contract of the previous API), while [`try_enqueue`] returns `Err(item)`

@@ -27,11 +27,9 @@
 // Module declarations - following SRP and SOC principles
 pub mod hybrid;
 pub mod metrics;
-pub mod reactor;
 pub mod registry;
 pub mod schedule;
 pub mod task;
-pub mod types;
 
 // Re-export key types for clean API
 pub use hybrid::HybridExecutor;
@@ -49,8 +47,7 @@ pub use schedule::{
 pub use schedule::{
     ContendedWakeDecision, DiagnosticWakeDecision, EmptyWakeDecision, SaturatedWakeDecision,
 };
-pub use task::{TaskMetadata, TaskPerformanceMetrics, TaskWaitFuture};
-pub use types::{IoEvent, WorkerId};
+pub use task::TaskMetadata;
 
 /// Main executor builder for creating configured instances
 pub struct ExecutorBuilder {

@@ -211,17 +211,6 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "../moirai-core/src/dtype.rs",
-        &[
-            "../moirai-core/src/dtype/mod.rs",
-            "../moirai-core/src/dtype/base.rs",
-            "../moirai-core/src/dtype/integer.rs",
-            "../moirai-core/src/dtype/float.rs",
-            "../moirai-core/src/dtype/context.rs",
-            "../moirai-core/src/dtype/tests.rs",
-        ],
-    ),
-    (
         "../moirai-core/src/memory.rs",
         &[
             "../moirai-core/src/memory/mod.rs",

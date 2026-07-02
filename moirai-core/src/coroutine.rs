@@ -1,25 +1,28 @@
-//! Zero-dependency coroutine implementation for Moirai.
+//! Zero-dependency stackless coroutine adapters for Moirai.
 //!
-//! This module provides a custom coroutine system that integrates seamlessly
-//! with our unified task execution model. Coroutines are stackful, allowing
-//! them to yield execution at any point and resume later with full state preservation.
+//! This module provides a lightweight stackless coroutine abstraction built on
+//! a re-invoked boxed `FnMut`: [`FunctionCoroutine`] resumes by calling the
+//! closure again, which returns either a yielded value or a completion. It does
+//! not preserve a suspended call stack — cooperative state is carried by the
+//! closure's captured environment across resumes.
 //!
 //! # Design Principles
 //!
 //! - **Zero Dependencies**: Pure Rust standard library implementation
 //! - **Zero-Cost Abstractions**: Compile-time optimizations with no runtime overhead
-//! - **Memory Safety**: Safe coroutine switching with Rust's ownership model
-//! - **Unified Execution**: Works with async, sync, and parallel tasks
-//! - **Iterator Integration**: Coroutines as iterators for composability
+//! - **Memory Safety**: Safe resume protocol with Rust's ownership model
+//! - **Unified Execution**: Works with async (via [`CoroutineFuture`]) and
+//!   iterator (via [`CoroutineIterator`]) consumers
 //!
 //! # Architecture
 //!
 //! The coroutine system consists of:
-//! - `Coroutine`: The main coroutine type that can yield values
-//! - `CoroutineState`: Tracks coroutine execution state
-//! - `YieldPoint`: Represents a suspension point in coroutine execution
-//! - `CoroutineHandle`: Handle for controlling coroutine execution
-//! - `CoroutineScheduler`: Integrates with Moirai's unified scheduler
+//! - [`Coroutine`]: The core trait for types that can be resumed to yield values
+//! - [`CoroutineState`]: Tracks coroutine execution state
+//! - [`CoroutineResult`]: The outcome of a single resume (yield, complete, error)
+//! - [`FunctionCoroutine`]: A closure-backed stackless coroutine
+//! - [`CoroutineIterator`] / [`CoroutineFuture`]: Adapters exposing a coroutine
+//!   as a standard iterator or future
 
 use core::future::Future;
 use core::pin::Pin;
@@ -28,9 +31,6 @@ use core::task::{Context, Poll};
 use crate::error::TaskError;
 use crate::platform::*;
 use crate::{TaskContext, TaskId};
-
-#[cfg(feature = "std")]
-use std::collections::VecDeque;
 
 /// The state of a coroutine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,23 +47,6 @@ pub enum CoroutineState {
     Completed,
     /// Coroutine encountered an error
     Error,
-}
-
-/// A yield point in coroutine execution.
-pub struct YieldPoint<T> {
-    /// The value being yielded
-    pub value: T,
-    /// Optional continuation data
-    pub continuation: Option<Box<dyn Send>>,
-}
-
-impl<T: std::fmt::Debug> std::fmt::Debug for YieldPoint<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("YieldPoint")
-            .field("value", &self.value)
-            .field("continuation", &self.continuation.is_some())
-            .finish()
-    }
 }
 
 /// Core coroutine trait for types that can be executed as coroutines.
@@ -98,30 +81,6 @@ pub enum CoroutineResult<Y, R> {
     Complete(R),
     /// Coroutine encountered an error
     Error(TaskError),
-}
-
-/// A handle to a running coroutine.
-#[cfg(feature = "std")]
-pub struct CoroutineHandle<Y, R> {
-    /// Unique identifier for this coroutine
-    _id: TaskId,
-    /// Receiver for yielded values
-    _yield_receiver: Option<channel::Receiver<Y>>,
-    /// Receiver for the final result
-    _result_receiver: Option<channel::Receiver<R>>,
-    /// Control channel for sending resume signals
-    _control_sender: channel::Sender<CoroutineControl>,
-}
-
-/// Control messages for coroutine execution.
-#[cfg(feature = "std")]
-enum CoroutineControl {
-    /// Resume coroutine execution
-    _Resume,
-    /// Cancel coroutine execution
-    _Cancel,
-    /// Pause coroutine execution
-    _Pause,
 }
 
 /// A coroutine implementation using function pointers.
@@ -266,47 +225,6 @@ where
                 self.coroutine = None;
                 Poll::Ready(Err(e))
             }
-        }
-    }
-}
-
-/// Coroutine scheduler integration with Moirai's unified scheduler.
-#[cfg(feature = "std")]
-pub struct CoroutineScheduler {
-    /// Queue of ready coroutines
-    ready_queue: VecDeque<Box<dyn Send>>,
-    /// Currently running coroutine
-    _current: Option<TaskId>,
-}
-
-#[cfg(feature = "std")]
-impl CoroutineScheduler {
-    /// Create a new coroutine scheduler.
-    pub fn new() -> Self {
-        Self {
-            ready_queue: VecDeque::new(),
-            _current: None,
-        }
-    }
-
-    /// Schedule a coroutine for execution.
-    pub fn schedule<C>(&mut self, coroutine: C) -> CoroutineHandle<C::Yield, C::Return>
-    where
-        C: Coroutine + Send + 'static,
-    {
-        let id = TaskId::new(0); // In real implementation, generate unique ID
-        let (_yield_tx, yield_rx) = channel::channel();
-        let (_result_tx, result_rx) = channel::channel();
-        let (control_tx, _control_rx) = channel::channel();
-
-        // Box the coroutine and add to ready queue
-        self.ready_queue.push_back(Box::new(coroutine));
-
-        CoroutineHandle {
-            _id: id,
-            _yield_receiver: Some(yield_rx),
-            _result_receiver: Some(result_rx),
-            _control_sender: control_tx,
         }
     }
 }

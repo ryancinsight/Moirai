@@ -9,6 +9,18 @@ use moirai_utils::CacheAligned;
 use super::job::ScheduledJob;
 
 const PRIORITY_LEVELS: usize = 4;
+/// Initial slot count for each worker's multi-producer injector queue.
+///
+/// The injector holds `(Priority, ScheduledJob)` elements (~256 B each); the
+/// previous `LockFreeQueue::new()` default of 65536 slots pre-allocated ~16 MiB
+/// per worker at startup regardless of load (~256 MiB idle on 16 workers). A
+/// 1024-slot injector bounds that to ~256 KiB per worker while the enqueue path
+/// still backs off and eventually succeeds when momentarily full (unblocked-
+/// sender contract), so throughput under burst load is unaffected.
+///
+/// This is a subtractive sizing fix; threading `ExecutorConfig::
+/// max_global_queue_size` to this construction site is a separate follow-up.
+const INJECTOR_CAPACITY: usize = 1024;
 const CRITICAL_INDEX: usize = 3;
 const HIGH_INDEX: usize = 2;
 const NORMAL_INDEX: usize = 1;
@@ -40,7 +52,7 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
     pub(crate) fn new() -> Self {
         Self {
             local_queues: std::array::from_fn(|_| ChaseLevDeque::new(CAPACITY)),
-            injector: moirai_utils::queue::LockFreeQueue::new(),
+            injector: moirai_utils::queue::LockFreeQueue::with_capacity(INJECTOR_CAPACITY),
             len: CacheAligned::new(AtomicUsize::new(0)),
         }
     }
@@ -194,6 +206,12 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
     pub(crate) fn len(&self) -> usize {
         self.len.load(Ordering::Relaxed)
     }
+
+    /// Initial slot count of the multi-producer injector queue.
+    #[cfg(test)]
+    pub(crate) fn injector_capacity(&self) -> usize {
+        self.injector.capacity()
+    }
 }
 
 fn priority_index(priority: Priority) -> usize {
@@ -232,6 +250,42 @@ mod tests {
         queues.pop_local().unwrap().execute(0);
 
         assert_eq!(*observed.lock().unwrap(), vec![2, 1]);
+        assert_eq!(queues.len(), 0);
+    }
+
+    #[test]
+    fn injector_uses_sane_default_capacity_not_65536() {
+        // The injector must not pre-allocate the LockFreeQueue 65536-slot
+        // default (~16 MiB/worker for (Priority, ScheduledJob)); it is sized to
+        // INJECTOR_CAPACITY instead.
+        let queues = WorkerQueues::<256>::new();
+        assert_eq!(queues.injector_capacity(), super::INJECTOR_CAPACITY);
+        assert_eq!(queues.injector_capacity(), 1024);
+        assert_ne!(queues.injector_capacity(), 65536);
+    }
+
+    #[test]
+    fn injector_round_trips_through_external_push() {
+        // The reduced-capacity injector still enqueues and drains: an external
+        // push lands in the injector and pops out via pop_local's drain path.
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let queues = WorkerQueues::<256>::new();
+
+        for (priority, value) in [(Priority::Normal, 7), (Priority::Critical, 9)] {
+            let observed = Arc::clone(&observed);
+            queues.push_external(
+                priority,
+                ScheduledJob::new(move |_| {
+                    observed.lock().unwrap().push(value);
+                }),
+            );
+        }
+
+        // Critical drains ahead of Normal once moved into the local queues.
+        queues.pop_local().unwrap().execute(0);
+        queues.pop_local().unwrap().execute(0);
+
+        assert_eq!(*observed.lock().unwrap(), vec![9, 7]);
         assert_eq!(queues.len(), 0);
     }
 }
