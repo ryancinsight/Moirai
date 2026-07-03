@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use crate::timer::clamped_deadline;
 use crate::timer::delay::Delay;
 
 /// Interval timer for repeated operations
@@ -14,7 +15,7 @@ pub struct Interval {
 
 impl Interval {
     pub(super) fn new(period: Duration) -> Self {
-        let next_tick = Instant::now() + period;
+        let next_tick = clamped_deadline(Instant::now(), period);
         Self {
             next_tick,
             period,
@@ -37,14 +38,14 @@ impl Interval {
 
     /// Reset the interval to start from now
     pub fn reset(&mut self) {
-        self.next_tick = Instant::now() + self.period;
+        self.next_tick = clamped_deadline(Instant::now(), self.period);
         self.delay = None;
     }
 
     /// Change the interval period
     pub fn set_period(&mut self, period: Duration) {
         self.period = period;
-        self.next_tick = Instant::now() + period;
+        self.next_tick = clamped_deadline(Instant::now(), period);
         self.delay = None;
     }
 
@@ -57,7 +58,7 @@ impl Interval {
         if let Some(delay) = &mut self.delay {
             delay.await;
             let tick_time = self.next_tick;
-            self.next_tick += self.period;
+            self.next_tick = clamped_deadline(self.next_tick, self.period);
             self.delay = None;
             tick_time
         } else {
@@ -79,7 +80,7 @@ impl Future for Interval {
                 Poll::Ready(()) => {
                     let tick_time = self.next_tick;
                     let period = self.period;
-                    self.next_tick += period;
+                    self.next_tick = clamped_deadline(self.next_tick, period);
                     self.delay = None;
                     Poll::Ready(tick_time)
                 }

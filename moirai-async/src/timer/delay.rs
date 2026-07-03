@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use crate::timer::clamped_deadline;
 use crate::timer::driver::timer_driver;
 use crate::timer::registration::TimerRegistration;
 
@@ -17,7 +18,7 @@ impl Delay {
     /// Create a new delay that will complete after the specified duration
     pub fn new(duration: Duration) -> Self {
         Self {
-            deadline: Instant::now() + duration,
+            deadline: clamped_deadline(Instant::now(), duration),
             registration: None,
         }
     }
@@ -37,9 +38,9 @@ impl Delay {
 
     /// Reset the delay to a new duration from now
     pub fn reset(&mut self, duration: Duration) {
-        self.deadline = Instant::now() + duration;
+        self.deadline = clamped_deadline(Instant::now(), duration);
         if let Some(registration) = self.registration.take() {
-            registration.cancel();
+            timer_driver().cancel(&registration);
             registration.wake();
         }
     }
@@ -51,7 +52,7 @@ impl Future for Delay {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if Instant::now() >= self.deadline {
             if let Some(registration) = self.registration.take() {
-                registration.cancel();
+                timer_driver().cancel(&registration);
             }
             Poll::Ready(())
         } else {
@@ -71,7 +72,7 @@ impl Future for Delay {
 impl Drop for Delay {
     fn drop(&mut self) {
         if let Some(registration) = self.registration.take() {
-            registration.cancel();
+            timer_driver().cancel(&registration);
         }
     }
 }

@@ -10,11 +10,22 @@ use std::time::{Duration, Instant};
 pub struct TcpServerConfig {
     /// Maximum number of concurrent connections
     pub max_connections: Option<usize>,
-    /// Socket TCP_NODELAY setting
+    /// Socket TCP_NODELAY setting, applied to every accepted stream.
     pub nodelay: bool,
-    /// TCP keep-alive duration
+    /// TCP keep-alive duration.
+    ///
+    /// Currently not applied: neither `std::net::TcpStream` nor
+    /// `moirai_pal::net::AsyncTcpStream` exposes a keep-alive setter (it
+    /// requires `SO_KEEPALIVE`/`TCP_KEEPIDLE` support in the PAL). Pending PAL
+    /// wiring; until then the value is configuration-only.
     pub keep_alive: Option<Duration>,
-    /// Connection timeout
+    /// Connection timeout.
+    ///
+    /// Currently not applied: accepted sockets are non-blocking (reactor
+    /// driven), where `SO_RCVTIMEO`/`SO_SNDTIMEO` have no effect. Async
+    /// deadlines are expressed by wrapping operations in
+    /// [`crate::timer::timeout()`]; automatic application of this value is
+    /// pending.
     pub timeout: Option<Duration>,
 }
 
@@ -128,6 +139,18 @@ impl ConnectionPool {
         id
     }
 
+    /// Record I/O activity on a tracked connection, updating its byte counters
+    /// and `last_activity` timestamp. No-op when the connection is no longer
+    /// tracked (already removed or never pool-tracked).
+    pub fn record_io(&self, id: ConnectionId, bytes_received: u64, bytes_sent: u64) {
+        let mut connections = self.active_connections.lock().unwrap();
+        if let Some(info) = connections.get_mut(&id) {
+            info.bytes_received += bytes_received;
+            info.bytes_sent += bytes_sent;
+            info.last_activity = Instant::now();
+        }
+    }
+
     pub fn remove_connection(&self, id: ConnectionId) -> bool {
         self.active_connections
             .lock()
@@ -168,11 +191,20 @@ pub struct ConnectionStats {
 /// Configuration for UDP socket behavior
 #[derive(Debug, Clone)]
 pub struct UdpConfig {
-    /// Socket buffer size
+    /// Socket buffer size.
+    ///
+    /// Currently not applied: `std::net::UdpSocket` exposes no
+    /// `SO_RCVBUF`/`SO_SNDBUF` setter (requires PAL/socket2-level support).
+    /// Pending PAL wiring; until then the value is configuration-only.
     pub buffer_size: usize,
-    /// Broadcast support
+    /// Broadcast support, applied at bind time via `SO_BROADCAST`.
     pub broadcast: bool,
-    /// Multicast support
+    /// Multicast support.
+    ///
+    /// Currently not applied: joining a multicast group requires a group
+    /// address, which this flag cannot carry, and the PAL exposes no
+    /// `join_multicast` surface. Pending a typed multicast configuration
+    /// (group + interface) in place of this flag.
     pub multicast: bool,
 }
 

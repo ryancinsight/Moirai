@@ -12,7 +12,6 @@ use crate::io::{AsyncRead, AsyncWrite};
 pub struct File {
     inner: AsyncFile,
     path: PathBuf,
-    buffer_size: usize,
     stats: FileStats,
 }
 
@@ -46,7 +45,6 @@ impl File {
         Ok(Self {
             inner,
             path: path_buf,
-            buffer_size: 8192,
             stats: FileStats::default(),
         })
     }
@@ -149,16 +147,6 @@ impl File {
     /// Get file statistics
     pub fn stats(&self) -> &FileStats {
         &self.stats
-    }
-
-    /// Set buffer size for operations
-    pub fn set_buffer_size(&mut self, size: usize) {
-        self.buffer_size = size;
-    }
-
-    /// Get current buffer size
-    pub fn buffer_size(&self) -> usize {
-        self.buffer_size
     }
 }
 

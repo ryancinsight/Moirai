@@ -9,7 +9,6 @@ use crate::net::types::{ConnectionPool, ServerStats, TcpServerConfig, TcpServerS
 /// Native async TCP listener with connection management
 pub struct TcpListener {
     inner: AsyncTcpListener,
-    #[allow(dead_code)]
     config: TcpServerConfig,
     stats: Arc<ServerStats>,
     connection_pool: Arc<ConnectionPool>,
@@ -57,6 +56,12 @@ impl TcpListener {
         let mut reservation = ReservationGuard::new(&self.connection_pool);
 
         let (stream, addr) = self.inner.accept().await?;
+
+        // Apply the configured TCP_NODELAY to the accepted socket. A setsockopt
+        // failure on a just-accepted socket is a real fault (reset peer, resource
+        // exhaustion) and is surfaced, not swallowed; the reservation guard
+        // releases the pool slot on this early exit.
+        stream.set_nodelay(self.config.nodelay)?;
 
         // Update statistics
         self.stats

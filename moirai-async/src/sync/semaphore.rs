@@ -2,54 +2,37 @@
 //!
 //! Provides semaphore synchronization primitive that integrates with Moirai's
 //! async runtime, following SLAP principle with focused responsibility.
+//! Waiter-queue mechanics live in `WaitQueue`; this module keeps only the
+//! permit-counter admission predicate and the permit-restoration policy for
+//! cancelled acquire futures.
 
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
+use std::sync::Mutex;
+use std::task::{Context, Poll};
+
+use crate::sync::wait_queue::{WaitQueue, WaiterPoll};
 
 /// Async-aware semaphore for resource limiting
 pub struct Semaphore {
-    permits: Arc<Mutex<SemaphoreState>>,
-}
-
-struct SemWaiter {
-    waker: Waker,
-    /// Set when a released permit has been handed to this waiter.
-    granted: bool,
+    state: Mutex<SemaphoreState>,
 }
 
 struct SemaphoreState {
     available: usize,
-    /// Waiters keyed by a monotonic id. Keyed (rather than a linear `VecDeque`)
-    /// so per-waiter `poll`/drop lookups and removals are O(log n) instead of
-    /// O(n), shortening the time the single state lock is held when many tasks
-    /// contend for permits. Monotonic ids keep in-order iteration FIFO, so a
-    /// released permit goes to the oldest waiter first.
-    waiters: BTreeMap<u64, SemWaiter>,
-    next_id: u64,
-}
-
-impl SemaphoreState {
-    /// Grant a released permit to the oldest ungranted waiter and return its
-    /// waker to wake. Returns `None` if no waiter is ungranted.
-    fn grant_oldest_waiter(&mut self) -> Option<Waker> {
-        let waiter = self.waiters.values_mut().find(|w| !w.granted)?;
-        waiter.granted = true;
-        Some(waiter.waker.clone())
-    }
+    /// A grant hands a released permit directly to a waiter; the `()` payload
+    /// carries no data because the grant itself is the permit.
+    waiters: WaitQueue<()>,
 }
 
 impl Semaphore {
     /// Create a new semaphore with the given number of permits
     pub fn new(permits: usize) -> Self {
         Self {
-            permits: Arc::new(Mutex::new(SemaphoreState {
+            state: Mutex::new(SemaphoreState {
                 available: permits,
-                waiters: BTreeMap::new(),
-                next_id: 0,
-            })),
+                waiters: WaitQueue::new(),
+            }),
         }
     }
 
@@ -63,7 +46,7 @@ impl Semaphore {
 
     /// Try to acquire a permit immediately
     pub fn try_acquire(&self) -> Option<SemaphorePermit<'_>> {
-        let mut state = self.permits.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         if state.available > 0 {
             state.available -= 1;
             Some(SemaphorePermit { semaphore: self })
@@ -74,12 +57,12 @@ impl Semaphore {
 
     /// Get the number of available permits
     pub fn available_permits(&self) -> usize {
-        self.permits.lock().unwrap().available
+        self.state.lock().unwrap().available
     }
 
     fn release(&self) {
-        let mut state = self.permits.lock().unwrap();
-        match state.grant_oldest_waiter() {
+        let mut state = self.state.lock().unwrap();
+        match state.waiters.grant_oldest(()) {
             Some(waker) => waker.wake(),
             None => state.available += 1,
         }
@@ -96,23 +79,20 @@ impl<'a> Future for SemaphoreAcquire<'a> {
     type Output = SemaphorePermit<'a>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut state = self.semaphore.permits.lock().unwrap();
+        let mut state = self.semaphore.state.lock().unwrap();
 
         // 1. Check if we were already registered and have been granted a permit
         if let Some(id) = self.id {
-            match state.waiters.get(&id).map(|w| w.granted) {
-                Some(true) => {
-                    state.waiters.remove(&id);
+            match state.waiters.poll_waiter(id, cx.waker()) {
+                WaiterPoll::Granted(()) => {
                     self.id = None;
                     return Poll::Ready(SemaphorePermit {
                         semaphore: self.semaphore,
                     });
                 }
-                Some(false) => {
-                    state.waiters.get_mut(&id).unwrap().waker = cx.waker().clone();
-                    return Poll::Pending;
-                }
-                None => {} // registration lost; fall through to re-acquire/register
+                WaiterPoll::Pending => return Poll::Pending,
+                // registration lost; fall through to re-acquire/register
+                WaiterPoll::NotRegistered => {}
             }
         }
 
@@ -120,7 +100,7 @@ impl<'a> Future for SemaphoreAcquire<'a> {
         if state.available > 0 {
             state.available -= 1;
             if let Some(id) = self.id.take() {
-                state.waiters.remove(&id);
+                let _removed_grant = state.waiters.deregister(id);
             }
             return Poll::Ready(SemaphorePermit {
                 semaphore: self.semaphore,
@@ -129,16 +109,7 @@ impl<'a> Future for SemaphoreAcquire<'a> {
 
         // 3. Register as a waiter
         if self.id.is_none() {
-            let id = state.next_id;
-            state.next_id += 1;
-            state.waiters.insert(
-                id,
-                SemWaiter {
-                    waker: cx.waker().clone(),
-                    granted: false,
-                },
-            );
-            self.id = Some(id);
+            self.id = Some(state.waiters.register(cx.waker().clone()));
         }
 
         Poll::Pending
@@ -148,10 +119,10 @@ impl<'a> Future for SemaphoreAcquire<'a> {
 impl<'a> Drop for SemaphoreAcquire<'a> {
     fn drop(&mut self) {
         if let Some(id) = self.id {
-            if let Ok(mut state) = self.semaphore.permits.lock() {
+            if let Ok(mut state) = self.semaphore.state.lock() {
                 // If we were granted a permit we never consumed, hand it back so
                 // it reaches another waiter (or the available count).
-                if state.waiters.remove(&id).is_some_and(|w| w.granted) {
+                if state.waiters.deregister(id).is_some() {
                     drop(state);
                     self.semaphore.release();
                 }

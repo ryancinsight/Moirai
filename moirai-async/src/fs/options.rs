@@ -11,8 +11,6 @@ pub struct FileOpenOptions {
     pub append: bool,
     /// Truncate existing content
     pub truncate: bool,
-    /// File permissions (Unix only)
-    pub mode: Option<u32>,
 }
 
 impl Default for FileOpenOptions {
@@ -23,7 +21,6 @@ impl Default for FileOpenOptions {
             create: false,
             append: false,
             truncate: false,
-            mode: None,
         }
     }
 }
@@ -37,7 +34,6 @@ impl FileOpenOptions {
             create: false,
             append: false,
             truncate: false,
-            mode: None,
         }
     }
 
@@ -49,7 +45,6 @@ impl FileOpenOptions {
             create: true,
             append: false,
             truncate: true,
-            mode: None,
         }
     }
 
@@ -61,7 +56,6 @@ impl FileOpenOptions {
             create: true,
             append: true,
             truncate: false,
-            mode: None,
         }
     }
 
@@ -73,7 +67,6 @@ impl FileOpenOptions {
             create: true,
             append: false,
             truncate: false,
-            mode: None,
         }
     }
 }

@@ -6,6 +6,12 @@ use std::task::Waker;
 pub(super) struct TimerRegistration {
     waker: Mutex<Option<Waker>>,
     cancelled: AtomicBool,
+    /// `true` while a heap entry for this registration is resident in the
+    /// driver's timer heap. Written only while the driver's state mutex is
+    /// held (`schedule` sets it, entry removal clears it), which serializes
+    /// all accesses; the field is atomic only because the registration lives
+    /// in a shared `Arc`, so `Relaxed` ordering suffices.
+    in_heap: AtomicBool,
 }
 
 impl TimerRegistration {
@@ -13,6 +19,7 @@ impl TimerRegistration {
         Arc::new(Self {
             waker: Mutex::new(Some(waker)),
             cancelled: AtomicBool::new(false),
+            in_heap: AtomicBool::new(false),
         })
     }
 
@@ -24,12 +31,30 @@ impl TimerRegistration {
         }
     }
 
-    pub(super) fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
+    /// Mark the registration cancelled. Returns `true` if this call performed
+    /// the cancellation (i.e. it was not already cancelled), so the driver
+    /// counts each dead heap entry exactly once.
+    pub(super) fn cancel(&self) -> bool {
+        !self.cancelled.swap(true, Ordering::AcqRel)
     }
 
     pub(super) fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
+    }
+
+    /// See `in_heap` field docs: called only under the driver state mutex.
+    pub(super) fn mark_in_heap(&self) {
+        self.in_heap.store(true, Ordering::Relaxed);
+    }
+
+    /// See `in_heap` field docs: called only under the driver state mutex.
+    pub(super) fn clear_in_heap(&self) {
+        self.in_heap.store(false, Ordering::Relaxed);
+    }
+
+    /// See `in_heap` field docs: read only under the driver state mutex.
+    pub(super) fn is_in_heap(&self) -> bool {
+        self.in_heap.load(Ordering::Relaxed)
     }
 
     pub(super) fn wake(&self) {

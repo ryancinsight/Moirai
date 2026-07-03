@@ -8,6 +8,7 @@ pub mod broadcast;
 pub mod notify;
 pub mod rwlock;
 pub mod semaphore;
+pub(crate) mod wait_queue;
 pub mod watch;
 
 // Re-export public types for convenience
