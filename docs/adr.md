@@ -914,3 +914,39 @@ placeholders deleted regardless (HARD integrity rule), and a consumer story
 documented. Option (b)'s integrity subset (delete fakes, fix the sequential
 drive) is required under either outcome; the difference is whether the crate
 survives. Until adjudicated, no session should expand moirai-iter's surface.
+
+## ADR-017 update (2026-07-03): RESOLVED — continue-and-make-real
+
+Owner adjudication (the maintainer) chose to KEEP moirai-iter and make its
+surfaces real rather than prune. Executed on branch
+`refactor/remove-dead-subsystems`:
+- **Parallel:** `ParallelIterator::drive` now forks the recursive `Consumer`
+  split through the unified scheduler (`moirai_parallel::join_with::<Parallel>`
+  above `ADAPTIVE_PARALLEL_THRESHOLD`) — genuine work-stealing, one fork-join
+  SSOT shared with moirai-parallel; a proof test asserts execution across >1
+  worker thread. (commit `perf(iter): …fork-join`)
+- **Async:** the terminal futures (`AsyncForEach/Fold/Reduce`) are cooperative
+  (no `block_on` in any `poll`); a `PendingOnce` harness proves cooperative
+  progress. (commit `fix(iter): …cooperative`)
+- **Fakes deleted:** `distributed/`, `multi_system/`, and the fake-SIMD path
+  (mocks/placeholders — HARD integrity), ~2353 lines, all zero-consumer.
+  `execution/`/`facade/` kept (consumer-proven live), fake tie-ins severed.
+  (commit `refactor(iter): Delete fake …`)
+
+REMAINING (own follow-up, [arch]): `AsyncIterator` is `into_vec()`-based, so
+`AsyncMap`/`AsyncFilter`/`ParAsyncMap`/`ParAsyncFilter` still `block_on` inside
+the synchronous `into_vec()`. Eliminating those requires redesigning
+`AsyncIterator` to a streaming `poll_next`/`async fn next` surface — a breaking
+public-trait change needing coordinated caller updates. Filed as ADR-018.
+
+## ADR-018: Streaming AsyncIterator (poll_next) to remove into_vec block_on
+
+- Status: Proposed [arch]
+- `AsyncIterator`'s `into_vec()` materialize-then-process shape forces
+  `AsyncMap`/`AsyncFilter` (and their parallel variants) to `block_on` the
+  per-item async closure inside the synchronous `into_vec()`. The fix is a
+  streaming trait (`fn poll_next(self: Pin<&mut Self>, cx) -> Poll<Option<Item>>`
+  or `async fn next(&mut self)`), so adapters await natively and the terminals
+  (already cooperative) drive a real stream. Breaking change: every
+  `AsyncIterator` impl and caller updates in the same coordinated unit;
+  the already-landed cooperative terminals are forward-compatible with it.
