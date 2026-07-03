@@ -17,17 +17,15 @@ pub trait ParallelIterator: Sized + Send {
     ///
     /// `drive` executes **sequentially** on the calling thread (recursively
     /// splitting the consumer and combining, but consuming both halves inline).
-    /// It is intentionally not fanned onto the scheduler: `ThreadScheduler`'s
-    /// scope `wait()` parks the caller (spin-then-condvar) without participating
-    /// in work-stealing, so a recursive `join_with::<Parallel>` drive both risks
-    /// nested-fork-join deadlock (a single-worker pool deadlocks by
-    /// construction) and, empirically, corrupted the heap under nested,
-    /// concurrent scopes (`STATUS_HEAP_CORRUPTION`). Making the non-indexed
-    /// drive parallel therefore requires fixing scope soundness under nesting
-    /// (or a help-while-waiting join) first — tracked in
-    /// `docs/concurrency_audit.md`. Scheduler-owned parallelism for bulk work is
-    /// exposed through `Moirai::for_each_indexed` / `map_reduce_indexed`, whose
-    /// flat fan-out does not create nested scope-waits.
+    /// A prior fork-join drive fanned the split onto the scheduler via
+    /// `join_with::<Parallel>` and was reverted: the scheduler scope then parked
+    /// waiters without helping, so nested drives deadlocked and corrupted the
+    /// heap. The scope primitive is now nesting-sound (ADR-019: worker-thread
+    /// scope waiters run work instead of parking), so a parallel drive can be
+    /// reintroduced against it — tracked as ISSUE-208 (c), a separate slice with
+    /// a parallelism-asserting test. Until that lands, bulk scheduler-owned
+    /// parallelism is exposed through `Moirai::for_each_indexed` /
+    /// `map_reduce_indexed`, whose flat fan-out creates no nested scope-waits.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,

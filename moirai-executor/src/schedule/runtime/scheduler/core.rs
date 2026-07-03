@@ -24,9 +24,17 @@ use super::super::types::{
     SchedulerScopeState, ThreadScheduler,
 };
 use super::super::worker::{
-    is_quiescent, lock_mutex, wake_all_workers, wake_contended_workers, wake_worker,
-    JOIN_FAST_SPIN_ATTEMPTS,
+    execute_job, is_quiescent, lock_mutex, next_job, wake_all_workers, wake_contended_workers,
+    wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
 };
+
+/// Busy-spin iterations a worker-thread scope waiter performs after exhausting
+/// runnable work before it parks on the scope condvar. The waiter only reaches
+/// this path when its remaining scoped jobs are actively executing on other
+/// workers (nothing left to steal), so a short spin absorbs the common
+/// finish-imminently case without an OS park round-trip; the timed park below
+/// then bounds idle-CPU while `complete_task` provides the real wakeup.
+const SCOPE_HELP_SPIN_LIMIT: usize = 64;
 /// A per-thread round-robin ticket for spreading queued submissions across
 /// workers. Replaces a process-shared `AtomicUsize` that every producer thread
 /// RMW'd on each submit: that counter's cache line bounced between all producing
@@ -150,7 +158,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
         let body_result = catch_unwind(AssertUnwindSafe(|| body(&scope)));
         let flush_result = scope.flush();
-        state.wait();
+        self.drain_scope(&state);
 
         match body_result {
             Ok(Ok(())) if state.failed_tasks.load(Ordering::Acquire) => Err(
@@ -159,6 +167,61 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             Ok(Ok(())) => flush_result,
             Ok(result) => result,
             Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    /// Wait for every job registered on `state` to complete.
+    ///
+    /// If the caller is itself a scheduler worker, it participates in work
+    /// stealing instead of parking: a worker that blocks inside `scope` while
+    /// its nested scoped jobs sit unrun would otherwise remove itself from the
+    /// pool and deadlock the fork-join (provably so on a single-worker pool, and
+    /// a source of use-after-free on the scope's stack-owned state under
+    /// concurrent nesting). Running its own queue via `next_job` keeps the pool
+    /// making progress, so nesting is deadlock-free and the scope state stays
+    /// live until every borrowing job has completed. `next_job(worker_id)` only
+    /// pops this worker's own deque and steals into it, so the aliasing rules of
+    /// the single-owner Chase–Lev deques are preserved.
+    ///
+    /// A non-worker caller parks (`SchedulerScopeState::wait`): the worker pool
+    /// drains its scoped jobs, so it never starves anything by blocking.
+    fn drain_scope(&self, state: &SchedulerScopeState) {
+        let Some(worker_id) = get_current_worker_id() else {
+            state.wait();
+            return;
+        };
+
+        let inner = &self.inner;
+        let mut idle_spins = 0usize;
+        loop {
+            if state.pending_tasks.load(Ordering::Acquire) == 0 {
+                return;
+            }
+
+            if let Some(job) = next_job(inner, worker_id) {
+                execute_job(inner, worker_id, job);
+                idle_spins = 0;
+                continue;
+            }
+
+            // Scope still pending but nothing runnable: the remaining scoped jobs
+            // are executing on other workers. Spin briefly, then park on the
+            // scope condvar with a timeout so `complete_task` wakes us while we
+            // still periodically re-probe for freshly stealable work.
+            if idle_spins < SCOPE_HELP_SPIN_LIMIT {
+                idle_spins += 1;
+                core::hint::spin_loop();
+                continue;
+            }
+            idle_spins = 0;
+
+            let guard = lock_mutex(&state.wait_lock);
+            if state.pending_tasks.load(Ordering::Acquire) != 0 {
+                let _ = state
+                    .wait_signal
+                    .wait_timeout(guard, std::time::Duration::from_micros(50))
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+            }
         }
     }
 

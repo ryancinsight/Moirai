@@ -69,7 +69,7 @@ architecture definition.
 
 ### Priority P0
 
-#### ⏳ ISSUE-208 [arch]: Make `ThreadScheduler::scope` sound under nesting (unblock parallel non-indexed `drive`)
+#### 🔄 ISSUE-208 [arch]: Make `ThreadScheduler::scope` sound under nesting (unblock parallel non-indexed `drive`)
 - **Type**: Scheduler Correctness / Memory Safety
 - **Root Cause**: `SchedulerScopeState::wait` (`schedule/runtime/types.rs`) spins
   then parks on a condvar without participating in work-stealing, so a recursive
@@ -83,13 +83,19 @@ architecture definition.
   sequential; scheduler-owned parallelism is only available through the flat
   `Moirai::for_each_indexed` / `map_reduce_indexed` fan-out. Documented in
   `docs/concurrency_audit.md` Round 20 and on `parallel::ParallelIterator::drive`.
-- **Acceptance criteria**: (a) `scope().wait()` is help-while-waiting (the waiter
-  runs stealable work rather than parking), or the non-indexed terminals route
-  through `for_each_indexed`; (b) a nested-saturation loom/stress test runs clean
-  (no deadlock, no heap corruption) under `W=1` and `W=n`; (c) only then is a
-  parallel `drive` reintroduced with the nested test asserting parallelism.
-- **Status**: filed (deferred). Requires ADR sign-off before implementation.
-- **Evidence tier**: empirical (heap-corruption abort) + type/analysis (single-worker deadlock proof).
+- **Acceptance criteria**: (a) ✅ `scope` wait is help-while-waiting (worker
+  waiters run their own `next_job`/`execute_job` rather than parking) — done via
+  `drain_scope` (ADR-019); (b) ✅ nested-saturation + recursive fork-join stress
+  tests run clean under `W ∈ {1,2,4}`, 5× repeat, no deadlock/corruption
+  (`scheduler_scope_nested_saturation_completes`,
+  `scheduler_scope_recursive_fork_join_is_sound`); (c) ⏳ reintroduce a parallel
+  non-indexed `drive` against the now-sound `scope` with a parallelism-asserting
+  test — separate follow-up slice.
+- **Status**: (a)+(b) landed (ADR-019); (c) open as the next slice. Scope
+  primitive is now nesting-sound; `moirai-iter` `drive` stays sequential until
+  (c) reintroduces parallelism.
+- **Evidence tier**: type/analysis (deadlock-freedom argument, ADR-019) +
+  empirical (deterministic 30 s→0.01 s reproduction, repeat-clean regression).
 
 #### ✅ ISSUE-199 [arch]: Add accelerator route topology without execution fabrication
 - **Type**: Scheduler Architecture / Accelerator Placement

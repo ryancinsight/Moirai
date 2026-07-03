@@ -169,6 +169,97 @@ fn scheduler_scope_runs_borrowing_jobs_before_return() {
 }
 
 #[test]
+fn scheduler_scope_nested_saturation_completes() {
+    // Regression guard for ISSUE-208: a scoped job that itself opens a nested
+    // scope must complete. Before help-while-waiting, `scope().wait()` parked the
+    // caller without running scheduler work, so nested fork-join deadlocked
+    // (provably with one worker) and corrupted the heap under concurrent nesting
+    // (STATUS_HEAP_CORRUPTION). Value-semantic: every inner increment must land.
+    for &workers in &[1usize, 2, 4] {
+        let scheduler = ThreadScheduler::new(workers, "test-nested-scope").unwrap();
+        let outer = 32usize;
+        let inner = 16usize;
+        let counter = AtomicUsize::new(0);
+
+        scheduler
+            .scope::<SyncTask, _>(Priority::Normal, None, |outer_scope| {
+                for _ in 0..outer {
+                    let scheduler = &scheduler;
+                    let counter = &counter;
+                    outer_scope.spawn(move |_| {
+                        scheduler
+                            .scope::<SyncTask, _>(Priority::Normal, None, |inner_scope| {
+                                for _ in 0..inner {
+                                    let counter = &counter;
+                                    inner_scope.spawn(move |_| {
+                                        counter.fetch_add(1, Ordering::Relaxed);
+                                    })?;
+                                }
+                                Ok(())
+                            })
+                            .expect("nested scope must complete");
+                    })?;
+                }
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            outer * inner,
+            "nested saturation lost increments at {workers} worker(s)"
+        );
+        scheduler.shutdown();
+    }
+}
+
+fn recursive_scope_sum(scheduler: &ThreadScheduler, lo: u64, hi: u64) -> u64 {
+    if hi.saturating_sub(lo) <= 1024 {
+        return (lo..hi).sum();
+    }
+    let mid = lo + (hi - lo) / 2;
+    let mut left = 0u64;
+    let mut right = 0u64;
+    {
+        let left = &mut left;
+        let right = &mut right;
+        scheduler
+            .scope::<SyncTask, _>(Priority::Normal, None, |scope| {
+                scope.spawn(|_| {
+                    *left = recursive_scope_sum(scheduler, lo, mid);
+                })?;
+                scope.spawn(|_| {
+                    *right = recursive_scope_sum(scheduler, mid, hi);
+                })?;
+                Ok(())
+            })
+            .expect("recursive scope must complete");
+    }
+    left + right
+}
+
+#[test]
+fn scheduler_scope_recursive_fork_join_is_sound() {
+    // ISSUE-208 corruption guard: the recursive two-branch fork-join is the exact
+    // shape of `moirai_iter` `drive` (log2-depth nested scopes, each branch stolen
+    // by a peer worker that dereferences the parent scope's stack-owned state).
+    // Before help-while-waiting this deadlocked (one worker) and corrupted the
+    // heap (STATUS_HEAP_CORRUPTION) under concurrent nesting. Analytical oracle:
+    // the arithmetic series sum, asserted value-semantically.
+    const N: u64 = 200_000;
+    let expected = N * (N - 1) / 2;
+    for &workers in &[1usize, 2, 4] {
+        let scheduler = ThreadScheduler::new(workers, "test-recursive-scope").unwrap();
+        assert_eq!(
+            recursive_scope_sum(&scheduler, 0, N),
+            expected,
+            "recursive fork-join sum diverged at {workers} worker(s)"
+        );
+        scheduler.shutdown();
+    }
+}
+
+#[test]
 fn scheduler_scope_reports_panicked_job() {
     let scheduler = ThreadScheduler::new(1, "test-scope-panic").unwrap();
     let completed = AtomicUsize::new(0);

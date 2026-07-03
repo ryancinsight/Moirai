@@ -37,14 +37,29 @@ itself is sound (`complete_task`'s `AcqRel` decrement pairs with `wait`'s
 `Acquire` load), so single-level result publication is race-free — the
 unsoundness is scope *nesting*, not the single-level join.
 
-**Deferred [arch] (blocks parallel non-indexed iteration).** Either (a) make
-`ThreadScheduler::scope` sound and non-deadlocking under nesting — a
-help-while-waiting join (the waiter runs stealable work instead of parking) plus
-an audit of the scoped-job lifetime/aliasing under concurrent nested scopes — or
-(b) route `parallel/` bulk terminals through the flat `for_each_indexed`
-fan-out (no nested scope-waits), matching `iter_ops/parallel.rs`. Until then the
-non-indexed `parallel/` surface stays sequential; scheduler-owned parallelism is
-`Moirai::for_each_indexed` / `map_reduce_indexed`.
+**RESOLVED at the scheduler layer (ADR-019, ISSUE-208 option (a)).**
+`ThreadScheduler::scope` now waits via `drain_scope`: a worker-thread waiter is
+work-conserving (runs its own `next_job` + `execute_job` until the scope drains,
+timed-parking on the scope condvar only when nothing is runnable), so a worker
+never parks while holding runnable nested work — deadlock-free by construction,
+and the scope's stack-owned state stays live *and progressing* until every
+borrowing job completes, closing the aliasing race. A non-worker waiter still
+parks (the pool drains its jobs). `next_job(worker_id)` touches only the owner's
+single-owner deque, adding no new cross-thread deque aliasing.
+
+Reproduction (red→green, `moirai-executor` tests):
+- `scheduler_scope_nested_saturation_completes` — nested scope inside a scoped
+  job; 30 s deadlock (W=1) → 0.011 s pass across W ∈ {1,2,4}.
+- `scheduler_scope_recursive_fork_join_is_sound` — the drive-shaped log2-depth
+  recursive fork-join (analytical arithmetic-series oracle), W ∈ {1,2,4}, 5×
+  repeat clean (guards the nondeterministic heap-corruption path).
+
+Full moirai-executor (77) + moirai-iter (191) suites green; clippy clean.
+
+**Remaining (ISSUE-208 (c), separate slice).** Reintroduce a parallel
+non-indexed `drive` against the now-sound `scope`, with a parallelism-asserting
+test. Until then the non-indexed `parallel/` surface stays sequential;
+scheduler-owned parallelism is `Moirai::for_each_indexed` / `map_reduce_indexed`.
 
 ## Round 19 (2026-06-28) — lock-hold contention sweep + loom-modeled wake handshake
 
