@@ -1,15 +1,13 @@
-use std::collections::{HashMap, VecDeque};
-use std::future::Future;
+use std::collections::HashMap;
 use std::io;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
-use std::task::{Context, Poll, Waker};
+use std::task::Waker;
 use std::time::{Duration, Instant};
 
 use super::metrics::ReactorMetrics;
-use super::task::{ReactorTaskState, TaskHandle, TaskId};
 use crate::{create_reactor, Event, Interest, PlatformReactor, RawFd, Reactor};
 
 /// Send/Sync-safe internal key for platform handles.
@@ -27,10 +25,15 @@ impl From<RawFd> for FdKey {
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // Fields used for future telemetry/debugging per ADR requirements
 pub struct FdInfo {
+    /// Registered readiness interest.
     pub interest: Interest,
+    /// When the descriptor was registered.
     pub registered_at: Instant,
+    /// Number of events observed for this descriptor.
     pub event_count: u64,
+    /// Waker armed for read readiness.
     pub read_waker: Option<Waker>,
+    /// Waker armed for write readiness.
     pub write_waker: Option<Waker>,
 }
 
@@ -42,8 +45,6 @@ pub struct IoReactor {
     pub(crate) running: Arc<AtomicBool>,
     /// Registered file descriptor tracking
     pub(crate) registered_fds: Arc<Mutex<HashMap<FdKey, FdInfo>>>,
-    /// Pending task queue
-    pub(crate) task_queue: Arc<Mutex<VecDeque<Arc<ReactorTaskState>>>>,
     /// Performance metrics
     pub(crate) metrics: Arc<ReactorMetrics>,
 }
@@ -57,7 +58,6 @@ impl IoReactor {
             platform_reactor,
             running: Arc::new(AtomicBool::new(false)),
             registered_fds: Arc::new(Mutex::new(HashMap::new())),
-            task_queue: Arc::new(Mutex::new(VecDeque::new())),
             metrics: Arc::new(ReactorMetrics::default()),
         })
     }
@@ -96,19 +96,6 @@ impl IoReactor {
         Ok(())
     }
 
-    /// Spawn an async task on the reactor.
-    pub fn spawn<F>(&self, future: F) -> TaskHandle
-    where
-        F: Future<Output = ()> + Send + 'static,
-    {
-        let task_id = TaskId::new();
-        let task = Arc::new(ReactorTaskState::new(future));
-
-        self.task_queue.lock().unwrap().push_back(task.clone());
-
-        TaskHandle::new(task_id, task)
-    }
-
     /// Run the event loop until stopped.
     pub fn run(&self) -> io::Result<()> {
         self.running.store(true, Ordering::SeqCst);
@@ -127,9 +114,6 @@ impl IoReactor {
     /// Run a single iteration of the event loop.
     pub fn run_iteration(&self, timeout: Option<Duration>) -> io::Result<()> {
         let iteration_start = Instant::now();
-
-        // Process pending tasks first
-        self.process_pending_tasks();
 
         // Poll for I/O events
         let events = self.platform_reactor.poll_events(timeout)?;
@@ -152,40 +136,6 @@ impl IoReactor {
     pub fn stop(&self) -> io::Result<()> {
         self.running.store(false, Ordering::SeqCst);
         self.platform_reactor.wake()
-    }
-
-    /// Process all pending tasks in the queue.
-    fn process_pending_tasks(&self) {
-        let mut tasks = self.task_queue.lock().unwrap();
-        for task in tasks.iter_mut() {
-            // Create a simple noop waker compatible with MSRV 1.75.0
-            // Using standard library patterns per Rust Book Ch.16
-            use std::task::{RawWaker, RawWakerVTable, Waker};
-
-            const NOOP_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-                |_| RawWaker::new(std::ptr::null(), &NOOP_WAKER_VTABLE),
-                |_| {},
-                |_| {},
-                |_| {},
-            );
-
-            let waker =
-                unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &NOOP_WAKER_VTABLE)) };
-            let mut context = Context::from_waker(&waker);
-
-            match task.poll_future(&mut context) {
-                Poll::Ready(()) => {
-                    task.complete();
-                    self.metrics.tasks_executed.fetch_add(1, Ordering::Relaxed);
-                }
-                Poll::Pending => {
-                    // Task is still pending, keep it in queue
-                }
-            }
-        }
-
-        // Cleanly retain only pending tasks (O(n) linear filter, avoiding O(n^2) removals)
-        tasks.retain(|task| !task.completion.completed.load(Ordering::Acquire));
     }
 
     /// Handle a single I/O event.
@@ -297,7 +247,6 @@ impl IoReactor {
     pub fn metrics(&self) -> ReactorMetrics {
         ReactorMetrics {
             events_processed: AtomicU64::new(self.metrics.events_processed.load(Ordering::Relaxed)),
-            tasks_executed: AtomicU64::new(self.metrics.tasks_executed.load(Ordering::Relaxed)),
             avg_event_time_ns: AtomicU64::new(
                 self.metrics.avg_event_time_ns.load(Ordering::Relaxed),
             ),

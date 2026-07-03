@@ -116,7 +116,7 @@ impl Transport for IpcTransport {
         };
         frame.data[..data.len()].copy_from_slice(&data);
 
-        let mut segments = self.segments.lock().unwrap();
+        let mut segments = crate::lock_mutex(&self.segments);
         let queue = Self::segment(&mut segments, name)?;
         // SharedQueue::send returns the value back on a full ring.
         queue.send(frame).map_err(|_| TransportError::Full)
@@ -126,7 +126,7 @@ impl Transport for IpcTransport {
         let Address::Local(name) = source else {
             return Err(TransportError::Closed);
         };
-        let mut segments = self.segments.lock().unwrap();
+        let mut segments = crate::lock_mutex(&self.segments);
         let queue = Self::segment(&mut segments, name)?;
         match queue.recv() {
             Some(frame) => {

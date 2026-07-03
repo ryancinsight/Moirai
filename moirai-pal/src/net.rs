@@ -29,213 +29,240 @@ fn wake_without_active_reactor(cx: &Context<'_>) {
     std::thread::yield_now();
 }
 
+/// Shared readiness scaffolding for every non-blocking socket operation: run
+/// `op` once; on success or a real error resolve immediately, on `WouldBlock`
+/// register the task's waker with the active reactor for (`fd`, `interest`) —
+/// or self-wake (cooperative busy-poll) when no reactor is active — and stay
+/// pending.
+fn poll_ready_op<T>(
+    cx: &mut Context<'_>,
+    fd: crate::RawFd,
+    interest: Interest,
+    op: impl FnOnce() -> io::Result<T>,
+) -> Poll<io::Result<T>> {
+    match op() {
+        Ok(value) => Poll::Ready(Ok(value)),
+        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+            if let Some(reactor) = IoReactor::get_active() {
+                if let Err(err) = reactor.register_waker(fd, interest, cx.waker().clone()) {
+                    return Poll::Ready(Err(err));
+                }
+                Poll::Pending
+            } else {
+                wake_without_active_reactor(cx);
+                Poll::Pending
+            }
+        }
+        Err(e) => Poll::Ready(Err(e)),
+    }
+}
+
+/// Non-blocking TCP stream driven by the fd-readiness reactor.
 pub struct AsyncTcpStream {
     inner: StdTcpStream,
 }
 
 impl AsyncTcpStream {
+    /// Peer socket address.
+    ///
+    /// # Errors
+    /// Propagates the underlying socket error.
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
         self.inner.peer_addr()
     }
 
+    /// Local socket address.
+    ///
+    /// # Errors
+    /// Propagates the underlying socket error.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()
     }
 
+    /// Enable or disable `TCP_NODELAY`.
+    ///
+    /// # Errors
+    /// Propagates the underlying socket error.
     pub fn set_nodelay(&self, on: bool) -> io::Result<()> {
         self.inner.set_nodelay(on)
     }
 
+    /// Wrap a std stream, switching it to non-blocking mode.
+    ///
+    /// # Errors
+    /// Propagates the non-blocking-mode error.
     pub fn from_std(inner: StdTcpStream) -> io::Result<Self> {
         inner.set_nonblocking(true)?;
         Ok(Self { inner })
     }
 
+    /// Shut down the write half of the connection.
+    ///
+    /// # Errors
+    /// Propagates the underlying socket error.
     pub fn shutdown_write(&self) -> io::Result<()> {
         self.inner.shutdown(Shutdown::Write)
     }
 
+    /// Connect to `addr` and switch the stream to non-blocking mode.
+    ///
+    /// # Errors
+    /// Propagates connection and non-blocking-mode errors.
     pub async fn connect(addr: SocketAddr) -> io::Result<Self> {
         let inner = StdTcpStream::connect(addr)?;
         Self::from_std(inner)
     }
 
+    /// Poll a non-blocking read into `buf`.
     pub fn poll_read(&mut self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        match io::Read::read(&mut &self.inner, buf) {
-            Ok(n) => Poll::Ready(Ok(n)),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                if let Some(reactor) = IoReactor::get_active() {
-                    let raw = socket_to_raw(&self.inner);
-                    if let Err(err) =
-                        reactor.register_waker(raw, Interest::READABLE, cx.waker().clone())
-                    {
-                        return Poll::Ready(Err(err));
-                    }
-                    Poll::Pending
-                } else {
-                    wake_without_active_reactor(cx);
-                    Poll::Pending
-                }
-            }
-            Err(e) => Poll::Ready(Err(e)),
-        }
+        let fd = socket_to_raw(&self.inner);
+        poll_ready_op(cx, fd, Interest::READABLE, || {
+            io::Read::read(&mut &self.inner, buf)
+        })
     }
 
+    /// Poll a non-blocking write of `buf`.
     pub fn poll_write(&mut self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        match io::Write::write(&mut &self.inner, buf) {
-            Ok(n) => Poll::Ready(Ok(n)),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                if let Some(reactor) = IoReactor::get_active() {
-                    let raw = socket_to_raw(&self.inner);
-                    if let Err(err) =
-                        reactor.register_waker(raw, Interest::WRITABLE, cx.waker().clone())
-                    {
-                        return Poll::Ready(Err(err));
-                    }
-                    Poll::Pending
-                } else {
-                    wake_without_active_reactor(cx);
-                    Poll::Pending
-                }
-            }
-            Err(e) => Poll::Ready(Err(e)),
-        }
+        let fd = socket_to_raw(&self.inner);
+        poll_ready_op(cx, fd, Interest::WRITABLE, || {
+            io::Write::write(&mut &self.inner, buf)
+        })
     }
 
+    /// Poll a non-blocking flush.
     pub fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match io::Write::flush(&mut &self.inner) {
-            Ok(()) => Poll::Ready(Ok(())),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                if let Some(reactor) = IoReactor::get_active() {
-                    let raw = socket_to_raw(&self.inner);
-                    if let Err(err) =
-                        reactor.register_waker(raw, Interest::WRITABLE, cx.waker().clone())
-                    {
-                        return Poll::Ready(Err(err));
-                    }
-                    Poll::Pending
-                } else {
-                    wake_without_active_reactor(cx);
-                    Poll::Pending
-                }
-            }
-            Err(e) => Poll::Ready(Err(e)),
-        }
+        let fd = socket_to_raw(&self.inner);
+        poll_ready_op(cx, fd, Interest::WRITABLE, || {
+            io::Write::flush(&mut &self.inner)
+        })
     }
 
+    /// Read into `buf`, awaiting readiness.
+    ///
+    /// # Errors
+    /// Propagates socket read errors.
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         poll_fn(|cx| self.poll_read(cx, buf)).await
     }
 
+    /// Write `buf`, awaiting readiness.
+    ///
+    /// # Errors
+    /// Propagates socket write errors.
     pub async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         poll_fn(|cx| self.poll_write(cx, buf)).await
     }
 
+    /// Flush the stream, awaiting readiness.
+    ///
+    /// # Errors
+    /// Propagates socket flush errors.
     pub async fn flush(&mut self) -> io::Result<()> {
         poll_fn(|cx| self.poll_flush(cx)).await
     }
 }
 
+/// Non-blocking TCP listener driven by the fd-readiness reactor.
 pub struct AsyncTcpListener {
     inner: StdTcpListener,
 }
 
 impl AsyncTcpListener {
+    /// Bind a non-blocking listener to `addr`.
+    ///
+    /// # Errors
+    /// Propagates bind and non-blocking-mode errors.
     pub async fn bind(addr: SocketAddr) -> io::Result<Self> {
         let inner = StdTcpListener::bind(addr)?;
         inner.set_nonblocking(true)?;
         Ok(Self { inner })
     }
 
+    /// Accept one inbound connection, awaiting readiness.
+    ///
+    /// # Errors
+    /// Propagates accept and non-blocking-mode errors.
     pub async fn accept(&self) -> io::Result<(AsyncTcpStream, SocketAddr)> {
-        poll_fn(|cx| match self.inner.accept() {
-            Ok((stream, addr)) => {
+        // `socket_to_raw` is evaluated inside the poll closure: on Windows a
+        // `RawFd` is a raw pointer (`!Send`), so holding it across an await
+        // would make this future `!Send`.
+        poll_fn(|cx| {
+            poll_ready_op(cx, socket_to_raw(&self.inner), Interest::READABLE, || {
+                let (stream, addr) = self.inner.accept()?;
                 stream.set_nonblocking(true)?;
-                Poll::Ready(Ok((AsyncTcpStream { inner: stream }, addr)))
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                if let Some(reactor) = IoReactor::get_active() {
-                    let raw = socket_to_raw(&self.inner);
-                    if let Err(err) =
-                        reactor.register_waker(raw, Interest::READABLE, cx.waker().clone())
-                    {
-                        return Poll::Ready(Err(err));
-                    }
-                    Poll::Pending
-                } else {
-                    wake_without_active_reactor(cx);
-                    Poll::Pending
-                }
-            }
-            Err(e) => Poll::Ready(Err(e)),
+                Ok((AsyncTcpStream { inner: stream }, addr))
+            })
         })
         .await
     }
 
+    /// Local listener address.
+    ///
+    /// # Errors
+    /// Propagates the underlying socket error.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()
     }
 }
 
+/// Non-blocking UDP socket driven by the fd-readiness reactor.
 pub struct AsyncUdpSocket {
     inner: std::net::UdpSocket,
 }
 
 impl AsyncUdpSocket {
+    /// Bind a non-blocking UDP socket to `addr`.
+    ///
+    /// # Errors
+    /// Propagates bind and non-blocking-mode errors.
     pub async fn bind(addr: SocketAddr) -> io::Result<Self> {
         let inner = std::net::UdpSocket::bind(addr)?;
         inner.set_nonblocking(true)?;
         Ok(Self { inner })
     }
 
+    /// Send one datagram to `target`, awaiting readiness.
+    ///
+    /// # Errors
+    /// Propagates socket send errors.
     pub async fn send_to(&self, buf: &[u8], target: SocketAddr) -> io::Result<usize> {
-        poll_fn(|cx| match self.inner.send_to(buf, target) {
-            Ok(n) => Poll::Ready(Ok(n)),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                if let Some(reactor) = IoReactor::get_active() {
-                    let raw = socket_to_raw(&self.inner);
-                    if let Err(err) =
-                        reactor.register_waker(raw, Interest::WRITABLE, cx.waker().clone())
-                    {
-                        return Poll::Ready(Err(err));
-                    }
-                    Poll::Pending
-                } else {
-                    wake_without_active_reactor(cx);
-                    Poll::Pending
-                }
-            }
-            Err(e) => Poll::Ready(Err(e)),
+        // `socket_to_raw` stays inside the poll closure (`RawFd` is `!Send` on
+        // Windows; see `AsyncTcpListener::accept`).
+        poll_fn(|cx| {
+            poll_ready_op(cx, socket_to_raw(&self.inner), Interest::WRITABLE, || {
+                self.inner.send_to(buf, target)
+            })
         })
         .await
     }
 
+    /// Receive one datagram into `buf`, awaiting readiness.
+    ///
+    /// # Errors
+    /// Propagates socket receive errors.
     pub async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        poll_fn(|cx| match self.inner.recv_from(buf) {
-            Ok((n, addr)) => Poll::Ready(Ok((n, addr))),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                if let Some(reactor) = IoReactor::get_active() {
-                    let raw = socket_to_raw(&self.inner);
-                    if let Err(err) =
-                        reactor.register_waker(raw, Interest::READABLE, cx.waker().clone())
-                    {
-                        return Poll::Ready(Err(err));
-                    }
-                    Poll::Pending
-                } else {
-                    wake_without_active_reactor(cx);
-                    Poll::Pending
-                }
-            }
-            Err(e) => Poll::Ready(Err(e)),
+        // `socket_to_raw` stays inside the poll closure (`RawFd` is `!Send` on
+        // Windows; see `AsyncTcpListener::accept`).
+        poll_fn(|cx| {
+            poll_ready_op(cx, socket_to_raw(&self.inner), Interest::READABLE, || {
+                self.inner.recv_from(buf)
+            })
         })
         .await
     }
 
+    /// Local socket address.
+    ///
+    /// # Errors
+    /// Propagates the underlying socket error.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
         self.inner.local_addr()
     }
 
+    /// Enable or disable `SO_BROADCAST`.
+    ///
+    /// # Errors
+    /// Propagates the underlying socket error.
     pub fn set_broadcast(&self, on: bool) -> io::Result<()> {
         self.inner.set_broadcast(on)
     }

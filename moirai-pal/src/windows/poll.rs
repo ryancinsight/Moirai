@@ -34,11 +34,16 @@ pub struct WsaPollReactor {
     /// promptly (e.g. after a new registration or on shutdown).
     wake: UdpSocket,
     wake_addr: std::net::SocketAddr,
+    /// Reused `WSAPoll` fd array, so the hot poll loop does not rebuild a fresh
+    /// vector allocation per iteration. Lock order: `pollfds` before
+    /// `interests` (the only path taking both is `poll_events`; every other
+    /// path takes at most `interests`), so no cycle exists.
+    pollfds: Mutex<Vec<WSAPOLLFD>>,
 }
 
-// Safety: all shared state is behind the `interests` `Mutex`; the `wake`
-// `UdpSocket` supports concurrent `send_to` (any thread) and `recv` (the poll
-// thread), which winsock permits for UDP.
+// Safety: all shared state is behind the `interests` and `pollfds` `Mutex`es;
+// the `wake` `UdpSocket` supports concurrent `send_to` (any thread) and `recv`
+// (the poll thread), which winsock permits for UDP.
 unsafe impl Send for WsaPollReactor {}
 unsafe impl Sync for WsaPollReactor {}
 
@@ -52,6 +57,7 @@ impl WsaPollReactor {
             interests: Mutex::new(HashMap::new()),
             wake,
             wake_addr,
+            pollfds: Mutex::new(Vec::new()),
         })
     }
 
@@ -80,31 +86,36 @@ impl Reactor for WsaPollReactor {
     }
 
     fn poll_events(&self, timeout: Option<Duration>) -> io::Result<Vec<Event>> {
-        let snapshot: Vec<(usize, Interest)> = {
-            let map = lock_mutex(&self.interests);
-            map.iter().map(|(k, v)| (*k, *v)).collect()
-        };
-
+        // Reuse the persistent fd array; the mutex serializes concurrent
+        // pollers (the reactor is driven by one event-loop thread in practice).
+        // The interest map is snapshotted directly into the reused buffer under
+        // a short-lived lock, released before the (potentially blocking) poll
+        // so `register_fd`/`unregister_fd` never wait on a poll in flight.
+        let mut pollfds = lock_mutex(&self.pollfds);
+        pollfds.clear();
         // Slot 0 is always the wake socket, so `nfds >= 1` (WSAPoll rejects 0).
-        let mut pollfds: Vec<WSAPOLLFD> = Vec::with_capacity(snapshot.len() + 1);
         pollfds.push(WSAPOLLFD {
             fd: SOCKET(self.wake_socket()),
             events: POLLRDNORM,
             revents: WSAPOLL_EVENT_FLAGS(0),
         });
-        for (sock, interest) in &snapshot {
-            let mut events = WSAPOLL_EVENT_FLAGS(0);
-            if interest.readable {
-                events |= POLLRDNORM;
+        {
+            let map = lock_mutex(&self.interests);
+            pollfds.reserve(map.len());
+            for (sock, interest) in map.iter() {
+                let mut events = WSAPOLL_EVENT_FLAGS(0);
+                if interest.readable {
+                    events |= POLLRDNORM;
+                }
+                if interest.writable {
+                    events |= POLLWRNORM;
+                }
+                pollfds.push(WSAPOLLFD {
+                    fd: SOCKET(*sock),
+                    events,
+                    revents: WSAPOLL_EVENT_FLAGS(0),
+                });
             }
-            if interest.writable {
-                events |= POLLWRNORM;
-            }
-            pollfds.push(WSAPOLLFD {
-                fd: SOCKET(*sock),
-                events,
-                revents: WSAPOLL_EVENT_FLAGS(0),
-            });
         }
 
         let timeout_ms = timeout.map_or(-1, |d| d.as_millis().min(i32::MAX as u128) as i32);

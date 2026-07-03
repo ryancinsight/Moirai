@@ -3,9 +3,9 @@
 //! This module provides high-performance async I/O using Linux's epoll system call,
 //! which is the most efficient I/O multiplexing mechanism on Linux systems.
 
-use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::RawFd;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use crate::{Event, Interest, Reactor};
@@ -16,12 +16,9 @@ pub struct EpollReactor {
     epoll_fd: RawFd,
     /// eventfd used to wake `epoll_wait`
     wake_fd: RawFd,
-    /// Event buffer for epoll_wait
-    #[allow(dead_code)] // Used for future event processing per ADR requirements
-    event_buffer: Vec<libc::epoll_event>,
-    /// Mapping of file descriptors to their registered interests
-    #[allow(dead_code)] // Used for future interest tracking per ADR requirements
-    fd_interests: HashMap<RawFd, Interest>,
+    /// Reused `epoll_wait` output buffer (`MAX_EVENTS` entries), so the hot
+    /// poll loop does not allocate a fresh 1024-entry vector per iteration.
+    event_buffer: Mutex<Vec<libc::epoll_event>>,
 }
 
 // Constants for epoll operations
@@ -70,8 +67,7 @@ impl EpollReactor {
         Ok(Self {
             epoll_fd,
             wake_fd,
-            event_buffer: Vec::with_capacity(MAX_EVENTS),
-            fd_interests: HashMap::new(),
+            event_buffer: Mutex::new(vec![libc::epoll_event { events: 0, u64: 0 }; MAX_EVENTS]),
         })
     }
 
@@ -151,8 +147,9 @@ impl Reactor for EpollReactor {
     }
 
     fn poll_events(&self, timeout: Option<Duration>) -> io::Result<Vec<Event>> {
-        // Ensure event buffer has the right capacity
-        let mut events = vec![libc::epoll_event { events: 0, u64: 0 }; MAX_EVENTS];
+        // Reuse the persistent output buffer; the mutex serializes concurrent
+        // pollers (the reactor is driven by one event-loop thread in practice).
+        let mut events = lock_mutex(&self.event_buffer);
 
         let timeout_ms = match timeout {
             // Saturate: `as_millis()` is u128; a multi-week timeout would wrap a
@@ -222,6 +219,10 @@ impl Drop for EpollReactor {
             libc::close(self.epoll_fd);
         }
     }
+}
+
+fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn drain_eventfd(wake_fd: RawFd) -> io::Result<()> {

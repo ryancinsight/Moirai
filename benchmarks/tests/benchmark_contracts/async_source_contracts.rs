@@ -547,8 +547,6 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
     let pal_net = read_benchmark("../moirai-pal/src/net.rs");
     let pal_reactor = [
         "../moirai-pal/src/reactor/core.rs",
-        "../moirai-pal/src/reactor/future.rs",
-        "../moirai-pal/src/reactor/task.rs",
         "../moirai-pal/src/reactor/tests.rs",
         "../moirai-pal/src/reactor/tls.rs",
     ]
@@ -602,8 +600,7 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "pub fn shutdown_write(&self) -> io::Result<()>",
         "self.inner.shutdown(Shutdown::Write)",
         "IoReactor::get_active()",
-        "reactor.register_waker(raw, Interest::READABLE, cx.waker().clone())",
-        "reactor.register_waker(raw, Interest::WRITABLE, cx.waker().clone())",
+        "reactor.register_waker(fd, interest, cx.waker().clone())",
         "wake_without_active_reactor(cx);",
         "tcp_accept_read_write_self_wakes_without_active_reactor",
         "udp_recv_self_wakes_without_active_reactor",
@@ -630,37 +627,21 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         );
     }
 
+    // The reactor's live path is fd readiness -> executor waker: futures
+    // register wakers per fd/interest and events wake them. The former
+    // spawn/task-queue subsystem (ReactorTaskState/ErasedReactorTaskFuture,
+    // polled with a noop waker) had no production caller and was deleted.
     for required in [
-        "const INLINE_REACTOR_TASK_WORDS: usize = 14",
-        "task_queue: Arc<Mutex<VecDeque<Arc<ReactorTaskState>>>>",
-        "struct ReactorTaskState",
-        "future: ErasedReactorTaskFuture",
-        "struct ReactorTaskFutureStorage",
-        "struct ErasedReactorTaskFuture",
-        "storage: UnsafeCell<ReactorTaskFutureStorage>",
-        "poll: unsafe fn(*mut ReactorTaskFutureStorage, &mut Context<'_>) -> Poll<()>",
-        "drop: unsafe fn(*mut ReactorTaskFutureStorage)",
-        "ErasedReactorTaskFuture::new(future)",
-        "reactor_future_fits::<F>()",
-        "Self::new_boxed(future)",
-        "poll_inline_reactor_future::<F>",
-        "poll_boxed_reactor_future::<F>",
-        "drop_boxed_reactor_future::<F>",
-        "struct TaskCompletion",
-        "completed: AtomicBool",
-        "fn complete(&self)",
-        "fn poll(&self, cx: &Context<'_>) -> Poll<()>",
-        "task.complete();",
-        "spawned_ready_task_handle_completes_after_iteration",
-        "reactor_future_storage_budget_is_static_and_bounded",
-        "spawned_inline_and_oversized_reactor_futures_complete",
-        "assert!(reactor_future_fits::<MaxInlineReadyFuture>())",
-        "assert!(!reactor_future_fits::<OversizedShapeFuture>())",
-        "assert_eq!(metrics.tasks_executed.load(Ordering::Relaxed), 1)",
+        "pub fn register_waker(&self, fd: RawFd, interest: Interest, waker: Waker) -> io::Result<()>",
+        "pub fn deregister_waker(&self, fd: RawFd, interest: Interest)",
+        "fn wake_fd_waiters(&self, event: Event)",
+        "read_waker = fd_info.read_waker.take();",
+        "write_waker = fd_info.write_waker.take();",
+        "with_active_restores_thread_local_on_panic",
     ] {
         assert!(
             pal_reactor.contains(required),
-            "PAL reactor source must retain task-handle completion marker {required}"
+            "PAL reactor source must retain fd-readiness waker marker {required}"
         );
     }
 
@@ -671,10 +652,15 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "Pin<Box<dyn Future<Output = ()>",
         "future: Box::pin(future)",
         "Box::into_raw(Box::new(future))",
+        // Deleted dead subsystem must not return: reactor-spawned tasks were
+        // polled with a noop waker and never woken by I/O.
+        "ReactorTaskState",
+        "ErasedReactorTaskFuture",
+        "NOOP_WAKER_VTABLE",
     ] {
         assert!(
             !pal_reactor.contains(prohibited),
-            "PAL reactor must not reintroduce dynamic dispatch or placeholder marker {prohibited}"
+            "PAL reactor must not reintroduce dynamic dispatch, placeholder, or dead task-queue marker {prohibited}"
         );
     }
 

@@ -4,6 +4,8 @@
 //! bounded mutex state. Metric snapshots are value copies suitable for export
 //! without retaining collector locks.
 
+#![deny(missing_docs)]
+
 mod collector;
 mod counter;
 mod exporter;

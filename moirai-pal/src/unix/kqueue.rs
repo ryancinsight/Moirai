@@ -16,6 +16,9 @@ const WAKE_IDENT: usize = usize::MAX;
 pub struct KqueueReactor {
     kqueue_fd: RawFd,
     interests: Mutex<HashMap<RawFd, Interest>>,
+    /// Reused `kevent` output buffer (`EVENT_CAPACITY` entries), so the hot
+    /// poll loop does not allocate a fresh 1024-entry vector per iteration.
+    events: Mutex<Vec<libc::kevent>>,
 }
 
 impl KqueueReactor {
@@ -31,6 +34,7 @@ impl KqueueReactor {
         let reactor = Self {
             kqueue_fd,
             interests: Mutex::new(HashMap::new()),
+            events: Mutex::new(vec![zeroed_event(); EVENT_CAPACITY]),
         };
         reactor.register_waker()?;
         Ok(reactor)
@@ -88,7 +92,9 @@ impl Reactor for KqueueReactor {
     }
 
     fn poll_events(&self, timeout: Option<Duration>) -> io::Result<Vec<Event>> {
-        let mut events = vec![zeroed_event(); EVENT_CAPACITY];
+        // Reuse the persistent output buffer; the mutex serializes concurrent
+        // pollers (the reactor is driven by one event-loop thread in practice).
+        let mut events = lock_mutex(&self.events);
         let timeout_spec = timeout.map(duration_to_timespec);
         let timeout_ptr = timeout_spec
             .as_ref()
@@ -113,7 +119,7 @@ impl Reactor for KqueueReactor {
         }
 
         let mut output = Vec::with_capacity(ready as usize);
-        for event in events.into_iter().take(ready as usize) {
+        for event in events.iter().take(ready as usize) {
             if event.ident == WAKE_IDENT {
                 continue;
             }
