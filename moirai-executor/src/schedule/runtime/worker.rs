@@ -102,16 +102,44 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
 ) -> Option<ScheduledJob> {
     let worker_count = inner.workers.len();
     let local = &inner.workers[worker_id];
-    // Randomized victim order. Deterministic round-robin makes every idle
-    // worker probe victims in the same `worker_id+1, +2, …` sequence, so after a
-    // fork/join barrier (scope, map_reduce_indexed) the freshly-idle workers
-    // pile onto the same victims' `top` CAS in lockstep. A thread-local
-    // xorshift64 start spreads the first -- and most contended -- steal attempt
-    // across victims (Blumofe–Leiserson randomized work-stealing). The full
-    // ring is still scanned, so coverage and worst-case cost are unchanged.
+    let my_node = inner.worker_numa_nodes.get(worker_id).copied().flatten();
+
+    // Two-pass NUMA-aware victim selection:
+    //
+    // Pass 1 (same-NUMA-node): prefer victims on the same NUMA node as the
+    // thief.  Same-node steals access memory already in the local NUMA bank,
+    // avoiding cross-socket NUMA traffic on multi-socket systems.  Skipped
+    // when topology is unavailable (my_node == None) or only one node exists.
+    //
+    // Pass 2 (all workers): fall back to the full-ring randomised scan so
+    // coverage and worst-case load balance are preserved — same as the
+    // previous implementation.
+    //
+    // Both passes use xorshift64 randomisation (Blumofe–Leiserson) to spread
+    // the first steal attempt and prevent thundering-herd CAS contention.
+    if let Some(node) = my_node {
+        let start = next_steal_start();
+        for offset in 0..worker_count {
+            let victim_index = (start.wrapping_add(offset)) % worker_count;
+            if victim_index == worker_id {
+                continue;
+            }
+            // Only try same-node victims in pass 1.
+            if inner.worker_numa_nodes.get(victim_index).copied().flatten() != Some(node) {
+                continue;
+            }
+            let victim = &inner.workers[victim_index];
+            if let Some(job) = local.queues.steal_batch(&victim.queues) {
+                return Some(job);
+            }
+            if let Some(job) = victim.lifo_slot.steal() {
+                return Some(job);
+            }
+        }
+    }
+
+    // Pass 2: full ring scan from a fresh random origin, skipping self.
     let start = next_steal_start();
-    // Scan the full ring from a random origin, skipping self, so all
-    // `worker_count - 1` victims are still covered regardless of `start`.
     for offset in 0..worker_count {
         let victim_index = (start.wrapping_add(offset)) % worker_count;
         if victim_index == worker_id {

@@ -71,6 +71,24 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
+        // Detect NUMA topology once at construction; derive a per-worker node
+        // assignment so `steal_job` can prefer same-node victims without runtime
+        // discovery overhead.  Falls back to `None` on single-node / VM systems.
+        let topology = moirai_scheduler::numa::CpuTopology::detect();
+        let worker_numa_nodes: Box<[Option<usize>]> = if let Some(ref topo) = topology {
+            (0..worker_count)
+                .map(|id| {
+                    // Use CPU core ID equal to worker ID (modular wrap on many-core
+                    // systems so indices stay in-bounds regardless of worker count).
+                    let core_id = id % topo.logical_cores.max(1);
+                    topo.core_to_numa_node(core_id)
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        } else {
+            vec![None; worker_count].into_boxed_slice()
+        };
+
         let inner = Arc::new(SchedulerInner {
             workers,
             handles: std::sync::Mutex::new(Vec::with_capacity(worker_count)),
@@ -83,6 +101,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             wait_lock: std::sync::Mutex::new(()),
             wait_signal: std::sync::Condvar::new(),
             idle_workers: super::super::idle::IdleBitset::new(worker_count),
+            worker_numa_nodes,
         });
 
         for worker_id in 0..worker_count {
