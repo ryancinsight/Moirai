@@ -2,7 +2,7 @@
 //!
 //! Optimized for low latency with zero-copy semantics.
 
-use super::error::{CachePadded, Channel, ChannelError, Result};
+use super::error::{CacheAligned, Channel, ChannelError, Result};
 use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
@@ -24,9 +24,9 @@ pub struct SpscChannel<T> {
     /// Capacity mask for fast modulo
     mask: usize,
     /// Producer position (cache-aligned)
-    head: CachePadded<AtomicUsize>,
+    head: CacheAligned<AtomicUsize>,
     /// Consumer position (cache-aligned)
-    tail: CachePadded<AtomicUsize>,
+    tail: CacheAligned<AtomicUsize>,
     /// Channel state
     closed: AtomicBool,
 }
@@ -46,8 +46,8 @@ impl<T> SpscChannel<T> {
         Self {
             buffer,
             mask: capacity - 1,
-            head: CachePadded::new(AtomicUsize::new(0)),
-            tail: CachePadded::new(AtomicUsize::new(0)),
+            head: CacheAligned::new(AtomicUsize::new(0)),
+            tail: CacheAligned::new(AtomicUsize::new(0)),
             closed: AtomicBool::new(false),
         }
     }
@@ -70,8 +70,8 @@ impl<T> SpscChannel<T> {
 
 impl<T> Drop for SpscChannel<T> {
     fn drop(&mut self) {
-        let tail = self.tail.value.load(Ordering::Relaxed);
-        let head = self.head.value.load(Ordering::Relaxed);
+        let tail = self.tail.0.load(Ordering::Relaxed);
+        let head = self.head.0.load(Ordering::Relaxed);
         let len = head.wrapping_sub(tail);
         for i in 0..len {
             unsafe {
@@ -92,8 +92,8 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
                 return Err(ChannelError::Closed);
             }
 
-            let head = self.head.value.load(Ordering::Relaxed);
-            let tail = self.tail.value.load(Ordering::Acquire);
+            let head = self.head.0.load(Ordering::Relaxed);
+            let tail = self.tail.0.load(Ordering::Acquire);
 
             // Check if there's space
             if head.wrapping_sub(tail) < self.buffer.len() {
@@ -102,9 +102,7 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
                     let slot = &mut *self.buffer[head & self.mask].get();
                     slot.write(value);
                 }
-                self.head
-                    .value
-                    .store(head.wrapping_add(1), Ordering::Release);
+                self.head.0.store(head.wrapping_add(1), Ordering::Release);
                 return Ok(());
             }
 
@@ -127,8 +125,8 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
             return Err(ChannelError::Closed);
         }
 
-        let head = self.head.value.load(Ordering::Relaxed);
-        let tail = self.tail.value.load(Ordering::Acquire);
+        let head = self.head.0.load(Ordering::Relaxed);
+        let tail = self.tail.0.load(Ordering::Acquire);
 
         // Check if full
         if head.wrapping_sub(tail) >= self.buffer.len() {
@@ -140,9 +138,7 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
             slot.write(value);
         }
 
-        self.head
-            .value
-            .store(head.wrapping_add(1), Ordering::Release);
+        self.head.0.store(head.wrapping_add(1), Ordering::Release);
         Ok(())
     }
 
@@ -171,8 +167,8 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
     }
 
     fn try_recv(&self) -> Result<T> {
-        let tail = self.tail.value.load(Ordering::Relaxed);
-        let head = self.head.value.load(Ordering::Acquire);
+        let tail = self.tail.0.load(Ordering::Relaxed);
+        let head = self.head.0.load(Ordering::Acquire);
 
         if tail == head {
             if self.closed.load(Ordering::Acquire) {
@@ -187,21 +183,19 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
             slot.assume_init_read()
         };
 
-        self.tail
-            .value
-            .store(tail.wrapping_add(1), Ordering::Release);
+        self.tail.0.store(tail.wrapping_add(1), Ordering::Release);
         Ok(value)
     }
 
     fn is_empty(&self) -> bool {
-        let tail = self.tail.value.load(Ordering::Relaxed);
-        let head = self.head.value.load(Ordering::Acquire);
+        let tail = self.tail.0.load(Ordering::Relaxed);
+        let head = self.head.0.load(Ordering::Acquire);
         tail == head
     }
 
     fn is_full(&self) -> bool {
-        let head = self.head.value.load(Ordering::Relaxed);
-        let tail = self.tail.value.load(Ordering::Acquire);
+        let head = self.head.0.load(Ordering::Relaxed);
+        let tail = self.tail.0.load(Ordering::Acquire);
         head.wrapping_sub(tail) >= self.buffer.len()
     }
 

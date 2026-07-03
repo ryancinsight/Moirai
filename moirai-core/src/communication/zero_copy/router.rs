@@ -91,7 +91,7 @@ impl<T: Send + 'static> ZeroCopyRouter<T> {
         }
     }
 
-    /// Get routing statistics (messages_routed, routing_failures, zero_copy_sends)
+    /// Get routing statistics (`messages_routed`, `routing_failures`, `zero_copy_sends`)
     pub fn stats(&self) -> (usize, usize, usize) {
         (
             self.stats.messages_routed.load(Ordering::Relaxed),

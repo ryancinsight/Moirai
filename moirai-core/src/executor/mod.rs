@@ -63,7 +63,7 @@ pub struct ExecutorStats {
 pub(crate) fn num_cpus() -> usize {
     #[cfg(feature = "std")]
     {
-        std::thread::available_parallelism().map_or(1, |parallelism| parallelism.get())
+        std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
     }
     #[cfg(not(feature = "std"))]
     {

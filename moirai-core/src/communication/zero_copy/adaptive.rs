@@ -39,6 +39,16 @@ impl AdaptiveThreshold {
     }
 
     /// Update batch size based on performance metrics
+    // justification: threshold arithmetic runs in f64. Inputs are small config
+    // bounds (`min`/`max_threshold` ≤ a few thousand) and `VecDeque` lengths ≤ 10,
+    // all exactly representable in f64. `new_threshold` is clamped to
+    // `[min_threshold, max_threshold]` (both usize) before the `as usize` store,
+    // so it is non-negative and in range — no truncation or sign loss.
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     pub fn update(&self, throughput: f64, latency: Duration) {
         let mut history = self.throughput_history.lock().unwrap();
         let mut last = self.last_adaptation.lock().unwrap();
@@ -111,6 +121,9 @@ impl ThroughputMonitor {
     }
 
     /// Get current throughput in messages per second
+    // justification: `count as f64` is a rate computation; f64 precision loss
+    // only occurs past 2^52 messages, far beyond any realistic in-window count.
+    #[allow(clippy::cast_precision_loss)]
     pub fn current_throughput(&self) -> f64 {
         let count = self.message_count.load(Ordering::Relaxed);
         let start = self.start_time.lock().unwrap();
@@ -123,6 +136,9 @@ impl ThroughputMonitor {
     }
 
     /// Get recent throughput over the last measurement window
+    // justification: `t.len() as f64` divides by a `VecDeque` length ≤ 10
+    // (capacity 10), exactly representable in f64.
+    #[allow(clippy::cast_precision_loss)]
     pub fn recent_throughput(&self) -> f64 {
         let t = self.recent_throughput.lock().unwrap();
         if t.is_empty() {
@@ -158,7 +174,7 @@ impl Default for ThroughputMonitor {
     }
 }
 
-/// Adaptive batching channel built on top of ZeroCopyChannel.
+/// Adaptive batching channel built on top of `ZeroCopyChannel`.
 pub struct AdaptiveBatchChannel<T> {
     _zero_copy: ZeroCopyChannel<T>,
     _batch_buffer: std::sync::Mutex<VecDeque<T>>,

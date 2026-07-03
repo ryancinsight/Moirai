@@ -26,6 +26,10 @@ struct PackedState {
 
 impl PackedState {
     #[inline]
+    // justification: intentional bit-unpacking. `val` packs `index` in the low
+    // 32 bits and `generation` in the high 32; each `as u32` extracts one half.
+    // Truncation is the defined semantics (inverse of `to_u64`).
+    #[allow(clippy::cast_possible_truncation)]
     fn from_u64(val: u64) -> Self {
         Self {
             index: val as u32,
@@ -52,7 +56,7 @@ unsafe impl<T: Sync> Sync for StackNode<T> {}
 ///
 /// # Safety
 /// This implementation uses a pre-allocated array of slots with a generation counter
-/// packed in an AtomicU64 to prevent ABA problems and use-after-free without blocking.
+/// packed in an `AtomicU64` to prevent ABA problems and use-after-free without blocking.
 ///
 /// # Capacity
 /// The slot array is fixed at construction; [`Self::push`] returns the item back
@@ -101,7 +105,9 @@ impl<T> LockFreeStack<T> {
         for i in 0..capacity {
             nodes.push(StackNode {
                 data: UnsafeCell::new(MaybeUninit::uninit()),
-                next: AtomicU32::new(i as u32 + 1),
+                next: AtomicU32::new(
+                    u32::try_from(i).expect("invariant: i < capacity < u32::MAX (asserted above)") + 1,
+                ),
             });
         }
         if capacity > 0 {
@@ -255,4 +261,4 @@ impl<T> Drop for LockFreeStack<T> {
 unsafe impl<T: Send> Send for LockFreeStack<T> {}
 unsafe impl<T: Send> Sync for LockFreeStack<T> {}
 
-pub use moirai_utils::cache::CachePadded;
+pub use moirai_utils::cache::CacheAligned;

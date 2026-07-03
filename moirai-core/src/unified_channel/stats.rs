@@ -46,6 +46,9 @@ impl ChannelStats {
     }
 
     /// Get send/receive ratio for adaptive behavior
+    // justification: message counts converted to f64 for a ratio; precision loss
+    // only occurs past 2^52 messages, unreachable for these counters in practice.
+    #[allow(clippy::cast_precision_loss)]
     pub(crate) fn get_throughput_ratio(&self) -> f64 {
         let sent = self.messages_sent.load(Ordering::Relaxed);
         let received = self.messages_received.load(Ordering::Relaxed);

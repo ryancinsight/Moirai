@@ -28,7 +28,7 @@ pub mod simd;
 
 // Re-export commonly used types for convenience
 pub use atomic::AtomicCounter;
-pub use cache::{align_to_cache_line, CacheAligned, CachePadded, CACHE_LINE_SIZE};
+pub use cache::{align_to_cache_line, CacheAligned, CACHE_LINE_SIZE};
 pub use memory::{prefetch_read, prefetch_write};
 pub use queue::LockFreeQueue;
 

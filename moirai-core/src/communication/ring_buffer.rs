@@ -1,4 +1,4 @@
-use moirai_utils::cache::CachePadded;
+use moirai_utils::cache::CacheAligned;
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,18 +8,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// # Safety
 ///
 /// This structure uses `MaybeUninit` for zero-copy performance:
-/// - Values are written with `write()` before incrementing producer_seq
+/// - Values are written with `write()` before incrementing `producer_seq`
 /// - The `assume_init_read()` in `try_consume()` is safe because we check
-///   that producer_seq > current, ensuring data was written
+///   that `producer_seq` > current, ensuring data was written
 pub struct RingBuffer<T> {
     /// Buffer storage
     buffer: Box<[UnsafeCell<MaybeUninit<T>>]>,
     /// Capacity mask for fast modulo
     mask: usize,
     /// Producer sequence number
-    producer_seq: CachePadded<AtomicUsize>,
+    producer_seq: CacheAligned<AtomicUsize>,
     /// Consumer sequence number
-    consumer_seq: CachePadded<AtomicUsize>,
+    consumer_seq: CacheAligned<AtomicUsize>,
 }
 
 // SAFETY: the ring owns its `T` values inside `UnsafeCell<MaybeUninit<T>>`, so it
@@ -44,15 +44,15 @@ impl<T> RingBuffer<T> {
         Self {
             buffer,
             mask: capacity - 1,
-            producer_seq: CachePadded::new(AtomicUsize::new(0)),
-            consumer_seq: CachePadded::new(AtomicUsize::new(0)),
+            producer_seq: CacheAligned::new(AtomicUsize::new(0)),
+            consumer_seq: CacheAligned::new(AtomicUsize::new(0)),
         }
     }
 
     /// Try to produce a value
     pub fn try_produce(&self, value: T) -> Result<(), T> {
-        let current = self.producer_seq.value.load(Ordering::Relaxed);
-        let consumer = self.consumer_seq.value.load(Ordering::Acquire);
+        let current = self.producer_seq.0.load(Ordering::Relaxed);
+        let consumer = self.consumer_seq.0.load(Ordering::Acquire);
 
         // Check if full
         if current.wrapping_sub(consumer) >= self.buffer.len() {
@@ -65,15 +65,15 @@ impl<T> RingBuffer<T> {
         }
 
         self.producer_seq
-            .value
+            .0
             .store(current.wrapping_add(1), Ordering::Release);
         Ok(())
     }
 
     /// Try to consume a value
     pub fn try_consume(&self) -> Option<T> {
-        let current = self.consumer_seq.value.load(Ordering::Relaxed);
-        let producer = self.producer_seq.value.load(Ordering::Acquire);
+        let current = self.consumer_seq.0.load(Ordering::Relaxed);
+        let producer = self.producer_seq.0.load(Ordering::Acquire);
 
         if current == producer {
             return None;
@@ -86,7 +86,7 @@ impl<T> RingBuffer<T> {
         };
 
         self.consumer_seq
-            .value
+            .0
             .store(current.wrapping_add(1), Ordering::Release);
         Some(value)
     }
@@ -98,30 +98,30 @@ impl<T> RingBuffer<T> {
 
     /// Check if the ring buffer is empty
     pub fn is_empty(&self) -> bool {
-        let consumer = self.consumer_seq.value.load(Ordering::Acquire);
-        let producer = self.producer_seq.value.load(Ordering::Acquire);
+        let consumer = self.consumer_seq.0.load(Ordering::Acquire);
+        let producer = self.producer_seq.0.load(Ordering::Acquire);
         consumer == producer
     }
 
     /// Check if the ring buffer is full
     pub fn is_full(&self) -> bool {
-        let consumer = self.consumer_seq.value.load(Ordering::Acquire);
-        let producer = self.producer_seq.value.load(Ordering::Acquire);
+        let consumer = self.consumer_seq.0.load(Ordering::Acquire);
+        let producer = self.producer_seq.0.load(Ordering::Acquire);
         producer.wrapping_sub(consumer) >= self.buffer.len()
     }
 
     /// Get the number of items currently in the buffer
     pub fn len(&self) -> usize {
-        let consumer = self.consumer_seq.value.load(Ordering::Acquire);
-        let producer = self.producer_seq.value.load(Ordering::Acquire);
+        let consumer = self.consumer_seq.0.load(Ordering::Acquire);
+        let producer = self.producer_seq.0.load(Ordering::Acquire);
         producer.wrapping_sub(consumer)
     }
 }
 
 impl<T> Drop for RingBuffer<T> {
     fn drop(&mut self) {
-        let consumer = *self.consumer_seq.value.get_mut();
-        let producer = *self.producer_seq.value.get_mut();
+        let consumer = *self.consumer_seq.0.get_mut();
+        let producer = *self.producer_seq.0.get_mut();
         let len = producer.wrapping_sub(consumer);
         for i in 0..len {
             let idx = (consumer.wrapping_add(i)) & self.mask;
@@ -161,8 +161,8 @@ mod tests {
                 slot3.write(TrackDrop);
             }
 
-            *rb.consumer_seq.value.get_mut() = usize::MAX - 1;
-            *rb.producer_seq.value.get_mut() = 1;
+            *rb.consumer_seq.0.get_mut() = usize::MAX - 1;
+            *rb.producer_seq.0.get_mut() = 1;
         }
 
         assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 3);

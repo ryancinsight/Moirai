@@ -21,7 +21,7 @@ pub const DEFAULT_POLL_INTERVAL_MS: u64 = 10;
 /// Maximum generic spin attempts before falling back to blocking
 pub const MAX_SPIN_ATTEMPTS: usize = 64;
 
-/// Maximum backoff iterations for SpinLock (TBB-inspired)
+/// Maximum backoff iterations for `SpinLock` (TBB-inspired)
 pub const SPINLOCK_MAX_BACKOFF: usize = 64;
 
 /// Maximum spin attempts before yielding to scheduler

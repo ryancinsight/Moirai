@@ -385,8 +385,7 @@ mod tests {
         // tolerance for slow CI machines (assert >= 10ms rather than 90ms).
         assert!(
             elapsed >= Duration::from_millis(10),
-            "receiver should have parked, elapsed: {:?}",
-            elapsed
+            "receiver should have parked, elapsed: {elapsed:?}",
         );
         assert!(elapsed < Duration::from_millis(500));
     }

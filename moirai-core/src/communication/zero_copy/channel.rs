@@ -1,11 +1,11 @@
-//! Zero-copy channel implemented over MemoryMappedRing.
+//! Zero-copy channel implemented over `MemoryMappedRing`.
 
 use std::sync::Arc;
 
 use super::error::{ZeroCopyError, ZeroCopyResult};
 use super::ring::MemoryMappedRing;
 
-/// Zero-copy channel implemented over MemoryMappedRing.
+/// Zero-copy channel implemented over `MemoryMappedRing`.
 pub struct ZeroCopyChannel<T> {
     _ring: Arc<MemoryMappedRing<T>>,
 }

@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 /// queue. A receiver that misses intermediate broadcasts sees only the newest
 /// value.
 pub struct BroadcastChannel<T: Clone> {
-    /// Current value (protected by RwLock for concurrent access)
+    /// Current value (protected by `RwLock` for concurrent access)
     value: Arc<RwLock<Option<T>>>,
     /// Version number for detecting updates
     version: Arc<AtomicUsize>,
