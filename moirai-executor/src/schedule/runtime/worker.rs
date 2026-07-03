@@ -5,10 +5,7 @@ use std::{
     thread,
 };
 
-use moirai_core::{
-    error::{ExecutorError, ExecutorResult},
-    Priority,
-};
+use moirai_core::error::{ExecutorError, ExecutorResult};
 
 use super::super::job::ScheduledJob;
 
@@ -275,9 +272,11 @@ pub(super) fn wake_all_workers<const QUEUE_CAPACITY: usize>(
 }
 
 pub(super) trait ContendedWakable {
-    #[allow(dead_code)]
+    /// Worker-pool size; consumed only by the diagnostics wake-decision path.
+    #[cfg(feature = "scheduler-diagnostics")]
     fn worker_count(&self) -> usize;
-    #[allow(dead_code)]
+    /// Direct single-worker wake; consumed only by the diagnostics wake-decision path.
+    #[cfg(feature = "scheduler-diagnostics")]
     fn wake_worker(&self, worker_index: usize);
     fn wake_contended<P>(&self, worker_index: usize, previous_pending: usize) -> usize
     where
@@ -285,10 +284,12 @@ pub(super) trait ContendedWakable {
 }
 
 impl<const QUEUE_CAPACITY: usize> ContendedWakable for SchedulerInner<QUEUE_CAPACITY> {
+    #[cfg(feature = "scheduler-diagnostics")]
     fn worker_count(&self) -> usize {
         self.workers.len()
     }
 
+    #[cfg(feature = "scheduler-diagnostics")]
     fn wake_worker(&self, worker_index: usize) {
         wake_worker(&self.workers[worker_index]);
     }
@@ -359,15 +360,6 @@ pub(super) fn is_quiescent<const QUEUE_CAPACITY: usize>(
     use std::sync::atomic::Ordering;
     inner.pending_tasks.load(Ordering::Acquire) == 0
         && inner.active_workers.load(Ordering::Acquire) == 0
-}
-
-pub(super) fn priority_weight(priority: Priority) -> usize {
-    match priority {
-        Priority::Low => 0,
-        Priority::Normal => 1,
-        Priority::High => 2,
-        Priority::Critical => 3,
-    }
 }
 
 pub(super) fn inline_map_reduce<T, Map, Reduce>(

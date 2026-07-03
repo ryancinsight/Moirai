@@ -8,7 +8,8 @@ use moirai_utils::CacheAligned;
 
 use super::job::ScheduledJob;
 
-const PRIORITY_LEVELS: usize = 4;
+/// One queue per priority level; indices come from [`Priority::index`] (SSOT).
+const PRIORITY_LEVELS: usize = Priority::Critical.index() + 1;
 /// Initial slot count for each worker's multi-producer injector queue.
 ///
 /// The injector holds `(Priority, ScheduledJob)` elements (~256 B each); the
@@ -21,12 +22,13 @@ const PRIORITY_LEVELS: usize = 4;
 /// This is a subtractive sizing fix; threading `ExecutorConfig::
 /// max_global_queue_size` to this construction site is a separate follow-up.
 const INJECTOR_CAPACITY: usize = 1024;
-const CRITICAL_INDEX: usize = 3;
-const HIGH_INDEX: usize = 2;
-const NORMAL_INDEX: usize = 1;
-const LOW_INDEX: usize = 0;
-const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] =
-    [CRITICAL_INDEX, HIGH_INDEX, NORMAL_INDEX, LOW_INDEX];
+/// Pop scan order: highest [`Priority::index`] first.
+const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] = [
+    Priority::Critical.index(),
+    Priority::High.index(),
+    Priority::Normal.index(),
+    Priority::Low.index(),
+];
 
 /// Per-worker task queues partitioned by priority using lock-free Chase-Lev deques.
 ///
@@ -59,7 +61,7 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
 
     /// Push a job from the owner thread (local push).
     pub(crate) fn push_local(&self, priority: Priority, job: ScheduledJob) {
-        let index = priority_index(priority);
+        let index = priority.index();
         self.local_queues[index].push(job);
         self.len.fetch_add(1, Ordering::Relaxed);
     }
@@ -100,39 +102,9 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
 
     fn drain_injector(&self) {
         while let Some((priority, job)) = self.injector.try_dequeue() {
-            let index = priority_index(priority);
+            let index = priority.index();
             self.local_queues[index].push(job);
         }
-    }
-
-    /// Steal older work from another worker, highest priority first.
-    #[allow(dead_code)]
-    pub(crate) fn steal(&self) -> Option<ScheduledJob> {
-        if self.len.load(Ordering::Relaxed) == 0 {
-            return None;
-        }
-
-        // 1. Try to steal from target's local queues
-        for &index in &PRIORITY_POP_ORDER {
-            loop {
-                match self.local_queues[index].steal() {
-                    StealResult::Success(job) => {
-                        self.len.fetch_sub(1, Ordering::Relaxed);
-                        return Some(job);
-                    }
-                    StealResult::Retry => continue,
-                    StealResult::Empty => break,
-                }
-            }
-        }
-
-        // 2. Try to steal from target's injector
-        if let Some((_, job)) = self.injector.try_dequeue() {
-            self.len.fetch_sub(1, Ordering::Relaxed);
-            return Some(job);
-        }
-
-        None
     }
 
     /// Steal multiple jobs from another worker's queues, highest priority first,
@@ -171,7 +143,7 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
             // Dequeue a batch (up to 15 more tasks to form a batch of 16)
             while pushed_count < 15 {
                 if let Some((p, job)) = target.injector.try_dequeue() {
-                    let dest_queue = &self.local_queues[priority_index(p)];
+                    let dest_queue = &self.local_queues[p.index()];
                     dest_queue.push(job);
                     pushed_count += 1;
                 } else {
@@ -211,15 +183,6 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
     #[cfg(test)]
     pub(crate) fn injector_capacity(&self) -> usize {
         self.injector.capacity()
-    }
-}
-
-fn priority_index(priority: Priority) -> usize {
-    match priority {
-        Priority::Low => LOW_INDEX,
-        Priority::Normal => NORMAL_INDEX,
-        Priority::High => HIGH_INDEX,
-        Priority::Critical => CRITICAL_INDEX,
     }
 }
 

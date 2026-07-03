@@ -1,11 +1,22 @@
 use std::{
     cell::UnsafeCell,
     ptr::NonNull,
-    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
+use moirai_core::Priority;
+
 use super::super::task::TaskMetadata;
+
+/// Inverse of [`Priority::index`]: `PRIORITY_FROM_INDEX[p.index()] == p` for
+/// every variant (asserted by `priority_index_round_trips` in the registry tests).
+pub(crate) const PRIORITY_FROM_INDEX: [Priority; Priority::Critical.index() + 1] = [
+    Priority::Low,
+    Priority::Normal,
+    Priority::High,
+    Priority::Critical,
+];
 
 pub(crate) const NO_WORKER: usize = usize::MAX;
 pub(crate) const TIMESTAMP_NOT_RECORDED: u64 = u64::MAX;
@@ -42,6 +53,12 @@ pub(crate) struct TaskState {
     pub(super) completed_after_ns: AtomicU64,
     pub(super) worker_id: AtomicUsize,
     pub(super) waker: std::sync::Mutex<Option<std::task::Waker>>,
+    /// Spawn priority stored as its [`Priority::index`] discriminant.
+    pub(super) priority: AtomicU8,
+    /// Set by `cancel_task`; observed cooperatively at job start.
+    pub(super) cancel_requested: AtomicBool,
+    /// Set when a cancel request was honored (the job body never ran).
+    pub(super) cancelled: AtomicBool,
 }
 
 impl std::fmt::Debug for TaskState {
@@ -65,7 +82,47 @@ impl TaskState {
             completed_after_ns: AtomicU64::new(TIMESTAMP_NOT_RECORDED),
             worker_id: AtomicUsize::new(NO_WORKER),
             waker: std::sync::Mutex::new(None),
+            // Lossless enum-to-int cast: Priority discriminants are 0..=3.
+            priority: AtomicU8::new(Priority::Normal as u8),
+            cancel_requested: AtomicBool::new(false),
+            cancelled: AtomicBool::new(false),
         }
+    }
+
+    #[inline]
+    pub(super) fn set_priority(&self, priority: Priority) {
+        // Lossless enum-to-int cast: Priority discriminants are 0..=3.
+        self.priority.store(priority as u8, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub(super) fn priority(&self) -> Priority {
+        // Invariant: the slot only ever stores `priority as u8` (0..=3), so the
+        // lookup cannot go out of bounds.
+        PRIORITY_FROM_INDEX[usize::from(self.priority.load(Ordering::Relaxed))]
+    }
+
+    /// Flag the task for cooperative cancellation.
+    #[inline]
+    pub(super) fn request_cancel(&self) {
+        self.cancel_requested.store(true, Ordering::Release);
+    }
+
+    #[inline]
+    pub(super) fn cancel_requested(&self) -> bool {
+        self.cancel_requested.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    pub(super) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    /// Publish that a cancel request was honored: the task completes without
+    /// its body having run, and any registered waiter is woken.
+    pub(super) fn mark_cancelled(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        self.mark_completed();
     }
 
     #[inline]
@@ -131,6 +188,8 @@ impl TaskState {
             ),
             completed_at: self.completed_at(),
             worker_id,
+            priority: self.priority(),
+            cancelled: self.is_cancelled(),
         }
     }
 }

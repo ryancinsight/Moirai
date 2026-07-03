@@ -3,8 +3,10 @@
 mod tests {
     use std::time::Duration;
 
-    use super::super::registry::TaskRegistry;
-    use super::super::state::TASK_STATE_BLOCK_SIZE;
+    use moirai_core::Priority;
+
+    use super::super::registry::{CancelOutcome, TaskRegistry};
+    use super::super::state::{PRIORITY_FROM_INDEX, TASK_STATE_BLOCK_SIZE};
 
     #[test]
     fn lifecycle_token_records_started_and_completed_metadata() {
@@ -96,6 +98,81 @@ mod tests {
         assert!(registry.blocks.is_empty());
         assert!(registry.get_metadata(first_id).is_none());
         assert!(registry.get_metadata(second_id).is_none());
+    }
+
+    #[test]
+    fn priority_index_round_trips() {
+        // PRIORITY_FROM_INDEX is the inverse of Priority::index (SSOT pair).
+        for priority in [
+            Priority::Low,
+            Priority::Normal,
+            Priority::High,
+            Priority::Critical,
+        ] {
+            assert_eq!(PRIORITY_FROM_INDEX[priority.index()], priority);
+        }
+        assert_eq!(Priority::Low.index(), 0);
+        assert_eq!(Priority::Normal.index(), 1);
+        assert_eq!(Priority::High.index(), 2);
+        assert_eq!(Priority::Critical.index(), 3);
+    }
+
+    #[test]
+    fn lifecycle_token_records_spawn_priority() {
+        let mut registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+        lifecycle.set_priority(Priority::Critical);
+
+        assert_eq!(
+            registry.get_metadata(task_id).unwrap().priority,
+            Priority::Critical
+        );
+
+        lifecycle.start(0).complete();
+        // The recorded priority survives completion.
+        assert_eq!(
+            registry.get_metadata(task_id).unwrap().priority,
+            Priority::Critical
+        );
+    }
+
+    #[test]
+    fn cancel_before_start_skips_body_and_completes_as_cancelled() {
+        let mut registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+
+        assert_eq!(
+            registry.request_cancel(task_id),
+            Some(CancelOutcome::Requested)
+        );
+
+        // The job-start gate observes the request and never yields a running token.
+        assert!(lifecycle.start_unless_cancelled(4).is_none());
+
+        let metadata = registry.get_metadata(task_id).unwrap();
+        assert!(metadata.cancelled);
+        assert!(metadata.completed_at.is_some());
+        assert!(metadata.started_at.is_none());
+        assert!(registry.is_completed(task_id));
+    }
+
+    #[test]
+    fn cancel_after_completion_reports_already_completed() {
+        let mut registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+        lifecycle.start(0).complete();
+
+        assert_eq!(
+            registry.request_cancel(task_id),
+            Some(CancelOutcome::AlreadyCompleted)
+        );
+        assert!(!registry.get_metadata(task_id).unwrap().cancelled);
+    }
+
+    #[test]
+    fn cancel_unknown_task_returns_none() {
+        let registry = TaskRegistry::new();
+        assert_eq!(registry.request_cancel(999), None);
     }
 
     #[test]

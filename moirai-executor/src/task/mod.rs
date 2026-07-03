@@ -5,6 +5,8 @@
 
 use std::time::{Duration, Instant};
 
+use moirai_core::Priority;
+
 /// Task metadata for tracking and debugging
 #[derive(Debug, Clone)]
 pub struct TaskMetadata {
@@ -13,6 +15,10 @@ pub struct TaskMetadata {
     pub started_at: Option<Instant>,
     pub completed_at: Option<Instant>,
     pub worker_id: Option<usize>,
+    /// Priority the task was spawned with.
+    pub priority: Priority,
+    /// True when a cancel request was honored before the task body ran.
+    pub cancelled: bool,
 }
 
 impl TaskMetadata {
@@ -24,6 +30,8 @@ impl TaskMetadata {
             started_at: None,
             completed_at: None,
             worker_id: None,
+            priority: Priority::Normal,
+            cancelled: false,
         }
     }
 

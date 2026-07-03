@@ -184,6 +184,22 @@ where
             return;
         }
 
+        if self.cancel_pending() {
+            // Cooperative cancellation observed before the first poll: the
+            // future body never runs. Mirrors the sync-path cancel handling in
+            // `TaskLifecycleToken::start_unless_cancelled`.
+            self.drop_future();
+            self.state.store(ASYNC_COMPLETED, Ordering::Release);
+            self.cancel_lifecycle();
+            // Record before publishing the result so a joiner observes the
+            // cancelled counter as soon as the handle resolves.
+            self.metrics.record_task_cancelled();
+            if let Some(sender) = self.take_result_sender() {
+                sender.send(Err(TaskError::Cancelled));
+            }
+            return;
+        }
+
         self.mark_running(worker_id);
         let waker = Waker::from(Arc::clone(self));
         let mut context = Context::from_waker(&waker);
@@ -227,6 +243,26 @@ where
                     return;
                 }
             }
+        }
+    }
+
+    /// Whether the task was cancelled while still queued (never polled).
+    fn cancel_pending(&self) -> bool {
+        // Safety: only the poll owner selected by the async state machine calls
+        // this method, so the lifecycle cell access is single-threaded.
+        let lifecycle = unsafe { &*self.lifecycle.get() };
+        matches!(lifecycle, AsyncLifecycle::Registered(token) if token.cancel_requested())
+    }
+
+    /// Consume the registered lifecycle token as cancelled.
+    fn cancel_lifecycle(&self) {
+        // Safety: only the poll owner selected by the async state machine calls
+        // this method, so lifecycle mutation is single-threaded.
+        let lifecycle = unsafe { &mut *self.lifecycle.get() };
+        if let AsyncLifecycle::Registered(token) =
+            std::mem::replace(lifecycle, AsyncLifecycle::Completed)
+        {
+            token.cancel();
         }
     }
 

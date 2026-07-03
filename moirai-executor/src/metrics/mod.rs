@@ -7,21 +7,23 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 // Import centralized constants (SSOT compliance)
-use moirai_core::constants::{
-    BYTES_TO_MB_FACTOR, DEFAULT_UTILIZATION, MAX_SUCCESS_RATE, PERCENTAGE_PRECISION_FACTOR,
-};
+use moirai_core::constants::{DEFAULT_UTILIZATION, MAX_SUCCESS_RATE, PERCENTAGE_PRECISION_FACTOR};
 
-/// Comprehensive executor performance metrics
+/// Executor performance metrics.
+///
+/// Every field is written by a real production path; untracked quantities
+/// (process memory, CPU utilization) deliberately have no fields here.
 #[derive(Debug)]
 pub struct ExecutorMetrics {
     // Task counters
     pub tasks_spawned: AtomicU64,
     pub tasks_completed: AtomicU64,
     pub tasks_failed: AtomicU64,
+    /// Tasks whose cancel request was honored before the body ran.
+    pub tasks_cancelled: AtomicU64,
 
     // Timing metrics
-    pub total_execution_time: AtomicU64,  // in nanoseconds
-    pub average_task_duration: AtomicU64, // in nanoseconds
+    pub total_execution_time: AtomicU64, // in nanoseconds
 
     // Thread pool metrics
     pub active_workers: AtomicUsize,
@@ -31,10 +33,6 @@ pub struct ExecutorMetrics {
     // Queue metrics
     pub pending_tasks: AtomicUsize,
     pub max_queue_depth: AtomicUsize,
-
-    // Resource utilization
-    pub memory_usage: AtomicUsize,  // in bytes
-    pub cpu_utilization: AtomicU64, // percentage * CPU_UTILIZATION_PRECISION
 
     // System metrics
     pub started_at: Instant,
@@ -49,15 +47,13 @@ impl ExecutorMetrics {
             tasks_spawned: AtomicU64::new(0),
             tasks_completed: AtomicU64::new(0),
             tasks_failed: AtomicU64::new(0),
+            tasks_cancelled: AtomicU64::new(0),
             total_execution_time: AtomicU64::new(0),
-            average_task_duration: AtomicU64::new(0),
             active_workers: AtomicUsize::new(0),
             idle_workers: AtomicUsize::new(0),
             total_workers: AtomicUsize::new(0),
             pending_tasks: AtomicUsize::new(0),
             max_queue_depth: AtomicUsize::new(0),
-            memory_usage: AtomicUsize::new(0),
-            cpu_utilization: AtomicU64::new(0),
             started_at: now,
             last_updated_after_ns: AtomicU64::new(0),
         }
@@ -85,6 +81,12 @@ impl ExecutorMetrics {
         self.update_timestamp();
     }
 
+    /// Record a task whose cancel request was honored before its body ran.
+    pub fn record_task_cancelled(&self) {
+        self.tasks_cancelled.fetch_add(1, Ordering::Relaxed);
+        self.update_timestamp();
+    }
+
     /// Update worker count metrics
     pub fn update_worker_counts(&self, active: usize, idle: usize, total: usize) {
         self.active_workers.store(active, Ordering::Relaxed);
@@ -103,16 +105,6 @@ impl ExecutorMetrics {
             self.max_queue_depth.store(pending, Ordering::Relaxed);
         }
 
-        self.update_timestamp();
-    }
-
-    /// Update resource utilization metrics
-    pub fn update_resource_metrics(&self, memory_bytes: usize, cpu_percent: f64) {
-        self.memory_usage.store(memory_bytes, Ordering::Relaxed);
-        self.cpu_utilization.store(
-            (cpu_percent * PERCENTAGE_PRECISION_FACTOR) as u64,
-            Ordering::Relaxed,
-        );
         self.update_timestamp();
     }
 
@@ -148,7 +140,6 @@ impl ExecutorMetrics {
             .checked_div(completed)
             .unwrap_or(0);
 
-        self.average_task_duration.store(average, Ordering::Relaxed);
         Duration::from_nanos(average)
     }
 
@@ -161,16 +152,6 @@ impl ExecutorMetrics {
         } else {
             DEFAULT_UTILIZATION
         }
-    }
-
-    /// Get memory usage in MB
-    pub fn memory_usage_mb(&self) -> f64 {
-        self.memory_usage.load(Ordering::Relaxed) as f64 / BYTES_TO_MB_FACTOR
-    }
-
-    /// Get CPU utilization percentage
-    pub fn cpu_utilization_percent(&self) -> f64 {
-        self.cpu_utilization.load(Ordering::Relaxed) as f64 / PERCENTAGE_PRECISION_FACTOR
     }
 
     /// Get uptime
@@ -198,15 +179,13 @@ impl ExecutorMetrics {
         self.tasks_spawned.store(0, Ordering::Relaxed);
         self.tasks_completed.store(0, Ordering::Relaxed);
         self.tasks_failed.store(0, Ordering::Relaxed);
+        self.tasks_cancelled.store(0, Ordering::Relaxed);
         self.total_execution_time.store(0, Ordering::Relaxed);
-        self.average_task_duration.store(0, Ordering::Relaxed);
         self.active_workers.store(0, Ordering::Relaxed);
         self.idle_workers.store(0, Ordering::Relaxed);
         self.total_workers.store(0, Ordering::Relaxed);
         self.pending_tasks.store(0, Ordering::Relaxed);
         self.max_queue_depth.store(0, Ordering::Relaxed);
-        self.memory_usage.store(0, Ordering::Relaxed);
-        self.cpu_utilization.store(0, Ordering::Relaxed);
         self.update_timestamp();
     }
 }

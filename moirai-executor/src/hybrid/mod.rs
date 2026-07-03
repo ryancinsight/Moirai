@@ -16,7 +16,7 @@ use std::{
 use moirai_core::{
     error::{ExecutorError, ExecutorResult, TaskError},
     executor::ExecutorConfig,
-    task::{TaskId, TaskResultSender},
+    task::{TaskHandle, TaskId, TaskResultSender},
     Priority,
 };
 
@@ -116,11 +116,6 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         &self.config
     }
 
-    /// Start the executor.
-    pub fn start(&mut self) -> ExecutorResult<()> {
-        Ok(())
-    }
-
     /// Shutdown the executor gracefully.
     pub fn shutdown(&mut self) -> ExecutorResult<()> {
         self.shutdown_signal.store(true, Ordering::Release);
@@ -139,23 +134,48 @@ impl<S: WorkScheduler> HybridExecutor<S> {
     where
         F: FnOnce() + Send + 'static,
     {
-        let (task_id, lifecycle) = self.register_task()?;
+        self.spawn_result::<SyncTask, _>(Priority::Normal, None, task)
+            .map(|handle| handle.id())
+    }
 
+    /// Canonical result-producing spawn path shared by every closure-based
+    /// spawn surface (`spawn_blocking`, `submit_task`, and — via a
+    /// task-executing sibling in `spawner` — the `Task`-typed surfaces).
+    ///
+    /// Registers the task at `priority`, allocates its pending handle, and
+    /// schedules one job that honors queued-task cancellation, contains
+    /// panics, records lifecycle timing, and publishes the result.
+    pub(super) fn spawn_result<C, R>(
+        &self,
+        priority: Priority,
+        locality_hint: Option<usize>,
+        func: impl FnOnce() -> R + Send + 'static,
+    ) -> ExecutorResult<TaskHandle<R>>
+    where
+        C: WorkClass,
+        R: Send + 'static,
+    {
+        let (task_id, lifecycle) = self.register_task(priority)?;
+
+        let (handle, result_sender) = TaskHandle::new_pending(task_id);
         let metrics = MetricsRef::new(&self.metrics);
+
         self.scheduler
-            .schedule::<SyncTask, _>(Priority::Normal, None, move |worker_id| {
-                let running = lifecycle.start(worker_id);
-                let succeeded = catch_unwind(AssertUnwindSafe(task)).is_ok();
-                if succeeded {
-                    metrics.get().record_task_completed(running.complete());
-                } else {
-                    running.complete();
-                    metrics.get().record_task_failed();
-                }
+            .schedule::<C, _>(priority, locality_hint, move |worker_id| {
+                let Some(running) = lifecycle.start_unless_cancelled(worker_id) else {
+                    // Record before publishing the result so a joiner observes
+                    // the cancelled counter as soon as the handle resolves.
+                    metrics.get().record_task_cancelled();
+                    result_sender.send(Err(TaskError::Cancelled));
+                    return;
+                };
+                let result = catch_unwind(AssertUnwindSafe(func));
+                let execution_time = running.complete();
+                send_task_result(result, result_sender, metrics.get(), execution_time);
             })?;
 
         self.metrics.record_task_spawned();
-        Ok(task_id)
+        Ok(handle)
     }
 
     /// Run indexed work in worker-sized chunks on the unified scheduler.
@@ -222,11 +242,12 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         Ok(())
     }
 
-    fn register_task(&self) -> ExecutorResult<(TaskId, TaskLifecycleToken)> {
+    fn register_task(&self, priority: Priority) -> ExecutorResult<(TaskId, TaskLifecycleToken)> {
         let mut registry = self.task_registry.lock().map_err(|_| {
             ExecutorError::ResourceExhausted("task registry lock poisoned".to_string())
         })?;
         let (task_id, lifecycle) = registry.register_next_task();
+        lifecycle.set_priority(priority);
         Ok((TaskId::new(task_id), lifecycle))
     }
 

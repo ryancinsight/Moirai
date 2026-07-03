@@ -34,13 +34,12 @@ loom = { workspace = true }
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
 
 [features]
-default = ["std", "metrics", "async", "parallel", "mnemosyne-memory"]
-std = []
-async = []
-parallel = []
+default = ["metrics", "mnemosyne"]
+# Phantom feature with zero cfg sites, retained only because the `moirai`
+# umbrella crate forwards `moirai-executor/numa`; remove both together
+# (cross-crate cleanup tracked in the workspace backlog).
 numa = []
 metrics = ["moirai-core/metrics"]
 registry-diagnostics = []
 scheduler-diagnostics = []
 mnemosyne = ["dep:mnemosyne"]
-mnemosyne-memory = ["mnemosyne"]

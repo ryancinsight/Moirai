@@ -4,6 +4,15 @@ use super::super::task::TaskMetadata;
 use super::state::{task_location, TaskState, TaskStateBlock};
 use super::token::TaskLifecycleToken;
 
+/// Outcome of a cooperative cancel request against a registered task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CancelOutcome {
+    /// The cancel flag was set; the task body is skipped if it has not started.
+    Requested,
+    /// The task already completed; cancelling is a no-op.
+    AlreadyCompleted,
+}
+
 /// Public task registry facade used by executor lifecycle tracking and tests.
 #[derive(Debug)]
 pub struct TaskRegistry {
@@ -130,6 +139,21 @@ impl TaskRegistry {
     pub(super) fn state(&self, task_id: u64) -> Option<&TaskState> {
         let (block_index, slot_index) = task_location(task_id);
         self.blocks.get(block_index)?.get(slot_index)
+    }
+
+    /// Request cooperative cancellation of a task.
+    ///
+    /// Returns `None` when the task is unknown. Running tasks are not
+    /// preempted: a task that already started keeps running to completion and
+    /// reports `Requested` here without effect.
+    pub(crate) fn request_cancel(&self, task_id: u64) -> Option<CancelOutcome> {
+        let state = self.state(task_id)?;
+        if state.is_completed() {
+            Some(CancelOutcome::AlreadyCompleted)
+        } else {
+            state.request_cancel();
+            Some(CancelOutcome::Requested)
+        }
     }
 
     /// Register a waker to be notified when the task completes.

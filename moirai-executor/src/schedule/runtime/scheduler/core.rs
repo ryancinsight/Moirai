@@ -24,8 +24,8 @@ use super::super::types::{
     SchedulerScopeState, ThreadScheduler,
 };
 use super::super::worker::{
-    is_quiescent, lock_mutex, priority_weight, wake_all_workers, wake_contended_workers,
-    wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
+    is_quiescent, lock_mutex, wake_all_workers, wake_contended_workers, wake_worker,
+    JOIN_FAST_SPIN_ATTEMPTS,
 };
 /// A per-thread round-robin ticket for spreading queued submissions across
 /// workers. Replaces a process-shared `AtomicUsize` that every producer thread
@@ -350,14 +350,13 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
 
         if pending_tasks == 0 && active_workers <= 1 {
-            return C::SERIAL_AFFINITY_OFFSET.wrapping_add(priority_weight(priority))
-                % worker_count;
+            return C::SERIAL_AFFINITY_OFFSET.wrapping_add(priority.index()) % worker_count;
         }
 
         let ticket = next_round_robin_ticket();
         ticket
             .wrapping_add(C::AFFINITY_OFFSET)
-            .wrapping_add(priority_weight(priority))
+            .wrapping_add(priority.index())
             % worker_count
     }
 }

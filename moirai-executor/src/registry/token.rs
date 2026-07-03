@@ -1,5 +1,7 @@
 use std::{mem::ManuallyDrop, ptr::NonNull, time::Duration};
 
+use moirai_core::Priority;
+
 use super::state::TaskState;
 
 /// Write-permission token for a registered task lifecycle.
@@ -30,6 +32,44 @@ unsafe impl Send for TaskLifecycleToken {}
 unsafe impl Send for RunningTaskToken {}
 
 impl TaskLifecycleToken {
+    /// Record the spawn priority on the task state.
+    #[inline]
+    pub(crate) fn set_priority(&self, priority: Priority) {
+        // Safety: lifecycle tokens are created only from initialized registry
+        // slots; the write touches an interior-mutable atomic field.
+        unsafe { self.state.as_ref().set_priority(priority) }
+    }
+
+    /// Whether a cooperative cancel has been requested for this task.
+    #[inline]
+    pub(crate) fn cancel_requested(&self) -> bool {
+        // Safety: as in `set_priority` — atomic read of an initialized slot.
+        unsafe { self.state.as_ref().cancel_requested() }
+    }
+
+    /// Honor a pending cancel request: mark the task cancelled + completed
+    /// (waking any registered waiter) without running its body.
+    #[inline]
+    pub(crate) fn cancel(self) {
+        // Safety: as in `start` — the token is the unique lifecycle authority
+        // for an initialized, address-stable registry slot.
+        unsafe { self.state.as_ref().mark_cancelled() }
+    }
+
+    /// Start the task unless it was cancelled while queued.
+    ///
+    /// Returns `None` after marking the task cancelled (the body must not run);
+    /// otherwise transfers completion authority like [`Self::start`].
+    #[inline]
+    pub(crate) fn start_unless_cancelled(self, worker_id: usize) -> Option<RunningTaskToken> {
+        if self.cancel_requested() {
+            self.cancel();
+            None
+        } else {
+            Some(self.start(worker_id))
+        }
+    }
+
     /// Mark the task as running and transfer completion authority.
     #[inline]
     pub(crate) fn start(self, worker_id: usize) -> RunningTaskToken {

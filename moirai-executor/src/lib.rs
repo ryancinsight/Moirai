@@ -1,28 +1,19 @@
 //! # Hybrid Executor Implementation
 //!
-//! This module provides a high-performance hybrid executor that seamlessly combines
-//! asynchronous and parallel execution models in a unified runtime system.
+//! This crate provides a high-performance hybrid executor that combines
+//! synchronous, asynchronous, and blocking execution on **one** unified
+//! work-stealing thread scheduler.
 //!
 //! ## Architecture Overview
 //!
-//! The `HybridExecutor` is built on three core principles:
-//! - **Work-Stealing Scheduler**: Intelligent load balancing across CPU cores
-//! - **Adaptive Thread Pools**: Separate pools for async I/O and CPU-bound work
+//! - **Work-Stealing Scheduler**: one worker pool serves every work class;
+//!   sync, async, and blocking jobs are routed by zero-sized work-class
+//!   markers, not separate thread pools.
+//! - **Priority-Partitioned Queues**: per-worker Chase-Lev deques indexed by
+//!   [`moirai_core::Priority::index`].
+//! - **Zero-Copy Task Passing**: minimal overhead task distribution.
 
-#![allow(clippy::incompatible_msrv)]
-#![allow(clippy::needless_borrow)]
-#![allow(clippy::manual_map)]
-#![allow(clippy::type_complexity)]
 #![cfg_attr(nightly_tls_active, feature(thread_local))]
-//! - **Zero-Copy Task Passing**: Minimal overhead task distribution
-//!
-//! ## Design Principles
-//!
-//! - **SOLID**: Each component has a single responsibility and clear interfaces
-//! - **CUPID**: Composable, predictable, and domain-centric design
-//! - **GRASP**: Information expert pattern with low coupling
-//! - **Zero-cost abstractions**: Compile-time optimizations
-//! - **Memory safety**: Rust ownership model prevents data races
 
 // Module declarations - following SRP and SOC principles
 pub mod hybrid;
@@ -103,17 +94,8 @@ impl Default for ExecutorBuilder {
     }
 }
 
-/// Shared, lazily-initialized process-wide executor.
-///
-/// Provides a single default runtime so higher-level crates (e.g.
-/// `moirai-parallel`'s data-parallel primitives) can schedule work without each
-/// constructing — and over-subscribing — their own thread pool. Built once with
-/// the default [`ExecutorBuilder`] configuration on first access.
-///
-/// # Panics
-///
-/// Panics if the executor cannot be initialized, which should not happen under
-/// normal conditions.
+/// Address-carrying wrapper that lets the melinoe bridge move a raw data
+/// pointer into `Send` task closures; safety is owed by the bridge caller.
 #[derive(Copy, Clone)]
 struct SendPtr(usize);
 
@@ -153,7 +135,17 @@ fn global_arc() -> &'static std::sync::Arc<HybridExecutor> {
     })
 }
 
-/// Borrow the shared process-wide executor.
+/// Borrow the shared, lazily-initialized process-wide executor.
+///
+/// Provides a single default runtime so higher-level crates (e.g.
+/// `moirai-parallel`'s data-parallel primitives) can schedule work without each
+/// constructing — and over-subscribing — their own thread pool. Built once with
+/// the default [`ExecutorBuilder`] configuration on first access.
+///
+/// # Panics
+///
+/// Panics if the executor cannot be initialized, which should not happen under
+/// normal conditions.
 pub fn global() -> &'static HybridExecutor {
     global_arc()
 }
