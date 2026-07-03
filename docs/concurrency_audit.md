@@ -4,6 +4,48 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 20 (2026-07-03) — nested scope unsoundness; parallel `drive` reverted
+
+**Finding (HIGH — memory safety).** An attempt to make
+`moirai_iter::parallel::ParallelIterator::drive` genuinely parallel by fanning
+its recursive `Consumer` split through `moirai_parallel::join_with::<Parallel>`
+(which uses `ThreadScheduler::scope` → `spawn` + `wait`) is **unsound under
+nesting** and was reverted.
+
+Two independent problems:
+1. **Deadlock by construction (park-without-help).** `SchedulerScopeState::wait`
+   (`schedule/runtime/types.rs`) spins then parks on a condvar; the waiting
+   thread does *not* participate in work-stealing. A recursive/nested
+   fork-join therefore deadlocks whenever spawned `left` tasks and their
+   waiters exhaust the pool — provably so with a single worker: the main thread
+   parks awaiting its spawned branch while the sole worker parks awaiting its
+   own nested branch, both awaited tasks un-stolen, no runner.
+2. **Heap corruption under concurrent nested scopes (empirical).** A
+   nested-saturation probe (an outer parallel drive whose every element runs an
+   inner parallel drive) aborted with `STATUS_HEAP_CORRUPTION` (0xC0000374) in
+   ~0.16 s — not a hang. Single-level fork-join drive was fine; the corruption
+   appears only when many inner `scope`s run concurrently inside outer scope
+   jobs, indicating a data race in the scope machinery under nesting (the
+   `NonNull<SchedulerScopeState>` handed to scoped jobs, the per-scope job
+   buffer, or reentrant `schedule_job`).
+
+**Action.** Reverted the parallel drive; `drive` is sequential-by-contract again
+(documented on the trait method in `moirai-iter/src/parallel/traits.rs`). Added
+`nested_iteration_produces_correct_values` as a value-semantic regression guard
+(nested iteration must stay correct). The happens-before edge in `join_with`
+itself is sound (`complete_task`'s `AcqRel` decrement pairs with `wait`'s
+`Acquire` load), so single-level result publication is race-free — the
+unsoundness is scope *nesting*, not the single-level join.
+
+**Deferred [arch] (blocks parallel non-indexed iteration).** Either (a) make
+`ThreadScheduler::scope` sound and non-deadlocking under nesting — a
+help-while-waiting join (the waiter runs stealable work instead of parking) plus
+an audit of the scoped-job lifetime/aliasing under concurrent nested scopes — or
+(b) route `parallel/` bulk terminals through the flat `for_each_indexed`
+fan-out (no nested scope-waits), matching `iter_ops/parallel.rs`. Until then the
+non-indexed `parallel/` surface stays sequential; scheduler-owned parallelism is
+`Moirai::for_each_indexed` / `map_reduce_indexed`.
+
 ## Round 19 (2026-06-28) — lock-hold contention sweep + loom-modeled wake handshake
 
 Reduced per-operation lock-hold across the async sync primitives and the core

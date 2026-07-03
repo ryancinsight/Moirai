@@ -69,6 +69,28 @@ architecture definition.
 
 ### Priority P0
 
+#### ⏳ ISSUE-208 [arch]: Make `ThreadScheduler::scope` sound under nesting (unblock parallel non-indexed `drive`)
+- **Type**: Scheduler Correctness / Memory Safety
+- **Root Cause**: `SchedulerScopeState::wait` (`schedule/runtime/types.rs`) spins
+  then parks on a condvar without participating in work-stealing, so a recursive
+  fork-join through `ThreadScheduler::scope` deadlocks by construction (provable
+  for a single worker). Empirically, a nested-saturation workload (outer parallel
+  drive whose every element runs an inner parallel drive) aborts with
+  `STATUS_HEAP_CORRUPTION` (0xC0000374) in ~0.16 s, indicating a data race in the
+  scope machinery under concurrent nesting (`NonNull<SchedulerScopeState>` handed
+  to scoped jobs, the per-scope job buffer, or reentrant `schedule_job`).
+- **Impact**: `moirai-iter`'s non-indexed `parallel/` `drive` must stay
+  sequential; scheduler-owned parallelism is only available through the flat
+  `Moirai::for_each_indexed` / `map_reduce_indexed` fan-out. Documented in
+  `docs/concurrency_audit.md` Round 20 and on `parallel::ParallelIterator::drive`.
+- **Acceptance criteria**: (a) `scope().wait()` is help-while-waiting (the waiter
+  runs stealable work rather than parking), or the non-indexed terminals route
+  through `for_each_indexed`; (b) a nested-saturation loom/stress test runs clean
+  (no deadlock, no heap corruption) under `W=1` and `W=n`; (c) only then is a
+  parallel `drive` reintroduced with the nested test asserting parallelism.
+- **Status**: filed (deferred). Requires ADR sign-off before implementation.
+- **Evidence tier**: empirical (heap-corruption abort) + type/analysis (single-worker deadlock proof).
+
 #### ✅ ISSUE-199 [arch]: Add accelerator route topology without execution fabrication
 - **Type**: Scheduler Architecture / Accelerator Placement
 - **Root Cause**: Moirai's stated scheduler target includes CPU, GPU, TPU, and NPU

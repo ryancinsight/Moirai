@@ -11,7 +11,23 @@ pub trait ParallelIterator: Sized + Send {
     /// The type of items yielded by this parallel iterator.
     type Item: Send;
 
-    /// Execute a parallel operation over the iterator items.
+    /// Drive the `Consumer` protocol over this iterator's items.
+    ///
+    /// # Concurrency contract
+    ///
+    /// `drive` executes **sequentially** on the calling thread (recursively
+    /// splitting the consumer and combining, but consuming both halves inline).
+    /// It is intentionally not fanned onto the scheduler: `ThreadScheduler`'s
+    /// scope `wait()` parks the caller (spin-then-condvar) without participating
+    /// in work-stealing, so a recursive `join_with::<Parallel>` drive both risks
+    /// nested-fork-join deadlock (a single-worker pool deadlocks by
+    /// construction) and, empirically, corrupted the heap under nested,
+    /// concurrent scopes (`STATUS_HEAP_CORRUPTION`). Making the non-indexed
+    /// drive parallel therefore requires fixing scope soundness under nesting
+    /// (or a help-while-waiting join) first — tracked in
+    /// `docs/concurrency_audit.md`. Scheduler-owned parallelism for bulk work is
+    /// exposed through `Moirai::for_each_indexed` / `map_reduce_indexed`, whose
+    /// flat fan-out does not create nested scope-waits.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,

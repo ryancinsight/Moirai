@@ -16,11 +16,6 @@ description = "Parallel and async iterator combinators for Moirai concurrency li
 moirai-core = { workspace = true }
 moirai-executor = { workspace = true }
 moirai-async = { workspace = true, optional = true }
-# Rayon-style ParallelIterator::drive fans its recursive Consumer split
-# through moirai-parallel's fork-join (join_with::<Parallel>), so iter's
-# parallelism flows through the one work-stealing SSOT. Acyclic: moirai-parallel
-# does not depend on moirai-iter.
-moirai-parallel = { workspace = true }
 moirai-utils = { workspace = true }
 moirai-scheduler = { workspace = true }
 themis = { workspace = true }

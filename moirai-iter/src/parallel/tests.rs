@@ -9,33 +9,35 @@ fn test_parallel_map() {
 }
 
 #[test]
-fn drive_executes_across_worker_threads_above_threshold() {
-    use std::collections::HashSet;
+fn nested_iteration_produces_correct_values() {
+    // Regression guard for nested parallel iteration (an inner drive inside an
+    // outer map). The `parallel/` drive is sequential by contract precisely so
+    // this nesting is safe: a prior fork-join drive that forked through the
+    // scheduler (`join_with::<Parallel>`) corrupted the heap under exactly this
+    // nested, concurrent workload — `ThreadScheduler::scope` is not sound under
+    // nested scopes (STATUS_HEAP_CORRUPTION 0xC0000374; see
+    // docs/concurrency_audit.md round entry). Value semantics only.
+    let outer_n = 512usize;
+    let inner_n = 256u64;
+    let expected_inner: u64 = (0..inner_n).sum();
 
-    // Several times the adaptive threshold forces the recursive Consumer split
-    // to fork onto the unified scheduler (`join_with::<Parallel>`) rather than
-    // run on the caller. Each element maps to the thread it executed on.
-    let n = moirai_parallel::ADAPTIVE_PARALLEL_THRESHOLD * 4;
-    let data: Vec<usize> = (0..n).collect();
-
-    let thread_ids: Vec<std::thread::ThreadId> = data
-        .clone()
+    let results: Vec<u64> = (0..outer_n as u64)
+        .collect::<Vec<_>>()
         .into_par_iter()
-        .map(|_| std::thread::current().id())
+        .map(move |x| {
+            let inner_sum: u64 = (0..inner_n)
+                .collect::<Vec<_>>()
+                .into_par_iter()
+                .reduce(|a, b| a + b)
+                .unwrap_or(0);
+            inner_sum.wrapping_add(x)
+        })
         .collect();
 
-    // Value-semantic correctness is independent of scheduling.
-    assert_eq!(thread_ids.len(), n);
-
-    // Proof the drive is genuinely parallel: work above the threshold ran on
-    // more than the calling thread (the pre-fork-join drive was sequential and
-    // would report exactly one thread id here).
-    let distinct: HashSet<_> = thread_ids.into_iter().collect();
-    assert!(
-        distinct.len() > 1,
-        "parallel drive above the adaptive threshold must execute across multiple worker threads; ran on {}",
-        distinct.len()
-    );
+    assert_eq!(results.len(), outer_n);
+    for (x, &r) in results.iter().enumerate() {
+        assert_eq!(r, expected_inner.wrapping_add(x as u64));
+    }
 }
 
 #[test]

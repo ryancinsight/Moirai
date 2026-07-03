@@ -49,14 +49,7 @@ impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        // Consume small ranges sequentially: the fork-join overhead only pays
-        // off at or above the adaptive threshold. Above it, split and run the
-        // two halves as a real work-stealing fork-join on the unified scheduler
-        // (`join_with::<Parallel>` spawns the left branch for stealing and runs
-        // the right on the caller lane). The recursion re-checks the threshold,
-        // so each leaf below it is consumed sequentially — the spawned task
-        // count is ~len/THRESHOLD, not ~len.
-        if self.data.len() < moirai_parallel::ADAPTIVE_PARALLEL_THRESHOLD {
+        if self.data.len() <= 1 {
             return consumer.consume(SequentialIterAdapter::new(self.data.into_iter()));
         }
 
@@ -66,11 +59,8 @@ impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
 
         let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
 
-        let (left_result, right_result) =
-            moirai_parallel::join_with::<moirai_parallel::Parallel, _, _, _, _>(
-                move || left_consumer.consume(VecParIter::new(left_data)),
-                move || right_consumer.consume(VecParIter::new(right_data)),
-            );
+        let left_result = left_consumer.consume(VecParIter::new(left_data));
+        let right_result = right_consumer.consume(VecParIter::new(right_data));
 
         C::combine(left_result, right_result)
     }
@@ -326,13 +316,9 @@ impl<'a, T: Send + Sync> ParallelIterator for RefVecParIter<'a, T> {
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        // Sequential base case (below the adaptive threshold): consuming a
-        // RefVecParIter is safe because CollectConsumer::consume calls
-        // seq_items(), terminating the chain. Above the threshold, fork the two
-        // halves onto the unified scheduler (see the VecParIter::drive note);
-        // the `'a` borrow outlives the scoped join, and `T: Send + Sync` makes
-        // the moved `Vec<&'a T>` capture `Send`.
-        if self.data.len() < moirai_parallel::ADAPTIVE_PARALLEL_THRESHOLD {
+        // Sequential base case: consumer.consume(RefVecParIter) is safe because
+        // CollectConsumer::consume now calls seq_items(), terminating the chain.
+        if self.data.len() <= 1 {
             return consumer.consume(RefVecParIter::new(self.data));
         }
 
@@ -342,11 +328,8 @@ impl<'a, T: Send + Sync> ParallelIterator for RefVecParIter<'a, T> {
 
         let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
 
-        let (left_result, right_result) =
-            moirai_parallel::join_with::<moirai_parallel::Parallel, _, _, _, _>(
-                move || left_consumer.consume(RefVecParIter::new(left_data)),
-                move || right_consumer.consume(RefVecParIter::new(right_data)),
-            );
+        let left_result = left_consumer.consume(RefVecParIter::new(left_data));
+        let right_result = right_consumer.consume(RefVecParIter::new(right_data));
 
         C::combine(left_result, right_result)
     }
