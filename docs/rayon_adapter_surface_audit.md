@@ -23,6 +23,16 @@ The active competitive Rayon comparison remains `Moirai::map_reduce_indexed` ver
 
 Indexed scheduler execution is exposed through `Moirai::for_each_indexed` and `Moirai::map_reduce_indexed`. `moirai-iter::parallel` now also exposes a bounded indexed source boundary for exact source cardinality, caller-provided collection, pair splitting, source interleaving, fixed-stride source selection, and value-preserving block adapter names. This is not the full Rayon indexed producer/consumer adapter model and must not be documented as full Rayon compatibility.
 
+`ParallelIterator::drive` is now genuinely parallel: the recursive `Consumer`
+split runs each pair of halves through the unified work-stealing scheduler via
+`moirai_parallel::join_with::<Parallel>` above `ADAPTIVE_PARALLEL_THRESHOLD`
+(sub-ranges below the threshold consume sequentially, bounding the spawned task
+count to `~len / THRESHOLD`). This routes `moirai-iter::parallel`'s parallelism
+through the same fork-join SSOT as `moirai-parallel`, rather than the prior
+caller-thread-only split. Fold remains sequential by contract (no combine
+operation), and the adapter combinators stay lazy views over the now-parallel
+drive.
+
 ## Adapter Matrix
 
 | Rayon-style capability | Moirai surface | Evidence | Status |

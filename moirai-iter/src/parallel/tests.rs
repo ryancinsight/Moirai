@@ -9,6 +9,36 @@ fn test_parallel_map() {
 }
 
 #[test]
+fn drive_executes_across_worker_threads_above_threshold() {
+    use std::collections::HashSet;
+
+    // Several times the adaptive threshold forces the recursive Consumer split
+    // to fork onto the unified scheduler (`join_with::<Parallel>`) rather than
+    // run on the caller. Each element maps to the thread it executed on.
+    let n = moirai_parallel::ADAPTIVE_PARALLEL_THRESHOLD * 4;
+    let data: Vec<usize> = (0..n).collect();
+
+    let thread_ids: Vec<std::thread::ThreadId> = data
+        .clone()
+        .into_par_iter()
+        .map(|_| std::thread::current().id())
+        .collect();
+
+    // Value-semantic correctness is independent of scheduling.
+    assert_eq!(thread_ids.len(), n);
+
+    // Proof the drive is genuinely parallel: work above the threshold ran on
+    // more than the calling thread (the pre-fork-join drive was sequential and
+    // would report exactly one thread id here).
+    let distinct: HashSet<_> = thread_ids.into_iter().collect();
+    assert!(
+        distinct.len() > 1,
+        "parallel drive above the adaptive threshold must execute across multiple worker threads; ran on {}",
+        distinct.len()
+    );
+}
+
+#[test]
 fn test_parallel_map_with_uses_cloned_state() {
     let data = vec![1_u64, 2, 3, 4];
     let result: Vec<u64> = data

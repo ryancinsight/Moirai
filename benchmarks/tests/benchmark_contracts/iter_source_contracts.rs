@@ -739,7 +739,12 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "pub struct Reduction<T, F>",
         "let reduction: Reduction<Self::Item, F> = self.drive(ReduceConsumer::new(reduce_fn));",
         "Some(reduce_fn(left, right))",
-        "self.data.len() <= 1",
+        // The recursive Consumer split now forks through the unified scheduler
+        // above the adaptive threshold (real work-stealing) instead of running
+        // both halves on the caller lane. Pins the fork-join call and the
+        // threshold-based sequential base case.
+        "join_with::<moirai_parallel::Parallel",
+        "self.data.len() < moirai_parallel::ADAPTIVE_PARALLEL_THRESHOLD",
         "Preserve sequential value semantics for this API",
         "Segment count is not part of the semantic contract",
         "list.push_back(items)",
