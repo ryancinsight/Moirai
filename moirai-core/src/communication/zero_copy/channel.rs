@@ -29,20 +29,16 @@ impl<T> ZeroCopyChannel<T> {
 
 /// Zero-copy sender half of a channel.
 ///
-/// Allows sending values through a memory-mapped ring buffer without copying data.
+/// Sends values through the shared ring by pointer move (no clone, no serialization).
 pub struct ZeroCopySender<T> {
     pub(super) ring: Arc<MemoryMappedRing<T>>,
 }
 
 impl<T> ZeroCopySender<T> {
-    /// Sends a value through the channel.
+    /// Sends a value through the channel (non-blocking; returns the value in
+    /// `Err((value, ZeroCopyError::Full))` when the ring is full).
     pub fn send(&self, value: T) -> Result<(), (T, ZeroCopyError)> {
         self.ring.send_zero_copy(value)
-    }
-
-    /// Attempts to send a value without blocking.
-    pub fn try_send(&self, value: T) -> Result<(), (T, ZeroCopyError)> {
-        self.ring.try_send(value)
     }
 
     /// Closes the sender half of the channel.
@@ -66,20 +62,16 @@ impl<T> Clone for ZeroCopySender<T> {
 
 /// Zero-copy receiver half of a channel.
 ///
-/// Allows receiving values from a memory-mapped ring buffer without copying data.
+/// Receives values from the shared ring by pointer move (no clone, no serialization).
 pub struct ZeroCopyReceiver<T> {
     pub(super) ring: Arc<MemoryMappedRing<T>>,
 }
 
 impl<T> ZeroCopyReceiver<T> {
-    /// Receive a value with zero-copy semantics
+    /// Receive a value with zero-copy semantics (non-blocking; returns
+    /// `Err(ZeroCopyError::Empty)` when no value is buffered).
     pub fn recv(&self) -> ZeroCopyResult<T> {
         self.ring.recv_zero_copy()
-    }
-
-    /// Try to receive a value without blocking
-    pub fn try_recv(&self) -> ZeroCopyResult<T> {
-        self.ring.try_recv()
     }
 
     /// Check if the channel is closed

@@ -9,10 +9,17 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
+/// Exponential-backoff spin rounds (`1 << round` spin-loop hints per round,
+/// ~63 total hints) before a blocked send/recv falls back to
+/// `thread::yield_now`. Tuned for this channel's yield-based slow path;
+/// intentionally local rather than crate-wide because MPMC uses a larger
+/// budget matched to its condvar fallback.
+const SPSC_BLOCK_SPINS: usize = 6;
+
 /// Lock-free Single Producer Single Consumer channel
 /// Optimized for low latency with zero-copy semantics
 pub struct SpscChannel<T> {
-    /// Ring buffer for messages
+    /// Ring buffer for messages (owns the `T` storage)
     buffer: Box<[UnsafeCell<MaybeUninit<T>>]>,
     /// Capacity mask for fast modulo
     mask: usize,
@@ -22,8 +29,6 @@ pub struct SpscChannel<T> {
     tail: CachePadded<AtomicUsize>,
     /// Channel state
     closed: AtomicBool,
-    /// Phantom data for variance
-    _phantom: PhantomData<T>,
 }
 
 unsafe impl<T: Send> Send for SpscChannel<T> {}
@@ -44,7 +49,6 @@ impl<T> SpscChannel<T> {
             head: CachePadded::new(AtomicUsize::new(0)),
             tail: CachePadded::new(AtomicUsize::new(0)),
             closed: AtomicBool::new(false),
-            _phantom: PhantomData,
         }
     }
 
@@ -105,7 +109,7 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
             }
 
             // Channel is full, spin-wait with exponential backoff
-            if spin_count < 6 {
+            if spin_count < SPSC_BLOCK_SPINS {
                 // Active spinning for low latency (up to ~64 iterations)
                 for _ in 0..(1 << spin_count) {
                     std::hint::spin_loop();
@@ -150,7 +154,7 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
                 Ok(value) => return Ok(value),
                 Err(ChannelError::Empty) => {
                     // Channel is empty, spin-wait with exponential backoff
-                    if spin_count < 6 {
+                    if spin_count < SPSC_BLOCK_SPINS {
                         // Active spinning for low latency (up to ~64 iterations)
                         for _ in 0..(1 << spin_count) {
                             std::hint::spin_loop();

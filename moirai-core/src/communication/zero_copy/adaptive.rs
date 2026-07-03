@@ -338,14 +338,10 @@ pub struct AdaptiveBatchReceiver<T> {
 }
 
 impl<T> AdaptiveBatchReceiver<T> {
-    /// Receive a value (blocking)
+    /// Receive a value (non-blocking; returns `Err(ZeroCopyError::Empty)`
+    /// when no value is buffered).
     pub fn recv(&self) -> ZeroCopyResult<T> {
         self.receiver.recv()
-    }
-
-    /// Try to receive a value (non-blocking)
-    pub fn try_recv(&self) -> ZeroCopyResult<T> {
-        self.receiver.try_recv()
     }
 }
 

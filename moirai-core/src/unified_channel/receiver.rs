@@ -14,14 +14,17 @@ pub struct UnifiedReceiver<T> {
 }
 
 impl<T> UnifiedReceiver<T> {
-    /// Receive a message
+    /// Receive a message (non-blocking; returns `Err(Empty)` when none is available).
     pub fn recv(&self) -> Result<T, UnifiedChannelError> {
         self.channel.recv()
     }
 
-    /// Try to receive without blocking
+    /// Try to receive without blocking.
+    ///
+    /// Identical to [`Self::recv`] — this channel has no blocking receive
+    /// path. Retained for consumers written against the `try_recv` name.
     pub fn try_recv(&self) -> Result<T, UnifiedChannelError> {
-        self.channel.try_recv()
+        self.channel.recv()
     }
 
     /// Receive batch of messages

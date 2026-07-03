@@ -4,13 +4,17 @@ use super::error::Result;
 use super::mpmc::{MpmcChannel, MpmcReceiver, MpmcSender};
 use super::spsc::{SpscChannel, SpscReceiver, SpscSender};
 
-/// Select over multiple channels following Go's design.
+/// Non-blocking poll over multiple receive closures.
 ///
-/// Allows waiting on multiple channels simultaneously.
+/// This is a single-pass poll, not a Go-style blocking `select`: each closure
+/// is tried once in order and the first successful receive wins; when every
+/// closure fails the call returns `None` immediately without waiting or
+/// registering wakeups.
 pub struct Select;
 
 impl Select {
-    /// Try to receive from multiple receivers, returning the first available
+    /// Poll each receiver closure once in order, returning the first
+    /// available value with its index, or `None` if none is ready.
     pub fn try_recv<T>(receivers: &mut [&mut dyn FnMut() -> Result<T>]) -> Option<(usize, T)> {
         for (idx, recv) in receivers.iter_mut().enumerate() {
             if let Ok(value) = recv() {

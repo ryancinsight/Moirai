@@ -11,6 +11,11 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
+/// Exponential-backoff spin rounds (`1 << round` spin-loop hints per round,
+/// ~1023 total hints) before a blocked send/recv falls back to a condvar wait.
+/// Tuned for this channel's mutex+condvar slow path; intentionally local
+/// rather than a crate-wide constant because SPSC uses a different budget
+/// matched to its yield-based fallback.
 const MPMC_BLOCK_SPINS: usize = 10;
 
 // ---------------------------------------------------------------------------
@@ -192,8 +197,15 @@ pub struct MpmcChannel<T> {
 impl<T> MpmcChannel<T> {
     /// Create a new MPMC channel with optional capacity
     pub fn new(capacity: Option<usize>) -> Self {
+        // The bounded path routes every message through the lock-free
+        // `BoundedMpmcQueue`; `state.queue` is only touched on the unbounded
+        // path, so allocate its backing storage only when unbounded.
         let state = MpmcState {
-            queue: VecDeque::with_capacity(capacity.unwrap_or(16)),
+            queue: if capacity.is_some() {
+                VecDeque::new()
+            } else {
+                VecDeque::with_capacity(16)
+            },
             capacity,
             closed: false,
             sender_count: 0,
@@ -551,6 +563,15 @@ impl<T: Send> MpmcSender<T> {
     /// Try to send a value without blocking
     pub fn try_send(&self, value: T) -> Result<()> {
         self.channel.try_send(value)
+    }
+}
+
+impl<T> MpmcSender<T> {
+    /// Returns `true` once the channel is closed (every receiver — or every
+    /// sender — has been dropped); subsequent sends fail with
+    /// [`ChannelError::Closed`].
+    pub fn is_closed(&self) -> bool {
+        self.channel.closed.load(Ordering::Acquire)
     }
 }
 

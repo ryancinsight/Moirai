@@ -1,7 +1,23 @@
+//! Generation-tagged dual-freelist stack — the single authoritative
+//! slot-freelist implementation in this crate.
+//!
+//! [`crate::memory::MemoryPool`] and [`super::global::GlobalPool`] parameterize
+//! this type instead of duplicating the packed-state algebra.
+//!
+//! `super::slab::SlabAllocator` is intentionally *not* unified here: it uses a
+//! single free list plus a per-slot `occupied` flag so that entries can be
+//! removed by index (random-access deallocation), whereas this stack only
+//! supports LIFO pop from the occupied list. The ABA-protection algebra
+//! (generation counter packed beside the index) is analogous but the list
+//! discipline differs materially.
+
 use crate::platform::*;
 
+/// Sentinel index terminating a freelist chain.
 const SENTINEL: u32 = u32::MAX;
 
+/// Head-of-list word: slot index plus an ABA-protection generation counter,
+/// packed into one `AtomicU64`-storable value.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 struct PackedState {
     index: u32,
@@ -38,6 +54,11 @@ unsafe impl<T: Sync> Sync for StackNode<T> {}
 /// This implementation uses a pre-allocated array of slots with a generation counter
 /// packed in an AtomicU64 to prevent ABA problems and use-after-free without blocking.
 ///
+/// # Capacity
+/// The slot array is fixed at construction; [`Self::push`] returns the item back
+/// when every slot is occupied. Use [`Self::with_capacity`] to size the stack;
+/// [`Self::new`] uses [`DEFAULT_STACK_CAPACITY`].
+///
 /// # Performance Characteristics
 /// - Push: O(1) amortized, < 20ns
 /// - Pop: O(1) amortized, < 30ns
@@ -49,11 +70,33 @@ pub struct LockFreeStack<T> {
     len: AtomicUsize,
 }
 
+/// Default slot count for [`LockFreeStack::new`].
+///
+/// Sized so a default stack of pointer-sized items costs ~16 KiB of slot
+/// metadata rather than eagerly materializing tens of thousands of nodes;
+/// callers with known workloads size explicitly via
+/// [`LockFreeStack::with_capacity`].
+pub const DEFAULT_STACK_CAPACITY: usize = 1024;
+
 impl<T> LockFreeStack<T> {
-    /// Create a new empty lock-free stack.
+    /// Create a new empty lock-free stack with [`DEFAULT_STACK_CAPACITY`] slots.
     #[must_use]
     pub fn new() -> Self {
-        let capacity = 65536;
+        Self::with_capacity(DEFAULT_STACK_CAPACITY)
+    }
+
+    /// Create a new empty lock-free stack with exactly `capacity` slots.
+    ///
+    /// A `capacity` of 0 yields a stack whose `push` always returns the item back.
+    ///
+    /// # Panics
+    /// Panics if `capacity >= u32::MAX` (the sentinel index must stay unused).
+    #[must_use]
+    pub fn with_capacity(capacity: usize) -> Self {
+        assert!(
+            capacity < SENTINEL as usize,
+            "LockFreeStack capacity must be < u32::MAX"
+        );
         let mut nodes = Vec::with_capacity(capacity);
         for i in 0..capacity {
             nodes.push(StackNode {
@@ -61,7 +104,9 @@ impl<T> LockFreeStack<T> {
                 next: AtomicU32::new(i as u32 + 1),
             });
         }
-        nodes[capacity - 1].next.store(SENTINEL, Ordering::Relaxed);
+        if capacity > 0 {
+            nodes[capacity - 1].next.store(SENTINEL, Ordering::Relaxed);
+        }
 
         Self {
             nodes: nodes.into_boxed_slice(),
@@ -74,7 +119,7 @@ impl<T> LockFreeStack<T> {
             ),
             free_head: AtomicU64::new(
                 PackedState {
-                    index: 0,
+                    index: if capacity > 0 { 0 } else { SENTINEL },
                     generation: 0,
                 }
                 .to_u64(),
@@ -145,13 +190,23 @@ impl<T> LockFreeStack<T> {
     }
 
     /// Push an item onto the stack.
-    pub fn push(&self, item: T) {
+    ///
+    /// # Errors
+    /// Returns `Err(item)` — handing the value back to the caller — when every
+    /// slot is occupied. The item is never silently dropped.
+    pub fn push(&self, item: T) -> core::result::Result<(), T> {
         if let Some(index) = self.pop_list(&self.free_head) {
+            // SAFETY: `index` was exclusively acquired from the free list, so no
+            // other thread reads or writes this slot until it is published to
+            // the occupied list below.
             unsafe {
                 (*self.nodes[index as usize].data.get()).write(item);
             }
             self.push_list(&self.occupied_head, index);
             self.len.fetch_add(1, Ordering::Release);
+            Ok(())
+        } else {
+            Err(item)
         }
     }
 
@@ -159,6 +214,8 @@ impl<T> LockFreeStack<T> {
     pub fn pop(&self) -> Option<T> {
         if let Some(index) = self.pop_list(&self.occupied_head) {
             self.len.fetch_sub(1, Ordering::Release);
+            // SAFETY: `index` was exclusively acquired from the occupied list;
+            // the slot was initialized by the `push` that published it there.
             let item = unsafe { (*self.nodes[index as usize].data.get()).assume_init_read() };
             self.push_list(&self.free_head, index);
             Some(item)
@@ -175,6 +232,11 @@ impl<T> LockFreeStack<T> {
     /// Check if the stack is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Get the fixed slot capacity of the stack.
+    pub fn capacity(&self) -> usize {
+        self.nodes.len()
     }
 }
 

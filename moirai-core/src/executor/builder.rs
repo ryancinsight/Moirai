@@ -1,14 +1,11 @@
 //! Executor builder implementation.
 
 use super::config::{CleanupConfig, ExecutorConfig, MemoryConfig, PreemptionConfig};
-use super::plugin::ExecutorPlugin;
-use crate::platform::{Box, String, Vec};
+use crate::platform::String;
 
 /// Builder for creating executors with custom configuration.
 pub struct ExecutorBuilder {
     pub(crate) config: ExecutorConfig,
-    #[allow(dead_code)]
-    pub(crate) plugins: Vec<Box<dyn ExecutorPlugin>>,
 }
 
 impl ExecutorBuilder {
@@ -20,7 +17,6 @@ impl ExecutorBuilder {
     pub fn new() -> Self {
         Self {
             config: ExecutorConfig::default(),
-            plugins: Vec::new(),
         }
     }
 

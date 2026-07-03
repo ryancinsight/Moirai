@@ -1,12 +1,14 @@
 use std::mem::MaybeUninit;
 use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use super::allocator::CacheAlignedAllocator;
-use super::pool::MemoryPool;
 
 /// Zero-copy ring buffer with unified memory management.
+///
+/// Overflow beyond the ring capacity is the caller's concern:
+/// `UnifiedChannel` layers its own overflow queue on top of this buffer.
 pub struct UnifiedRingBuffer<T> {
     /// Cache-aligned buffer storage
     buffer: NonNull<MaybeUninit<T>>,
@@ -16,10 +18,8 @@ pub struct UnifiedRingBuffer<T> {
     mask: usize,
     /// Producer position
     head: AtomicUsize,
-    /// Consumer position  
+    /// Consumer position
     tail: AtomicUsize,
-    /// Associated memory pool for overflow handling
-    pool: Arc<MemoryPool<T>>,
     write_lock: Mutex<()>,
     read_lock: Mutex<()>,
 }
@@ -36,7 +36,6 @@ impl<T> UnifiedRingBuffer<T> {
             mask: capacity - 1,
             head: AtomicUsize::new(0),
             tail: AtomicUsize::new(0),
-            pool: Arc::new(MemoryPool::new(capacity * 2)),
             write_lock: Mutex::new(()),
             read_lock: Mutex::new(()),
         })
@@ -100,11 +99,6 @@ impl<T> UnifiedRingBuffer<T> {
         let head = self.head.load(Ordering::Acquire);
         let tail = self.tail.load(Ordering::Acquire);
         (head.wrapping_sub(tail)) & self.mask
-    }
-
-    /// Get associated memory pool for overflow handling
-    pub fn overflow_pool(&self) -> &Arc<MemoryPool<T>> {
-        &self.pool
     }
 }
 

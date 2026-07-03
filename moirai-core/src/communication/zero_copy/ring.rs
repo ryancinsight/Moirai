@@ -1,4 +1,7 @@
-//! Memory-mapped ring buffer for zero-copy operations.
+//! Heap-allocated ring buffer moving values by pointer read/write (no clone,
+//! no serialization). Despite the historical type name there is no OS-level
+//! memory mapping: storage is a plain global-allocator (or `mnemosyne`)
+//! allocation.
 
 use std::mem;
 use std::ptr;
@@ -6,10 +9,14 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 
 use super::error::{ZeroCopyError, ZeroCopyResult};
 
-/// Memory-mapped ring buffer for zero-copy operations.
+/// Ring buffer transferring values by raw pointer moves ("zero-copy" in the
+/// no-clone/no-serialize sense).
 ///
-/// Safety: uses raw allocation for performance while maintaining
-/// acquire/release ordering and bounds checks.
+/// # Synchronization
+/// Producer and consumer sides are each serialized by a CAS spin lock
+/// (`producer_lock`/`consumer_lock`), so operations are **not lock-free**:
+/// concurrent producers (or consumers) spin until the side lock is released.
+/// Cursor visibility between the sides uses acquire/release ordering.
 pub struct MemoryMappedRing<T> {
     buffer: AtomicPtr<T>,
     capacity: usize,
@@ -23,7 +30,7 @@ pub struct MemoryMappedRing<T> {
 }
 
 impl<T> MemoryMappedRing<T> {
-    /// Creates a new memory-mapped ring buffer with the specified capacity.
+    /// Creates a new ring buffer with the specified capacity.
     ///
     /// # Arguments
     /// * `capacity` - The maximum number of elements the ring buffer can hold
@@ -148,22 +155,6 @@ impl<T> MemoryMappedRing<T> {
 
         self.consumer_lock.store(false, Ordering::Release);
         Ok(value)
-    }
-
-    /// Attempts to send a value without blocking.
-    ///
-    /// # Arguments
-    /// * `value` - The value to send
-    ///
-    /// # Returns
-    /// `Ok(())` on success, or `Err((value, error))` if the send fails
-    pub fn try_send(&self, value: T) -> Result<(), (T, ZeroCopyError)> {
-        self.send_zero_copy(value)
-    }
-
-    /// Attempts to receive a value without blocking.
-    pub fn try_recv(&self) -> ZeroCopyResult<T> {
-        self.recv_zero_copy()
     }
 
     /// Closes the ring buffer, preventing further operations.

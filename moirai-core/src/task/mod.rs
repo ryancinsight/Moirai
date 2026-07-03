@@ -55,29 +55,18 @@
 //!
 //! ### Error Handling
 //!
-//! ```rust,ignore
-//! use moirai_core::{TaskBuilder, TaskError, TaskExt};
-//!
-//! let risky_task = TaskBuilder::new().build(|| -> Result<i32, &'static str> {
-//!     if rand::random::<bool>() {
-//!         Ok(42)
-//!     } else {
-//!         Err("computation failed")
-//!     }
-//! });
-//!
-//! // Handle potential errors safely
-//! let safe_task = risky_task.catch(|_err| 0);
-//! let result = safe_task.execute(); // Always returns a valid i32
-//! ```
+//! `Task::execute` has no error channel: fallible work returns a `Result` as
+//! its `Output` and callers branch on the value. Panic recovery is the
+//! executor's responsibility (the hybrid executor catches unwinds at the job
+//! boundary), not a task-combinator concern.
 
 /// Task builder types: `TaskBuilder`, `BaseTask`, `Closure`, `Chained`, `Mapped`, `Parameterized`, `Group`, `Spawner`.
 pub(crate) mod builder;
-/// Task extension trait and combinator types: `TaskExt`, `ContextualTask`, `Catch`.
+/// Task extension trait and combinator types: `TaskExt`, `ContextualTask`.
 pub(crate) mod ext;
-/// `TaskFuture<T>`: async-compatible future wrapper for task execution.
+/// `TaskFuture<T>`: fused one-shot future that runs a task synchronously on first poll.
 pub(crate) mod future;
-/// Task handle and result-slot types: `TaskHandle`, `TaskResultSender`, `TaskWrapper`, `BlockingResultWait`, `ResultWaitPolicy`.
+/// Task handle and result-slot types: `TaskHandle`, `TaskResultSender`, `BlockingResultWait`, `ResultWaitPolicy`.
 pub(crate) mod handle;
 /// Core identity and context types: `TaskId`, `Priority`, `TaskContext`.
 pub(crate) mod id_and_context;
@@ -87,14 +76,14 @@ pub(crate) mod traits;
 // ── Public API re-exports ─────────────────────────────────────────────────────
 
 pub use builder::{BaseTask, Chained, Closure, Group, Mapped, Parameterized, Spawner, TaskBuilder};
-pub use ext::{Catch, ContextualTask, TaskExt};
+pub use ext::{ContextualTask, TaskExt};
 pub use future::TaskFuture;
 pub use handle::TaskHandle;
 pub use id_and_context::{Priority, TaskContext, TaskId};
 pub use traits::Task;
 
 #[cfg(feature = "std")]
-pub use handle::{BlockingResultWait, ResultWaitPolicy, TaskResultSender, TaskWrapper};
+pub use handle::{BlockingResultWait, ResultWaitPolicy, TaskResultSender};
 
 #[cfg(all(feature = "std", feature = "result-diagnostics"))]
 pub use handle::{
@@ -116,6 +105,33 @@ mod tests {
         let future = TaskFuture::new(task, TaskContext::new(id));
 
         assert_eq!(future.context().id, id);
+    }
+
+    fn poll_once<F: core::future::Future + Unpin>(future: &mut F) -> core::task::Poll<F::Output> {
+        // No-op waker: TaskFuture never returns Pending, so the waker is unused.
+        let waker = core::task::Waker::noop();
+        let mut cx = core::task::Context::from_waker(waker);
+        core::pin::Pin::new(future).poll(&mut cx)
+    }
+
+    #[test]
+    fn task_future_resolves_task_output_on_first_poll() {
+        let id = TaskId::new(2);
+        let task = TaskBuilder::new().with_id(id).build(|| 21 * 2);
+        let mut future = TaskFuture::new(task, TaskContext::new(id));
+
+        assert_eq!(poll_once(&mut future), core::task::Poll::Ready(42));
+    }
+
+    #[test]
+    #[should_panic(expected = "TaskFuture polled after completion")]
+    fn task_future_panics_when_polled_after_completion() {
+        let id = TaskId::new(3);
+        let task = TaskBuilder::new().with_id(id).build(|| 1);
+        let mut future = TaskFuture::new(task, TaskContext::new(id));
+
+        assert_eq!(poll_once(&mut future), core::task::Poll::Ready(1));
+        let _ = poll_once(&mut future); // fused: must panic, not hang as Pending
     }
 
     #[test]

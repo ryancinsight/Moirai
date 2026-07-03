@@ -24,27 +24,32 @@ fn test_memory_pool() {
 }
 
 #[test]
-fn test_global_memory_manager_real_pooling() {
-    let manager = GlobalMemoryManager::instance();
+fn test_memory_pool_real_reuse() {
+    // Value-semantic reuse check: the pooled allocation itself is recycled.
+    let pool = MemoryPool::<Vec<u8>>::new(4);
+    let mut v = vec![0u8; 64];
+    let ptr1 = v.as_ptr();
+    v.clear();
+    pool.deallocate(v);
 
-    // Allocate a vector of size 100 (matches pool index 4, size 65..=128)
-    let vec1 = manager.allocate(100).unwrap();
-    assert_eq!(vec1.len(), 100);
-    assert!(vec1.capacity() >= 128);
+    let reused = pool.allocate();
+    assert_eq!(reused.as_ptr(), ptr1);
+    assert_eq!(pool.size(), 0);
+}
 
-    // Keep track of the raw pointer of vec1's heap allocation
-    let ptr1 = vec1.as_ptr();
+#[test]
+fn test_memory_pool_retention_cap() {
+    // deallocate beyond max_size drops the surplus instead of growing.
+    let pool = MemoryPool::<i32>::new(2);
+    pool.deallocate(1);
+    pool.deallocate(2);
+    pool.deallocate(3); // beyond cap: dropped
+    assert_eq!(pool.size(), 2);
 
-    // Return it to the pool
-    manager.deallocate(vec1);
-
-    // Allocate again - it should reuse the same backing allocation!
-    let vec2 = manager.allocate(100).unwrap();
-    assert_eq!(vec2.len(), 100);
-    let ptr2 = vec2.as_ptr();
-
-    // Under real pooling, the memory allocation is recycled, so the pointer should be the same
-    assert_eq!(ptr1, ptr2);
+    // The two retained values come back out (LIFO), then Default.
+    assert_eq!(pool.allocate(), 2);
+    assert_eq!(pool.allocate(), 1);
+    assert_eq!(pool.allocate(), 0); // empty pool: i32::default()
 }
 
 #[test]

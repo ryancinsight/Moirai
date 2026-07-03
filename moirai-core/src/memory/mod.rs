@@ -9,4 +9,4 @@ mod tests;
 
 pub use allocator::CacheAlignedAllocator;
 pub use buffer::UnifiedRingBuffer;
-pub use pool::{GlobalMemoryManager, MemoryPool};
+pub use pool::MemoryPool;
