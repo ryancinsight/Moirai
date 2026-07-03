@@ -1,7 +1,128 @@
 use super::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::future::Future;
+use std::pin::pin;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::task::Poll;
+use std::task::{Context, Poll, Wake, Waker};
+
+/// A user future that returns `Pending` exactly once (re-waking itself) before
+/// yielding its value. Driving a terminal over items backed by this future
+/// forces the terminal's `poll` to observe `Pending` — proving it awaits
+/// cooperatively instead of blocking the executor synchronously.
+struct PendingOnce<T> {
+    value: Option<T>,
+    yielded: bool,
+}
+
+impl<T> PendingOnce<T> {
+    fn new(value: T) -> Self {
+        Self {
+            value: Some(value),
+            yielded: false,
+        }
+    }
+}
+
+impl<T: Unpin> Future for PendingOnce<T> {
+    type Output = T;
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+        if !self.yielded {
+            self.yielded = true;
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        Poll::Ready(
+            self.value
+                .take()
+                .expect("PendingOnce polled after completion"),
+        )
+    }
+}
+
+/// Waker that records whether it was woken, so a manual poll loop can advance
+/// only when the future asked to be re-polled.
+struct FlagWaker(AtomicBool);
+
+impl Wake for FlagWaker {
+    fn wake(self: Arc<Self>) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Manually drive a future to completion, counting how many `Pending` polls it
+/// returns. A synchronous `block_on`-in-`poll` terminal would complete in a
+/// single poll (count `0`); a cooperative terminal yields `Pending` at least
+/// once per pending item future.
+fn drive_counting_pending<F: Future>(fut: F) -> (F::Output, usize) {
+    let flag = Arc::new(FlagWaker(AtomicBool::new(true)));
+    let waker = Waker::from(Arc::clone(&flag));
+    let mut cx = Context::from_waker(&waker);
+    let mut fut = pin!(fut);
+    let mut pending_polls = 0usize;
+    loop {
+        assert!(
+            flag.0.swap(false, Ordering::SeqCst),
+            "future returned Pending without registering a wake — would stall"
+        );
+        match fut.as_mut().poll(&mut cx) {
+            Poll::Ready(out) => return (out, pending_polls),
+            Poll::Pending => pending_polls += 1,
+        }
+    }
+}
+
+#[test]
+fn for_each_awaits_cooperatively_without_blocking() {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen_for_closure = Arc::clone(&seen);
+    let fut = vec![1, 2, 3].into_async_iter().for_each(move |item| {
+        let seen = Arc::clone(&seen_for_closure);
+        async move {
+            let doubled = PendingOnce::new(item * 2).await;
+            seen.lock().expect("mutex poisoned").push(doubled);
+        }
+    });
+    let ((), pending_polls) = drive_counting_pending(fut);
+    assert_eq!(*seen.lock().expect("mutex poisoned"), vec![2, 4, 6]);
+    assert_eq!(pending_polls, 3, "one Pending per item future");
+}
+
+#[test]
+fn fold_threads_accumulator_across_cooperative_polls() {
+    let fut = vec![1, 2, 3, 4]
+        .into_async_iter()
+        .fold(100, |acc, item| async move {
+            PendingOnce::new(acc - item).await
+        });
+    let (folded, pending_polls) = drive_counting_pending(fut);
+    assert_eq!(folded, 90);
+    assert_eq!(pending_polls, 4);
+}
+
+#[test]
+fn reduce_accumulates_across_cooperative_polls() {
+    let fut = vec![1, 2, 3, 4]
+        .into_async_iter()
+        .reduce(|left, right| async move { PendingOnce::new(left + right).await });
+    let (reduced, pending_polls) = drive_counting_pending(fut);
+    assert_eq!(reduced, Some(10));
+    // Three reduce steps for four items, each pending once.
+    assert_eq!(pending_polls, 3);
+}
+
+#[test]
+fn reduce_empty_input_yields_none_without_pending() {
+    let fut = Vec::<i32>::new()
+        .into_async_iter()
+        .reduce(|left, right| async move { PendingOnce::new(left + right).await });
+    let (reduced, pending_polls) = drive_counting_pending(fut);
+    assert_eq!(reduced, None);
+    assert_eq!(pending_polls, 0);
+}
 
 #[test]
 fn async_source_iterators_do_not_store_unused_cursors() {
