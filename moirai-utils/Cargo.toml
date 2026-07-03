@@ -19,11 +19,8 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = ["std", "simd", "parallel", "mnemosyne-memory"]
-no-std = []
+default = ["std"]
 std = []
-parallel = []
-mnemosyne-memory = []
 metrics = []
+no-std = []
 numa = []
-simd = []

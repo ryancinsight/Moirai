@@ -24,8 +24,5 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 
 [features]
-default = ["parallel", "mnemosyne-memory"]
-parallel = []
-mnemosyne-memory = []
-futex = []
+default = []
 metrics = ["moirai-core/metrics"]

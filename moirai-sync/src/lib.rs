@@ -8,10 +8,12 @@
 
 pub mod sync;
 
+// Re-export the canonical AtomicCounter from moirai-utils (SSOT)
+pub use moirai_utils::AtomicCounter;
+
 // Re-export standard library primitives directly (DRY principle)
 pub use std::sync::{
-    Barrier, Condvar, Mutex, MutexGuard, OnceLock as Once, RwLock, RwLockReadGuard,
-    RwLockWriteGuard,
+    Barrier, Condvar, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
 
 // Re-export LockFreeStack from moirai-core to maintain DRY principle
@@ -19,6 +21,6 @@ pub use moirai_core::pool::LockFreeStack;
 
 // Re-export sync submodule items directly at crate root
 pub use self::sync::{
-    AtomicCounter, ConcurrentHashMap, FutexMutex, FutexMutexGuard, ShardedResourcePool,
+    ConcurrentHashMap, FutexMutex, FutexMutexGuard, SegmentPoisoned, ShardedResourcePool,
     SizeBounded, SpinLock, SpinLockGuard, WaitGroup,
 };

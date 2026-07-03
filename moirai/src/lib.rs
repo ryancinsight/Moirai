@@ -261,10 +261,10 @@ pub use routed::{FixedRemoteTask, RoutedProcessTarget, RoutedServerTarget};
 pub use moirai_core::channel;
 
 #[cfg(feature = "network")]
-pub use moirai_transport::{TcpTransport, UdpTransport};
+pub use moirai_transport::TcpTransport;
 
 // Re-export synchronization primitives
-pub use moirai_sync::{AtomicCounter, Barrier, Condvar, Mutex, Once, RwLock};
+pub use moirai_sync::{AtomicCounter, Barrier, Condvar, Mutex, RwLock};
 
 // Re-export metrics functionality
 #[cfg(feature = "metrics")]

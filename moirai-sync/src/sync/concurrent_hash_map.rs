@@ -7,6 +7,30 @@ use std::sync::RwLock;
 // Import centralized constants (SSOT compliance)
 use moirai_core::constants::DEFAULT_CONCURRENT_MAP_SEGMENTS;
 
+/// Error returned when a segment's `RwLock` was poisoned by a panicked writer.
+///
+/// Carries the index of the poisoned segment so diagnostics can name the
+/// offending shard. This is a genuine contract failure (a writer panicked
+/// while holding the segment lock), so it is surfaced as a typed error
+/// rather than recovered silently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SegmentPoisoned {
+    /// Index of the poisoned segment.
+    pub segment: usize,
+}
+
+impl fmt::Display for SegmentPoisoned {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "concurrent map segment {} poisoned by a panicked writer",
+            self.segment
+        )
+    }
+}
+
+impl std::error::Error for SegmentPoisoned {}
+
 /// Concurrent hash map with segment-based locking for scalability.
 /// This provides better scalability than a single mutex-protected HashMap.
 pub struct ConcurrentHashMap<K, V, S = RandomState> {
@@ -62,12 +86,16 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
     /// Insert a key-value pair.
     ///
     /// Returns the previous value if the key existed, or None if it was a new key.
-    /// Uses Result to handle potential poisoned rwlock errors.
-    pub fn insert(&self, key: K, value: V) -> Result<Option<V>, String> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SegmentPoisoned`] if the segment lock was poisoned by a
+    /// panicked writer.
+    pub fn insert(&self, key: K, value: V) -> Result<Option<V>, SegmentPoisoned> {
         let idx = self.segment_index(&key);
         Ok(self.segments[idx]
             .write()
-            .map_err(|_| "RwLock poisoned".to_string())?
+            .map_err(|_| SegmentPoisoned { segment: idx })?
             .insert(key, value))
     }
 
@@ -76,7 +104,12 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
     /// Executes atomically under the segment's write lock, ensuring that the
     /// `default` closure runs exactly once on a cache miss and no concurrent insert
     /// can overwrite it.
-    pub fn get_or_insert_with<F>(&self, key: K, default: F) -> Result<V, String>
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SegmentPoisoned`] if the segment lock was poisoned by a
+    /// panicked writer.
+    pub fn get_or_insert_with<F>(&self, key: K, default: F) -> Result<V, SegmentPoisoned>
     where
         F: FnOnce() -> V,
         V: Clone,
@@ -86,7 +119,7 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
         {
             let shard = self.segments[idx]
                 .read()
-                .map_err(|_| "RwLock poisoned".to_string())?;
+                .map_err(|_| SegmentPoisoned { segment: idx })?;
             if let Some(value) = shard.get(&key) {
                 return Ok(value.clone());
             }
@@ -95,7 +128,7 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
         // Phase 2: Slow-path with write lock
         let mut shard = self.segments[idx]
             .write()
-            .map_err(|_| "RwLock poisoned".to_string())?;
+            .map_err(|_| SegmentPoisoned { segment: idx })?;
         if let Some(value) = shard.get(&key) {
             Ok(value.clone())
         } else {
@@ -108,15 +141,19 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
     /// Get a value by key.
     ///
     /// Returns the cloned value if found, or None if not found.
-    /// Uses Result to handle potential poisoned rwlock errors.
-    pub fn get(&self, key: &K) -> Result<Option<V>, String>
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SegmentPoisoned`] if the segment lock was poisoned by a
+    /// panicked writer.
+    pub fn get(&self, key: &K) -> Result<Option<V>, SegmentPoisoned>
     where
         V: Clone,
     {
         let idx = self.segment_index(key);
         Ok(self.segments[idx]
             .read()
-            .map_err(|_| "RwLock poisoned".to_string())?
+            .map_err(|_| SegmentPoisoned { segment: idx })?
             .get(key)
             .cloned())
     }
@@ -124,24 +161,32 @@ impl<K: Hash + Eq, V, S: BuildHasher> ConcurrentHashMap<K, V, S> {
     /// Remove a key-value pair.
     ///
     /// Returns the removed value if the key existed, or None if it didn't exist.
-    /// Uses Result to handle potential poisoned rwlock errors.
-    pub fn remove(&self, key: &K) -> Result<Option<V>, String> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SegmentPoisoned`] if the segment lock was poisoned by a
+    /// panicked writer.
+    pub fn remove(&self, key: &K) -> Result<Option<V>, SegmentPoisoned> {
         let idx = self.segment_index(key);
         Ok(self.segments[idx]
             .write()
-            .map_err(|_| "RwLock poisoned".to_string())?
+            .map_err(|_| SegmentPoisoned { segment: idx })?
             .remove(key))
     }
 
     /// Check if a key exists.
     ///
     /// Returns true if the key exists, false otherwise.
-    /// Uses Result to handle potential poisoned rwlock errors.
-    pub fn contains_key(&self, key: &K) -> Result<bool, String> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SegmentPoisoned`] if the segment lock was poisoned by a
+    /// panicked writer.
+    pub fn contains_key(&self, key: &K) -> Result<bool, SegmentPoisoned> {
         let idx = self.segment_index(key);
         Ok(self.segments[idx]
             .read()
-            .map_err(|_| "RwLock poisoned".to_string())?
+            .map_err(|_| SegmentPoisoned { segment: idx })?
             .contains_key(key))
     }
 }
