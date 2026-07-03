@@ -6,8 +6,6 @@ use std::sync::Arc;
 use super::async_ctx::AsyncContext;
 use super::hybrid::HybridContext;
 use super::parallel::ParallelContext;
-use crate::distributed::DistributedContext;
-use crate::multi_system::MultiSystemContext;
 
 const DEFAULT_ASYNC_CONCURRENCY: usize = 1024;
 
@@ -32,10 +30,6 @@ pub enum ExecutionContext {
     Async(AsyncContext),
     /// Hybrid execution that adapts between strategies
     Hybrid(HybridContext),
-    /// Distributed execution across multiple machines
-    Distributed(DistributedContext),
-    /// Multi-system execution across heterogeneous compute
-    MultiSystem(MultiSystemContext),
 }
 
 impl ExecutionContext {
@@ -49,14 +43,6 @@ impl ExecutionContext {
             ExecutionContext::Parallel(ctx) => ctx.execute(func),
             ExecutionContext::Async(ctx) => ctx.execute(func),
             ExecutionContext::Hybrid(ctx) => ctx.execute(func),
-            ExecutionContext::Distributed(_ctx) => {
-                // For now, execute locally - real implementation would distribute
-                Ok(func())
-            }
-            ExecutionContext::MultiSystem(_ctx) => {
-                // For now, execute locally - real implementation would coordinate systems
-                Ok(func())
-            }
         }
     }
 
@@ -75,14 +61,6 @@ impl ExecutionContext {
             ExecutionContext::Parallel(ctx) => ctx.execute_iter(items, func),
             ExecutionContext::Async(ctx) => ctx.execute_iter(items, func),
             ExecutionContext::Hybrid(ctx) => ctx.execute_iter(items, func),
-            ExecutionContext::Distributed(_ctx) => {
-                // For now, execute sequentially - real implementation would distribute
-                Ok(items.into_iter().map(func).collect())
-            }
-            ExecutionContext::MultiSystem(_ctx) => {
-                // For now, execute sequentially - real implementation would coordinate
-                Ok(items.into_iter().map(func).collect())
-            }
         }
     }
 
@@ -182,8 +160,6 @@ impl ExecutionContext {
             ExecutionContext::Parallel(ctx) => ctx.context_type(),
             ExecutionContext::Async(ctx) => ctx.context_type(),
             ExecutionContext::Hybrid(ctx) => ctx.context_type(),
-            ExecutionContext::Distributed(_) => "Distributed",
-            ExecutionContext::MultiSystem(_) => "MultiSystem",
         }
     }
 

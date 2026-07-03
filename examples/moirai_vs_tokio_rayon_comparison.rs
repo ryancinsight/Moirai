@@ -76,26 +76,23 @@ async fn tokio_rayon_separate_pipeline() -> Duration {
     start.elapsed()
 }
 
-/// Example 2: Multi-system distributed processing - Moirai
+/// Example 2: Parallel data processing - Moirai
 async fn moirai_distributed_processing() -> Duration {
-    use moirai_iter::moirai_iter_distributed;
+    use moirai_iter::moirai_iter_parallel;
 
     let start = Instant::now();
 
-    // Create test data for distributed processing
+    // Create test data for parallel processing
     let large_dataset: Vec<i32> = (0..10000).collect();
 
-    // Moirai distributed iterator with intelligent node selection
-    let results = moirai_iter_distributed(large_dataset)
-        .map(|x| x * x) // Distributed map operation
-        .filter(|&x| x % 2 == 0) // Distributed filter
-        .partition_across_systems(|&x| (x % 4) as usize) // Partition by hash
+    // Moirai parallel iterator with work-stealing
+    let results = moirai_iter_parallel(large_dataset)
+        .map(|x| x * x) // Parallel map operation
+        .filter(|&x| x % 2 == 0) // Parallel filter
+        .collect()
         .await;
 
-    println!(
-        "Moirai distributed processing created {} partitions",
-        results.len()
-    );
+    println!("Moirai parallel processing produced {} items", results.len());
     start.elapsed()
 }
 
@@ -133,25 +130,25 @@ async fn manual_distributed_processing() -> Duration {
     start.elapsed()
 }
 
-/// Example 3: GPU + CPU coordination - Moirai
+/// Example 3: Compute-heavy parallel map - Moirai
 async fn moirai_gpu_cpu_coordination() -> Duration {
-    use moirai_iter::moirai_iter_multi_system;
+    use moirai_iter::moirai_iter_parallel;
 
     let start = Instant::now();
 
-    // Large computation suitable for GPU+CPU hybrid
+    // Large computation suitable for parallel execution
     let computation_data: Vec<f64> = (0..50000).map(|i| i as f64).collect();
 
-    // Moirai automatically distributes between GPU and CPU based on workload
-    let results = moirai_iter_multi_system(computation_data)
+    // Moirai parallel map across worker threads
+    let results = moirai_iter_parallel(computation_data)
         .map(|x| {
             // Complex mathematical operation
             (x * x + x.sin() * x.cos()).sqrt()
         })
-        .collect_async()
+        .collect()
         .await;
 
-    println!("Moirai GPU+CPU processed {} items", results.len());
+    println!("Moirai parallel compute processed {} items", results.len());
     start.elapsed()
 }
 
