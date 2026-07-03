@@ -8,18 +8,15 @@ use moirai_core::{
     Priority,
 };
 
-use super::{async_state::AsyncFutureState, send_task_result, HybridExecutor, MetricsRef};
+use super::{async_state::AsyncFutureState, HybridExecutor, MetricsRef};
 use crate::schedule::{BlockingTask, SyncTask, WorkScheduler};
 
 impl<S: WorkScheduler> HybridExecutor<S> {
-    /// `Task`-typed sibling of [`HybridExecutor::spawn_result`], shared by
-    /// `spawn` and `spawn_with_priority`.
-    ///
-    /// This body is kept separate from the closure-based canonical path only so
-    /// the executing expression stays `task.execute()` (the shape pinned by the
-    /// workspace benchmark source contracts); the lifecycle sequence is
-    /// identical: register → pending handle → cancellation-aware scheduled job
-    /// with panic containment → result publication.
+    /// `Task`-typed adapter over the canonical closure-based
+    /// [`HybridExecutor::spawn_result`] path, shared by `spawn` and
+    /// `spawn_with_priority`: the task executes inside the same
+    /// cancellation-aware scheduled job with panic containment, lifecycle
+    /// timing, and result publication.
     fn spawn_task_job<T>(
         &self,
         task: T,
@@ -30,27 +27,7 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         T: Task + Send + 'static,
         T::Output: Send + 'static,
     {
-        let (task_id, lifecycle) = self.register_task(priority)?;
-
-        let (handle, result_sender) = TaskHandle::new_pending(task_id);
-        let metrics = MetricsRef::new(&self.metrics);
-
-        self.scheduler
-            .schedule::<SyncTask, _>(priority, locality_hint, move |worker_id| {
-                let Some(running) = lifecycle.start_unless_cancelled(worker_id) else {
-                    // Record before publishing the result so a joiner observes
-                    // the cancelled counter as soon as the handle resolves.
-                    metrics.get().record_task_cancelled();
-                    result_sender.send(Err(moirai_core::error::TaskError::Cancelled));
-                    return;
-                };
-                let result = catch_unwind(AssertUnwindSafe(|| task.execute()));
-                let execution_time = running.complete();
-                send_task_result(result, result_sender, metrics.get(), execution_time);
-            })?;
-
-        self.metrics.record_task_spawned();
-        Ok(handle)
+        self.spawn_result::<SyncTask, _>(priority, locality_hint, move || task.execute())
     }
 }
 

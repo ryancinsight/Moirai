@@ -82,8 +82,11 @@ fn main() {
         let handle = thread::spawn(move || {
             for j in 0..5 {
                 let value = i * 10 + j;
-                stack_clone.push(value);
-                println!("  Thread {}: Pushed {}", i, value);
+                // The stack has ample capacity for this demo; report if full.
+                match stack_clone.push(value) {
+                    Ok(()) => println!("  Thread {}: Pushed {}", i, value),
+                    Err(v) => println!("  Thread {}: stack full, dropped {}", i, v),
+                }
             }
         });
         handles.push(handle);

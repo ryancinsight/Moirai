@@ -72,7 +72,7 @@ fn public_handle_paths_retain_panic_containment() {
 
     for required in [
         "let result = catch_unwind(AssertUnwindSafe(func));",
-        "let result = catch_unwind(AssertUnwindSafe(|| task.execute()));",
+        "self.spawn_result::<SyncTask, _>(priority, locality_hint, move || task.execute())",
         "send_task_result(result, result_sender, metrics.get(), execution_time)",
         "sender.send(Err(TaskError::Panicked));",
         "fn spawn_blocking_reports_panicked_result()",

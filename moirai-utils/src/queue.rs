@@ -6,7 +6,7 @@
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::cache::CachePadded;
+use crate::cache::CacheAligned;
 
 #[cfg(feature = "std")]
 use std::boxed::Box;
@@ -62,8 +62,8 @@ pub struct LockFreeQueue<T> {
     buffer: Box<[Slot<T>]>,
     mask: usize,
     capacity: usize,
-    head: CachePadded<AtomicUsize>,
-    tail: CachePadded<AtomicUsize>,
+    head: CacheAligned<AtomicUsize>,
+    tail: CacheAligned<AtomicUsize>,
 }
 
 // Safety: The sequence-number protocol ensures that each slot's data is
@@ -113,8 +113,8 @@ impl<T> LockFreeQueue<T> {
             buffer,
             mask: capacity - 1,
             capacity,
-            head: CachePadded::new(AtomicUsize::new(0)),
-            tail: CachePadded::new(AtomicUsize::new(0)),
+            head: CacheAligned::new(AtomicUsize::new(0)),
+            tail: CacheAligned::new(AtomicUsize::new(0)),
         }
     }
 

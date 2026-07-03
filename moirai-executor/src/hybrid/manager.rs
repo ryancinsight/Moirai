@@ -106,10 +106,8 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
 
     /// Statistics limited to what the executor actually tracks.
     ///
-    /// `priority` is the value recorded at spawn. `preemption_count` and
-    /// `memory_used_bytes` are required by the `TaskStats` contract but are not
-    /// tracked by this executor; they are reported as `0` (removing them is a
-    /// `moirai-core` API change tracked as a cross-crate follow-up).
+    /// `priority` is the value recorded at spawn; timing fields come from the
+    /// registry's lifecycle timestamps.
     fn task_stats(&self, id: TaskId) -> Option<TaskStats> {
         let registry = self.task_registry.lock().ok()?;
         registry.get_metadata(id.0).map(|metadata| TaskStats {
@@ -119,11 +117,9 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
             spawn_time: metadata.created_at,
             start_time: metadata.started_at,
             completion_time: metadata.completed_at,
-            preemption_count: 0,
             cpu_time_ns: metadata
                 .execution_duration()
                 .map_or(0, |duration| duration.as_nanos() as u64),
-            memory_used_bytes: 0,
         })
     }
 }

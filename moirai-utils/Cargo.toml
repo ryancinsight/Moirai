@@ -21,6 +21,3 @@ proptest = { workspace = true }
 [features]
 default = ["std"]
 std = []
-metrics = []
-no-std = []
-numa = []

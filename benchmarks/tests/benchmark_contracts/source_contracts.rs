@@ -400,7 +400,8 @@ fn work_class_routing_stays_zero_sized_and_static() {
     }
 
     for required in [
-        ".schedule::<SyncTask, _>",
+        "spawn_result::<SyncTask, _>",
+        ".schedule::<C, _>",
         ".schedule::<BlockingTask, _>",
         ".schedule::<AsyncTask, _>",
     ] {

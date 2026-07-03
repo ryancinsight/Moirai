@@ -44,7 +44,6 @@ pub use task::TaskMetadata;
 pub struct ExecutorBuilder {
     worker_threads: usize,
     async_threads: usize,
-    blocking_threads: Option<usize>,
 }
 
 impl ExecutorBuilder {
@@ -55,7 +54,6 @@ impl ExecutorBuilder {
                 .map(|n| n.get())
                 .unwrap_or(4),
             async_threads: 4,
-            blocking_threads: None,
         }
     }
 
@@ -68,12 +66,6 @@ impl ExecutorBuilder {
     /// Set the number of async threads
     pub fn async_threads(mut self, count: usize) -> Self {
         self.async_threads = count;
-        self
-    }
-
-    /// Set the number of blocking threads
-    pub fn blocking_threads(mut self, count: usize) -> Self {
-        self.blocking_threads = Some(count);
         self
     }
 

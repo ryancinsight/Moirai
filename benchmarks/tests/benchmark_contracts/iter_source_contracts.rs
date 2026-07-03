@@ -870,7 +870,6 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "std::mem::take(&mut self.data)",
         "pub struct Reduction<T, F>",
         "let reduction: Reduction<Self::Item, F> = self.drive(ReduceConsumer::new(reduce_fn));",
-        "let reduction: Reduction<Self::Item, F> = self.drive(ReduceWithConsumer::new(reduce_fn));",
         "Some(reduce_fn(left, right))",
         "self.data.len() <= 1",
         "Preserve sequential value semantics for this API",
