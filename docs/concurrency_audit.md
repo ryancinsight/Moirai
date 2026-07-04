@@ -4,6 +4,37 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 22 (2026-07-03) — loom model of the `LifoSlot` take-side exclusion
+
+**Added:** `tests/loom_lifo_slot.rs` (`#![cfg(loom)]`) — exhaustive-interleaving
+model of the per-worker `LifoSlot` protocol (`schedule/runtime/types.rs`). The
+slot is `unsafe impl Sync` and moves jobs with `ptr::read`/`MaybeUninit`, so its
+load-bearing safety property is that a READY job is consumed by **exactly one**
+taker: two takers would `ptr::read` the same `ScheduledJob` twice — a
+double-move / use-after-free / double-free, the heap-corruption class this
+crate's nested-scope work has fought. `LifoSlot::pop`/`steal` are also on the
+ADR-019 `drain_scope` help path (`next_job`/`steal_job`), so this slot's
+soundness underwrites the help-while-waiting fix.
+
+Three models, all green (loom enumerates every interleaving; its `UnsafeCell`
+flags any concurrent access):
+- `pop_and_steal_take_the_job_exactly_once` — owner `pop` vs thief `steal`:
+  exactly one takes the job, never both (double-`ptr::read`), never neither.
+- `concurrent_steals_take_the_job_exactly_once` — two thieves race the `2->3`
+  CAS; exactly one wins.
+- `replace_push_and_steal_conserve_both_jobs` — owner replace-`push` vs `steal`:
+  the old and new jobs are conserved exactly once each (evicted/stolen/resident),
+  never aliased.
+
+Evidence tier: machine-checked (loom exhaustive model) — the strongest available
+for this mutual-exclusion property, upgrading it from the hand analysis in the
+`LifoSlot` SAFETY comments. Orderings in the model mirror production (empty push
+CAS 0->1 Acquire, replace CAS 2->1 AcqRel, pop CAS 2->1 Acquire, steal CAS 2->3
+Acquire; publishing `store(2, Release)` pairs with the take CAS Acquire; taker
+`store(0, Release)` pairs with the next push's 0->1 Acquire) and are pinned to
+stay in sync. Run: `RUSTFLAGS="--cfg loom" cargo test -p moirai-executor --test
+loom_lifo_slot --release`.
+
 ## Round 21 (2026-07-03) — NUMA-aware steal review; help-while-waiting adversarial tests
 
 **Reviewed:** commit `bcaf0bf` (NUMA-aware two-pass victim selection in
