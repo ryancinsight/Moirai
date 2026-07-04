@@ -4,6 +4,40 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 23 (2026-07-03) — FIXED: `join()` quiescence lost-wakeup (Dekker, AcqRel→SeqCst)
+
+**Bug (HIGH — liveness, latent `join()` hang).** `ThreadScheduler::join` and a
+worker completing the last job form a store-buffer (Dekker) handshake across two
+atoms that was ordered AcqRel/Acquire, not SeqCst:
+- worker (`execute_job`): `active_workers.fetch_sub(1, AcqRel)` (→0, publishes
+  quiescence) then `notify_quiescent` `join_waiters.load(Acquire)`.
+- joiner (`join`): `join_waiters.fetch_add(1, AcqRel)` then `is_quiescent`
+  `active_workers.load(Acquire)`.
+
+AcqRel gives no StoreLoad barrier, so the store-buffer outcome is permitted: the
+joiner reads a stale `active != 0` and parks on the condvar while the worker
+reads a stale `join_waiters == 0` and never signals — the quiescent scheduler
+never wakes the joiner, hanging `join()`. The joiner's 256-iteration pre-register
+spin makes the window narrow but not empty. This is the same hazard the park/wake
+handshake (Round 19 / `loom_wake_handshake.rs`) closed with SeqCst; the join path
+had been left at AcqRel.
+
+**Reproduced:** `tests/loom_join_quiescence.rs` modeling the production
+orderings — loom reports the lost wakeup reachable with AcqRel, unreachable with
+SeqCst (+ the loom StoreLoad `fence`, the same modeling device the wake-handshake
+uses).
+
+**Fix.** The four handshake accesses are now SeqCst so they share one total order
+that forbids the store-buffer outcome:
+`execute_job` `active_workers.fetch_sub(1, SeqCst)`; `notify_quiescent`
+`join_waiters.load(SeqCst)`; `is_quiescent` `pending_tasks`/`active_workers`
+loads SeqCst; `join` `join_waiters.fetch_add(1, SeqCst)`. The hot-path cost is
+the completion-side `fetch_sub` barrier — free on x86 (`lock sub` is already a
+full barrier); SeqCst loads are plain `mov` on x86. The committed
+`loom_join_quiescence.rs` models the fixed (SeqCst) protocol and is pinned to
+stay in sync. moirai-executor suite (80) green, clippy clean. Evidence tier:
+machine-checked (loom) + type/analysis (memory-model derivation).
+
 ## Round 22 (2026-07-03) — loom model of the `LifoSlot` take-side exclusion
 
 **Added:** `tests/loom_lifo_slot.rs` (`#![cfg(loom)]`) — exhaustive-interleaving

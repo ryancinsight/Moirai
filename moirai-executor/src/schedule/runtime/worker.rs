@@ -193,7 +193,17 @@ pub(super) fn execute_job<const QUEUE_CAPACITY: usize>(
         inner.failed_tasks.fetch_add(1, Ordering::Relaxed);
     }
 
-    if inner.active_workers.fetch_sub(1, Ordering::AcqRel) == 1 {
+    // SeqCst (not AcqRel): this decrement-to-zero publishes quiescence to a
+    // parking `join()` waiter and is one half of a store-buffer (Dekker)
+    // handshake — the worker stores `active -> 0` here then `notify_quiescent`
+    // loads `join_waiters`, while `join` stores `join_waiters += 1` then
+    // `is_quiescent` loads `active`. All four accesses must share one SeqCst
+    // total order; with AcqRel the StoreLoad reordering admits the lost-wakeup
+    // outcome (joiner reads stale `active != 0` and parks while the worker reads
+    // stale `join_waiters == 0` and never signals — a hung `join()`), proven
+    // reachable by `tests/loom_join_quiescence.rs`. On x86 `lock sub`/`lock xadd`
+    // is already a full barrier, so this is free.
+    if inner.active_workers.fetch_sub(1, Ordering::SeqCst) == 1 {
         notify_quiescent(inner);
     }
 }
@@ -374,7 +384,11 @@ pub(super) fn notify_quiescent<const QUEUE_CAPACITY: usize>(
     inner: &SchedulerInner<QUEUE_CAPACITY>,
 ) {
     use std::sync::atomic::Ordering;
-    if inner.join_waiters.load(Ordering::Acquire) != 0 && is_quiescent(inner) {
+    // SeqCst: the worker half of the quiescence Dekker handshake (see the
+    // `active_workers` decrement in `execute_job`). This load must be in the same
+    // SeqCst total order as `join`'s `join_waiters` increment, or a just-arrived
+    // waiter is missed.
+    if inner.join_waiters.load(Ordering::SeqCst) != 0 && is_quiescent(inner) {
         let _guard = lock_mutex(&inner.wait_lock);
         if is_quiescent(inner) {
             inner.wait_signal.notify_all();
@@ -386,8 +400,13 @@ pub(super) fn is_quiescent<const QUEUE_CAPACITY: usize>(
     inner: &SchedulerInner<QUEUE_CAPACITY>,
 ) -> bool {
     use std::sync::atomic::Ordering;
-    inner.pending_tasks.load(Ordering::Acquire) == 0
-        && inner.active_workers.load(Ordering::Acquire) == 0
+    // SeqCst: the `active_workers` load is the joiner's half of the quiescence
+    // Dekker handshake (see `execute_job`) and must sit in the shared SeqCst
+    // total order; `pending_tasks` is loaded SeqCst too so the full quiescence
+    // predicate is evaluated against one consistent order. SeqCst loads are a
+    // plain load on x86 (`mov`), so this is cheap on the common target.
+    inner.pending_tasks.load(Ordering::SeqCst) == 0
+        && inner.active_workers.load(Ordering::SeqCst) == 0
 }
 
 pub(super) fn inline_map_reduce<T, Map, Reduce>(

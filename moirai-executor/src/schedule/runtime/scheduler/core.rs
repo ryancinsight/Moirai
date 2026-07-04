@@ -363,7 +363,14 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
 
         let mut guard = lock_mutex(&self.inner.wait_lock);
-        self.inner.join_waiters.fetch_add(1, Ordering::AcqRel);
+        // SeqCst: the joiner half of the quiescence Dekker handshake — this
+        // registration must be in the same SeqCst total order as a completing
+        // worker's `active_workers` decrement and its `join_waiters` load in
+        // `notify_quiescent`. With AcqRel the store-buffer outcome hangs `join()`
+        // (see `execute_job` and `tests/loom_join_quiescence.rs`). The re-check
+        // below runs under `wait_lock`, closing the window against a concurrent
+        // `notify_quiescent` that also takes the lock before signalling.
+        self.inner.join_waiters.fetch_add(1, Ordering::SeqCst);
         while !is_quiescent(&self.inner) {
             guard = self
                 .inner
