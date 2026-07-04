@@ -4,6 +4,44 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+## Round 21 (2026-07-03) — NUMA-aware steal review; help-while-waiting adversarial tests
+
+**Reviewed:** commit `bcaf0bf` (NUMA-aware two-pass victim selection in
+`steal_job`). Verdict: **no correctness defect.** `worker_numa_nodes` is a
+`Box<[Option<usize>]>` set once at construction and read-only thereafter (no new
+locks/atomics/shared mutation). Pass 1 prefers same-NUMA-node victims; Pass 2 is
+the original full-ring randomized scan, so every victim with work is still
+reachable — coverage and starvation-freedom are preserved. `steal_batch` into
+the thief's own local queue is unchanged, so the help path added in ADR-019
+(`drain_scope` → `next_job` → `steal_job`) inherits the same aliasing guarantees.
+Regression-checked: `scheduler_scope_nested_saturation_completes` and
+`scheduler_scope_recursive_fork_join_is_sound` stay green (0.02 s) on the merged
+HEAD, ×4 repeat.
+
+**Perf note (not a correctness issue, deferred — needs NUMA hardware).** On a
+multi-node system where a thief's same-node victims are momentarily empty (the
+common state right after a fork-join barrier, when same-node peers have just gone
+idle), `steal_job` runs Pass 1 (O(worker_count), all misses) *then* Pass 2
+(O(worker_count)) — a 2× steal scan during the post-barrier steal storm. Pass 1
+also scans the full ring and `continue`s past off-node workers rather than
+iterating a precomputed per-node victim list (O(node_size)). Both are load-
+balance-neutral but worth a criterion pass on real NUMA hardware; filed as a
+follow-up perf item (external blocker: no multi-socket machine in CI).
+
+**Test-coverage gap (filed).** The NUMA change ships no `moirai-executor` test.
+On single-node/`None`-topology CI (VMs, containers) Pass 1 is skipped or covers
+only the all-same-node case, so the **cross-node fallback** (Pass 1 empty → Pass
+2 steals across nodes) is never exercised. A deterministic white-box test needs a
+node-assignment injection seam on the scheduler constructor — owned by the NUMA
+author; filed as ISSUE-209 rather than added here to avoid editing that hot file
+under concurrent authorship.
+
+**Added (this round):** `scheduler_scope_nested_panic_propagates_and_pool_survives`
+— adversarial guard that a panic in a nested scoped job under help-while-waiting
+surfaces as `SpawnFailed(Panicked)` from the nested scope, its sibling still
+runs, and the outer scope completes without deadlock/corruption. `W ∈ {1,2,4}`,
+green.
+
 ## Round 20 (2026-07-03) — nested scope unsoundness; parallel `drive` reverted
 
 **Finding (HIGH — memory safety).** An attempt to make

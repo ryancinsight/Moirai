@@ -97,6 +97,24 @@ architecture definition.
 - **Evidence tier**: type/analysis (deadlock-freedom argument, ADR-019) +
   empirical (deterministic 30 s→0.01 s reproduction, repeat-clean regression).
 
+#### ⏳ ISSUE-209 [patch]: Cover NUMA two-pass `steal_job` cross-node fallback (owner: NUMA author)
+- **Type**: Scheduler Test Coverage
+- **Root Cause**: `bcaf0bf` (NUMA-aware `steal_job`) ships no `moirai-executor`
+  test. On single-node/`None`-topology CI (VMs, containers) Pass 1 is skipped or
+  only exercises the all-same-node case, so the cross-node fallback (Pass 1 same
+  -node victims empty → Pass 2 steals across nodes) is never executed. Reviewed
+  in concurrency_audit.md Round 21: no correctness defect found, but the branch
+  is untested.
+- **Acceptance criteria**: a deterministic white-box test injects a multi-node
+  `worker_numa_nodes` layout (needs a `#[cfg(test)]` node-assignment seam on the
+  scheduler constructor) and asserts value-semantic completion when a thief's
+  same-node victims are empty and only cross-node victims hold work.
+- **Owner**: NUMA-steal author (upstream ownership — the capability's owner adds
+  its test; not added by the concurrency-review pass to avoid editing the hot
+  constructor under concurrent authorship).
+- **Status**: filed. Also see the Round 21 perf note (2× steal scan on NUMA-miss)
+  — separate criterion item, externally blocked on multi-socket hardware.
+
 #### ✅ ISSUE-199 [arch]: Add accelerator route topology without execution fabrication
 - **Type**: Scheduler Architecture / Accelerator Placement
 - **Root Cause**: Moirai's stated scheduler target includes CPU, GPU, TPU, and NPU

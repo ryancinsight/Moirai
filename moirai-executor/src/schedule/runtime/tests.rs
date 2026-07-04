@@ -260,6 +260,60 @@ fn scheduler_scope_recursive_fork_join_is_sound() {
 }
 
 #[test]
+fn scheduler_scope_nested_panic_propagates_and_pool_survives() {
+    // Adversarial guard for the help-while-waiting scope (ADR-019): when a nested
+    // scoped job panics, the nested scope must report SpawnFailed(Panicked), its
+    // sibling job must still run, and the outer scope must complete without
+    // deadlock or corruption — i.e. a panic on a help-stealing worker unwinds
+    // only its own job, never the waiter's help loop.
+    for &workers in &[1usize, 2, 4] {
+        let scheduler = ThreadScheduler::new(workers, "test-nested-panic").unwrap();
+        let outer = 8usize;
+        let sibling_ran = AtomicUsize::new(0);
+        let nested_panics_reported = AtomicUsize::new(0);
+
+        scheduler
+            .scope::<SyncTask, _>(Priority::Normal, None, |outer_scope| {
+                for _ in 0..outer {
+                    let scheduler = &scheduler;
+                    let sibling_ran = &sibling_ran;
+                    let nested_panics_reported = &nested_panics_reported;
+                    outer_scope.spawn(move |_| {
+                        let result =
+                            scheduler.scope::<SyncTask, _>(Priority::Normal, None, |inner| {
+                                inner.spawn(|_| panic!("nested scoped job panic"))?;
+                                inner.spawn(move |_| {
+                                    sibling_ran.fetch_add(1, Ordering::Relaxed);
+                                })?;
+                                Ok(())
+                            });
+                        if matches!(
+                            result,
+                            Err(ExecutorError::SpawnFailed(TaskError::Panicked))
+                        ) {
+                            nested_panics_reported.fetch_add(1, Ordering::Relaxed);
+                        }
+                    })?;
+                }
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(
+            nested_panics_reported.load(Ordering::Relaxed),
+            outer,
+            "each nested scope must report its panic at {workers} worker(s)"
+        );
+        assert_eq!(
+            sibling_ran.load(Ordering::Relaxed),
+            outer,
+            "sibling of a panicking nested job must still run at {workers} worker(s)"
+        );
+        scheduler.shutdown();
+    }
+}
+
+#[test]
 fn scheduler_scope_reports_panicked_job() {
     let scheduler = ThreadScheduler::new(1, "test-scope-panic").unwrap();
     let completed = AtomicUsize::new(0);
