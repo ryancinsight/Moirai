@@ -260,6 +260,64 @@ fn scheduler_scope_recursive_fork_join_is_sound() {
 }
 
 #[test]
+fn scheduler_scope_nested_leaves_scheduler_quiescent() {
+    // Accounting guard for help-while-waiting (ADR-019): a worker waiter runs
+    // jobs via a re-entrant `execute_job`, which mutates the global
+    // `pending_tasks`/`active_workers` counters. A leaked increment would leave
+    // `join()` unable to observe quiescence (hang → nextest terminates). Assert
+    // the scheduler returns to a consistent quiescent state with no spurious
+    // failures after a nested workload.
+    for &workers in &[1usize, 2, 4] {
+        let scheduler = ThreadScheduler::new(workers, "test-nested-quiescent").unwrap();
+        let outer = 16usize;
+        let inner = 8usize;
+        let counter = AtomicUsize::new(0);
+
+        scheduler
+            .scope::<SyncTask, _>(Priority::Normal, None, |outer_scope| {
+                for _ in 0..outer {
+                    let scheduler = &scheduler;
+                    let counter = &counter;
+                    outer_scope.spawn(move |_| {
+                        scheduler
+                            .scope::<SyncTask, _>(Priority::Normal, None, |inner_scope| {
+                                for _ in 0..inner {
+                                    let counter = &counter;
+                                    inner_scope.spawn(move |_| {
+                                        counter.fetch_add(1, Ordering::Relaxed);
+                                    })?;
+                                }
+                                Ok(())
+                            })
+                            .expect("nested scope must complete");
+                    })?;
+                }
+                Ok(())
+            })
+            .unwrap();
+
+        // Terminates only if the help path leaked no pending/active count.
+        scheduler.join().expect("scheduler must reach quiescence");
+        let metrics = scheduler.metrics();
+
+        assert_eq!(counter.load(Ordering::Relaxed), outer * inner);
+        assert_eq!(
+            metrics.pending_tasks, 0,
+            "leaked pending count at {workers} worker(s)"
+        );
+        assert_eq!(
+            metrics.active_workers, 0,
+            "leaked active-worker count at {workers} worker(s)"
+        );
+        assert_eq!(
+            metrics.failed_tasks, 0,
+            "spurious job failure at {workers} worker(s)"
+        );
+        scheduler.shutdown();
+    }
+}
+
+#[test]
 fn scheduler_scope_nested_panic_propagates_and_pool_survives() {
     // Adversarial guard for the help-while-waiting scope (ADR-019): when a nested
     // scoped job panics, the nested scope must report SpawnFailed(Panicked), its
