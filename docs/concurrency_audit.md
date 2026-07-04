@@ -4,6 +4,10 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+Run the tests that back these findings via the
+[concurrency verification runbook](concurrency_testing.md) (loom models + stress
+tests + the standard gate).
+
 ## Round 23 (2026-07-03) — FIXED: `join()` quiescence lost-wakeup (Dekker, AcqRel→SeqCst)
 
 **Bug (HIGH — liveness, latent `join()` hang).** `ThreadScheduler::join` and a
