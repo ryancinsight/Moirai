@@ -1,5 +1,55 @@
 # Moirai Development Checklist
 
+## Phase 27: GPU pollster boundary removal
+- [x] [patch] Added `moirai_executor::block_on` as the Moirai-owned
+  current-thread parking wait primitive for synchronous async boundaries.
+- [x] [patch] Replaced `moirai-gpu`'s `GpuTaskAdapter` `pollster::block_on`
+  call with `moirai_executor::block_on` and removed `pollster` from the
+  `wgpu-backend` feature dependency list.
+- [x] [patch] Added a benchmark source contract that rejects reintroducing
+  `pollster` into `moirai-gpu`'s manifest or task adapter.
+- Evidence: `rustup run nightly rustfmt --edition 2021
+  moirai-executor\src\lib.rs moirai-gpu\src\task.rs
+  benchmarks\tests\benchmark_contracts\source_contracts.rs`;
+  `rustup run nightly cargo check -p moirai-gpu --features wgpu-backend`;
+  `rustup run nightly cargo check -p moirai-executor --no-default-features`;
+  `rustup run nightly cargo tree -p moirai-gpu --features wgpu-backend -i
+  pollster` reports no matching package; `rustup run nightly cargo nextest run
+  -p moirai-benchmarks gpu_task_adapter_uses_moirai_block_on_not_pollster
+  --status-level fail --no-fail-fast` passed 1/1.
+
+## Phase 26: Socket stale-wake regression ✅
+- [x] [patch] Added a real loopback TCP regression for the July 2 stale-wake
+  async bug: `timeout(stream.read(...))` completes through the timer while the
+  socket read waker remains registered, then peer readability wakes the stale
+  reactor slot after the async task has completed.
+- Evidence: `rustup run nightly cargo nextest run -p moirai-async
+  timeout_read_stale_socket_wake_does_not_repoll_completed_task
+  --status-level fail --no-fail-fast`.
+
+## Phase 25: Transport stale export cleanup
+- [x] [patch] Removed `moirai_transport::core_zero_copy`, a stale re-export of
+  deleted `moirai_core::communication::zero_copy`, so Atlas consumers compile
+  against the current `moirai_core::communication` surface.
+- Evidence: `rustup run nightly cargo fmt -p moirai-transport --check`;
+  `rustup run nightly cargo check -p moirai-transport`.
+
+## Phase 24: Stateful Chunk Parallel Provider API ✅
+- [x] [patch] Added `moirai_parallel::for_each_chunk_mut_with_state` so
+  consumers can run mutable chunk kernels with one reusable scratch state per
+  scheduled worker shard.
+- [x] [patch] Re-exported the API from `moirai-parallel` and covered it with a
+  value-semantic test that proves every chunk is written from reusable state.
+- [x] [patch] Added `for_each_chunk_triple_mut_enumerated_with` and
+  `for_each_chunk_quad_mut_enumerated_with` for provider-owned fused updates
+  across three or four equal-length mutable output buffers.
+- [x] [patch] Re-exported the multi-output chunk APIs and covered them with
+  value-semantic tests that prove chunk indices and all output buffers are
+  written from the caller-provided closure.
+- Evidence: `cargo fmt -p moirai-parallel --check`; `cargo check -p
+  moirai-parallel`; `cargo nextest run -p moirai-parallel
+  for_each_chunk_ --status-level fail --no-fail-fast` (6/6).
+
 ## Phase 23: Task Registry Stable Slot Access ✅
 - [x] [patch] Kept `TaskStateBlock` slot storage private behind
   `UnsafeCell`-based `get`/`insert`/`clear`/`states` methods so lifecycle
@@ -244,7 +294,8 @@
 - [ ] Performance benchmarks validation
 - [ ] API stabilization  
 - [ ] Production readiness review
-- [x] SSOT consolidation: zero-copy moved to `moirai_core::communication::zero_copy`
+- [x] SSOT consolidation: zero-copy communication primitives live under
+      `moirai_core::communication`
 - [x] Iterator windows/chunks consolidated under `moirai_iter::windows`
 - [x] Placeholder cleanup: replaced stubs with explicit unsupported errors or working code
 - [x] Zero-copy send returns value on failure to prevent data loss

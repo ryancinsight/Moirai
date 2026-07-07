@@ -189,8 +189,7 @@ where
     type Output = Result<T::Output, GpuError>;
 
     fn execute(self) -> Self::Output {
-        // Use pollster to block on the async GPU task
-        pollster::block_on(self.gpu_task.execute_gpu(&self.device))
+        moirai_executor::block_on(self.gpu_task.execute_gpu(&self.device))
     }
 
     fn context(&self) -> &TaskContext {

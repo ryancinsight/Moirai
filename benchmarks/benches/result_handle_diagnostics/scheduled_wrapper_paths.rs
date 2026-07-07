@@ -2,14 +2,12 @@
 fn direct_scheduled_public_token_wrapper_components(
     scheduler: &ThreadScheduler,
     registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
     metrics.record_task_spawned();
     let worker_metrics = Arc::clone(metrics);
-    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
 
     scheduler
         .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
@@ -100,7 +98,9 @@ fn direct_scheduled_public_registry_token_wrapper_after_send_quiescent(
     let result = handle
         .join()
         .expect("scheduled registry-token after-send quiescent wrapper handle must be attached")
-        .expect("scheduled registry-token after-send quiescent wrapper handle must contain a value");
+        .expect(
+            "scheduled registry-token after-send quiescent wrapper handle must contain a value",
+        );
     scheduler
         .join()
         .expect("scheduler must reach quiescence after registry-token metrics tail");
@@ -158,11 +158,9 @@ fn direct_scheduled_public_registry_token_wrapper_local_metrics_quiescent(
 fn direct_scheduled_public_token_wrapper_without_metrics(
     scheduler: &ThreadScheduler,
     registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
 ) -> usize {
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
-    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
 
     scheduler
         .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
@@ -214,14 +212,12 @@ fn direct_scheduled_public_registry_token_wrapper_without_metrics(
 fn direct_scheduled_public_token_wrapper_without_catch(
     scheduler: &ThreadScheduler,
     registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
     metrics.record_task_spawned();
     let worker_metrics = Arc::clone(metrics);
-    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
 
     scheduler
         .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
@@ -242,13 +238,11 @@ fn direct_scheduled_public_token_wrapper_without_catch(
 fn direct_scheduled_public_token_wrapper_atomic_result(
     scheduler: &ThreadScheduler,
     registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (_id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     metrics.record_task_spawned();
     let worker_metrics = Arc::clone(metrics);
-    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
     let result = Arc::new(AtomicUsize::new(0));
     let worker_result = Arc::clone(&result);
 
@@ -304,15 +298,13 @@ fn direct_scheduled_public_token_wrapper_without_lifecycle(
 fn direct_scheduled_public_token_wrapper_oversized_components(
     scheduler: &ThreadScheduler,
     registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let words = [1usize; OVERSIZED_CAPTURE_WORDS];
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
     metrics.record_task_spawned();
     let worker_metrics = Arc::clone(metrics);
-    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
 
     scheduler
         .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
@@ -342,15 +334,13 @@ fn direct_scheduled_public_token_wrapper_oversized_components(
 fn direct_scheduled_public_token_wrapper_oversized_storage_only(
     scheduler: &ThreadScheduler,
     registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let words = [1usize; OVERSIZED_CAPTURE_WORDS];
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
     metrics.record_task_spawned();
     let worker_metrics = Arc::clone(metrics);
-    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
 
     scheduler
         .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
@@ -381,15 +371,13 @@ fn direct_scheduled_public_token_wrapper_oversized_storage_only(
 fn direct_scheduled_public_token_wrapper_oversized_read_one_components(
     scheduler: &ThreadScheduler,
     registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let words = [1usize; OVERSIZED_CAPTURE_WORDS];
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
     metrics.record_task_spawned();
     let worker_metrics = Arc::clone(metrics);
-    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
 
     scheduler
         .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {
@@ -419,12 +407,10 @@ fn direct_scheduled_public_token_wrapper_oversized_read_one_components(
 fn direct_scheduled_public_token_wrapper_oversized_without_metrics(
     scheduler: &ThreadScheduler,
     registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
 ) -> usize {
     let words = [1usize; OVERSIZED_CAPTURE_WORDS];
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
-    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
 
     scheduler
         .schedule::<BlockingTask, _>(moirai_core::Priority::Normal, None, move |_| {

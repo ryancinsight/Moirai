@@ -40,6 +40,19 @@ pub use schedule::{
 };
 pub use task::TaskMetadata;
 
+/// Block the current thread until `future` resolves.
+///
+/// This is the Moirai-owned synchronous wait primitive for code that only needs
+/// to bridge an async operation into a synchronous boundary. It uses the same
+/// parking waker as [`HybridExecutor::block_on`] without constructing or
+/// touching the process-wide scheduler.
+pub fn block_on<F>(future: F) -> F::Output
+where
+    F: core::future::Future,
+{
+    schedule::wake::block_on_current_thread(future)
+}
+
 /// Main executor builder for creating configured instances
 pub struct ExecutorBuilder {
     worker_threads: usize,

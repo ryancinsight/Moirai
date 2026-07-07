@@ -142,6 +142,34 @@ fn for_each_chunk_mut_processes_lanes() {
 }
 
 #[test]
+fn for_each_chunk_mut_with_state_reuses_worker_state() {
+    let mut data = vec![0usize; 64 * 32];
+    let state_initializations = AtomicUsize::new(0);
+    for_each_chunk_mut_with_state::<Parallel, _, _, _, _>(
+        &mut data,
+        32,
+        || {
+            state_initializations.fetch_add(1, Ordering::Relaxed);
+            Vec::<usize>::with_capacity(32)
+        },
+        |scratch, chunk| {
+            scratch.clear();
+            scratch.extend(0..chunk.len());
+            for (value, offset) in chunk.iter_mut().zip(scratch.iter()) {
+                *value = *offset;
+            }
+        },
+    );
+
+    for chunk in data.chunks(32) {
+        assert_eq!(chunk, &(0..32).collect::<Vec<_>>());
+    }
+    let initialized = state_initializations.load(Ordering::Relaxed);
+    assert!(initialized > 0);
+    assert!(initialized <= 64);
+}
+
+#[test]
 fn for_each_index_visits_every_index() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let n = 10_000usize;
@@ -187,6 +215,74 @@ fn for_each_chunk_pair_mut_processes_paired_chunks() {
         assert!(a[i * width..(i + 1) * width].iter().all(|&v| v == i as u64));
         for j in 0..width {
             assert_eq!(b[i * width + j], (i * width + j) as u64);
+        }
+    }
+}
+
+#[test]
+fn for_each_chunk_quad_mut_processes_quad_chunks() {
+    let frames = 240usize;
+    let width = 7usize;
+    let mut a: Vec<u64> = vec![0; frames * width];
+    let mut b: Vec<u64> = vec![0; frames * width];
+    let mut c: Vec<u64> = vec![0; frames * width];
+    let mut d: Vec<u64> = vec![0; frames * width];
+    for_each_chunk_quad_mut_enumerated_with::<Adaptive, _, _, _, _, _>(
+        &mut a,
+        &mut b,
+        &mut c,
+        &mut d,
+        width,
+        |chunk_index, ca, cb, cc, cd| {
+            for lane in 0..ca.len() {
+                let absolute = chunk_index * width + lane;
+                ca[lane] = chunk_index as u64;
+                cb[lane] = absolute as u64;
+                cc[lane] = (absolute * 2) as u64;
+                cd[lane] = ca[lane] + cb[lane] + cc[lane];
+            }
+        },
+    );
+
+    for chunk_index in 0..frames {
+        for lane in 0..width {
+            let idx = chunk_index * width + lane;
+            assert_eq!(a[idx], chunk_index as u64);
+            assert_eq!(b[idx], idx as u64);
+            assert_eq!(c[idx], (idx * 2) as u64);
+            assert_eq!(d[idx], a[idx] + b[idx] + c[idx]);
+        }
+    }
+}
+
+#[test]
+fn for_each_chunk_triple_mut_processes_triple_chunks() {
+    let frames = 180usize;
+    let width = 9usize;
+    let mut a: Vec<u64> = vec![0; frames * width];
+    let mut b: Vec<u64> = vec![0; frames * width];
+    let mut c: Vec<u64> = vec![0; frames * width];
+    for_each_chunk_triple_mut_enumerated_with::<Adaptive, _, _, _, _>(
+        &mut a,
+        &mut b,
+        &mut c,
+        width,
+        |chunk_index, ca, cb, cc| {
+            for lane in 0..ca.len() {
+                let absolute = chunk_index * width + lane;
+                ca[lane] = chunk_index as u64;
+                cb[lane] = absolute as u64;
+                cc[lane] = ca[lane] + cb[lane];
+            }
+        },
+    );
+
+    for chunk_index in 0..frames {
+        for lane in 0..width {
+            let idx = chunk_index * width + lane;
+            assert_eq!(a[idx], chunk_index as u64);
+            assert_eq!(b[idx], idx as u64);
+            assert_eq!(c[idx], a[idx] + b[idx]);
         }
     }
 }

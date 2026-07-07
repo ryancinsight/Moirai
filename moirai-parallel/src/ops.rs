@@ -208,6 +208,68 @@ where
         .expect("moirai global executor: for_each_chunk_mut_with");
 }
 
+/// Apply `f(state, chunk)` to each consecutive mutable chunk, creating one
+/// reusable state value per scheduled worker shard.
+///
+/// This is the scratch-buffer form of [`for_each_chunk_mut_with`]. It matches
+/// the allocation discipline of Rayon-style `for_each_init`/`for_each_with`
+/// loops: a worker shard initializes `S` once, then reuses it for every logical
+/// chunk assigned to that shard.
+pub fn for_each_chunk_mut_with_state<P, T, S, Init, F>(
+    data: &mut [T],
+    chunk_size: usize,
+    init: Init,
+    f: F,
+) where
+    P: ExecutionPolicy,
+    T: Send,
+    S: Send,
+    Init: Fn() -> S + Send + Sync,
+    F: Fn(&mut S, &mut [T]) + Send + Sync,
+{
+    let n = data.len();
+    if n == 0 || chunk_size == 0 {
+        return;
+    }
+    let num_chunks = n.div_ceil(chunk_size);
+    if !P::parallelize(n) || num_chunks <= 1 {
+        let mut state = init();
+        for chunk in data.chunks_mut(chunk_size) {
+            f(&mut state, chunk);
+        }
+        return;
+    }
+
+    let workers = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .min(num_chunks)
+        .max(1);
+    let chunks_per_worker = num_chunks.div_ceil(workers);
+    let base = DisjointMutPtr(data.as_mut_ptr());
+    let init = &init;
+    let f = &f;
+    global()
+        .for_each_indexed::<SyncTask, _>(workers, move |worker| {
+            let first_chunk = worker * chunks_per_worker;
+            let last_chunk = ((worker + 1) * chunks_per_worker).min(num_chunks);
+            if first_chunk >= last_chunk {
+                return;
+            }
+            let mut state = init();
+            for chunk_index in first_chunk..last_chunk {
+                let start = chunk_index * chunk_size;
+                let end = (start + chunk_size).min(n);
+                // SAFETY: logical chunks are assigned to exactly one worker and
+                // are pairwise disjoint, so each mutable slice is exclusive.
+                let chunk =
+                    unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
+                f(&mut state, chunk);
+            }
+        })
+        .expect("moirai global executor: for_each_chunk_mut_with_state");
+}
+
 /// Apply `f(index, a_chunk, b_chunk)` to paired `chunk_size`-element mutable
 /// chunks of two **distinct** buffers in parallel, scheduled by policy `P`.
 ///
@@ -261,6 +323,145 @@ pub fn for_each_chunk_pair_mut_enumerated_with<P, A, B, F>(
             f(c, ca, cb);
         })
         .expect("moirai global executor: for_each_chunk_pair_mut_enumerated_with");
+}
+
+/// Apply `f(index, a_chunk, b_chunk, c_chunk, d_chunk)` to four **distinct**
+/// mutable buffers chunked identically, scheduled by policy `P`.
+///
+/// This is the four-buffer counterpart to
+/// [`for_each_chunk_pair_mut_enumerated_with`]. It is intended for fused
+/// statistics and stencil bookkeeping kernels where one authoritative pass
+/// updates several output arrays without allocating intermediate tuples.
+pub fn for_each_chunk_quad_mut_enumerated_with<P, A, B, C, D, F>(
+    a: &mut [A],
+    b: &mut [B],
+    c: &mut [C],
+    d: &mut [D],
+    chunk_size: usize,
+    f: F,
+) where
+    P: ExecutionPolicy,
+    A: Send,
+    B: Send,
+    C: Send,
+    D: Send,
+    F: Fn(usize, &mut [A], &mut [B], &mut [C], &mut [D]) + Send + Sync,
+{
+    let na = a.len();
+    let nb = b.len();
+    let nc = c.len();
+    let nd = d.len();
+    assert_eq!(na, nb, "quad chunk buffers must have equal lengths");
+    assert_eq!(na, nc, "quad chunk buffers must have equal lengths");
+    assert_eq!(na, nd, "quad chunk buffers must have equal lengths");
+    if chunk_size == 0 || na == 0 {
+        return;
+    }
+    let num_chunks = na.div_ceil(chunk_size);
+    if !P::parallelize(na) || num_chunks <= 1 {
+        a.chunks_mut(chunk_size)
+            .zip(b.chunks_mut(chunk_size))
+            .zip(c.chunks_mut(chunk_size))
+            .zip(d.chunks_mut(chunk_size))
+            .enumerate()
+            .for_each(|(i, (((ca, cb), cc), cd))| f(i, ca, cb, cc, cd));
+        return;
+    }
+    let abase = DisjointMutPtr(a.as_mut_ptr());
+    let bbase = DisjointMutPtr(b.as_mut_ptr());
+    let cbase = DisjointMutPtr(c.as_mut_ptr());
+    let dbase = DisjointMutPtr(d.as_mut_ptr());
+    let f = &f;
+    global()
+        .for_each_indexed::<SyncTask, _>(num_chunks, move |chunk_index| {
+            let start = chunk_index * chunk_size;
+            if start >= na || start >= nb || start >= nc || start >= nd {
+                return;
+            }
+            let ea = (start + chunk_size).min(na);
+            let eb = (start + chunk_size).min(nb);
+            let ec = (start + chunk_size).min(nc);
+            let ed = (start + chunk_size).min(nd);
+            // SAFETY: chunks `[start, e*)` for distinct `chunk_index` values
+            // are pairwise disjoint within each buffer and each is visited at
+            // most once. The four input buffers are distinct non-aliasing
+            // `&mut` slices, so the returned mutable chunk references cannot
+            // alias each other.
+            let ca =
+                unsafe { core::slice::from_raw_parts_mut(abase.base().add(start), ea - start) };
+            let cb =
+                unsafe { core::slice::from_raw_parts_mut(bbase.base().add(start), eb - start) };
+            let cc =
+                unsafe { core::slice::from_raw_parts_mut(cbase.base().add(start), ec - start) };
+            let cd =
+                unsafe { core::slice::from_raw_parts_mut(dbase.base().add(start), ed - start) };
+            f(chunk_index, ca, cb, cc, cd);
+        })
+        .expect("moirai global executor: for_each_chunk_quad_mut_enumerated_with");
+}
+
+/// Apply `f(index, a_chunk, b_chunk, c_chunk)` to three **distinct** mutable
+/// buffers chunked identically, scheduled by policy `P`.
+///
+/// This is the three-buffer counterpart to
+/// [`for_each_chunk_pair_mut_enumerated_with`].
+pub fn for_each_chunk_triple_mut_enumerated_with<P, A, B, C, F>(
+    a: &mut [A],
+    b: &mut [B],
+    c: &mut [C],
+    chunk_size: usize,
+    f: F,
+) where
+    P: ExecutionPolicy,
+    A: Send,
+    B: Send,
+    C: Send,
+    F: Fn(usize, &mut [A], &mut [B], &mut [C]) + Send + Sync,
+{
+    let na = a.len();
+    let nb = b.len();
+    let nc = c.len();
+    assert_eq!(na, nb, "triple chunk buffers must have equal lengths");
+    assert_eq!(na, nc, "triple chunk buffers must have equal lengths");
+    if chunk_size == 0 || na == 0 {
+        return;
+    }
+    let num_chunks = na.div_ceil(chunk_size);
+    if !P::parallelize(na) || num_chunks <= 1 {
+        a.chunks_mut(chunk_size)
+            .zip(b.chunks_mut(chunk_size))
+            .zip(c.chunks_mut(chunk_size))
+            .enumerate()
+            .for_each(|(i, ((ca, cb), cc))| f(i, ca, cb, cc));
+        return;
+    }
+    let abase = DisjointMutPtr(a.as_mut_ptr());
+    let bbase = DisjointMutPtr(b.as_mut_ptr());
+    let cbase = DisjointMutPtr(c.as_mut_ptr());
+    let f = &f;
+    global()
+        .for_each_indexed::<SyncTask, _>(num_chunks, move |chunk_index| {
+            let start = chunk_index * chunk_size;
+            if start >= na || start >= nb || start >= nc {
+                return;
+            }
+            let ea = (start + chunk_size).min(na);
+            let eb = (start + chunk_size).min(nb);
+            let ec = (start + chunk_size).min(nc);
+            // SAFETY: chunks `[start, e*)` for distinct `chunk_index` values
+            // are pairwise disjoint within each buffer and each is visited at
+            // most once. The three input buffers are distinct non-aliasing
+            // `&mut` slices, so the returned mutable chunk references cannot
+            // alias each other.
+            let ca =
+                unsafe { core::slice::from_raw_parts_mut(abase.base().add(start), ea - start) };
+            let cb =
+                unsafe { core::slice::from_raw_parts_mut(bbase.base().add(start), eb - start) };
+            let cc =
+                unsafe { core::slice::from_raw_parts_mut(cbase.base().add(start), ec - start) };
+            f(chunk_index, ca, cb, cc);
+        })
+        .expect("moirai global executor: for_each_chunk_triple_mut_enumerated_with");
 }
 
 /// Like [`for_each_chunk_mut_with`] but also passes the zero-based chunk index to

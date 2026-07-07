@@ -2,16 +2,18 @@
 
 This document reports executable Criterion benchmark results for the unified scheduler comparison work. Tokio and Rayon are used only as benchmark dependencies.
 
-## 2026-06-15 Distributed Iterator Stats Estimate
+## 2026-06-15 Retired Distributed Iterator Stats Estimate
 
-Command:
+Retired command:
 ```bash
 cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- --quick --quiet
 ```
 
-Workload: same distributed owned-map comparison target after replacing the
+Workload: historical distributed owned-map comparison target after replacing the
 fixed distributed iterator completion estimate with a deterministic model over
 task count, node CPU capacity, reliability, latency, and aggregate bandwidth.
+The current branch no longer exposes `moirai-iter::distributed`, so this target
+is retained here only as retired evidence.
 
 | Benchmark | Time |
 | --- | ---: |
@@ -19,10 +21,9 @@ task count, node CPU capacity, reliability, latency, and aggregate bandwidth.
 | Distributed owned map, Rayon, 512 | 28.813-29.297 us |
 | Distributed stats estimate, Moirai, 512 | 63.107-64.868 ns |
 
-Interpretation: the distributed iterator helper keeps the covered owned-map row
-ahead of the same-run Rayon reference while the stats row measures the new
-input-sensitive estimate path. This is distributed helper evidence; it does not
-claim process/server remote execution for arbitrary iterator closures.
+Interpretation: this retired helper evidence showed the former stats path was
+input-sensitive rather than a fixed placeholder. Current lifecycle/stat
+accounting is covered by registry-backed result-handle diagnostics.
 
 ## 2026-06-14 Metrics Collector Cleanup
 
@@ -116,12 +117,16 @@ a claim of full Tokio stream ecosystem parity.
 
 ## 2026-06-01 Public Distributed Facade Cleanup
 
-Command:
+Retired command:
 ```bash
 cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- distributed_context_owned_map --quiet
 ```
 
-Workload: `moirai-iter::distributed::DistributedContext::execute_distributed_map` consumes owned partitions and is compared with Rayon `into_par_iter` over equivalent owned vectors. The benchmark asserts equal checksums before timing. The public `Moirai` facade does not expose remote-closure methods; later routed execution coverage admits only sealed fixed-format capability tasks.
+Workload: this historical row covered the retired
+`moirai-iter::distributed::DistributedContext::execute_distributed_map` helper.
+The current branch no longer exposes that iterator module; distributed coverage
+now lives in fixed-capability process/server routes, and lifecycle/stat
+attribution lives in registry-backed result-handle diagnostics.
 
 | Benchmark | Moirai | Reference |
 | --- | ---: | ---: |
@@ -436,7 +441,7 @@ Commands:
 ```bash
 cargo bench -p moirai-benchmarks --bench performance_benchmarks -- task_scheduling_overhead --quiet
 cargo bench -p moirai-benchmarks --bench public_result_handle_comparison -- "public_result_handle_ready/(moirai_spawn_join_ready|tokio_spawn_join_ready|moirai_scope_single_ready|rayon_scope_single_ready)" --quiet
-cargo bench -p moirai-benchmarks --features registry-diagnostics --bench result_handle_diagnostics -- "result_handle_diagnostics/(direct_registry_lifecycle|direct_registry_token_lifecycle|direct_registry_external_token_lifecycle|direct_external_id_registry_register|mutex_registry_register|direct_task_id_allocate)" --quiet
+cargo bench -p moirai-benchmarks --features registry-diagnostics --bench result_handle_diagnostics -- "result_handle_diagnostics/(direct_registry_lifecycle|direct_registry_token_lifecycle|mutex_registry_register|direct_task_id_allocate)" --quiet
 cargo bench -p moirai-benchmarks --features registry-diagnostics --bench result_handle_diagnostics -- "result_handle_diagnostics/(direct_scheduled_public_(registry_)?token_wrapper_(components|without_metrics)|direct_registry_token_lifecycle)" --quiet
 ```
 
@@ -452,8 +457,6 @@ Workload: `HybridExecutor` allocates public task IDs through the existing regist
 | `direct_task_id_allocate` | 6.0550-6.1497 ns |
 | `direct_registry_lifecycle` | 85.619-86.454 ns |
 | `direct_registry_token_lifecycle` | 85.856-91.273 ns |
-| `direct_registry_external_token_lifecycle` | 91.660-94.574 ns |
-| `direct_external_id_registry_register` | 38.484-38.812 ns |
 | `mutex_registry_register` | 44.033-44.423 ns |
 | `direct_scheduled_public_token_wrapper_components` | 515.14-651.83 ns |
 | `direct_scheduled_public_registry_token_wrapper_components` | 503.58-516.52 ns |
@@ -461,7 +464,7 @@ Workload: `HybridExecutor` allocates public task IDs through the existing regist
 | `direct_scheduled_public_token_wrapper_without_metrics` | 440.49-447.41 ns |
 | `direct_scheduled_public_registry_token_wrapper_without_metrics` | 422.85-435.93 ns |
 
-Interpretation: registry-local ID allocation passed the scheduler gate and same-run public Tokio/Rayon references. The production token lifecycle is within the public lookup lifecycle range, and scheduled registry-token wrapper rows are faster than the externally supplied ID rows in the same post-split run.
+Interpretation: registry-local ID allocation passed the scheduler gate and same-run public Tokio/Rayon references. The production token lifecycle is within the public lookup lifecycle range. Current source contracts remove the earlier external-ID lifecycle rows; lifecycle-backed wrapper rows now use registry-owned IDs, while `direct_task_id_allocate` remains only as an isolated no-lifecycle primitive.
 
 ## 2026-05-27 Generic Utility SIMD Addition Benchmark
 

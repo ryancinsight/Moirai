@@ -297,6 +297,26 @@ architecture definition.
   `RUSTDOCFLAGS=-D warnings`; `cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- --quick --quiet`.
 - **Status**: Completed 2026-06-15.
 
+#### ✅ ISSUE-208 [patch]: Remove external-ID lifecycle accounting
+- **Type**: Result-Handle Diagnostics / Registry Task IDs / Benchmark Contracts
+- **Root Cause**: `result_handle_diagnostics` still carried external-ID
+  lifecycle helpers and rows (`diagnostic_restart_and_complete_with_token`,
+  `diagnostic_register_external_task_with_id`,
+  `direct_registry_external_token_lifecycle`, and
+  `direct_external_id_registry_register`). Those rows mixed a separate relaxed
+  `AtomicU64` ID source into lifecycle and metrics attribution after production
+  task IDs had moved to the registry.
+- **Resolution**: Removed the external-ID diagnostic helpers and rows.
+  Lifecycle-backed direct and scheduled wrapper rows now allocate IDs and
+  duration telemetry through
+  `TaskRegistry::diagnostic_register_next_and_complete_with_token_id`. The only
+  remaining `AtomicU64` row is the explicit no-lifecycle ID-allocation
+  primitive.
+- **Evidence**: Benchmark source contracts require the registry-owned helper and
+  reject the removed external-ID helpers/rows. This is source-contract and
+  value-path evidence; no new Criterion timings are claimed here.
+- **Status**: Completed 2026-07-05.
+
 #### ✅ ISSUE-130 [arch]: Complete Tokio reactor-native I/O compatibility contract
 - **Type**: Architecture / Compatibility
 - **Current Evidence**: `moirai_async::io` covers zero-copy native `read_exact`, `write_all`, and `shutdown` extension semantics plus feature-gated transparent `TokioCompat<T>` and `MoiraiCompat<T>` wrappers with value tests and `async_io_compat_comparison`; `async_fs_comparison` covers the Moirai-owned file facade read, platform-write, platform-append, platform-metadata, platform-rename, platform-remove, and platform-copy operations against Tokio file facade references; `async_fs_dir_comparison` covers Moirai-owned directory facade single create/remove and recursive create/remove operations against Tokio directory facade references; `async_tcp_comparison` covers same-payload TCP loopback accept/echo, persistent stream echo, and write shutdown against Tokio; `async_tcp_backpressure_comparison` covers bounded TCP write backpressure against Tokio; `async_tcp_readiness_comparison` covers pending-before-data TCP read readiness against Tokio; `async_tcp_cancel_safety_comparison` covers pending-read cancellation safety against Tokio; `async_udp_comparison` covers same-payload UDP loopback receive against Tokio; PAL native file/socket/reactor paths have value tests and static dispatch contracts.

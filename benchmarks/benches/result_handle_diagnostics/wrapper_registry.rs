@@ -57,15 +57,13 @@ fn direct_public_wrapper_components(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_public_token_wrapper_components(
     registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
     metrics: &ExecutorMetrics,
 ) -> usize {
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
     metrics.record_task_spawned();
 
     let task_result = catch_unwind(AssertUnwindSafe(|| black_box(READY_VALUE)));
-    let execution_time = registry.diagnostic_restart_and_complete_with_token(id);
 
     match task_result {
         Ok(value) => {
@@ -89,10 +87,9 @@ fn direct_public_token_wrapper_components(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_public_token_wrapper_after_send_components(
     registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
     metrics: &ExecutorMetrics,
 ) -> usize {
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
+    let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
     metrics.record_task_spawned();
 
@@ -101,11 +98,11 @@ fn direct_public_token_wrapper_after_send_components(
     match task_result {
         Ok(value) => {
             sender.send(Ok(value));
-            metrics.record_task_completed(registry.diagnostic_restart_and_complete_with_token(id));
+            metrics.record_task_completed(execution_time);
         }
         Err(_) => {
             sender.send(Err(TaskError::Panicked));
-            black_box(registry.diagnostic_restart_and_complete_with_token(id));
+            black_box(execution_time);
             metrics.record_task_failed();
         }
     }

@@ -75,20 +75,6 @@ impl TaskRegistry {
         })
     }
 
-    /// Diagnostic-only production token lifecycle path for wrapper attribution.
-    #[doc(hidden)]
-    pub fn diagnostic_register_external_task_with_id(&mut self, id: u64) -> u64 {
-        let _lifecycle = self.register_task_with_id(id);
-        id
-    }
-
-    /// Diagnostic-only production token lifecycle path for wrapper attribution.
-    #[doc(hidden)]
-    pub fn diagnostic_restart_and_complete_with_token(&mut self, id: u64) -> Duration {
-        let lifecycle = self.register_task_with_id(id);
-        lifecycle.start(0).complete()
-    }
-
     /// Diagnostic-only production token lifecycle path with registry-local ID allocation.
     #[doc(hidden)]
     pub fn diagnostic_register_next_and_complete_with_token(&mut self) -> Duration {

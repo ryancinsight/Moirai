@@ -345,10 +345,7 @@ fn scheduler_scope_nested_panic_propagates_and_pool_survives() {
                                 })?;
                                 Ok(())
                             });
-                        if matches!(
-                            result,
-                            Err(ExecutorError::SpawnFailed(TaskError::Panicked))
-                        ) {
+                        if matches!(result, Err(ExecutorError::SpawnFailed(TaskError::Panicked))) {
                             nested_panics_reported.fetch_add(1, Ordering::Relaxed);
                         }
                     })?;

@@ -14,7 +14,6 @@
 #![deny(missing_docs)]
 //! - Integration with Moirai scheduler for optimal performance
 
-// Zero-copy moved to moirai-core::communication::zero_copy (SSOT)
 #[cfg(any(unix, windows))]
 mod ipc;
 mod network;
@@ -60,7 +59,6 @@ pub use ipc::IpcTransport;
 pub use moirai_core::channel::{
     ChannelError as TransportError, MpmcReceiver as Receiver, MpmcSender as Sender,
 };
-pub use moirai_core::communication::zero_copy as core_zero_copy;
 pub use network::NetworkTransport;
 #[cfg(feature = "network")]
 pub use network::TcpTransport;

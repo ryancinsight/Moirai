@@ -108,13 +108,13 @@ deques, and the `moirai-async` reactor/waker via independent adversarial passes.
   registered task from a single sleeper thread, and completes immediately only
   for elapsed timers. Evidence tier: source audit, value-semantic unit tests,
   and benchmark-contract coverage.
-- `moirai-iter::distributed::DistributedIterator::execution_stats` no longer
-  reports a fixed 10 second placeholder completion estimate. Estimates are now
-  derived from task count, node CPU capacity, reliability, latency, and
-  aggregate bandwidth, with zero-task, local-fallback, and extreme-telemetry
-  saturation value tests. Evidence tier: source audit, value-semantic unit
-  tests, benchmark-contract coverage, clippy, docs, and value-checked
-  `distributed_context_stats` Criterion rows.
+- The retired `moirai-iter::distributed::DistributedIterator::execution_stats`
+  path previously replaced a fixed 10 second completion estimate with
+  input-sensitive telemetry. The current branch no longer exposes that
+  iterator module; remaining lifecycle/stat accounting now lives in
+  `result_handle_diagnostics`, where lifecycle-backed rows use
+  registry-owned task IDs and contracts reject the removed external-ID
+  helpers. Evidence tier: source audit and benchmark-contract coverage.
 
 ### Open alignment findings
 - [x] README architecture drift: the public README still framed Moirai mostly as
