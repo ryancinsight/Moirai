@@ -16,7 +16,7 @@ pub enum IpcError {
 impl fmt::Display for IpcError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IpcError::SystemError(code) => write!(f, "System error: {}", code),
+            IpcError::SystemError(code) => write!(f, "System error: {code}"),
             IpcError::InvalidArgument => write!(f, "Invalid argument"),
             IpcError::NotFound => write!(f, "Resource not found"),
             IpcError::PermissionDenied => write!(f, "Permission denied"),
@@ -26,18 +26,23 @@ impl fmt::Display for IpcError {
 
 impl core::error::Error for IpcError {}
 
-/// Convert OS error to IpcError
+/// Convert OS error to `IpcError`
 #[cfg(unix)]
 pub fn last_os_error() -> IpcError {
     unsafe { IpcError::SystemError(*libc::__errno_location()) }
 }
 
-/// Convert OS error to IpcError
+/// Convert OS error to `IpcError`
 #[cfg(windows)]
 pub fn last_os_error() -> IpcError {
     extern "system" {
         fn GetLastError() -> u32;
     }
     // SAFETY: `GetLastError` takes no arguments and reads thread-local state.
-    unsafe { IpcError::SystemError(GetLastError() as i32) }
+    // justification: the Win32 error code is carried verbatim in an `i32` field;
+    // the `u32 -> i32` reinterpretation preserves all bits (no value is lost).
+    #[allow(clippy::cast_possible_wrap)]
+    unsafe {
+        IpcError::SystemError(GetLastError() as i32)
+    }
 }

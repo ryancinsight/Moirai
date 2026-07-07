@@ -9,6 +9,38 @@ fn test_parallel_map() {
 }
 
 #[test]
+fn nested_iteration_produces_correct_values() {
+    // Regression guard for nested parallel iteration (an inner drive inside an
+    // outer map). The `parallel/` drive is sequential by contract precisely so
+    // this nesting is safe: a prior fork-join drive that forked through the
+    // scheduler (`join_with::<Parallel>`) corrupted the heap under exactly this
+    // nested, concurrent workload — `ThreadScheduler::scope` is not sound under
+    // nested scopes (STATUS_HEAP_CORRUPTION 0xC0000374; see
+    // docs/concurrency_audit.md round entry). Value semantics only.
+    let outer_n = 512usize;
+    let inner_n = 256u64;
+    let expected_inner: u64 = (0..inner_n).sum();
+
+    let results: Vec<u64> = (0..outer_n as u64)
+        .collect::<Vec<_>>()
+        .into_par_iter()
+        .map(move |x| {
+            let inner_sum: u64 = (0..inner_n)
+                .collect::<Vec<_>>()
+                .into_par_iter()
+                .reduce(|a, b| a + b)
+                .unwrap_or(0);
+            inner_sum.wrapping_add(x)
+        })
+        .collect();
+
+    assert_eq!(results.len(), outer_n);
+    for (x, &r) in results.iter().enumerate() {
+        assert_eq!(r, expected_inner.wrapping_add(x as u64));
+    }
+}
+
+#[test]
 fn test_parallel_map_with_uses_cloned_state() {
     let data = vec![1_u64, 2, 3, 4];
     let result: Vec<u64> = data

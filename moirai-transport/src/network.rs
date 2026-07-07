@@ -150,30 +150,3 @@ fn connect_network_stream(address: &RemoteAddress) -> TransportResult<TcpStream>
 
     Err(TransportError::Closed)
 }
-
-/// UDP transport for unreliable network communication.
-#[cfg(feature = "network")]
-pub struct UdpTransport {}
-
-#[cfg(feature = "network")]
-impl UdpTransport {
-    /// Construct a UDP transport.
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-#[cfg(feature = "network")]
-impl Transport for UdpTransport {
-    fn send(&self, _target: &Address, _data: Vec<u8>) -> TransportResult<()> {
-        Err(TransportError::Closed)
-    }
-
-    fn recv(&self, _source: &Address) -> TransportResult<Vec<u8>> {
-        Err(TransportError::Closed)
-    }
-
-    fn supports(&self, address: &Address) -> bool {
-        matches!(address, Address::Remote(_))
-    }
-}

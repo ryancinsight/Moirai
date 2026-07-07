@@ -56,12 +56,22 @@ impl TcpStream {
         Ok(Self::new(inner, stats, connection_pool, None))
     }
 
+    /// Update per-connection pool tracking (byte counters, `last_activity`)
+    /// for pool-tracked (accept-side) streams; no-op for client-side streams.
+    fn record_io(&self, bytes_received: u64, bytes_sent: u64) {
+        if let Some(id) = self.connection_id {
+            self.connection_pool
+                .record_io(id, bytes_received, bytes_sent);
+        }
+    }
+
     /// Read data from the stream
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let bytes_read = self.inner.read(buf).await?;
         self.stats
             .bytes_received
             .fetch_add(bytes_read as u64, std::sync::atomic::Ordering::Relaxed);
+        self.record_io(bytes_read as u64, 0);
         Ok(bytes_read)
     }
 
@@ -71,6 +81,7 @@ impl TcpStream {
         self.stats
             .bytes_sent
             .fetch_add(bytes_written as u64, std::sync::atomic::Ordering::Relaxed);
+        self.record_io(0, bytes_written as u64);
         Ok(bytes_written)
     }
 
@@ -128,6 +139,7 @@ impl AsyncRead for TcpStream {
                 self.stats
                     .bytes_received
                     .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+                self.record_io(n as u64, 0);
                 Poll::Ready(Ok(n))
             }
             res => res,
@@ -146,6 +158,7 @@ impl AsyncWrite for TcpStream {
                 self.stats
                     .bytes_sent
                     .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+                self.record_io(0, n as u64);
                 Poll::Ready(Ok(n))
             }
             res => res,

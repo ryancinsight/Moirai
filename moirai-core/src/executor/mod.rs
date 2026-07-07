@@ -7,14 +7,12 @@ pub mod builder;
 pub mod config;
 pub mod control;
 pub mod manager;
-pub mod plugin;
 pub mod spawner;
 
 pub use builder::ExecutorBuilder;
 pub use config::{CleanupConfig, ExecutorConfig, MemoryConfig, PreemptionConfig};
 pub use control::ExecutorControl;
 pub use manager::{TaskManager, TaskStats, TaskStatus};
-pub use plugin::ExecutorPlugin;
 pub use spawner::TaskSpawner;
 
 /// Combined executor trait with all capabilities.
@@ -65,7 +63,7 @@ pub struct ExecutorStats {
 pub(crate) fn num_cpus() -> usize {
     #[cfg(feature = "std")]
     {
-        std::thread::available_parallelism().map_or(1, |parallelism| parallelism.get())
+        std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
     }
     #[cfg(not(feature = "std"))]
     {

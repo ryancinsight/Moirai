@@ -159,19 +159,9 @@ impl core::fmt::Display for TaskStatus {
 
 /// Detailed statistics about a specific task.
 ///
-/// Task statistics provide comprehensive information about task execution
-/// performance and resource usage. Statistics are collected when the
-/// metrics feature is enabled.
-///
-/// # Memory Overhead
-/// When metrics are enabled, each task incurs approximately 100 bytes
-/// of additional memory overhead for statistics collection.
-///
-/// # Accuracy Guarantees
-/// - Timestamps use monotonic high-resolution clock
-/// - Memory measurements are sampled at key execution points
-/// - CPU time includes both user and system time
-/// - Preemption count tracks cooperative yield points
+/// Task statistics report the lifecycle timing the executor actually
+/// tracks: spawn, start, and completion timestamps from a monotonic
+/// high-resolution clock, plus the derived execution duration.
 #[derive(Debug, Clone)]
 pub struct TaskStats {
     /// Task identifier
@@ -186,12 +176,9 @@ pub struct TaskStats {
     pub start_time: Option<Instant>,
     /// When the task completed (if completed)
     pub completion_time: Option<Instant>,
-    /// Number of times the task was preempted
-    pub preemption_count: u32,
-    /// Total CPU time used (nanoseconds)
+    /// Total CPU time used (nanoseconds), derived from the lifecycle
+    /// start/completion timestamps.
     pub cpu_time_ns: u64,
-    /// Memory allocated by the task (bytes)
-    pub memory_used_bytes: u64,
 }
 
 impl TaskStats {

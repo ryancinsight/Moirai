@@ -821,3 +821,196 @@ All three layers are async-domain → `moirai-async` (AsyncPolicy), never `moira
 
 ### Classification & sign-off
 [arch] — new canonical crates + a new transport boundary. Requires ADR sign-off (this document) before P1 opens. Implementation tracked in `docs/adr-015-checklist.md`.
+
+## ADR-016: One Ring-Buffer Core and One Channel Family in moirai-core
+
+- Status: Proposed (awaiting sign-off; implements the 2026-07-02 structural
+  audit's S1/S2 findings)
+- Change class: [arch]
+
+### Context
+
+moirai-core ships five sibling implementations of the same ring-buffer
+algorithm family: `communication::RingBuffer` (lock-free SPSC, CachePadded
+sequences, MaybeUninit slots), `channel::spsc::SpscChannel` (a line-for-line
+clone of that Lamport ring plus a `closed` flag and spin-blocking),
+`memory::UnifiedRingBuffer` (the same ring, mutex-locked — its "lock-free
+zero-copy" doc is false), `communication::zero_copy::MemoryMappedRing` (the
+same ring behind CAS spin-locks; not memory-mapped despite the name), and
+`channel::mpmc::BoundedMpmcQueue` (Vyukov — the one genuinely distinct
+algorithm). Above them sit four channel bounded-contexts (`channel/`,
+`unified_channel/`, `communication::zero_copy/`, plus the bare
+`communication::RingBuffer`) with three duplicated error enums
+(`ChannelError`, `UnifiedChannelError`, `ZeroCopyError`) all repeating
+Full/Empty/Closed/WouldBlock. Only `MpmcChannel` is consumed by the live
+runtime (`moirai/src/runtime.rs`, moirai-transport); `unified_channel` is
+consumed solely by `moirai-iter::advanced_patterns` (itself a prune candidate,
+ADR-017); `HybridChannel` and `zero_copy` are consumed only by benchmarks and
+contract tests. `ipc::SharedQueue` is a justified separate ring (cross-process
+Pod contract) and stays.
+
+### Decision (proposed)
+
+The variation dimensions across the five rings are exactly producer/consumer
+cardinality and blocking policy — a bounded set expressible without cloning:
+
+1. Keep TWO algorithm cores: the SPSC Lamport ring (canonical home:
+   `communication::RingBuffer`) and the Vyukov MPMC (`BoundedMpmcQueue`).
+2. Express blocking policy as a ZST strategy over those cores (the crate
+   already has this exact pattern in `task::handle::ResultWaitPolicy`):
+   `NonBlocking` / `SpinThenPark`, monomorphized so the non-blocking path
+   compiles to the bare ring.
+3. `SpscChannel` becomes a thin `RingBuffer + closed-flag + policy`
+   composition (the shape `HybridChannel` already proves); delete
+   `UnifiedRingBuffer` and `MemoryMappedRing`, retargeting `unified_channel`
+   (or deleting it with moirai-iter's advanced_patterns per ADR-017) and
+   `zero_copy` consumers onto the canonical cores.
+4. ONE channel error enum in `channel::error`; the other two enums' extra
+   variants (InvalidConfig, the zero-copy set) become variants or per-call
+   typed errors. Every call site updated in the same change; no aliases.
+
+### Consequences
+
+Deletes roughly 1.5-2k lines of parallel implementations while keeping every
+live capability; the 18-round-audited MPMC/hybrid protocols are preserved
+as-is (this ADR relocates and dedups shells, it does not restructure the
+verified CAS protocols). Consumers to update: moirai (runtime), transport,
+benchmarks/contract tests, and moirai-iter's advanced_patterns (interlocks
+with ADR-017 — implement after that decision).
+
+## ADR-017: moirai-iter Disposition (prune vs continue)
+
+- Status: Proposed — BLOCKED ON OWNER ADJUDICATION (conflicting active intent)
+- Change class: [arch]
+
+### Context
+
+The 2026-07-02 audit found moirai-iter (~14.6k lines) delivers a sequential
+`ParallelIterator` (drive() runs both split halves inline on the caller),
+fake SIMD (loads an unused `_mm256` intrinsic then scalar-loops), hardcoded
+0.5/0.3 multi-system utilization, "execute locally — for now" distributed
+placeholders, per-element `block_on` async terminals, and has ZERO production
+consumers across the atlas checkout, while moirai-parallel is the real
+data-parallel SSOT with 79+ consumer call sites. The audit recommends: extract
+the four real pieces (`par_sort*` → moirai-parallel rebased onto the
+SyncTask executor, `stream::concurrent_map` → moirai-async, numa/prefetch
+primitives if a consumer materializes), delete the rest, and drop `iter` from
+the umbrella's default features as the first increment.
+
+HOWEVER: a concurrent session has been actively investing in moirai-iter
+(commit 101d72c "refactor(iter): dedup ReduceWithConsumer into ReduceConsumer"
+and related property-test commits landed on main this week). Pruning a
+subsystem another session is actively improving is a design-intent conflict
+that must not be resolved unilaterally by either session.
+
+### Decision required from the owner
+
+(a) PRUNE per the audit (the 14.6k lines are mostly non-functional and
+unconsumed; the concurrent session's dedup effort would be redirected to
+moirai-parallel), or (b) CONTINUE moirai-iter as a maintained surface — in
+which case its `ParallelIterator` must be made actually parallel (route
+drive() through the SyncTask executor), the fake SIMD/utilization/distributed
+placeholders deleted regardless (HARD integrity rule), and a consumer story
+documented. Option (b)'s integrity subset (delete fakes, fix the sequential
+drive) is required under either outcome; the difference is whether the crate
+survives. Until adjudicated, no session should expand moirai-iter's surface.
+
+## ADR-017 update (2026-07-03): RESOLVED — continue-and-make-real
+
+Owner adjudication (the maintainer) chose to KEEP moirai-iter and make its
+surfaces real rather than prune. Executed on branch
+`refactor/remove-dead-subsystems`:
+- **Parallel:** `ParallelIterator::drive` now forks the recursive `Consumer`
+  split through the unified scheduler (`moirai_parallel::join_with::<Parallel>`
+  above `ADAPTIVE_PARALLEL_THRESHOLD`) — genuine work-stealing, one fork-join
+  SSOT shared with moirai-parallel; a proof test asserts execution across >1
+  worker thread. (commit `perf(iter): …fork-join`)
+  **REVERTED (2026-07-03, commit `revert(moirai-iter): …sequential`):** this
+  fork-join drive was unsound under *nested* iteration — the scheduler scope
+  deadlocked (single worker) and corrupted the heap under concurrent nesting.
+  `drive` returned to sequential-by-contract; the root cause is fixed in
+  ADR-019, after which a parallel drive can be reintroduced (ISSUE-208 (c)).
+- **Async:** the terminal futures (`AsyncForEach/Fold/Reduce`) are cooperative
+  (no `block_on` in any `poll`); a `PendingOnce` harness proves cooperative
+  progress. (commit `fix(iter): …cooperative`)
+- **Fakes deleted:** `distributed/`, `multi_system/`, and the fake-SIMD path
+  (mocks/placeholders — HARD integrity), ~2353 lines, all zero-consumer.
+  `execution/`/`facade/` kept (consumer-proven live), fake tie-ins severed.
+  (commit `refactor(iter): Delete fake …`)
+
+REMAINING (own follow-up, [arch]): `AsyncIterator` is `into_vec()`-based, so
+`AsyncMap`/`AsyncFilter`/`ParAsyncMap`/`ParAsyncFilter` still `block_on` inside
+the synchronous `into_vec()`. Eliminating those requires redesigning
+`AsyncIterator` to a streaming `poll_next`/`async fn next` surface — a breaking
+public-trait change needing coordinated caller updates. Filed as ADR-018.
+
+## ADR-018: Streaming AsyncIterator (poll_next) to remove into_vec block_on
+
+- Status: Proposed [arch]
+- `AsyncIterator`'s `into_vec()` materialize-then-process shape forces
+  `AsyncMap`/`AsyncFilter` (and their parallel variants) to `block_on` the
+  per-item async closure inside the synchronous `into_vec()`. The fix is a
+  streaming trait (`fn poll_next(self: Pin<&mut Self>, cx) -> Poll<Option<Item>>`
+  or `async fn next(&mut self)`), so adapters await natively and the terminals
+  (already cooperative) drive a real stream. Breaking change: every
+  `AsyncIterator` impl and caller updates in the same coordinated unit;
+  the already-landed cooperative terminals are forward-compatible with it.
+
+## ADR-019 (2026-07-03): Help-while-waiting scheduler scope (nested-scope soundness)
+
+- Status: Accepted [arch] · Refs: ISSUE-208, concurrency_audit.md Round 20
+
+**Context.** `ThreadScheduler::scope` fans borrowing jobs onto the unified
+scheduler and blocks in `SchedulerScopeState::wait` until every scoped job
+completes, keeping the stack-owned scope state alive for the jobs'
+`NonNull<SchedulerScopeState>` completion tokens. `wait` spun then *parked* on a
+condvar without running scheduler work. That is unsound the moment a scope is
+entered from inside a running scheduled job (nested fork-join, e.g. a recursive
+`moirai_iter` `drive`):
+
+- **Deadlock (structural).** A worker that parks inside `scope` removes itself
+  from the pool while its own nested scoped jobs sit unrun. With one worker this
+  is an unconditional deadlock (the sole runner is the parked waiter); with `n`
+  workers it deadlocks whenever every worker is simultaneously parked waiting on
+  a nested scope. Reproduced deterministically: a nested `scope` on a
+  one-worker pool times out at 30 s.
+- **Heap corruption (empirical).** Under concurrent nested scopes the parked
+  design aborted with `STATUS_HEAP_CORRUPTION` (0xC0000374) — the scope's
+  stack-owned state aliased across workers while the owner made no progress.
+
+**Decision.** Make the scope waiter *work-conserving*. `scope` calls
+`drain_scope(&state)` instead of `state.wait()`:
+
+- If the caller **is a scheduler worker** (`get_current_worker_id().is_some()`),
+  it runs jobs via its own `next_job(worker_id)` (pop own deque + steal into it)
+  and `execute_job` until `state.pending_tasks == 0`, spinning briefly then
+  timed-parking on the scope condvar only when nothing is runnable (its
+  remaining jobs are mid-flight on peers; `complete_task` wakes it). The worker
+  never parks while holding runnable pending work, so the pool always has a
+  runner — deadlock-free by construction — and the scope frame stays live and
+  *progressing* until every borrowing job completes, closing the aliasing race.
+- If the caller **is not a worker**, it parks as before: the worker pool drains
+  its scoped jobs, so a blocking non-worker starves nothing.
+
+`next_job(worker_id)` only touches the *owner's* single-owner Chase–Lev deque
+(plus multi-consumer steals into it), so the help path introduces no new
+cross-thread aliasing on the deques.
+
+**Alternatives rejected.** (b) Route `moirai_iter`'s non-indexed terminals
+through the flat `for_each_indexed` fan-out — avoids nesting but leaves `scope`
+itself a deadlock trap for every other nested caller; the scheduler primitive
+should be sound, not the callers papering over it. (c) A dedicated blocking
+thread pool for scope waiters — rejects the zero-extra-thread invariant and the
+work-stealing SSOT.
+
+**Evidence.** Red→green at the scheduler layer:
+`scheduler_scope_nested_saturation_completes` (30 s deadlock → 0.01 s pass) and
+`scheduler_scope_recursive_fork_join_is_sound` (the drive-shaped log2-depth
+recursive fork-join, analytical arithmetic-series oracle, `W ∈ {1,2,4}`, 5×
+repeat clean). Full `moirai-executor` (77) and `moirai-iter` (191) suites green;
+clippy clean. Evidence tier: type/analysis (deadlock-freedom argument above) +
+empirical (deterministic reproduction and repeat-clean regression).
+
+**Follow-up.** With `scope` sound, a parallel non-indexed `drive` can be
+reintroduced against this primitive with a parallelism-asserting test
+(ISSUE-208 (c)); tracked separately so it lands as its own verified slice.

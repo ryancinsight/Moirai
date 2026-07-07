@@ -1,10 +1,16 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-/// Broadcast channel for one-to-many communication
-/// Multiple receivers get copies of each message
+/// Latest-value watch cell for one-to-many communication.
+///
+/// Stores only the most recent broadcast value: every receiver observes the
+/// latest value it has not yet seen (via [`BroadcastReceiver::try_recv`]),
+/// but values broadcast while a receiver is not polling are overwritten, not
+/// queued — this is watch-channel semantics, not a per-message broadcast
+/// queue. A receiver that misses intermediate broadcasts sees only the newest
+/// value.
 pub struct BroadcastChannel<T: Clone> {
-    /// Current value (protected by RwLock for concurrent access)
+    /// Current value (protected by `RwLock` for concurrent access)
     value: Arc<RwLock<Option<T>>>,
     /// Version number for detecting updates
     version: Arc<AtomicUsize>,
@@ -22,7 +28,7 @@ impl<T: Clone> BroadcastChannel<T> {
         }
     }
 
-    /// Broadcast a value to all subscribers
+    /// Publish a value, replacing the previously stored one.
     pub fn broadcast(&self, value: T) {
         {
             let mut guard = self.value.write().unwrap();
@@ -69,7 +75,8 @@ pub struct BroadcastReceiver<T: Clone> {
 }
 
 impl<T: Clone> BroadcastReceiver<T> {
-    /// Try to receive the latest broadcast value
+    /// Return a clone of the latest value if it is newer than the last one
+    /// this receiver observed; `None` when nothing new has been broadcast.
     pub fn try_recv(&mut self) -> Option<T> {
         let current_version = self.channel.version.load(Ordering::Acquire);
 

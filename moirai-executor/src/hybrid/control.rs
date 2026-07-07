@@ -1,6 +1,8 @@
 use std::sync::atomic::Ordering;
 
-use moirai_core::executor::{Executor, ExecutorControl, ExecutorStats};
+#[cfg(feature = "metrics")]
+use moirai_core::executor::ExecutorStats;
+use moirai_core::executor::{Executor, ExecutorControl};
 
 use super::HybridExecutor;
 use crate::schedule::WorkScheduler;
@@ -23,8 +25,25 @@ impl<S: WorkScheduler> ExecutorControl for HybridExecutor<S> {
         self.scheduler.shutdown();
     }
 
-    fn shutdown_timeout(&self, _timeout: core::time::Duration) {
-        self.shutdown();
+    /// Graceful shutdown bounded by `timeout` for the *caller*.
+    ///
+    /// The drain runs on a helper thread; this call returns once the drain
+    /// completes or `timeout` elapses, whichever comes first. If the deadline
+    /// lapses, workers keep draining in the background and the (idempotent)
+    /// scheduler shutdown is re-joined on executor drop.
+    fn shutdown_timeout(&self, timeout: core::time::Duration) {
+        self.shutdown_signal.store(true, Ordering::Release);
+
+        let scheduler = self.scheduler.clone();
+        let (done_sender, done_receiver) = std::sync::mpsc::sync_channel::<()>(1);
+        std::thread::spawn(move || {
+            scheduler.shutdown();
+            let _ = done_sender.send(());
+        });
+
+        // A timeout here is the expected bounded outcome, not a failure to
+        // mask: the drain continues in the background by contract (above).
+        let _ = done_receiver.recv_timeout(timeout);
     }
 
     fn is_shutting_down(&self) -> bool {

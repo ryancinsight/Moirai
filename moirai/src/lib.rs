@@ -261,10 +261,10 @@ pub use routed::{FixedRemoteTask, RoutedProcessTarget, RoutedServerTarget};
 pub use moirai_core::channel;
 
 #[cfg(feature = "network")]
-pub use moirai_transport::{TcpTransport, UdpTransport};
+pub use moirai_transport::TcpTransport;
 
 // Re-export synchronization primitives
-pub use moirai_sync::{AtomicCounter, Barrier, Condvar, Mutex, Once, RwLock};
+pub use moirai_sync::{AtomicCounter, Barrier, Condvar, Mutex, RwLock};
 
 // Re-export metrics functionality
 #[cfg(feature = "metrics")]
@@ -284,14 +284,11 @@ pub use moirai_async::{
 // Re-export iterator functionality
 #[cfg(feature = "iter")]
 pub use moirai_iter::{
-    async_range, moirai_iter, moirai_iter_async, moirai_iter_distributed, moirai_iter_hybrid,
-    moirai_iter_multi_system, moirai_iter_parallel, par_range, AsyncContext, AsyncIterator,
-    AsyncParallelIterator, DistributedContext, DistributedIterator, ExecutionBase,
-    ExecutionContext, ExecutionStrategy, HybridConfig, HybridContext, IndexedParallelIterator,
-    IntoAsyncIterator, IntoParallelIterator, IntoParallelRefIterator, MoiraiIterator,
-    MultiSystemContext, MultiSystemIterator, NodeConfig, ParallelContext, ParallelExtend,
-    ParallelIterator, PerformanceHistory, RangeParIter, SystemConfig, ThreadPool, VecParIter,
-    VecRefParIter,
+    async_range, moirai_iter, moirai_iter_async, moirai_iter_hybrid, moirai_iter_parallel,
+    par_range, AsyncContext, AsyncIterator, AsyncParallelIterator, ExecutionBase, ExecutionContext,
+    ExecutionStrategy, HybridConfig, HybridContext, IndexedParallelIterator, IntoAsyncIterator,
+    IntoParallelIterator, IntoParallelRefIterator, MoiraiIterator, ParallelContext, ParallelExtend,
+    ParallelIterator, PerformanceHistory, RangeParIter, ThreadPool, VecParIter, VecRefParIter,
 };
 
 // Re-export GPU functionality

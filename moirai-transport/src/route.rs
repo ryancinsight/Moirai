@@ -19,7 +19,7 @@ use crate::{
 };
 use moirai_core::Priority;
 use moirai_executor::schedule::{
-    ProcessId, RoutePolicy, SchedulerRoute, ServerId, ThreadId, WorkClass,
+    AsyncLaneId, ProcessId, RoutePolicy, SchedulerRoute, ServerId, ThreadId, WorkClass,
 };
 use std::{marker::PhantomData, sync::Arc};
 
@@ -125,24 +125,13 @@ impl RouteAddressBook {
     /// Resolve a scheduler route into a transport address.
     pub fn resolve(&self, route: SchedulerRoute) -> Address {
         match route {
-            SchedulerRoute::Thread(route) => Address::Local(local_address(
-                self.namespace.as_str(),
-                route.process,
-                route.thread,
-                None,
-            )),
-            SchedulerRoute::Process(route) => Address::Local(local_address(
-                self.namespace.as_str(),
-                route.process,
-                route.thread,
-                route.async_lane.map(|lane| lane.get()),
-            )),
-            SchedulerRoute::Accelerator(route) => Address::Local(local_address(
-                self.namespace.as_str(),
-                route.process,
-                route.thread,
-                route.async_lane.map(|lane| lane.get()),
-            )),
+            SchedulerRoute::Thread(route) => self.local(route.process, route.thread, None),
+            SchedulerRoute::Process(route) => {
+                self.local(route.process, route.thread, route.async_lane)
+            }
+            SchedulerRoute::Accelerator(route) => {
+                self.local(route.process, route.thread, route.async_lane)
+            }
             SchedulerRoute::Server(route) => self
                 .servers
                 .iter()
@@ -154,15 +143,24 @@ impl RouteAddressBook {
                         service: endpoint.service.as_str().to_string(),
                     })
                 })
-                .unwrap_or_else(|| {
-                    Address::Local(local_address(
-                        self.namespace.as_str(),
-                        route.process,
-                        route.thread,
-                        route.async_lane.map(|lane| lane.get()),
-                    ))
-                }),
+                .unwrap_or_else(|| self.local(route.process, route.thread, route.async_lane)),
         }
+    }
+
+    /// Shared local-address construction for every in-process route shape
+    /// (thread, process, accelerator, and the server fallback).
+    fn local(
+        &self,
+        process: ProcessId,
+        thread: ThreadId,
+        async_lane: Option<AsyncLaneId>,
+    ) -> Address {
+        Address::Local(local_address(
+            self.namespace.as_str(),
+            process,
+            thread,
+            async_lane.map(|lane| lane.get()),
+        ))
     }
 }
 

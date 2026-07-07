@@ -388,138 +388,6 @@ fn numa_iter_consumes_owned_batches_without_clone() {
 }
 
 #[test]
-fn distributed_iter_consumes_owned_partitions_without_clone() {
-    let source = format!(
-        "{}\n{}\n{}",
-        read_benchmark("../moirai-iter/src/distributed.rs"),
-        read_benchmark("../moirai-iter/src/lib.rs"),
-        read_benchmark("../moirai-iter/src/facade/mod.rs")
-    );
-    let benchmark = read_benchmark("benches/distributed_context_comparison.rs");
-    let manifest = read_benchmark("Cargo.toml");
-
-    for required in [
-        "fn partition_owned_by_key<T, F>(",
-        "fn partition_owned_by_sizes<T>(data: Vec<T>, partition_sizes: &[usize]) -> Vec<Vec<T>>",
-        "fn uniform_partition_sizes(total_items: usize, partition_count: usize) -> Vec<usize>",
-        "partition_owned_by_key(data, nodes.len(), _partition_func)",
-        "map_data_intelligently(data, &self.nodes, map_func)",
-        "results.extend(partition.into_iter().map(&map_func));",
-        "impl<T: Send + 'static> DistributedIterator<T>",
-        "impl<T: Send + 'static> MoiraiIterator<T>",
-        "non_clone_distributed_partition_moves_items_by_key",
-        "non_clone_distributed_map_consumes_items",
-        "non_clone_distributed_reduce_consumes_items",
-        "fn estimate_completion_time(nodes: &[NodeConfig], task_count: usize) -> Duration",
-        "fn duration_from_secs_saturating(seconds: f64) -> Duration",
-        "fn finite_non_negative(value: f64, fallback: f64) -> f64",
-        "fn finite_clamped(value: f64, min: f64, max: f64, fallback: f64) -> f64",
-        "distributed_stats_zero_tasks_have_zero_estimate",
-        "distributed_stats_local_estimate_scales_with_tasks",
-        "distributed_stats_estimate_uses_node_capacity_latency_and_bandwidth",
-        "distributed_stats_estimate_saturates_extreme_node_metrics",
-        "assert_eq!(result, vec![2, 4, 6, 8, 10]);",
-    ] {
-        assert!(
-            source.contains(required),
-            "distributed iterator must retain owned partition marker {required}"
-        );
-    }
-
-    for required in [
-        "name = \"distributed_context_comparison\"",
-        "distributed_context_owned_map",
-        "distributed_context_stats",
-        "moirai_distributed_context_map",
-        "moirai_distributed_stats",
-        "rayon_owned_map",
-        "assert_eq!",
-    ] {
-        assert!(
-            benchmark.contains(required) || manifest.contains(required),
-            "distributed benchmark contract must retain marker {required}"
-        );
-    }
-
-    for prohibited in [
-        "T: Send + Clone + 'static",
-        "let partition = data[start_idx..end_idx].to_vec();",
-        "execute_tasks_distributed(tasks)",
-        "Ok(Vec::new())",
-        "Simplified implementation",
-        "Test would verify distributed execution",
-        "Duration::from_secs(10)",
-        "Placeholder",
-        "assert!(result.is_ok())",
-    ] {
-        assert!(
-            !source.contains(prohibited),
-            "distributed iterator must not reintroduce clone-bound or placeholder execution through {prohibited}"
-        );
-    }
-}
-
-#[test]
-fn multi_system_iter_consumes_owned_partitions_without_clone() {
-    let source = read_benchmark("../moirai-iter/src/multi_system.rs");
-    let benchmark = read_benchmark("benches/multi_system_context_comparison.rs");
-    let manifest = read_benchmark("Cargo.toml");
-
-    for required in [
-        "fn partition_owned_by_key<T, F>(",
-        "fn split_owned_by_ratio<T>(data: Vec<T>, ratio: f64) -> (Vec<T>, Vec<T>)",
-        "fn map_owned_compute<T, F, R>(data: Vec<T>, func: &F) -> Vec<R>",
-        "assign_data_to_systems(data, &data_profile, &self.systems, partition_func)",
-        "partition_owned_by_key(data, system_count, partition_func)",
-        "let (cpu_data, gpu_data) = split_owned_by_ratio(data, cpu_ratio);",
-        "execute_shared_heterogeneous_compute(self.data, func)",
-        "partition.collect().await",
-        "impl<T: Send + 'static> MultiSystemIterator<T>",
-        "non_clone_multi_system_partition_moves_items_by_key",
-        "non_clone_multi_system_heterogeneous_map_consumes_items",
-        "non_clone_multi_system_iterator_distribution_preserves_values",
-        "split_owned_by_ratio_consumes_non_clone_values",
-        "assert_eq!(result, vec![0, 3, 6, 9, 12]);",
-    ] {
-        assert!(
-            source.contains(required),
-            "multi-system iterator must retain owned partition marker {required}"
-        );
-    }
-
-    for required in [
-        "name = \"multi_system_context_comparison\"",
-        "multi_system_context_owned_map",
-        "moirai_multi_system_context_map",
-        "rayon_owned_map",
-        "assert_eq!",
-    ] {
-        assert!(
-            benchmark.contains(required) || manifest.contains(required),
-            "multi-system benchmark contract must retain marker {required}"
-        );
-    }
-
-    for prohibited in [
-        "T: Send + Clone + 'static",
-        "cpu_data.to_vec()",
-        "gpu_data.to_vec()",
-        "return vec![data.to_vec()];",
-        "assignments.push(data[start..end].to_vec());",
-        ".execute_heterogeneous_compute(self.data, func.clone(), func)",
-        "MultiSystemIterator::new(vec![], self.context.clone())",
-        "assert!(result.is_ok())",
-        "Placeholder",
-        "Simplified implementation",
-    ] {
-        assert!(
-            !source.contains(prohibited),
-            "multi-system iterator must not reintroduce clone-bound or placeholder execution through {prohibited}"
-        );
-    }
-}
-
-#[test]
 fn iterator_simd_surface_uses_generic_scalar_contract() {
     let source = read_benchmark("../moirai-iter/src/simd_iter.rs");
     let benchmark = read_benchmark("benches/iter_simd_comparison.rs");
@@ -870,7 +738,6 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "std::mem::take(&mut self.data)",
         "pub struct Reduction<T, F>",
         "let reduction: Reduction<Self::Item, F> = self.drive(ReduceConsumer::new(reduce_fn));",
-        "let reduction: Reduction<Self::Item, F> = self.drive(ReduceWithConsumer::new(reduce_fn));",
         "Some(reduce_fn(left, right))",
         "self.data.len() <= 1",
         "Preserve sequential value semantics for this API",
@@ -1279,7 +1146,11 @@ fn async_iterator_terminal_futures_are_value_semantic_and_benchmarked() {
         "accumulator: Option<T>",
         "async fold polled after completion",
         "pub struct AsyncReduce<I, F>",
-        "Poll::Ready(Some(accumulator))",
+        // The terminal returns the real accumulated value (Some(acc), or None on
+        // empty) — not a placeholder default. Since the cooperative rewrite this
+        // is `Poll::Ready(self.accumulator.take())`; the prohibited-marker list
+        // below still guards against `Poll::Ready(C::default())`.
+        "Poll::Ready(this.accumulator.take())",
         "test_async_vec_iter",
         "test_async_map",
         "pub struct AsyncTake<I>",

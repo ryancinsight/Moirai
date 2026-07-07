@@ -5,10 +5,7 @@ use std::{
     thread,
 };
 
-use moirai_core::{
-    error::{ExecutorError, ExecutorResult},
-    Priority,
-};
+use moirai_core::error::{ExecutorError, ExecutorResult};
 
 use super::super::job::ScheduledJob;
 
@@ -105,16 +102,44 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
 ) -> Option<ScheduledJob> {
     let worker_count = inner.workers.len();
     let local = &inner.workers[worker_id];
-    // Randomized victim order. Deterministic round-robin makes every idle
-    // worker probe victims in the same `worker_id+1, +2, …` sequence, so after a
-    // fork/join barrier (scope, map_reduce_indexed) the freshly-idle workers
-    // pile onto the same victims' `top` CAS in lockstep. A thread-local
-    // xorshift64 start spreads the first -- and most contended -- steal attempt
-    // across victims (Blumofe–Leiserson randomized work-stealing). The full
-    // ring is still scanned, so coverage and worst-case cost are unchanged.
+    let my_node = inner.worker_numa_nodes.get(worker_id).copied().flatten();
+
+    // Two-pass NUMA-aware victim selection:
+    //
+    // Pass 1 (same-NUMA-node): prefer victims on the same NUMA node as the
+    // thief.  Same-node steals access memory already in the local NUMA bank,
+    // avoiding cross-socket NUMA traffic on multi-socket systems.  Skipped
+    // when topology is unavailable (my_node == None) or only one node exists.
+    //
+    // Pass 2 (all workers): fall back to the full-ring randomised scan so
+    // coverage and worst-case load balance are preserved — same as the
+    // previous implementation.
+    //
+    // Both passes use xorshift64 randomisation (Blumofe–Leiserson) to spread
+    // the first steal attempt and prevent thundering-herd CAS contention.
+    if let Some(node) = my_node {
+        let start = next_steal_start();
+        for offset in 0..worker_count {
+            let victim_index = (start.wrapping_add(offset)) % worker_count;
+            if victim_index == worker_id {
+                continue;
+            }
+            // Only try same-node victims in pass 1.
+            if inner.worker_numa_nodes.get(victim_index).copied().flatten() != Some(node) {
+                continue;
+            }
+            let victim = &inner.workers[victim_index];
+            if let Some(job) = local.queues.steal_batch(&victim.queues) {
+                return Some(job);
+            }
+            if let Some(job) = victim.lifo_slot.steal() {
+                return Some(job);
+            }
+        }
+    }
+
+    // Pass 2: full ring scan from a fresh random origin, skipping self.
     let start = next_steal_start();
-    // Scan the full ring from a random origin, skipping self, so all
-    // `worker_count - 1` victims are still covered regardless of `start`.
     for offset in 0..worker_count {
         let victim_index = (start.wrapping_add(offset)) % worker_count;
         if victim_index == worker_id {
@@ -168,7 +193,17 @@ pub(super) fn execute_job<const QUEUE_CAPACITY: usize>(
         inner.failed_tasks.fetch_add(1, Ordering::Relaxed);
     }
 
-    if inner.active_workers.fetch_sub(1, Ordering::AcqRel) == 1 {
+    // SeqCst (not AcqRel): this decrement-to-zero publishes quiescence to a
+    // parking `join()` waiter and is one half of a store-buffer (Dekker)
+    // handshake — the worker stores `active -> 0` here then `notify_quiescent`
+    // loads `join_waiters`, while `join` stores `join_waiters += 1` then
+    // `is_quiescent` loads `active`. All four accesses must share one SeqCst
+    // total order; with AcqRel the StoreLoad reordering admits the lost-wakeup
+    // outcome (joiner reads stale `active != 0` and parks while the worker reads
+    // stale `join_waiters == 0` and never signals — a hung `join()`), proven
+    // reachable by `tests/loom_join_quiescence.rs`. On x86 `lock sub`/`lock xadd`
+    // is already a full barrier, so this is free.
+    if inner.active_workers.fetch_sub(1, Ordering::SeqCst) == 1 {
         notify_quiescent(inner);
     }
 }
@@ -275,9 +310,11 @@ pub(super) fn wake_all_workers<const QUEUE_CAPACITY: usize>(
 }
 
 pub(super) trait ContendedWakable {
-    #[allow(dead_code)]
+    /// Worker-pool size; consumed only by the diagnostics wake-decision path.
+    #[cfg(feature = "scheduler-diagnostics")]
     fn worker_count(&self) -> usize;
-    #[allow(dead_code)]
+    /// Direct single-worker wake; consumed only by the diagnostics wake-decision path.
+    #[cfg(feature = "scheduler-diagnostics")]
     fn wake_worker(&self, worker_index: usize);
     fn wake_contended<P>(&self, worker_index: usize, previous_pending: usize) -> usize
     where
@@ -285,10 +322,12 @@ pub(super) trait ContendedWakable {
 }
 
 impl<const QUEUE_CAPACITY: usize> ContendedWakable for SchedulerInner<QUEUE_CAPACITY> {
+    #[cfg(feature = "scheduler-diagnostics")]
     fn worker_count(&self) -> usize {
         self.workers.len()
     }
 
+    #[cfg(feature = "scheduler-diagnostics")]
     fn wake_worker(&self, worker_index: usize) {
         wake_worker(&self.workers[worker_index]);
     }
@@ -345,7 +384,11 @@ pub(super) fn notify_quiescent<const QUEUE_CAPACITY: usize>(
     inner: &SchedulerInner<QUEUE_CAPACITY>,
 ) {
     use std::sync::atomic::Ordering;
-    if inner.join_waiters.load(Ordering::Acquire) != 0 && is_quiescent(inner) {
+    // SeqCst: the worker half of the quiescence Dekker handshake (see the
+    // `active_workers` decrement in `execute_job`). This load must be in the same
+    // SeqCst total order as `join`'s `join_waiters` increment, or a just-arrived
+    // waiter is missed.
+    if inner.join_waiters.load(Ordering::SeqCst) != 0 && is_quiescent(inner) {
         let _guard = lock_mutex(&inner.wait_lock);
         if is_quiescent(inner) {
             inner.wait_signal.notify_all();
@@ -357,17 +400,13 @@ pub(super) fn is_quiescent<const QUEUE_CAPACITY: usize>(
     inner: &SchedulerInner<QUEUE_CAPACITY>,
 ) -> bool {
     use std::sync::atomic::Ordering;
-    inner.pending_tasks.load(Ordering::Acquire) == 0
-        && inner.active_workers.load(Ordering::Acquire) == 0
-}
-
-pub(super) fn priority_weight(priority: Priority) -> usize {
-    match priority {
-        Priority::Low => 0,
-        Priority::Normal => 1,
-        Priority::High => 2,
-        Priority::Critical => 3,
-    }
+    // SeqCst: the `active_workers` load is the joiner's half of the quiescence
+    // Dekker handshake (see `execute_job`) and must sit in the shared SeqCst
+    // total order; `pending_tasks` is loaded SeqCst too so the full quiescence
+    // predicate is evaluated against one consistent order. SeqCst loads are a
+    // plain load on x86 (`mov`), so this is cheap on the common target.
+    inner.pending_tasks.load(Ordering::SeqCst) == 0
+        && inner.active_workers.load(Ordering::SeqCst) == 0
 }
 
 pub(super) fn inline_map_reduce<T, Map, Reduce>(

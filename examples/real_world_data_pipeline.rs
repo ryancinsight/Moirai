@@ -277,18 +277,15 @@ async fn manual_separate_pipeline(
     (analysis_results, stats)
 }
 
-/// Advanced Moirai pipeline with multi-system distribution
+/// Advanced Moirai pipeline with parallel record processing
 async fn moirai_distributed_pipeline(
     record_count: usize,
     record_size: usize,
 ) -> (Vec<(f64, f64, f64)>, ProcessingStats) {
-    use moirai_iter::moirai_iter_multi_system;
+    use moirai_iter::moirai_iter_parallel;
 
     let start_time = Instant::now();
     let mut stats = ProcessingStats::default();
-
-    // Configure multi-system context
-    // In a real scenario, this would configure actual distributed nodes.
 
     // Generate input data
     let io_start = Instant::now();
@@ -297,27 +294,15 @@ async fn moirai_distributed_pipeline(
         .collect();
     stats.io_time = io_start.elapsed();
 
-    // Multi-system processing with intelligent workload distribution
-    let results = moirai_iter_multi_system(input_data)
-        // Automatic distribution across systems based on data characteristics
-        .partition_across_systems(|record| (record.id % 4) as usize)
+    // Parallel processing across worker threads
+    let all_results = moirai_iter_parallel(input_data)
+        .map(|mut record| {
+            record.validate_and_clean();
+            record.gpu_transform();
+            record.analyze()
+        })
+        .collect()
         .await;
-
-    // Process each partition and collect results
-    let mut all_results = Vec::new();
-    for partition in results {
-        let partition_results = partition
-            .map(|mut record| {
-                // Intelligent CPU vs GPU allocation
-                record.validate_and_clean();
-                record.gpu_transform();
-                record.analyze()
-            })
-            .collect_async()
-            .await;
-
-        all_results.extend(partition_results);
-    }
 
     stats.records_processed = all_results.len() as u64;
     stats.total_processing_time = start_time.elapsed();

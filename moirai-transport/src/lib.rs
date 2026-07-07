@@ -11,9 +11,9 @@
 
 #![allow(clippy::new_without_default)]
 #![allow(clippy::unwrap_or_default)]
+#![deny(missing_docs)]
 //! - Integration with Moirai scheduler for optimal performance
 
-// Zero-copy moved to moirai-core::communication::zero_copy (SSOT)
 #[cfg(any(unix, windows))]
 mod ipc;
 mod network;
@@ -29,8 +29,28 @@ use moirai_core::constants::DEFAULT_MPMC_CAPACITY;
 use std::{
     collections::HashMap,
     fmt,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
+
+/// Crate-wide lock policy: recover from poisoning instead of propagating the
+/// panic. Guarded state here (channel maps, subscription lists, connection
+/// states) stays structurally valid under a poisoned lock — a writer that
+/// panicked mid-critical-section cannot leave a torn invariant in these maps —
+/// so continuing with the recovered guard is sound. Matches the pal reactor
+/// backends' `lock_mutex` helpers.
+pub(crate) fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Poison-recovering read lock; see [`lock_mutex`] for the policy rationale.
+fn read_rwlock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Poison-recovering write lock; see [`lock_mutex`] for the policy rationale.
+fn write_rwlock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write().unwrap_or_else(PoisonError::into_inner)
+}
 
 // Re-export core channel types for compatibility
 /// Shared-memory same-machine IPC transport (Unix/Windows only).
@@ -39,11 +59,10 @@ pub use ipc::IpcTransport;
 pub use moirai_core::channel::{
     ChannelError as TransportError, MpmcReceiver as Receiver, MpmcSender as Sender,
 };
-pub use moirai_core::communication::zero_copy as core_zero_copy;
 pub use network::NetworkTransport;
-pub(crate) use network::{read_network_frame_from_stream, NETWORK_IO_TIMEOUT};
 #[cfg(feature = "network")]
-pub use network::{TcpTransport, UdpTransport};
+pub use network::TcpTransport;
+pub(crate) use network::{read_network_frame_from_stream, NETWORK_IO_TIMEOUT};
 // The canonical typed cross-boundary channel: rkyv-style archive serialization
 // over a transport (zero-copy borrowed views on receive).
 pub use safe_channel::{
@@ -98,6 +117,7 @@ pub struct InMemoryTransport {
 }
 
 impl InMemoryTransport {
+    /// Create an empty in-memory transport with no registered channels.
     pub fn new() -> Self {
         Self {
             channels: Arc::new(RwLock::new(HashMap::new())),
@@ -107,12 +127,12 @@ impl InMemoryTransport {
     fn get_or_create_channel(&self, id: &str) -> LocalChannel {
         // Fast path: an existing channel — the steady-state case after the first
         // message — is resolved under a concurrent read lock.
-        if let Some(pair) = self.channels.read().unwrap().get(id) {
+        if let Some(pair) = read_rwlock(&self.channels).get(id) {
             return pair.clone();
         }
         // Slow path: create under the write lock, re-checking in case another
         // thread created the same id while we waited for the lock.
-        let mut channels = self.channels.write().unwrap();
+        let mut channels = write_rwlock(&self.channels);
         if let Some(pair) = channels.get(id) {
             return pair.clone();
         }
@@ -154,6 +174,8 @@ pub struct TransportManager {
 }
 
 impl TransportManager {
+    /// Create a manager routing local addresses in-memory and remote addresses
+    /// over the network transport.
     pub fn new() -> Self {
         Self {
             transports: vec![
@@ -163,6 +185,11 @@ impl TransportManager {
         }
     }
 
+    /// Send `data` via the first registered transport supporting `target`.
+    ///
+    /// # Errors
+    /// Returns [`TransportError::Closed`] when no transport supports `target`;
+    /// otherwise propagates the selected transport's send error.
     pub fn send(&self, target: &Address, data: Vec<u8>) -> TransportResult<()> {
         for transport in &self.transports {
             if transport.supports(target) {
@@ -172,6 +199,11 @@ impl TransportManager {
         Err(TransportError::Closed)
     }
 
+    /// Receive from the first registered transport supporting `source`.
+    ///
+    /// # Errors
+    /// Returns [`TransportError::Closed`] when no transport supports `source`;
+    /// otherwise propagates the selected transport's receive error.
     pub fn recv(&self, source: &Address) -> TransportResult<Vec<u8>> {
         for transport in &self.transports {
             if transport.supports(source) {
@@ -195,8 +227,11 @@ impl TransportManager {
 /// Remote address for cross-machine communication
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RemoteAddress {
+    /// Remote host name or IP address.
     pub host: String,
+    /// Remote TCP port.
     pub port: u16,
+    /// Service label carried in the address display form.
     pub service: String,
 }
 
@@ -232,7 +267,7 @@ impl<T: Transport> MessageRouter<T> {
     /// Subscribe `address` to `topic`. Duplicate (topic, address) pairs are
     /// ignored so a message is delivered to each subscriber exactly once.
     pub fn subscribe(&self, topic: &str, address: Address) {
-        let mut subs = self.subscriptions.lock().unwrap();
+        let mut subs = lock_mutex(&self.subscriptions);
         let entry = subs.entry(topic.to_string()).or_default();
         if !entry.contains(&address) {
             entry.push(address);
@@ -242,7 +277,7 @@ impl<T: Transport> MessageRouter<T> {
     /// Remove `address` from `topic`. Returns `true` if a subscription was
     /// removed.
     pub fn unsubscribe(&self, topic: &str, address: &Address) -> bool {
-        let mut subs = self.subscriptions.lock().unwrap();
+        let mut subs = lock_mutex(&self.subscriptions);
         if let Some(entry) = subs.get_mut(topic) {
             let before = entry.len();
             entry.retain(|a| a != address);
@@ -267,16 +302,32 @@ impl<T: Transport> MessageRouter<T> {
         // Snapshot the subscriber list so the transport sends happen without the
         // subscriptions lock held (a subscriber's send must not block resubscribe).
         let targets: Vec<Address> = {
-            let subs = self.subscriptions.lock().unwrap();
+            let subs = lock_mutex(&self.subscriptions);
             match subs.get(topic) {
                 Some(addresses) => addresses.clone(),
                 None => return Ok(0),
             }
         };
 
+        // `Transport::send` takes ownership (each in-memory subscriber channel
+        // stores its own `Vec<u8>`), so N subscribers need N owned buffers —
+        // but only N-1 copies: the caller's original buffer is moved to the
+        // final subscriber instead of being cloned and dropped.
         let mut delivered = 0;
-        for addr in &targets {
-            self.transport.send(addr, data.clone())?;
+        let Some(last) = targets.len().checked_sub(1) else {
+            return Ok(0);
+        };
+        let mut data = Some(data);
+        for (index, addr) in targets.iter().enumerate() {
+            let payload = if index == last {
+                data.take()
+                    .expect("invariant: original buffer moved exactly once, at the last subscriber")
+            } else {
+                data.as_ref()
+                    .expect("invariant: original buffer present until the last subscriber")
+                    .clone()
+            };
+            self.transport.send(addr, payload)?;
             delivered += 1;
         }
         Ok(delivered)
@@ -284,9 +335,7 @@ impl<T: Transport> MessageRouter<T> {
 
     /// Number of distinct addresses subscribed to `topic`.
     pub fn subscriber_count(&self, topic: &str) -> usize {
-        self.subscriptions
-            .lock()
-            .unwrap()
+        lock_mutex(&self.subscriptions)
             .get(topic)
             .map_or(0, Vec::len)
     }
@@ -307,6 +356,7 @@ pub enum ConnectionState {
 }
 
 impl ConnectionManager {
+    /// Create a manager tracking no endpoints.
     pub fn new() -> Self {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
@@ -315,14 +365,14 @@ impl ConnectionManager {
 
     /// Mark `address` as connected.
     pub fn connect(&self, address: &Address) -> TransportResult<()> {
-        let mut conns = self.connections.lock().unwrap();
+        let mut conns = lock_mutex(&self.connections);
         conns.insert(address.clone(), ConnectionState::Connected);
         Ok(())
     }
 
     /// Mark `address` as disconnected.
     pub fn disconnect(&self, address: &Address) -> TransportResult<()> {
-        let mut conns = self.connections.lock().unwrap();
+        let mut conns = lock_mutex(&self.connections);
         conns.insert(address.clone(), ConnectionState::Disconnected);
         Ok(())
     }
@@ -330,7 +380,7 @@ impl ConnectionManager {
     /// Current tracked state of `address`, or `None` if never seen.
     #[must_use]
     pub fn state(&self, address: &Address) -> Option<ConnectionState> {
-        self.connections.lock().unwrap().get(address).copied()
+        lock_mutex(&self.connections).get(address).copied()
     }
 
     /// Whether `address` is currently connected.
@@ -342,9 +392,7 @@ impl ConnectionManager {
     /// All currently-connected addresses.
     #[must_use]
     pub fn connected_addresses(&self) -> Vec<Address> {
-        self.connections
-            .lock()
-            .unwrap()
+        lock_mutex(&self.connections)
             .iter()
             .filter(|(_, state)| **state == ConnectionState::Connected)
             .map(|(addr, _)| addr.clone())
@@ -452,6 +500,20 @@ mod tests {
         // transport (the prior throwaway-transport implementation delivered none).
         assert_eq!(transport.recv(&sub_a).unwrap(), vec![1, 2, 3]);
         assert_eq!(transport.recv(&sub_b).unwrap(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn message_router_single_subscriber_receives_moved_buffer() {
+        // N = 1 exercises the zero-clone path: the caller's buffer is moved to
+        // the sole subscriber without an intermediate copy.
+        let transport = Arc::new(InMemoryTransport::new());
+        let router = MessageRouter::new(Arc::clone(&transport));
+        let sub = Address::Local("solo".to_string());
+        router.subscribe("t", sub.clone());
+
+        let delivered = router.publish("t", vec![7, 8, 9]).unwrap();
+        assert_eq!(delivered, 1);
+        assert_eq!(transport.recv(&sub).unwrap(), vec![7, 8, 9]);
     }
 
     #[test]

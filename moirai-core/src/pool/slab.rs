@@ -1,4 +1,4 @@
-use super::stack::CachePadded;
+use super::stack::CacheAligned;
 use crate::platform::*;
 
 #[cfg(target_pointer_width = "64")]
@@ -34,7 +34,7 @@ pub struct SlabAllocator<T> {
     /// Next free slot (generation-packed to prevent ABA)
     next_free: AtomicUsize,
     /// Number of allocated items
-    len: CachePadded<AtomicUsize>,
+    len: CacheAligned<AtomicUsize>,
 }
 
 struct SlabEntry<T> {
@@ -72,9 +72,7 @@ impl<T> SlabAllocator<T> {
         Self {
             entries: entries.into_boxed_slice(),
             next_free: AtomicUsize::new(pack(0, 0)),
-            len: CachePadded {
-                value: AtomicUsize::new(0),
-            },
+            len: CacheAligned::new(AtomicUsize::new(0)),
         }
     }
 
@@ -117,7 +115,7 @@ impl<T> SlabAllocator<T> {
                     "Slot should be vacant before marking occupied"
                 );
                 entry.occupied.store(true, Ordering::Release);
-                self.len.value.fetch_add(1, Ordering::Relaxed);
+                self.len.0.fetch_add(1, Ordering::Relaxed);
 
                 return Some(free_idx);
             }
@@ -164,7 +162,7 @@ impl<T> SlabAllocator<T> {
             }
         }
 
-        self.len.value.fetch_sub(1, Ordering::Relaxed);
+        self.len.0.fetch_sub(1, Ordering::Relaxed);
         Some(value)
     }
 
@@ -191,7 +189,7 @@ impl<T> SlabAllocator<T> {
 
     /// Get the number of allocated items
     pub fn len(&self) -> usize {
-        self.len.value.load(Ordering::Relaxed)
+        self.len.0.load(Ordering::Relaxed)
     }
 
     /// Check if the slab allocator is empty

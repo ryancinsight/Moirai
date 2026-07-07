@@ -34,13 +34,8 @@ loom = { workspace = true }
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
 
 [features]
-default = ["std", "metrics", "async", "parallel", "mnemosyne-memory"]
-std = []
-async = []
-parallel = []
-numa = []
+default = ["metrics", "mnemosyne"]
 metrics = ["moirai-core/metrics"]
 registry-diagnostics = []
 scheduler-diagnostics = []
 mnemosyne = ["dep:mnemosyne"]
-mnemosyne-memory = ["mnemosyne"]

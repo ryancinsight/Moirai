@@ -92,3 +92,35 @@ fn test_pubsub() {
 
     assert_eq!(pubsub.publish(&"topic2", 99).unwrap(), 0);
 }
+
+#[test]
+fn test_pubsub_prunes_dropped_subscribers() {
+    let pubsub = PubSub::new();
+    let survivors: Vec<_> = (0..4).map(|_| pubsub.subscribe("topic")).collect();
+    assert_eq!(pubsub.subscriber_count(&"topic"), 4);
+
+    // Drop 3 of 4 receivers; their senders are now closed but still listed.
+    let keeper = survivors.into_iter().next().unwrap();
+
+    // First publish delivers to the survivor and detects the closed channels.
+    assert_eq!(pubsub.publish(&"topic", 7).unwrap(), 1);
+    assert_eq!(
+        pubsub.subscriber_count(&"topic"),
+        1,
+        "closed subscriber senders must be pruned during publish"
+    );
+
+    // Second publish sees only the pruned list; survivor receives both values.
+    assert_eq!(pubsub.publish(&"topic", 8).unwrap(), 1);
+    assert_eq!(keeper.try_recv().unwrap(), 7);
+    assert_eq!(keeper.try_recv().unwrap(), 8);
+}
+
+#[test]
+fn test_pubsub_removes_empty_topic_after_all_subscribers_drop() {
+    let pubsub: PubSub<&str, i32> = PubSub::new();
+    drop(pubsub.subscribe("gone"));
+
+    assert_eq!(pubsub.publish(&"gone", 1).unwrap(), 0);
+    assert_eq!(pubsub.subscriber_count(&"gone"), 0);
+}

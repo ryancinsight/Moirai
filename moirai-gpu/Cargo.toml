@@ -16,11 +16,11 @@ description = "GPU launch planning and optional wgpu compute integration for the
 themis = { workspace = true }
 mnemosyne-core = { workspace = true }
 moirai-core = { workspace = true }
+moirai-executor = { workspace = true, optional = true }
 moirai-utils = { workspace = true, features = ["std"] }
 
 # GPU compute dependencies
 wgpu = { version = "0.19", optional = true }
-pollster = { version = "0.3", optional = true }
 bytemuck = { workspace = true, features = ["derive"], optional = true }
 
 # Async runtime support
@@ -39,7 +39,7 @@ default = ["std", "parallel", "mnemosyne-memory", "wgpu-backend"]
 std = []
 parallel = []
 mnemosyne-memory = []
-wgpu-backend = ["dep:bytemuck", "dep:futures", "dep:pollster", "dep:wgpu"]
+wgpu-backend = ["dep:bytemuck", "dep:futures", "dep:moirai-executor", "dep:wgpu"]
 serde = ["dep:serde"]
 
 [[bench]]

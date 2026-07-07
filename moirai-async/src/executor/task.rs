@@ -6,10 +6,13 @@ use std::sync::atomic::AtomicBool;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-#[allow(dead_code)]
 pub(super) struct AsyncTask {
+    /// Task identifier assigned at spawn. `AsyncHandle` carries its own copy;
+    /// no executor path reads this field back yet (introspection-only).
+    #[allow(dead_code)] // stored for parity with AsyncHandle; no read path wired yet
     pub(super) task_id: TaskId,
-    // future: ErasedTaskFuture
+    /// Type-erased future slot (`future: ErasedTaskFuture` behind an
+    /// `UnsafeCell`); mutation is serialized by `future_lock`.
     pub(super) future: std::cell::UnsafeCell<ErasedTaskFuture>,
     pub(super) future_lock: std::sync::Mutex<()>,
     pub(super) is_queued: AtomicBool,
@@ -20,10 +23,22 @@ pub(super) struct AsyncTask {
     /// timer while the socket's registered read-waker is still live) must not
     /// re-enqueue or re-poll the future.
     pub(super) completed: AtomicBool,
+    /// Scheduling priority recorded at spawn. The run queue in
+    /// `executor/core.rs` is FIFO and does not consult this field, so
+    /// `spawn_with_priority` currently has no scheduling effect; a
+    /// priority-aware run queue is pending in the executor core.
+    #[allow(dead_code)] // pending priority-aware run queue in executor/core.rs
     pub(super) priority: Priority,
+    /// Spawn timestamp; not read by any executor path yet (latency accounting
+    /// pending alongside the stats wiring in `executor/core.rs`).
+    #[allow(dead_code)] // pending queue-latency accounting in executor/core.rs
     pub(super) created_at: Instant,
 }
 
+// SAFETY: the only non-Sync field is the `UnsafeCell<ErasedTaskFuture>`;
+// mutable access to it is serialized by `future_lock` (its guard is held for
+// every poll), and the `completed`/`is_queued` flags gate re-entry, so no two
+// threads touch the future concurrently.
 unsafe impl Sync for AsyncTask {}
 
 pub(super) struct ErasedTaskFuture {

@@ -3,6 +3,7 @@
 //! Provides watch channel implementation that allows monitoring state changes
 //! with async notifications, following SLAP principle design.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -17,12 +18,16 @@ struct WatchState<T> {
     value: T,
     version: u64,
     closed: bool,
-    receivers: Vec<WatchReceiverState>,
+    /// Receiver state keyed by receiver id. Keyed (rather than a linear `Vec`)
+    /// so the per-`poll`/`has_changed`/drop lookup of a receiver's slot is
+    /// O(log n) instead of O(n), shortening lock-hold when many receivers
+    /// subscribe to one channel. The send fan-out iterates all receivers
+    /// regardless, which is inherently O(n). Mirrors `Broadcast`'s structure.
+    receivers: BTreeMap<u64, WatchReceiverState>,
     next_receiver_id: u64,
 }
 
 struct WatchReceiverState {
-    id: u64,
     version: u64,
     waker: Option<Waker>,
 }
@@ -36,7 +41,7 @@ impl<T: Clone + Send + 'static> Watch<T> {
             value: initial,
             version: 0,
             closed: false,
-            receivers: Vec::new(),
+            receivers: BTreeMap::new(),
             next_receiver_id: 1,
         }));
 
@@ -53,11 +58,13 @@ impl<T: Clone + Send + 'static> Watch<T> {
         // Register first receiver
         {
             let mut state_guard = state.lock().unwrap();
-            state_guard.receivers.push(WatchReceiverState {
-                id: 0,
-                version: 0,
-                waker: None,
-            });
+            state_guard.receivers.insert(
+                0,
+                WatchReceiverState {
+                    version: 0,
+                    waker: None,
+                },
+            );
         }
 
         (sender, receiver)
@@ -81,7 +88,7 @@ impl<T: Clone> WatchSender<T> {
         let current_version = state.version;
 
         // Wake all receivers that are waiting for changes
-        for receiver in &mut state.receivers {
+        for receiver in state.receivers.values_mut() {
             if receiver.version < current_version {
                 if let Some(waker) = receiver.waker.take() {
                     waker.wake();
@@ -110,7 +117,7 @@ impl<T: Clone> WatchSender<T> {
         state.version += 1;
 
         // Wake all receivers
-        for receiver in &mut state.receivers {
+        for receiver in state.receivers.values_mut() {
             if let Some(waker) = receiver.waker.take() {
                 waker.wake();
             }
@@ -129,7 +136,7 @@ impl<T> Drop for WatchSender<T> {
     fn drop(&mut self) {
         let mut state = self.state.lock().unwrap();
         state.closed = true;
-        for receiver in &mut state.receivers {
+        for receiver in state.receivers.values_mut() {
             if let Some(waker) = receiver.waker.take() {
                 waker.wake();
             }
@@ -163,7 +170,7 @@ impl<T: Clone> WatchReceiver<T> {
         if changed {
             let current_version = state.version;
             self.version = current_version;
-            if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == self.id) {
+            if let Some(receiver_state) = state.receivers.get_mut(&self.id) {
                 receiver_state.version = current_version;
             }
         }
@@ -178,11 +185,13 @@ impl<T> Clone for WatchReceiver<T> {
         state.next_receiver_id += 1;
         let current_version = state.version;
 
-        state.receivers.push(WatchReceiverState {
-            id: new_id,
-            version: current_version,
-            waker: None,
-        });
+        state.receivers.insert(
+            new_id,
+            WatchReceiverState {
+                version: current_version,
+                waker: None,
+            },
+        );
 
         WatchReceiver {
             state: self.state.clone(),
@@ -195,7 +204,7 @@ impl<T> Clone for WatchReceiver<T> {
 impl<T> Drop for WatchReceiver<T> {
     fn drop(&mut self) {
         if let Ok(mut state) = self.state.lock() {
-            state.receivers.retain(|r| r.id != self.id);
+            state.receivers.remove(&self.id);
         }
     }
 }
@@ -219,13 +228,13 @@ impl<'a, T: Clone> Future for WatchChanged<'a, T> {
         let current_version = state.version;
         if current_version > receiver.version {
             receiver.version = current_version;
-            if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == receiver.id) {
+            if let Some(receiver_state) = state.receivers.get_mut(&receiver.id) {
                 receiver_state.version = current_version;
             }
             return Poll::Ready(Ok(()));
         }
 
-        if let Some(receiver_state) = state.receivers.iter_mut().find(|r| r.id == receiver.id) {
+        if let Some(receiver_state) = state.receivers.get_mut(&receiver.id) {
             receiver_state.waker = Some(cx.waker().clone());
         }
 
@@ -240,11 +249,7 @@ impl<'a, T> Drop for WatchChanged<'a, T> {
         // now-deallocated task allocation — a use-after-free of the waker.
         // Clear it here so the sender only wakes live futures.
         if let Ok(mut state) = self.receiver.state.lock() {
-            if let Some(receiver_state) = state
-                .receivers
-                .iter_mut()
-                .find(|r| r.id == self.receiver.id)
-            {
+            if let Some(receiver_state) = state.receivers.get_mut(&self.receiver.id) {
                 receiver_state.waker = None;
             }
         }

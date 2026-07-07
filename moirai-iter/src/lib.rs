@@ -1,10 +1,8 @@
-//! Moirai Iterator - Unified high-performance iterator system for concurrent, parallel, async, and distributed computing.
+//! Moirai Iterator - Unified high-performance iterator system for concurrent, parallel, and async computing.
 //!
 //! This module provides a comprehensive iterator framework that abstracts over different execution contexts:
 //! - **Parallel**: CPU-bound work across multiple threads with work-stealing
 //! - **Async**: I/O-bound work with efficient async/await patterns
-//! - **Distributed**: Cross-process and cross-machine computation
-//! - **Multi-System**: Coordinated processing across multiple machines and GPUs
 //! - **Hybrid**: Mixed workloads combining parallel and async execution
 //!
 //! # Design Principles
@@ -15,7 +13,6 @@
 //! - **Type safety**: Comprehensive compile-time guarantees
 //! - **Performance**: SIMD vectorization and CPU optimization
 //! - **Async compatibility**: Native async/await support throughout
-//! - **Multi-system scaling**: Seamless scaling across machines and compute units
 
 pub mod advanced_patterns;
 pub mod async_iter;
@@ -23,11 +20,9 @@ pub mod base;
 pub mod cache;
 pub mod channel_fusion;
 pub mod combinators;
-pub mod distributed;
 pub mod execution;
 pub mod facade;
 pub mod iter_ops;
-pub mod multi_system;
 pub mod numa;
 pub mod parallel;
 pub mod prefetch;
@@ -37,16 +32,14 @@ pub mod windows;
 
 pub use async_iter::{AsyncIterator, AsyncParallelIterator, IntoAsyncIterator};
 pub use base::ThreadPool;
-pub use distributed::{DistributedContext, DistributedIterator, NodeConfig};
 pub use execution::{
     AsyncContext, ExecutionBase, ExecutionContext, ExecutionStrategy, HybridConfig, HybridContext,
     ParallelContext, PerformanceHistory,
 };
 pub use facade::{
-    async_range, moirai_iter, moirai_iter_async, moirai_iter_distributed, moirai_iter_hybrid,
-    moirai_iter_multi_system, moirai_iter_parallel, par_range, MoiraiIterator,
+    async_range, moirai_iter, moirai_iter_async, moirai_iter_hybrid, moirai_iter_parallel,
+    par_range, MoiraiIterator,
 };
-pub use multi_system::{MultiSystemContext, MultiSystemIterator, SystemConfig};
 pub use parallel::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelExtend,
     ParallelIterator, ParallelSliceMut, RangeParIter, VecParIter, VecRefParIter,

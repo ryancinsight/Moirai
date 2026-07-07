@@ -4,6 +4,170 @@ Append-only log of adversarial concurrency/memory-safety audit rounds. Each
 round records what was fixed, what was investigated and found sound (so it is
 not re-chased), and real-but-deferred items.
 
+Run the tests that back these findings via the
+[concurrency verification runbook](concurrency_testing.md) (loom models + stress
+tests + the standard gate).
+
+## Round 23 (2026-07-03) — FIXED: `join()` quiescence lost-wakeup (Dekker, AcqRel→SeqCst)
+
+**Bug (HIGH — liveness, latent `join()` hang).** `ThreadScheduler::join` and a
+worker completing the last job form a store-buffer (Dekker) handshake across two
+atoms that was ordered AcqRel/Acquire, not SeqCst:
+- worker (`execute_job`): `active_workers.fetch_sub(1, AcqRel)` (→0, publishes
+  quiescence) then `notify_quiescent` `join_waiters.load(Acquire)`.
+- joiner (`join`): `join_waiters.fetch_add(1, AcqRel)` then `is_quiescent`
+  `active_workers.load(Acquire)`.
+
+AcqRel gives no StoreLoad barrier, so the store-buffer outcome is permitted: the
+joiner reads a stale `active != 0` and parks on the condvar while the worker
+reads a stale `join_waiters == 0` and never signals — the quiescent scheduler
+never wakes the joiner, hanging `join()`. The joiner's 256-iteration pre-register
+spin makes the window narrow but not empty. This is the same hazard the park/wake
+handshake (Round 19 / `loom_wake_handshake.rs`) closed with SeqCst; the join path
+had been left at AcqRel.
+
+**Reproduced:** `tests/loom_join_quiescence.rs` modeling the production
+orderings — loom reports the lost wakeup reachable with AcqRel, unreachable with
+SeqCst (+ the loom StoreLoad `fence`, the same modeling device the wake-handshake
+uses).
+
+**Fix.** The four handshake accesses are now SeqCst so they share one total order
+that forbids the store-buffer outcome:
+`execute_job` `active_workers.fetch_sub(1, SeqCst)`; `notify_quiescent`
+`join_waiters.load(SeqCst)`; `is_quiescent` `pending_tasks`/`active_workers`
+loads SeqCst; `join` `join_waiters.fetch_add(1, SeqCst)`. The hot-path cost is
+the completion-side `fetch_sub` barrier — free on x86 (`lock sub` is already a
+full barrier); SeqCst loads are plain `mov` on x86. The committed
+`loom_join_quiescence.rs` models the fixed (SeqCst) protocol and is pinned to
+stay in sync. moirai-executor suite (80) green, clippy clean. Evidence tier:
+machine-checked (loom) + type/analysis (memory-model derivation).
+
+## Round 22 (2026-07-03) — loom model of the `LifoSlot` take-side exclusion
+
+**Added:** `tests/loom_lifo_slot.rs` (`#![cfg(loom)]`) — exhaustive-interleaving
+model of the per-worker `LifoSlot` protocol (`schedule/runtime/types.rs`). The
+slot is `unsafe impl Sync` and moves jobs with `ptr::read`/`MaybeUninit`, so its
+load-bearing safety property is that a READY job is consumed by **exactly one**
+taker: two takers would `ptr::read` the same `ScheduledJob` twice — a
+double-move / use-after-free / double-free, the heap-corruption class this
+crate's nested-scope work has fought. `LifoSlot::pop`/`steal` are also on the
+ADR-019 `drain_scope` help path (`next_job`/`steal_job`), so this slot's
+soundness underwrites the help-while-waiting fix.
+
+Three models, all green (loom enumerates every interleaving; its `UnsafeCell`
+flags any concurrent access):
+- `pop_and_steal_take_the_job_exactly_once` — owner `pop` vs thief `steal`:
+  exactly one takes the job, never both (double-`ptr::read`), never neither.
+- `concurrent_steals_take_the_job_exactly_once` — two thieves race the `2->3`
+  CAS; exactly one wins.
+- `replace_push_and_steal_conserve_both_jobs` — owner replace-`push` vs `steal`:
+  the old and new jobs are conserved exactly once each (evicted/stolen/resident),
+  never aliased.
+
+Evidence tier: machine-checked (loom exhaustive model) — the strongest available
+for this mutual-exclusion property, upgrading it from the hand analysis in the
+`LifoSlot` SAFETY comments. Orderings in the model mirror production (empty push
+CAS 0->1 Acquire, replace CAS 2->1 AcqRel, pop CAS 2->1 Acquire, steal CAS 2->3
+Acquire; publishing `store(2, Release)` pairs with the take CAS Acquire; taker
+`store(0, Release)` pairs with the next push's 0->1 Acquire) and are pinned to
+stay in sync. Run: `RUSTFLAGS="--cfg loom" cargo test -p moirai-executor --test
+loom_lifo_slot --release`.
+
+## Round 21 (2026-07-03) — NUMA-aware steal review; help-while-waiting adversarial tests
+
+**Reviewed:** commit `bcaf0bf` (NUMA-aware two-pass victim selection in
+`steal_job`). Verdict: **no correctness defect.** `worker_numa_nodes` is a
+`Box<[Option<usize>]>` set once at construction and read-only thereafter (no new
+locks/atomics/shared mutation). Pass 1 prefers same-NUMA-node victims; Pass 2 is
+the original full-ring randomized scan, so every victim with work is still
+reachable — coverage and starvation-freedom are preserved. `steal_batch` into
+the thief's own local queue is unchanged, so the help path added in ADR-019
+(`drain_scope` → `next_job` → `steal_job`) inherits the same aliasing guarantees.
+Regression-checked: `scheduler_scope_nested_saturation_completes` and
+`scheduler_scope_recursive_fork_join_is_sound` stay green (0.02 s) on the merged
+HEAD, ×4 repeat.
+
+**Perf note (not a correctness issue, deferred — needs NUMA hardware).** On a
+multi-node system where a thief's same-node victims are momentarily empty (the
+common state right after a fork-join barrier, when same-node peers have just gone
+idle), `steal_job` runs Pass 1 (O(worker_count), all misses) *then* Pass 2
+(O(worker_count)) — a 2× steal scan during the post-barrier steal storm. Pass 1
+also scans the full ring and `continue`s past off-node workers rather than
+iterating a precomputed per-node victim list (O(node_size)). Both are load-
+balance-neutral but worth a criterion pass on real NUMA hardware; filed as a
+follow-up perf item (external blocker: no multi-socket machine in CI).
+
+**Test-coverage gap (filed).** The NUMA change ships no `moirai-executor` test.
+On single-node/`None`-topology CI (VMs, containers) Pass 1 is skipped or covers
+only the all-same-node case, so the **cross-node fallback** (Pass 1 empty → Pass
+2 steals across nodes) is never exercised. A deterministic white-box test needs a
+node-assignment injection seam on the scheduler constructor — owned by the NUMA
+author; filed as ISSUE-209 rather than added here to avoid editing that hot file
+under concurrent authorship.
+
+**Added (this round):** `scheduler_scope_nested_panic_propagates_and_pool_survives`
+— adversarial guard that a panic in a nested scoped job under help-while-waiting
+surfaces as `SpawnFailed(Panicked)` from the nested scope, its sibling still
+runs, and the outer scope completes without deadlock/corruption. `W ∈ {1,2,4}`,
+green.
+
+## Round 20 (2026-07-03) — nested scope unsoundness; parallel `drive` reverted
+
+**Finding (HIGH — memory safety).** An attempt to make
+`moirai_iter::parallel::ParallelIterator::drive` genuinely parallel by fanning
+its recursive `Consumer` split through `moirai_parallel::join_with::<Parallel>`
+(which uses `ThreadScheduler::scope` → `spawn` + `wait`) is **unsound under
+nesting** and was reverted.
+
+Two independent problems:
+1. **Deadlock by construction (park-without-help).** `SchedulerScopeState::wait`
+   (`schedule/runtime/types.rs`) spins then parks on a condvar; the waiting
+   thread does *not* participate in work-stealing. A recursive/nested
+   fork-join therefore deadlocks whenever spawned `left` tasks and their
+   waiters exhaust the pool — provably so with a single worker: the main thread
+   parks awaiting its spawned branch while the sole worker parks awaiting its
+   own nested branch, both awaited tasks un-stolen, no runner.
+2. **Heap corruption under concurrent nested scopes (empirical).** A
+   nested-saturation probe (an outer parallel drive whose every element runs an
+   inner parallel drive) aborted with `STATUS_HEAP_CORRUPTION` (0xC0000374) in
+   ~0.16 s — not a hang. Single-level fork-join drive was fine; the corruption
+   appears only when many inner `scope`s run concurrently inside outer scope
+   jobs, indicating a data race in the scope machinery under nesting (the
+   `NonNull<SchedulerScopeState>` handed to scoped jobs, the per-scope job
+   buffer, or reentrant `schedule_job`).
+
+**Action.** Reverted the parallel drive; `drive` is sequential-by-contract again
+(documented on the trait method in `moirai-iter/src/parallel/traits.rs`). Added
+`nested_iteration_produces_correct_values` as a value-semantic regression guard
+(nested iteration must stay correct). The happens-before edge in `join_with`
+itself is sound (`complete_task`'s `AcqRel` decrement pairs with `wait`'s
+`Acquire` load), so single-level result publication is race-free — the
+unsoundness is scope *nesting*, not the single-level join.
+
+**RESOLVED at the scheduler layer (ADR-019, ISSUE-208 option (a)).**
+`ThreadScheduler::scope` now waits via `drain_scope`: a worker-thread waiter is
+work-conserving (runs its own `next_job` + `execute_job` until the scope drains,
+timed-parking on the scope condvar only when nothing is runnable), so a worker
+never parks while holding runnable nested work — deadlock-free by construction,
+and the scope's stack-owned state stays live *and progressing* until every
+borrowing job completes, closing the aliasing race. A non-worker waiter still
+parks (the pool drains its jobs). `next_job(worker_id)` touches only the owner's
+single-owner deque, adding no new cross-thread deque aliasing.
+
+Reproduction (red→green, `moirai-executor` tests):
+- `scheduler_scope_nested_saturation_completes` — nested scope inside a scoped
+  job; 30 s deadlock (W=1) → 0.011 s pass across W ∈ {1,2,4}.
+- `scheduler_scope_recursive_fork_join_is_sound` — the drive-shaped log2-depth
+  recursive fork-join (analytical arithmetic-series oracle), W ∈ {1,2,4}, 5×
+  repeat clean (guards the nondeterministic heap-corruption path).
+
+Full moirai-executor (77) + moirai-iter (191) suites green; clippy clean.
+
+**Remaining (ISSUE-208 (c), separate slice).** Reintroduce a parallel
+non-indexed `drive` against the now-sound `scope`, with a parallelism-asserting
+test. Until then the non-indexed `parallel/` surface stays sequential;
+scheduler-owned parallelism is `Moirai::for_each_indexed` / `map_reduce_indexed`.
+
 ## Round 19 (2026-06-28) — lock-hold contention sweep + loom-modeled wake handshake
 
 Reduced per-operation lock-hold across the async sync primitives and the core

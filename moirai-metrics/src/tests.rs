@@ -57,6 +57,48 @@ fn histogram_stats_are_value_semantic() {
 }
 
 #[test]
+fn histogram_variance_survives_large_offset_small_spread() {
+    // Large-mean/small-variance regime where the previous E[x²] − mean²
+    // formulation cancels catastrophically: with mean = 1e9, mean² = 1e18 and
+    // f64 ε ≈ 2.2e-16, the uncentered form's absolute error floor is
+    // mean²·ε ≈ 220 — over 300× the true variance of 2/3 — so it returned 0
+    // (after the negative clamp) with zero significant digits. Welford's
+    // centered accumulation must recover the variance to near machine
+    // precision.
+    let offset = 1.0e9;
+    let samples = [offset - 1.0, offset, offset + 1.0];
+    let histogram = Histogram::new();
+    for sample in samples {
+        histogram
+            .try_record(sample)
+            .expect("finite histogram sample must be accepted");
+    }
+
+    let true_mean = offset;
+    let true_var = 2.0 / 3.0; // population variance of {-1, 0, +1} around 0
+    let stats = histogram.stats();
+    assert_eq!(stats.count, 3);
+    assert_eq!(stats.min, offset - 1.0);
+    assert_eq!(stats.max, offset + 1.0);
+
+    // Tolerance derived from Welford's error bound: relative error on m2 is
+    // O(n·ε·κ) with condition number κ = √(1 + mean²/σ²) (Chan, Golub &
+    // LeVeque 1983). Here n = 3, κ ≈ 1.22e9, so the variance tolerance is
+    // n·ε·κ·σ² ≈ 5.4e-7 — nine orders of magnitude below the old formula's
+    // ~220 error floor.
+    let n = samples.len() as f64;
+    let kappa = (1.0 + true_mean * true_mean / true_var).sqrt();
+    let var_tol = n * f64::EPSILON * kappa * true_var;
+    let variance = stats.stddev * stats.stddev;
+    assert!(
+        (variance - true_var).abs() <= var_tol,
+        "variance {variance} must be within {var_tol} of {true_var}"
+    );
+    // Mean is conditioned at κ_mean ≈ 1 relative to its own magnitude.
+    assert!((stats.mean - true_mean).abs() <= n * f64::EPSILON * true_mean);
+}
+
+#[test]
 fn collector_snapshot_contains_registered_values() {
     let collector = MetricsCollector::new();
     collector.counter("requests_total").add(7);

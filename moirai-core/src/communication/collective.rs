@@ -17,7 +17,7 @@ impl CollectiveOps {
         // Tree reduction for efficiency
         let mut current = values;
         while current.len() > 1 {
-            let mut next = Vec::with_capacity((current.len() + 1) / 2);
+            let mut next = Vec::with_capacity(current.len().div_ceil(2));
 
             for chunk in current.chunks(2) {
                 if chunk.len() == 2 {
@@ -36,10 +36,8 @@ impl CollectiveOps {
 
     /// Scatter operation: distribute data chunks to participants
     pub fn scatter<T: Clone>(data: Vec<T>, num_participants: usize) -> Vec<Vec<T>> {
-        let chunk_size = (data.len() + num_participants - 1) / num_participants;
-        data.chunks(chunk_size)
-            .map(|chunk| chunk.to_vec())
-            .collect()
+        let chunk_size = data.len().div_ceil(num_participants);
+        data.chunks(chunk_size).map(<[T]>::to_vec).collect()
     }
 
     /// Gather operation: collect data from all participants
@@ -52,7 +50,7 @@ impl CollectiveOps {
         let n = data.len();
         let mut result = vec![Vec::new(); n];
 
-        for (_i, row) in data.iter().enumerate() {
+        for row in &data {
             for (j, item) in row.iter().enumerate() {
                 if j < n {
                     result[j].push(item.clone());

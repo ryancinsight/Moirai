@@ -309,13 +309,9 @@ where
 /// This provides batch execution capabilities and allows for
 /// coordinated task management and monitoring.
 pub struct Group {
-    /// The unique identifier for this task group
-    /// Allows the task group ID field to be unused for now
-    #[allow(dead_code)]
-    id: TaskId,
     /// Collection of tasks in this group
     tasks: Vec<Box<dyn FnOnce() + Send + 'static>>,
-    /// Task execution context and metadata
+    /// Task execution context and metadata (carries the group's `TaskId`)
     context: TaskContext,
 }
 
@@ -330,7 +326,6 @@ impl Group {
     #[must_use]
     pub fn new(id: TaskId) -> Self {
         Self {
-            id,
             tasks: Vec::new(),
             context: TaskContext::new(id),
         }

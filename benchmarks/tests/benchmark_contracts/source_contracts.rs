@@ -1,4 +1,38 @@
 #[test]
+fn gpu_task_adapter_uses_moirai_block_on_not_pollster() {
+    let manifest = read_benchmark("../moirai-gpu/Cargo.toml");
+    let gpu_task = read_benchmark("../moirai-gpu/src/task.rs");
+    let executor = read_benchmark("../moirai-executor/src/lib.rs");
+    let dependency_section = manifest_section(&manifest, "[dependencies]");
+    let feature_section = manifest_section(&manifest, "[features]");
+
+    assert!(
+        manifest_section_declares_dependency(dependency_section, "moirai-executor"),
+        "moirai-gpu must depend on the Moirai-owned executor boundary"
+    );
+    assert!(
+        feature_section.contains("\"dep:moirai-executor\""),
+        "wgpu-backend must activate moirai-executor for sync GPU task waits"
+    );
+    assert!(
+        executor.contains("pub fn block_on<F>(future: F) -> F::Output")
+            && executor.contains("schedule::wake::block_on_current_thread(future)"),
+        "moirai-executor must expose the current-thread parking block_on boundary"
+    );
+    assert!(
+        gpu_task.contains("moirai_executor::block_on(self.gpu_task.execute_gpu(&self.device))"),
+        "GPU task adapter must run synchronous waits through Moirai"
+    );
+
+    for prohibited in ["pollster", "pollster::block_on", "\"dep:pollster\""] {
+        assert!(
+            !manifest.contains(prohibited) && !gpu_task.contains(prohibited),
+            "moirai-gpu must not reintroduce {prohibited}"
+        );
+    }
+}
+
+#[test]
 fn public_result_handle_comparison_uses_real_join_handles() {
     let source = read_benchmark("benches/public_result_handle_comparison.rs");
 
@@ -234,7 +268,12 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
 
 #[test]
 fn registry_hot_path_diagnostics_use_production_registry_paths() {
-    let registry_source = read_benchmark("../moirai-executor/src/registry/mod.rs");
+    let registry_source = format!(
+        "{}\n{}\n{}",
+        read_benchmark("../moirai-executor/src/registry/registry.rs"),
+        read_benchmark("../moirai-executor/src/registry/diagnostics.rs"),
+        read_benchmark("../moirai-executor/src/registry/state.rs")
+    );
     let diagnostics_source = read_result_handle_diagnostics();
     let registry_diagnostics_source =
         read_benchmark("benches/result_handle_diagnostics/registry_paths.rs");
@@ -254,9 +293,6 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         "id,\n            created_at",
         "let started_after_ns = state.mark_started(0);",
         "state.mark_completed_since(started_after_ns)",
-        "pub fn diagnostic_register_external_task_with_id(&mut self, id: u64) -> u64",
-        "let _lifecycle = self.register_task_with_id(id);",
-        "pub fn diagnostic_restart_and_complete_with_token(&mut self, id: u64) -> Duration",
         "lifecycle.start(0).complete()",
         "pub fn diagnostic_register_next_and_complete_with_token(&mut self) -> Duration",
         "pub fn diagnostic_register_next_and_complete_with_token_id(&mut self) -> (u64, Duration)",
@@ -276,9 +312,7 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         "fn registry_start_release_publication(",
         "fn registry_completion_release_publication(completed_after_ns: &AtomicUsize) -> usize",
         "fn registry_duration_offset_math() -> usize",
-        "fn direct_external_id_registry_register(",
         "fn direct_registry_token_lifecycle(",
-        "fn direct_registry_external_token_lifecycle(",
         "fn direct_scheduled_public_token_wrapper_components(",
         "fn direct_scheduled_public_registry_token_wrapper_components(",
         "fn direct_scheduled_public_registry_token_wrapper_after_send_quiescent(",
@@ -295,11 +329,9 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         "diagnostic_block_lookup()",
         "diagnostic_slot_initialize()",
         "diagnostic_lifecycle_timestamp_publication()",
-        "diagnostic_register_external_task_with_id(id)",
-        "diagnostic_restart_and_complete_with_token(id)",
         "diagnostic_register_next_and_complete_with_token()",
         "diagnostic_register_next_and_complete_with_token_id()",
-        "registry.diagnostic_restart_and_complete_with_token(id)",
+        "let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();",
         "fn direct_public_token_wrapper_components(",
         "fn direct_public_token_wrapper_after_send_components(",
         "started_after_ns.store(offset, Ordering::Release)",
@@ -314,7 +346,8 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
     }
 
     assert!(
-        !registry_diagnostics_source.contains("completed_after_ns.saturating_sub(started_after_ns)"),
+        !registry_diagnostics_source
+            .contains("completed_after_ns.saturating_sub(started_after_ns)"),
         "registry duration math diagnostic must match production monotonic subtraction"
     );
 
@@ -322,6 +355,23 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         !registry_diagnostics_source.contains("READY_VALUE.saturating_add(CAPTURED_READY_VALUE)"),
         "registry duration diagnostic must not add defensive saturating arithmetic to monotonic fixture setup"
     );
+
+    for prohibited in [
+        "pub fn diagnostic_register_external_task_with_id",
+        "pub fn diagnostic_restart_and_complete_with_token(&mut self, id: u64)",
+        "fn direct_external_id_registry_register(",
+        "fn direct_registry_external_token_lifecycle(",
+        "diagnostic_register_external_task_with_id(id)",
+        "diagnostic_restart_and_complete_with_token(id)",
+        "registry.diagnostic_restart_and_complete_with_token(id)",
+    ] {
+        assert!(
+            !registry_source.contains(prohibited)
+                && !diagnostics_source.contains(prohibited)
+                && !registry_diagnostics_source.contains(prohibited),
+            "registry lifecycle diagnostics must use registry-owned task IDs, not external-ID accounting through {prohibited}"
+        );
+    }
 
     assert!(
         !registry_source.contains("pub(crate) struct TaskState {\n    id: u64,"),
@@ -367,7 +417,13 @@ fn work_class_routing_stays_zero_sized_and_static() {
         "pending_tasks.fetch_sub(1, Ordering::Release)",
         "completed_tasks.fetch_add(1, Ordering::Relaxed)",
         "failed_tasks.fetch_add(1, Ordering::Relaxed)",
-        "active_workers.fetch_sub(1, Ordering::AcqRel)",
+        // SeqCst, not AcqRel: this decrement is one half of the join()
+        // quiescence Dekker handshake closed in 4d790a9 ("Close join()
+        // quiescence lost-wakeup (AcqRel -> SeqCst)"), loom-verified by
+        // tests/loom_join_quiescence.rs. AcqRel permits the StoreLoad
+        // reordering that causes the lost wakeup; do not regress this back
+        // to AcqRel.
+        "active_workers.fetch_sub(1, Ordering::SeqCst)",
     ] {
         assert!(
             runtime_source.contains(required),
@@ -400,7 +456,8 @@ fn work_class_routing_stays_zero_sized_and_static() {
     }
 
     for required in [
-        ".schedule::<SyncTask, _>",
+        "spawn_result::<SyncTask, _>",
+        ".schedule::<C, _>",
         ".schedule::<BlockingTask, _>",
         ".schedule::<AsyncTask, _>",
     ] {

@@ -1,8 +1,8 @@
-//! Error types, cache-padding helper, unified `Channel` trait, and `Result` alias.
+//! Error types, cache-alignment helper, unified `Channel` trait, and `Result` alias.
 
 use std::fmt;
 
-pub(super) use moirai_utils::cache::CachePadded;
+pub(super) use moirai_utils::cache::CacheAligned;
 
 /// Error types for channel operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

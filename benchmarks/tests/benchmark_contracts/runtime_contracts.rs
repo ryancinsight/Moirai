@@ -559,62 +559,11 @@ fn public_facade_does_not_expose_placeholder_distributed_execution() {
     }
 }
 
-#[test]
-fn core_zero_copy_primitives_use_vertical_leaf_modules() {
-    let communication = read_benchmark("../moirai-core/src/communication.rs");
-    let module = read_benchmark("../moirai-core/src/communication/zero_copy/mod.rs");
-    let error = read_benchmark("../moirai-core/src/communication/zero_copy/error.rs");
-    let ring = read_benchmark("../moirai-core/src/communication/zero_copy/ring.rs");
-    let channel = read_benchmark("../moirai-core/src/communication/zero_copy/channel.rs");
-    let adaptive = read_benchmark("../moirai-core/src/communication/zero_copy/adaptive.rs");
-    let router = read_benchmark("../moirai-core/src/communication/zero_copy/router.rs");
-
-    for required in [
-        "pub mod zero_copy;",
-        "AdaptiveBatchChannel",
-        "DomainId",
-        "MemoryMappedRing",
-        "ZeroCopyChannel",
-        "ZeroCopyError",
-        "ZeroCopyRouter",
-    ] {
-        assert!(
-            communication.contains(required),
-            "communication facade must retain zero-copy export {required}"
-        );
-    }
-
-    for required in [
-        "mod adaptive;",
-        "mod channel;",
-        "mod error;",
-        "mod ring;",
-        "mod router;",
-        "pub use adaptive::{",
-        "pub use channel::{ZeroCopyChannel, ZeroCopyReceiver, ZeroCopySender};",
-        "pub use error::{ZeroCopyError, ZeroCopyResult};",
-        "pub use ring::MemoryMappedRing;",
-        "pub use router::{DomainId, ZeroCopyRouter};",
-    ] {
-        assert!(
-            module.contains(required),
-            "zero-copy module hierarchy must retain {required}"
-        );
-    }
-
-    for (source, required) in [
-        (error.as_str(), "pub enum ZeroCopyError"),
-        (ring.as_str(), "pub struct MemoryMappedRing<T>"),
-        (channel.as_str(), "pub struct ZeroCopyChannel<T>"),
-        (adaptive.as_str(), "pub struct AdaptiveBatchChannel<T>"),
-        (router.as_str(), "pub struct ZeroCopyRouter<T>"),
-    ] {
-        assert!(
-            source.contains(required),
-            "zero-copy leaf must retain {required}"
-        );
-    }
-}
+// `core_zero_copy_primitives_use_vertical_leaf_modules` removed: the
+// `communication::zero_copy` subsystem (MemoryMappedRing/ZeroCopyChannel/
+// AdaptiveBatchChannel/ZeroCopyRouter) was a duplicate ring implementation
+// consumed only by this contract test — deleted per ADR-016 (one SPSC ring +
+// one Vyukov MPMC over a ZST policy). Nothing pins the removed structure now.
 
 #[test]
 fn scheduler_join_keeps_fast_quiescent_path_before_condvar_wait() {
@@ -624,8 +573,13 @@ fn scheduler_join_keeps_fast_quiescent_path_before_condvar_wait() {
         "const JOIN_FAST_SPIN_ATTEMPTS",
         "for _ in 0..JOIN_FAST_SPIN_ATTEMPTS",
         "core::hint::spin_loop()",
-        "join_waiters.fetch_add(1, Ordering::AcqRel)",
-        "join_waiters.load(Ordering::Acquire) != 0",
+        // SeqCst (not AcqRel/Acquire): both accesses are half of the join()
+        // quiescence Dekker handshake closed in 4d790a9 ("Close join()
+        // quiescence lost-wakeup (AcqRel -> SeqCst)"), loom-verified by
+        // tests/loom_join_quiescence.rs. Do not regress these back to
+        // Acquire/AcqRel.
+        "join_waiters.fetch_add(1, Ordering::SeqCst)",
+        "join_waiters.load(Ordering::SeqCst) != 0",
         "wait_signal.notify_all()",
     ] {
         assert!(

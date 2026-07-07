@@ -1,12 +1,5 @@
 //! High-performance communication patterns for concurrent systems.
 
-pub mod zero_copy;
-pub use zero_copy::{
-    AdaptiveBatchChannel, AdaptiveBatchReceiver, AdaptiveBatchSender, AdaptiveThreshold,
-    BatchStats, DomainId, MemoryMappedRing, ThroughputMonitor, ZeroCopyChannel, ZeroCopyError,
-    ZeroCopyReceiver, ZeroCopyResult, ZeroCopyRouter, ZeroCopySender,
-};
-
 /// Broadcast channel patterns for one-to-many communication.
 pub mod broadcast;
 /// Collective operations for group communication.

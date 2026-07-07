@@ -39,11 +39,23 @@ impl Default for HistogramStats {
     }
 }
 
+/// Running-moment state maintained with Welford's online algorithm.
+///
+/// The naive `E[x²] − mean²` formulation subtracts two nearly-equal large
+/// numbers for large-mean/small-variance samples and cancels catastrophically
+/// (variance collapses to 0 or negative once `mean² · ε` exceeds the true
+/// variance). Welford accumulates the centered second moment `m2 = Σ(x−mean)²`
+/// incrementally, whose relative error is O(n·ε·κ) with condition number
+/// κ = √(1 + mean²/σ²) — accurate where the naive form has already lost every
+/// significant digit.
 #[derive(Debug, Default)]
 struct HistogramState {
     count: u64,
     sum: f64,
-    sum_squares: f64,
+    /// Running mean (Welford).
+    mean: f64,
+    /// Centered second moment Σ(x−mean)² (Welford).
+    m2: f64,
     min: f64,
     max: f64,
 }
@@ -87,7 +99,13 @@ impl Histogram {
         }
         state.count += 1;
         state.sum += value;
-        state.sum_squares += value * value;
+        // Welford update: delta uses the pre-update mean, delta2 the
+        // post-update mean; their product accumulates the centered second
+        // moment without forming cancellation-prone uncentered sums.
+        let delta = value - state.mean;
+        state.mean += delta / state.count as f64;
+        let delta2 = value - state.mean;
+        state.m2 += delta * delta2;
         Ok(())
     }
 
@@ -100,15 +118,16 @@ impl Histogram {
         }
 
         let count = state.count;
-        let count_f64 = count as f64;
-        let mean = state.sum / count_f64;
-        let variance = (state.sum_squares / count_f64 - mean * mean).max(0.0);
+        // Population variance from the centered second moment; `m2` is a sum
+        // of non-negative terms up to rounding, so clamp only guards the last
+        // ulp of rounding noise, not a structural cancellation.
+        let variance = (state.m2 / count as f64).max(0.0);
         HistogramStats {
             count,
             sum: state.sum,
             min: state.min,
             max: state.max,
-            mean,
+            mean: state.mean,
             stddev: variance.sqrt(),
         }
     }

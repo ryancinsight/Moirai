@@ -294,7 +294,10 @@ mod tests {
         // Simulate a stale wake arriving after completion: fabricate the same
         // executor waker the task carried and fire it. It must be a no-op.
         let task = executor.run_queue.try_dequeue();
-        assert!(task.is_none(), "completed task must not be on the run queue");
+        assert!(
+            task.is_none(),
+            "completed task must not be on the run queue"
+        );
 
         // A second processing pass (a stale wake would have re-enqueued the
         // finished task before this pass) must poll nothing and not panic.

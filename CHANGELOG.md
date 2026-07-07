@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `moirai-executor`: added `block_on`, a public current-thread parking wait
+  primitive over the existing scheduler waker driver. This gives Moirai-owned
+  crates a lightweight replacement for external `pollster::block_on` without
+  constructing the global scheduler.
+- `moirai-async`: added a loopback TCP `timeout(read)` regression that lets the
+  timer complete before peer data arrives, then forces the socket reactor to
+  wake the stale read waker after the async task has completed.
+- `moirai-parallel`: added `for_each_chunk_mut_with_state`, a mutable chunk
+  primitive with one reusable scratch state per scheduled worker shard. This
+  fills the provider gap for consumers replacing Rayon `for_each_with`/
+  `for_each_init` chunk kernels without allocating scratch per logical chunk.
+- `moirai-parallel`: added `for_each_chunk_triple_mut_enumerated_with` and
+  `for_each_chunk_quad_mut_enumerated_with` for fused provider-owned updates
+  across three or four equal-length mutable output buffers.
 - `moirai-executor`: loom model of the scheduler park/wake handshake
   (`tests/loom_wake_handshake.rs`, `cfg(loom)`-gated) — exhaustively verifies
   the `pending_tasks`/idle-bitset `SeqCst` Dekker handshake never loses a
@@ -50,6 +64,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime rather than the removed scheduler types directly.
 
 ### Changed
+- `moirai-gpu`: replaced the `GpuTaskAdapter` synchronous wait boundary with
+  `moirai_executor::block_on` and removed the direct `pollster` dependency from
+  the `wgpu-backend` feature.
+- `moirai-benchmarks`: removed external-ID task lifecycle diagnostic rows from
+  `result_handle_diagnostics`. Lifecycle-backed wrapper rows now allocate task
+  IDs through `TaskRegistry::diagnostic_register_next_and_complete_with_token_id`,
+  so duration and metrics attribution use registry-owned task IDs instead of a
+  separate `AtomicU64` placeholder path.
+- `moirai-transport`: removed the stale `core_zero_copy` re-export that pointed
+  at the deleted `moirai_core::communication::zero_copy` module. Consumers use
+  the current `moirai_core::communication` primitives directly.
 - `moirai-executor`: Completed the task-registry stable-slot migration by
   keeping `TaskStateBlock` slots private behind `UnsafeCell` accessors. Registry
   production paths, diagnostics, and benchmark source contracts now route
@@ -353,7 +378,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added real OS process lifecycle primitives in `moirai-transport::process`, including `ProcessSupervisor`, `ProcessSpec`, explicit drop policy, bounded wait, termination, and typed process outcomes.
 - Added selected process-route fixed-format task execution through `RoutedProcessTaskClient<P>` and supervised `ProcessEndpoint` child processes.
 - Added public fixed-capability routed execution through `Moirai::execute_routed_server_task` and `Moirai::execute_routed_process_task`, requiring sealed `RemoteCapabilityToken<C>` values instead of arbitrary remote closures.
-- Split `moirai_core::communication::zero_copy` into vertical error, ring, channel, adaptive, and router leaves while preserving the public re-export surface.
+- Split communication primitives into vertical broadcast, collective, message, pub/sub, ring-buffer, and router leaves under `moirai_core::communication`.
 - Added `BoundedRemoteTaskServer` for fixed-format remote task execution with persistent listener ownership, bounded request queue capacity, bounded worker count, and accepted/completed value stats.
 - Added sealed zero-sized remote capability tokens for constructing only admitted fixed-format remote task operations and keeping arbitrary closure remoting outside process/server transport routes.
 - Added sealed thread/process/server/device `TransportPayload<R>` ownership regions for archive byte handoff, with process/server/device pointer-transfer rejection and Mnemosyne global allocator evidence pinned at the top-level crate feature.

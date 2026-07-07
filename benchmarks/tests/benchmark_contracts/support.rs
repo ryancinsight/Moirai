@@ -121,35 +121,6 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "../moirai-iter/src/multi_system.rs",
-        &[
-            "../moirai-iter/src/multi_system/mod.rs",
-            "../moirai-iter/src/multi_system/config.rs",
-            "../moirai-iter/src/multi_system/context.rs",
-            "../moirai-iter/src/multi_system/profile.rs",
-            "../moirai-iter/src/multi_system/allocation.rs",
-            "../moirai-iter/src/multi_system/scheduler.rs",
-            "../moirai-iter/src/multi_system/resource.rs",
-            "../moirai-iter/src/multi_system/optimizer.rs",
-            "../moirai-iter/src/multi_system/balancer.rs",
-            "../moirai-iter/src/multi_system/iter.rs",
-            "../moirai-iter/src/multi_system/tests.rs",
-        ],
-    ),
-    (
-        "../moirai-iter/src/distributed.rs",
-        &[
-            "../moirai-iter/src/distributed/mod.rs",
-            "../moirai-iter/src/distributed/config.rs",
-            "../moirai-iter/src/distributed/context.rs",
-            "../moirai-iter/src/distributed/scheduler.rs",
-            "../moirai-iter/src/distributed/balancer.rs",
-            "../moirai-iter/src/distributed/failure.rs",
-            "../moirai-iter/src/distributed/iter.rs",
-            "../moirai-iter/src/distributed/tests.rs",
-        ],
-    ),
-    (
         "../moirai-iter/src/execution/mod.rs",
         &[
             "../moirai-iter/src/execution/mod.rs",
@@ -208,17 +179,6 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-pal/src/reactor/metrics.rs",
             "../moirai-pal/src/reactor/tls.rs",
             "../moirai-pal/src/reactor/tests.rs",
-        ],
-    ),
-    (
-        "../moirai-core/src/dtype.rs",
-        &[
-            "../moirai-core/src/dtype/mod.rs",
-            "../moirai-core/src/dtype/base.rs",
-            "../moirai-core/src/dtype/integer.rs",
-            "../moirai-core/src/dtype/float.rs",
-            "../moirai-core/src/dtype/context.rs",
-            "../moirai-core/src/dtype/tests.rs",
         ],
     ),
     (

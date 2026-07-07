@@ -151,12 +151,17 @@ impl<T: Clone> BroadcastReceiver<T> {
             return Err(BroadcastError::Lagged);
         }
 
-        // Find message at our position
-        for (seq, message) in &state.messages {
-            if *seq > self.position {
-                self.position = *seq;
-                return Ok(message.clone());
-            }
+        // Sequences are dense (each `send` appends `sequence + 1` and only
+        // `pop_front` removes), so the next unread message sits at a directly
+        // computable offset from the front — no scan. After the lag check,
+        // `position + 1 >= oldest_seq`, and `position <= sequence` bounds the
+        // offset by the queue length, so the conversion cannot truncate.
+        let offset = usize::try_from(self.position + 1 - oldest_seq)
+            .expect("invariant: unread offset is bounded by the message queue length");
+        if let Some((seq, message)) = state.messages.get(offset) {
+            debug_assert_eq!(*seq, self.position + 1, "broadcast sequences must be dense");
+            self.position = *seq;
+            return Ok(message.clone());
         }
 
         if state.closed {
@@ -205,15 +210,14 @@ impl<T: Clone> BroadcastReceiver<T> {
             return Poll::Ready(Err(BroadcastError::Lagged));
         }
 
-        // Find message at our position
-        let mut found_msg = None;
-        for (seq, message) in &state.messages {
-            if *seq > self.position {
-                self.position = *seq;
-                found_msg = Some(message.clone());
-                break;
-            }
-        }
+        // Dense-sequence direct index; see `try_recv` for the derivation.
+        let offset = usize::try_from(self.position + 1 - oldest_seq)
+            .expect("invariant: unread offset is bounded by the message queue length");
+        let found_msg = state.messages.get(offset).map(|(seq, message)| {
+            debug_assert_eq!(*seq, self.position + 1, "broadcast sequences must be dense");
+            self.position = *seq;
+            message.clone()
+        });
 
         if let Some(message) = found_msg {
             Poll::Ready(Ok(message))

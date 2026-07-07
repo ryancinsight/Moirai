@@ -12,6 +12,13 @@ pub const MEDIUM_POOL_SIZE: usize = MEGABYTE;
 /// Default capacity for the large object allocation pool.
 pub const LARGE_POOL_SIZE: usize = 16 * MEGABYTE;
 
+/// Default bound for the global task queue (tasks, not bytes). Sized for
+/// burst absorption across all workers before producers observe backpressure.
+pub const DEFAULT_GLOBAL_QUEUE_CAPACITY: usize = 8192;
+/// Default bound for each worker's local queue (tasks, not bytes). Small so
+/// idle workers can steal instead of one worker hoarding a deep queue.
+pub const DEFAULT_LOCAL_QUEUE_CAPACITY: usize = 256;
+
 /// Configuration settings for executor behavior and performance characteristics.
 ///
 /// This struct encapsulates all tunable parameters that affect executor operation,
@@ -47,8 +54,8 @@ impl Default for ExecutorConfig {
         Self {
             worker_threads: super::num_cpus(),
             async_threads: (super::num_cpus() / 4).max(1),
-            max_global_queue_size: 8192,
-            max_local_queue_size: 256,
+            max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
+            max_local_queue_size: DEFAULT_LOCAL_QUEUE_CAPACITY,
             thread_name_prefix: "moirai-worker".into(),
             #[cfg(feature = "numa")]
             numa_aware: true,

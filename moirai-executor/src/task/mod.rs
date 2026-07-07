@@ -1,73 +1,11 @@
 //! Task management and execution abstractions.
 //!
 //! This module provides types and functionality for task lifecycle management,
-//! including metadata tracking, performance metrics, and async task wrappers.
+//! specifically per-task metadata tracking consumed by the task registry.
 
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-// Import centralized constants (SSOT compliance)
-use moirai_core::constants::{MAX_SUCCESS_RATE, PERCENTAGE_PRECISION_FACTOR};
-
-/// Task performance metrics for monitoring and optimization
-#[derive(Debug, Clone)]
-pub struct TaskPerformanceMetrics {
-    pub total_tasks: u64,
-    pub completed_tasks: u64,
-    pub failed_tasks: u64,
-    pub average_completion_time: Duration,
-    pub total_execution_time: Duration,
-    pub last_updated: Instant,
-}
-
-impl TaskPerformanceMetrics {
-    /// Create new performance metrics tracker
-    pub fn new() -> Self {
-        Self {
-            total_tasks: 0,
-            completed_tasks: 0,
-            failed_tasks: 0,
-            average_completion_time: Duration::ZERO,
-            total_execution_time: Duration::ZERO,
-            last_updated: Instant::now(),
-        }
-    }
-
-    /// Record task completion
-    pub fn record_completion(&mut self, execution_time: Duration) {
-        self.total_tasks += 1;
-        self.completed_tasks += 1;
-        self.total_execution_time += execution_time;
-        self.average_completion_time =
-            self.total_execution_time / self.completed_tasks.max(1) as u32;
-        self.last_updated = Instant::now();
-    }
-
-    /// Record task failure
-    pub fn record_failure(&mut self) {
-        self.total_tasks += 1;
-        self.failed_tasks += 1;
-        self.last_updated = Instant::now();
-    }
-
-    /// Get success rate as percentage
-    pub fn success_rate(&self) -> f64 {
-        if self.total_tasks == 0 {
-            MAX_SUCCESS_RATE
-        } else {
-            (self.completed_tasks as f64 / self.total_tasks as f64) * PERCENTAGE_PRECISION_FACTOR
-        }
-    }
-}
-
-impl Default for TaskPerformanceMetrics {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use moirai_core::Priority;
 
 /// Task metadata for tracking and debugging
 #[derive(Debug, Clone)]
@@ -77,6 +15,10 @@ pub struct TaskMetadata {
     pub started_at: Option<Instant>,
     pub completed_at: Option<Instant>,
     pub worker_id: Option<usize>,
+    /// Priority the task was spawned with.
+    pub priority: Priority,
+    /// True when a cancel request was honored before the task body ran.
+    pub cancelled: bool,
 }
 
 impl TaskMetadata {
@@ -88,6 +30,8 @@ impl TaskMetadata {
             started_at: None,
             completed_at: None,
             worker_id: None,
+            priority: Priority::Normal,
+            cancelled: false,
         }
     }
 
@@ -108,56 +52,5 @@ impl TaskMetadata {
             (Some(start), Some(end)) => Some(end.duration_since(start)),
             _ => None,
         }
-    }
-}
-
-/// Future for waiting on task completion
-pub struct TaskWaitFuture {
-    pub(crate) task_id: u64,
-    pub(crate) registry: Arc<super::registry::TaskRegistry>,
-}
-
-impl Future for TaskWaitFuture {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.registry.is_completed(self.task_id) {
-            Poll::Ready(())
-        } else {
-            self.registry.register_waker(self.task_id, cx.waker());
-            if self.registry.is_completed(self.task_id) {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_task_performance_metrics_tracking() {
-        let mut metrics = TaskPerformanceMetrics::new();
-        assert_eq!(metrics.total_tasks, 0);
-        assert_eq!(metrics.success_rate(), MAX_SUCCESS_RATE);
-
-        // Record a completion
-        metrics.record_completion(Duration::from_millis(100));
-        assert_eq!(metrics.total_tasks, 1);
-        assert_eq!(metrics.completed_tasks, 1);
-        assert_eq!(metrics.failed_tasks, 0);
-        assert_eq!(metrics.average_completion_time, Duration::from_millis(100));
-        assert_eq!(metrics.success_rate(), 100.0);
-
-        // Record a failure
-        metrics.record_failure();
-        assert_eq!(metrics.total_tasks, 2);
-        assert_eq!(metrics.completed_tasks, 1);
-        assert_eq!(metrics.failed_tasks, 1);
-        // Completed tasks = 1 out of 2 total tasks -> 50% success rate
-        assert_eq!(metrics.success_rate(), 50.0);
     }
 }

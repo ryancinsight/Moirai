@@ -29,6 +29,25 @@ pub enum Priority {
     Critical = 3,
 }
 
+impl Priority {
+    /// Scheduling index of this priority: `Low = 0`, `Normal = 1`, `High = 2`,
+    /// `Critical = 3`.
+    ///
+    /// Single source of truth for the priority-to-index mapping used by
+    /// priority-partitioned queues and worker/route selection weights.
+    ///
+    /// # Examples
+    /// ```
+    /// use moirai_core::Priority;
+    /// assert_eq!(Priority::Low.index(), 0);
+    /// assert_eq!(Priority::Critical.index(), 3);
+    /// ```
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+}
+
 /// Task execution context and metadata.
 #[derive(Debug, Clone)]
 pub struct TaskContext {

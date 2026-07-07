@@ -20,9 +20,5 @@ moirai-utils = { workspace = true }
 criterion = { workspace = true }
 proptest = { workspace = true }
 
-[features]
-default = ["parallel", "mnemosyne-memory"]
-parallel = []
-mnemosyne-memory = []
-tracing = []
-profiling = []
+# No cargo features: every prior feature (`parallel`, `mnemosyne-memory`,
+# `tracing`, `profiling`) gated zero cfg sites and was removed as phantom.

@@ -20,7 +20,11 @@ impl std::task::Wake for ExecutorWaker {
         // that already returned `Ready` and panic, so drop the wake for a
         // completed task. `process_pending_tasks` re-checks `completed` to
         // close the wake-races-completion window authoritatively.
-        if self.task.completed.load(std::sync::atomic::Ordering::Acquire) {
+        if self
+            .task
+            .completed
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
             return;
         }
         if !self

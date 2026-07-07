@@ -1,7 +1,6 @@
 use crate::error::TaskError;
 
 use super::id_and_context::TaskId;
-use super::traits::Task;
 
 // ── std-only block ────────────────────────────────────────────────────────────
 
@@ -13,13 +12,10 @@ use core::mem::{ManuallyDrop, MaybeUninit};
 #[cfg(feature = "std")]
 use std::sync::{
     atomic::{AtomicU8, Ordering},
-    mpsc, Arc,
+    Arc,
 };
 #[cfg(feature = "std")]
 use std::thread;
-
-#[cfg(feature = "std")]
-use super::id_and_context::TaskContext;
 
 // State constants for TaskResultSlot
 #[cfg(feature = "std")]
@@ -64,69 +60,6 @@ pub(super) mod result_wait {
 
 #[cfg(feature = "std")]
 pub use result_wait::{BlockingResultWait, ResultWaitPolicy};
-
-// ── TaskWrapper ───────────────────────────────────────────────────────────────
-
-/// A wrapper that adds result channel support to any task.
-#[cfg(feature = "std")]
-pub struct TaskWrapper<T: Task> {
-    task: T,
-    result_sender: Option<mpsc::Sender<Result<T::Output, TaskError>>>,
-    completion_sender: Option<mpsc::Sender<()>>,
-}
-
-#[cfg(feature = "std")]
-impl<T: Task> TaskWrapper<T> {
-    /// Create a new task wrapper.
-    pub fn new(task: T) -> Self {
-        Self {
-            task,
-            result_sender: None,
-            completion_sender: None,
-        }
-    }
-
-    /// Create a new task wrapper with result and completion senders.
-    pub fn with_result_sender(
-        task: T,
-        result_sender: mpsc::Sender<Result<T::Output, TaskError>>,
-        completion_sender: mpsc::Sender<()>,
-    ) -> Self {
-        Self {
-            task,
-            result_sender: Some(result_sender),
-            completion_sender: Some(completion_sender),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl<T: Task> Task for TaskWrapper<T>
-where
-    T::Output: Clone,
-{
-    type Output = T::Output;
-
-    fn execute(self) -> Self::Output {
-        let result = self.task.execute();
-
-        // Send result through channel if available
-        if let Some(sender) = self.result_sender {
-            let _ = sender.send(Ok(result.clone()));
-        }
-
-        // Signal completion
-        if let Some(sender) = self.completion_sender {
-            let _ = sender.send(());
-        }
-
-        result
-    }
-
-    fn context(&self) -> &TaskContext {
-        self.task.context()
-    }
-}
 
 // ── TaskResultSlot (private) ──────────────────────────────────────────────────
 

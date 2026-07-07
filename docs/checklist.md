@@ -90,6 +90,11 @@
   capacity, reliability, latency, and bandwidth; add value tests,
   saturation coverage for extreme telemetry, benchmark-contract guards, and the
   `distributed_context_stats` Criterion row.
+- [x] [patch] ISSUE-208: Remove external-ID lifecycle accounting from
+  `result_handle_diagnostics`; lifecycle-backed wrapper rows now use
+  registry-owned IDs from
+  `TaskRegistry::diagnostic_register_next_and_complete_with_token_id`, while
+  benchmark contracts reject the removed external-ID helper rows.
 - [x] [minor] ISSUE-166: Add bounded `IndexedParallelIterator` source cardinality with value tests, benchmark-contract coverage, same-run Rayon metadata benchmark, and by-value owned vector source storage.
 - [x] [patch] ISSUE-167: Move `iter_ops::ParallelIter` into a vertical leaf, remove `Arc<Vec<T>>` and `'static` closure bounds, add scoped borrowed chunk tests, benchmark-contract coverage, and same-run Rayon map/reduce rows.
 - [x] [patch] ISSUE-168: Remove `ZeroCopyParallelIter::map` `Arc` wrappers, add borrowed scoped chunk tests, benchmark-contract coverage, and same-run Rayon borrowed map/reduce rows.

@@ -69,6 +69,52 @@ architecture definition.
 
 ### Priority P0
 
+#### 🔄 ISSUE-208 [arch]: Make `ThreadScheduler::scope` sound under nesting (unblock parallel non-indexed `drive`)
+- **Type**: Scheduler Correctness / Memory Safety
+- **Root Cause**: `SchedulerScopeState::wait` (`schedule/runtime/types.rs`) spins
+  then parks on a condvar without participating in work-stealing, so a recursive
+  fork-join through `ThreadScheduler::scope` deadlocks by construction (provable
+  for a single worker). Empirically, a nested-saturation workload (outer parallel
+  drive whose every element runs an inner parallel drive) aborts with
+  `STATUS_HEAP_CORRUPTION` (0xC0000374) in ~0.16 s, indicating a data race in the
+  scope machinery under concurrent nesting (`NonNull<SchedulerScopeState>` handed
+  to scoped jobs, the per-scope job buffer, or reentrant `schedule_job`).
+- **Impact**: `moirai-iter`'s non-indexed `parallel/` `drive` must stay
+  sequential; scheduler-owned parallelism is only available through the flat
+  `Moirai::for_each_indexed` / `map_reduce_indexed` fan-out. Documented in
+  `docs/concurrency_audit.md` Round 20 and on `parallel::ParallelIterator::drive`.
+- **Acceptance criteria**: (a) ✅ `scope` wait is help-while-waiting (worker
+  waiters run their own `next_job`/`execute_job` rather than parking) — done via
+  `drain_scope` (ADR-019); (b) ✅ nested-saturation + recursive fork-join stress
+  tests run clean under `W ∈ {1,2,4}`, 5× repeat, no deadlock/corruption
+  (`scheduler_scope_nested_saturation_completes`,
+  `scheduler_scope_recursive_fork_join_is_sound`); (c) ⏳ reintroduce a parallel
+  non-indexed `drive` against the now-sound `scope` with a parallelism-asserting
+  test — separate follow-up slice.
+- **Status**: (a)+(b) landed (ADR-019); (c) open as the next slice. Scope
+  primitive is now nesting-sound; `moirai-iter` `drive` stays sequential until
+  (c) reintroduces parallelism.
+- **Evidence tier**: type/analysis (deadlock-freedom argument, ADR-019) +
+  empirical (deterministic 30 s→0.01 s reproduction, repeat-clean regression).
+
+#### ⏳ ISSUE-209 [patch]: Cover NUMA two-pass `steal_job` cross-node fallback (owner: NUMA author)
+- **Type**: Scheduler Test Coverage
+- **Root Cause**: `bcaf0bf` (NUMA-aware `steal_job`) ships no `moirai-executor`
+  test. On single-node/`None`-topology CI (VMs, containers) Pass 1 is skipped or
+  only exercises the all-same-node case, so the cross-node fallback (Pass 1 same
+  -node victims empty → Pass 2 steals across nodes) is never executed. Reviewed
+  in concurrency_audit.md Round 21: no correctness defect found, but the branch
+  is untested.
+- **Acceptance criteria**: a deterministic white-box test injects a multi-node
+  `worker_numa_nodes` layout (needs a `#[cfg(test)]` node-assignment seam on the
+  scheduler constructor) and asserts value-semantic completion when a thief's
+  same-node victims are empty and only cross-node victims hold work.
+- **Owner**: NUMA-steal author (upstream ownership — the capability's owner adds
+  its test; not added by the concurrency-review pass to avoid editing the hot
+  constructor under concurrent authorship).
+- **Status**: filed. Also see the Round 21 perf note (2× steal scan on NUMA-miss)
+  — separate criterion item, externally blocked on multi-socket hardware.
+
 #### ✅ ISSUE-199 [arch]: Add accelerator route topology without execution fabrication
 - **Type**: Scheduler Architecture / Accelerator Placement
 - **Root Cause**: Moirai's stated scheduler target includes CPU, GPU, TPU, and NPU
@@ -250,6 +296,26 @@ architecture definition.
   `cargo doc -p moirai-iter --all-features --no-deps` with
   `RUSTDOCFLAGS=-D warnings`; `cargo bench -p moirai-benchmarks --bench distributed_context_comparison -- --quick --quiet`.
 - **Status**: Completed 2026-06-15.
+
+#### ✅ ISSUE-208 [patch]: Remove external-ID lifecycle accounting
+- **Type**: Result-Handle Diagnostics / Registry Task IDs / Benchmark Contracts
+- **Root Cause**: `result_handle_diagnostics` still carried external-ID
+  lifecycle helpers and rows (`diagnostic_restart_and_complete_with_token`,
+  `diagnostic_register_external_task_with_id`,
+  `direct_registry_external_token_lifecycle`, and
+  `direct_external_id_registry_register`). Those rows mixed a separate relaxed
+  `AtomicU64` ID source into lifecycle and metrics attribution after production
+  task IDs had moved to the registry.
+- **Resolution**: Removed the external-ID diagnostic helpers and rows.
+  Lifecycle-backed direct and scheduled wrapper rows now allocate IDs and
+  duration telemetry through
+  `TaskRegistry::diagnostic_register_next_and_complete_with_token_id`. The only
+  remaining `AtomicU64` row is the explicit no-lifecycle ID-allocation
+  primitive.
+- **Evidence**: Benchmark source contracts require the registry-owned helper and
+  reject the removed external-ID helpers/rows. This is source-contract and
+  value-path evidence; no new Criterion timings are claimed here.
+- **Status**: Completed 2026-07-05.
 
 #### ✅ ISSUE-130 [arch]: Complete Tokio reactor-native I/O compatibility contract
 - **Type**: Architecture / Compatibility

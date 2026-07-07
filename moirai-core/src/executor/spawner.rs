@@ -112,7 +112,7 @@ pub trait TaskSpawner: Send + Sync + 'static {
         T: Task + Send + 'static;
 
     /// Spawn a task on the current thread's local queue for better locality
-    /// (inspired by Tokio's spawn_local)
+    /// (inspired by Tokio's `spawn_local`)
     fn spawn_local<T>(&self, task: T) -> ExecutorResult<TaskHandle<T::Output>>
     where
         T: Task + 'static,

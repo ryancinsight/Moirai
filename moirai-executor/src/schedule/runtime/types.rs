@@ -157,6 +157,13 @@ pub(super) struct SchedulerInner<const QUEUE_CAPACITY: usize> {
     pub(super) wait_lock: Mutex<()>,
     pub(super) wait_signal: Condvar,
     pub(super) idle_workers: super::idle::IdleBitset,
+    /// Per-worker NUMA node assignment for topology-aware victim selection.
+    ///
+    /// `worker_numa_nodes[i]` is the NUMA node of worker `i`, or `None` when
+    /// NUMA topology is unavailable (single-node systems, VMs, containers).
+    /// Stored separately from `WorkerState` to avoid cache-line pollution on
+    /// the hot steal-path — this slice is read-only after construction.
+    pub(super) worker_numa_nodes: Box<[Option<usize>]>,
 }
 
 pub(super) struct LifoSlot {

@@ -375,9 +375,9 @@ fn bench_performance_counters(c: &mut Criterion) {
         });
     });
 
-    group.bench_function("simd_utilization_ratio", |bench| {
+    group.bench_function("vectorization_rate", |bench| {
         bench.iter(|| {
-            black_box(counter.simd_utilization_ratio());
+            black_box(counter.vectorization_rate());
         });
     });
 

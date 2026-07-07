@@ -12,25 +12,6 @@ fn direct_registry_token_lifecycle(registry: &mut TaskRegistry) -> usize {
     black_box(duration.as_nanos() as usize)
 }
 
-#[cfg(feature = "registry-diagnostics")]
-fn direct_registry_external_token_lifecycle(
-    registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
-) -> usize {
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
-    let duration = registry.diagnostic_restart_and_complete_with_token(id);
-    black_box(duration.as_nanos() as usize)
-}
-
-#[cfg(feature = "registry-diagnostics")]
-fn direct_external_id_registry_register(
-    registry: &mut TaskRegistry,
-    next_task_id: &AtomicU64,
-) -> usize {
-    let id = next_task_id.fetch_add(1, Ordering::Relaxed);
-    black_box(registry.diagnostic_register_external_task_with_id(id) as usize)
-}
-
 fn registry_mutex_lock_only(registry: &Mutex<TaskRegistry>) -> usize {
     let guard = registry
         .lock()

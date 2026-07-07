@@ -244,7 +244,18 @@ pub async fn read_response<S: AsyncReadExt + Unpin>(
     let chunked = find("transfer-encoding")
         .map(|v| v.to_ascii_lowercase().contains("chunked"))
         .unwrap_or(false);
-    let content_length: Option<usize> = find("content-length").and_then(|v| v.trim().parse().ok());
+    // RFC 9112 §6.3: a present-but-unparseable Content-Length is a framing
+    // error that must fail the message (response-desync hazard) — it must NOT
+    // silently degrade to read-to-EOF framing. Absent header => EOF framing.
+    let content_length: Option<usize> = match find("content-length") {
+        Some(v) => Some(v.trim().parse().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("malformed Content-Length: {v:?}"),
+            )
+        })?),
+        None => None,
+    };
     let conn_close = find("connection")
         .map(|v| v.eq_ignore_ascii_case("close"))
         .unwrap_or(false);
@@ -360,6 +371,31 @@ mod tests {
         resp.extend_from_slice(b"0\r\n\r\n");
         let err = read(resp, 16 * 1024).expect_err("chunked body over the cap must be rejected");
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn malformed_content_length_is_invalid_data_not_eof_framing() {
+        // Adversarial: a present-but-garbage Content-Length must be a typed
+        // framing error (RFC 9112 §6.3), never a silent fall-through to
+        // read-to-EOF framing (response-desync hazard on reused connections).
+        for bad in ["abc", "-5", "18446744073709551616", "12abc", ""] {
+            let resp =
+                format!("HTTP/1.1 200 OK\r\nContent-Length: {bad}\r\n\r\nhello").into_bytes();
+            let err = read(resp, 64 * 1024)
+                .expect_err("garbage Content-Length must be rejected, not EOF-framed");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidData, "value: {bad:?}");
+        }
+    }
+
+    #[test]
+    fn absent_content_length_still_uses_eof_framing() {
+        // Control: with no Content-Length and no chunked framing, the body
+        // legitimately runs to EOF and the connection is not reusable.
+        let resp = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nstream-until-close".to_vec();
+        let parsed = read(resp, 64 * 1024).expect("EOF-framed response must parse");
+        assert_eq!(parsed.status, 200);
+        assert_eq!(parsed.body, b"stream-until-close");
+        assert!(!parsed.keep_alive, "EOF-framed body forbids reuse");
     }
 
     #[test]

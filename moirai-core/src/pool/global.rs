@@ -1,45 +1,38 @@
 use super::stack::LockFreeStack;
-use crate::platform::*;
 
 /// Global object pool for cross-thread sharing.
 ///
-/// Uses a hybrid approach with thread-local caches backed by a global pool.
+/// A lock-free stack of reusable objects shared by all threads; there is no
+/// per-thread caching layer. [`Self::get`] pops a pooled object or constructs
+/// a new one via `T::default()`; [`Self::put`] returns an object, dropping it
+/// when the pool already holds `max_size` objects.
 pub struct GlobalPool<T> {
-    /// Global stack of available objects
+    /// Global stack of available objects, sized to `max_size` slots.
     global: LockFreeStack<T>,
-    /// Maximum size of the pool
-    max_size: usize,
 }
 
 impl<T: Default + Send + 'static> GlobalPool<T> {
-    /// Create a new global pool.
+    /// Create a new global pool retaining at most `max_size` objects.
     #[must_use]
     pub fn new(max_size: usize) -> Self {
         Self {
-            global: LockFreeStack::new(),
-            max_size,
+            global: LockFreeStack::with_capacity(max_size),
         }
     }
 
-    /// Get an object from the pool.
-    ///
-    /// This first checks a thread-local cache before falling back to the global pool.
+    /// Get an object from the pool, or construct a new one if the pool is empty.
     pub fn get(&self) -> T {
-        // Try global pool
-        if let Some(obj) = self.global.pop() {
-            return obj;
-        }
-
-        // Create new object
-        T::default()
+        self.global.pop().unwrap_or_default()
     }
 
     /// Return an object to the pool.
+    ///
+    /// When the pool already holds `max_size` objects the object is dropped;
+    /// this is the pool's documented retention cap, not an error condition.
     pub fn put(&self, obj: T) {
-        if self.global.len() < self.max_size {
-            self.global.push(obj);
+        if let Err(obj) = self.global.push(obj) {
+            drop(obj); // pool at capacity: intentional retention-cap drop
         }
-        // Otherwise drop the object
     }
 
     /// Clear all objects from the pool.
@@ -47,21 +40,3 @@ impl<T: Default + Send + 'static> GlobalPool<T> {
         while self.global.pop().is_some() {}
     }
 }
-
-/// Statistics for pool usage.
-#[derive(Debug, Clone)]
-pub struct PoolStats {
-    /// Total number of allocations
-    pub allocations: u64,
-    /// Total number of deallocations
-    pub deallocations: u64,
-    /// Number of times objects were reused
-    pub reuses: u64,
-    /// Current pool size
-    pub current_size: usize,
-    /// Peak pool size
-    pub peak_size: usize,
-}
-
-/// Type alias for task pool
-pub type TaskPool<T> = GlobalPool<T>;

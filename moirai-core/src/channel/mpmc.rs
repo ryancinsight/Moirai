@@ -3,7 +3,7 @@
 //! Uses mutex-based implementation for simplicity and correctness,
 //! with a lock-free `BoundedMpmcQueue` fast-path for bounded cases.
 
-use super::error::{CachePadded, Channel, ChannelError, Result};
+use super::error::{CacheAligned, Channel, ChannelError, Result};
 use std::cell::UnsafeCell;
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::VecDeque;
@@ -11,6 +11,11 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
+/// Exponential-backoff spin rounds (`1 << round` spin-loop hints per round,
+/// ~1023 total hints) before a blocked send/recv falls back to a condvar wait.
+/// Tuned for this channel's mutex+condvar slow path; intentionally local
+/// rather than a crate-wide constant because SPSC uses a different budget
+/// matched to its yield-based fallback.
 const MPMC_BLOCK_SPINS: usize = 10;
 
 // ---------------------------------------------------------------------------
@@ -35,8 +40,8 @@ pub(super) struct BoundedMpmcQueue<T> {
     mask: usize,
     capacity: usize,
     logical_capacity: usize,
-    enqueue_pos: CachePadded<AtomicUsize>,
-    dequeue_pos: CachePadded<AtomicUsize>,
+    enqueue_pos: CacheAligned<AtomicUsize>,
+    dequeue_pos: CacheAligned<AtomicUsize>,
 }
 
 impl<T> BoundedMpmcQueue<T> {
@@ -56,28 +61,31 @@ impl<T> BoundedMpmcQueue<T> {
             mask: capacity - 1,
             capacity,
             logical_capacity,
-            enqueue_pos: CachePadded::new(AtomicUsize::new(0)),
-            dequeue_pos: CachePadded::new(AtomicUsize::new(0)),
+            enqueue_pos: CacheAligned::new(AtomicUsize::new(0)),
+            dequeue_pos: CacheAligned::new(AtomicUsize::new(0)),
         }
     }
 
     pub(super) fn try_push(&self, value: T) -> std::result::Result<(), T> {
-        let mut position = self.enqueue_pos.value.load(Ordering::Relaxed);
+        let mut position = self.enqueue_pos.0.load(Ordering::Relaxed);
 
         loop {
             let slot = &self.buffer[position & self.mask];
             let sequence = slot.sequence.load(Ordering::Acquire);
+            // justification: Vyukov MPMC — the wrapping subtraction is reinterpreted
+            // as a signed slot-availability delta; `usize as isize` wrap is intended.
+            #[allow(clippy::cast_possible_wrap)]
             let difference = sequence.wrapping_sub(position) as isize;
 
             match difference.cmp(&0) {
                 CmpOrdering::Equal => {
-                    if position.wrapping_sub(self.dequeue_pos.value.load(Ordering::Acquire))
+                    if position.wrapping_sub(self.dequeue_pos.0.load(Ordering::Acquire))
                         >= self.logical_capacity
                     {
                         return Err(value);
                     }
 
-                    match self.enqueue_pos.value.compare_exchange_weak(
+                    match self.enqueue_pos.0.compare_exchange_weak(
                         position,
                         position.wrapping_add(1),
                         Ordering::Relaxed,
@@ -96,23 +104,26 @@ impl<T> BoundedMpmcQueue<T> {
                 }
                 CmpOrdering::Less => return Err(value),
                 CmpOrdering::Greater => {
-                    position = self.enqueue_pos.value.load(Ordering::Relaxed);
+                    position = self.enqueue_pos.0.load(Ordering::Relaxed);
                 }
             }
         }
     }
 
     pub(super) fn try_pop(&self) -> Option<T> {
-        let mut position = self.dequeue_pos.value.load(Ordering::Relaxed);
+        let mut position = self.dequeue_pos.0.load(Ordering::Relaxed);
 
         loop {
             let slot = &self.buffer[position & self.mask];
             let sequence = slot.sequence.load(Ordering::Acquire);
+            // justification: Vyukov MPMC — the wrapping subtraction is reinterpreted
+            // as a signed slot-availability delta; `usize as isize` wrap is intended.
+            #[allow(clippy::cast_possible_wrap)]
             let difference = sequence.wrapping_sub(position.wrapping_add(1)) as isize;
 
             match difference.cmp(&0) {
                 CmpOrdering::Equal => {
-                    match self.dequeue_pos.value.compare_exchange_weak(
+                    match self.dequeue_pos.0.compare_exchange_weak(
                         position,
                         position.wrapping_add(1),
                         Ordering::Relaxed,
@@ -129,22 +140,21 @@ impl<T> BoundedMpmcQueue<T> {
                 }
                 CmpOrdering::Less => return None,
                 CmpOrdering::Greater => {
-                    position = self.dequeue_pos.value.load(Ordering::Relaxed);
+                    position = self.dequeue_pos.0.load(Ordering::Relaxed);
                 }
             }
         }
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.enqueue_pos.value.load(Ordering::Acquire)
-            == self.dequeue_pos.value.load(Ordering::Acquire)
+        self.enqueue_pos.0.load(Ordering::Acquire) == self.dequeue_pos.0.load(Ordering::Acquire)
     }
 
     pub(super) fn is_full(&self) -> bool {
         self.enqueue_pos
-            .value
+            .0
             .load(Ordering::Acquire)
-            .wrapping_sub(self.dequeue_pos.value.load(Ordering::Acquire))
+            .wrapping_sub(self.dequeue_pos.0.load(Ordering::Acquire))
             >= self.logical_capacity
     }
 
@@ -155,8 +165,8 @@ impl<T> BoundedMpmcQueue<T> {
 
 impl<T> Drop for BoundedMpmcQueue<T> {
     fn drop(&mut self) {
-        let dequeue_pos = *self.dequeue_pos.value.get_mut();
-        let enqueue_pos = *self.enqueue_pos.value.get_mut();
+        let dequeue_pos = *self.dequeue_pos.0.get_mut();
+        let enqueue_pos = *self.enqueue_pos.0.get_mut();
         let len = enqueue_pos.wrapping_sub(dequeue_pos);
 
         for i in 0..len {
@@ -192,8 +202,15 @@ pub struct MpmcChannel<T> {
 impl<T> MpmcChannel<T> {
     /// Create a new MPMC channel with optional capacity
     pub fn new(capacity: Option<usize>) -> Self {
+        // The bounded path routes every message through the lock-free
+        // `BoundedMpmcQueue`; `state.queue` is only touched on the unbounded
+        // path, so allocate its backing storage only when unbounded.
         let state = MpmcState {
-            queue: VecDeque::with_capacity(capacity.unwrap_or(16)),
+            queue: if capacity.is_some() {
+                VecDeque::new()
+            } else {
+                VecDeque::with_capacity(16)
+            },
             capacity,
             closed: false,
             sender_count: 0,
@@ -370,7 +387,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
         let mut spin_count = 0;
 
         // Wait for space or channel closure
-        while !guard.closed && guard.capacity.map_or(false, |cap| guard.queue.len() >= cap) {
+        while !guard.closed && guard.capacity.is_some_and(|cap| guard.queue.len() >= cap) {
             if spin_count < MPMC_BLOCK_SPINS {
                 drop(guard);
                 for _ in 0..(1 << spin_count) {
@@ -419,7 +436,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return Err(ChannelError::Closed);
         }
 
-        if guard.capacity.map_or(false, |cap| guard.queue.len() >= cap) {
+        if guard.capacity.is_some_and(|cap| guard.queue.len() >= cap) {
             return Err(ChannelError::Full);
         }
 
@@ -519,7 +536,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
 
         let (mutex, _, _) = &*self.state;
         let guard = mutex.lock().unwrap();
-        guard.capacity.map_or(false, |cap| guard.queue.len() >= cap)
+        guard.capacity.is_some_and(|cap| guard.queue.len() >= cap)
     }
 
     fn capacity(&self) -> Option<usize> {
@@ -551,6 +568,15 @@ impl<T: Send> MpmcSender<T> {
     /// Try to send a value without blocking
     pub fn try_send(&self, value: T) -> Result<()> {
         self.channel.try_send(value)
+    }
+}
+
+impl<T> MpmcSender<T> {
+    /// Returns `true` once the channel is closed (every receiver — or every
+    /// sender — has been dropped); subsequent sends fail with
+    /// [`ChannelError::Closed`].
+    pub fn is_closed(&self) -> bool {
+        self.channel.closed.load(Ordering::Acquire)
     }
 }
 

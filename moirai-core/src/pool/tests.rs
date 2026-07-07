@@ -9,9 +9,9 @@ fn test_lock_free_stack() {
     let stack = LockFreeStack::new();
 
     // Test push/pop
-    stack.push(1);
-    stack.push(2);
-    stack.push(3);
+    assert_eq!(stack.push(1), Ok(()));
+    assert_eq!(stack.push(2), Ok(()));
+    assert_eq!(stack.push(3), Ok(()));
 
     assert_eq!(stack.len(), 3);
     assert_eq!(stack.pop(), Some(3));
@@ -19,6 +19,33 @@ fn test_lock_free_stack() {
     assert_eq!(stack.pop(), Some(1));
     assert_eq!(stack.pop(), None);
     assert_eq!(stack.len(), 0);
+}
+
+#[test]
+fn test_lock_free_stack_capacity() {
+    // Default capacity is the documented constant, not an eager 65536.
+    let stack = LockFreeStack::<i32>::new();
+    assert_eq!(stack.capacity(), super::stack::DEFAULT_STACK_CAPACITY);
+
+    // Explicit capacity is honored exactly; exhaustion returns the item back.
+    let small = LockFreeStack::with_capacity(2);
+    assert_eq!(small.capacity(), 2);
+    assert_eq!(small.push(10), Ok(()));
+    assert_eq!(small.push(20), Ok(()));
+    assert_eq!(small.push(30), Err(30)); // full: value handed back, not dropped
+    assert_eq!(small.len(), 2);
+
+    // Popping frees a slot; push succeeds again.
+    assert_eq!(small.pop(), Some(20));
+    assert_eq!(small.push(40), Ok(()));
+    assert_eq!(small.pop(), Some(40));
+    assert_eq!(small.pop(), Some(10));
+    assert_eq!(small.pop(), None);
+
+    // Zero-capacity stack rejects every push.
+    let empty = LockFreeStack::with_capacity(0);
+    assert_eq!(empty.push(1), Err(1));
+    assert_eq!(empty.pop(), None);
 }
 
 #[test]
@@ -74,6 +101,18 @@ fn test_global_pool() {
 }
 
 #[test]
+fn test_global_pool_max_size_wired_through() {
+    // GlobalPool::new(max_size) sizes the underlying stack to max_size slots;
+    // returns beyond the cap are dropped, not retained.
+    let pool = GlobalPool::new(1);
+    pool.put(vec![1]);
+    pool.put(vec![2]); // beyond cap: dropped
+
+    assert_eq!(pool.get(), vec![1]);
+    assert_eq!(pool.get(), Vec::<i32>::new()); // pool empty: Default
+}
+
+#[test]
 fn test_concurrent_stack() {
     use std::sync::Arc;
     use std::thread;
@@ -86,7 +125,9 @@ fn test_concurrent_stack() {
         let stack = stack.clone();
         handles.push(thread::spawn(move || {
             for j in 0..100 {
-                stack.push(i * 100 + j);
+                stack
+                    .push(i * 100 + j)
+                    .expect("invariant: 400 pushes fit the default 1024-slot capacity");
             }
         }));
     }

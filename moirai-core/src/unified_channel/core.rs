@@ -115,7 +115,11 @@ impl<T> UnifiedChannel<T> {
         }
     }
 
-    /// Receive a message
+    /// Receive a message (non-blocking).
+    ///
+    /// Returns `Err(Empty)` when no message is currently available and
+    /// `Err(Closed)` once the channel is closed and drained; this channel has
+    /// no blocking receive path.
     pub fn recv(&self) -> Result<T, UnifiedChannelError> {
         // Try fast path first: pop from ring buffer
         if let Some(message) = self.ring_buffer.try_pop() {
@@ -148,11 +152,6 @@ impl<T> UnifiedChannel<T> {
         Err(UnifiedChannelError::Empty)
     }
 
-    /// Try to receive without blocking
-    pub fn try_recv(&self) -> Result<T, UnifiedChannelError> {
-        self.recv()
-    }
-
     /// Send multiple messages in batch (if batching enabled)
     pub fn send_batch(&self, messages: Vec<T>) -> Result<usize, UnifiedChannelError> {
         if !self.config.enable_batching {
@@ -180,7 +179,7 @@ impl<T> UnifiedChannel<T> {
         let mut messages = Vec::with_capacity(max_count.min(self.config.batch_size));
 
         for _ in 0..max_count {
-            match self.try_recv() {
+            match self.recv() {
                 Ok(message) => messages.push(message),
                 Err(_) => break,
             }

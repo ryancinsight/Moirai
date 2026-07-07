@@ -355,8 +355,6 @@ fn result_handle_diagnostics_separates_slot_and_scheduler_costs() {
         "direct_scheduled_public_token_wrapper_oversized_without_metrics",
         "direct_registry_lifecycle",
         "direct_registry_token_lifecycle",
-        "direct_registry_external_token_lifecycle",
-        "direct_external_id_registry_register",
         "registry_mutex_lock_only",
         "registry_block_lookup",
         "registry_slot_initialize",

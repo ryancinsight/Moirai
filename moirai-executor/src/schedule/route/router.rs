@@ -38,7 +38,7 @@ impl<P: RoutePolicy> HybridRouter<P> {
     #[inline]
     pub fn select<C: WorkClass>(&self, priority: Priority, sequence: usize) -> SchedulerRoute {
         let topology = self.topology;
-        let priority = priority_weight(priority);
+        let priority = priority.index();
         let route_key = sequence
             .wrapping_add(C::AFFINITY_OFFSET)
             .wrapping_add(priority);
@@ -141,14 +141,4 @@ fn accelerator_target(
         AcceleratorKind::Npu,
         AcceleratorId::new(target - accelerators.tpu()),
     )
-}
-
-#[inline]
-fn priority_weight(priority: Priority) -> usize {
-    match priority {
-        Priority::Low => 0,
-        Priority::Normal => 1,
-        Priority::High => 2,
-        Priority::Critical => 3,
-    }
 }

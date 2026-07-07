@@ -8,5 +8,6 @@ pub(crate) mod state;
 mod tests;
 pub(crate) mod token;
 
+pub(crate) use registry::CancelOutcome;
 pub use registry::TaskRegistry;
 pub(crate) use token::{RunningTaskToken, TaskLifecycleToken};

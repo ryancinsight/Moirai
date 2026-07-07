@@ -1,9 +1,7 @@
 //! Public iterator facade preserving execution context without string dispatch.
 
 use crate::async_iter::{AsyncIterator, AsyncRangeIter};
-use crate::distributed::DistributedContext;
 use crate::execution::{AsyncContext, ExecutionContext, HybridContext, ParallelContext};
-use crate::multi_system::MultiSystemContext;
 use crate::parallel::{ParallelIterator, RangeParIter};
 
 /// Main iterator type that adapts to different execution contexts.
@@ -31,22 +29,6 @@ impl<T: Send + 'static> MoiraiIterator<T> {
     /// Create with hybrid context.
     pub fn hybrid(data: Vec<T>) -> Self {
         Self::new(data, ExecutionContext::Hybrid(HybridContext::new()))
-    }
-
-    /// Create with distributed context for multi-machine processing.
-    pub fn distributed(data: Vec<T>) -> Self {
-        Self::new(
-            data,
-            ExecutionContext::Distributed(DistributedContext::new()),
-        )
-    }
-
-    /// Create with multi-system context for coordinated compute.
-    pub fn multi_system(data: Vec<T>) -> Self {
-        Self::new(
-            data,
-            ExecutionContext::MultiSystem(MultiSystemContext::new()),
-        )
     }
 
     /// Map operation that preserves the execution context.
@@ -156,23 +138,6 @@ impl<T: Send + 'static> MoiraiIterator<T> {
             .expect("async iterator for_each execution must not fail");
     }
 
-    /// Partition data across multiple systems/nodes.
-    pub async fn partition_across_systems<F>(self, partition_func: F) -> Vec<MoiraiIterator<T>>
-    where
-        F: Fn(&T) -> usize + Send + Sync + 'static,
-        T: Clone,
-    {
-        match &self.context {
-            ExecutionContext::MultiSystem(ctx) => {
-                ctx.partition_data(self.data, partition_func).await
-            }
-            ExecutionContext::Distributed(ctx) => {
-                ctx.partition_data(self.data, partition_func).await
-            }
-            _ => vec![self],
-        }
-    }
-
     /// Convert to async stream for streaming processing.
     pub fn into_async_stream(self) -> impl futures::Stream<Item = T> + Send + 'static
     where
@@ -200,16 +165,6 @@ pub fn moirai_iter_async<T: Send + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
 /// Create a hybrid iterator.
 pub fn moirai_iter_hybrid<T: Send + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
     MoiraiIterator::hybrid(data)
-}
-
-/// Create a distributed iterator for multi-machine processing.
-pub fn moirai_iter_distributed<T: Send + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
-    MoiraiIterator::distributed(data)
-}
-
-/// Create a multi-system iterator for coordinated compute across multiple machines and GPUs.
-pub fn moirai_iter_multi_system<T: Send + 'static>(data: Vec<T>) -> MoiraiIterator<T> {
-    MoiraiIterator::multi_system(data)
 }
 
 /// Parallel range iterator for Moirai's Rayon-style non-indexed subset.

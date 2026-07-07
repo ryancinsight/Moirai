@@ -154,13 +154,20 @@ impl SharedMemory {
         }
         let wide = win::wide_name(name);
 
+        // justification: Win32 `CreateFileMappingW` takes the mapping size as a
+        // (high DWORD, low DWORD) pair. `size_high` carries the top 32 bits and
+        // `size_low` the bottom 32; the `as u32` truncation on `size_low` is the
+        // API contract, not a lossy conversion.
+        #[allow(clippy::cast_possible_truncation)]
+        let size_low = size as u32;
+        let size_high = (size as u64 >> 32) as u32;
         unsafe {
             let handle = win::CreateFileMappingW(
                 win::INVALID_HANDLE_VALUE,
                 core::ptr::null_mut(),
                 win::PAGE_READWRITE,
-                (size as u64 >> 32) as u32,
-                size as u32,
+                size_high,
+                size_low,
                 wide.as_ptr(),
             );
             if handle == 0 {

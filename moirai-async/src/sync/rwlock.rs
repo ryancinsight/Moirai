@@ -1,52 +1,47 @@
 //! Async-aware RwLock for concurrent read/exclusive write access
 //!
 //! Provides an async-compatible RwLock that allows multiple concurrent readers
-//! or a single writer, following SLAP principle design.
+//! or a single writer, following SLAP principle design. Waiter-queue mechanics
+//! live in `WaitQueue`; this module keeps only the reader/writer admission
+//! predicates (writer preference for pending writers, reader-batch grants on
+//! writer release) and the lock-restoration policy for cancelled futures.
 
 use std::cell::UnsafeCell;
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::task::{Context, Poll, Waker};
+
+use crate::sync::wait_queue::{WaitQueue, WaiterPoll};
 
 /// Async-aware RwLock
 pub struct RwLock<T> {
     data: UnsafeCell<T>,
-    state: Arc<Mutex<RwLockState>>,
+    state: Mutex<RwLockState>,
 }
 
+// SAFETY: access to `data` is mediated exclusively by the guard types, whose
+// issuance is serialized through `state` (readers-shared XOR writer-exclusive).
+// `T: Send + Sync` is required so shared references handed out to concurrent
+// readers on other threads are sound.
 unsafe impl<T: Send + Sync> Sync for RwLock<T> {}
+// SAFETY: moving the lock moves `data` by value; only `T: Send` is required.
 unsafe impl<T: Send> Send for RwLock<T> {}
-
-struct RwWaiter {
-    waker: Waker,
-    /// Set when the lock has been handed to this waiter.
-    granted: bool,
-}
 
 struct RwLockState {
     readers: usize,
     writer: bool,
-    /// Reader and writer waiters keyed by a monotonic id. Keyed (rather than a
-    /// linear `VecDeque`) so per-waiter `poll`/drop lookups and removals are
-    /// O(log n) instead of O(n), shortening the time the single state lock is
-    /// held under contention. Monotonic ids keep in-order iteration FIFO, so a
-    /// released lock goes to the oldest waiter first.
-    read_waiters: BTreeMap<u64, RwWaiter>,
-    write_waiters: BTreeMap<u64, RwWaiter>,
-    next_id: u64,
+    /// Reader and writer waiters in separate FIFO queues; a grant hands the
+    /// lock directly to the waiter (`()` payload — the grant is the lock).
+    read_waiters: WaitQueue<()>,
+    write_waiters: WaitQueue<()>,
 }
 
 impl RwLockState {
     /// Grant the lock to the oldest ungranted writer, marking `writer`, and
     /// return its waker to wake. Returns `None` if no writer is waiting.
     fn grant_oldest_writer(&mut self) -> Option<Waker> {
-        let waker = {
-            let waiter = self.write_waiters.values_mut().find(|w| !w.granted)?;
-            waiter.granted = true;
-            waiter.waker.clone()
-        };
+        let waker = self.write_waiters.grant_oldest(())?;
         self.writer = true;
         Some(waker)
     }
@@ -57,13 +52,12 @@ impl<T> RwLock<T> {
     pub fn new(data: T) -> Self {
         Self {
             data: UnsafeCell::new(data),
-            state: Arc::new(Mutex::new(RwLockState {
+            state: Mutex::new(RwLockState {
                 readers: 0,
                 writer: false,
-                read_waiters: BTreeMap::new(),
-                write_waiters: BTreeMap::new(),
-                next_id: 0,
-            })),
+                read_waiters: WaitQueue::new(),
+                write_waiters: WaitQueue::new(),
+            }),
         }
     }
 
@@ -123,13 +117,7 @@ impl<T> RwLock<T> {
 
         // Prefer waking every pending reader (reader batch); only if there are
         // none, hand the lock to the oldest waiting writer.
-        let mut reader_wakers = Vec::new();
-        for waiter in state.read_waiters.values_mut() {
-            if !waiter.granted {
-                waiter.granted = true;
-                reader_wakers.push(waiter.waker.clone());
-            }
-        }
+        let reader_wakers = state.read_waiters.grant_all(());
 
         if !reader_wakers.is_empty() {
             state.readers += reader_wakers.len();
@@ -161,17 +149,14 @@ impl<'a, T> Future for RwLockReadFuture<'a, T> {
 
         // 1. Check if we were already registered and have been granted the lock
         if let Some(id) = self.id {
-            match state.read_waiters.get(&id).map(|w| w.granted) {
-                Some(true) => {
-                    state.read_waiters.remove(&id);
+            match state.read_waiters.poll_waiter(id, cx.waker()) {
+                WaiterPoll::Granted(()) => {
                     self.id = None;
                     return Poll::Ready(RwLockReadGuard { lock: self.lock });
                 }
-                Some(false) => {
-                    state.read_waiters.get_mut(&id).unwrap().waker = cx.waker().clone();
-                    return Poll::Pending;
-                }
-                None => {} // registration lost; fall through
+                WaiterPoll::Pending => return Poll::Pending,
+                // registration lost; fall through
+                WaiterPoll::NotRegistered => {}
             }
         }
 
@@ -179,23 +164,14 @@ impl<'a, T> Future for RwLockReadFuture<'a, T> {
         if !state.writer && state.write_waiters.is_empty() {
             state.readers += 1;
             if let Some(id) = self.id.take() {
-                state.read_waiters.remove(&id);
+                let _removed_grant = state.read_waiters.deregister(id);
             }
             return Poll::Ready(RwLockReadGuard { lock: self.lock });
         }
 
         // 3. Register as a reader waiter
         if self.id.is_none() {
-            let id = state.next_id;
-            state.next_id += 1;
-            state.read_waiters.insert(
-                id,
-                RwWaiter {
-                    waker: cx.waker().clone(),
-                    granted: false,
-                },
-            );
-            self.id = Some(id);
+            self.id = Some(state.read_waiters.register(cx.waker().clone()));
         }
 
         Poll::Pending
@@ -206,7 +182,7 @@ impl<'a, T> Drop for RwLockReadFuture<'a, T> {
     fn drop(&mut self) {
         if let Some(id) = self.id {
             if let Ok(mut state) = self.lock.state.lock() {
-                if state.read_waiters.remove(&id).is_some_and(|w| w.granted) {
+                if state.read_waiters.deregister(id).is_some() {
                     drop(state);
                     self.lock.release_read();
                 }
@@ -229,17 +205,14 @@ impl<'a, T> Future for RwLockWriteFuture<'a, T> {
 
         // 1. Check if we were already registered and have been granted the lock
         if let Some(id) = self.id {
-            match state.write_waiters.get(&id).map(|w| w.granted) {
-                Some(true) => {
-                    state.write_waiters.remove(&id);
+            match state.write_waiters.poll_waiter(id, cx.waker()) {
+                WaiterPoll::Granted(()) => {
                     self.id = None;
                     return Poll::Ready(RwLockWriteGuard { lock: self.lock });
                 }
-                Some(false) => {
-                    state.write_waiters.get_mut(&id).unwrap().waker = cx.waker().clone();
-                    return Poll::Pending;
-                }
-                None => {} // registration lost; fall through
+                WaiterPoll::Pending => return Poll::Pending,
+                // registration lost; fall through
+                WaiterPoll::NotRegistered => {}
             }
         }
 
@@ -247,23 +220,14 @@ impl<'a, T> Future for RwLockWriteFuture<'a, T> {
         if state.readers == 0 && !state.writer {
             state.writer = true;
             if let Some(id) = self.id.take() {
-                state.write_waiters.remove(&id);
+                let _removed_grant = state.write_waiters.deregister(id);
             }
             return Poll::Ready(RwLockWriteGuard { lock: self.lock });
         }
 
         // 3. Register as a writer waiter
         if self.id.is_none() {
-            let id = state.next_id;
-            state.next_id += 1;
-            state.write_waiters.insert(
-                id,
-                RwWaiter {
-                    waker: cx.waker().clone(),
-                    granted: false,
-                },
-            );
-            self.id = Some(id);
+            self.id = Some(state.write_waiters.register(cx.waker().clone()));
         }
 
         Poll::Pending
@@ -274,7 +238,7 @@ impl<'a, T> Drop for RwLockWriteFuture<'a, T> {
     fn drop(&mut self) {
         if let Some(id) = self.id {
             if let Ok(mut state) = self.lock.state.lock() {
-                if state.write_waiters.remove(&id).is_some_and(|w| w.granted) {
+                if state.write_waiters.deregister(id).is_some() {
                     drop(state);
                     self.lock.release_write();
                 }
@@ -291,6 +255,8 @@ pub struct RwLockReadGuard<'a, T> {
 impl<'a, T> std::ops::Deref for RwLockReadGuard<'a, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
+        // SAFETY: guard existence implies a held read lock (`readers > 0`,
+        // `writer == false`), so shared access to `data` is sound.
         unsafe { &*self.lock.data.get() }
     }
 }
@@ -309,12 +275,15 @@ pub struct RwLockWriteGuard<'a, T> {
 impl<'a, T> std::ops::Deref for RwLockWriteGuard<'a, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
+        // SAFETY: guard existence implies the held exclusive write lock.
         unsafe { &*self.lock.data.get() }
     }
 }
 
 impl<'a, T> std::ops::DerefMut for RwLockWriteGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: guard existence implies the held exclusive write lock, and
+        // `&mut self` guarantees this is the sole live reference through it.
         unsafe { &mut *self.lock.data.get() }
     }
 }
