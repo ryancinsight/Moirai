@@ -573,8 +573,13 @@ fn scheduler_join_keeps_fast_quiescent_path_before_condvar_wait() {
         "const JOIN_FAST_SPIN_ATTEMPTS",
         "for _ in 0..JOIN_FAST_SPIN_ATTEMPTS",
         "core::hint::spin_loop()",
-        "join_waiters.fetch_add(1, Ordering::AcqRel)",
-        "join_waiters.load(Ordering::Acquire) != 0",
+        // SeqCst (not AcqRel/Acquire): both accesses are half of the join()
+        // quiescence Dekker handshake closed in 4d790a9 ("Close join()
+        // quiescence lost-wakeup (AcqRel -> SeqCst)"), loom-verified by
+        // tests/loom_join_quiescence.rs. Do not regress these back to
+        // Acquire/AcqRel.
+        "join_waiters.fetch_add(1, Ordering::SeqCst)",
+        "join_waiters.load(Ordering::SeqCst) != 0",
         "wait_signal.notify_all()",
     ] {
         assert!(
