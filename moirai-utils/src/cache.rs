@@ -77,5 +77,4 @@ mod tests {
         assert_eq!(*aligned, 42);
         assert_eq!(aligned.get(), &42);
     }
-
 }

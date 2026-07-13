@@ -125,7 +125,9 @@ fn test_lock_free_stack() {
         let stack = stack.clone();
         handles.push(thread::spawn(move || {
             // Capacity is the default 1024; these 10 pushes always succeed.
-            stack.push(i).expect("push into a non-full stack must succeed");
+            stack
+                .push(i)
+                .expect("push into a non-full stack must succeed");
         }));
     }
 

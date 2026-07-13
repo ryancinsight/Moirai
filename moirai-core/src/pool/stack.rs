@@ -106,7 +106,8 @@ impl<T> LockFreeStack<T> {
             nodes.push(StackNode {
                 data: UnsafeCell::new(MaybeUninit::uninit()),
                 next: AtomicU32::new(
-                    u32::try_from(i).expect("invariant: i < capacity < u32::MAX (asserted above)") + 1,
+                    u32::try_from(i).expect("invariant: i < capacity < u32::MAX (asserted above)")
+                        + 1,
                 ),
             });
         }

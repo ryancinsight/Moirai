@@ -7,6 +7,8 @@
 **Architecture**: Unified scheduler/router for local CPU worker threads, sync/blocking/async-ready work classes, process routes, server routes, accelerator metadata routes, and per-process async lanes; device-memory regions and accelerator backend consumption remain open architecture items.
 **Quality Level**: Focused scheduler/core/PAL/benchmark clippy clean; scoped, indexed, industry, and public-handle Criterion targets pass with value assertions under bounded verification
 
+**Current verification**: Rust 1.97 workspace format and warning-denied all-target/all-feature Clippy pass; canonical all-feature nextest passes 722/722 in 8.1 seconds; doctests and warning-clean workspace rustdoc pass. The bounded scheduler admission benchmark contract verifies fallible queue publication and explicit capacity handling.
+
 ---
 
 ## Remaining Gap Register
@@ -45,6 +47,11 @@
   Moirai-owned runtime; Tokio and Smol remain comparison references only.
 - [ ] [patch] ISSUE-214: Serialize `ShardedResourcePool::clear` against
   recycle/take mutations without adding a single contended hot-path lock.
+- [x] [patch] Confine kqueue event storage to each polling thread, preserving
+  allocation-free reuse while satisfying the reactor's `Send + Sync` contract.
+- [x] [patch] Replace the Linux-only IPC errno accessor with the portable
+  standard-library contract; focused IPC nextest coverage passes 9/9 and
+  warning-denied `moirai-core` clippy is clean.
 - [x] [patch] Add Apollo-facing public `moirai` crate contract tests for chunked
   mutable scheduling and caller-owned indexed collection. The tests verify
   complete disjoint element coverage and non-`Clone` movement into existing
