@@ -173,12 +173,12 @@ architecture definition.
 - **Root Cause**: the scheduler applied an undocumented 256-index grain floor
   after `moirai-parallel` had already selected an execution policy, silently
   serializing explicit `Parallel` domains such as RITK's 9–18 expensive CMA
-  candidates. Once those candidates run concurrently, their nested histogram
-  reductions also require ADR-019's worker help path; direct
-  `SchedulerScopeState::wait` would park a saturated pool.
+  candidates. Once those candidates run concurrently, recursively stealing
+  unrelated outer jobs from nested histogram waits grows worker stacks and can
+  exhaust them; parking the nested waits instead deadlocks a saturated pool.
 - **Acceptance criteria**: explicit `Parallel` schedules a two-item domain
-  across caller and worker lanes; both indexed operation families drain through
-  the scheduler-owned help path; a barrier-synchronized two-worker nested
+  across caller and worker lanes; both indexed operation families flatten when
+  entered from a worker; a barrier-synchronized two-worker nested
   fan-out completes and returns the closed-form arithmetic-series sum.
 - **Status**: resolved. RITK's CMA population evaluation supplied the consumer
   reproduction: outer candidate evaluation nests masked-histogram reductions.

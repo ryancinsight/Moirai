@@ -48,9 +48,9 @@
 - [ ] [patch] ISSUE-214: Serialize `ShardedResourcePool::clear` against
   recycle/take mutations without adding a single contended hot-path lock.
 - [x] [patch] ISSUE-217: Remove the executor's hidden index-count grain floor so
-  explicit `Parallel` policy owns forced scheduling; route indexed fan-out and
-  map/reduce waits through ADR-019's work-conserving drain path; verify small
-  forced and nested saturated domains value-semantically.
+  explicit `Parallel` policy owns forced scheduling; flatten worker-nested
+  indexed regions onto their current outer lane; verify small forced and nested
+  saturated domains value-semantically.
 - [x] [patch] Confine kqueue event storage to each polling thread, preserving
   allocation-free reuse while satisfying the reactor's `Send + Sync` contract.
 - [x] [patch] Replace the Linux-only IPC errno accessor with the portable

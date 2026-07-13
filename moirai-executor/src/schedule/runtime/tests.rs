@@ -6,7 +6,7 @@ use std::sync::{
     mpsc, Arc, Barrier,
 };
 
-use super::types::ThreadScheduler;
+use super::types::{get_current_worker_id, ThreadScheduler};
 use crate::schedule::{AsyncTask, BlockingTask, SyncTask};
 use moirai_core::{
     error::{ExecutorError, TaskError},
@@ -528,8 +528,8 @@ fn indexed_map_reduce_returns_reduced_value() {
 fn nested_indexed_saturation_completes() {
     // The outer jobs occupy every worker before entering indexed fan-out. A
     // parking indexed waiter therefore deadlocks with its inner chunks queued
-    // and no runnable worker. The scheduler-owned drain path lets each waiter
-    // execute queued work until its fan-out completes.
+    // and no runnable worker. Nested indexed regions flatten onto their current
+    // worker lane, retaining outer parallelism without recursive job stealing.
     const WORKERS: usize = 2;
     const INNER_ITEMS: usize = 1024;
     let scheduler = ThreadScheduler::new(WORKERS, "test-nested-indexed").unwrap();
@@ -545,6 +545,8 @@ fn nested_indexed_saturation_completes() {
                 let sum = &sum;
                 let reduced_sum = &reduced_sum;
                 scope.spawn(move |_| {
+                    let outer_worker = get_current_worker_id()
+                        .expect("scoped outer task must execute on a scheduler worker");
                     barrier.wait();
                     scheduler
                         .for_each_indexed::<SyncTask, _>(
@@ -552,6 +554,7 @@ fn nested_indexed_saturation_completes() {
                             None,
                             INNER_ITEMS,
                             |inner_index| {
+                                assert_eq!(get_current_worker_id(), Some(outer_worker));
                                 sum.fetch_add(
                                     outer_index * INNER_ITEMS + inner_index + 1,
                                     Ordering::Relaxed,
@@ -567,7 +570,10 @@ fn nested_indexed_saturation_completes() {
                             None,
                             INNER_ITEMS,
                             0usize,
-                            |inner_index| outer_index * INNER_ITEMS + inner_index + 1,
+                            |inner_index| {
+                                assert_eq!(get_current_worker_id(), Some(outer_worker));
+                                outer_index * INNER_ITEMS + inner_index + 1
+                            },
                             usize::wrapping_add,
                         )
                         .expect("nested indexed map/reduce must complete");

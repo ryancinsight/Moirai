@@ -18,7 +18,9 @@ use moirai_core::{
 };
 
 use super::super::super::{class::WorkClass, reduce::ReduceSlots};
-use super::super::types::{SchedulerScopeState, SharedScopedTaskCompletion, ThreadScheduler};
+use super::super::types::{
+    get_current_worker_id, SchedulerScopeState, SharedScopedTaskCompletion, ThreadScheduler,
+};
 use super::super::worker::{indexed_chunk_count, inline_map_reduce, map_reduce_range};
 
 impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
@@ -49,6 +51,18 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
         if count == 0 {
             return Ok(());
+        }
+
+        // A worker already contributes one lane of outer parallelism. Flatten
+        // nested indexed regions on that lane: recursively stealing unrelated
+        // outer jobs grows the worker stack with every nested tensor reduction.
+        if get_current_worker_id().is_some() {
+            return catch_unwind(AssertUnwindSafe(|| {
+                for index in 0..count {
+                    task(index);
+                }
+            }))
+            .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked));
         }
 
         let chunk_count = indexed_chunk_count(count, self.worker_count());
@@ -149,6 +163,10 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
         if count == 0 {
             return Ok(identity);
+        }
+
+        if get_current_worker_id().is_some() {
+            return inline_map_reduce(count, identity, map, reduce);
         }
 
         let chunk_count = indexed_chunk_count(count, self.worker_count());

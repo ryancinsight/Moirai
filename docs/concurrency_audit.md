@@ -225,7 +225,9 @@ RITK exposed a saturated production shape: parallel CMA candidate evaluation
 nests masked-histogram indexed reductions. The executor first removes its
 hidden 256-index grain floor so explicit `Parallel` policy schedules the 9–18
 expensive candidates; adaptive profitability remains owned by `Adaptive`.
-Both indexed scheduler paths then call `drain_scope`;
+Caller-originated indexed regions use `drain_scope`, while worker-nested regions
+flatten onto the current outer lane to bound stack depth without losing outer
+parallelism;
 `nested_indexed_saturation_completes` synchronizes two outer workers before
 nesting and asserts fan-out plus map/reduce against the closed-form
 arithmetic-series sum.
