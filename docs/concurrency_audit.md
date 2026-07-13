@@ -220,6 +220,16 @@ non-indexed `drive` against the now-sound `scope`, with a parallelism-asserting
 test. Until then the non-indexed `parallel/` surface stays sequential;
 scheduler-owned parallelism is `Moirai::for_each_indexed` / `map_reduce_indexed`.
 
+ISSUE-217 extends the same accepted wait contract to those indexed operations.
+RITK exposed a saturated production shape: parallel CMA candidate evaluation
+nests masked-histogram indexed reductions. The executor first removes its
+hidden 256-index grain floor so explicit `Parallel` policy schedules the 9–18
+expensive candidates; adaptive profitability remains owned by `Adaptive`.
+Both indexed scheduler paths then call `drain_scope`;
+`nested_indexed_saturation_completes` synchronizes two outer workers before
+nesting and asserts fan-out plus map/reduce against the closed-form
+arithmetic-series sum.
+
 ## Round 19 (2026-06-28) — lock-hold contention sweep + loom-modeled wake handshake
 
 Reduced per-operation lock-hold across the async sync primitives and the core

@@ -3,11 +3,10 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    mpsc, Arc,
+    mpsc, Arc, Barrier,
 };
 
 use super::types::ThreadScheduler;
-use super::worker::indexed_reduce_chunk_count;
 use crate::schedule::{AsyncTask, BlockingTask, SyncTask};
 use moirai_core::{
     error::{ExecutorError, TaskError},
@@ -526,8 +525,73 @@ fn indexed_map_reduce_returns_reduced_value() {
 }
 
 #[test]
-fn indexed_map_reduce_small_count_runs_inline() {
-    let scheduler = ThreadScheduler::new(2, "test-indexed-reduce-inline").unwrap();
+fn nested_indexed_saturation_completes() {
+    // The outer jobs occupy every worker before entering indexed fan-out. A
+    // parking indexed waiter therefore deadlocks with its inner chunks queued
+    // and no runnable worker. The scheduler-owned drain path lets each waiter
+    // execute queued work until its fan-out completes.
+    const WORKERS: usize = 2;
+    const INNER_ITEMS: usize = 1024;
+    let scheduler = ThreadScheduler::new(WORKERS, "test-nested-indexed").unwrap();
+    let barrier = Barrier::new(WORKERS);
+    let sum = AtomicUsize::new(0);
+    let reduced_sum = AtomicUsize::new(0);
+
+    scheduler
+        .scope::<SyncTask, _>(Priority::Normal, None, |scope| {
+            for outer_index in 0..WORKERS {
+                let scheduler = &scheduler;
+                let barrier = &barrier;
+                let sum = &sum;
+                let reduced_sum = &reduced_sum;
+                scope.spawn(move |_| {
+                    barrier.wait();
+                    scheduler
+                        .for_each_indexed::<SyncTask, _>(
+                            Priority::Normal,
+                            None,
+                            INNER_ITEMS,
+                            |inner_index| {
+                                sum.fetch_add(
+                                    outer_index * INNER_ITEMS + inner_index + 1,
+                                    Ordering::Relaxed,
+                                );
+                            },
+                        )
+                        .expect("nested indexed fan-out must complete");
+
+                    barrier.wait();
+                    let local_sum = scheduler
+                        .map_reduce_indexed::<SyncTask, _, _, _>(
+                            Priority::Normal,
+                            None,
+                            INNER_ITEMS,
+                            0usize,
+                            |inner_index| outer_index * INNER_ITEMS + inner_index + 1,
+                            usize::wrapping_add,
+                        )
+                        .expect("nested indexed map/reduce must complete");
+                    reduced_sum.fetch_add(local_sum, Ordering::Relaxed);
+                })?;
+            }
+            Ok(())
+        })
+        .unwrap();
+
+    let item_count = WORKERS * INNER_ITEMS;
+    let expected = item_count * (item_count + 1) / 2;
+    assert_eq!(sum.load(Ordering::Relaxed), expected);
+    assert_eq!(reduced_sum.load(Ordering::Relaxed), expected);
+    scheduler.join().unwrap();
+    let metrics = scheduler.metrics();
+    assert_eq!(metrics.pending_tasks, 0);
+    assert_eq!(metrics.active_workers, 0);
+    scheduler.shutdown();
+}
+
+#[test]
+fn indexed_map_reduce_small_count_schedules_worker_lanes() {
+    let scheduler = ThreadScheduler::new(2, "test-indexed-reduce-small").unwrap();
 
     let sum = scheduler
         .map_reduce_indexed::<BlockingTask, _, _, _>(
@@ -539,16 +603,17 @@ fn indexed_map_reduce_small_count_runs_inline() {
             usize::wrapping_add,
         )
         .unwrap();
+    scheduler.join().unwrap();
     let metrics = scheduler.metrics();
 
     scheduler.shutdown();
     assert_eq!(sum, 528);
-    assert_eq!(metrics.completed_tasks, 0);
+    assert_eq!(metrics.completed_tasks, 2);
 }
 
 #[test]
-fn indexed_map_reduce_inline_reports_panicked_mapper() {
-    let scheduler = ThreadScheduler::new(2, "test-indexed-reduce-inline-panic").unwrap();
+fn indexed_map_reduce_reports_panicked_mapper() {
+    let scheduler = ThreadScheduler::new(2, "test-indexed-reduce-panic").unwrap();
 
     let result = scheduler.map_reduce_indexed::<BlockingTask, _, _, _>(
         Priority::Normal,
@@ -557,21 +622,22 @@ fn indexed_map_reduce_inline_reports_panicked_mapper() {
         0usize,
         |index| {
             if index == 2 {
-                panic!("inline map panic");
+                panic!("map panic");
             }
             index + 1
         },
         usize::wrapping_add,
     );
+    scheduler.join().unwrap();
     let metrics = scheduler.metrics();
 
     scheduler.shutdown();
     assert_eq!(result, Err(ExecutorError::SpawnFailed(TaskError::Panicked)));
-    assert_eq!(metrics.completed_tasks, 0);
+    assert_eq!(metrics.completed_tasks, 1);
 }
 
 #[test]
-fn indexed_map_reduce_above_inline_limit_uses_scheduler_chunks() {
+fn indexed_map_reduce_caps_chunks_at_worker_plus_caller_lanes() {
     let scheduler = ThreadScheduler::new(2, "test-indexed-reduce-parallel").unwrap();
 
     let sum = scheduler
@@ -584,21 +650,12 @@ fn indexed_map_reduce_above_inline_limit_uses_scheduler_chunks() {
             usize::wrapping_add,
         )
         .unwrap();
+    scheduler.join().unwrap();
     let metrics = scheduler.metrics();
 
     scheduler.shutdown();
     assert_eq!(sum, 2080);
-    assert_eq!(
-        metrics.completed_tasks,
-        indexed_reduce_chunk_count::<usize>(64, 2).saturating_sub(1) as u64
-    );
-}
-
-#[test]
-fn indexed_reduce_chunk_count_amortizes_scheduled_work() {
-    assert_eq!(indexed_reduce_chunk_count::<usize>(64, 4), 1);
-    assert_eq!(indexed_reduce_chunk_count::<usize>(256, 4), 2);
-    assert_eq!(indexed_reduce_chunk_count::<usize>(1024, 4), 5);
+    assert_eq!(metrics.completed_tasks, 2);
 }
 
 #[test]

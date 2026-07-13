@@ -168,7 +168,26 @@ architecture definition.
   counter consistency; the fix does not add one shard-wide lock acquisition to
   every steady-state take/recycle.
 - **Evidence tier**: deductive interleaving proof; runtime test pending.
-
+#### ✅ ISSUE-217 [patch]: Honor forced indexed parallelism under nesting
+- **Type**: Scheduler correctness / consumer performance
+- **Root Cause**: the scheduler applied an undocumented 256-index grain floor
+  after `moirai-parallel` had already selected an execution policy, silently
+  serializing explicit `Parallel` domains such as RITK's 9–18 expensive CMA
+  candidates. Once those candidates run concurrently, their nested histogram
+  reductions also require ADR-019's worker help path; direct
+  `SchedulerScopeState::wait` would park a saturated pool.
+- **Acceptance criteria**: explicit `Parallel` schedules a two-item domain
+  across caller and worker lanes; both indexed operation families drain through
+  the scheduler-owned help path; a barrier-synchronized two-worker nested
+  fan-out completes and returns the closed-form arithmetic-series sum.
+- **Status**: resolved. RITK's CMA population evaluation supplied the consumer
+  reproduction: outer candidate evaluation nests masked-histogram reductions.
+- **Evidence tier**: type-level policy selection, structural deadlock argument,
+  and value-semantic policy plus saturation regressions under nextest.
+- **Verification**: current-main `moirai-executor` plus `moirai-parallel`
+  109/109 in 1.118 s; the consumer-compatible 0.2 line passes executor 77/77
+  and parallel 29/29. Indexed scheduler source contract, focused
+  all-target/all-feature clippy, and rustdoc are warning-clean.
 #### 🔄 ISSUE-208 [arch]: Make `ThreadScheduler::scope` sound under nesting (unblock parallel non-indexed `drive`)
 - **Type**: Scheduler Correctness / Memory Safety
 - **Root Cause**: `SchedulerScopeState::wait` (`schedule/runtime/types.rs`) spins

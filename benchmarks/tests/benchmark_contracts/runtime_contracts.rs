@@ -157,8 +157,8 @@ fn indexed_reduce_uses_worker_plus_caller_lane() {
 
     for required in [
         "count.min(worker_count.max(1).saturating_add(1))",
-        "let max_chunks = count.min(worker_count.saturating_add(1));",
-        "assert_eq!(indexed_reduce_chunk_count::<usize>(1024, 4), 5);",
+        "fn assigns_small_domains_across_available_lanes()",
+        "assert_eq!(indexed_chunk_count(9, 8), 9);",
     ] {
         assert!(
             source.contains(required),

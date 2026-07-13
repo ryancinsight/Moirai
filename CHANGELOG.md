@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   facade and its duplicate backend type identity from integrated consumers.
 
 ### Fixed
+- `moirai-parallel`: honor the explicit `Parallel` policy for small domains by
+  partitioning indexed work across worker-plus-caller lanes. Adaptive policy
+  remains the operation-level threshold owner; the executor no longer silently
+  serializes expensive low-cardinality work.
+- `moirai-executor`: keep nested indexed fan-out and map/reduce work-conserving
+  by using the scheduler's worker help path while waiting. This prevents a
+  saturated outer parallel region from parking every worker while inner indexed
+  chunks remain queued.
 - `moirai-core`: read the thread-local operating-system error through
   `std::io::Error` on Unix and Windows, removing the Linux-only errno symbol
   that prevented IPC consumers from compiling on macOS.
