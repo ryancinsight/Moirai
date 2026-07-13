@@ -210,7 +210,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     ///
     /// A non-worker caller parks (`SchedulerScopeState::wait`): the worker pool
     /// drains its scoped jobs, so it never starves anything by blocking.
-    fn drain_scope(&self, state: &SchedulerScopeState) {
+    pub(super) fn drain_scope(&self, state: &SchedulerScopeState) {
         let Some(worker_id) = get_current_worker_id() else {
             state.wait();
             return;

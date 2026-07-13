@@ -1,5 +1,8 @@
 use super::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Barrier,
+};
 
 #[test]
 fn for_each_visits_every_element_once() {
@@ -27,6 +30,25 @@ fn enumerate_mut_uses_index() {
     for (i, &v) in data.iter().enumerate() {
         assert_eq!(v, i * 3);
     }
+}
+
+#[test]
+fn explicit_parallel_policy_schedules_small_expensive_domains() {
+    let barrier = Barrier::new(2);
+    let mut values = [0usize; 2];
+
+    enumerate_mut_with::<Parallel, _, _>(&mut values, |index, value| {
+        barrier.wait();
+        *value = fold_reduce_with::<Parallel, usize, _, _, _>(
+            1024,
+            || 0,
+            |sum, inner_index| sum + inner_index + 1,
+            usize::wrapping_add,
+        ) + index;
+    });
+
+    let expected = 1024 * 1025 / 2;
+    assert_eq!(values, [expected, expected + 1]);
 }
 
 #[test]

@@ -486,33 +486,20 @@ where
     accumulator
 }
 
-/// Minimum number of index iterations per scheduled chunk.
-///
-/// Each chunk beyond the first requires one `thread::unpark()` + one SeqCst
-/// fence on the submission path (~200–500 ns on x86/ARM). Below this element
-/// count per chunk, dispatch overhead exceeds the benefit of parallelism.
-/// Mirrors the guard `indexed_reduce_chunk_count` applies via
-/// `inline_reduction_limit`, but expressed as a fixed floor independent of
-/// element size (index-only ops have no type parameter to derive from).
-pub(super) const MIN_ELEMENTS_PER_CHUNK: usize = 256;
-
 pub(super) fn indexed_chunk_count(count: usize, worker_count: usize) -> usize {
-    let max_by_workers = count.min(worker_count.max(1).saturating_add(1));
-    // Cap chunk count so every scheduled chunk processes at least
-    // MIN_ELEMENTS_PER_CHUNK iterations, keeping dispatch overhead sub-dominant.
-    let max_by_size = count.div_ceil(MIN_ELEMENTS_PER_CHUNK).max(1);
-    max_by_workers.min(max_by_size)
+    count.min(worker_count.max(1).saturating_add(1))
 }
 
-pub(super) fn indexed_reduce_chunk_count<T>(count: usize, worker_count: usize) -> usize {
-    use super::super::reduce::inline_reduction_limit;
-    let worker_count = worker_count.max(1);
-    let max_chunks = count.min(worker_count.saturating_add(1));
-    let scheduled_chunk_floor = inline_reduction_limit::<T>(worker_count)
-        .saturating_mul(2)
-        .max(1);
-
-    max_chunks.min(count.div_ceil(scheduled_chunk_floor).max(1))
+pub(super) fn indexed_chunk_bounds(
+    count: usize,
+    chunk_count: usize,
+    chunk_index: usize,
+) -> (usize, usize) {
+    let base = count / chunk_count;
+    let remainder = count % chunk_count;
+    let start = chunk_index * base + chunk_index.min(remainder);
+    let len = base + usize::from(chunk_index < remainder);
+    (start, start + len)
 }
 
 pub(super) fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -523,42 +510,45 @@ pub(super) fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod indexed_chunk_count_tests {
-    use super::{indexed_chunk_count, MIN_ELEMENTS_PER_CHUNK};
+    use super::{indexed_chunk_bounds, indexed_chunk_count};
 
     #[test]
-    fn collapses_to_one_chunk_below_min_elements() {
-        // 255 elements with 8 workers: size cap = ceil(255/256) = 1, so inline.
-        assert_eq!(indexed_chunk_count(255, 8), 1);
+    fn assigns_small_domains_across_available_lanes() {
+        assert_eq!(indexed_chunk_count(9, 8), 9);
+        assert_eq!(indexed_chunk_count(2, 8), 2);
         assert_eq!(indexed_chunk_count(1, 8), 1);
         assert_eq!(indexed_chunk_count(0, 8), 0);
     }
 
     #[test]
-    fn exactly_min_elements_gives_one_chunk() {
-        // Exactly MIN_ELEMENTS_PER_CHUNK is still one chunk (ceil(256/256) = 1).
-        assert_eq!(indexed_chunk_count(MIN_ELEMENTS_PER_CHUNK, 8), 1);
-    }
-
-    #[test]
-    fn scales_with_element_count_not_just_workers() {
-        // 1024 elements, 8 workers: max_by_workers = 9, max_by_size = ceil(1024/256) = 4.
-        assert_eq!(indexed_chunk_count(1024, 8), 4);
-        // 2048 elements, 8 workers: max_by_workers = 9, max_by_size = 8.
-        assert_eq!(indexed_chunk_count(2048, 8), 8);
-        // 2304 elements, 8 workers: max_by_workers = 9, max_by_size = ceil(2304/256) = 9.
-        assert_eq!(indexed_chunk_count(2304, 8), 9);
-    }
-
-    #[test]
-    fn never_exceeds_worker_count_plus_one() {
-        // Large counts are still bounded by worker_count + 1.
+    fn caps_large_domains_at_workers_plus_caller() {
         assert_eq!(indexed_chunk_count(1_000_000, 8), 9);
     }
 
     #[test]
-    fn single_worker_always_one_chunk() {
-        // max_by_workers = min(n, 2); but for n=1 → 1.
+    fn single_worker_uses_worker_plus_caller() {
         assert_eq!(indexed_chunk_count(1024, 1), 2);
-        assert_eq!(indexed_chunk_count(128, 1), 1);
+        assert_eq!(indexed_chunk_count(2, 1), 2);
+    }
+
+    #[test]
+    fn balances_remainder_across_every_chunk() {
+        let bounds: Vec<_> = (0..9)
+            .map(|chunk_index| indexed_chunk_bounds(10, 9, chunk_index))
+            .collect();
+        assert_eq!(
+            bounds,
+            vec![
+                (0, 2),
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 8),
+                (8, 9),
+                (9, 10)
+            ]
+        );
     }
 }

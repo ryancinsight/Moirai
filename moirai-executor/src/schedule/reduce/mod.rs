@@ -1,14 +1,10 @@
 //! Result slots for scoped indexed reductions.
 
-mod threshold;
-
 use std::{
     cell::UnsafeCell,
     mem::MaybeUninit,
     sync::atomic::{AtomicBool, Ordering},
 };
-
-pub(crate) use threshold::inline_reduction_limit;
 
 pub(crate) struct ReduceSlots<T> {
     slots: Box<[ReduceSlot<T>]>,

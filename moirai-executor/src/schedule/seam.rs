@@ -63,6 +63,10 @@ pub trait SchedulerControl {
 }
 
 /// Indexed data-parallel fan-out without per-item result storage.
+///
+/// Calls partition non-empty domains across the available worker-plus-caller
+/// lanes. Operation-level execution policies own profitability thresholds
+/// before invoking this scheduler seam.
 pub trait DataParallel {
     /// Apply `task` to every index in `0..count`, completing before return.
     ///
