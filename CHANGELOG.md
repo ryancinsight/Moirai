@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `moirai-executor`: flatten worker-nested indexed regions onto the current lane,
   preserving outer parallelism without recursively stealing outer jobs onto the
   worker stack.
+- `moirai-executor`: distribute indexed remainders across every selected lane
+  instead of leaving worker lanes unused when the item count is just above the
+  worker-plus-caller cap.
 - `moirai-core`: read the thread-local operating-system error through
   `std::io::Error` on Unix and Windows, removing the Linux-only errno symbol
   that prevented IPC consumers from compiling on macOS.

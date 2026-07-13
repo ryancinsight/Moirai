@@ -230,7 +230,8 @@ flatten onto the current outer lane to bound stack depth without losing outer
 parallelism;
 `nested_indexed_saturation_completes` synchronizes two outer workers before
 nesting and asserts fan-out plus map/reduce against the closed-form
-arithmetic-series sum.
+arithmetic-series sum. Balanced quotient/remainder bounds ensure every selected
+worker-plus-caller lane receives a physical chunk when count exceeds the cap.
 
 ## Round 19 (2026-06-28) — lock-hold contention sweep + loom-modeled wake handshake
 

@@ -21,7 +21,9 @@ use super::super::super::{class::WorkClass, reduce::ReduceSlots};
 use super::super::types::{
     get_current_worker_id, SchedulerScopeState, SharedScopedTaskCompletion, ThreadScheduler,
 };
-use super::super::worker::{indexed_chunk_count, inline_map_reduce, map_reduce_range};
+use super::super::worker::{
+    indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
+};
 
 impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
@@ -66,8 +68,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
 
         let chunk_count = indexed_chunk_count(count, self.worker_count());
-        let chunk_size = count.div_ceil(chunk_count);
-        let caller_end = chunk_size.min(count);
+        let (_, caller_end) = indexed_chunk_bounds(count, chunk_count, 0);
         if chunk_count == 1 {
             return catch_unwind(AssertUnwindSafe(|| {
                 for index in 0..caller_end {
@@ -82,11 +83,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let mut schedule_result = Ok(());
 
         for chunk_index in 1..chunk_count {
-            let start = chunk_index * chunk_size;
-            let end = start.saturating_add(chunk_size).min(count);
-            if start >= end {
-                break;
-            }
+            let (start, end) = indexed_chunk_bounds(count, chunk_count, chunk_index);
 
             state.register_task();
             let completion = SharedScopedTaskCompletion {
@@ -170,8 +167,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
 
         let chunk_count = indexed_chunk_count(count, self.worker_count());
-        let chunk_size = count.div_ceil(chunk_count);
-        let caller_end = chunk_size.min(count);
+        let (_, caller_end) = indexed_chunk_bounds(count, chunk_count, 0);
         if chunk_count == 1 {
             return inline_map_reduce(count, identity, map, reduce);
         }
@@ -183,11 +179,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let mut schedule_result = Ok(());
 
         for chunk_index in 1..chunk_count {
-            let start = chunk_index * chunk_size;
-            let end = start.saturating_add(chunk_size).min(count);
-            if start >= end {
-                break;
-            }
+            let (start, end) = indexed_chunk_bounds(count, chunk_count, chunk_index);
 
             state.register_task();
             let completion = SharedScopedTaskCompletion {

@@ -179,7 +179,8 @@ architecture definition.
 - **Acceptance criteria**: explicit `Parallel` schedules a two-item domain
   across caller and worker lanes; both indexed operation families flatten when
   entered from a worker; a barrier-synchronized two-worker nested
-  fan-out completes and returns the closed-form arithmetic-series sum.
+  fan-out completes and returns the closed-form arithmetic-series sum; a domain
+  just above the lane cap executes one physical chunk per selected lane.
 - **Status**: resolved. RITK's CMA population evaluation supplied the consumer
   reproduction: outer candidate evaluation nests masked-histogram reductions.
 - **Evidence tier**: type-level policy selection, structural deadlock argument,

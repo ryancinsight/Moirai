@@ -490,6 +490,18 @@ pub(super) fn indexed_chunk_count(count: usize, worker_count: usize) -> usize {
     count.min(worker_count.max(1).saturating_add(1))
 }
 
+pub(super) fn indexed_chunk_bounds(
+    count: usize,
+    chunk_count: usize,
+    chunk_index: usize,
+) -> (usize, usize) {
+    let base = count / chunk_count;
+    let remainder = count % chunk_count;
+    let start = chunk_index * base + chunk_index.min(remainder);
+    let len = base + usize::from(chunk_index < remainder);
+    (start, start + len)
+}
+
 pub(super) fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
@@ -498,7 +510,7 @@ pub(super) fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod indexed_chunk_count_tests {
-    use super::indexed_chunk_count;
+    use super::{indexed_chunk_bounds, indexed_chunk_count};
 
     #[test]
     fn assigns_small_domains_across_available_lanes() {
@@ -517,5 +529,26 @@ mod indexed_chunk_count_tests {
     fn single_worker_uses_worker_plus_caller() {
         assert_eq!(indexed_chunk_count(1024, 1), 2);
         assert_eq!(indexed_chunk_count(2, 1), 2);
+    }
+
+    #[test]
+    fn balances_remainder_across_every_chunk() {
+        let bounds: Vec<_> = (0..9)
+            .map(|chunk_index| indexed_chunk_bounds(10, 9, chunk_index))
+            .collect();
+        assert_eq!(
+            bounds,
+            vec![
+                (0, 2),
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 8),
+                (8, 9),
+                (9, 10)
+            ]
+        );
     }
 }

@@ -153,7 +153,7 @@ fn parallel_join_benchmark_compares_value_checked_rayon_row() {
 
 #[test]
 fn indexed_reduce_uses_worker_plus_caller_lane() {
-    let source = read_benchmark("../moirai-executor/src/schedule/runtime/mod.rs");
+    let source = read_benchmark("../moirai-executor/src/schedule/runtime/worker.rs");
 
     for required in [
         "count.min(worker_count.max(1).saturating_add(1))",

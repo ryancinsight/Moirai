@@ -665,6 +665,43 @@ fn indexed_map_reduce_caps_chunks_at_worker_plus_caller_lanes() {
 }
 
 #[test]
+fn indexed_operations_use_every_available_lane_above_cap() {
+    const COUNT: usize = 10;
+    const WORKERS: usize = 8;
+    let scheduler = ThreadScheduler::new(WORKERS, "test-indexed-all-lanes").unwrap();
+    let visits: [AtomicUsize; COUNT] = std::array::from_fn(|_| AtomicUsize::new(0));
+
+    scheduler
+        .for_each_indexed::<SyncTask, _>(Priority::Normal, None, COUNT, |index| {
+            visits[index].fetch_add(1, Ordering::Relaxed);
+        })
+        .unwrap();
+    let sum = scheduler
+        .map_reduce_indexed::<SyncTask, _, _, _>(
+            Priority::Normal,
+            None,
+            COUNT,
+            0usize,
+            |index| index + 1,
+            usize::wrapping_add,
+        )
+        .unwrap();
+    scheduler.join().unwrap();
+    let metrics = scheduler.metrics();
+    scheduler.shutdown();
+
+    assert_eq!(
+        visits.map(|count| count.load(Ordering::Relaxed)),
+        [1; COUNT]
+    );
+    assert_eq!(sum, COUNT * (COUNT + 1) / 2);
+    assert_eq!(
+        metrics.completed_tasks,
+        2 * u64::try_from(WORKERS).expect("worker count must fit scheduler metrics")
+    );
+}
+
+#[test]
 fn scheduler_scope_completes_registered_jobs_before_body_error_returns() {
     let scheduler = ThreadScheduler::new(2, "test-scope-body-error").unwrap();
     let completed = AtomicUsize::new(0);
