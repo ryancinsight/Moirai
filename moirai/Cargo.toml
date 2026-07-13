@@ -25,7 +25,7 @@ moirai-metrics = { workspace = true, optional = true }
 moirai-gpu = { workspace = true, optional = true }
 moirai-utils = { workspace = true }
 mnemosyne = { workspace = true, optional = true }
-melinoe = { git = "https://github.com/ryancinsight/melinoe.git", optional = true }
+melinoe = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

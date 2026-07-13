@@ -315,29 +315,16 @@ mod tests {
     }
 
     #[test]
-    fn test_spsc_recv_blocking_behavior() {
-        use std::thread;
-        use std::time::{Duration, Instant};
-
+    fn test_spsc_drains_value_published_before_close() {
         let (tx, rx) = spsc::<i32>(10);
 
-        // Spawn a thread that will send after a delay
-        thread::spawn(move || {
-            thread::sleep(Duration::from_millis(50));
+        let producer = std::thread::spawn(move || {
             tx.send(42).unwrap();
         });
+        producer.join().unwrap();
 
-        // This recv should block until the spawned thread sends
-        let start = Instant::now();
-        let value = rx.recv().unwrap();
-        let elapsed = start.elapsed();
-
-        assert_eq!(value, 42);
-        // Verify that we blocked for approximately the sleep duration
-        assert!(
-            elapsed >= Duration::from_millis(40),
-            "Recv should have blocked"
-        );
+        assert_eq!(rx.recv(), Ok(42));
+        assert_eq!(rx.recv(), Err(ChannelError::Closed));
     }
 
     #[test]

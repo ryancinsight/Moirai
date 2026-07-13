@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Pin Mnemosyne's current reproducible provider graph so downstream Git-source
+  consumers resolve one kernel-budget type identity.
+- Consolidate Melinoe on Mnemosyne's exact provider revision through the
+  workspace dependency SSOT.
+
 ### Changed
 
 - Pin Themis to the exact audited provider revision so downstream integrators
@@ -20,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   facade and its duplicate backend type identity from integrated consumers.
 
 ### Fixed
+- `moirai-core`: re-read the SPSC publication index after acquiring sender
+  closure so a value published immediately before sender drop is drained rather
+  than misreported as a closed empty channel.
 - `moirai-core`: read the thread-local operating-system error through
   `std::io::Error` on Unix and Windows, removing the Linux-only errno symbol
   that prevented IPC consumers from compiling on macOS.

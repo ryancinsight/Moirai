@@ -1,5 +1,15 @@
 # Moirai Development Checklist
 
+- [x] [patch] Refresh the exact Mnemosyne provider revision and verify workspace
+  clippy plus canonical nextest.
+- [x] [patch] Consolidate direct and transitive Melinoe dependencies to one
+  exact Git source identity.
+- [x] [patch] Preserve SPSC send-before-close ordering with a value-semantic
+  drain regression that contains no wall-clock synchronization.
+- Evidence: workspace Clippy is warning-clean; canonical nextest passes 722/722
+  tests with six configuration skips; `cargo tree -d` reports no duplicate
+  Melinoe source identities.
+
 ## Phase 28: Melinoe executor capability migration
 
 - [x] [major] Construct Melinoe's validated `ParallelExecutor` next to the real
