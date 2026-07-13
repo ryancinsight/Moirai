@@ -53,7 +53,7 @@ melinoe = { git = "https://github.com/ryancinsight/melinoe.git", version = "0.9.
 themis = { git = "https://github.com/ryancinsight/themis", version = "0.9", default-features = false, features = ["std"] }
 # Kernel resource budget vocabulary for the GPU occupancy planner (atlas ADR 0002).
 mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", version = "0.1.0", package = "mnemosyne-core", default-features = false }
-mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", version = "0.2.0", default-features = false }
+mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", version = "0.3.0", default-features = false }
 
 # Network stack (ADR-015): sans-I/O, runtime-agnostic, NOT tokio-coupled.
 # `ring` crypto provider (no aws-lc-rs NASM/cmake toolchain requirement on Windows).

@@ -6,10 +6,10 @@
   Moirai scheduler bridge with an explicit exact-once, completion, and lifetime
   safety proof.
 - [x] [major] Remove the raw function-pointer registration call and update the
-  workspace Melinoe contract to 0.9.0.
+  workspace Melinoe contract to 0.9.0 and Mnemosyne facade to 0.3.0.
 - [x] Verify the real Melinoe routing path plus Moirai executor Clippy, 83/83
   nextest (one cfg-gated test skipped), doctests, and rustdoc against Melinoe
-  `bb07447`, Themis `6140468`, and Mnemosyne `622a411`.
+  `bb07447`, Themis `6140468`, and Mnemosyne 0.3.0 at `df2994f`.
 
 ## Phase 27: GPU pollster boundary removal
 - [x] [patch] Added `moirai_executor::block_on` as the Moirai-owned

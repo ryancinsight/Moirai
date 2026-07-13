@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ParallelExecutor` capability. Its unsafe construction site documents the
   exact-once index, blocking-completion, and context-lifetime proof; raw executor
   function pointers no longer cross a safe registration boundary.
+- The Mnemosyne facade contract now targets 0.3.0, removing the obsolete 0.2
+  facade and its duplicate backend type identity from integrated consumers.
 
 ### Added
 - `moirai-executor`: added `block_on`, a public current-thread parking wait
