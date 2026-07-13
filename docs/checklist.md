@@ -15,11 +15,10 @@
   collect-into-existing-storage and interleave operations. Owned iteration now
   moves non-`Clone` elements into retained/exact-capacity outputs and releases
   every input allocation; targeted Miri-nextest regressions are leak-clean.
-- [ ] [major] ISSUE-215: Remove the obsolete `no-global-alloc` no-op feature.
-  Blocked by a concurrent manifest edit that explicitly retains it for
-  compatibility; re-open after that owner commits or releases the manifest
-  scope. The non-conflicting routed payload contract now correctly rejects
-  library-level global allocator registration.
+- [x] [major] ISSUE-215: Remove the obsolete `no-global-alloc` no-op feature.
+  The routed payload contract rejects both library-level global allocator
+  registration and compatibility residue; final binaries own allocator choice.
+  Evidence: benchmark source contract and all-feature Clippy pass.
 - [ ] [major] ISSUE-211: Encode the single-owner invariant of
   `ChaseLevDeque` and `BlockBasedDeque` in typed owner/stealer endpoints. The
   current safe `push`/`pop(&self)` surface permits concurrent owners through a

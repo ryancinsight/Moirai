@@ -68,6 +68,10 @@ fn transport_payload_regions_define_mnemosyne_handoff_boundary() {
             "library crate must leave global allocator selection to the final binary: {prohibited}"
         );
     }
+    assert!(
+        !moirai_manifest.contains("no-global-alloc"),
+        "removed library allocator registration must not leave a no-op compatibility feature"
+    );
     for prohibited in ["Box<dyn PayloadRegion", "dyn PayloadRegion", ".clone().into_bytes()"] {
         assert!(
             !source_all.contains(prohibited),

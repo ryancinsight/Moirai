@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged.
 
 ### Removed
+- **Breaking:** removed the obsolete `moirai/no-global-alloc` no-op feature.
+  The library no longer registers a global allocator; final binaries own that
+  process-wide choice, while `mnemosyne` continues to forward provider
+  integration into core and executor crates.
 - **Breaking:** removed the dead, mis-shaped passive scheduler abstraction from
   `moirai-core`: the `Scheduler` trait, the `ScheduledTask` erased-task type
   (+ `INLINE_SCHEDULED_TASK_WORDS`), and the `SchedulerConfig`/

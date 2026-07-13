@@ -85,20 +85,17 @@ architecture definition.
   exact-drop assertions remain the semantic oracle.
 - **Status**: completed 2026-07-13.
 
-#### ⏸ ISSUE-215 [major]: Remove library allocator compatibility residue
+#### ✅ ISSUE-215 [major]: Remove library allocator compatibility residue
 - **Type**: Allocator Ownership / Contract Consistency
 - **Root Cause**: the library-level global allocator was removed on `main`, but
   a no-op `no-global-alloc` feature, ADR wording, and benchmark contract still
   encoded the obsolete registration model. The full benchmark-contract gate
   failed on the stale assertion.
-- **Completed subset**: made final-binary allocator ownership explicit and
+- **Resolution**: made final-binary allocator ownership explicit, removed the
+  no-op compatibility feature, retained Mnemosyne provider forwarding, and
   inverted the source contract to reject library `#[global_allocator]`
-  registration while retaining Mnemosyne provider forwarding.
-- **Blocker**: a concurrent manifest edit explicitly retains the no-op feature
-  for compatibility. This agent does not overwrite peer work. Re-open after the
-  manifest owner commits or releases scope, then delete the feature and update
-  the changelog atomically.
-- **Status**: blocked 2026-07-13; non-conflicting contract correction verified.
+  registration and feature residue.
+- **Status**: completed 2026-07-13.
 
 #### ⏳ ISSUE-211 [major]: Encode deque owner and stealer capabilities
 - **Type**: Public API Soundness / Work Stealing
