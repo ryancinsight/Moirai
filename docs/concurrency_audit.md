@@ -8,6 +8,61 @@ Run the tests that back these findings via the
 [concurrency verification runbook](concurrency_testing.md) (loom models + stress
 tests + the standard gate).
 
+## Round 24 (2026-07-13) — iterator leak fix and runtime architecture audit
+
+**Fixed (P0 resource lifetime).** Three parallel-iterator helpers moved values
+out of owned vectors wrapped in `ManuallyDrop` and never deallocated the source
+buffers: collect-into-existing-storage leaked one allocation, while full and
+shortest interleave leaked both inputs. Existing value and `Drop` assertions
+remained green because every element was moved/dropped exactly once; they could
+not observe the backing allocations. Miri-nextest reported the leaks directly.
+The helpers now consume owned `IntoIter`s into retained/exact-capacity outputs,
+which preserves non-`Clone` movement and releases every input allocation. The
+targeted Miri regressions are clean. Evidence tier: machine-checked (Miri) plus
+value-semantic unit tests.
+
+**Filed (P0 public API soundness, ISSUE-211).** `ChaseLevDeque` and
+`BlockBasedDeque` expose owner-only `push`/`pop` operations as safe `&self`
+methods while the deque types are `Sync`. Safe `Arc` clones can therefore run
+multiple owners and race raw `UnsafeCell` slot accesses. The existing
+single-owner algorithm proof remains valid but does not make the public API
+sound. The selected architecture is non-clonable owner endpoints plus cloneable
+stealer endpoints; all consumers must migrate atomically under an ADR. Evidence
+tier: deductive aliasing/API proof; loom verification belongs to delivery.
+
+**Filed (P0 liveness/backpressure, ISSUE-212).** The bounded scheduler injector
+uses an infallible enqueue that spins/yields until a consumer frees capacity.
+Saturated submission can monopolize a producer or deadlock a scheduler worker.
+The complete fix must use the existing fallible queue operation, roll back the
+pending count, and reject the already-registered lifecycle exactly once;
+changing the queue call alone would leak registry state. Evidence tier:
+deductive source-path analysis.
+
+**Filed (P0 starvation, ISSUE-213).** `BlockingTask` placement still executes on
+the unified compute worker pool. A full worker count of blocking tasks can starve
+all scheduler progress. The accepted direction is a bounded Moirai-owned
+blocking lane; Tokio and Smol remain comparison references, not dependencies.
+
+**Filed (resource accounting, ISSUE-214).** `ShardedResourcePool::clear` can
+reset counters between recycle's reservation and bin insertion, leaving stored
+items hidden behind zero counters or enabling a later decrement underflow. The
+fix requires a linearizable clear/mutation ownership protocol; stronger atomic
+orderings alone are insufficient.
+
+**Runtime dependency verdict.** Rayon and Tokio remain dev-only differential
+and performance references. Crossbeam remains a queue/deque oracle unless a
+measured local deficit justifies adoption. `async-stream` is syntax rather than
+a runtime capability; Smol duplicates scheduler ownership; Embassy applies only
+to a declared embedded/no-std executor; Glommio/io_uring mechanisms belong only
+at an optional Linux PAL completion-I/O boundary with typed buffer-lifetime and
+cancellation contracts. No production dependency was added.
+
+**Investigated and refuted.** `bin_index(u64::MAX) == 64` does not expose an
+out-of-bounds resource-pool path in the current design: recycle rejects any item
+larger than `max_bytes / 4`, and take checks a shard's retained-byte count before
+indexing the requested bin. A shard cannot retain enough bytes to enter that
+branch for bin 64. No bin-count change is justified.
+
 ## Round 23 (2026-07-03) — FIXED: `join()` quiescence lost-wakeup (Dekker, AcqRel→SeqCst)
 
 **Bug (HIGH — liveness, latent `join()` hang).** `ThreadScheduler::join` and a

@@ -11,15 +11,10 @@ fn move_vec_items_into<T>(source: Vec<T>, target: &mut Vec<T>) {
         return;
     }
 
-    let source = std::mem::ManuallyDrop::new(source);
-    // Safety: `target` has capacity for `len` initialized values and was
-    // cleared, so its destination range is uninitialized. `source` is owned by
-    // this function and cannot overlap `target`; `ManuallyDrop` prevents the
-    // moved values from being dropped twice.
-    unsafe {
-        std::ptr::copy_nonoverlapping(source.as_ptr(), target.as_mut_ptr(), len);
-        target.set_len(len);
-    }
+    // Consuming `source` moves every element without a `Clone` bound and
+    // releases its backing allocation while retaining `target`'s capacity.
+    // The prior `ManuallyDrop` copy leaked the source buffer.
+    target.extend(source);
 }
 
 /// Parallel iterator over a vector.

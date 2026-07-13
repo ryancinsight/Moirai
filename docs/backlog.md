@@ -69,6 +69,86 @@ architecture definition.
 
 ### Priority P0
 
+#### ✅ ISSUE-210 [patch]: Release iterator source allocations after owned moves
+- **Type**: Memory Safety / Resource Lifetime
+- **Root Cause**: indexed collect-into-storage and both interleave helpers moved
+  elements out of owned vectors wrapped in `ManuallyDrop` but never deallocated
+  the source buffers. Ordinary value/drop tests could not observe the backing
+  allocation leak.
+- **Resolution**: collect-into-storage consumes the source through owned
+  iteration while retaining target capacity. Interleave consumes both inputs
+  through exact-count `IntoIter` traversal into one exact-capacity output. The
+  change deletes the raw pointer move loops and all `ManuallyDrop` use in the
+  parallel iterator surface.
+- **Evidence**: targeted Miri-nextest tests changed from leaked-allocation
+  failures to clean passes; existing non-`Clone`, ordering, truncated-tail, and
+  exact-drop assertions remain the semantic oracle.
+- **Status**: completed 2026-07-13.
+
+#### ⏸ ISSUE-215 [major]: Remove library allocator compatibility residue
+- **Type**: Allocator Ownership / Contract Consistency
+- **Root Cause**: the library-level global allocator was removed on `main`, but
+  a no-op `no-global-alloc` feature, ADR wording, and benchmark contract still
+  encoded the obsolete registration model. The full benchmark-contract gate
+  failed on the stale assertion.
+- **Completed subset**: made final-binary allocator ownership explicit and
+  inverted the source contract to reject library `#[global_allocator]`
+  registration while retaining Mnemosyne provider forwarding.
+- **Blocker**: a concurrent manifest edit explicitly retains the no-op feature
+  for compatibility. This agent does not overwrite peer work. Re-open after the
+  manifest owner commits or releases scope, then delete the feature and update
+  the changelog atomically.
+- **Status**: blocked 2026-07-13; non-conflicting contract correction verified.
+
+#### ⏳ ISSUE-211 [major]: Encode deque owner and stealer capabilities
+- **Type**: Public API Soundness / Work Stealing
+- **Root Cause**: `ChaseLevDeque` and `BlockBasedDeque` are `Sync`, while safe
+  `push` and `pop` accept `&self`. Safe callers can therefore create concurrent
+  owners, violating the one-owner assumption behind raw `UnsafeCell` slot
+  reads/writes. Documentation cannot impose an unsafe precondition on a safe
+  method.
+- **Acceptance criteria**: non-clonable owner endpoints exclusively expose
+  push/pop; cloneable stealer endpoints expose steal operations; the runtime
+  carries owner capabilities without locks or runtime checks; loom and stress
+  tests prove exactly-once movement; all workspace call sites migrate in the
+  same breaking change. ADR required before implementation.
+- **Evidence tier**: deductive aliasing/API proof; runtime model pending.
+
+#### ⏳ ISSUE-212 [minor]: Enforce bounded scheduler admission
+- **Type**: Backpressure / Contention / Lifecycle Correctness
+- **Root Cause**: the bounded injector's infallible enqueue spins/yields until
+  capacity appears. External submission can monopolize a producer or deadlock a
+  scheduler worker, and simply switching to `try_enqueue` would leak the
+  already-registered task lifecycle and pending count on rejection.
+- **Acceptance criteria**: full admission returns a typed resource-exhausted
+  error; pending and registry state roll back exactly once; rejected jobs drop
+  exactly once; recovery succeeds after capacity becomes available; Criterion
+  compares saturated admission against the existing Crossbeam reference.
+- **Evidence tier**: deductive source-path analysis; runtime test pending.
+
+#### ⏳ ISSUE-213 [arch]: Isolate blocking work from compute workers
+- **Type**: Scheduler Architecture / Starvation Safety
+- **Root Cause**: `BlockingTask` changes placement metadata but executes on the
+  same worker pool as sync/async-ready work. Enough blocking tasks can occupy
+  every worker and starve scheduler progress.
+- **Acceptance criteria**: a bounded Moirai-owned blocking lane has explicit
+  backpressure, shutdown, cancellation, and starvation tests; compute work
+  completes while every blocking lane is occupied. Tokio/Smol remain dev-only
+  behavioral comparisons, not production dependencies. ADR required.
+- **Evidence tier**: deductive starvation construction; runtime test pending.
+
+#### ⏳ ISSUE-214 [patch]: Make resource-pool clear linearizable
+- **Type**: Resource Accounting / Concurrency Correctness
+- **Root Cause**: recycle reserves atomic counters before bin insertion while
+  clear drains bins and independently stores counters to zero. A clear between
+  reservation and insertion can leave an item present behind zero counters or
+  make a later decrement underflow.
+- **Acceptance criteria**: a deterministic interleaving test forces clear
+  between recycle reservation and insertion, then proves exact retrieval and
+  counter consistency; the fix does not add one shard-wide lock acquisition to
+  every steady-state take/recycle.
+- **Evidence tier**: deductive interleaving proof; runtime test pending.
+
 #### 🔄 ISSUE-208 [arch]: Make `ThreadScheduler::scope` sound under nesting (unblock parallel non-indexed `drive`)
 - **Type**: Scheduler Correctness / Memory Safety
 - **Root Cause**: `SchedulerScopeState::wait` (`schedule/runtime/types.rs`) spins

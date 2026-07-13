@@ -242,7 +242,9 @@ Completed: `take_any` and `skip_any` are implemented through the existing `Take<
 
 `cargo bench -p moirai-benchmarks --bench parallel_iterator_regression -- --quiet` is the focused rerun target for adapter regression checks across multiple cardinalities. Each row asserts Moirai/Rayon equality before timing.
 
-The 2026-06-02 expanded focused rerun produced these same-run ranges:
+The 2026-06-02 expanded focused rerun produced the table below. The two paths
+affected by ISSUE-210 were refreshed on 2026-07-13 after removing leaked input
+allocations; those six rows are the current same-run ranges.
 
 | Group / items | Moirai | Rayon | Status |
 | --- | --- | --- | --- |
@@ -258,18 +260,18 @@ The 2026-06-02 expanded focused rerun produced these same-run ranges:
 | `parallel_iterator_borrowed_copied_reduce_sizes` / 1,024 | 307.14-374.11 ns | 30.536-31.405 us | Moirai ahead |
 | `parallel_iterator_borrowed_copied_reduce_sizes` / 32,768 | 9.2310-12.130 us | 51.724-53.635 us | Moirai ahead |
 | `parallel_iterator_borrowed_copied_reduce_sizes` / 131,072 | 35.465-38.251 us | 61.801-63.652 us | Moirai ahead |
-| `parallel_iterator_collect_into_existing_sizes` / 1,024 | 2.8378-2.9012 us | 33.969-35.438 us | Moirai ahead |
-| `parallel_iterator_collect_into_existing_sizes` / 32,768 | 72.491-73.544 us | 146.29-156.69 us | Moirai ahead |
-| `parallel_iterator_collect_into_existing_sizes` / 131,072 | 616.06-654.49 us | 943.19-994.76 us | Moirai ahead |
+| `parallel_iterator_collect_into_existing_sizes` / 1,024 | 305.78-313.45 ns | 37.548-37.887 us | Moirai ahead |
+| `parallel_iterator_collect_into_existing_sizes` / 32,768 | 34.716-35.626 us | 112.90-118.62 us | Moirai ahead |
+| `parallel_iterator_collect_into_existing_sizes` / 131,072 | 686.26-700.82 us | 802.51-812.70 us | Moirai ahead |
 | `parallel_iterator_nested_flatten_reduce_sizes` / 1,024 | 1.0589-1.0784 us | 14.377-14.962 us | Moirai ahead |
 | `parallel_iterator_nested_flatten_reduce_sizes` / 32,768 | 28.908-31.749 us | 99.404-106.28 us | Moirai ahead |
 | `parallel_iterator_nested_flatten_reduce_sizes` / 131,072 | 120.33-132.34 us | 255.69-262.83 us | Moirai ahead |
 | `parallel_iterator_chunked_map_reduce_sizes` / 1,024 | 644.29-733.52 ns | 9.0189-10.063 us | Moirai ahead |
 | `parallel_iterator_chunked_map_reduce_sizes` / 32,768 | 29.456-34.554 us | 53.305-57.666 us | Moirai ahead |
 | `parallel_iterator_chunked_map_reduce_sizes` / 131,072 | 377.18-385.51 us | 440.28-447.42 us | Moirai ahead |
-| `parallel_iterator_indexed_step_interleave_sizes` / 1,024 | 1.0774-1.2118 us | 37.050-37.949 us | Moirai ahead |
-| `parallel_iterator_indexed_step_interleave_sizes` / 32,768 | 42.871-44.001 us | 141.62-158.31 us | Moirai ahead |
-| `parallel_iterator_indexed_step_interleave_sizes` / 131,072 | 703.69-726.60 us | 816.91-829.75 us | Moirai ahead |
+| `parallel_iterator_indexed_step_interleave_sizes` / 1,024 | 918.37-928.49 ns | 38.795-40.801 us | Moirai ahead |
+| `parallel_iterator_indexed_step_interleave_sizes` / 32,768 | 51.905-52.016 us | 123.47-129.30 us | Moirai ahead |
+| `parallel_iterator_indexed_step_interleave_sizes` / 131,072 | 750.84-780.64 us | 791.03-801.27 us | Moirai ahead |
 | `parallel_iterator_partition_unzip_sizes` / 1,024 | 1.8005-2.0063 us | 211.73-221.22 us | Moirai ahead |
 | `parallel_iterator_partition_unzip_sizes` / 32,768 | 85.440-89.482 us | 766.83-801.47 us | Moirai ahead |
 | `parallel_iterator_partition_unzip_sizes` / 131,072 | 1.6653-1.7059 ms | 2.2632-2.3323 ms | Moirai ahead |

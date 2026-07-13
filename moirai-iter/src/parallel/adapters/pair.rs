@@ -2,43 +2,21 @@ use super::super::{Consumer, ParallelIterator, VecParIter};
 
 fn interleave_all<T>(left: Vec<T>, right: Vec<T>) -> Vec<T> {
     let len = left.len().checked_add(right.len()).expect("overflow");
-    let mut output: Vec<T> = Vec::with_capacity(len);
-    let output_ptr: *mut T = output.as_mut_ptr();
-    let left = std::mem::ManuallyDrop::new(left);
-    let right = std::mem::ManuallyDrop::new(right);
-    let left_len = left.len();
-    let right_len = right.len();
-    let paired_len = left_len.min(right_len);
-    let mut written = 0usize;
+    let paired_len = left.len().min(right.len());
+    let mut left = left.into_iter();
+    let mut right = right.into_iter();
+    let mut output = Vec::with_capacity(len);
 
-    // Safety: the source vectors are owned and wrapped in `ManuallyDrop`, so
-    // every `read` moves an initialized element exactly once. `output` has
-    // capacity for the total source length and each write uses a distinct slot.
-    unsafe {
-        let left_ptr = left.as_ptr();
-        let right_ptr = right.as_ptr();
-
-        for index in 0..paired_len {
-            output_ptr.add(written).write(left_ptr.add(index).read());
-            written += 1;
-            output_ptr.add(written).write(right_ptr.add(index).read());
-            written += 1;
-        }
-
-        if left_len > right_len {
-            for index in paired_len..left_len {
-                output_ptr.add(written).write(left_ptr.add(index).read());
-                written += 1;
-            }
-        } else {
-            for index in paired_len..right_len {
-                output_ptr.add(written).write(right_ptr.add(index).read());
-                written += 1;
-            }
-        }
-
-        output.set_len(written);
+    for _ in 0..paired_len {
+        output.push(left.next().expect("paired length is bounded by left input"));
+        output.push(
+            right
+                .next()
+                .expect("paired length is bounded by right input"),
+        );
     }
+    output.extend(left);
+    output.extend(right);
     output
 }
 
@@ -54,35 +32,14 @@ fn interleave_shortest<T>(mut left: Vec<T>, mut right: Vec<T>) -> Vec<T> {
     left.truncate(left_take);
     right.truncate(right_take);
 
-    let mut output: Vec<T> = Vec::with_capacity(output_len);
-    let output_ptr: *mut T = output.as_mut_ptr();
-    let left = std::mem::ManuallyDrop::new(left);
-    let right = std::mem::ManuallyDrop::new(right);
-    let mut written = 0usize;
-
-    // Safety: the take counts are bounded by the source lengths. Each source
-    // slot is read at most once and written into unique initialized output
-    // capacity before setting the final length.
-    unsafe {
-        let left_ptr = left.as_ptr();
-        let right_ptr = right.as_ptr();
-
-        for index in 0..right_take {
-            output_ptr.add(written).write(left_ptr.add(index).read());
-            written += 1;
-            output_ptr.add(written).write(right_ptr.add(index).read());
-            written += 1;
-        }
-
-        if left_take > right_take {
-            output_ptr
-                .add(written)
-                .write(left_ptr.add(right_take).read());
-            written += 1;
-        }
-
-        output.set_len(written);
+    let mut left = left.into_iter();
+    let mut right = right.into_iter();
+    let mut output = Vec::with_capacity(output_len);
+    for _ in 0..right_take {
+        output.push(left.next().expect("take count is bounded by left input"));
+        output.push(right.next().expect("take count is bounded by right input"));
     }
+    output.extend(left);
     output
 }
 

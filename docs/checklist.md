@@ -11,6 +11,27 @@
 
 ## Remaining Gap Register
 
+- [x] [patch] ISSUE-210: Remove leaked source-vector allocations from indexed
+  collect-into-existing-storage and interleave operations. Owned iteration now
+  moves non-`Clone` elements into retained/exact-capacity outputs and releases
+  every input allocation; targeted Miri-nextest regressions are leak-clean.
+- [ ] [major] ISSUE-215: Remove the obsolete `no-global-alloc` no-op feature.
+  Blocked by a concurrent manifest edit that explicitly retains it for
+  compatibility; re-open after that owner commits or releases the manifest
+  scope. The non-conflicting routed payload contract now correctly rejects
+  library-level global allocator registration.
+- [ ] [major] ISSUE-211: Encode the single-owner invariant of
+  `ChaseLevDeque` and `BlockBasedDeque` in typed owner/stealer endpoints. The
+  current safe `push`/`pop(&self)` surface permits concurrent owners through a
+  `Sync` deque and therefore cannot discharge the `UnsafeCell` aliasing proof.
+- [ ] [minor] ISSUE-212: Make external scheduler admission bounded through the
+  existing fallible queue operation, including pending-count rollback and an
+  explicit registry rejection transition on every pre-start failure.
+- [ ] [arch] ISSUE-213: Isolate `BlockingTask` execution from unified compute
+  workers so blocking work cannot occupy the complete scheduler. Preserve one
+  Moirai-owned runtime; Tokio and Smol remain comparison references only.
+- [ ] [patch] ISSUE-214: Serialize `ShardedResourcePool::clear` against
+  recycle/take mutations without adding a single contended hot-path lock.
 - [x] [patch] Add Apollo-facing public `moirai` crate contract tests for chunked
   mutable scheduling and caller-owned indexed collection. The tests verify
   complete disjoint element coverage and non-`Clone` movement into existing

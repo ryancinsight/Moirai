@@ -6,6 +6,7 @@ fn transport_payload_regions_define_mnemosyne_handoff_boundary() {
     let remote_task = read_benchmark("../moirai-transport/src/remote_task.rs");
     let server = read_benchmark("../moirai-transport/src/remote_task/server.rs");
     let moirai = read_benchmark("../moirai/src/lib.rs");
+    let moirai_manifest = read_benchmark("../moirai/Cargo.toml");
     let source_all = format!("{payload}\n{route}\n{remote_task}\n{server}");
 
     assert!(
@@ -54,17 +55,19 @@ fn transport_payload_regions_define_mnemosyne_handoff_boundary() {
         );
     }
 
-    for required in [
-        "#[cfg(feature = \"mnemosyne\")]",
-        "#[global_allocator]",
-        "static ALLOC: mnemosyne::Mnemosyne = mnemosyne::Mnemosyne;",
-    ] {
+    assert!(
+        moirai_manifest.contains(
+            "mnemosyne = [\"dep:mnemosyne\", \"moirai-core/mnemosyne\", \"moirai-executor/mnemosyne\"]"
+        ),
+        "top-level Moirai feature must retain Mnemosyne provider forwarding"
+    );
+
+    for prohibited in ["#[global_allocator]", "static ALLOC: mnemosyne::Mnemosyne"] {
         assert!(
-            moirai.contains(required),
-            "top-level Moirai crate must retain Mnemosyne allocator evidence {required}"
+            !moirai.contains(prohibited),
+            "library crate must leave global allocator selection to the final binary: {prohibited}"
         );
     }
-
     for prohibited in ["Box<dyn PayloadRegion", "dyn PayloadRegion", ".clone().into_bytes()"] {
         assert!(
             !source_all.contains(prohibited),

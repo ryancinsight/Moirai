@@ -92,7 +92,10 @@ async fn moirai_distributed_processing() -> Duration {
         .collect()
         .await;
 
-    println!("Moirai parallel processing produced {} items", results.len());
+    println!(
+        "Moirai parallel processing produced {} items",
+        results.len()
+    );
     start.elapsed()
 }
 

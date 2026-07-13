@@ -1922,6 +1922,32 @@ Workload: `iterator_indexed_boundary` preconstructs equivalent Moirai and Rayon 
 
 Interpretation: the bounded `IndexedParallelIterator::{len, is_empty}` source-cardinality boundary is at Rayon metadata-call parity for the audited exact-size source subset. The benchmark does not claim Rayon's full indexed producer/consumer adapter model.
 
+## 2026-07-13 Iterator Source-Lifetime Repair
+
+Commands:
+```bash
+cargo bench -p moirai-benchmarks --bench parallel_iterator_regression -- parallel_iterator_collect_into_existing_sizes --quick --quiet
+cargo bench -p moirai-benchmarks --bench parallel_iterator_regression -- parallel_iterator_indexed_step_interleave_sizes --quick --quiet
+```
+
+Machine: Intel Core Ultra 9 285K, 24 cores / 24 logical processors. Each
+pipeline asserts exact Moirai/Rayon value equality before Criterion times it.
+The Moirai paths consume and release owned input vectors after ISSUE-210; Miri
+independently verifies the repaired allocation lifetimes.
+
+| Group / items | Moirai | Rayon |
+| --- | ---: | ---: |
+| collect into existing / 1,024 | 305.78-313.45 ns | 37.548-37.887 us |
+| collect into existing / 32,768 | 34.716-35.626 us | 112.90-118.62 us |
+| collect into existing / 131,072 | 686.26-700.82 us | 802.51-812.70 us |
+| indexed step/interleave / 1,024 | 918.37-928.49 ns | 38.795-40.801 us |
+| indexed step/interleave / 32,768 | 51.905-52.016 us | 123.47-129.30 us |
+| indexed step/interleave / 131,072 | 750.84-780.64 us | 791.03-801.27 us |
+
+Interpretation: every repaired path remains ahead of its same-run Rayon
+reference. These are empirical Criterion intervals, not a formal performance
+proof or a comparison against the unsafe leaking implementation.
+
 ## Upstream Comparison Patterns
 
 - Tokio comparison rows use the documented `tokio::spawn` plus `JoinHandle` pattern from the Tokio task-spawning guide.

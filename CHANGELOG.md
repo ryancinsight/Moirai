@@ -64,6 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime rather than the removed scheduler types directly.
 
 ### Changed
+- `moirai-iter`: replaced raw `ManuallyDrop` vector moves in indexed
+  collect-into-storage and interleave paths with owned iteration. Non-`Clone`
+  element movement and output-capacity reuse remain intact while every source
+  backing allocation is now released; targeted Miri-nextest leak regressions
+  pass.
 - `moirai-gpu`: replaced the `GpuTaskAdapter` synchronous wait boundary with
   `moirai_executor::block_on` and removed the direct `pollster` dependency from
   the `wgpu-backend` feature.
