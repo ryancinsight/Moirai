@@ -95,9 +95,9 @@ fn competitive_benchmarks_keep_value_assertions() {
             && scheduler.contains("spsc::<usize>(capacity)")
             && scheduler.contains("tokio::sync::mpsc::channel::<usize>(capacity)")
             && scheduler.contains("standalone_deque_reclaim_policy")
-            && scheduler.contains("moirai_quiescent_reclaim")
+            && scheduler.contains("moirai_deferred_reclaim")
             && scheduler.contains("moirai_shared_epoch_reclaim")
-            && scheduler.contains("moirai_deque_quiescent_reclaim_sum")
+            && scheduler.contains("moirai_deque_deferred_reclaim_sum")
             && scheduler.contains("moirai_deque_shared_epoch_reclaim_sum"),
         "scheduler comparison must retain value assertions for scoped, indexed, mixed unified, real-app mixed, channel, and deque reclaim work"
     );

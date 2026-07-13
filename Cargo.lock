@@ -1420,6 +1420,7 @@ dependencies = [
  "moirai-utils",
  "num_cpus",
  "proptest",
+ "static_assertions",
  "themis",
 ]
 

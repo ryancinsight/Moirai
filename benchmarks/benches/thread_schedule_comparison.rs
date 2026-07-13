@@ -6,9 +6,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use moirai::Moirai;
 use moirai_core::channel::spsc;
-use moirai_scheduler::{
-    BlockBasedDeque, ChaseLevDeque, QuiescentReclaim, SharedEpochReclaim, SplitDeque,
-};
+use moirai_scheduler::{ChaseLevDeque, SharedEpochReclaim, SplitDeque};
 use rayon::prelude::*;
 use std::{
     sync::atomic::{AtomicUsize, Ordering},
@@ -55,13 +53,11 @@ fn verify_real_app_sum(sum: usize, count: usize) -> usize {
     black_box(sum)
 }
 
-fn moirai_deque_quiescent_reclaim_sum(count: usize) -> usize {
+fn moirai_deque_deferred_reclaim_sum(count: usize) -> usize {
     let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
     for value in 0..count {
         deque.push(black_box(value.wrapping_add(1)));
     }
-
-    deque.reclaim_memory(QuiescentReclaim);
 
     let mut sum = 0usize;
     while let Some(value) = deque.pop() {
@@ -71,7 +67,7 @@ fn moirai_deque_quiescent_reclaim_sum(count: usize) -> usize {
 }
 
 fn moirai_deque_shared_epoch_reclaim_sum(count: usize) -> usize {
-    let deque: ChaseLevDeque<usize, SharedEpochReclaim> = ChaseLevDeque::new(2);
+    let mut deque: ChaseLevDeque<usize, SharedEpochReclaim> = ChaseLevDeque::new(2);
     for value in 0..count {
         deque.push(black_box(value.wrapping_add(1)));
     }
@@ -80,19 +76,6 @@ fn moirai_deque_shared_epoch_reclaim_sum(count: usize) -> usize {
         deque.try_reclaim_shared(SharedEpochReclaim),
         "shared epoch reclaim must succeed without active guards"
     );
-
-    let mut sum = 0usize;
-    while let Some(value) = deque.pop() {
-        sum = sum.wrapping_add(value);
-    }
-    sum
-}
-
-fn moirai_block_based_deque_sum(count: usize) -> usize {
-    let deque: BlockBasedDeque<usize> = BlockBasedDeque::new();
-    for value in 0..count {
-        deque.push(black_box(value.wrapping_add(1)));
-    }
 
     let mut sum = 0usize;
     while let Some(value) = deque.pop() {
@@ -629,10 +612,10 @@ fn bench_standalone_deque_reclaim_policy(c: &mut Criterion) {
     group.warm_up_time(Duration::from_millis(250));
     group.throughput(Throughput::Elements(DEQUE_RECLAIM_ITEMS as u64));
 
-    group.bench_function("moirai_quiescent_reclaim", |b| {
+    group.bench_function("moirai_deferred_reclaim", |b| {
         b.iter(|| {
             verify_ready_sum(
-                moirai_deque_quiescent_reclaim_sum(DEQUE_RECLAIM_ITEMS),
+                moirai_deque_deferred_reclaim_sum(DEQUE_RECLAIM_ITEMS),
                 DEQUE_RECLAIM_ITEMS,
             )
         });
@@ -642,15 +625,6 @@ fn bench_standalone_deque_reclaim_policy(c: &mut Criterion) {
         b.iter(|| {
             verify_ready_sum(
                 moirai_deque_shared_epoch_reclaim_sum(DEQUE_RECLAIM_ITEMS),
-                DEQUE_RECLAIM_ITEMS,
-            )
-        });
-    });
-
-    group.bench_function("moirai_block_based_deque", |b| {
-        b.iter(|| {
-            verify_ready_sum(
-                moirai_block_based_deque_sum(DEQUE_RECLAIM_ITEMS),
                 DEQUE_RECLAIM_ITEMS,
             )
         });

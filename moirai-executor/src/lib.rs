@@ -44,7 +44,7 @@ pub use task::TaskMetadata;
 ///
 /// This is the Moirai-owned synchronous wait primitive for code that only needs
 /// to bridge an async operation into a synchronous boundary. It uses the same
-/// parking waker as [`HybridExecutor::block_on`] without constructing or
+/// parking waker as [`moirai_core::executor::ExecutorControl::block_on`] without constructing or
 /// touching the process-wide scheduler.
 pub fn block_on<F>(future: F) -> F::Output
 where

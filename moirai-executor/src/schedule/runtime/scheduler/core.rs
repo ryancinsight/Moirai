@@ -24,8 +24,8 @@ use super::super::types::{
     SchedulerScopeState, ThreadScheduler,
 };
 use super::super::worker::{
-    execute_job, is_quiescent, lock_mutex, next_job, wake_all_workers, wake_contended_workers,
-    wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
+    execute_job, is_quiescent, lock_mutex, next_shared_job, wake_all_workers,
+    wake_contended_workers, wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
 };
 
 /// Busy-spin iterations a worker-thread scope waiter performs after exhausting
@@ -66,8 +66,13 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// Start a scheduler with custom configurations.
     pub fn new_with_config(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
         let worker_count = worker_count.max(1);
+        let mut queue_owners = Vec::with_capacity(worker_count);
         let workers = (0..worker_count)
-            .map(|id| Arc::new(super::super::types::WorkerState::new(id)))
+            .map(|id| {
+                let (owner, queues) = super::super::super::queue::WorkerQueues::new();
+                queue_owners.push(owner);
+                Arc::new(super::super::types::WorkerState::new(id, queues))
+            })
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
@@ -104,7 +109,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             worker_numa_nodes,
         });
 
-        for worker_id in 0..worker_count {
+        for (worker_id, owner) in queue_owners.into_iter().enumerate() {
             let worker_inner = Arc::clone(&inner);
             let thread_name = format!("{thread_name_prefix}-{worker_id}");
             let handle = thread::Builder::new()
@@ -113,6 +118,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                     super::super::worker::worker_loop::<QUEUE_CAPACITY, SPIN_LIMIT>(
                         worker_inner,
                         worker_id,
+                        owner,
                     )
                 })
                 .map_err(|_| ExecutorError::ThreadPoolCreationFailed)?;
@@ -217,7 +223,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                 return;
             }
 
-            if let Some(job) = next_job(inner, worker_id) {
+            if let Some(job) = next_shared_job(inner, worker_id) {
                 execute_job(inner, worker_id, job);
                 idle_spins = 0;
                 continue;
@@ -283,7 +289,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             if let Some(old_job) = self.inner.workers[worker_index].lifo_slot.push(job) {
                 self.inner.workers[worker_index]
                     .queues
-                    .push_local(priority, old_job);
+                    .push_external(priority, old_job);
             }
         } else {
             self.inner.workers[worker_index]

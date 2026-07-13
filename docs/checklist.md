@@ -19,10 +19,21 @@
   The routed payload contract rejects both library-level global allocator
   registration and compatibility residue; final binaries own allocator choice.
   Evidence: benchmark source contract and all-feature Clippy pass.
-- [ ] [major] ISSUE-211: Encode the single-owner invariant of
-  `ChaseLevDeque` and `BlockBasedDeque` in typed owner/stealer endpoints. The
-  current safe `push`/`pop(&self)` surface permits concurrent owners through a
-  `Sync` deque and therefore cannot discharge the `UnsafeCell` aliasing proof.
+- [x] [major] ISSUE-211: Encode the single-owner invariant of
+  `ChaseLevDeque` in typed owner/stealer endpoints and delete the unconsumed
+  `BlockBasedDeque`. The former safe `push`/`pop(&self)` surface permitted
+  concurrent owners through a `Sync` deque and could not discharge the
+  `UnsafeCell` aliasing proof.
+  - [x] Record ADR-020 with the ownership and reclamation invariants.
+  - [x] Split Chase-Lev capabilities without compatibility APIs and delete the
+    redundant block deque instead of adding another reclamation subsystem.
+  - [x] Move executor owner endpoints onto worker-thread stacks.
+  - [x] Migrate split deque, tests, benchmarks, and source contracts.
+  - [x] Pass compile-time, nextest, Loom, Miri, Clippy, docs, and Criterion
+    gates. Scheduler 23/23, executor 80/80, and benchmark contracts 69/69 pass;
+    compile-fail doctests pass 2/2; the bounded Loom model and three targeted
+    no-default-feature Miri ownership tests pass. Criterion medians are 965.64
+    ns deferred, 5.4225 us shared epoch, and 5.7232 us split for 256 elements.
 - [ ] [minor] ISSUE-212: Make external scheduler admission bounded through the
   existing fallible queue operation, including pending-count rollback and an
   explicit registry rejection transition on every pre-start failure.
@@ -329,7 +340,8 @@
 - [x] [patch] Replace PAL reactor `Box<dyn Reactor>` and `Pin<Box<dyn Future>>` queue dispatch with static `PlatformReactor`, bounded inline future storage, and monomorphized future poll/drop dispatch.
 - [x] [patch] Replace public core and scheduler `Box<dyn BoxedTask>` / `dyn Scheduler` task surfaces with `ScheduledTask` inline storage and monomorphized execute/drop/context dispatch.
 - [x] [patch] Replace standalone scheduler Chase-Lev per-item boxed queue nodes with contiguous `MaybeUninit<T>` ring slots and value/drop regression tests.
-- [x] [patch] Replace standalone scheduler unsafe retired-array reclamation with sealed zero-sized `QuiescentReclaim` policy and exclusive-access value test.
+- [x] [patch] Historical exclusive-reclaim policy slice; superseded by
+  ADR-020 after typed stealer endpoints disproved owner-only quiescence.
 - [x] [patch] Add opt-in shared epoch retired-array reclamation policy with one-counter state and monomorphized queue-access guards.
 - [x] [patch] Add standalone deque reclamation-policy benchmark with value assertions for quiescent and shared epoch rows.
 - [x] [patch] Add async RwLock release-handoff value tests and restore the mixed scheduler benchmark compile gate.

@@ -435,7 +435,7 @@ fn rayon_tokio_gap_audit_tracks_executable_coverage() {
         "tokio_rayon_real_app_pipeline",
         "standalone_deque_reclaim_policy",
         "Tokio plus Rayon",
-        "QuiescentReclaim",
+        "DeferredReclaim",
         "SharedEpochReclaim",
         "industry_comparison",
         "result_handle_diagnostics",

@@ -86,7 +86,9 @@ impl Slot {
                 .compare_exchange(READY, LOCKED, Ordering::AcqRel, Ordering::Relaxed)
                 .is_ok()
         {
-            let old = self.job.with_mut(|p| unsafe { core::mem::replace(&mut *p, v) });
+            let old = self
+                .job
+                .with_mut(|p| unsafe { core::mem::replace(&mut *p, v) });
             self.state.store(READY, Ordering::Release);
             return Some(old);
         }

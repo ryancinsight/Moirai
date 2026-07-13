@@ -6,7 +6,7 @@ use crate::schedule::job::ScheduledJob;
 use crate::schedule::queue::WorkerQueues;
 use crate::schedule::runtime::types::DiagnosticWakeDecision;
 use crate::schedule::runtime::worker::{
-    diagnostic_publish_work_available, execute_job, is_quiescent, next_job, wake_worker,
+    diagnostic_publish_work_available, execute_job, is_quiescent, next_shared_job, wake_worker,
     JOIN_FAST_SPIN_ATTEMPTS,
 };
 use crate::schedule::{ThreadScheduler, WorkClass};
@@ -40,9 +40,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     }
 
     pub fn diagnostic_priority_queue_push_pop(priority: Priority) -> usize {
-        let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
+        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new();
         queues.push_external(priority, ScheduledJob::new(|_| {}));
-        queues
+        owner
             .pop_local()
             .map(|job| usize::from(job.execute(0)))
             .unwrap_or(0)
@@ -67,9 +67,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             active_before_submit,
         );
         let previous_pending = pending_tasks.fetch_add(1, Ordering::Release);
-        let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
+        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new();
         queues.push_external(priority, ScheduledJob::new(|_| {}));
-        let completed = queues
+        let completed = owner
             .pop_local()
             .map(|job| usize::from(job.execute(worker_index)))
             .unwrap_or(0);
@@ -92,7 +92,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             .queues
             .push_external(Priority::Normal, ScheduledJob::new(|_| {}));
 
-        next_job(&self.inner, index)
+        next_shared_job(&self.inner, index)
             .map(|job| {
                 execute_job(&self.inner, index, job);
                 index + 1
@@ -136,7 +136,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
     pub fn diagnostic_max_inline_queue_push_pop_execute() -> usize {
         let words = [1usize; 14];
-        let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
+        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new();
         queues.push_external(
             Priority::Normal,
             ScheduledJob::new(move |_| {
@@ -144,7 +144,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             }),
         );
 
-        queues
+        owner
             .pop_local()
             .map(|job| usize::from(job.execute(0)))
             .unwrap_or(0)
@@ -152,7 +152,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
     pub fn diagnostic_oversized_queue_push_pop_execute() -> usize {
         let words = [1usize; 32];
-        let queues = WorkerQueues::<QUEUE_CAPACITY>::new();
+        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new();
         queues.push_external(
             Priority::Normal,
             ScheduledJob::new(move |_| {
@@ -160,7 +160,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             }),
         );
 
-        queues
+        owner
             .pop_local()
             .map(|job| usize::from(job.execute(0)))
             .unwrap_or(0)
@@ -177,7 +177,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             }),
         );
 
-        next_job(&self.inner, index)
+        next_shared_job(&self.inner, index)
             .map(|job| {
                 execute_job(&self.inner, index, job);
                 index + 1
@@ -196,7 +196,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             }),
         );
 
-        next_job(&self.inner, index)
+        next_shared_job(&self.inner, index)
             .map(|job| {
                 execute_job(&self.inner, index, job);
                 index + 1

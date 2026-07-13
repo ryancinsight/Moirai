@@ -38,13 +38,13 @@ enum Steal {
     Retry,
 }
 
-struct ModelDeque {
+struct ModelCore {
     bottom: AtomicIsize,
     top: AtomicIsize,
     slots: Vec<UnsafeCell<usize>>,
 }
 
-impl ModelDeque {
+impl ModelCore {
     fn new() -> Self {
         let mut slots = Vec::with_capacity(CAPACITY);
         for _ in 0..CAPACITY {
@@ -122,20 +122,54 @@ impl ModelDeque {
     }
 }
 
+struct ModelOwner {
+    core: Arc<ModelCore>,
+}
+
+#[derive(Clone)]
+struct ModelStealer {
+    core: Arc<ModelCore>,
+}
+
+impl ModelOwner {
+    fn new() -> (Self, ModelStealer) {
+        let core = Arc::new(ModelCore::new());
+        (
+            Self {
+                core: Arc::clone(&core),
+            },
+            ModelStealer { core },
+        )
+    }
+
+    fn push(&mut self, item: usize) {
+        self.core.push(item);
+    }
+
+    fn pop(&mut self) -> Option<usize> {
+        self.core.pop()
+    }
+}
+
+impl ModelStealer {
+    fn steal(&self) -> Steal {
+        self.core.steal()
+    }
+}
+
 #[test]
 fn chase_lev_pop_steal_take_each_element_exactly_once() {
     loom::model(|| {
-        let q = Arc::new(ModelDeque::new());
+        let (mut owner, stealer) = ModelOwner::new();
         // Owner pushes sequentially before spawning, so the pushes happen-before
         // all concurrent access (the owner is the sole pusher in Chase-Lev).
-        q.push(1);
-        q.push(2);
+        owner.push(1);
+        owner.push(2);
 
-        let q_thief = q.clone();
         let thief = loom::thread::spawn(move || {
             let mut taken = Vec::new();
             loop {
-                match q_thief.steal() {
+                match stealer.steal() {
                     Steal::Success(v) => taken.push(v),
                     Steal::Empty => break,
                     Steal::Retry => continue,
@@ -145,7 +179,7 @@ fn chase_lev_pop_steal_take_each_element_exactly_once() {
         });
 
         let mut owner_taken = Vec::new();
-        while let Some(v) = q.pop() {
+        while let Some(v) = owner.pop() {
             owner_taken.push(v);
         }
 

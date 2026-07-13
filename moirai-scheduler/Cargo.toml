@@ -22,6 +22,7 @@ mnemosyne = { workspace = true, optional = true }
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
+static_assertions = "1.1"
 
 # loom model checker — only compiled under `--cfg loom` (see tests/loom_chase_lev.rs).
 [target.'cfg(loom)'.dev-dependencies]

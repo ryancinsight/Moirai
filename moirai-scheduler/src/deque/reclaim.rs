@@ -2,7 +2,7 @@
 //!
 //! Defines the sealed [`DequeReclaimPolicy`] / [`DequeReclaimState`] trait pair
 //! and the two concrete policy types:
-//! - [`QuiescentReclaim`] — exclusive quiescent-point reclamation (ZST)
+//! - [`DeferredReclaim`] — defer reclamation until the final endpoint drops (ZST)
 //! - [`SharedEpochReclaim`] — shared epoch-counter reclamation (ZST)
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -35,22 +35,22 @@ pub trait DequeReclaimState: Default + Send + Sync {
     fn can_reclaim_shared(&self) -> bool;
 }
 
-// ── QuiescentReclaim ──────────────────────────────────────────────────────────
+// ── DeferredReclaim ───────────────────────────────────────────────────────────
 
-/// Zero-sized state for exclusive quiescent reclamation.
+/// Zero-sized state for final-drop reclamation.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct QuiescentState;
+pub struct DeferredState;
 
-/// Zero-sized access guard for exclusive quiescent reclamation.
+/// Zero-sized access guard for deferred reclamation.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct QuiescentAccessGuard;
+pub struct DeferredAccessGuard;
 
-impl DequeReclaimState for QuiescentState {
-    type Guard<'a> = QuiescentAccessGuard;
+impl DequeReclaimState for DeferredState {
+    type Guard<'a> = DeferredAccessGuard;
 
     #[inline]
     fn enter(&self) -> Self::Guard<'_> {
-        QuiescentAccessGuard
+        DeferredAccessGuard
     }
 
     #[inline]
@@ -59,14 +59,14 @@ impl DequeReclaimState for QuiescentState {
     }
 }
 
-/// Zero-sized policy proving retired deque arrays are reclaimed only from an
-/// exclusive quiescent access path.
+/// Zero-sized policy retaining retired arrays until the final owner or stealer
+/// endpoint drops. This adds no operation-path synchronization.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct QuiescentReclaim;
+pub struct DeferredReclaim;
 
-impl reclaim_policy::Sealed for QuiescentReclaim {}
-impl DequeReclaimPolicy for QuiescentReclaim {
-    type State = QuiescentState;
+impl reclaim_policy::Sealed for DeferredReclaim {}
+impl DequeReclaimPolicy for DeferredReclaim {
+    type State = DeferredState;
 }
 
 // ── SharedEpochReclaim ────────────────────────────────────────────────────────

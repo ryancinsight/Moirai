@@ -1,17 +1,17 @@
-use super::reclaim::{DequeReclaimPolicy, DequeReclaimState, QuiescentReclaim, SharedEpochReclaim};
+use super::reclaim::{DeferredReclaim, DequeReclaimPolicy, DequeReclaimState, SharedEpochReclaim};
 use moirai_core::CacheAligned;
 use std::{
-    alloc::Layout,
-    cell::UnsafeCell,
+    cell::Cell,
     marker::PhantomData,
     mem::MaybeUninit,
-    ptr,
-    ptr::NonNull,
     sync::{
         atomic::{AtomicIsize, AtomicPtr, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
 };
+
+mod storage;
+use storage::Array;
 
 pub(crate) const MIN_DEQUE_CAPACITY: usize = 16;
 const MAX_BATCH_STEAL: usize = 16;
@@ -20,96 +20,7 @@ const MAX_BATCH_STEAL: usize = 16;
 // `CacheAligned` forces the whole deque to ≥64-byte alignment, so two deques in
 // a priority array (`[ChaseLevDeque<_>; N]`) can never share a cache line.
 // Alignment is independent of `T`, so `u8` is a representative witness.
-const _: () = assert!(core::mem::align_of::<ChaseLevDeque<u8>>() >= 64);
-
-// ── Array ─────────────────────────────────────────────────────────────────────
-
-pub(crate) struct Array<T> {
-    capacity: usize,
-    mask: usize,
-    ptr: NonNull<UnsafeCell<MaybeUninit<T>>>,
-}
-
-unsafe impl<T: Send> Send for Array<T> {}
-unsafe impl<T: Sync> Sync for Array<T> {}
-
-impl<T> Array<T> {
-    pub(crate) fn new(capacity: usize) -> Self {
-        assert!(capacity.is_power_of_two());
-        let layout = Layout::array::<UnsafeCell<MaybeUninit<T>>>(capacity)
-            .expect("Invalid layout for Array");
-
-        let raw_ptr = unsafe {
-            #[cfg(feature = "mnemosyne")]
-            {
-                use std::alloc::GlobalAlloc;
-                mnemosyne::Mnemosyne.alloc(layout)
-            }
-            #[cfg(not(feature = "mnemosyne"))]
-            {
-                std::alloc::alloc(layout)
-            }
-        };
-
-        if raw_ptr.is_null() {
-            std::alloc::handle_alloc_error(layout);
-        }
-
-        let ptr = NonNull::new(raw_ptr as *mut UnsafeCell<MaybeUninit<T>>).unwrap();
-
-        Self {
-            capacity,
-            mask: capacity - 1,
-            ptr,
-        }
-    }
-
-    pub(crate) unsafe fn write(&self, index: isize, item: T) {
-        let idx = (index as usize) & self.mask;
-        let cell_ptr = self.ptr.as_ptr().add(idx);
-        (*(*cell_ptr).get()).write(item);
-    }
-
-    pub(crate) unsafe fn read(&self, index: isize) -> T {
-        let idx = (index as usize) & self.mask;
-        let cell_ptr = self.ptr.as_ptr().add(idx);
-        (*(*cell_ptr).get()).assume_init_read()
-    }
-
-    pub(crate) unsafe fn copy_slot_to(&self, target: &Self, index: isize) {
-        let source_idx = (index as usize) & self.mask;
-        let target_idx = (index as usize) & target.mask;
-        let source_cell = self.ptr.as_ptr().add(source_idx);
-        let target_cell = target.ptr.as_ptr().add(target_idx);
-        ptr::copy_nonoverlapping(
-            (*(*source_cell).get()).as_ptr(),
-            (*(*target_cell).get()).as_mut_ptr(),
-            1,
-        );
-    }
-
-    pub(crate) fn capacity(&self) -> usize {
-        self.capacity
-    }
-}
-
-impl<T> Drop for Array<T> {
-    fn drop(&mut self) {
-        let layout = Layout::array::<UnsafeCell<MaybeUninit<T>>>(self.capacity)
-            .expect("Invalid layout for Array");
-        unsafe {
-            #[cfg(feature = "mnemosyne")]
-            {
-                use std::alloc::GlobalAlloc;
-                mnemosyne::Mnemosyne.dealloc(self.ptr.as_ptr() as *mut u8, layout);
-            }
-            #[cfg(not(feature = "mnemosyne"))]
-            {
-                std::alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
-            }
-        }
-    }
-}
+const _: () = assert!(core::mem::align_of::<ChaseLevInner<u8, DeferredReclaim>>() >= 64);
 
 // ── StealResult ───────────────────────────────────────────────────────────────
 
@@ -120,10 +31,81 @@ pub enum StealResult<T> {
     Retry,
 }
 
+/// Allocation-free ownership container returned by a batch steal.
+pub struct StolenBatch<T> {
+    items: [MaybeUninit<T>; MAX_BATCH_STEAL],
+    next: usize,
+    len: usize,
+}
+
+impl<T> Iterator for StolenBatch<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next == self.len {
+            return None;
+        }
+        let index = self.next;
+        self.next += 1;
+        // SAFETY: `[next, len)` is initialized and advancing `next` transfers
+        // this slot exactly once.
+        Some(unsafe { self.items[index].assume_init_read() })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.len - self.next;
+        (remaining, Some(remaining))
+    }
+}
+
+impl<T> ExactSizeIterator for StolenBatch<T> {}
+
+impl<T> Drop for StolenBatch<T> {
+    fn drop(&mut self) {
+        for item in &mut self.items[self.next..self.len] {
+            // SAFETY: `[next, len)` is the initialized, unconsumed tail.
+            unsafe { item.assume_init_drop() };
+        }
+    }
+}
+
 // ── ChaseLevDeque ─────────────────────────────────────────────────────────────
 
-/// A lock-free work-stealing deque implementation based on the Chase-Lev algorithm.
-pub struct ChaseLevDeque<T, P = QuiescentReclaim>
+/// The unique bottom-side endpoint of a Chase-Lev work-stealing deque.
+///
+/// This endpoint is `Send`, but neither `Sync` nor `Clone`; therefore safe code
+/// cannot create two concurrent push/pop owners. Use [`Self::stealer`] to
+/// create cloneable top-side endpoints.
+///
+/// ```compile_fail
+/// use moirai_scheduler::ChaseLevDeque;
+/// let owner = ChaseLevDeque::<usize>::new(16);
+/// owner.steal();
+/// ```
+pub struct ChaseLevDeque<T, P = DeferredReclaim>
+where
+    P: DequeReclaimPolicy,
+{
+    pub(crate) inner: Arc<ChaseLevInner<T, P>>,
+    not_sync: PhantomData<Cell<()>>,
+}
+
+/// A cloneable top-side endpoint of a Chase-Lev work-stealing deque.
+///
+/// ```compile_fail
+/// use moirai_scheduler::ChaseLevDeque;
+/// let owner = ChaseLevDeque::<usize>::new(16);
+/// let mut stealer = owner.stealer();
+/// stealer.push(1);
+/// ```
+pub struct ChaseLevStealer<T, P = DeferredReclaim>
+where
+    P: DequeReclaimPolicy,
+{
+    pub(crate) inner: Arc<ChaseLevInner<T, P>>,
+}
+
+pub(crate) struct ChaseLevInner<T, P>
 where
     P: DequeReclaimPolicy,
 {
@@ -136,16 +118,16 @@ where
     pub(crate) bottom: CacheAligned<AtomicIsize>,
     pub(crate) top: CacheAligned<AtomicIsize>,
     array: AtomicPtr<Array<T>>,
-    pub(crate) retired_arrays: Mutex<Vec<*mut Array<T>>>,
+    retired_arrays: Mutex<Vec<*mut Array<T>>>,
     pub(crate) reclaim: P::State,
     policy: PhantomData<P>,
 }
 
-impl<T, P> ChaseLevDeque<T, P>
+impl<T, P> ChaseLevInner<T, P>
 where
     P: DequeReclaimPolicy,
 {
-    pub fn new(initial_capacity: usize) -> Self {
+    fn new(initial_capacity: usize) -> Self {
         let capacity = initial_capacity.next_power_of_two().max(MIN_DEQUE_CAPACITY);
         let array = Box::new(Array::new(capacity));
 
@@ -159,7 +141,7 @@ where
         }
     }
 
-    pub fn push(&self, item: T) {
+    fn push(&self, item: T) {
         let _guard = self.reclaim.enter();
         let b = self.bottom.load(Ordering::Relaxed);
         let t = self.top.load(Ordering::Acquire);
@@ -181,7 +163,7 @@ where
         self.bottom.store(b.wrapping_add(1), Ordering::Release);
     }
 
-    pub fn pop(&self) -> Option<T> {
+    fn pop(&self) -> Option<T> {
         let _guard = self.reclaim.enter();
         let b = self.bottom.load(Ordering::Relaxed).wrapping_sub(1);
         let array_ptr = self.array.load(Ordering::Relaxed);
@@ -223,7 +205,7 @@ where
         None
     }
 
-    pub fn steal(&self) -> StealResult<T> {
+    fn steal(&self) -> StealResult<T> {
         let _guard = self.reclaim.enter();
         let t = self.top.load(Ordering::Acquire);
         std::sync::atomic::fence(Ordering::SeqCst);
@@ -254,10 +236,7 @@ where
         StealResult::Empty
     }
 
-    pub fn steal_batch_with<F>(&self, mut f: F) -> StealResult<T>
-    where
-        F: FnMut(T),
-    {
+    fn steal_batch(&self) -> StealResult<StolenBatch<T>> {
         let _guard = self.reclaim.enter();
         let t = self.top.load(Ordering::Acquire);
         std::sync::atomic::fence(Ordering::SeqCst);
@@ -289,23 +268,23 @@ where
             )
             .is_ok()
         {
-            let first_item = unsafe { items[0].assume_init_read() };
-            for slot in items.iter().take(n).skip(1) {
-                f(unsafe { slot.assume_init_read() });
-            }
-            return StealResult::Success(first_item);
+            return StealResult::Success(StolenBatch {
+                items,
+                next: 0,
+                len: n,
+            });
         }
 
         StealResult::Retry
     }
 
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         let b = self.bottom.load(Ordering::Relaxed);
         let t = self.top.load(Ordering::Relaxed);
         b.wrapping_sub(t).max(0) as usize
     }
 
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
@@ -331,23 +310,10 @@ where
         let mut retired_arrays = self.retired_arrays.lock().unwrap();
         retired_arrays.push(old_array_ptr);
     }
-
-    pub fn reclaim_memory(&mut self, _policy: P) {
-        self.deallocate_retired_arrays();
-    }
-
-    fn deallocate_retired_arrays(&self) {
-        let mut retired_arrays = self.retired_arrays.lock().unwrap();
-        for array_ptr in retired_arrays.drain(..) {
-            unsafe {
-                drop(Box::from_raw(array_ptr));
-            }
-        }
-    }
 }
 
-impl<T> ChaseLevDeque<T, SharedEpochReclaim> {
-    pub fn try_reclaim_shared(&self, _policy: SharedEpochReclaim) -> bool {
+impl<T> ChaseLevInner<T, SharedEpochReclaim> {
+    fn try_reclaim_shared(&self) -> bool {
         if !self.reclaim.can_reclaim_shared() {
             return false;
         }
@@ -376,7 +342,7 @@ impl<T> ChaseLevDeque<T, SharedEpochReclaim> {
     }
 }
 
-impl<T, P> Drop for ChaseLevDeque<T, P>
+impl<T, P> Drop for ChaseLevInner<T, P>
 where
     P: DequeReclaimPolicy,
 {
@@ -410,7 +376,7 @@ where
     }
 }
 
-unsafe impl<T, P> Send for ChaseLevDeque<T, P>
+unsafe impl<T, P> Send for ChaseLevInner<T, P>
 where
     T: Send,
     P: DequeReclaimPolicy,
@@ -418,10 +384,103 @@ where
 {
 }
 
-unsafe impl<T, P> Sync for ChaseLevDeque<T, P>
+unsafe impl<T, P> Sync for ChaseLevInner<T, P>
 where
     T: Send,
     P: DequeReclaimPolicy,
     P::State: Sync,
 {
+}
+
+impl<T, P> ChaseLevDeque<T, P>
+where
+    T: Send,
+    P: DequeReclaimPolicy,
+{
+    /// Creates an empty deque with at least `initial_capacity` slots.
+    pub fn new(initial_capacity: usize) -> Self {
+        Self {
+            inner: Arc::new(ChaseLevInner::new(initial_capacity)),
+            not_sync: PhantomData,
+        }
+    }
+
+    /// Creates a cloneable top-side stealing endpoint.
+    pub fn stealer(&self) -> ChaseLevStealer<T, P> {
+        ChaseLevStealer {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+
+    /// Pushes an item at the owner-only bottom side.
+    pub fn push(&mut self, item: T) {
+        self.inner.push(item);
+    }
+
+    /// Pops an item from the owner-only bottom side.
+    pub fn pop(&mut self) -> Option<T> {
+        self.inner.pop()
+    }
+
+    /// Returns the current advisory length.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns whether the deque is observably empty.
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retired_array_count(&self) -> usize {
+        self.inner.retired_arrays.lock().unwrap().len()
+    }
+}
+
+impl<T> ChaseLevDeque<T, SharedEpochReclaim>
+where
+    T: Send,
+{
+    /// Reclaims retired arrays if no endpoint operation is active.
+    pub fn try_reclaim_shared(&self, _policy: SharedEpochReclaim) -> bool {
+        self.inner.try_reclaim_shared()
+    }
+}
+
+impl<T, P> Clone for ChaseLevStealer<T, P>
+where
+    P: DequeReclaimPolicy,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+impl<T, P> ChaseLevStealer<T, P>
+where
+    T: Send,
+    P: DequeReclaimPolicy,
+{
+    /// Steals one item from the top side.
+    pub fn steal(&self) -> StealResult<T> {
+        self.inner.steal()
+    }
+
+    /// Steals an allocation-free, panic-safe batch from the top side.
+    pub fn steal_batch(&self) -> StealResult<StolenBatch<T>> {
+        self.inner.steal_batch()
+    }
+
+    /// Returns the current advisory length.
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Returns whether the deque is observably empty.
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
 }

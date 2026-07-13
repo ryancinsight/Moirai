@@ -97,9 +97,9 @@ architecture definition.
   registration and feature residue.
 - **Status**: completed 2026-07-13.
 
-#### ⏳ ISSUE-211 [major]: Encode deque owner and stealer capabilities
+#### ✅ ISSUE-211 [major]: Encode deque owner and stealer capabilities
 - **Type**: Public API Soundness / Work Stealing
-- **Root Cause**: `ChaseLevDeque` and `BlockBasedDeque` are `Sync`, while safe
+- **Root Cause**: `ChaseLevDeque` and the unused `BlockBasedDeque` were `Sync`, while safe
   `push` and `pop` accept `&self`. Safe callers can therefore create concurrent
   owners, violating the one-owner assumption behind raw `UnsafeCell` slot
   reads/writes. Documentation cannot impose an unsafe precondition on a safe
@@ -109,7 +109,20 @@ architecture definition.
   carries owner capabilities without locks or runtime checks; loom and stress
   tests prove exactly-once movement; all workspace call sites migrate in the
   same breaking change. ADR required before implementation.
-- **Evidence tier**: deductive aliasing/API proof; runtime model pending.
+- **Resolution**: ADR-020 splits unique `Send + !Sync` owners from cloneable
+  `Send + Sync` stealers, moves executor owners onto worker stacks, replaces
+  callback batches with owning `StolenBatch`, and defers Chase-Lev array cleanup
+  to final endpoint drop. The redundant block deque is deleted instead of
+  introducing a Crossbeam or hand-rolled reclamation subsystem solely for it.
+- **Evidence tier**: compile-time auto-trait encoding; bounded-exhaustive Loom
+  interleaving for one owner/one stealer; Miri checks of drop, batch-tail, and
+  owner-drop storage lifetimes without the unsupported optional Windows
+  allocator FFI; empirical exact-once stress and executor integration. Nextest
+  passes scheduler 23/23, executor 80/80, and benchmark contracts 69/69.
+  Clippy, doctests 2/2, and rustdoc are warning-clean for the touched crates.
+  Criterion reports deferred reclamation at 965.64 ns median, shared epoch at
+  5.4225 us, and split deque at 5.7232 us for 256 elements on this machine.
+- **Status**: completed 2026-07-13.
 
 #### ⏳ ISSUE-212 [minor]: Enforce bounded scheduler admission
 - **Type**: Backpressure / Contention / Lifecycle Correctness
@@ -1795,6 +1808,8 @@ architecture definition.
 - **Verification**: `cargo test -p moirai-scheduler -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`; `cargo clippy -p moirai-scheduler -- -D warnings`; `cargo clippy -p moirai-benchmarks --test benchmark_contracts -- -D warnings`; `cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- mixed_unified_schedule --quiet`.
 - **Residual Risk**: Closed by ISSUE-123 for the standalone shared epoch policy. Cross-crate adoption remains explicit because the default queue policy keeps zero-sized reclamation state.
 - **Status**: Completed 2026-05-25.
+- **Superseded**: ADR-020/ISSUE-211 proved that `&mut` owner access does not
+  establish stealer quiescence; `DeferredReclaim` replaces this contract.
 
 #### ✅ ISSUE-123 [patch]: Add opt-in shared epoch reclamation for standalone deque arrays
 - **Type**: Scheduler Memory / Shared Reclamation / Zero-Cost Policy
@@ -1804,6 +1819,8 @@ architecture definition.
 - **Verification**: `cargo test -p moirai-scheduler -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts -- --nocapture`; `cargo clippy -p moirai-scheduler -- -D warnings`; `cargo clippy -p moirai-benchmarks --test benchmark_contracts -- -D warnings`; `cargo bench -p moirai-benchmarks --bench thread_schedule_comparison -- mixed_unified_schedule --quiet`.
 - **Residual Risk**: Production scheduler queues still instantiate the default zero-sized quiescent policy. Opting a specific shared queue into `SharedEpochReclaim` is a separate integration decision because it adds two atomic operations to each queue access for that queue type.
 - **Status**: Completed 2026-05-25.
+- **Superseded default**: ADR-020 replaces the default quiescent policy with
+  typed endpoints and `DeferredReclaim`; the access-counted opt-in remains.
 
 #### ✅ ISSUE-124 [patch]: Add standalone deque reclamation policy benchmark
 - **Type**: Scheduler Benchmark / Policy Selection / Zero-Cost Evidence

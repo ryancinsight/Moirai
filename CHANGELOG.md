@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged.
 
 ### Removed
+- **Breaking:** removed combined owner/thief deque capabilities,
+  `QuiescentReclaim`, explicit default-policy `reclaim_memory`, callback
+  `steal_batch_with`, and the unconsumed `BlockBasedDeque`. `ChaseLevDeque` is
+  the canonical unique bottom-side owner; callers clone `ChaseLevStealer` for
+  top-side access. Batch steals return an owning `StolenBatch` iterator.
 - **Breaking:** removed the obsolete `moirai/no-global-alloc` no-op feature.
   The library no longer registers a global allocator; final binaries own that
   process-wide choice, while `mnemosyne` continues to forward provider
@@ -62,12 +67,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the generic `moirai_core::scheduler::WorkStealingCoordinator`, and the
   `moirai::WorkStealingScheduler` re-export. None were on any runtime code path.
   `moirai-scheduler` is now a primitives crate: the lock-free deques
-  (`ChaseLevDeque`/`BlockBasedDeque`/`SplitDeque`) and NUMA primitives
-  (`CpuTopology`, `AdaptiveBackoff`) it still provides are retained and
-  unchanged. Migration: construct the runtime via `moirai::Moirai`/the global
-  runtime rather than the removed scheduler types directly.
+  (`ChaseLevDeque`/`SplitDeque`) and NUMA primitives
+  (`CpuTopology`, `AdaptiveBackoff`) remain its canonical surface. Migration:
+  construct the runtime via `moirai::Moirai`/the global runtime rather than the
+  removed scheduler types directly.
 
 ### Changed
+- `moirai-executor`: bottom-side Chase-Lev endpoints now move into their worker
+  threads; shared worker state retains only stealers and bounded external
+  injectors. Nested-scope helping uses top-side steals without recovering an
+  owner through TLS or raw pointers.
+- `moirai-scheduler`: default `DeferredReclaim` retains resized Chase-Lev arrays
+  until the final typed endpoint drops. The Moirai-owned access-counted
+  `SharedEpochReclaim` remains available for explicit live array reclamation;
+  no Crossbeam reclamation dependency is introduced.
 - `moirai-iter`: replaced raw `ManuallyDrop` vector moves in indexed
   collect-into-storage and interleave paths with owned iteration. Non-`Clone`
   element movement and output-capacity reuse remain intact while every source

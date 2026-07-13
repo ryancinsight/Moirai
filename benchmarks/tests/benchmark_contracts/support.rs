@@ -156,7 +156,7 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-scheduler/src/deque/mod.rs",
             "../moirai-scheduler/src/deque/reclaim.rs",
             "../moirai-scheduler/src/deque/chase_lev.rs",
-            "../moirai-scheduler/src/deque/block_based.rs",
+            "../moirai-scheduler/src/deque/chase_lev/storage.rs",
             "../moirai-scheduler/src/deque/split.rs",
             "../moirai-scheduler/src/deque/tests.rs",
         ],

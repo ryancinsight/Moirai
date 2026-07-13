@@ -21,12 +21,11 @@ which preserves non-`Clone` movement and releases every input allocation. The
 targeted Miri regressions are clean. Evidence tier: machine-checked (Miri) plus
 value-semantic unit tests.
 
-**Filed (P0 public API soundness, ISSUE-211).** `ChaseLevDeque` and
-`BlockBasedDeque` expose owner-only `push`/`pop` operations as safe `&self`
-methods while the deque types are `Sync`. Safe `Arc` clones can therefore run
-multiple owners and race raw `UnsafeCell` slot accesses. The existing
-single-owner algorithm proof remains valid but does not make the public API
-sound. The selected architecture is non-clonable owner endpoints plus cloneable
+**Resolved in ISSUE-211.** `ChaseLevDeque` and the unused `BlockBasedDeque`
+exposed owner-only `push`/`pop` operations as safe `&self` methods while the
+deque types were `Sync`. Safe `Arc` clones could therefore run multiple owners
+and race raw `UnsafeCell` slot accesses. The selected architecture is a
+non-clonable Chase-Lev owner endpoint plus cloneable
 stealer endpoints; all consumers must migrate atomically under an ADR. Evidence
 tier: deductive aliasing/API proof; loom verification belongs to delivery.
 
@@ -514,20 +513,32 @@ from the `UnsafeCell` — consider folding into `Mutex<ErasedTaskFuture>`).
   documented approximate semantics. (`security/limiter.rs`)
 
 ### Investigated and found SOUND (do not re-chase)
-- **`block_based.rs` (round-11 "non-shippable" claim) — REFUTED.** The
+- **`block_based.rs` (round-11 "non-shippable" claim) — REMOVED BY ADR-020.** The
   `head != tail` fast path is correct (stealers touch only the head block via
   `top`, owner pops the tail block; disjoint while unequal). `bottom` has one
-  writer (the single owner) + Acquire/Release reader stealers. Block reclamation
-  is gated by `reclaim_memory(&mut self)`/`Drop` (Rust aliasing enforces stealer
-  quiescence), and blocks are retired only when exhausted (`top == BLOCK_SIZE`),
-  so no data is read from a retired block. Same over-claim pattern as round 11's
-  chase_lev/deque verdicts.
+  writer (the single owner) + Acquire/Release reader stealers. The old safe API
+  failed to encode that single owner, and `&mut` access to one owner did not
+  prove cloned stealers quiescent. No production consumer justified retaining a
+  second deque plus a separate reclamation subsystem, so ADR-020 deletes it.
 - **limiter line-107 "overflow panic" — FALSE on 64-bit** (`(elapsed/dur)*dur ≤
   elapsed < u64::MAX`); clear-loop window logic is correct. Only the TOCTOU
   (inherent to a multi-counter sliding window, approximate by design) is real.
 - **async executor / waker / result_slot / timer driver — SOUND** (uses
   `std::task::Wake`/`Arc`, not a hand-rolled `RawWakerVTable`; state machines and
   park/notify orderings verified).
+
+### ISSUE-211 verification (2026-07-13)
+
+Typed deque endpoints pass scheduler nextest 23/23, executor nextest 80/80, and
+benchmark contracts 69/69. Compile-fail doctests pass 2/2; Clippy and rustdoc
+are warning-clean for the touched crates. The one-owner/one-stealer Loom model
+passes, and Miri validates inline-item destruction, unconsumed batch-tail
+destruction, and storage lifetime after owner drop with default features
+disabled. Default-feature Miri stops at Mnemosyne's unsupported Windows
+`GetEnvironmentVariableA` call before deque execution; this is a tooling limit.
+Criterion medians for 256 elements are 965.64 ns deferred reclamation, 5.4225
+us shared epoch, and 5.7232 us split deque. These are empirical measurements,
+not cross-machine performance proofs.
 
 ### Real but DEFERRED (next-round candidates)
 - `moirai-transport` `MessageRouter`/`ConnectionManager` (lib.rs): unwired,
@@ -586,13 +597,13 @@ value-checked tests (13 new tests; workspace 739 pass).
   `saturating_mul`.
 
 ### Investigated and found SOUND (do not re-chase)
-- **`moirai-scheduler/deque/chase_lev.rs` `steal_batch_with`** — claimed
-  double-free on CAS failure. FALSE: on failure the speculative `MaybeUninit`
-  copies are never `assume_init_read`, so no Drop runs (mirrors the single-item
-  `mem::forget` discipline). Correct.
-- **`chase_lev.rs` `QuiescentReclaim` retired-array UAF** — FALSE: `reclaim_memory`
-  and `Drop` take `&mut self`, so Rust aliasing already enforces stealer
-  quiescence; retired arrays are only freed when no `&self` stealer can run.
+- **`moirai-scheduler/deque/chase_lev.rs` batch stealing — CORRECTED BY
+  ADR-020.** CAS-failure speculative copies were non-dropping, but callback
+  panic after a successful multi-item transfer leaked the unconsumed tail.
+  `StolenBatch` now owns and drops that tail.
+- **`chase_lev.rs` retired-array reclamation — CORRECTED BY ADR-020.** `&mut`
+  owner access did not prove cloneable stealer endpoints quiescent. Default
+  `DeferredReclaim` retains retired arrays until the final endpoint drops.
 - **`moirai-core/scheduler/deque.rs` grow/Drop double-free** — claimed the
   retired buffer's moved-out slots get re-dropped. FALSE: `Buffer::Drop` only
   deallocates and never drops elements; the live `[top,bottom)` range is dropped

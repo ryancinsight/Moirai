@@ -8,6 +8,7 @@ use std::{
 use moirai_core::error::{ExecutorError, ExecutorResult};
 
 use super::super::job::ScheduledJob;
+use super::super::queue::WorkerQueueOwner;
 
 use super::types::{set_current_worker_id, ContendedWakePolicy, SchedulerInner, WorkerState};
 
@@ -20,12 +21,13 @@ pub(super) const JOIN_FAST_SPIN_ATTEMPTS: usize = WORKER_IDLE_SPIN_ATTEMPTS;
 pub(super) fn worker_loop<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
     inner: std::sync::Arc<SchedulerInner<QUEUE_CAPACITY>>,
     worker_id: usize,
+    mut owner: WorkerQueueOwner<QUEUE_CAPACITY>,
 ) {
     set_current_worker_id(Some(worker_id));
     let _ = inner.workers[worker_id].thread.set(thread::current());
 
     loop {
-        if let Some(job) = next_job(&inner, worker_id) {
+        if let Some(job) = next_job(&inner, worker_id, &mut owner) {
             execute_job(&inner, worker_id, job);
             continue;
         }
@@ -87,21 +89,35 @@ fn run_idle_memory_maintenance() {
 pub(super) fn next_job<const QUEUE_CAPACITY: usize>(
     inner: &SchedulerInner<QUEUE_CAPACITY>,
     worker_id: usize,
+    owner: &mut WorkerQueueOwner<QUEUE_CAPACITY>,
 ) -> Option<ScheduledJob> {
     let local = &inner.workers[worker_id];
     local
         .lifo_slot
         .pop()
-        .or_else(|| local.queues.pop_local())
-        .or_else(|| steal_job(inner, worker_id))
+        .or_else(|| owner.pop_local())
+        .or_else(|| steal_job(inner, worker_id, owner))
+}
+
+/// Obtain runnable work using only shared top-side capabilities.
+pub(super) fn next_shared_job<const QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<QUEUE_CAPACITY>,
+    worker_id: usize,
+) -> Option<ScheduledJob> {
+    let local = &inner.workers[worker_id];
+    local
+        .lifo_slot
+        .pop()
+        .or_else(|| local.queues.steal_one())
+        .or_else(|| steal_shared_job(inner, worker_id))
 }
 
 fn steal_job<const QUEUE_CAPACITY: usize>(
     inner: &SchedulerInner<QUEUE_CAPACITY>,
     worker_id: usize,
+    owner: &mut WorkerQueueOwner<QUEUE_CAPACITY>,
 ) -> Option<ScheduledJob> {
     let worker_count = inner.workers.len();
-    let local = &inner.workers[worker_id];
     let my_node = inner.worker_numa_nodes.get(worker_id).copied().flatten();
 
     // Two-pass NUMA-aware victim selection:
@@ -129,7 +145,7 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
                 continue;
             }
             let victim = &inner.workers[victim_index];
-            if let Some(job) = local.queues.steal_batch(&victim.queues) {
+            if let Some(job) = owner.steal_batch(&victim.queues) {
                 return Some(job);
             }
             if let Some(job) = victim.lifo_slot.steal() {
@@ -146,7 +162,7 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
             continue;
         }
         let victim = &inner.workers[victim_index];
-        if let Some(job) = local.queues.steal_batch(&victim.queues) {
+        if let Some(job) = owner.steal_batch(&victim.queues) {
             return Some(job);
         }
         if let Some(job) = victim.lifo_slot.steal() {
@@ -154,6 +170,28 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
         }
     }
 
+    None
+}
+
+fn steal_shared_job<const QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<QUEUE_CAPACITY>,
+    worker_id: usize,
+) -> Option<ScheduledJob> {
+    let worker_count = inner.workers.len();
+    let start = next_steal_start();
+    for offset in 0..worker_count {
+        let victim_index = start.wrapping_add(offset) % worker_count;
+        if victim_index == worker_id {
+            continue;
+        }
+        let victim = &inner.workers[victim_index];
+        if let Some(job) = victim.queues.steal_one() {
+            return Some(job);
+        }
+        if let Some(job) = victim.lifo_slot.steal() {
+            return Some(job);
+        }
+    }
     None
 }
 

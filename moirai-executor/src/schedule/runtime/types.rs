@@ -280,16 +280,16 @@ pub(super) fn set_current_worker_id(id: Option<usize>) {
 #[repr(align(64))]
 pub(super) struct WorkerState<const QUEUE_CAPACITY: usize> {
     pub(super) id: usize,
-    pub(super) queues: WorkerQueues<QUEUE_CAPACITY>,
+    pub(super) queues: Arc<WorkerQueues<QUEUE_CAPACITY>>,
     pub(super) lifo_slot: LifoSlot,
     pub(super) thread: OnceLock<thread::Thread>,
 }
 
 impl<const QUEUE_CAPACITY: usize> WorkerState<QUEUE_CAPACITY> {
-    pub(super) fn new(id: usize) -> Self {
+    pub(super) fn new(id: usize, queues: Arc<WorkerQueues<QUEUE_CAPACITY>>) -> Self {
         Self {
             id,
-            queues: WorkerQueues::new(),
+            queues,
             lifo_slot: LifoSlot::new(),
             thread: OnceLock::new(),
         }

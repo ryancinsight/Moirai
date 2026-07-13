@@ -1,16 +1,19 @@
-use super::block_based::BlockBasedDeque;
-use super::chase_lev::{ChaseLevDeque, StealResult};
+use super::chase_lev::{ChaseLevDeque, ChaseLevStealer, StealResult};
 use super::reclaim::{
-    DequeReclaimState, QuiescentAccessGuard, QuiescentReclaim, QuiescentState, SharedEpochReclaim,
+    DeferredAccessGuard, DeferredReclaim, DeferredState, DequeReclaimState, SharedEpochReclaim,
     SharedEpochState,
 };
 use super::split::SplitDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+static_assertions::assert_impl_all!(ChaseLevDeque<usize>: Send);
+static_assertions::assert_not_impl_any!(ChaseLevDeque<usize>: Clone, Sync);
+static_assertions::assert_impl_all!(ChaseLevStealer<usize>: Clone, Send, Sync);
+
 #[test]
 fn test_chase_lev_deque_basic_operations() {
-    let deque: ChaseLevDeque<i32> = ChaseLevDeque::new(16);
+    let mut deque: ChaseLevDeque<i32> = ChaseLevDeque::new(16);
 
     deque.push(1);
     deque.push(2);
@@ -29,34 +32,36 @@ fn test_chase_lev_deque_basic_operations() {
 
 #[test]
 fn test_chase_lev_deque_steal() {
-    let deque: ChaseLevDeque<i32> = ChaseLevDeque::new(16);
+    let mut deque: ChaseLevDeque<i32> = ChaseLevDeque::new(16);
+    let stealer = deque.stealer();
 
     for i in 1..=5 {
         deque.push(i);
     }
 
-    assert_eq!(deque.steal(), StealResult::Success(1));
-    assert_eq!(deque.steal(), StealResult::Success(2));
+    assert_eq!(stealer.steal(), StealResult::Success(1));
+    assert_eq!(stealer.steal(), StealResult::Success(2));
 
     assert_eq!(deque.pop(), Some(5));
     assert_eq!(deque.pop(), Some(4));
 
-    assert_eq!(deque.steal(), StealResult::Success(3));
+    assert_eq!(stealer.steal(), StealResult::Success(3));
 
-    assert_eq!(deque.steal(), StealResult::Empty);
+    assert_eq!(stealer.steal(), StealResult::Empty);
     assert_eq!(deque.pop(), None);
 }
 
 #[test]
 fn chase_lev_deque_resizes_without_per_item_heap_nodes() {
-    let deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+    let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+    let stealer = deque.stealer();
 
     for value in 0..40 {
         deque.push(value);
     }
 
-    assert_eq!(deque.steal(), StealResult::Success(0));
-    assert_eq!(deque.steal(), StealResult::Success(1));
+    assert_eq!(stealer.steal(), StealResult::Success(0));
+    assert_eq!(stealer.steal(), StealResult::Success(1));
     assert_eq!(deque.pop(), Some(39));
     assert_eq!(deque.pop(), Some(38));
 
@@ -70,21 +75,14 @@ fn chase_lev_deque_resizes_without_per_item_heap_nodes() {
 }
 
 #[test]
-fn chase_lev_deque_reclaims_retired_arrays_after_quiescence() {
+fn chase_lev_deque_defers_retired_arrays_until_final_endpoint_drop() {
     let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
 
     for value in 0..40 {
         deque.push(value);
     }
 
-    assert!(
-        !deque.retired_arrays.lock().unwrap().is_empty(),
-        "resize must retire at least one backing array"
-    );
-
-    deque.reclaim_memory(QuiescentReclaim);
-
-    assert_eq!(deque.retired_arrays.lock().unwrap().len(), 0);
+    assert_eq!(deque.retired_array_count(), 2);
 
     let mut observed = Vec::new();
     while let Some(value) = deque.pop() {
@@ -97,9 +95,9 @@ fn chase_lev_deque_reclaims_retired_arrays_after_quiescence() {
 
 #[test]
 fn chase_lev_deque_reclamation_policies_are_static() {
-    assert_eq!(std::mem::size_of::<QuiescentReclaim>(), 0);
-    assert_eq!(std::mem::size_of::<QuiescentState>(), 0);
-    assert_eq!(std::mem::size_of::<QuiescentAccessGuard>(), 0);
+    assert_eq!(std::mem::size_of::<DeferredReclaim>(), 0);
+    assert_eq!(std::mem::size_of::<DeferredState>(), 0);
+    assert_eq!(std::mem::size_of::<DeferredAccessGuard>(), 0);
     assert_eq!(std::mem::size_of::<SharedEpochReclaim>(), 0);
     assert_eq!(
         std::mem::size_of::<SharedEpochState>(),
@@ -109,23 +107,20 @@ fn chase_lev_deque_reclamation_policies_are_static() {
 
 #[test]
 fn chase_lev_deque_shared_epoch_reclaim_waits_for_active_access() {
-    let deque: ChaseLevDeque<usize, SharedEpochReclaim> = ChaseLevDeque::new(2);
+    let mut deque: ChaseLevDeque<usize, SharedEpochReclaim> = ChaseLevDeque::new(2);
 
     for value in 0..40 {
         deque.push(value);
     }
 
-    assert!(
-        !deque.retired_arrays.lock().unwrap().is_empty(),
-        "resize must retire at least one backing array"
-    );
+    assert_eq!(deque.retired_array_count(), 2);
 
-    let guard = deque.reclaim.enter();
+    let guard = deque.inner.reclaim.enter();
     assert!(!deque.try_reclaim_shared(SharedEpochReclaim));
     drop(guard);
 
     assert!(deque.try_reclaim_shared(SharedEpochReclaim));
-    assert_eq!(deque.retired_arrays.lock().unwrap().len(), 0);
+    assert_eq!(deque.retired_array_count(), 0);
 
     let mut observed = Vec::new();
     while let Some(value) = deque.pop() {
@@ -149,17 +144,21 @@ fn chase_lev_deque_drops_each_inline_item_once() {
     let drops = Arc::new(AtomicUsize::new(0));
 
     {
-        let deque: ChaseLevDeque<DropProbe> = ChaseLevDeque::new(2);
+        let mut deque: ChaseLevDeque<DropProbe> = ChaseLevDeque::new(2);
+        let stealer = deque.stealer();
         for _ in 0..40 {
             deque.push(DropProbe(Arc::clone(&drops)));
         }
 
-        for _ in 0..10 {
-            match deque.steal() {
-                StealResult::Success(item) => drop(item),
-                StealResult::Empty | StealResult::Retry => {
-                    panic!("expected successful steal")
+        let mut stolen = 0;
+        while stolen < 10 {
+            match stealer.steal() {
+                StealResult::Success(item) => {
+                    drop(item);
+                    stolen += 1;
                 }
+                StealResult::Retry => std::hint::spin_loop(),
+                StealResult::Empty => panic!("ten queued items must remain stealable"),
             }
         }
 
@@ -170,66 +169,28 @@ fn chase_lev_deque_drops_each_inline_item_once() {
 }
 
 #[test]
-fn test_block_based_deque_basic_operations() {
-    let deque: BlockBasedDeque<i32> = BlockBasedDeque::new();
-
-    deque.push(1);
-    deque.push(2);
-    deque.push(3);
-
-    assert_eq!(deque.len(), 3);
-    assert!(!deque.is_empty());
-
-    assert_eq!(deque.pop(), Some(3));
-    assert_eq!(deque.pop(), Some(2));
-    assert_eq!(deque.pop(), Some(1));
-    assert_eq!(deque.pop(), None);
-
-    assert!(deque.is_empty());
-}
-
-#[test]
-fn test_block_based_deque_steal() {
-    let deque: BlockBasedDeque<i32> = BlockBasedDeque::new();
-
-    for i in 1..=5 {
-        deque.push(i);
+fn chase_lev_stealer_keeps_pending_storage_alive_after_owner_drop() {
+    let mut owner: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+    let stealer = owner.stealer();
+    for value in 0..40 {
+        owner.push(value);
     }
+    drop(owner);
 
-    assert_eq!(deque.steal(), StealResult::Success(1));
-    assert_eq!(deque.steal(), StealResult::Success(2));
-
-    assert_eq!(deque.pop(), Some(5));
-    assert_eq!(deque.pop(), Some(4));
-
-    assert_eq!(deque.steal(), StealResult::Success(3));
-
-    assert_eq!(deque.steal(), StealResult::Empty);
-    assert_eq!(deque.pop(), None);
-}
-
-#[test]
-fn test_block_based_deque_bulk_steal() {
-    let deque: BlockBasedDeque<i32> = BlockBasedDeque::new();
-
-    for i in 1..=10 {
-        deque.push(i);
+    let mut observed = Vec::new();
+    loop {
+        match stealer.steal() {
+            StealResult::Success(value) => observed.push(value),
+            StealResult::Retry => continue,
+            StealResult::Empty => break,
+        }
     }
-
-    let mut stolen = Vec::new();
-    let first = deque.steal_batch_with(|item| stolen.push(item));
-
-    assert_eq!(first, StealResult::Success(1));
-    assert_eq!(stolen, vec![2, 3, 4, 5]);
-
-    assert_eq!(deque.pop(), Some(10));
-    assert_eq!(deque.pop(), Some(9));
+    assert_eq!(observed, (0..40).collect::<Vec<_>>());
 }
 
 #[test]
-fn test_block_based_deque_drops_each_item_once() {
+fn chase_lev_batch_drops_unconsumed_tail_exactly_once() {
     struct DropProbe(Arc<AtomicUsize>);
-
     impl Drop for DropProbe {
         fn drop(&mut self) {
             self.0.fetch_add(1, Ordering::Relaxed);
@@ -237,80 +198,23 @@ fn test_block_based_deque_drops_each_item_once() {
     }
 
     let drops = Arc::new(AtomicUsize::new(0));
-
-    {
-        let deque: BlockBasedDeque<DropProbe> = BlockBasedDeque::new();
-        for _ in 0..100 {
-            deque.push(DropProbe(Arc::clone(&drops)));
-        }
-
-        for _ in 0..20 {
-            match deque.steal() {
-                StealResult::Success(item) => drop(item),
-                StealResult::Empty | StealResult::Retry => {
-                    panic!("expected successful steal")
-                }
-            }
-        }
-
-        assert_eq!(drops.load(Ordering::Relaxed), 20);
+    let mut owner: ChaseLevDeque<DropProbe> = ChaseLevDeque::new(2);
+    let stealer = owner.stealer();
+    for _ in 0..10 {
+        owner.push(DropProbe(Arc::clone(&drops)));
     }
-
-    assert_eq!(drops.load(Ordering::Relaxed), 100);
-}
-
-#[test]
-fn test_block_based_deque_multithreaded() {
-    use std::thread;
-
-    let deque = Arc::new(BlockBasedDeque::new());
-    let num_items = 1000;
-
-    for i in 0..num_items {
-        deque.push(i);
-    }
-
-    let deque_clone1 = deque.clone();
-    let handle1 = thread::spawn(move || {
-        let mut stolen = Vec::new();
-        for _ in 0..(num_items / 2) {
-            if let StealResult::Success(item) = deque_clone1.steal() {
-                stolen.push(item);
-            }
+    let mut batch = loop {
+        match stealer.steal_batch() {
+            StealResult::Success(batch) => break batch,
+            StealResult::Retry => std::hint::spin_loop(),
+            StealResult::Empty => panic!("ten queued items must remain stealable"),
         }
-        stolen
-    });
-
-    let deque_clone2 = deque.clone();
-    let handle2 = thread::spawn(move || {
-        let mut stolen = Vec::new();
-        for _ in 0..(num_items / 2) {
-            if let StealResult::Success(item) = deque_clone2.steal() {
-                stolen.push(item);
-            }
-        }
-        stolen
-    });
-
-    let mut popped = Vec::new();
-    while let Some(item) = deque.pop() {
-        popped.push(item);
-    }
-
-    let stolen1 = handle1.join().unwrap();
-    let stolen2 = handle2.join().unwrap();
-
-    let total_processed = stolen1.len() + stolen2.len() + popped.len();
-    assert_eq!(total_processed, num_items);
-
-    let mut all_items = Vec::new();
-    all_items.extend(stolen1);
-    all_items.extend(stolen2);
-    all_items.extend(popped);
-    all_items.sort();
-    for (i, &item) in all_items.iter().enumerate() {
-        assert_eq!(item, i);
-    }
+    };
+    drop(batch.next().expect("successful batch is non-empty"));
+    drop(batch);
+    drop(stealer);
+    drop(owner);
+    assert_eq!(drops.load(Ordering::Relaxed), 10);
 }
 
 #[test]
@@ -357,11 +261,12 @@ fn test_split_deque_threshold_offloading() {
 
 #[test]
 fn test_chase_lev_deque_index_wrapping() {
-    let deque: ChaseLevDeque<usize> = ChaseLevDeque::new(4);
+    let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(4);
+    let stealer = deque.stealer();
 
     // Artificially initialize bottom and top to near overflow (isize::MAX)
-    deque.top.store(isize::MAX - 2, Ordering::Relaxed);
-    deque.bottom.store(isize::MAX - 2, Ordering::Relaxed);
+    deque.inner.top.store(isize::MAX - 2, Ordering::Relaxed);
+    deque.inner.bottom.store(isize::MAX - 2, Ordering::Relaxed);
 
     // Push 3 items. bottom will transition:
     // isize::MAX - 2 -> isize::MAX - 1 -> isize::MAX -> isize::MIN
@@ -387,8 +292,8 @@ fn test_chase_lev_deque_index_wrapping() {
     assert_eq!(deque.len(), 6);
 
     // Steal elements from the top (should be 10, then 20)
-    assert_eq!(deque.steal(), StealResult::Success(10));
-    assert_eq!(deque.steal(), StealResult::Success(20));
+    assert_eq!(stealer.steal(), StealResult::Success(10));
+    assert_eq!(stealer.steal(), StealResult::Success(20));
 
     // Pop elements from the bottom (should be 70, then 60, then 50, then 40)
     assert_eq!(deque.pop(), Some(70));
@@ -397,6 +302,6 @@ fn test_chase_lev_deque_index_wrapping() {
     assert_eq!(deque.pop(), Some(40));
 
     assert_eq!(deque.pop(), None);
-    assert_eq!(deque.steal(), StealResult::Empty);
+    assert_eq!(stealer.steal(), StealResult::Empty);
     assert!(deque.is_empty());
 }

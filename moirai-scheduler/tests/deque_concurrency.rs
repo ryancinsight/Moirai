@@ -1,7 +1,7 @@
 //! Concurrency safety tests for the lock-free work-stealing deques.
 //!
 //! These validate the core work-stealing safety property under real thread
-//! contention, for [`ChaseLevDeque`], [`BlockBasedDeque`], and [`SplitDeque`]:
+//! contention, for [`ChaseLevDeque`] and [`SplitDeque`]:
 //! with a single owner (push/pop from the bottom) and many thieves (steal from the top),
 //! **every pushed item is consumed exactly once** — no loss, no duplication, no
 //! torn value. This is the empirical complement to the weak-memory fence
@@ -16,69 +16,76 @@
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use moirai_scheduler::{BlockBasedDeque, ChaseLevDeque, SplitDeque, StealResult};
+use moirai_scheduler::{ChaseLevDeque, ChaseLevStealer, SplitDeque, StealResult, StolenBatch};
 
 /// One generic harness over both deque implementations. The method names match
 /// the inherent ones; in the generic test body only the trait methods are in
 /// scope, so dispatch is unambiguous.
-trait WorkStealer<T>: Send + Sync {
-    fn w_push(&self, item: T);
-    fn w_pop(&self) -> Option<T>;
+trait WorkStealer<T>: Clone + Send + Sync {
     fn w_steal(&self) -> StealResult<T>;
-    fn w_steal_batch(&self, f: &mut dyn FnMut(T)) -> StealResult<T>;
+    fn w_steal_batch(&self) -> StealResult<StolenBatch<T>>;
 }
 
-impl<T: Send> WorkStealer<T> for ChaseLevDeque<T> {
-    fn w_push(&self, item: T) {
-        self.push(item);
-    }
-    fn w_pop(&self) -> Option<T> {
-        self.pop()
-    }
+trait WorkOwner<T> {
+    type Stealer: WorkStealer<T> + 'static;
+
+    fn w_push(&mut self, item: T);
+    fn w_pop(&mut self) -> Option<T>;
+    fn w_stealer(&self) -> Self::Stealer;
+}
+
+impl<T: Send> WorkStealer<T> for ChaseLevStealer<T> {
     fn w_steal(&self) -> StealResult<T> {
         self.steal()
     }
-    fn w_steal_batch(&self, f: &mut dyn FnMut(T)) -> StealResult<T> {
-        self.steal_batch_with(f)
+    fn w_steal_batch(&self) -> StealResult<StolenBatch<T>> {
+        self.steal_batch()
     }
 }
 
-impl<T: Send> WorkStealer<T> for BlockBasedDeque<T> {
-    fn w_push(&self, item: T) {
+impl<T: Send + 'static> WorkOwner<T> for ChaseLevDeque<T> {
+    type Stealer = ChaseLevStealer<T>;
+
+    fn w_push(&mut self, item: T) {
         self.push(item);
     }
-    fn w_pop(&self) -> Option<T> {
+    fn w_pop(&mut self) -> Option<T> {
         self.pop()
     }
-    fn w_steal(&self) -> StealResult<T> {
-        self.steal()
-    }
-    fn w_steal_batch(&self, f: &mut dyn FnMut(T)) -> StealResult<T> {
-        self.steal_batch_with(f)
+    fn w_stealer(&self) -> Self::Stealer {
+        self.stealer()
     }
 }
 
-impl<T: Send> WorkStealer<T> for SplitDeque<T> {
-    fn w_push(&self, item: T) {
-        self.push(item);
-    }
-    fn w_pop(&self) -> Option<T> {
-        self.pop()
-    }
+impl<T: Send> WorkStealer<T> for Arc<SplitDeque<T>> {
     fn w_steal(&self) -> StealResult<T> {
         self.steal()
     }
-    fn w_steal_batch(&self, f: &mut dyn FnMut(T)) -> StealResult<T> {
-        self.steal_batch_with(f)
+    fn w_steal_batch(&self) -> StealResult<StolenBatch<T>> {
+        self.steal_batch()
+    }
+}
+
+impl<T: Send + 'static> WorkOwner<T> for Arc<SplitDeque<T>> {
+    type Stealer = Arc<SplitDeque<T>>;
+
+    fn w_push(&mut self, item: T) {
+        self.push(item);
+    }
+    fn w_pop(&mut self) -> Option<T> {
+        self.pop()
+    }
+    fn w_stealer(&self) -> Self::Stealer {
+        Arc::clone(self)
     }
 }
 
 /// Run one owner + `thieves` stealing threads over items `0..n` against `deque`
 /// and assert each item is consumed exactly once. When `batch` is set the
 /// thieves use the batched steal path.
-fn exactly_once_inner<D>(deque: Arc<D>, n: usize, thieves: usize, batch: bool)
+fn exactly_once_inner<D>(mut deque: D, n: usize, thieves: usize, batch: bool)
 where
-    D: WorkStealer<usize> + 'static,
+    D: WorkOwner<usize>,
 {
     let marks: Arc<Vec<AtomicU8>> = Arc::new((0..n).map(|_| AtomicU8::new(0)).collect());
     let consumed = Arc::new(AtomicUsize::new(0));
@@ -96,17 +103,27 @@ where
 
     let thief_handles: Vec<_> = (0..thieves)
         .map(|_| {
-            let deque = Arc::clone(&deque);
+            let deque = deque.w_stealer();
             let marks = Arc::clone(&marks);
             let consumed = Arc::clone(&consumed);
             let out_of_range = Arc::clone(&out_of_range);
             std::thread::spawn(move || {
                 while consumed.load(Ordering::Acquire) < n {
                     let result = if batch {
-                        deque.w_steal_batch(&mut |item| {
-                            mark(&marks, &out_of_range, item);
-                            consumed.fetch_add(1, Ordering::Release);
-                        })
+                        match deque.w_steal_batch() {
+                            StealResult::Success(mut items) => {
+                                let first = items
+                                    .next()
+                                    .expect("invariant: successful batch is non-empty");
+                                for item in items {
+                                    mark(&marks, &out_of_range, item);
+                                    consumed.fetch_add(1, Ordering::Release);
+                                }
+                                StealResult::Success(first)
+                            }
+                            StealResult::Empty => StealResult::Empty,
+                            StealResult::Retry => StealResult::Retry,
+                        }
                     } else {
                         deque.w_steal()
                     };
@@ -175,16 +192,7 @@ where
 }
 
 fn chase_lev(n: usize, thieves: usize, capacity: usize, batch: bool) {
-    exactly_once_inner(
-        Arc::new(ChaseLevDeque::<usize>::new(capacity)),
-        n,
-        thieves,
-        batch,
-    );
-}
-
-fn block_based(n: usize, thieves: usize, batch: bool) {
-    exactly_once_inner(Arc::new(BlockBasedDeque::<usize>::new()), n, thieves, batch);
+    exactly_once_inner(ChaseLevDeque::<usize>::new(capacity), n, thieves, batch);
 }
 
 fn split(n: usize, thieves: usize, batch: bool) {
@@ -221,29 +229,6 @@ fn chase_lev_exactly_once_single_thief() {
 fn chase_lev_batch_exactly_once_high_thief_contention() {
     for _ in 0..8 {
         chase_lev(30_000, 8, 128, true);
-    }
-}
-
-// ── BlockBasedDeque ─────────────────────────────────────────────────────────
-
-#[test]
-fn block_based_exactly_once_high_thief_contention() {
-    for _ in 0..8 {
-        block_based(50_000, 8, false);
-    }
-}
-
-#[test]
-fn block_based_exactly_once_single_thief() {
-    for _ in 0..16 {
-        block_based(20_000, 1, false);
-    }
-}
-
-#[test]
-fn block_based_batch_exactly_once_high_thief_contention() {
-    for _ in 0..8 {
-        block_based(30_000, 8, true);
     }
 }
 

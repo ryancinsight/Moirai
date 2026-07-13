@@ -2,17 +2,25 @@ use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::sync::Mutex;
 
-use super::chase_lev::{ChaseLevDeque, StealResult};
-use super::reclaim::{DequeReclaimPolicy, QuiescentReclaim};
+use super::chase_lev::{ChaseLevDeque, ChaseLevStealer, StealResult, StolenBatch};
+use super::reclaim::{DeferredReclaim, DequeReclaimPolicy};
 
 /// A split work-stealing deque inspired by the Lace runtime.
-pub struct SplitDeque<T, const N: usize = 32, P = QuiescentReclaim>
+pub struct SplitDeque<T, const N: usize = 32, P = DeferredReclaim>
 where
     P: DequeReclaimPolicy,
 {
-    private: Mutex<PrivateStack<T, N>>,
-    shared: ChaseLevDeque<T, P>,
+    owner: Mutex<SplitOwner<T, N, P>>,
+    stealer: ChaseLevStealer<T, P>,
     policy: PhantomData<P>,
+}
+
+struct SplitOwner<T, const N: usize, P>
+where
+    P: DequeReclaimPolicy,
+{
+    private: PrivateStack<T, N>,
+    shared: ChaseLevDeque<T, P>,
 }
 
 struct PrivateStack<T, const N: usize> {
@@ -43,8 +51,9 @@ impl<T, const N: usize> PrivateStack<T, N> {
         Some(unsafe { self.items[self.len].assume_init_read() })
     }
 
-    fn offload_oldest_half<P>(&mut self, shared: &ChaseLevDeque<T, P>)
+    fn offload_oldest_half<P>(&mut self, shared: &mut ChaseLevDeque<T, P>)
     where
+        T: Send,
         P: DequeReclaimPolicy,
     {
         let count = self.len / 2;
@@ -112,43 +121,48 @@ impl<T, const N: usize> Drop for PrivateStack<T, N> {
 
 impl<T, const N: usize, P> SplitDeque<T, N, P>
 where
+    T: Send,
     P: DequeReclaimPolicy,
 {
     pub fn new() -> Self {
         assert!(N >= 2, "SplitDeque capacity N must be at least 2");
+        let shared = ChaseLevDeque::new(N);
+        let stealer = shared.stealer();
         Self {
-            private: Mutex::new(PrivateStack::new()),
-            shared: ChaseLevDeque::new(N),
+            owner: Mutex::new(SplitOwner {
+                private: PrivateStack::new(),
+                shared,
+            }),
+            stealer,
             policy: PhantomData,
         }
     }
 
     pub fn push(&self, item: T) {
-        let mut private = self.private.lock().unwrap_or_else(|e| e.into_inner());
-        if private.len >= N {
-            private.offload_oldest_half(&self.shared);
+        let mut owner = self.owner.lock().unwrap_or_else(|e| e.into_inner());
+        if owner.private.len >= N {
+            let SplitOwner { private, shared } = &mut *owner;
+            private.offload_oldest_half(shared);
         }
-        private.push(item);
+        owner.private.push(item);
     }
 
     pub fn pop(&self) -> Option<T> {
-        let mut private = self.private.lock().unwrap_or_else(|e| e.into_inner());
-        private.pop().or_else(|| self.shared.pop())
+        let mut owner = self.owner.lock().unwrap_or_else(|e| e.into_inner());
+        owner.private.pop().or_else(|| owner.shared.pop())
     }
 
     pub fn steal(&self) -> StealResult<T> {
-        self.shared.steal()
+        self.stealer.steal()
     }
 
-    pub fn steal_batch_with<F>(&self, f: F) -> StealResult<T>
-    where
-        F: FnMut(T),
-    {
-        self.shared.steal_batch_with(f)
+    pub fn steal_batch(&self) -> StealResult<StolenBatch<T>> {
+        self.stealer.steal_batch()
     }
 
     pub fn len(&self) -> usize {
-        self.private.lock().unwrap_or_else(|e| e.into_inner()).len + self.shared.len()
+        let owner = self.owner.lock().unwrap_or_else(|e| e.into_inner());
+        owner.private.len + owner.shared.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -158,6 +172,7 @@ where
 
 impl<T, const N: usize, P> Default for SplitDeque<T, N, P>
 where
+    T: Send,
     P: DequeReclaimPolicy,
 {
     fn default() -> Self {

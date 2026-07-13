@@ -11,7 +11,6 @@
 //! - [`ChaseLevDeque`] — the canonical Chase-Lev deque: O(1) wait-free local
 //!   push/pop for the owner, lock-free steal for thieves, dynamic resizing,
 //!   and `bottom`/`top` isolated to separate cache lines to avoid false sharing.
-//! - [`BlockBasedDeque`] — linked fixed-size blocks; bounded per-push work.
 //! - [`SplitDeque`] — a private owner stack backed by a shared deque, reducing
 //!   steal contention when spawn rate greatly exceeds steal rate.
 //!
@@ -33,7 +32,7 @@ pub mod deque;
 pub mod numa;
 
 pub use deque::{
-    BlockBasedDeque, ChaseLevDeque, DequeReclaimPolicy, DequeReclaimState, QuiescentAccessGuard,
-    QuiescentReclaim, QuiescentState, SharedEpochAccessGuard, SharedEpochReclaim, SharedEpochState,
-    SplitDeque, StealResult,
+    ChaseLevDeque, ChaseLevStealer, DeferredAccessGuard, DeferredReclaim, DeferredState,
+    DequeReclaimPolicy, DequeReclaimState, SharedEpochAccessGuard, SharedEpochReclaim,
+    SharedEpochState, SplitDeque, StealResult, StolenBatch,
 };
