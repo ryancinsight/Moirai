@@ -8,6 +8,8 @@ admitted work across the hierarchy the stack actually owns: local CPU worker
 threads, supervised processes, per-process async lanes, server routes, and future
 accelerator routes. Rayon/Tokio parity remains a regression gate, not the
 architecture definition.
+- [x] [patch] Make IPC error capture portable across Unix and Windows so Atlas
+  consumers compile the shared-memory provider on Linux, macOS, and Windows.
 - [~] [minor] Stage B1 rayon parity: `join(a,b)` divide-and-conquer shorthand
   delivered through `moirai_parallel::{join, join_with}` with static
   `ExecutionPolicy` dispatch, scoped scheduler flush plus caller-lane execution
