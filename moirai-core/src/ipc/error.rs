@@ -26,23 +26,11 @@ impl fmt::Display for IpcError {
 
 impl core::error::Error for IpcError {}
 
-/// Convert OS error to `IpcError`
-#[cfg(unix)]
+/// Convert the calling thread's last operating-system error to `IpcError`.
+#[cfg(any(unix, windows))]
 pub fn last_os_error() -> IpcError {
-    unsafe { IpcError::SystemError(*libc::__errno_location()) }
-}
-
-/// Convert OS error to `IpcError`
-#[cfg(windows)]
-pub fn last_os_error() -> IpcError {
-    extern "system" {
-        fn GetLastError() -> u32;
-    }
-    // SAFETY: `GetLastError` takes no arguments and reads thread-local state.
-    // justification: the Win32 error code is carried verbatim in an `i32` field;
-    // the `u32 -> i32` reinterpretation preserves all bits (no value is lost).
-    #[allow(clippy::cast_possible_wrap)]
-    unsafe {
-        IpcError::SystemError(GetLastError() as i32)
-    }
+    let code = std::io::Error::last_os_error()
+        .raw_os_error()
+        .expect("invariant: last_os_error captures a raw operating-system error code");
+    IpcError::SystemError(code)
 }

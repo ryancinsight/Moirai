@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `moirai-core`: read the thread-local operating-system error through
+  `std::io::Error` on Unix and Windows, removing the Linux-only errno symbol
+  that prevented IPC consumers from compiling on macOS.
+
 ### Added
 - `moirai-executor`: added `block_on`, a public current-thread parking wait
   primitive over the existing scheduler waker driver. This gives Moirai-owned

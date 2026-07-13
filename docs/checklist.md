@@ -11,6 +11,9 @@
 
 ## Remaining Gap Register
 
+- [x] [patch] Replace the Linux-only IPC errno accessor with the portable
+  standard-library contract; focused IPC nextest coverage passes 9/9 and
+  warning-denied `moirai-core` clippy is clean.
 - [x] [patch] Add Apollo-facing public `moirai` crate contract tests for chunked
   mutable scheduling and caller-owned indexed collection. The tests verify
   complete disjoint element coverage and non-`Clone` movement into existing
