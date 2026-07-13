@@ -29,13 +29,11 @@ non-clonable Chase-Lev owner endpoint plus cloneable
 stealer endpoints; all consumers must migrate atomically under an ADR. Evidence
 tier: deductive aliasing/API proof; loom verification belongs to delivery.
 
-**Filed (P0 liveness/backpressure, ISSUE-212).** The bounded scheduler injector
-uses an infallible enqueue that spins/yields until a consumer frees capacity.
-Saturated submission can monopolize a producer or deadlock a scheduler worker.
-The complete fix must use the existing fallible queue operation, roll back the
-pending count, and reject the already-registered lifecycle exactly once;
-changing the queue call alone would leak registry state. Evidence tier:
-deductive source-path analysis.
+**Resolved (P0 liveness/backpressure, ISSUE-212).** Scheduler admission uses the
+fallible bounded-queue operation. Saturation returns typed resource exhaustion,
+rolls back pending state, drops the rejected job once, and terminally completes
+an unstarted lifecycle. A saturated one-worker regression verifies rejection
+and recovery without sleeps. Evidence tier: value-semantic tests and Clippy.
 
 **Filed (P0 starvation, ISSUE-213).** `BlockingTask` placement still executes on
 the unified compute worker pool. A full worker count of blocking tasks can starve

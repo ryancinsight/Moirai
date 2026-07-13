@@ -73,6 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removed scheduler types directly.
 
 ### Changed
+- `moirai-executor`: scheduler admission is bounded and fallible. Saturation
+  returns `ExecutorError::ResourceExhausted`, rolls back pending accounting,
+  drops rejected jobs once, and terminally completes unstarted registry state.
 - `moirai-executor`: bottom-side Chase-Lev endpoints now move into their worker
   threads; shared worker state retains only stealers and bounded external
   injectors. Nested-scope helping uses top-side steals without recovering an

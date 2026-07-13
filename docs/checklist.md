@@ -34,9 +34,12 @@
     compile-fail doctests pass 2/2; the bounded Loom model and three targeted
     no-default-feature Miri ownership tests pass. Criterion medians are 965.64
     ns deferred, 5.4225 us shared epoch, and 5.7232 us split for 256 elements.
-- [ ] [minor] ISSUE-212: Make external scheduler admission bounded through the
+- [x] [minor] ISSUE-212: Make external scheduler admission bounded through the
   existing fallible queue operation, including pending-count rollback and an
-  explicit registry rejection transition on every pre-start failure.
+  explicit registry rejection transition on every pre-start failure. Executor
+  nextest passes 83/83 and all-target/all-feature Clippy is clean.
+- [ ] [patch] ISSUE-216: Benchmark saturated Moirai admission against the
+  existing Crossbeam bounded-queue reference.
 - [ ] [arch] ISSUE-213: Isolate `BlockingTask` execution from unified compute
   workers so blocking work cannot occupy the complete scheduler. Preserve one
   Moirai-owned runtime; Tokio and Smol remain comparison references only.

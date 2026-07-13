@@ -67,6 +67,41 @@ fn scheduler_runs_all_work_classes_on_one_worker_set() {
 }
 
 #[test]
+fn saturated_admission_rolls_back_pending_and_recovers() {
+    let scheduler = ThreadScheduler::<256>::new(1, "bounded-admission").unwrap();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    scheduler
+        .schedule::<BlockingTask, _>(Priority::Normal, None, move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+        .unwrap();
+    started_rx.recv().unwrap();
+
+    for _ in 0..1024 {
+        scheduler
+            .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
+            .unwrap();
+    }
+    let rejection = scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
+        .expect_err("capacity plus one admission must fail");
+    assert!(matches!(rejection, ExecutorError::ResourceExhausted(_)));
+    assert_eq!(scheduler.pending_tasks(), 1024);
+
+    release_tx.send(()).unwrap();
+    scheduler.join().unwrap();
+    assert_eq!(scheduler.pending_tasks(), 0);
+
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
+        .unwrap();
+    scheduler.join().unwrap();
+    assert_eq!(scheduler.pending_tasks(), 0);
+}
+
+#[test]
 fn large_pool_wakes_high_index_workers_across_idle_cycles() {
     // Regression for the single-AtomicU64 idle map: workers with id >= 64 were
     // never registered in the wake bitmap, so on a pool larger than 64 they

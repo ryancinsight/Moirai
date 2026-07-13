@@ -78,9 +78,18 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
     }
 
     /// Push a job from an external thread (non-local push).
-    pub(crate) fn push_external(&self, priority: Priority, job: ScheduledJob) {
-        self.injector.enqueue((priority, job));
-        self.len.fetch_add(1, Ordering::Relaxed);
+    pub(crate) fn try_push_external(
+        &self,
+        priority: Priority,
+        job: ScheduledJob,
+    ) -> Option<ScheduledJob> {
+        match self.injector.try_enqueue((priority, job)) {
+            Ok(()) => {
+                self.len.fetch_add(1, Ordering::Relaxed);
+                None
+            }
+            Err((_priority, job)) => Some(job),
+        }
     }
 
     /// Steal one job without acquiring a bottom-side owner capability.
@@ -217,12 +226,14 @@ mod tests {
 
         for (priority, value) in [(Priority::Low, 1), (Priority::Critical, 2)] {
             let observed = Arc::clone(&observed);
-            queues.push_external(
-                priority,
-                ScheduledJob::new(move |_| {
-                    observed.lock().unwrap().push(value);
-                }),
-            );
+            let () = queues
+                .try_push_external(
+                    priority,
+                    ScheduledJob::new(move |_| {
+                        observed.lock().unwrap().push(value);
+                    }),
+                )
+                .map_or((), |_| panic!("test queue has capacity"));
         }
 
         owner.pop_local().unwrap().execute(0);
@@ -252,12 +263,14 @@ mod tests {
 
         for (priority, value) in [(Priority::Normal, 7), (Priority::Critical, 9)] {
             let observed = Arc::clone(&observed);
-            queues.push_external(
-                priority,
-                ScheduledJob::new(move |_| {
-                    observed.lock().unwrap().push(value);
-                }),
-            );
+            let () = queues
+                .try_push_external(
+                    priority,
+                    ScheduledJob::new(move |_| {
+                        observed.lock().unwrap().push(value);
+                    }),
+                )
+                .map_or((), |_| panic!("test queue has capacity"));
         }
 
         // Critical drains ahead of Normal once moved into the local queues.
@@ -266,5 +279,29 @@ mod tests {
 
         assert_eq!(*observed.lock().unwrap(), vec![9, 7]);
         assert_eq!(queues.len(), 0);
+    }
+
+    #[test]
+    fn full_injector_returns_and_drops_rejected_job_once() {
+        let (_owner, queues) = WorkerQueues::<256>::new();
+        for _ in 0..super::INJECTOR_CAPACITY {
+            let () = queues
+                .try_push_external(Priority::Normal, ScheduledJob::new(|_| {}))
+                .map_or((), |_| panic!("capacity-sized admission must succeed"));
+        }
+
+        let capture = Arc::new(());
+        let rejected_capture = Arc::clone(&capture);
+        let rejected = queues
+            .try_push_external(
+                Priority::Normal,
+                ScheduledJob::new(move |_| drop(rejected_capture)),
+            )
+            .expect("one job beyond capacity must be rejected");
+
+        assert_eq!(queues.len(), super::INJECTOR_CAPACITY);
+        assert_eq!(Arc::strong_count(&capture), 2);
+        drop(rejected);
+        assert_eq!(Arc::strong_count(&capture), 1);
     }
 }

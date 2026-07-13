@@ -124,17 +124,23 @@ architecture definition.
   5.4225 us, and split deque at 5.7232 us for 256 elements on this machine.
 - **Status**: completed 2026-07-13.
 
-#### ⏳ ISSUE-212 [minor]: Enforce bounded scheduler admission
+#### ✅ ISSUE-212 [minor]: Enforce bounded scheduler admission
 - **Type**: Backpressure / Contention / Lifecycle Correctness
 - **Root Cause**: the bounded injector's infallible enqueue spins/yields until
   capacity appears. External submission can monopolize a producer or deadlock a
   scheduler worker, and simply switching to `try_enqueue` would leak the
   already-registered task lifecycle and pending count on rejection.
-- **Acceptance criteria**: full admission returns a typed resource-exhausted
-  error; pending and registry state roll back exactly once; rejected jobs drop
-  exactly once; recovery succeeds after capacity becomes available; Criterion
-  compares saturated admission against the existing Crossbeam reference.
-- **Evidence tier**: deductive source-path analysis; runtime test pending.
+- **Resolution**: fallible queue admission returns typed resource exhaustion,
+  rolls back pending state, drops rejected jobs once, and terminally completes
+  unstarted lifecycle tokens. The LIFO slot no longer displaces admitted work.
+- **Evidence tier**: value-semantic saturation, drop, lifecycle, rollback, and
+  recovery tests; executor nextest 83/83 and all-feature Clippy.
+- **Status**: completed 2026-07-13.
+
+#### ⏳ ISSUE-216 [patch]: Benchmark saturated scheduler admission
+- **Acceptance criteria**: Criterion compares Moirai rejection latency with the
+  existing Crossbeam bounded-queue reference after equal value checks.
+- **Status**: todo; independent measurement split from ISSUE-212 correctness.
 
 #### ⏳ ISSUE-213 [arch]: Isolate blocking work from compute workers
 - **Type**: Scheduler Architecture / Starvation Safety

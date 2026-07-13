@@ -51,9 +51,10 @@ impl TaskLifecycleToken {
     /// (waking any registered waiter) without running its body.
     #[inline]
     pub(crate) fn cancel(self) {
+        let token = ManuallyDrop::new(self);
         // Safety: as in `start` — the token is the unique lifecycle authority
         // for an initialized, address-stable registry slot.
-        unsafe { self.state.as_ref().mark_cancelled() }
+        unsafe { token.state.as_ref().mark_cancelled() }
     }
 
     /// Start the task unless it was cancelled while queued.
@@ -73,7 +74,8 @@ impl TaskLifecycleToken {
     /// Mark the task as running and transfer completion authority.
     #[inline]
     pub(crate) fn start(self, worker_id: usize) -> RunningTaskToken {
-        let state = self.state;
+        let token = ManuallyDrop::new(self);
+        let state = token.state;
         // Safety: lifecycle tokens are created only from initialized registry
         // slots. Registry blocks keep slot addresses stable for running tasks.
         let started_after_ns = unsafe { state.as_ref().mark_started(worker_id) };
@@ -82,6 +84,15 @@ impl TaskLifecycleToken {
             started_after_ns,
             completed: false,
         }
+    }
+}
+
+impl Drop for TaskLifecycleToken {
+    fn drop(&mut self) {
+        // A token reaches Drop only when admission or queued execution ends
+        // before `start`; publish terminal completion so registry slots and
+        // waiters cannot remain permanently active.
+        unsafe { self.state.as_ref().mark_completed() }
     }
 }
 

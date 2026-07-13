@@ -284,17 +284,27 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         // (On x86 `lock xadd` is already full-barrier, so this is free.)
         let previous_pending = self.inner.pending_tasks.fetch_add(1, Ordering::SeqCst);
 
-        let is_local = get_current_worker_id() == Some(worker_index);
-        if is_local {
-            if let Some(old_job) = self.inner.workers[worker_index].lifo_slot.push(job) {
-                self.inner.workers[worker_index]
-                    .queues
-                    .push_external(priority, old_job);
-            }
+        let rejected = if get_current_worker_id() == Some(worker_index) {
+            self.inner.workers[worker_index]
+                .lifo_slot
+                .try_push(job)
+                .and_then(|job| {
+                    self.inner.workers[worker_index]
+                        .queues
+                        .try_push_external(priority, job)
+                })
         } else {
             self.inner.workers[worker_index]
                 .queues
-                .push_external(priority, job);
+                .try_push_external(priority, job)
+        };
+
+        if let Some(job) = rejected {
+            self.inner.pending_tasks.fetch_sub(1, Ordering::SeqCst);
+            drop(job);
+            return Err(ExecutorError::ResourceExhausted(format!(
+                "worker {worker_index} scheduler admission queue is full"
+            )));
         }
 
         // Try to wake up an idle worker via the lock-free wake lottery. The

@@ -181,32 +181,19 @@ impl LifoSlot {
         }
     }
 
-    pub(super) fn push(&self, job: ScheduledJob) -> Option<ScheduledJob> {
+    pub(super) fn try_push(&self, job: ScheduledJob) -> Option<ScheduledJob> {
         let current = self.state.load(Ordering::Relaxed);
-        if current == 0 {
-            if self
+        if current == 0
+            && self
                 .state
                 .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
                 .is_ok()
-            {
-                unsafe {
-                    *self.job.get() = std::mem::MaybeUninit::new(job);
-                }
-                self.state.store(2, Ordering::Release);
-                return None;
-            }
-        } else if current == 2
-            && self
-                .state
-                .compare_exchange(2, 1, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
         {
-            let old_job = unsafe { std::ptr::read((*self.job.get()).as_ptr()) };
             unsafe {
                 *self.job.get() = std::mem::MaybeUninit::new(job);
             }
             self.state.store(2, Ordering::Release);
-            return Some(old_job);
+            return None;
         }
         Some(job)
     }

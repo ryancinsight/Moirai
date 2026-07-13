@@ -46,6 +46,23 @@ mod tests {
     }
 
     #[test]
+    fn unstarted_lifecycle_token_drop_publishes_rejection_completion() {
+        let mut registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+
+        drop(lifecycle);
+
+        let metadata = registry
+            .get_metadata(task_id)
+            .expect("registered task metadata must remain readable");
+        assert_eq!(metadata.started_at, None);
+        assert!(!metadata.cancelled);
+        assert!(metadata.completed_at.is_some());
+        assert_eq!(registry.active_count(), 0);
+        assert_eq!(registry.completed_count(), 1);
+    }
+
+    #[test]
     fn running_lifecycle_token_completes_on_drop() {
         let mut registry = TaskRegistry::new();
         let lifecycle = registry.register_task_with_id(8);

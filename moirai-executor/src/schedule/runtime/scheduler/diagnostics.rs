@@ -41,7 +41,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
     pub fn diagnostic_priority_queue_push_pop(priority: Priority) -> usize {
         let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new();
-        queues.push_external(priority, ScheduledJob::new(|_| {}));
+        let () = queues
+            .try_push_external(priority, ScheduledJob::new(|_| {}))
+            .map_or((), |_| panic!("diagnostic queue has capacity"));
         owner
             .pop_local()
             .map(|job| usize::from(job.execute(0)))
@@ -68,7 +70,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         );
         let previous_pending = pending_tasks.fetch_add(1, Ordering::Release);
         let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new();
-        queues.push_external(priority, ScheduledJob::new(|_| {}));
+        let () = queues
+            .try_push_external(priority, ScheduledJob::new(|_| {}))
+            .map_or((), |_| panic!("diagnostic queue has capacity"));
         let completed = owner
             .pop_local()
             .map(|job| usize::from(job.execute(worker_index)))
@@ -88,9 +92,10 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     pub fn diagnostic_worker_local_dequeue_execute(&self, worker_index: usize) -> usize {
         let index = worker_index % self.inner.workers.len();
         self.inner.pending_tasks.fetch_add(1, Ordering::Release);
-        self.inner.workers[index]
+        let () = self.inner.workers[index]
             .queues
-            .push_external(Priority::Normal, ScheduledJob::new(|_| {}));
+            .try_push_external(Priority::Normal, ScheduledJob::new(|_| {}))
+            .map_or((), |_| panic!("diagnostic queue has capacity"));
 
         next_shared_job(&self.inner, index)
             .map(|job| {
@@ -137,12 +142,14 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     pub fn diagnostic_max_inline_queue_push_pop_execute() -> usize {
         let words = [1usize; 14];
         let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new();
-        queues.push_external(
-            Priority::Normal,
-            ScheduledJob::new(move |_| {
-                std::hint::black_box(words.iter().copied().sum::<usize>());
-            }),
-        );
+        let () = queues
+            .try_push_external(
+                Priority::Normal,
+                ScheduledJob::new(move |_| {
+                    std::hint::black_box(words.iter().copied().sum::<usize>());
+                }),
+            )
+            .map_or((), |_| panic!("diagnostic queue has capacity"));
 
         owner
             .pop_local()
@@ -153,12 +160,14 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     pub fn diagnostic_oversized_queue_push_pop_execute() -> usize {
         let words = [1usize; 32];
         let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new();
-        queues.push_external(
-            Priority::Normal,
-            ScheduledJob::new(move |_| {
-                std::hint::black_box(words.iter().copied().sum::<usize>());
-            }),
-        );
+        let () = queues
+            .try_push_external(
+                Priority::Normal,
+                ScheduledJob::new(move |_| {
+                    std::hint::black_box(words.iter().copied().sum::<usize>());
+                }),
+            )
+            .map_or((), |_| panic!("diagnostic queue has capacity"));
 
         owner
             .pop_local()
@@ -170,12 +179,15 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let index = worker_index % self.inner.workers.len();
         let words = [1usize; 14];
         self.inner.pending_tasks.fetch_add(1, Ordering::Release);
-        self.inner.workers[index].queues.push_external(
-            Priority::Normal,
-            ScheduledJob::new(move |_| {
-                std::hint::black_box(words.iter().copied().sum::<usize>());
-            }),
-        );
+        let () = self.inner.workers[index]
+            .queues
+            .try_push_external(
+                Priority::Normal,
+                ScheduledJob::new(move |_| {
+                    std::hint::black_box(words.iter().copied().sum::<usize>());
+                }),
+            )
+            .map_or((), |_| panic!("diagnostic queue has capacity"));
 
         next_shared_job(&self.inner, index)
             .map(|job| {
@@ -189,12 +201,15 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let index = worker_index % self.inner.workers.len();
         let words = [1usize; 32];
         self.inner.pending_tasks.fetch_add(1, Ordering::Release);
-        self.inner.workers[index].queues.push_external(
-            Priority::Normal,
-            ScheduledJob::new(move |_| {
-                std::hint::black_box(words.iter().copied().sum::<usize>());
-            }),
-        );
+        let () = self.inner.workers[index]
+            .queues
+            .try_push_external(
+                Priority::Normal,
+                ScheduledJob::new(move |_| {
+                    std::hint::black_box(words.iter().copied().sum::<usize>());
+                }),
+            )
+            .map_or((), |_| panic!("diagnostic queue has capacity"));
 
         next_shared_job(&self.inner, index)
             .map(|job| {
