@@ -11,6 +11,8 @@
 
 ## Remaining Gap Register
 
+- [x] [patch] Confine kqueue event storage to each polling thread, preserving
+  allocation-free reuse while satisfying the reactor's `Send + Sync` contract.
 - [x] [patch] Replace the Linux-only IPC errno accessor with the portable
   standard-library contract; focused IPC nextest coverage passes 9/9 and
   warning-denied `moirai-core` clippy is clean.

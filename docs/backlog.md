@@ -8,6 +8,8 @@ admitted work across the hierarchy the stack actually owns: local CPU worker
 threads, supervised processes, per-process async lanes, server routes, and future
 accelerator routes. Rayon/Tokio parity remains a regression gate, not the
 architecture definition.
+- [x] [patch] Preserve kqueue reactor thread safety with a per-thread reusable
+  event buffer rather than storing libc pointer-bearing events in shared state.
 - [x] [patch] Make IPC error capture portable across Unix and Windows so Atlas
   consumers compile the shared-memory provider on Linux, macOS, and Windows.
 - [~] [minor] Stage B1 rayon parity: `join(a,b)` divide-and-conquer shorthand
