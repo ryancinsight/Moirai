@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Pin Themis to the exact audited provider revision so downstream integrators
+  resolve one source identity instead of compiling the same commit twice.
+- Pin Mnemosyne to the revision that owns that same Themis identity.
 - `moirai-executor`: migrated the Melinoe scheduler bridge to the validated
   `ParallelExecutor` capability. Its unsafe construction site documents the
   exact-once index, blocking-completion, and context-lifetime proof; raw executor
