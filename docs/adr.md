@@ -996,6 +996,16 @@ entered from inside a running scheduled job (nested fork-join, e.g. a recursive
 (plus multi-consumer steals into it), so the help path introduces no new
 cross-thread aliasing on the deques.
 
+Indexed fan-out and indexed map/reduce create the same synchronous nested-wait
+shape. They therefore use `drain_scope` as well; parking directly through
+`SchedulerScopeState::wait` would bypass this decision and can deadlock a
+saturated outer parallel region whose workers submit inner indexed chunks.
+Their chunk count is bounded only by logical work and worker-plus-caller lanes.
+Execution policy already owns the profitability decision: `Adaptive` applies
+its documented threshold before reaching the executor, while explicit
+`Parallel` must not be silently overridden by an index-count grain heuristic
+that cannot know each index's computational cost.
+
 **Alternatives rejected.** (b) Route `moirai_iter`'s non-indexed terminals
 through the flat `for_each_indexed` fan-out — avoids nesting but leaves `scope`
 itself a deadlock trap for every other nested caller; the scheduler primitive

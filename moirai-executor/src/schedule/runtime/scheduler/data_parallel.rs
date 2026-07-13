@@ -17,13 +17,12 @@ use moirai_core::{
     Priority,
 };
 
-use super::super::super::{
-    class::WorkClass,
-    reduce::{inline_reduction_limit, ReduceSlots},
+use super::super::super::{class::WorkClass, reduce::ReduceSlots};
+use super::super::types::{
+    get_current_worker_id, SchedulerScopeState, SharedScopedTaskCompletion, ThreadScheduler,
 };
-use super::super::types::{SchedulerScopeState, SharedScopedTaskCompletion, ThreadScheduler};
 use super::super::worker::{
-    indexed_chunk_count, indexed_reduce_chunk_count, inline_map_reduce, map_reduce_range,
+    indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
 };
 
 impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
@@ -34,7 +33,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// This path is for data-parallel work where the caller needs completion,
     /// not one task handle per logical item. It schedules at most one erased
     /// scheduler job per worker, while the item closure remains statically
-    /// typed and shared by reference across chunks.
+    /// typed and shared by reference across chunks. A scheduler worker calling
+    /// this method participates in queued work while waiting, so nested indexed
+    /// fan-out remains work-conserving under pool saturation.
     pub fn for_each_indexed<C, F>(
         &self,
         priority: Priority,
@@ -54,9 +55,20 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             return Ok(());
         }
 
+        // A worker already contributes one lane of outer parallelism. Flatten
+        // nested indexed regions on that lane: recursively stealing unrelated
+        // outer jobs grows the worker stack with every nested tensor reduction.
+        if get_current_worker_id().is_some() {
+            return catch_unwind(AssertUnwindSafe(|| {
+                for index in 0..count {
+                    task(index);
+                }
+            }))
+            .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked));
+        }
+
         let chunk_count = indexed_chunk_count(count, self.worker_count());
-        let chunk_size = count.div_ceil(chunk_count);
-        let caller_end = chunk_size.min(count);
+        let (_, caller_end) = indexed_chunk_bounds(count, chunk_count, 0);
         if chunk_count == 1 {
             return catch_unwind(AssertUnwindSafe(|| {
                 for index in 0..caller_end {
@@ -71,11 +83,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let mut schedule_result = Ok(());
 
         for chunk_index in 1..chunk_count {
-            let start = chunk_index * chunk_size;
-            let end = start.saturating_add(chunk_size).min(count);
-            if start >= end {
-                break;
-            }
+            let (start, end) = indexed_chunk_bounds(count, chunk_count, chunk_index);
 
             state.register_task();
             let completion = SharedScopedTaskCompletion {
@@ -113,7 +121,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             Ok(())
         };
 
-        state.wait();
+        self.drain_scope(&state);
 
         if state.failed_tasks.load(Ordering::Acquire) || caller_result.is_err() {
             Err(ExecutorError::SpawnFailed(
@@ -128,7 +136,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     ///
     /// `identity` must be the neutral element for `reduce`. The scheduler
     /// computes local chunk reductions before combining them on the caller's
-    /// thread, avoiding per-item atomic aggregation.
+    /// thread, avoiding per-item atomic aggregation. A scheduler worker calling
+    /// this method participates in queued work while waiting, so nested indexed
+    /// reductions remain work-conserving under pool saturation.
     pub fn map_reduce_indexed<C, T, Map, Reduce>(
         &self,
         priority: Priority,
@@ -152,14 +162,12 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             return Ok(identity);
         }
 
-        let worker_count = self.worker_count().max(1);
-        if count <= inline_reduction_limit::<T>(worker_count) {
+        if get_current_worker_id().is_some() {
             return inline_map_reduce(count, identity, map, reduce);
         }
 
-        let chunk_count = indexed_reduce_chunk_count::<T>(count, worker_count);
-        let chunk_size = count.div_ceil(chunk_count);
-        let caller_end = chunk_size.min(count);
+        let chunk_count = indexed_chunk_count(count, self.worker_count());
+        let (_, caller_end) = indexed_chunk_bounds(count, chunk_count, 0);
         if chunk_count == 1 {
             return inline_map_reduce(count, identity, map, reduce);
         }
@@ -171,11 +179,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let mut schedule_result = Ok(());
 
         for chunk_index in 1..chunk_count {
-            let start = chunk_index * chunk_size;
-            let end = start.saturating_add(chunk_size).min(count);
-            if start >= end {
-                break;
-            }
+            let (start, end) = indexed_chunk_bounds(count, chunk_count, chunk_index);
 
             state.register_task();
             let completion = SharedScopedTaskCompletion {
@@ -212,7 +216,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             Ok(identity.clone())
         };
 
-        state.wait();
+        self.drain_scope(&state);
 
         if state.failed_tasks.load(Ordering::Acquire) {
             Err(ExecutorError::SpawnFailed(
