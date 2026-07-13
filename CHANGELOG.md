@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `moirai-core`: read the thread-local operating-system error through
   `std::io::Error` on Unix and Windows, removing the Linux-only errno symbol
   that prevented IPC consumers from compiling on macOS.
+- `moirai-pal`: keep the pointer-bearing kqueue output buffer thread-local, so
+  the reactor remains `Send + Sync` without an unsafe marker implementation or
+  a per-poll allocation.
 
 ### Added
 - `moirai-executor`: added `block_on`, a public current-thread parking wait

@@ -1,6 +1,7 @@
 //! kqueue reactor for macOS and BSD targets.
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
     io, ptr,
     sync::{Mutex, MutexGuard},
@@ -12,13 +13,17 @@ use crate::{Event, Interest, RawFd, Reactor};
 const EVENT_CAPACITY: usize = 1024;
 const WAKE_IDENT: usize = usize::MAX;
 
+thread_local! {
+    /// Per-poller output storage keeps the hot poll path allocation-free while
+    /// confining libc's pointer-bearing `kevent` representation to its thread.
+    static EVENT_BUFFER: RefCell<Vec<libc::kevent>> =
+        RefCell::new(vec![zeroed_event(); EVENT_CAPACITY]);
+}
+
 /// kqueue-backed reactor for BSD-style event notification.
 pub struct KqueueReactor {
     kqueue_fd: RawFd,
     interests: Mutex<HashMap<RawFd, Interest>>,
-    /// Reused `kevent` output buffer (`EVENT_CAPACITY` entries), so the hot
-    /// poll loop does not allocate a fresh 1024-entry vector per iteration.
-    events: Mutex<Vec<libc::kevent>>,
 }
 
 impl KqueueReactor {
@@ -34,7 +39,6 @@ impl KqueueReactor {
         let reactor = Self {
             kqueue_fd,
             interests: Mutex::new(HashMap::new()),
-            events: Mutex::new(vec![zeroed_event(); EVENT_CAPACITY]),
         };
         reactor.register_waker()?;
         Ok(reactor)
@@ -92,48 +96,50 @@ impl Reactor for KqueueReactor {
     }
 
     fn poll_events(&self, timeout: Option<Duration>) -> io::Result<Vec<Event>> {
-        // Reuse the persistent output buffer; the mutex serializes concurrent
-        // pollers (the reactor is driven by one event-loop thread in practice).
-        let mut events = lock_mutex(&self.events);
-        let timeout_spec = timeout.map(duration_to_timespec);
-        let timeout_ptr = timeout_spec
-            .as_ref()
-            .map_or(ptr::null(), |spec| spec as *const libc::timespec);
+        EVENT_BUFFER.with(|buffer| {
+            let mut events = buffer.try_borrow_mut().map_err(|_| {
+                io::Error::other("kqueue polling cannot re-enter on the same thread")
+            })?;
+            let timeout_spec = timeout.map(duration_to_timespec);
+            let timeout_ptr = timeout_spec
+                .as_ref()
+                .map_or(ptr::null(), |spec| spec as *const libc::timespec);
 
-        // Safety: `events` points to writable storage for `EVENT_CAPACITY`
-        // entries. `timeout_ptr` is either null or points to a stack timespec
-        // valid for the duration of the syscall.
-        let ready = unsafe {
-            libc::kevent(
-                self.kqueue_fd,
-                ptr::null(),
-                0,
-                events.as_mut_ptr(),
-                EVENT_CAPACITY as i32,
-                timeout_ptr,
-            )
-        };
+            // Safety: `events` points to writable storage for `EVENT_CAPACITY`
+            // entries. `timeout_ptr` is either null or points to a stack timespec
+            // valid for the duration of the syscall.
+            let ready = unsafe {
+                libc::kevent(
+                    self.kqueue_fd,
+                    ptr::null(),
+                    0,
+                    events.as_mut_ptr(),
+                    EVENT_CAPACITY as i32,
+                    timeout_ptr,
+                )
+            };
 
-        if ready < 0 {
-            return Err(io::Error::last_os_error());
-        }
-
-        let mut output = Vec::with_capacity(ready as usize);
-        for event in events.iter().take(ready as usize) {
-            if event.ident == WAKE_IDENT {
-                continue;
+            if ready < 0 {
+                return Err(io::Error::last_os_error());
             }
 
-            output.push(Event {
-                fd: event.ident as RawFd,
-                readable: event.filter == libc::EVFILT_READ,
-                writable: event.filter == libc::EVFILT_WRITE,
-                error: (event.flags & libc::EV_ERROR) != 0,
-                hangup: (event.flags & libc::EV_EOF) != 0,
-            });
-        }
+            let mut output = Vec::with_capacity(ready as usize);
+            for event in events.iter().take(ready as usize) {
+                if event.ident == WAKE_IDENT {
+                    continue;
+                }
 
-        Ok(output)
+                output.push(Event {
+                    fd: event.ident as RawFd,
+                    readable: event.filter == libc::EVFILT_READ,
+                    writable: event.filter == libc::EVFILT_WRITE,
+                    error: (event.flags & libc::EV_ERROR) != 0,
+                    hangup: (event.flags & libc::EV_EOF) != 0,
+                });
+            }
+
+            Ok(output)
+        })
     }
 
     fn wake(&self) -> io::Result<()> {
