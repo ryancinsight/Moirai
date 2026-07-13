@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `moirai-executor`: migrated the Melinoe scheduler bridge to the validated
+  `ParallelExecutor` capability. Its unsafe construction site documents the
+  exact-once index, blocking-completion, and context-lifetime proof; raw executor
+  function pointers no longer cross a safe registration boundary.
+
 ### Added
 - `moirai-executor`: added `block_on`, a public current-thread parking wait
   primitive over the existing scheduler waker driver. This gives Moirai-owned

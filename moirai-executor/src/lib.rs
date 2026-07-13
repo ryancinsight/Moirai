@@ -125,6 +125,14 @@ unsafe fn melinoe_executor_bridge(
     }
 }
 
+// SAFETY: on success, `for_each_indexed` owns the complete `0..num_tasks`
+// domain and invokes its closure once per index. On scheduler failure, the
+// bridge panics after `for_each_indexed` has joined every scheduled invocation;
+// Melinoe's unwind guard handles omitted slots. The unchanged context pointer
+// never outlives the blocking scheduler call.
+const MELINOE_EXECUTOR: melinoe::ParallelExecutor =
+    unsafe { melinoe::ParallelExecutor::new(melinoe_executor_bridge) };
+
 fn global_arc() -> &'static std::sync::Arc<HybridExecutor> {
     static GLOBAL_EXECUTOR: std::sync::OnceLock<std::sync::Arc<HybridExecutor>> =
         std::sync::OnceLock::new();
@@ -135,7 +143,7 @@ fn global_arc() -> &'static std::sync::Arc<HybridExecutor> {
                 .expect("initialize global Moirai executor"),
         );
         // Register the global parallel executor in melinoe.
-        melinoe::register_parallel_executor(melinoe_executor_bridge);
+        melinoe::register_parallel_executor(MELINOE_EXECUTOR);
         exec
     })
 }
