@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `moirai-executor`: flatten worker-nested indexed regions onto the current lane,
   preserving outer parallelism without recursively stealing outer jobs onto the
   worker stack.
+- `moirai-executor`: track indexed-region depth on the participating caller so
+  its nested fan-out and reductions also flatten onto the outer caller lane.
 - `moirai-executor`: distribute indexed remainders across every selected lane
   instead of leaving worker lanes unused when the item count is just above the
   worker-plus-caller cap.

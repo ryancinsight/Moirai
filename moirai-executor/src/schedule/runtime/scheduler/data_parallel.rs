@@ -19,7 +19,8 @@ use moirai_core::{
 
 use super::super::super::{class::WorkClass, reduce::ReduceSlots};
 use super::super::types::{
-    get_current_worker_id, SchedulerScopeState, SharedScopedTaskCompletion, ThreadScheduler,
+    get_current_worker_id, is_in_indexed_region, IndexedRegionGuard, SchedulerScopeState,
+    SharedScopedTaskCompletion, ThreadScheduler,
 };
 use super::super::worker::{
     indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
@@ -58,7 +59,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         // A worker already contributes one lane of outer parallelism. Flatten
         // nested indexed regions on that lane: recursively stealing unrelated
         // outer jobs grows the worker stack with every nested tensor reduction.
-        if get_current_worker_id().is_some() {
+        if get_current_worker_id().is_some() || is_in_indexed_region() {
             return catch_unwind(AssertUnwindSafe(|| {
                 for index in 0..count {
                     task(index);
@@ -71,6 +72,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let (_, caller_end) = indexed_chunk_bounds(count, chunk_count, 0);
         if chunk_count == 1 {
             return catch_unwind(AssertUnwindSafe(|| {
+                let _region = IndexedRegionGuard::enter();
                 for index in 0..caller_end {
                     task(index);
                 }
@@ -112,6 +114,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
         let caller_result = if schedule_result.is_ok() {
             catch_unwind(AssertUnwindSafe(|| {
+                let _region = IndexedRegionGuard::enter();
                 for index in 0..caller_end {
                     task(index);
                 }
@@ -162,13 +165,14 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             return Ok(identity);
         }
 
-        if get_current_worker_id().is_some() {
+        if get_current_worker_id().is_some() || is_in_indexed_region() {
             return inline_map_reduce(count, identity, map, reduce);
         }
 
         let chunk_count = indexed_chunk_count(count, self.worker_count());
         let (_, caller_end) = indexed_chunk_bounds(count, chunk_count, 0);
         if chunk_count == 1 {
+            let _region = IndexedRegionGuard::enter();
             return inline_map_reduce(count, identity, map, reduce);
         }
 
@@ -209,6 +213,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
         let caller_result = if schedule_result.is_ok() {
             catch_unwind(AssertUnwindSafe(|| {
+                let _region = IndexedRegionGuard::enter();
                 map_reduce_range(0, caller_end, identity.clone(), map, reduce)
             }))
             .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked))
