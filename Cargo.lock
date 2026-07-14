@@ -1211,6 +1211,7 @@ dependencies = [
  "criterion",
  "futures",
  "libc",
+ "moirai-async-macros",
  "moirai-core",
  "moirai-executor",
  "moirai-pal",
@@ -1220,6 +1221,15 @@ dependencies = [
  "socket2 0.5.10",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "moirai-async-macros"
+version = "0.2.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
 ]
 
 [[package]]
