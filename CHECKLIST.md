@@ -1,5 +1,9 @@
 # Moirai Development Checklist
 
+- [x] [patch] Publish the Themis 0.10.0/Mnemosyne 0.4.0 topology graph and
+  verify the `moirai-gpu` provider consumer without a local source override.
+  Evidence: warning-denied Clippy; 33/33 focused nextest; the GPU dependency
+  tree resolves only Themis 0.10.0.
 - [x] [patch] Refresh the exact Mnemosyne provider revision and verify workspace
   clippy plus canonical nextest.
 - [x] [patch] Consolidate direct and transitive Melinoe dependencies to one
