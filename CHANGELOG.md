@@ -7,8 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Pin Mnemosyne's current reproducible provider graph so downstream Git-source
+  consumers resolve one kernel-budget type identity.
+- Consolidate Melinoe on Mnemosyne's exact provider revision through the
+  workspace dependency SSOT.
+
 ### Changed
 
+- Pin Themis to the exact audited provider revision so downstream integrators
+  resolve one source identity instead of compiling the same commit twice.
+- Pin Mnemosyne to the revision that owns that same Themis identity.
 - `moirai-executor`: migrated the Melinoe scheduler bridge to the validated
   `ParallelExecutor` capability. Its unsafe construction site documents the
   exact-once index, blocking-completion, and context-lifetime proof; raw executor
@@ -17,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   facade and its duplicate backend type identity from integrated consumers.
 
 ### Fixed
+- `moirai-core`: re-read the SPSC publication index after acquiring sender
+  closure so a value published immediately before sender drop is drained rather
+  than misreported as a closed empty channel.
 - `moirai-parallel`: honor the explicit `Parallel` policy for small domains by
   partitioning indexed work across worker-plus-caller lanes. Adaptive policy
   remains the operation-level threshold owner; the executor no longer silently
@@ -33,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `moirai-executor`: distribute indexed remainders across every selected lane
   instead of leaving worker lanes unused when the item count is just above the
   worker-plus-caller cap.
+- `moirai-executor`: align panicking indexed-reduction metric coverage with the
+  worker-plus-caller lane contract: two worker chunks complete scheduler
+  lifecycles while the caller owns the third lane.
 - `moirai-core`: read the thread-local operating-system error through
   `std::io::Error` on Unix and Windows, removing the Linux-only errno symbol
   that prevented IPC consumers from compiling on macOS.

@@ -691,8 +691,9 @@ fn indexed_map_reduce_reports_panicked_mapper() {
 
     scheduler.shutdown();
     assert_eq!(result, Err(ExecutorError::SpawnFailed(TaskError::Panicked)));
-    // Four indices use the caller plus two scheduled chunks. Both scheduled
-    // tasks reach terminal completion even though one reports a mapper panic.
+    // Three lanes cover four items: the caller lane plus two scheduled worker
+    // chunks. Scheduler completion metrics count both worker jobs because each
+    // job contains its mapper panic and completes its scheduler lifecycle.
     assert_eq!(metrics.completed_tasks, 2);
 }
 

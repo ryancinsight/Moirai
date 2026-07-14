@@ -7,7 +7,7 @@
 **Architecture**: Unified scheduler/router for local CPU worker threads, sync/blocking/async-ready work classes, process routes, server routes, accelerator metadata routes, and per-process async lanes; device-memory regions and accelerator backend consumption remain open architecture items.
 **Quality Level**: Focused scheduler/core/PAL/benchmark clippy clean; scoped, indexed, industry, and public-handle Criterion targets pass with value assertions under bounded verification
 
-**Current verification**: Rust 1.97 workspace format and warning-denied all-target/all-feature Clippy pass; canonical all-feature nextest passes 722/722 in 8.1 seconds; doctests and warning-clean workspace rustdoc pass. The bounded scheduler admission benchmark contract verifies fallible queue publication and explicit capacity handling.
+**Current verification**: Rust 1.97 workspace format and warning-denied all-target/all-feature Clippy pass; canonical all-feature nextest passes 722/722 in 8.1 seconds; doctests and warning-clean workspace rustdoc pass. The bounded scheduler admission benchmark contract verifies fallible queue publication and explicit capacity handling. Themis is pinned to audited revision `6140468c79279ec8f112641ea7422cef4688c7f6`, and Mnemosyne is pinned to provider-identity commit `7435ea0b305210874d6f3faae7860f40de835426`.
 
 ---
 

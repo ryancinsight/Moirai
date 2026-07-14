@@ -172,9 +172,16 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
 
         if tail == head {
             if self.closed.load(Ordering::Acquire) {
-                return Err(ChannelError::Closed);
+                // The sender publishes the element before it publishes closure.
+                // Re-read `head` after acquiring `closed`: the first `head` load
+                // may have preceded both releases and observed the empty state.
+                let published_head = self.head.0.load(Ordering::Acquire);
+                if tail == published_head {
+                    return Err(ChannelError::Closed);
+                }
+            } else {
+                return Err(ChannelError::Empty);
             }
-            return Err(ChannelError::Empty);
         }
 
         let value = unsafe {
