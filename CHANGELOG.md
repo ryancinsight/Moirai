@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Upgrade the Themis topology provider to 0.10.0 and consume its published
+  optional cache-level contract without a workspace-local override.
+- Upgrade Mnemosyne to the release that owns the same Themis topology identity.
 - Pin Themis to the exact audited provider revision so downstream integrators
   resolve one source identity instead of compiling the same commit twice.
 - Pin Mnemosyne to the revision that owns that same Themis identity.

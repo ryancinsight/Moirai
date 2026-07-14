@@ -129,6 +129,7 @@ impl CpuTopology {
 
         let cache_levels = topology
             .cache_levels()
+            .unwrap_or(&[])
             .iter()
             .map(|cache| CacheLevel {
                 level: cache.level,
