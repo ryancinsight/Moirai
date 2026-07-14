@@ -1043,12 +1043,6 @@ dependencies = [
 [[package]]
 name = "melinoe"
 version = "0.9.0"
-source = "git+https://github.com/ryancinsight/melinoe.git?rev=bb07447f6c71978c6fed47114ba9ecfda965ddc9#bb07447f6c71978c6fed47114ba9ecfda965ddc9"
-
-[[package]]
-name = "melinoe"
-version = "0.9.0"
-source = "git+https://github.com/ryancinsight/melinoe.git#bb07447f6c71978c6fed47114ba9ecfda965ddc9"
 
 [[package]]
 name = "memchr"
@@ -1121,7 +1115,7 @@ source = "git+https://github.com/ryancinsight/Mnemosyne.git?rev=32b4a2ac71f90920
 dependencies = [
  "mnemosyne-backend",
  "mnemosyne-core",
- "themis",
+ "themis 0.9.17",
 ]
 
 [[package]]
@@ -1165,14 +1159,14 @@ name = "mnemosyne-local"
 version = "0.1.0"
 source = "git+https://github.com/ryancinsight/Mnemosyne.git?rev=32b4a2ac71f909205b58d68c3b244caf99407b2d#32b4a2ac71f909205b58d68c3b244caf99407b2d"
 dependencies = [
- "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git?rev=bb07447f6c71978c6fed47114ba9ecfda965ddc9)",
+ "melinoe",
  "mnemosyne-arena",
  "mnemosyne-backend",
  "mnemosyne-build-util",
  "mnemosyne-core",
  "mnemosyne-decay",
  "mnemosyne-prof",
- "themis",
+ "themis 0.9.17",
 ]
 
 [[package]]
@@ -1192,7 +1186,7 @@ dependencies = [
  "criterion",
  "fastrand",
  "futures",
- "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git?rev=bb07447f6c71978c6fed47114ba9ecfda965ddc9)",
+ "melinoe",
  "mnemosyne",
  "moirai-async",
  "moirai-core",
@@ -1274,7 +1268,7 @@ version = "0.2.0"
 dependencies = [
  "criterion",
  "loom",
- "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git?rev=bb07447f6c71978c6fed47114ba9ecfda965ddc9)",
+ "melinoe",
  "mnemosyne",
  "moirai-core",
  "moirai-pal",
@@ -1296,7 +1290,7 @@ dependencies = [
  "moirai-utils",
  "proptest",
  "serde",
- "themis",
+ "themis 0.10.0",
  "tokio",
  "wgpu",
 ]
@@ -1326,7 +1320,7 @@ dependencies = [
  "moirai-utils",
  "num_cpus",
  "proptest",
- "themis",
+ "themis 0.10.0",
  "thiserror",
  "tokio",
 ]
@@ -1349,7 +1343,7 @@ dependencies = [
  "futures",
  "js-sys",
  "libc",
- "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git?rev=bb07447f6c71978c6fed47114ba9ecfda965ddc9)",
+ "melinoe",
  "moirai-core",
  "proptest",
  "wasm-bindgen",
@@ -1363,7 +1357,7 @@ name = "moirai-parallel"
 version = "0.2.0"
 dependencies = [
  "criterion",
- "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git?rev=bb07447f6c71978c6fed47114ba9ecfda965ddc9)",
+ "melinoe",
  "moirai-executor",
  "proptest",
  "rayon",
@@ -1389,7 +1383,7 @@ dependencies = [
  "num_cpus",
  "proptest",
  "static_assertions",
- "themis",
+ "themis 0.10.0",
 ]
 
 [[package]]
@@ -2428,7 +2422,14 @@ name = "themis"
 version = "0.10.0"
 source = "git+https://github.com/ryancinsight/themis?rev=18807bb5c43f4dc4cb6cedefeee2cc12375056c1#18807bb5c43f4dc4cb6cedefeee2cc12375056c1"
 dependencies = [
- "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git)",
+ "melinoe",
+]
+
+[[package]]
+name = "themis"
+version = "0.10.0"
+dependencies = [
+ "melinoe",
 ]
 
 [[package]]
