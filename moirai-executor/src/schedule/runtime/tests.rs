@@ -596,6 +596,58 @@ fn nested_indexed_saturation_completes() {
 }
 
 #[test]
+fn indexed_caller_flattens_nested_regions_onto_its_lane() {
+    const WORKERS: usize = 2;
+    const OUTER_ITEMS: usize = WORKERS + 1;
+    const INNER_ITEMS: usize = 32;
+    let scheduler = ThreadScheduler::new(WORKERS, "test-indexed-caller-nesting").unwrap();
+    let visited = AtomicUsize::new(0);
+    let reduced = AtomicUsize::new(0);
+
+    scheduler
+        .for_each_indexed::<SyncTask, _>(Priority::Normal, None, OUTER_ITEMS, |outer_index| {
+            let outer_lane = get_current_worker_id();
+            scheduler
+                .for_each_indexed::<SyncTask, _>(
+                    Priority::Normal,
+                    None,
+                    INNER_ITEMS,
+                    |inner_index| {
+                        assert_eq!(get_current_worker_id(), outer_lane);
+                        visited.fetch_add(
+                            outer_index * INNER_ITEMS + inner_index + 1,
+                            Ordering::Relaxed,
+                        );
+                    },
+                )
+                .expect("nested indexed fan-out must remain on its outer lane");
+
+            let local_sum = scheduler
+                .map_reduce_indexed::<SyncTask, _, _, _>(
+                    Priority::Normal,
+                    None,
+                    INNER_ITEMS,
+                    0usize,
+                    |inner_index| {
+                        assert_eq!(get_current_worker_id(), outer_lane);
+                        outer_index * INNER_ITEMS + inner_index + 1
+                    },
+                    usize::wrapping_add,
+                )
+                .expect("nested indexed reduction must remain on its outer lane");
+            reduced.fetch_add(local_sum, Ordering::Relaxed);
+        })
+        .unwrap();
+
+    let item_count = OUTER_ITEMS * INNER_ITEMS;
+    let expected = item_count * (item_count + 1) / 2;
+    assert_eq!(visited.load(Ordering::Relaxed), expected);
+    assert_eq!(reduced.load(Ordering::Relaxed), expected);
+    scheduler.join().unwrap();
+    scheduler.shutdown();
+}
+
+#[test]
 fn indexed_map_reduce_small_count_schedules_worker_lanes() {
     let scheduler = ThreadScheduler::new(2, "test-indexed-reduce-small").unwrap();
 
@@ -639,7 +691,9 @@ fn indexed_map_reduce_reports_panicked_mapper() {
 
     scheduler.shutdown();
     assert_eq!(result, Err(ExecutorError::SpawnFailed(TaskError::Panicked)));
-    assert_eq!(metrics.completed_tasks, 1);
+    // Four indices use the caller plus two scheduled chunks. Both scheduled
+    // tasks reach terminal completion even though one reports a mapper panic.
+    assert_eq!(metrics.completed_tasks, 2);
 }
 
 #[test]

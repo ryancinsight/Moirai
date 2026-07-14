@@ -250,6 +250,11 @@ melinoe::thread_cached! {
     pub(super) mod current_worker_id: usize;
 }
 
+melinoe::thread_cached! {
+    /// Indexed-region nesting depth for a participating non-worker caller.
+    mod indexed_region_depth: usize;
+}
+
 #[inline(always)]
 pub(super) fn get_current_worker_id() -> Option<usize> {
     current_worker_id::get()
@@ -261,6 +266,36 @@ pub(super) fn set_current_worker_id(id: Option<usize>) {
         current_worker_id::set(val);
     } else {
         current_worker_id::clear();
+    }
+}
+
+pub(super) fn is_in_indexed_region() -> bool {
+    indexed_region_depth::get().is_some_and(|depth| depth > 0)
+}
+
+pub(super) struct IndexedRegionGuard {
+    previous_depth: Option<usize>,
+}
+
+impl IndexedRegionGuard {
+    pub(super) fn enter() -> Self {
+        let previous_depth = indexed_region_depth::get();
+        let depth = previous_depth
+            .unwrap_or(0)
+            .checked_add(1)
+            .expect("invariant: indexed-region nesting depth fits usize");
+        indexed_region_depth::set(depth);
+        Self { previous_depth }
+    }
+}
+
+impl Drop for IndexedRegionGuard {
+    fn drop(&mut self) {
+        if let Some(depth) = self.previous_depth {
+            indexed_region_depth::set(depth);
+        } else {
+            indexed_region_depth::clear();
+        }
     }
 }
 
