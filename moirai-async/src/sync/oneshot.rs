@@ -97,6 +97,14 @@ pub struct RecvFuture<'a, T> {
     receiver: &'a mut Receiver<T>,
 }
 
+impl<T> Drop for RecvFuture<'_, T> {
+    fn drop(&mut self) {
+        if let Ok(mut shared) = self.receiver.shared.lock() {
+            shared.rx_waker = None;
+        }
+    }
+}
+
 impl<'a, T> Future for RecvFuture<'a, T> {
     type Output = Result<T, ()>;
 
@@ -161,7 +169,7 @@ mod tests {
         let mut recv = rx.recv();
         assert!(matches!(poll_future(&mut recv), Poll::Pending));
         tx.send(99).unwrap();
-        assert_eq!(rx.try_recv(), Some(99));
+        assert!(matches!(poll_future(&mut recv), Poll::Ready(Ok(99))));
     }
 
     #[test]

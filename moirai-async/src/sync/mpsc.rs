@@ -10,8 +10,10 @@ struct SharedState<T> {
     capacity: usize,
     sender_count: usize,
     closed: bool,
-    send_waiters: VecDeque<Waker>,
-    recv_waiters: VecDeque<Waker>,
+    send_waiters: VecDeque<(u64, Waker)>,
+    recv_waiters: VecDeque<(u64, Waker)>,
+    next_send_id: u64,
+    next_recv_id: u64,
 }
 
 pub struct Sender<T> {
@@ -33,6 +35,7 @@ impl<T> Sender<T> {
         SendFuture {
             sender: self,
             value: Some(value),
+            id: None,
         }
     }
 
@@ -43,7 +46,7 @@ impl<T> Sender<T> {
         }
         if shared.buffer.len() < shared.capacity {
             shared.buffer.push_back(value);
-            if let Some(waker) = shared.recv_waiters.pop_front() {
+            if let Some((_, waker)) = shared.recv_waiters.pop_front() {
                 waker.wake();
             }
             Ok(())
@@ -69,7 +72,7 @@ impl<T> Drop for Sender<T> {
             shared.closed = true;
             let recv_wakers: Vec<_> = shared.recv_waiters.drain(..).collect();
             drop(shared);
-            for waker in recv_wakers {
+            for (_, waker) in recv_wakers {
                 waker.wake();
             }
         }
@@ -79,6 +82,7 @@ impl<T> Drop for Sender<T> {
 pub struct SendFuture<'a, T> {
     sender: &'a Sender<T>,
     value: Option<T>,
+    id: Option<u64>,
 }
 
 impl<'a, T: Unpin> Future for SendFuture<'a, T> {
@@ -90,24 +94,40 @@ impl<'a, T: Unpin> Future for SendFuture<'a, T> {
 
         if shared.closed {
             let value = this.value.take().unwrap();
+            this.id = None;
             return Poll::Ready(Err(value));
         }
 
         if shared.buffer.len() < shared.capacity {
             shared.buffer.push_back(this.value.take().unwrap());
-            if let Some(waker) = shared.recv_waiters.pop_front() {
+            if let Some((_, waker)) = shared.recv_waiters.pop_front() {
                 waker.wake();
             }
+            this.id = None;
             Poll::Ready(Ok(()))
+        } else if let Some(id) = this.id {
+            if let Some(entry) = shared.send_waiters.iter_mut().find(|(i, _)| *i == id) {
+                entry.1 = cx.waker().clone();
+            }
+            Poll::Pending
         } else {
-            shared.send_waiters.push_back(cx.waker().clone());
+            let id = shared.next_send_id;
+            shared.next_send_id += 1;
+            this.id = Some(id);
+            shared.send_waiters.push_back((id, cx.waker().clone()));
             Poll::Pending
         }
     }
 }
 
 impl<'a, T> Drop for SendFuture<'a, T> {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        if let Some(id) = self.id {
+            if let Ok(mut shared) = self.sender.shared.lock() {
+                shared.send_waiters.retain(|(i, _)| *i != id);
+            }
+        }
+    }
 }
 
 pub struct Receiver<T> {
@@ -116,14 +136,17 @@ pub struct Receiver<T> {
 
 impl<T> Receiver<T> {
     pub fn recv(&mut self) -> RecvFuture<'_, T> {
-        RecvFuture { receiver: self }
+        RecvFuture {
+            receiver: self,
+            id: None,
+        }
     }
 
     pub fn try_recv(&mut self) -> Option<T> {
         let mut shared = self.shared.lock().unwrap();
         let value = shared.buffer.pop_front();
         if value.is_some() {
-            if let Some(waker) = shared.send_waiters.pop_front() {
+            if let Some((_, waker)) = shared.send_waiters.pop_front() {
                 waker.wake();
             }
         }
@@ -136,7 +159,7 @@ impl<T> Receiver<T> {
         let send_wakers: Vec<_> = shared.send_waiters.drain(..).collect();
         let recv_wakers: Vec<_> = shared.recv_waiters.drain(..).collect();
         drop(shared);
-        for waker in send_wakers.into_iter().chain(recv_wakers) {
+        for (_, waker) in send_wakers.into_iter().chain(recv_wakers) {
             waker.wake();
         }
     }
@@ -148,7 +171,7 @@ impl<T> Drop for Receiver<T> {
         shared.closed = true;
         let send_wakers: Vec<_> = shared.send_waiters.drain(..).collect();
         drop(shared);
-        for waker in send_wakers {
+        for (_, waker) in send_wakers {
             waker.wake();
         }
     }
@@ -156,6 +179,7 @@ impl<T> Drop for Receiver<T> {
 
 pub struct RecvFuture<'a, T> {
     receiver: &'a mut Receiver<T>,
+    id: Option<u64>,
 }
 
 impl<'a, T> Future for RecvFuture<'a, T> {
@@ -165,15 +189,35 @@ impl<'a, T> Future for RecvFuture<'a, T> {
         let this = self.get_mut();
         let mut shared = this.receiver.shared.lock().unwrap();
         if let Some(value) = shared.buffer.pop_front() {
-            if let Some(waker) = shared.send_waiters.pop_front() {
+            if let Some((_, waker)) = shared.send_waiters.pop_front() {
                 waker.wake();
             }
+            this.id = None;
             Poll::Ready(Ok(value))
         } else if shared.closed && shared.buffer.is_empty() {
+            this.id = None;
             Poll::Ready(Err(()))
-        } else {
-            shared.recv_waiters.push_back(cx.waker().clone());
+        } else if let Some(id) = this.id {
+            if let Some(entry) = shared.recv_waiters.iter_mut().find(|(i, _)| *i == id) {
+                entry.1 = cx.waker().clone();
+            }
             Poll::Pending
+        } else {
+            let id = shared.next_recv_id;
+            shared.next_recv_id += 1;
+            this.id = Some(id);
+            shared.recv_waiters.push_back((id, cx.waker().clone()));
+            Poll::Pending
+        }
+    }
+}
+
+impl<'a, T> Drop for RecvFuture<'a, T> {
+    fn drop(&mut self) {
+        if let Some(id) = self.id {
+            if let Ok(mut shared) = self.receiver.shared.lock() {
+                shared.recv_waiters.retain(|(i, _)| *i != id);
+            }
         }
     }
 }
@@ -186,6 +230,8 @@ pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
         closed: false,
         send_waiters: VecDeque::new(),
         recv_waiters: VecDeque::new(),
+        next_send_id: 0,
+        next_recv_id: 0,
     }));
     (
         Sender {
@@ -292,5 +338,30 @@ mod tests {
         assert!(matches!(poll_future(&mut recv), Poll::Pending));
         tx.try_send(42).unwrap();
         assert!(matches!(poll_future(&mut recv), Poll::Ready(Ok(42))));
+    }
+
+    #[test]
+    fn test_mpsc_send_future_dropped_cancels_waiter() {
+        let (tx, _rx) = channel(1);
+        tx.try_send(1).unwrap();
+        // Send future goes pending, then is dropped without completing
+        let mut send = tx.send(2);
+        assert!(matches!(poll_future(&mut send), Poll::Pending));
+        drop(send);
+        // The full send_waiters queue must be empty after the drop
+        assert!(tx.shared.lock().unwrap().send_waiters.is_empty());
+    }
+
+    #[test]
+    fn test_mpsc_recv_future_dropped_cancels_waiter() {
+        let (tx, mut rx) = channel(1);
+        tx.try_send(1).unwrap();
+        // Consume the item, then recv goes pending waiting for next item
+        let _ = rx.try_recv();
+        let mut recv = rx.recv();
+        assert!(matches!(poll_future(&mut recv), Poll::Pending));
+        drop(recv);
+        // The full recv_waiters queue must be empty after the drop
+        assert!(tx.shared.lock().unwrap().recv_waiters.is_empty());
     }
 }
