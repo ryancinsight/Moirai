@@ -170,7 +170,10 @@ architecture definition.
   `blocking_lane_concurrent_producers` at 180.90 us [177.66, 184.00]; the
   rows measure different workloads, and no comparative speedup is claimed
   without a stored pre-change baseline.
-- **Status**: review 2026-07-15; provider commit and PR publication pending.
+- **Status**: review 2026-07-15; PR #72 is open at
+  `ryancinsight/Moirai#72`. Merge is blocked by the failed
+  `recurseml/analysis` check (`Error occurred during analysis
+  (b637064a..61481ff1)`); CodeRabbit has not produced a review yet.
 
 #### ✅ ISSUE-214 [patch]: Make resource-pool clear linearizable
 - **Owner**: codex; **Scope**: `moirai-sync/src/sync/resource_pool.rs`,
