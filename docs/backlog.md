@@ -157,11 +157,10 @@ architecture definition.
   behavioral comparisons, not production dependencies. ADR required.
 - **Evidence tier**: deductive starvation construction; runtime test pending.
 
-#### ⏳ ISSUE-214 [patch]: Make resource-pool clear linearizable
+#### ✅ ISSUE-214 [patch]: Make resource-pool clear linearizable
 - **Owner**: codex; **Scope**: `moirai-sync/src/sync/resource_pool.rs`,
   co-located resource-pool tests/benchmarks, and this PM section.
-- **Status**: review on `codex/moirai-resource-clear-linearizable`; local gates
-  pass, PR #70 has an errored `recurseml/analysis` check and pending review.
+- **Status**: done; PR #70 merged as `368acbd`.
 - **Type**: Resource Accounting / Concurrency Correctness
 - **Root Cause**: recycle reserves atomic counters before bin insertion while
   clear drains bins and independently stores counters to zero. A clear between
@@ -172,8 +171,8 @@ architecture definition.
   counter consistency; the fix does not add one shard-wide lock acquisition to
   every steady-state take/recycle.
 - **Evidence tier**: deductive interleaving proof plus value-semantic nextest,
-  warning-denied Clippy, rustdoc, doctest, and Criterion evidence; provider CI
-  review remains open.
+  warning-denied Clippy, rustdoc, doctest, Criterion, and GitHub review
+  evidence.
 #### ✅ ISSUE-217 [patch]: Honor forced indexed parallelism under nesting
 - **Type**: Scheduler correctness / consumer performance
 - **Root Cause**: the scheduler applied an undocumented 256-index grain floor
