@@ -1,10 +1,20 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::sync::Arc;
+use std::task::{Context, Poll, Wake, Waker};
 
 use crate::sync::wait_queue::{WaitQueue, WaiterPoll};
 
 use super::mutex::{Mutex, MutexGuard};
+
+struct NoopWaker;
+impl Wake for NoopWaker {
+    fn wake(self: Arc<Self>) {}
+}
+
+fn noop_waker() -> Waker {
+    Waker::from(Arc::new(NoopWaker))
+}
 
 pub struct Condvar {
     state: std::sync::Mutex<CondvarState>,
@@ -25,12 +35,20 @@ impl Condvar {
 
     pub async fn wait<'a, T>(&self, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
         let mutex_ref: &'a Mutex<T> = guard.mutex;
-        let notified = CondvarNotifyFuture {
-            condvar: self,
-            id: None,
+        // Register a pending waiter WHILE still holding the outer MutexGuard.
+        // This closes the lost-notification window: a concurrent notify_one/all
+        // after the guard is dropped will see this waiter (or will have already
+        // seen it and set Granted, which poll_waiter returns immediately).
+        let id = {
+            let mut state = self.state.lock().unwrap();
+            state.waiters.register(noop_waker())
         };
         drop(guard);
-        notified.await;
+        CondvarNotifyFuture {
+            condvar: self,
+            id: Some(id),
+        }
+        .await;
         mutex_ref.lock().await
     }
 
