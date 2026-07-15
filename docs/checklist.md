@@ -13,6 +13,26 @@
 
 ## Remaining Gap Register
 
+## In-flight claim — ISSUE-214 resource-pool clear linearizability [patch]
+
+- [x] Claim `moirai-sync/src/sync/resource_pool.rs`, its co-located tests and
+      benchmarks, and this provider PM scope on
+      `codex/moirai-resource-clear-linearizable`.
+- [x] Move recycle reservation behind the target-bin lock and retain all bin
+      guards while `clear` drains resources and publishes zero counters.
+- [x] Add a deterministic barrier regression for reservation/insertion versus
+      clear and a value-semantic counter/retrieval check.
+- [x] Run focused nextest, warning-denied Clippy, rustdoc, doctests, and a
+      steady-state Criterion baseline. `resource_pool/recycle_take` median is
+      28.088 ns with a 27.984–28.190 ns confidence interval; no speedup claim
+      is made without a same-machine pre-change comparator.
+- [ ] Provider PR #70 has a clean CI/review result and is merged before the
+      Atlas gitlink advances.
+
+Acceptance: `clear` has a linearizable boundary with `recycle` and `take`,
+steady-state operations acquire no new shard-wide lock, and no resource can
+remain hidden behind stale counters.
+
 - [x] [patch] ISSUE-210: Remove leaked source-vector allocations from indexed
   collect-into-existing-storage and interleave operations. Owned iteration now
   moves non-`Clone` elements into retained/exact-capacity outputs and releases
@@ -45,7 +65,7 @@
 - [ ] [arch] ISSUE-213: Isolate `BlockingTask` execution from unified compute
   workers so blocking work cannot occupy the complete scheduler. Preserve one
   Moirai-owned runtime; Tokio and Smol remain comparison references only.
-- [ ] [patch] ISSUE-214: Serialize `ShardedResourcePool::clear` against
+- [x] [patch] ISSUE-214: Serialize `ShardedResourcePool::clear` against
   recycle/take mutations without adding a single contended hot-path lock.
 - [x] [patch] ISSUE-217: Remove the executor's hidden index-count grain floor so
   explicit `Parallel` policy owns forced scheduling; flatten worker-nested

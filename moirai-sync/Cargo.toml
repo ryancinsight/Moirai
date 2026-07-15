@@ -23,6 +23,10 @@ libc = "0.2"
 criterion = { workspace = true }
 proptest = { workspace = true }
 
+[[bench]]
+name = "resource_pool"
+harness = false
+
 [features]
 default = []
 metrics = ["moirai-core/metrics"]

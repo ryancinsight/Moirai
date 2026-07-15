@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   facade and its duplicate backend type identity from integrated consumers.
 
 ### Fixed
+- `moirai-sync`: make `ShardedResourcePool::clear` linearizable with
+  reservation and publication by retaining per-bin guards through counter
+  reset; add a deterministic cross-thread regression for the interleaving.
 - `moirai-core`: re-read the SPSC publication index after acquiring sender
   closure so a value published immediately before sender drop is drained rather
   than misreported as a closed empty channel.
