@@ -146,7 +146,9 @@ architecture definition.
   existing Crossbeam bounded-queue reference after equal value checks.
 - **Status**: todo; independent measurement split from ISSUE-212 correctness.
 
-#### ⏳ ISSUE-213 [arch]: Isolate blocking work from compute workers
+#### ✅ ISSUE-213 [arch]: Isolate blocking work from compute workers
+- **Owner**: codex; **Scope**: `moirai-executor/src/schedule/runtime/`,
+  `moirai-executor/src/schedule/class/`, scheduler tests, and this PM section.
 - **Type**: Scheduler Architecture / Starvation Safety
 - **Root Cause**: `BlockingTask` changes placement metadata but executes on the
   same worker pool as sync/async-ready work. Enough blocking tasks can occupy
@@ -155,7 +157,23 @@ architecture definition.
   backpressure, shutdown, cancellation, and starvation tests; compute work
   completes while every blocking lane is occupied. Tokio/Smol remain dev-only
   behavioral comparisons, not production dependencies. ADR required.
-- **Evidence tier**: deductive starvation construction; runtime test pending.
+- **Resolution**: ADR-021 now routes `BlockingTask` through a lazily initialized
+  Moirai-owned lane with one bounded priority-aware queue per blocking worker.
+  Separate pending/active counters keep compute-worker parking and shutdown
+  independent while scheduler quiescence and metrics aggregate both lanes.
+- **Evidence tier**: deductive starvation construction plus value-semantic
+  nextest (87/87), executor-only warning-denied Clippy, rustdoc, doctests,
+  and Criterion. Dependency-inclusive Clippy is currently blocked by two
+  peer-owned `moirai-core` dead-code warnings during an in-flight channel
+  split. The latest local Criterion run reports
+  `blocking_lane_schedule_join` at 479.79 ns [469.43, 496.85] and
+  `blocking_lane_concurrent_producers` at 180.90 us [177.66, 184.00]; the
+  rows measure different workloads, and no comparative speedup is claimed
+  without a stored pre-change baseline.
+- **Status**: review 2026-07-15; PR #72 is open at
+  `ryancinsight/Moirai#72`. Merge is blocked by the failed
+  `recurseml/analysis` check (`Error occurred during analysis
+  (b637064a..61481ff1)`); CodeRabbit has not produced a review yet.
 
 #### ✅ ISSUE-214 [patch]: Make resource-pool clear linearizable
 - **Owner**: codex; **Scope**: `moirai-sync/src/sync/resource_pool.rs`,

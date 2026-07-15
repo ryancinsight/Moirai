@@ -1,20 +1,21 @@
 //! Unit tests for the thread scheduler runtime.
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{
+    Arc, Barrier,
     atomic::{AtomicUsize, Ordering},
-    mpsc, Arc, Barrier,
+    mpsc,
 };
 
-use super::types::{get_current_worker_id, ThreadScheduler};
+use super::types::{ThreadScheduler, get_current_worker_id};
 use crate::schedule::{AsyncTask, BlockingTask, SyncTask};
 use moirai_core::{
-    error::{ExecutorError, TaskError},
     Priority,
+    error::{ExecutorError, TaskError},
 };
 
 #[test]
-fn scheduler_runs_all_work_classes_on_one_worker_set() {
+fn scheduler_runs_all_work_classes_through_one_facade() {
     let scheduler = ThreadScheduler::new(2, "test-scheduler").unwrap();
     let completed = Arc::new(AtomicUsize::new(0));
     let (sender, receiver) = mpsc::channel();
@@ -78,16 +79,16 @@ fn saturated_admission_rolls_back_pending_and_recovers() {
         .unwrap();
     started_rx.recv().unwrap();
 
-    for _ in 0..1024 {
+    for _ in 0..256 {
         scheduler
-            .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
+            .schedule::<BlockingTask, _>(Priority::Normal, None, |_| {})
             .unwrap();
     }
     let rejection = scheduler
-        .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
+        .schedule::<BlockingTask, _>(Priority::Normal, None, |_| {})
         .expect_err("capacity plus one admission must fail");
     assert!(matches!(rejection, ExecutorError::ResourceExhausted(_)));
-    assert_eq!(scheduler.pending_tasks(), 1024);
+    assert_eq!(scheduler.pending_tasks(), 256);
 
     release_tx.send(()).unwrap();
     scheduler.join().unwrap();
@@ -98,6 +99,124 @@ fn saturated_admission_rolls_back_pending_and_recovers() {
         .unwrap();
     scheduler.join().unwrap();
     assert_eq!(scheduler.pending_tasks(), 0);
+}
+
+#[test]
+fn blocking_lane_preserves_compute_progress_when_full() {
+    let scheduler = ThreadScheduler::new(2, "blocking-lane-progress").unwrap();
+    let blocking_started = Arc::new(Barrier::new(3));
+    let blocking_release = Arc::new(Barrier::new(3));
+
+    for _ in 0..2 {
+        let blocking_started = Arc::clone(&blocking_started);
+        let blocking_release = Arc::clone(&blocking_release);
+        scheduler
+            .schedule::<BlockingTask, _>(Priority::Normal, None, move |_| {
+                blocking_started.wait();
+                blocking_release.wait();
+            })
+            .unwrap();
+    }
+    blocking_started.wait();
+
+    let (compute_sender, compute_receiver) = mpsc::sync_channel(1);
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+            compute_sender.send(91usize).unwrap();
+        })
+        .unwrap();
+
+    assert_eq!(
+        compute_receiver
+            .recv()
+            .expect("compute work must not wait behind blocking work"),
+        91
+    );
+    blocking_release.wait();
+    scheduler.join().unwrap();
+    scheduler.shutdown();
+}
+
+#[test]
+fn blocking_lane_accepts_concurrent_producers() {
+    const PRODUCERS: usize = 4;
+    const JOBS_PER_PRODUCER: usize = 32;
+    let scheduler = ThreadScheduler::new(PRODUCERS, "blocking-lane-producers").unwrap();
+    let completed = Arc::new(AtomicUsize::new(0));
+
+    std::thread::scope(|scope| {
+        for _ in 0..PRODUCERS {
+            let scheduler = scheduler.clone();
+            let completed = Arc::clone(&completed);
+            scope.spawn(move || {
+                for _ in 0..JOBS_PER_PRODUCER {
+                    let completed = Arc::clone(&completed);
+                    scheduler
+                        .schedule::<BlockingTask, _>(Priority::Normal, None, move |_| {
+                            completed.fetch_add(1, Ordering::Relaxed);
+                        })
+                        .unwrap();
+                }
+            });
+        }
+    });
+
+    scheduler.join().unwrap();
+    scheduler.shutdown();
+    assert_eq!(
+        completed.load(Ordering::Relaxed),
+        PRODUCERS * JOBS_PER_PRODUCER
+    );
+}
+
+#[test]
+fn blocking_lane_preserves_priority_order() {
+    let scheduler = ThreadScheduler::<8>::new_with_config(1, "blocking-lane-priority").unwrap();
+    let blocking_started = Arc::new(Barrier::new(2));
+    let blocking_release = Arc::new(Barrier::new(2));
+    let (observed_sender, observed_receiver) = mpsc::channel();
+
+    let started = Arc::clone(&blocking_started);
+    let release = Arc::clone(&blocking_release);
+    scheduler
+        .schedule::<BlockingTask, _>(Priority::Normal, None, move |_| {
+            started.wait();
+            release.wait();
+        })
+        .unwrap();
+    blocking_started.wait();
+
+    let low_sender = observed_sender.clone();
+    scheduler
+        .schedule::<BlockingTask, _>(Priority::Low, None, move |_| {
+            low_sender.send(1usize).unwrap();
+        })
+        .unwrap();
+    scheduler
+        .schedule::<BlockingTask, _>(Priority::Critical, None, move |_| {
+            observed_sender.send(2usize).unwrap();
+        })
+        .unwrap();
+
+    blocking_release.wait();
+    scheduler.join().unwrap();
+    assert_eq!(
+        [
+            observed_receiver.recv().unwrap(),
+            observed_receiver.recv().unwrap()
+        ],
+        [2, 1]
+    );
+    scheduler.shutdown();
+}
+
+#[test]
+fn blocking_lane_rejects_admission_after_shutdown() {
+    let scheduler = ThreadScheduler::new(1, "blocking-lane-shutdown").unwrap();
+    scheduler.shutdown();
+
+    let result = scheduler.schedule::<BlockingTask, _>(Priority::Normal, None, |_| {});
+    assert_eq!(result, Err(ExecutorError::ShuttingDown));
 }
 
 #[test]
@@ -808,7 +927,7 @@ fn scheduler_scope_completes_registered_jobs_before_resuming_body_panic() {
 #[test]
 fn test_melinoe_partition_routing() {
     use melinoe::sync::partition_map;
-    use melinoe::{brand_scope, MelinoeCell};
+    use melinoe::{MelinoeCell, brand_scope};
 
     let _exec = crate::global();
 

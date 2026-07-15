@@ -667,3 +667,27 @@ value-checked tests (13 new tests; workspace 739 pass).
   `unsafe impl Send` on the hybrid halves suppresses the auto-trait check that a
   `!Sync` SPSC ring relies on; sound today only because neither half is `Clone`.
   Encode the SPSC invariant at the type level (one `#[derive(Clone)]` from UB).
+
+## Round 26 (2026-07-15) — FIXED: blocking-lane starvation isolation
+
+**Root cause.** `BlockingTask` previously changed only the static affinity
+offset, so a blocking closure could occupy every compute worker and prevent
+sync or async-ready work from making progress.
+
+**Fix.** `ThreadScheduler` now lazily creates a bounded Moirai-owned blocking
+lane. Each lane worker has a priority-aware bounded queue and its own producer
+lock; no blocking worker stacks or queue storage are allocated for compute-only
+executors. Blocking pending/active counters remain separate from compute
+counters, while quiescence and public metrics aggregate both lanes. Queue-full
+admission returns typed resource exhaustion, and shutdown closes, drains, and
+joins the lane before compute-worker handles are joined.
+
+**Evidence.** Value-semantic nextest passes 86/86, including compute progress
+with every blocking worker occupied, priority order, queue saturation,
+queued-task cancellation, graceful drain, and shutdown rejection. Warning-denied
+all-target/all-feature Clippy, rustdoc, and doctests pass. Criterion
+The latest local Windows GNU run reports `blocking_lane_schedule_join` at
+479.79 ns [469.43, 496.85] and `blocking_lane_concurrent_producers` at
+180.90 us [177.66, 184.00]. These rows measure different workloads and are
+not compared to each other; no speedup claim is made without a stored
+pre-change baseline.

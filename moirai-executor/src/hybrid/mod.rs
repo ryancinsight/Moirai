@@ -1,8 +1,10 @@
 //! Main hybrid executor implementation.
 //!
 //! `HybridExecutor` exposes one public execution surface while delegating sync,
-//! async, and blocking work to the same thread scheduler. The work-shape choice
-//! is encoded by zero-sized marker types in `crate::schedule`.
+//! async, and blocking work to one scheduler facade. Sync and async-ready work
+//! use the compute worker pool; blocking work uses the facade's bounded lane.
+//! The work-shape choice is encoded by zero-sized marker types in
+//! `crate::schedule`.
 
 use std::{
     panic::{catch_unwind, AssertUnwindSafe},

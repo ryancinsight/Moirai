@@ -2,30 +2,30 @@
 
 use std::{
     marker::PhantomData,
-    panic::{catch_unwind, AssertUnwindSafe},
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr::NonNull,
     sync::{
+        Arc, Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},
-        Arc,
     },
     thread,
 };
 
 use moirai_core::{
-    error::{ExecutorError, ExecutorResult},
     Priority,
+    error::{ExecutorError, ExecutorResult},
 };
 
 use moirai_utils::cache::CacheAligned;
 
 use super::super::super::{class::WorkClass, job::ScheduledJob};
 use super::super::types::{
-    get_current_worker_id, BoundedContendedWake, SchedulerInner, SchedulerScope,
-    SchedulerScopeState, ThreadScheduler,
+    BoundedContendedWake, SchedulerInner, SchedulerScope, SchedulerScopeState, ThreadScheduler,
+    get_current_worker_id,
 };
 use super::super::worker::{
-    execute_job, is_quiescent, lock_mutex, next_shared_job, wake_all_workers,
-    wake_contended_workers, wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
+    JOIN_FAST_SPIN_ATTEMPTS, execute_job, is_quiescent, lock_mutex, next_shared_job,
+    wake_all_workers, wake_contended_workers, wake_worker,
 };
 
 /// Busy-spin iterations a worker-thread scope waiter performs after exhausting
@@ -54,7 +54,7 @@ fn next_round_robin_ticket() -> usize {
 }
 
 impl ThreadScheduler<256, 8192> {
-    /// Start a scheduler with one worker set for all work classes.
+    /// Start a scheduler with a compute worker set and a lazy blocking lane.
     pub fn new(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
         Self::new_with_config(worker_count, thread_name_prefix)
     }
@@ -68,10 +68,10 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let worker_count = worker_count.max(1);
         let mut queue_owners = Vec::with_capacity(worker_count);
         let workers = (0..worker_count)
-            .map(|id| {
+            .map(|_| {
                 let (owner, queues) = super::super::super::queue::WorkerQueues::new();
                 queue_owners.push(owner);
-                Arc::new(super::super::types::WorkerState::new(id, queues))
+                Arc::new(super::super::types::WorkerState::new(queues))
             })
             .collect::<Vec<_>>()
             .into_boxed_slice();
@@ -99,6 +99,8 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             handles: std::sync::Mutex::new(Vec::with_capacity(worker_count)),
             pending_tasks: CacheAligned::new(AtomicUsize::new(0)),
             active_workers: CacheAligned::new(AtomicUsize::new(0)),
+            blocking_pending_tasks: CacheAligned::new(AtomicUsize::new(0)),
+            blocking_active_workers: CacheAligned::new(AtomicUsize::new(0)),
             completed_tasks: CacheAligned::new(std::sync::atomic::AtomicU64::new(0)),
             failed_tasks: CacheAligned::new(std::sync::atomic::AtomicU64::new(0)),
             shutdown: CacheAligned::new(std::sync::atomic::AtomicBool::new(false)),
@@ -107,6 +109,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             wait_signal: std::sync::Condvar::new(),
             idle_workers: super::super::idle::IdleBitset::new(worker_count),
             worker_numa_nodes,
+            blocking_lane: OnceLock::new(),
+            blocking_lane_init: Mutex::new(()),
+            blocking_lane_prefix: thread_name_prefix.into(),
         });
 
         for (worker_id, owner) in queue_owners.into_iter().enumerate() {
@@ -263,6 +268,43 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             return Err(ExecutorError::ShuttingDown);
         }
 
+        if C::USES_BLOCKING_LANE {
+            if let Some(lane) = self.inner.blocking_lane.get() {
+                if self.inner.shutdown.load(Ordering::Acquire) {
+                    return Err(ExecutorError::ShuttingDown);
+                }
+                return lane.submit(
+                    priority,
+                    locality_hint,
+                    job,
+                    &self.inner.blocking_pending_tasks,
+                );
+            }
+
+            let _lane_init = lock_mutex(&self.inner.blocking_lane_init);
+            if self.inner.shutdown.load(Ordering::Acquire) {
+                return Err(ExecutorError::ShuttingDown);
+            }
+            if self.inner.blocking_lane.get().is_none() {
+                let candidate = super::super::blocking::BlockingLane::new(self.worker_count());
+                candidate.start(Arc::clone(&self.inner), &self.inner.blocking_lane_prefix)?;
+                if self.inner.blocking_lane.set(candidate).is_err() {
+                    return Err(ExecutorError::ThreadPoolCreationFailed);
+                }
+            }
+            let lane = self
+                .inner
+                .blocking_lane
+                .get()
+                .expect("invariant: blocking lane initialized before submission");
+            return lane.submit(
+                priority,
+                locality_hint,
+                job,
+                &self.inner.blocking_pending_tasks,
+            );
+        }
+
         let pending_before_submit = self.inner.pending_tasks.load(Ordering::Acquire);
         let active_before_submit = self.inner.active_workers.load(Ordering::Acquire);
         let worker_index = self.select_worker_for_state::<C>(
@@ -357,11 +399,13 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// Approximate number of queued jobs.
     pub fn pending_tasks(&self) -> usize {
         self.inner.pending_tasks.load(Ordering::Acquire)
+            + self.inner.blocking_pending_tasks.load(Ordering::Acquire)
     }
 
     /// Number of workers currently executing jobs.
     pub fn active_workers(&self) -> usize {
         self.inner.active_workers.load(Ordering::Acquire)
+            + self.inner.blocking_active_workers.load(Ordering::Acquire)
     }
 
     /// Returns true when queued or active work exists.
@@ -418,6 +462,11 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     pub fn shutdown(&self) {
         if !self.inner.shutdown.swap(true, Ordering::AcqRel) {
             wake_all_workers(&self.inner);
+        }
+
+        let _lane_init = lock_mutex(&self.inner.blocking_lane_init);
+        if let Some(lane) = self.inner.blocking_lane.get() {
+            lane.shutdown();
         }
 
         let mut handles = lock_mutex(&self.inner.handles);

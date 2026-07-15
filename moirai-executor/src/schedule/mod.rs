@@ -1,9 +1,11 @@
 //! Unified executor scheduling.
 //!
-//! The scheduler in this module is the single dispatch engine for synchronous,
-//! blocking, and asynchronous jobs. Workload shape is selected by zero-sized
-//! marker types so call sites keep static dispatch while heterogeneous jobs are
-//! stored at the executor boundary.
+//! The scheduler in this module is the single dispatch facade for synchronous,
+//! blocking, and asynchronous jobs. Sync and async-ready work use the compute
+//! worker queues; blocking work uses a bounded lane owned by the same facade.
+//! Workload shape is selected by zero-sized marker types so call sites keep
+//! static dispatch while heterogeneous jobs are stored at the executor
+//! boundary.
 
 pub mod class;
 pub mod job;
