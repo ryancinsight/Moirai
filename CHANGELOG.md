@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-15
+
 - Pin Mnemosyne's current reproducible provider graph so downstream Git-source
   consumers resolve one kernel-budget type identity.
 - Consolidate Melinoe on Mnemosyne's exact provider revision through the
@@ -14,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `moirai-core`: split the hybrid and MPMC channel implementations into focused
+  endpoint and state modules. `HybridChannel<T>` is now a zero-sized endpoint
+  factory; sender and receiver halves retain the only live shared state.
 - Upgrade the Themis topology provider to 0.10.0 and consume its published
   optional cache-level contract without a workspace-local override.
 - Upgrade Mnemosyne to the release that owns the same Themis topology identity.
@@ -93,6 +98,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged.
 
 ### Removed
+- **Breaking:** removed the unconsumed `moirai_iter::numa` helper and its
+  Rayon comparison benchmark. Placement belongs to Themis, allocation belongs
+  to Mnemosyne, and data-parallel execution belongs to the scheduler-backed
+  `moirai-parallel` surface; the deleted iterator helper applied none of those
+  provider contracts.
 - **Breaking:** removed combined owner/thief deque capabilities,
   `QuiescentReclaim`, explicit default-policy `reclaim_memory`, callback
   `steal_batch_with`, and the unconsumed `BlockBasedDeque`. `ChaseLevDeque` is

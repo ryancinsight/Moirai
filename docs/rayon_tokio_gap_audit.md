@@ -47,7 +47,9 @@ This audit covers the active unified-scheduler comparison scope:
 - Iterator scoped chunk helper: `moirai-iter::iter_ops::ParallelIter` owns `Vec<T>` directly, borrows scoped immutable chunks without `Arc<Vec<T>>`, accepts non-`'static` closures, and gates scoped OS-thread fanout behind the bounded scheduler batch capacity.
 - Iterator cache helper: `moirai-iter::cache::ZeroCopyParallelIter` borrows input slices and map closures directly through scoped chunks without `Arc` allocation, moves reduce partials through owned pair compaction, accepts non-`Clone` reducer closures, and gates scoped OS-thread fanout behind one scheduler batch of cache chunks.
 - Iterator execution contexts: direct `execute_iter` paths move owned chunks and accept non-`Clone` items instead of cloning chunk slices before scheduling.
-- NUMA iterator helper: `moirai-iter::numa::NumaContext` and `NumaIter` consume owned batches for map and reduce without clone-bound chunk materialization.
+- NUMA ownership boundary: the retired `moirai-iter::numa` helper is absent.
+  Themis owns placement, Mnemosyne owns allocation, and
+  `moirai-parallel` owns scheduler-backed data-parallel execution.
 - Retired distributed iterator helper: the old `moirai-iter::distributed` helper
   path previously removed fixed completion-estimate placeholders, but that module
   is no longer exposed on the current branch. Current distributed coverage is
@@ -127,7 +129,6 @@ The 2026-06-01 audit pass keeps that verdict unchanged for covered semantics and
 | Scoped helper map/reduce | `iter_ops::ParallelIter` scoped borrowed chunks with sequential small-work gate | Rayon `into_par_iter` map and reduce over equivalent owned vectors | `iter_ops_parallel_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 | Borrowed cache helper map/reduce | `ZeroCopyParallelIter` borrowed slice map/reduce with scheduler-batch cache-chunk scoped gate | Rayon `par_iter` map and reduce over equivalent borrowed slices | `cache_iterator_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 | Owned execution-context map | `ParallelContext::execute_iter` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `execution_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
-| Owned NUMA context map | `NumaContext::execute_iter` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `numa_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 | Retired distributed context map | Removed `moirai-iter::distributed` helper evidence | Rayon `into_par_iter` historical reference | Retired `distributed_context_comparison` evidence | Retired helper boundary |
 | Owned multi-system context map | `MultiSystemContext::execute_heterogeneous_compute` owned map with non-`Clone` item support | Rayon `into_par_iter` map over equivalent owned vectors | `multi_system_context_comparison`, `benchmark_contracts`, `moirai-iter` unit tests | Covered helper boundary |
 
@@ -320,7 +321,10 @@ The `ZeroCopyParallelIter` cache-helper cleanup removes `Arc` allocation from sc
 
 The execution-context owned-chunk cleanup removes cloned chunk materialization from `ParallelContext::execute_iter` and `AsyncContext::execute_iter`, relaxes direct map bounds from `T: Clone` to `T: Send`, and adds non-`Clone` value tests. `execution_context_comparison` measured owned execution-context map at 120.53-122.07 ns versus Rayon owned map at 29.323-30.104 µs after asserting equal checksums. This is direct execution-context helper coverage, not a full Rayon adapter parity claim.
 
-The NUMA iterator cleanup removes cloned chunk materialization from `NumaContext::execute_iter` and `NumaIter::reduce`, relaxes NUMA direct map and extension bounds from `T: Clone` to `T: Send`, and adds non-`Clone` value tests. `numa_context_comparison` measured owned NUMA context map at 175.50-204.96 ns versus Rayon owned map at 45.097-142.69 µs after asserting equal checksums. This is NUMA helper coverage, not a full Rayon adapter parity claim.
+The retired NUMA iterator helper and `numa_context_comparison` benchmark are
+deleted. They did not consume Themis placement, Mnemosyne allocation, or
+Moirai's scheduler-backed data-parallel surface, so they could not establish a
+provider-level Rayon comparison claim.
 
 The old distributed iterator cleanup removed fixed completion-estimate placeholders from a helper module that is no longer exposed on the current branch. Current distributed coverage is the public fixed-capability routed facade: arbitrary remote closures, hardcoded node discovery, and no-op distributed builder knobs remain absent, while selected process/server routes admit only sealed fixed-format capability payloads. Result-handle lifecycle diagnostics now allocate lifecycle-backed task IDs through the registry and reject the removed external-ID accounting helpers. This is fixed-format route and registry lifecycle coverage, not arbitrary remote closure execution or full Rayon adapter parity.
 

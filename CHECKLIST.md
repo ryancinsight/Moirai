@@ -14,6 +14,21 @@
   tests with six configuration skips; `cargo tree -d` reports no duplicate
   Melinoe source identities.
 
+## Phase 30: NUMA helper removal and channel hierarchy closure
+
+- [x] [major] Delete the unconsumed `moirai_iter::numa` API and its obsolete
+  Rayon comparison benchmark. Themis owns placement, Mnemosyne owns allocation,
+  and `moirai-parallel` owns scheduler-backed data-parallel work; no source
+  consumer imports the removed iterator helper.
+- [x] [patch] Split hybrid and MPMC channel implementation into vertical state,
+  send, receive, future, and test modules. `HybridChannel<T>` is a zero-sized
+  factory; endpoint halves own each live synchronization primitive.
+- Evidence: `cargo nextest run -p moirai-core` 69/69;
+  `-p moirai-iter` 185/185 (2 cfg-skips); `-p moirai-benchmarks` 68/68;
+  warning-denied `moirai-core` Clippy; and formatter checks pass. This is
+  compile-time/API-surface and value-semantic test evidence, not a throughput
+  claim.
+
 ## Phase 29: Indexed caller-region flattening
 
 - [x] [patch] Mark the caller lane while it participates in indexed fan-out

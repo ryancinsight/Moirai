@@ -23,7 +23,6 @@ pub mod combinators;
 pub mod execution;
 pub mod facade;
 pub mod iter_ops;
-pub mod numa;
 pub mod parallel;
 pub mod prefetch;
 pub mod simd_iter;

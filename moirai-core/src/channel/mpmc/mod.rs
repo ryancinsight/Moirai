@@ -3,13 +3,19 @@
 //! Uses mutex-based implementation for simplicity and correctness,
 //! with a lock-free `BoundedMpmcQueue` fast-path for bounded cases.
 
-use super::error::{CacheAligned, Channel, ChannelError, Result};
+use crate::channel::error::{CacheAligned, Channel, ChannelError, Result};
 use std::cell::UnsafeCell;
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::VecDeque;
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+
+mod recv;
+mod send;
+
+pub use self::recv::MpmcReceiver;
+pub use self::send::MpmcSender;
 
 /// Exponential-backoff spin rounds (`1 << round` spin-loop hints per round,
 /// ~1023 total hints) before a blocked send/recv falls back to a condvar wait.
@@ -72,8 +78,6 @@ impl<T> BoundedMpmcQueue<T> {
         loop {
             let slot = &self.buffer[position & self.mask];
             let sequence = slot.sequence.load(Ordering::Acquire);
-            // justification: Vyukov MPMC — the wrapping subtraction is reinterpreted
-            // as a signed slot-availability delta; `usize as isize` wrap is intended.
             #[allow(clippy::cast_possible_wrap)]
             let difference = sequence.wrapping_sub(position) as isize;
 
@@ -116,8 +120,6 @@ impl<T> BoundedMpmcQueue<T> {
         loop {
             let slot = &self.buffer[position & self.mask];
             let sequence = slot.sequence.load(Ordering::Acquire);
-            // justification: Vyukov MPMC — the wrapping subtraction is reinterpreted
-            // as a signed slot-availability delta; `usize as isize` wrap is intended.
             #[allow(clippy::cast_possible_wrap)]
             let difference = sequence.wrapping_sub(position.wrapping_add(1)) as isize;
 
@@ -202,9 +204,6 @@ pub struct MpmcChannel<T> {
 impl<T> MpmcChannel<T> {
     /// Create a new MPMC channel with optional capacity
     pub fn new(capacity: Option<usize>) -> Self {
-        // The bounded path routes every message through the lock-free
-        // `BoundedMpmcQueue`; `state.queue` is only touched on the unbounded
-        // path, so allocate its backing storage only when unbounded.
         let state = MpmcState {
             queue: if capacity.is_some() {
                 VecDeque::new()
@@ -547,104 +546,5 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
         let (mutex, _, _) = &*self.state;
         let guard = mutex.lock().unwrap();
         guard.capacity
-    }
-}
-
-// ---------------------------------------------------------------------------
-// MpmcSender
-// ---------------------------------------------------------------------------
-
-/// Sender half of MPMC channel
-pub struct MpmcSender<T> {
-    pub(super) channel: Arc<MpmcChannel<T>>,
-}
-
-impl<T: Send> MpmcSender<T> {
-    /// Send a value through the channel, blocking if necessary
-    pub fn send(&self, value: T) -> Result<()> {
-        self.channel.send(value)
-    }
-
-    /// Try to send a value without blocking
-    pub fn try_send(&self, value: T) -> Result<()> {
-        self.channel.try_send(value)
-    }
-}
-
-impl<T> MpmcSender<T> {
-    /// Returns `true` once the channel is closed (every receiver — or every
-    /// sender — has been dropped); subsequent sends fail with
-    /// [`ChannelError::Closed`].
-    pub fn is_closed(&self) -> bool {
-        self.channel.closed.load(Ordering::Acquire)
-    }
-}
-
-impl<T> Clone for MpmcSender<T> {
-    fn clone(&self) -> Self {
-        let (mutex, _, _) = &*self.channel.state;
-        let mut guard = mutex.lock().unwrap();
-        guard.sender_count += 1;
-        Self {
-            channel: self.channel.clone(),
-        }
-    }
-}
-
-impl<T> Drop for MpmcSender<T> {
-    fn drop(&mut self) {
-        let (mutex, _, not_empty) = &*self.channel.state;
-        let mut guard = mutex.lock().unwrap();
-        guard.sender_count -= 1;
-        if guard.sender_count == 0 {
-            guard.closed = true;
-            self.channel.closed.store(true, Ordering::Release);
-            not_empty.notify_all();
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// MpmcReceiver
-// ---------------------------------------------------------------------------
-
-/// Receiver half of MPMC channel
-pub struct MpmcReceiver<T> {
-    pub(super) channel: Arc<MpmcChannel<T>>,
-}
-
-impl<T: Send> MpmcReceiver<T> {
-    /// Receive a value from the channel, blocking if necessary
-    pub fn recv(&self) -> Result<T> {
-        self.channel.recv()
-    }
-
-    /// Try to receive a value without blocking
-    pub fn try_recv(&self) -> Result<T> {
-        self.channel.try_recv()
-    }
-}
-
-impl<T> Clone for MpmcReceiver<T> {
-    fn clone(&self) -> Self {
-        let (mutex, _, _) = &*self.channel.state;
-        let mut guard = mutex.lock().unwrap();
-        guard.receiver_count += 1;
-        Self {
-            channel: self.channel.clone(),
-        }
-    }
-}
-
-impl<T> Drop for MpmcReceiver<T> {
-    fn drop(&mut self) {
-        let (mutex, not_full, _) = &*self.channel.state;
-        let mut guard = mutex.lock().unwrap();
-        guard.receiver_count -= 1;
-        if guard.receiver_count == 0 {
-            guard.closed = true;
-            self.channel.closed.store(true, Ordering::Release);
-            not_full.notify_all();
-        }
     }
 }

@@ -53,12 +53,41 @@ architecture definition.
 
 
 **Project**: Moirai Concurrency Library
-**Version**: 0.2.0
-**Last Updated**: 2026-06-15
+**Version**: 0.3.0
+**Last Updated**: 2026-07-15
 **Status**: Unified scheduler implemented for local CPU worker threads, sync/blocking/async-ready work classes, process-route metadata, server-route metadata, per-process async lanes, accelerator route metadata, bounded fixed-format process/server execution, public fixed-capability routed process/server facade execution, and Mnemosyne-owned archive-byte handoff across thread/process/server/device payload regions. Scoped scheduler batches, indexed map/reduce, mixed async/sync/parallel workloads, process/server route summaries, accelerator route summaries, routed process/server execution, public routed facade execution, device-region handoff, parallel iterator regression rows, and public result handles have value-checked benchmark coverage against accepted Tokio/Rayon references. Accelerator backend execution remains open: GPU occupancy planning exists and CPU/GPU/TPU/NPU metadata is now part of `SchedulerRoute`, but no GPU/TPU/NPU backend consumes that route until backend consumption and benchmarks are implemented.
 
 
 ---
+
+## Current closure record
+
+### ✅ MOI-NUMA-001 [major]: Remove unowned NUMA iterator helper
+
+- **Root cause**: `moirai-iter::numa` exposed policy and batch APIs without
+  applying Themis placement, allocating through Mnemosyne, or scheduling through
+  Moirai's worker runtime. Its Rayon comparison benchmark therefore measured an
+  unowned, sequential helper rather than the provider boundary Atlas consumes.
+- **Resolution**: delete `moirai-iter/src/numa.rs`, its public module export,
+  `numa_context_comparison`, and the obsolete benchmark contract. Themis owns
+  placement, Mnemosyne owns allocation, and `moirai-parallel` remains the
+  scheduler-backed data-parallel surface.
+- **Evidence**: no remaining source import of `moirai_iter::numa`; nextest
+  passes `moirai-core` 69/69, `moirai-iter` 185/185 (2 cfg-skips), and
+  `moirai-benchmarks` 68/68. Warning-denied `moirai-core` Clippy and rustfmt
+  checks pass.
+- **Status**: completed 2026-07-15.
+
+### ✅ MOI-TREE-001 [patch]: Split channel implementation by responsibility
+
+- **Resolution**: move hybrid sender, receiver, future, and tests plus MPMC
+  sender/receiver endpoints into leaf modules. The public hybrid channel remains
+  the constructor boundary but is zero-sized; all live shared state stays with
+  the endpoint pair.
+- **Evidence**: hybrid wake/drop regressions and the new zero-sized-factory
+  layout assertion pass within the `moirai-core` nextest suite; warning-denied
+  Clippy passes.
+- **Status**: completed 2026-07-15.
 
 ## Remaining Gap Register
 
@@ -574,7 +603,9 @@ architecture definition.
 - **Resolution**: Added monomorphized owned-batch map and reduce helpers that consume `Vec<T>` through `into_iter`, changed NUMA direct map and extension bounds from `T: Clone` to `T: Send`, and added non-`Clone` map/reduce tests.
 - **Evidence**: `numa_context_comparison` asserts equal Moirai/Rayon owned-map checksums, then measures `numa_context_owned_map` at 175.50-204.96 ns for Moirai versus 45.097-142.69 µs for Rayon.
 - **Verification**: `cargo test -p moirai-iter --all-features numa -- --nocapture`; `cargo test -p moirai-benchmarks --test benchmark_contracts numa_iter_consumes_owned_batches_without_clone -- --nocapture`; `cargo clippy -p moirai-iter -p moirai-benchmarks --all-targets --all-features -- -D warnings`; `cargo bench -p moirai-benchmarks --bench numa_context_comparison -- numa_context_owned_map --quiet`.
-- **Status**: Completed 2026-05-28.
+- **Status**: Superseded 2026-07-15 by MOI-NUMA-001. The helper and benchmark
+  were deleted because they did not apply the provider-owned placement,
+  allocation, or scheduling contracts.
 
 #### ✅ ISSUE-171 [patch]: Remove distributed cloned owned-partition path
 - **Type**: Iterator Memory / Benchmark Coverage / Correctness
