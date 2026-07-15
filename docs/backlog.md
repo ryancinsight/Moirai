@@ -158,6 +158,9 @@ architecture definition.
 - **Evidence tier**: deductive starvation construction; runtime test pending.
 
 #### ⏳ ISSUE-214 [patch]: Make resource-pool clear linearizable
+- **Owner**: codex; **Scope**: `moirai-sync/src/sync/resource_pool.rs`,
+  co-located resource-pool tests/benchmarks, and this PM section.
+- **Status**: in-progress on `codex/moirai-resource-clear-linearizable`.
 - **Type**: Resource Accounting / Concurrency Correctness
 - **Root Cause**: recycle reserves atomic counters before bin insertion while
   clear drains bins and independently stores counters to zero. A clear between

@@ -13,6 +13,22 @@
 
 ## Remaining Gap Register
 
+## In-flight claim — ISSUE-214 resource-pool clear linearizability [patch]
+
+- [x] Claim `moirai-sync/src/sync/resource_pool.rs`, its co-located tests and
+      benchmarks, and this provider PM scope on
+      `codex/moirai-resource-clear-linearizable`.
+- [ ] Move recycle reservation behind the target-bin lock and retain all bin
+      guards while `clear` drains resources and publishes zero counters.
+- [ ] Add a deterministic barrier regression for reservation/insertion versus
+      clear and a value-semantic counter/retrieval check.
+- [ ] Run focused nextest, warning-denied Clippy, rustdoc, and a steady-state
+      Criterion comparison before updating the residual-risk record.
+
+Acceptance: `clear` has a linearizable boundary with `recycle` and `take`,
+steady-state operations acquire no new shard-wide lock, and no resource can
+remain hidden behind stale counters.
+
 - [x] [patch] ISSUE-210: Remove leaked source-vector allocations from indexed
   collect-into-existing-storage and interleave operations. Owned iteration now
   moves non-`Clone` elements into retained/exact-capacity outputs and releases
