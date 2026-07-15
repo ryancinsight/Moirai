@@ -77,8 +77,10 @@ remain hidden behind stale counters.
     dependency-inclusive Clippy gate remains blocked by peer-owned
     `moirai-core` dead-code warnings, with no speedup claim without a stored
     baseline.
-  - [x] Publish and merge provider PR #72 as `9b34cea`; the external analysis
-    failure was attached only to the superseded pre-closeout head.
+  - [x] Publish and merge provider PR #72 as `9b34cea`; PR #73 records the PM
+    closeout and merged as `9b3caa5`. `recurseml/analysis` errored on both
+    heads, while CodeRabbit passed on the PM-only head; local gates remain the
+    executor acceptance evidence.
 - [x] [patch] ISSUE-214: Serialize `ShardedResourcePool::clear` against
   recycle/take mutations without adding a single contended hot-path lock.
 - [x] [patch] ISSUE-217: Remove the executor's hidden index-count grain floor so
