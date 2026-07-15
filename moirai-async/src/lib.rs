@@ -43,9 +43,12 @@ pub use fs::{
 
 // Re-export sync primitives
 pub use sync::{
-    Broadcast, BroadcastError, BroadcastReceiver, BroadcastSender, Notify, RwLock, Semaphore,
-    SemaphorePermit, Watch, WatchError, WatchReceiver, WatchSender,
+    Broadcast, BroadcastError, BroadcastReceiver, BroadcastSender, Condvar, Mutex, MutexGuard,
+    Notify, RwLock, Semaphore, SemaphorePermit, Watch, WatchError, WatchReceiver, WatchSender,
 };
+
+// Re-export proc macros
+pub use moirai_async_macros::main;
 
 #[cfg(test)]
 mod tests {

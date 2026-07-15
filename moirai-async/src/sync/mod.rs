@@ -5,7 +5,11 @@
 //! primitive is implemented in its own focused module.
 
 pub mod broadcast;
+pub mod condvar;
+pub mod mpsc;
+pub mod mutex;
 pub mod notify;
+pub mod oneshot;
 pub mod rwlock;
 pub mod semaphore;
 pub(crate) mod wait_queue;
@@ -13,7 +17,11 @@ pub mod watch;
 
 // Re-export public types for convenience
 pub use broadcast::{Broadcast, BroadcastError, BroadcastReceiver, BroadcastRecv, BroadcastSender};
+pub use condvar::Condvar;
+pub use mpsc::{channel as mpsc_channel, Receiver as MpscReceiver, Sender as MpscSender};
+pub use mutex::{Mutex, MutexGuard, MutexLockFuture};
 pub use notify::{Notify, NotifyFuture};
+pub use oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 pub use rwlock::{RwLock, RwLockReadFuture, RwLockWriteFuture};
 pub use semaphore::{Semaphore, SemaphoreAcquire, SemaphorePermit};
 pub use watch::{Watch, WatchChanged, WatchError, WatchReceiver, WatchSender};

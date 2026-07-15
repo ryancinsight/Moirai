@@ -3,7 +3,7 @@ use moirai_pal::reactor::IoReactor;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::task::{Context, Waker};
+use std::task::{Context, Poll, Waker};
 use std::time::Instant;
 
 use crate::executor::handle::AsyncHandle;
@@ -177,6 +177,40 @@ impl AsyncExecutor {
             total_execution_time_ns: self.stats.total_execution_time_ns.load(Ordering::Relaxed),
             waker_notifications: self.stats.waker_notifications.load(Ordering::Relaxed),
             io_operations: self.stats.io_operations.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Block on a future, running the executor until it completes.
+    pub fn block_on<F, T>(&self, future: F) -> T
+    where
+        F: Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let handle = self.spawn(future);
+        let waker = futures::task::noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let mut pin_handle = Box::pin(handle);
+
+        self.running.store(true, Ordering::SeqCst);
+
+        loop {
+            self.process_pending_tasks();
+
+            match pin_handle.as_mut().poll(&mut cx) {
+                Poll::Ready(result) => {
+                    self.running.store(false, Ordering::SeqCst);
+                    return result;
+                }
+                Poll::Pending => {}
+            }
+
+            if self.run_queue.is_empty() {
+                self.reactor.run_iteration(None).ok();
+            } else {
+                self.reactor
+                    .run_iteration(Some(std::time::Duration::from_millis(0)))
+                    .ok();
+            }
         }
     }
 
