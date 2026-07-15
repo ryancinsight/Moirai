@@ -57,6 +57,8 @@ pub struct ShardedResourcePool<T> {
     shards: [Shard<T>; 4],
     shard_max_buffers: usize,
     shard_max_bytes: u64,
+    #[cfg(test)]
+    test_hook: test_support::Hook,
 }
 
 impl<T> std::fmt::Debug for ShardedResourcePool<T> {
@@ -76,6 +78,8 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
             shards: [Shard::new(), Shard::new(), Shard::new(), Shard::new()],
             shard_max_buffers: (max_buffers / 4).max(1),
             shard_max_bytes: max_bytes / 4,
+            #[cfg(test)]
+            test_hook: test_support::Hook::new(),
         }
     }
 
@@ -192,6 +196,11 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         let local_shard = &self.shards[local_idx];
         let bin_idx = bin_index(size);
 
+        // The target-bin guard covers reservation through publication. `clear`
+        // acquires every bin guard before draining or resetting counters, so it
+        // cannot publish a zero-counter state between these two mutations.
+        let mut target_guard = local_shard.bins[bin_idx].lock();
+
         // Reserve this item's count and bytes up front, before inserting, so the
         // eviction decision below sees a total that already includes this item
         // *and* every other concurrent recycler's in-flight contribution. The
@@ -213,7 +222,22 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
         while current_count > self.shard_max_buffers || current_bytes > self.shard_max_bytes {
             let mut progress = false;
             for b in 0..64 {
-                if let Some(mut guard) = local_shard.bins[b].try_lock() {
+                if b == bin_idx {
+                    if let Some(removed) = target_guard.pop_front() {
+                        let removed_size = removed.size();
+                        // Decrements remove already-inserted items, never our
+                        // reservation, so the net total keeps counting our item.
+                        local_shard.retained_count.fetch_sub(1, Ordering::Release);
+                        local_shard
+                            .retained_bytes
+                            .fetch_sub(removed_size, Ordering::Release);
+                        current_count -= 1;
+                        current_bytes = current_bytes.saturating_sub(removed_size);
+                        evicted.push(removed);
+                        progress = true;
+                        break;
+                    }
+                } else if let Some(mut guard) = local_shard.bins[b].try_lock() {
                     if let Some(removed) = guard.pop_front() {
                         let removed_size = removed.size();
                         // Decrements remove already-inserted items, never our
@@ -235,24 +259,163 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
             }
         }
 
-        drop(evicted);
+        #[cfg(test)]
+        self.test_hook.pause_after_reservation(local_idx, bin_idx);
 
         // The counters already account for this item (reserved above); inserting
         // it makes the bin contents consistent with the published totals.
-        local_shard.bins[bin_idx].lock().push_back(item);
+        target_guard.push_back(item);
+        drop(target_guard);
+        drop(evicted);
     }
 
     /// Clear all pooled resources.
+    ///
+    /// All bin guards remain held until the bins are drained and the counters
+    /// are reset. This makes the reset a linearization point: a concurrent
+    /// `recycle` or `take_at_least` either completes before the reset or starts
+    /// after it, and cannot publish a resource behind zero counters.
     pub fn clear(&self) {
-        for shard in &self.shards {
+        for (shard_idx, shard) in self.shards.iter().enumerate() {
+            #[cfg(not(test))]
+            let _ = shard_idx;
+            let mut guards: [Option<_>; 64] = std::array::from_fn(|_| None);
+            for (bin_idx, bin) in shard.bins.iter().enumerate() {
+                #[cfg(test)]
+                self.test_hook.announce_clear(shard_idx, bin_idx);
+                guards[bin_idx] = Some(bin.lock());
+            }
+
             let mut evicted = Vec::new();
-            for b in 0..64 {
-                let mut guard = shard.bins[b].lock();
+            for guard in guards.iter_mut().flatten() {
                 evicted.extend(guard.drain(..));
             }
             shard.retained_bytes.store(0, Ordering::Release);
             shard.retained_count.store(0, Ordering::Release);
+
+            drop(guards);
             drop(evicted);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_test_hook(
+        &self,
+        recycle_entered: std::sync::mpsc::SyncSender<()>,
+        clear_started: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::Arc<std::sync::Barrier>,
+    ) -> test_support::HookGuard {
+        self.test_hook
+            .install(recycle_entered, clear_started, release)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::{mpsc::SyncSender, Arc, Barrier, Mutex};
+
+    struct InterleavingHook {
+        recycle_entered: SyncSender<()>,
+        clear_started: SyncSender<()>,
+        release: Arc<Barrier>,
+        target: Option<(usize, usize)>,
+        clear_announced: bool,
+    }
+
+    pub(crate) struct Hook {
+        state: Arc<Mutex<Option<InterleavingHook>>>,
+    }
+
+    impl Hook {
+        pub(crate) fn new() -> Self {
+            Self {
+                state: Arc::new(Mutex::new(None)),
+            }
+        }
+
+        pub(crate) fn install(
+            &self,
+            recycle_entered: SyncSender<()>,
+            clear_started: SyncSender<()>,
+            release: Arc<Barrier>,
+        ) -> HookGuard {
+            let mut hook = self
+                .state
+                .lock()
+                .expect("invariant: test hook mutex poisoned");
+            assert!(
+                hook.is_none(),
+                "invariant: only one interleaving hook is active"
+            );
+            *hook = Some(InterleavingHook {
+                recycle_entered,
+                clear_started,
+                release,
+                target: None,
+                clear_announced: false,
+            });
+            HookGuard {
+                state: Arc::clone(&self.state),
+            }
+        }
+
+        pub(crate) fn pause_after_reservation(&self, shard_idx: usize, bin_idx: usize) {
+            let (entered, release) = {
+                let mut hook = self
+                    .state
+                    .lock()
+                    .expect("invariant: test hook mutex poisoned");
+                let Some(hook) = hook.as_mut() else {
+                    return;
+                };
+                assert!(
+                    hook.target.replace((shard_idx, bin_idx)).is_none(),
+                    "invariant: only one recycle interleaving is active"
+                );
+                (hook.recycle_entered.clone(), Arc::clone(&hook.release))
+            };
+
+            entered
+                .send(())
+                .expect("invariant: interleaving test receiver remains active");
+            release.wait();
+        }
+
+        pub(crate) fn announce_clear(&self, shard_idx: usize, bin_idx: usize) {
+            let started = {
+                let mut hook = self
+                    .state
+                    .lock()
+                    .expect("invariant: test hook mutex poisoned");
+                let Some(hook) = hook.as_mut() else {
+                    return;
+                };
+                if hook.target == Some((shard_idx, bin_idx)) && !hook.clear_announced {
+                    hook.clear_announced = true;
+                    Some(hook.clear_started.clone())
+                } else {
+                    None
+                }
+            };
+
+            if let Some(started) = started {
+                started
+                    .send(())
+                    .expect("invariant: interleaving test receiver remains active");
+            }
+        }
+    }
+
+    pub(crate) struct HookGuard {
+        state: Arc<Mutex<Option<InterleavingHook>>>,
+    }
+
+    impl Drop for HookGuard {
+        fn drop(&mut self) {
+            self.state
+                .lock()
+                .expect("invariant: test hook mutex poisoned")
+                .take();
         }
     }
 }

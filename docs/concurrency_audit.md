@@ -40,11 +40,11 @@ the unified compute worker pool. A full worker count of blocking tasks can starv
 all scheduler progress. The accepted direction is a bounded Moirai-owned
 blocking lane; Tokio and Smol remain comparison references, not dependencies.
 
-**Filed (resource accounting, ISSUE-214).** `ShardedResourcePool::clear` can
-reset counters between recycle's reservation and bin insertion, leaving stored
-items hidden behind zero counters or enabling a later decrement underflow. The
-fix requires a linearizable clear/mutation ownership protocol; stronger atomic
-orderings alone are insufficient.
+**Closed in Round 25 (resource accounting, ISSUE-214).** The prior
+`ShardedResourcePool::clear` race reset counters between recycle's reservation
+and bin insertion, leaving stored items hidden behind zero counters or enabling
+a later decrement underflow. Round 25 supplies the linearizable ownership
+protocol; stronger atomic orderings alone were insufficient.
 
 **Runtime dependency verdict.** Rayon and Tokio remain dev-only differential
 and performance references. Crossbeam remains a queue/deque oracle unless a
@@ -59,6 +59,28 @@ out-of-bounds resource-pool path in the current design: recycle rejects any item
 larger than `max_bytes / 4`, and take checks a shard's retained-byte count before
 indexing the requested bin. A shard cannot retain enough bytes to enter that
 branch for bin 64. No bin-count change is justified.
+
+## Round 25 (2026-07-15) — FIXED: resource-pool clear linearizability
+
+**Root cause.** `ShardedResourcePool::recycle` reserved retained counters before
+publishing into its bin, while `clear` drained bins and reset the counters as
+separate operations. A clear could therefore publish zero counters while a
+reserved item was still in flight, hiding the item or causing a later counter
+decrement to underflow.
+
+**Fix.** Recycle now holds the existing target-bin guard from reservation through
+publication. Clear acquires every bin guard in deterministic order before
+draining and resetting the shard counters, then drops guards before dropping
+resources so destructors cannot re-enter a held lock. No shard-wide lock was
+added to steady-state take/recycle operations.
+
+**Evidence.** The pool-local deterministic interleaving regression pauses recycle
+after reservation, waits for clear to reach the exact target bin, then verifies
+clear completion and exact retrieval/counter behavior. Focused nextest passes;
+package nextest passes 20/20, warning-denied all-target Clippy and rustdoc are
+clean, doctests run 0/0, and the new Criterion baseline measures a 28.088 ns
+median with a 27.984–28.190 ns confidence interval. No speedup claim is made
+without a same-machine pre-change comparator.
 
 ## Round 23 (2026-07-03) — FIXED: `join()` quiescence lost-wakeup (Dekker, AcqRel→SeqCst)
 

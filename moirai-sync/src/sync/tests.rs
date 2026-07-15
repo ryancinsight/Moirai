@@ -489,3 +489,55 @@ fn test_sharded_resource_pool_concurrent_recycle_respects_total_cap() {
         "retained {retained} exceeds the aggregate cap of {MAX_BUFFERS}"
     );
 }
+
+#[test]
+fn test_sharded_resource_pool_clear_serializes_reservation_and_insertion() {
+    use std::sync::{mpsc::sync_channel, Barrier};
+
+    let (recycle_entered_tx, recycle_entered_rx) = sync_channel(0);
+    let (clear_started_tx, clear_started_rx) = sync_channel(0);
+    let (clear_done_tx, clear_done_rx) = sync_channel(0);
+    let release = Arc::new(Barrier::new(2));
+    let pool = Arc::new(ShardedResourcePool::<TestResource>::new(16, 1024));
+    let _hook = pool.install_test_hook(recycle_entered_tx, clear_started_tx, Arc::clone(&release));
+
+    let recycle_pool = Arc::clone(&pool);
+    let recycler = thread::spawn(move || {
+        recycle_pool.recycle(TestResource { id: 7, size: 100 });
+    });
+    recycle_entered_rx
+        .recv()
+        .expect("recycle must reach the reservation/insertion boundary");
+
+    let clear_pool = Arc::clone(&pool);
+    let clearer = thread::spawn(move || {
+        clear_pool.clear();
+        clear_done_tx
+            .send(())
+            .expect("clear completion receiver remains active");
+    });
+    clear_started_rx
+        .recv()
+        .expect("clear must enter before waiting on the target bin");
+    assert!(
+        clear_done_rx.try_recv().is_err(),
+        "clear must not complete while recycle owns the target bin"
+    );
+
+    release.wait();
+    recycler.join().expect("recycle worker must not panic");
+    clear_done_rx
+        .recv()
+        .expect("clear must complete after recycle publishes its item");
+    clearer.join().expect("clear worker must not panic");
+
+    assert!(
+        pool.take_at_least(100).is_none(),
+        "clear must remove the item published at the interleaving boundary"
+    );
+
+    drop(_hook);
+    pool.recycle(TestResource { id: 8, size: 100 });
+    assert_eq!(pool.take_at_least(100).map(|resource| resource.id), Some(8));
+    assert!(pool.take_at_least(100).is_none());
+}
