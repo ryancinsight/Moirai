@@ -26,6 +26,8 @@
       steady-state Criterion baseline. `resource_pool/recycle_take` median is
       28.088 ns with a 27.984–28.190 ns confidence interval; no speedup claim
       is made without a same-machine pre-change comparator.
+- [ ] Provider PR #70 has a clean CI/review result and is merged before the
+      Atlas gitlink advances.
 
 Acceptance: `clear` has a linearizable boundary with `recycle` and `take`,
 steady-state operations acquire no new shard-wide lock, and no resource can

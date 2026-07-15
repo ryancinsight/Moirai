@@ -80,7 +80,9 @@ clear completion and exact retrieval/counter behavior. Focused nextest passes;
 package nextest passes 20/20, warning-denied all-target Clippy and rustdoc are
 clean, doctests run 0/0, and the new Criterion baseline measures a 28.088 ns
 median with a 27.984–28.190 ns confidence interval. No speedup claim is made
-without a same-machine pre-change comparator.
+without a same-machine pre-change comparator. Provider PR #70 is ready for
+review; GitHub currently reports `recurseml/analysis` errored and CodeRabbit
+pending, so integration remains open.
 
 ## Round 23 (2026-07-03) — FIXED: `join()` quiescence lost-wakeup (Dekker, AcqRel→SeqCst)
 
