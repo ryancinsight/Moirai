@@ -180,7 +180,7 @@ Moirai provides a unified API that automatically selects optimal execution strat
 
 ### Decision
 
-`HybridExecutor` uses one thread scheduler for synchronous, blocking, and async-ready work. Workload shape is encoded with zero-sized marker types (`SyncTask`, `AsyncTask`, `BlockingTask`) implementing a sealed `WorkClass` trait. The scheduler stores heterogeneous jobs only at the executor queue boundary because closure output types are not homogeneous at runtime.
+`HybridExecutor` uses one scheduler facade for synchronous, blocking, and async-ready work. Sync and async-ready jobs use the compute worker set; `BlockingTask` uses the bounded lane defined by ADR-021. Workload shape is encoded with zero-sized marker types (`SyncTask`, `AsyncTask`, `BlockingTask`) implementing a sealed `WorkClass` trait. The scheduler stores heterogeneous jobs only at the executor queue boundary because closure output types are not homogeneous at runtime.
 
 ### Rationale
 
@@ -1082,8 +1082,10 @@ worker prevents every compute worker from reaching a queued synchronous job.
 Affinity offsets change placement but do not provide admission isolation,
 backpressure, cancellation ownership, or a shutdown boundary.
 
-**Decision.** `ThreadScheduler` owns one Moirai-native blocking lane with a
-bounded, per-blocking-worker synchronous queue. `BlockingTask` dispatch is
+**Decision.** `ThreadScheduler` owns one lazily initialized, Moirai-native
+blocking lane with a bounded, per-blocking-worker synchronous queue. Ordinary
+compute-only executors therefore allocate no blocking worker stacks or queue
+storage. `BlockingTask` dispatch is
 selected through the sealed `WorkClass` associated capability, so the public
 work-class API remains zero-sized and statically routed. Blocking workers
 execute the same `ScheduledJob` lifecycle boundary as compute workers, but
@@ -1095,7 +1097,7 @@ workers from spinning behind blocking backlog.
 Lane admission is non-blocking and returns typed resource exhaustion when the
 selected bounded queue is full. A locality hint selects a blocking lane;
 otherwise a thread-local ticket distributes submissions without a shared
-round-robin atomic. Shutdown closes all lane senders, drains admitted jobs,
+round-robin atomic. Shutdown closes all lane queues, drains admitted jobs,
 and joins the blocking workers. Queued task cancellation remains owned by the
 existing lifecycle token: the lane drops a cancelled job only after its
 worker dequeues it, so result publication and cancellation metrics retain one

@@ -10,7 +10,7 @@ use moirai_core::error::{ExecutorError, ExecutorResult};
 use super::super::job::ScheduledJob;
 use super::super::queue::WorkerQueueOwner;
 
-use super::types::{set_current_worker_id, ContendedWakePolicy, SchedulerInner, WorkerState};
+use super::types::{ContendedWakePolicy, SchedulerInner, WorkerState, set_current_worker_id};
 
 #[cfg(feature = "scheduler-diagnostics")]
 use super::types::BoundedContendedWake;
@@ -221,11 +221,41 @@ pub(super) fn execute_job<const QUEUE_CAPACITY: usize>(
     worker_id: usize,
     job: ScheduledJob,
 ) {
-    use std::sync::atomic::Ordering;
-    inner.active_workers.fetch_add(1, Ordering::Release);
-    inner.pending_tasks.fetch_sub(1, Ordering::Release);
+    execute_job_with_counters(
+        inner,
+        worker_id,
+        job,
+        &inner.pending_tasks,
+        &inner.active_workers,
+    );
+}
 
-    if job.execute(inner.workers[worker_id].id) {
+pub(super) fn execute_blocking_job<const QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<QUEUE_CAPACITY>,
+    worker_id: usize,
+    job: ScheduledJob,
+) {
+    execute_job_with_counters(
+        inner,
+        worker_id,
+        job,
+        &inner.blocking_pending_tasks,
+        &inner.blocking_active_workers,
+    );
+}
+
+fn execute_job_with_counters<const QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<QUEUE_CAPACITY>,
+    worker_id: usize,
+    job: ScheduledJob,
+    pending_tasks: &std::sync::atomic::AtomicUsize,
+    active_workers: &std::sync::atomic::AtomicUsize,
+) {
+    use std::sync::atomic::Ordering;
+    active_workers.fetch_add(1, Ordering::Release);
+    pending_tasks.fetch_sub(1, Ordering::Release);
+
+    if job.execute(worker_id) {
         inner.completed_tasks.fetch_add(1, Ordering::Relaxed);
     } else {
         inner.failed_tasks.fetch_add(1, Ordering::Relaxed);
@@ -241,7 +271,7 @@ pub(super) fn execute_job<const QUEUE_CAPACITY: usize>(
     // stale `join_waiters == 0` and never signals — a hung `join()`), proven
     // reachable by `tests/loom_join_quiescence.rs`. On x86 `lock sub`/`lock xadd`
     // is already a full barrier, so this is free.
-    if inner.active_workers.fetch_sub(1, Ordering::SeqCst) == 1 {
+    if active_workers.fetch_sub(1, Ordering::SeqCst) == 1 {
         notify_quiescent(inner);
     }
 }
@@ -445,6 +475,8 @@ pub(super) fn is_quiescent<const QUEUE_CAPACITY: usize>(
     // plain load on x86 (`mov`), so this is cheap on the common target.
     inner.pending_tasks.load(Ordering::SeqCst) == 0
         && inner.active_workers.load(Ordering::SeqCst) == 0
+        && inner.blocking_pending_tasks.load(Ordering::SeqCst) == 0
+        && inner.blocking_active_workers.load(Ordering::SeqCst) == 0
 }
 
 pub(super) fn inline_map_reduce<T, Map, Reduce>(
@@ -457,7 +489,7 @@ where
     Map: Fn(usize) -> T,
     Reduce: Fn(T, T) -> T,
 {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     catch_unwind(AssertUnwindSafe(|| {
         let mut accumulator = identity;
         for index in 0..count {

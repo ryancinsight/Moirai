@@ -24,6 +24,10 @@ melinoe = { workspace = true, features = ["std"] }
 criterion = { workspace = true }
 proptest = { workspace = true }
 
+[[bench]]
+name = "blocking_lane"
+harness = false
+
 # loom model checker — only compiled under `--cfg loom` (see tests/loom_wake_handshake.rs).
 [target.'cfg(loom)'.dev-dependencies]
 loom = { workspace = true }

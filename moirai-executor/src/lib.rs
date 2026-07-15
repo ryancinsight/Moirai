@@ -2,13 +2,15 @@
 //!
 //! This crate provides a high-performance hybrid executor that combines
 //! synchronous, asynchronous, and blocking execution on **one** unified
-//! work-stealing thread scheduler.
+//! scheduler facade. Synchronous and async-ready work use the compute
+//! work-stealing pool; potentially blocking work uses a lazily initialized,
+//! bounded lane owned by that scheduler.
 //!
 //! ## Architecture Overview
 //!
-//! - **Work-Stealing Scheduler**: one worker pool serves every work class;
-//!   sync, async, and blocking jobs are routed by zero-sized work-class
-//!   markers, not separate thread pools.
+//! - **Static Work-Class Routing**: sync, async, and blocking jobs are routed
+//!   by zero-sized work-class markers; blocking admission is isolated from the
+//!   compute worker pool.
 //! - **Priority-Partitioned Queues**: per-worker Chase-Lev deques indexed by
 //!   [`moirai_core::Priority::index`].
 //! - **Zero-Copy Task Passing**: minimal overhead task distribution.

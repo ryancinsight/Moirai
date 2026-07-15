@@ -5,8 +5,8 @@ use std::{
     marker::PhantomData,
     ptr::NonNull,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         Arc, Condvar, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
 };
@@ -16,6 +16,7 @@ use moirai_core::Priority;
 use moirai_utils::cache::CacheAligned;
 
 use super::super::{class::WorkClass, job::ScheduledJob, queue::WorkerQueues};
+use super::blocking::BlockingLane;
 
 /// Point-in-time scheduler metrics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +151,8 @@ pub(super) struct SchedulerInner<const QUEUE_CAPACITY: usize> {
     pub(super) handles: Mutex<Vec<JoinHandle<()>>>,
     pub(super) pending_tasks: CacheAligned<AtomicUsize>,
     pub(super) active_workers: CacheAligned<AtomicUsize>,
+    pub(super) blocking_pending_tasks: CacheAligned<AtomicUsize>,
+    pub(super) blocking_active_workers: CacheAligned<AtomicUsize>,
     pub(super) completed_tasks: CacheAligned<AtomicU64>,
     pub(super) failed_tasks: CacheAligned<AtomicU64>,
     pub(super) shutdown: CacheAligned<AtomicBool>,
@@ -164,6 +167,11 @@ pub(super) struct SchedulerInner<const QUEUE_CAPACITY: usize> {
     /// Stored separately from `WorkerState` to avoid cache-line pollution on
     /// the hot steal-path — this slice is read-only after construction.
     pub(super) worker_numa_nodes: Box<[Option<usize>]>,
+    /// Lazily initialized so compute-only schedulers allocate no blocking lane.
+    pub(super) blocking_lane: OnceLock<BlockingLane<QUEUE_CAPACITY>>,
+    /// Serializes only first-use initialization and shutdown, not submissions.
+    pub(super) blocking_lane_init: Mutex<()>,
+    pub(super) blocking_lane_prefix: Box<str>,
 }
 
 pub(super) struct LifoSlot {
@@ -301,16 +309,14 @@ impl Drop for IndexedRegionGuard {
 
 #[repr(align(64))]
 pub(super) struct WorkerState<const QUEUE_CAPACITY: usize> {
-    pub(super) id: usize,
     pub(super) queues: Arc<WorkerQueues<QUEUE_CAPACITY>>,
     pub(super) lifo_slot: LifoSlot,
     pub(super) thread: OnceLock<thread::Thread>,
 }
 
 impl<const QUEUE_CAPACITY: usize> WorkerState<QUEUE_CAPACITY> {
-    pub(super) fn new(id: usize, queues: Arc<WorkerQueues<QUEUE_CAPACITY>>) -> Self {
+    pub(super) fn new(queues: Arc<WorkerQueues<QUEUE_CAPACITY>>) -> Self {
         Self {
-            id,
             queues,
             lifo_slot: LifoSlot::new(),
             thread: OnceLock::new(),
