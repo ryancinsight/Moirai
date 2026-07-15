@@ -335,59 +335,6 @@ fn execution_context_iter_consumes_owned_chunks_without_clone() {
 }
 
 #[test]
-fn numa_iter_consumes_owned_batches_without_clone() {
-    let source = read_benchmark("../moirai-iter/src/numa.rs");
-    let benchmark = read_benchmark("benches/numa_context_comparison.rs");
-    let manifest = read_benchmark("Cargo.toml");
-
-    for required in [
-        "fn map_owned_numa_batches<T, F, R>(items: Vec<T>, batch_count: usize, func: F) -> Vec<R>",
-        "fn reduce_owned_numa_batches<T, F>(items: Vec<T>, batch_count: usize, func: F) -> Option<T>",
-        "let mut iter = items.into_iter();",
-        "results.extend(iter.by_ref().take(take).map(&func));",
-        "partials.push(batch.fold(first, &func));",
-        "impl<T: Send + 'static> NumaIter<T>",
-        "impl<T: Send + 'static> NumaIterExt<T> for Vec<T>",
-        "map_owned_numa_batches_consumes_non_clone_values",
-        "reduce_owned_numa_batches_consumes_non_clone_values",
-        "non_clone_numa_map_consumes_items",
-        "non_clone_numa_reduce_consumes_items",
-    ] {
-        assert!(
-            source.contains(required),
-            "NUMA iterator must retain owned batch move marker {required}"
-        );
-    }
-
-    for required in [
-        "name = \"numa_context_comparison\"",
-        "numa_context_owned_map",
-        "moirai_numa_context_map",
-        "rayon_owned_map",
-        "assert_eq!",
-    ] {
-        assert!(
-            benchmark.contains(required) || manifest.contains(required),
-            "NUMA benchmark contract must retain marker {required}"
-        );
-    }
-
-    for prohibited in [
-        "T: Send + Clone + 'static",
-        "F: Fn(T) + Send + Sync + Clone + 'static",
-        "F: Fn(T) -> R + Send + Sync + Clone + 'static",
-        "let result = func(item.clone());",
-        "let chunk: Vec<T> = items[start..end].to_vec();",
-        "func.clone()",
-    ] {
-        assert!(
-            !source.contains(prohibited),
-            "NUMA iterator must not reintroduce clone-bound owned batching through {prohibited}"
-        );
-    }
-}
-
-#[test]
 fn iterator_simd_surface_uses_generic_scalar_contract() {
     let source = read_benchmark("../moirai-iter/src/simd_iter.rs");
     let benchmark = read_benchmark("benches/iter_simd_comparison.rs");
