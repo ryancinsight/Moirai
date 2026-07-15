@@ -62,9 +62,15 @@ remain hidden behind stale counters.
   nextest passes 83/83 and all-target/all-feature Clippy is clean.
 - [ ] [patch] ISSUE-216: Benchmark saturated Moirai admission against the
   existing Crossbeam bounded-queue reference.
-- [ ] [arch] ISSUE-213: Isolate `BlockingTask` execution from unified compute
+- [~] [arch] ISSUE-213: Isolate `BlockingTask` execution from unified compute
   workers so blocking work cannot occupy the complete scheduler. Preserve one
   Moirai-owned runtime; Tokio and Smol remain comparison references only.
+  - [x] Record ADR-021 with the starvation construction, lane ownership,
+    bounded admission, counter separation, and shutdown invariants.
+  - [ ] Add the dedicated bounded lane and aggregate its quiescence metrics.
+  - [ ] Prove compute progress, backpressure, queued cancellation, drain, and
+    shutdown rejection with value-semantic nextest tests.
+  - [ ] Run warning-denied Clippy, docs, and Criterion admission evidence.
 - [x] [patch] ISSUE-214: Serialize `ShardedResourcePool::clear` against
   recycle/take mutations without adding a single contended hot-path lock.
 - [x] [patch] ISSUE-217: Remove the executor's hidden index-count grain floor so

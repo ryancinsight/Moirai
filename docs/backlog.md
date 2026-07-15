@@ -146,7 +146,9 @@ architecture definition.
   existing Crossbeam bounded-queue reference after equal value checks.
 - **Status**: todo; independent measurement split from ISSUE-212 correctness.
 
-#### ⏳ ISSUE-213 [arch]: Isolate blocking work from compute workers
+#### 🔧 ISSUE-213 [arch]: Isolate blocking work from compute workers
+- **Owner**: codex; **Scope**: `moirai-executor/src/schedule/runtime/`,
+  `moirai-executor/src/schedule/class/`, scheduler tests, and this PM section.
 - **Type**: Scheduler Architecture / Starvation Safety
 - **Root Cause**: `BlockingTask` changes placement metadata but executes on the
   same worker pool as sync/async-ready work. Enough blocking tasks can occupy
@@ -155,7 +157,8 @@ architecture definition.
   backpressure, shutdown, cancellation, and starvation tests; compute work
   completes while every blocking lane is occupied. Tokio/Smol remain dev-only
   behavioral comparisons, not production dependencies. ADR required.
-- **Evidence tier**: deductive starvation construction; runtime test pending.
+- **Evidence tier**: deductive starvation construction; ADR-021 recorded;
+  runtime verification in progress.
 
 #### ✅ ISSUE-214 [patch]: Make resource-pool clear linearizable
 - **Owner**: codex; **Scope**: `moirai-sync/src/sync/resource_pool.rs`,
