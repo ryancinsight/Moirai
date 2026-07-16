@@ -1,4 +1,4 @@
-use crate::constants::CACHE_LINE_SIZE;
+use crate::memory::CACHE_LINE_SIZE;
 use std::alloc::Layout;
 use std::mem::{align_of, size_of};
 use std::ptr::NonNull;

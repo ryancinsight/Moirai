@@ -4,7 +4,8 @@
 //! entry points. Arithmetic executes in `T` through `SimdScalar`; callers choose
 //! the scalar type at the call site and monomorphization removes the trait layer.
 
-use moirai_core::constants::CACHE_LINE_SIZE;
+/// Cache line size for alignment optimizations
+const CACHE_LINE_SIZE: usize = 64;
 use std::iter::Sum;
 use std::ops::{Add, Mul};
 

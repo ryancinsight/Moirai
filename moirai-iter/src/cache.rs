@@ -3,7 +3,8 @@
 use std::mem;
 
 use crate::base::{PoolJoinGuard, SendPtr};
-use moirai_core::constants::DEFAULT_RING_BUFFER_CAPACITY;
+/// Default ring buffer capacity (power of 2)
+const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
 /// Wrapper to make const raw pointers Send
 #[allow(dead_code)]
@@ -17,9 +18,8 @@ impl<T> SendConstPtr<T> {
     }
 }
 
-/// Cache line size, re-exported from the moirai-core constants SSOT so the
-/// crate never carries a second copy of the value.
-pub use moirai_core::constants::CACHE_LINE_SIZE;
+/// Cache line size for alignment optimizations
+pub const CACHE_LINE_SIZE: usize = 64;
 
 /// Chunk size for cache-friendly iteration (L1 cache half)
 pub const CACHE_CHUNK_SIZE: usize = 16384; // 16KB
@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn cache_scoped_execution_gate_uses_batch_capacity_floor() {
         let cache_chunk_items = (CACHE_CHUNK_SIZE / std::mem::size_of::<u64>()).max(1);
-        let floor = cache_chunk_items * moirai_core::constants::DEFAULT_RING_BUFFER_CAPACITY;
+        let floor = cache_chunk_items * DEFAULT_RING_BUFFER_CAPACITY;
 
         assert!(!should_execute_scoped_cache::<u64>(
             floor,

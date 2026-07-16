@@ -53,9 +53,13 @@ architecture definition.
 
 
 **Project**: Moirai Concurrency Library
-**Version**: 0.3.0
+**Version**: 0.3.1
 **Last Updated**: 2026-07-15
 **Status**: Unified scheduler implemented for local CPU worker threads, sync/blocking/async-ready work classes, process-route metadata, server-route metadata, per-process async lanes, accelerator route metadata, bounded fixed-format process/server execution, public fixed-capability routed process/server facade execution, and Mnemosyne-owned archive-byte handoff across thread/process/server/device payload regions. Scoped scheduler batches, indexed map/reduce, mixed async/sync/parallel workloads, process/server route summaries, accelerator route summaries, routed process/server execution, public routed facade execution, device-region handoff, parallel iterator regression rows, and public result handles have value-checked benchmark coverage against accepted Tokio/Rayon references. Accelerator backend execution remains open: GPU occupancy planning exists and CPU/GPU/TPU/NPU metadata is now part of `SchedulerRoute`, but no GPU/TPU/NPU backend consumes that route until backend consumption and benchmarks are implemented.
+
+- [x] [patch] Remove revision-qualified Themis and Mnemosyne dependencies and
+  the root-only Themis path patch. The lockfile resolves one default-branch
+  Themis source across direct Moirai and transitive Mnemosyne consumers.
 
 
 ---

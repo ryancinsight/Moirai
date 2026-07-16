@@ -42,7 +42,7 @@ fn direct_result_slot_ready_take() -> usize {
 fn direct_result_slot_spin_miss() -> usize {
     assert_eq!(
         moirai_core::task::diagnostic_result_slot_spin_miss(),
-        moirai_core::constants::MAX_SPIN_ATTEMPTS
+        MAX_SPIN_ATTEMPTS
     );
     verify_ready_value(READY_VALUE)
 }

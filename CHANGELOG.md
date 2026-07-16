@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-15
+
+### Changed
+
+- Remove the Themis and Mnemosyne revision quarantines. The provider graph now
+  follows the default branches and resolves one Themis source identity through
+  both direct and transitive dependencies.
+
 ## [0.3.0] - 2026-07-15
 
 - Pin Mnemosyne's current reproducible provider graph so downstream Git-source

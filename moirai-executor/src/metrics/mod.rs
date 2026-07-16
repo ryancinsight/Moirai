@@ -6,8 +6,14 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-// Import centralized constants (SSOT compliance)
-use moirai_core::constants::{DEFAULT_UTILIZATION, MAX_SUCCESS_RATE, PERCENTAGE_PRECISION_FACTOR};
+/// Percentage conversion factor to maintain precision across metrics
+const PERCENTAGE_PRECISION_FACTOR: f64 = 100.0;
+
+/// Maximum success rate when no tasks have failed
+const MAX_SUCCESS_RATE: f64 = 100.0;
+
+/// Default utilization when no workers are available
+const DEFAULT_UTILIZATION: f64 = 0.0;
 
 /// Executor performance metrics.
 ///

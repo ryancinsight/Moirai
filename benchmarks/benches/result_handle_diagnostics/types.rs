@@ -36,6 +36,8 @@ const CAPTURED_READY_VALUE: usize = CAPTURE_WORDS;
 const MAX_INLINE_CAPTURE_WORDS: usize = 14;
 const OVERSIZED_CAPTURE_WORDS: usize = 32;
 const OVERSIZED_CAPTURED_READY_VALUE: usize = OVERSIZED_CAPTURE_WORDS;
+/// Maximum spin attempts in the blocking wait policy
+const MAX_SPIN_ATTEMPTS: usize = 64;
 const TASK_ID: TaskId = TaskId(1);
 const BLOCKING_NORMAL_WORKER: usize = 3;
 #[cfg(feature = "scheduler-diagnostics")]

@@ -4,8 +4,11 @@ use std::hint;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-// Import centralized constants (SSOT compliance)
-use moirai_core::constants::{SPINLOCK_MAX_BACKOFF, SPINLOCK_MAX_SPINS_BEFORE_YIELD};
+/// Maximum backoff iterations for `SpinLock` (TBB-inspired)
+const SPINLOCK_MAX_BACKOFF: usize = 64;
+
+/// Maximum spin attempts before yielding to scheduler
+const SPINLOCK_MAX_SPINS_BEFORE_YIELD: usize = 1000;
 
 // SpinLock backoff constants (TBB-inspired)
 /// Initial backoff iterations for SpinLock

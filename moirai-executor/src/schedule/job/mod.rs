@@ -165,7 +165,7 @@ mod tests {
     };
 
     use super::{InlineJob, InlineJobStorage, ScheduledJob, INLINE_JOB_WORDS};
-    use moirai_core::constants::CACHE_LINE_SIZE;
+    use moirai_core::memory::CACHE_LINE_SIZE;
 
     #[test]
     fn inline_job_uses_two_cache_line_budget() {
