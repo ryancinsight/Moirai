@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "linux")]
 use std::sync::atomic::AtomicI32;
 
-// Import centralized constants (SSOT compliance)
-use moirai_core::constants::MAX_SPIN_ATTEMPTS;
+/// Maximum generic spin attempts before falling back to blocking
+const MAX_SPIN_ATTEMPTS: usize = 64;
 
 #[cfg(target_os = "linux")]
 mod futex {

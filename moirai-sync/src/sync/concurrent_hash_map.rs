@@ -4,8 +4,8 @@ use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::RwLock;
 
-// Import centralized constants (SSOT compliance)
-use moirai_core::constants::DEFAULT_CONCURRENT_MAP_SEGMENTS;
+/// Default concurrent map segment count for optimal performance
+const DEFAULT_CONCURRENT_MAP_SEGMENTS: usize = 16;
 
 /// Error returned when a segment's `RwLock` was poisoned by a panicked writer.
 ///

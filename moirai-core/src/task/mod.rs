@@ -60,6 +60,9 @@
 //! executor's responsibility (the hybrid executor catches unwinds at the job
 //! boundary), not a task-combinator concern.
 
+/// Maximum generic spin attempts before falling back to blocking
+pub(crate) const MAX_SPIN_ATTEMPTS: usize = 64;
+
 /// Task builder types: `TaskBuilder`, `BaseTask`, `Closure`, `Chained`, `Mapped`, `Parameterized`, `Group`, `Spawner`.
 pub(crate) mod builder;
 /// Task extension trait and combinator types: `TaskExt`, `ContextualTask`.
@@ -245,9 +248,6 @@ mod tests {
     #[test]
     fn result_wait_policy_is_zero_sized_and_const_bounded() {
         assert_eq!(core::mem::size_of::<BlockingResultWait>(), 0);
-        assert_eq!(
-            BlockingResultWait::SPIN_ATTEMPTS,
-            crate::constants::MAX_SPIN_ATTEMPTS
-        );
+        assert_eq!(BlockingResultWait::SPIN_ATTEMPTS, MAX_SPIN_ATTEMPTS);
     }
 }

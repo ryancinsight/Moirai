@@ -6,7 +6,8 @@
 //! vector is dropped.
 
 use crate::base::{get_shared_thread_pool, PoolJoinGuard, SendPtr};
-use moirai_core::constants::DEFAULT_RING_BUFFER_CAPACITY;
+/// Default ring buffer capacity (power of 2)
+const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
 /// Parallel iterator with automatic scoped chunking.
 pub struct ParallelIter<T> {

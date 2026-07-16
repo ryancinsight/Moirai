@@ -25,7 +25,8 @@ pub mod route;
 pub mod safe_channel;
 
 use moirai_core::channel::{mpmc, MpmcReceiver, MpmcSender};
-use moirai_core::constants::DEFAULT_MPMC_CAPACITY;
+/// Default MPMC channel capacity
+const DEFAULT_MPMC_CAPACITY: usize = 1024;
 use std::{
     collections::HashMap,
     fmt,

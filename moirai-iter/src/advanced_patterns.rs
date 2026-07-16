@@ -4,7 +4,11 @@
 //! the unified channel system for zero-copy operations and optimal
 //! memory utilization, based on modern iterator design principles.
 
-use moirai_core::constants::{CACHE_LINE_SIZE, DEFAULT_RING_BUFFER_CAPACITY};
+/// Cache line size for alignment optimizations
+const CACHE_LINE_SIZE: usize = 64;
+
+/// Default ring buffer capacity (power of 2)
+const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 use moirai_core::memory::MemoryPool;
 use moirai_core::unified_channel::{
     ChannelConfig, UnifiedChannelError, UnifiedReceiver, UnifiedSender,

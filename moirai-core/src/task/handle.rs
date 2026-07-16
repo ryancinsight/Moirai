@@ -54,7 +54,7 @@ pub(super) mod result_wait {
     impl sealed::Sealed for BlockingResultWait {}
 
     impl ResultWaitPolicy for BlockingResultWait {
-        const SPIN_ATTEMPTS: usize = crate::constants::MAX_SPIN_ATTEMPTS;
+        const SPIN_ATTEMPTS: usize = super::super::MAX_SPIN_ATTEMPTS;
     }
 }
 

@@ -1,6 +1,7 @@
 //! Configuration for unified channels.
 
-use crate::constants::DEFAULT_RING_BUFFER_CAPACITY;
+/// Default ring buffer capacity (power of 2)
+pub const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
 /// Channel configuration for unified memory management
 #[derive(Debug, Clone)]

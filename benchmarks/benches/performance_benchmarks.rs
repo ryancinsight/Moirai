@@ -1,9 +1,20 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use moirai::Moirai;
-use moirai_core::constants::{
-    BENCHMARK_PRIME_MODULO, CPU_UTILIZATION_PRECISION, DEFAULT_BENCHMARK_OPS, LARGE_BENCHMARK_SIZE,
-    SIMD_BENCHMARK_SIZE,
-};
+/// Prime modulo for benchmark variation
+const BENCHMARK_PRIME_MODULO: usize = 997;
+
+/// Default benchmark operation count
+const DEFAULT_BENCHMARK_OPS: usize = 1000;
+
+/// Large benchmark data size for performance testing
+const LARGE_BENCHMARK_SIZE: usize = 10000;
+
+/// SIMD benchmark vector size
+const SIMD_BENCHMARK_SIZE: usize = 1024;
+
+/// Default CPU utilization precision factor (percentage * 100)
+const CPU_UTILIZATION_PRECISION: u64 = 100;
+
 use std::{sync::Arc, time::Duration};
 
 const BENCHMARK_SAMPLE_SIZE: usize = 10;
