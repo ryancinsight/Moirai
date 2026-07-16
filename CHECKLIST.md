@@ -1,9 +1,9 @@
 # Moirai Development Checklist
 
-- [ ] [patch] Publish 0.3.1 with the default-branch Themis and Mnemosyne
-  provider contract; delete the root-only Themis path patch and refresh the
-  lockfile. Evidence target: one Themis source identity plus focused provider
-  nextest and warning-denied Clippy.
+- [x] [patch] Pin the audited Themis and Mnemosyne provider revisions in the
+  workspace dependency SSOT and refresh the lockfile. Evidence: one Themis
+  and one Mnemosyne source identity; warning-denied `moirai-gpu` Clippy; and
+  `cargo nextest run -p moirai-gpu --all-features --locked` passes 10/10.
 - [x] [patch] Publish the Themis 0.10.0/Mnemosyne 0.4.0 topology graph and
   verify the `moirai-gpu` provider consumer without a local source override.
   Evidence: warning-denied Clippy; 33/33 focused nextest; the GPU dependency
