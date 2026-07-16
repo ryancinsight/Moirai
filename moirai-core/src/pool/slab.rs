@@ -200,9 +200,11 @@ impl<T> SlabAllocator<T> {
 
 impl<T> Drop for SlabAllocator<T> {
     fn drop(&mut self) {
-        // Iterate through all entries and drop occupied ones
-        for entry in self.entries.iter_mut() {
+        // Iterate through all entries and drop occupied ones.
+        for entry in &mut self.entries {
             if *entry.occupied.get_mut() {
+                // SAFETY: `occupied` is set only after `value` is initialized, and
+                // `&mut self` makes this the sole drop of the occupied entry.
                 unsafe {
                     entry.value.get_mut().assume_init_drop();
                 }

@@ -153,8 +153,8 @@ pub struct CleanupConfig {
 impl Default for CleanupConfig {
     fn default() -> Self {
         Self {
-            task_retention_duration: core::time::Duration::from_secs(300), // 5 minutes
-            cleanup_interval: core::time::Duration::from_secs(30),         // 30 seconds
+            task_retention_duration: core::time::Duration::from_mins(5),
+            cleanup_interval: core::time::Duration::from_secs(30), // 30 seconds
             enable_automatic_cleanup: true,
             max_retained_tasks: 10_000,
         }

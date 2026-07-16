@@ -2,30 +2,30 @@
 
 use std::{
     marker::PhantomData,
-    panic::{AssertUnwindSafe, catch_unwind},
+    panic::{catch_unwind, AssertUnwindSafe},
     ptr::NonNull,
     sync::{
-        Arc, Mutex, OnceLock,
         atomic::{AtomicUsize, Ordering},
+        Arc, Mutex, OnceLock,
     },
     thread,
 };
 
 use moirai_core::{
-    Priority,
     error::{ExecutorError, ExecutorResult},
+    Priority,
 };
 
 use moirai_utils::cache::CacheAligned;
 
 use super::super::super::{class::WorkClass, job::ScheduledJob};
 use super::super::types::{
-    BoundedContendedWake, SchedulerInner, SchedulerScope, SchedulerScopeState, ThreadScheduler,
-    get_current_worker_id,
+    get_current_worker_id, BoundedContendedWake, SchedulerInner, SchedulerScope,
+    SchedulerScopeState, ThreadScheduler,
 };
 use super::super::worker::{
-    JOIN_FAST_SPIN_ATTEMPTS, execute_job, is_quiescent, lock_mutex, next_shared_job,
-    wake_all_workers, wake_contended_workers, wake_worker,
+    execute_job, is_quiescent, lock_mutex, next_shared_job, wake_all_workers,
+    wake_contended_workers, wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
 };
 
 /// Busy-spin iterations a worker-thread scope waiter performs after exhausting

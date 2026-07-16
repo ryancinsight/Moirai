@@ -51,7 +51,7 @@ Moirai is a standalone Rust library that consolidates async execution (tokio alt
 ### 2.4 Operating Environment
 - **Platforms**: Linux, Windows, macOS, WebAssembly
 - **Architectures**: x86_64, ARM64, RISC-V, WASM32
-- **Rust Version**: 1.75.0 or later
+- **Rust Version**: 1.95 or later
 - **Dependencies**: Standard library only (no external runtime dependencies)
 
 ---

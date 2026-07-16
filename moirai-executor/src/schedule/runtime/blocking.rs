@@ -3,15 +3,15 @@
 use std::{
     collections::VecDeque,
     sync::{
-        Arc, Condvar, Mutex,
         atomic::{AtomicUsize, Ordering},
+        Arc, Condvar, Mutex,
     },
     thread::{self, JoinHandle},
 };
 
 use moirai_core::{
-    Priority,
     error::{ExecutorError, ExecutorResult},
+    Priority,
 };
 
 use super::{super::job::ScheduledJob, types::SchedulerInner, worker::execute_blocking_job};

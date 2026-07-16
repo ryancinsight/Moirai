@@ -4,7 +4,7 @@
 [![Coverage](https://img.shields.io/badge/coverage-95%25-green)](https://github.com/moirai-lang/moirai)
 [![Phase](https://img.shields.io/badge/phase-15%20(Code%20Quality)-green)](https://github.com/moirai-lang/moirai)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange)](https://www.rust-lang.org/)
+[![Rust Version](https://img.shields.io/badge/rust-1.95%2B-orange)](https://www.rust-lang.org/)
 
 Moirai is a unified scheduler/router for Rust work placement. It routes admitted
 work across local CPU worker threads, sync/blocking/async-ready work classes,

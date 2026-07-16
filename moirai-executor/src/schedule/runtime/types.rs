@@ -5,8 +5,8 @@ use std::{
     marker::PhantomData,
     ptr::NonNull,
     sync::{
-        Arc, Condvar, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        Arc, Condvar, Mutex, OnceLock,
     },
     thread::{self, JoinHandle},
 };

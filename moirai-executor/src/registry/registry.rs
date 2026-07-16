@@ -53,9 +53,9 @@ impl TaskRegistry {
 
         let block = &self.blocks[block_index];
         assert!(
-            !block
+            block
                 .get(slot_index)
-                .is_some_and(|state| !state.is_completed()),
+                .is_none_or(|state| state.is_completed()),
             "task ID must not be re-registered while active"
         );
 

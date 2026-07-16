@@ -1,22 +1,22 @@
 # Moirai Development Checklist
 
-- [x] [patch] Pin the audited Themis and Mnemosyne provider revisions in the
-  workspace dependency SSOT and refresh the lockfile. Evidence: one Themis
-  and one Mnemosyne source identity; warning-denied `moirai-gpu` Clippy; and
-  `cargo nextest run -p moirai-gpu --all-features --locked` passes 10/10.
-- [x] [patch] Publish the Themis 0.10.0/Mnemosyne 0.4.0 topology graph and
-  verify the `moirai-gpu` provider consumer without a local source override.
-  Evidence: warning-denied Clippy; 33/33 focused nextest; the GPU dependency
-  tree resolves only Themis 0.10.0.
-- [x] [patch] Refresh the exact Mnemosyne provider revision and verify workspace
-  clippy plus canonical nextest.
-- [x] [patch] Consolidate direct and transitive Melinoe dependencies to one
-  exact Git source identity.
+## Provider default-source convergence [major]
+
+- [x] Remove direct Themis, Mnemosyne, and Melinoe revisions plus the local
+  Melinoe patch from the workspace dependency SSOT.
+- [x] Record ADR 016: merged Mnemosyne 0.5/Core 0.2 requires Rust 1.95, so the
+  workspace advances from 0.3.1 to 0.4.0 without a compatibility branch.
+- [x] Refresh the lockfile against merged provider heads and prove one source
+  identity for Melinoe, Themis, and Mnemosyne.
+- [x] Verify the focused GPU consumer with Rust 1.95 compilation,
+  warning-denied Clippy, configured Nextest, doctests, and rustdoc.
 - [x] [patch] Preserve SPSC send-before-close ordering with a value-semantic
   drain regression that contains no wall-clock synchronization.
-- Evidence: workspace Clippy is warning-clean; canonical nextest passes 722/722
-  tests with six configuration skips; `cargo tree -d` reports no duplicate
-  Melinoe source identities.
+- Evidence: Rust 1.95 accepts `moirai-gpu` and Rust 1.94 rejects the declared
+  package graph; warning-denied focused Clippy passes; Nextest passes 10/10;
+  doctests pass 0/0; rustdoc is warning-clean; each provider resolves to one
+  lock source identity; the SemVer major comparison reports no API check
+  failures.
 
 ## Phase 30: NUMA helper removal and channel hierarchy closure
 
