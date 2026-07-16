@@ -134,7 +134,6 @@ impl<'a> Drop for CondvarNotifyFuture<'a> {
 mod tests {
     use super::*;
 
-
     #[test]
     fn test_condvar_notify_one() {
         let cv = Condvar::new();

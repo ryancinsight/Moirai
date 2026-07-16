@@ -10,7 +10,7 @@ use moirai_core::error::{ExecutorError, ExecutorResult};
 use super::super::job::ScheduledJob;
 use super::super::queue::WorkerQueueOwner;
 
-use super::types::{ContendedWakePolicy, SchedulerInner, WorkerState, set_current_worker_id};
+use super::types::{set_current_worker_id, ContendedWakePolicy, SchedulerInner, WorkerState};
 
 #[cfg(feature = "scheduler-diagnostics")]
 use super::types::BoundedContendedWake;
@@ -489,7 +489,7 @@ where
     Map: Fn(usize) -> T,
     Reduce: Fn(T, T) -> T,
 {
-    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     catch_unwind(AssertUnwindSafe(|| {
         let mut accumulator = identity;
         for index in 0..count {

@@ -1,17 +1,16 @@
 //! Unit tests for the thread scheduler runtime.
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{
-    Arc, Barrier,
     atomic::{AtomicUsize, Ordering},
-    mpsc,
+    mpsc, Arc, Barrier,
 };
 
-use super::types::{ThreadScheduler, get_current_worker_id};
+use super::types::{get_current_worker_id, ThreadScheduler};
 use crate::schedule::{AsyncTask, BlockingTask, SyncTask};
 use moirai_core::{
-    Priority,
     error::{ExecutorError, TaskError},
+    Priority,
 };
 
 #[test]
@@ -927,7 +926,7 @@ fn scheduler_scope_completes_registered_jobs_before_resuming_body_panic() {
 #[test]
 fn test_melinoe_partition_routing() {
     use melinoe::sync::partition_map;
-    use melinoe::{MelinoeCell, brand_scope};
+    use melinoe::{brand_scope, MelinoeCell};
 
     let _exec = crate::global();
 

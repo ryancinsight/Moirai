@@ -1,9 +1,9 @@
 use std::sync::{
-    Arc,
     atomic::{AtomicUsize, Ordering},
+    Arc,
 };
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use moirai_core::Priority;
 use moirai_executor::schedule::{BlockingTask, ThreadScheduler};
 

@@ -21,7 +21,9 @@ pub use condvar::Condvar;
 pub use mpsc::{channel as mpsc_channel, Receiver as MpscReceiver, Sender as MpscSender};
 pub use mutex::{Mutex, MutexGuard, MutexLockFuture};
 pub use notify::{Notify, NotifyFuture};
-pub use oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
+pub use oneshot::{
+    channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender,
+};
 pub use rwlock::{RwLock, RwLockReadFuture, RwLockWriteFuture};
 pub use semaphore::{Semaphore, SemaphoreAcquire, SemaphorePermit};
 pub use watch::{Watch, WatchChanged, WatchError, WatchReceiver, WatchSender};
