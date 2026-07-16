@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- [major] Direct Atlas providers follow their merged default branches. The
+  workspace removes revision quarantine and the local Melinoe patch, and adopts
+  Mnemosyne 0.5/Core 0.2; `Cargo.lock` is the sole reproducibility pin.
+
+### Breaking
+
+- Moirai 0.4.0 requires Rust 1.95. Migration: update the consumer toolchain
+  before resolving the default Mnemosyne provider graph.
+
 ## [0.3.1] - 2026-07-15
 
 ### Changed
