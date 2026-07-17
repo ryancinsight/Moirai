@@ -47,17 +47,22 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "../moirai-core/src/unified_channel.rs",
+        "../moirai-core/src/channel/unified.rs",
         &[
-            "../moirai-core/src/unified_channel/mod.rs",
-            "../moirai-core/src/unified_channel/error.rs",
-            "../moirai-core/src/unified_channel/config.rs",
-            "../moirai-core/src/unified_channel/stats.rs",
-            "../moirai-core/src/unified_channel/core.rs",
-            "../moirai-core/src/unified_channel/sender.rs",
-            "../moirai-core/src/unified_channel/receiver.rs",
-            "../moirai-core/src/unified_channel/tests.rs",
+            "../moirai-core/src/channel/unified/mod.rs",
+            "../moirai-core/src/channel/unified/core.rs",
+            "../moirai-core/src/channel/unified/sender.rs",
+            "../moirai-core/src/channel/unified/receiver.rs",
+            "../moirai-core/src/channel/unified/tests.rs",
         ],
+    ),
+    (
+        "../moirai-core/src/channel/stats.rs",
+        &["../moirai-core/src/channel/stats.rs"],
+    ),
+    (
+        "../moirai-core/src/channel/config.rs",
+        &["../moirai-core/src/channel/config.rs"],
     ),
     (
         "../moirai-core/src/task.rs",
@@ -73,9 +78,7 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
     ),
     (
         "../moirai-core/src/scheduler.rs",
-        &[
-            "../moirai-core/src/scheduler/mod.rs",
-        ],
+        &["../moirai-core/src/scheduler/mod.rs"],
     ),
     (
         "../moirai-executor/src/hybrid/mod.rs",

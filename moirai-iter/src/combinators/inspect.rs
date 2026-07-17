@@ -24,9 +24,8 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<I::Item> {
-        self.iter.next().map(|item| {
-            (self.f)(&item);
-            item
+        self.iter.next().inspect(|item| {
+            (self.f)(item);
         })
     }
 
@@ -48,9 +47,8 @@ where
 {
     #[inline]
     fn next_back(&mut self) -> Option<I::Item> {
-        self.iter.next_back().map(|item| {
-            (self.f)(&item);
-            item
+        self.iter.next_back().inspect(|item| {
+            (self.f)(item);
         })
     }
 }

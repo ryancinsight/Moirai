@@ -468,7 +468,7 @@ impl<T: Clone> Iterator for CacheAwareIterator<T> {
         self.current_pos += 1;
 
         // Update chunk tracking for prefetching hints
-        if self.current_pos % self.chunk_size == 0 {
+        if self.current_pos.is_multiple_of(self.chunk_size) {
             self.current_chunk += 1;
         }
 
@@ -505,11 +505,11 @@ pub fn pipeline<T>(data: Vec<T>) -> IteratorPipeline<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moirai_core::unified_channel;
+    use moirai_core::channel::unified;
 
     #[test]
     fn test_streaming_iterator() {
-        let (sender, receiver) = unified_channel::<i32>(16).unwrap();
+        let (sender, receiver) = unified::unified_channel::<i32>(16).unwrap();
 
         // Send some data
         for i in 0..10 {
