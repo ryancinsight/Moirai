@@ -661,7 +661,9 @@ impl ChatServer {
                             message_queue.mark_delivery_success(delivery_time);
                             messages_sent.fetch_add(1, Ordering::Relaxed);
 
-                            if worker_id == 0 && messages_sent.load(Ordering::Relaxed) % 100 == 0 {
+                            if worker_id == 0
+                                && messages_sent.load(Ordering::Relaxed).is_multiple_of(100)
+                            {
                                 println!(
                                     "Worker {}: Delivered {} messages",
                                     worker_id,

@@ -353,7 +353,7 @@ mod tests {
         // No Content-Length and no chunked framing => read-to-EOF. A body larger
         // than the cap must trip the buffer ceiling rather than allocate it all.
         let mut resp = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
-        resp.extend(std::iter::repeat(b'x').take(64 * 1024));
+        resp.extend(std::iter::repeat_n(b'x', 64 * 1024));
         let err = read(resp, 8 * 1024).expect_err("EOF body over the cap must be rejected");
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
@@ -365,7 +365,7 @@ mod tests {
         let mut resp = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
         for _ in 0..64 {
             resp.extend_from_slice(b"1000\r\n"); // 0x1000 = 4096-byte chunk
-            resp.extend(std::iter::repeat(b'y').take(0x1000));
+            resp.extend(std::iter::repeat_n(b'y', 0x1000));
             resp.extend_from_slice(b"\r\n");
         }
         resp.extend_from_slice(b"0\r\n\r\n");

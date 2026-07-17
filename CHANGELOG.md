@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `channel::unified::*`; match `ChannelError::InvalidConfig` in error
   handlers.
 
+### Fixed
+
+- Make async waiter handoff retain FIFO behavior after cancellation without
+  linear waiter scans; reclaim broadcast messages after every live receiver
+  consumes them; derive timer-compaction coverage from the active heap state.
+- Apply warning-free iterator and arithmetic idioms in affected examples and
+  HTTP framing fixtures.
+
 ### Breaking
 
 - Moirai 0.4.0 requires Rust 1.95. Migration: update the consumer toolchain

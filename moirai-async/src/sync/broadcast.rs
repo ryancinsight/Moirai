@@ -30,6 +30,9 @@ struct BroadcastState<T> {
 
 struct BroadcastReceiverState {
     waker: Option<Waker>,
+    /// Last sequence consumed by this receiver.  Used to compute the retention
+    /// boundary so messages read by every receiver can be reclaimed.
+    position: u64,
 }
 
 impl<T: Clone + Send + 'static> Broadcast<T> {
@@ -59,9 +62,13 @@ impl<T: Clone + Send + 'static> Broadcast<T> {
         // Register the first receiver
         {
             let mut state_guard = state.lock().unwrap();
-            state_guard
-                .receivers
-                .insert(0, BroadcastReceiverState { waker: None });
+            state_guard.receivers.insert(
+                0,
+                BroadcastReceiverState {
+                    waker: None,
+                    position: 0,
+                },
+            );
         }
 
         (sender, receiver)
@@ -81,22 +88,39 @@ impl<T: Clone> BroadcastSender<T> {
             return Err(BroadcastError::Closed);
         }
 
-        // Remove old messages if at capacity
-        while state.messages.len() >= state.capacity {
-            state.messages.pop_front();
-        }
-
-        // Add new message
+        // Add new message first, then reclaim messages already read by every
+        // receiver.  The retention boundary is the minimum position across all
+        // live receivers; messages with sequence <= that boundary have been
+        // consumed by everyone and can be dropped.
         state.sequence += 1;
         let sequence = state.sequence;
         state.messages.push_back((sequence, message));
 
-        // Wake all receivers
+        // Wake registered receivers after publication. They observe either the
+        // appended message or the explicit lag state retained by the capacity
+        // contract.
         let receiver_count = state.receivers.len();
         for receiver in state.receivers.values_mut() {
             if let Some(waker) = receiver.waker.take() {
                 waker.wake();
             }
+        }
+
+        // Reclaim memory from messages read by every receiver, while respecting
+        // the configured capacity window.
+        let min_position = state
+            .receivers
+            .values()
+            .map(|r| r.position)
+            .min()
+            .unwrap_or(sequence);
+        while state.messages.len() > state.capacity
+            || state
+                .messages
+                .front()
+                .is_some_and(|(seq, _)| *seq <= min_position)
+        {
+            state.messages.pop_front();
         }
 
         Ok(receiver_count)
@@ -135,7 +159,7 @@ impl<T: Clone> BroadcastReceiver<T> {
 
     /// Try to receive a message immediately
     pub fn try_recv(&mut self) -> Result<T, BroadcastError> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
 
         if state.messages.is_empty() {
             if state.closed {
@@ -148,6 +172,9 @@ impl<T: Clone> BroadcastReceiver<T> {
         let oldest_seq = state.messages.front().unwrap().0;
         if self.position + 1 < oldest_seq {
             self.position = oldest_seq - 1;
+            if let Some(rx_state) = state.receivers.get_mut(&self.id) {
+                rx_state.position = self.position;
+            }
             return Err(BroadcastError::Lagged);
         }
 
@@ -158,10 +185,16 @@ impl<T: Clone> BroadcastReceiver<T> {
         // offset by the queue length, so the conversion cannot truncate.
         let offset = usize::try_from(self.position + 1 - oldest_seq)
             .expect("invariant: unread offset is bounded by the message queue length");
-        if let Some((seq, message)) = state.messages.get(offset) {
+        let found = state.messages.get(offset).map(|(seq, message)| {
             debug_assert_eq!(*seq, self.position + 1, "broadcast sequences must be dense");
             self.position = *seq;
-            return Ok(message.clone());
+            message.clone()
+        });
+        if let Some(message) = found {
+            if let Some(rx_state) = state.receivers.get_mut(&self.id) {
+                rx_state.position = self.position;
+            }
+            return Ok(message);
         }
 
         if state.closed {
@@ -178,9 +211,13 @@ impl<T: Clone> BroadcastReceiver<T> {
         state.next_receiver_id += 1;
         let current_sequence = state.sequence;
 
-        state
-            .receivers
-            .insert(new_id, BroadcastReceiverState { waker: None });
+        state.receivers.insert(
+            new_id,
+            BroadcastReceiverState {
+                waker: None,
+                position: current_sequence,
+            },
+        );
 
         BroadcastReceiver {
             state: self.state.clone(),
@@ -207,6 +244,9 @@ impl<T: Clone> BroadcastReceiver<T> {
         let oldest_seq = state.messages.front().unwrap().0;
         if self.position + 1 < oldest_seq {
             self.position = oldest_seq - 1;
+            if let Some(rx_state) = state.receivers.get_mut(&self.id) {
+                rx_state.position = self.position;
+            }
             return Poll::Ready(Err(BroadcastError::Lagged));
         }
 
@@ -216,10 +256,13 @@ impl<T: Clone> BroadcastReceiver<T> {
         let found_msg = state.messages.get(offset).map(|(seq, message)| {
             debug_assert_eq!(*seq, self.position + 1, "broadcast sequences must be dense");
             self.position = *seq;
-            message.clone()
+            (*seq, message.clone())
         });
 
-        if let Some(message) = found_msg {
+        if let Some((_, message)) = found_msg {
+            if let Some(rx_state) = state.receivers.get_mut(&self.id) {
+                rx_state.position = self.position;
+            }
             Poll::Ready(Ok(message))
         } else if state.closed {
             Poll::Ready(Err(BroadcastError::Closed))
@@ -357,5 +400,26 @@ mod tests {
         );
         // Keep `fut` alive across the send so its waker stays registered.
         drop(fut);
+    }
+
+    #[test]
+    fn messages_read_by_every_receiver_are_reclaimed_on_next_send() {
+        let (tx, mut first) = Broadcast::<u32>::new(8);
+        let mut second = first.resubscribe();
+
+        tx.send(10).expect("first send must succeed");
+        tx.send(20).expect("second send must succeed");
+        assert_eq!(first.try_recv(), Ok(10));
+        assert_eq!(second.try_recv(), Ok(10));
+        assert_eq!(first.try_recv(), Ok(20));
+        assert_eq!(second.try_recv(), Ok(20));
+
+        tx.send(30).expect("third send must succeed");
+        let state = tx.state.lock().expect("broadcast state must not poison");
+        assert_eq!(
+            state.messages.iter().copied().collect::<Vec<_>>(),
+            vec![(3, 30)],
+            "the next send must retain only the new unread message"
+        );
     }
 }

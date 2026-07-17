@@ -95,6 +95,20 @@ architecture definition.
 
 ## Remaining Gap Register
 
+### ✅ MOI-ASYNC-058 [patch]: Stabilize async waiter retention and cancellation
+
+- **Resolution**: `WaitQueue` now keeps pending ids in FIFO order while its
+  keyed entries retain O(log n) registration/cancellation access; `mpsc`
+  waiter cancellation and waker refresh use keyed state; broadcast receiver
+  positions reclaim messages consumed by every live receiver; timer-compaction
+  coverage derives its bound from pre-existing registrations. The audit's
+  clippy rewrites are applied to examples and HTTP fixture generation.
+- **Evidence**: `cargo nextest run --locked -p moirai-async --all-features`
+  passes 88/88 and `-p moirai-http --all-features` passes 9/9. Workspace
+  all-target/all-feature warning-denied Clippy, package rustdoc, doctests, and
+  formatter checks pass.
+- **Status**: completed 2026-07-17.
+
 - [x] [patch] Apollo-facing provider contract tests added at the public `moirai`
   crate surface. `for_each_chunk_mut_enumerated_with::<Adaptive>` covers every
   mutable element exactly once across non-even chunk boundaries, and

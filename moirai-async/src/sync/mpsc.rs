@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::marker::Unpin;
 use std::pin::Pin;
@@ -10,8 +10,8 @@ struct SharedState<T> {
     capacity: usize,
     sender_count: usize,
     closed: bool,
-    send_waiters: VecDeque<(u64, Waker)>,
-    recv_waiters: VecDeque<(u64, Waker)>,
+    send_waiters: BTreeMap<u64, Waker>,
+    recv_waiters: BTreeMap<u64, Waker>,
     next_send_id: u64,
     next_recv_id: u64,
 }
@@ -46,7 +46,7 @@ impl<T> Sender<T> {
         }
         if shared.buffer.len() < shared.capacity {
             shared.buffer.push_back(value);
-            if let Some((_, waker)) = shared.recv_waiters.pop_front() {
+            if let Some((_, waker)) = shared.recv_waiters.pop_first() {
                 waker.wake();
             }
             Ok(())
@@ -70,7 +70,9 @@ impl<T> Drop for Sender<T> {
         shared.sender_count -= 1;
         if shared.sender_count == 0 {
             shared.closed = true;
-            let recv_wakers: Vec<_> = shared.recv_waiters.drain(..).collect();
+            let recv_wakers: Vec<_> = std::mem::take(&mut shared.recv_waiters)
+                .into_iter()
+                .collect();
             drop(shared);
             for (_, waker) in recv_wakers {
                 waker.wake();
@@ -100,21 +102,21 @@ impl<'a, T: Unpin> Future for SendFuture<'a, T> {
 
         if shared.buffer.len() < shared.capacity {
             shared.buffer.push_back(this.value.take().unwrap());
-            if let Some((_, waker)) = shared.recv_waiters.pop_front() {
+            if let Some((_, waker)) = shared.recv_waiters.pop_first() {
                 waker.wake();
             }
             this.id = None;
             Poll::Ready(Ok(()))
         } else if let Some(id) = this.id {
-            if let Some(entry) = shared.send_waiters.iter_mut().find(|(i, _)| *i == id) {
-                entry.1 = cx.waker().clone();
+            if let Some(waker) = shared.send_waiters.get_mut(&id) {
+                *waker = cx.waker().clone();
             }
             Poll::Pending
         } else {
             let id = shared.next_send_id;
             shared.next_send_id += 1;
             this.id = Some(id);
-            shared.send_waiters.push_back((id, cx.waker().clone()));
+            shared.send_waiters.insert(id, cx.waker().clone());
             Poll::Pending
         }
     }
@@ -124,7 +126,7 @@ impl<'a, T> Drop for SendFuture<'a, T> {
     fn drop(&mut self) {
         if let Some(id) = self.id {
             if let Ok(mut shared) = self.sender.shared.lock() {
-                shared.send_waiters.retain(|(i, _)| *i != id);
+                shared.send_waiters.remove(&id);
             }
         }
     }
@@ -146,7 +148,7 @@ impl<T> Receiver<T> {
         let mut shared = self.shared.lock().unwrap();
         let value = shared.buffer.pop_front();
         if value.is_some() {
-            if let Some((_, waker)) = shared.send_waiters.pop_front() {
+            if let Some((_, waker)) = shared.send_waiters.pop_first() {
                 waker.wake();
             }
         }
@@ -156,8 +158,12 @@ impl<T> Receiver<T> {
     pub fn close(&mut self) {
         let mut shared = self.shared.lock().unwrap();
         shared.closed = true;
-        let send_wakers: Vec<_> = shared.send_waiters.drain(..).collect();
-        let recv_wakers: Vec<_> = shared.recv_waiters.drain(..).collect();
+        let send_wakers: Vec<_> = std::mem::take(&mut shared.send_waiters)
+            .into_iter()
+            .collect();
+        let recv_wakers: Vec<_> = std::mem::take(&mut shared.recv_waiters)
+            .into_iter()
+            .collect();
         drop(shared);
         for (_, waker) in send_wakers.into_iter().chain(recv_wakers) {
             waker.wake();
@@ -169,7 +175,9 @@ impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         let mut shared = self.shared.lock().unwrap();
         shared.closed = true;
-        let send_wakers: Vec<_> = shared.send_waiters.drain(..).collect();
+        let send_wakers: Vec<_> = std::mem::take(&mut shared.send_waiters)
+            .into_iter()
+            .collect();
         drop(shared);
         for (_, waker) in send_wakers {
             waker.wake();
@@ -189,7 +197,7 @@ impl<'a, T> Future for RecvFuture<'a, T> {
         let this = self.get_mut();
         let mut shared = this.receiver.shared.lock().unwrap();
         if let Some(value) = shared.buffer.pop_front() {
-            if let Some((_, waker)) = shared.send_waiters.pop_front() {
+            if let Some((_, waker)) = shared.send_waiters.pop_first() {
                 waker.wake();
             }
             this.id = None;
@@ -198,15 +206,15 @@ impl<'a, T> Future for RecvFuture<'a, T> {
             this.id = None;
             Poll::Ready(Err(()))
         } else if let Some(id) = this.id {
-            if let Some(entry) = shared.recv_waiters.iter_mut().find(|(i, _)| *i == id) {
-                entry.1 = cx.waker().clone();
+            if let Some(waker) = shared.recv_waiters.get_mut(&id) {
+                *waker = cx.waker().clone();
             }
             Poll::Pending
         } else {
             let id = shared.next_recv_id;
             shared.next_recv_id += 1;
             this.id = Some(id);
-            shared.recv_waiters.push_back((id, cx.waker().clone()));
+            shared.recv_waiters.insert(id, cx.waker().clone());
             Poll::Pending
         }
     }
@@ -216,7 +224,7 @@ impl<'a, T> Drop for RecvFuture<'a, T> {
     fn drop(&mut self) {
         if let Some(id) = self.id {
             if let Ok(mut shared) = self.receiver.shared.lock() {
-                shared.recv_waiters.retain(|(i, _)| *i != id);
+                shared.recv_waiters.remove(&id);
             }
         }
     }
@@ -228,8 +236,8 @@ pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
         capacity,
         sender_count: 1,
         closed: false,
-        send_waiters: VecDeque::new(),
-        recv_waiters: VecDeque::new(),
+        send_waiters: BTreeMap::new(),
+        recv_waiters: BTreeMap::new(),
         next_send_id: 0,
         next_recv_id: 0,
     }));
@@ -246,7 +254,10 @@ mod tests {
     use super::*;
     use std::future::Future;
     use std::pin::Pin;
-    use std::sync::Arc;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
     use std::task::{Context, Poll, Wake, Waker};
 
     struct NoopWake;
@@ -258,6 +269,23 @@ mod tests {
         let waker = Waker::from(Arc::new(NoopWake));
         let mut context = Context::from_waker(&waker);
         Pin::new(future).poll(&mut context)
+    }
+
+    fn poll_future_with_waker<F: Future + Unpin>(future: &mut F, waker: &Waker) -> Poll<F::Output> {
+        let mut context = Context::from_waker(waker);
+        Pin::new(future).poll(&mut context)
+    }
+
+    struct CountingWake(Arc<AtomicUsize>);
+
+    impl Wake for CountingWake {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Release);
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.fetch_add(1, Ordering::Release);
+        }
     }
 
     #[test]
@@ -363,5 +391,37 @@ mod tests {
         drop(recv);
         // The full recv_waiters queue must be empty after the drop
         assert!(tx.shared.lock().unwrap().recv_waiters.is_empty());
+    }
+
+    #[test]
+    fn oldest_pending_sender_is_woken_first() {
+        let (tx, mut rx) = channel(1);
+        tx.try_send(1).expect("initial send must fill the channel");
+
+        let first_wakes = Arc::new(AtomicUsize::new(0));
+        let second_wakes = Arc::new(AtomicUsize::new(0));
+        let first_waker = Waker::from(Arc::new(CountingWake(Arc::clone(&first_wakes))));
+        let second_waker = Waker::from(Arc::new(CountingWake(Arc::clone(&second_wakes))));
+        let mut first = tx.send(2);
+        let mut second = tx.send(3);
+
+        assert!(poll_future_with_waker(&mut first, &first_waker).is_pending());
+        assert!(poll_future_with_waker(&mut second, &second_waker).is_pending());
+
+        assert_eq!(rx.try_recv(), Some(1));
+        assert_eq!(first_wakes.load(Ordering::Acquire), 1);
+        assert_eq!(second_wakes.load(Ordering::Acquire), 0);
+
+        assert!(matches!(
+            poll_future_with_waker(&mut first, &first_waker),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(rx.try_recv(), Some(2));
+        assert_eq!(second_wakes.load(Ordering::Acquire), 1);
+        assert!(matches!(
+            poll_future_with_waker(&mut second, &second_waker),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(rx.try_recv(), Some(3));
     }
 }

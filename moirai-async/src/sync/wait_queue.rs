@@ -26,15 +26,27 @@
 //! - [`Self::grant_all`] marks every pending waiter, returning their wakers,
 //!   for batch admission (reader batches, `notify_waiters`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::task::Waker;
 
 /// FIFO waiter queue generic over the grant payload `G`.
 ///
 /// `G` carries whatever the granting side must hand to the waiter (e.g. a
 /// notification kind); use `()` when the grant itself is the only signal.
+///
+/// # Implementation notes
+///
+/// Waiters are stored in a `BTreeMap` keyed by a monotonic id so that
+/// per-waiter lookup, poll, and cancellation are O(log n).  A separate
+/// `VecDeque<u64>` keeps the ids of *pending* waiters in FIFO order, which
+/// lets `grant_oldest` run in amortized O(1) instead of scanning every waiter.
+/// Ids of cancelled waiters are left in the pending queue and skipped lazily
+/// when they reach the front; this avoids an O(n) removal cost on the
+/// cancellation hot path.
 pub(crate) struct WaitQueue<G> {
     waiters: BTreeMap<u64, WaitEntry<G>>,
+    /// Ids of waiters that are still pending, in registration order.
+    pending: VecDeque<u64>,
     next_id: u64,
 }
 
@@ -60,6 +72,7 @@ impl<G> WaitQueue<G> {
     pub(crate) const fn new() -> Self {
         Self {
             waiters: BTreeMap::new(),
+            pending: VecDeque::new(),
             next_id: 0,
         }
     }
@@ -80,6 +93,7 @@ impl<G> WaitQueue<G> {
                 granted: None,
             },
         );
+        self.pending.push_back(id);
         id
     }
 
@@ -88,9 +102,19 @@ impl<G> WaitQueue<G> {
     /// which case the caller applies its no-waiter policy (store a permit,
     /// bump an availability counter, ...).
     pub(crate) fn grant_oldest(&mut self, payload: G) -> Option<Waker> {
-        let waiter = self.waiters.values_mut().find(|w| w.granted.is_none())?;
-        waiter.granted = Some(payload);
-        Some(waiter.waker.clone())
+        while let Some(&id) = self.pending.front() {
+            match self.waiters.get_mut(&id) {
+                Some(entry) if entry.granted.is_none() => {
+                    entry.granted = Some(payload);
+                    self.pending.pop_front();
+                    return Some(entry.waker.clone());
+                }
+                _ => {
+                    self.pending.pop_front();
+                }
+            }
+        }
+        None
     }
 
     /// Grant a clone of `payload` to every pending waiter, returning their
@@ -100,10 +124,13 @@ impl<G> WaitQueue<G> {
         G: Clone,
     {
         let mut wakers = Vec::new();
-        for waiter in self.waiters.values_mut() {
-            if waiter.granted.is_none() {
-                waiter.granted = Some(payload.clone());
-                wakers.push(waiter.waker.clone());
+        let pending_ids: Vec<u64> = self.pending.drain(..).collect();
+        for id in pending_ids {
+            if let Some(entry) = self.waiters.get_mut(&id) {
+                if entry.granted.is_none() {
+                    entry.granted = Some(payload.clone());
+                    wakers.push(entry.waker.clone());
+                }
             }
         }
         wakers
@@ -135,5 +162,55 @@ impl<G> WaitQueue<G> {
     /// can restore it; `None` if the entry was pending or absent.
     pub(crate) fn deregister(&mut self, id: u64) -> Option<G> {
         self.waiters.remove(&id).and_then(|entry| entry.granted)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WaitQueue, WaiterPoll};
+    use std::sync::Arc;
+    use std::task::{Wake, Waker};
+
+    struct NoopWake;
+
+    impl Wake for NoopWake {
+        fn wake(self: Arc<Self>) {}
+    }
+
+    fn noop_waker() -> Waker {
+        Waker::from(Arc::new(NoopWake))
+    }
+
+    #[test]
+    fn cancelled_head_does_not_block_fifo_grant() {
+        let mut queue = WaitQueue::new();
+        let cancelled = queue.register(noop_waker());
+        let active = queue.register(noop_waker());
+
+        assert_eq!(queue.deregister(cancelled), None);
+        assert!(queue.grant_oldest(17_u8).is_some());
+        assert!(matches!(
+            queue.poll_waiter(active, &noop_waker()),
+            WaiterPoll::Granted(17)
+        ));
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn grant_all_preserves_every_pending_payload() {
+        let mut queue = WaitQueue::new();
+        let first = queue.register(noop_waker());
+        let second = queue.register(noop_waker());
+
+        assert_eq!(queue.grant_all(29_u8).len(), 2);
+        assert!(matches!(
+            queue.poll_waiter(first, &noop_waker()),
+            WaiterPoll::Granted(29)
+        ));
+        assert!(matches!(
+            queue.poll_waiter(second, &noop_waker()),
+            WaiterPoll::Granted(29)
+        ));
+        assert!(queue.is_empty());
     }
 }

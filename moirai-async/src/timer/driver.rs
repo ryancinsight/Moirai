@@ -205,26 +205,35 @@ mod tests {
         // `live = 1` timer remaining, `len = live + dead = 1 + dead` gives
         // `dead <= 1`, hence `len <= 2`.
         //
-        // The test runs in its own process under the committed nextest runner,
-        // so the process-global driver heap contains exactly these timers.
+        // Pre-existing timer registrations are permitted, so the bound tracks
+        // the measured initial heap size instead of assuming process-global
+        // isolation from other timer coverage.
         let waker = Waker::from(Arc::new(NoopWake));
         let mut cx = Context::from_waker(&waker);
 
+        // Measure the driver's initial state; other tests may have left timers
+        // in the process-global driver, so all assertions are relative.
+        let initial_len = timer_driver().scheduled_len();
         let far = Duration::from_secs(3600);
-        let mut delays: Vec<Delay> = (0..100).map(|_| Delay::new(far)).collect();
+
+        // Add enough timers that cancelling all but one triggers compaction
+        // even when `initial_len` is non-zero.
+        let to_add = initial_len + 100;
+        let mut delays: Vec<Delay> = (0..to_add).map(|_| Delay::new(far)).collect();
         for delay in &mut delays {
             // First poll registers the delay with the driver.
             assert!(Pin::new(delay).poll(&mut cx).is_pending());
         }
-        assert_eq!(timer_driver().scheduled_len(), 100);
+        assert_eq!(timer_driver().scheduled_len(), initial_len + to_add);
 
-        // Cancel 99 of 100 (Delay::drop routes through TimerDriver::cancel).
+        // Cancel all but one (Delay::drop routes through TimerDriver::cancel).
         delays.truncate(1);
 
         let retained = timer_driver().scheduled_len();
         assert!(
-            (1..=2).contains(&retained),
-            "compaction must reclaim cancelled entries: retained {retained}, expected 1..=2"
+            retained <= 2 * initial_len + 2,
+            "compaction must retain at most twice the live timer bound: retained {retained}, expected <= {}",
+            2 * initial_len + 2
         );
 
         // The surviving delay is still scheduled and pending.

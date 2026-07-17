@@ -747,7 +747,7 @@ impl WebCrawler {
 
                         // Log progress
                         let total_crawled = pages_crawled.load(Ordering::Relaxed);
-                        if total_crawled % 10 == 0 {
+                        if total_crawled.is_multiple_of(10) {
                             println!("Worker {}: Crawled {} pages", worker_id, total_crawled);
                         }
                     }
