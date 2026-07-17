@@ -1,5 +1,17 @@
 # Moirai Development Checklist
 
+## In-flight claim — MOI-ASYNC-058 synchronization stabilization [patch]
+
+- [~] Take over the stale uncommitted synchronization/codec lane on `main`.
+  Scope: `moirai-async/src/sync/{broadcast,mpsc,wait_queue}.rs`, timer
+  regression coverage, `moirai-http/src/codec.rs`, affected examples, and this
+  provider PM scope.
+- [ ] Verify FIFO/cancellation behavior, broadcast retention, and the
+  cancellation-compaction regression through value-semantic configured Nextest
+  coverage; run warning-denied Clippy and formatter checks before publication.
+- [ ] Absorb audit findings into the provider backlog/gap register and delete
+  the untracked report instead of retaining a parallel status artifact.
+
 ## Provider default-source convergence [major]
 
 - [x] Remove direct Themis, Mnemosyne, and Melinoe revisions plus the local
