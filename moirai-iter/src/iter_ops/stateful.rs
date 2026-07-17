@@ -101,6 +101,7 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
+        #[allow(clippy::manual_inspect)]
         self.iter.next().map(|item| {
             (self.updater)(item);
             item

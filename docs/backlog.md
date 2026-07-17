@@ -222,27 +222,29 @@ architecture definition.
 - **Evidence tier**: deductive interleaving proof plus value-semantic nextest,
   warning-denied Clippy, rustdoc, doctest, Criterion, and GitHub review
   evidence.
-#### ✅ ISSUE-217 [patch]: Honor forced indexed parallelism under nesting
-- **Type**: Scheduler correctness / consumer performance
-- **Root Cause**: the scheduler applied an undocumented 256-index grain floor
-  after `moirai-parallel` had already selected an execution policy, silently
-  serializing explicit `Parallel` domains such as RITK's 9–18 expensive CMA
-  candidates. Once those candidates run concurrently, recursively stealing
-  unrelated outer jobs from nested histogram waits grows worker stacks and can
-  exhaust them; parking the nested waits instead deadlocks a saturated pool.
-- **Acceptance criteria**: explicit `Parallel` schedules a two-item domain
-  across caller and worker lanes; both indexed operation families flatten when
-  entered from a worker; a barrier-synchronized two-worker nested
-  fan-out completes and returns the closed-form arithmetic-series sum; a domain
-  just above the lane cap executes one physical chunk per selected lane.
-- **Status**: resolved. RITK's CMA population evaluation supplied the consumer
-  reproduction: outer candidate evaluation nests masked-histogram reductions.
-- **Evidence tier**: type-level policy selection, structural deadlock argument,
-  and value-semantic policy plus saturation regressions under nextest.
-- **Verification**: current-main `moirai-executor` plus `moirai-parallel`
-  109/109 in 1.118 s; the consumer-compatible 0.2 line passes executor 77/77
-  and parallel 29/29. Indexed scheduler source contract, focused
-  all-target/all-feature clippy, and rustdoc are warning-clean.
+#### ✅ ISSUE-218 [major]: Dual channel consolidation (TREE-DUP-002)
+- **Type**: Module Hierarchy / API Contract
+- **Root Cause**: `moirai-core` had two parallel channel systems at `channel/`
+  (`HybridChannel`, SPSC, MPMC) and `unified_channel/` (`UnifiedChannel`,
+  `ChannelConfig`, `ChannelStatistics`). The split forced consumers like
+  `moirai-iter` to import from both modules, duplicated error types
+  (`UnifiedChannelError` vs `ChannelError`), and deferred configuration/stats
+  from the `Channel<T>` trait surface.
+- **Resolution**: Folded `unified_channel/` into `channel/`. Extended
+  `Channel<T>` trait with `send_batch`/`recv_batch`/`close`/`is_closed`/`len`/
+  `stats` (default impls). Added `InvalidConfig` to `ChannelError`. Moved
+  `ChannelConfig` to `channel/config.rs` and `ChannelStatistics` to
+  `channel/stats.rs`. `UnifiedChannel` reimplemented as `channel::unified`
+  implementing `Channel<T>`. Deleted the `unified_channel/` module. Migrated
+  sole consumer `moirai-iter`.
+- **Evidence**: `cargo check -p moirai-core -p moirai-iter -p moirai -p
+  moirai-transport` clean; `cargo clippy -p moirai-core -p moirai-iter
+  --all-targets -- -D warnings` clean; `cargo nextest run -p moirai-core -p
+  moirai-iter` 255/255 green; `cargo doc -p moirai-core --no-deps`
+  warning-clean.
+- **Status**: Completed 2026-07-16.
+- **ADR**: `docs/adr/0019-tree-dup-002-dual-channel-consolidation.md`
+  (Accepted).
 #### 🔄 ISSUE-208 [arch]: Make `ThreadScheduler::scope` sound under nesting (unblock parallel non-indexed `drive`)
 - **Type**: Scheduler Correctness / Memory Safety
 - **Root Cause**: `SchedulerScopeState::wait` (`schedule/runtime/types.rs`) spins

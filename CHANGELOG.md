@@ -12,11 +12,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [major] Direct Atlas providers follow their merged default branches. The
   workspace removes revision quarantine and the local Melinoe patch, and adopts
   Mnemosyne 0.5/Core 0.2; `Cargo.lock` is the sole reproducibility pin.
+- [major] Dual channel consolidation (TREE-DUP-002): fold `unified_channel`
+  into `channel/` module. Extended `Channel<T>` trait with `send_batch`,
+  `recv_batch`, `close`, `is_closed`, `len`, `stats` (default impls). Moved
+  `ChannelConfig` → `channel/config.rs`, `ChannelStatistics` →
+  `channel/stats.rs`. Added `InvalidConfig` to `ChannelError`. `UnifiedChannel`
+  now implements `Channel<T>` under `channel::unified`. Deleted the
+  `unified_channel/` module. Migration: replace `unified_channel::*` imports
+  with `channel::unified::*`; match `ChannelError::InvalidConfig` in error
+  handlers.
 
 ### Breaking
 
 - Moirai 0.4.0 requires Rust 1.95. Migration: update the consumer toolchain
   before resolving the default Mnemosyne provider graph.
+- **Breaking:** removed the `unified_channel` public module. Use
+  `moirai_core::channel::unified` instead.
+- **Breaking:** `ChannelError` gains `InvalidConfig` variant — update
+  exhaustive matches. `Channel<T>` trait adds `send_batch`/`recv_batch`/
+  `close`/`is_closed`/`len`/`stats` — implementors must provide or accept
+  default impls.
 
 ## [0.3.1] - 2026-07-15
 
