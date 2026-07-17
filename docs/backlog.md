@@ -222,6 +222,28 @@ architecture definition.
 - **Evidence tier**: deductive interleaving proof plus value-semantic nextest,
   warning-denied Clippy, rustdoc, doctest, Criterion, and GitHub review
   evidence.
+#### ✅ ISSUE-217 [patch]: Honor forced indexed parallelism under nesting
+- **Type**: Scheduler correctness / consumer performance
+- **Root Cause**: the scheduler applied an undocumented 256-index grain floor
+  after `moirai-parallel` had already selected an execution policy, silently
+  serializing explicit `Parallel` domains such as RITK's 9–18 expensive CMA
+  candidates. Once those candidates run concurrently, recursively stealing
+  unrelated outer jobs from nested histogram waits grows worker stacks and can
+  exhaust them; parking the nested waits instead deadlocks a saturated pool.
+- **Acceptance criteria**: explicit `Parallel` schedules a two-item domain
+  across caller and worker lanes; both indexed operation families flatten when
+  entered from a worker; a barrier-synchronized two-worker nested fan-out
+  completes and returns the closed-form arithmetic-series sum; a domain just
+  above the lane cap executes one physical chunk per selected lane.
+- **Status**: resolved. RITK's CMA population evaluation supplied the consumer
+  reproduction: outer candidate evaluation nests masked-histogram reductions.
+- **Evidence tier**: type-level policy selection, structural deadlock argument,
+  and value-semantic policy plus saturation regressions under nextest.
+- **Verification**: current-main `moirai-executor` plus `moirai-parallel`
+  109/109 in 1.118 s; the consumer-compatible 0.2 line passes executor 77/77
+  and parallel 29/29. Indexed scheduler source contract, focused
+  all-target/all-feature clippy, and rustdoc are warning-clean.
+
 #### ✅ ISSUE-218 [major]: Dual channel consolidation (TREE-DUP-002)
 - **Type**: Module Hierarchy / API Contract
 - **Root Cause**: `moirai-core` had two parallel channel systems at `channel/`

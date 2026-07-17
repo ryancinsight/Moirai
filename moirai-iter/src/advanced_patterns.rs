@@ -104,8 +104,7 @@ impl<T> ProducerConsumerPair<T> {
             ..Default::default()
         };
 
-        let (sender, receiver) =
-            moirai_core::channel::unified_channel_with_config(config.clone())?;
+        let (sender, receiver) = moirai_core::channel::unified_channel_with_config(config.clone())?;
 
         Ok(Self {
             sender,
