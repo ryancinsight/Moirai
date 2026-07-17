@@ -1,5 +1,19 @@
 # Moirai Development Checklist
 
+**Target Version**: 0.4.0
+
+## Moirai 0.4.0 release artifact closure [patch]
+
+- [x] Take over the stale release-artifact increment after one hour without
+      file or commit activity.
+- [x] Synchronize the workspace version, changelog release section, checklist
+      target, and benchmark artifact contract at 0.4.0.
+- [x] Verify the focused artifact contract, formatting, and warning-denied
+      benchmark test target before publication.
+- Evidence: configured Nextest passes the artifact contract 1/1 with 67
+  unrelated cases filtered; nightly rustfmt and warning-denied Clippy for the
+  benchmark contract target pass.
+
 ## MOI-ASYNC-058 — synchronization stabilization [patch]
 
 - [x] Take over the stale uncommitted synchronization/codec lane on `main`.

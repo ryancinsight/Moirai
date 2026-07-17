@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-17
+
 ### Changed
 
 - Confirm the RITK masked Parzen-cache consumer path against the merged Moirai
