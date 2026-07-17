@@ -101,7 +101,10 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        #[allow(clippy::manual_inspect)]
+        #[expect(
+            clippy::manual_inspect,
+            reason = "UpdateInPlace must return the consumed mutable reference after mutation"
+        )]
         self.iter.next().map(|item| {
             (self.updater)(item);
             item
