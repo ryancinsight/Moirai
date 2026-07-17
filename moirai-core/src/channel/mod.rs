@@ -15,17 +15,25 @@
 //! - Proper memory ordering with acquire-release semantics
 //! - Safe cleanup on drop with reference counting
 
+pub mod config;
 pub mod error;
 pub mod hybrid;
 pub mod mpmc;
 pub mod select;
 pub mod spsc;
+pub mod stats;
+pub mod unified;
 
+pub use config::ChannelConfig;
 pub use error::{Channel, ChannelError, Result};
 pub use hybrid::{HybridChannel, HybridReceiver, HybridSender};
 pub use mpmc::{MpmcChannel, MpmcReceiver, MpmcSender};
 pub use select::{mpmc, spsc, unbounded, Select};
 pub use spsc::{SpscChannel, SpscReceiver, SpscSender};
+pub use stats::ChannelStatistics;
+pub use unified::{
+    unified_channel, unified_channel_with_config, UnifiedChannel, UnifiedReceiver, UnifiedSender,
+};
 
 #[cfg(test)]
 mod tests {

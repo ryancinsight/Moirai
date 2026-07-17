@@ -9,10 +9,8 @@ const CACHE_LINE_SIZE: usize = 64;
 
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
+use moirai_core::channel::{ChannelConfig, ChannelError, UnifiedReceiver, UnifiedSender};
 use moirai_core::memory::MemoryPool;
-use moirai_core::unified_channel::{
-    ChannelConfig, UnifiedChannelError, UnifiedReceiver, UnifiedSender,
-};
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -98,7 +96,7 @@ pub struct ProducerConsumerPair<T> {
 
 impl<T> ProducerConsumerPair<T> {
     /// Create a new producer-consumer pair with specified capacity
-    pub fn new(capacity: usize) -> Result<Self, UnifiedChannelError> {
+    pub fn new(capacity: usize) -> Result<Self, ChannelError> {
         let config = ChannelConfig {
             capacity,
             enable_batching: true,
@@ -107,7 +105,7 @@ impl<T> ProducerConsumerPair<T> {
         };
 
         let (sender, receiver) =
-            moirai_core::unified_channel::unified_channel_with_config(config.clone())?;
+            moirai_core::channel::unified_channel_with_config(config.clone())?;
 
         Ok(Self {
             sender,
@@ -492,7 +490,7 @@ pub fn streaming_from_channel<T>(receiver: UnifiedReceiver<T>) -> StreamingItera
 
 pub fn producer_consumer_channel<T>(
     capacity: usize,
-) -> Result<ProducerConsumerPair<T>, UnifiedChannelError> {
+) -> Result<ProducerConsumerPair<T>, ChannelError> {
     ProducerConsumerPair::new(capacity)
 }
 

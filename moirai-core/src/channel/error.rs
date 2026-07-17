@@ -4,6 +4,8 @@ use std::fmt;
 
 pub(super) use moirai_utils::cache::CacheAligned;
 
+use super::stats::ChannelStatistics;
+
 /// Error types for channel operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChannelError {
@@ -15,6 +17,8 @@ pub enum ChannelError {
     Closed,
     /// Operation would block but non-blocking was requested
     WouldBlock,
+    /// Invalid channel configuration
+    InvalidConfig,
 }
 
 impl fmt::Display for ChannelError {
@@ -24,6 +28,7 @@ impl fmt::Display for ChannelError {
             Self::Empty => write!(f, "channel is empty"),
             Self::Closed => write!(f, "channel is closed"),
             Self::WouldBlock => write!(f, "operation would block"),
+            Self::InvalidConfig => write!(f, "invalid channel configuration"),
         }
     }
 }
@@ -55,4 +60,44 @@ pub trait Channel<T>: Send + Sync {
 
     /// Get the capacity of the channel
     fn capacity(&self) -> Option<usize>;
+
+    /// Send multiple values in batch. Default sends each individually.
+    fn send_batch(&self, values: Vec<T>) -> Result<usize> {
+        let mut count = 0;
+        for value in values {
+            self.send(value)?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// Receive up to `max_count` values in batch. Default receives individually.
+    fn recv_batch(&self, max_count: usize) -> Vec<T> {
+        let mut results = Vec::with_capacity(max_count);
+        for _ in 0..max_count {
+            match self.recv() {
+                Ok(value) => results.push(value),
+                Err(_) => break,
+            }
+        }
+        results
+    }
+
+    /// Close the channel. Default: no-op (channels that support close override).
+    fn close(&self) {}
+
+    /// Check if channel is closed. Default: false.
+    fn is_closed(&self) -> bool {
+        false
+    }
+
+    /// Current number of buffered items. Default: 0.
+    fn len(&self) -> usize {
+        0
+    }
+
+    /// Return statistics if the channel tracks them.
+    fn stats(&self) -> Option<ChannelStatistics> {
+        None
+    }
 }

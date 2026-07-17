@@ -48,8 +48,6 @@ pub mod task;
 // Unified channel implementation
 #[cfg(feature = "std")]
 pub mod channel;
-#[cfg(feature = "std")]
-pub mod unified_channel;
 
 // CacheAligned is imported from moirai-utils
 
@@ -72,14 +70,9 @@ pub use task::{Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, Ta
 
 #[cfg(feature = "std")]
 pub use channel::{
-    mpmc, spsc, unbounded, Channel, ChannelError, MpmcChannel, MpmcReceiver, MpmcSender, Select,
-    SpscChannel, SpscReceiver, SpscSender,
-};
-
-#[cfg(feature = "std")]
-pub use unified_channel::{
-    unified_channel, unified_channel_with_config, ChannelConfig, ChannelStatistics,
-    UnifiedChannelError, UnifiedReceiver, UnifiedSender,
+    mpmc, spsc, unbounded, unified_channel, unified_channel_with_config, Channel, ChannelConfig,
+    ChannelError, ChannelStatistics, MpmcChannel, MpmcReceiver, MpmcSender, Select, SpscChannel,
+    SpscReceiver, SpscSender, UnifiedReceiver, UnifiedSender,
 };
 
 // Re-export CacheAligned from moirai-utils for convenience
