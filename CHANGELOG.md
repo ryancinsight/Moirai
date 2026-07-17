@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Confirm the RITK masked Parzen-cache consumer path against the merged Moirai
+  scheduler pin, closing the indexed caller-region downstream gate.
 - [major] Direct Atlas providers follow their merged default branches. The
   workspace removes revision quarantine and the local Melinoe patch, and adopts
   Mnemosyne 0.5/Core 0.2; `Cargo.lock` is the sole reproducibility pin.

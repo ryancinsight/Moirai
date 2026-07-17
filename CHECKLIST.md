@@ -40,10 +40,11 @@
   scheduler workers.
 - [x] Verify exact caller/worker lane identity and value sums through nextest,
   then run warning-denied Clippy.
-- [ ] Pin the commit in RITK and pass the unchanged masked-CMA consumer gate.
+- [x] Pin the commit in RITK and pass the unchanged masked-CMA consumer gate.
 - Evidence: `cargo nextest run -p moirai-executor` passed 83/83 with one
-  cfg-gated skip; warning-denied all-target/all-feature Clippy passed. The RITK
-  consumer gate follows after pinning this commit.
+  cfg-gated skip; warning-denied all-target/all-feature Clippy passed. RITK
+  pins merged Moirai main in its Atlas checkout action, and `cargo nextest run
+  -p ritk-registration masked_cache --all-features --status-level fail` passes.
 
 ## Phase 28: Melinoe executor capability migration
 
