@@ -14,7 +14,7 @@
       stack-owned scope state.
 - [x] Verify the 64-round borrowed-chunk regression, the bounded one-completion
       Loom model, and the complete executor package.
-- Evidence: configured Nextest passes `moirai-executor` 89/89 with one
+- Evidence: configured Nextest passes `moirai-executor` 88/88 with one
   cfg-gated skip; warning-denied all-target/all-feature Clippy, rustfmt,
   doctests, and rustdoc pass. The bounded Loom model passes 1/1. Miri cannot
   reach the regression on Windows because Themis NUMA detection calls the
