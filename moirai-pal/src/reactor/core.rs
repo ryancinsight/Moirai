@@ -68,7 +68,10 @@ impl IoReactor {
         self.platform_reactor.register_fd(fd, interest)?;
 
         // Track registration
-        let mut fds = self.registered_fds.lock().unwrap();
+        let mut fds = self
+            .registered_fds
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         fds.insert(
             FdKey::from(fd),
             FdInfo {
@@ -92,7 +95,10 @@ impl IoReactor {
     /// Unregister a file descriptor.
     pub fn unregister_fd(&self, fd: RawFd) -> io::Result<()> {
         self.platform_reactor.unregister_fd(fd)?;
-        self.registered_fds.lock().unwrap().remove(&FdKey::from(fd));
+        self.registered_fds
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .remove(&FdKey::from(fd));
         Ok(())
     }
 
@@ -184,7 +190,10 @@ impl IoReactor {
 
     /// Register a task's waker for a file descriptor and interest.
     pub fn register_waker(&self, fd: RawFd, interest: Interest, waker: Waker) -> io::Result<()> {
-        let mut fds = self.registered_fds.lock().unwrap();
+        let mut fds = self
+            .registered_fds
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         if let Some(fd_info) = fds.get_mut(&FdKey::from(fd)) {
             let mut new_interest = fd_info.interest;
             let mut modified = false;
@@ -212,8 +221,13 @@ impl IoReactor {
         } else {
             drop(fds);
             self.register_fd(fd, interest)?;
-            let mut fds = self.registered_fds.lock().unwrap();
-            let fd_info = fds.get_mut(&FdKey::from(fd)).unwrap();
+            let mut fds = self
+                .registered_fds
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            let fd_info = fds
+                .get_mut(&FdKey::from(fd))
+                .expect("fd was just registered");
             if interest.readable {
                 fd_info.read_waker = Some(waker.clone());
             }
