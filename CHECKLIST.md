@@ -2,6 +2,15 @@
 
 **Target Version**: 0.4.0
 
+## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — in-progress
+
+- Owner: Codex Tyche integration.
+- Scope: `moirai-executor/src/schedule/{job,runtime/scheduler}` and focused
+  scoped-dispatch regression coverage.
+- Reproduce Tyche's multi-job borrowed-slice access violation without Tyche,
+  repair the owning scheduler invariant, and verify value semantics plus Miri
+  or sanitizer coverage where supported.
+
 ## Moirai 0.4.0 release artifact closure [patch]
 
 - [x] Take over the stale release-artifact increment after one hour without
