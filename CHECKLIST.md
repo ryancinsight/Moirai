@@ -2,7 +2,7 @@
 
 **Target Version**: 0.4.0
 
-## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — ready-review
+## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — done
 
 - Owner: Codex Tyche integration.
 - Scope: `moirai-executor/src/schedule/{job,runtime/scheduler}` and focused
@@ -19,7 +19,8 @@
   doctests, and rustdoc pass. The bounded Loom model passes 1/1. Miri cannot
   reach the regression on Windows because Themis NUMA detection calls the
   unsupported `GetNumaHighestNodeNumber` FFI; it reports no result for this
-  invariant.
+  invariant. PR 81 contains the delivery; Moirai has no repository engineering
+  workflow beyond the non-gating Copilot workflow.
 
 ## Moirai 0.4.0 release artifact closure [patch]
 
