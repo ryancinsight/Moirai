@@ -2,6 +2,26 @@
 
 **Target Version**: 0.4.0
 
+## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — done
+
+- Owner: Codex Tyche integration.
+- Scope: `moirai-executor/src/schedule/{job,runtime/scheduler}` and focused
+  scoped-dispatch regression coverage.
+- [x] Reproduce Tyche's multi-job borrowed-slice access violation without
+      Tyche.
+- [x] Publish the final zero count while holding the wait lock, and require
+      both caller and worker waiters to acquire that lock before destroying the
+      stack-owned scope state.
+- [x] Verify the 64-round borrowed-chunk regression, the bounded one-completion
+      Loom model, and the complete executor package.
+- Evidence: configured Nextest passes `moirai-executor` 88/88 with one
+  cfg-gated skip; warning-denied all-target/all-feature Clippy, rustfmt,
+  doctests, and rustdoc pass. The bounded Loom model passes 1/1. Miri cannot
+  reach the regression on Windows because Themis NUMA detection calls the
+  unsupported `GetNumaHighestNodeNumber` FFI; it reports no result for this
+  invariant. PR 81 contains the delivery; Moirai has no repository engineering
+  workflow beyond the non-gating Copilot workflow.
+
 ## Moirai 0.4.0 release artifact closure [patch]
 
 - [x] Take over the stale release-artifact increment after one hour without
