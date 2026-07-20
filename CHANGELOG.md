@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep stack-owned scheduler scope state alive until the final completion
+  releases its wait synchronization, preventing a multi-job scoped fan-out from
+  hanging or dereferencing destroyed state.
+
 ## [0.4.0] - 2026-07-17
 
 ### Changed

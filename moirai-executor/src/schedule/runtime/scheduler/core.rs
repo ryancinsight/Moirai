@@ -225,6 +225,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let mut idle_spins = 0usize;
         loop {
             if state.pending_tasks.load(Ordering::Acquire) == 0 {
+                state.wait();
                 return;
             }
 

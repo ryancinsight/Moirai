@@ -346,9 +346,35 @@ impl SchedulerScopeState {
     }
 
     pub(super) fn complete_task(&self) {
-        if self.pending_tasks.fetch_sub(1, Ordering::AcqRel) == 1 {
-            let _guard = super::worker::lock_mutex(&self.wait_lock);
-            self.wait_signal.notify_all();
+        loop {
+            let pending = self.pending_tasks.load(Ordering::Acquire);
+            debug_assert!(pending > 0, "scoped completion count must not underflow");
+
+            if pending == 1 {
+                // Hold the wait lock before publishing zero. Every waiter
+                // acquires this lock after observing zero, so the stack-owned
+                // scope state cannot be destroyed until this completion token
+                // has finished its last access to the mutex and condition
+                // variable.
+                let _guard = super::worker::lock_mutex(&self.wait_lock);
+                if self
+                    .pending_tasks
+                    .compare_exchange(1, 0, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    self.wait_signal.notify_all();
+                    return;
+                }
+                continue;
+            }
+
+            if self
+                .pending_tasks
+                .compare_exchange_weak(pending, pending - 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return;
+            }
         }
     }
 
@@ -356,11 +382,14 @@ impl SchedulerScopeState {
         // Spin-wait for a short duration before acquiring the lock and parking
         for _ in 0..131_072 {
             if self.pending_tasks.load(Ordering::Acquire) == 0 {
-                return;
+                break;
             }
             core::hint::spin_loop();
         }
 
+        // The final completion publishes zero while holding this lock. Taking
+        // it after the acquire load forms the lifetime handshake that proves
+        // the completion token no longer accesses this stack-owned state.
         let mut guard = super::worker::lock_mutex(&self.wait_lock);
         while self.pending_tasks.load(Ordering::Acquire) != 0 {
             guard = self

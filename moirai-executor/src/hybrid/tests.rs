@@ -2,6 +2,7 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use super::super::HybridExecutor;
+    use crate::SyncTask;
     use moirai_core::{
         executor::{ExecutorConfig, ExecutorControl, TaskManager, TaskSpawner, TaskStatus},
         task::TaskBuilder,
@@ -23,6 +24,41 @@ mod tests {
         assert_eq!(result, 42);
         assert_eq!(executor.task_status(id), Some(TaskStatus::Completed));
         executor.shutdown();
+    }
+
+    #[test]
+    fn scoped_chunks_complete_before_inherent_shutdown() {
+        const LEN: usize = 257;
+        const CHUNK: usize = 7;
+        const ROUNDS: usize = 64;
+
+        let mut executor = HybridExecutor::new(ExecutorConfig {
+            worker_threads: 2,
+            ..ExecutorConfig::default()
+        })
+        .unwrap();
+
+        for round in 0..ROUNDS {
+            let mut values = vec![usize::MAX; LEN];
+            executor
+                .scope::<SyncTask, _>(|scope| {
+                    for (chunk_index, chunk) in values.chunks_mut(CHUNK).enumerate() {
+                        let first = chunk_index * CHUNK;
+                        scope.spawn(move |_| {
+                            for (offset, value) in chunk.iter_mut().enumerate() {
+                                *value = first + offset;
+                            }
+                        })?;
+                    }
+                    Ok(())
+                })
+                .unwrap();
+
+            for (index, value) in values.into_iter().enumerate() {
+                assert_eq!(value, index, "round {round} lost logical slot {index}");
+            }
+        }
+        HybridExecutor::shutdown(&mut executor).unwrap();
     }
 
     #[test]
