@@ -2,7 +2,7 @@
 
 **Target Version**: 0.4.0
 
-## MOI-REL-060 — Python wheel releases [patch] — in progress
+## MOI-REL-060 — Python wheel releases [patch] — blocked
 
 - Owner: Codex `/root`.
 - Scope: `moirai-python` distribution metadata and documentation, a pinned
@@ -22,8 +22,10 @@
 - [x] Pass workflow lint and focused Rust/Python binding gates.
 - [x] Protect the `pypi` environment with the `moirai-python-v*` tag policy.
 - [x] Pass exact-head hosted CI.
-- [ ] Merge the release PR.
+- [x] Merge the release PR.
 - [ ] Register the PyPI pending trusted publisher after account verification.
+- Blocker: PyPI rejects `ryanclanton@outlook.com`; registration reopens when
+  the account has a PyPI-accepted email address and completes verification.
 - Evidence: checksum-verified actionlint 1.7.12 accepts both workflows; locked
   Cargo metadata and Rust 1.95 formatting, warning-denied all-target Clippy,
   configured Nextest 1/1, doctests, and warning-clean rustdoc pass. A locked
@@ -41,7 +43,8 @@
   target-gated. Exact-head hosted run `29800253930` passes formatting,
   warning-denied binding lint, native binding and Unix shared-memory boundary
   tests, binding doctests, and all three production wheel build/install/import
-  smoke jobs. Merge and PyPI publisher registration remain.
+  smoke jobs. PR #82 carries the merge-ready delivery. PyPI publisher
+  registration remains blocked on account verification.
 
 ## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — done
 
