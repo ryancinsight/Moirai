@@ -2,6 +2,19 @@
 
 **Target Version**: 0.4.0
 
+## MOI-REL-060 — Python wheel releases [patch] — in progress
+
+- Owner: Codex `/root`.
+- Scope: `moirai-python` distribution metadata and documentation, a pinned
+  cross-platform release workflow, the protected GitHub publishing
+  environment, release-facing root documentation, and this owner-keyed entry.
+  Native runtime behavior and other workspace crates are non-goals.
+- Acceptance: a GitHub Release tagged `moirai-python-v<version>` builds locked
+  wheels for supported CPython versions on Linux, Windows, and macOS; installs
+  and imports each wheel; validates distribution metadata against the tag;
+  attests and attaches the exact artifacts to the GitHub Release; and publishes
+  those same wheels to PyPI through GitHub OIDC.
+
 ## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — done
 
 - Owner: Codex Tyche integration.
