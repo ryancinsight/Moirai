@@ -34,9 +34,12 @@
   validates zero and out-of-domain lengths before acquiring a shared-memory
   descriptor and covers both boundaries through the public `SharedMemory`
   contract. The Windows host passes warning-denied all-target core Clippy and
-  70/70 configured Nextest cases; all three hosted production wheel smoke jobs
-  pass. Replacement Ubuntu CI remains the Unix boundary authority. PyPI
-  publisher registration remains.
+  70/70 configured Nextest cases. Replacement hosted run `29800011266` passes
+  the Windows wheel job and exposes a pre-existing unconditional non-Linux
+  `AtomicBool` import in the Linux binding closure; that import is now
+  target-gated. All three production wheel jobs pass. Replacement exact-head
+  Ubuntu CI remains the Unix boundary authority. PyPI publisher registration
+  remains.
 
 ## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — done
 

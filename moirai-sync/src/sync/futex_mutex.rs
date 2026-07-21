@@ -2,7 +2,10 @@ use std::cell::UnsafeCell;
 use std::fmt;
 use std::hint;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
+
+#[cfg(not(target_os = "linux"))]
+use std::sync::atomic::AtomicBool;
 
 #[cfg(target_os = "linux")]
 use std::sync::atomic::AtomicI32;
