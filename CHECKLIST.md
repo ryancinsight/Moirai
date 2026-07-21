@@ -21,7 +21,8 @@
 - [x] Build, install, import, and exercise a production wheel locally.
 - [x] Pass workflow lint and focused Rust/Python binding gates.
 - [x] Protect the `pypi` environment with the `moirai-python-v*` tag policy.
-- [ ] Pass exact-head hosted CI and merge the release PR.
+- [x] Pass exact-head hosted CI.
+- [ ] Merge the release PR.
 - [ ] Register the PyPI pending trusted publisher after account verification.
 - Evidence: checksum-verified actionlint 1.7.12 accepts both workflows; locked
   Cargo metadata and Rust 1.95 formatting, warning-denied all-target Clippy,
@@ -37,9 +38,10 @@
   70/70 configured Nextest cases. Replacement hosted run `29800011266` passes
   the Windows wheel job and exposes a pre-existing unconditional non-Linux
   `AtomicBool` import in the Linux binding closure; that import is now
-  target-gated. All three production wheel jobs pass. Replacement exact-head
-  Ubuntu CI remains the Unix boundary authority. PyPI publisher registration
-  remains.
+  target-gated. Exact-head hosted run `29800253930` passes formatting,
+  warning-denied binding lint, native binding and Unix shared-memory boundary
+  tests, binding doctests, and all three production wheel build/install/import
+  smoke jobs. Merge and PyPI publisher registration remain.
 
 ## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — done
 
