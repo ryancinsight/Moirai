@@ -94,9 +94,11 @@ debug = true
 
 [profile.dev]
 opt-level = 0
-debug = true
-split-debuginfo = "unpacked"
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.test]
 opt-level = 1
-debug = true
+debug = "line-tables-only"
