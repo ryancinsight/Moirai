@@ -28,12 +28,16 @@ fn open_of_missing_segment_reports_system_error() {
 }
 
 #[test]
-fn zero_size_segment_is_rejected_on_windows() {
-    #[cfg(windows)]
-    {
-        let result = SharedMemory::create("/moirai_test_zero", 0);
-        assert!(matches!(result, Err(IpcError::InvalidArgument)));
-    }
+fn zero_size_segment_is_rejected() {
+    let result = SharedMemory::create("/moirai_test_zero", 0);
+    assert!(matches!(result, Err(IpcError::InvalidArgument)));
+}
+
+#[cfg(all(unix, target_pointer_width = "64"))]
+#[test]
+fn segment_larger_than_off_t_is_rejected_before_creation() {
+    let result = SharedMemory::create("/moirai_test_off_t_overflow", usize::MAX);
+    assert!(matches!(result, Err(IpcError::InvalidArgument)));
 }
 
 #[test]

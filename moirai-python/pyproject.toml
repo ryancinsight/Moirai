@@ -4,16 +4,16 @@ build-backend = "maturin"
 
 [project]
 name = "moirai-python"
-version = "0.2.0"
+dynamic = ["version"]
 description = "PyO3 bindings for the Moirai Rust concurrency runtime."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT OR Apache-2.0" }
-authors = [{ name = "Moirai Team" }]
+authors = [{ name = "Ryan Clanton", email = "ryanclanton@outlook.com" }]
 dependencies = []
 
-[project.optional-dependencies]
-test = []
+[project.urls]
+Repository = "https://github.com/ryancinsight/Moirai"
 
 [tool.maturin]
 module-name = "moirai_python._native"

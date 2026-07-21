@@ -2,6 +2,50 @@
 
 **Target Version**: 0.4.0
 
+## MOI-REL-060 — Python wheel releases [patch] — blocked
+
+- Owner: Codex `/root`.
+- Scope: `moirai-python` distribution metadata and documentation, a pinned
+  cross-platform release workflow, the protected GitHub publishing
+  environment, release-facing root documentation, the Linux shared-memory
+  size boundary that blocks the binding gate, and this owner-keyed entry.
+  Other native runtime behavior and workspace crates are non-goals.
+- Acceptance: a GitHub Release tagged `moirai-python-v<version>` builds locked
+  wheels for supported CPython versions on Linux, Windows, and macOS; installs
+  and imports each wheel; validates distribution metadata against the tag;
+  attests and attaches the exact artifacts to the GitHub Release; and publishes
+  those same wheels to PyPI through GitHub OIDC.
+- [x] Make Cargo the Python distribution version source of truth.
+- [x] Add pinned cross-platform wheel CI and release workflows.
+- [x] Synchronize Python, root, changelog, toolchain, and Nextest contracts.
+- [x] Build, install, import, and exercise a production wheel locally.
+- [x] Pass workflow lint and focused Rust/Python binding gates.
+- [x] Protect the `pypi` environment with the `moirai-python-v*` tag policy.
+- [x] Pass exact-head hosted CI.
+- [x] Merge the release PR.
+- [ ] Register the PyPI pending trusted publisher after account verification.
+- Blocker: PyPI rejects `ryanclanton@outlook.com`; registration reopens when
+  the account has a PyPI-accepted email address and completes verification.
+- Evidence: checksum-verified actionlint 1.7.12 accepts both workflows; locked
+  Cargo metadata and Rust 1.95 formatting, warning-denied all-target Clippy,
+  configured Nextest 1/1, doctests, and warning-clean rustdoc pass. A locked
+  CPython 3.13 wheel builds as `moirai-python` 0.4.0, installs into an isolated
+  environment, imports, reports the requested two-worker native lifecycle, and
+  passes both Python tests. GitHub environment `pypi` accepts only
+  `moirai-python-v*` tags. Hosted run `29799529159` then exposed an unchecked
+  Unix `usize`-to-`off_t` conversion in `moirai-core`; the owner-local fix
+  validates zero and out-of-domain lengths before acquiring a shared-memory
+  descriptor and covers both boundaries through the public `SharedMemory`
+  contract. The Windows host passes warning-denied all-target core Clippy and
+  70/70 configured Nextest cases. Replacement hosted run `29800011266` passes
+  the Windows wheel job and exposes a pre-existing unconditional non-Linux
+  `AtomicBool` import in the Linux binding closure; that import is now
+  target-gated. Exact-head hosted run `29800253930` passes formatting,
+  warning-denied binding lint, native binding and Unix shared-memory boundary
+  tests, binding doctests, and all three production wheel build/install/import
+  smoke jobs. PR #82 carries the merge-ready delivery. PyPI publisher
+  registration remains blocked on account verification.
+
 ## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — done
 
 - Owner: Codex Tyche integration.
