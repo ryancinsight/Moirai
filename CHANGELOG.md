@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject zero-length and out-of-`off_t` Unix shared-memory mappings before
+  acquiring an operating-system descriptor instead of truncating `usize`.
 - Keep stack-owned scheduler scope state alive until the final completion
   releases its wait synchronization, preventing a multi-job scoped fan-out from
   hanging or dereferencing destroyed state.

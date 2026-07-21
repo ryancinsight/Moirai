@@ -7,8 +7,9 @@
 - Owner: Codex `/root`.
 - Scope: `moirai-python` distribution metadata and documentation, a pinned
   cross-platform release workflow, the protected GitHub publishing
-  environment, release-facing root documentation, and this owner-keyed entry.
-  Native runtime behavior and other workspace crates are non-goals.
+  environment, release-facing root documentation, the Linux shared-memory
+  size boundary that blocks the binding gate, and this owner-keyed entry.
+  Other native runtime behavior and workspace crates are non-goals.
 - Acceptance: a GitHub Release tagged `moirai-python-v<version>` builds locked
   wheels for supported CPython versions on Linux, Windows, and macOS; installs
   and imports each wheel; validates distribution metadata against the tag;
@@ -28,7 +29,14 @@
   CPython 3.13 wheel builds as `moirai-python` 0.4.0, installs into an isolated
   environment, imports, reports the requested two-worker native lifecycle, and
   passes both Python tests. GitHub environment `pypi` accepts only
-  `moirai-python-v*` tags. Hosted CI and PyPI publisher registration remain.
+  `moirai-python-v*` tags. Hosted run `29799529159` then exposed an unchecked
+  Unix `usize`-to-`off_t` conversion in `moirai-core`; the owner-local fix
+  validates zero and out-of-domain lengths before acquiring a shared-memory
+  descriptor and covers both boundaries through the public `SharedMemory`
+  contract. The Windows host passes warning-denied all-target core Clippy and
+  70/70 configured Nextest cases; all three hosted production wheel smoke jobs
+  pass. Replacement Ubuntu CI remains the Unix boundary authority. PyPI
+  publisher registration remains.
 
 ## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — done
 

@@ -54,9 +54,18 @@ pub struct SharedMemory {
     /// Whether this instance owns the memory
     #[cfg_attr(windows, allow(dead_code))]
     owner: bool,
-    /// Name of the segment (Unix only, to allow shm_unlink on drop)
+    /// Name of the segment (Unix only, to allow `shm_unlink` on drop)
     #[cfg(unix)]
     name: Option<std::ffi::CString>,
+}
+
+#[cfg(unix)]
+fn unix_mapping_length(size: usize) -> Result<libc::off_t, IpcError> {
+    if size == 0 {
+        return Err(IpcError::InvalidArgument);
+    }
+
+    libc::off_t::try_from(size).map_err(|_| IpcError::InvalidArgument)
 }
 
 unsafe impl Send for SharedMemory {}
@@ -68,8 +77,13 @@ impl SharedMemory {
     pub fn create(name: &str, size: usize) -> Result<Self, IpcError> {
         use std::ffi::CString;
 
+        let mapping_length = unix_mapping_length(size)?;
         let c_name = CString::new(name).map_err(|_| IpcError::InvalidArgument)?;
 
+        // SAFETY: `c_name` is NUL-terminated, `mapping_length` is positive and
+        // representable as `off_t`, and every failed descriptor/mapping path is
+        // closed before returning. The successful mapping owns `size` bytes
+        // until `Drop` unmaps it.
         unsafe {
             use std::ptr::null_mut;
             let fd = libc::shm_open(c_name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o666);
@@ -78,7 +92,7 @@ impl SharedMemory {
                 return Err(last_os_error());
             }
 
-            if libc::ftruncate(fd, size as i64) < 0 {
+            if libc::ftruncate(fd, mapping_length) < 0 {
                 libc::close(fd);
                 return Err(last_os_error());
             }

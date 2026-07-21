@@ -57,6 +57,9 @@ jobs:
       - name: Test native binding crate
         run: cargo nextest run --locked -p moirai-python --all-features
 
+      - name: Test shared-memory size boundary
+        run: cargo nextest run --locked -p moirai-core --no-default-features --features std
+
       - name: Test binding documentation
         run: cargo test --locked -p moirai-python --all-features --doc
 
