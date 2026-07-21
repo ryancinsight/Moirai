@@ -130,8 +130,12 @@ wg.wait(); // Wait for all tasks
 - **Moirai Wrapper**: `moirai-python` exposes PyO3 wrappers over `moirai::Moirai`; it does not implement a separate scheduler, planner, or backend.
 - **Separated Surface**: Rust FFI stays limited to the native runtime wrapper while Python contains only the facade and lifecycle tests.
 - **No Workload Wrappers**: Benchmark-specific Python functions are excluded unless they correspond to a comparable joblib or Tokio runtime primitive.
+- **Release Distribution**: GitHub Releases tagged `moirai-python-v<version>` attach validated CPython 3.10–3.13 wheels for Linux, Windows, and macOS, then publish the same artifacts to PyPI through OIDC.
 
 ```bash
+py -3.13 -m pip install moirai-python
+
+# Source checkout verification
 py -3.13 -m pip install -e moirai-python
 py -3.13 -m unittest discover moirai-python\tests
 ```
@@ -142,10 +146,10 @@ Add Moirai to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-moirai = "1.0"
+moirai = "0.4"
 
 # Optional: Enable specific features
-moirai = { version = "1.0", features = ["iter", "async"] }
+moirai = { version = "0.4", features = ["iter", "async"] }
 ```
 
 ### Basic Usage
@@ -308,7 +312,7 @@ cargo test --doc --workspace --all-features
 cargo bench -p moirai-benchmarks --no-run
 ```
 
-**Current Version**: 0.2.0
+**Current Version**: 0.4.0
 **Evidence Policy**: value-semantic tests and executable benchmarks only; no placeholder route or device execution claims.
 
 ## 🎯 Design Principle Compliance
@@ -364,4 +368,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Moirai v0.2.0** - Unified scheduler/router in active development
+**Moirai v0.4.0** - Unified scheduler/router in active development

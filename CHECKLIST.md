@@ -14,6 +14,21 @@
   and imports each wheel; validates distribution metadata against the tag;
   attests and attaches the exact artifacts to the GitHub Release; and publishes
   those same wheels to PyPI through GitHub OIDC.
+- [x] Make Cargo the Python distribution version source of truth.
+- [x] Add pinned cross-platform wheel CI and release workflows.
+- [x] Synchronize Python, root, changelog, toolchain, and Nextest contracts.
+- [x] Build, install, import, and exercise a production wheel locally.
+- [x] Pass workflow lint and focused Rust/Python binding gates.
+- [x] Protect the `pypi` environment with the `moirai-python-v*` tag policy.
+- [ ] Pass exact-head hosted CI and merge the release PR.
+- [ ] Register the PyPI pending trusted publisher after account verification.
+- Evidence: checksum-verified actionlint 1.7.12 accepts both workflows; locked
+  Cargo metadata and Rust 1.95 formatting, warning-denied all-target Clippy,
+  configured Nextest 1/1, doctests, and warning-clean rustdoc pass. A locked
+  CPython 3.13 wheel builds as `moirai-python` 0.4.0, installs into an isolated
+  environment, imports, reports the requested two-worker native lifecycle, and
+  passes both Python tests. GitHub environment `pypi` accepts only
+  `moirai-python-v*` tags. Hosted CI and PyPI publisher registration remain.
 
 ## MOI-SCOPE-059 — scoped multi-job memory safety [patch] — done
 

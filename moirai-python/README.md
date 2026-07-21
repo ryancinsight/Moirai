@@ -5,6 +5,16 @@ importable package does not implement its own scheduler, chunk planner, workload
 kernels, benchmark harness, or execution backend; it exposes a native
 `moirai::Moirai` runtime lifecycle facade.
 
+## Releases
+
+GitHub Releases tagged `moirai-python-v<version>` build locked Linux, Windows,
+and universal macOS wheels for CPython 3.10 through 3.13. The release workflow
+installs and exercises each wheel, validates its distribution name and version,
+generates SHA-256 checksums and build provenance, attaches those artifacts to
+the GitHub Release, and publishes the same wheels to PyPI through OIDC Trusted
+Publishing. The tag version must equal the `moirai-python` Cargo package
+version; Cargo is the sole version source.
+
 ## Contracts
 
 - `MoiraiPython` wraps a native `moirai::Moirai` runtime.
@@ -19,6 +29,9 @@ kernels, benchmark harness, or execution backend; it exposes a native
 ## Usage
 
 ```bash
+py -3.13 -m pip install moirai-python
+
+# Source checkout verification
 py -3.13 -m pip install -e moirai-python
 py -3.13 -m unittest discover moirai-python\tests
 ```
