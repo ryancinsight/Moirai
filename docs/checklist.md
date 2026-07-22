@@ -8,7 +8,8 @@
 - [x] Remove all three obsolete nightly feature gates instead of suppressing
       the compiler warning.
 - [x] Pass focused static, test, and documentation gates.
-- [ ] Pass exact-head hosted CI and merge the delivery branch.
+- [x] Pass exact-head hosted Rust, Linux, macOS, and Windows checks.
+- [ ] Merge the delivery branch and align the primary worktree.
 
 ## Current State: Unified Scheduler Sprint
 
