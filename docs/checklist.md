@@ -10,7 +10,7 @@
 - [x] Pass focused static, test, and documentation gates.
 - [x] Pass exact-head hosted Rust, Linux, macOS, and Windows checks at
       `a0389c5` in run `29961846537`; Greptile and CodeRabbit also pass.
-- [ ] Merge the delivery branch and align the primary worktree.
+- [x] Merge PR #84 as `e4d2855` and align the primary worktree with default.
 
 ## Current State: Unified Scheduler Sprint
 
