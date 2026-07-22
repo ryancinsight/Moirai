@@ -1,5 +1,15 @@
 # Moirai Development Checklist
 
+## Nightly TLS gate cleanup
+
+- [x] Confirm no Moirai crate uses the unstable `#[thread_local]` attribute.
+- [x] Delete the unused core build script and reduce the platform and executor
+      scripts to Melinoe macro check-cfg registration.
+- [x] Remove all three obsolete nightly feature gates instead of suppressing
+      the compiler warning.
+- [x] Pass focused static, test, and documentation gates.
+- [ ] Pass exact-head hosted CI and merge the delivery branch.
+
 ## Current State: Unified Scheduler Sprint
 
 **Target Version**: 0.4.0
