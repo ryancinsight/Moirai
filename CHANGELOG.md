@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve indexed fan-out and map-reduce work when bounded scheduler admission
+  saturates by executing rejected chunks on the submitting caller under the
+  same panic boundary as worker chunks. A monotonic diagnostic counter exposes
+  each caller-run backpressure event.
 - Reject zero-length and out-of-`off_t` Unix shared-memory mappings before
   acquiring an operating-system descriptor instead of truncating `usize`.
 - Keep stack-owned scheduler scope state alive until the final completion

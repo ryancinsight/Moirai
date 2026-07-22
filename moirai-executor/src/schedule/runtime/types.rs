@@ -155,6 +155,7 @@ pub(super) struct SchedulerInner<const QUEUE_CAPACITY: usize> {
     pub(super) blocking_active_workers: CacheAligned<AtomicUsize>,
     pub(super) completed_tasks: CacheAligned<AtomicU64>,
     pub(super) failed_tasks: CacheAligned<AtomicU64>,
+    pub(super) admission_caller_runs: CacheAligned<AtomicU64>,
     pub(super) shutdown: CacheAligned<AtomicBool>,
     pub(super) join_waiters: CacheAligned<AtomicUsize>,
     pub(super) wait_lock: Mutex<()>,

@@ -1,6 +1,26 @@
 # Moirai Development Checklist
 
-**Target Version**: 0.4.0
+**Target**: Unreleased
+
+## MOI-SCHED-061 — bounded indexed admission [patch] — in progress
+
+- Owner: Codex `/root` (stale-peer takeover after one hour without a write or
+  commit in the claimed scope).
+- Scope: indexed scheduler admission, its diagnostics and value-semantic
+  saturation tests, release documentation, and the downstream Kwavers
+  serialization workaround. Other scheduler policies are non-goals.
+- Acceptance: a full worker admission queue executes each rejected indexed
+  chunk exactly once on the caller, map-reduce preserves the mathematical
+  result, caller-run panics become `SpawnFailed(Panicked)` only after scheduled
+  scope work drains, the scheduler remains reusable, and the recovery event is
+  observable without allocating on the healthy path.
+- [x] Preserve the stale peer's caller-runs intent.
+- [x] Add one shared panic boundary for inline indexed work.
+- [x] Add a relaxed monotonic admission diagnostic.
+- [x] Add deterministic saturated fan-out, reduction, panic, and reuse coverage.
+- [ ] Pass focused local and exact-head hosted gates; merge Moirai.
+- [ ] Advance Kwavers to the merged Moirai pin, remove the test-serialization
+      workaround, pass the affected therapy lane, and merge Kwavers.
 
 ## MOI-REL-060 — Python wheel releases [patch] — blocked
 

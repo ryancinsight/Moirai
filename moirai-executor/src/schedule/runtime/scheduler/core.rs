@@ -103,6 +103,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             blocking_active_workers: CacheAligned::new(AtomicUsize::new(0)),
             completed_tasks: CacheAligned::new(std::sync::atomic::AtomicU64::new(0)),
             failed_tasks: CacheAligned::new(std::sync::atomic::AtomicU64::new(0)),
+            admission_caller_runs: CacheAligned::new(std::sync::atomic::AtomicU64::new(0)),
             shutdown: CacheAligned::new(std::sync::atomic::AtomicBool::new(false)),
             join_waiters: CacheAligned::new(AtomicUsize::new(0)),
             wait_lock: std::sync::Mutex::new(()),
@@ -457,6 +458,22 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             completed_tasks: self.inner.completed_tasks.load(Ordering::Acquire),
             failed_tasks: self.inner.failed_tasks.load(Ordering::Acquire),
         }
+    }
+
+    /// Number of indexed chunks run by their submitting caller after bounded
+    /// scheduler admission rejected the corresponding worker job.
+    ///
+    /// This monotonic diagnostic counter is observational only. Its relaxed
+    /// atomic ordering intentionally establishes no synchronization edge.
+    #[must_use]
+    pub fn admission_caller_runs(&self) -> u64 {
+        self.inner.admission_caller_runs.load(Ordering::Relaxed)
+    }
+
+    pub(super) fn record_admission_caller_run(&self) {
+        self.inner
+            .admission_caller_runs
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Stop workers after queued work drains.
