@@ -13,7 +13,7 @@
 - [x] Preserve and complete the peer's public scope facade.
 - [x] Add direct `moirai-core` ownership and the higher-ranked lifetime bound.
 - [x] Add borrowed completion and return-value coverage.
-- [ ] Pass focused local and exact-head hosted gates; merge Moirai.
+- [x] Pass focused local and exact-head hosted gates; merge Moirai.
 
 ## MOI-SCHED-061 — bounded indexed admission [patch] — in progress
 
@@ -31,7 +31,7 @@
 - [x] Add one shared panic boundary for inline indexed work.
 - [x] Add a relaxed monotonic admission diagnostic.
 - [x] Add deterministic saturated fan-out, reduction, panic, and reuse coverage.
-- [ ] Pass focused local and exact-head hosted gates; merge Moirai.
+- [x] Pass focused local and exact-head hosted gates; merge Moirai.
 - [ ] Advance Kwavers to the merged Moirai pin, remove the test-serialization
       workaround, pass the affected therapy lane, and merge Kwavers.
 
