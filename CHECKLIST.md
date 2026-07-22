@@ -2,6 +2,19 @@
 
 **Target**: Unreleased
 
+## MOI-PAR-062 — borrowing parallel scope [minor] — in progress
+
+- Owner: Codex `/root` (composed from preserved peer work).
+- Scope: the `moirai-parallel` borrowing scope facade, its direct dependency
+  ownership, value-semantic tests, and release documentation.
+- Acceptance: multiple tasks borrow caller-owned values, complete before the
+  scope returns, preserve a body return value, and compile without exposing an
+  escaping scheduler lifetime.
+- [x] Preserve and complete the peer's public scope facade.
+- [x] Add direct `moirai-core` ownership and the higher-ranked lifetime bound.
+- [x] Add borrowed completion and return-value coverage.
+- [ ] Pass focused local and exact-head hosted gates; merge Moirai.
+
 ## MOI-SCHED-061 — bounded indexed admission [patch] — in progress
 
 - Owner: Codex `/root` (stale-peer takeover after one hour without a write or

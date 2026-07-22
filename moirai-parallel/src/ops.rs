@@ -1,6 +1,7 @@
 use super::DisjointMutPtr;
 use crate::policy::{ExecutionPolicy, Parallel};
-use moirai_executor::{global, SyncTask};
+use moirai_core::error::ExecutorResult;
+use moirai_executor::{global, SchedulerScope, SyncTask};
 
 /// Run two closures to completion and return both results.
 ///
@@ -49,6 +50,89 @@ where
     RA: Send,
 {
     join_with::<crate::Adaptive, _, _, _, _>(left, right)
+}
+
+/// Borrowing scope for spawning parallel sub-tasks that may capture non-`'static`
+/// references.
+///
+/// Created by [`scope`]. Each [`Scope::spawn`] call registers a job on the unified
+/// scheduler; the scope blocks until every spawned job has completed before the
+/// body closure returns, so borrowed data cannot escape the scope.
+///
+/// This is the Rayon-style `scope` shape, adapted to Moirai's unified hybrid
+/// scheduler. Unlike [`join`], which forks exactly two branches, `scope` allows
+/// an arbitrary number of sub-tasks to be spawned and joined within a single
+/// region.
+pub struct Scope<'scope> {
+    inner: &'scope SchedulerScope<'scope, SyncTask>,
+}
+
+impl<'scope> Scope<'scope> {
+    /// Spawn a parallel sub-task within this scope.
+    ///
+    /// The task may borrow values that outlive the scope call. The scope waits
+    /// for every spawned task before returning, so borrowed data cannot escape.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying scheduler rejects the spawn (for example, if the
+    /// executor is shutting down).
+    #[inline]
+    pub fn spawn<F>(&self, task: F)
+    where
+        F: FnOnce() + Send + 'scope,
+    {
+        self.inner
+            .spawn(move |_| task())
+            .expect("moirai global executor: scope spawn");
+    }
+}
+
+/// Create a borrowing scope for parallel sub-tasks.
+///
+/// Within the body closure, [`Scope::spawn`] registers jobs on the unified
+/// scheduler. The scope blocks until every spawned job has completed before
+/// returning, so tasks may borrow non-`'static` data from the enclosing
+/// environment.
+///
+/// This is the Rayon-style `scope` shape, adapted to Moirai's unified hybrid
+/// scheduler.
+///
+/// # Examples
+///
+/// ```
+/// use moirai_parallel::scope;
+///
+/// let data: Vec<u64> = (0..1000).collect();
+/// use std::sync::atomic::{AtomicU64, Ordering};
+///
+/// let sum = AtomicU64::new(0);
+/// scope(|s| {
+///     s.spawn(|| {
+///         sum.fetch_add(data.iter().sum::<u64>(), Ordering::Relaxed);
+///     });
+///     s.spawn(|| {
+///         sum.fetch_add(data.len() as u64, Ordering::Relaxed);
+///     });
+/// });
+/// assert_eq!(sum.load(Ordering::Relaxed), data.iter().sum::<u64>() + 1000);
+/// ```
+#[inline]
+pub fn scope<F, R>(body: F) -> R
+where
+    F: for<'scope> FnOnce(&Scope<'scope>) -> R,
+    R: Send,
+{
+    let mut result = None;
+    global()
+        .scope::<SyncTask, _>(|inner| {
+            let scope = Scope { inner };
+            result = Some(body(&scope));
+            ExecutorResult::Ok(())
+        })
+        .expect("moirai global executor: scope");
+
+    result.expect("scoped body must complete")
 }
 
 /// Apply `f` to every element of `data`, scheduled by policy `P`.

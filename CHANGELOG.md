@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose a borrowing `moirai_parallel::scope` surface over the unified
+  scheduler so downstream parallel regions can spawn an arbitrary number of
+  non-`'static` tasks and return a value only after every task completes.
 - Build, install, attest, and attach locked `moirai-python` wheels for CPython
   3.10 through 3.13 on Linux, Windows, and macOS when a matching GitHub Release
   is published, then publish the same artifacts to PyPI through OIDC Trusted

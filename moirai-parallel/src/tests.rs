@@ -110,6 +110,23 @@ fn join_with_parallel_accepts_borrowed_non_static_inputs() {
 }
 
 #[test]
+fn scope_completes_borrowed_tasks_before_returning_value() {
+    let input = [2usize, 3, 5, 7, 11];
+    let sum = AtomicUsize::new(0);
+    let product = AtomicUsize::new(0);
+
+    let task_count = scope(|scope| {
+        scope.spawn(|| sum.store(input.iter().sum(), Ordering::Relaxed));
+        scope.spawn(|| product.store(input.iter().product(), Ordering::Relaxed));
+        2usize
+    });
+
+    assert_eq!(task_count, 2);
+    assert_eq!(sum.load(Ordering::Relaxed), 28);
+    assert_eq!(product.load(Ordering::Relaxed), 2_310);
+}
+
+#[test]
 fn adaptive_view_and_explicit_policies_agree() {
     let data: Vec<u64> = (0..50_000).collect();
     let expected: u64 = data.iter().sum();
