@@ -12,13 +12,16 @@ architecture definition.
   event buffer rather than storing libc pointer-bearing events in shared state.
 - [x] [patch] Make IPC error capture portable across Unix and Windows so Atlas
   consumers compile the shared-memory provider on Linux, macOS, and Windows.
-- [~] [minor] Stage B1 rayon parity: `join(a,b)` divide-and-conquer shorthand
+- [x] [minor] Stage B1 rayon parity: `join(a,b)` divide-and-conquer shorthand
   delivered through `moirai_parallel::{join, join_with}` with static
   `ExecutionPolicy` dispatch, scoped scheduler flush plus caller-lane execution
   for forced parallel joins, borrowed non-`'static` tests, source contracts, and
-  a value-checked Rayon comparison benchmark row. Remaining: trait-level
-  `scope` ergonomics, ordered comparator/key reducers, streaming
-  `flat_map_iter`.
+  a value-checked Rayon comparison benchmark row. Completed: `scope` ergonomics
+  (`moirai_parallel::{scope, Scope}` with `Scope::spawn` for borrowing sub-tasks),
+  ordered comparator/key reducers (`min_by`/`max_by`/`min_by_key`/`max_by_key`
+  with value tests and `iterator_adapter_ordered_reducers` benchmark rows), and
+  streaming `flat_map_iter` (serial-inner flattening with value tests and
+  benchmark rows).
 - [ ] [minor] Stage B1 tokio parity: `select!`-equivalent macro ergonomics, IPv6, graceful
   shutdown signal; HTTP/2 only if a consumer needs it.
 - [~] [arch] Stage C: process/server route hierarchy. Delivered route metadata,
