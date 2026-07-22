@@ -8,7 +8,8 @@
 - [x] Preserve the platform and executor crates' documented nightly
       `#[thread_local]` fast path.
 - [x] Pass focused static, test, and documentation gates.
-- [ ] Pass exact-head hosted Rust, Linux, macOS, and Windows checks.
+- [x] Pass exact-head hosted Rust, Linux, macOS, and Windows checks at
+      `a0389c5` in run `29961846537`; Greptile and CodeRabbit also pass.
 - [ ] Merge the delivery branch and align the primary worktree.
 
 ## Current State: Unified Scheduler Sprint
