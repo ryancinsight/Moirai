@@ -15,6 +15,8 @@
 //!   [`moirai_core::Priority::index`].
 //! - **Zero-Copy Task Passing**: minimal overhead task distribution.
 
+#![cfg_attr(nightly_tls_active, feature(thread_local))]
+
 // Module declarations - following SRP and SOC principles
 pub mod hybrid;
 pub mod metrics;

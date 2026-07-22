@@ -2,13 +2,13 @@
 
 ## Nightly TLS gate cleanup
 
-- [x] Confirm no Moirai crate uses the unstable `#[thread_local]` attribute.
-- [x] Delete the unused core build script and reduce the platform and executor
-      scripts to Melinoe macro check-cfg registration.
-- [x] Remove all three obsolete nightly feature gates instead of suppressing
-      the compiler warning.
+- [x] Confirm `moirai-core` does not invoke Melinoe's TLS macro.
+- [x] Delete the unused core build script and feature gate instead of
+      suppressing its warning.
+- [x] Preserve the platform and executor crates' documented nightly
+      `#[thread_local]` fast path.
 - [x] Pass focused static, test, and documentation gates.
-- [x] Pass exact-head hosted Rust, Linux, macOS, and Windows checks.
+- [ ] Pass exact-head hosted Rust, Linux, macOS, and Windows checks.
 - [ ] Merge the delivery branch and align the primary worktree.
 
 ## Current State: Unified Scheduler Sprint

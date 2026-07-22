@@ -19,9 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Remove obsolete nightly `thread_local` feature activation after all TLS
-  storage moved to stable `thread_local!`; the platform and executor build
-  scripts now only register Melinoe's macro-emitted configuration name.
+- Remove obsolete nightly `thread_local` detection from `moirai-core`, which
+  does not invoke Melinoe's TLS macro. The platform and executor crates retain
+  their nightly `#[thread_local]` fast path.
 - Preserve indexed fan-out and map-reduce work when bounded scheduler admission
   saturates by executing rejected chunks on the submitting caller under the
   same panic boundary as worker chunks. A monotonic diagnostic counter exposes

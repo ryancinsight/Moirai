@@ -21,6 +21,7 @@
 //! - **Memory Efficiency**: Minimal per-operation overhead
 //! - **Cross-Platform Consistency**: Uniform behavior across all targets
 
+#![cfg_attr(nightly_tls_active, feature(thread_local))]
 #![deny(missing_docs)]
 
 pub mod fs;
