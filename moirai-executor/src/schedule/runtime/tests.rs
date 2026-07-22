@@ -101,6 +101,86 @@ fn saturated_admission_rolls_back_pending_and_recovers() {
 }
 
 #[test]
+fn saturated_indexed_admission_runs_rejected_chunks_on_caller() {
+    const ADMISSION_CAPACITY: usize = crate::schedule::queue::INJECTOR_CAPACITY;
+    let scheduler = ThreadScheduler::<256>::new(1, "indexed-caller-runs").unwrap();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+        .unwrap();
+    started_rx.recv().unwrap();
+
+    for _ in 0..ADMISSION_CAPACITY {
+        scheduler
+            .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
+            .unwrap();
+    }
+
+    let visits: [AtomicUsize; 2] = std::array::from_fn(|_| AtomicUsize::new(0));
+    scheduler
+        .for_each_indexed::<SyncTask, _>(Priority::Normal, None, visits.len(), |index| {
+            visits[index].fetch_add(1, Ordering::Relaxed);
+        })
+        .unwrap();
+    assert_eq!(visits.map(|count| count.load(Ordering::Relaxed)), [1, 1]);
+
+    let sum = scheduler
+        .map_reduce_indexed::<SyncTask, _, _, _>(
+            Priority::Normal,
+            None,
+            2,
+            0usize,
+            |index| index + 1,
+            usize::wrapping_add,
+        )
+        .unwrap();
+    assert_eq!(sum, 3);
+
+    let panic_result =
+        scheduler.for_each_indexed::<SyncTask, _>(Priority::Normal, None, 2, |index| {
+            if index == 1 {
+                panic!("caller-run chunk panic");
+            }
+        });
+    assert_eq!(
+        panic_result,
+        Err(ExecutorError::SpawnFailed(TaskError::Panicked))
+    );
+
+    let reduction_panic = scheduler.map_reduce_indexed::<SyncTask, _, _, _>(
+        Priority::Normal,
+        None,
+        2,
+        0usize,
+        |index| {
+            if index == 1 {
+                panic!("caller-run mapper panic");
+            }
+            index + 1
+        },
+        usize::wrapping_add,
+    );
+    assert_eq!(
+        reduction_panic,
+        Err(ExecutorError::SpawnFailed(TaskError::Panicked))
+    );
+    assert_eq!(scheduler.admission_caller_runs(), 4);
+
+    release_tx.send(()).unwrap();
+    scheduler.join().unwrap();
+    assert_eq!(scheduler.pending_tasks(), 0);
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
+        .unwrap();
+    scheduler.join().unwrap();
+    scheduler.shutdown();
+}
+
+#[test]
 fn blocking_lane_preserves_compute_progress_when_full() {
     let scheduler = ThreadScheduler::new(2, "blocking-lane-progress").unwrap();
     let blocking_started = Arc::new(Barrier::new(3));

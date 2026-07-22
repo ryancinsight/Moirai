@@ -6,6 +6,20 @@
 //! shared by reference across chunks. Separated from core scheduling
 //! (submission, scope, lifecycle) per the single-responsibility principle — this
 //! module owns the indexed data-parallel concern.
+//!
+//! ## Queue-full resilience
+//!
+//! When the per-worker admission queue is full (`ResourceExhausted`), a rejected
+//! job is dropped by the scheduler before returning the error. Dropping the job
+//! fires the scoped `SharedScopedTaskCompletion` token, correctly decrementing
+//! the scope's pending-task counter. The *work* inside the job was never
+//! executed, however. Both `for_each_indexed` and `map_reduce_indexed` detect
+//! this case and execute the rejected chunk inline on the caller thread before
+//! continuing the scheduling loop. Inline execution uses the same panic
+//! boundary as worker execution, and [`ThreadScheduler::admission_caller_runs`]
+//! exposes each backpressure event. The result is identical to parallel
+//! execution (every item is visited exactly once) while preserving zero-cost
+//! semantics when the queue is healthy.
 
 use std::{
     panic::{catch_unwind, AssertUnwindSafe},
@@ -25,6 +39,11 @@ use super::super::types::{
 use super::super::worker::{
     indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
 };
+
+fn execute_catching_panic<T>(operation: impl FnOnce() -> T) -> ExecutorResult<T> {
+    catch_unwind(AssertUnwindSafe(operation))
+        .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked))
+}
 
 impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
@@ -60,29 +79,28 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         // nested indexed regions on that lane: recursively stealing unrelated
         // outer jobs grows the worker stack with every nested tensor reduction.
         if get_current_worker_id().is_some() || is_in_indexed_region() {
-            return catch_unwind(AssertUnwindSafe(|| {
+            return execute_catching_panic(|| {
                 for index in 0..count {
                     task(index);
                 }
-            }))
-            .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked));
+            });
         }
 
         let chunk_count = indexed_chunk_count(count, self.worker_count());
         let (_, caller_end) = indexed_chunk_bounds(count, chunk_count, 0);
         if chunk_count == 1 {
-            return catch_unwind(AssertUnwindSafe(|| {
+            return execute_catching_panic(|| {
                 let _region = IndexedRegionGuard::enter();
                 for index in 0..caller_end {
                     task(index);
                 }
-            }))
-            .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked));
+            });
         }
 
         let state = Arc::new(SchedulerScopeState::new());
         let task = &task;
         let mut schedule_result = Ok(());
+        let mut inline_result = Ok(());
 
         for chunk_index in 1..chunk_count {
             let (start, end) = indexed_chunk_bounds(count, chunk_count, chunk_index);
@@ -93,11 +111,11 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             };
             let scoped_job = move |_| {
                 let completion = completion;
-                let result = catch_unwind(AssertUnwindSafe(|| {
+                let result = execute_catching_panic(|| {
                     for index in start..end {
                         task(index);
                     }
-                }));
+                });
 
                 if result.is_err() {
                     completion.mark_failed();
@@ -107,26 +125,46 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             if let Err(error) =
                 self.schedule_scoped_job::<C, _>(priority, locality_hint, scoped_job)
             {
-                schedule_result = Err(error);
-                break;
+                match error {
+                    // Admission queue was full. The scheduler dropped the job,
+                    // which fired the completion token (scope counter correct).
+                    // Run the work inline so every item is visited exactly once.
+                    ExecutorError::ResourceExhausted(_) => {
+                        self.record_admission_caller_run();
+                        inline_result = execute_catching_panic(|| {
+                            for index in start..end {
+                                task(index);
+                            }
+                        });
+                        if inline_result.is_err() {
+                            break;
+                        }
+                    }
+                    other => {
+                        schedule_result = Err(other);
+                        break;
+                    }
+                }
             }
         }
 
-        let caller_result = if schedule_result.is_ok() {
-            catch_unwind(AssertUnwindSafe(|| {
+        let caller_result = if schedule_result.is_ok() && inline_result.is_ok() {
+            execute_catching_panic(|| {
                 let _region = IndexedRegionGuard::enter();
                 for index in 0..caller_end {
                     task(index);
                 }
-            }))
-            .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked))
+            })
         } else {
             Ok(())
         };
 
         self.drain_scope(&state);
 
-        if state.failed_tasks.load(Ordering::Acquire) || caller_result.is_err() {
+        if state.failed_tasks.load(Ordering::Acquire)
+            || inline_result.is_err()
+            || caller_result.is_err()
+        {
             Err(ExecutorError::SpawnFailed(
                 moirai_core::error::TaskError::Panicked,
             ))
@@ -181,6 +219,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let map = &map;
         let reduce = &reduce;
         let mut schedule_result = Ok(());
+        let mut inline_result = Ok(());
 
         for chunk_index in 1..chunk_count {
             let (start, end) = indexed_chunk_bounds(count, chunk_count, chunk_index);
@@ -189,14 +228,16 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             let completion = SharedScopedTaskCompletion {
                 state: Arc::clone(&state),
             };
-            let slots = Arc::clone(&slots);
-            let identity = identity.clone();
+            // Use distinct names so the outer `slots`/`identity` remain accessible
+            // in the ResourceExhausted inline fallback below.
+            let slots_chunk = Arc::clone(&slots);
+            let identity_chunk = identity.clone();
             let scoped_job = move |_| {
                 let completion = completion;
-                let result = catch_unwind(AssertUnwindSafe(|| {
-                    let accumulator = map_reduce_range(start, end, identity, map, reduce);
-                    slots.write(chunk_index - 1, accumulator);
-                }));
+                let result = execute_catching_panic(|| {
+                    let accumulator = map_reduce_range(start, end, identity_chunk, map, reduce);
+                    slots_chunk.write(chunk_index - 1, accumulator);
+                });
 
                 if result.is_err() {
                     completion.mark_failed();
@@ -206,24 +247,42 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             if let Err(error) =
                 self.schedule_scoped_job::<C, _>(priority, locality_hint, scoped_job)
             {
-                schedule_result = Err(error);
-                break;
+                match error {
+                    // Admission queue was full. The scheduler dropped the job,
+                    // which fired the completion token (scope counter correct).
+                    // Run the reduction inline and write the result slot so the
+                    // final combine step sees every chunk's contribution.
+                    ExecutorError::ResourceExhausted(_) => {
+                        self.record_admission_caller_run();
+                        inline_result = execute_catching_panic(|| {
+                            let accumulator =
+                                map_reduce_range(start, end, identity.clone(), map, reduce);
+                            slots.write(chunk_index - 1, accumulator);
+                        });
+                        if inline_result.is_err() {
+                            break;
+                        }
+                    }
+                    other => {
+                        schedule_result = Err(other);
+                        break;
+                    }
+                }
             }
         }
 
-        let caller_result = if schedule_result.is_ok() {
-            catch_unwind(AssertUnwindSafe(|| {
+        let caller_result = if schedule_result.is_ok() && inline_result.is_ok() {
+            execute_catching_panic(|| {
                 let _region = IndexedRegionGuard::enter();
                 map_reduce_range(0, caller_end, identity.clone(), map, reduce)
-            }))
-            .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked))
+            })
         } else {
             Ok(identity.clone())
         };
 
         self.drain_scope(&state);
 
-        if state.failed_tasks.load(Ordering::Acquire) {
+        if state.failed_tasks.load(Ordering::Acquire) || inline_result.is_err() {
             Err(ExecutorError::SpawnFailed(
                 moirai_core::error::TaskError::Panicked,
             ))

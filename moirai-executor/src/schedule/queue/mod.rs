@@ -24,7 +24,7 @@ const PRIORITY_LEVELS: usize = Priority::Critical.index() + 1;
 ///
 /// This is a subtractive sizing fix; threading `ExecutorConfig::
 /// max_global_queue_size` to this construction site is a separate follow-up.
-const INJECTOR_CAPACITY: usize = 1024;
+pub(super) const INJECTOR_CAPACITY: usize = 1024;
 /// Pop scan order: highest [`Priority::index`] first.
 const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] = [
     Priority::Critical.index(),
