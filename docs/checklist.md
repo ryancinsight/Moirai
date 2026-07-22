@@ -1,5 +1,17 @@
 # Moirai Development Checklist
 
+## Nightly TLS gate cleanup
+
+- [x] Confirm `moirai-core` does not invoke Melinoe's TLS macro.
+- [x] Delete the unused core build script and feature gate instead of
+      suppressing its warning.
+- [x] Preserve the platform and executor crates' documented nightly
+      `#[thread_local]` fast path.
+- [x] Pass focused static, test, and documentation gates.
+- [x] Pass exact-head hosted Rust, Linux, macOS, and Windows checks at
+      `a0389c5` in run `29961846537`; Greptile and CodeRabbit also pass.
+- [ ] Merge the delivery branch and align the primary worktree.
+
 ## Current State: Unified Scheduler Sprint
 
 **Target Version**: 0.4.0
