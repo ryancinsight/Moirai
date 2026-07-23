@@ -138,10 +138,12 @@ The `Crates.io Release` workflow validates a named workspace package on manual
 dispatch. After that package's required first release is published locally and
 its crates.io Trusted Publisher is registered, a GitHub Release tagged
 `crate-<package>-v<version>` packages, verifies, and publishes the matching
-Cargo version with a short-lived OIDC token. The `moirai` registry name belongs
-to an unrelated project, so the local facade is explicitly non-publishable
-until a distinct public name is selected; the component crate names remain
-available.
+Cargo version with a short-lived OIDC token. Validation runs in a separate
+read-only job. The publish job is bound to the GitHub `crates-io` environment;
+register each package's Trusted Publisher with that environment. The `moirai`
+registry name belongs to an unrelated project, so the local facade is explicitly
+non-publishable until a distinct public name is selected; the component crate
+names remain available.
 
 ```bash
 py -3.13 -m pip install moirai-python
