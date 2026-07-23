@@ -132,6 +132,17 @@ wg.wait(); // Wait for all tasks
 - **No Workload Wrappers**: Benchmark-specific Python functions are excluded unless they correspond to a comparable joblib or Tokio runtime primitive.
 - **Release Distribution**: GitHub Releases tagged `moirai-python-v<version>` attach validated CPython 3.10–3.13 wheels for Linux, Windows, and macOS, then publish the same artifacts to PyPI through OIDC.
 
+### Rust Crate Releases
+
+The `Crates.io Release` workflow validates a named workspace package on manual
+dispatch. After that package's required first release is published locally and
+its crates.io Trusted Publisher is registered, a GitHub Release tagged
+`crate-<package>-v<version>` packages, verifies, and publishes the matching
+Cargo version with a short-lived OIDC token. The `moirai` registry name belongs
+to an unrelated project, so the local facade is explicitly non-publishable
+until a distinct public name is selected; the component crate names remain
+available.
+
 ```bash
 py -3.13 -m pip install moirai-python
 
