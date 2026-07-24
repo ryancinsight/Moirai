@@ -1,3 +1,40 @@
+//! Async future state machine.
+//!
+//! `AsyncFutureState` drives one `Future` to completion across the hybrid
+//! scheduler's worker threads. It is shared as an `Arc` (it is its own `Waker`),
+//! so a `Future` — which is `!Sync` to poll — is held in `UnsafeCell`s reachable
+//! from every clone. A single `AtomicU8` `state` makes the concurrent access to
+//! those cells sound.
+//!
+//! # State machine
+//!
+//! ```text
+//! IDLE ──schedule──▶ QUEUED ──poll claims──▶ POLLING ──Pending, no wake──▶ IDLE
+//!                                              │  │
+//!                          wake during poll ───┘  └── Ready / panic / cancel ─▶ COMPLETED
+//!                                (NOTIFIED, re-polled inline or rescheduled)
+//! ```
+//!
+//! # Exclusivity invariant
+//!
+//! The `QUEUED → POLLING` compare-exchange in `AsyncFutureState::poll` has
+//! exactly one winner; the loser returns without touching anything. That winner
+//! is the **poll owner**, and it is the *only* accessor of the `future`,
+//! `lifecycle`, `result_sender`, and `future_present` cells until it leaves
+//! `POLLING`. Wakers running on other threads only load/CAS `state` and never
+//! read those cells, so every `UnsafeCell` dereference here is single-threaded
+//! despite the shared `Arc` — this is what the per-site `Safety` comments mean by
+//! "the single poll owner selected by the async state machine". The `&mut` to the
+//! pinned future is dropped before any `state` transition, so no successor poll
+//! can observe it.
+//!
+//! A wake arriving mid-poll CASes `POLLING → NOTIFIED` rather than enqueuing, so
+//! it is never lost: the poll owner re-polls inline (bounded by
+//! `ASYNC_INLINE_REPOLL_LIMIT`) or reschedules. The future is dropped once, by
+//! the `future_present` flag: the poll owner drops it on completion and `Drop`
+//! (reached only after the last `Arc`, whose refcount release/acquire orders the
+//! owner's write before the destructor's read) skips an already-dropped future.
+
 use std::{
     cell::UnsafeCell,
     future::Future,
