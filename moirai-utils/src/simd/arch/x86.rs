@@ -213,9 +213,11 @@ pub(crate) unsafe fn matrix_mul_square(left: &[f32], right: &[f32], result: &mut
 
 /// Fold eight lanes to their scalar sum.
 ///
-/// Safe despite `target_feature`: it takes an already-formed vector and touches
-/// no memory, so the only requirement is AVX2, which the compiler enforces by
-/// permitting calls solely from functions that enable the same feature.
+/// Safe despite `target_feature` because it takes an already-formed vector and
+/// touches no memory, so it has no precondition beyond AVX2 itself. That one
+/// still binds: a caller that already enables `avx2` — every caller in this
+/// module — may call it directly, and any other caller would have to discharge
+/// the requirement itself inside an `unsafe` block.
 #[inline]
 #[target_feature(enable = "avx2")]
 fn horizontal_sum(values: __m256) -> f32 {
@@ -366,8 +368,8 @@ pub(crate) unsafe fn squared_diff_sum_wide(data: &[f64], mean: f64) -> f64 {
     horizontal_sum_wide(_mm256_add_pd(total_v0, total_v1))
 }
 
-/// Fold four lanes to their scalar sum. Safe for the same reason as
-/// [`horizontal_sum`].
+/// Fold four lanes to their scalar sum. Safe on the same terms as
+/// `horizontal_sum`, and carrying the same AVX2 requirement.
 #[inline]
 #[target_feature(enable = "avx2")]
 fn horizontal_sum_wide(values: __m256d) -> f64 {
