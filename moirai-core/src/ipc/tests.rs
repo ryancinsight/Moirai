@@ -33,6 +33,46 @@ fn zero_size_segment_is_rejected() {
     assert!(matches!(result, Err(IpcError::InvalidArgument)));
 }
 
+#[test]
+fn open_larger_than_the_segment_is_rejected() {
+    // A mapping must cover every byte `as_slice` hands out. POSIX `mmap` accepts
+    // a length past the end of the object and leaves the surplus pages unbacked,
+    // so reading them raises SIGBUS; `open` has to reject the oversized request
+    // itself. (Win32 `MapViewOfFile` already refuses a view beyond the mapping.)
+    let name = "/moirai_test_open_oversize";
+    let _creator = SharedMemory::create(name, 4096).expect("create must succeed");
+
+    // Far enough past the segment that the surplus is whole unbacked pages, not
+    // the zero-filled tail of the segment's own final page.
+    let result = SharedMemory::open(name, 1 << 20);
+
+    assert!(
+        result.is_err(),
+        "opening a 4 KiB segment as 1 MiB must be rejected, not mapped"
+    );
+
+    // Which error depends on who caught it: POSIX `mmap` would have accepted the
+    // oversized length, so `open` checks the segment itself and reports
+    // `InvalidArgument`; on Windows the refusal comes from `MapViewOfFile` and
+    // surfaces as the OS error.
+    #[cfg(unix)]
+    assert!(matches!(result, Err(IpcError::InvalidArgument)));
+}
+
+#[test]
+fn open_smaller_than_the_segment_maps_a_prefix() {
+    // The size check rejects only mappings the segment cannot back; opening a
+    // prefix stays legal, so the guard above is not simply refusing every open.
+    let name = "/moirai_test_open_prefix";
+    let mut creator = SharedMemory::create(name, 4096).expect("create must succeed");
+    creator.as_mut_slice()[..4].copy_from_slice(b"ipc!");
+
+    let opener = SharedMemory::open(name, 1024).expect("prefix open must succeed");
+
+    assert_eq!(opener.as_slice().len(), 1024);
+    assert_eq!(&opener.as_slice()[..4], b"ipc!");
+}
+
 #[cfg(all(unix, target_pointer_width = "64"))]
 #[test]
 fn segment_larger_than_off_t_is_rejected_before_creation() {

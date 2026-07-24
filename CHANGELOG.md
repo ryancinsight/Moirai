@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep stack-owned scheduler scope state alive until the final completion
   releases its wait synchronization, preventing a multi-job scoped fan-out from
   hanging or dereferencing destroyed state.
+- Reject a Unix `SharedMemory::open` whose requested size exceeds the existing
+  segment. `mmap` accepts a length past the end of the object and leaves the
+  surplus pages unbacked, so `as_slice` handed out bytes that raise `SIGBUS` on
+  read; `open` now checks the segment with `fstat` first. Windows already
+  refused the oversized view in `MapViewOfFile`.
+- Test the async task completion flag under the future lock rather than before
+  acquiring it, so a second thread polling the same executor cannot pass the
+  check, wait for the lock, and then poll a future that completed meanwhile —
+  which panics with "resumed after completion".
 
 ## [0.4.0] - 2026-07-17
 
