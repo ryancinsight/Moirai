@@ -1,3 +1,65 @@
+//! Single-producer/single-consumer result slot backing one `AsyncHandle`.
+//!
+//! `AsyncResultSlot` hands a task's output from the executor (the **producer**,
+//! which calls `complete` exactly once) to the awaiting `AsyncHandle` future (the
+//! **consumer**, which calls `try_take_ready` / `register_waker` from `poll`). The
+//! slot lives in an `Arc` shared by exactly those two owners, so the `result` and
+//! `waiter` cells need no lock:
+//!
+//! - the producer runs once — the wrapped future's tail, `let r = fut.await;
+//!   slot.complete(r);`;
+//! - the consumer is serialized with itself, because `poll` takes `Pin<&mut Self>`,
+//!   so no two `try_take_ready` / `register_waker` calls overlap;
+//! - `Drop` runs only after the last `Arc`, so it has exclusive access and races
+//!   neither side.
+//!
+//! # State machine
+//!
+//! `state: AtomicU8` is the sole synchronization variable; the `result` and
+//! `waiter` cells are touched only while a transition grants exclusive access to
+//! them (C = consumer, P = producer):
+//!
+//! ```text
+//!   PENDING ──C register──▶ WAITING ──C re-poll──▶ UPDATING_WAKER ──C──▶ WAITING
+//!      │                       │
+//!      │ P complete            │ P complete
+//!      ▼                       ▼
+//!   WRITING ────────────────▶ WRITING ──P──▶ READY ──C take──▶ TAKEN
+//! ```
+//!
+//! `WRITING` is the producer's exclusive claim on `result`, and `READY` publishes
+//! it; `UPDATING_WAKER` is the consumer's exclusive claim on `waiter` while it
+//! swaps a stale waker, past which the producer spins.
+//!
+//! # Cell-access invariants (what the per-site `// Safety:` comments rely on)
+//!
+//! 1. **`result`: written once, read once.** Only the producer writes it, only
+//!    under `WRITING` (entered by winning the producer CAS, so no consumer can see
+//!    it yet). It is read exactly once — by the unique `READY -> TAKEN` consumer
+//!    CAS, or by `Drop` at `READY` when the consumer never took it.
+//! 2. **`waiter`: written by the consumer, read once by the producer.** The
+//!    consumer writes it under `PENDING` (published by the `PENDING -> WAITING`
+//!    release CAS) or under the `UPDATING_WAKER` lock. The producer reads it
+//!    exactly once, on `WAITING -> WRITING`; otherwise `Drop` at `WAITING` drops
+//!    it. A *failed* publish CAS proves no producer observed the write, so the
+//!    consumer drops its own clone.
+//! 3. **No lost wakeup — a contract shared with `AsyncHandle::poll`.** `complete`
+//!    on the `PENDING -> WRITING` path (it beat registration) deliberately does
+//!    not wake: no waker is registered yet. Liveness therefore requires the
+//!    consumer to check → `register_waker` → **re-check**; should `complete` land
+//!    in that window, the re-check observes `READY`. That re-check is load-bearing,
+//!    not defensive — dropping it reintroduces a hang.
+//!
+//! # Ordering
+//!
+//! Each cell access is ordered by a release/acquire pair on `state`: the writer
+//! releases on the publishing transition, the reader acquires on the transition
+//! that reads the cell. Thus `PENDING -> WAITING` and the `UPDATING_WAKER ->
+//! WAITING` store are `Release` (they publish `waiter`), while `WAITING -> WRITING`
+//! and `READY -> TAKEN` are `Acquire` (they read a cell). The `PENDING -> WRITING`
+//! success is `Relaxed`: that path reads neither cell before its own `store(READY,
+//! Release)` publishes `result`, so it carries no incoming edge to establish.
+
 use std::{
     cell::UnsafeCell,
     mem::MaybeUninit,
