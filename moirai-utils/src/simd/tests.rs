@@ -142,9 +142,18 @@ fn unaligned_lengths_preserve_values() {
         let expected_dot: f32 = left.iter().zip(right.iter()).map(|(x, y)| x * y).sum();
         assert_f32_roundoff(result_dot, expected_dot, len, 2, "dot mismatch");
 
+        // Roundoff-bounded, not exact: the vector path accumulates into lanes and
+        // folds them at the end, so it adds in a different order than this
+        // sequential reference, and floating-point addition is not associative.
+        // Bitwise equality holds here only because `left` is small integers whose
+        // partial sums are all exactly representable — it is not a property of
+        // the operation, and asserting it would break the moment the fixture
+        // changed. One addition per element, as against `dot`'s multiply-add.
+        // (`add`/`mul` above stay exact: they are element-wise, so the vector and
+        // scalar paths perform identical operations in identical order.)
         let result_sum = sum(&left);
         let expected_sum: f32 = left.iter().copied().sum();
-        assert_eq!(result_sum, expected_sum, "sum mismatch at len {len}");
+        assert_f32_roundoff(result_sum, expected_sum, len, 1, "sum mismatch");
 
         let result_var = variance(&left);
         let mean_val = mean(&left);
