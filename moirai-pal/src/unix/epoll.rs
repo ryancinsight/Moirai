@@ -1,7 +1,49 @@
-//! Linux epoll-based async I/O reactor implementation.
+//! Linux epoll-based async I/O reactor.
 //!
-//! This module provides high-performance async I/O using Linux's epoll system call,
-//! which is the most efficient I/O multiplexing mechanism on Linux systems.
+//! [`EpollReactor`] multiplexes readiness for the async executor: callers
+//! register descriptors with [`Reactor::register_fd`], drive
+//! [`Reactor::poll_events`] on an event-loop thread, and interrupt a blocking
+//! wait with [`Reactor::wake`]. Everything here is raw `libc` syscalls, so the
+//! invariants that keep it sound are stated once below and referenced by the
+//! per-site `SAFETY` comments.
+//!
+//! # Descriptor ownership
+//!
+//! The reactor owns exactly two descriptors — `epoll_fd` and the `eventfd` in
+//! `wake_fd` — created in `new` and closed once in `Drop`. Both are `CLOEXEC`.
+//! Every failure path in `new` closes what it already created before returning,
+//! so a failed construction leaks nothing. Because `Drop` takes `&mut self`, no
+//! other method can be running against those descriptors when they are closed.
+//!
+//! Registered descriptors are *not* owned: they belong to the sockets and pipes
+//! the caller registers. A closed descriptor is removed from the interest list
+//! by the kernel, and passing a stale one to `epoll_ctl` yields `EBADF` — an
+//! error, never memory unsafety.
+//!
+//! # Syscall buffers
+//!
+//! `epoll_wait` writes up to `MAX_EVENTS` entries into `event_buffer`, which is
+//! allocated at exactly that length and reused, so the pointer/length pair the
+//! kernel receives always describes live, initialized memory. Only the first
+//! `num_events` entries are read back. The mutex serializes concurrent pollers;
+//! the reactor is driven by one event-loop thread in practice, and a blocking
+//! wait is interrupted by `wake` rather than by a competing poller.
+//!
+//! `libc::epoll_event` is `repr(packed)` on x86-64, so its fields are read by
+//! value (`event.u64`, `event.events`) and never borrowed — taking a reference
+//! to a packed field is undefined behavior, and the compiler rejects it.
+//!
+//! # errno discipline
+//!
+//! `errno` is meaningful only after a syscall reports failure, and is otherwise
+//! whatever the last failing call left behind. Every wrapper here therefore
+//! tests the return value for the failure sentinel *first* and calls
+//! `io::Error::last_os_error` only on that branch.
+//!
+//! # Readiness model
+//!
+//! Registrations are level-triggered; `interest_to_epoll_events` documents why
+//! edge-triggered would lose readiness that arrives before a waker is installed.
 
 use std::io;
 use std::os::unix::io::RawFd;
@@ -28,15 +70,20 @@ const EPOLL_CREATE_FLAGS: libc::c_int = libc::EPOLL_CLOEXEC;
 impl EpollReactor {
     /// Create a new epoll-based reactor.
     pub fn new() -> io::Result<Self> {
+        // SAFETY: `epoll_create1` takes only a flag word and returns a fresh
+        // descriptor or -1; it touches no caller memory.
         let epoll_fd = unsafe { libc::epoll_create1(EPOLL_CREATE_FLAGS) };
 
         if epoll_fd < 0 {
             return Err(io::Error::last_os_error());
         }
 
+        // SAFETY: as above — `eventfd` takes an initial count and flags only.
         let wake_fd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
         if wake_fd < 0 {
             let error = io::Error::last_os_error();
+            // SAFETY: `epoll_fd` was created above, is still open, and is
+            // unreachable from anywhere else because `self` does not exist yet.
             unsafe {
                 libc::close(epoll_fd);
             }
@@ -47,6 +94,9 @@ impl EpollReactor {
             events: libc::EPOLLIN as u32,
             u64: wake_fd as u64,
         };
+        // SAFETY: both descriptors are open, and the event pointer refers to
+        // `wake_event`, a live initialized local that outlives the call. The
+        // kernel copies the struct; it does not retain the pointer.
         let register_wake = unsafe {
             libc::epoll_ctl(
                 epoll_fd,
@@ -57,6 +107,8 @@ impl EpollReactor {
         };
         if register_wake < 0 {
             let error = io::Error::last_os_error();
+            // SAFETY: both descriptors were created above and are still open;
+            // `self` does not exist, so nothing else can reach them.
             unsafe {
                 libc::close(wake_fd);
                 libc::close(epoll_fd);
@@ -118,6 +170,9 @@ impl Reactor for EpollReactor {
             u64: fd as u64,
         };
 
+        // SAFETY: `epoll_fd` is open for the lifetime of `self`, and the event
+        // pointer refers to `event`, a live initialized local that outlives the
+        // call. `fd` is the caller's; if it is stale the kernel reports `EBADF`.
         let result = unsafe {
             libc::epoll_ctl(
                 self.epoll_fd,
@@ -135,6 +190,8 @@ impl Reactor for EpollReactor {
     }
 
     fn unregister_fd(&self, fd: RawFd) -> io::Result<()> {
+        // SAFETY: `epoll_fd` is open for the lifetime of `self`. `EPOLL_CTL_DEL`
+        // reads no event struct, so a null pointer is the documented argument.
         let result = unsafe {
             libc::epoll_ctl(self.epoll_fd, libc::EPOLL_CTL_DEL, fd, std::ptr::null_mut())
         };
@@ -159,6 +216,10 @@ impl Reactor for EpollReactor {
             None => -1, // Block indefinitely
         };
 
+        // SAFETY: `epoll_fd` is open for the lifetime of `self`, and the buffer
+        // is held under the mutex guard for the whole call. It was allocated
+        // with exactly `MAX_EVENTS` initialized entries, so the kernel may fill
+        // up to that many without running past the allocation.
         let num_events = unsafe {
             libc::epoll_wait(
                 self.epoll_fd,
@@ -191,6 +252,9 @@ impl Reactor for EpollReactor {
 
     fn wake(&self) -> io::Result<()> {
         let value = 1_u64;
+        // SAFETY: `wake_fd` is the reactor's own eventfd, open for the lifetime
+        // of `self`, and the pointer/length pair describes `value`, a live local
+        // `u64`, for exactly its own size.
         let written = unsafe {
             libc::write(
                 self.wake_fd,
@@ -199,21 +263,27 @@ impl Reactor for EpollReactor {
             )
         };
 
-        if written == std::mem::size_of::<u64>() as isize {
-            return Ok(());
+        if written < 0 {
+            let error = io::Error::last_os_error();
+            // The eventfd is non-blocking: a full counter means a wake is
+            // already pending, which is the state this call wanted anyway.
+            if error.kind() == io::ErrorKind::WouldBlock {
+                return Ok(());
+            }
+            return Err(error);
         }
 
-        let error = io::Error::last_os_error();
-        if error.kind() == io::ErrorKind::WouldBlock {
-            Ok(())
-        } else {
-            Err(error)
-        }
+        // An eventfd write transfers all 8 bytes or fails; there is no short write.
+        debug_assert_eq!(written, std::mem::size_of::<u64>() as isize);
+        Ok(())
     }
 }
 
 impl Drop for EpollReactor {
     fn drop(&mut self) {
+        // SAFETY: both descriptors are owned by this reactor and closed exactly
+        // once here. `&mut self` is exclusive, so no poll, registration, or wake
+        // can be using them concurrently.
         unsafe {
             libc::close(self.wake_fd);
             libc::close(self.epoll_fd);
@@ -227,6 +297,9 @@ fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 fn drain_eventfd(wake_fd: RawFd) -> io::Result<()> {
     let mut value = 0_u64;
+    // SAFETY: `wake_fd` is the reactor's eventfd, and the pointer/length pair
+    // describes `value`, a live local `u64`, for exactly its own size. The read
+    // resets the counter, so a wake that arrives afterwards re-reports.
     let read = unsafe {
         libc::read(
             wake_fd,
@@ -235,16 +308,18 @@ fn drain_eventfd(wake_fd: RawFd) -> io::Result<()> {
         )
     };
 
-    if read == std::mem::size_of::<u64>() as isize {
-        return Ok(());
+    if read < 0 {
+        let error = io::Error::last_os_error();
+        // Counter already zero — another drain consumed this wake.
+        if error.kind() == io::ErrorKind::WouldBlock {
+            return Ok(());
+        }
+        return Err(error);
     }
 
-    let error = io::Error::last_os_error();
-    if error.kind() == io::ErrorKind::WouldBlock {
-        Ok(())
-    } else {
-        Err(error)
-    }
+    // An eventfd read returns all 8 bytes or fails; there is no short read.
+    debug_assert_eq!(read, std::mem::size_of::<u64>() as isize);
+    Ok(())
 }
 
 #[cfg(test)]
