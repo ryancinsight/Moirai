@@ -1,3 +1,30 @@
+//! Synchronous data-parallel operators over the unified scheduler.
+//!
+//! # Safety
+//!
+//! The mutable operators split a buffer across worker tasks through
+//! `DisjointMutPtr`, which hands out `&mut` by raw pointer with no
+//! borrow-checker aliasing proof. Two executor contracts make
+//! every such access sound; each per-site `SAFETY` comment appeals to one of
+//! them:
+//!
+//! - **Disjoint partition.** `global().for_each_indexed(count, f)` invokes `f`
+//!   with each index in `0..count` exactly once. The operators map that index
+//!   (or a `chunk_size`-strided range derived from it) to a *disjoint* slice of
+//!   the buffer, so no two concurrent tasks ever form `&mut` to the same
+//!   element. Multi-buffer operators additionally rely on the caller's distinct
+//!   `&mut [_]` arguments being non-aliasing (guaranteed by the borrow checker
+//!   at the call site).
+//! - **All-or-error collect.** The `map_collect_*` helpers build a
+//!   `Vec<MaybeUninit<R>>`, `set_len` it (sound — `MaybeUninit` needs no
+//!   initialization), fill every slot through the disjoint-partition contract,
+//!   then reinterpret it as `Vec<R>`. `for_each_indexed` returns `Ok` only after
+//!   writing every index, so the reinterpretation is reached only when all slots
+//!   are initialized; a task panic instead surfaces as `Err`, which `.expect()`
+//!   turns into a propagating panic that unwinds with the buffer still typed
+//!   `MaybeUninit<R>` (its contents are not dropped — a leak of the written
+//!   values on panic, never a use of uninitialized memory).
+
 use super::DisjointMutPtr;
 use crate::policy::{ExecutionPolicy, Parallel};
 use moirai_core::error::ExecutorResult;
