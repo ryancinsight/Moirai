@@ -1,3 +1,58 @@
+//! Type-erased async task and its wake/poll/complete re-entry protocol.
+//!
+//! `AsyncTask` is one spawned future as the executor sees it: the future itself
+//! type-erased into `ErasedTaskFuture`, plus the flags that decide when it may
+//! be polled. Tasks are shared as `Arc<AsyncTask>` between the run queue, the
+//! `ExecutorWaker` handed to the future, and any thread running
+//! `AsyncExecutor::process_pending_tasks`, so both the erasure and the flags
+//! carry cross-thread contracts.
+//!
+//! # Type erasure
+//!
+//! `ErasedTaskFuture` is a hand-built vtable — a `NonNull<()>` to the boxed
+//! future plus `poll`/`drop` function pointers monomorphized for the concrete
+//! `F` at construction. This keeps a heterogeneous run queue without boxing
+//! every task behind `dyn Future` at each call site. Three invariants make it
+//! sound:
+//!
+//! 1. **Address stability.** `new` heap-allocates the future with `Box` and
+//!    never moves it again, so the `Pin::new_unchecked` in
+//!    `poll_erased_future` is honest: the future is pinned for the whole
+//!    lifetime of the `ErasedTaskFuture` that owns it.
+//! 2. **Type agreement.** `ptr`, `poll`, and `drop` are set together from the
+//!    same `F` and never reassigned, so the `cast::<F>()` inside each function
+//!    pointer always recovers the type that was actually stored.
+//! 3. **Single drop.** The `ErasedTaskFuture` uniquely owns the allocation, and
+//!    only its `Drop` frees it (via `Box::from_raw` through the stored `drop`
+//!    pointer). `Send` is justified by the `F: Send` bound at construction —
+//!    the pointer moves between threads only with the task it belongs to.
+//!
+//! # Re-entry protocol (`is_queued` / `completed` / `future_lock`)
+//!
+//! A future must be polled by one thread at a time and must never be polled
+//! after it returns `Ready` — a completed `async` block panics with "resumed
+//! after completion". Three fields enforce that, and they divide the work:
+//!
+//! - `is_queued` — enqueue deduplication, owned by `ExecutorWaker::wake_by_ref`
+//!   (`waker.rs`). A wake enqueues only if it flipped `is_queued` false→true, so
+//!   a task appears in the run queue at most once per pending wake.
+//! - `completed` — set once the future returns `Ready`. The waker checks it as
+//!   an optimization (a reactor may still hold a live waker for a task that
+//!   finished by another path, e.g. `timeout(read)` completing via the timer
+//!   while a socket read-waker stays registered), but the authoritative guard is
+//!   in `process_pending_tasks`.
+//! - `future_lock` — serializes access to the `UnsafeCell<ErasedTaskFuture>`.
+//!   Its guard is held across the `completed` check *and* the poll, which is
+//!   what makes the guard sound: `process_pending_tasks` clears `is_queued`
+//!   before polling (so a self-wake during the poll can re-enqueue), so a second
+//!   polling thread can dequeue the same task while the first still holds the
+//!   lock. Checking `completed` outside the lock would let that thread pass the
+//!   check, block, and then poll a future the first thread completed meanwhile.
+//!
+//! Together these give the `unsafe impl Sync` below its meaning: every mutable
+//! touch of the future happens under `future_lock`, and every poll is gated by a
+//! `completed` check taken in the same critical section.
+
 use moirai_core::{Priority, TaskId};
 use std::future::Future;
 use std::pin::Pin;
@@ -36,9 +91,10 @@ pub(super) struct AsyncTask {
 }
 
 // SAFETY: the only non-Sync field is the `UnsafeCell<ErasedTaskFuture>`;
-// mutable access to it is serialized by `future_lock` (its guard is held for
-// every poll), and the `completed`/`is_queued` flags gate re-entry, so no two
-// threads touch the future concurrently.
+// mutable access to it is serialized by `future_lock`, whose guard is held
+// across both the `completed` check and the poll it guards (see the re-entry
+// protocol in the module docs), so no two threads touch the future
+// concurrently and none polls it after completion.
 unsafe impl Sync for AsyncTask {}
 
 pub(super) struct ErasedTaskFuture {
@@ -47,6 +103,9 @@ pub(super) struct ErasedTaskFuture {
     drop: unsafe fn(NonNull<()>),
 }
 
+// SAFETY: the erased pointer owns a `Box<F>` built under an `F: Send` bound in
+// `new`, so moving the task (and with it this pointer) across threads moves a
+// `Send` value; the vtable entries are plain fn pointers.
 unsafe impl Send for ErasedTaskFuture {}
 
 impl ErasedTaskFuture {
