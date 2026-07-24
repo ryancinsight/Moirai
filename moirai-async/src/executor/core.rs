@@ -127,20 +127,31 @@ impl AsyncExecutor {
         while let Some(task) = self.run_queue.try_dequeue() {
             task.is_queued.store(false, Ordering::SeqCst);
 
+            let waker = self.create_executor_waker(Arc::clone(&task));
+            let mut context = Context::from_waker(&waker);
+            let task_start = Instant::now();
+
             // A wake can race a completion (the waker passed its `completed`
             // check just before the task finished on another path), so this is
             // the authoritative guard: never poll a future that already
             // returned `Ready` — doing so panics with "resumed after
             // completion".
+            //
+            // The check must happen *under* `future_lock`, together with the
+            // poll it guards. `is_queued` is cleared above so a self-wake during
+            // this poll can re-enqueue, which means a second polling thread can
+            // dequeue the same task while this one still holds the lock; if that
+            // thread tested `completed` before the lock, it would block, observe
+            // the completion only after acquiring the lock, and then poll the
+            // finished future anyway. Testing inside the critical section makes
+            // the guard and the poll atomic with respect to the completing
+            // writer below.
+            let _lock = task.future_lock.lock().unwrap();
+
             if task.completed.load(Ordering::Acquire) {
                 continue;
             }
 
-            let waker = self.create_executor_waker(Arc::clone(&task));
-            let mut context = Context::from_waker(&waker);
-            let task_start = Instant::now();
-
-            let _lock = task.future_lock.lock().unwrap();
             let future_mut = unsafe { &mut *task.future.get() };
             match future_mut.poll(&mut context) {
                 std::task::Poll::Ready(()) => {
@@ -340,6 +351,77 @@ mod tests {
             executor.stats().tasks_completed,
             1,
             "no re-poll of the completed task"
+        );
+    }
+
+    #[test]
+    fn completion_under_lock_blocks_a_concurrent_polling_thread() {
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::{Arc, Barrier};
+
+        // Regression for a re-poll-after-completion race between two threads
+        // running `process_pending_tasks` on one executor (`run` takes `&self`,
+        // and the executor is shared as an `Arc` in-tree).
+        //
+        // `process_pending_tasks` clears `is_queued` before polling, so a wake
+        // during a poll re-enqueues the task and a second thread can dequeue it
+        // while the first still holds `future_lock`. If that thread tested
+        // `completed` *before* taking the lock, it would pass the test, block on
+        // the lock, and then poll a future the first thread had completed
+        // meanwhile — which panics with "resumed after completion".
+        //
+        // The interleaving is forced deterministically (no timing): this thread
+        // holds `future_lock` and marks the task completed while a second thread
+        // is provably parked inside `process_pending_tasks` on that same lock.
+        let executor = Arc::new(AsyncExecutor::new().unwrap());
+        let polls = Arc::new(AtomicUsize::new(0));
+
+        // A future that would panic if polled a second time, standing in for the
+        // "resumed after completion" panic of a finished `async` block.
+        let poll_counter = Arc::clone(&polls);
+        let _handle = executor.spawn(async move {
+            assert_eq!(
+                poll_counter.fetch_add(1, Ordering::SeqCst),
+                0,
+                "future must never be polled after completion"
+            );
+        });
+
+        // Take the queued task, hold its future lock, and put it back so the
+        // other thread dequeues the same task while the lock is held.
+        let task = executor
+            .run_queue
+            .try_dequeue()
+            .expect("spawned task must be queued");
+        let guard = task.future_lock.lock().unwrap();
+        executor.run_queue.enqueue(Arc::clone(&task));
+
+        let barrier = Arc::new(Barrier::new(2));
+        let poller = {
+            let executor = Arc::clone(&executor);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                // Dequeues the task, then parks on `future_lock`.
+                executor.process_pending_tasks();
+            })
+        };
+
+        barrier.wait();
+
+        // The poller is either about to block or already blocked on the lock we
+        // hold; completing the task now is exactly the race being guarded. The
+        // lock is released after the flag is set, so the poller observes a
+        // completed task the instant it acquires the lock.
+        task.completed.store(true, Ordering::Release);
+        drop(guard);
+
+        poller.join().expect("polling thread must not panic");
+
+        assert_eq!(
+            polls.load(Ordering::SeqCst),
+            0,
+            "a task completed while another thread waited on its lock must not be polled"
         );
     }
 
