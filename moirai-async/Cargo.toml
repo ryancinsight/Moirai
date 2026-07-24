@@ -31,6 +31,10 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 tempfile = "3.0"
 
+# loom model checker — only compiled under `--cfg loom` (see tests/loom_result_slot.rs).
+[target.'cfg(loom)'.dev-dependencies]
+loom = { workspace = true }
+
 [features]
 default = ["parallel", "mnemosyne-memory"]
 parallel = []
@@ -39,3 +43,8 @@ io = []
 timers = []
 metrics = ["moirai-core/metrics"]
 tokio-compat = ["dep:tokio_dep"]
+
+# Register the `loom` cfg so the -D warnings gate stays clean (it is set via
+# `RUSTFLAGS="--cfg loom"`, not a Cargo feature).
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
