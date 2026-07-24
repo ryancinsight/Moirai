@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   surplus pages unbacked, so `as_slice` handed out bytes that raise `SIGBUS` on
   read; `open` now checks the segment with `fstat` first. Windows already
   refused the oversized view in `MapViewOfFile`.
+- Reserve the backing store of a Linux `SharedMemory::create` segment with
+  `posix_fallocate`. `ftruncate` only sets the length of a tmpfs object and
+  leaves its pages sparse, so a correctly sized segment still raised `SIGBUS`
+  through `as_slice`/`as_mut_slice` when the store could not produce a page on
+  first touch; the shortage now surfaces as an error at creation, and the failed
+  segment is unlinked rather than left for a later `open` to map. Unix targets
+  without `posix_fallocate`, macOS among them, are unchanged.
 - Test the async task completion flag under the future lock rather than before
   acquiring it, so a second thread polling the same executor cannot pass the
   check, wait for the lock, and then poll a future that completed meanwhile —

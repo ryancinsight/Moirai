@@ -5,28 +5,47 @@
 //! [`SharedQueue`](super::SharedQueue); the two contracts below are what make
 //! its safe API sound.
 //!
-//! # The mapping must cover `size`
+//! # Every mapped byte must be backed
 //!
-//! `as_slice`/`as_mut_slice` build a slice of exactly `size` bytes, so the
-//! mapping has to be backed for all of them. The two platforms differ in who
-//! enforces that, and the difference is why `open` is written the way it is:
+//! `as_slice`/`as_mut_slice` build a slice of exactly `size` bytes, so all of
+//! them have to be backed. Two independent things can leave the mapping short,
+//! and either one raises `SIGBUS` on first touch inside those safe accessors.
+//!
+//! ## The object must be at least `size` bytes
+//!
+//! The two platforms differ in who enforces that, and the difference is why
+//! `open` is written the way it is:
 //!
 //! - **Windows** enforces it. `MapViewOfFile` requires the requested view to lie
 //!   within the mapping object, and fails otherwise, so an oversized `open` is
 //!   rejected by the OS.
 //! - **POSIX does not.** `mmap` accepts a length running past the end of the
-//!   object; the pages beyond it simply are not backed, and touching them raises
-//!   `SIGBUS`. `open` therefore `fstat`s the descriptor and rejects a segment
-//!   smaller than `size` itself — without that check a caller could open an
-//!   existing segment under a too-large `size` and get a slice that faults on
-//!   read. `create` needs no such check because its `ftruncate` sets the object
-//!   to exactly `size`.
+//!   object; the pages beyond it simply are not backed. `open` therefore
+//!   `fstat`s the descriptor and rejects a segment smaller than `size` itself —
+//!   without that check a caller could open an existing segment under a
+//!   too-large `size` and get a slice that faults on read. `create` needs no
+//!   such check because its `ftruncate` sets the object to exactly `size`.
 //!
 //! The POSIX check reads the size from the descriptor it goes on to map, so it
 //! cannot be defeated by re-resolving the name. It does not cover a process that
 //! *shrinks* the object with `ftruncate` after the check — an act that already
 //! invalidates every existing mapping of that segment, and which POSIX gives no
 //! way to exclude.
+//!
+//! ## The object's pages must exist
+//!
+//! A correctly sized object is not automatically a backed one. Linux puts POSIX
+//! shared memory on tmpfs, where `ftruncate` sets the length and nothing else:
+//! the pages stay sparse and are allocated on first touch. A segment can pass
+//! every size check above and still fault, when tmpfs — or the RAM and swap
+//! behind it — cannot produce a page at the moment one is written.
+//!
+//! `create` closes that by asking for the store up front with `posix_fallocate`,
+//! so a segment too large to back is refused at creation with the kernel's
+//! `ENOSPC` rather than killing whichever process later writes it. That is a
+//! Linux guarantee rather than a POSIX one; `reserve_backing_store` documents
+//! what the other Unix targets do and do not get. `open` needs no counterpart,
+//! since it maps an object whose creator already reserved it.
 //!
 //! # Cross-process aliasing is the caller's contract
 //!
@@ -113,6 +132,92 @@ fn unix_mapping_length(size: usize) -> Result<libc::off_t, IpcError> {
     libc::off_t::try_from(size).map_err(|_| IpcError::InvalidArgument)
 }
 
+/// What the kernel answered when asked to reserve a segment's backing store.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Reservation {
+    /// The store is committed: every page of the segment exists.
+    Reserved,
+    /// This object cannot be preallocated at all, so it keeps the sparse
+    /// backing `ftruncate` gave it.
+    Unsupported,
+    /// A signal arrived first; the request has to be reissued.
+    Interrupted,
+    /// The store cannot be had, under the reported `errno`.
+    Failed(i32),
+}
+
+/// Classify what `posix_fallocate` returned.
+///
+/// Unlike the `shm_open`/`ftruncate`/`mmap` calls around it, `posix_fallocate`
+/// reports through its return value and leaves `errno` untouched, so the code
+/// arrives here directly instead of through `last_os_error`.
+///
+/// The distinction that matters is between a kernel that *will not preallocate
+/// here* and one that *cannot find the store*. `create` has already rejected a
+/// non-positive length, so `EINVAL` can only mean this object refuses the
+/// operation, as `EOPNOTSUPP` and `ENOSYS` do on a filesystem without fallocate
+/// — tmpfs before Linux 3.5, say. None of the three says anything about free
+/// space, and failing creation on them would break segments that work today, so
+/// they leave the mapping as sparse as it was before this call existed. Every
+/// other code — `ENOSPC` and `EFBIG` above all — is the shortage the call exists
+/// to surface.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(super) const fn classify_reservation(code: i32) -> Reservation {
+    match code {
+        0 => Reservation::Reserved,
+        libc::EINTR => Reservation::Interrupted,
+        libc::EOPNOTSUPP | libc::ENOSYS | libc::EINVAL => Reservation::Unsupported,
+        other => Reservation::Failed(other),
+    }
+}
+
+/// Reserve a whole segment's backing store, so its pages exist before anyone
+/// maps them.
+///
+/// `ftruncate` sets the object's length and nothing more. On tmpfs the pages
+/// behind that length stay sparse, so the first write to one can fail for want
+/// of memory — as `SIGBUS`, inside a safe accessor, in whichever process
+/// happened to touch it. Asking for the pages here turns that fault into an
+/// ordinary error at creation.
+///
+/// Returns `Ok` when the store is committed, and equally when the kernel
+/// declines to preallocate at all: the segment is still exactly `size` bytes, so
+/// such a caller keeps the behavior it had before, and only a reported shortage
+/// is an error. See `classify_reservation` for the split.
+///
+/// Unix targets outside the Linux family have no counterpart here.
+/// `posix_fallocate` is absent on macOS, and this crate cannot claim tmpfs
+/// semantics for platforms whose shared memory is not tmpfs, so their segments
+/// keep the sparse mapping and the `SIGBUS` window that comes with it.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn reserve_backing_store(fd: RawFd, length: libc::off_t) -> Result<(), IpcError> {
+    loop {
+        // SAFETY: `posix_fallocate` takes `fd` as a descriptor number and two
+        // integers, and answers through its return value — no pointer crosses
+        // the call, so no argument reachable here can make it unsound. A
+        // descriptor that is not open comes back as `EBADF`.
+        let code = unsafe { libc::posix_fallocate(fd, 0, length) };
+
+        match classify_reservation(code) {
+            Reservation::Reserved | Reservation::Unsupported => return Ok(()),
+            Reservation::Interrupted => {}
+            Reservation::Failed(code) => return Err(IpcError::SystemError(code)),
+        }
+    }
+}
+
+/// Preallocation is unavailable on this target, so a segment keeps the sparse
+/// backing `ftruncate` gave it. See the Linux definition for what that costs.
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "matches the fallible Linux signature so `create` stays platform-uniform"
+)]
+fn reserve_backing_store(_fd: RawFd, _length: libc::off_t) -> Result<(), IpcError> {
+    Ok(())
+}
+
 // SAFETY: the mapping is process-wide, not thread-owned — `ptr` stays valid on
 // any thread for the lifetime of this handle, and neither the descriptor nor the
 // handle is thread-affine. `Send` therefore moves a still-valid mapping.
@@ -126,7 +231,13 @@ unsafe impl Send for SharedMemory {}
 unsafe impl Sync for SharedMemory {}
 
 impl SharedMemory {
-    /// Create a new shared memory segment
+    /// Create a new shared memory segment.
+    ///
+    /// Sizes the object with `ftruncate` and then reserves its backing store, so
+    /// a segment larger than the store can hold fails here — as the kernel's
+    /// `ENOSPC` — instead of raising `SIGBUS` in whichever process first writes
+    /// an unbacked page. `reserve_backing_store` covers the Unix targets that
+    /// cannot make that reservation.
     #[cfg(unix)]
     pub fn create(name: &str, size: usize) -> Result<Self, IpcError> {
         use std::ffi::CString;
@@ -149,6 +260,17 @@ impl SharedMemory {
             if libc::ftruncate(fd, mapping_length) < 0 {
                 libc::close(fd);
                 return Err(last_os_error());
+            }
+
+            if let Err(error) = reserve_backing_store(fd, mapping_length) {
+                // Unlike the paths around it, this one has to take the name down
+                // with the descriptor. What it would otherwise leave behind is
+                // precisely the trap the reservation exists to remove: an object
+                // of exactly `size` bytes, which `open`'s `fstat` check waves
+                // through, over pages the store was just proven unable to hold.
+                libc::close(fd);
+                libc::shm_unlink(c_name.as_ptr());
+                return Err(error);
             }
 
             let ptr = libc::mmap(
@@ -324,11 +446,12 @@ impl SharedMemory {
     /// (see the module docs); use [`SharedQueue`](super::SharedQueue) when
     /// another process is an active writer.
     pub fn as_slice(&self) -> &[u8] {
-        // SAFETY: `ptr` is a live mapping of `size` bytes — `create` sized the
-        // object with `ftruncate` and `open` rejected a segment smaller than
-        // `size` — so every byte is backed and readable, and `u8` needs no
-        // alignment beyond the page-aligned base. Absence of a concurrent
-        // cross-process writer is the caller's contract.
+        // SAFETY: `ptr` is a live mapping of `size` bytes — `create` sizes the
+        // object with `ftruncate` and reserves its backing store, `open` rejects
+        // a segment smaller than `size` — so every byte is readable, and `u8`
+        // needs no alignment beyond the page-aligned base. The residual backing
+        // hazard on Unix targets that cannot preallocate, and the absence of a
+        // concurrent cross-process writer, are the module docs' two contracts.
         unsafe { slice::from_raw_parts(self.ptr, self.size) }
     }
 

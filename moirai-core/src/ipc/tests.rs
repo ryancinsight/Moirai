@@ -81,6 +81,93 @@ fn segment_larger_than_off_t_is_rejected_before_creation() {
 }
 
 #[test]
+fn a_multi_page_segment_reads_back_across_its_whole_length() {
+    // Sizing a segment is not backing it: on tmpfs `ftruncate` leaves the pages
+    // sparse, so `create` reserves the store before handing out a mapping.
+    // Writing every page is what would fault on a host that could not satisfy
+    // that reservation, and reading it back is what fails if the new call
+    // started refusing segments the store can perfectly well hold.
+    let name = "/moirai_test_backed_pages";
+    let size = 256 * 1024;
+    // 251 is the largest prime below 256, so the pattern's period is coprime
+    // with the page size: no two pages begin with the same byte, and a page
+    // that silently read back as another's contents would not match.
+    let marker = |index: usize| {
+        u8::try_from(index % 251).expect("invariant: a remainder mod 251 fits in u8")
+    };
+
+    let mut segment = SharedMemory::create(name, size).expect("create must succeed");
+    for (index, byte) in segment.as_mut_slice().iter_mut().enumerate() {
+        *byte = marker(index);
+    }
+
+    let written = segment.as_slice();
+    assert_eq!(written.len(), size);
+    assert_eq!(
+        written
+            .iter()
+            .enumerate()
+            .position(|(index, &byte)| byte != marker(index)),
+        None,
+        "every byte of a created segment must read back what was written to it"
+    );
+}
+
+/// The reservation `create` performs is classified from `posix_fallocate`'s
+/// return value, and that classification is the part with no deterministic
+/// end-to-end test: reaching the `ENOSPC` arm for real means exhausting the
+/// host's tmpfs, which no test may do to the machine running it. Requesting an
+/// absurd length does not substitute — it returns `ENOSPC` early only when
+/// `/dev/shm` carries a size limit, and on a mount without one the kernel goes
+/// away and tries to allocate it. What is deterministic is the decision itself,
+/// over one representative code per outcome.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+mod reservation_classification {
+    use super::super::memory::{classify_reservation, Reservation};
+
+    #[test]
+    fn a_committed_reservation_is_the_only_success() {
+        assert_eq!(classify_reservation(0), Reservation::Reserved);
+    }
+
+    #[test]
+    fn a_shortage_fails_creation_instead_of_deferring_a_fault() {
+        // The reason the call exists: a segment the store cannot hold has to be
+        // refused here, not become a `SIGBUS` in whichever process writes it.
+        for code in [libc::ENOSPC, libc::EFBIG] {
+            assert_eq!(classify_reservation(code), Reservation::Failed(code));
+        }
+    }
+
+    #[test]
+    fn a_kernel_that_will_not_preallocate_leaves_creation_alone() {
+        // tmpfs before Linux 3.5, or any object refusing fallocate. None of
+        // these reports a shortage, and failing on them would break segments
+        // that create fine today. `create` rejects a non-positive length before
+        // reaching the call, so `EINVAL` cannot be our own argument error.
+        for code in [libc::EOPNOTSUPP, libc::ENOSYS, libc::EINVAL] {
+            assert_eq!(classify_reservation(code), Reservation::Unsupported);
+        }
+    }
+
+    #[test]
+    fn an_interrupted_reservation_is_reissued_rather_than_accepted() {
+        // Reading `EINTR` as completion would leave behind exactly the sparse
+        // segment the reservation was meant to eliminate.
+        assert_eq!(classify_reservation(libc::EINTR), Reservation::Interrupted);
+    }
+
+    #[test]
+    fn an_unrecognized_code_is_carried_through_as_a_failure() {
+        // The default arm must not quietly widen into "unsupported": an `EIO` or
+        // `EBADF` is a real failure and has to reach the caller intact.
+        for code in [libc::EIO, libc::EBADF, libc::EPERM] {
+            assert_eq!(classify_reservation(code), Reservation::Failed(code));
+        }
+    }
+}
+
+#[test]
 fn test_shared_queue() {
     let name = "/moirai_test_queue";
     let capacity = 10;
