@@ -1,3 +1,39 @@
+//! Chase-Lev work-stealing deque.
+//!
+//! Single owner (`push`/`pop` at the bottom), many thieves (`steal` at the top),
+//! implemented per the weak-memory-correct formulation of Lê, Pop, Cohen &
+//! Nardelli (PPoPP 2013). `storage.rs` backs the slots; `tests/loom_chase_lev.rs`
+//! model-checks the protocol exhaustively under `--cfg loom`.
+//!
+//! # Memory ordering
+//!
+//! The protocol synchronizes two indices — `bottom` (owner-advanced) and `top`
+//! (thief-advanced) — so that a slot is transferred to exactly one consumer. The
+//! happens-before edges each atomic access establishes:
+//!
+//! - **`push`**: the slot write is published to thieves by the `Release` store to
+//!   `bottom`; a thief's `Acquire` load of `bottom` that observes the new value
+//!   therefore sees the initialized slot. `top` is read `Acquire` to observe
+//!   completed steals before deciding whether to grow.
+//! - **`pop`**: `bottom` is decremented (`Relaxed`, owner-private) to claim the
+//!   slot, then a `SeqCst` fence orders that store before the `top` load so the
+//!   owner and a racing thief cannot both take the last element — the fence pairs
+//!   with the thief's `SeqCst` fence, and the last-element tie is resolved by a
+//!   `SeqCst` CAS on `top`. On x86/x86_64 (TSO) the fence is skipped when
+//!   `bottom - top >= MAX_BATCH_STEAL`, since no steal can then reach the popped
+//!   slot (Morrison–Afek); a plain `MOV` load of `top` observes every completed
+//!   `lock`-prefixed steal CAS, and an in-flight steal has not yet advanced `top`.
+//! - **`steal`**: `top` is read `Acquire`, then a `SeqCst` fence orders it before
+//!   the `Acquire` load of `bottom` (pairing with `pop`'s fence); the slot is read
+//!   *before* the `SeqCst` CAS that claims it, and on CAS failure the speculative
+//!   value is `forget`/`MaybeUninit`-discarded because the losing thief never
+//!   owned it. The array pointer is loaded `Acquire` to pair with `resize`'s
+//!   `Release` store, so a thief never dereferences a stale buffer.
+//!
+//! Old buffers freed by `resize` are retired to a guarded list and reclaimed only
+//! once no accessor is in-flight (epoch reclamation via the `ReclaimPolicy`),
+//! closing the use-after-free window a thief's `Acquire` array load would open.
+
 use super::reclaim::{DeferredReclaim, DequeReclaimPolicy, DequeReclaimState, SharedEpochReclaim};
 use moirai_core::CacheAligned;
 use std::{
@@ -147,15 +183,23 @@ where
         let t = self.top.load(Ordering::Acquire);
 
         let array_ptr = self.array.load(Ordering::Relaxed);
+        // SAFETY: the array pointer is never null after construction, and this
+        // owner holds a reclaim guard (`_guard`), so `resize` cannot free the
+        // buffer while it is borrowed here. Owner-only access needs no acquire.
         let array = unsafe { &*array_ptr };
 
         if b.wrapping_sub(t) >= array.capacity() as isize - 1 {
             self.resize();
         }
 
+        // Re-load: `resize` may have installed a larger buffer above.
         let array_ptr = self.array.load(Ordering::Relaxed);
+        // SAFETY: as above — non-null, guard-protected, owner-only.
         let array = unsafe { &*array_ptr };
 
+        // SAFETY: slot `b & mask` is written by the unique owner exactly once
+        // before `bottom` is advanced to publish it, so it is unpublished and
+        // uninitialized here — `Array::write`'s precondition.
         unsafe {
             array.write(b, item);
         }
@@ -167,6 +211,8 @@ where
         let _guard = self.reclaim.enter();
         let b = self.bottom.load(Ordering::Relaxed).wrapping_sub(1);
         let array_ptr = self.array.load(Ordering::Relaxed);
+        // SAFETY: non-null after construction and guard-protected against a
+        // concurrent `resize` free; `pop` is owner-only.
         let array = unsafe { &*array_ptr };
 
         self.bottom.store(b, Ordering::Relaxed);
@@ -176,6 +222,8 @@ where
         {
             let t = self.top.load(Ordering::Relaxed);
             if b.wrapping_sub(t) >= MAX_BATCH_STEAL as isize {
+                // SAFETY: `bottom - top >= MAX_BATCH_STEAL` proves no steal can
+                // reach slot `b`, so the owner solely owns this initialized slot.
                 return Some(unsafe { array.read(b) });
             }
         }
@@ -184,6 +232,8 @@ where
         let t = self.top.load(Ordering::Relaxed);
 
         if b.wrapping_sub(t) > 0 {
+            // SAFETY: `bottom - top > 0` after the fence proves `b` is above every
+            // stealable index, so the owner uniquely owns this initialized slot.
             return Some(unsafe { array.read(b) });
         }
 
@@ -194,6 +244,8 @@ where
                 .is_ok()
             {
                 self.bottom.store(b.wrapping_add(1), Ordering::Relaxed);
+                // SAFETY: the CAS won the last element against every thief, so the
+                // owner now uniquely owns this initialized slot.
                 return Some(unsafe { array.read(b) });
             }
 
@@ -213,6 +265,9 @@ where
 
         if b.wrapping_sub(t) > 0 {
             let array_ptr = self.array.load(Ordering::Acquire);
+            // SAFETY: the `Acquire` load pairs with `resize`'s `Release` store, so
+            // this is a live buffer; the reclaim guard keeps it from being freed
+            // while borrowed.
             let array = unsafe { &*array_ptr };
 
             // SAFETY: read-before-CAS is the canonical Chase-Lev steal protocol.
@@ -250,11 +305,17 @@ where
         let n = ((len / 2).max(1) as usize).min(MAX_BATCH_STEAL);
 
         let array_ptr = self.array.load(Ordering::Acquire);
+        // SAFETY: `Acquire` pairs with `resize`'s `Release`; guard-protected.
         let array = unsafe { &*array_ptr };
 
         let mut items: [MaybeUninit<T>; MAX_BATCH_STEAL] =
             [const { MaybeUninit::uninit() }; MAX_BATCH_STEAL];
+        // Speculative reads before the claiming CAS. `n <= len/2 <= b - t`, so
+        // slots `[t, t+n)` are all published and below `bottom`.
         for (i, slot) in items.iter_mut().enumerate().take(n) {
+            // SAFETY: `t + i < t + n <= bottom`, so this slot is initialized. On
+            // CAS failure the copies are dropped as `MaybeUninit` (no destructor
+            // runs, no double-free) since the batch was never claimed.
             slot.write(unsafe { array.read(t.wrapping_add(i as isize)) });
         }
 
@@ -290,6 +351,8 @@ where
 
     fn resize(&self) {
         let old_array_ptr = self.array.load(Ordering::Relaxed);
+        // SAFETY: non-null and owner-only (`resize` is reached only from `push`);
+        // the reclaim guard held by the caller keeps the buffer live.
         let old_array = unsafe { &*old_array_ptr };
         let new_capacity = old_array.capacity() * 2;
         let new_array = Box::new(Array::new(new_capacity));
@@ -299,6 +362,9 @@ where
 
         let len = b.wrapping_sub(t);
         for i in 0..len {
+            // SAFETY: `i < len = bottom - top`, so slot `t + i` is an initialized,
+            // live element being relocated into the fresh (distinct) buffer; the
+            // bitwise copy moves ownership without running a destructor.
             unsafe {
                 old_array.copy_slot_to(&new_array, t.wrapping_add(i));
             }
