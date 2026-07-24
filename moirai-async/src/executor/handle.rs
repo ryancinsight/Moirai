@@ -29,6 +29,11 @@ impl<T> Future for AsyncHandle<T> {
 
         self.result_slot.register_waker(cx.waker());
 
+        // Re-check is mandatory, not defensive: a `complete` that raced in on the
+        // slot's PENDING->WRITING path does not wake (no waker was registered when
+        // it ran), so this second take is what closes the lost-wakeup window. See
+        // the `result_slot` module docs.
+
         self.result_slot
             .try_take_ready()
             .map_or(Poll::Pending, Poll::Ready)
