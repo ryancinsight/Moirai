@@ -299,21 +299,13 @@ mod tests {
     use super::RwLock;
     use std::future::Future;
     use std::pin::Pin;
-    use std::sync::Arc;
-    use std::task::{Context, Poll, Wake, Waker};
-
-    struct NoopWake;
-
-    impl Wake for NoopWake {
-        fn wake(self: Arc<Self>) {}
-    }
+    use std::task::{Context, Poll, Waker};
 
     fn poll_future<F>(future: &mut F) -> Poll<F::Output>
     where
         F: Future + Unpin,
     {
-        let waker = Waker::from(Arc::new(NoopWake));
-        let mut context = Context::from_waker(&waker);
+        let mut context = Context::from_waker(Waker::noop());
         Pin::new(future).poll(&mut context)
     }
 

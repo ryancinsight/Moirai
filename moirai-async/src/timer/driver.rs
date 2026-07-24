@@ -183,15 +183,8 @@ mod tests {
     use crate::timer::Delay;
     use std::future::Future;
     use std::pin::Pin;
-    use std::sync::Arc;
-    use std::task::{Context, Wake, Waker};
+    use std::task::{Context, Waker};
     use std::time::Duration;
-
-    struct NoopWake;
-
-    impl Wake for NoopWake {
-        fn wake(self: Arc<Self>) {}
-    }
 
     #[test]
     fn cancelled_timers_are_compacted_before_their_deadline() {
@@ -208,8 +201,7 @@ mod tests {
         // Pre-existing timer registrations are permitted, so the bound tracks
         // the measured initial heap size instead of assuming process-global
         // isolation from other timer coverage.
-        let waker = Waker::from(Arc::new(NoopWake));
-        let mut cx = Context::from_waker(&waker);
+        let mut cx = Context::from_waker(Waker::noop());
 
         // Measure the driver's initial state; other tests may have left timers
         // in the process-global driver, so all assertions are relative.

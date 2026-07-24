@@ -168,17 +168,10 @@ impl<G> WaitQueue<G> {
 #[cfg(test)]
 mod tests {
     use super::{WaitQueue, WaiterPoll};
-    use std::sync::Arc;
-    use std::task::{Wake, Waker};
-
-    struct NoopWake;
-
-    impl Wake for NoopWake {
-        fn wake(self: Arc<Self>) {}
-    }
+    use std::task::Waker;
 
     fn noop_waker() -> Waker {
-        Waker::from(Arc::new(NoopWake))
+        Waker::noop().clone()
     }
 
     #[test]
