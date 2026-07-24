@@ -1,19 +1,13 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll, Wake, Waker};
+use std::task::{Context, Poll, Waker};
 
 use crate::sync::wait_queue::{WaitQueue, WaiterPoll};
 
 use super::mutex::{Mutex, MutexGuard};
 
-struct NoopWaker;
-impl Wake for NoopWaker {
-    fn wake(self: Arc<Self>) {}
-}
-
 fn noop_waker() -> Waker {
-    Waker::from(Arc::new(NoopWaker))
+    Waker::noop().clone()
 }
 
 pub struct Condvar {

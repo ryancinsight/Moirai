@@ -260,14 +260,8 @@ mod tests {
     };
     use std::task::{Context, Poll, Wake, Waker};
 
-    struct NoopWake;
-    impl Wake for NoopWake {
-        fn wake(self: Arc<Self>) {}
-    }
-
     fn poll_future<F: Future + Unpin>(future: &mut F) -> Poll<F::Output> {
-        let waker = Waker::from(Arc::new(NoopWake));
-        let mut context = Context::from_waker(&waker);
+        let mut context = Context::from_waker(Waker::noop());
         Pin::new(future).poll(&mut context)
     }
 
