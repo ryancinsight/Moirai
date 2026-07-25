@@ -1,10 +1,8 @@
 //! Parallel slice sorting implementation.
 
-use crate::base::{
-    end_fork, get_shared_thread_pool, try_fork, ForkBudget, PoolJoinGuard, SendPtr, ThreadPool,
-};
+use moirai_core::error::ExecutorError;
+use moirai_executor::{global, HybridExecutor, SyncTask};
 use std::mem::MaybeUninit;
-use std::sync::Arc;
 
 /// Extension trait for parallel slice sorting.
 pub trait ParallelSliceMut<T: Send> {
@@ -53,8 +51,7 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
     where
         F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
     {
-        let pool = get_shared_thread_pool();
-        par_merge_sort_impl(self, &compare, &pool, pool.fork_budget());
+        par_merge_sort_impl(global(), self, &compare);
     }
 
     fn par_sort_by_key<K, F>(&mut self, f: F)
@@ -76,8 +73,7 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
     where
         F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
     {
-        let pool = get_shared_thread_pool();
-        par_sort_unstable_by_impl(self, &compare, &pool, pool.fork_budget());
+        par_sort_unstable_by_impl(global(), self, &compare);
     }
 
     fn par_sort_unstable_by_key<K, F>(&mut self, f: F)
@@ -127,12 +123,69 @@ where
     j
 }
 
-fn par_sort_unstable_by_impl<T, F>(
-    slice: &mut [T],
+/// Sort both halves concurrently: one on a scheduler lane, the other on the
+/// caller's.
+///
+/// The scheduler's scope is the fork-join primitive here rather than a plain
+/// thread pool because a worker that waits inside a scope *runs queued work*
+/// instead of parking (ADR-019). A pool without that property starves the
+/// moment recursion blocks every worker on a half that is still queued, which
+/// is what the deleted fork budget existed to prevent — at the cost of capping
+/// the whole work tree at the pool's width. Scoped jobs also borrow, so the
+/// halves cross the lane boundary as ordinary `&mut [T]` rather than as raw
+/// pointers laundered through a `'static` bound.
+///
+/// Each half is captured by unique borrow, never moved, so a job the scheduler
+/// refuses can still be run here: on refusal neither half has been touched.
+///
+/// The executor is a parameter rather than `global()` so the refusal path can
+/// be exercised against a shut-down executor in tests.
+///
+/// # Panics
+///
+/// Panics if the scheduled half panicked, propagating the failure on the
+/// caller's thread as rayon does.
+fn fork_join_halves<T, F, S>(
+    executor: &HybridExecutor,
+    left: &mut [T],
+    right: &mut [T],
     compare: &F,
-    pool: &Arc<ThreadPool>,
-    budget: &ForkBudget,
+    sort: S,
 ) where
+    T: Send,
+    F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
+    S: Fn(&HybridExecutor, &mut [T], &F) + Copy + Send + Sync,
+{
+    // The job below *reborrows* its half rather than moving it: passing a
+    // `&mut` where a `&mut` is expected is an implicit reborrow, so the borrow
+    // ends when the scope joins and both bindings are usable again afterwards.
+    // That is what lets the refusal arm run a half the scheduler never ran.
+    let forked = executor.scope::<SyncTask, _>(|scope| {
+        scope.spawn(|_| sort(executor, left, compare))?;
+        // Enter the scheduler before the caller takes its own half, so the two
+        // halves overlap instead of running back to back.
+        scope.flush()?;
+        sort(executor, right, compare);
+        Ok(())
+    });
+
+    match forked {
+        Ok(()) => {}
+        // The scheduler refused the job and dropped it unexecuted, so `flush`
+        // returned before the caller's half started: neither half has run and
+        // both are still owned here. `ShuttingDown` and a full admission queue
+        // are the two ways that happens; running the work on the caller is the
+        // same answer `for_each_indexed` gives a rejected chunk.
+        Err(ExecutorError::ShuttingDown | ExecutorError::ResourceExhausted(_)) => {
+            sort(executor, left, compare);
+            sort(executor, right, compare);
+        }
+        Err(error) => panic!("invariant: scheduled sort half failed ({error})"),
+    }
+}
+
+fn par_sort_unstable_by_impl<T, F>(executor: &HybridExecutor, slice: &mut [T], compare: &F)
+where
     T: Send,
     F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
 {
@@ -150,46 +203,11 @@ fn par_sort_unstable_by_impl<T, F>(
         &mut right[1..] // Skip the pivot itself
     };
 
-    if !try_fork(budget) {
-        // Budget spent — see `ForkBudget`. Both sides run here so no worker
-        // blocks on a half that nothing is left to schedule.
-        par_sort_unstable_by_impl(left, compare, pool, budget);
-        par_sort_unstable_by_impl(right, compare, pool, budget);
-        return;
-    }
-
-    // Erase types to () to satisfy the 'static requirements of ThreadPool::execute
-    let left_ptr = SendPtr(left.as_mut_ptr() as *mut ());
-    let left_len = left.len();
-    let compare_ptr = SendPtr(compare as *const F as *mut F as *mut ());
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    let pool_clone = Arc::clone(pool);
-    let budget_clone = Arc::clone(budget);
-    let guard = PoolJoinGuard::new(rx, 1);
-
-    pool.execute(move || {
-        let left_ptr = left_ptr;
-        let compare_ptr = compare_ptr;
-        unsafe {
-            let left_slice = std::slice::from_raw_parts_mut(left_ptr.as_ptr() as *mut T, left_len);
-            let compare_ref = &*(compare_ptr.as_ptr() as *const F);
-            par_sort_unstable_by_impl(left_slice, compare_ref, &pool_clone, &budget_clone);
-        }
-        let _ = tx.send(());
-    });
-
-    par_sort_unstable_by_impl(right, compare, pool, budget);
-    guard.wait();
-    end_fork(budget);
+    fork_join_halves(executor, left, right, compare, par_sort_unstable_by_impl);
 }
 
-fn par_merge_sort_impl<T, F>(
-    slice: &mut [T],
-    compare: &F,
-    pool: &Arc<ThreadPool>,
-    budget: &ForkBudget,
-) where
+fn par_merge_sort_impl<T, F>(executor: &HybridExecutor, slice: &mut [T], compare: &F)
+where
     T: Send,
     F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
 {
@@ -200,66 +218,12 @@ fn par_merge_sort_impl<T, F>(
     }
 
     let mid = len / 2;
-    let (left, right) = slice.split_at_mut(mid);
-
-    if try_fork(budget) {
-        // Erase types to () to satisfy the 'static requirements of ThreadPool::execute
-        let left_ptr = SendPtr(left.as_mut_ptr() as *mut ());
-        let left_len = left.len();
-        let compare_ptr = SendPtr(compare as *const F as *mut F as *mut ());
-
-        let (tx, rx) = std::sync::mpsc::channel();
-        let pool_clone = Arc::clone(pool);
-        let guard = PoolJoinGuard::new(rx, 1);
-
-        pub_execute_merge::<T, F>(
-            pool,
-            tx,
-            left_ptr,
-            left_len,
-            compare_ptr,
-            pool_clone,
-            Arc::clone(budget),
-        );
-
-        par_merge_sort_impl(right, compare, pool, budget);
-        guard.wait();
-        end_fork(budget);
-    } else {
-        // The pool is already carrying as many blocked halves as it can while
-        // still guaranteeing progress; sort both halves here instead.
-        par_merge_sort_impl(left, compare, pool, budget);
-        par_merge_sort_impl(right, compare, pool, budget);
+    {
+        let (left, right) = slice.split_at_mut(mid);
+        fork_join_halves(executor, left, right, compare, par_merge_sort_impl);
     }
 
     merge(slice, mid, compare);
-}
-
-// Helper to keep closures distinct
-#[allow(clippy::too_many_arguments)]
-fn pub_execute_merge<T, F>(
-    pool: &ThreadPool,
-    tx: std::sync::mpsc::Sender<()>,
-    left_ptr: SendPtr<()>,
-    left_len: usize,
-    compare_ptr: SendPtr<()>,
-    pool_clone: Arc<ThreadPool>,
-    budget: ForkBudget,
-) where
-    T: Send,
-    F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
-{
-    pool.execute(move || {
-        let left_ptr = left_ptr;
-        let compare_ptr = compare_ptr;
-        let pool_clone = pool_clone;
-        unsafe {
-            let left_slice = std::slice::from_raw_parts_mut(left_ptr.as_ptr() as *mut T, left_len);
-            let compare_ref = &*(compare_ptr.as_ptr() as *const F);
-            par_merge_sort_impl(left_slice, compare_ref, &pool_clone, &budget);
-        }
-        let _ = tx.send(());
-    });
 }
 
 struct MergeGuard<'a, T> {
@@ -351,56 +315,101 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    // Regression: the recursion forks one half onto the pool and blocks on it,
-    // so a forked half that forks again ties up a worker while depending on
-    // another. The pool does not steal work, so once every worker was blocked
-    // that way the queued halves had nobody left to run them and the sort never
-    // returned. Reproduced here with a two-worker pool and an input deep enough
-    // to fork five times; before the fork budget this hung until the harness
-    // killed it.
+    // Recursion depth well past any worker count. Under a runtime whose waiters
+    // park instead of helping, the forked halves have nobody left to run them
+    // and the sort never returns, so a regression trips nextest's terminate
+    // bound rather than failing an assertion. The deterministic single-worker
+    // proof lives at the scheduler layer, where the scope contract is owned
+    // (ADR-019); this input is what the sort itself can constrain, since it
+    // runs on the process-wide executor.
     #[test]
-    fn deep_recursion_completes_on_a_pool_smaller_than_its_depth() {
-        let pool = Arc::new(ThreadPool::new(2));
+    fn deep_recursion_completes() {
+        let mut data: Vec<u64> = (0..1_048_576u64).rev().collect();
+        par_merge_sort_impl(global(), &mut data, &u64::cmp);
+
+        assert!(
+            data.windows(2).all(|pair| pair[0] <= pair[1]),
+            "the sort must both finish and order the slice"
+        );
+    }
+
+    #[test]
+    fn deep_unstable_recursion_completes() {
+        let mut data: Vec<u64> = (0..1_048_576u64).rev().collect();
+        par_sort_unstable_by_impl(global(), &mut data, &u64::cmp);
+
+        assert!(
+            data.windows(2).all(|pair| pair[0] <= pair[1]),
+            "the sort must both finish and order the slice"
+        );
+    }
+
+    // A scheduler that refuses the forked half must not lose it. Sorting
+    // against a shut-down executor makes every fork take the refusal arm, so
+    // the whole recursion falls back to the caller's lane: slower, still
+    // correct. A refusal arm that dropped the half instead would leave the
+    // slice unsorted at every level.
+    #[test]
+    fn refused_forks_run_on_the_caller() {
+        let mut executor =
+            moirai_executor::HybridExecutor::new(moirai_core::executor::ExecutorConfig {
+                worker_threads: 2,
+                ..moirai_core::executor::ExecutorConfig::default()
+            })
+            .expect("build a local executor");
+        executor.shutdown().expect("shut the local executor down");
+        assert!(
+            executor.scope::<SyncTask, _>(|_| Ok(())).is_err(),
+            "precondition: the executor must refuse scopes, or the sorts below \
+             never reach the refusal arm"
+        );
+
+        let mut data: Vec<u64> = (0..16_384u64).rev().collect();
+        par_merge_sort_impl(&executor, &mut data, &u64::cmp);
+        assert!(
+            data.windows(2).all(|pair| pair[0] <= pair[1]),
+            "a refused fork must still sort its half on the caller"
+        );
+
         let mut data: Vec<u64> = (0..65_536u64).rev().collect();
-        par_merge_sort_impl(&mut data, &u64::cmp, &pool, pool.fork_budget());
-
+        par_sort_unstable_by_impl(&executor, &mut data, &u64::cmp);
         assert!(
             data.windows(2).all(|pair| pair[0] <= pair[1]),
-            "the sort must both finish and order the slice"
+            "a refused fork must still sort its half on the caller"
         );
     }
 
+    // Sorts entered from *inside* a scheduler worker: the nested case, where a
+    // waiter that parks removes the last runner from the pool. Several of them
+    // run at once so the workers are saturated before any of them forks.
     #[test]
-    fn deep_unstable_recursion_completes_on_a_small_pool() {
-        let pool = Arc::new(ThreadPool::new(2));
-        let mut data: Vec<u64> = (0..262_144u64).rev().collect();
-        par_sort_unstable_by_impl(&mut data, &u64::cmp, &pool, pool.fork_budget());
+    fn nested_sorts_complete_from_scheduler_workers() {
+        const SORTS: usize = 8;
 
-        assert!(
-            data.windows(2).all(|pair| pair[0] <= pair[1]),
-            "the sort must both finish and order the slice"
-        );
-    }
+        let mut inputs: Vec<Vec<u64>> =
+            (0..SORTS).map(|_| (0..65_536u64).rev().collect()).collect();
 
-    // The budget belongs to the pool, not to a sort: the shared pool is a
-    // process-wide singleton, so two sorts each holding their own count could
-    // together block every worker while each stayed under the limit alone.
-    // Both of these run deep enough to fork, against a pool too small for even
-    // one of them unbudgeted.
-    #[test]
-    fn concurrent_sorts_share_one_pool_budget() {
-        let pool = Arc::new(ThreadPool::new(2));
+        let slots: Vec<crate::base::SendPtr<Vec<u64>>> = inputs
+            .iter_mut()
+            .map(|input| crate::base::SendPtr(input as *mut Vec<u64>))
+            .collect();
 
-        std::thread::scope(|scope| {
-            for _ in 0..2 {
-                let pool = Arc::clone(&pool);
-                scope.spawn(move || {
-                    let mut data: Vec<u64> = (0..65_536u64).rev().collect();
-                    par_merge_sort_impl(&mut data, &u64::cmp, &pool, pool.fork_budget());
-                    assert!(data.windows(2).all(|pair| pair[0] <= pair[1]));
-                });
-            }
-        });
+        moirai_executor::global()
+            .for_each_indexed::<SyncTask, _>(SORTS, |index| {
+                // Safety: each index owns exactly one element of `inputs`, and
+                // `for_each_indexed` joins every invocation before returning,
+                // so the borrows are disjoint and end before `inputs` is read.
+                let data = unsafe { &mut *slots[index].as_ptr() };
+                par_merge_sort_impl(global(), data.as_mut_slice(), &u64::cmp);
+            })
+            .expect("nested sort fan-out must complete");
+
+        for input in &inputs {
+            assert!(
+                input.windows(2).all(|pair| pair[0] <= pair[1]),
+                "every nested sort must both finish and order its slice"
+            );
+        }
     }
 
     #[test]
