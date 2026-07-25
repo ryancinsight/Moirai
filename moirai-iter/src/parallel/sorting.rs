@@ -51,7 +51,9 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
     where
         F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
     {
-        par_merge_sort_impl(global(), self, &compare);
+        let executor = global();
+        let grain = fork_grain(executor, self.len(), STABLE_SEQUENTIAL_THRESHOLD);
+        par_merge_sort_impl(executor, self, &compare, grain);
     }
 
     fn par_sort_by_key<K, F>(&mut self, f: F)
@@ -73,7 +75,9 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
     where
         F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
     {
-        par_sort_unstable_by_impl(global(), self, &compare);
+        let executor = global();
+        let grain = fork_grain(executor, self.len(), UNSTABLE_SEQUENTIAL_THRESHOLD);
+        par_sort_unstable_by_impl(executor, self, &compare, grain);
     }
 
     fn par_sort_unstable_by_key<K, F>(&mut self, f: F)
@@ -89,6 +93,23 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
 // task scheduling and merge/partition overhead.
 const STABLE_SEQUENTIAL_THRESHOLD: usize = 2048;
 const UNSTABLE_SEQUENTIAL_THRESHOLD: usize = 16_384;
+
+/// Segments per worker the recursion aims for before it stops forking.
+///
+/// The thresholds above are an absolute floor, not a granularity policy: on a
+/// large input they leave a leaf count proportional to `len`, and every leaf
+/// costs a scope — measurably more than the sort work it enables once the leaf
+/// is small relative to the machine. Oversubscribing the workers by this factor
+/// keeps enough independent segments for stealing to balance an uneven split
+/// (a straggler delays the phase by at most one segment) while making the fork
+/// count a function of machine width rather than input size.
+const SEGMENTS_PER_WORKER: usize = 8;
+
+/// Smallest sub-slice still worth handing to another lane.
+fn fork_grain(executor: &HybridExecutor, len: usize, sequential_threshold: usize) -> usize {
+    let workers = executor.config().worker_threads.max(1);
+    sequential_threshold.max(len.div_ceil(workers.saturating_mul(SEGMENTS_PER_WORKER)))
+}
 
 fn partition<T, F>(v: &mut [T], compare: &F) -> usize
 where
@@ -150,22 +171,23 @@ fn fork_join_halves<T, F, S>(
     left: &mut [T],
     right: &mut [T],
     compare: &F,
+    grain: usize,
     sort: S,
 ) where
     T: Send,
     F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
-    S: Fn(&HybridExecutor, &mut [T], &F) + Copy + Send + Sync,
+    S: Fn(&HybridExecutor, &mut [T], &F, usize) + Copy + Send + Sync,
 {
     // The job below *reborrows* its half rather than moving it: passing a
     // `&mut` where a `&mut` is expected is an implicit reborrow, so the borrow
     // ends when the scope joins and both bindings are usable again afterwards.
     // That is what lets the refusal arm run a half the scheduler never ran.
     let forked = executor.scope::<SyncTask, _>(|scope| {
-        scope.spawn(|_| sort(executor, left, compare))?;
+        scope.spawn(|_| sort(executor, left, compare, grain))?;
         // Enter the scheduler before the caller takes its own half, so the two
         // halves overlap instead of running back to back.
         scope.flush()?;
-        sort(executor, right, compare);
+        sort(executor, right, compare, grain);
         Ok(())
     });
 
@@ -177,20 +199,24 @@ fn fork_join_halves<T, F, S>(
         // are the two ways that happens; running the work on the caller is the
         // same answer `for_each_indexed` gives a rejected chunk.
         Err(ExecutorError::ShuttingDown | ExecutorError::ResourceExhausted(_)) => {
-            sort(executor, left, compare);
-            sort(executor, right, compare);
+            sort(executor, left, compare, grain);
+            sort(executor, right, compare, grain);
         }
         Err(error) => panic!("invariant: scheduled sort half failed ({error})"),
     }
 }
 
-fn par_sort_unstable_by_impl<T, F>(executor: &HybridExecutor, slice: &mut [T], compare: &F)
-where
+fn par_sort_unstable_by_impl<T, F>(
+    executor: &HybridExecutor,
+    slice: &mut [T],
+    compare: &F,
+    grain: usize,
+) where
     T: Send,
     F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
 {
     let len = slice.len();
-    if len <= UNSTABLE_SEQUENTIAL_THRESHOLD {
+    if len <= grain {
         slice.sort_unstable_by(compare);
         return;
     }
@@ -203,16 +229,23 @@ where
         &mut right[1..] // Skip the pivot itself
     };
 
-    fork_join_halves(executor, left, right, compare, par_sort_unstable_by_impl);
+    fork_join_halves(
+        executor,
+        left,
+        right,
+        compare,
+        grain,
+        par_sort_unstable_by_impl,
+    );
 }
 
-fn par_merge_sort_impl<T, F>(executor: &HybridExecutor, slice: &mut [T], compare: &F)
+fn par_merge_sort_impl<T, F>(executor: &HybridExecutor, slice: &mut [T], compare: &F, grain: usize)
 where
     T: Send,
     F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
 {
     let len = slice.len();
-    if len <= STABLE_SEQUENTIAL_THRESHOLD {
+    if len <= grain {
         slice.sort_by(compare);
         return;
     }
@@ -220,7 +253,7 @@ where
     let mid = len / 2;
     {
         let (left, right) = slice.split_at_mut(mid);
-        fork_join_halves(executor, left, right, compare, par_merge_sort_impl);
+        fork_join_halves(executor, left, right, compare, grain, par_merge_sort_impl);
     }
 
     merge(slice, mid, compare);
@@ -325,7 +358,8 @@ mod tests {
     #[test]
     fn deep_recursion_completes() {
         let mut data: Vec<u64> = (0..1_048_576u64).rev().collect();
-        par_merge_sort_impl(global(), &mut data, &u64::cmp);
+        let grain = fork_grain(global(), data.len(), STABLE_SEQUENTIAL_THRESHOLD);
+        par_merge_sort_impl(global(), &mut data, &u64::cmp, grain);
 
         assert!(
             data.windows(2).all(|pair| pair[0] <= pair[1]),
@@ -336,7 +370,8 @@ mod tests {
     #[test]
     fn deep_unstable_recursion_completes() {
         let mut data: Vec<u64> = (0..1_048_576u64).rev().collect();
-        par_sort_unstable_by_impl(global(), &mut data, &u64::cmp);
+        let grain = fork_grain(global(), data.len(), UNSTABLE_SEQUENTIAL_THRESHOLD);
+        par_sort_unstable_by_impl(global(), &mut data, &u64::cmp, grain);
 
         assert!(
             data.windows(2).all(|pair| pair[0] <= pair[1]),
@@ -365,14 +400,19 @@ mod tests {
         );
 
         let mut data: Vec<u64> = (0..16_384u64).rev().collect();
-        par_merge_sort_impl(&executor, &mut data, &u64::cmp);
+        par_merge_sort_impl(&executor, &mut data, &u64::cmp, STABLE_SEQUENTIAL_THRESHOLD);
         assert!(
             data.windows(2).all(|pair| pair[0] <= pair[1]),
             "a refused fork must still sort its half on the caller"
         );
 
         let mut data: Vec<u64> = (0..65_536u64).rev().collect();
-        par_sort_unstable_by_impl(&executor, &mut data, &u64::cmp);
+        par_sort_unstable_by_impl(
+            &executor,
+            &mut data,
+            &u64::cmp,
+            UNSTABLE_SEQUENTIAL_THRESHOLD,
+        );
         assert!(
             data.windows(2).all(|pair| pair[0] <= pair[1]),
             "a refused fork must still sort its half on the caller"
@@ -400,7 +440,12 @@ mod tests {
                 // `for_each_indexed` joins every invocation before returning,
                 // so the borrows are disjoint and end before `inputs` is read.
                 let data = unsafe { &mut *slots[index].as_ptr() };
-                par_merge_sort_impl(global(), data.as_mut_slice(), &u64::cmp);
+                par_merge_sort_impl(
+                    global(),
+                    data.as_mut_slice(),
+                    &u64::cmp,
+                    STABLE_SEQUENTIAL_THRESHOLD,
+                );
             })
             .expect("nested sort fan-out must complete");
 
