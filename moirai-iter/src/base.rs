@@ -373,22 +373,43 @@ impl std::fmt::Debug for ThreadPool {
 }
 
 impl ThreadPool {
+    /// Build a pool with `size` worker threads, always at least one.
+    ///
+    /// A pool with no workers accepts jobs and never runs them — `execute`
+    /// queues onto a channel nobody receives from — so anything that waits on
+    /// those jobs waits forever. One worker is the smallest pool that can make
+    /// progress, matching how `BatchAdapter` clamps its batch size.
     pub fn new(size: usize) -> Self {
         let (sender, receiver) = std::sync::mpsc::channel::<ErasedThreadJob>();
         let receiver = Arc::new(std::sync::Mutex::new(receiver));
 
-        let workers = (0..size)
+        let workers = (0..size.max(1))
             .map(|_| {
                 let receiver = receiver.clone();
                 std::thread::spawn(move || loop {
                     let job = {
+                        // Scoped so the guard is released before running the
+                        // job: holding it across `run` would serialize the pool
+                        // onto one worker.
                         let guard = receiver.lock().unwrap();
                         match guard.recv() {
                             Ok(job) => job,
                             Err(_) => break,
                         }
                     };
-                    job.run();
+                    // A job that panics must not take the worker down with it.
+                    // Workers are never replaced, so an unwinding job would
+                    // shrink the pool permanently, and once every worker had
+                    // died `execute` would queue jobs that nobody ever runs —
+                    // turning a caller's panic into a later, unrelated hang.
+                    //
+                    // Swallowing the payload here loses nothing: the panicking
+                    // job drops its completion sender while unwinding, so the
+                    // shortfall still reaches the caller through
+                    // `PoolJoinGuard::wait`. `AssertUnwindSafe` is honest
+                    // because the worker holds no invariant across the call —
+                    // it owns the job outright and touches nothing else.
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job.run()));
                 })
             })
             .collect();

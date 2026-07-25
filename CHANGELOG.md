@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   worker had written, and `for_each`, `reduce`, and the parallel sorts returned
   silently partial results. The join now counts completions and panics unless
   every task reported one.
+- Keep a `moirai-iter` pool worker alive when a job panics. The worker ran jobs
+  without catching unwinds and workers are never replaced, so each panicking job
+  removed one permanently; once all had gone, `execute` kept queueing onto a
+  channel nobody received from and the next join blocked forever, turning a
+  caller's panic into a later, unrelated hang. The panic still reaches the
+  caller through the join, which sees the missing completion.
+- Start at least one worker in `ThreadPool::new`. A zero-sized pool accepted
+  jobs and ran none, so anything awaiting them waited indefinitely.
 - Keep `CacheAlignedChunks` advancing for elements wider than a cache line. The
   chunk size was `(CACHE_LINE_SIZE / element_size) * (CACHE_CHUNK_SIZE /
   CACHE_LINE_SIZE)`, whose first term truncates to zero above 64 bytes, leaving

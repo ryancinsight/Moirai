@@ -1,6 +1,55 @@
 use super::*;
 
 #[test]
+fn thread_pool_always_has_a_worker() {
+    // A pool with zero workers accepts jobs and runs none, so anything waiting
+    // on them waits forever. Asserted structurally rather than by submitting a
+    // job, so a regression fails the test instead of hanging the suite.
+    let pool = ThreadPool::new(0);
+
+    assert!(
+        format!("{pool:?}").contains("workers: 1"),
+        "a zero-sized pool must still start one worker, got {pool:?}"
+    );
+}
+
+#[test]
+fn thread_pool_worker_survives_a_panicking_job() {
+    // Workers are never replaced, so a job that unwound its worker would shrink
+    // the pool permanently; once all had died, `execute` would queue jobs nobody
+    // runs and the next join would hang. The worker must absorb the panic and
+    // go back to taking jobs.
+    let pool = ThreadPool::new(1);
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    // The panic below prints through the default hook. That output is expected,
+    // and the hook is deliberately left alone: `set_hook` is process-wide, so
+    // replacing it would suppress diagnostics from any test sharing the process
+    // under a thread-per-test runner.
+    pool.execute(|| panic!("deliberate: the worker must survive this"));
+
+    let follow_up = tx.clone();
+    pool.execute(move || {
+        let _ = follow_up.send(());
+    });
+
+    // Releasing the test's own sender leaves the follow-up job holding the only
+    // other one, which is what makes both outcomes observable without a timeout.
+    drop(tx);
+
+    // If the worker survived it runs the follow-up and this returns `Ok`. If it
+    // unwound instead, it dropped the last reference to the shared receiver on
+    // its way out; the queued follow-up job is destroyed with the channel, its
+    // sender goes with it, and this returns `Err` rather than blocking.
+    let survived = rx.recv().is_ok();
+
+    assert!(
+        survived,
+        "the worker died with the panicking job, so the follow-up never ran"
+    );
+}
+
+#[test]
 fn pool_join_guard_accepts_a_full_set_of_completions() {
     let (tx, rx) = std::sync::mpsc::channel();
     let guard = PoolJoinGuard::new(rx, 3);
