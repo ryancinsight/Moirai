@@ -1,22 +1,46 @@
 //! Cache-aware iterator utilities.
+//!
+//! Two kinds of thing live here: sequential views that size themselves to the
+//! cache ([`WindowIterator`], [`CacheAlignedChunks`]), and
+//! [`ZeroCopyParallelIter`], which fans a borrowed slice out across workers
+//! without copying it. The second is where the unsafe code is, and it rests on
+//! the invariants below.
+//!
+//! # Fan-out safety
+//!
+//! Each operation partitions `data` with `slice::chunks(chunk_size)` and gives
+//! worker `i` only chunk `i`, so no two workers touch the same elements. The
+//! borrowed data, the caller's closure, and — for `map` — the output buffer all
+//! cross the thread boundary as raw pointers wrapped in `SendPtr`, because the
+//! borrow checker cannot see the partition. Three things make that sound:
+//!
+//! - **Disjointness.** Chunk `i` starts at `i * chunk_size`, so a worker writing
+//!   `chunk_start + offset` for `offset < chunk.len()` stays inside its own
+//!   range, and the ranges are pairwise disjoint and within `data.len()`.
+//! - **Lifetime.** The pointers refer to locals of the calling frame (`data`'s
+//!   backing store, `func`, `results`). Every path joins its workers before
+//!   returning — the executor call blocks, and the pool path blocks in
+//!   `PoolJoinGuard::wait` — so no worker outlives what it points at.
+//! - **Completion.** `map` writes its output through `MaybeUninit` and calls
+//!   `assume_init` on every element once the workers are done, which is sound
+//!   only if every chunk actually wrote its slice. Both join paths enforce that
+//!   rather than assume it: a failed executor fan-out reaches
+//!   `pool_fallback_permitted`, which retries only a clean `ShuttingDown` and
+//!   panics on a partial run, and the pool path's `wait` panics unless every
+//!   task reported completion. A worker that panics therefore surfaces as a
+//!   panic here instead of an `assume_init` over memory it never wrote.
+//!
+//! # Chunk sizing
+//!
+//! Sizes are derived from `CACHE_CHUNK_SIZE` and the element width, and are
+//! clamped to at least one element. A zero chunk size is not merely slow: it
+//! makes the sequential iterators spin without advancing.
 
 use std::mem;
 
 use crate::base::{PoolJoinGuard, SendPtr};
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
-
-/// Wrapper to make const raw pointers Send
-#[allow(dead_code)]
-struct SendConstPtr<T>(*const T);
-unsafe impl<T> Send for SendConstPtr<T> {}
-
-#[allow(dead_code)]
-impl<T> SendConstPtr<T> {
-    unsafe fn as_ptr(&self) -> *const T {
-        self.0
-    }
-}
 
 /// Cache line size for alignment optimizations
 pub const CACHE_LINE_SIZE: usize = 64;
@@ -85,9 +109,15 @@ pub struct CacheAlignedChunks<'a, T> {
 
 impl<'a, T> CacheAlignedChunks<'a, T> {
     pub fn new(data: &'a [T]) -> Self {
+        // How many elements fill one `CACHE_CHUNK_SIZE` block, and never zero:
+        // an element wider than a cache line used to make the old
+        // `(CACHE_LINE_SIZE / element_size) * (CACHE_CHUNK_SIZE / CACHE_LINE_SIZE)`
+        // truncate to 0, and `next` then advanced `position` by nothing and
+        // yielded empty slices forever. This form agrees with the old one for
+        // every element size that divides a cache line, and yields one element
+        // per chunk for anything larger.
         let element_size = mem::size_of::<T>();
-        let elems_per_line = CACHE_LINE_SIZE / element_size.max(1);
-        let chunk_size = elems_per_line * (CACHE_CHUNK_SIZE / CACHE_LINE_SIZE);
+        let chunk_size = (CACHE_CHUNK_SIZE / element_size.max(1)).max(1);
         Self {
             data,
             chunk_size,
@@ -106,6 +136,9 @@ impl<'a, T> Iterator for CacheAlignedChunks<'a, T> {
         let end = (self.position + self.chunk_size).min(self.data.len());
         let chunk = &self.data[self.position..end];
         if end < self.data.len() {
+            // SAFETY: `end < self.data.len()`, so `add(end)` lands on a live
+            // element rather than one past the end, and prefetching only hints
+            // the cache — it neither reads nor writes.
             unsafe {
                 let next_ptr = self.data.as_ptr().add(end);
                 prefetch_read_data(next_ptr as *const u8, 3);
@@ -264,6 +297,11 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         }
 
         let mut results: Vec<MaybeUninit<R>> = Vec::with_capacity(self.data.len());
+        // SAFETY: the allocation holds `data.len()` elements and `MaybeUninit<R>`
+        // has no validity requirement, so growing the length to cover them
+        // exposes no uninitialized `R`. Every element is written by the fan-out
+        // below before the `assume_init` at the end, which both join paths
+        // enforce rather than assume (see the module docs).
         unsafe {
             results.set_len(self.data.len());
         }
@@ -327,7 +365,11 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             guard.wait();
         }
 
-        // Convert MaybeUninit<R> to R safely
+        // SAFETY: control only reaches here once every chunk reported
+        // completion — `pool_fallback_permitted` panics on a partially executed
+        // fan-out and `PoolJoinGuard::wait` panics on a missing completion — and
+        // the chunks partition `0..data.len()`, so each element was written
+        // exactly once.
         unsafe { results.into_iter().map(|item| item.assume_init()).collect() }
     }
 
@@ -455,6 +497,39 @@ mod tests {
     use super::*;
 
     struct NonClone(u64);
+
+    #[test]
+    fn cache_chunks_advance_for_elements_wider_than_a_cache_line() {
+        // Regression: the chunk size came from
+        // `(CACHE_LINE_SIZE / element_size) * (CACHE_CHUNK_SIZE / CACHE_LINE_SIZE)`,
+        // whose first term truncates to 0 once an element exceeds a cache line.
+        // `next` then clamped `end` to `position`, advanced by nothing, and
+        // yielded empty slices forever — an infinite iterator over any `T`
+        // bigger than 64 bytes.
+        #[repr(align(8))]
+        struct Wide([u64; 24]); // 192 bytes, three cache lines
+
+        let data: Vec<Wide> = (0..8).map(|i| Wide([i; 24])).collect();
+
+        // Bounded so the pre-fix behaviour fails the assertions instead of
+        // hanging the suite.
+        let chunks: Vec<&[Wide]> = data.cache_chunks().take(64).collect();
+
+        assert!(
+            chunks.iter().all(|chunk| !chunk.is_empty()),
+            "no chunk may be empty; an empty chunk means `position` did not advance"
+        );
+
+        let visited: Vec<u64> = chunks
+            .iter()
+            .flat_map(|chunk| chunk.iter().map(|wide| wide.0[0]))
+            .collect();
+        assert_eq!(
+            visited,
+            (0..8).collect::<Vec<u64>>(),
+            "chunks must cover every element exactly once, in order"
+        );
+    }
 
     #[test]
     fn test_window_iterator() {
