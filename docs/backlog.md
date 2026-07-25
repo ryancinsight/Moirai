@@ -284,6 +284,39 @@ architecture definition.
 - **Status**: Completed 2026-07-16.
 - **ADR**: `docs/adr/0019-tree-dup-002-dual-channel-consolidation.md`
   (Accepted).
+#### ✅ ISSUE-219 [arch]: Run `moirai-iter` nested fork-join on the scheduler scope
+- **Type**: Runtime Architecture / Concurrency Correctness
+- **Root Cause**: `moirai_iter::base::ThreadPool` is a FIFO queue with no work
+  stealing, so a worker blocked on another of its jobs cannot run it, yet
+  `par_sort` recursed through exactly that shape. PRs #97 (completion counting
+  after a `MaybeUninit` soundness hole), #98 (worker survival past a job panic),
+  and #99 (fork budget against deterministic starvation at 65,536 elements on
+  two workers) are three guard rails around one missing nesting contract; the
+  budget additionally capped the work tree at the pool's width.
+- **Resolution**: The fork runs on `HybridExecutor::scope`, whose waiter runs
+  queued work instead of parking (ADR-019). Deleted `ForkBudget`/`try_fork`/
+  `end_fork` and the sort's `SendPtr`/`PoolJoinGuard` raw-pointer erasure —
+  scoped jobs borrow. A refused fork (`ShuttingDown`, `ResourceExhausted`) runs
+  on the caller rather than being lost. Fork granularity is now bounded by
+  machine width (`len / (workers × 8)`, floored at the sequential thresholds)
+  because leaf-per-threshold splitting made scope overhead dominate. `ThreadPool`
+  narrows to flat, non-nesting fallback use.
+- **Acceptance criteria**: deep recursion and worker-nested sorts complete and
+  order their slices (a regression cannot complete, so it trips nextest's
+  terminate bound); a shut-down executor still sorts through the refusal arm;
+  no benchmark regression on a large `par_sort`.
+- **Evidence tier**: type/analysis (ADR-019's deadlock-freedom argument now
+  covers this caller) + empirical (`moirai-iter` 194/194, paired Criterion
+  before/after: −45.7% stable 10 K, −9.8% unstable 4 M, no change on the
+  remaining rows against a +3–11% noise floor).
+- **ADR**: `docs/adr.md` ADR-022 (Accepted).
+- **Follow-ups**: `moirai_parallel::join_with` panics on a refused fork instead
+  of running it on the caller (its by-value branches are unrecoverable — needs
+  a slot); `ThreadPool` removal in favour of sequential fallbacks in `cache.rs`,
+  `iter_ops/parallel.rs`, and `execution/parallel.rs`; the sort's caller-lane
+  fallback is not surfaced through a counter the way
+  `ThreadScheduler::admission_caller_runs` surfaces the indexed path.
+
 #### 🔄 ISSUE-208 [arch]: Make `ThreadScheduler::scope` sound under nesting (unblock parallel non-indexed `drive`)
 - **Type**: Scheduler Correctness / Memory Safety
 - **Root Cause**: `SchedulerScopeState::wait` (`schedule/runtime/types.rs`) spins

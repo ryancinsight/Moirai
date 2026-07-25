@@ -102,6 +102,10 @@ remain hidden behind stale counters.
     closeout and merged as `9b3caa5`. `recurseml/analysis` errored on both
     heads, while CodeRabbit passed on the PM-only head; local gates remain the
     executor acceptance evidence.
+- [x] [arch] ISSUE-219: Move `moirai-iter`'s recursive sort fork-join off the
+  non-stealing `ThreadPool` onto `HybridExecutor::scope`, delete the fork budget
+  and the sort's raw-pointer erasure, run a refused fork on the caller, and
+  bound fork granularity by machine width against paired Criterion evidence.
 - [x] [patch] ISSUE-214: Serialize `ShardedResourcePool::clear` against
   recycle/take mutations without adding a single contended hot-path lock.
 - [x] [patch] ISSUE-217: Remove the executor's hidden index-count grain floor so
