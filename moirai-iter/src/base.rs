@@ -293,6 +293,37 @@ pub struct ThreadPool {
     /// Wrapped in Option so `Drop` can close the channel before joining workers.
     sender: Option<std::sync::mpsc::Sender<ErasedThreadJob>>,
     workers: Vec<std::thread::JoinHandle<()>>,
+    /// Permits for callers that block a worker while awaiting another job here.
+    fork_budget: ForkBudget,
+}
+
+/// Remaining permits to block a worker on another job in the same pool.
+///
+/// The pool does not steal work, so a worker blocked waiting for a queued job
+/// cannot help run it. If every worker blocks that way the queue stalls
+/// permanently. Holding the outstanding count below the worker count keeps one
+/// worker free to drain it, which is what guarantees progress.
+///
+/// The budget belongs to the pool rather than to a caller: the shared pool is a
+/// process-wide singleton, so two callers each keeping their own count could
+/// together block every worker even while each stayed under the limit alone.
+pub(crate) type ForkBudget = Arc<std::sync::atomic::AtomicUsize>;
+
+/// Claim a permit to block a worker, or report that the caller must proceed
+/// without forking.
+pub(crate) fn try_fork(budget: &ForkBudget) -> bool {
+    budget
+        .fetch_update(
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+            |remaining| remaining.checked_sub(1),
+        )
+        .is_ok()
+}
+
+/// Return a permit once the awaited job has been joined.
+pub(crate) fn end_fork(budget: &ForkBudget) {
+    budget.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
 }
 
 /// Heap-stable thread-pool job with monomorphized run/drop functions.
@@ -383,7 +414,7 @@ impl ThreadPool {
         let (sender, receiver) = std::sync::mpsc::channel::<ErasedThreadJob>();
         let receiver = Arc::new(std::sync::Mutex::new(receiver));
 
-        let workers = (0..size.max(1))
+        let workers: Vec<std::thread::JoinHandle<()>> = (0..size.max(1))
             .map(|_| {
                 let receiver = receiver.clone();
                 std::thread::spawn(move || loop {
@@ -414,19 +445,26 @@ impl ThreadPool {
             })
             .collect();
 
+        let fork_budget = Arc::new(std::sync::atomic::AtomicUsize::new(
+            workers.len().saturating_sub(1),
+        ));
+
         Self {
             sender: Some(sender),
             workers,
+            fork_budget,
         }
     }
 
     /// Number of worker threads, always at least one.
-    ///
-    /// Callers that block a worker while waiting on another pooled job need
-    /// this to keep at least one worker free; the pool does not steal work, so
-    /// blocking all of them stalls the queue permanently.
     pub fn worker_count(&self) -> usize {
         self.workers.len()
+    }
+
+    /// This pool's shared budget for callers that block a worker on another of
+    /// its jobs. See [`ForkBudget`].
+    pub(crate) fn fork_budget(&self) -> &ForkBudget {
+        &self.fork_budget
     }
 
     pub fn execute<F>(&self, job: F)

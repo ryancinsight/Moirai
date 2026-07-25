@@ -1,6 +1,8 @@
 //! Parallel slice sorting implementation.
 
-use crate::base::{get_shared_thread_pool, PoolJoinGuard, SendPtr, ThreadPool};
+use crate::base::{
+    end_fork, get_shared_thread_pool, try_fork, ForkBudget, PoolJoinGuard, SendPtr, ThreadPool,
+};
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 
@@ -52,8 +54,7 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
         F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
     {
         let pool = get_shared_thread_pool();
-        let budget = new_fork_budget(&pool);
-        par_merge_sort_impl(self, &compare, &pool, &budget);
+        par_merge_sort_impl(self, &compare, &pool, pool.fork_budget());
     }
 
     fn par_sort_by_key<K, F>(&mut self, f: F)
@@ -76,8 +77,7 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
         F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
     {
         let pool = get_shared_thread_pool();
-        let budget = new_fork_budget(&pool);
-        par_sort_unstable_by_impl(self, &compare, &pool, &budget);
+        par_sort_unstable_by_impl(self, &compare, &pool, pool.fork_budget());
     }
 
     fn par_sort_unstable_by_key<K, F>(&mut self, f: F)
@@ -93,42 +93,6 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
 // task scheduling and merge/partition overhead.
 const STABLE_SEQUENTIAL_THRESHOLD: usize = 2048;
 const UNSTABLE_SEQUENTIAL_THRESHOLD: usize = 16_384;
-
-/// How many halves may be outstanding on the pool at once, shared by one sort.
-///
-/// Each recursion forks one half onto the pool and then blocks waiting for it,
-/// so a forked half that forks again occupies a worker while depending on
-/// another worker. The pool does not steal work, so if every worker is blocked
-/// that way, the halves they are waiting for sit in the queue with nobody left
-/// to run them and the sort never finishes — reachable on any input deep enough
-/// to fork more times than the pool has workers.
-///
-/// Holding the count strictly below the worker count keeps at least one worker
-/// free to drain the queue, which is what guarantees progress. Running out of
-/// budget costs no correctness: the recursion just sorts both halves in place.
-type ForkBudget = Arc<std::sync::atomic::AtomicUsize>;
-
-fn new_fork_budget(pool: &ThreadPool) -> ForkBudget {
-    Arc::new(std::sync::atomic::AtomicUsize::new(
-        pool.worker_count().saturating_sub(1),
-    ))
-}
-
-/// Claim one outstanding fork, or report that the sort must recurse in place.
-fn try_fork(budget: &ForkBudget) -> bool {
-    budget
-        .fetch_update(
-            std::sync::atomic::Ordering::AcqRel,
-            std::sync::atomic::Ordering::Acquire,
-            |remaining| remaining.checked_sub(1),
-        )
-        .is_ok()
-}
-
-/// Return a fork to the budget once its half has been joined.
-fn end_fork(budget: &ForkBudget) {
-    budget.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-}
 
 fn partition<T, F>(v: &mut [T], compare: &F) -> usize
 where
@@ -397,10 +361,8 @@ mod tests {
     #[test]
     fn deep_recursion_completes_on_a_pool_smaller_than_its_depth() {
         let pool = Arc::new(ThreadPool::new(2));
-        let budget = new_fork_budget(&pool);
-
         let mut data: Vec<u64> = (0..65_536u64).rev().collect();
-        par_merge_sort_impl(&mut data, &u64::cmp, &pool, &budget);
+        par_merge_sort_impl(&mut data, &u64::cmp, &pool, pool.fork_budget());
 
         assert!(
             data.windows(2).all(|pair| pair[0] <= pair[1]),
@@ -411,15 +373,34 @@ mod tests {
     #[test]
     fn deep_unstable_recursion_completes_on_a_small_pool() {
         let pool = Arc::new(ThreadPool::new(2));
-        let budget = new_fork_budget(&pool);
-
         let mut data: Vec<u64> = (0..262_144u64).rev().collect();
-        par_sort_unstable_by_impl(&mut data, &u64::cmp, &pool, &budget);
+        par_sort_unstable_by_impl(&mut data, &u64::cmp, &pool, pool.fork_budget());
 
         assert!(
             data.windows(2).all(|pair| pair[0] <= pair[1]),
             "the sort must both finish and order the slice"
         );
+    }
+
+    // The budget belongs to the pool, not to a sort: the shared pool is a
+    // process-wide singleton, so two sorts each holding their own count could
+    // together block every worker while each stayed under the limit alone.
+    // Both of these run deep enough to fork, against a pool too small for even
+    // one of them unbudgeted.
+    #[test]
+    fn concurrent_sorts_share_one_pool_budget() {
+        let pool = Arc::new(ThreadPool::new(2));
+
+        std::thread::scope(|scope| {
+            for _ in 0..2 {
+                let pool = Arc::clone(&pool);
+                scope.spawn(move || {
+                    let mut data: Vec<u64> = (0..65_536u64).rev().collect();
+                    par_merge_sort_impl(&mut data, &u64::cmp, &pool, pool.fork_budget());
+                    assert!(data.windows(2).all(|pair| pair[0] <= pair[1]));
+                });
+            }
+        });
     }
 
     #[test]
