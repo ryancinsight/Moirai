@@ -36,6 +36,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   surplus pages unbacked, so `as_slice` handed out bytes that raise `SIGBUS` on
   read; `open` now checks the segment with `fstat` first. Windows already
   refused the oversized view in `MapViewOfFile`.
+- Detect a panicked pooled worker when joining `moirai-iter` fan-out. The join
+  discarded the result of each `recv`, so a worker that unwound without sending
+  left the channel disconnected and every later `recv` failed instantly — the
+  join then returned as though all tasks had finished.
+  `ZeroCopyParallelIter::map` consequently called `assume_init` over a slice no
+  worker had written, and `for_each`, `reduce`, and the parallel sorts returned
+  silently partial results. The join now counts completions and panics unless
+  every task reported one.
+- Keep `CacheAlignedChunks` advancing for elements wider than a cache line. The
+  chunk size was `(CACHE_LINE_SIZE / element_size) * (CACHE_CHUNK_SIZE /
+  CACHE_LINE_SIZE)`, whose first term truncates to zero above 64 bytes, leaving
+  the iterator yielding empty slices forever without advancing.
 - Reserve the backing store of a Linux `SharedMemory::create` segment with
   `posix_fallocate`. `ftruncate` only sets the length of a tmpfs object and
   leaves its pages sparse, so a correctly sized segment still raised `SIGBUS`
