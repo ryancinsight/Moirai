@@ -1227,6 +1227,15 @@ execution leaves both halves usable on the caller:
   converted it; the caller panics, matching the pre-existing
   `PoolJoinGuard::wait` assertion and rayon's panic propagation.
 
+Fork granularity is bounded by machine width, not by input size: a sub-slice is
+forked only while it is larger than `len / (workers × 8)`, floored at the
+existing sequential thresholds. Without this the recursion splits to the
+threshold, so leaf count grows with input and every leaf pays for a scope —
+measured below. This is not the deleted budget returning: it is a local,
+static granularity floor with no global counter and no coupling to liveness.
+Deadlock freedom comes from the work-conserving scope; the bound only decides
+when a split stops paying for itself.
+
 `ThreadPool` is *not* deleted here. It remains the `ShuttingDown` fallback for
 the flat executor fan-outs in `cache.rs`, `iter_ops/parallel.rs`, and
 `execution/parallel.rs`, which never nest and therefore never trip the
@@ -1256,8 +1265,11 @@ onto it.
   worker count, not a return to the pool.
 - *Finer work tree.* Removing the budget lets the tree expand to `len/threshold`
   leaves instead of `worker_count - 1` forks, so scheduling overhead per leaf
-  now matters. The thresholds are unchanged in this change and validated by
-  benchmark rather than assumed.
+  now matters. This was measured, not assumed, and it bound: at 4M elements on
+  24 workers the stable sort (~2000 leaves at its 2048 floor) regressed while
+  the unstable sort (~250 leaves at its 16,384 floor) improved. Hence the
+  machine-width granularity bound above; the constant is a measured tuning
+  parameter, and re-tuning it is a benchmark question, not a redesign.
 - *Admission queue pressure.* Per-worker queues hold 256 jobs per priority;
   concurrent deep sorts can reach that. Covered by the caller-lane fallback
   above, which is correctness-preserving but silently sequential — it is not
@@ -1279,9 +1291,30 @@ onto it.
    so it trips nextest's 60 s terminate bound rather than hanging. Deterministic
    worker-count-1 proof stays at the scheduler layer, where ADR-019's nested
    tests own it.
-3. Criterion before/after on a large `par_sort` (input sized past the fork
-   budget's ceiling, where the old cap binds), reported with the stored
+3. Criterion before/after on a large `par_sort`, reported against a stored
    baseline. The parallelism claim is measured, not asserted; a regression
    blocks the change.
 4. `cargo fmt --check`, `clippy --all-targets -D warnings`, `nextest`, and a
    `RUSTDOCFLAGS=-D warnings cargo doc` build for the affected packages.
+
+**Measured outcome.** 24 workers, random `i32`, criterion sample size 10 (4 s
+measurement on the large rows), before and after built and run back to back on
+an otherwise idle host. Rayon's rows, whose code is unchanged, moved +3% to
++11% between the two runs — that spread is the noise floor, and anything inside
+it is reported as no change.
+
+| row | before | after | change |
+| --- | --- | --- | --- |
+| stable, 10 K | 91.5 µs | 57.4 µs | −45.7% |
+| unstable, 10 K | 51.9 µs | 53.3 µs | no change |
+| stable, 4 M | 28.43 ms | 28.06 ms | no change |
+| unstable, 4 M | 33.93 ms | 30.66 ms | −9.8% |
+
+The small-input gain is per-fork cost: a scope replaces an mpsc send plus a
+per-fork completion channel. The large rows are flat to modestly better, which
+is the honest reading of the parallelism claim — 23 outstanding forks already
+filled a 24-worker machine, so lifting the ceiling buys throughput only where
+the tree must expand further than the pool is wide. What this change delivers
+at this size is the removal of the starvation class and its guard rails, not a
+large speedup. `par_sort` remains ~2.5× (stable) and ~4× (unstable) slower than
+rayon on the 4 M rows; that gap predates this change and is its own item.
