@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn pool_join_guard_accepts_a_full_set_of_completions() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let guard = PoolJoinGuard::new(rx, 3);
+    for _ in 0..3 {
+        tx.send(()).expect("receiver is alive");
+    }
+    drop(tx);
+
+    guard.wait();
+}
+
+#[test]
+#[should_panic(expected = "did not report completion")]
+fn pool_join_guard_rejects_a_missing_completion() {
+    // A worker that panics unwinds without sending and drops its sender, which
+    // is exactly this shape: fewer messages than tasks, then a disconnected
+    // channel. `recv` returns `Err` immediately from then on, so discarding the
+    // result would let `wait` return as though every task had finished — and
+    // `ZeroCopyParallelIter::map` would `assume_init` a slice no worker wrote.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let guard = PoolJoinGuard::new(rx, 3);
+    tx.send(()).expect("receiver is alive");
+    tx.send(()).expect("receiver is alive");
+    drop(tx); // the third task's sender dies with it, as in a panic
+
+    guard.wait();
+}
+
+#[test]
 fn test_tree_reduce() {
     let items = vec![1, 2, 3, 4, 5];
     let result = tree_reduce(items, |a, b| a + b);

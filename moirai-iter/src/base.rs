@@ -437,17 +437,51 @@ impl PoolJoinGuard {
         Self { rx, count }
     }
 
-    /// Wait for all tasks to finish.
+    /// Wait for all tasks to finish, panicking if any did not.
+    ///
+    /// Each task sends `()` as its last act, so a completion message means that
+    /// task ran to the end. A task that panics instead unwinds without sending
+    /// and drops its sender — the pool's worker loop does not catch unwinds — so
+    /// once every sender is gone `recv` returns `Err` immediately and keeps
+    /// doing so. Counting the successes is what separates "all finished" from
+    /// "the channel disconnected early"; discarding the `Result` makes the two
+    /// indistinguishable and lets a caller proceed as if the work were done.
+    ///
+    /// That distinction is load-bearing: `ZeroCopyParallelIter::map` fills a
+    /// `Vec<MaybeUninit<R>>` from these tasks and calls `assume_init` on every
+    /// element afterwards, so returning normally when a chunk never wrote its
+    /// slice would read uninitialized memory. The other callers lose work rather
+    /// than soundness, but silently returning a partial result is its own defect.
+    ///
+    /// Panicking here surfaces the worker's failure on the caller's thread. The
+    /// `MaybeUninit` buffer is then dropped without dropping its elements — the
+    /// initialized results leak, which is the same trade the executor path makes
+    /// when it reports a failed fan-out.
     pub(crate) fn wait(mut self) {
-        for _ in 0..self.count {
-            let _ = self.rx.recv();
+        let expected = self.count;
+        let mut completed = 0;
+        for _ in 0..expected {
+            if self.rx.recv().is_ok() {
+                completed += 1;
+            }
         }
         self.count = 0; // Prevent waiting again in drop
+        assert_eq!(
+            completed,
+            expected,
+            "invariant: {} of {expected} pooled tasks did not report completion; \
+             a worker panicked and its output was never written",
+            expected - completed
+        );
     }
 }
 
 impl Drop for PoolJoinGuard {
     fn drop(&mut self) {
+        // Best-effort drain only: `drop` may run while a panic is already
+        // unwinding, and panicking again there aborts the process. `wait` is the
+        // checked path; this exists so an early return still blocks until the
+        // workers stop touching the borrowed data.
         for _ in 0..self.count {
             let _ = self.rx.recv();
         }
