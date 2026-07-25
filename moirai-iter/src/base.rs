@@ -420,6 +420,15 @@ impl ThreadPool {
         }
     }
 
+    /// Number of worker threads, always at least one.
+    ///
+    /// Callers that block a worker while waiting on another pooled job need
+    /// this to keep at least one worker free; the pool does not steal work, so
+    /// blocking all of them stalls the queue permanently.
+    pub fn worker_count(&self) -> usize {
+        self.workers.len()
+    }
+
     pub fn execute<F>(&self, job: F)
     where
         F: FnOnce() + Send + 'static,

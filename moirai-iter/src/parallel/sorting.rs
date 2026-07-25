@@ -52,7 +52,8 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
         F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
     {
         let pool = get_shared_thread_pool();
-        par_merge_sort_impl(self, &compare, &pool);
+        let budget = new_fork_budget(&pool);
+        par_merge_sort_impl(self, &compare, &pool, &budget);
     }
 
     fn par_sort_by_key<K, F>(&mut self, f: F)
@@ -75,7 +76,8 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
         F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
     {
         let pool = get_shared_thread_pool();
-        par_sort_unstable_by_impl(self, &compare, &pool);
+        let budget = new_fork_budget(&pool);
+        par_sort_unstable_by_impl(self, &compare, &pool, &budget);
     }
 
     fn par_sort_unstable_by_key<K, F>(&mut self, f: F)
@@ -91,6 +93,42 @@ impl<T: Send> ParallelSliceMut<T> for [T] {
 // task scheduling and merge/partition overhead.
 const STABLE_SEQUENTIAL_THRESHOLD: usize = 2048;
 const UNSTABLE_SEQUENTIAL_THRESHOLD: usize = 16_384;
+
+/// How many halves may be outstanding on the pool at once, shared by one sort.
+///
+/// Each recursion forks one half onto the pool and then blocks waiting for it,
+/// so a forked half that forks again occupies a worker while depending on
+/// another worker. The pool does not steal work, so if every worker is blocked
+/// that way, the halves they are waiting for sit in the queue with nobody left
+/// to run them and the sort never finishes — reachable on any input deep enough
+/// to fork more times than the pool has workers.
+///
+/// Holding the count strictly below the worker count keeps at least one worker
+/// free to drain the queue, which is what guarantees progress. Running out of
+/// budget costs no correctness: the recursion just sorts both halves in place.
+type ForkBudget = Arc<std::sync::atomic::AtomicUsize>;
+
+fn new_fork_budget(pool: &ThreadPool) -> ForkBudget {
+    Arc::new(std::sync::atomic::AtomicUsize::new(
+        pool.worker_count().saturating_sub(1),
+    ))
+}
+
+/// Claim one outstanding fork, or report that the sort must recurse in place.
+fn try_fork(budget: &ForkBudget) -> bool {
+    budget
+        .fetch_update(
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+            |remaining| remaining.checked_sub(1),
+        )
+        .is_ok()
+}
+
+/// Return a fork to the budget once its half has been joined.
+fn end_fork(budget: &ForkBudget) {
+    budget.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+}
 
 fn partition<T, F>(v: &mut [T], compare: &F) -> usize
 where
@@ -125,8 +163,12 @@ where
     j
 }
 
-fn par_sort_unstable_by_impl<T, F>(slice: &mut [T], compare: &F, pool: &Arc<ThreadPool>)
-where
+fn par_sort_unstable_by_impl<T, F>(
+    slice: &mut [T],
+    compare: &F,
+    pool: &Arc<ThreadPool>,
+    budget: &ForkBudget,
+) where
     T: Send,
     F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
 {
@@ -144,6 +186,14 @@ where
         &mut right[1..] // Skip the pivot itself
     };
 
+    if !try_fork(budget) {
+        // Budget spent — see `ForkBudget`. Both sides run here so no worker
+        // blocks on a half that nothing is left to schedule.
+        par_sort_unstable_by_impl(left, compare, pool, budget);
+        par_sort_unstable_by_impl(right, compare, pool, budget);
+        return;
+    }
+
     // Erase types to () to satisfy the 'static requirements of ThreadPool::execute
     let left_ptr = SendPtr(left.as_mut_ptr() as *mut ());
     let left_len = left.len();
@@ -151,6 +201,7 @@ where
 
     let (tx, rx) = std::sync::mpsc::channel();
     let pool_clone = Arc::clone(pool);
+    let budget_clone = Arc::clone(budget);
     let guard = PoolJoinGuard::new(rx, 1);
 
     pool.execute(move || {
@@ -159,17 +210,22 @@ where
         unsafe {
             let left_slice = std::slice::from_raw_parts_mut(left_ptr.as_ptr() as *mut T, left_len);
             let compare_ref = &*(compare_ptr.as_ptr() as *const F);
-            par_sort_unstable_by_impl(left_slice, compare_ref, &pool_clone);
+            par_sort_unstable_by_impl(left_slice, compare_ref, &pool_clone, &budget_clone);
         }
         let _ = tx.send(());
     });
 
-    par_sort_unstable_by_impl(right, compare, pool);
+    par_sort_unstable_by_impl(right, compare, pool, budget);
     guard.wait();
+    end_fork(budget);
 }
 
-fn par_merge_sort_impl<T, F>(slice: &mut [T], compare: &F, pool: &Arc<ThreadPool>)
-where
+fn par_merge_sort_impl<T, F>(
+    slice: &mut [T],
+    compare: &F,
+    pool: &Arc<ThreadPool>,
+    budget: &ForkBudget,
+) where
     T: Send,
     F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
 {
@@ -182,24 +238,41 @@ where
     let mid = len / 2;
     let (left, right) = slice.split_at_mut(mid);
 
-    // Erase types to () to satisfy the 'static requirements of ThreadPool::execute
-    let left_ptr = SendPtr(left.as_mut_ptr() as *mut ());
-    let left_len = left.len();
-    let compare_ptr = SendPtr(compare as *const F as *mut F as *mut ());
+    if try_fork(budget) {
+        // Erase types to () to satisfy the 'static requirements of ThreadPool::execute
+        let left_ptr = SendPtr(left.as_mut_ptr() as *mut ());
+        let left_len = left.len();
+        let compare_ptr = SendPtr(compare as *const F as *mut F as *mut ());
 
-    let (tx, rx) = std::sync::mpsc::channel();
-    let pool_clone = Arc::clone(pool);
-    let guard = PoolJoinGuard::new(rx, 1);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let pool_clone = Arc::clone(pool);
+        let guard = PoolJoinGuard::new(rx, 1);
 
-    pub_execute_merge::<T, F>(pool, tx, left_ptr, left_len, compare_ptr, pool_clone);
+        pub_execute_merge::<T, F>(
+            pool,
+            tx,
+            left_ptr,
+            left_len,
+            compare_ptr,
+            pool_clone,
+            Arc::clone(budget),
+        );
 
-    par_merge_sort_impl(right, compare, pool);
-    guard.wait();
+        par_merge_sort_impl(right, compare, pool, budget);
+        guard.wait();
+        end_fork(budget);
+    } else {
+        // The pool is already carrying as many blocked halves as it can while
+        // still guaranteeing progress; sort both halves here instead.
+        par_merge_sort_impl(left, compare, pool, budget);
+        par_merge_sort_impl(right, compare, pool, budget);
+    }
 
     merge(slice, mid, compare);
 }
 
 // Helper to keep closures distinct
+#[allow(clippy::too_many_arguments)]
 fn pub_execute_merge<T, F>(
     pool: &ThreadPool,
     tx: std::sync::mpsc::Sender<()>,
@@ -207,6 +280,7 @@ fn pub_execute_merge<T, F>(
     left_len: usize,
     compare_ptr: SendPtr<()>,
     pool_clone: Arc<ThreadPool>,
+    budget: ForkBudget,
 ) where
     T: Send,
     F: Fn(&T, &T) -> std::cmp::Ordering + Sync + Send,
@@ -218,7 +292,7 @@ fn pub_execute_merge<T, F>(
         unsafe {
             let left_slice = std::slice::from_raw_parts_mut(left_ptr.as_ptr() as *mut T, left_len);
             let compare_ref = &*(compare_ptr.as_ptr() as *const F);
-            par_merge_sort_impl(left_slice, compare_ref, &pool_clone);
+            par_merge_sort_impl(left_slice, compare_ref, &pool_clone, &budget);
         }
         let _ = tx.send(());
     });
@@ -312,6 +386,41 @@ where
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // Regression: the recursion forks one half onto the pool and blocks on it,
+    // so a forked half that forks again ties up a worker while depending on
+    // another. The pool does not steal work, so once every worker was blocked
+    // that way the queued halves had nobody left to run them and the sort never
+    // returned. Reproduced here with a two-worker pool and an input deep enough
+    // to fork five times; before the fork budget this hung until the harness
+    // killed it.
+    #[test]
+    fn deep_recursion_completes_on_a_pool_smaller_than_its_depth() {
+        let pool = Arc::new(ThreadPool::new(2));
+        let budget = new_fork_budget(&pool);
+
+        let mut data: Vec<u64> = (0..65_536u64).rev().collect();
+        par_merge_sort_impl(&mut data, &u64::cmp, &pool, &budget);
+
+        assert!(
+            data.windows(2).all(|pair| pair[0] <= pair[1]),
+            "the sort must both finish and order the slice"
+        );
+    }
+
+    #[test]
+    fn deep_unstable_recursion_completes_on_a_small_pool() {
+        let pool = Arc::new(ThreadPool::new(2));
+        let budget = new_fork_budget(&pool);
+
+        let mut data: Vec<u64> = (0..262_144u64).rev().collect();
+        par_sort_unstable_by_impl(&mut data, &u64::cmp, &pool, &budget);
+
+        assert!(
+            data.windows(2).all(|pair| pair[0] <= pair[1]),
+            "the sort must both finish and order the slice"
+        );
+    }
 
     #[test]
     fn test_sorting_empty_and_single() {
