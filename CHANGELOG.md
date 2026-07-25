@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Run the `moirai-iter` parallel sorts' recursive fork-join on the unified
+  scheduler's scope instead of the crate's own thread pool. That pool is a FIFO
+  queue with no work stealing, so a worker blocked on another of its jobs could
+  not run it — the starvation that the fork budget guarded against, at the cost
+  of capping the work tree at the pool's width. A scheduler worker waiting
+  inside a scope runs queued work instead of parking, so the budget is gone and
+  the recursion is deadlock-free by construction. A fork the scheduler refuses,
+  while shutting down or under admission backpressure, now runs on the calling
+  lane rather than being dropped. Splitting stops once a sub-slice is smaller
+  than `len / (workers * 8)` so fork count follows machine width rather than
+  input size. `ThreadPool` remains for flat fan-out only.
+
 ### Added
 
 - Expose a borrowing `moirai_parallel::scope` surface over the unified
