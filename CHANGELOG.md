@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   worker had written, and `for_each`, `reduce`, and the parallel sorts returned
   silently partial results. The join now counts completions and panics unless
   every task reported one.
+- Stop the `moirai-iter` parallel sorts deadlocking on large inputs. The
+  recursion forks one half onto the shared pool and blocks on it, so a forked
+  half that forks again occupied a worker while depending on another; the pool
+  does not steal work, so once every worker was blocked that way the queued
+  halves had nobody left to run them and `par_sort` never returned. Reachable
+  around `2048 * 2^(workers + 1)` elements — roughly a million on an eight-core
+  machine. A fork budget now keeps at least one worker free to drain the queue,
+  and the recursion sorts both halves in place once the budget is spent.
 - Keep a `moirai-iter` pool worker alive when a job panics. The worker ran jobs
   without catching unwinds and workers are never replaced, so each panicking job
   removed one permanently; once all had gone, `execute` kept queueing onto a
