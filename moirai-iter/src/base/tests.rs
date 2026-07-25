@@ -22,11 +22,10 @@ fn thread_pool_worker_survives_a_panicking_job() {
     let pool = ThreadPool::new(1);
     let (tx, rx) = std::sync::mpsc::channel();
 
-    // Silence the panic hook for the deliberate panic below. nextest runs each
-    // test in its own process, so this cannot affect another test.
-    let previous_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-
+    // The panic below prints through the default hook. That output is expected,
+    // and the hook is deliberately left alone: `set_hook` is process-wide, so
+    // replacing it would suppress diagnostics from any test sharing the process
+    // under a thread-per-test runner.
     pool.execute(|| panic!("deliberate: the worker must survive this"));
 
     let follow_up = tx.clone();
@@ -43,8 +42,6 @@ fn thread_pool_worker_survives_a_panicking_job() {
     // its way out; the queued follow-up job is destroyed with the channel, its
     // sender goes with it, and this returns `Err` rather than blocking.
     let survived = rx.recv().is_ok();
-
-    std::panic::set_hook(previous_hook);
 
     assert!(
         survived,
