@@ -514,3 +514,76 @@ proptest::proptest! {
         proptest::prop_assert_eq!(par, seq);
     }
 }
+
+// A scheduler that refuses the scheduled branch must not lose it. Joining
+// against a shut-down executor makes every fork take the refusal arm, so both
+// branches run on the caller: sequential, still complete. Before this, the
+// refused branch was dropped with its job and `join_with` panicked through
+// `expect` — a queue-full executor turned a valid join into a crash.
+#[test]
+fn refused_join_branches_run_on_the_caller() {
+    let mut executor =
+        moirai_executor::HybridExecutor::new(moirai_core::executor::ExecutorConfig {
+            worker_threads: 2,
+            ..moirai_core::executor::ExecutorConfig::default()
+        })
+        .expect("build a local executor");
+    executor.shutdown().expect("shut the local executor down");
+    assert!(
+        executor
+            .scope::<moirai_executor::SyncTask, _>(|_| Ok(()))
+            .is_err(),
+        "precondition: the executor must refuse scopes, or the join below never \
+         reaches the refusal arm"
+    );
+
+    let left = [1u64, 2, 3, 4];
+    let right = [10u64, 20, 30];
+    let left_ran = AtomicUsize::new(0);
+    let right_ran = AtomicUsize::new(0);
+
+    let (left_sum, right_sum) = crate::ops::join_on(
+        &executor,
+        || {
+            left_ran.fetch_add(1, Ordering::Relaxed);
+            left.iter().sum::<u64>()
+        },
+        || {
+            right_ran.fetch_add(1, Ordering::Relaxed);
+            right.iter().sum::<u64>()
+        },
+    );
+
+    assert_eq!(left_sum, 10);
+    assert_eq!(right_sum, 60);
+    // Exactly once each: the slot claim is what stops a branch running on both
+    // the scheduler lane and the caller.
+    assert_eq!(left_ran.load(Ordering::Relaxed), 1);
+    assert_eq!(right_ran.load(Ordering::Relaxed), 1);
+}
+
+// The claim is a two-lane race, not just a fallback: a branch must run exactly
+// once whether the scheduler took it or the caller did. Repeated so both
+// outcomes are reachable on a healthy executor.
+#[test]
+fn join_runs_each_branch_exactly_once() {
+    const ROUNDS: usize = 256;
+
+    for _ in 0..ROUNDS {
+        let left_ran = AtomicUsize::new(0);
+        let right_ran = AtomicUsize::new(0);
+
+        let (left, right) = join_with::<Parallel, _, _, _, _>(
+            || left_ran.fetch_add(1, Ordering::Relaxed),
+            || right_ran.fetch_add(1, Ordering::Relaxed),
+        );
+
+        assert_eq!(
+            (left, right),
+            (0, 0),
+            "each branch observes a fresh counter"
+        );
+        assert_eq!(left_ran.load(Ordering::Relaxed), 1);
+        assert_eq!(right_ran.load(Ordering::Relaxed), 1);
+    }
+}

@@ -1251,8 +1251,12 @@ on `ResourceExhausted` is unrecoverable, and it `expect`s on the error — a
 queue-full join panics today. Recovering a by-value closure needs a shared
 slot (`Mutex<enum { Pending(F), Done(R) }>`) that the fork site does not, since
 it can capture the halves by unique borrow instead. `join_with`'s admission
-contract is filed as its own defect; when it lands, the sort fork site collapses
-onto it.
+contract was filed as its own defect and has since landed (ISSUE-220) with
+exactly that shared slot. Collapsing the sort fork site onto it is therefore
+possible but not automatic: the slot costs an uncontended mutex per fork that
+the reborrowing form does not, and the sort forks far more often than a
+top-level `join`. That collapse is a measured decision, deferred to a
+benchmark rather than assumed here.
 
 **Failure modes.**
 

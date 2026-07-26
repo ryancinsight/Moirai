@@ -27,8 +27,90 @@
 
 use super::DisjointMutPtr;
 use crate::policy::{ExecutionPolicy, Parallel};
-use moirai_core::error::ExecutorResult;
-use moirai_executor::{global, SchedulerScope, SyncTask};
+use moirai_core::error::{ExecutorError, ExecutorResult};
+use moirai_executor::{global, HybridExecutor, SchedulerScope, SyncTask};
+use std::sync::Mutex;
+
+/// State of the scheduled branch of a join.
+///
+/// The scheduler can refuse a job — while shutting down, or when a worker's
+/// bounded admission queue is full — and it drops the refused job before
+/// returning the error. A branch owned by that job would go with it, so the
+/// closure lives here instead and whichever lane reaches it first takes it.
+/// The caller can therefore still run a branch the scheduler never did.
+enum Branch<F, R> {
+    /// Nobody has claimed this branch yet.
+    Pending(F),
+    /// A lane claimed the branch and has not published a result. Observing
+    /// this once the scope has joined means that lane unwound.
+    Claimed,
+    /// Ran to completion.
+    Done(R),
+}
+
+impl<F, R> Branch<F, R>
+where
+    F: FnOnce() -> R,
+{
+    /// Take the closure if this lane is the one that gets to run it.
+    fn claim(&mut self) -> Option<F> {
+        match std::mem::replace(self, Self::Claimed) {
+            Self::Pending(branch) => Some(branch),
+            other => {
+                *self = other;
+                None
+            }
+        }
+    }
+
+    fn complete(&mut self, result: R) {
+        *self = Self::Done(result);
+    }
+
+    /// Run the branch on a lane that shares the slot, unless another lane
+    /// already claimed it.
+    ///
+    /// The lock is released before the closure runs, so a branch never holds it
+    /// across arbitrary caller code and a panicking branch cannot poison it.
+    fn run_shared(slot: &Mutex<Self>) {
+        let Some(branch) = lock(slot).claim() else {
+            return;
+        };
+        let result = branch();
+        lock(slot).complete(result);
+    }
+
+    /// Run a branch that never leaves this thread.
+    fn run_here(&mut self) {
+        let Some(branch) = self.claim() else {
+            return;
+        };
+        let result = branch();
+        self.complete(result);
+    }
+
+    /// Take the finished value.
+    fn into_result(self) -> R {
+        match self {
+            Self::Done(result) => result,
+            _ => panic!("invariant: a join branch neither ran nor reported failure"),
+        }
+    }
+}
+
+/// Lock without propagating poisoning: every path that touches a slot leaves
+/// it in a consistent state, and [`Branch::run_shared`] never holds the lock
+/// across the branch closure, so a poisoned flag carries no information here.
+fn lock<T>(slot: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    slot.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Reclaim a slot once every lane that shared it has finished.
+fn lock_owned<T>(slot: Mutex<T>) -> T {
+    slot.into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// Run two closures to completion and return both results.
 ///
@@ -37,6 +119,14 @@ use moirai_executor::{global, SchedulerScope, SyncTask};
 /// caller, [`Parallel`] schedules the left closure on the unified scheduler and
 /// runs the right closure on the caller lane, and [`crate::Adaptive`] currently
 /// stays sequential for a fixed two-branch join.
+///
+/// A branch the scheduler refuses runs on the caller instead, so a shutting-down
+/// or saturated executor makes the join sequential rather than losing a branch.
+///
+/// # Panics
+///
+/// Panics if a branch panicked, propagating the failure on the caller's thread
+/// as rayon does.
 pub fn join_with<P, A, B, RA, RB>(left: A, right: B) -> (RA, RB)
 where
     P: ExecutionPolicy,
@@ -48,22 +138,49 @@ where
         return (left(), right());
     }
 
-    let mut left_result = None;
-    let mut right_result = None;
-    global()
-        .scope::<SyncTask, _>(|scope| {
-            scope.spawn(|_| {
-                left_result = Some(left());
-            })?;
-            scope.flush()?;
-            right_result = Some(right());
-            Ok(())
-        })
-        .expect("moirai global executor: join_with");
+    join_on(global(), left, right)
+}
+
+/// [`join_with`]'s parallel path against a named executor.
+///
+/// Separate from the public entry so the refusal path can be exercised against
+/// a shut-down executor in tests.
+pub(crate) fn join_on<A, B, RA, RB>(executor: &HybridExecutor, left: A, right: B) -> (RA, RB)
+where
+    A: FnOnce() -> RA + Send,
+    B: FnOnce() -> RB,
+    RA: Send,
+{
+    // Only the left branch crosses a lane boundary, so only it needs a shared
+    // slot. The right branch stays on this thread and is reborrowed by the
+    // scope body, which leaves it runnable here if the body returns early.
+    let left_slot = Mutex::new(Branch::Pending(left));
+    let mut right_slot = Branch::Pending(right);
+
+    let forked = executor.scope::<SyncTask, _>(|scope| {
+        scope.spawn(|_| Branch::run_shared(&left_slot))?;
+        // Enter the scheduler before the caller takes its own branch, so the
+        // two overlap instead of running back to back.
+        scope.flush()?;
+        right_slot.run_here();
+        Ok(())
+    });
+
+    match forked {
+        Ok(()) => {}
+        // The scheduler refused the job and dropped it unexecuted, so neither
+        // branch is guaranteed to have run. Both claims are idempotent: a
+        // branch that did run is no longer `Pending`.
+        Err(ExecutorError::ShuttingDown | ExecutorError::ResourceExhausted(_)) => {
+            Branch::run_shared(&left_slot);
+            right_slot.run_here();
+        }
+        Err(error) => panic!("invariant: scheduled join branch failed ({error})"),
+    }
 
     (
-        left_result.expect("scoped join left branch must complete"),
-        right_result.expect("scoped join right branch must complete"),
+        lock_owned(left_slot).into_result(),
+        right_slot.into_result(),
     )
 }
 

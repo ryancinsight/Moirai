@@ -102,6 +102,12 @@ remain hidden behind stale counters.
     closeout and merged as `9b3caa5`. `recurseml/analysis` errored on both
     heads, while CodeRabbit passed on the PM-only head; local gates remain the
     executor acceptance evidence.
+- [x] [patch] ISSUE-220: Give `join_with`'s scheduled branch a claimable slot so
+  a refused fork runs on the caller instead of panicking, with exactly-once
+  coverage for both the refusal arm and the healthy two-lane race.
+- [ ] [patch] ISSUE-221: Execute a rejected scoped job inline in
+  `SchedulerScope::flush` rather than dropping it, so every `scope` caller —
+  `moirai_parallel::scope` included — survives admission backpressure.
 - [x] [arch] ISSUE-219: Move `moirai-iter`'s recursive sort fork-join off the
   non-stealing `ThreadPool` onto `HybridExecutor::scope`, delete the fork budget
   and the sort's raw-pointer erasure, run a refused fork on the caller, and

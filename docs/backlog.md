@@ -310,12 +310,52 @@ architecture definition.
   before/after: −45.7% stable 10 K, −9.8% unstable 4 M, no change on the
   remaining rows against a +3–11% noise floor).
 - **ADR**: `docs/adr.md` ADR-022 (Accepted).
-- **Follow-ups**: `moirai_parallel::join_with` panics on a refused fork instead
-  of running it on the caller (its by-value branches are unrecoverable — needs
-  a slot); `ThreadPool` removal in favour of sequential fallbacks in `cache.rs`,
+- **Follow-ups**: `join_with`'s refused-fork panic (ISSUE-220, done);
+  `ThreadPool` removal in favour of sequential fallbacks in `cache.rs`,
   `iter_ops/parallel.rs`, and `execution/parallel.rs`; the sort's caller-lane
   fallback is not surfaced through a counter the way
   `ThreadScheduler::admission_caller_runs` surfaces the indexed path.
+
+#### ✅ ISSUE-220 [patch]: Run a refused `join_with` branch on the caller
+- **Type**: Concurrency Correctness / API Contract
+- **Root Cause**: `join_with` moved its left branch into the scoped job. A job
+  the scheduler refuses — `ShuttingDown`, or `ResourceExhausted` from a full
+  per-worker admission queue — is dropped before it runs, taking the branch
+  with it, and the resulting scope error met an `expect`. Bounded admission
+  (ISSUE-212) therefore turned a valid join into a panic under backpressure,
+  the same class ISSUE-219 fixed in the sorts. `for_each_indexed` already had
+  the right contract: run a rejected chunk inline.
+- **Resolution**: The scheduled branch lives in a `Mutex<Branch<F, R>>` that
+  both lanes share and claim from, so the caller can run a branch the scheduler
+  never did. The caller-local branch keeps the same state machine without a
+  lock. The refusal arm re-claims both; the claim makes that idempotent.
+  `join_on` takes the executor by parameter so the path is testable.
+- **Acceptance criteria**: a join against a shut-down executor returns both
+  branch values and runs each branch exactly once; a healthy-executor join runs
+  each branch exactly once across repeated rounds where either lane may win the
+  claim; no regression on the `join_sum_pair` benchmark rows.
+- **Evidence tier**: type/analysis (the claim is a single `mem::replace`, so
+  exactly one lane can observe `Pending`) + empirical (`moirai-parallel` 34/34,
+  paired Criterion on `join_sum_pair`).
+- **Residual**: `moirai_parallel::scope` has the same defect for its N buffered
+  jobs and cannot use this slot — a refused `flush` drops the whole batch and
+  the caller cannot tell which jobs ran. The systemic fix is in the executor:
+  have `SchedulerScope::flush` execute a rejected job inline like
+  `for_each_indexed` does, which needs `schedule_job` to hand the job back
+  rather than drop it. Filed as ISSUE-221.
+
+#### ⏳ ISSUE-221 [patch]: Execute a rejected scoped job inline instead of dropping it
+- **Type**: Scheduler Correctness
+- **Root Cause**: `ThreadScheduler::schedule_job` drops a job the admission
+  queue rejects and returns `ResourceExhausted`. `SchedulerScope::flush` cannot
+  recover it, so every `scope` caller loses that job's work; only
+  `for_each_indexed`, which owns its index domain, can reconstruct it.
+  `moirai_parallel::scope` panics through `expect` in that case.
+- **Acceptance criteria**: `flush` runs a rejected job on the caller under the
+  same panic boundary as a worker, records `admission_caller_run`, and a
+  saturated-admission scope test observes every spawned job running exactly
+  once.
+- **Dependencies**: a `schedule_job` variant that returns the rejected job.
 
 #### 🔄 ISSUE-208 [arch]: Make `ThreadScheduler::scope` sound under nesting (unblock parallel non-indexed `drive`)
 - **Type**: Scheduler Correctness / Memory Safety
