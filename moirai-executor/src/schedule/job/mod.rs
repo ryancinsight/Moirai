@@ -74,7 +74,20 @@ impl InlineJob {
     where
         F: FnOnce(usize) + Send,
     {
-        debug_assert!(inline_job_fits::<F>());
+        // Checked in release too, not just under `debug_assert`: this is a safe
+        // function whose precondition is UB-critical, since an `F` too large for
+        // the storage would be written past it, and a debug-only guard
+        // disappears exactly where the consequence stops being a panic.
+        //
+        // It costs nothing. Both operands are compile-time constants, so for a
+        // type that fits this folds to `assert!(true)` and leaves no code.
+        //
+        // A `const` assertion cannot be used here even though the operands are
+        // constant: `ScheduledJob::new` picks between the inline and boxed forms
+        // at runtime, and the inline branch is still *instantiated* for an
+        // oversized closure it never takes. Asserting at compile time therefore
+        // rejects the boxed path's own callers.
+        assert!(inline_job_fits::<F>());
         let mut job = Self {
             storage: InlineJobStorage::new(),
             execute: execute_inline::<F>,
@@ -123,7 +136,7 @@ impl InlineJobStorage {
     }
 }
 
-fn inline_job_fits<F>() -> bool {
+const fn inline_job_fits<F>() -> bool {
     size_of::<F>() <= size_of::<InlineJobStorage>() && align_of::<F>() <= align_of::<InlineJob>()
 }
 
