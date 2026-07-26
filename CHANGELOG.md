@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Run a scoped job on the calling lane when the scheduler's admission queue
+  rejects it. `SchedulerScope::flush` previously dropped such a job and
+  returned the error, so a scope broke its "every spawned job runs before the
+  scope returns" promise silently — the dropped job's completion token
+  decrements the scope counter exactly as a finished one does, so the caller
+  resumed as though borrowed work had happened, and `moirai_parallel::scope`
+  turned the error into a panic. Admission now leaves a refused job in the
+  caller's slot, and the caller-run event is counted through the existing
+  `admission_caller_runs` surface. Shutdown is not backpressure and still
+  propagates.
 - Run a `moirai_parallel::join_with` branch on the caller when the scheduler
   refuses it. The scheduled branch was moved into the job, so a job refused
   while shutting down — or rejected by a full per-worker admission queue — was
