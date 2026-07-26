@@ -28,6 +28,34 @@ use super::super::worker::{
     wake_contended_workers, wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
 };
 
+/// A job admission refused, with the job returned when it is still runnable.
+///
+/// Admission failure and job loss are separate facts. A job rejected by a full
+/// queue never ran and can still be run by whoever holds it, so it comes back
+/// with the error; a job the lane consumed while failing does not. Callers that
+/// can execute the work themselves — a scope, which owes its caller that every
+/// spawned job runs — check `job` rather than assuming either.
+pub(crate) struct RefusedJob {
+    pub(crate) error: ExecutorError,
+    pub(crate) job: Option<ScheduledJob>,
+}
+
+impl RefusedJob {
+    /// The job never entered a queue and can still be run.
+    pub(crate) fn runnable(error: ExecutorError, job: ScheduledJob) -> Self {
+        Self {
+            error,
+            job: Some(job),
+        }
+    }
+
+    /// A shutting-down scheduler refuses admission. The job is returned, but a
+    /// caller running it must be sure the work is still wanted at shutdown.
+    pub(crate) fn shutting_down(job: ScheduledJob) -> Self {
+        Self::runnable(ExecutorError::ShuttingDown, job)
+    }
+}
+
 /// Busy-spin iterations a worker-thread scope waiter performs after exhausting
 /// runnable work before it parks on the scope condvar. The waiter only reaches
 /// this path when its remaining scoped jobs are actively executing on other
@@ -257,6 +285,42 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
     }
 
+    /// Schedule a scoped job, handing it back when admission refuses it.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`ScheduledJob::new_scoped`]: the caller must prove
+    /// every job is executed or dropped before the borrowed scope ends. A
+    /// refused job is returned rather than dropped, so the caller owns that
+    /// obligation for it too.
+    pub(crate) unsafe fn admit_scoped_job<'scope, C, F>(
+        &self,
+        priority: Priority,
+        locality_hint: Option<usize>,
+        scoped_job: F,
+    ) -> Result<(), RefusedJob>
+    where
+        C: WorkClass,
+        F: FnOnce(usize) + Send + 'scope,
+    {
+        // Safety: discharged by this function's own contract.
+        let job = unsafe { ScheduledJob::new_scoped(scoped_job) };
+        self.admit_job::<C>(priority, locality_hint, job)
+    }
+
+    /// Lane identifier passed to a job the caller runs itself.
+    ///
+    /// Worker lanes are `0..worker_count()`; the calling thread is the lane
+    /// past the last worker. It is a lane identity, never an index into the
+    /// worker set.
+    pub(crate) fn caller_lane_id(&self) -> usize {
+        get_current_worker_id().unwrap_or_else(|| self.worker_count())
+    }
+
+    /// Schedule a job, dropping it if admission refuses it.
+    ///
+    /// Callers that can still run a refused job themselves use
+    /// [`Self::admit_job`] instead.
     pub(crate) fn schedule_job<C>(
         &self,
         priority: Priority,
@@ -266,14 +330,34 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     where
         C: WorkClass,
     {
+        self.admit_job::<C>(priority, locality_hint, job)
+            .map_err(|refused| refused.error)
+    }
+
+    /// Schedule a job, handing it back when admission refuses it.
+    ///
+    /// A refused job has not run and never will unless the caller runs it, so
+    /// dropping it silently discards work. Returning it lets the caller choose:
+    /// `SchedulerScope::flush` runs it on the calling lane, which is how a scope
+    /// keeps its "every spawned job runs before the scope returns" contract
+    /// under admission backpressure.
+    pub(crate) fn admit_job<C>(
+        &self,
+        priority: Priority,
+        locality_hint: Option<usize>,
+        job: ScheduledJob,
+    ) -> Result<(), RefusedJob>
+    where
+        C: WorkClass,
+    {
         if self.inner.shutdown.load(Ordering::Acquire) {
-            return Err(ExecutorError::ShuttingDown);
+            return Err(RefusedJob::shutting_down(job));
         }
 
         if C::USES_BLOCKING_LANE {
             if let Some(lane) = self.inner.blocking_lane.get() {
                 if self.inner.shutdown.load(Ordering::Acquire) {
-                    return Err(ExecutorError::ShuttingDown);
+                    return Err(RefusedJob::shutting_down(job));
                 }
                 return lane.submit(
                     priority,
@@ -285,13 +369,20 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
             let _lane_init = lock_mutex(&self.inner.blocking_lane_init);
             if self.inner.shutdown.load(Ordering::Acquire) {
-                return Err(ExecutorError::ShuttingDown);
+                return Err(RefusedJob::shutting_down(job));
             }
             if self.inner.blocking_lane.get().is_none() {
                 let candidate = super::super::blocking::BlockingLane::new(self.worker_count());
-                candidate.start(Arc::clone(&self.inner), &self.inner.blocking_lane_prefix)?;
+                if let Err(error) =
+                    candidate.start(Arc::clone(&self.inner), &self.inner.blocking_lane_prefix)
+                {
+                    return Err(RefusedJob::runnable(error, job));
+                }
                 if self.inner.blocking_lane.set(candidate).is_err() {
-                    return Err(ExecutorError::ThreadPoolCreationFailed);
+                    return Err(RefusedJob::runnable(
+                        ExecutorError::ThreadPoolCreationFailed,
+                        job,
+                    ));
                 }
             }
             let lane = self
@@ -345,10 +436,12 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
         if let Some(job) = rejected {
             self.inner.pending_tasks.fetch_sub(1, Ordering::SeqCst);
-            drop(job);
-            return Err(ExecutorError::ResourceExhausted(format!(
-                "worker {worker_index} scheduler admission queue is full"
-            )));
+            return Err(RefusedJob::runnable(
+                ExecutorError::ResourceExhausted(format!(
+                    "worker {worker_index} scheduler admission queue is full"
+                )),
+                job,
+            ));
         }
 
         // Try to wake up an idle worker via the lock-free wake lottery. The

@@ -14,7 +14,10 @@ use moirai_core::{
     Priority,
 };
 
-use super::{super::job::ScheduledJob, types::SchedulerInner, worker::execute_blocking_job};
+use super::{
+    super::job::ScheduledJob, scheduler::RefusedJob, types::SchedulerInner,
+    worker::execute_blocking_job,
+};
 
 const PRIORITY_LEVELS: usize = 4;
 
@@ -171,21 +174,23 @@ impl<const QUEUE_CAPACITY: usize> BlockingLane<QUEUE_CAPACITY> {
         locality_hint: Option<usize>,
         job: ScheduledJob,
         pending_tasks: &AtomicUsize,
-    ) -> ExecutorResult<()> {
+    ) -> Result<(), RefusedJob> {
         let lane_id = locality_hint.unwrap_or_else(next_lane_ticket) % self.queues.len();
         let mut job = Some(job);
         match self.queues[lane_id].try_push(priority, &mut job, pending_tasks) {
             Ok(()) => Ok(()),
-            Err(BlockingAdmission::Full) => {
-                drop(job);
-                Err(ExecutorError::ResourceExhausted(format!(
+            // `try_push` leaves a refused job in the slot, so it is handed back
+            // rather than dropped: it never ran, and its owner may still run it.
+            Err(BlockingAdmission::Full) => Err(RefusedJob {
+                error: ExecutorError::ResourceExhausted(format!(
                     "blocking lane {lane_id} admission queue is full"
-                )))
-            }
-            Err(BlockingAdmission::ShuttingDown) => {
-                drop(job);
-                Err(ExecutorError::ShuttingDown)
-            }
+                )),
+                job,
+            }),
+            Err(BlockingAdmission::ShuttingDown) => Err(RefusedJob {
+                error: ExecutorError::ShuttingDown,
+                job,
+            }),
         }
     }
 
