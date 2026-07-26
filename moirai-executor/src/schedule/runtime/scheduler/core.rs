@@ -28,34 +28,6 @@ use super::super::worker::{
     wake_contended_workers, wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
 };
 
-/// A job admission refused, with the job returned when it is still runnable.
-///
-/// Admission failure and job loss are separate facts. A job rejected by a full
-/// queue never ran and can still be run by whoever holds it, so it comes back
-/// with the error; a job the lane consumed while failing does not. Callers that
-/// can execute the work themselves — a scope, which owes its caller that every
-/// spawned job runs — check `job` rather than assuming either.
-pub(crate) struct RefusedJob {
-    pub(crate) error: ExecutorError,
-    pub(crate) job: Option<ScheduledJob>,
-}
-
-impl RefusedJob {
-    /// The job never entered a queue and can still be run.
-    pub(crate) fn runnable(error: ExecutorError, job: ScheduledJob) -> Self {
-        Self {
-            error,
-            job: Some(job),
-        }
-    }
-
-    /// A shutting-down scheduler refuses admission. The job is returned, but a
-    /// caller running it must be sure the work is still wanted at shutdown.
-    pub(crate) fn shutting_down(job: ScheduledJob) -> Self {
-        Self::runnable(ExecutorError::ShuttingDown, job)
-    }
-}
-
 /// Busy-spin iterations a worker-thread scope waiter performs after exhausting
 /// runnable work before it parks on the scope condvar. The waiter only reaches
 /// this path when its remaining scoped jobs are actively executing on other
@@ -285,29 +257,6 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
     }
 
-    /// Schedule a scoped job, handing it back when admission refuses it.
-    ///
-    /// # Safety
-    ///
-    /// Same contract as [`ScheduledJob::new_scoped`]: the caller must prove
-    /// every job is executed or dropped before the borrowed scope ends. A
-    /// refused job is returned rather than dropped, so the caller owns that
-    /// obligation for it too.
-    pub(crate) unsafe fn admit_scoped_job<'scope, C, F>(
-        &self,
-        priority: Priority,
-        locality_hint: Option<usize>,
-        scoped_job: F,
-    ) -> Result<(), RefusedJob>
-    where
-        C: WorkClass,
-        F: FnOnce(usize) + Send + 'scope,
-    {
-        // Safety: discharged by this function's own contract.
-        let job = unsafe { ScheduledJob::new_scoped(scoped_job) };
-        self.admit_job::<C>(priority, locality_hint, job)
-    }
-
     /// Lane identifier passed to a job the caller runs itself.
     ///
     /// Worker lanes are `0..worker_count()`; the calling thread is the lane
@@ -330,34 +279,40 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     where
         C: WorkClass,
     {
-        self.admit_job::<C>(priority, locality_hint, job)
-            .map_err(|refused| refused.error)
+        self.admit_job::<C>(priority, locality_hint, &mut Some(job))
     }
 
-    /// Schedule a job, handing it back when admission refuses it.
+    /// Schedule a job, leaving it in `job` when admission refuses it.
     ///
     /// A refused job has not run and never will unless the caller runs it, so
-    /// dropping it silently discards work. Returning it lets the caller choose:
-    /// `SchedulerScope::flush` runs it on the calling lane, which is how a scope
-    /// keeps its "every spawned job runs before the scope returns" contract
-    /// under admission backpressure.
+    /// dropping it silently discards work. Admission failure and job loss are
+    /// separate facts: a job a full queue turned away is still in `job` and
+    /// still runnable, while one a lane consumed while failing is not, so the
+    /// caller checks rather than assumes. `SchedulerScope::flush` runs what is
+    /// left behind on the calling lane, which is how a scope keeps its "every
+    /// spawned job runs before the scope returns" contract under backpressure.
+    ///
+    /// The job travels by slot rather than inside the error so the hot path
+    /// keeps a small `Result`: a `ScheduledJob` carries inline, cache-line
+    /// aligned storage, and an `Err` variant holding one would widen every
+    /// admission return, success included.
     pub(crate) fn admit_job<C>(
         &self,
         priority: Priority,
         locality_hint: Option<usize>,
-        job: ScheduledJob,
-    ) -> Result<(), RefusedJob>
+        job: &mut Option<ScheduledJob>,
+    ) -> ExecutorResult<()>
     where
         C: WorkClass,
     {
         if self.inner.shutdown.load(Ordering::Acquire) {
-            return Err(RefusedJob::shutting_down(job));
+            return Err(ExecutorError::ShuttingDown);
         }
 
         if C::USES_BLOCKING_LANE {
             if let Some(lane) = self.inner.blocking_lane.get() {
                 if self.inner.shutdown.load(Ordering::Acquire) {
-                    return Err(RefusedJob::shutting_down(job));
+                    return Err(ExecutorError::ShuttingDown);
                 }
                 return lane.submit(
                     priority,
@@ -369,20 +324,13 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
             let _lane_init = lock_mutex(&self.inner.blocking_lane_init);
             if self.inner.shutdown.load(Ordering::Acquire) {
-                return Err(RefusedJob::shutting_down(job));
+                return Err(ExecutorError::ShuttingDown);
             }
             if self.inner.blocking_lane.get().is_none() {
                 let candidate = super::super::blocking::BlockingLane::new(self.worker_count());
-                if let Err(error) =
-                    candidate.start(Arc::clone(&self.inner), &self.inner.blocking_lane_prefix)
-                {
-                    return Err(RefusedJob::runnable(error, job));
-                }
+                candidate.start(Arc::clone(&self.inner), &self.inner.blocking_lane_prefix)?;
                 if self.inner.blocking_lane.set(candidate).is_err() {
-                    return Err(RefusedJob::runnable(
-                        ExecutorError::ThreadPoolCreationFailed,
-                        job,
-                    ));
+                    return Err(ExecutorError::ThreadPoolCreationFailed);
                 }
             }
             let lane = self
@@ -419,10 +367,13 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         // (On x86 `lock xadd` is already full-barrier, so this is free.)
         let previous_pending = self.inner.pending_tasks.fetch_add(1, Ordering::SeqCst);
 
+        let admitting = job
+            .take()
+            .expect("invariant: job is present before admission");
         let rejected = if get_current_worker_id() == Some(worker_index) {
             self.inner.workers[worker_index]
                 .lifo_slot
-                .try_push(job)
+                .try_push(admitting)
                 .and_then(|job| {
                     self.inner.workers[worker_index]
                         .queues
@@ -431,17 +382,17 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         } else {
             self.inner.workers[worker_index]
                 .queues
-                .try_push_external(priority, job)
+                .try_push_external(priority, admitting)
         };
 
-        if let Some(job) = rejected {
+        if let Some(rejected) = rejected {
             self.inner.pending_tasks.fetch_sub(1, Ordering::SeqCst);
-            return Err(RefusedJob::runnable(
-                ExecutorError::ResourceExhausted(format!(
-                    "worker {worker_index} scheduler admission queue is full"
-                )),
-                job,
-            ));
+            // Back in the caller's slot: it never entered a queue, so whoever
+            // owns the slot can still run it.
+            *job = Some(rejected);
+            return Err(ExecutorError::ResourceExhausted(format!(
+                "worker {worker_index} scheduler admission queue is full"
+            )));
         }
 
         // Try to wake up an idle worker via the lock-free wake lottery. The

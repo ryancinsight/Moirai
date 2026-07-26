@@ -10,7 +10,6 @@ use moirai_core::error::{ExecutorError, ExecutorResult};
 
 use super::super::super::{class::WorkClass, job::ScheduledJob};
 use super::super::types::{SchedulerScope, SchedulerScopeState, ScopedTaskCompletion};
-use super::core::RefusedJob;
 
 impl<'scope, C, const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     SchedulerScope<'scope, C, QUEUE_CAPACITY, SPIN_LIMIT>
@@ -23,6 +22,11 @@ where
     /// coalesced into worker-sized scheduler batches and complete before
     /// `ThreadScheduler::scope` returns. Jobs are not guaranteed to start while
     /// the scope body is still registering work.
+    ///
+    /// The `usize` the job receives identifies the lane running it. Worker
+    /// lanes are `0..worker_count()`; a job the admission queue turned away
+    /// runs on the calling lane, identified as `worker_count()`. It is a lane
+    /// identity, not an index into the worker set.
     pub fn spawn<F>(&self, task: F) -> ExecutorResult<()>
     where
         F: FnOnce(usize) + Send + 'scope,
@@ -93,10 +97,11 @@ where
     }
 
     fn schedule_single(&self, job: ScheduledJob) -> ExecutorResult<()> {
+        let mut job = Some(job);
         let admitted = self
             .scheduler
-            .admit_job::<C>(self.priority, self.locality_hint, job);
-        self.run_if_refused(admitted)
+            .admit_job::<C>(self.priority, self.locality_hint, &mut job);
+        self.run_if_refused(admitted, job)
     }
 
     fn schedule_chunk(&self, jobs: Vec<ScheduledJob>) -> ExecutorResult<()> {
@@ -108,13 +113,10 @@ where
 
         // Safety: `ThreadScheduler::scope` waits for every scheduled scoped job
         // and drops unscheduled buffered jobs before borrowed scope data can
-        // expire. A refused job is executed below, inside the same scope, so it
+        // expire. A refused job runs below, inside the same scope, so it
         // observes the same live borrows.
-        let admitted = unsafe {
-            self.scheduler
-                .admit_scoped_job::<C, _>(self.priority, self.locality_hint, scoped_job)
-        };
-        self.run_if_refused(admitted)
+        let job = unsafe { ScheduledJob::new_scoped(scoped_job) };
+        self.schedule_single(job)
     }
 
     /// Run a job the scheduler refused on the calling lane.
@@ -129,13 +131,14 @@ where
     ///
     /// Shutdown is not backpressure and is not absorbed: a scheduler that is
     /// going away refuses the work, and the error reaches the caller.
-    fn run_if_refused(&self, admitted: Result<(), RefusedJob>) -> ExecutorResult<()> {
-        let Err(refused) = admitted else {
-            return Ok(());
-        };
-
-        match (refused.error, refused.job) {
-            (ExecutorError::ResourceExhausted(_), Some(job)) => {
+    fn run_if_refused(
+        &self,
+        admitted: ExecutorResult<()>,
+        refused: Option<ScheduledJob>,
+    ) -> ExecutorResult<()> {
+        match (admitted, refused) {
+            (Ok(()), _) => Ok(()),
+            (Err(ExecutorError::ResourceExhausted(_)), Some(job)) => {
                 self.scheduler.record_admission_caller_run();
                 // `execute` contains its own unwind boundary, so a panicking
                 // job marks its completion token failed exactly as it would on
@@ -143,7 +146,7 @@ where
                 let _ = job.execute(self.scheduler.caller_lane_id());
                 Ok(())
             }
-            (error, _) => Err(error),
+            (Err(error), _) => Err(error),
         }
     }
 
