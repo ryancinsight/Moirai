@@ -105,7 +105,7 @@ remain hidden behind stale counters.
 - [x] [patch] ISSUE-220: Give `join_with`'s scheduled branch a claimable slot so
   a refused fork runs on the caller instead of panicking, with exactly-once
   coverage for both the refusal arm and the healthy two-lane race.
-- [ ] [patch] ISSUE-221: Execute a rejected scoped job inline in
+- [x] [patch] ISSUE-221: Execute a rejected scoped job inline in
   `SchedulerScope::flush` rather than dropping it, so every `scope` caller —
   `moirai_parallel::scope` included — survives admission backpressure.
 - [x] [arch] ISSUE-219: Move `moirai-iter`'s recursive sort fork-join off the

@@ -169,23 +169,18 @@ impl<const QUEUE_CAPACITY: usize> BlockingLane<QUEUE_CAPACITY> {
         &self,
         priority: Priority,
         locality_hint: Option<usize>,
-        job: ScheduledJob,
+        job: &mut Option<ScheduledJob>,
         pending_tasks: &AtomicUsize,
     ) -> ExecutorResult<()> {
         let lane_id = locality_hint.unwrap_or_else(next_lane_ticket) % self.queues.len();
-        let mut job = Some(job);
-        match self.queues[lane_id].try_push(priority, &mut job, pending_tasks) {
+        // `try_push` leaves a refused job in the slot rather than consuming it:
+        // it never ran, and its owner may still run it.
+        match self.queues[lane_id].try_push(priority, job, pending_tasks) {
             Ok(()) => Ok(()),
-            Err(BlockingAdmission::Full) => {
-                drop(job);
-                Err(ExecutorError::ResourceExhausted(format!(
-                    "blocking lane {lane_id} admission queue is full"
-                )))
-            }
-            Err(BlockingAdmission::ShuttingDown) => {
-                drop(job);
-                Err(ExecutorError::ShuttingDown)
-            }
+            Err(BlockingAdmission::Full) => Err(ExecutorError::ResourceExhausted(format!(
+                "blocking lane {lane_id} admission queue is full"
+            ))),
+            Err(BlockingAdmission::ShuttingDown) => Err(ExecutorError::ShuttingDown),
         }
     }
 

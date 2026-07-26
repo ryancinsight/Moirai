@@ -257,11 +257,50 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
     }
 
+    /// Lane identifier passed to a job the caller runs itself.
+    ///
+    /// Worker lanes are `0..worker_count()`; the calling thread is the lane
+    /// past the last worker. It is a lane identity, never an index into the
+    /// worker set.
+    pub(crate) fn caller_lane_id(&self) -> usize {
+        get_current_worker_id().unwrap_or_else(|| self.worker_count())
+    }
+
+    /// Schedule a job, dropping it if admission refuses it.
+    ///
+    /// Callers that can still run a refused job themselves use
+    /// [`Self::admit_job`] instead.
     pub(crate) fn schedule_job<C>(
         &self,
         priority: Priority,
         locality_hint: Option<usize>,
         job: ScheduledJob,
+    ) -> ExecutorResult<()>
+    where
+        C: WorkClass,
+    {
+        self.admit_job::<C>(priority, locality_hint, &mut Some(job))
+    }
+
+    /// Schedule a job, leaving it in `job` when admission refuses it.
+    ///
+    /// A refused job has not run and never will unless the caller runs it, so
+    /// dropping it silently discards work. Admission failure and job loss are
+    /// separate facts: a job a full queue turned away is still in `job` and
+    /// still runnable, while one a lane consumed while failing is not, so the
+    /// caller checks rather than assumes. `SchedulerScope::flush` runs what is
+    /// left behind on the calling lane, which is how a scope keeps its "every
+    /// spawned job runs before the scope returns" contract under backpressure.
+    ///
+    /// The job travels by slot rather than inside the error so the hot path
+    /// keeps a small `Result`: a `ScheduledJob` carries inline, cache-line
+    /// aligned storage, and an `Err` variant holding one would widen every
+    /// admission return, success included.
+    pub(crate) fn admit_job<C>(
+        &self,
+        priority: Priority,
+        locality_hint: Option<usize>,
+        job: &mut Option<ScheduledJob>,
     ) -> ExecutorResult<()>
     where
         C: WorkClass,
@@ -328,10 +367,13 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         // (On x86 `lock xadd` is already full-barrier, so this is free.)
         let previous_pending = self.inner.pending_tasks.fetch_add(1, Ordering::SeqCst);
 
+        let admitting = job
+            .take()
+            .expect("invariant: job is present before admission");
         let rejected = if get_current_worker_id() == Some(worker_index) {
             self.inner.workers[worker_index]
                 .lifo_slot
-                .try_push(job)
+                .try_push(admitting)
                 .and_then(|job| {
                     self.inner.workers[worker_index]
                         .queues
@@ -340,12 +382,14 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         } else {
             self.inner.workers[worker_index]
                 .queues
-                .try_push_external(priority, job)
+                .try_push_external(priority, admitting)
         };
 
-        if let Some(job) = rejected {
+        if let Some(rejected) = rejected {
             self.inner.pending_tasks.fetch_sub(1, Ordering::SeqCst);
-            drop(job);
+            // Back in the caller's slot: it never entered a queue, so whoever
+            // owns the slot can still run it.
+            *job = Some(rejected);
             return Err(ExecutorError::ResourceExhausted(format!(
                 "worker {worker_index} scheduler admission queue is full"
             )));

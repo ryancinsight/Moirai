@@ -181,6 +181,108 @@ fn saturated_indexed_admission_runs_rejected_chunks_on_caller() {
 }
 
 #[test]
+fn saturated_scope_admission_runs_rejected_jobs_on_caller() {
+    // A scope owes its caller that every spawned job ran by the time it
+    // returns. `flush` used to drop a job the admission queue rejected, so the
+    // caller resumed as though borrowed work had happened when it never did —
+    // silent, and invisible to the scope's own counters, which the dropped
+    // job's completion token decrements either way.
+    const ADMISSION_CAPACITY: usize = crate::schedule::queue::INJECTOR_CAPACITY;
+    const SCOPED_JOBS: usize = 4;
+
+    let scheduler = ThreadScheduler::<256>::new(1, "scope-caller-runs").unwrap();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+        .unwrap();
+    started_rx.recv().unwrap();
+
+    for _ in 0..ADMISSION_CAPACITY {
+        scheduler
+            .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
+            .unwrap();
+    }
+
+    let caller_runs_before = scheduler.admission_caller_runs();
+    let visits: [AtomicUsize; SCOPED_JOBS] = std::array::from_fn(|_| AtomicUsize::new(0));
+    let lanes: [AtomicUsize; SCOPED_JOBS] = std::array::from_fn(|_| AtomicUsize::new(usize::MAX));
+
+    scheduler
+        .scope::<SyncTask, _>(Priority::Normal, None, |scope| {
+            for (index, (visit, lane)) in visits.iter().zip(lanes.iter()).enumerate() {
+                scope.spawn(move |worker_id| {
+                    visit.fetch_add(1, Ordering::Relaxed);
+                    lane.store(worker_id, Ordering::Relaxed);
+                    let _ = index;
+                })?;
+            }
+            Ok(())
+        })
+        .expect("a saturated scope must still complete every spawned job");
+
+    // Exactly once each: the refused job runs on the caller instead of being
+    // dropped, and it must not also reach a worker.
+    for visit in &visits {
+        assert_eq!(visit.load(Ordering::Relaxed), 1);
+    }
+    // The caller's lane is the one past the last worker, never a worker index.
+    for lane in &lanes {
+        assert_eq!(lane.load(Ordering::Relaxed), scheduler.worker_count());
+    }
+    assert!(
+        scheduler.admission_caller_runs() > caller_runs_before,
+        "the caller-run backpressure event must be surfaced, not silent"
+    );
+
+    release_tx.send(()).unwrap();
+    scheduler.join().unwrap();
+    assert_eq!(scheduler.pending_tasks(), 0);
+    scheduler.shutdown();
+}
+
+#[test]
+fn saturated_scope_propagates_a_caller_run_job_panic() {
+    // A job the caller runs keeps a worker's panic semantics: the scope reports
+    // failure rather than unwinding through the scope body.
+    const ADMISSION_CAPACITY: usize = crate::schedule::queue::INJECTOR_CAPACITY;
+
+    let scheduler = ThreadScheduler::<256>::new(1, "scope-caller-panic").unwrap();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+        .unwrap();
+    started_rx.recv().unwrap();
+
+    for _ in 0..ADMISSION_CAPACITY {
+        scheduler
+            .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
+            .unwrap();
+    }
+
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let scoped = scheduler.scope::<SyncTask, _>(Priority::Normal, None, |scope| {
+        scope.spawn(|_| panic!("caller-run scoped job panic"))?;
+        Ok(())
+    });
+    std::panic::set_hook(previous_hook);
+
+    assert_eq!(scoped, Err(ExecutorError::SpawnFailed(TaskError::Panicked)));
+
+    release_tx.send(()).unwrap();
+    scheduler.join().unwrap();
+    scheduler.shutdown();
+}
+
+#[test]
 fn blocking_lane_preserves_compute_progress_when_full() {
     let scheduler = ThreadScheduler::new(2, "blocking-lane-progress").unwrap();
     let blocking_started = Arc::new(Barrier::new(3));

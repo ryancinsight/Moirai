@@ -216,11 +216,14 @@ impl<'scope> Scope<'scope> {
     ///
     /// The task may borrow values that outlive the scope call. The scope waits
     /// for every spawned task before returning, so borrowed data cannot escape.
+    /// A task the scheduler's admission queue turns away runs on the calling
+    /// thread instead, so backpressure costs parallelism rather than the task.
     ///
     /// # Panics
     ///
-    /// Panics if the underlying scheduler rejects the spawn (for example, if the
-    /// executor is shutting down).
+    /// Panics if the underlying scheduler refuses to register the task, which
+    /// registration itself does not do — the failure surfaces from [`scope`]
+    /// when the scheduler is shutting down.
     #[inline]
     pub fn spawn<F>(&self, task: F)
     where

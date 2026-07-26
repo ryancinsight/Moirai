@@ -6,7 +6,7 @@ use std::{
     panic::{catch_unwind, AssertUnwindSafe},
 };
 
-use moirai_core::error::ExecutorResult;
+use moirai_core::error::{ExecutorError, ExecutorResult};
 
 use super::super::super::{class::WorkClass, job::ScheduledJob};
 use super::super::types::{SchedulerScope, SchedulerScopeState, ScopedTaskCompletion};
@@ -22,6 +22,11 @@ where
     /// coalesced into worker-sized scheduler batches and complete before
     /// `ThreadScheduler::scope` returns. Jobs are not guaranteed to start while
     /// the scope body is still registering work.
+    ///
+    /// The `usize` the job receives identifies the lane running it. Worker
+    /// lanes are `0..worker_count()`; a job the admission queue turned away
+    /// runs on the calling lane, identified as `worker_count()`. It is a lane
+    /// identity, not an index into the worker set.
     pub fn spawn<F>(&self, task: F) -> ExecutorResult<()>
     where
         F: FnOnce(usize) + Send + 'scope,
@@ -92,9 +97,11 @@ where
     }
 
     fn schedule_single(&self, job: ScheduledJob) -> ExecutorResult<()> {
-        self.scheduler
-            .schedule_job::<C>(self.priority, self.locality_hint, job)?;
-        Ok(())
+        let mut job = Some(job);
+        let admitted = self
+            .scheduler
+            .admit_job::<C>(self.priority, self.locality_hint, &mut job);
+        self.run_if_refused(admitted, job)
     }
 
     fn schedule_chunk(&self, jobs: Vec<ScheduledJob>) -> ExecutorResult<()> {
@@ -104,12 +111,43 @@ where
             }
         };
 
-        self.scheduler.schedule_scoped_job::<C, _>(
-            self.priority,
-            self.locality_hint,
-            scoped_job,
-        )?;
-        Ok(())
+        // Safety: `ThreadScheduler::scope` waits for every scheduled scoped job
+        // and drops unscheduled buffered jobs before borrowed scope data can
+        // expire. A refused job runs below, inside the same scope, so it
+        // observes the same live borrows.
+        let job = unsafe { ScheduledJob::new_scoped(scoped_job) };
+        self.schedule_single(job)
+    }
+
+    /// Run a job the scheduler refused on the calling lane.
+    ///
+    /// A scope promises its caller that every spawned job runs before the scope
+    /// returns. Dropping a job the admission queue rejected breaks that promise
+    /// silently: the caller blocks until the scope joins and then continues as
+    /// though the work happened. Running it here keeps the promise at the cost
+    /// of the parallelism that job would have had — the same trade
+    /// `for_each_indexed` already makes with a rejected chunk, counted by the
+    /// same `admission_caller_runs` surface.
+    ///
+    /// Shutdown is not backpressure and is not absorbed: a scheduler that is
+    /// going away refuses the work, and the error reaches the caller.
+    fn run_if_refused(
+        &self,
+        admitted: ExecutorResult<()>,
+        refused: Option<ScheduledJob>,
+    ) -> ExecutorResult<()> {
+        match (admitted, refused) {
+            (Ok(()), _) => Ok(()),
+            (Err(ExecutorError::ResourceExhausted(_)), Some(job)) => {
+                self.scheduler.record_admission_caller_run();
+                // `execute` contains its own unwind boundary, so a panicking
+                // job marks its completion token failed exactly as it would on
+                // a worker instead of unwinding through the scope body.
+                let _ = job.execute(self.scheduler.caller_lane_id());
+                Ok(())
+            }
+            (Err(error), _) => Err(error),
+        }
     }
 
     fn state(&self) -> &SchedulerScopeState {

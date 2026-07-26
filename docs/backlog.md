@@ -344,18 +344,40 @@ architecture definition.
   `for_each_indexed` does, which needs `schedule_job` to hand the job back
   rather than drop it. Filed as ISSUE-221.
 
-#### ⏳ ISSUE-221 [patch]: Execute a rejected scoped job inline instead of dropping it
+#### ✅ ISSUE-221 [patch]: Execute a rejected scoped job inline instead of dropping it
 - **Type**: Scheduler Correctness
 - **Root Cause**: `ThreadScheduler::schedule_job` drops a job the admission
   queue rejects and returns `ResourceExhausted`. `SchedulerScope::flush` cannot
   recover it, so every `scope` caller loses that job's work; only
   `for_each_indexed`, which owns its index domain, can reconstruct it.
-  `moirai_parallel::scope` panics through `expect` in that case.
+  `moirai_parallel::scope` panics through `expect` in that case. The loss is
+  invisible to the scope's own counters: a dropped job's completion token
+  decrements the pending count exactly as a finished one does, so the caller
+  resumes as though borrowed work had happened.
+- **Resolution**: `admit_job` takes the job in an `&mut Option` slot the caller
+  owns and leaves it there when admission refuses it — the shape the blocking
+  queue's `try_push` already used. `flush` runs what is left behind on its own
+  lane through the job's existing unwind boundary and counts it with
+  `record_admission_caller_run`. `schedule_chunk` collapses onto
+  `schedule_single`. Shutdown is not backpressure and still propagates.
+  `caller_lane_id` names the calling lane as `worker_count()`, documented on
+  `SchedulerScope::spawn` as a lane identity rather than a worker index.
 - **Acceptance criteria**: `flush` runs a rejected job on the caller under the
   same panic boundary as a worker, records `admission_caller_run`, and a
   saturated-admission scope test observes every spawned job running exactly
   once.
-- **Dependencies**: a `schedule_job` variant that returns the rejected job.
+- **Evidence tier**: empirical, red→green — both new tests fail against the
+  parent revision (jobs never run; a caller-run panic surfaces as
+  `ResourceExhausted` rather than `SpawnFailed`) and pass with the fix.
+  `moirai-executor` 91/91 and 343/343 across executor/parallel/iter/moirai.
+- **Residual**: the fix is verified at the scheduler layer, where admission can
+  be saturated deterministically on a one-worker scheduler. `moirai_parallel::
+  scope` inherits it through the same `flush`, but has no test of its own —
+  saturating the process-wide executor from that layer would be a fragile test.
+  A refused job now runs on the caller's thread, which for a non-worker caller
+  is a thread the job's closure was not written for; the lane identity in its
+  `usize` argument is documented, but a closure that assumed a worker lane is
+  a caller-side contract change.
 
 #### 🔄 ISSUE-208 [arch]: Make `ThreadScheduler::scope` sound under nesting (unblock parallel non-indexed `drive`)
 - **Type**: Scheduler Correctness / Memory Safety
