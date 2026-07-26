@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Run a `moirai_parallel::join_with` branch on the caller when the scheduler
+  refuses it. The scheduled branch was moved into the job, so a job refused
+  while shutting down — or rejected by a full per-worker admission queue — was
+  dropped with the branch inside it, and the join turned the resulting error
+  into a panic. Both lanes now claim the branch from a shared slot, so it runs
+  exactly once on whichever lane reaches it, and backpressure makes a join
+  sequential rather than fatal.
+
 ### Changed
 
 - Run the `moirai-iter` parallel sorts' recursive fork-join on the unified
