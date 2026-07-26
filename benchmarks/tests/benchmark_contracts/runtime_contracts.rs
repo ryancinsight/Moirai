@@ -111,8 +111,10 @@ fn parallel_join_uses_static_policy_and_scoped_scheduler() {
         "scope::<SyncTask",
         "scope.spawn(|_|",
         "scope.flush()?",
-        "left_result = Some(left())",
-        "right_result = Some(right())",
+        "Branch::Pending(left)",
+        "Branch::run_shared(&left_slot)",
+        "Branch::Pending(right)",
+        "right_slot.run_here()",
         "join_with::<crate::Adaptive",
     ] {
         assert!(
