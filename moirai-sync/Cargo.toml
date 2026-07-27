@@ -22,6 +22,9 @@ libc = "0.2"
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
+# Asserts the auto-trait bounds of `FutexMutexGuard`, including the negative one
+# that a positive assertion cannot express.
+static_assertions = "1.1"
 
 [[bench]]
 name = "resource_pool"

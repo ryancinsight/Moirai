@@ -1,3 +1,43 @@
+//! Mutex backed by a Linux futex, with a condvar fallback elsewhere.
+//!
+//! Both builds present the same API and the same guarantees; only the blocking
+//! mechanism differs, so the two protocols are described separately below.
+//!
+//! # Linux: three-state futex
+//!
+//! `state` is the classic Drepper encoding — 0 unlocked, 1 locked, 2 locked with
+//! waiters. The one rule that is easy to get wrong is stated at `lock_slow`:
+//! every acquisition through the slow path takes the lock with `swap(2)` rather
+//! than `CAS 0 -> 1`, because unlock only wakes when it observes 2. Acquiring at
+//! 1 after a wakeup would erase that marker while other threads are still
+//! parked, and the next unlock would skip the wake and strand them.
+//!
+//! # Elsewhere: `locked` flag plus condvar
+//!
+//! A waiter registers in `waiters`, then blocks on `condvar` while holding
+//! `fallback`; the unlocker clears `locked` and notifies only if `waiters` is
+//! non-zero. That pair of accesses is a store-buffer pattern — the waiter stores
+//! `waiters` then loads `locked`, the unlocker stores `locked` then loads
+//! `waiters` — so both sides carry a `SeqCst` fence between their store and
+//! their load. Without them each load may miss the other's store, and the
+//! unlocker skips a notify for a waiter that is about to sleep forever. Holding
+//! `fallback` across the `locked` check and the `condvar.wait` is what keeps a
+//! notify from landing in between.
+//!
+//! # `Send` and `Sync`
+//!
+//! `FutexMutex<T>` is `Send + Sync` for `T: Send`, matching `std::sync::Mutex`:
+//! the lock hands `&mut T` to one thread at a time, so `T` must be able to move
+//! between threads, but never needs to be shared by two at once.
+//!
+//! `FutexMutexGuard` is deliberately `Send`, unlike `std::sync::MutexGuard`.
+//! Neither protocol requires the releasing thread to be the acquiring one: the
+//! futex state is a plain atomic, and `fallback` is only ever held inside
+//! `lock_slow`/`unlock`, never across the guard's lifetime.
+//!
+//! The guard's `PhantomData<T>` is load-bearing rather than decorative — see the
+//! note on the field.
+
 use std::cell::UnsafeCell;
 use std::fmt;
 use std::hint;
@@ -21,6 +61,11 @@ mod futex {
 
     /// Wait on a futex if the value matches expected
     pub fn futex_wait(addr: *const i32, expected: i32) -> i32 {
+        // SAFETY: `addr` points at the caller's live `AtomicI32`. The kernel
+        // reads that word, compares it with `expected`, and blocks only while
+        // they match — the comparison is atomic with the sleep, so an unlock
+        // landing in between cannot be missed. The null timeout means no
+        // deadline, and the trailing arguments are unused by FUTEX_WAIT.
         unsafe {
             libc::syscall(
                 libc::SYS_futex,
@@ -36,6 +81,9 @@ mod futex {
 
     /// Wake up waiters on a futex
     pub fn futex_wake(addr: *const i32, num_waiters: i32) -> i32 {
+        // SAFETY: `addr` points at the caller's live `AtomicI32`. FUTEX_WAKE
+        // only reads the address as a queue key; it neither loads nor stores
+        // the word, and the trailing arguments are unused by this operation.
         unsafe {
             libc::syscall(
                 libc::SYS_futex,
@@ -82,6 +130,11 @@ impl<T> fmt::Debug for FutexMutex<T> {
     }
 }
 
+// SAFETY: the only non-`Sync` field is the `UnsafeCell<T>`, and it is reachable
+// solely through a guard, which the lock protocol hands to one thread at a time.
+// `T: Send` is therefore the exact bound — ownership of the data moves between
+// threads, but is never shared by two at once — and it is the same bound
+// `std::sync::Mutex` carries for the same reason.
 unsafe impl<T: Send> Send for FutexMutex<T> {}
 unsafe impl<T: Send> Sync for FutexMutex<T> {}
 
@@ -246,6 +299,14 @@ impl<T> FutexMutex<T> {
 /// Guard for FutexMutex that automatically unlocks on drop.
 pub struct FutexMutexGuard<'a, T> {
     mutex: &'a FutexMutex<T>,
+    /// Ties the guard's auto traits to `T`, which is what makes `Sync` require
+    /// `T: Sync`.
+    ///
+    /// Without this field the guard's only member would be
+    /// `&FutexMutex<T>`, and that is `Sync` for any `T: Send` — so the guard
+    /// would be `Sync` too, and `&guard` would hand out `&T` to several threads
+    /// for a `T` that cannot be shared. Removing this is a soundness change, not
+    /// a cleanup; `guard_sync_requires_sync_data` fails if it goes.
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -259,12 +320,40 @@ impl<'a, T> Deref for FutexMutexGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
+        // SAFETY: holding the guard means this thread holds the lock, so no
+        // other thread can hold a reference to the data at the same time.
         unsafe { &*self.mutex.data.get() }
     }
 }
 
 impl<'a, T> DerefMut for FutexMutexGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: as `deref`, and `&mut self` rules out any other borrow taken
+        // through this guard, so the returned reference is unique.
         unsafe { &mut *self.mutex.data.get() }
+    }
+}
+
+#[cfg(test)]
+mod auto_traits {
+    use super::{FutexMutex, FutexMutexGuard};
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+    use std::cell::Cell;
+
+    assert_impl_all!(FutexMutex<u32>: Send, Sync);
+
+    // Unlike `std::sync::MutexGuard`, this guard may cross threads: neither
+    // protocol requires the releasing thread to be the acquiring one.
+    assert_impl_all!(FutexMutexGuard<'static, u32>: Send, Sync);
+
+    /// `Sync` must follow `T`, not the mutex reference.
+    ///
+    /// `Cell<u32>` is `Send` but not `Sync`, so `&FutexMutex<Cell<u32>>` is
+    /// `Sync` on its own. Only the guard's `PhantomData<T>` stops the guard from
+    /// inheriting that and handing `&Cell<u32>` to several threads at once, so
+    /// this is the assertion that fails if the field is ever dropped.
+    #[allow(dead_code)]
+    fn guard_sync_requires_sync_data() {
+        assert_not_impl_any!(FutexMutexGuard<'static, Cell<u32>>: Sync);
     }
 }
