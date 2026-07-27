@@ -1,12 +1,16 @@
-//! Lock-free Single Producer Single Consumer channel.
+//! The bounded ring itself: storage, the two counters, and the cached-index
+//! primitives both half-pair flavours drive.
 //!
-//! Optimized for low latency with zero-copy semantics.
+//! Nothing here decides *who* may send or receive. That is the job of the
+//! wrappers in [`shared`](super::shared) and [`borrowed`](super::borrowed),
+//! which is why [`SpscChannel`] stays crate-private: its methods take `&self`
+//! and its `Sync` impl lets `&SpscChannel` cross threads, so exposing it would
+//! let safe code drive two producers into one slot (ADR-024).
 
-use super::error::{CacheAligned, Channel, ChannelError, Result};
+use crate::channel::error::{CacheAligned, Channel, ChannelError, Result};
 use std::cell::{Cell, UnsafeCell};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
 
 /// Exponential-backoff spin rounds (`1 << round` spin-loop hints per round,
 /// ~63 total hints) before a blocked send/recv falls back to
@@ -31,8 +35,11 @@ pub(crate) struct SpscChannel<T> {
     head: CacheAligned<AtomicUsize>,
     /// Consumer position (cache-aligned)
     tail: CacheAligned<AtomicUsize>,
-    /// Channel state
-    closed: AtomicBool,
+    /// Channel state.
+    ///
+    /// Written by whichever half drops first, so a peer blocked in `send` or
+    /// `recv` stops waiting; read on every operation.
+    pub(super) closed: AtomicBool,
 }
 
 // SAFETY: the buffer is only ever touched by one producer and one consumer,
@@ -65,19 +72,22 @@ impl<T> SpscChannel<T> {
             closed: AtomicBool::new(false),
         }
     }
+}
 
-    /// Create a channel pair (sender, receiver) for ergonomic usage
-    pub fn channel(capacity: usize) -> (SpscSender<T>, SpscReceiver<T>) {
-        let channel = Arc::new(Self::new(capacity));
+impl<T> SpscChannel<T> {
+    /// The producer and consumer counters, in that order, read without
+    /// synchronization.
+    ///
+    /// `Relaxed` is correct only because every caller holds the ring
+    /// exclusively: [`SpscRing`](super::SpscRing)'s methods take `&self` or
+    /// `&mut self`, and its halves borrow it, so no half can exist — and
+    /// therefore no other thread can be advancing either counter — while this
+    /// runs. Reading these from a live half would need the acquire loads the
+    /// send and receive paths use.
+    pub(super) fn indices(&self) -> (usize, usize) {
         (
-            SpscSender {
-                channel: channel.clone(),
-                cached_tail: Cell::new(0),
-            },
-            SpscReceiver {
-                channel,
-                cached_head: Cell::new(0),
-            },
+            self.head.0.load(Ordering::Relaxed),
+            self.tail.0.load(Ordering::Relaxed),
         )
     }
 }
@@ -111,7 +121,7 @@ fn back_off(spin: &mut usize) {
 
 /// Retry `attempt` on the spin-then-yield schedule until it resolves to
 /// something other than a transiently full or empty queue.
-fn blocking<F, R>(mut attempt: F) -> Result<R>
+pub(super) fn blocking<F, R>(mut attempt: F) -> Result<R>
 where
     F: FnMut() -> Result<R>,
 {
@@ -134,7 +144,7 @@ impl<T: Send> SpscChannel<T> {
     /// this may take the slow path unnecessarily but can never report space that
     /// does not exist. That one-sidedness is what makes the cache sound.
     #[inline]
-    fn has_room(&self, head: usize, cached_tail: &Cell<usize>) -> bool {
+    pub(super) fn has_room(&self, head: usize, cached_tail: &Cell<usize>) -> bool {
         if head.wrapping_sub(cached_tail.get()) < self.buffer.len() {
             return true;
         }
@@ -149,7 +159,7 @@ impl<T: Send> SpscChannel<T> {
     /// index. Mirrors [`Self::has_room`]: a stale cache understates what is
     /// queued, so it can cost an extra load but never invent an element.
     #[inline]
-    fn has_value(&self, tail: usize, cached_head: &Cell<usize>) -> bool {
+    pub(super) fn has_value(&self, tail: usize, cached_head: &Cell<usize>) -> bool {
         if tail != cached_head.get() {
             return true;
         }
@@ -158,7 +168,7 @@ impl<T: Send> SpscChannel<T> {
         tail != head
     }
 
-    fn try_send_cached(&self, value: T, cached_tail: &Cell<usize>) -> Result<()> {
+    pub(super) fn try_send_cached(&self, value: T, cached_tail: &Cell<usize>) -> Result<()> {
         if self.closed.load(Ordering::Acquire) {
             return Err(ChannelError::Closed);
         }
@@ -179,7 +189,7 @@ impl<T: Send> SpscChannel<T> {
         Ok(())
     }
 
-    fn try_recv_cached(&self, cached_head: &Cell<usize>) -> Result<T> {
+    pub(super) fn try_recv_cached(&self, cached_head: &Cell<usize>) -> Result<T> {
         let tail = self.tail.0.load(Ordering::Relaxed);
 
         if !self.has_value(tail, cached_head) {
@@ -214,7 +224,7 @@ impl<T: Send> SpscChannel<T> {
     /// `value` must survive a failed attempt: `try_send_cached` takes it by
     /// value, so a closure would move it on the first iteration. Here it stays
     /// owned by this frame and is moved exactly once, when a slot is claimed.
-    fn send_cached(&self, value: T, cached_tail: &Cell<usize>) -> Result<()> {
+    pub(super) fn send_cached(&self, value: T, cached_tail: &Cell<usize>) -> Result<()> {
         let mut spin = 0;
         loop {
             if self.closed.load(Ordering::Acquire) {
@@ -364,137 +374,5 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
 
     fn capacity(&self) -> Option<usize> {
         Some(self.buffer.len())
-    }
-}
-
-/// Sender half of SPSC channel.
-///
-/// The single-producer half of the pair: not `Clone`, so only one exists, and
-/// not `Sync`, so it cannot be shared while it exists.
-pub struct SpscSender<T> {
-    pub(super) channel: Arc<SpscChannel<T>>,
-    /// Last known consumer index, and the reason the sender is `!Sync`.
-    ///
-    /// Reading the real `tail` on every send touches the consumer's cache line
-    /// each time, which dominates the cost of a queue that is otherwise two
-    /// loads and a store. Consulting this first means a producer that is not
-    /// hitting a full queue never reads the consumer's line at all.
-    ///
-    /// It doubles as the marker keeping the sender unshareable: `send` takes
-    /// `&self`, so a `Sync` sender could be driven by two threads at once, both
-    /// claiming the same slot. `Cell` is `Send` but not `Sync`, which permits
-    /// moving the sender to another thread while forbidding sharing it.
-    /// Replacing it with something `Sync` reopens that race, and
-    /// `halves_are_not_sync` fails if it happens.
-    cached_tail: Cell<usize>,
-}
-
-impl<T: Send> SpscSender<T> {
-    /// Send a value through the channel, blocking until there is room.
-    pub fn send(&self, value: T) -> Result<()> {
-        self.channel.send_cached(value, &self.cached_tail)
-    }
-
-    /// Try to send a value without blocking.
-    pub fn try_send(&self, value: T) -> Result<()> {
-        self.channel.try_send_cached(value, &self.cached_tail)
-    }
-}
-
-/// Receiver half of SPSC channel.
-///
-/// The single-consumer half of the pair, `!Sync` for the same reason as
-/// [`SpscSender`] — two shared receivers would `assume_init_read` one slot
-/// twice, moving out of it and then dropping it twice.
-pub struct SpscReceiver<T> {
-    pub(super) channel: Arc<SpscChannel<T>>,
-    /// Last known producer index, and the reason the receiver is `!Sync`.
-    /// Mirrors `SpscSender::cached_tail` in both roles.
-    cached_head: Cell<usize>,
-}
-
-impl<T: Send> SpscReceiver<T> {
-    /// Receive a value from the channel, blocking until one arrives.
-    pub fn recv(&self) -> Result<T> {
-        blocking(|| self.channel.try_recv_cached(&self.cached_head))
-    }
-
-    /// Try to receive a value without blocking.
-    pub fn try_recv(&self) -> Result<T> {
-        self.channel.try_recv_cached(&self.cached_head)
-    }
-}
-
-impl<T: Send> crate::channel::roles::Producer<T> for SpscSender<T> {
-    #[inline]
-    fn send(&self, value: T) -> Result<()> {
-        SpscSender::send(self, value)
-    }
-
-    #[inline]
-    fn try_send(&self, value: T) -> Result<()> {
-        SpscSender::try_send(self, value)
-    }
-
-    #[inline]
-    fn is_full(&self) -> bool {
-        Channel::is_full(&*self.channel)
-    }
-
-    #[inline]
-    fn capacity(&self) -> Option<usize> {
-        Channel::capacity(&*self.channel)
-    }
-}
-
-impl<T: Send> crate::channel::roles::Consumer<T> for SpscReceiver<T> {
-    #[inline]
-    fn recv(&self) -> Result<T> {
-        SpscReceiver::recv(self)
-    }
-
-    #[inline]
-    fn try_recv(&self) -> Result<T> {
-        SpscReceiver::try_recv(self)
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        Channel::is_empty(&*self.channel)
-    }
-}
-
-impl<T> Drop for SpscSender<T> {
-    fn drop(&mut self) {
-        self.channel.closed.store(true, Ordering::Release);
-    }
-}
-
-impl<T> Drop for SpscReceiver<T> {
-    fn drop(&mut self) {
-        self.channel.closed.store(true, Ordering::Release);
-    }
-}
-
-#[cfg(test)]
-mod auto_traits {
-    use super::{SpscReceiver, SpscSender};
-    use static_assertions::{assert_impl_all, assert_not_impl_any};
-
-    // Each half may be moved to the thread that owns its role.
-    assert_impl_all!(SpscSender<u64>: Send);
-    assert_impl_all!(SpscReceiver<u64>: Send);
-
-    /// Neither half may be *shared*, which is what keeps the channel SPSC.
-    ///
-    /// Both `send` and `recv` take `&self`, so a `Sync` half could be driven by
-    /// two threads at once: two producers would write the same slot, and two
-    /// consumers would read one slot twice. The `PhantomData<Cell<()>>` on each
-    /// half is the only thing preventing that, and deleting it looks like
-    /// removing an unused field — this assertion is what catches it.
-    #[allow(dead_code)]
-    fn halves_are_not_sync() {
-        assert_not_impl_any!(SpscSender<u64>: Sync);
-        assert_not_impl_any!(SpscReceiver<u64>: Sync);
     }
 }
