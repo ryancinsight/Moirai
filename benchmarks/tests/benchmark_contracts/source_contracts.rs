@@ -199,7 +199,12 @@ fn scheduler_scope_buffers_inline_scheduled_jobs() {
         "let scoped_task = move |worker_id|",
         "ScheduledJob::new_scoped(scoped_task)",
         "fn schedule_single(&self, job: ScheduledJob)",
-        ".schedule_job::<C>(self.priority, self.locality_hint, job)",
+        // Admission leaves a refused job in the caller's slot so `flush` can run
+        // it on the calling lane instead of dropping it (ISSUE-221).
+        ".admit_job::<C>(self.priority, self.locality_hint, &mut job)",
+        "fn run_if_refused",
+        "self.scheduler.record_admission_caller_run()",
+        "job.execute(self.scheduler.caller_lane_id())",
         "fn schedule_chunk(&self, jobs: Vec<ScheduledJob>)",
         "let _ = job.execute(worker_id)",
     ] {

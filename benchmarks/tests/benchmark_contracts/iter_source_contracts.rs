@@ -1,43 +1,4 @@
 #[test]
-fn iter_thread_pool_uses_monomorphized_erased_jobs() {
-    let source = format!(
-        "{}\n{}",
-        read_benchmark("../moirai-iter/src/base.rs"),
-        read_benchmark("../moirai-iter/src/base/tests.rs")
-    );
-
-    for required in [
-        "sender: Option<std::sync::mpsc::Sender<ErasedThreadJob>>",
-        "struct ErasedThreadJob",
-        "run: unsafe fn(NonNull<()>)",
-        "drop: unsafe fn(NonNull<()>)",
-        "run_thread_job::<F>",
-        "drop_thread_job::<F>",
-        "std::sync::mpsc::channel::<ErasedThreadJob>()",
-        "job.run()",
-        "ErasedThreadJob::new(job)",
-        "test_erased_thread_job_runs_once",
-        "test_erased_thread_job_drops_unrun_capture",
-    ] {
-        assert!(
-            source.contains(required),
-            "iterator thread pool must retain monomorphized erased jobs through {required}"
-        );
-    }
-
-    for prohibited in [
-        "Sender<Box<dyn FnOnce() + Send>>",
-        "channel::<Box<dyn FnOnce() + Send",
-        "s.send(Box::new(job))",
-    ] {
-        assert!(
-            !source.contains(prohibited),
-            "iterator thread pool must not reintroduce dynamic job dispatch through {prohibited}"
-        );
-    }
-}
-
-#[test]
 fn iterator_base_does_not_expose_boxed_future_execution_trait() {
     let source = format!(
         "{}\n{}",
@@ -176,7 +137,11 @@ fn iter_ops_parallel_iter_uses_scoped_borrowed_chunks() {
         "DEFAULT_RING_BUFFER_CAPACITY",
         "should_execute_scoped",
         "chunk_size > DEFAULT_RING_BUFFER_CAPACITY",
-        "std::thread::scope",
+        // The fan-out lends borrowed chunks to scheduler lanes and joins before
+        // returning; the fallback re-runs the same closure on the caller. Both
+        // are what keep the closure non-`'static`, so both are the marker.
+        "for_each_indexed",
+        "sequential_fallback_permitted",
         ".chunks(chunk_size)",
         "F: Fn(&T) -> U + Send + Sync",
         "parallel_iter_map_borrows_data_without_static_closure",
@@ -990,8 +955,13 @@ fn sorting_slice_extension_is_value_semantic_and_benchmarked() {
         "fn par_sort_unstable_by_key<K, F>(&mut self, f: F)",
         "const STABLE_SEQUENTIAL_THRESHOLD: usize = 2048;",
         "const UNSTABLE_SEQUENTIAL_THRESHOLD: usize = 16_384;",
-        "par_merge_sort_impl(self, &compare, &pool)",
-        "par_sort_unstable_by_impl(self, &compare, &pool)",
+        // The fork-join runs on the scheduler scope, not a crate-owned pool
+        // (ADR-022), and splits only while a sub-slice is worth another lane.
+        "par_merge_sort_impl(executor, self, &compare, grain)",
+        "par_sort_unstable_by_impl(executor, self, &compare, grain)",
+        "fn fork_join_halves",
+        "executor.scope::<SyncTask, _>",
+        "fn fork_grain",
         "test_sorting_empty_and_single",
         "test_sorting_large_random",
         "test_sorting_stability",

@@ -2,14 +2,16 @@
 
 use super::base::ExecutionBase;
 use super::hybrid::owned_chunks;
-use crate::base::ThreadPool;
+use crate::base::SendPtr;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 /// Parallel execution context for CPU-bound work
+///
+/// Work runs on the process-wide scheduler rather than a context-owned pool,
+/// so several contexts share one worker set instead of over-subscribing the
+/// machine with a thread pool each.
 #[derive(Clone)]
 pub struct ParallelContext {
-    thread_pool: Arc<ThreadPool>,
     chunk_size: usize,
 }
 
@@ -28,26 +30,14 @@ impl Debug for ParallelContext {
 }
 
 impl ParallelContext {
-    /// Create a new parallel context with default thread pool
+    /// Create a new parallel context with the default chunk size
     pub fn new() -> Self {
-        let thread_count = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
-        Self {
-            thread_pool: Arc::new(ThreadPool::new(thread_count)),
-            chunk_size: 1000,
-        }
+        Self { chunk_size: 1000 }
     }
 
     /// Create with specific chunk size
     pub fn with_chunk_size(chunk_size: usize) -> Self {
-        let thread_count = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
-        Self {
-            thread_pool: Arc::new(ThreadPool::new(thread_count)),
-            chunk_size,
-        }
+        Self { chunk_size }
     }
 }
 
@@ -75,32 +65,39 @@ impl ParallelContext {
 
         let item_count = items.len();
         let chunks = owned_chunks(items, chunk_size);
+        let num_chunks = chunks.len();
+
+        // One owned input slot and one owned output slot per chunk. The chunk
+        // is taken out and the result written back through the same index, so
+        // ordering falls out of the index domain rather than a post-hoc sort of
+        // whatever arrived — the previous channel collect ended as soon as the
+        // senders dropped, so a panicking chunk silently returned a short `Vec`.
+        let mut chunks: Vec<Option<Vec<T>>> = chunks.into_iter().map(Some).collect();
+        let mut chunk_results: Vec<Option<Vec<R>>> = (0..num_chunks).map(|_| None).collect();
+        let chunks_ptr = SendPtr(chunks.as_mut_ptr());
+        let results_ptr = SendPtr(chunk_results.as_mut_ptr());
+
+        // SAFETY: the fan-out visits each index in `0..num_chunks` exactly once,
+        // so no two lanes touch the same input or output slot, and both vectors
+        // outlive the joined call.
+        let map_chunk = |idx: usize| unsafe {
+            let chunk = (*chunks_ptr.as_ptr().add(idx))
+                .take()
+                .expect("invariant: each chunk is claimed by exactly one index");
+            let mapped: Vec<R> = chunk.into_iter().map(&func).collect();
+            *results_ptr.as_ptr().add(idx) = Some(mapped);
+        };
+
+        let run_on_global = moirai_executor::global()
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, &map_chunk);
+
+        if crate::base::sequential_fallback_permitted(&run_on_global) {
+            (0..num_chunks).for_each(map_chunk);
+        }
+
         let mut results = Vec::with_capacity(item_count);
-        let (tx, rx) = std::sync::mpsc::channel();
-        let func = Arc::new(func);
-
-        for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
-            let tx = tx.clone();
-            let func = Arc::clone(&func);
-
-            self.thread_pool.execute(move || {
-                let chunk_results: Vec<R> = chunk.into_iter().map(|item| func(item)).collect();
-                tx.send((chunk_idx, chunk_results)).unwrap();
-            });
-        }
-        drop(tx); // Close the sender
-
-        // Collect results in order
-        let mut ordered_results: Vec<(usize, Vec<R>)> = Vec::new();
-        for (chunk_idx, chunk_results) in rx {
-            ordered_results.push((chunk_idx, chunk_results));
-        }
-
-        // Sort by chunk index to maintain order
-        ordered_results.sort_by_key(|(idx, _)| *idx);
-
-        for (_, chunk_results) in ordered_results {
-            results.extend(chunk_results);
+        for chunk in chunk_results {
+            results.extend(chunk.expect("invariant: every chunk index produced a result"));
         }
 
         Ok(results)
@@ -120,5 +117,53 @@ impl ParallelContext {
 impl ExecutionBase for ParallelContext {
     fn context_type(&self) -> &'static str {
         "Parallel"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CHUNK: usize = 8;
+    const ITEMS: usize = CHUNK * 5;
+
+    #[test]
+    fn execute_iter_returns_every_item_in_input_order() {
+        let context = ParallelContext::with_chunk_size(CHUNK);
+        let items: Vec<usize> = (0..ITEMS).collect();
+
+        let doubled = context
+            .execute_iter(items.clone(), |item| item * 2)
+            .expect("chunked execution must succeed");
+
+        assert_eq!(
+            doubled,
+            items.iter().map(|item| item * 2).collect::<Vec<_>>(),
+            "results must follow input order, not completion order"
+        );
+    }
+
+    #[test]
+    fn execute_iter_propagates_a_chunk_panic_instead_of_truncating() {
+        // The previous channel-collect ended when the senders dropped, so a
+        // panicking chunk returned a short `Vec` and the caller could not tell.
+        // A missing chunk must surface, not shrink the result.
+        let context = ParallelContext::with_chunk_size(CHUNK);
+        let items: Vec<usize> = (0..ITEMS).collect();
+
+        let previous_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let outcome = std::panic::catch_unwind(move || {
+            context.execute_iter(items, |item| {
+                assert_ne!(item, ITEMS - 1, "chunk panic");
+                item
+            })
+        });
+        std::panic::set_hook(previous_hook);
+
+        assert!(
+            outcome.is_err(),
+            "a panicking chunk must reach the caller rather than shorten the result"
+        );
     }
 }
