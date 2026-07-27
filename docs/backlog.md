@@ -341,6 +341,43 @@ architecture definition.
   the closure is borrowed, not moved into a `'static` job — but relaxing them
   changes `ExecutionContext::execute_iter` too and is left as its own item.
 
+#### ✅ ISSUE-223 [patch]: Re-sync the source contracts the runtime rework invalidated
+- **Type**: Verification Gap / Test Maintenance
+- **Root Cause**: `moirai-benchmarks` holds source-contract tests that assert on
+  literal source text. ISSUE-219 (#101) and ISSUE-221 (#105) changed the exact
+  call shapes two of them pin — `par_merge_sort_impl(self, &compare, &pool)` and
+  `.schedule_job::<C>(self.priority, self.locality_hint, job)` — so both merged
+  with `main` red. The gates run for those items covered the packages the change
+  touched, not the package whose tests *observe* those packages, and the
+  repository's GitHub workflow only builds the Python bindings, so nothing
+  caught it.
+- **Resolution**: Markers re-pointed at the mechanisms that now carry each
+  contract (`fork_join_halves`/`executor.scope`/`fork_grain`;
+  `admit_job`/`run_if_refused`/`record_admission_caller_run`). The
+  ThreadPool-erasure contract is deleted with its subject. A third marker,
+  `std::thread::scope` in the `ParallelIter` contract, only ever matched a
+  comment saying the crate does *not* use it, and is replaced with
+  `for_each_indexed`/`sequential_fallback_permitted`.
+- **Acceptance criteria**: `cargo nextest run --workspace` passes, not just the
+  packages a change edits.
+- **Evidence tier**: empirical — workspace 767/767, workspace-wide Clippy clean.
+- **Residual**: a source-contract test is a text assertion on another package's
+  source, so it fails only when that package's *text* changes; it cannot be
+  reached by a gate scoped to the edited package. Running the workspace suite is
+  the standing correction. Mechanising it (a CI job that runs the Rust workspace
+  gate, which today's workflow does not) is filed as ISSUE-224.
+
+#### ⏳ ISSUE-224 [patch]: Run the Rust workspace gate in CI
+- **Type**: Verification Infrastructure
+- **Root Cause**: `.github/workflows` builds and tests `moirai-python` only. The
+  Rust workspace gate — fmt, workspace Clippy, `nextest --workspace`, doctests,
+  warning-denied rustdoc — runs only where a contributor remembers to run it, so
+  a red workspace can merge (ISSUE-223 is the instance).
+- **Acceptance criteria**: a workflow runs the committed Rust gate on pull
+  requests against the locked toolchain, and a deliberately broken source
+  contract fails it.
+- **Dependencies**: none; the gate commands already exist.
+
 #### ✅ ISSUE-220 [patch]: Run a refused `join_with` branch on the caller
 - **Type**: Concurrency Correctness / API Contract
 - **Root Cause**: `join_with` moved its left branch into the scoped job. A job

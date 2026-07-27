@@ -102,6 +102,11 @@ remain hidden behind stale counters.
     closeout and merged as `9b3caa5`. `recurseml/analysis` errored on both
     heads, while CodeRabbit passed on the PM-only head; local gates remain the
     executor acceptance evidence.
+- [x] [patch] ISSUE-223: Re-point the source contracts that ISSUE-219 and
+  ISSUE-221 invalidated, and delete the ThreadPool-erasure contract with its
+  subject; verify with a workspace-wide run rather than a per-package one.
+- [ ] [patch] ISSUE-224: Run the Rust workspace gate in CI — today's workflow
+  covers only the Python bindings, so a red workspace can merge.
 - [x] [major] ISSUE-222: Delete `moirai-iter`'s ThreadPool, its shared
   singleton and join guard; fall the indexed fan-outs back to the caller's
   thread and schedule `ParallelContext` through the global executor.
