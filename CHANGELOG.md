@@ -48,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The SPSC halves cache the opposite counter, so a send reads the consumer's
+  cache line only when the queue looks full and a receive reads the producer's
+  only when it looks empty, instead of on every operation. A stale cache always
+  errs toward "full"/"empty" and is refreshed before reporting either, so the
+  exact capacity check is unchanged. The `Cell` also supplies the `!Sync`
+  property that a `PhantomData` marker used to carry, making it load-bearing in
+  code rather than only in a comment. See ADR-025.
+
 - **[breaking]** `SpscChannel` is no longer exported from `moirai-core`. The
   single-producer/single-consumer discipline is enforced by `SpscSender` and
   `SpscReceiver`, which are neither `Clone` nor `Sync`, but the bare channel
@@ -72,6 +80,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   input size. `ThreadPool` remains for flat fan-out only.
 
 ### Added
+
+- `moirai_core::channel::{Producer, Consumer}` — the sending and receiving
+  halves of a channel as separate contracts, neither requiring `Sync`. This
+  restores generic use of the SPSC halves, which ADR-024 had excluded: they
+  cannot implement `Channel<T>`, whose `Send + Sync` supertrait is precisely
+  what a single-producer half must not satisfy. Implemented on both SPSC
+  halves, both MPMC halves, and `MpmcChannel` itself, so a shareable channel is
+  usable whole or split. See ADR-025.
 
 - Expose a borrowing `moirai_parallel::scope` surface over the unified
   scheduler so downstream parallel regions can spawn an arbitrary number of

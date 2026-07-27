@@ -19,6 +19,23 @@ impl<T: Send> MpmcReceiver<T> {
     }
 }
 
+impl<T: Send> crate::channel::roles::Consumer<T> for MpmcReceiver<T> {
+    #[inline]
+    fn recv(&self) -> Result<T> {
+        MpmcReceiver::recv(self)
+    }
+
+    #[inline]
+    fn try_recv(&self) -> Result<T> {
+        MpmcReceiver::try_recv(self)
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        Channel::is_empty(&*self.channel)
+    }
+}
+
 impl<T> Clone for MpmcReceiver<T> {
     fn clone(&self) -> Self {
         let (mutex, _, _) = &*self.channel.state;

@@ -375,6 +375,45 @@ impl<T> MpmcChannel<T> {
     }
 }
 
+impl<T: Send> crate::channel::roles::Producer<T> for MpmcChannel<T> {
+    #[inline]
+    fn send(&self, value: T) -> Result<()> {
+        Channel::send(self, value)
+    }
+
+    #[inline]
+    fn try_send(&self, value: T) -> Result<()> {
+        Channel::try_send(self, value)
+    }
+
+    #[inline]
+    fn is_full(&self) -> bool {
+        Channel::is_full(self)
+    }
+
+    #[inline]
+    fn capacity(&self) -> Option<usize> {
+        Channel::capacity(self)
+    }
+}
+
+impl<T: Send> crate::channel::roles::Consumer<T> for MpmcChannel<T> {
+    #[inline]
+    fn recv(&self) -> Result<T> {
+        Channel::recv(self)
+    }
+
+    #[inline]
+    fn try_recv(&self) -> Result<T> {
+        Channel::try_recv(self)
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        Channel::is_empty(self)
+    }
+}
+
 impl<T: Send> Channel<T> for MpmcChannel<T> {
     fn send(&self, value: T) -> Result<()> {
         if let Some(queue) = &self.bounded {
