@@ -48,6 +48,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **[breaking]** `SpscChannel` is no longer exported from `moirai-core`. The
+  single-producer/single-consumer discipline is enforced by `SpscSender` and
+  `SpscReceiver`, which are neither `Clone` nor `Sync`, but the bare channel
+  escaped alongside them: it implements `Channel<T>`, whose `send`/`recv` take
+  `&self`, and carried an `unsafe impl Sync`, so safe code could share one
+  channel and drive two producers into the same buffer slot — a data race, with
+  one value overwritten undropped, and a double free on the `recv` side.
+  Construct channels with `moirai_core::channel::spsc(capacity)`, which is
+  unchanged and returns the same pair; `SpscChannel::channel(n)` becomes
+  `channel::spsc(n)`. See ADR-024.
+
 - Run the `moirai-iter` parallel sorts' recursive fork-join on the unified
   scheduler's scope instead of the crate's own thread pool. That pool is a FIFO
   queue with no work stealing, so a worker blocked on another of its jobs could

@@ -25,6 +25,8 @@ bytemuck = { workspace = true }
 libc = "0.2"
 
 [dev-dependencies]
+# Asserts that the SPSC halves stay !Sync, which a positive assertion cannot express.
+static_assertions = "1.1"
 criterion = { workspace = true }
 proptest = { workspace = true }
 

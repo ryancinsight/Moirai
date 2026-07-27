@@ -16,9 +16,14 @@ use std::sync::Arc;
 /// budget matched to its condvar fallback.
 const SPSC_BLOCK_SPINS: usize = 6;
 
-/// Lock-free Single Producer Single Consumer channel
-/// Optimized for low latency with zero-copy semantics
-pub struct SpscChannel<T> {
+/// Lock-free single-producer/single-consumer channel.
+///
+/// Deliberately crate-private. `Channel::send`/`recv` take `&self`, and the
+/// `Sync` impl below lets `&SpscChannel` cross threads, so exposing the bare
+/// channel would let safe code drive two producers into the same slot. The
+/// discipline is enforced instead by [`SpscSender`]/[`SpscReceiver`], which are
+/// neither `Clone` nor `Sync`; reach them through `channel::spsc`.
+pub(crate) struct SpscChannel<T> {
     /// Ring buffer for messages (owns the `T` storage)
     buffer: Box<[UnsafeCell<MaybeUninit<T>>]>,
     /// Capacity mask for fast modulo
@@ -31,6 +36,16 @@ pub struct SpscChannel<T> {
     closed: AtomicBool,
 }
 
+// SAFETY: the buffer is only ever touched by one producer and one consumer,
+// each owning its own index — the producer writes a slot then releases `head`,
+// the consumer acquires `head` before reading it — so no slot is accessed by
+// two threads at once and `T: Send` is the exact bound for handing values
+// across the pair.
+//
+// `Sync` here is what lets one `Arc<SpscChannel>` back both halves, and it is
+// sound only because the halves impose the one-of-each discipline. That is why
+// the type is crate-private: on the bare channel, `&self` methods plus `Sync`
+// would let any number of threads produce at once.
 unsafe impl<T: Send> Send for SpscChannel<T> {}
 unsafe impl<T: Send> Sync for SpscChannel<T> {}
 
@@ -211,9 +226,19 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
     }
 }
 
-/// Sender half of SPSC channel
+/// Sender half of SPSC channel.
+///
+/// The single-producer half of the pair: not `Clone`, so only one exists, and
+/// not `Sync`, so it cannot be shared while it exists.
 pub struct SpscSender<T> {
     pub(super) channel: Arc<SpscChannel<T>>,
+    /// Makes the sender `!Sync` while leaving it `Send`.
+    ///
+    /// `send` takes `&self`, so a `Sync` sender could be shared and driven by
+    /// two threads at once — both would claim the same slot. `Cell<()>` is
+    /// `Send` but not `Sync`, which permits moving the sender to another thread
+    /// and forbids sharing it. Removing this marker reopens the race;
+    /// `halves_are_not_sync` fails if it goes.
     _marker: PhantomData<std::cell::Cell<()>>,
 }
 
@@ -229,9 +254,14 @@ impl<T: Send> SpscSender<T> {
     }
 }
 
-/// Receiver half of SPSC channel
+/// Receiver half of SPSC channel.
+///
+/// The single-consumer half of the pair, `!Sync` for the same reason as
+/// [`SpscSender`] — two shared receivers would `assume_init_read` one slot
+/// twice, moving out of it and then dropping it twice.
 pub struct SpscReceiver<T> {
     pub(super) channel: Arc<SpscChannel<T>>,
+    /// Makes the receiver `!Sync` while leaving it `Send`. See [`SpscSender`].
     _marker: PhantomData<std::cell::Cell<()>>,
 }
 
@@ -256,5 +286,28 @@ impl<T> Drop for SpscSender<T> {
 impl<T> Drop for SpscReceiver<T> {
     fn drop(&mut self) {
         self.channel.closed.store(true, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod auto_traits {
+    use super::{SpscReceiver, SpscSender};
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+
+    // Each half may be moved to the thread that owns its role.
+    assert_impl_all!(SpscSender<u64>: Send);
+    assert_impl_all!(SpscReceiver<u64>: Send);
+
+    /// Neither half may be *shared*, which is what keeps the channel SPSC.
+    ///
+    /// Both `send` and `recv` take `&self`, so a `Sync` half could be driven by
+    /// two threads at once: two producers would write the same slot, and two
+    /// consumers would read one slot twice. The `PhantomData<Cell<()>>` on each
+    /// half is the only thing preventing that, and deleting it looks like
+    /// removing an unused field — this assertion is what catches it.
+    #[allow(dead_code)]
+    fn halves_are_not_sync() {
+        assert_not_impl_any!(SpscSender<u64>: Sync);
+        assert_not_impl_any!(SpscReceiver<u64>: Sync);
     }
 }
