@@ -1,5 +1,48 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-07-27 Unreproduced exactly-once failure in the Chase-Lev deque
+
+### Open — watchpoint, not a confirmed defect
+
+`moirai-scheduler::deque_concurrency chase_lev_exactly_once_high_thief_contention`
+failed once, in a full `cargo nextest run --workspace` (770 tests, nextest run
+ID `f20686ea-05f7-40bc-96f4-c4880e23dc8c`) on a host also running ~11 concurrent
+compiles. FAIL at 0.538s against a 0.086s isolated baseline. The assertion text
+was not captured.
+
+Recorded because the test has no wall-clock or timing dependence — it asserts
+exactly-once over 8 rounds of 50,000 items with 8 thieves — so a failure means a
+genuine lost, duplicated, or out-of-range consume, not a slow machine.
+
+Not reproduced by:
+
+- ~75 executions of the `chase_lev_exactly_once` family at 5-way process
+  concurrency;
+- a full 770-test workspace run under the same conditions on merged `main`
+  (`770 passed`).
+
+Hypotheses examined and **rejected** by reading the implementation, so they are
+not re-chased:
+
+1. *Bounded ring overflowing at 1024 with 50,000 pushes.* No — `push` calls
+   `resize`, which doubles.
+2. *The resize path being unexercised on a quiet host and racing under load.* No
+   — `chase_lev_exactly_once_small_capacity_forces_resize` covers it directly.
+3. *Preemption widening the fence-free `pop` window on x86.* The optimization
+   skips the `SeqCst` fence when `bottom - top >= MAX_BATCH_STEAL`. On TSO a
+   plain load of `top` observes every completed steal, and a batch steal takes
+   at most half the visible length, so no single steal reaches the popped slot.
+   The residual window is the few instructions where the owner's `bottom` store
+   is still in its store buffer — which a context switch *closes*, so preemption
+   makes this path safer, not riskier.
+
+Next method if it recurs: capture the assertion text (it distinguishes lost from
+duplicated, which separates a transfer bug from a double-consume), and re-run
+`tests/loom_chase_lev.rs` with the x86 fence-free branch forced on, since
+`--cfg loom` on an x86 host already compiles that branch and would be the place
+an unsound skip shows up.
+
+
 ## 2026-06-24 Lock-free / reactor concurrency re-audit
 
 Paranoid re-audit of `moirai-sync` primitives, the `moirai-scheduler` work-stealing
