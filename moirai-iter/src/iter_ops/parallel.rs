@@ -1,7 +1,7 @@
 //! Scoped chunked iterator execution.
 //!
 //! `ParallelIter` owns the input vector once and lends immutable chunks to
-//! scoped worker threads. The invariant is `owner(Vec<T>) XOR borrowed chunks`:
+//! scheduler lanes. The invariant is `owner(Vec<T>) XOR borrowed chunks`:
 //! no worker owns or refcounts the vector, and all borrows end before the
 //! vector is dropped.
 //!
@@ -20,14 +20,14 @@
 //!   `*const _ as *mut _` casts are an artifact of erasing the type through
 //!   `SendPtr`, not a claim of unique access.
 //! - **Lifetime.** Every pointer refers to a local of this frame — the vector,
-//!   the closure, the results — and both dispatch paths block before returning:
-//!   the executor call joins internally, and the pool path joins in
-//!   `PoolJoinGuard::wait`. No worker outlives what it points at.
+//!   the closure, the results — and the fan-out joins every lane before it
+//!   returns. No lane outlives what it points at.
 //! - **Completion.** `results` starts as `None` per chunk and the tail
 //!   `flatten()` silently drops any that stayed `None`, so a chunk that never
-//!   ran would quietly shorten a `map` or omit a term from a `reduce`. Neither
-//!   join path allows that: `pool_fallback_permitted` panics on a partially
-//!   executed fan-out, and `wait` panics unless every task reported completion.
+//!   ran would quietly shorten a `map` or omit a term from a `reduce`. That is
+//!   ruled out rather than hoped for: `sequential_fallback_permitted` panics on
+//!   a partially executed fan-out and re-runs the whole domain on the caller
+//!   otherwise.
 //!
 //! Because the outputs are `Option<_>` rather than `MaybeUninit`, a skipped
 //! chunk here would be a wrong answer rather than a read of uninitialized
@@ -42,7 +42,7 @@
 //! dependent — tests that need to cover it construct the iterator with an
 //! explicit chunk size rather than relying on the core count.
 
-use crate::base::{get_shared_thread_pool, PoolJoinGuard, SendPtr};
+use crate::base::SendPtr;
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
@@ -80,7 +80,6 @@ impl<T: Send + Sync> ParallelIter<T> {
             return data.iter().map(&f).collect();
         }
 
-        // Optimized: we use get_shared_thread_pool() instead of std::thread::scope to avoid thread creation overhead.
         let chunks: Vec<_> = data.chunks(chunk_size).collect();
         let num_chunks = chunks.len();
 
@@ -92,49 +91,25 @@ impl<T: Send + Sync> ParallelIter<T> {
         let results_ptr = SendPtr(results.as_mut_ptr() as *mut ());
         let f_ptr_send = SendPtr(&f as *const F as *const () as *mut ());
 
+        // SAFETY: `idx < num_chunks` indexes `chunks` and `results` alike, so
+        // the chunk is a live borrow of `data` and the write lands on this
+        // lane's own slot. `f` outlives the call because the fan-out joins
+        // before returning, and is only read, which `F: Sync` allows.
+        let map_chunk = |idx: usize| unsafe {
+            let chunk = *chunks.get_unchecked(idx);
+            let chunk_ptr = chunk.as_ptr();
+            let chunk_len = chunk.len();
+            let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
+            let f_ref = &*(f_ptr_send.as_ptr() as *const F);
+            let chunk_result = chunk_slice.iter().map(f_ref).collect::<Vec<_>>();
+            *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) = Some(chunk_result);
+        };
+
         let run_on_global = moirai_executor::global()
-            // SAFETY: `idx < num_chunks` indexes `chunks` and `results` alike,
-            // so the chunk is a live borrow of `data` and the write lands on
-            // this worker's own slot. `f` outlives the call because the fan-out
-            // joins before returning, and is only read, which `F: Sync` allows.
-            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| unsafe {
-                let chunk = *chunks.get_unchecked(idx);
-                let chunk_ptr = chunk.as_ptr();
-                let chunk_len = chunk.len();
-                let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
-                let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-                let chunk_result = chunk_slice.iter().map(f_ref).collect::<Vec<_>>();
-                *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) = Some(chunk_result);
-            });
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, &map_chunk);
 
-        if crate::base::pool_fallback_permitted(&run_on_global) {
-            let pool = get_shared_thread_pool();
-            let (tx, rx) = std::sync::mpsc::channel();
-            let guard = PoolJoinGuard::new(rx, num_chunks);
-            for (idx, chunk) in chunks.into_iter().enumerate() {
-                let tx = tx.clone();
-                let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
-                let chunk_len = chunk.len();
-
-                pool.execute(move || {
-                    // SAFETY: as the executor path — `idx` is this chunk's own
-                    // slot, the chunk pointer is a live borrow of `data`, and
-                    // `guard.wait()` below keeps this frame alive until every
-                    // worker has finished with all three pointers.
-                    unsafe {
-                        let chunk_slice =
-                            std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
-                        let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-                        let chunk_result = chunk_slice.iter().map(f_ref).collect::<Vec<_>>();
-                        *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) =
-                            Some(chunk_result);
-                    }
-                    let _ = tx.send(());
-                });
-            }
-
-            drop(tx);
-            guard.wait();
+        if crate::base::sequential_fallback_permitted(&run_on_global) {
+            (0..num_chunks).for_each(map_chunk);
         }
 
         results.into_iter().flatten().flatten().collect()
@@ -174,49 +149,25 @@ impl<T: Send + Sync> ParallelIter<T> {
         let results_ptr = SendPtr(results.as_mut_ptr() as *mut ());
         let f_ptr_send = SendPtr(&f as *const F as *const () as *mut ());
 
+        // SAFETY: as `map`, plus `chunk_identities`, which holds one entry per
+        // chunk and is only ever read here — lane `idx` clones its own and never
+        // writes through the pointer.
+        let reduce_chunk = |idx: usize| unsafe {
+            let chunk = *chunks.get_unchecked(idx);
+            let chunk_ptr = chunk.as_ptr();
+            let chunk_len = chunk.len();
+            let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
+            let f_ref = &*(f_ptr_send.as_ptr() as *const F);
+            let chunk_identity = (*(identities_ptr.as_ptr() as *const T).add(idx)).clone();
+            let chunk_result = chunk_slice.iter().fold(chunk_identity, f_ref);
+            *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = Some(chunk_result);
+        };
+
         let run_on_global = moirai_executor::global()
-            // SAFETY: as `map`, plus `chunk_identities`, which holds one entry
-            // per chunk and is only ever read here — worker `idx` clones its own
-            // and never writes through the pointer.
-            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| unsafe {
-                let chunk = *chunks.get_unchecked(idx);
-                let chunk_ptr = chunk.as_ptr();
-                let chunk_len = chunk.len();
-                let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
-                let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-                let chunk_identity = (*(identities_ptr.as_ptr() as *const T).add(idx)).clone();
-                let chunk_result = chunk_slice.iter().fold(chunk_identity, f_ref);
-                *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = Some(chunk_result);
-            });
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, &reduce_chunk);
 
-        if crate::base::pool_fallback_permitted(&run_on_global) {
-            let pool = get_shared_thread_pool();
-            let (tx, rx) = std::sync::mpsc::channel();
-            let guard = PoolJoinGuard::new(rx, num_chunks);
-            for (idx, chunk) in chunks.into_iter().enumerate() {
-                let tx = tx.clone();
-                let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
-                let chunk_len = chunk.len();
-
-                pool.execute(move || {
-                    // SAFETY: as the executor path; `guard.wait()` below keeps
-                    // this frame alive until every worker is done with the
-                    // chunk, closure, identity, and result pointers.
-                    unsafe {
-                        let chunk_slice =
-                            std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
-                        let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-                        let chunk_identity =
-                            (*(identities_ptr.as_ptr() as *const T).add(idx)).clone();
-                        let chunk_result = chunk_slice.iter().fold(chunk_identity, f_ref);
-                        *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = Some(chunk_result);
-                    }
-                    let _ = tx.send(());
-                });
-            }
-
-            drop(tx);
-            guard.wait();
+        if crate::base::sequential_fallback_permitted(&run_on_global) {
+            (0..num_chunks).for_each(reduce_chunk);
         }
 
         results

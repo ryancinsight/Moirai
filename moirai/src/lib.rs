@@ -284,7 +284,7 @@ pub use moirai_iter::{
     par_range, AsyncContext, AsyncIterator, AsyncParallelIterator, ExecutionBase, ExecutionContext,
     ExecutionStrategy, HybridConfig, HybridContext, IndexedParallelIterator, IntoAsyncIterator,
     IntoParallelIterator, IntoParallelRefIterator, MoiraiIterator, ParallelContext, ParallelExtend,
-    ParallelIterator, PerformanceHistory, RangeParIter, ThreadPool, VecParIter, VecRefParIter,
+    ParallelIterator, PerformanceHistory, RangeParIter, VecParIter, VecRefParIter,
 };
 
 // Re-export GPU functionality

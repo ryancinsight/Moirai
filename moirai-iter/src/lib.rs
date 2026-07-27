@@ -30,7 +30,6 @@ pub mod stream;
 pub mod windows;
 
 pub use async_iter::{AsyncIterator, AsyncParallelIterator, IntoAsyncIterator};
-pub use base::ThreadPool;
 pub use execution::{
     AsyncContext, ExecutionBase, ExecutionContext, ExecutionStrategy, HybridConfig, HybridContext,
     ParallelContext, PerformanceHistory,

@@ -18,17 +18,15 @@
 //!   `chunk_start + offset` for `offset < chunk.len()` stays inside its own
 //!   range, and the ranges are pairwise disjoint and within `data.len()`.
 //! - **Lifetime.** The pointers refer to locals of the calling frame (`data`'s
-//!   backing store, `func`, `results`). Every path joins its workers before
-//!   returning — the executor call blocks, and the pool path blocks in
-//!   `PoolJoinGuard::wait` — so no worker outlives what it points at.
+//!   backing store, `func`, `results`). The fan-out joins every lane before it
+//!   returns, so no lane outlives what it points at.
 //! - **Completion.** `map` writes its output through `MaybeUninit` and calls
-//!   `assume_init` on every element once the workers are done, which is sound
-//!   only if every chunk actually wrote its slice. Both join paths enforce that
-//!   rather than assume it: a failed executor fan-out reaches
-//!   `pool_fallback_permitted`, which retries only a clean `ShuttingDown` and
-//!   panics on a partial run, and the pool path's `wait` panics unless every
-//!   task reported completion. A worker that panics therefore surfaces as a
-//!   panic here instead of an `assume_init` over memory it never wrote.
+//!   `assume_init` on every element once the fan-out is done, which is sound
+//!   only if every chunk actually wrote its slice. That is enforced rather than
+//!   assumed: a failed fan-out reaches `sequential_fallback_permitted`, which
+//!   re-runs the whole domain on the caller only for a clean `ShuttingDown` and
+//!   panics on a partial run. A lane that panics therefore surfaces as a panic
+//!   here instead of an `assume_init` over memory it never wrote.
 //!
 //! # Chunk sizing
 //!
@@ -38,7 +36,7 @@
 
 use std::mem;
 
-use crate::base::{PoolJoinGuard, SendPtr};
+use crate::base::SendPtr;
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
@@ -229,59 +227,30 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         let num_chunks = chunks.len();
         let func_ptr = SendPtr(&func as *const F as *const () as *mut ());
 
-        let run_on_global = moirai_executor::global()
-            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| {
-                unsafe {
-                    let chunk = *chunks.get_unchecked(idx);
-                    let chunk_ptr = chunk.as_ptr();
-                    let chunk_len = chunk.len();
-                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
-                    // Optimized: we use a raw pointer cast instead of `let func_ref = &func` to avoid capture lifetime bounds.
-                    let func_ref = &*(func_ptr.as_ptr() as *const F);
-                    let cache_line_elements = CACHE_LINE_SIZE / mem::size_of::<T>().max(1);
-                    for (i, item) in chunk_slice.iter().enumerate() {
-                        if i % cache_line_elements == 0
-                            && i + cache_line_elements < chunk_slice.len()
-                        {
-                            let next_ptr = chunk_slice.as_ptr().add(i + cache_line_elements);
-                            prefetch_read_data(next_ptr as *const u8, 0);
-                        }
-                        func_ref(item);
-                    }
+        // Bound once so the executor borrows it and the fallback below re-runs
+        // the same body, instead of a second copy of it drifting out of step.
+        let visit_chunk = |idx: usize| unsafe {
+            let chunk = *chunks.get_unchecked(idx);
+            let chunk_ptr = chunk.as_ptr();
+            let chunk_len = chunk.len();
+            let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
+            // Optimized: we use a raw pointer cast instead of `let func_ref = &func` to avoid capture lifetime bounds.
+            let func_ref = &*(func_ptr.as_ptr() as *const F);
+            let cache_line_elements = CACHE_LINE_SIZE / mem::size_of::<T>().max(1);
+            for (i, item) in chunk_slice.iter().enumerate() {
+                if i % cache_line_elements == 0 && i + cache_line_elements < chunk_slice.len() {
+                    let next_ptr = chunk_slice.as_ptr().add(i + cache_line_elements);
+                    prefetch_read_data(next_ptr as *const u8, 0);
                 }
-            });
-
-        if crate::base::pool_fallback_permitted(&run_on_global) {
-            let pool = crate::base::get_shared_thread_pool();
-            let (tx, rx) = std::sync::mpsc::channel();
-            let guard = PoolJoinGuard::new(rx, num_chunks);
-            for chunk in chunks {
-                let tx = tx.clone();
-                let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
-                let chunk_len = chunk.len();
-
-                pool.execute(move || {
-                    unsafe {
-                        let chunk_slice =
-                            std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
-                        let func_ref = &*(func_ptr.as_ptr() as *const F);
-                        let cache_line_elements = CACHE_LINE_SIZE / mem::size_of::<T>().max(1);
-                        for (i, item) in chunk_slice.iter().enumerate() {
-                            if i % cache_line_elements == 0
-                                && i + cache_line_elements < chunk_slice.len()
-                            {
-                                let next_ptr = chunk_slice.as_ptr().add(i + cache_line_elements);
-                                prefetch_read_data(next_ptr as *const u8, 0);
-                            }
-                            func_ref(item);
-                        }
-                    }
-                    let _ = tx.send(());
-                });
+                func_ref(item);
             }
+        };
 
-            drop(tx);
-            guard.wait();
+        let run_on_global = moirai_executor::global()
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, &visit_chunk);
+
+        if crate::base::sequential_fallback_permitted(&run_on_global) {
+            (0..num_chunks).for_each(visit_chunk);
         }
     }
 
@@ -313,63 +282,33 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         let num_chunks = chunks.len();
         let func_ptr = SendPtr(&func as *const F as *const () as *mut ());
 
-        let run_on_global = moirai_executor::global()
-            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(
-                num_chunks,
-                |chunk_idx| unsafe {
-                    let chunk = *chunks.get_unchecked(chunk_idx);
-                    let chunk_start = chunk_idx * self.chunk_size;
-                    let chunk_results_ptr = results_send_ptr.as_ptr().add(chunk_start);
-                    let chunk_ptr = chunk.as_ptr();
-                    let chunk_len = chunk.len();
+        let map_chunk = |chunk_idx: usize| unsafe {
+            let chunk = *chunks.get_unchecked(chunk_idx);
+            let chunk_start = chunk_idx * self.chunk_size;
+            let chunk_results_ptr = results_send_ptr.as_ptr().add(chunk_start);
+            let chunk_ptr = chunk.as_ptr();
+            let chunk_len = chunk.len();
 
-                    let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
-                    let func_ref = &*(func_ptr.as_ptr() as *const F);
-                    for (offset, item) in chunk_slice.iter().enumerate() {
-                        let result = func_ref(item);
-                        let result_ptr = chunk_results_ptr.add(offset);
-                        result_ptr.write(MaybeUninit::new(result));
-                    }
-                },
-            );
-
-        if crate::base::pool_fallback_permitted(&run_on_global) {
-            let pool = crate::base::get_shared_thread_pool();
-            let (tx, rx) = std::sync::mpsc::channel();
-            let guard = PoolJoinGuard::new(rx, num_chunks);
-            for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
-                let tx = tx.clone();
-                let chunk_start = chunk_idx * self.chunk_size;
-                let results_ptr_wrapper =
-                    SendPtr(unsafe { results_ptr.add(chunk_start) } as *mut ());
-                let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
-                let chunk_len = chunk.len();
-
-                pool.execute(move || {
-                    unsafe {
-                        let chunk_slice =
-                            std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
-                        let func_ref = &*(func_ptr.as_ptr() as *const F);
-                        for (offset, item) in chunk_slice.iter().enumerate() {
-                            let result = func_ref(item);
-                            let result_ptr =
-                                (results_ptr_wrapper.as_ptr() as *mut MaybeUninit<R>).add(offset);
-                            result_ptr.write(MaybeUninit::new(result));
-                        }
-                    }
-                    let _ = tx.send(());
-                });
+            let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
+            let func_ref = &*(func_ptr.as_ptr() as *const F);
+            for (offset, item) in chunk_slice.iter().enumerate() {
+                let result = func_ref(item);
+                let result_ptr = chunk_results_ptr.add(offset);
+                result_ptr.write(MaybeUninit::new(result));
             }
+        };
 
-            drop(tx);
-            guard.wait();
+        let run_on_global = moirai_executor::global()
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, &map_chunk);
+
+        if crate::base::sequential_fallback_permitted(&run_on_global) {
+            (0..num_chunks).for_each(map_chunk);
         }
 
-        // SAFETY: control only reaches here once every chunk reported
-        // completion — `pool_fallback_permitted` panics on a partially executed
-        // fan-out and `PoolJoinGuard::wait` panics on a missing completion — and
-        // the chunks partition `0..data.len()`, so each element was written
-        // exactly once.
+        // SAFETY: control only reaches here once every chunk ran —
+        // `sequential_fallback_permitted` panics on a partially executed fan-out
+        // and re-runs the whole domain on the caller otherwise — and the chunks
+        // partition `0..data.len()`, so each element was written exactly once.
         unsafe { results.into_iter().map(|item| item.assume_init()).collect() }
     }
 
@@ -399,41 +338,21 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         let results_ptr = SendPtr(results.as_mut_ptr() as *mut ());
         let func_ptr = SendPtr(&func as *const F as *const () as *mut ());
 
+        let reduce_chunk = |idx: usize| unsafe {
+            let chunk = *chunks.get_unchecked(idx);
+            let chunk_ptr = chunk.as_ptr();
+            let chunk_len = chunk.len();
+            let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
+            let func_ref = &*(func_ptr.as_ptr() as *const F);
+            let chunk_result = chunk_slice.iter().cloned().reduce(|a, b| func_ref(&a, &b));
+            *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = chunk_result;
+        };
+
         let run_on_global = moirai_executor::global()
-            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, |idx| unsafe {
-                let chunk = *chunks.get_unchecked(idx);
-                let chunk_ptr = chunk.as_ptr();
-                let chunk_len = chunk.len();
-                let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
-                let func_ref = &*(func_ptr.as_ptr() as *const F);
-                let chunk_result = chunk_slice.iter().cloned().reduce(|a, b| func_ref(&a, &b));
-                *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = chunk_result;
-            });
+            .for_each_indexed::<moirai_executor::schedule::SyncTask, _>(num_chunks, &reduce_chunk);
 
-        if crate::base::pool_fallback_permitted(&run_on_global) {
-            let pool = crate::base::get_shared_thread_pool();
-            let (tx, rx) = std::sync::mpsc::channel();
-            let guard = PoolJoinGuard::new(rx, num_chunks);
-            for (idx, chunk) in chunks.into_iter().enumerate() {
-                let tx = tx.clone();
-                let chunk_ptr = SendPtr(chunk.as_ptr() as *mut ());
-                let chunk_len = chunk.len();
-
-                pool.execute(move || {
-                    unsafe {
-                        let chunk_slice =
-                            std::slice::from_raw_parts(chunk_ptr.as_ptr() as *const T, chunk_len);
-                        let func_ref = &*(func_ptr.as_ptr() as *const F);
-                        let chunk_result =
-                            chunk_slice.iter().cloned().reduce(|a, b| func_ref(&a, &b));
-                        *(results_ptr.as_ptr() as *mut Option<T>).add(idx) = chunk_result;
-                    }
-                    let _ = tx.send(());
-                });
-            }
-
-            drop(tx);
-            guard.wait();
+        if crate::base::sequential_fallback_permitted(&run_on_global) {
+            (0..num_chunks).for_each(reduce_chunk);
         }
 
         let mut current_results: Vec<T> = results.into_iter().flatten().collect();
