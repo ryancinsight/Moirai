@@ -70,8 +70,8 @@ pub use task::{Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, Ta
 #[cfg(feature = "std")]
 pub use channel::{
     mpmc, spsc, unbounded, unified_channel, unified_channel_with_config, Channel, ChannelConfig,
-    ChannelError, ChannelStatistics, MpmcChannel, MpmcReceiver, MpmcSender, Select, SpscReceiver,
-    SpscSender, UnifiedReceiver, UnifiedSender,
+    ChannelError, ChannelStatistics, Consumer, MpmcChannel, MpmcReceiver, MpmcSender, Producer,
+    Select, SpscReceiver, SpscSender, UnifiedReceiver, UnifiedSender,
 };
 
 // Re-export CacheAligned from moirai-utils for convenience
@@ -101,7 +101,7 @@ pub mod prelude {
 
     #[cfg(feature = "std")]
     pub use crate::{
-        mpmc, spsc, unbounded, Channel, ChannelError, MpmcReceiver, MpmcSender, SpscReceiver,
-        SpscSender,
+        mpmc, spsc, unbounded, Channel, ChannelError, Consumer, MpmcReceiver, MpmcSender, Producer,
+        SpscReceiver, SpscSender,
     };
 }

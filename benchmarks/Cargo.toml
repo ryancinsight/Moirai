@@ -171,3 +171,7 @@ full = ["moirai/full", "tokio/full"]
 registry-diagnostics = ["moirai-executor/registry-diagnostics"]
 scheduler-diagnostics = ["moirai-executor/scheduler-diagnostics"]
 result-diagnostics = ["moirai-core/result-diagnostics"]
+
+[[bench]]
+name = "spsc_throughput"
+harness = false

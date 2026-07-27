@@ -19,6 +19,28 @@ impl<T: Send> MpmcSender<T> {
     }
 }
 
+impl<T: Send> crate::channel::roles::Producer<T> for MpmcSender<T> {
+    #[inline]
+    fn send(&self, value: T) -> Result<()> {
+        MpmcSender::send(self, value)
+    }
+
+    #[inline]
+    fn try_send(&self, value: T) -> Result<()> {
+        MpmcSender::try_send(self, value)
+    }
+
+    #[inline]
+    fn is_full(&self) -> bool {
+        Channel::is_full(&*self.channel)
+    }
+
+    #[inline]
+    fn capacity(&self) -> Option<usize> {
+        Channel::capacity(&*self.channel)
+    }
+}
+
 impl<T> MpmcSender<T> {
     /// Returns `true` once the channel is closed (every receiver — or every
     /// sender — has been dropped); subsequent sends fail with

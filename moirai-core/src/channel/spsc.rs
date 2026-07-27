@@ -3,8 +3,7 @@
 //! Optimized for low latency with zero-copy semantics.
 
 use super::error::{CacheAligned, Channel, ChannelError, Result};
-use std::cell::UnsafeCell;
-use std::marker::PhantomData;
+use std::cell::{Cell, UnsafeCell};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -73,11 +72,11 @@ impl<T> SpscChannel<T> {
         (
             SpscSender {
                 channel: channel.clone(),
-                _marker: PhantomData,
+                cached_tail: Cell::new(0),
             },
             SpscReceiver {
                 channel,
-                _marker: PhantomData,
+                cached_head: Cell::new(0),
             },
         )
     }
@@ -93,6 +92,148 @@ impl<T> Drop for SpscChannel<T> {
                 let slot = &mut *self.buffer[(tail.wrapping_add(i)) & self.mask].get();
                 slot.assume_init_drop();
             }
+        }
+    }
+}
+
+/// One step of the spin-then-yield schedule shared by the blocking paths.
+#[inline]
+fn back_off(spin: &mut usize) {
+    if *spin < SPSC_BLOCK_SPINS {
+        for _ in 0..(1 << *spin) {
+            std::hint::spin_loop();
+        }
+        *spin += 1;
+    } else {
+        std::thread::yield_now();
+    }
+}
+
+/// Retry `attempt` on the spin-then-yield schedule until it resolves to
+/// something other than a transiently full or empty queue.
+fn blocking<F, R>(mut attempt: F) -> Result<R>
+where
+    F: FnMut() -> Result<R>,
+{
+    let mut spin = 0;
+    loop {
+        match attempt() {
+            Err(ChannelError::Full | ChannelError::Empty) => back_off(&mut spin),
+            other => return other,
+        }
+    }
+}
+
+impl<T: Send> SpscChannel<T> {
+    /// Room for one more value, consulting `cached_tail` before the consumer's
+    /// real index.
+    ///
+    /// The cached index is always at or behind the true one, because only the
+    /// consumer advances `tail` and it only moves forward. A stale value
+    /// therefore makes the queue look *fuller* than it is, never emptier, so
+    /// this may take the slow path unnecessarily but can never report space that
+    /// does not exist. That one-sidedness is what makes the cache sound.
+    #[inline]
+    fn has_room(&self, head: usize, cached_tail: &Cell<usize>) -> bool {
+        if head.wrapping_sub(cached_tail.get()) < self.buffer.len() {
+            return true;
+        }
+        // The cache says full; consult the consumer and try once more. This is
+        // the only load that touches the consumer's cache line.
+        let tail = self.tail.0.load(Ordering::Acquire);
+        cached_tail.set(tail);
+        head.wrapping_sub(tail) < self.buffer.len()
+    }
+
+    /// A value is available, consulting `cached_head` before the producer's real
+    /// index. Mirrors [`Self::has_room`]: a stale cache understates what is
+    /// queued, so it can cost an extra load but never invent an element.
+    #[inline]
+    fn has_value(&self, tail: usize, cached_head: &Cell<usize>) -> bool {
+        if tail != cached_head.get() {
+            return true;
+        }
+        let head = self.head.0.load(Ordering::Acquire);
+        cached_head.set(head);
+        tail != head
+    }
+
+    fn try_send_cached(&self, value: T, cached_tail: &Cell<usize>) -> Result<()> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ChannelError::Closed);
+        }
+
+        let head = self.head.0.load(Ordering::Relaxed);
+        if !self.has_room(head, cached_tail) {
+            return Err(ChannelError::Full);
+        }
+
+        // SAFETY: `head` is at or beyond the consumer's index, so this slot is
+        // not one the consumer may read until the release store below publishes
+        // it, and only this producer writes slots.
+        unsafe {
+            let slot = &mut *self.buffer[head & self.mask].get();
+            slot.write(value);
+        }
+        self.head.0.store(head.wrapping_add(1), Ordering::Release);
+        Ok(())
+    }
+
+    fn try_recv_cached(&self, cached_head: &Cell<usize>) -> Result<T> {
+        let tail = self.tail.0.load(Ordering::Relaxed);
+
+        if !self.has_value(tail, cached_head) {
+            if self.closed.load(Ordering::Acquire) {
+                // The sender publishes the element before it publishes closure,
+                // so re-read `head` after observing `closed`: the load above may
+                // have preceded both releases and seen an empty queue.
+                let published = self.head.0.load(Ordering::Acquire);
+                cached_head.set(published);
+                if tail == published {
+                    return Err(ChannelError::Closed);
+                }
+            } else {
+                return Err(ChannelError::Empty);
+            }
+        }
+
+        // SAFETY: `tail` is behind the published producer index, so this slot was
+        // written and released by the producer. It has not been read before —
+        // `tail` advances once per value, and only this consumer advances it.
+        let value = unsafe {
+            let slot = &*self.buffer[tail & self.mask].get();
+            slot.assume_init_read()
+        };
+        self.tail.0.store(tail.wrapping_add(1), Ordering::Release);
+        Ok(value)
+    }
+
+    /// Blocking send.
+    ///
+    /// Written as its own loop rather than through [`Self::blocking`] because
+    /// `value` must survive a failed attempt: `try_send_cached` takes it by
+    /// value, so a closure would move it on the first iteration. Here it stays
+    /// owned by this frame and is moved exactly once, when a slot is claimed.
+    fn send_cached(&self, value: T, cached_tail: &Cell<usize>) -> Result<()> {
+        let mut spin = 0;
+        loop {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(ChannelError::Closed);
+            }
+
+            let head = self.head.0.load(Ordering::Relaxed);
+            if self.has_room(head, cached_tail) {
+                // SAFETY: as `try_send_cached` — the slot is past the consumer's
+                // index and only this producer writes slots.
+                unsafe {
+                    let slot = &mut *self.buffer[head & self.mask].get();
+                    slot.write(value);
+                }
+                self.head.0.store(head.wrapping_add(1), Ordering::Release);
+                return Ok(());
+            }
+
+            back_off(&mut spin);
         }
     }
 }
@@ -232,25 +373,31 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
 /// not `Sync`, so it cannot be shared while it exists.
 pub struct SpscSender<T> {
     pub(super) channel: Arc<SpscChannel<T>>,
-    /// Makes the sender `!Sync` while leaving it `Send`.
+    /// Last known consumer index, and the reason the sender is `!Sync`.
     ///
-    /// `send` takes `&self`, so a `Sync` sender could be shared and driven by
-    /// two threads at once — both would claim the same slot. `Cell<()>` is
-    /// `Send` but not `Sync`, which permits moving the sender to another thread
-    /// and forbids sharing it. Removing this marker reopens the race;
-    /// `halves_are_not_sync` fails if it goes.
-    _marker: PhantomData<std::cell::Cell<()>>,
+    /// Reading the real `tail` on every send touches the consumer's cache line
+    /// each time, which dominates the cost of a queue that is otherwise two
+    /// loads and a store. Consulting this first means a producer that is not
+    /// hitting a full queue never reads the consumer's line at all.
+    ///
+    /// It doubles as the marker keeping the sender unshareable: `send` takes
+    /// `&self`, so a `Sync` sender could be driven by two threads at once, both
+    /// claiming the same slot. `Cell` is `Send` but not `Sync`, which permits
+    /// moving the sender to another thread while forbidding sharing it.
+    /// Replacing it with something `Sync` reopens that race, and
+    /// `halves_are_not_sync` fails if it happens.
+    cached_tail: Cell<usize>,
 }
 
 impl<T: Send> SpscSender<T> {
-    /// Send a value through the channel, blocking if necessary
+    /// Send a value through the channel, blocking until there is room.
     pub fn send(&self, value: T) -> Result<()> {
-        self.channel.send(value)
+        self.channel.send_cached(value, &self.cached_tail)
     }
 
-    /// Try to send a value without blocking
+    /// Try to send a value without blocking.
     pub fn try_send(&self, value: T) -> Result<()> {
-        self.channel.try_send(value)
+        self.channel.try_send_cached(value, &self.cached_tail)
     }
 }
 
@@ -261,19 +408,59 @@ impl<T: Send> SpscSender<T> {
 /// twice, moving out of it and then dropping it twice.
 pub struct SpscReceiver<T> {
     pub(super) channel: Arc<SpscChannel<T>>,
-    /// Makes the receiver `!Sync` while leaving it `Send`. See [`SpscSender`].
-    _marker: PhantomData<std::cell::Cell<()>>,
+    /// Last known producer index, and the reason the receiver is `!Sync`.
+    /// Mirrors `SpscSender::cached_tail` in both roles.
+    cached_head: Cell<usize>,
 }
 
 impl<T: Send> SpscReceiver<T> {
-    /// Receive a value from the channel, blocking if necessary
+    /// Receive a value from the channel, blocking until one arrives.
     pub fn recv(&self) -> Result<T> {
-        self.channel.recv()
+        blocking(|| self.channel.try_recv_cached(&self.cached_head))
     }
 
-    /// Try to receive a value without blocking
+    /// Try to receive a value without blocking.
     pub fn try_recv(&self) -> Result<T> {
-        self.channel.try_recv()
+        self.channel.try_recv_cached(&self.cached_head)
+    }
+}
+
+impl<T: Send> crate::channel::roles::Producer<T> for SpscSender<T> {
+    #[inline]
+    fn send(&self, value: T) -> Result<()> {
+        SpscSender::send(self, value)
+    }
+
+    #[inline]
+    fn try_send(&self, value: T) -> Result<()> {
+        SpscSender::try_send(self, value)
+    }
+
+    #[inline]
+    fn is_full(&self) -> bool {
+        Channel::is_full(&*self.channel)
+    }
+
+    #[inline]
+    fn capacity(&self) -> Option<usize> {
+        Channel::capacity(&*self.channel)
+    }
+}
+
+impl<T: Send> crate::channel::roles::Consumer<T> for SpscReceiver<T> {
+    #[inline]
+    fn recv(&self) -> Result<T> {
+        SpscReceiver::recv(self)
+    }
+
+    #[inline]
+    fn try_recv(&self) -> Result<T> {
+        SpscReceiver::try_recv(self)
+    }
+
+    #[inline]
+    fn is_empty(&self) -> bool {
+        Channel::is_empty(&*self.channel)
     }
 }
 
