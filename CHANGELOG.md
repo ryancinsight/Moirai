@@ -81,6 +81,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `moirai_core::channel::SpscRing` with `split(&mut self)`, yielding
+  `SpscProducer`/`SpscConsumer` halves that borrow the ring instead of sharing
+  an `Arc`. For pairs living inside a scope — a `thread::scope`, a frame loop, a
+  pipeline stage — the scope already proves the ring outlives the halves, so the
+  refcount enforces statically-checkable lifetimes at runtime cost. The borrowed
+  pair drops that cost: no allocation beyond the ring's buffer, and dropping a
+  half is one store rather than a refcount decrement and a conditional free.
+  Both halves implement `Producer`/`Consumer`, so generic code takes either
+  flavour with no `'static` bound. `spsc(capacity)` is unchanged. See ADR-026.
+
 - `moirai_core::channel::{Producer, Consumer}` — the sending and receiving
   halves of a channel as separate contracts, neither requiring `Sync`. This
   restores generic use of the SPSC halves, which ADR-024 had excluded: they
