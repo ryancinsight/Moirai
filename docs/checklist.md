@@ -102,6 +102,9 @@ remain hidden behind stale counters.
     closeout and merged as `9b3caa5`. `recurseml/analysis` errored on both
     heads, while CodeRabbit passed on the PM-only head; local gates remain the
     executor acceptance evidence.
+- [x] [major] ISSUE-222: Delete `moirai-iter`'s ThreadPool, its shared
+  singleton and join guard; fall the indexed fan-outs back to the caller's
+  thread and schedule `ParallelContext` through the global executor.
 - [x] [patch] ISSUE-220: Give `join_with`'s scheduled branch a claimable slot so
   a refused fork runs on the caller instead of panicking, with exactly-once
   coverage for both the refusal arm and the healthy two-lane race.

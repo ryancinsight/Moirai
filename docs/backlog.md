@@ -316,6 +316,31 @@ architecture definition.
   fallback is not surfaced through a counter the way
   `ThreadScheduler::admission_caller_runs` surfaces the indexed path.
 
+#### ✅ ISSUE-222 [major]: Delete `moirai-iter`'s ThreadPool
+- **Type**: Runtime Architecture / API Surface
+- **Root Cause**: ADR-022 narrowed the crate's FIFO pool to flat fan-out but
+  kept it as the `ShuttingDown` fallback for three indexed operations and as
+  `ParallelContext`'s executor, leaving two runtimes for one role. Each
+  fallback was a second copy of its executor closure, free to drift from the
+  path it stood in for.
+- **Resolution**: Pool, shared-pool singleton, join guard and job erasure
+  deleted. The fan-outs bind their chunk closure once, lend it to
+  `for_each_indexed`, and re-run that same body on the caller when the fan-out
+  reports a clean `ShuttingDown` — the retry policy is unchanged, only its
+  executor. `ParallelContext` schedules through the global executor.
+  `pool_fallback_permitted` renamed to `sequential_fallback_permitted`.
+- **Acceptance criteria**: `moirai_iter::ThreadPool` and `moirai::ThreadPool`
+  are gone; the three fan-outs and `ParallelContext` keep their value
+  semantics; no consumer in the stack breaks.
+- **Evidence tier**: empirical (`moirai-iter` + `moirai` 213/213 plus new
+  `execute_iter` order, completeness and truncation tests; the truncation test
+  verified red against the parent revision at 32 of 40 items returned) plus
+  type-level (the deleted API is unreachable).
+- **ADR**: `docs/adr.md` ADR-023 (Accepted).
+- **Residual**: `execute_iter`'s `T/F/R: 'static` bounds are now unnecessary —
+  the closure is borrowed, not moved into a `'static` job — but relaxing them
+  changes `ExecutionContext::execute_iter` too and is left as its own item.
+
 #### ✅ ISSUE-220 [patch]: Run a refused `join_with` branch on the caller
 - **Type**: Concurrency Correctness / API Contract
 - **Root Cause**: `join_with` moved its left branch into the scoped job. A job

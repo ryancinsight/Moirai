@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- Remove `moirai_iter::ThreadPool` and its `moirai::ThreadPool` re-export. The
+  crate's own FIFO thread pool was a second runtime beside the unified
+  scheduler, kept only as the fallback for a shutting-down executor — which is
+  when starting worker threads is least defensible, and where the caller's own
+  thread does just as well for a flat index domain. The indexed operations now
+  re-run their work on the caller, and `ParallelContext` schedules through the
+  process-wide executor rather than owning a pool, so several contexts share
+  one worker set instead of over-subscribing the machine. Callers wanting a
+  fan-out use `moirai_parallel`'s data-parallel operators or
+  `moirai_executor::global()`.
+
 ### Fixed
+
+- Return every chunk from `ParallelContext::execute_iter`. It collected results
+  from a channel until the senders dropped, so a panicking chunk ended the
+  collect early and the call returned a short `Vec` with `Ok` — 32 of 40 items
+  in the regression case. Results now land in per-index slots and a missing
+  chunk surfaces as a panic.
 
 - Run a scoped job on the calling lane when the scheduler's admission queue
   rejects it. `SchedulerScope::flush` previously dropped such a job and
