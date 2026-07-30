@@ -1,4 +1,13 @@
+# Pinned build toolchain, uniform with the rest of the Atlas stack.
+#
+# Every stack repository shares one CARGO_TARGET_DIR, and rustc rejects
+# artifacts written by a different compiler version (E0514). A divergent pin
+# here therefore poisons the shared cache for every consumer of this crate,
+# not just this repository.
+#
+# This is the build toolchain, not the support floor: the workspace
+# `rust-version = "1.95"` MSRV is unchanged and is verified separately.
 [toolchain]
-channel = "1.95.0"
+channel = "1.97.0"
 profile = "minimal"
 components = ["clippy", "rustfmt"]
