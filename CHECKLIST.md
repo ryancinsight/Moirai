@@ -49,6 +49,21 @@
 - [ ] Advance Kwavers to the merged Moirai pin, remove the test-serialization
       workaround, pass the affected therapy lane, and merge Kwavers.
 
+## MOI-REL-061 — Rust crate releases [patch] — in progress
+
+- Owner: Codex `/root`.
+- Scope: collision-free facade identity, published Mnemosyne package aliases,
+  registry metadata, locked archives, and crates.io release automation.
+- Acceptance: every reusable workspace crate packages from a clean checkout,
+  publishes in dependency order, resolves from crates.io, and uses the OIDC
+  release workflow for subsequent versions.
+- [x] Select the available `moirai-runtime` facade package identity while
+  preserving `use moirai::...` for Rust consumers.
+- [x] Bind Mnemosyne dependencies to their registry package identities.
+- [x] Pass the clean-checkout metadata and workspace nextest gates.
+- [ ] Publish every reusable workspace crate and verify the sparse index.
+- [ ] Register each crates.io Trusted Publisher against the release workflow.
+
 ## MOI-REL-060 — Python wheel releases [patch] — blocked
 
 - Owner: Codex `/root`.
