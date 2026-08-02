@@ -1,5 +1,5 @@
 [package]
-name = "moirai"
+name = "moirai-runtime"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -11,7 +11,9 @@ keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
 description = "High-performance hybrid concurrency library for Rust - weaving the threads of fate"
-publish = false # The `moirai` crates.io name belongs to an unrelated project.
+
+[lib]
+name = "moirai"
 
 [dependencies]
 moirai-core = { workspace = true }

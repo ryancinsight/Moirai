@@ -7,10 +7,10 @@ authors = ["Moirai Contributors"]
 description = "Comprehensive performance benchmarks for Moirai concurrency library"
 publish = false
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/moirai-rs/moirai"
+repository = "https://github.com/ryancinsight/Moirai"
 
 [dependencies]
-moirai = { path = "../moirai", default-features = false, features = ["distributed"] }
+moirai = { package = "moirai-runtime", path = "../moirai", default-features = false, features = ["distributed"] }
 moirai-core = { path = "../moirai-core" }
 moirai-executor = { path = "../moirai-executor" }
 moirai-scheduler = { path = "../moirai-scheduler" }

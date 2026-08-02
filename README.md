@@ -141,9 +141,8 @@ its crates.io Trusted Publisher is registered, a GitHub Release tagged
 Cargo version with a short-lived OIDC token. Validation runs in a separate
 read-only job. The publish job is bound to the GitHub `crates-io` environment;
 register each package's Trusted Publisher with that environment. The `moirai`
-registry name belongs to an unrelated project, so the local facade is explicitly
-non-publishable until a distinct public name is selected; the component crate
-names remain available.
+registry name belongs to an unrelated project, so the facade publishes as
+`moirai-runtime` while retaining the Rust library name `moirai`.
 
 ```bash
 py -3.13 -m pip install moirai-python

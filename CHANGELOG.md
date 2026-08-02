@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Publish the facade under the collision-free `moirai-runtime` package name
+  while retaining the Rust library name `moirai`, bind Mnemosyne dependencies
+  to their published package identities, and correct registry metadata to the
+  owning repository.
+
 ### Fixed
 
 - Bind the `themis` crate alias to the renamed `themis-topology` package so

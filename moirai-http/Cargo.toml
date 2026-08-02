@@ -24,4 +24,4 @@ http = { workspace = true }
 httparse = { workspace = true }
 
 [dev-dependencies]
-moirai = { path = "../moirai", default-features = false, features = ["async"] }
+moirai = { package = "moirai-runtime", path = "../moirai", default-features = false, features = ["async"] }
