@@ -15,11 +15,17 @@ struct SharedState<T> {
     tx_waker: Option<Waker>,
 }
 
+/// Sending half; consumed by the single send.
 pub struct Sender<T> {
     shared: std::sync::Arc<Mutex<SharedState<T>>>,
 }
 
 impl<T> Sender<T> {
+    /// Send the value, completing the channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(value)` when the receiver already closed.
     pub fn send(self, value: T) -> Result<(), T> {
         let mut shared = self.shared.lock().unwrap();
         match shared.state {
@@ -35,6 +41,7 @@ impl<T> Sender<T> {
         }
     }
 
+    /// Return whether the receiver closed the channel.
     pub fn is_closed(&self) -> bool {
         let shared = self.shared.lock().unwrap();
         matches!(shared.state, OneshotState::Closed)
@@ -53,15 +60,21 @@ impl<T> Drop for Sender<T> {
     }
 }
 
+/// Receiving half of the single-value channel.
 pub struct Receiver<T> {
     shared: std::sync::Arc<Mutex<SharedState<T>>>,
 }
 
 impl<T> Receiver<T> {
+    /// Receive the value, waiting for the send.
+    ///
+    /// The returned future resolves `Err(())` when the sender dropped
+    /// without sending.
     pub fn recv(&mut self) -> RecvFuture<'_, T> {
         RecvFuture { receiver: self }
     }
 
+    /// Take the value without waiting; `None` when not yet sent.
     pub fn try_recv(&mut self) -> Option<T> {
         let mut shared = self.shared.lock().unwrap();
         match std::mem::replace(&mut shared.state, OneshotState::Closed) {
@@ -74,6 +87,7 @@ impl<T> Receiver<T> {
         }
     }
 
+    /// Close the channel, waking a parked sender.
     pub fn close(&mut self) {
         let mut shared = self.shared.lock().unwrap();
         shared.state = OneshotState::Closed;
@@ -93,6 +107,7 @@ impl<T> Drop for Receiver<T> {
     }
 }
 
+/// Future returned by [`Receiver::recv`].
 pub struct RecvFuture<'a, T> {
     receiver: &'a mut Receiver<T>,
 }
@@ -122,6 +137,8 @@ impl<'a, T> Future for RecvFuture<'a, T> {
     }
 }
 
+/// Create a single-value channel.
+#[must_use]
 pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
     let shared = std::sync::Arc::new(Mutex::new(SharedState {
         state: OneshotState::Empty,

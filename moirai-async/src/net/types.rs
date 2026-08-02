@@ -43,9 +43,13 @@ impl Default for TcpServerConfig {
 /// TCP server statistics for monitoring
 #[derive(Debug, Default)]
 pub struct ServerStats {
+    /// Connections accepted over the server's lifetime.
     pub total_connections: AtomicU64,
+    /// Connections currently tracked as open.
     pub active_connections: AtomicU64,
+    /// Bytes received across all connections.
     pub bytes_received: AtomicU64,
+    /// Bytes sent across all connections.
     pub bytes_sent: AtomicU64,
 }
 
@@ -62,9 +66,13 @@ pub type ConnectionId = u64;
 pub struct ConnectionInfo {
     /// Peer address captured at accept/connect time (never re-queried).
     pub peer_addr: std::net::SocketAddr,
+    /// Instant the connection entered the pool.
     pub connected_at: Instant,
+    /// Bytes received on this connection.
     pub bytes_received: u64,
+    /// Bytes sent on this connection.
     pub bytes_sent: u64,
+    /// Instant of the most recent recorded activity.
     pub last_activity: Instant,
 }
 
@@ -78,6 +86,8 @@ pub struct ConnectionPool {
 }
 
 impl ConnectionPool {
+    /// Create a pool bounded to `max_connections`, or unbounded on `None`.
+    #[must_use]
     pub fn new(max_connections: Option<usize>) -> Self {
         Self {
             active_connections: Mutex::new(HashMap::new()),
@@ -87,6 +97,9 @@ impl ConnectionPool {
         }
     }
 
+    /// Reserve one connection slot ahead of an accept.
+    ///
+    /// Returns false when the pool (active plus reserved) is at capacity.
     pub fn try_reserve(&self) -> bool {
         let max = match self.max_connections {
             Some(m) => m,
@@ -104,6 +117,8 @@ impl ConnectionPool {
         }
     }
 
+    /// Release a slot taken by [`Self::try_reserve`] without admitting a
+    /// connection.
     pub fn cancel_reservation(&self) {
         if self.max_connections.is_some() {
             self.reserved_connections.fetch_sub(1, Ordering::SeqCst);
@@ -151,6 +166,7 @@ impl ConnectionPool {
         }
     }
 
+    /// Remove a tracked connection; returns whether it was present.
     pub fn remove_connection(&self, id: ConnectionId) -> bool {
         self.active_connections
             .lock()
@@ -159,6 +175,7 @@ impl ConnectionPool {
             .is_some()
     }
 
+    /// Return whether the pool can admit another connection.
     pub fn has_capacity(&self) -> bool {
         match self.max_connections {
             Some(max) => {
@@ -170,10 +187,12 @@ impl ConnectionPool {
         }
     }
 
+    /// Snapshot the tracked connections.
     pub fn get_active_connections(&self) -> HashMap<ConnectionId, ConnectionInfo> {
         self.active_connections.lock().unwrap().clone()
     }
 
+    /// Count of connections currently tracked as open.
     pub fn connection_count(&self) -> usize {
         self.active_connections.lock().unwrap().len()
     }
@@ -182,9 +201,13 @@ impl ConnectionPool {
 /// Statistics for individual TCP connections
 #[derive(Debug, Clone)]
 pub struct ConnectionStats {
+    /// Bytes read on the connection.
     pub bytes_read: u64,
+    /// Bytes written on the connection.
     pub bytes_written: u64,
+    /// Completed read operations.
     pub read_ops: u64,
+    /// Completed write operations.
     pub write_ops: u64,
 }
 
@@ -221,26 +244,38 @@ impl Default for UdpConfig {
 /// Statistics for UDP socket operations
 #[derive(Debug, Default)]
 pub struct UdpStats {
+    /// Datagrams sent.
     pub packets_sent: AtomicU64,
+    /// Datagrams received.
     pub packets_received: AtomicU64,
+    /// Bytes sent.
     pub bytes_sent: AtomicU64,
+    /// Bytes received.
     pub bytes_received: AtomicU64,
 }
 
 /// Public TCP server statistics
 #[derive(Debug, Clone)]
 pub struct TcpServerStats {
+    /// Connections accepted over the server's lifetime.
     pub total_connections: u64,
+    /// Connections currently open.
     pub active_connections: u64,
+    /// Bytes received across all connections.
     pub bytes_received: u64,
+    /// Bytes sent across all connections.
     pub bytes_sent: u64,
 }
 
 /// Public UDP socket statistics  
 #[derive(Debug, Clone)]
 pub struct UdpSocketStats {
+    /// Datagrams sent.
     pub packets_sent: u64,
+    /// Datagrams received.
     pub packets_received: u64,
+    /// Bytes sent.
     pub bytes_sent: u64,
+    /// Bytes received.
     pub bytes_received: u64,
 }

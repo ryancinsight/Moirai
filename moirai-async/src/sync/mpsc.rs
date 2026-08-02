@@ -16,6 +16,7 @@ struct SharedState<T> {
     next_recv_id: u64,
 }
 
+/// Sending half of the bounded channel; clone to add producers.
 pub struct Sender<T> {
     shared: std::sync::Arc<Mutex<SharedState<T>>>,
 }
@@ -31,6 +32,10 @@ impl<T> Clone for Sender<T> {
 }
 
 impl<T> Sender<T> {
+    /// Send a value, waiting for buffer capacity.
+    ///
+    /// The returned future resolves `Err(value)` when the channel closes
+    /// before the value is accepted.
     pub fn send(&self, value: T) -> SendFuture<'_, T> {
         SendFuture {
             sender: self,
@@ -39,6 +44,12 @@ impl<T> Sender<T> {
         }
     }
 
+    /// Send without waiting; returns the value when full or closed.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(value)` when the buffer is at capacity or the channel
+    /// is closed.
     pub fn try_send(&self, value: T) -> Result<(), T> {
         let mut shared = self.shared.lock().unwrap();
         if shared.closed {
@@ -55,10 +66,12 @@ impl<T> Sender<T> {
         }
     }
 
+    /// Return whether the channel is closed.
     pub fn is_closed(&self) -> bool {
         self.shared.lock().unwrap().closed
     }
 
+    /// Count of live sender handles.
     pub fn sender_strong_count(&self) -> usize {
         self.shared.lock().unwrap().sender_count
     }
@@ -81,6 +94,7 @@ impl<T> Drop for Sender<T> {
     }
 }
 
+/// Future returned by [`Sender::send`].
 pub struct SendFuture<'a, T> {
     sender: &'a Sender<T>,
     value: Option<T>,
@@ -132,11 +146,16 @@ impl<'a, T> Drop for SendFuture<'a, T> {
     }
 }
 
+/// Receiving half of the bounded channel.
 pub struct Receiver<T> {
     shared: std::sync::Arc<Mutex<SharedState<T>>>,
 }
 
 impl<T> Receiver<T> {
+    /// Receive the next value, waiting for one to arrive.
+    ///
+    /// The returned future resolves `Err(())` when the channel is closed
+    /// and drained.
     pub fn recv(&mut self) -> RecvFuture<'_, T> {
         RecvFuture {
             receiver: self,
@@ -144,6 +163,7 @@ impl<T> Receiver<T> {
         }
     }
 
+    /// Receive without waiting; `None` when the buffer is empty.
     pub fn try_recv(&mut self) -> Option<T> {
         let mut shared = self.shared.lock().unwrap();
         let value = shared.buffer.pop_front();
@@ -155,6 +175,7 @@ impl<T> Receiver<T> {
         value
     }
 
+    /// Close the channel, waking every parked sender and receiver.
     pub fn close(&mut self) {
         let mut shared = self.shared.lock().unwrap();
         shared.closed = true;
@@ -185,6 +206,7 @@ impl<T> Drop for Receiver<T> {
     }
 }
 
+/// Future returned by [`Receiver::recv`].
 pub struct RecvFuture<'a, T> {
     receiver: &'a mut Receiver<T>,
     id: Option<u64>,
@@ -230,6 +252,8 @@ impl<'a, T> Drop for RecvFuture<'a, T> {
     }
 }
 
+/// Create a bounded channel with the given buffer capacity.
+#[must_use]
 pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
     let shared = std::sync::Arc::new(Mutex::new(SharedState {
         buffer: VecDeque::with_capacity(capacity),

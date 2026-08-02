@@ -52,16 +52,25 @@ pub struct TimerWheel {
 
 /// Commands for timer management.
 pub enum TimerCommand {
+    /// Register a timer firing at `deadline`.
     Schedule {
+        /// Identifier the wheel tracks the timer under.
         timer_id: u64,
+        /// Instant the timer fires.
         deadline: Instant,
+        /// Waker invoked at expiry.
         waker: Waker,
     },
+    /// Remove a scheduled timer.
     Cancel {
+        /// Identifier of the timer to remove.
         timer_id: u64,
     },
+    /// Move a scheduled timer to a new deadline.
     Reschedule {
+        /// Identifier of the timer to move.
         timer_id: u64,
+        /// Replacement expiry instant.
         new_deadline: Instant,
     },
 }

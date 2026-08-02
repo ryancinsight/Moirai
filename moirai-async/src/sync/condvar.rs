@@ -10,6 +10,7 @@ fn noop_waker() -> Waker {
     Waker::noop().clone()
 }
 
+/// Async condition variable pairing with the async [`Mutex`].
 pub struct Condvar {
     state: std::sync::Mutex<CondvarState>,
 }
@@ -19,6 +20,7 @@ struct CondvarState {
 }
 
 impl Condvar {
+    /// Create a condition variable with no waiters.
     pub fn new() -> Self {
         Self {
             state: std::sync::Mutex::new(CondvarState {
@@ -27,6 +29,7 @@ impl Condvar {
         }
     }
 
+    /// Release the guard, wait for a notification, and reacquire.
     pub async fn wait<'a, T>(&self, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
         let mutex_ref: &'a Mutex<T> = guard.mutex;
         // Register a pending waiter WHILE still holding the outer MutexGuard.
@@ -46,6 +49,7 @@ impl Condvar {
         mutex_ref.lock().await
     }
 
+    /// Wait until `condition` on the guarded value turns false.
     pub async fn wait_while<'a, T, F>(
         &self,
         guard: MutexGuard<'a, T>,
@@ -61,6 +65,7 @@ impl Condvar {
         guard
     }
 
+    /// Wake the oldest waiter, if any.
     pub fn notify_one(&self) {
         let mut state = self.state.lock().unwrap();
         if let Some(waker) = state.waiters.grant_oldest(()) {
@@ -68,6 +73,7 @@ impl Condvar {
         }
     }
 
+    /// Wake every current waiter.
     pub fn notify_all(&self) {
         let mut state = self.state.lock().unwrap();
         let wakers = state.waiters.grant_all(());

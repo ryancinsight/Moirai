@@ -4,8 +4,11 @@
 //! zero-copy buffer ownership, zero-cost extension futures, and
 //! monomorphization goals.
 
+/// Adapters bridging Moirai and Tokio I/O trait families.
 pub mod compat;
+/// Extension futures over the core read/write traits.
 pub mod ext;
+/// Core async read/write/seek trait definitions.
 pub mod traits;
 
 pub use compat::{MoiraiCompat, TokioCompat};

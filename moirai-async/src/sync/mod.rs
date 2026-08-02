@@ -5,10 +5,14 @@
 //! primitive is implemented in its own focused module.
 
 pub mod broadcast;
+/// Async condition variable.
 pub mod condvar;
+/// Bounded async multi-producer single-consumer channel.
 pub mod mpsc;
+/// Async mutual-exclusion lock.
 pub mod mutex;
 pub mod notify;
+/// Single-value channel completed by one send.
 pub mod oneshot;
 pub mod rwlock;
 pub mod semaphore;

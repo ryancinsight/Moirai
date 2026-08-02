@@ -6,6 +6,7 @@ use std::task::{Context, Poll};
 
 use crate::sync::wait_queue::{WaitQueue, WaiterPoll};
 
+/// Async mutual-exclusion lock over `T`.
 pub struct Mutex<T> {
     data: UnsafeCell<T>,
     state: std::sync::Mutex<MutexState>,
@@ -20,6 +21,7 @@ struct MutexState {
 }
 
 impl<T> Mutex<T> {
+    /// Create an unlocked mutex owning `data`.
     pub fn new(data: T) -> Self {
         Self {
             data: UnsafeCell::new(data),
@@ -30,6 +32,7 @@ impl<T> Mutex<T> {
         }
     }
 
+    /// Acquire the lock, waiting for the current holder to release.
     pub fn lock(&self) -> MutexLockFuture<'_, T> {
         MutexLockFuture {
             mutex: self,
@@ -37,6 +40,7 @@ impl<T> Mutex<T> {
         }
     }
 
+    /// Acquire without waiting; `None` when already held.
     pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
         let mut state = self.state.lock().unwrap();
         if !state.locked {
@@ -68,6 +72,7 @@ impl<T> From<T> for Mutex<T> {
     }
 }
 
+/// Future returned by [`Mutex::lock`].
 pub struct MutexLockFuture<'a, T> {
     mutex: &'a Mutex<T>,
     id: Option<u64>,
@@ -119,6 +124,7 @@ impl<'a, T> Drop for MutexLockFuture<'a, T> {
     }
 }
 
+/// Exclusive access guard; releases the lock on drop.
 pub struct MutexGuard<'a, T> {
     pub(crate) mutex: &'a Mutex<T>,
 }

@@ -2,12 +2,17 @@
 //!
 //! Following SLAP principle with focused responsibility on time-based async operations.
 
+/// One-shot delay futures.
 pub mod delay;
 pub(super) mod driver;
+/// Repeating interval ticks.
 pub mod interval;
+/// Time-based rate limiting.
 pub mod limiter;
 pub(super) mod registration;
+/// Deadline wrappers over futures.
 pub mod timeout;
+/// Hierarchical timing-wheel implementation.
 pub mod wheel;
 
 pub use delay::Delay;

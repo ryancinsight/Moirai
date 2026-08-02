@@ -3,8 +3,11 @@
 //! This module provides Moirai-owned async networking facades for TCP and UDP
 //! sockets without Tokio dependencies.
 
+/// Async TCP listener facade.
 pub mod listener;
+/// Async UDP socket facade.
 pub mod socket;
+/// Async TCP stream facade.
 pub mod stream;
 pub mod types;
 
