@@ -1043,6 +1043,7 @@ dependencies = [
 [[package]]
 name = "melinoe"
 version = "0.9.0"
+source = "git+https://github.com/ryancinsight/melinoe.git#258dda57cc71ee497acaf743c84640103f72f9e1"
 
 [[package]]
 name = "memchr"
@@ -1097,6 +1098,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne"
 version = "0.6.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#3bbe9819315ed3cd178893ad2ca9d102ce0476f1"
 dependencies = [
  "mnemosyne-arena",
  "mnemosyne-backend",
@@ -1110,6 +1112,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-arena"
 version = "0.3.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#3bbe9819315ed3cd178893ad2ca9d102ce0476f1"
 dependencies = [
  "mnemosyne-backend",
  "mnemosyne-core",
@@ -1119,6 +1122,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-backend"
 version = "0.5.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#3bbe9819315ed3cd178893ad2ca9d102ce0476f1"
 dependencies = [
  "mnemosyne-core",
 ]
@@ -1126,14 +1130,17 @@ dependencies = [
 [[package]]
 name = "mnemosyne-build-util"
 version = "0.2.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#3bbe9819315ed3cd178893ad2ca9d102ce0476f1"
 
 [[package]]
 name = "mnemosyne-core"
 version = "0.2.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#3bbe9819315ed3cd178893ad2ca9d102ce0476f1"
 
 [[package]]
 name = "mnemosyne-decay"
 version = "0.2.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#3bbe9819315ed3cd178893ad2ca9d102ce0476f1"
 dependencies = [
  "mnemosyne-arena",
  "mnemosyne-backend",
@@ -1143,6 +1150,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-hardened"
 version = "0.2.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#3bbe9819315ed3cd178893ad2ca9d102ce0476f1"
 dependencies = [
  "mnemosyne-core",
 ]
@@ -1150,6 +1158,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-local"
 version = "0.3.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#3bbe9819315ed3cd178893ad2ca9d102ce0476f1"
 dependencies = [
  "melinoe",
  "mnemosyne-arena",
@@ -1164,6 +1173,7 @@ dependencies = [
 [[package]]
 name = "mnemosyne-prof"
 version = "0.2.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#3bbe9819315ed3cd178893ad2ca9d102ce0476f1"
 dependencies = [
  "backtrace",
  "mnemosyne-build-util",
@@ -2425,6 +2435,7 @@ dependencies = [
 [[package]]
 name = "themis"
 version = "0.10.1"
+source = "git+https://github.com/ryancinsight/themis#e6ec649b639186bf90af0a902f0b501bef5059b8"
 dependencies = [
  "melinoe",
 ]
@@ -3105,179 +3116,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "leto"
-version = "0.40.0"
-
-[[patch.unused]]
-name = "leto-ops"
-version = "0.40.0"
-
-[[patch.unused]]
-name = "hephaestus-core"
-version = "0.18.0"
-
-[[patch.unused]]
-name = "hephaestus-cuda"
-version = "0.18.0"
-
-[[patch.unused]]
-name = "hephaestus-metal"
-version = "0.18.0"
-
-[[patch.unused]]
-name = "hephaestus-rocm"
-version = "0.18.0"
-
-[[patch.unused]]
-name = "hephaestus-wgpu"
-version = "0.18.0"
-
-[[patch.unused]]
-name = "tyche-core"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "apollo-fft"
-version = "0.25.0"
-
-[[patch.unused]]
-name = "apollo-nufft"
-version = "0.7.0"
-
-[[patch.unused]]
-name = "apollo-sht"
-version = "0.7.0"
-
-[[patch.unused]]
-name = "asclepius"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "asclepius-coeus"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "hyperion"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "athena-core"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "athena-leto"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "iris"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "hermes-simd"
-version = "0.5.0"
-
-[[patch.unused]]
-name = "gaia"
-version = "0.3.0"
-
-[[patch.unused]]
-name = "coeus-autograd"
-version = "0.9.0"
-
-[[patch.unused]]
-name = "coeus-core"
-version = "0.9.0"
-
-[[patch.unused]]
-name = "coeus-leto"
-version = "0.9.0"
-
-[[patch.unused]]
-name = "coeus-nn"
-version = "0.9.0"
-
-[[patch.unused]]
-name = "coeus-ops"
-version = "0.9.0"
-
-[[patch.unused]]
-name = "coeus-optim"
-version = "0.9.0"
-
-[[patch.unused]]
-name = "coeus-tensor"
-version = "0.9.0"
-
-[[patch.unused]]
-name = "horae"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "proteus"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "aequitas"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "consus-compression"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "consus-core"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "consus-hdf5"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "consus-io"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "consus-npy"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "consus-onnx"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "consus-zarr"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "eunomia"
-version = "0.7.0"
-
-[[patch.unused]]
-name = "ritk-core"
-version = "0.9.0"
-
-[[patch.unused]]
-name = "ritk-dicom"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "ritk-image"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "ritk-io"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "ritk-registration"
-version = "0.53.0"
-
-[[patch.unused]]
-name = "ritk-spatial"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "ritk-vtk"
-version = "0.1.0"
