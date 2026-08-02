@@ -22,26 +22,37 @@ const DEFAULT_UTILIZATION: f64 = 0.0;
 #[derive(Debug)]
 pub struct ExecutorMetrics {
     // Task counters
+    /// Tasks accepted by the executor.
     pub tasks_spawned: AtomicU64,
+    /// Tasks whose body ran to completion.
     pub tasks_completed: AtomicU64,
+    /// Tasks whose body panicked or reported failure.
     pub tasks_failed: AtomicU64,
     /// Tasks whose cancel request was honored before the body ran.
     pub tasks_cancelled: AtomicU64,
 
     // Timing metrics
-    pub total_execution_time: AtomicU64, // in nanoseconds
+    /// Accumulated task body execution time in nanoseconds.
+    pub total_execution_time: AtomicU64,
 
     // Thread pool metrics
+    /// Workers currently running a task body.
     pub active_workers: AtomicUsize,
+    /// Workers parked waiting for work.
     pub idle_workers: AtomicUsize,
+    /// Workers owned by the pool.
     pub total_workers: AtomicUsize,
 
     // Queue metrics
+    /// Tasks queued and not yet started.
     pub pending_tasks: AtomicUsize,
+    /// High-water mark of the pending queue.
     pub max_queue_depth: AtomicUsize,
 
     // System metrics
+    /// Executor construction instant; the metrics epoch.
     pub started_at: Instant,
+    /// Nanoseconds after `started_at` of the last metrics update.
     pub last_updated_after_ns: AtomicU64,
 }
 

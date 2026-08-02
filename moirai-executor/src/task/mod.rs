@@ -10,10 +10,15 @@ use moirai_core::Priority;
 /// Task metadata for tracking and debugging
 #[derive(Debug, Clone)]
 pub struct TaskMetadata {
+    /// Executor-unique task identifier.
     pub id: u64,
+    /// Instant the task was accepted.
     pub created_at: Instant,
+    /// Instant the body started, once running.
     pub started_at: Option<Instant>,
+    /// Instant the body finished, once complete.
     pub completed_at: Option<Instant>,
+    /// Worker that executed the body, once assigned.
     pub worker_id: Option<usize>,
     /// Priority the task was spawned with.
     pub priority: Priority,
