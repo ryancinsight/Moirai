@@ -19,7 +19,9 @@
 //! Unreported capacities follow the themis/mnemosyne "no information"
 //! contract: they yield `None` here rather than fabricated bounds.
 
+use core::num::{NonZeroU32, NonZeroUsize};
 use mnemosyne_core::KernelResourceBudget;
+
 use themis::GpuTopology;
 
 /// A planned compute launch: grid size and block width.
@@ -60,27 +62,30 @@ pub const fn plan_launch(budget: KernelResourceBudget, work_items: u64) -> Launc
 /// `blocks_per_unit(budget, topology) · compute_units`.
 ///
 /// Returns `None` when the topology lacks the information — either the
-/// compute-unit count is unreported (zero; e.g. the wgpu provider, which
-/// cannot see SM counts) or every per-unit limiter is unconstrained
-/// (`u32::MAX` "no information"). A persistent-kernel deployment without
-/// this answer must choose its own policy rather than trust a fabricated
-/// capacity.
+/// compute-unit count is unreported (`None` by type; e.g. the wgpu
+/// provider, which cannot see SM counts) or every per-unit limiter is
+/// unconstrained (`u32::MAX` "no information"). A persistent-kernel
+/// deployment without this answer must choose its own policy rather than
+/// trust a fabricated capacity. Unreported per-unit capacities pass to
+/// the budget as `0`, its documented "no such limiter" input.
 #[must_use]
 pub fn resident_blocks(topology: &GpuTopology, budget: KernelResourceBudget) -> Option<u32> {
-    if topology.compute_units() == 0 {
+    let Some(units) = topology.compute_units() else {
         return None;
-    }
+    };
     let per_unit = budget
         .occupancy_limits(
-            topology.registers_per_unit(),
-            topology.shared_mem_per_unit_bytes(),
-            topology.max_threads_per_unit(),
+            topology.registers_per_unit().map_or(0, NonZeroU32::get),
+            topology
+                .shared_mem_per_unit_bytes()
+                .map_or(0, NonZeroUsize::get),
+            topology.max_threads_per_unit().map_or(0, NonZeroU32::get),
         )
         .blocks_per_unit();
     if per_unit == u32::MAX {
         return None;
     }
-    let total = (per_unit as u64) * (topology.compute_units() as u64);
+    let total = (per_unit as u64) * u64::from(units.get());
     Some(if total > u32::MAX as u64 {
         u32::MAX
     } else {
@@ -115,14 +120,14 @@ mod tests {
     // Ampere-class fixture matching mnemosyne's closed-form budget tests.
     fn ampere_like() -> GpuTopology {
         GpuTopology::from_provider(GpuDeviceProperties {
-            compute_units: 46,
-            warp_width: 32,
-            max_threads_per_unit: 1_536,
-            registers_per_unit: 65_536,
-            shared_mem_per_unit_bytes: 102_400,
-            l2_bytes: 4 * 1024 * 1024,
+            compute_units: NonZeroU32::new(46),
+            warp_width: NonZeroU32::new(32),
+            max_threads_per_unit: NonZeroU32::new(1_536),
+            registers_per_unit: NonZeroU32::new(65_536),
+            shared_mem_per_unit_bytes: NonZeroUsize::new(102_400),
+            l2_bytes: NonZeroUsize::new(4 * 1024 * 1024),
             memory_tier: themis::MemoryTier::Gddr,
-            memory_bytes: 8 * 1024 * 1024 * 1024,
+            memory_bytes: core::num::NonZeroU64::new(8 * 1024 * 1024 * 1024),
         })
     }
 
@@ -165,14 +170,14 @@ mod tests {
     fn no_information_topologies_yield_none_not_fabrication() {
         // The wgpu provider reports zero compute units / capacities.
         let wgpu_like = GpuTopology::from_provider(GpuDeviceProperties {
-            compute_units: 0,
-            warp_width: 32,
-            max_threads_per_unit: 0,
-            registers_per_unit: 0,
-            shared_mem_per_unit_bytes: 0,
-            l2_bytes: 0,
-            memory_tier: themis::MemoryTier::Device,
-            memory_bytes: 0,
+            compute_units: None,
+            warp_width: NonZeroU32::new(32),
+            max_threads_per_unit: None,
+            registers_per_unit: None,
+            shared_mem_per_unit_bytes: None,
+            l2_bytes: None,
+            memory_tier: themis::MemoryTier::Dram,
+            memory_bytes: None,
         });
         assert_eq!(resident_blocks(&wgpu_like, budget()), None);
         assert!(plan_persistent_launch(&wgpu_like, budget(), 1_000).is_none());
