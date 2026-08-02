@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bind the `themis` crate alias to the renamed `themis-topology` package so
   fresh Git dependency resolution follows the provider identity.
+- Bind the `mnemosyne` and `mnemosyne_core` crate aliases to packages
+  `mnemosyne-memory` and `mnemosyne-memory-core` while preserving Rust imports.
 
 ### Breaking
 

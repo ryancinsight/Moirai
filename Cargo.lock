@@ -1096,88 +1096,88 @@ dependencies = [
 ]
 
 [[package]]
-name = "mnemosyne"
-version = "0.6.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#0e57030076e563504c5ebfe4de13a7d094fc8d96"
-dependencies = [
- "mnemosyne-arena",
- "mnemosyne-backend",
- "mnemosyne-core",
- "mnemosyne-decay",
- "mnemosyne-hardened",
- "mnemosyne-local",
- "mnemosyne-prof",
-]
-
-[[package]]
 name = "mnemosyne-arena"
 version = "0.3.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#0e57030076e563504c5ebfe4de13a7d094fc8d96"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#be4aa64d057eb8471b24c9210e77396bdce143cf"
 dependencies = [
  "mnemosyne-backend",
- "mnemosyne-core",
+ "mnemosyne-memory-core",
  "themis-topology",
 ]
 
 [[package]]
 name = "mnemosyne-backend"
 version = "0.5.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#0e57030076e563504c5ebfe4de13a7d094fc8d96"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#be4aa64d057eb8471b24c9210e77396bdce143cf"
 dependencies = [
- "mnemosyne-core",
+ "mnemosyne-memory-core",
 ]
 
 [[package]]
 name = "mnemosyne-build-util"
 version = "0.2.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#0e57030076e563504c5ebfe4de13a7d094fc8d96"
-
-[[package]]
-name = "mnemosyne-core"
-version = "0.2.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#0e57030076e563504c5ebfe4de13a7d094fc8d96"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#be4aa64d057eb8471b24c9210e77396bdce143cf"
 
 [[package]]
 name = "mnemosyne-decay"
 version = "0.2.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#0e57030076e563504c5ebfe4de13a7d094fc8d96"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#be4aa64d057eb8471b24c9210e77396bdce143cf"
 dependencies = [
  "mnemosyne-arena",
  "mnemosyne-backend",
- "mnemosyne-core",
+ "mnemosyne-memory-core",
 ]
 
 [[package]]
 name = "mnemosyne-hardened"
 version = "0.2.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#0e57030076e563504c5ebfe4de13a7d094fc8d96"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#be4aa64d057eb8471b24c9210e77396bdce143cf"
 dependencies = [
- "mnemosyne-core",
+ "mnemosyne-memory-core",
 ]
 
 [[package]]
 name = "mnemosyne-local"
 version = "0.3.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#0e57030076e563504c5ebfe4de13a7d094fc8d96"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#be4aa64d057eb8471b24c9210e77396bdce143cf"
 dependencies = [
  "melinoe",
  "mnemosyne-arena",
  "mnemosyne-backend",
  "mnemosyne-build-util",
- "mnemosyne-core",
  "mnemosyne-decay",
+ "mnemosyne-memory-core",
  "mnemosyne-prof",
  "themis-topology",
 ]
 
 [[package]]
+name = "mnemosyne-memory"
+version = "0.6.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#be4aa64d057eb8471b24c9210e77396bdce143cf"
+dependencies = [
+ "mnemosyne-arena",
+ "mnemosyne-backend",
+ "mnemosyne-decay",
+ "mnemosyne-hardened",
+ "mnemosyne-local",
+ "mnemosyne-memory-core",
+ "mnemosyne-prof",
+]
+
+[[package]]
+name = "mnemosyne-memory-core"
+version = "0.2.0"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#be4aa64d057eb8471b24c9210e77396bdce143cf"
+
+[[package]]
 name = "mnemosyne-prof"
 version = "0.2.0"
-source = "git+https://github.com/ryancinsight/Mnemosyne.git#0e57030076e563504c5ebfe4de13a7d094fc8d96"
+source = "git+https://github.com/ryancinsight/Mnemosyne.git#be4aa64d057eb8471b24c9210e77396bdce143cf"
 dependencies = [
  "backtrace",
  "mnemosyne-build-util",
- "mnemosyne-core",
+ "mnemosyne-memory-core",
 ]
 
 [[package]]
@@ -1188,7 +1188,7 @@ dependencies = [
  "fastrand",
  "futures",
  "melinoe",
- "mnemosyne",
+ "mnemosyne-memory",
  "moirai-async",
  "moirai-core",
  "moirai-executor",
@@ -1242,7 +1242,7 @@ dependencies = [
  "crossbeam",
  "futures",
  "libc",
- "mnemosyne",
+ "mnemosyne-memory",
  "moirai",
  "moirai-async",
  "moirai-core",
@@ -1269,7 +1269,7 @@ dependencies = [
  "bytemuck",
  "criterion",
  "libc",
- "mnemosyne",
+ "mnemosyne-memory",
  "moirai-utils",
  "proptest",
  "static_assertions",
@@ -1282,7 +1282,7 @@ dependencies = [
  "criterion",
  "loom",
  "melinoe",
- "mnemosyne",
+ "mnemosyne-memory",
  "moirai-core",
  "moirai-pal",
  "moirai-scheduler",
@@ -1297,7 +1297,7 @@ dependencies = [
  "bytemuck",
  "criterion",
  "futures",
- "mnemosyne-core",
+ "mnemosyne-memory-core",
  "moirai-core",
  "moirai-executor",
  "moirai-utils",
@@ -1391,7 +1391,7 @@ version = "0.4.0"
 dependencies = [
  "criterion",
  "loom",
- "mnemosyne",
+ "mnemosyne-memory",
  "moirai-core",
  "moirai-utils",
  "num_cpus",
