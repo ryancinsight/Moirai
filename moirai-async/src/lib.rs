@@ -6,6 +6,7 @@
 //! Following SLAP principle, this module now serves as a facade that re-exports
 //! functionality from focused, single-responsibility modules.
 
+#![deny(missing_docs)]
 // Focused modules following SLAP principle
 pub mod executor;
 pub mod fs;

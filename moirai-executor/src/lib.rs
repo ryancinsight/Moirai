@@ -16,6 +16,7 @@
 //! - **Zero-Copy Task Passing**: minimal overhead task distribution.
 
 #![cfg_attr(nightly_tls_active, feature(thread_local))]
+#![deny(missing_docs)]
 
 // Module declarations - following SRP and SOC principles
 pub mod hybrid;

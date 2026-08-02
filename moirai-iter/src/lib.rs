@@ -14,6 +14,7 @@
 //! - **Performance**: SIMD vectorization and CPU optimization
 //! - **Async compatibility**: Native async/await support throughout
 
+#![deny(missing_docs)]
 pub mod advanced_patterns;
 pub mod async_iter;
 pub mod base;
