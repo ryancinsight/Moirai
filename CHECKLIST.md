@@ -2,6 +2,13 @@
 
 **Target**: Unreleased
 
+## MOI-MNEMOSYNE-PACKAGE-1 — package identity [patch] — complete
+
+- Owner: Codex on `codex/moirai-mnemosyne-package`.
+- [x] Bind the facade and core aliases to their `mnemosyne-memory` package
+      identities.
+- [x] Refresh dependency resolution and pass the focused core check.
+
 ## MOI-THEMIS-PACKAGE-1 — package identity [patch] — complete
 
 - Owner: Codex on `codex/moirai-themis-package`.
