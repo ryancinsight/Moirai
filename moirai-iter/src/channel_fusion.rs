@@ -85,6 +85,7 @@ pub struct ChannelSplitter<T, I, C> {
     _phantom: PhantomData<T>,
 }
 
+/// Distribution strategy used by a channel splitter.
 #[derive(Debug, Clone, Copy)]
 pub enum SplitStrategy {
     /// Round-robin distribution
@@ -181,6 +182,7 @@ pub struct ChannelMerger<T, C> {
     next_channel: usize,
 }
 
+/// Merge strategy used by a channel merger.
 #[derive(Debug, Clone, Copy)]
 pub enum MergeStrategy {
     /// Fair round-robin merging

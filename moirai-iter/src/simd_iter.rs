@@ -20,6 +20,7 @@ mod sealed {
 pub trait SimdScalar:
     sealed::Sealed + Copy + Send + Sync + Add<Output = Self> + Mul<Output = Self> + Sum<Self> + 'static
 {
+    /// Additive identity for the scalar type.
     const ZERO: Self;
 }
 
@@ -64,15 +65,18 @@ pub struct SimdSliceIter<'a, T> {
 }
 
 impl<'a, T: SimdScalar> SimdSliceIter<'a, T> {
+    /// Create a SIMD-aware iterator over the given slice.
     pub fn new(data: &'a [T]) -> Self {
         Self { data }
     }
 
+    /// Add `other` element-wise, returning a new vector.
     pub fn add_slice(self, other: &'a [T]) -> Vec<T> {
         assert_eq!(self.data.len(), other.len(), "slices must have same length");
         self.zip_map(other, |left, right| left + right)
     }
 
+    /// Multiply every element by `scalar`, returning a new vector.
     pub fn scale(self, scalar: T) -> Vec<T> {
         self.data
             .iter()
@@ -81,6 +85,7 @@ impl<'a, T: SimdScalar> SimdSliceIter<'a, T> {
             .collect()
     }
 
+    /// Compute the dot product with `other`.
     pub fn dot(self, other: &'a [T]) -> T {
         assert_eq!(self.data.len(), other.len(), "slices must have same length");
 
@@ -111,12 +116,14 @@ pub struct CacheFriendlyIterator<T> {
 }
 
 impl<T: Clone> CacheFriendlyIterator<T> {
+    /// Create a cache-friendly iterator over `data`, sizing chunks to a cache line.
     pub fn new(data: Vec<T>) -> Self {
         let scalar_size = std::mem::size_of::<T>().max(1);
         let chunk_size = (CACHE_LINE_SIZE / scalar_size).max(1);
         Self { data, chunk_size }
     }
 
+    /// Apply `func` to each cache-sized chunk, collecting the results.
     pub fn process_chunks<F, R>(self, func: F) -> Vec<R>
     where
         F: FnMut(&[T]) -> R,
@@ -124,6 +131,7 @@ impl<T: Clone> CacheFriendlyIterator<T> {
         self.data.chunks(self.chunk_size).map(func).collect()
     }
 
+    /// Map every element through `func`, processing chunk-by-chunk.
     pub fn map_with_prefetch<F, R>(self, func: F) -> Vec<R>
     where
         F: Fn(T) -> R + Sync,
@@ -141,6 +149,7 @@ impl<T: Clone> CacheFriendlyIterator<T> {
 pub struct SimdOps;
 
 impl SimdOps {
+    /// Left-fold `op` over `data` with `identity`.
     pub fn reduce<T, F, R>(data: &[T], identity: R, op: F) -> R
     where
         T: Copy + Send + Sync,
@@ -150,6 +159,7 @@ impl SimdOps {
         data.iter().copied().fold(identity, op)
     }
 
+    /// Keep only the elements for which `predicate` returns true.
     pub fn filter<T, P>(data: Vec<T>, predicate: P) -> Vec<T>
     where
         T: Copy,

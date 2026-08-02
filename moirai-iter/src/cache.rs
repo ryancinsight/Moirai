@@ -106,6 +106,7 @@ pub struct CacheAlignedChunks<'a, T> {
 }
 
 impl<'a, T> CacheAlignedChunks<'a, T> {
+    /// Create a cache-aligned chunk iterator over `data`, sizing each chunk to a cache-line multiple.
     pub fn new(data: &'a [T]) -> Self {
         // How many elements fill one `CACHE_CHUNK_SIZE` block, and never zero:
         // an element wider than a cache line used to make the old
@@ -204,6 +205,7 @@ pub struct ZeroCopyParallelIter<'a, T> {
 }
 
 impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
+    /// Create a zero-copy parallel iterator over `data`, choosing a chunk size from the number of available threads.
     pub fn new(data: &'a [T]) -> Self {
         let num_threads = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -214,6 +216,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         Self { data, chunk_size }
     }
 
+    /// Apply `func` to every element, in parallel when the data is large enough.
     pub fn for_each<F>(&self, func: F)
     where
         F: Fn(&T) + Send + Sync,
@@ -254,6 +257,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         }
     }
 
+    /// Map every element through `func` into a new vector, in parallel when the data is large enough.
     pub fn map<F, R>(&self, func: F) -> Vec<R>
     where
         F: Fn(&T) -> R + Send + Sync,
@@ -312,6 +316,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
         unsafe { results.into_iter().map(|item| item.assume_init()).collect() }
     }
 
+    /// Reduce all elements with the associative `func`, returning `None` for empty data.
     pub fn reduce<F>(&self, func: F) -> Option<T>
     where
         F: Fn(&T, &T) -> T + Send + Sync,
@@ -392,8 +397,11 @@ fn should_execute_scoped_cache<T>(len: usize, chunk_size: usize) -> bool {
 
 /// Extension trait for slices to provide cache-aware iteration
 pub trait CacheIterExt<T> {
+    /// Iterate overlapping windows of `window_size` elements.
     fn cache_windows(&self, window_size: usize) -> WindowIterator<'_, T>;
+    /// Iterate cache-aligned chunks of this slice.
     fn cache_chunks(&self) -> CacheAlignedChunks<'_, T>;
+    /// Create a zero-copy parallel iterator over this slice.
     fn zero_copy_par_iter(&self) -> ZeroCopyParallelIter<'_, T>;
 }
 

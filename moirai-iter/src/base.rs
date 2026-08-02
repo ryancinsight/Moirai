@@ -111,6 +111,7 @@ pub struct BaseIterator<I, C> {
 }
 
 impl<I, C> BaseIterator<I, C> {
+    /// Create a base iterator wrapping `inner` with an owned `context`.
     pub fn new(inner: I, context: C) -> Self {
         Self {
             inner,
@@ -118,6 +119,7 @@ impl<I, C> BaseIterator<I, C> {
         }
     }
 
+    /// Create a base iterator wrapping `inner` with a shared `context`.
     pub fn with_context(inner: I, context: Arc<C>) -> Self {
         Self { inner, context }
     }
@@ -178,6 +180,7 @@ pub struct MapAdapter<I, F, T, R> {
 }
 
 impl<I, F, T, R> MapAdapter<I, F, T, R> {
+    /// Create a map adapter wrapping `inner` with the map `func`.
     pub fn new(inner: I, func: F) -> Self {
         Self {
             inner,
@@ -213,6 +216,7 @@ pub struct FilterAdapter<I, F, T> {
 }
 
 impl<I, F, T> FilterAdapter<I, F, T> {
+    /// Create a filter adapter wrapping `inner` with the `predicate`.
     pub fn new(inner: I, predicate: F) -> Self {
         Self {
             inner,
@@ -247,6 +251,7 @@ pub struct BatchAdapter<I> {
 }
 
 impl<I> BatchAdapter<I> {
+    /// Create a batch adapter wrapping `inner` with the given batch `size`.
     pub fn new(inner: I, size: usize) -> Self {
         Self {
             inner,
@@ -276,13 +281,18 @@ impl<I> BatchAdapter<I> {
 /// Performance metrics for adaptive execution.
 #[derive(Debug, Clone)]
 pub struct PerformanceMetrics {
+    /// Total number of items processed.
     pub total_items: usize,
+    /// Total execution time in nanoseconds.
     pub execution_time_ns: u64,
+    /// Approximate memory used, in bytes.
     pub memory_used_bytes: usize,
+    /// Name of the execution strategy that produced the metrics.
     pub strategy_used: String,
 }
 
 impl PerformanceMetrics {
+    /// Return the throughput in items per second, or 0.0 when no time was recorded.
     pub fn throughput_per_sec(&self) -> f64 {
         if self.execution_time_ns == 0 {
             0.0

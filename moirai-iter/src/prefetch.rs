@@ -83,6 +83,7 @@ pub struct PrefetchSliceIter<'a, T> {
 }
 
 impl<'a, T> PrefetchSliceIter<'a, T> {
+    /// Create a prefetching iterator over the given slice.
     pub fn new(slice: &'a [T]) -> Self {
         let prefetch_distance = PREFETCH_DISTANCE;
 
@@ -135,6 +136,7 @@ pub struct PrefetchSliceIterMut<'a, T> {
 }
 
 impl<'a, T> PrefetchSliceIterMut<'a, T> {
+    /// Create a prefetching iterator over the given mutable slice.
     pub fn new(slice: &'a mut [T]) -> Self {
         let prefetch_distance = PREFETCH_DISTANCE;
 
@@ -208,6 +210,7 @@ pub struct PrefetchChunks<'a, T> {
 }
 
 impl<'a, T> PrefetchChunks<'a, T> {
+    /// Create a prefetch-optimized chunk iterator over `slice` with the given `chunk_size`.
     pub fn new(slice: &'a [T], chunk_size: usize) -> Self {
         assert!(chunk_size > 0, "Chunk size must be positive");
 

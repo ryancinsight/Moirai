@@ -26,9 +26,13 @@ impl Default for HybridContext {
 /// Configuration for hybrid execution strategy
 #[derive(Debug, Clone)]
 pub struct HybridConfig {
+    /// Item count below which the parallel strategy is selected.
     pub parallel_threshold: usize,
+    /// Item count above which the async strategy is selected.
     pub async_threshold: usize,
+    /// Exponential weighting applied to new performance observations during adaptation.
     pub adaptation_factor: f64,
+    /// Number of recent performance observations retained per strategy.
     pub history_window: usize,
 }
 
@@ -52,9 +56,12 @@ pub struct PerformanceHistory {
     pub(super) decision_count: usize,
 }
 
+/// Execution strategy selected by the hybrid context.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ExecutionStrategy {
+    /// Run work on the parallel (CPU thread) context.
     Parallel,
+    /// Run work on the async context.
     Async,
 }
 

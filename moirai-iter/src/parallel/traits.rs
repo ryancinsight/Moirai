@@ -696,6 +696,7 @@ pub trait ParallelIterator: Sized + Send {
 
 /// Consumer trait for parallel iterator operations.
 pub trait Consumer<T>: Send + Sync {
+    /// Result type produced by consuming an iterator.
     type Result: Send;
 
     /// Consume items from a parallel iterator.
@@ -722,16 +723,22 @@ pub trait ParallelExtend<T>: Send {
 
 /// Extension trait for collections to create parallel iterators.
 pub trait IntoParallelIterator {
+    /// Element type yielded by the iterator.
     type Item: Send;
+    /// Parallel iterator produced by conversion.
     type Iter: ParallelIterator<Item = Self::Item>;
 
+    /// Convert `self` into a parallel iterator.
     fn into_par_iter(self) -> Self::Iter;
 }
 
 /// Extension trait for collection references to create parallel iterators.
 pub trait IntoParallelRefIterator<'data> {
+    /// Element type yielded by the iterator.
     type Item: Send + Sync + 'data;
+    /// Parallel iterator produced by conversion.
     type Iter: ParallelIterator<Item = Self::Item>;
 
+    /// Create a parallel iterator over references to `self`.
     fn par_iter(&'data self) -> Self::Iter;
 }

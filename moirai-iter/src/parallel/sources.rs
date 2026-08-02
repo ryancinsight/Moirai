@@ -23,6 +23,7 @@ pub struct VecParIter<T> {
 }
 
 impl<T> VecParIter<T> {
+    /// Create a parallel iterator over the given vector.
     pub fn new(data: Vec<T>) -> Self {
         Self { data }
     }
@@ -81,6 +82,7 @@ impl<T> RangeParIter<T>
 where
     T: Send + Sync + Clone + 'static + PartialOrd + std::ops::Add<Output = T> + From<u8>,
 {
+    /// Create a parallel iterator over the half-open range `start..end`.
     pub fn new(start: T, end: T) -> Self {
         Self { start, end }
     }
@@ -140,6 +142,8 @@ impl<I> SequentialAdapter<I> {
     }
 }
 
+/// Adapter that drives a sequential iterator through the parallel-consumer
+/// machinery as a single shard.
 pub struct SequentialIterAdapter<I> {
     iter: I,
 }

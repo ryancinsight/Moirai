@@ -134,6 +134,8 @@ impl<F> ReduceConsumer<F> {
     }
 }
 
+/// Partial reduction result: the reduced value, if any, plus the function
+/// needed to combine partials from split shards.
 pub struct Reduction<T, F> {
     value: Option<T>,
     reduce_fn: F,

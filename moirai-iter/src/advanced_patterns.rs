@@ -157,6 +157,7 @@ impl<F, Input, Output> MapStage<F, Input, Output>
 where
     F: Fn(Input) -> Output + Send + Sync,
 {
+    /// Create a new map stage applying `func` to each input.
     pub fn new(func: F) -> Self {
         Self {
             func,
@@ -165,6 +166,7 @@ where
         }
     }
 
+    /// Set the preferred batch size for this stage.
     pub fn with_batch_size(mut self, batch_size: usize) -> Self {
         self.batch_size = batch_size;
         self
@@ -197,6 +199,7 @@ impl<F, T> FilterStage<F, T>
 where
     F: Fn(&T) -> bool + Send + Sync,
 {
+    /// Create a new filter stage keeping inputs for which `predicate` is true.
     pub fn new(predicate: F) -> Self {
         Self {
             predicate,
@@ -205,6 +208,7 @@ where
         }
     }
 
+    /// Set the preferred batch size for this stage.
     pub fn with_batch_size(mut self, batch_size: usize) -> Self {
         self.batch_size = batch_size;
         self
@@ -487,16 +491,19 @@ pub fn streaming_from_channel<T>(receiver: UnifiedReceiver<T>) -> StreamingItera
     StreamingIterator::new(receiver, 64)
 }
 
+/// Create a bounded producer-consumer channel pair with the given capacity.
 pub fn producer_consumer_channel<T>(
     capacity: usize,
 ) -> Result<ProducerConsumerPair<T>, ChannelError> {
     ProducerConsumerPair::new(capacity)
 }
 
+/// Create a cache-aware iterator over the given data.
 pub fn cache_aware_iter<T: Clone>(data: Vec<T>) -> CacheAwareIterator<T> {
     CacheAwareIterator::new(data)
 }
 
+/// Create an iterator pipeline over the given data.
 pub fn pipeline<T>(data: Vec<T>) -> IteratorPipeline<T> {
     IteratorPipeline::from_vec(data)
 }

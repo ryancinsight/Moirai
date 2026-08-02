@@ -11,12 +11,15 @@ mod private {
 
 /// Sealed fallible stream item contract for `try_reduce_with`.
 pub trait TryStreamItem: private::Sealed + Send {
+    /// The success value carried by a `Continue` branch.
     type Output: Send;
 
+    /// Split the item into its success value or a terminating `Break` carrying the failure item.
     fn branch(self) -> ControlFlow<Self, Self::Output>
     where
         Self: Sized;
 
+    /// Reconstruct the item from a success value.
     fn from_output(output: Self::Output) -> Self;
 }
 
