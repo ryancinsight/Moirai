@@ -52,7 +52,7 @@ moirai-metrics = { path = "moirai-metrics", version = "0.4.0" }
 moirai-utils = { path = "moirai-utils", version = "0.4.0", features = ["std"] }
 moirai-gpu = { path = "moirai-gpu", version = "0.4.0" }
 melinoe = { git = "https://github.com/ryancinsight/melinoe.git", version = "0.9.0", default-features = false }
-themis = { git = "https://github.com/ryancinsight/themis", version = "0.10", default-features = false, features = ["std"] }
+themis = { package = "themis-topology", git = "https://github.com/ryancinsight/themis", version = "0.10.1", default-features = false, features = ["std"] }
 # Kernel resource budget vocabulary for the GPU occupancy planner (atlas ADR 0002).
 mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", version = "0.2.0", package = "mnemosyne-core", default-features = false }
 mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", version = "0.6.0", default-features = false }
