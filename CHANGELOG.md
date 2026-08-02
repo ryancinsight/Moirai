@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Bind the `themis` crate alias to the renamed `themis-topology` package so
+  fresh Git dependency resolution follows the provider identity.
+
 ### Breaking
 
 - Remove `moirai_iter::ThreadPool` and its `moirai::ThreadPool` re-export. The

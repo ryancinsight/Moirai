@@ -2,6 +2,13 @@
 
 **Target**: Unreleased
 
+## MOI-THEMIS-PACKAGE-1 — package identity [patch] — complete
+
+- Owner: Codex on `codex/moirai-themis-package`.
+- [x] Bind `themis` to package `themis-topology` 0.10.1.
+- [x] Refresh dependency resolution and pass focused gates.
+- [x] Merge before rerunning dependent Hephaestus provider CI.
+
 ## MOI-PAR-062 — borrowing parallel scope [minor] — in progress
 
 - Owner: Codex `/root` (composed from preserved peer work).
