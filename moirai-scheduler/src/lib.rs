@@ -27,6 +27,7 @@
 #![allow(clippy::redundant_closure)]
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::cast_abs_to_unsigned)]
+#![deny(missing_docs)]
 
 pub mod deque;
 pub mod numa;

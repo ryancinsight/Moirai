@@ -60,10 +60,21 @@ const _: () = assert!(core::mem::align_of::<ChaseLevInner<u8, DeferredReclaim>>(
 
 // ── StealResult ───────────────────────────────────────────────────────────────
 
+/// Outcome of a steal attempt against another worker's deque.
+///
+/// [`Empty`](Self::Empty) and [`Retry`](Self::Retry) are deliberately
+/// distinct: the first is a fact about the victim, the second is a fact
+/// about this attempt. Collapsing them would make a thief either spin on
+/// a genuinely empty deque or abandon a victim that still has work.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StealResult<T> {
+    /// An item was taken from the victim.
     Success(T),
+    /// The victim held no work; look elsewhere.
     Empty,
+    /// The steal lost a race against the owner or another thief. The
+    /// victim may still hold work, so retrying the same deque is
+    /// worthwhile.
     Retry,
 }
 

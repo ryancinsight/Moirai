@@ -179,6 +179,12 @@ where
     T: Send,
     P: DequeReclaimPolicy,
 {
+    /// Creates an empty deque with a private stack of capacity `N`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `N < 2`: the spill path moves the oldest *half* of the
+    /// private stack, which is not a meaningful split below two slots.
     pub fn new() -> Self {
         assert!(N >= 2, "SplitDeque capacity N must be at least 2");
         let shared = ChaseLevDeque::new(N);
@@ -193,6 +199,12 @@ where
         }
     }
 
+    /// Pushes an item onto the owner's private stack.
+    ///
+    /// When the private stack is full its oldest half is offloaded to the
+    /// shared deque first. Spilling the *oldest* half is what keeps the
+    /// owner's recently-pushed work local (LIFO, cache-warm) while making
+    /// the coldest work visible to thieves.
     pub fn push(&self, item: T) {
         let mut owner = self.owner.lock().unwrap_or_else(|e| e.into_inner());
         if owner.private.len >= N {
@@ -202,24 +214,47 @@ where
         owner.private.push(item);
     }
 
+    /// Takes the next item for the owning worker, or `None` if both
+    /// halves are empty.
+    ///
+    /// Drains the private stack before the shared deque, so the owner
+    /// keeps working on its hottest items and leaves the stealable end
+    /// alone for as long as possible.
     pub fn pop(&self) -> Option<T> {
         let mut owner = self.owner.lock().unwrap_or_else(|e| e.into_inner());
         owner.private.pop().or_else(|| owner.shared.pop())
     }
 
+    /// Steals a single item from the shared end on behalf of another
+    /// worker.
+    ///
+    /// Only the shared deque is reachable here; the owner's private stack
+    /// is never exposed to thieves, which is why stealing cannot contend
+    /// with `push`/`pop` on the hot path.
     pub fn steal(&self) -> StealResult<T> {
         self.stealer.steal()
     }
 
+    /// Steals several items at once from the shared end.
+    ///
+    /// Amortises the steal handshake across a batch, so a thief that
+    /// wins a race carries away enough work to be worth the round trip.
     pub fn steal_batch(&self) -> StealResult<StolenBatch<T>> {
         self.stealer.steal_batch()
     }
 
+    /// Returns the combined item count of both halves.
+    ///
+    /// A point-in-time observation: thieves may take from the shared end
+    /// concurrently, so treat it as a scheduling hint rather than a
+    /// value to act on transactionally.
     pub fn len(&self) -> usize {
         let owner = self.owner.lock().unwrap_or_else(|e| e.into_inner());
         owner.private.len + owner.shared.len()
     }
 
+    /// Returns whether both halves are empty, with the same
+    /// point-in-time caveat as [`Self::len`].
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

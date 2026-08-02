@@ -3,9 +3,12 @@
 //! This module provides specialized synchronization primitives that add value
 //! beyond the standard library, following YAGNI and DRY principles.
 
+#![deny(missing_docs)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::manual_hash_one)]
 
+/// Synchronization primitives: sharded maps and pools, spin locks,
+/// futex-backed mutexes, and completion barriers.
 pub mod sync;
 
 // Re-export the canonical AtomicCounter from moirai-utils (SSOT)
