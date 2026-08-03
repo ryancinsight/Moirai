@@ -184,8 +184,9 @@ fn scheduler_routes_bind_to_archived_transport_without_fake_remote_execution() {
 #[test]
 fn remote_transport_uses_real_length_prefixed_tcp_bytes() {
     let lib = read_benchmark("../moirai-transport/src/lib.rs");
+    let transport_rs = read_benchmark("../moirai-transport/src/transport.rs");
     let source = read_benchmark("../moirai-transport/src/network.rs");
-    let source_all = format!("{lib}\n{source}");
+    let source_all = format!("{lib}\n{transport_rs}\n{source}");
     let network_start = source
         .find("impl Transport for NetworkTransport {")
         .expect("NetworkTransport impl must exist");
