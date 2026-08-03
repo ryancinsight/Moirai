@@ -1,5 +1,6 @@
 /// Sharded concurrent hash map with per-segment locking.
 pub mod concurrent_hash_map;
+/// Futex-backed mutex with OS-assisted parking for fair, contended sections.
 pub mod futex_mutex;
 /// Sharded pool handing out reusable resources without a global lock.
 pub mod resource_pool;
@@ -10,7 +11,7 @@ pub mod spin_lock;
 pub mod wait_group;
 
 #[cfg(test)]
-pub mod tests;
+mod tests;
 
 pub use self::concurrent_hash_map::{ConcurrentHashMap, SegmentPoisoned};
 pub use self::futex_mutex::{FutexMutex, FutexMutexGuard};
