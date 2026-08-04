@@ -87,6 +87,10 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
     #[inline]
     fn get_shard_index() -> usize {
         thread_local! {
+            // clippy 1.97.0 false positive: initialiser is already
+            // `const { Cell::new(None) }`. Retire when toolchain advances
+            // past the regression (ATLAS-MNEMOSYNE-CI-1).
+            #[allow(clippy::missing_const_for_thread_local)]
             static THREAD_SHARD_INDEX: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
         }
         THREAD_SHARD_INDEX.with(|cell| {

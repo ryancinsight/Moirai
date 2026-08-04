@@ -1,0 +1,19 @@
+# mdBook configuration for the moirai concurrency book.
+[book]
+title = "moirai: Hybrid Concurrency for Atlas"
+authors = ["Ryan Clanton"]
+description = "Work-stealing task scheduler, hybrid async+parallel execution, and NUMA-aware worker placement for the Atlas simulation stack."
+src = "."
+language = "en"
+
+[build]
+build-dir = "../../target/book/moirai"
+create-missing = false
+
+[output.html]
+no-section-label = false
+mathjax-support = false
+site-url = "/moirai/"
+git-repository-url = "https://github.com/ryancinsight/Moirai"
+edit-url-template = "https://github.com/ryancinsight/Moirai/edit/main/docs/book/{path}"
+default-theme = "rust"

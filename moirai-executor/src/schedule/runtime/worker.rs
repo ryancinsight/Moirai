@@ -202,7 +202,11 @@ fn steal_shared_job<const QUEUE_CAPACITY: usize>(
 /// path -- the seed source is contention-free by construction.
 fn next_steal_start() -> usize {
     use std::cell::Cell;
-    thread_local!(static RNG: Cell<u64> = const { Cell::new(0) });
+    std::thread_local! {
+        // clippy 1.97.0 FP: already const. ATLAS-MNEMOSYNE-CI-1.
+        #[allow(clippy::missing_const_for_thread_local)]
+        static RNG: Cell<u64> = const { Cell::new(0) };
+    }
     RNG.with(|cell| {
         let mut x = cell.get();
         if x == 0 {

@@ -70,9 +70,7 @@ pub const fn plan_launch(budget: KernelResourceBudget, work_items: u64) -> Launc
 /// the budget as `0`, its documented "no such limiter" input.
 #[must_use]
 pub fn resident_blocks(topology: &GpuTopology, budget: KernelResourceBudget) -> Option<u32> {
-    let Some(units) = topology.compute_units() else {
-        return None;
-    };
+    let units = topology.compute_units()?;
     let per_unit = budget
         .occupancy_limits(
             topology.registers_per_unit().map_or(0, NonZeroU32::get),

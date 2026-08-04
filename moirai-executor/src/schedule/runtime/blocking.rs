@@ -203,7 +203,11 @@ impl<const QUEUE_CAPACITY: usize> Drop for BlockingLane<QUEUE_CAPACITY> {
 
 fn next_lane_ticket() -> usize {
     use std::cell::Cell;
-    thread_local!(static TICKET: Cell<usize> = const { Cell::new(0) });
+    std::thread_local! {
+        // clippy 1.97.0 FP: already const. ATLAS-MNEMOSYNE-CI-1.
+        #[allow(clippy::missing_const_for_thread_local)]
+        static TICKET: Cell<usize> = const { Cell::new(0) };
+    }
     TICKET.with(|cell| {
         let ticket = cell.get();
         cell.set(ticket.wrapping_add(1));

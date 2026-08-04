@@ -130,6 +130,14 @@ name = "gpu_acceleration"
 path = "../examples/gpu_acceleration.rs"
 required-features = ["gpu"]
 
+[[example]]
+name = "book_task_spawning"
+path = "../examples/book_task_spawning.rs"
+
+[[example]]
+name = "book_parallel_reduce"
+path = "../examples/book_parallel_reduce.rs"
+
 [features]
 default = ["async", "iter", "parallel", "local", "mnemosyne-memory", "melinoe"]
 full = ["async", "iter", "parallel", "distributed", "metrics", "numa", "encryption", "gpu"]
