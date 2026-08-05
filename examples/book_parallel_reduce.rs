@@ -34,13 +34,15 @@ fn main() {
     let expected: u64 = (N as u64 * (N as u64 - 1)) / 2; // Gauss formula
     println!("parallel sum of 0..{N}: {total}");
     println!("expected              : {expected}");
-    assert_eq!(total, expected, "parallel reduction must equal the sequential sum");
+    assert_eq!(
+        total, expected,
+        "parallel reduction must equal the sequential sum"
+    );
 
     // Throughput note.
     println!(
         "processed {} elements across {CHUNKS} tasks ({} per task)",
-        N,
-        chunk_size,
+        N, chunk_size,
     );
     println!("parallel-reduce assertion passed");
 }
