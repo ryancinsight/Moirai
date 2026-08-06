@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Convert the `moirai_core::communication` collective operations (`scatter`,
+  `gather`, `all_to_all`) from a jagged `Vec<Vec<T>>` layout to a CSR-shaped
+  `ChunkedVec<T>`: one contiguous flat buffer plus a chunk-offset table.
+  `gather` is now an O(1) buffer hand-off and element traversal runs over a
+  single allocation instead of a per-chunk pointer chase. Criterion
+  (`benchmarks/benches/collective_ops_comparison.rs`) measures the win at
+  32/128 participants: gather ~10–13× faster, traverse ~1.6×, scatter
+  ~1.1–2.2×, all_to_all ~1.3–3.2×. Empty input and a zero participant count
+  now return an empty `ChunkedVec` instead of the previous `chunks(0)` panic.
 - Publish the facade under the collision-free `moirai-runtime` package name
   while retaining the Rust library name `moirai`, bind Mnemosyne dependencies
   to their published package identities, and correct registry metadata to the
@@ -16,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Make the `ChaseLevDeque` retired-array reclamation poison-tolerant: resize,
+  drop, and test observation recover the guarded pointer list via `into_inner()`
+  instead of panicking on a poisoned mutex after a panicking lock holder.
+  A regression poisons the lock, forces a further resize, drains all items
+  exactly once, and verifies final destruction (MOI-DEQUE-POISON-215).
 - Bind the `themis` crate alias to the renamed `themis-topology` package so
   fresh Git dependency resolution follows the provider identity.
 - Bind the `mnemosyne` and `mnemosyne_core` crate aliases to packages

@@ -384,7 +384,10 @@ where
         let new_array_ptr = Box::into_raw(new_array);
         self.array.store(new_array_ptr, Ordering::Release);
 
-        let mut retired_arrays = self.retired_arrays.lock().unwrap();
+        let mut retired_arrays = self
+            .retired_arrays
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         retired_arrays.push(old_array_ptr);
     }
 }
@@ -444,7 +447,7 @@ where
         let retired_arrays = self
             .retired_arrays
             .get_mut()
-            .expect("retired array mutex poisoned during deque drop");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         for array_ptr in retired_arrays.drain(..) {
             unsafe {
                 drop(Box::from_raw(array_ptr));
@@ -511,7 +514,21 @@ where
 
     #[cfg(test)]
     pub(crate) fn retired_array_count(&self) -> usize {
-        self.inner.retired_arrays.lock().unwrap().len()
+        self.inner
+            .retired_arrays
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn poison_retired_array_lock_for_test(&self) {
+        let _guard = self
+            .inner
+            .retired_arrays
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        panic!("poison retired-array mutex for recovery regression");
     }
 }
 

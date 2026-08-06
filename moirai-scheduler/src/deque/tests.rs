@@ -75,6 +75,38 @@ fn chase_lev_deque_resizes_without_per_item_heap_nodes() {
 }
 
 #[test]
+fn chase_lev_deque_recovers_poisoned_retired_array_lock() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+        for value in 0..40 {
+            deque.push(value);
+        }
+
+        let poison_result = catch_unwind(AssertUnwindSafe(|| {
+            deque.poison_retired_array_lock_for_test();
+        }));
+        assert!(poison_result.is_err());
+
+        // Force another owner-only resize while the retired-array mutex is
+        // poisoned; the production path must recover its guarded pointer list.
+        for value in 40..80 {
+            deque.push(value);
+        }
+
+        let mut observed = Vec::new();
+        while let Some(value) = deque.pop() {
+            observed.push(value);
+        }
+        observed.sort_unstable();
+        assert_eq!(observed, (0..80).collect::<Vec<_>>());
+    }));
+
+    assert!(result.is_ok(), "poison recovery must not panic");
+}
+
+#[test]
 fn chase_lev_deque_defers_retired_arrays_until_final_endpoint_drop() {
     let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
 
