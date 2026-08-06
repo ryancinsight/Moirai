@@ -14,7 +14,7 @@ pub mod ring_buffer;
 pub mod router;
 
 pub use broadcast::{BroadcastChannel, BroadcastReceiver};
-pub use collective::CollectiveOps;
+pub use collective::{ChunkedVec, CollectiveOps};
 pub use message::Message;
 pub use pubsub::PubSub;
 pub use ring_buffer::RingBuffer;

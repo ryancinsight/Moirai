@@ -43,11 +43,50 @@ fn test_collective_ops() {
 
     let data = vec![1, 2, 3, 4, 5, 6];
     let scattered = CollectiveOps::scatter(data, 3);
-    assert_eq!(scattered.len(), 3);
-    assert_eq!(scattered[0], vec![1, 2]);
+    assert_eq!(scattered.num_chunks(), 3);
+    assert_eq!(scattered.chunks().next(), Some([1, 2].as_slice()));
 
     let gathered = CollectiveOps::gather(scattered);
     assert_eq!(gathered, vec![1, 2, 3, 4, 5, 6]);
+}
+
+#[test]
+fn test_collective_scatter_gather_round_trip() {
+    let data: Vec<u64> = (0..100).collect();
+    let scattered = CollectiveOps::scatter(data.clone(), 7);
+    let chunks: Vec<Vec<u64>> = scattered.chunks().map(<[u64]>::to_vec).collect();
+    assert_eq!(chunks.len(), 7);
+    // Chunks tile the original data contiguously and in order.
+    assert_eq!(chunks.concat(), data);
+    assert_eq!(CollectiveOps::gather(scattered), data);
+}
+
+#[test]
+fn test_collective_scatter_empty_and_zero_participants() {
+    // The CSR form turns the historical `chunks(0)` panic into an empty buffer.
+    let empty = CollectiveOps::scatter(Vec::<u64>::new(), 4);
+    assert!(empty.is_empty());
+    assert_eq!(empty.num_chunks(), 0);
+
+    let single = CollectiveOps::scatter(vec![1, 2, 3], 0);
+    assert_eq!(single.chunks().count(), 1);
+    assert_eq!(single.chunks().next(), Some([1, 2, 3].as_slice()));
+}
+
+#[test]
+fn test_collective_all_to_all_parity() {
+    // scatter(10, 4) -> chunks [3, 3, 3, 1]: [1,2,3] [4,5,6] [7,8,9] [10].
+    let data: Vec<u64> = (1..=10).collect();
+    let chunked = CollectiveOps::scatter(data, 4);
+    let expected: Vec<Vec<u64>> = vec![
+        vec![1, 4, 7, 10], // column 0 of every row
+        vec![2, 5, 8],     // column 1 (row [10] has no column 1)
+        vec![3, 6, 9],     // column 2
+        vec![],            // column 3 (no row reaches it)
+    ];
+    let transposed = CollectiveOps::all_to_all(chunked);
+    let got: Vec<Vec<u64>> = transposed.chunks().map(<[u64]>::to_vec).collect();
+    assert_eq!(got, expected);
 }
 
 #[test]

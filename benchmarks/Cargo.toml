@@ -48,6 +48,10 @@ name = "industry_comparison"
 harness = false
 
 [[bench]]
+name = "collective_ops_comparison"
+harness = false
+
+[[bench]]
 name = "simd_benchmarks"
 harness = false
 
