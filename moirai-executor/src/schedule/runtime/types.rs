@@ -70,19 +70,24 @@ pub(super) mod diagnostic_wake {
     pub trait Sealed {}
 }
 
+/// Sealed wake-decision policy used by scheduler diagnostics.
 #[cfg(feature = "scheduler-diagnostics")]
 pub trait DiagnosticWakeDecision: diagnostic_wake::Sealed + Send + Sync + 'static {
+    /// Return the synthetic pending count used by the diagnostic probe.
     fn previous_pending(worker_count: usize) -> usize;
 }
 
+/// Diagnostic policy representing an empty queue.
 #[cfg(feature = "scheduler-diagnostics")]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EmptyWakeDecision;
 
+/// Diagnostic policy representing a contended queue.
 #[cfg(feature = "scheduler-diagnostics")]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ContendedWakeDecision;
 
+/// Diagnostic policy representing a saturated queue.
 #[cfg(feature = "scheduler-diagnostics")]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SaturatedWakeDecision;

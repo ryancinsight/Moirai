@@ -16,7 +16,12 @@
 - [x] Refresh dependency resolution and pass focused gates.
 - [x] Merge before rerunning dependent Hephaestus provider CI.
 
-## MOI-PAR-062 — borrowing parallel scope [minor] — in progress
+## MOI-PAR-062 — borrowing parallel scope [minor] — complete
+
+- Provider acceptance is complete; the borrowing scope facade, direct
+  `moirai-core` ownership, higher-ranked lifetime bound, borrowed completion,
+  return-value coverage, and focused local/hosted gates are all delivered.
+  No downstream consumer pin is pending for this item.
 
 - Owner: Codex `/root` (composed from preserved peer work).
 - Scope: the `moirai-parallel` borrowing scope facade, its direct dependency
@@ -29,7 +34,7 @@
 - [x] Add borrowed completion and return-value coverage.
 - [x] Pass focused local and exact-head hosted gates; merge Moirai.
 
-## MOI-SCHED-061 — bounded indexed admission [patch] — in progress
+## MOI-SCHED-061 — bounded indexed admission [patch] — provider complete; downstream pending
 
 - Owner: Codex `/root` (stale-peer takeover after one hour without a write or
   commit in the claimed scope).
@@ -46,8 +51,21 @@
 - [x] Add a relaxed monotonic admission diagnostic.
 - [x] Add deterministic saturated fan-out, reduction, panic, and reuse coverage.
 - [x] Pass focused local and exact-head hosted gates; merge Moirai.
-- [ ] Advance Kwavers to the merged Moirai pin, remove the test-serialization
-      workaround, pass the affected therapy lane, and merge Kwavers.
+- [ ] Downstream-only follow-up: advance Kwavers to the merged Moirai pin,
+      remove the test-serialization workaround, pass the affected therapy lane,
+      and merge Kwavers once the peer-held Kwavers tree returns to a free main.
+      This does not block the completed Moirai provider implementation.
+- [x] Provider hygiene follow-up: document the scheduler diagnostics surface,
+      add the module-level allowance required by the pinned Melinoe 0.9.0
+      `thread_cached!` expansion, and preserve the shared-provider boundary
+      without a local cache duplicate.
+- Evidence (2026-08-06): rustfmt, diff check, all-target/all-feature check,
+      warning-denied Clippy, workspace Nextest **784/784** (6 configured
+      skips), doctests, `moirai-parallel` **32/32**, and
+      `moirai-executor` **91/91** (1 configured skip) pass offline. The
+      scheduler wait test passed in the definitive run; an earlier isolated
+      failure was non-reproducible across five focused retries and is retained
+      as a stability watchpoint rather than hidden.
 
 ## MOI-REL-061 — Rust crate releases [patch] — in progress
 
