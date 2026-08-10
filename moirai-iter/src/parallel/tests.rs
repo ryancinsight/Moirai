@@ -1,5 +1,6 @@
 use super::*;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 #[test]
 fn test_parallel_map() {
@@ -9,16 +10,81 @@ fn test_parallel_map() {
 }
 
 #[test]
+fn parallel_drive_uses_multiple_lanes_and_preserves_order() {
+    let data = (0..16_384usize).collect::<Vec<_>>();
+    let worker_count = moirai_executor::global().total_workers(); // A single-worker configuration cannot prove cross-lane overlap; keep this
+                                                                  // value-semantic suite portable while exercising the assertion on the normal
+                                                                  // multi-worker executor.
+    if worker_count < 2 {
+        return;
+    }
+
+    let lanes = Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
+    let rendezvous = Arc::new((std::sync::Mutex::new(0usize), std::sync::Condvar::new()));
+    let lane_sink = Arc::clone(&lanes);
+    let rendezvous_for_map = Arc::clone(&rendezvous);
+
+    let result: Vec<usize> = data
+        .into_par_iter()
+        .map(move |value| {
+            let lane = std::thread::current().id();
+            lane_sink
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(lane);
+            let (arrivals, signal) = &*rendezvous_for_map;
+            let mut arrivals = arrivals
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *arrivals += 1;
+            signal.notify_all();
+            if *arrivals < 2 {
+                let (updated, timeout) = signal
+                    .wait_timeout_while(arrivals, std::time::Duration::from_millis(100), |count| {
+                        *count < 2
+                    })
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                assert!(!timeout.timed_out(), "parallel branches did not rendezvous");
+                drop(updated);
+            }
+            value.wrapping_mul(2)
+        })
+        .collect();
+
+    assert_eq!(
+        result,
+        (0..16_384usize).map(|value| value * 2).collect::<Vec<_>>()
+    );
+    assert!(
+        lanes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
+            > 1,
+        "large non-indexed drive must use more than one scheduler lane"
+    );
+    let filtered: Vec<usize> = (0..16_384usize)
+        .collect::<Vec<_>>()
+        .into_par_iter()
+        .filter(|value| value % 2 == 0)
+        .collect();
+    assert_eq!(
+        filtered,
+        (0..16_384usize)
+            .filter(|value| value % 2 == 0)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn nested_iteration_produces_correct_values() {
     // Regression guard for nested parallel iteration (an inner drive inside an
-    // outer map). The `parallel/` drive is sequential by contract precisely so
-    // this nesting is safe: a prior fork-join drive that forked through the
-    // scheduler (`join_with::<Parallel>`) corrupted the heap under exactly this
-    // nested, concurrent workload — `ThreadScheduler::scope` is not sound under
-    // nested scopes (STATUS_HEAP_CORRUPTION 0xC0000374; see
-    // docs/concurrency_audit.md round entry). Value semantics only.
-    let outer_n = 512usize;
-    let inner_n = 256u64;
+    // outer map). Both drives cross the scheduler-backed threshold, so this
+    // test protects exact-once traversal and ordering while recursive branches
+    // overlap on worker lanes. The former heap-corruption report is retained in
+    // docs/concurrency_audit.md as the pre-ISSUE-208 failure mode.
+    let outer_n = 1_025usize;
+    let inner_n = 1_025u64;
     let expected_inner: u64 = (0..inner_n).sum();
 
     let results: Vec<u64> = (0..outer_n as u64)

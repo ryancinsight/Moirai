@@ -15,17 +15,17 @@ pub trait ParallelIterator: Sized + Send {
     ///
     /// # Concurrency contract
     ///
-    /// `drive` executes **sequentially** on the calling thread (recursively
-    /// splitting the consumer and combining, but consuming both halves inline).
-    /// A prior fork-join drive fanned the split onto the scheduler via
-    /// `join_with::<Parallel>` and was reverted: the scheduler scope then parked
-    /// waiters without helping, so nested drives deadlocked and corrupted the
-    /// heap. The scope primitive is now nesting-sound (ADR-019: worker-thread
-    /// scope waiters run work instead of parking), so a parallel drive can be
-    /// reintroduced against it — tracked as ISSUE-208 (c), a separate slice with
-    /// a parallelism-asserting test. Until that lands, bulk scheduler-owned
-    /// parallelism is exposed through `Moirai::for_each_indexed` /
-    /// `map_reduce_indexed`, whose flat fan-out creates no nested scope-waits.
+    /// Large owned and borrowed vector sources split their consumer recursively
+    /// and run one branch through Moirai's nesting-safe `SyncTask` scope. Small
+    /// shards remain inline so scheduler overhead does not dominate the work.
+    /// Scope admission refusal runs the branch on the caller, preserving the
+    /// every-item contract under shutdown or bounded-queue pressure. The
+    /// The resulting consumer combination preserves logical source order. The
+    /// infallible iterator contract recovers an unclaimed branch on the caller
+    /// if the scheduler cannot admit the scoped job; bounded admission refusal
+    /// is handled by the scheduler's caller-lane fallback before this method
+    /// returns. A scheduler shutdown therefore degrades this drive to ordered
+    /// caller-side execution rather than dropping work.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,

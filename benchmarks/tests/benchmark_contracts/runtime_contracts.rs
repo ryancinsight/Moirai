@@ -154,6 +154,40 @@ fn parallel_join_benchmark_compares_value_checked_rayon_row() {
 }
 
 #[test]
+fn saturated_admission_benchmark_compares_bounded_rejection_paths() {
+    let source = read_benchmark("benches/thread_schedule_comparison.rs");
+
+    for required in [
+        "struct MoiraiAdmissionFixture",
+        "impl Drop for MoiraiAdmissionFixture",
+        "fn prepare_moirai_saturated_admission()",
+        "fn prepare_crossbeam_saturated_admission()",
+        "fn benchmark_moirai_rejection(",
+        "fn benchmark_crossbeam_rejection(",
+        "ThreadScheduler::<SATURATED_ADMISSION_CAPACITY>::new",
+        "SATURATED_ADMISSION_CAPACITY",
+        "TrySendError::Full",
+        "ExecutorError::ResourceExhausted",
+        "capacity-plus-one admission must be rejected",
+        "bounded queue fill must succeed",
+        "assert_eq!(scheduler.pending_tasks(), SATURATED_ADMISSION_CAPACITY)",
+        "let mut moirai = prepare_moirai_saturated_admission();",
+        "moirai.release.take()",
+        ".send(()).expect(\"blocker release must succeed\")",
+        "let (sender, receiver) = prepare_crossbeam_saturated_admission();",
+        "group.bench_function(\"moirai_bounded_rejection\"",
+        "group.bench_function(\"crossbeam_bounded_try_send\"",
+        "b.iter_custom(|iterations| benchmark_moirai_rejection(&moirai, iterations))",
+        "b.iter_custom(|iterations| benchmark_crossbeam_rejection(&sender, &receiver, iterations))",
+    ] {
+        assert!(
+            source.contains(required),
+            "saturated admission benchmark must retain value-checked bounded comparison through {required}"
+        );
+    }
+}
+
+#[test]
 fn indexed_reduce_uses_worker_plus_caller_lane() {
     let source = read_benchmark("../moirai-executor/src/schedule/runtime/worker.rs");
 

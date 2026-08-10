@@ -2,6 +2,91 @@ use super::{
     CollectConsumer, Consumer, IndexedParallelIterator, IntoParallelIterator,
     IntoParallelRefIterator, ParallelExtend, ParallelIterator,
 };
+use moirai_executor::{global, SyncTask};
+use std::sync::Mutex;
+
+/// Minimum source size for scheduler-backed non-indexed driving.
+///
+/// Smaller sources stay on the existing recursive consumer path so dispatch
+/// overhead does not dominate the work. Larger vector-backed sources split at
+/// each drive level and run one branch through the nesting-safe scheduler
+/// scope; child drives stop at the same threshold.
+const PARALLEL_DRIVE_THRESHOLD: usize = 1024;
+
+fn drive_split<I, C, R>(left: I, right: I, left_consumer: C, right_consumer: C) -> R
+where
+    I: ParallelIterator,
+    C: Consumer<I::Item, Result = R> + Send + Sync,
+    R: Send,
+{
+    let left_result = Mutex::new(None);
+    let left_branch = Mutex::new(Some((left, left_consumer)));
+    let right_branch = Mutex::new(Some((right, right_consumer)));
+    let mut right_result = None;
+
+    let scope_result = global().scope::<SyncTask, _>(|scope| {
+        scope.spawn(|_| {
+            let (left, left_consumer) = left_branch
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take()
+                .expect("parallel iterator left branch must be claimed once");
+            let result = left_consumer.consume(left);
+            *left_result
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
+        })?;
+        // Flush before consuming the caller branch so the two branches overlap
+        // whenever scheduler admission succeeds. A refused job is run inline
+        // by the scope, preserving the every-job-runs contract under pressure.
+        scope.flush()?;
+        let (right, right_consumer) = right_branch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .expect("parallel iterator right branch must be claimed once");
+        right_result = Some(right_consumer.consume(right));
+        Ok(())
+    });
+
+    // `drive` is an infallible terminal API. If shutdown rejects the scoped
+    // branch, recover the still-unclaimed branch and finish both halves on the
+    // caller rather than dropping work or panicking after a partial drive.
+    if let Err(error) = scope_result {
+        match error {
+            moirai_core::ExecutorError::ShuttingDown
+            | moirai_core::ExecutorError::ResourceExhausted(_) => {
+                let fallback = left_branch
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .take();
+                if let Some((left, left_consumer)) = fallback {
+                    let result = left_consumer.consume(left);
+                    *left_result
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
+                }
+                if right_result.is_none() {
+                    let fallback = right_branch
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .take();
+                    if let Some((right, right_consumer)) = fallback {
+                        right_result = Some(right_consumer.consume(right));
+                    }
+                }
+            }
+            error => panic!("moirai global executor: parallel iterator drive: {error}"),
+        }
+    }
+
+    let left_result = left_result
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .expect("parallel iterator left branch must complete");
+    let right_result = right_result.expect("parallel iterator right branch must complete");
+    C::combine(left_result, right_result)
+}
 
 fn move_vec_items_into<T>(source: Vec<T>, target: &mut Vec<T>) {
     target.clear();
@@ -49,11 +134,21 @@ impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
             return consumer.consume(SequentialIterAdapter::new(self.data.into_iter()));
         }
 
-        let mid = self.data.len() / 2;
+        let total_len = self.data.len();
+        let mid = total_len / 2;
         let right_data = self.data.split_off(mid);
         let left_data = std::mem::take(&mut self.data);
 
         let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
+
+        if total_len > PARALLEL_DRIVE_THRESHOLD {
+            return drive_split(
+                VecParIter::new(left_data),
+                VecParIter::new(right_data),
+                left_consumer,
+                right_consumer,
+            );
+        }
 
         let left_result = left_consumer.consume(VecParIter::new(left_data));
         let right_result = right_consumer.consume(VecParIter::new(right_data));
@@ -321,11 +416,21 @@ impl<'a, T: Send + Sync> ParallelIterator for RefVecParIter<'a, T> {
             return consumer.consume(RefVecParIter::new(self.data));
         }
 
-        let mid = self.data.len() / 2;
+        let total_len = self.data.len();
+        let mid = total_len / 2;
         let right_data = self.data.split_off(mid);
         let left_data = std::mem::take(&mut self.data);
 
         let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
+
+        if total_len > PARALLEL_DRIVE_THRESHOLD {
+            return drive_split(
+                RefVecParIter::new(left_data),
+                RefVecParIter::new(right_data),
+                left_consumer,
+                right_consumer,
+            );
+        }
 
         let left_result = left_consumer.consume(RefVecParIter::new(left_data));
         let right_result = right_consumer.consume(RefVecParIter::new(right_data));

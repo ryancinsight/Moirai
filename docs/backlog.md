@@ -191,10 +191,19 @@ architecture definition.
   recovery tests; executor nextest 83/83 and all-feature Clippy.
 - **Status**: completed 2026-07-13.
 
-#### ⏳ ISSUE-216 [patch]: Benchmark saturated scheduler admission
+#### ✅ ISSUE-216 [patch]: Benchmark saturated scheduler admission
 - **Acceptance criteria**: Criterion compares Moirai rejection latency with the
   existing Crossbeam bounded-queue reference after equal value checks.
-- **Status**: todo; independent measurement split from ISSUE-212 correctness.
+- **Resolution**: `benchmarks/benches/thread_schedule_comparison.rs` adds a
+  bounded one-worker Moirai admission probe and an equal-capacity Crossbeam
+  `try_send` probe. Both fill their queues, assert capacity-plus-one rejection,
+  verify queue state, and measure only the rejection operation under bounded
+  Criterion sampling.
+- **Verification**: the benchmark source contract requires both probes,
+  `ExecutorError::ResourceExhausted`, `TrySendError::Full`, equal-capacity
+  state checks, and both Criterion rows. This is a rejection-latency comparison,
+  not a claim that the runtimes have identical scheduling semantics.
+- **Status**: completed 2026-08-09.
 
 #### ✅ ISSUE-213 [arch]: Isolate blocking work from compute workers
 - **Owner**: codex; **Scope**: `moirai-executor/src/schedule/runtime/`,
@@ -451,10 +460,11 @@ architecture definition.
   `STATUS_HEAP_CORRUPTION` (0xC0000374) in ~0.16 s, indicating a data race in the
   scope machinery under concurrent nesting (`NonNull<SchedulerScopeState>` handed
   to scoped jobs, the per-scope job buffer, or reentrant `schedule_job`).
-- **Impact**: `moirai-iter`'s non-indexed `parallel/` `drive` must stay
-  sequential; scheduler-owned parallelism is only available through the flat
-  `Moirai::for_each_indexed` / `map_reduce_indexed` fan-out. Documented in
-  `docs/concurrency_audit.md` Round 20 and on `parallel::ParallelIterator::drive`.
+- **Impact (historical before (c))**: `moirai-iter`'s non-indexed
+  `parallel/` `drive` stayed sequential; scheduler-owned parallelism was only
+  available through the flat `Moirai::for_each_indexed` /
+  `map_reduce_indexed` fan-out. The prior failure is documented in
+  `docs/concurrency_audit.md` Round 20 and was the reason (c) remained gated.
 - **Acceptance criteria**: (a) ✅ `scope` wait is help-while-waiting (worker
   waiters run their own `next_job`/`execute_job` rather than parking) — done via
   `drain_scope` (ADR-019); (b) ✅ nested-saturation + recursive fork-join stress
@@ -463,9 +473,21 @@ architecture definition.
   `scheduler_scope_recursive_fork_join_is_sound`); (c) ⏳ reintroduce a parallel
   non-indexed `drive` against the now-sound `scope` with a parallelism-asserting
   test — separate follow-up slice.
-- **Status**: (a)+(b) landed (ADR-019); (c) open as the next slice. Scope
-  primitive is now nesting-sound; `moirai-iter` `drive` stays sequential until
-  (c) reintroduces parallelism.
+- **Status**: (a)+(b) landed (ADR-019); (c) delivered in the follow-up
+  `moirai-iter` source slice. The vector-backed `VecParIter` and
+  `RefVecParIter` sources now use a 1,024-item threshold and the existing
+  `SyncTask` scope to overlap one
+  source branch with caller-side consumption; smaller shards remain inline,
+  and scope admission refusal preserves execution through the existing caller
+  fallback. The parallelism regression covers exact order and multiple
+  scheduler lanes. The nested regression now crosses the 1,024-item threshold
+  for both outer and inner drives, so it exercises the scoped path rather than
+  only the sequential base case.
+- **Verification (2026-08-07)**: `cargo fmt -p moirai-iter -- --check`,
+  strict all-target/all-feature Clippy, `cargo nextest run -p moirai-iter
+  --all-features` (193 passed, 2 skipped), and 3 doctests all pass. The
+  generated `Cargo.lock` `[[patch.unused]]` reorder was discarded as
+  unrelated resolver churn.
 - **Evidence tier**: type/analysis (deadlock-freedom argument, ADR-019) +
   empirical (deterministic 30 s→0.01 s reproduction, repeat-clean regression).
 

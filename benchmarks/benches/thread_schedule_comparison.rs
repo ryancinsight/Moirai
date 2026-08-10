@@ -4,14 +4,19 @@
 //! small ready tasks across Moirai's unified scheduler, Tokio, and Rayon.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use crossbeam::channel::{bounded, TrySendError};
 use moirai::Moirai;
-use moirai_core::channel::spsc;
+use moirai_core::{error::ExecutorError, Priority};
+use moirai_executor::{BlockingTask, ThreadScheduler};
 use moirai_scheduler::{ChaseLevDeque, SharedEpochReclaim, SplitDeque};
 use rayon::prelude::*;
 use std::{
     sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
+    time::{Duration, Instant},
 };
+
+const SATURATED_ADMISSION_CAPACITY: usize = 256;
+const SATURATED_ADMISSION_WORKERS: usize = 1;
 
 const TASKS_PER_ITERATION: usize = 256;
 const SCALING_TASK_COUNTS: &[usize] = &[64, 256, 1_024];
@@ -95,6 +100,91 @@ fn moirai_split_deque_sum(count: usize) -> usize {
         sum = sum.wrapping_add(value);
     }
     sum
+}
+
+struct MoiraiAdmissionFixture {
+    scheduler: ThreadScheduler<SATURATED_ADMISSION_CAPACITY>,
+    release: Option<crossbeam::channel::Sender<()>>,
+}
+
+impl Drop for MoiraiAdmissionFixture {
+    fn drop(&mut self) {
+        if let Some(release) = self.release.take() {
+            let _ = release.try_send(());
+        }
+    }
+}
+
+fn prepare_moirai_saturated_admission() -> MoiraiAdmissionFixture {
+    let scheduler = ThreadScheduler::<SATURATED_ADMISSION_CAPACITY>::new(
+        SATURATED_ADMISSION_WORKERS,
+        "benchmark-saturated-admission",
+    )
+    .expect("Moirai scheduler must start");
+    let (started_tx, started_rx) = bounded(0);
+    let (release_tx, release_rx) = bounded(1);
+    scheduler
+        .schedule::<BlockingTask, _>(Priority::Normal, None, move |_| {
+            started_tx.send(()).expect("blocker start must be observed");
+            let _ = release_rx.recv();
+        })
+        .expect("blocker admission must succeed");
+    started_rx.recv().expect("blocker must enter the lane");
+
+    for _ in 0..SATURATED_ADMISSION_CAPACITY {
+        scheduler
+            .schedule::<BlockingTask, _>(Priority::Normal, None, |_| {})
+            .expect("queue fill must succeed");
+    }
+
+    MoiraiAdmissionFixture {
+        scheduler,
+        release: Some(release_tx),
+    }
+}
+
+fn prepare_crossbeam_saturated_admission() -> (
+    crossbeam::channel::Sender<usize>,
+    crossbeam::channel::Receiver<usize>,
+) {
+    let (sender, receiver) = bounded(SATURATED_ADMISSION_CAPACITY);
+    for value in 0..SATURATED_ADMISSION_CAPACITY {
+        sender.send(value).expect("bounded queue fill must succeed");
+    }
+
+    (sender, receiver)
+}
+
+fn benchmark_moirai_rejection(fixture: &MoiraiAdmissionFixture, iterations: u64) -> Duration {
+    let started = Instant::now();
+    for _ in 0..iterations {
+        let rejection = fixture
+            .scheduler
+            .schedule::<BlockingTask, _>(Priority::Normal, None, |_| {})
+            .expect_err("capacity-plus-one admission must be rejected");
+        assert!(matches!(rejection, ExecutorError::ResourceExhausted(_)));
+    }
+    assert_eq!(
+        fixture.scheduler.pending_tasks(),
+        SATURATED_ADMISSION_CAPACITY
+    );
+    started.elapsed()
+}
+
+fn benchmark_crossbeam_rejection(
+    sender: &crossbeam::channel::Sender<usize>,
+    receiver: &crossbeam::channel::Receiver<usize>,
+    iterations: u64,
+) -> Duration {
+    let started = Instant::now();
+    for _ in 0..iterations {
+        let rejection = sender
+            .try_send(SATURATED_ADMISSION_CAPACITY)
+            .expect_err("capacity-plus-one send must be rejected");
+        assert!(matches!(rejection, TrySendError::Full(_)));
+    }
+    assert_eq!(receiver.len(), SATURATED_ADMISSION_CAPACITY);
+    started.elapsed()
 }
 
 fn moirai_scope_sum(moirai: &Moirai, count: usize) -> usize {
@@ -326,6 +416,40 @@ fn tokio_rayon_real_app_pipeline_sum(
 
         sum
     })
+}
+
+fn bench_saturated_admission(c: &mut Criterion) {
+    let mut group = c.benchmark_group("saturated_admission");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(1));
+    group.warm_up_time(Duration::from_millis(250));
+    group.throughput(Throughput::Elements(1));
+
+    let mut moirai = prepare_moirai_saturated_admission();
+    group.bench_function("moirai_bounded_rejection", |b| {
+        b.iter_custom(|iterations| benchmark_moirai_rejection(&moirai, iterations));
+    });
+    moirai
+        .release
+        .take()
+        .expect("blocker release must be present")
+        .send(())
+        .expect("blocker release must succeed");
+    moirai
+        .scheduler
+        .join()
+        .expect("saturated scheduler must recover");
+    assert_eq!(moirai.scheduler.pending_tasks(), 0);
+    moirai.scheduler.shutdown();
+
+    let (sender, receiver) = prepare_crossbeam_saturated_admission();
+    group.bench_function("crossbeam_bounded_try_send", |b| {
+        b.iter_custom(|iterations| benchmark_crossbeam_rejection(&sender, &receiver, iterations));
+    });
+    for _ in 0..SATURATED_ADMISSION_CAPACITY {
+        receiver.recv().expect("bounded queue drain must succeed");
+    }
+    group.finish();
 }
 
 fn bench_ready_task_schedule(c: &mut Criterion) {
@@ -644,6 +768,7 @@ fn bench_standalone_deque_reclaim_policy(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_saturated_admission,
     bench_ready_task_schedule,
     bench_indexed_reduce_schedule,
     bench_scoped_ready_scaling,

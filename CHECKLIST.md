@@ -34,7 +34,7 @@
 - [x] Add borrowed completion and return-value coverage.
 - [x] Pass focused local and exact-head hosted gates; merge Moirai.
 
-## MOI-SCHED-061 — bounded indexed admission [patch] — provider complete; downstream pending
+## MOI-SCHED-061 — bounded indexed admission [patch] — provider and downstream complete
 
 - Owner: Codex `/root` (stale-peer takeover after one hour without a write or
   commit in the claimed scope).
@@ -51,9 +51,10 @@
 - [x] Add a relaxed monotonic admission diagnostic.
 - [x] Add deterministic saturated fan-out, reduction, panic, and reuse coverage.
 - [x] Pass focused local and exact-head hosted gates; merge Moirai.
-- [ ] Downstream-only follow-up: advance Kwavers to the merged Moirai pin,
-      remove the test-serialization workaround, pass the affected therapy lane,
-      and merge Kwavers once the peer-held Kwavers tree returns to a free main.
+- [x] Downstream-only follow-up: Kwavers consumed the merged Moirai pin and
+      closed the admission-specific serialization workaround in `KW-CI-068`.
+      The broader architecture workflow may still use `--test-threads=1` for
+      unrelated workload isolation; that is not an admission workaround.
       This does not block the completed Moirai provider implementation.
 - [x] Provider hygiene follow-up: document the scheduler diagnostics surface,
       add the module-level allowance required by the pinned Melinoe 0.9.0

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `moirai-benchmarks/thread_schedule_comparison` now includes a bounded
+  saturated-admission comparison: one-worker Moirai capacity-plus-one rejection
+  is measured beside an equal-capacity Crossbeam `try_send` rejection. Both
+  paths assert their full-queue state before timing and use bounded Criterion
+  windows; the rows compare rejection latency only, not scheduler semantics.
+
 ### Changed
 
 - Convert the `moirai_core::communication` collective operations (`scatter`,

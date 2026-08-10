@@ -81,8 +81,12 @@ remain hidden behind stale counters.
   existing fallible queue operation, including pending-count rollback and an
   explicit registry rejection transition on every pre-start failure. Executor
   nextest passes 83/83 and all-target/all-feature Clippy is clean.
-- [ ] [patch] ISSUE-216: Benchmark saturated Moirai admission against the
-  existing Crossbeam bounded-queue reference.
+- [x] [patch] ISSUE-216: Benchmark saturated Moirai admission against the
+  existing Crossbeam bounded-queue reference. `thread_schedule_comparison`
+  now measures capacity-plus-one rejection latency for the one-worker
+  `ThreadScheduler` admission path against `crossbeam::channel::Sender::try_send`
+  on equal-capacity queues, with value checks before timing and bounded
+  Criterion windows.
 - [x] [arch] ISSUE-213: Isolate `BlockingTask` execution from unified compute
   workers so blocking work cannot occupy the complete scheduler. Preserve one
   Moirai-owned runtime; Tokio and Smol remain comparison references only.

@@ -1,5 +1,16 @@
 # Rayon/Tokio Gap Audit
 
+## 2026-08-09 bounded-admission comparison
+
+ISSUE-216 is closed with a value-checked Criterion comparison in
+`thread_schedule_comparison`: the one-worker Moirai scheduler fills its bounded
+admission queue and measures the capacity-plus-one `ResourceExhausted` rejection;
+an equal-capacity Crossbeam bounded channel fills and measures `try_send`'s
+`TrySendError::Full` rejection. The probes run against prepared full queues, then drain/recover after each
+benchmark target; they use bounded sample/warm-up/measurement windows and
+intentionally compare only rejection latency. Crossbeam is a benchmark-only
+reference; it is not a runtime provider dependency.
+
 ## Scope
 
 This audit covers the active unified-scheduler comparison scope:
