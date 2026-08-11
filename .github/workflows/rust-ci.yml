@@ -50,6 +50,12 @@ jobs:
           toolchain: 1.97.0
           components: clippy,rustfmt
 
+      - name: Diagnose standalone lock graph
+        run: |
+          cargo generate-lockfile
+          git diff -- Cargo.lock
+          exit 1
+
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
         with:
