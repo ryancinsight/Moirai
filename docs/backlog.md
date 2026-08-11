@@ -82,8 +82,10 @@ architecture definition.
   in-place mutation semantics.
 - **Verification**: affected-crate Nextest 430/430 with three configured skips;
   benchmark Nextest 68/68; warning-denied Clippy for affected crates and
-  benchmarks; doctests and rustdoc pass offline. Hosted merge checks remain
-  open.
+  benchmarks; doctests and rustdoc pass offline. Hosted verification exposed
+  and then supplied the standalone Cargo.lock: four previously source-less
+  Mnemosyne package records and nine stale registry entries are now refreshed.
+  Hosted merge checks remain open at the final lock-refresh head.
 - **Next gate**: merge the reviewed branch at the exact green hosted head and
   update the Atlas submodule pointer only after that merge.
 

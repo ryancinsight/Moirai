@@ -41,12 +41,13 @@
 - [x] Pin all third-party actions to commit SHAs, constrain permissions, and
       bound the job runtime.
 - [x] Verify the gate commands locally against the affected workspace packages.
-- [x] Restore standalone Git source records for the Melinoe, Mnemosyne, and
-      Themis packages in `Cargo.lock`; the first hosted run exposed the
-      development-overlay lock as invalid under `--locked`.
+- [x] Restore standalone Git source records for the Melinoe, all six Mnemosyne,
+      and Themis packages in `Cargo.lock`; the hosted diagnostic also refreshed
+      the stale registry checksums and versions required by the current graph.
 - [x] Remove all `[[patch.unused]]` records emitted only by the Atlas
       development overlay; the standalone lock must contain no overlay state.
-- [ ] Confirm the hosted workflow is green at the final branch head.
+- [ ] Confirm the hosted workflow is green at the final branch head after the
+      standalone lock refresh.
 
 ## MOI-PAR-062 — borrowing parallel scope [minor] — complete
 
