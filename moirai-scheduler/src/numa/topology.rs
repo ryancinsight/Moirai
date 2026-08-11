@@ -46,9 +46,11 @@ impl CpuTopology {
     /// Create a single-node topology for systems without NUMA.
     pub fn single_node() -> Self {
         Self::from_themis(themis::CpuTopology::single_node(
-            std::thread::available_parallelism()
-                .map(usize::from)
-                .unwrap_or(1),
+            themis::CpuTopology::detect()
+                .map(|topology| topology.logical_processors())
+                .or_else(|| std::thread::available_parallelism().ok().map(usize::from))
+                .unwrap_or(1)
+                .max(1),
         ))
     }
 

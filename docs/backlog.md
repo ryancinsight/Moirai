@@ -69,6 +69,26 @@ architecture definition.
 
 ## Current closure record
 
+### ⏳ MOI-THEMIS-CPU-001 [patch]: Route default CPU sizing through Themis
+
+- **Scope**: `moirai-core`, `moirai-executor`, `moirai-iter`,
+  `moirai-parallel`, and `moirai-scheduler` default worker-count and
+  chunk-sizing decisions.
+- **Resolution in review**: direct Themis `CpuTopology::detect()` calls now
+  own the primary topology decision. Existing standard-library or historical
+  package fallbacks remain explicit and bounded when detection is unavailable;
+  no local topology adapter or silent backend downgrade was added. A
+  Melinoe-backed partition-order regression asserts both result order and
+  in-place mutation semantics.
+- **Verification**: affected-crate Nextest 430/430 with three configured skips;
+  benchmark Nextest 68/68; warning-denied Clippy for affected crates and
+  benchmarks; doctests and rustdoc pass offline. Hosted verification exposed
+  and then supplied the standalone Cargo.lock: four previously source-less
+  Mnemosyne package records and nine stale registry entries are now refreshed.
+  Hosted merge checks remain open at the final lock-refresh head.
+- **Next gate**: merge the reviewed branch at the exact green hosted head and
+  update the Atlas submodule pointer only after that merge.
+
 ### ✅ MOI-NUMA-001 [major]: Remove unowned NUMA iterator helper
 
 - **Root cause**: `moirai-iter::numa` exposed policy and batch APIs without
@@ -386,6 +406,17 @@ architecture definition.
   requests against the locked toolchain, and a deliberately broken source
   contract fails it.
 - **Dependencies**: none; the gate commands already exist.
+- **Resolution in review**: `.github/workflows/rust-ci.yml` now runs the
+  formatter, warning-denied workspace Clippy, configured workspace Nextest,
+  doctests, and warning-denied rustdoc on pull requests and `main`. Actions are
+  pinned to commit SHAs, the token is read-only, concurrency cancels obsolete
+  runs, and the job has a 30-minute timeout.
+- **Verification**: the affected workspace packages pass the same command
+  families locally. The first hosted run correctly rejected the overlay-derived
+  lock because its Git source records and overlay-only `[[patch.unused]]`
+  records were present. The lock now records the fetched Melinoe, Mnemosyne,
+  and Themis revisions explicitly and contains no overlay state. Hosted
+  workflow confirmation remains open.
 
 #### ✅ ISSUE-220 [patch]: Run a refused `join_with` branch on the caller
 - **Type**: Concurrency Correctness / API Contract

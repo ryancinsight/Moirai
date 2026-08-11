@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Route default worker-count decisions through Themis topology detection
+  (`CpuTopology::detect().logical_processors()`) with preserved
+  `std::thread::available_parallelism()` fallback across
+  `moirai-core`, `moirai-executor`, `moirai-iter`, `moirai-parallel`, and
+  the scheduler's single-node topology bootstrap.
 - Convert the `moirai_core::communication` collective operations (`scatter`,
   `gather`, `all_to_all`) from a jagged `Vec<Vec<T>>` layout to a CSR-shaped
   `ChunkedVec<T>`: one contiguous flat buffer plus a chunk-offset table.
@@ -33,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Make the interleaved priority, resource-contention, and memory-ordering
+  regressions deterministic across host topologies and concurrent test
+  execution by using explicit worker pools, event gates, and value-checked
+  task joins instead of wall-clock polling.
 - Make the `ChaseLevDeque` retired-array reclamation poison-tolerant: resize,
   drop, and test observation recover the guarded pointer list via `into_inner()`
   instead of panicking on a poisoned mutex after a panicking lock holder.

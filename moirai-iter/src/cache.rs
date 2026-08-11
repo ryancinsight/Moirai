@@ -207,9 +207,11 @@ pub struct ZeroCopyParallelIter<'a, T> {
 impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
     /// Create a zero-copy parallel iterator over `data`, choosing a chunk size from the number of available threads.
     pub fn new(data: &'a [T]) -> Self {
-        let num_threads = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
+        let num_threads = themis::CpuTopology::detect()
+            .map(|topology| topology.logical_processors())
+            .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
+            .unwrap_or(1)
+            .max(1);
         let element_size = mem::size_of::<T>();
         let elems_per_cache = CACHE_CHUNK_SIZE / element_size.max(1);
         let chunk_size = (data.len() / num_threads).max(elems_per_cache);

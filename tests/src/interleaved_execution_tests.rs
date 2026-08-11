@@ -7,7 +7,7 @@
 use moirai::{Moirai, Priority};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc, Barrier,
+    mpsc, Arc, Barrier,
 };
 use std::time::{Duration, Instant};
 
@@ -28,7 +28,10 @@ struct InterleavedTestFixture {
 
 impl InterleavedTestFixture {
     fn new() -> Self {
-        let runtime = Moirai::new().expect("Failed to create runtime for interleaved testing");
+        let runtime = Moirai::builder()
+            .worker_threads(CONCURRENT_WORKER_COUNT)
+            .build()
+            .expect("Failed to create runtime for interleaved testing");
         Self {
             runtime,
             counter: Arc::new(AtomicUsize::new(0)),
@@ -117,52 +120,76 @@ fn test_rapid_task_type_switching() {
 /// Tests priority handling across different execution contexts
 #[test]
 fn test_priority_inversion_resistance() {
-    let fixture = InterleavedTestFixture::new();
+    let runtime = Moirai::builder()
+        .worker_threads(1)
+        .build()
+        .expect("Failed to create runtime for priority testing");
     let high_priority_counter = Arc::new(AtomicUsize::new(0));
     let low_priority_counter = Arc::new(AtomicUsize::new(0));
+    let high_priority_low_count = Arc::new(AtomicUsize::new(usize::MAX));
+    let mut handles = Vec::with_capacity(25);
+    let (started_sender, started_receiver) = mpsc::channel();
+    let (release_sender, release_receiver) = mpsc::channel();
 
-    // Spawn many low-priority tasks first
-    for _ in 0..20 {
+    // Keep one worker so the test exercises queued priority selection rather
+    // than depending on the host's logical-processor count.
+    let first_counter = low_priority_counter.clone();
+    let first_handle = runtime.spawn_fn_with_priority(
+        move || {
+            started_sender
+                .send(())
+                .expect("priority test receiver must remain connected");
+            release_receiver
+                .recv()
+                .expect("priority test release must arrive");
+            first_counter.fetch_add(1, Ordering::SeqCst);
+            "low"
+        },
+        Priority::Low,
+    );
+    started_receiver
+        .recv()
+        .expect("first low-priority task must start");
+    handles.push(("low", first_handle));
+
+    for _ in 1..20 {
         let counter = low_priority_counter.clone();
-        let handle = fixture.runtime.spawn_fn_with_priority(
+        let handle = runtime.spawn_fn_with_priority(
             move || {
-                // Simulate longer work to create backlog
-                std::thread::sleep(Duration::from_millis(100));
                 counter.fetch_add(1, Ordering::SeqCst);
                 "low"
             },
             Priority::Low,
         );
-        std::mem::drop(handle);
+        handles.push(("low", handle));
     }
 
-    // Small delay to ensure low-priority tasks start
-    std::thread::sleep(Duration::from_millis(10));
-
-    // Spawn fewer high-priority tasks
     for _ in 0..5 {
         let counter = high_priority_counter.clone();
-        let handle = fixture.runtime.spawn_fn_with_priority(
+        let low_count = low_priority_counter.clone();
+        let observed_low_count = high_priority_low_count.clone();
+        let handle = runtime.spawn_fn_with_priority(
             move || {
+                observed_low_count.fetch_min(low_count.load(Ordering::SeqCst), Ordering::SeqCst);
                 counter.fetch_add(1, Ordering::SeqCst);
                 "high"
             },
             Priority::High,
         );
-        std::mem::drop(handle);
+        handles.push(("high", handle));
+    }
+    release_sender
+        .send(())
+        .expect("priority test worker must remain connected");
+
+    for (expected, handle) in handles {
+        let result = handle.join().expect("Priority task should complete");
+        assert_eq!(result, Ok(expected));
     }
 
-    // Wait for all high-priority tasks to complete first
-    let start = Instant::now();
-    while high_priority_counter.load(Ordering::SeqCst) < 5 {
-        if start.elapsed().as_millis() > TIMEOUT_DURATION_MS as u128 {
-            panic!("Timeout waiting for high-priority tasks");
-        }
-        std::thread::sleep(Duration::from_millis(1));
-    }
-
-    // Verify high-priority tasks completed before all low-priority ones
-    let low_completed = low_priority_counter.load(Ordering::SeqCst);
+    assert_eq!(high_priority_counter.load(Ordering::SeqCst), 5);
+    assert_eq!(low_priority_counter.load(Ordering::SeqCst), 20);
+    let low_completed = high_priority_low_count.load(Ordering::SeqCst);
     assert!(
         low_completed < 20,
         "Priority inversion detected: all low-priority tasks completed before high-priority ones"
@@ -181,6 +208,7 @@ fn test_resource_contention_handling() {
     let fixture = InterleavedTestFixture::new();
     let shared_resource = Arc::new(AtomicUsize::new(0));
     let barrier = Arc::new(Barrier::new(CONCURRENT_WORKER_COUNT));
+    let mut handles = Vec::with_capacity(CONCURRENT_WORKER_COUNT);
 
     // Create contention scenario with mixed task types
     for i in 0..CONCURRENT_WORKER_COUNT {
@@ -196,16 +224,12 @@ fn test_resource_contention_handling() {
             counter.fetch_add(1, Ordering::SeqCst);
             i // Return worker id for verification
         });
-        std::mem::drop(handle);
+        handles.push((i, handle));
     }
 
-    // Wait for completion
-    let start = Instant::now();
-    while fixture.counter.load(Ordering::SeqCst) < CONCURRENT_WORKER_COUNT {
-        if start.elapsed().as_millis() > TIMEOUT_DURATION_MS as u128 {
-            panic!("Timeout in resource contention test");
-        }
-        std::thread::sleep(Duration::from_millis(1));
+    for (expected, handle) in handles {
+        let result = handle.join().expect("Contention task should complete");
+        assert_eq!(result, Ok(expected));
     }
 
     // Verify resource integrity

@@ -16,6 +16,42 @@
 - [x] Refresh dependency resolution and pass focused gates.
 - [x] Merge before rerunning dependent Hephaestus provider CI.
 
+## MOI-THEMIS-CPU-001 — provider-owned CPU topology [patch] — review
+
+- Owner: Codex on `codex/fix-atlas-sha`.
+- Scope: default worker-count and chunk-sizing decisions in `moirai-core`,
+  `moirai-executor`, `moirai-iter`, `moirai-parallel`, and
+  `moirai-scheduler`; benchmark contract fixes are delivered separately under
+  ISSUE-216.
+- [x] Route each default CPU-count decision through Themis topology detection
+      with the existing standard-library fallback preserved.
+- [x] Add value-semantic partition-order coverage for the Melinoe-backed
+      parallel adapter.
+- [x] Pass focused all-target checks, warning-denied Clippy, configured
+      Nextest (430/430 across the affected crates and 68/68 benchmarks),
+      doctests, and rustdoc.
+- [x] Replace host-dependent priority timing and worker-blocking ABA test
+      synchronization with event-gated queue coverage and joined task results;
+      the complete `moirai-tests` package passes 36/36 under Nextest.
+- [ ] Merge the branch after the hosted required checks pass, then advance the
+      Atlas gitlink to that exact merged commit.
+
+## MOI-CI-224 — Rust workspace gate [patch] — review
+
+- Owner: Codex on `codex/fix-atlas-sha`.
+- [x] Add a pull-request and main-branch Rust workspace gate for formatting,
+      warning-denied Clippy, configured Nextest, doctests, and rustdoc.
+- [x] Pin all third-party actions to commit SHAs, constrain permissions, and
+      bound the job runtime.
+- [x] Verify the gate commands locally against the affected workspace packages.
+- [x] Restore standalone Git source records for the Melinoe, all six Mnemosyne,
+      and Themis packages in `Cargo.lock`; the hosted diagnostic also refreshed
+      the stale registry checksums and versions required by the current graph.
+- [x] Remove all `[[patch.unused]]` records emitted only by the Atlas
+      development overlay; the standalone lock must contain no overlay state.
+- [ ] Confirm the hosted workflow is green at the final branch head after the
+      standalone lock refresh and deterministic test repair.
+
 ## MOI-PAR-062 — borrowing parallel scope [minor] — complete
 
 - Provider acceptance is complete; the borrowing scope facade, direct
