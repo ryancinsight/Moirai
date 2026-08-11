@@ -33,6 +33,16 @@
 - [ ] Merge the branch after the hosted required checks pass, then advance the
       Atlas gitlink to that exact merged commit.
 
+## MOI-CI-224 — Rust workspace gate [patch] — review
+
+- Owner: Codex on `codex/fix-atlas-sha`.
+- [x] Add a pull-request and main-branch Rust workspace gate for formatting,
+      warning-denied Clippy, configured Nextest, doctests, and rustdoc.
+- [x] Pin all third-party actions to commit SHAs, constrain permissions, and
+      bound the job runtime.
+- [x] Verify the gate commands locally against the affected workspace packages.
+- [ ] Confirm the hosted workflow is green at the final branch head.
+
 ## MOI-PAR-062 — borrowing parallel scope [minor] — complete
 
 - Provider acceptance is complete; the borrowing scope facade, direct

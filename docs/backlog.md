@@ -404,6 +404,13 @@ architecture definition.
   requests against the locked toolchain, and a deliberately broken source
   contract fails it.
 - **Dependencies**: none; the gate commands already exist.
+- **Resolution in review**: `.github/workflows/rust-ci.yml` now runs the
+  formatter, warning-denied workspace Clippy, configured workspace Nextest,
+  doctests, and warning-denied rustdoc on pull requests and `main`. Actions are
+  pinned to commit SHAs, the token is read-only, concurrency cancels obsolete
+  runs, and the job has a 30-minute timeout.
+- **Verification**: the affected workspace packages pass the same command
+  families locally; hosted workflow confirmation remains open.
 
 #### ✅ ISSUE-220 [patch]: Run a refused `join_with` branch on the caller
 - **Type**: Concurrency Correctness / API Contract
