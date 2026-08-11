@@ -63,7 +63,15 @@ pub struct ExecutorStats {
 pub(crate) fn num_cpus() -> usize {
     #[cfg(feature = "std")]
     {
-        std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
+        themis::CpuTopology::detect()
+            .map(|topology| topology.logical_processors())
+            .or_else(|| {
+                std::thread::available_parallelism()
+                    .ok()
+                    .map(std::num::NonZeroUsize::get)
+            })
+            .unwrap_or(1)
+            .max(1)
     }
     #[cfg(not(feature = "std"))]
     {

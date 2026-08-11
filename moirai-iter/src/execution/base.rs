@@ -167,8 +167,9 @@ impl ExecutionContext {
         match self {
             ExecutionContext::Async(ctx) => ctx.max_concurrent,
             ExecutionContext::Hybrid(ctx) => ctx.async_context.max_concurrent,
-            _ => std::thread::available_parallelism()
-                .map(|available| available.get())
+            _ => themis::CpuTopology::detect()
+                .map(|topology| topology.logical_processors())
+                .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
                 .unwrap_or(DEFAULT_ASYNC_CONCURRENCY)
                 .max(1),
         }

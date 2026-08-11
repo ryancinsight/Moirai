@@ -69,6 +69,24 @@ architecture definition.
 
 ## Current closure record
 
+### ⏳ MOI-THEMIS-CPU-001 [patch]: Route default CPU sizing through Themis
+
+- **Scope**: `moirai-core`, `moirai-executor`, `moirai-iter`,
+  `moirai-parallel`, and `moirai-scheduler` default worker-count and
+  chunk-sizing decisions.
+- **Resolution in review**: direct Themis `CpuTopology::detect()` calls now
+  own the primary topology decision. Existing standard-library or historical
+  package fallbacks remain explicit and bounded when detection is unavailable;
+  no local topology adapter or silent backend downgrade was added. A
+  Melinoe-backed partition-order regression asserts both result order and
+  in-place mutation semantics.
+- **Verification**: affected-crate Nextest 430/430 with three configured skips;
+  benchmark Nextest 68/68; warning-denied Clippy for affected crates and
+  benchmarks; doctests and rustdoc pass offline. Hosted merge checks remain
+  open.
+- **Next gate**: merge the reviewed branch at the exact green hosted head and
+  update the Atlas submodule pointer only after that merge.
+
 ### ✅ MOI-NUMA-001 [major]: Remove unowned NUMA iterator helper
 
 - **Root cause**: `moirai-iter::numa` exposed policy and batch APIs without

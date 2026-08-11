@@ -16,6 +16,23 @@
 - [x] Refresh dependency resolution and pass focused gates.
 - [x] Merge before rerunning dependent Hephaestus provider CI.
 
+## MOI-THEMIS-CPU-001 — provider-owned CPU topology [patch] — review
+
+- Owner: Codex on `codex/fix-atlas-sha`.
+- Scope: default worker-count and chunk-sizing decisions in `moirai-core`,
+  `moirai-executor`, `moirai-iter`, `moirai-parallel`, and
+  `moirai-scheduler`; benchmark contract fixes are delivered separately under
+  ISSUE-216.
+- [x] Route each default CPU-count decision through Themis topology detection
+      with the existing standard-library fallback preserved.
+- [x] Add value-semantic partition-order coverage for the Melinoe-backed
+      parallel adapter.
+- [x] Pass focused all-target checks, warning-denied Clippy, configured
+      Nextest (430/430 across the affected crates and 68/68 benchmarks),
+      doctests, and rustdoc.
+- [ ] Merge the branch after the hosted required checks pass, then advance the
+      Atlas gitlink to that exact merged commit.
+
 ## MOI-PAR-062 — borrowing parallel scope [minor] — complete
 
 - Provider acceptance is complete; the borrowing scope facade, direct

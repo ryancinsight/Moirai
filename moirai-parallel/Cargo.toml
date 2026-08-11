@@ -16,6 +16,7 @@ categories = ["concurrency"]
 moirai-core = { workspace = true }
 moirai-executor = { workspace = true }
 melinoe = { workspace = true, optional = true }
+themis = { workspace = true }
 
 [features]
 default = ["parallel", "mnemosyne-memory", "melinoe"]

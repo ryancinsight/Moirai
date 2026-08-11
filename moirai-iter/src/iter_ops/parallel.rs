@@ -179,9 +179,11 @@ impl<T: Send + Sync> ParallelIter<T> {
 
 #[inline]
 fn chunk_size(len: usize) -> usize {
-    let worker_count = std::thread::available_parallelism()
-        .map(|count| count.get())
-        .unwrap_or(1);
+    let worker_count = themis::CpuTopology::detect()
+        .map(|topology| topology.logical_processors())
+        .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
+        .unwrap_or(1)
+        .max(1);
 
     len.div_ceil(worker_count).max(1)
 }

@@ -66,9 +66,11 @@ impl ExecutorBuilder {
     /// Create a new executor builder with default settings
     pub fn new() -> Self {
         Self {
-            worker_threads: std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4),
+            worker_threads: themis::CpuTopology::detect()
+                .map(|topology| topology.logical_processors())
+                .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
+                .unwrap_or(4)
+                .max(1),
             async_threads: 4,
         }
     }

@@ -438,6 +438,29 @@ fn test_par_partition_melinoe() {
     });
 }
 
+#[cfg(feature = "melinoe")]
+#[test]
+fn test_par_partition_map_preserves_partition_order() {
+    use melinoe::{brand_scope, MelinoeCell};
+
+    brand_scope(|token| {
+        let mut cells: Vec<MelinoeCell<'_, usize>> = (0..10).map(MelinoeCell::new).collect();
+        let sums = super::melinoe_ext::par_partition_map(&mut cells, 3, |start, mut shard| {
+            let sum = shard.iter().copied().sum::<usize>();
+            for value in shard.iter_mut() {
+                *value += 100;
+            }
+            (start, sum)
+        });
+
+        assert_eq!(sums, vec![(0, 3), (3, 12), (6, 21), (9, 9)]);
+        let snap = token.share();
+        for (i, cell) in cells.iter().enumerate() {
+            assert_eq!(*cell.borrow(snap), i + 100);
+        }
+    });
+}
+
 // ── Property-based parallel-vs-sequential parity ──
 //
 // The example tests above pin fixed inputs; these generalize the invariant
