@@ -6,7 +6,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use crossbeam::channel::{bounded, TrySendError};
 use moirai::Moirai;
-use moirai_core::{error::ExecutorError, Priority};
+use moirai_core::{channel::spsc, error::ExecutorError, Priority};
 use moirai_executor::{BlockingTask, ThreadScheduler};
 use moirai_scheduler::{ChaseLevDeque, SharedEpochReclaim, SplitDeque};
 use rayon::prelude::*;

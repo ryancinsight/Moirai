@@ -156,6 +156,10 @@ fn parallel_join_benchmark_compares_value_checked_rayon_row() {
 #[test]
 fn saturated_admission_benchmark_compares_bounded_rejection_paths() {
     let source = read_benchmark("benches/thread_schedule_comparison.rs");
+    // Whitespace-normalize both sides so rustfmt-expanded multi-line statements
+    // (e.g. `assert_eq!(...)` split across lines) still match their single-line
+    // contract fragments; this contract checks content, not formatting.
+    let source = source.split_whitespace().collect::<String>();
 
     for required in [
         "struct MoiraiAdmissionFixture",
@@ -170,7 +174,7 @@ fn saturated_admission_benchmark_compares_bounded_rejection_paths() {
         "ExecutorError::ResourceExhausted",
         "capacity-plus-one admission must be rejected",
         "bounded queue fill must succeed",
-        "assert_eq!(scheduler.pending_tasks(), SATURATED_ADMISSION_CAPACITY)",
+        "assert_eq!(fixture.scheduler.pending_tasks(), SATURATED_ADMISSION_CAPACITY)",
         "let mut moirai = prepare_moirai_saturated_admission();",
         "moirai.release.take()",
         ".send(()).expect(\"blocker release must succeed\")",
@@ -181,7 +185,7 @@ fn saturated_admission_benchmark_compares_bounded_rejection_paths() {
         "b.iter_custom(|iterations| benchmark_crossbeam_rejection(&sender, &receiver, iterations))",
     ] {
         assert!(
-            source.contains(required),
+            source.contains(&required.split_whitespace().collect::<String>()),
             "saturated admission benchmark must retain value-checked bounded comparison through {required}"
         );
     }
