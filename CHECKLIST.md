@@ -41,6 +41,9 @@
 - [x] Pin all third-party actions to commit SHAs, constrain permissions, and
       bound the job runtime.
 - [x] Verify the gate commands locally against the affected workspace packages.
+- [x] Restore standalone Git source records for the Melinoe, Mnemosyne, and
+      Themis packages in `Cargo.lock`; the first hosted run exposed the
+      development-overlay lock as invalid under `--locked`.
 - [ ] Confirm the hosted workflow is green at the final branch head.
 
 ## MOI-PAR-062 — borrowing parallel scope [minor] — complete

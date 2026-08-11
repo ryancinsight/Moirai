@@ -410,7 +410,10 @@ architecture definition.
   pinned to commit SHAs, the token is read-only, concurrency cancels obsolete
   runs, and the job has a 30-minute timeout.
 - **Verification**: the affected workspace packages pass the same command
-  families locally; hosted workflow confirmation remains open.
+  families locally. The first hosted run correctly rejected the overlay-derived
+  lock because its Git source records were absent; the lock now records the
+  fetched Melinoe, Mnemosyne, and Themis revisions explicitly. Hosted workflow
+  confirmation remains open.
 
 #### ✅ ISSUE-220 [patch]: Run a refused `join_with` branch on the caller
 - **Type**: Concurrency Correctness / API Contract
