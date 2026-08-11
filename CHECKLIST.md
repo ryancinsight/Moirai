@@ -44,6 +44,8 @@
 - [x] Restore standalone Git source records for the Melinoe, Mnemosyne, and
       Themis packages in `Cargo.lock`; the first hosted run exposed the
       development-overlay lock as invalid under `--locked`.
+- [x] Remove all `[[patch.unused]]` records emitted only by the Atlas
+      development overlay; the standalone lock must contain no overlay state.
 - [ ] Confirm the hosted workflow is green at the final branch head.
 
 ## MOI-PAR-062 — borrowing parallel scope [minor] — complete

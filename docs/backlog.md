@@ -411,9 +411,10 @@ architecture definition.
   runs, and the job has a 30-minute timeout.
 - **Verification**: the affected workspace packages pass the same command
   families locally. The first hosted run correctly rejected the overlay-derived
-  lock because its Git source records were absent; the lock now records the
-  fetched Melinoe, Mnemosyne, and Themis revisions explicitly. Hosted workflow
-  confirmation remains open.
+  lock because its Git source records and overlay-only `[[patch.unused]]`
+  records were present. The lock now records the fetched Melinoe, Mnemosyne,
+  and Themis revisions explicitly and contains no overlay state. Hosted
+  workflow confirmation remains open.
 
 #### ✅ ISSUE-220 [patch]: Run a refused `join_with` branch on the caller
 - **Type**: Concurrency Correctness / API Contract
