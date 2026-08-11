@@ -30,6 +30,9 @@
 - [x] Pass focused all-target checks, warning-denied Clippy, configured
       Nextest (430/430 across the affected crates and 68/68 benchmarks),
       doctests, and rustdoc.
+- [x] Replace host-dependent priority timing and worker-blocking ABA test
+      synchronization with event-gated queue coverage and joined task results;
+      the complete `moirai-tests` package passes 36/36 under Nextest.
 - [ ] Merge the branch after the hosted required checks pass, then advance the
       Atlas gitlink to that exact merged commit.
 
@@ -47,7 +50,7 @@
 - [x] Remove all `[[patch.unused]]` records emitted only by the Atlas
       development overlay; the standalone lock must contain no overlay state.
 - [ ] Confirm the hosted workflow is green at the final branch head after the
-      standalone lock refresh.
+      standalone lock refresh and deterministic test repair.
 
 ## MOI-PAR-062 — borrowing parallel scope [minor] — complete
 

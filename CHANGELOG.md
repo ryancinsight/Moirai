@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Make the interleaved priority, resource-contention, and memory-ordering
+  regressions deterministic across host topologies and concurrent test
+  execution by using explicit worker pools, event gates, and value-checked
+  task joins instead of wall-clock polling.
 - Make the `ChaseLevDeque` retired-array reclamation poison-tolerant: resize,
   drop, and test observation recover the guarded pointer list via `into_inner()`
   instead of panicking on a poisoned mutex after a panicking lock holder.

@@ -11,7 +11,7 @@
 use moirai::{Moirai, Priority};
 use std::alloc::{alloc, dealloc, Layout};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Barrier};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Cache-aligned atomic for preventing false sharing
@@ -26,24 +26,21 @@ impl<T> CacheAlignedAtomic<T> {
     }
 }
 
-/// Stack used to demonstrate concurrent push/pop and ABA-pattern detection.
+/// Mutex-protected stack used to verify concurrent push/pop conservation.
 ///
-/// The naive lock-free version suffered from a real use-after-free (ABA problem)
-/// that caused heap corruption under parallel test execution. This safe wrapper
-/// preserves the same observable API and the same test assertions while
-/// eliminating undefined behaviour.
-struct LockFreeStack {
+/// A lock-free ABA proof requires a reclamation-aware implementation; this
+/// test deliberately makes the mutex ownership explicit and verifies the
+/// value-semantic contract that implementation provides.
+struct ConcurrentStack {
     inner: std::sync::Mutex<Vec<usize>>,
     operation_count: AtomicUsize,
-    aba_detected: AtomicUsize,
 }
 
-impl LockFreeStack {
+impl ConcurrentStack {
     fn new() -> Self {
         Self {
             inner: std::sync::Mutex::new(Vec::new()),
             operation_count: AtomicUsize::new(0),
-            aba_detected: AtomicUsize::new(0),
         }
     }
 
@@ -64,11 +61,8 @@ impl LockFreeStack {
         self.inner.lock().unwrap().len()
     }
 
-    fn stats(&self) -> (usize, usize) {
-        (
-            self.operation_count.load(Ordering::Relaxed),
-            self.aba_detected.load(Ordering::Relaxed),
-        )
+    fn operation_count(&self) -> usize {
+        self.operation_count.load(Ordering::Relaxed)
     }
 }
 
@@ -426,69 +420,83 @@ struct MemoryOrderingTestRunner {
     runtime: Moirai,
 }
 
+const CONCURRENT_STACK_WORKER_COUNT: usize = 8;
+
 impl MemoryOrderingTestRunner {
     fn new() -> Result<Self, String> {
-        let runtime = Moirai::new().map_err(|_| "Failed to create Moirai runtime")?;
+        let runtime = Moirai::builder()
+            .worker_threads(CONCURRENT_STACK_WORKER_COUNT)
+            .build()
+            .map_err(|_| "Failed to create Moirai runtime")?;
         Ok(Self { runtime })
     }
 
-    /// Test ABA problem in lock-free data structures
-    fn test_aba_problem(&self) -> Result<TestResults, String> {
-        println!("Testing ABA problem in lock-free stack...");
+    /// Test concurrent stack push/pop conservation.
+    fn test_concurrent_stack(&self) -> Result<TestResults, String> {
+        println!("Testing concurrent stack push/pop conservation...");
 
-        let stack = Arc::new(LockFreeStack::new());
-        let num_threads = 8;
+        let stack = Arc::new(ConcurrentStack::new());
+        let num_threads = CONCURRENT_STACK_WORKER_COUNT;
         let operations_per_thread = 1000;
-        let barrier = Arc::new(Barrier::new(num_threads));
+        let pushed = Arc::new(AtomicUsize::new(0));
+        let popped = Arc::new(AtomicUsize::new(0));
 
         let mut handles = Vec::new();
 
         for thread_id in 0..num_threads {
             let stack = stack.clone();
-            let barrier = barrier.clone();
+            let pushed = pushed.clone();
+            let popped = popped.clone();
 
-            let handle = self.runtime.spawn_fn_with_priority(
-                move || {
-                    barrier.wait();
-
-                    // Alternate between push and pop operations
-                    for i in 0..operations_per_thread {
-                        if thread_id % 2 == 0 || i % 3 == 0 {
-                            // Push operation
-                            stack.push(thread_id * 1000 + i);
-                        } else {
-                            // Pop operation
-                            let _ = stack.pop();
-                        }
-
-                        // Occasionally yield to increase chance of ABA
-                        if i % 10 == 0 {
-                            std::thread::yield_now();
+            let handle = self.runtime.spawn_fn(move || {
+                // Alternate between push and pop operations
+                for i in 0..operations_per_thread {
+                    if thread_id % 2 == 0 || i % 3 == 0 {
+                        // Push operation
+                        stack.push(thread_id * 1000 + i);
+                        pushed.fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        // Pop operation
+                        if stack.pop().is_some() {
+                            popped.fetch_add(1, Ordering::Relaxed);
                         }
                     }
-                },
-                Priority::High,
-            );
+
+                    // Yield periodically to increase interleaving coverage.
+                    if i % 10 == 0 {
+                        std::thread::yield_now();
+                    }
+                }
+            });
 
             handles.push(handle);
         }
 
         // Wait for all threads to complete
         for handle in handles {
-            let _ = handle.join();
+            assert_eq!(
+                handle.join().expect("Concurrent stack task must complete"),
+                Ok(())
+            );
         }
 
-        let (operations, aba_detected) = stack.stats();
+        let operations = stack.operation_count();
         let final_size = stack.len();
+        let pushed = pushed.load(Ordering::Relaxed);
+        let popped = popped.load(Ordering::Relaxed);
+        let expected_final_size = pushed - popped;
 
-        println!("  Operations completed: {}", operations);
-        println!("  ABA problems detected: {}", aba_detected);
-        println!("  Final stack size: {}", final_size);
+        println!("  Operations completed: {operations}");
+        println!("  Pushes: {pushed}");
+        println!("  Successful pops: {popped}");
+        println!("  Final stack size: {final_size}");
+        assert_eq!(operations, pushed + popped);
+        assert_eq!(final_size, expected_final_size);
 
         Ok(TestResults {
             operations_completed: operations,
-            errors_detected: aba_detected,
-            final_state_valid: aba_detected == 0,
+            errors_detected: 0,
+            final_state_valid: final_size == expected_final_size,
             performance_metric: operations as f64,
         })
     }
@@ -775,11 +783,11 @@ mod memory_ordering_tests {
     use super::*;
 
     #[test]
-    fn test_lock_free_aba_problem() {
+    fn test_concurrent_stack_safety() {
         let runner = MemoryOrderingTestRunner::new().unwrap();
-        let results = runner.test_aba_problem().unwrap();
+        let results = runner.test_concurrent_stack().unwrap();
 
-        println!("ABA Test Results: {:?}", results);
+        println!("Concurrent Stack Test Results: {:?}", results);
         assert!(results.operations_completed > 0);
         assert!(results.final_state_valid);
     }
