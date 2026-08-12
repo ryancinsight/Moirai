@@ -324,7 +324,7 @@ cargo test --doc --workspace --all-features
 cargo bench -p moirai-benchmarks --no-run
 ```
 
-**Current Version**: 0.4.0
+**Current Version**: 0.5.0
 **Evidence Policy**: value-semantic tests and executable benchmarks only; no placeholder route or device execution claims.
 
 ## 🎯 Design Principle Compliance
@@ -380,4 +380,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Moirai v0.4.0** - Unified scheduler/router in active development
+**Moirai v0.5.0** - Unified scheduler/router in active development
