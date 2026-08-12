@@ -211,6 +211,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check, wait for the lock, and then poll a future that completed meanwhile —
   which panics with "resumed after completion".
 
+## [0.5.0] - 2026-08-11
+
+### Changed
+
+- Re-release the workspace as version 0.5.0 against mnemosyne-memory 0.7.0 so
+  consumers use the same Mnemosyne/Eunomia provider graph as the rest of
+  Atlas. The package identity and Rust library name remain unchanged.
+
+### Breaking
+
+- The optional Mnemosyne integration now requires mnemosyne-memory 0.7.0;
+  consumers must update their dependency graph to the 0.7 provider line.
+
 ## [0.4.0] - 2026-07-17
 
 ### Changed
