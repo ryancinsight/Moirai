@@ -28,6 +28,7 @@ edition = "2021"
 authors = ["Moirai Team"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ryancinsight/Moirai"
+readme = "README.md"
 homepage = "https://github.com/ryancinsight/Moirai"
 documentation = "https://github.com/ryancinsight/Moirai"
 keywords = ["concurrency", "async", "parallel", "zero-cost", "performance"]
