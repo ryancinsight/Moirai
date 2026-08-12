@@ -109,7 +109,7 @@ remain hidden behind stale counters.
 - [x] [patch] ISSUE-223: Re-point the source contracts that ISSUE-219 and
   ISSUE-221 invalidated, and delete the ThreadPool-erasure contract with its
   subject; verify with a workspace-wide run rather than a per-package one.
-- [ ] [patch] ISSUE-224: Run the Rust workspace gate in CI — today's workflow
+- [x] [patch] ISSUE-224: Run the Rust workspace gate in CI — today's workflow
   covers only the Python bindings, so a red workspace can merge.
 - [x] [major] ISSUE-222: Delete `moirai-iter`'s ThreadPool, its shared
   singleton and join guard; fall the indexed fan-outs back to the caller's
@@ -720,3 +720,4 @@ remain hidden behind stale counters.
 **Risk Assessment**: Low - mature, well-tested codebase with comprehensive error handling
 
 **Conclusion**: Moirai concurrency library is production-ready and exceeds initial requirements for performance, safety, and code quality. The implementation demonstrates excellence in concurrent systems design and provides a solid foundation for high-performance Rust applications.
+
