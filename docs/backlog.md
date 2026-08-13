@@ -71,6 +71,8 @@ architecture definition.
 
 ### ⏳ MOI-THEMIS-CPU-001 [patch]: Route default CPU sizing through Themis
 
+- **Status**: in progress; PM closeout is reconciling merged provider and
+  hosted evidence.
 - **Scope**: `moirai-core`, `moirai-executor`, `moirai-iter`,
   `moirai-parallel`, and `moirai-scheduler` default worker-count and
   chunk-sizing decisions.

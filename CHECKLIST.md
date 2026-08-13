@@ -16,9 +16,9 @@
 - [x] Refresh dependency resolution and pass focused gates.
 - [x] Merge before rerunning dependent Hephaestus provider CI.
 
-## MOI-THEMIS-CPU-001 — provider-owned CPU topology [patch] — review
+## MOI-THEMIS-CPU-001 — provider-owned CPU topology [patch] — in progress
 
-- Owner: Codex on `codex/fix-atlas-sha`.
+- Owner: Codex on `codex/moirai-themis-closeout`.
 - Scope: default worker-count and chunk-sizing decisions in `moirai-core`,
   `moirai-executor`, `moirai-iter`, `moirai-parallel`, and
   `moirai-scheduler`; benchmark contract fixes are delivered separately under
