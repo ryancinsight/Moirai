@@ -69,12 +69,12 @@ architecture definition.
 
 ## Current closure record
 
-### ⏳ MOI-THEMIS-CPU-001 [patch]: Route default CPU sizing through Themis
+### ✅ MOI-THEMIS-CPU-001 [patch]: Route default CPU sizing through Themis
 
 - **Scope**: `moirai-core`, `moirai-executor`, `moirai-iter`,
   `moirai-parallel`, and `moirai-scheduler` default worker-count and
   chunk-sizing decisions.
-- **Resolution in review**: direct Themis `CpuTopology::detect()` calls now
+- **Resolution**: direct Themis `CpuTopology::detect()` calls now
   own the primary topology decision. Existing standard-library or historical
   package fallbacks remain explicit and bounded when detection is unavailable;
   no local topology adapter or silent backend downgrade was added. A
@@ -84,10 +84,11 @@ architecture definition.
   benchmark Nextest 68/68; warning-denied Clippy for affected crates and
   benchmarks; doctests and rustdoc pass offline. Hosted verification exposed
   and then supplied the standalone Cargo.lock: four previously source-less
-  Mnemosyne package records and nine stale registry entries are now refreshed.
-  Hosted merge checks remain open at the final lock-refresh head.
-- **Next gate**: merge the reviewed branch at the exact green hosted head and
-  update the Atlas submodule pointer only after that merge.
+  Mnemosyne package records and nine stale registry entries are now refreshed;
+  the merged provider PR #118 passed the Rust Workspace gate at `9ec4b02`
+  (run `31566422283`). The final default head `2f639dc` passes the documentation,
+  Python bindings, and Pages workflows (runs `31645759255`, `31645758666`, and
+  `31645757529`). Atlas records the exact default gitlink at `2f639dc`.
 
 ### ✅ MOI-NUMA-001 [major]: Remove unowned NUMA iterator helper
 
