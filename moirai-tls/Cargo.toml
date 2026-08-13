@@ -20,6 +20,7 @@ mnemosyne-memory = []
 
 [dependencies]
 moirai-async = { workspace = true }
+moirai-crypto = { workspace = true }
 futures-io = { workspace = true }
 futures-rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
@@ -27,4 +28,3 @@ webpki-roots = { workspace = true }
 
 [dev-dependencies]
 moirai = { package = "moirai-runtime", path = "../moirai", default-features = false, features = ["async"] }
-rcgen = { workspace = true }

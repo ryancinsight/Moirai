@@ -137,7 +137,8 @@ impl TlsConnector {
     }
 
     /// Build a connector trusting the Mozilla root CA set ([`webpki_roots`]),
-    /// using the `ring` crypto provider and safe default protocol versions.
+    /// using the pure-Rust RustCrypto provider and safe default protocol versions.
+    /// No C toolchain dependency — all cryptography is implemented in Rust.
     #[must_use]
     pub fn with_webpki_roots() -> Self {
         let mut roots = RootCertStore::empty();
@@ -163,16 +164,15 @@ impl TlsConnector {
     }
 }
 
-/// Construct a `ring`-backed [`ClientConfig`] with safe default protocol versions
-/// trusting `roots`. Shared by [`TlsConnector::with_webpki_roots`] and tests that
-/// supply a custom root (self-signed) store.
+/// Construct a pure-Rust RustCrypto-backed [`ClientConfig`] with safe default
+/// protocol versions trusting `roots`. Uses [`moirai_crypto::provider`] instead
+/// of `ring` — zero C dependencies. Shared by [`TlsConnector::with_webpki_roots`]
+/// and tests that supply a custom root (self-signed) store.
 #[must_use]
 pub fn client_config_with_roots(roots: RootCertStore) -> ClientConfig {
-    ClientConfig::builder_with_provider(Arc::new(
-        futures_rustls::rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .expect("ring provider supports the safe default protocol versions")
-    .with_root_certificates(roots)
-    .with_no_client_auth()
+    ClientConfig::builder_with_provider(Arc::new(moirai_crypto::provider()))
+        .with_safe_default_protocol_versions()
+        .expect("moirai-crypto provider supports safe default protocol versions")
+        .with_root_certificates(roots)
+        .with_no_client_auth()
 }

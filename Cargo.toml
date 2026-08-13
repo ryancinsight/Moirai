@@ -10,6 +10,7 @@ members = [
     "moirai-pal",
     "moirai-iter",
     "moirai-parallel",
+    "moirai-crypto",
     "moirai-tls",
     "moirai-http",
     "moirai-metrics",
@@ -48,6 +49,7 @@ moirai-pal = { path = "moirai-pal", version = "0.5.0" }
 moirai-iter = { path = "moirai-iter", version = "0.5.0" }
 moirai-parallel = { path = "moirai-parallel", version = "0.5.0" }
 moirai-tls = { path = "moirai-tls", version = "0.5.0" }
+moirai-crypto = { path = "moirai-crypto", version = "0.5.0" }
 moirai-http = { path = "moirai-http", version = "0.5.0" }
 moirai-metrics = { path = "moirai-metrics", version = "0.5.0" }
 moirai-utils = { path = "moirai-utils", version = "0.5.0", features = ["std"] }
@@ -59,9 +61,10 @@ mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", versio
 mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", version = "0.7.0", package = "mnemosyne-memory", default-features = false }
 
 # Network stack (ADR-015): sans-I/O, runtime-agnostic, NOT tokio-coupled.
-# `ring` crypto provider (no aws-lc-rs NASM/cmake toolchain requirement on Windows).
+# Pure-Rust crypto via moirai-crypto (RustCrypto backend) — no ring, no aws-lc-rs,
+# no C toolchain required.  Replaces the previous `features = ["ring", ...]`.
 futures-io = "0.3"
-futures-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+futures-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"] }
 rustls-pki-types = "1"
 webpki-roots = "0.26"
 http = "1"

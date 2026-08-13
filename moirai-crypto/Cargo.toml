@@ -1,0 +1,53 @@
+[package]
+name = "moirai-crypto"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+homepage.workspace = true
+documentation = "https://docs.rs/moirai-crypto"
+rust-version.workspace = true
+description = "Pure-Rust TLS crypto provider for Moirai — zero C dependencies (RustCrypto backend for rustls)"
+keywords = ["tls", "rustls", "crypto", "pure-rust", "no-c"]
+categories = ["cryptography", "network-programming", "no-std"]
+publish = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+# rustls provider interface — no built-in crypto feature; we supply our own
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
+
+# Key exchange
+x25519-dalek    = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
+p256            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "alloc"] }
+p384            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "alloc"] }
+
+# AEAD cipher suites
+aes-gcm         = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+chacha20poly1305= { version = "0.10", default-features = false, features = ["alloc"] }
+
+# HMAC / HKDF / hashing
+hmac            = { version = "0.12", default-features = false }
+sha2            = { version = "0.10", default-features = false }
+hkdf            = { version = "0.12", default-features = false }
+
+# Certificate signature verification
+rsa             = { version = "0.9", default-features = false, features = ["sha2"] }
+ed25519-dalek   = { version = "2", default-features = false, features = ["alloc"] }
+
+# Generic interfaces
+signature       = { version = "2", default-features = false }
+zeroize         = { version = "1", default-features = false, features = ["alloc"] }
+rand_core       = { version = "0.6", default-features = false, features = ["getrandom"] }
+getrandom       = { version = "0.2" }
+
+# Async crypto math helpers
+elliptic-curve  = { version = "0.13", default-features = false, features = ["alloc"] }
+
+# pki-types re-exported by rustls; must match version in lockfile
+pki-types       = { package = "rustls-pki-types", version = "1" }
