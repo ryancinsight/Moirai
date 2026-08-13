@@ -196,20 +196,22 @@ impl IoReactor {
             .unwrap_or_else(|poison| poison.into_inner());
         if let Some(fd_info) = fds.get_mut(&FdKey::from(fd)) {
             let mut new_interest = fd_info.interest;
-            let mut modified = false;
-            if interest.readable && !new_interest.readable {
+            if interest.readable {
                 new_interest.readable = true;
-                modified = true;
             }
-            if interest.writable && !new_interest.writable {
+            if interest.writable {
                 new_interest.writable = true;
-                modified = true;
             }
-            if modified {
-                self.platform_reactor.unregister_fd(fd)?;
-                self.platform_reactor.register_fd(fd, new_interest)?;
-                fd_info.interest = new_interest;
-            }
+            // Always re-register with the platform reactor: the socket may have
+            // been pruned from the platform-level interest map via POLLNVAL (when
+            // the previous socket with the same FD number was closed), while the
+            // `registered_fds` entry was left behind. Blindly trusting the cached
+            // interest and skipping re-registration leaves the new socket invisible
+            // to `poll_events`, so its readiness is never signalled and reads/writes
+            // block until the debug timeout fires.
+            let _ = self.platform_reactor.unregister_fd(fd); // best-effort; may already be absent
+            self.platform_reactor.register_fd(fd, new_interest)?;
+            fd_info.interest = new_interest;
 
             if interest.readable {
                 fd_info.read_waker = Some(waker.clone());
