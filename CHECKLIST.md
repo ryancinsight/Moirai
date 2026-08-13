@@ -16,9 +16,9 @@
 - [x] Refresh dependency resolution and pass focused gates.
 - [x] Merge before rerunning dependent Hephaestus provider CI.
 
-## MOI-THEMIS-CPU-001 — provider-owned CPU topology [patch] — review
+## MOI-THEMIS-CPU-001 — provider-owned CPU topology [patch] — complete
 
-- Owner: Codex on `codex/fix-atlas-sha`.
+- Owner: Codex; delivered through PR #118 and merged as `57c4ec4`.
 - Scope: default worker-count and chunk-sizing decisions in `moirai-core`,
   `moirai-executor`, `moirai-iter`, `moirai-parallel`, and
   `moirai-scheduler`; benchmark contract fixes are delivered separately under
@@ -33,10 +33,10 @@
 - [x] Replace host-dependent priority timing and worker-blocking ABA test
       synchronization with event-gated queue coverage and joined task results;
       the complete `moirai-tests` package passes 36/36 under Nextest.
-- [ ] Merge the branch after the hosted required checks pass, then advance the
-      Atlas gitlink to that exact merged commit.
+- [x] Merge PR #118 after the hosted required checks passed, then advance the
+      Atlas gitlink to the exact current default head `2f639dc`.
 
-## MOI-CI-224 — Rust workspace gate [patch] — review
+## MOI-CI-224 — Rust workspace gate [patch] — complete
 
 - Owner: Codex on `codex/fix-atlas-sha`.
 - [x] Add a pull-request and main-branch Rust workspace gate for formatting,
@@ -49,8 +49,10 @@
       the stale registry checksums and versions required by the current graph.
 - [x] Remove all `[[patch.unused]]` records emitted only by the Atlas
       development overlay; the standalone lock must contain no overlay state.
-- [ ] Confirm the hosted workflow is green at the final branch head after the
-      standalone lock refresh and deterministic test repair.
+- [x] Confirm the hosted workflow is green after the standalone lock refresh and
+      deterministic test repair: Rust Workspace run `31566422283` passed at
+      `9ec4b02`; current default documentation, Python, and Pages workflows
+      pass at `2f639dc`.
 
 ## MOI-PAR-062 — borrowing parallel scope [minor] — complete
 
