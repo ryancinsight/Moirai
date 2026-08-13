@@ -1,10 +1,8 @@
-# Moirai - High-Performance Rust Concurrency Library
+# Moirai
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/moirai-lang/moirai)
-[![Coverage](https://img.shields.io/badge/coverage-95%25-green)](https://github.com/moirai-lang/moirai)
-[![Phase](https://img.shields.io/badge/phase-15%20(Code%20Quality)-green)](https://github.com/moirai-lang/moirai)
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Rust Version](https://img.shields.io/badge/rust-1.95%2B-orange)](https://www.rust-lang.org/)
+[![crates.io](https://img.shields.io/crates/v/moirai-runtime.svg)](https://crates.io/crates/moirai-runtime)
+[![docs.rs](https://docs.rs/moirai-runtime/badge.svg)](https://docs.rs/moirai-runtime)
+[![Rust Workspace](https://github.com/ryancinsight/Moirai/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/ryancinsight/Moirai/actions/workflows/rust-ci.yml)
 
 Moirai is a unified scheduler/router for Rust work placement. It routes admitted
 work across local CPU worker threads, sync/blocking/async-ready work classes,
@@ -14,135 +12,231 @@ are benchmark gates; the architecture target is a single scheduler hierarchy tha
 can grow into GPU, TPU, NPU, and server placement without duplicating algorithms
 or fabricating execution.
 
-## 🎯 Design Principles
+The facade crate publishes as **`moirai-runtime`** (the `moirai` registry name
+belongs to an unrelated project) and keeps the Rust library name `moirai`.
 
-Moirai follows elite programming practices and design principles:
+## Quick Start
 
-- **SOLID**: Single responsibility, open/closed, Liskov substitution, interface segregation, dependency inversion
-- **CUPID**: Composable, Unix philosophy, predictable, idiomatic, domain-centric
-- **GRASP**: Information expert, creator, controller, low coupling, high cohesion
-- **ACID**: Atomicity, consistency, isolation, durability in task execution
-- **DRY**: Don't repeat yourself - unified abstractions across modules
-- **KISS**: Keep it simple - minimal complexity with maximum performance
-- **YAGNI**: You aren't gonna need it - focused feature set
-- **SSOT**: Single source of truth - unified channel and sync primitives
+```toml
+[dependencies]
+moirai-runtime = "0.5"
+```
 
-## 🚀 Features
-
-### ✅ **Unified Iterator System (moirai_iter)** - **OPTIMIZED**
-- **Execution Agnostic**: Same API works across parallel, async, and hybrid contexts; distributed iterator helpers remain a bounded, benchmarked helper boundary
-- **Memory Efficient**: Streaming operations, NUMA-aware allocation, and cache-friendly data layouts  
-- **Zero-cost Abstractions**: Compile-time optimizations with no runtime overhead
-- **Pure Rust std**: No external dependencies, built entirely on Rust's standard library
-- **🆕 Consolidated Base Module**: Common iterator patterns extracted to reduce duplication (DRY principle)
-- **🆕 Shared Thread Pool**: Singleton pattern for efficient resource usage across contexts
+The crate is imported as `moirai`:
 
 ```rust
 use moirai::prelude::*;
 
-// Parallel execution (CPU-bound work)
-let data = vec![1, 2, 3, 4, 5];
-moirai_iter(data.clone())
-    .map(|x| x * x)
-    .filter(|&x| x > 10)
-    .for_each(|x| println!("Result: {}", x))
-    .await;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let moirai = Moirai::builder()
+        .worker_threads(8)
+        .async_threads(4)
+        .thread_name_prefix("moirai-worker")
+        .build()?;
 
-// Async execution (I/O-bound work)
-moirai_iter_async(data.clone())
-    .map(|x| x * 2)
-    .reduce(|a, b| a + b)
-    .await;
+    // Spawn a closure onto the unified scheduler.
+    let parallel = moirai.spawn_fn(|| 7usize);
 
-// Hybrid execution (automatically chooses optimal strategy)
-moirai_iter_hybrid(data)
-    .batch(1000)  // Process in cache-friendly batches
-    .map(|x| expensive_computation(x))
-    .collect::<Vec<_>>()
-    .await;
+    // Spawn a future onto the async lane.
+    let handle = moirai.spawn_async(async { 42usize });
+
+    // Indexed map/reduce through the same scheduler.
+    let sum = moirai.map_reduce_indexed(
+        5,
+        0usize,
+        |index| (index + 1) * (index + 1),
+        usize::wrapping_add,
+    )?;
+    assert_eq!(sum, 55);
+
+    let parallel_result = parallel.join().expect("parallel handle attached")?;
+    let async_result = handle.join().expect("async handle attached")?;
+    assert_eq!(parallel_result, 7);
+    assert_eq!(async_result, 42);
+
+    moirai.shutdown();
+    Ok(())
+}
 ```
 
-### ✅ **Unified Channel Implementation** - **NEW**
-- **Single Source of Truth**: Consolidated channel implementations in `moirai_core::channel`
-- **Zero-copy SPSC**: Lock-free single producer single consumer channels
-- **MPMC Support**: Multi-producer multi-consumer with bounded/unbounded variants
-- **Go-style Select**: Wait on multiple channels simultaneously
-- **Cache-aligned**: Prevents false sharing between CPU cores
+`TaskHandle::join` returns `Option<Result<T, TaskError>>`: `Some(Ok(_))` on
+success, `Some(Err(_))` when the task failed, and `None` when the task was
+detached.
+
+Default features: `async`, `iter`, `parallel`, `local`, `mnemosyne-memory`,
+`melinoe`. Optional: `distributed`, `network`, `metrics`, `numa`, `gpu`,
+`encryption`, `compression`, `tokio-compat`, `no-std`, and `full`.
+
+Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
+(`rust-toolchain.toml`).
+
+## Crates
+
+| Crate | Role |
+|-------|------|
+| [`moirai-runtime`](https://docs.rs/moirai-runtime) | Facade: `Moirai` runtime, builder, prelude (library name `moirai`) |
+| [`moirai-core`](https://docs.rs/moirai-core) | Task/executor/scheduler traits, channels, communication patterns, memory pools |
+| [`moirai-executor`](https://docs.rs/moirai-executor) | Hybrid executor: work-class routing, blocking lane, scheduler scopes |
+| [`moirai-scheduler`](https://docs.rs/moirai-scheduler) | Chase-Lev / split work-stealing deques and CPU topology discovery |
+| [`moirai-transport`](https://docs.rs/moirai-transport) | In-memory, IPC, and network transports; archive message pairs |
+| [`moirai-sync`](https://docs.rs/moirai-sync) | `FutexMutex`, `WaitGroup`, `ConcurrentHashMap`, sharded resource pool |
+| [`moirai-async`](https://docs.rs/moirai-async) | Async runtime integration and `AsyncRead`/`AsyncWrite` |
+| [`moirai-async-macros`](https://docs.rs/moirai-async-macros) | `#[main]` attribute macro for an async entry point |
+| [`moirai-iter`](https://docs.rs/moirai-iter) | Parallel/async/hybrid iterator combinators |
+| [`moirai-parallel`](https://docs.rs/moirai-parallel) | Synchronous data-parallel slice primitives (rayon-style surface) |
+| [`moirai-pal`](https://docs.rs/moirai-pal) | Platform abstraction: epoll / kqueue / `WSAPoll` readiness |
+| [`moirai-metrics`](https://docs.rs/moirai-metrics) | Cloneable metric handles and value-copy snapshots |
+| [`moirai-gpu`](https://docs.rs/moirai-gpu) | GPU launch-shape planning; optional `wgpu` compute backend |
+| [`moirai-utils`](https://docs.rs/moirai-utils) | Cache alignment, atomics, lock-free queues, prefetch |
+| [`moirai-crypto`](https://docs.rs/moirai-crypto) | Pure-Rust rustls `CryptoProvider` (RustCrypto, no C toolchain) |
+| [`moirai-tls`](https://docs.rs/moirai-tls) | Async TLS client over Moirai sockets, no Tokio |
+| [`moirai-http`](https://docs.rs/moirai-http) | Minimal async HTTP/1.1 client over `moirai-tls` |
+
+## Runtime
+
+- **Hybrid executor**: sync, blocking, and async-ready work classes on one
+  scheduler facade; blocking admission uses a bounded lane isolated from the
+  compute worker pool.
+- **Work-stealing scheduler**: per-worker Chase-Lev deques indexed by
+  `Priority::index`, with lock-free stealing. The Chase-Lev steal/pop ordering
+  protocol has an exhaustive `loom` model.
+- **Route topology** (`distributed` feature): sealed zero-sized policies select
+  `SchedulerRoute::{Thread, Process, Server, Accelerator}` without
+  `dyn RoutePolicy`.
+- **Process/server boundary**: fixed-format remote tasks execute through
+  transport-backed routes behind sealed capability tokens; arbitrary closure
+  remoting is intentionally rejected.
+- **CPU topology**: `moirai_scheduler::numa::CpuTopology` discovers NUMA nodes
+  and cache levels, and Themis topology detection supplies default worker
+  counts. Topology-directed memory placement is not implemented; the
+  `numa_aware` builder method is currently a no-op behind the `numa` feature.
+
+## Iterators
+
+`moirai_iter` (re-exported from the facade under the default `iter` feature)
+builds one iterator over three execution contexts. `map` and `filter` are
+synchronous adapters; `collect`, `reduce`, and `for_each` are `async` and must
+be awaited.
 
 ```rust
-use moirai::channel::{spsc, mpmc, unbounded};
+use moirai::{moirai_iter, moirai_iter_async, moirai_iter_parallel};
 
-// High-performance SPSC channel
+async fn example(data: Vec<u64>) {
+    // Hybrid context (the default for `moirai_iter`).
+    moirai_iter(data.clone())
+        .map(|x| x * x)
+        .filter(|&x| x > 10)
+        .for_each(|x| println!("Result: {x}"))
+        .await;
+
+    // CPU-bound work across the parallel context.
+    let squares: Vec<u64> = moirai_iter_parallel(data.clone()).map(|x| x * x).collect().await;
+
+    // I/O-bound work across the async context.
+    let total: Option<u64> = moirai_iter_async(data).reduce(|a, b| a + b).await;
+
+    println!("{squares:?} {total:?}");
+}
+```
+
+## Channels
+
+`moirai::channel` re-exports `moirai_core::channel`.
+
+- `spsc(capacity)` — bounded single-producer/single-consumer ring. Lock-free:
+  the producer and consumer each own an index, and `head`/`tail` are wrapped in
+  `CacheAligned` (`#[repr(align(64))]`) so the two counters do not share a cache
+  line. Neither half is `Clone` or `Sync`, which is what enforces the one-of-each
+  discipline.
+- `mpmc(capacity)` — bounded multi-producer/multi-consumer. Sends and receives
+  go through a lock-free slot-sequence queue with cache-aligned enqueue/dequeue
+  positions; a mutex + condvar pair backs blocking and close notification.
+- `unbounded()` — multi-producer/multi-consumer with no capacity bound. This
+  variant has no lock-free path: it is a `Mutex<VecDeque<T>>` with condvar
+  wakeups after a bounded spin.
+- `Select::try_recv` — a single-pass, non-blocking poll over receive closures.
+  It is not a Go-style blocking select: it tries each closure once in order and
+  returns `None` immediately when none is ready.
+
+```rust
+use moirai::channel::{mpmc, spsc, unbounded};
+
 let (tx, rx) = spsc::<i32>(1024);
 tx.send(42).unwrap();
 assert_eq!(rx.recv().unwrap(), 42);
 
-// MPMC for work distribution
-let (tx, rx) = mpmc::<Task>(100);
-// Multiple producers and consumers can use tx/rx concurrently
+let (tx, rx) = mpmc::<i32>(100);
+tx.send(7).unwrap();
+assert_eq!(rx.recv().unwrap(), 7);
+
+let (tx, rx) = unbounded::<i32>();
+tx.send(1).unwrap();
+assert_eq!(rx.recv().unwrap(), 1);
 ```
 
-### ✅ **Optimized Synchronization Primitives** - **REFACTORED**
-- **Value-add Focus**: Removed thin wrappers, re-export std primitives directly (YAGNI)
-- **FutexMutex**: Adaptive spinning with futex support on Linux
-- **WaitGroup**: Go-style synchronization for task coordination
-- **Lock-free Stack**: Treiber's algorithm for high-performance collections
-- **Concurrent HashMap**: Segment-based locking for scalability
+## Synchronization primitives
+
+`moirai-sync` re-exports the std primitives directly (`Mutex`, `RwLock`,
+`Condvar`, `Barrier`) and adds only primitives with behavior std does not
+provide. The facade re-exports `AtomicCounter`, `Barrier`, `Condvar`, `Mutex`,
+and `RwLock`; the remaining types come from `moirai-sync` directly.
 
 ```rust
-use moirai::sync::{FutexMutex, WaitGroup, LockFreeStack};
+use moirai_sync::{ConcurrentHashMap, FutexMutex, LockFreeStack, WaitGroup};
 
-// Fast mutex with adaptive spinning
-let mutex = FutexMutex::new(0);
+let mutex = FutexMutex::new(0u32); // adaptive spinning, futex wait on Linux
 {
-    let mut guard = mutex.lock();
+    let mut guard = mutex.lock(); // returns the guard, not a Result
     *guard += 1;
 }
 
-// Go-style wait group
 let wg = WaitGroup::new();
 wg.add(3);
-// ... spawn tasks that call wg.done()
-wg.wait(); // Wait for all tasks
+// ... spawn work that calls wg.done() three times
+wg.wait();
+
+let stack: LockFreeStack<u32> = LockFreeStack::new();
+let map: ConcurrentHashMap<String, u32> = ConcurrentHashMap::new(); // segmented RwLocks
 ```
 
-### ✅ **Advanced Communication Patterns** - **CONSOLIDATED**
-- **Broadcast Channels**: One-to-many communication
-- **Pub/Sub System**: Topic-based message routing
-- **Ring Buffers**: Zero-copy streaming
-- **Collective Operations**: All-reduce, scatter, gather patterns
-- **Message Router**: Key-based message routing
+## Communication patterns
 
-### ✅ **Unified Runtime**
-- **Hybrid Executor**: Combines sync, blocking, async-ready, and indexed CPU work
-- **Work-Stealing Scheduler**: Load balancing across local CPU worker threads
-- **Route Topology**: Sealed ZST policies select thread, process, server, and async-lane metadata without `dyn RoutePolicy`
-- **Process/Server Execution Boundary**: Fixed-format remote tasks execute through transport-backed routes; arbitrary closure remoting is intentionally rejected
-- **NUMA-Aware**: Optimized memory allocation for multi-socket systems
-- **Real-time Support**: Priority inheritance and deadline scheduling
+`moirai_core::communication` (depend on `moirai-core` directly):
 
-### ✅ **Enterprise Features**
-- **Security Audit Framework**: Comprehensive security event tracking
-- **Performance Monitoring**: Real-time metrics and utilization tracking
-- **Zero External Dependencies**: Pure Rust standard library implementation (only `libc` for futex)
+- `BroadcastChannel` — watch semantics: only the most recent value is stored, so
+  a receiver that is not polling observes the latest value, not every value.
+- `PubSub` — topic-keyed routing; `subscribe(topic)` returns an `MpmcReceiver`
+  and `publish` returns the number of subscribers reached.
+- `RingBuffer` — single-producer/single-consumer streaming buffer with
+  `try_produce`/`try_consume`.
+- `CollectiveOps` — `all_reduce`, `scatter`, `gather`, `all_to_all`, and
+  `scatter_zero_copy` over a CSR-shaped `ChunkedVec<T>` (one contiguous buffer
+  plus a chunk-offset table).
+- `MessageRouter` — key-based message routing.
 
-### ✅ **PyO3 Python Bindings**
-- **Moirai Wrapper**: `moirai-python` exposes PyO3 wrappers over `moirai::Moirai`; it does not implement a separate scheduler, planner, or backend.
-- **Separated Surface**: Rust FFI stays limited to the native runtime wrapper while Python contains only the facade and lifecycle tests.
-- **No Workload Wrappers**: Benchmark-specific Python functions are excluded unless they correspond to a comparable joblib or Tokio runtime primitive.
-- **Release Distribution**: GitHub Releases tagged `moirai-python-v<version>` attach validated CPython 3.10–3.13 wheels for Linux, Windows, and macOS, then publish the same artifacts to PyPI through OIDC.
+## Architecture
 
-### Rust Crate Releases
+- **Local CPU layer**: `ThreadScheduler` owns worker queues, work-class routing,
+  scoped batches, and indexed fan-out/reduction.
+- **Route layer**: `HybridRouter<P>` selects thread/process/server/accelerator
+  routes through sealed zero-sized policies.
+- **Transport layer**: `moirai-transport` consumes route metadata, archives
+  payload bytes, and executes admitted fixed-format process/server tasks.
+- **Accelerator layer**: `moirai-gpu::occupancy` plans topology-aware launch
+  shapes and is available without the optional `wgpu-backend` feature. GPU/TPU/NPU
+  backend execution remains an open architecture item tracked in `GAP_ANALYSIS.md`
+  and `docs/backlog.md`.
+- **Memory boundary**: archive payloads move as owned bytes across
+  thread/process/server/device regions; cross-process and cross-device pointer
+  transfer is rejected.
 
-The `Crates.io Release` workflow validates a named workspace package on manual
-dispatch. After that package's required first release is published locally and
-its crates.io Trusted Publisher is registered, a GitHub Release tagged
-`crate-<package>-v<version>` packages, verifies, and publishes the matching
-Cargo version with a short-lived OIDC token. Validation runs in a separate
-read-only job. The publish job is bound to the GitHub `crates-io` environment;
-register each package's Trusted Publisher with that environment. The `moirai`
-registry name belongs to an unrelated project, so the facade publishes as
-`moirai-runtime` while retaining the Rust library name `moirai`.
+## Python bindings
+
+`moirai-python` exposes PyO3 wrappers over `moirai::Moirai`; it implements no
+separate scheduler, planner, or backend, and it is not published to crates.io.
+GitHub Releases tagged `moirai-python-v<version>` attach validated CPython
+3.10–3.13 wheels for Linux, Windows, and macOS and publish the same artifacts to
+PyPI through OIDC.
 
 ```bash
 py -3.13 -m pip install moirai-python
@@ -152,232 +246,102 @@ py -3.13 -m pip install -e moirai-python
 py -3.13 -m unittest discover moirai-python\tests
 ```
 
-## 📚 Quick Start
+## Examples
 
-Add Moirai to your `Cargo.toml`:
+Examples are registered on the facade package, so they run with `-p moirai-runtime`:
 
-```toml
-[dependencies]
-moirai = "0.4"
-
-# Optional: Enable specific features
-moirai = { version = "0.4", features = ["iter", "async"] }
-```
-
-### Basic Usage
-
-```rust
-use moirai::prelude::*;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a Moirai runtime
-    let moirai = Moirai::builder()
-        .worker_threads(8)
-        .async_threads(4)
-        .build()?;
-
-    // Spawn an async task
-    let handle = moirai.spawn_async(async {
-        println!("Hello from async task!");
-        42
-    });
-
-    // Spawn a parallel task
-    let parallel = moirai.spawn_fn(|| {
-        println!("Hello from parallel task!");
-        7
-    });
-
-    // Use indexed map/reduce through the unified scheduler
-    let sum = moirai.map_reduce_indexed(5, 0usize, |index| {
-        let value = index + 1;
-        value * value
-    }, usize::wrapping_add)?;
-
-    println!("Sum of squares: {}", sum);
-
-    // Wait for task completion
-    let result = handle.join().expect("async task handle attached")?;
-    let parallel_result = parallel.join().expect("parallel task handle attached")?;
-    println!("Async task result: {}", result);
-    println!("Parallel task result: {}", parallel_result);
-
-    moirai.shutdown();
-    Ok(())
-}
-```
-
-## 🌍 Real-World Examples
-
-Moirai excels in diverse concurrent programming scenarios. Explore our comprehensive examples:
-
-### 🔄 **Async & Parallel Processing**
-- **[Web Crawler](examples/web_crawler_parallel.rs)** - Parallel HTTP requests with rate limiting and async I/O
-- **[Video Processing Pipeline](examples/video_processing_pipeline.rs)** - SIMD-optimized media processing with memory pooling
-
-### 💰 **Financial & Transaction Systems**  
-- **[Financial Transaction Processing](examples/financial_transaction_processing.rs)** - Race condition handling, deadlock prevention, audit trails
-
-### 📡 **Real-Time Communication**
-- **[Chat Server](examples/realtime_chat_server.rs)** - WebSocket-style pub/sub with concurrent message delivery
-- **[High-Frequency Data Pipeline](examples/high_frequency_data_pipeline.rs)** - Market data streaming with backpressure handling
-
-### 🌐 **Network & Infrastructure**
-- **[Load Balancing](examples/network_service_load_balancing.rs)** - Dynamic service routing with health checks and auto-scaling
-
-### 🏠 **IoT & Edge Computing**
-- **[IoT Device Management](examples/iot_device_management.rs)** - Event-driven device coordination with real-time telemetry
-
-### 💼 **Enterprise Patterns**
-Each example demonstrates production-ready patterns:
-- **Circuit breakers** for fault tolerance
-- **Backpressure handling** for system stability  
-- **Memory pooling** for performance optimization
-- **Priority queuing** for resource management
-- **Health monitoring** for operational visibility
-- **Graceful degradation** under load
-
-Run any example:
 ```bash
-cargo run --example web_crawler_parallel
-cargo run --example realtime_chat_server
-cargo run --example video_processing_pipeline
-cargo run --example iot_device_management
+cargo run -p moirai-runtime --example basic_usage
+cargo run -p moirai-runtime --example web_crawler_parallel
+cargo run -p moirai-runtime --example realtime_chat_server
+cargo run -p moirai-runtime --example rayon_parallel_patterns
 ```
 
-## 🏗️ Architecture
+- [Basic usage](examples/basic_usage.rs), [blocking channels](examples/blocking_channels.rs),
+  [sync primitives](examples/sync_primitives.rs), [iterator showcase](examples/iterator_showcase.rs)
+- [Web crawler](examples/web_crawler_parallel.rs), [video processing pipeline](examples/video_processing_pipeline.rs)
+- [Financial transaction processing](examples/financial_transaction_processing.rs),
+  [high-frequency data pipeline](examples/high_frequency_data_pipeline.rs)
+- [Chat server](examples/realtime_chat_server.rs), [load balancing](examples/network_service_load_balancing.rs),
+  [IoT device management](examples/iot_device_management.rs)
+- [Rayon-style patterns](examples/rayon_parallel_patterns.rs),
+  [Tokio-style patterns](examples/tokio_task_fanout.rs),
+  [Moirai vs Tokio/Rayon](examples/moirai_vs_tokio_rayon_comparison.rs)
 
-Moirai's architecture is a deep, bounded-context scheduler stack:
+Some examples require non-default features (`gpu_acceleration` needs `gpu`;
+`async_timer` and `tokio_task_fanout` need `async`).
 
-### Unified Scheduler/Router
-- **Local CPU Layer**: `ThreadScheduler` owns worker queues, work-class routing, scoped batches, and indexed fan-out/reduction.
-- **Route Layer**: `HybridRouter<P>` selects `SchedulerRoute::{Thread, Process, Server, Accelerator}` with per-process async lanes and CPU/GPU/TPU/NPU accelerator metadata through sealed zero-sized policies.
-- **Transport Layer**: `moirai-transport` consumes route metadata, archives payload bytes, and executes admitted fixed-format process/server tasks; the public `Moirai` facade admits those paths only through sealed capability tokens.
-- **Accelerator Layer**: `moirai-gpu::occupancy` plans topology-aware launch shapes today and is available without the optional `wgpu-backend` feature; GPU/TPU/NPU backend execution remains an open architecture item tracked in `GAP_ANALYSIS.md` and `docs/backlog.md`.
+## Performance evidence
 
-### Memory Efficiency
-- **Mnemosyne Boundary**: Archive payloads move as owned bytes across thread/process/server/device regions; cross-process and cross-device pointer transfer is rejected.
-- **NUMA Awareness**: Worker hints and iterator helpers use topology-aware placement where available.
-- **Cache Optimization**: Hot scheduler jobs use inline erased storage and cache-conscious queue/result layouts.
-- **Zero-Copy Views**: Transport archive receivers validate borrowed views over owned message buffers before materializing owned values.
-
-### Code Organization (Following SOLID/DRY)
-- **Unified Channels**: Single implementation in `moirai_core::channel`
-- **Zero-Copy Primitives (SSOT)**: Consolidated in vertical `moirai_core::communication::zero_copy` leaves for error, ring, channel, adaptive batching, and routing (send returns `Result<(), (T, ZeroCopyError)>` on failure to prevent data loss)
-- **Iterator Windows/Chunks**: Consolidated in `moirai_iter::windows` (no duplicates in `base`)
-- **Base Iterator Module**: Common patterns extracted to `moirai_iter::base`
-- **Minimal Sync Primitives**: Focus on value-add over std library
-- **Clean Module Boundaries**: Each module has single responsibility
-- **Route Boundary**: Scheduler route metadata is owned by `moirai-executor`; transport route consumption is owned by `moirai-transport`
-
-## 🔧 Configuration
-
-```rust
-use moirai::prelude::*;
-
-let moirai = Moirai::builder()
-    .worker_threads(8)                    // Parallel worker threads
-    .async_threads(4)                     // Async executor threads  
-    .numa_aware(true)                     // NUMA-aware worker hints when the feature is enabled
-    .thread_name_prefix("moirai-worker")  // Worker thread naming
-    .build()
-    .expect("valid runtime configuration");
-```
-
-## 📊 Performance - Verified Working
-
-Current performance claims are limited to executable Criterion targets and
+Performance claims are limited to executable Criterion targets and
 value-semantic tests. The active evidence surfaces are:
 
-- **Thread scheduling**: `thread_schedule_comparison`, `industry_comparison`, and `public_result_handle_comparison` compare Moirai scoped work, indexed reduction, mixed workloads, and public result handles against accepted Rayon/Tokio reference rows.
+- **Thread scheduling**: `thread_schedule_comparison`, `industry_comparison`,
+  and `public_result_handle_comparison` compare Moirai scoped work, indexed
+  reduction, mixed workloads, and public result handles against Rayon/Tokio
+  reference rows.
 - **Iterator paths**: `parallel_iterator_regression`,
   `iterator_adapter_comparison`, `iter_ops_parallel_comparison`,
-  `cache_iterator_comparison`, and `async_iterator_comparison` provide
-  same-run Rayon/Tokio comparisons with checksum/value assertions before
-  timing.
-- **Process/server routing**: `process_server_scheduler_routing` validates deterministic route summaries; `process_server_routed_execution` executes fixed-format `SumU64` requests through real server and supervised process routes.
-- **Async I/O**: `async_fs_*`, `async_tcp_*`, `async_udp_comparison`, and `async_io_compat_comparison` compare Moirai-owned facade behavior against Tokio references where the semantics match.
-- **Allocator boundary**: Mnemosyne is resolved through the upstream Git dependency, and allocator/TLS evidence is tracked in `GAP_ANALYSIS.md`.
+  `cache_iterator_comparison`, and `async_iterator_comparison` provide same-run
+  Rayon/Tokio comparisons with checksum/value assertions before timing.
+- **Collective operations**: `collective_ops_comparison` measures
+  scatter/gather/traverse over the `ChunkedVec` layout.
+- **Process/server routing**: `process_server_scheduler_routing` validates
+  deterministic route summaries; `process_server_routed_execution` executes
+  fixed-format `SumU64` requests through real server and supervised process
+  routes.
+- **Async I/O**: `async_fs_*`, `async_tcp_*`, `async_udp_comparison`, and
+  `async_io_compat_comparison` compare Moirai-owned facade behavior against
+  Tokio references where the semantics match.
 
 GPU route co-scheduling, TPU placement, and NPU placement are not claimed as
 implemented scheduler execution. The current GPU evidence is the
 `moirai-gpu::occupancy` launch-shape planner and its value-semantic tests.
 
-## 🧪 Testing
-
-Moirai includes comprehensive testing:
+## Testing
 
 ```bash
-# Run all tests
 cargo nextest run --workspace --all-features
-
-# Run iterator-specific tests
-cargo nextest run -p moirai-iter --all-features
-
-# Run integration tests
-cargo nextest run -p moirai-tests --all-features
-
-# Run doctests
 cargo test --doc --workspace --all-features
-
-# Compile benchmark targets
 cargo bench -p moirai-benchmarks --no-run
 ```
 
-**Current Version**: 0.5.0
-**Evidence Policy**: value-semantic tests and executable benchmarks only; no placeholder route or device execution claims.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full gate sequence.
 
-## 🎯 Design Principle Compliance
+## Safety
 
-### Code Quality Metrics
-- **DRY Compliance**: Unified abstractions, no duplicate channel/sync implementations
-- **SOLID Adherence**: Clean module boundaries with single responsibilities
-- **KISS Implementation**: Simplified sync module, direct std re-exports
-- **YAGNI Focus**: Removed unnecessary wrappers and abstractions
-- **Zero Dependencies**: Pure std library (except `libc` for Linux futex)
-- **No Placeholders**: Eliminated TODO/placeholder stubs; unsupported transports return explicit, non-panicking errors
+- The facade crate (`moirai-runtime`) contains no `unsafe` blocks and denies
+  `missing_docs` and `unsafe_op_in_unsafe_fn`.
+- Lower-level crates use `unsafe` for lock-free data structures, platform I/O,
+  and FFI, isolated behind safe APIs. `// SAFETY:` comments are the required
+  convention for new and touched code; coverage of existing blocks is partial
+  and is being raised (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+- Concurrency correctness is covered by exactly-once stress tests and `loom`
+  interleaving models, including an exhaustive model of the Chase-Lev
+  steal/pop ordering protocol.
 
-### Architecture Improvements
-- **Unified Channels**: Consolidated SPSC/MPMC implementations in core
-- **Zero-Copy Primitives (SSOT)**: Consolidated in `moirai_core::communication::zero_copy`
-- **Iterator Windows/Chunks**: Consolidated in `moirai_iter::windows`
-- **Base Iterator Module**: Extracted common patterns reducing 40% duplication
-- **Simplified Sync**: Removed thin wrappers, focused on value-add primitives
-- **Clean Transport**: Built on top of core channels, not duplicating
-- **Route Topology**: Scheduler route metadata is owned by `moirai-executor`; transport route consumption is owned by `moirai-transport`
+## Contributing
 
-### Phase 15: Code Quality Enforcement (Latest)
-- **Design Principles**: Strict enforcement of SOLID, CUPID, GRASP, DRY, KISS, YAGNI
-- **Named Constants**: Extracted all magic numbers to constants (SSOT/SOC compliance)
-- **Parameter Implementation**: Completed underscored parameters (priority/locality hints)
-- **Clippy Compliance**: Zero warnings build with `-D warnings` enforcement
-- **Clean Naming**: Prohibited adjectives in component names (no *_old, *_new, *_enhanced)
-- **Zero Redundancy**: Single implementations with flexible configuration
-- **Stdlib Focus**: Prioritized stdlib iterators, windows, and combinators
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## 🔒 Safety & Security
+## License
 
-- **Memory Safety**: Zero unsafe code in public APIs
-- **Thread Safety**: Comprehensive race condition prevention
-- **Security Audit**: Built-in security event monitoring
-- **Resource Management**: Automatic cleanup and leak prevention
+Licensed under either of
 
-## 🤝 Contributing
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  <https://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or
+  <https://opensource.org/licenses/MIT>)
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+at your option.
 
-## 📄 License
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Acknowledgments
 
-## 🙏 Acknowledgments
-
-- Inspired by [Rayon](https://github.com/rayon-rs/rayon) for parallel computing patterns
-- Inspired by [Tokio](https://github.com/tokio-rs/tokio) for async runtime design
-- Inspired by [Go](https://golang.org/) for coroutines and channels
-- Inspired by [OpenMP](https://www.openmp.org/) for parallel patterns
-- Built with ❤️ for the Rust community
-
----
-
-**Moirai v0.5.0** - Unified scheduler/router in active development
+- [Rayon](https://github.com/rayon-rs/rayon) — parallel computing patterns
+- [Tokio](https://github.com/tokio-rs/tokio) — async runtime design
+- [Go](https://golang.org/) — coroutines and channels
+- [OpenMP](https://www.openmp.org/) — parallel patterns
