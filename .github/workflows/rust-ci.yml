@@ -110,4 +110,5 @@ jobs:
         run: >-
           cargo nextest run --locked
           -p moirai-core --test loom_mpmc_waiter --test loom_spsc_ring
-          -p moirai-async --test loom_wake_dedup --release
+          -p moirai-async --test loom_wake_dedup --test loom_connection_pool
+          --release
