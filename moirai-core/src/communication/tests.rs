@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

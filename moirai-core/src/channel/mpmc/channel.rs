@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use super::queue::BoundedMpmcQueue;
 use super::recv::MpmcReceiver;
 use super::send::MpmcSender;

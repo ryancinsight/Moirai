@@ -8,6 +8,11 @@
 //! - Memory barrier correctness
 //! - NUMA-aware memory allocation patterns
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use moirai::{Moirai, Priority};
 use std::alloc::{alloc, dealloc, Layout};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

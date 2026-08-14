@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use super::global::GlobalPool;
 use super::slab::SlabAllocator;
 use super::stack::LockFreeStack;

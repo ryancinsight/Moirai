@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use crate::{router::RemoteAddress, NetworkTransport, Transport, TransportError, TransportResult};
 use moirai_core::channel::{mpmc, MpmcReceiver, MpmcSender};
 use std::{

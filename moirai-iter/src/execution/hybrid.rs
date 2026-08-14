@@ -1,5 +1,10 @@
 //! Hybrid execution context.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

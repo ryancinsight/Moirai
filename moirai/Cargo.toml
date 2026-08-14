@@ -162,3 +162,6 @@ metrics = ["moirai-metrics", "moirai-core/metrics", "moirai-transport/metrics"]
 numa = ["moirai-scheduler/numa", "moirai-core/numa", "moirai-executor/numa"]
 tokio-compat = ["moirai-async/tokio-compat"]
 no-std = ["moirai-core/no-std"]
+
+[lints]
+workspace = true

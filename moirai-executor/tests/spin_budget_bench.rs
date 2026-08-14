@@ -9,6 +9,11 @@
 //! `lost` count) instead of hanging the run. `#[ignore]`; run with:
 //!   cargo test -p moirai-executor --release --test spin_budget_bench -- --ignored --nocapture
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 

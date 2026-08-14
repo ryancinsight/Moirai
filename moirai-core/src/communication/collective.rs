@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 /// CSR-shaped chunked buffer: one contiguous flat allocation plus a
 /// chunk-offset table.
 ///

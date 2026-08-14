@@ -2,6 +2,10 @@
 
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
 
 use crate::{error::GpuResult, GpuDevice, GpuError};
 use std::collections::HashMap;

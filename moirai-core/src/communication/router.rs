@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use crate::channel::{ChannelError, MpmcSender};
 use std::collections::HashMap;
 use std::hash::Hash;

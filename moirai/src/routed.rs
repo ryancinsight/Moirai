@@ -1,5 +1,7 @@
 //! Public fixed-capability routed execution facade.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use crate::Moirai;
 use moirai_core::Priority;
 use moirai_executor::schedule::{HybridRouter, RoutePolicy, SchedulerRoute, WorkClass};

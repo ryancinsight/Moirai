@@ -9,6 +9,10 @@
 //! - Circuit breakers for unreliable websites
 //! - Content extraction and parallel processing
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
 #![allow(dead_code)] // This example retains crawler frontier fields and priority variants beyond the short demo.
 
 use moirai::{Moirai, Priority};

@@ -1,5 +1,6 @@
 //! PyO3 boundary for `moirai::Moirai`.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 #![allow(
     clippy::useless_conversion,
     reason = "PyO3 pymethod expansion emits boundary conversion code that Clippy reports inside the macro"

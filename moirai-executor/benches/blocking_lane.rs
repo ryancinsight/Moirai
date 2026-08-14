@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,

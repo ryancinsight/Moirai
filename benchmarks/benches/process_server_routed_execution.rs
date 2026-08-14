@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use criterion::{black_box, BenchmarkId, Criterion};
 use moirai::{
     FixedRemoteTask, Moirai, RemoteCapabilityToken, RoutedProcessTarget, RoutedServerTarget,

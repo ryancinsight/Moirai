@@ -3,6 +3,11 @@
 //! Provides watch channel implementation that allows monitoring state changes
 //! with async notifications, following SLAP principle design.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;

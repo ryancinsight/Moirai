@@ -7,6 +7,10 @@
 //! - Work distribution across multiple nodes
 //! - Consistency guarantees in distributed environments
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
 #![allow(dead_code)] // This example keeps distributed-state variants that document failure modes outside the short run.
 
 use moirai::{Moirai, Priority};

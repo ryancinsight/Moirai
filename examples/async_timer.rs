@@ -3,6 +3,11 @@
 //! This example shows how to use non-blocking sleep in async contexts
 //! without external dependencies like tokio.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use moirai::prelude::*;
 use std::time::{Duration, Instant};
 

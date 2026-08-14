@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use super::{
     ProcessEndpoint, RouteAddressBook, RouteNamespace, RouteService, RoutedArchivedReceiver,
     RoutedProcessTaskClient, RoutedRemoteTaskClient,

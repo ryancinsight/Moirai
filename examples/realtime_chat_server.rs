@@ -8,6 +8,10 @@
 //! - Real-time presence tracking and room management
 //! - Event-driven architecture with message broadcasting
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
 #![allow(dead_code)] // This example keeps chat metadata and event variants beyond the short executable scenario.
 
 use moirai::{Moirai, Priority};

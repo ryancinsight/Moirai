@@ -8,6 +8,10 @@
 //! - Telemetry aggregation and anomaly detection
 //! - Edge computing with local processing and cloud synchronization
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
 #![allow(dead_code)] // This example keeps device-command/event variants that document broader IoT workflows.
 
 use moirai::{Moirai, Priority};

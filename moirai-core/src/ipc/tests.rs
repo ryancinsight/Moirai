@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use super::error::IpcError;
 use super::memory::SharedMemory;
 use super::queue::SharedQueue;

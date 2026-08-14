@@ -8,6 +8,10 @@
 //! - Batch processing optimization for throughput vs. latency trade-offs
 //! - Hardware-accelerated operations with fallback mechanisms
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
 #![allow(dead_code)] // This example keeps frame metadata and processing flags beyond the compact demo path.
 
 use moirai::{Moirai, Priority};

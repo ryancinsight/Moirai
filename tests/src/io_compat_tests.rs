@@ -1,5 +1,10 @@
 //! Integration tests for Async I/O traits and Tokio compatibility shims.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use moirai::{
     AsyncReadExt, AsyncWriteExt, File, FileOpenOptions, MoiraiCompat, TcpListener, TokioCompat,
 };

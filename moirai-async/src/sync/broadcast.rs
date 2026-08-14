@@ -3,6 +3,11 @@
 //! Provides broadcast channel implementation that allows one sender to
 //! broadcast messages to multiple receivers with SLAP-compliant design.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::pin::Pin;

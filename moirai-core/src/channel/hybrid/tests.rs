@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use super::*;
 use core::mem::size_of;
 use std::future::Future;

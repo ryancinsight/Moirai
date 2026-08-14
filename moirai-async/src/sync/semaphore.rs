@@ -6,6 +6,11 @@
 //! permit-counter admission predicate and the permit-restoration policy for
 //! cancelled acquire futures.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Mutex;

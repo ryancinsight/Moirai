@@ -38,3 +38,6 @@ parallel = []
 mnemosyne-memory = []
 async = ["moirai-async"]
 metrics = ["moirai-core/metrics"]
+
+[lints]
+workspace = true

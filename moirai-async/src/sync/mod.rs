@@ -4,6 +4,8 @@
 //! Moirai's unified runtime. Following SLAP principle, each synchronization
 //! primitive is implemented in its own focused module.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 pub mod broadcast;
 /// Async condition variable.
 pub mod condvar;

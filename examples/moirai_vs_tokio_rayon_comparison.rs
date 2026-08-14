@@ -3,6 +3,11 @@
 //! This example demonstrates the unified architecture advantages of Moirai
 //! compared to using separate Tokio (async) and Rayon (parallel) libraries.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;

@@ -8,6 +8,10 @@
 //!
 //! Comparing Moirai's unified approach vs manual coordination with separate libraries.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
 #![allow(dead_code)] // This example keeps realistic record/stat fields that are not all exercised by the short demo path.
 
 use std::collections::HashMap;

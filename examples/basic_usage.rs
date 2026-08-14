@@ -6,6 +6,11 @@
 //! - Using channels for communication
 //! - Async task execution
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use moirai::{Moirai, Priority};
 use std::time::Duration;
 

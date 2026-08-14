@@ -5,6 +5,8 @@
 //! reconstructing owned values. This follows the same architectural rule as
 //! rkyv-style archives: validate once, then read through a borrowed view.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use crate::{Address, TransportError, TransportManager, TransportResult};
 use std::{marker::PhantomData, str, sync::Arc};
 

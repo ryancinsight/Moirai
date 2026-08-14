@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use moirai_core::{Priority, TaskId};
 use moirai_pal::reactor::IoReactor;
 use std::future::Future;

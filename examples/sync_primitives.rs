@@ -6,6 +6,11 @@
 //! - Lock-free stack and queue
 //! - Barriers and wait groups
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use moirai_sync::{Barrier, ConcurrentHashMap, FutexMutex, LockFreeStack, WaitGroup};
 use moirai_utils::LockFreeQueue;
 use std::sync::Arc;

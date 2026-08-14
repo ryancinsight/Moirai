@@ -5,6 +5,11 @@
 //! - Efficient thread parking instead of busy-waiting
 //! - Comparison with boxed trait objects
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};

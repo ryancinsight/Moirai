@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_gpu::prelude::*;
 

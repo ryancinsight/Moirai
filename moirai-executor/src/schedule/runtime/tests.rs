@@ -1,5 +1,7 @@
 //! Unit tests for the thread scheduler runtime.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},

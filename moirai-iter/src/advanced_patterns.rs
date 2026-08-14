@@ -4,6 +4,8 @@
 //! the unified channel system for zero-copy operations and optimal
 //! memory utilization, based on modern iterator design principles.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 /// Transfer granularity used to derive chunk widths (see `moirai-utils`,
 /// which owns the per-target table).
 use moirai_utils::CACHE_LINE_SIZE;

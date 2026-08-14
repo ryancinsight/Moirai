@@ -7,6 +7,10 @@
 //! - Memory pool management under sustained load
 //! - Ordered processing guarantees despite parallel execution
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
 #![allow(dead_code)] // This example keeps realistic market-data and pool metadata beyond the short demo path.
 
 use moirai::{Moirai, Priority};

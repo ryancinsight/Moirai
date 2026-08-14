@@ -6,6 +6,11 @@
 //! admission state (the stored single permit) and the grant-restoration
 //! policy for cancelled futures.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Mutex;

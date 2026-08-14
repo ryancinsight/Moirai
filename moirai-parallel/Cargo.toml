@@ -34,3 +34,6 @@ rayon = "1.8"
 name = "par_benchmarks"
 path = "benches/par_benchmarks.rs"
 harness = false
+
+[lints]
+workspace = true

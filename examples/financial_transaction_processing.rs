@@ -7,6 +7,10 @@
 //! - Audit trail maintenance under high concurrency
 //! - Error handling and recovery in financial systems
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
 #![allow(dead_code)] // This example defines audit and transaction domain variants beyond the short executable scenario.
 
 use moirai::{Moirai, Priority};

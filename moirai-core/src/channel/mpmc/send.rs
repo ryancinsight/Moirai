@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use crate::channel::error::{Channel, Result};
 use crate::channel::mpmc::MpmcChannel;
 use std::sync::Arc;

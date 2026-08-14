@@ -51,5 +51,5 @@ mnemosyne-memory = ["mnemosyne"]
 
 # Register the `loom` cfg so the -D warnings gate stays clean (it is set via
 # `RUSTFLAGS="--cfg loom"`, not a Cargo feature).
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+[lints]
+workspace = true

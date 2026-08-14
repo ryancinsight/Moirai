@@ -1,5 +1,7 @@
 //! OS process lifecycle primitives for transport-backed execution.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use std::{
     ffi::OsString,
     path::PathBuf,

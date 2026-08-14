@@ -218,7 +218,9 @@ mod tests {
         let mut wheel = TimerWheel::new();
         let wake_count = Arc::new(AtomicUsize::new(0));
         let timer_id = wheel.schedule(
-            Instant::now() - Duration::from_millis(1),
+            Instant::now()
+                .checked_sub(Duration::from_millis(1))
+                .expect("invariant: process uptime exceeds 1ms"),
             counting_waker(Arc::clone(&wake_count)),
         );
 
@@ -232,7 +234,9 @@ mod tests {
     fn timer_wheel_poll_wakes_only_uncancelled_expired_timers() {
         let mut wheel = TimerWheel::new();
         let wake_count = Arc::new(AtomicUsize::new(0));
-        let deadline = Instant::now() - Duration::from_millis(1);
+        let deadline = Instant::now()
+            .checked_sub(Duration::from_millis(1))
+            .expect("invariant: process uptime exceeds 1ms");
         let cancelled = wheel.schedule(deadline, counting_waker(Arc::clone(&wake_count)));
         let active = wheel.schedule(deadline, counting_waker(Arc::clone(&wake_count)));
 
@@ -251,7 +255,9 @@ mod tests {
         let mut wheel = TimerWheel::new();
         let wake_count = Arc::new(AtomicUsize::new(0));
         let id = wheel.schedule(
-            Instant::now() - Duration::from_millis(1),
+            Instant::now()
+                .checked_sub(Duration::from_millis(1))
+                .expect("invariant: process uptime exceeds 1ms"),
             counting_waker(Arc::clone(&wake_count)),
         );
 
@@ -273,7 +279,9 @@ mod tests {
         let mut wheel = TimerWheel::new();
         let wake_count = Arc::new(AtomicUsize::new(0));
         let id = wheel.schedule(
-            Instant::now() - Duration::from_millis(1),
+            Instant::now()
+                .checked_sub(Duration::from_millis(1))
+                .expect("invariant: process uptime exceeds 1ms"),
             counting_waker(Arc::clone(&wake_count)),
         );
 

@@ -3,6 +3,8 @@
 //! This module provides an efficient bounded multi-producer multi-consumer
 //! queue built on per-slot sequence numbers (the Vyukov algorithm).
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 

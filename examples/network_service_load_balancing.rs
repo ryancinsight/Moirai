@@ -7,6 +7,10 @@
 //! - Request routing with affinity and consistency
 //! - Performance monitoring and adaptive throttling
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
 #![allow(dead_code)] // This example models load-balancer state variants not all used by the compact scenario.
 
 use moirai::{Moirai, Priority};

@@ -56,3 +56,6 @@ default = ["parallel", "mnemosyne-memory"]
 parallel = []
 mnemosyne-memory = []
 metrics = ["moirai-core/metrics"]
+
+[lints]
+workspace = true

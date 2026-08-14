@@ -3,6 +3,11 @@
 //! This module provides industry-standard benchmarks to measure and compare
 //! the performance of Moirai against other concurrency libraries.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai::*;
 use moirai_core::{Priority, TaskBuilder};

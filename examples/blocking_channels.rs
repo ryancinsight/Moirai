@@ -4,6 +4,11 @@
 //! semantics, ensuring that SpscChannel and MpmcChannel conform to the
 //! Liskov Substitution Principle.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use moirai_core::channel::{mpmc, spsc};
 use std::thread;
 use std::time::{Duration, Instant};

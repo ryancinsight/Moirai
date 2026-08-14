@@ -5,6 +5,8 @@
 //! - Multiple channels for reduced synchronization
 //! - Automatic batching and buffering
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use std::{collections::VecDeque, marker::PhantomData};
 
 /// Fused channel iterator that combines iteration with channel communication

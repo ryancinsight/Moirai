@@ -1,5 +1,7 @@
 //! Priority-aware worker queues.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,

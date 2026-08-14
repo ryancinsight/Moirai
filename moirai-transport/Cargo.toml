@@ -39,3 +39,6 @@ distributed = ["network"]  # Full distributed computing support
 encryption = []  # Message encryption for secure communication
 compression = []  # Message compression for bandwidth optimization
 metrics = ["moirai-core/metrics"]
+
+[lints]
+workspace = true

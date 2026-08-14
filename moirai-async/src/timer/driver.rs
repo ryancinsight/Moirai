@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};

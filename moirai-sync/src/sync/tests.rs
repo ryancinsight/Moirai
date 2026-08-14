@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use std::hint;
 use std::sync::Arc;
 use std::thread;

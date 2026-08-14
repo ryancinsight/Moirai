@@ -36,9 +36,6 @@ loom = { workspace = true }
 
 # Register the `loom` cfg so the gate stays warning-clean (it is set via
 # `RUSTFLAGS="--cfg loom"`, not a Cargo feature).
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
-
 [features]
 default = ["metrics", "mnemosyne"]
 metrics = ["moirai-core/metrics"]
@@ -46,3 +43,6 @@ registry-diagnostics = []
 scheduler-diagnostics = []
 mnemosyne = ["dep:mnemosyne"]
 numa = ["moirai-core/numa", "moirai-scheduler/numa"]
+
+[lints]
+workspace = true

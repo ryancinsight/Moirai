@@ -4,6 +4,11 @@
 //! asynchronous, synchronous, and parallel tasks using unified task management.
 //! Tests are designed to validate production-ready behavior under extreme conditions.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "test scope: failed precondition = test failure"
+)]
+
 use moirai::{Moirai, Priority};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},

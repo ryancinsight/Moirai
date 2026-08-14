@@ -6,6 +6,11 @@
 //! predicates (writer preference for pending writers, reader-batch grants on
 //! writer release) and the lock-restoration policy for cancelled futures.
 
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use std::cell::UnsafeCell;
 use std::future::Future;
 use std::pin::Pin;

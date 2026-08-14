@@ -1,3 +1,8 @@
+#![expect(
+    clippy::unwrap_used,
+    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+)]
+
 use std::time::Duration;
 
 use super::super::task::TaskMetadata;
@@ -92,7 +97,13 @@ impl TaskRegistry {
 
     /// Remove old completed tasks to prevent retained task metadata growth.
     pub fn cleanup_completed(&mut self, older_than: Duration) {
-        let cutoff = std::time::Instant::now() - older_than;
+        // `Instant - Duration` panics when the result predates the platform's
+        // clock origin, which a caller-supplied retention window longer than the
+        // process uptime reaches. No recorded completion can be older than a
+        // cutoff before the clock started, so that case is an empty sweep.
+        let Some(cutoff) = std::time::Instant::now().checked_sub(older_than) else {
+            return;
+        };
         for block in &self.blocks {
             for slot_index in 0..block.len() {
                 if block

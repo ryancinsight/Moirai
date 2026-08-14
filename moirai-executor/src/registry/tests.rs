@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod tests {

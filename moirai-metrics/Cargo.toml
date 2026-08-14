@@ -23,3 +23,6 @@ proptest = { workspace = true }
 
 # No cargo features: every prior feature (`parallel`, `mnemosyne-memory`,
 # `tracing`, `profiling`) gated zero cfg sites and was removed as phantom.
+
+[lints]
+workspace = true

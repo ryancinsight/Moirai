@@ -1,5 +1,7 @@
 //! Typed ownership regions for transport archive payload bytes.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use crate::{safe_channel::ArchiveSerialize, TransportResult};
 use core::marker::PhantomData;
 

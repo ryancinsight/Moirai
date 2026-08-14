@@ -19,6 +19,8 @@
 //! Unreported capacities follow the themis/mnemosyne "no information"
 //! contract: they yield `None` here rather than fabricated bounds.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 use core::num::{NonZeroU32, NonZeroUsize};
 use mnemosyne_core::KernelResourceBudget;
 

@@ -60,6 +60,8 @@
 //! executor's responsibility (the hybrid executor catches unwinds at the job
 //! boundary), not a task-combinator concern.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
+
 /// Maximum generic spin attempts before falling back to blocking
 pub(crate) const MAX_SPIN_ATTEMPTS: usize = 64;
 

@@ -31,9 +31,6 @@ loom = { workspace = true }
 
 # Register the `loom` cfg so the gate stays warning-clean (it is set via
 # `RUSTFLAGS="--cfg loom"`, not a Cargo feature).
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
-
 [features]
 default = ["parallel", "mnemosyne-memory"]
 parallel = []
@@ -41,3 +38,6 @@ numa = []
 metrics = ["moirai-core/metrics"]
 mnemosyne = ["dep:mnemosyne", "moirai-core/mnemosyne"]
 mnemosyne-memory = ["mnemosyne"]
+
+[lints]
+workspace = true
