@@ -5,9 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-readme.workspace = true
+readme = "README.md"
 homepage.workspace = true
-documentation.workspace = true
+documentation = "https://docs.rs/moirai-tls"
 rust-version.workspace = true
 description = "Async TLS client for the Moirai runtime: rustls driven over Moirai async sockets, no Tokio"
 keywords = ["tls", "rustls", "async", "moirai", "network"]
@@ -28,3 +28,4 @@ webpki-roots = { workspace = true }
 
 [dev-dependencies]
 moirai = { package = "moirai-runtime", path = "../moirai", default-features = false, features = ["async"] }
+rcgen = { workspace = true }

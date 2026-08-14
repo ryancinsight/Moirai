@@ -12,9 +12,6 @@ use rustls::crypto::cipher::{
 };
 use rustls::{ConnectionTrafficSecrets, ContentType, Error, ProtocolVersion};
 
-/// Length of the TLS record header prefix reserved by [`PrefixedPayload`].
-const PREFIX_LEN: usize = 5;
-
 /// AES-128-GCM AEAD.
 #[derive(Debug)]
 pub struct Aes128Gcm;
@@ -138,7 +135,7 @@ where
 
         let tag = self
             .cipher
-            .encrypt_in_place_detached(nonce, &aad, &mut payload.as_mut()[PREFIX_LEN..])
+            .encrypt_in_place_detached(nonce, &aad, payload.as_mut())
             .map_err(|_| Error::EncryptError)?;
         payload.extend_from_slice(&tag);
 

@@ -24,8 +24,8 @@ rustls = { version = "0.23", default-features = false, features = ["std", "tls12
 
 # Key exchange
 x25519-dalek    = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
-p256            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "alloc"] }
-p384            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "alloc"] }
+p256            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "alloc"] }
+p384            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "alloc"] }
 
 # AEAD cipher suites
 aes-gcm         = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
@@ -51,3 +51,7 @@ elliptic-curve  = { version = "0.13", default-features = false, features = ["all
 
 # pki-types re-exported by rustls; must match version in lockfile
 pki-types       = { package = "rustls-pki-types", version = "1" }
+
+[dev-dependencies]
+# Self-signed certificate generation for the in-memory handshake test.
+rcgen = { workspace = true }

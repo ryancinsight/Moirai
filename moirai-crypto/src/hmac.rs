@@ -7,7 +7,6 @@ use sha2::{Sha256, Sha384};
 type HmacSha256Impl = HmacImpl<Sha256>;
 type HmacSha384Impl = HmacImpl<Sha384>;
 
-
 /// HMAC-SHA-256 provider.
 pub static HMAC_SHA256: HmacSha256 = HmacSha256;
 

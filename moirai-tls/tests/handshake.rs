@@ -18,14 +18,12 @@ fn server_acceptor() -> (CertificateDer<'static>, futures_rustls::TlsAcceptor) {
     let cert_der = ck.cert.der().clone();
     let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(ck.key_pair.serialize_der()));
 
-    let config = ServerConfig::builder_with_provider(Arc::new(
-        moirai_tls::rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .expect("safe default protocol versions")
-    .with_no_client_auth()
-    .with_single_cert(vec![cert_der.clone()], key_der)
-    .expect("server single cert");
+    let config = ServerConfig::builder_with_provider(Arc::new(moirai_crypto::provider()))
+        .with_safe_default_protocol_versions()
+        .expect("safe default protocol versions")
+        .with_no_client_auth()
+        .with_single_cert(vec![cert_der.clone()], key_der)
+        .expect("server single cert");
 
     (
         cert_der,

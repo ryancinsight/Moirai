@@ -22,6 +22,7 @@ mod hkdf;
 mod hmac;
 mod kx;
 mod random;
+mod sign;
 mod verify;
 
 use std::sync::Arc;
@@ -29,9 +30,7 @@ use std::sync::Arc;
 use rustls::crypto::{CryptoProvider, KeyProvider};
 use rustls::pki_types::PrivateKeyDer;
 use rustls::sign::SigningKey;
-use rustls::{
-    CipherSuite, CipherSuiteCommon, Error, SupportedCipherSuite, Tls13CipherSuite,
-};
+use rustls::{CipherSuite, CipherSuiteCommon, Error, SupportedCipherSuite, Tls13CipherSuite};
 
 /// Construct a [`CryptoProvider`] backed by RustCrypto (no C dependencies).
 ///
@@ -91,20 +90,17 @@ static TLS13_AES_256_GCM_SHA384_SUITE: Tls13CipherSuite = Tls13CipherSuite {
 
 /// Private-key loader for the provider.
 ///
-/// This provider is verification/client-oriented: it validates server
-/// certificate chains but does not implement software signing. Loading a
-/// private key (as required for client authentication or server operation) is
-/// therefore unsupported.
+/// Loads ECDSA (P-256/P-384) and RSA private keys from PKCS#8, SEC1, or PKCS#1
+/// DER, enabling server authentication and client-certificate authentication in
+/// addition to certificate verification.
 #[derive(Debug)]
 struct RustCryptoKeyProvider;
 
 impl KeyProvider for RustCryptoKeyProvider {
     fn load_private_key(
         &self,
-        _key_der: PrivateKeyDer<'static>,
+        key_der: PrivateKeyDer<'static>,
     ) -> Result<Arc<dyn SigningKey>, Error> {
-        Err(Error::General(
-            "moirai-crypto does not support loading private signing keys".into(),
-        ))
+        sign::any_supported_type(&key_der)
     }
 }

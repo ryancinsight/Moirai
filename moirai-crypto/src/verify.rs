@@ -2,7 +2,9 @@
 //! (`p256`, `p384`, `rsa`), exposed as [`SignatureVerificationAlgorithm`]s.
 
 use rustls::crypto::WebPkiSupportedAlgorithms;
-use rustls::pki_types::{alg_id, AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm};
+use rustls::pki_types::{
+    alg_id, AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm,
+};
 use rustls::SignatureScheme;
 
 use rsa::pkcs1::DecodeRsaPublicKey;
@@ -20,14 +22,8 @@ pub static ALGORITHMS: WebPkiSupportedAlgorithms = WebPkiSupportedAlgorithms {
         RSA_PSS_SHA384,
     ],
     mapping: &[
-        (
-            SignatureScheme::ECDSA_NISTP256_SHA256,
-            &[ECDSA_P256_SHA256],
-        ),
-        (
-            SignatureScheme::ECDSA_NISTP384_SHA384,
-            &[ECDSA_P384_SHA384],
-        ),
+        (SignatureScheme::ECDSA_NISTP256_SHA256, &[ECDSA_P256_SHA256]),
+        (SignatureScheme::ECDSA_NISTP384_SHA384, &[ECDSA_P384_SHA384]),
         (SignatureScheme::RSA_PSS_SHA256, &[RSA_PSS_SHA256]),
         (SignatureScheme::RSA_PSS_SHA384, &[RSA_PSS_SHA384]),
         (SignatureScheme::RSA_PKCS1_SHA256, &[RSA_PKCS1_SHA256]),
