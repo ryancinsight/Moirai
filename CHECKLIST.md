@@ -274,6 +274,17 @@
   workspace gate, bindings, and wheel matrix; the completion guard remains
   Acquire/Release and scheduler/MPMC protocols are unchanged.
 
+## Phase 33: PAL reactor stop-flag ordering
+
+- [ ] [patch] Reduce `IoReactor::running` start, loop, and stop accesses from
+  `SeqCst` to Relaxed. The flag carries only loop-control state; `stop()` keeps
+  its independent platform wake operation for progress from a blocked poll.
+- [ ] Verify the focused reactor and async network stop paths through the
+  hosted workspace and binding/wheel gates.
+- Evidence target: the provider exact head has no production `SeqCst` accesses
+  in `moirai-pal/src/reactor/core.rs`; the existing executor/network stop
+  regressions remain green.
+
 ## Phase 30: NUMA helper removal and channel hierarchy closure
 
 - [x] [major] Delete the unconsumed `moirai_iter::numa` API and its obsolete
