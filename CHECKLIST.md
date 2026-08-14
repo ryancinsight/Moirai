@@ -262,28 +262,42 @@
 
 ## Phase 32: Async wake deduplication ordering
 
-- [ ] [patch] Replace the async executor's `is_queued` `SeqCst` clear/swap with
+- [x] [patch] Replace the async executor's `is_queued` `SeqCst` clear/swap with
   Relaxed operations. The flag only linearizes enqueue deduplication; the
   queue's slot sequence publishes task ownership with Release/Acquire.
-- [ ] Add `moirai-async/tests/loom_wake_dedup.rs`, exhaustively covering the
+- [x] Add `moirai-async/tests/loom_wake_dedup.rs`, exhaustively covering the
   dequeue/clear versus wake/swap race and asserting no duplicate or lost queue
   entry.
-- [ ] Extend the hosted Loom job to run the async executor model with the
+- [x] Extend the hosted Loom job to run the async executor model with the
   existing MPMC and SPSC models.
-- Evidence target: provider PR exact head has a green locked hosted model job,
-  workspace gate, bindings, and wheel matrix; the completion guard remains
-  Acquire/Release and scheduler/MPMC protocols are unchanged.
+- Evidence: PR #131 merged at default `fd517fe`; exact-head workspace/Loom run
+  `31800148163` and bindings/wheels run `31800148178` pass. The completion
+  guard remains Acquire/Release and scheduler/MPMC protocols are unchanged.
 
 ## Phase 33: PAL reactor stop-flag ordering
 
-- [ ] [patch] Reduce `IoReactor::running` start, loop, and stop accesses from
+- [x] [patch] Reduce `IoReactor::running` start, loop, and stop accesses from
   `SeqCst` to Relaxed. The flag carries only loop-control state; `stop()` keeps
   its independent platform wake operation for progress from a blocked poll.
-- [ ] Verify the focused reactor and async network stop paths through the
+- [x] Verify the focused reactor and async network stop paths through the
   hosted workspace and binding/wheel gates.
-- Evidence target: the provider exact head has no production `SeqCst` accesses
-  in `moirai-pal/src/reactor/core.rs`; the existing executor/network stop
-  regressions remain green.
+- Evidence: PR #132 merged at default `8830f1b`; exact-head workspace/Loom run
+  `31800607186` and bindings/wheels run `31800607152` pass. The provider exact
+  head has no production `SeqCst` accesses in
+  `moirai-pal/src/reactor/core.rs`.
+
+## Phase 34: Connection-pool reservation ordering
+
+- [x] [patch] Reduce `ConnectionPool::reserved_connections` admission and
+  release accounting to Relaxed operations. Admission serialization remains
+  under the active-connections mutex, and every reservation increment has one
+  paired decrement.
+- [x] Add the bounded Loom model covering two serialized admissions racing one
+  paired cancellation, with capacity and final-accounting assertions.
+- [x] Verify the exact provider head through the workspace/Loom and
+  bindings/wheel gates.
+- Evidence: PR #133 merged at default `f766c6d`; exact-head workspace/Loom run
+  `31801180700` and bindings/wheels run `31801180691` pass.
 
 ## Phase 30: NUMA helper removal and channel hierarchy closure
 
