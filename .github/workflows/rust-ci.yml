@@ -106,5 +106,8 @@ jobs:
           tool: nextest@0.9.140
           checksum: true
 
-      - name: Run channel interleaving models
-        run: cargo nextest run --locked -p moirai-core --test loom_mpmc_waiter --test loom_spsc_ring --release
+      - name: Run channel and executor interleaving models
+        run: >-
+          cargo nextest run --locked
+          -p moirai-core --test loom_mpmc_waiter --test loom_spsc_ring
+          -p moirai-async --test loom_wake_dedup --release

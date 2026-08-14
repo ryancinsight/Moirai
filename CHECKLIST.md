@@ -260,6 +260,20 @@
   first-party patches do not match this provider's committed lock; hosted CI
   is the authoritative clean-checkout oracle for the model job.
 
+## Phase 32: Async wake deduplication ordering
+
+- [ ] [patch] Replace the async executor's `is_queued` `SeqCst` clear/swap with
+  Relaxed operations. The flag only linearizes enqueue deduplication; the
+  queue's slot sequence publishes task ownership with Release/Acquire.
+- [ ] Add `moirai-async/tests/loom_wake_dedup.rs`, exhaustively covering the
+  dequeue/clear versus wake/swap race and asserting no duplicate or lost queue
+  entry.
+- [ ] Extend the hosted Loom job to run the async executor model with the
+  existing MPMC and SPSC models.
+- Evidence target: provider PR exact head has a green locked hosted model job,
+  workspace gate, bindings, and wheel matrix; the completion guard remains
+  Acquire/Release and scheduler/MPMC protocols are unchanged.
+
 ## Phase 30: NUMA helper removal and channel hierarchy closure
 
 - [x] [major] Delete the unconsumed `moirai_iter::numa` API and its obsolete

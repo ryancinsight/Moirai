@@ -146,7 +146,12 @@ impl AsyncExecutor {
     /// Process all pending tasks.
     pub(crate) fn process_pending_tasks(&self) {
         while let Some(task) = self.run_queue.try_dequeue() {
-            task.is_queued.store(false, Ordering::SeqCst);
+            // `is_queued` only linearizes enqueue deduplication. The queue's
+            // slot sequence already publishes the task with Release/Acquire;
+            // this clear pairs with the waker's atomic RMW solely to choose
+            // whether a wake owns a new queue entry, so it needs no global
+            // ordering edge.
+            task.is_queued.store(false, Ordering::Relaxed);
 
             let waker = self.create_executor_waker(Arc::clone(&task));
             let mut context = Context::from_waker(&waker);

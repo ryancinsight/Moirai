@@ -30,7 +30,13 @@ impl std::task::Wake for ExecutorWaker {
         if !self
             .task
             .is_queued
-            .swap(true, std::sync::atomic::Ordering::SeqCst)
+            // `is_queued` is a linearization flag for enqueue deduplication,
+            // not a publication channel. The queue's per-slot Release/Acquire
+            // sequence publishes the task itself; this RMW only orders the
+            // false -> true transition against `process_pending_tasks`'
+            // corresponding clear. Relaxed is therefore sufficient and avoids
+            // a global ordering edge on every wake.
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
         {
             self.run_queue.enqueue(Arc::clone(&self.task));
             let _ = self.reactor.wake();
