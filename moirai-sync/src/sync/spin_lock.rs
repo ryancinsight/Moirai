@@ -1,3 +1,4 @@
+use moirai_utils::CacheAligned;
 use std::cell::UnsafeCell;
 use std::fmt;
 use std::hint;
@@ -20,9 +21,14 @@ const SPINLOCK_INITIAL_BACKOFF: usize = 1;
 /// performance under contention. The lock is cache-line aligned to prevent false sharing.
 ///
 /// Use only when you know the critical section is extremely short (< 1μs).
-#[repr(align(64))] // Cache line alignment to prevent false sharing
+///
+/// `locked` is wrapped in [`CacheAligned`], which both aligns the lock to
+/// `moirai_utils::DESTRUCTIVE_INTERFERENCE_SIZE` (so a neighbouring object
+/// cannot share its sector) and separates the contended flag from `data` (so a
+/// spinning acquirer does not invalidate the payload). The separation is
+/// per-target and owned by `moirai-utils`, not a literal here.
 pub struct SpinLock<T> {
-    locked: AtomicBool,
+    locked: CacheAligned<AtomicBool>,
     data: UnsafeCell<T>,
 }
 
@@ -42,7 +48,7 @@ impl<T> SpinLock<T> {
     /// Create a new spin lock.
     pub const fn new(data: T) -> Self {
         Self {
-            locked: AtomicBool::new(false),
+            locked: CacheAligned::new(AtomicBool::new(false)),
             data: UnsafeCell::new(data),
         }
     }

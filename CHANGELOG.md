@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `moirai_utils::DESTRUCTIVE_INTERFERENCE_SIZE` and `moirai_utils::CachePad`.
+  `moirai-utils` now owns the per-target cache tables that six crates
+  previously each hardcoded at 64, and distinguishes the transfer granularity
+  (`CACHE_LINE_SIZE`, unchanged at 64 on x86-64/aarch64 — used for prefetch
+  strides and chunk widths) from the false-sharing separation
+  (`DESTRUCTIVE_INTERFERENCE_SIZE`, 128 on those targets, following
+  `crossbeam-utils`' `CachePadded` table). `const _` assertions keep the
+  constants and `CacheAligned`'s `repr(align)` from drifting apart.
+- `moirai-core/tests/loom_mpmc_waiter.rs`: a loom model of the bounded MPMC
+  channel's waiter-count protocol, covering the shipped shape plus three
+  counter-examples (inverted registration, unfenced notifier, unfenced waiter).
+
 - `moirai-benchmarks/thread_schedule_comparison` now includes a bounded
   saturated-admission comparison: one-worker Moirai capacity-plus-one rejection
   is measured beside an equal-capacity Crossbeam `try_send` rejection. Both
@@ -17,6 +29,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking.** `Moirai::channel()` now returns a channel bounded at
+  `moirai_core::channel::DEFAULT_CHANNEL_CAPACITY` (1024) instead of an
+  unbounded one. A producer that outruns its consumer now blocks (or gets
+  `ChannelError::Full` from `try_send`) rather than growing the queue until
+  allocation fails. `Moirai::bounded_channel(capacity)` is unchanged.
+- **Breaking.** `unbounded` is no longer re-exported from `moirai_core` or
+  `moirai_core::prelude`. It remains available as
+  `moirai_core::channel::unbounded`, documented with the backpressure it does
+  not apply.
+- **Breaking.** `moirai_core::channel::config::DEFAULT_RING_BUFFER_CAPACITY` is
+  renamed `DEFAULT_CHANNEL_CAPACITY` and re-exported from `moirai_core`.
+- `CacheAligned` now separates its payload by `DESTRUCTIVE_INTERFERENCE_SIZE`
+  (128 bytes on x86-64/aarch64) rather than 64. This widens the MPMC ring's
+  enqueue/dequeue positions, the SPSC ring's head/tail, `LockFreeQueue`'s
+  head/tail, and the scheduler's counters. `TaskResultSlot`, `SpinLock` and
+  `WorkerState` now obtain their separation from `CacheAligned`/`CachePad`
+  instead of a hardcoded `#[repr(align(64))]`; `TaskResultSlot`'s hand-rolled
+  `_pad: [u8; 63]` is gone.
 - Route default worker-count decisions through Themis topology detection
   (`CpuTopology::detect().logical_processors()`) with preserved
   `std::thread::available_parallelism()` fallback across
@@ -37,6 +67,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   owning repository.
 
 ### Fixed
+
+- Close a lost wakeup in the bounded MPMC channel's receiver park path.
+  `recv_bounded` re-checked the ring *before* registering in
+  `receiver_waiter_count`, while `send_bounded` registered first; a producer
+  that pushed in that window read zero waiters, skipped the notify, and left
+  the receiver parked on a `Condvar` with no timeout, holding an item it could
+  not see. Registration now precedes the re-check on both sides.
+- Add the missing Store→Load barrier to the four lock-free notify paths
+  (`send_bounded`, `recv_bounded`, `try_send`, `try_recv`). The queue write and
+  the waiter-count read were separated only by a `SeqCst` load, which is an
+  ordinary `mov` on x86-64 and orders nothing against a preceding store, so
+  half of the Dekker pair the `SeqCst` counters exist for was absent.
+  `loom_mpmc_waiter::notifier_without_the_store_load_barrier_loses_the_wakeup`
+  enumerates the interleaving.
+
+### Performance
+
+- Weaken 5 of the 11 `SeqCst` accesses on the MPMC waiter counters to
+  `Relaxed`: the four deregistering `fetch_sub`es (over-counting costs only a
+  spurious `notify_one`) and the two notify-gating loads whose paired queue
+  operation happens under the channel mutex. The remaining six are annotated
+  with the Store→Load edge they carry.
+- Weaken the async executor's `running` flag from `SeqCst` to `Relaxed`
+  stores plus one `Release`/`Acquire` shutdown edge, removing a full barrier
+  from every iteration of the executor poll loop.
 
 - Make the interleaved priority, resource-contention, and memory-ordering
   regressions deterministic across host topologies and concurrent test

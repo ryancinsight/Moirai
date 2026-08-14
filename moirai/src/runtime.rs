@@ -331,7 +331,18 @@ impl Moirai {
         self.executor.stats()
     }
 
-    /// Create a universal channel for communication.
+    /// Create a channel for communication, bounded at
+    /// [`DEFAULT_CHANNEL_CAPACITY`].
+    ///
+    /// Bounded is the default because an unbounded queue converts a slow
+    /// consumer into unbounded memory growth: a full channel blocks its
+    /// producer (or returns [`ChannelError::Full`] from `try_send`) instead of
+    /// allocating. Use [`Self::bounded_channel`] when the right capacity is
+    /// known; the unbounded queue remains available as
+    /// `moirai_core::channel::unbounded`, whose documentation states the cost.
+    ///
+    /// [`DEFAULT_CHANNEL_CAPACITY`]: moirai_core::channel::DEFAULT_CHANNEL_CAPACITY
+    /// [`ChannelError::Full`]: moirai_core::channel::ChannelError::Full
     #[must_use]
     pub fn channel<T: Send + 'static>(
         &self,
@@ -339,10 +350,10 @@ impl Moirai {
         moirai_core::channel::MpmcSender<T>,
         moirai_core::channel::MpmcReceiver<T>,
     ) {
-        moirai_core::channel::unbounded()
+        moirai_core::channel::mpmc(moirai_core::channel::DEFAULT_CHANNEL_CAPACITY)
     }
 
-    /// Create a bounded channel.
+    /// Create a bounded channel with an explicit capacity.
     #[must_use]
     pub fn bounded_channel<T: Send + 'static>(
         &self,

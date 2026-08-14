@@ -89,16 +89,31 @@ impl AsyncExecutor {
 
     /// Run the native async executor and poll the PAL reactor between task passes.
     pub fn run(&self) -> std::io::Result<()> {
-        self.running.store(true, Ordering::SeqCst);
+        // Relaxed: publishes nothing. This store carries no data — the thread
+        // that writes it is the same thread that then reads it in the loop
+        // below, and a concurrent `stop()` racing it is lost under any
+        // ordering (SeqCst included), because the race is on which store lands
+        // last, not on visibility. Single-location writes are coherent at
+        // Relaxed, so every other thread still converges on the final value.
+        self.running.store(true, Ordering::Relaxed);
 
         self.reactor.with_active(|| {
-            while self.running.load(Ordering::SeqCst) {
+            // Acquire: pairs with the Release store in `stop()`. This is the
+            // load that decides to exit, so it must also make everything the
+            // stopping thread wrote before requesting shutdown visible to the
+            // code that runs after this loop. On x86-64 an Acquire load is a
+            // plain `mov` — the SeqCst it replaces cost a full barrier on
+            // every iteration of a hot poll loop for an edge Acquire supplies.
+            while self.running.load(Ordering::Acquire) {
                 self.process_pending_tasks();
 
                 let has_tasks = self.stats.tasks_pending.load(Ordering::Acquire) > 0;
 
                 if !has_tasks {
-                    if !self.running.load(Ordering::SeqCst) {
+                    // Acquire: also an exit decision, so it needs the same
+                    // edge as the loop condition — this `break` skips the
+                    // Acquire at the top of the next iteration.
+                    if !self.running.load(Ordering::Acquire) {
                         break;
                     }
                     self.reactor.run_iteration(None)?;
@@ -118,7 +133,13 @@ impl AsyncExecutor {
 
     /// Stop the async executor.
     pub fn stop(&self) -> std::io::Result<()> {
-        self.running.store(false, Ordering::SeqCst);
+        // Release: the one edge in this flag's protocol. Everything this
+        // thread wrote before deciding to shut down must be visible to the
+        // executor thread once it observes `false` through the Acquire loads
+        // in `run`. Release is exactly that and no more; SeqCst would
+        // additionally place this store in a global total order with unrelated
+        // atomics, which no reader of this flag consults.
+        self.running.store(false, Ordering::Release);
         self.reactor.stop()
     }
 
@@ -202,14 +223,19 @@ impl AsyncExecutor {
         let mut cx = Context::from_waker(&waker);
         let mut pin_handle = Box::pin(handle);
 
-        self.running.store(true, Ordering::SeqCst);
+        // Relaxed on both stores: `block_on` drives the loop on this thread and
+        // never reads the flag, so neither store carries a happens-before
+        // obligation. They exist so an observer (`stop`, diagnostics) sees the
+        // executor as busy for the duration; coherence at Relaxed is all that
+        // needs.
+        self.running.store(true, Ordering::Relaxed);
 
         loop {
             self.process_pending_tasks();
 
             match pin_handle.as_mut().poll(&mut cx) {
                 Poll::Ready(result) => {
-                    self.running.store(false, Ordering::SeqCst);
+                    self.running.store(false, Ordering::Relaxed);
                     return result;
                 }
                 Poll::Pending => {}

@@ -4,8 +4,9 @@
 //! the unified channel system for zero-copy operations and optimal
 //! memory utilization, based on modern iterator design principles.
 
-/// Cache line size for alignment optimizations
-const CACHE_LINE_SIZE: usize = 64;
+/// Transfer granularity used to derive chunk widths (see `moirai-utils`,
+/// which owns the per-target table).
+use moirai_utils::CACHE_LINE_SIZE;
 
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;

@@ -13,7 +13,7 @@ use std::{
 
 use moirai_core::Priority;
 
-use moirai_utils::cache::CacheAligned;
+use moirai_utils::cache::{CacheAligned, CachePad};
 
 use super::super::{class::WorkClass, job::ScheduledJob, queue::WorkerQueues};
 use super::blocking::BlockingLane;
@@ -313,8 +313,16 @@ impl Drop for IndexedRegionGuard {
     }
 }
 
-#[repr(align(64))]
+/// Per-worker mutable state, individually heap-allocated (`Arc<WorkerState>`).
+///
+/// `_sector` is a zero-sized marker that raises the allocation's alignment to
+/// `moirai_utils::DESTRUCTIVE_INTERFERENCE_SIZE`, so two workers' states cannot
+/// land in one false-sharing sector. It replaces a hardcoded
+/// `#[repr(align(64))]`: 64 is too narrow on x86-64/aarch64, where the
+/// adjacent-line prefetcher operates on 128-byte pairs, and the per-target
+/// value belongs to `moirai-utils` rather than a literal here.
 pub(super) struct WorkerState<const QUEUE_CAPACITY: usize> {
+    _sector: CachePad,
     pub(super) queues: Arc<WorkerQueues<QUEUE_CAPACITY>>,
     pub(super) lifo_slot: LifoSlot,
     pub(super) thread: OnceLock<thread::Thread>,
@@ -323,6 +331,7 @@ pub(super) struct WorkerState<const QUEUE_CAPACITY: usize> {
 impl<const QUEUE_CAPACITY: usize> WorkerState<QUEUE_CAPACITY> {
     pub(super) fn new(queues: Arc<WorkerQueues<QUEUE_CAPACITY>>) -> Self {
         Self {
+            _sector: CachePad::new(()),
             queues,
             lifo_slot: LifoSlot::new(),
             thread: OnceLock::new(),

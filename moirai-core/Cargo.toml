@@ -32,6 +32,10 @@ static_assertions = "1.1"
 criterion = { workspace = true }
 proptest = { workspace = true }
 
+# loom model checker — only compiled under `--cfg loom` (see tests/loom_mpmc_waiter.rs).
+[target.'cfg(loom)'.dev-dependencies]
+loom = { workspace = true }
+
 [features]
 default = ["std", "parallel", "mnemosyne-memory"]
 no-std = []
@@ -43,3 +47,8 @@ coroutine = ["std"]
 result-diagnostics = ["std"]
 mnemosyne = ["dep:mnemosyne"]
 mnemosyne-memory = ["mnemosyne"]
+
+# Register the `loom` cfg so the -D warnings gate stays clean (it is set via
+# `RUSTFLAGS="--cfg loom"`, not a Cargo feature).
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }

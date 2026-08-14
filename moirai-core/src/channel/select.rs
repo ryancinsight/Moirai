@@ -31,11 +31,26 @@ pub fn spsc<T>(capacity: usize) -> (SpscSender<T>, SpscReceiver<T>) {
 }
 
 /// Create a new bounded MPMC channel with the given capacity.
+///
+/// This is the constructor to reach for. Callers with no rate information of
+/// their own should pass [`DEFAULT_CHANNEL_CAPACITY`].
+///
+/// [`DEFAULT_CHANNEL_CAPACITY`]: super::config::DEFAULT_CHANNEL_CAPACITY
 pub fn mpmc<T>(capacity: usize) -> (MpmcSender<T>, MpmcReceiver<T>) {
     MpmcChannel::channel(Some(capacity))
 }
 
-/// Create a new unbounded MPMC channel.
+/// Create a new MPMC channel whose queue grows without limit.
+///
+/// # Memory
+///
+/// This channel applies **no backpressure**: a producer that outruns its
+/// consumer grows the queue until allocation fails. It is deliberately absent
+/// from [`crate::prelude`] and from the crate root so that reaching for it is
+/// a decision rather than the path of least resistance — prefer [`mpmc`], and
+/// use this only where the total number of sends is bounded by
+/// construction (a fixed fan-in, a drained one-shot batch) and blocking a
+/// producer would deadlock.
 pub fn unbounded<T>() -> (MpmcSender<T>, MpmcReceiver<T>) {
     MpmcChannel::channel(None)
 }

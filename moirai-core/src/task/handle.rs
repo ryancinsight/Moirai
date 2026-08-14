@@ -17,6 +17,9 @@ use std::sync::{
 #[cfg(feature = "std")]
 use std::thread;
 
+#[cfg(feature = "std")]
+use moirai_utils::CacheAligned;
+
 // State constants for TaskResultSlot
 #[cfg(feature = "std")]
 const RESULT_PENDING: u8 = 0;
@@ -70,22 +73,21 @@ pub use result_wait::{BlockingResultWait, ResultWaitPolicy};
 /// The `state` field is the synchronisation point between the *producer*
 /// (the worker that executes the task and writes the result) and the
 /// *consumer* (the thread that called `JoinHandle::wait`).  Keeping
-/// `state` on its own 64-byte cache line prevents false sharing:
-/// the producer invalidates only its line when storing `RESULT_READY`,
-/// and the consumer accesses `result`/`waiter` on a separate line.
+/// `state` on its own sector prevents false sharing: the producer
+/// invalidates only that sector when storing `RESULT_READY`, and the
+/// consumer accesses `result`/`waiter` beyond it.
 ///
-/// `#[repr(align(64))]` on `TaskResultSlot` itself aligns the start of
-/// the struct to a cache line; `_pad` pushes `result` and `waiter` past
-/// the first 64 bytes so they land on a second line.
+/// [`CacheAligned`] supplies both halves of that layout — it aligns the slot
+/// (and therefore `state`, the first field) to
+/// `moirai_utils::DESTRUCTIVE_INTERFERENCE_SIZE`, and its own size pushes
+/// `result`/`waiter` past that boundary. The separation is 128 bytes on
+/// x86-64/aarch64, where the adjacent-line prefetcher makes 64 too narrow;
+/// the per-target value lives in `moirai-utils`, not in a literal here.
 #[cfg(feature = "std")]
-#[repr(align(64))]
 struct TaskResultSlot<T> {
     /// Synchronisation state — written by the producer, read by consumer.
-    /// Placed first so it occupies the beginning of the first cache line.
-    state: AtomicU8,
-    /// Padding to push `result` and `waiter` onto a separate cache line,
-    /// eliminating producer-consumer false sharing on the `state` field.
-    _pad: [u8; 63],
+    /// Wrapped so it occupies a full interference sector of its own.
+    state: CacheAligned<AtomicU8>,
     result: UnsafeCell<MaybeUninit<Result<T, TaskError>>>,
     waiter: UnsafeCell<MaybeUninit<thread::Thread>>,
 }
@@ -104,8 +106,7 @@ unsafe impl<T: Send> Sync for TaskResultSlot<T> {}
 impl<T> TaskResultSlot<T> {
     fn new() -> Self {
         Self {
-            state: AtomicU8::new(RESULT_PENDING),
-            _pad: [0u8; 63],
+            state: CacheAligned::new(AtomicU8::new(RESULT_PENDING)),
             result: UnsafeCell::new(MaybeUninit::uninit()),
             waiter: UnsafeCell::new(MaybeUninit::uninit()),
         }
@@ -258,7 +259,9 @@ impl<T> TaskResultSlot<T> {
 #[cfg(feature = "std")]
 impl<T> Drop for TaskResultSlot<T> {
     fn drop(&mut self) {
-        let state = *self.state.get_mut();
+        // `.0` disambiguates: `CacheAligned::get_mut` would yield the atomic
+        // itself, not its value.
+        let state = *self.state.0.get_mut();
         if state == RESULT_READY {
             // Safety: READY means the cell is initialized and no consuming join
             // took it because `drop` has exclusive access to the slot.

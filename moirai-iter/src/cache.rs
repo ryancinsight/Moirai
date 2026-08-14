@@ -40,8 +40,14 @@ use crate::base::SendPtr;
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
-/// Cache line size for alignment optimizations
-pub const CACHE_LINE_SIZE: usize = 64;
+/// Cache line size used to derive chunk widths.
+///
+/// Re-exported from `moirai-utils`, the single source for the per-target
+/// table. Chunking wants the *transfer* granularity — how many elements share
+/// one line — not `moirai_utils::DESTRUCTIVE_INTERFERENCE_SIZE`, which is
+/// larger on x86-64/aarch64 and would silently double every kernel's working
+/// set.
+pub use moirai_utils::CACHE_LINE_SIZE;
 
 /// Chunk size for cache-friendly iteration (L1 cache half)
 pub const CACHE_CHUNK_SIZE: usize = 16384; // 16KB

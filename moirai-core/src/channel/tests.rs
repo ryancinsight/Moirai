@@ -355,3 +355,59 @@ fn test_hybrid_drop_receiver() {
     assert_eq!(tx.send(1), Err(ChannelError::Closed));
     assert_eq!(tx.try_send(1), Err(ChannelError::Closed));
 }
+
+/// A bounded channel refuses to grow past its capacity, and a blocking send on
+/// a full channel parks instead of allocating.
+///
+/// The blocking half is proved without a sleep: a parked sender can only leave
+/// `send` when a slot frees or the channel closes. Dropping the last receiver
+/// closes it, so the send resolves to `Closed` — an implementation that grew
+/// the queue instead of blocking would have returned `Ok` with the item
+/// accepted.
+#[test]
+fn bounded_channel_refuses_to_grow_and_blocks_the_producer() {
+    use std::thread;
+
+    const CAPACITY: usize = 4;
+
+    let (tx, rx) = mpmc::<usize>(CAPACITY);
+
+    for item in 0..CAPACITY {
+        tx.try_send(item)
+            .expect("a fresh channel accepts up to its capacity");
+    }
+
+    assert_eq!(Producer::capacity(&tx), Some(CAPACITY));
+    assert!(Producer::is_full(&tx));
+    assert!(
+        matches!(tx.try_send(CAPACITY), Err(ChannelError::Full)),
+        "a full bounded channel must reject rather than allocate another slot"
+    );
+    assert_eq!(
+        Producer::capacity(&tx),
+        Some(CAPACITY),
+        "a rejected send must not have moved the bound"
+    );
+
+    let blocked = thread::spawn(move || tx.send(CAPACITY));
+    drop(rx);
+
+    assert!(
+        matches!(blocked.join().unwrap(), Err(ChannelError::Closed)),
+        "the send must still have been parked when the channel closed"
+    );
+}
+
+/// The default capacity is a real bound, not a sentinel for "unbounded".
+#[test]
+fn default_channel_capacity_bounds_the_queue() {
+    let (tx, _rx) = mpmc::<u8>(DEFAULT_CHANNEL_CAPACITY);
+
+    assert_eq!(Producer::capacity(&tx), Some(DEFAULT_CHANNEL_CAPACITY));
+
+    for _ in 0..DEFAULT_CHANNEL_CAPACITY {
+        tx.try_send(0).expect("capacity slots are accepted");
+    }
+
+    assert!(matches!(tx.try_send(0), Err(ChannelError::Full)));
+}

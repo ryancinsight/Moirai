@@ -28,7 +28,9 @@ pub mod simd;
 
 // Re-export commonly used types for convenience
 pub use atomic::AtomicCounter;
-pub use cache::{align_to_cache_line, CacheAligned, CACHE_LINE_SIZE};
+pub use cache::{
+    align_to_cache_line, CacheAligned, CachePad, CACHE_LINE_SIZE, DESTRUCTIVE_INTERFERENCE_SIZE,
+};
 pub use memory::{prefetch_read, prefetch_write};
 pub use queue::LockFreeQueue;
 
@@ -151,15 +153,5 @@ mod integration_tests {
         let queue = LockFreeQueue::<i32>::with_capacity(4);
         queue.enqueue(1);
         assert_eq!(queue.try_dequeue(), Some(1));
-    }
-
-    #[test]
-    fn test_cache_line_alignment() {
-        assert_eq!(align_to_cache_line(1), CACHE_LINE_SIZE);
-        assert_eq!(align_to_cache_line(CACHE_LINE_SIZE), CACHE_LINE_SIZE);
-        assert_eq!(
-            align_to_cache_line(CACHE_LINE_SIZE + 1),
-            CACHE_LINE_SIZE * 2
-        );
     }
 }

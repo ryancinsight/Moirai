@@ -52,7 +52,11 @@ pub fn prefetch_write<T>(ptr: *const T) {
 /// * `ptr` - Starting memory address
 /// * `bytes` - Number of bytes to prefetch
 pub fn prefetch_range_read<T>(ptr: *const T, bytes: usize) {
-    const CACHE_LINE_SIZE: usize = 64;
+    // Transfer granularity, not the false-sharing separation: one prefetch
+    // hint covers one line, so striding by the (larger) interference size
+    // would skip every second line in the range.
+    use crate::cache::CACHE_LINE_SIZE;
+
     let start = ptr as usize;
     // Saturating/checked address arithmetic: a range ending near `usize::MAX`
     // must not overflow (which panics under `overflow-checks`). Prefetch hints

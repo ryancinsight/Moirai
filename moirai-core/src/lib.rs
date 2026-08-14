@@ -67,12 +67,16 @@ pub use executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus};
 pub use scheduler::SchedulerId;
 pub use task::{Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, TaskHandle, TaskId};
 
+// `channel::unbounded` is deliberately not re-exported here or in `prelude`:
+// an unbounded queue turns a slow consumer into unbounded memory growth, so
+// the short, discoverable names stay bounded and the unbounded constructor is
+// reachable only through its fully qualified path.
 #[cfg(feature = "std")]
 pub use channel::{
-    mpmc, spsc, unbounded, unified_channel, unified_channel_with_config, Channel, ChannelConfig,
-    ChannelError, ChannelStatistics, Consumer, MpmcChannel, MpmcReceiver, MpmcSender, Producer,
-    Select, SpscConsumer, SpscProducer, SpscReceiver, SpscRing, SpscSender, UnifiedReceiver,
-    UnifiedSender,
+    mpmc, spsc, unified_channel, unified_channel_with_config, Channel, ChannelConfig, ChannelError,
+    ChannelStatistics, Consumer, MpmcChannel, MpmcReceiver, MpmcSender, Producer, Select,
+    SpscConsumer, SpscProducer, SpscReceiver, SpscRing, SpscSender, UnifiedReceiver, UnifiedSender,
+    DEFAULT_CHANNEL_CAPACITY,
 };
 
 // Re-export CacheAligned from moirai-utils for convenience
@@ -102,7 +106,7 @@ pub mod prelude {
 
     #[cfg(feature = "std")]
     pub use crate::{
-        mpmc, spsc, unbounded, Channel, ChannelError, Consumer, MpmcReceiver, MpmcSender, Producer,
-        SpscConsumer, SpscProducer, SpscReceiver, SpscRing, SpscSender,
+        mpmc, spsc, Channel, ChannelError, Consumer, MpmcReceiver, MpmcSender, Producer,
+        SpscConsumer, SpscProducer, SpscReceiver, SpscRing, SpscSender, DEFAULT_CHANNEL_CAPACITY,
     };
 }

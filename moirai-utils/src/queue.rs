@@ -57,7 +57,9 @@ struct Slot<T> {
 ///
 /// [`enqueue`]: LockFreeQueue::enqueue
 /// [`try_enqueue`]: LockFreeQueue::try_enqueue
-#[repr(align(64))]
+// No struct-level `repr(align)`: `head`/`tail` are `CacheAligned`, so the
+// struct's alignment already equals `DESTRUCTIVE_INTERFERENCE_SIZE` and tracks
+// the per-target table in `cache.rs` instead of pinning a second literal here.
 pub struct LockFreeQueue<T> {
     buffer: Box<[Slot<T>]>,
     mask: usize,

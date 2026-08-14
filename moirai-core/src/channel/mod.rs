@@ -25,7 +25,7 @@ pub mod spsc;
 pub mod stats;
 pub mod unified;
 
-pub use config::ChannelConfig;
+pub use config::{ChannelConfig, DEFAULT_CHANNEL_CAPACITY};
 pub use error::{Channel, ChannelError, Result};
 pub use hybrid::{HybridChannel, HybridReceiver, HybridSender};
 pub use mpmc::{MpmcChannel, MpmcReceiver, MpmcSender};
