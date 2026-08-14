@@ -26,9 +26,11 @@
 - [x] Add facade configuration and scheduler assignment regressions.
 - [x] Synchronize README, changelog, backlog, and ADR-027.
 - [x] Pass the exact default-head hosted Rust workspace gate.
-- Evidence: local formatting, locked metadata, warning-denied Clippy,
-  configured Nextest, doctests, and rustdoc pass; hosted exact-head evidence
-  is recorded after merge.
+- Evidence: local formatting, standalone locked metadata, warning-denied
+  Clippy, configured Nextest 118/118 with two configured skips, seven
+  doctests, and warning-denied rustdoc pass. Default-head Rust Workspace run
+  `31787962637` and Python Bindings run `31787962649` pass at merge commit
+  `38e936a`.
 
 ## MOI-THEMIS-CPU-001 — provider-owned CPU topology [patch] — complete
 
