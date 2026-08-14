@@ -27,6 +27,8 @@
       in `moirai/src/tests.rs` with runtime joins and value assertions.
 - [x] Pass formatting, `moirai-runtime` nextest (23/23), warning-denied
       Clippy, and doctest gates.
+- [x] Scope the non-Linux-only futex fallback lint expectation so the Linux
+      workspace gate does not fail on an unfulfilled ratchet.
 
 ### MOI-NUMA-001 / MOI-TREE-001 closure
 

@@ -38,9 +38,12 @@
 //! The guard's `PhantomData<T>` is load-bearing rather than decorative — see the
 //! note on the field.
 
-#![expect(
-    clippy::unwrap_used,
-    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+#![cfg_attr(
+    not(target_os = "linux"),
+    expect(
+        clippy::unwrap_used,
+        reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
+    )
 )]
 
 use std::cell::UnsafeCell;
