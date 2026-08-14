@@ -66,6 +66,19 @@ fn scheduler_runs_all_work_classes_through_one_facade() {
 }
 
 #[test]
+fn scheduler_numa_policy_controls_worker_assignments() {
+    let scheduler = ThreadScheduler::<256, 8192>::new_with_numa(2, "numa-disabled", false).unwrap();
+
+    assert!(scheduler
+        .inner
+        .worker_numa_nodes
+        .iter()
+        .all(|node| node.is_none()));
+
+    scheduler.shutdown();
+}
+
+#[test]
 fn saturated_admission_rolls_back_pending_and_recovers() {
     let scheduler = ThreadScheduler::<256>::new(1, "bounded-admission").unwrap();
     let (started_tx, started_rx) = mpsc::channel();

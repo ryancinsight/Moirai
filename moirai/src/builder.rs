@@ -48,10 +48,8 @@ impl MoiraiBuilder {
     /// Enable or disable NUMA awareness.
     #[cfg(feature = "numa")]
     #[must_use]
-    pub fn numa_aware(self, enabled: bool) -> Self {
-        // NUMA awareness configuration would go here
-        // For now, we'll store it in a separate field or ignore it
-        let _ = enabled; // Suppress unused variable warning
+    pub fn numa_aware(mut self, enabled: bool) -> Self {
+        self.config.numa_aware = enabled;
         self
     }
 

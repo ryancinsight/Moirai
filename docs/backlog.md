@@ -106,6 +106,24 @@ architecture definition.
   checks pass.
 - **Status**: completed 2026-07-15.
 
+### ✅ MOI-NUMA-002 [minor] [arch]: Thread facade NUMA policy to the scheduler
+
+- **Root cause**: `MoiraiBuilder::numa_aware` accepted a policy value but
+  discarded it. `ExecutorConfig` already carried the field while
+  `HybridExecutor` always constructed topology assignments, so callers could
+  not disable the advertised scheduler locality policy.
+- **Resolution**: forward the facade value through the `numa` feature closure
+  into `HybridExecutor` and a single scheduler construction seam. Existing
+  `ThreadScheduler::new` and `new_with_config` retain topology-aware defaults;
+  an explicit `false` value constructs no worker-node assignments. The policy
+  controls victim-selection locality only, not memory placement.
+- **Evidence**: facade tests assert enabled and disabled values reach the
+  executor configuration; executor runtime tests assert the disabled policy
+  leaves every worker assignment unset. Formatting, locked metadata, warning-
+  denied Clippy, configured Nextest, doctests, rustdoc, and hosted exact-head
+  CI are required before closure.
+- **Status**: completed 2026-08-14.
+
 ### ✅ MOI-TREE-001 [patch]: Split channel implementation by responsibility
 
 - **Resolution**: move hybrid sender, receiver, future, and tests plus MPMC
