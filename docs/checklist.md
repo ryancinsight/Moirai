@@ -21,6 +21,17 @@
 
 **Current verification**: Moirai 0.5.0 follows the merged Mnemosyne 0.7/Core 0.2 provider graph and requires Rust 1.95. Rust 1.95 compiles the focused GPU consumer while Rust 1.94 rejects the graph; Clippy is warning-clean, Nextest passes 10/10, doctests pass 0/0, rustdoc is warning-clean, and each provider has one resolved lock source identity.
 
+### Facade test synchronization
+
+- [x] Replace wall-clock sleeps, conditional result checks, and debug output
+      in `moirai/src/tests.rs` with runtime joins and value assertions.
+- [x] Pass formatting, `moirai-runtime` nextest (23/23), warning-denied
+      Clippy, and doctest gates.
+- [x] Scope the non-Linux-only futex fallback lint expectation so the Linux
+      workspace gate does not fail on an unfulfilled ratchet.
+- [x] Scope the integration-test unwrap expectation to `cfg(test)` so
+      `--all-targets` library compilation remains warning-clean.
+
 ### MOI-NUMA-001 / MOI-TREE-001 closure
 
 - [x] [major] Delete the unconsumed `moirai_iter::numa` API, its benchmark,

@@ -1,8 +1,11 @@
 //! Integration tests for Moirai concurrency library.
 #![allow(dead_code, unused_variables)]
-#![expect(
-    clippy::unwrap_used,
-    reason = "test scope: failed precondition = test failure"
+#![cfg_attr(
+    test,
+    expect(
+        clippy::unwrap_used,
+        reason = "test scope: failed precondition = test failure"
+    )
 )]
 
 #[cfg(test)]
