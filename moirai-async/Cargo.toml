@@ -32,7 +32,8 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 tempfile = "3.0"
 
-# loom model checker — only compiled under `--cfg loom` (see tests/loom_result_slot.rs).
+# loom model checker — only compiled under `--cfg loom` (see the protocol models
+# in tests/loom_result_slot.rs and tests/loom_wake_dedup.rs).
 [target.'cfg(loom)'.dev-dependencies]
 loom = { workspace = true }
 

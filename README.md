@@ -100,7 +100,8 @@ Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 - **Work-stealing scheduler**: per-worker Chase-Lev deques indexed by
   `Priority::index`, with lock-free stealing. The Chase-Lev steal/pop ordering
   protocol has an exhaustive `loom` model; the bounded MPMC waiter and SPSC
-  ring publication protocols are modeled in the core channel tests.
+  ring publication protocols, plus async executor wake deduplication, are
+  modeled in the channel and async executor tests.
 - **Route topology** (`distributed` feature): sealed zero-sized policies select
   `SchedulerRoute::{Thread, Process, Server, Accelerator}` without
   `dyn RoutePolicy`.
@@ -320,8 +321,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full gate sequence.
   convention for new and touched code; coverage of existing blocks is partial
   and is being raised (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 - Concurrency correctness is covered by exactly-once stress tests and bounded
-  `loom` interleaving models for the Chase-Lev steal/pop, MPMC waiter, and SPSC
-  ring publication protocols.
+  `loom` interleaving models for the Chase-Lev steal/pop, MPMC waiter, SPSC
+  ring publication, and async executor wake-deduplication protocols.
 
 ## Contributing
 

@@ -35,7 +35,10 @@
 //!
 //! - `is_queued` — enqueue deduplication, owned by `ExecutorWaker::wake_by_ref`
 //!   (`waker.rs`). A wake enqueues only if it flipped `is_queued` false→true, so
-//!   a task appears in the run queue at most once per pending wake.
+//!   a task appears in the run queue at most once per pending wake. The flag is
+//!   a Relaxed linearization bit rather than a publication channel: the queue's
+//!   per-slot Release/Acquire sequence publishes the task payload, and the
+//!   ordering protocol is exhaustively modeled in `loom_wake_dedup.rs`.
 //! - `completed` — set once the future returns `Ready`. The waker checks it as
 //!   an optimization (a reactor may still hold a live waker for a task that
 //!   finished by another path, e.g. `timeout(read)` completing via the timer
