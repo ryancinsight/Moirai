@@ -108,8 +108,10 @@ Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
   remoting is intentionally rejected.
 - **CPU topology**: `moirai_scheduler::numa::CpuTopology` discovers NUMA nodes
   and cache levels, and Themis topology detection supplies default worker
-  counts. Topology-directed memory placement is not implemented; the
-  `numa_aware` builder method is currently a no-op behind the `numa` feature.
+  counts. With the `numa` feature, `numa_aware` controls whether the scheduler
+  derives per-worker NUMA assignments for locality-aware victim selection; it
+  defaults to enabled. This is scheduler locality, not topology-directed
+  memory placement, which remains outside Moirai's contract.
 
 ## Iterators
 

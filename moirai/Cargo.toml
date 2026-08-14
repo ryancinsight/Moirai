@@ -159,7 +159,6 @@ distributed = [
 encryption = ["moirai-transport/encryption"]
 compression = ["moirai-transport/compression"]
 metrics = ["moirai-metrics", "moirai-core/metrics", "moirai-transport/metrics"]
-numa = ["moirai-scheduler/numa"]
+numa = ["moirai-scheduler/numa", "moirai-core/numa", "moirai-executor/numa"]
 tokio-compat = ["moirai-async/tokio-compat"]
 no-std = ["moirai-core/no-std"]
-

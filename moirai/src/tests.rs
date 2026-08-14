@@ -17,6 +17,27 @@ fn test_builder() {
     assert_eq!(moirai.worker_count(), 4);
 }
 
+#[cfg(feature = "numa")]
+#[test]
+fn numa_builder_policy_reaches_executor_configuration() {
+    let enabled = Moirai::builder()
+        .worker_threads(1)
+        .numa_aware(true)
+        .build()
+        .unwrap();
+    let disabled = Moirai::builder()
+        .worker_threads(1)
+        .numa_aware(false)
+        .build()
+        .unwrap();
+
+    assert!(enabled.executor.config().numa_aware);
+    assert!(!disabled.executor.config().numa_aware);
+
+    enabled.shutdown();
+    disabled.shutdown();
+}
+
 #[test]
 fn test_spawn_fn() {
     let moirai = Moirai::new().unwrap();

@@ -80,7 +80,21 @@ pub struct HybridExecutor<S: WorkScheduler = ThreadScheduler> {
 impl HybridExecutor<ThreadScheduler> {
     /// Create a new hybrid executor with the given configuration.
     pub fn new(config: ExecutorConfig) -> ExecutorResult<Self> {
-        let scheduler = ThreadScheduler::new(config.worker_threads, &config.thread_name_prefix)?;
+        let numa_aware = {
+            #[cfg(feature = "numa")]
+            {
+                config.numa_aware
+            }
+            #[cfg(not(feature = "numa"))]
+            {
+                true
+            }
+        };
+        let scheduler = ThreadScheduler::new_with_numa(
+            config.worker_threads,
+            &config.thread_name_prefix,
+            numa_aware,
+        )?;
         let metrics = Arc::new(ExecutorMetrics::new());
         metrics.update_worker_counts(0, scheduler.worker_count(), scheduler.worker_count());
 

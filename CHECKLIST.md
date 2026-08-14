@@ -16,6 +16,20 @@
 - [x] Refresh dependency resolution and pass focused gates.
 - [x] Merge before rerunning dependent Hephaestus provider CI.
 
+## MOI-NUMA-002 — facade NUMA policy reaches the scheduler [minor] [arch] — complete
+
+- Owner: Codex on `codex/moirai-numa-policy`.
+- [x] Forward the facade `numa_aware` value through the core and executor
+      feature seams.
+- [x] Preserve topology-aware defaults and make explicit disablement skip
+      worker-node assignment construction.
+- [x] Add facade configuration and scheduler assignment regressions.
+- [x] Synchronize README, changelog, backlog, and ADR-027.
+- [x] Pass the exact default-head hosted Rust workspace gate.
+- Evidence: local formatting, locked metadata, warning-denied Clippy,
+  configured Nextest, doctests, and rustdoc pass; hosted exact-head evidence
+  is recorded after merge.
+
 ## MOI-THEMIS-CPU-001 — provider-owned CPU topology [patch] — complete
 
 - Owner: Codex; delivered through PR #118 and merged as `57c4ec4`.

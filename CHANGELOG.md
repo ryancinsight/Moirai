@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Thread the `numa_aware` facade builder setting through `ExecutorConfig` and
+  the work-stealing scheduler. The `numa` feature now enables the core and
+  executor seams together; the default remains topology-aware and an explicit
+  `false` value skips NUMA assignment construction. This controls scheduler
+  locality only and does not claim topology-directed memory placement.
 - **Breaking.** `Moirai::channel()` now returns a channel bounded at
   `moirai_core::channel::DEFAULT_CHANNEL_CAPACITY` (1024) instead of an
   unbounded one. A producer that outruns its consumer now blocks (or gets

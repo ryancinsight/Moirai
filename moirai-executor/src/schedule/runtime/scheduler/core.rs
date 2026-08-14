@@ -69,6 +69,14 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 {
     /// Start a scheduler with custom configurations.
     pub fn new_with_config(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
+        Self::new_with_numa(worker_count, thread_name_prefix, true)
+    }
+
+    pub(crate) fn new_with_numa(
+        worker_count: usize,
+        thread_name_prefix: &str,
+        numa_aware: bool,
+    ) -> ExecutorResult<Self> {
         let worker_count = worker_count.max(1);
         let mut queue_owners = Vec::with_capacity(worker_count);
         let workers = (0..worker_count)
@@ -83,7 +91,11 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         // Detect NUMA topology once at construction; derive a per-worker node
         // assignment so `steal_job` can prefer same-node victims without runtime
         // discovery overhead.  Falls back to `None` on single-node / VM systems.
-        let topology = moirai_scheduler::numa::CpuTopology::detect();
+        let topology = if numa_aware {
+            moirai_scheduler::numa::CpuTopology::detect()
+        } else {
+            None
+        };
         let worker_numa_nodes: Box<[Option<usize>]> = if let Some(ref topo) = topology {
             (0..worker_count)
                 .map(|id| {
