@@ -32,7 +32,8 @@ static_assertions = "1.1"
 criterion = { workspace = true }
 proptest = { workspace = true }
 
-# loom model checker — only compiled under `--cfg loom` (see tests/loom_mpmc_waiter.rs).
+# loom model checker — only compiled under `--cfg loom` (see the channel models
+# in `tests/loom_mpmc_waiter.rs` and `tests/loom_spsc_ring.rs`).
 [target.'cfg(loom)'.dev-dependencies]
 loom = { workspace = true }
 

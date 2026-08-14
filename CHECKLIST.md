@@ -245,6 +245,21 @@
   lock source identity; the SemVer major comparison reports no API check
   failures.
 
+## Phase 31: Channel ordering model coverage
+
+- [x] Re-audit the ordering residual: the MPMC waiter model already landed in
+  `moirai-core/tests/loom_mpmc_waiter.rs` at `2ea17bb`; the missing primitive
+  is the SPSC ring's publication/reclamation model.
+- [x] Add the bounded capacity-two SPSC model with three messages, explicit
+  release/acquire head/tail edges, value-semantic FIFO assertions, and a
+  recorded preemption bound of four.
+- [x] Add a hosted `Loom channel models` job that runs both MPMC and SPSC
+  models under `RUSTFLAGS=--cfg loom` with the locked release profile.
+- Evidence: `cargo fmt --all -- --check` passes locally. The Atlas overlay
+  prevents the locked local metadata gate from running because preserved local
+  first-party patches do not match this provider's committed lock; hosted CI
+  is the authoritative clean-checkout oracle for the model job.
+
 ## Phase 30: NUMA helper removal and channel hierarchy closure
 
 - [x] [major] Delete the unconsumed `moirai_iter::numa` API and its obsolete
