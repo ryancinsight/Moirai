@@ -119,9 +119,11 @@ architecture definition.
   controls victim-selection locality only, not memory placement.
 - **Evidence**: facade tests assert enabled and disabled values reach the
   executor configuration; executor runtime tests assert the disabled policy
-  leaves every worker assignment unset. Formatting, locked metadata, warning-
-  denied Clippy, configured Nextest, doctests, rustdoc, and hosted exact-head
-  CI are required before closure.
+  leaves every worker assignment unset. Formatting, standalone locked
+  metadata, warning-denied Clippy, configured Nextest 118/118 with two
+  configured skips, seven doctests, and warning-denied rustdoc pass locally.
+  Default-head Rust Workspace run `31787962637` and Python Bindings run
+  `31787962649` pass at merge commit `38e936a`.
 - **Status**: completed 2026-08-14.
 
 ### ✅ MOI-TREE-001 [patch]: Split channel implementation by responsibility
