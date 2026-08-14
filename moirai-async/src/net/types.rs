@@ -108,9 +108,14 @@ impl ConnectionPool {
 
         let connections = self.active_connections.lock().unwrap();
         let current = connections.len();
-        let reserved = self.reserved_connections.load(Ordering::Acquire);
+        // The mutex orders all admission increments. Releases may race this
+        // snapshot, but they only reduce the reservation count; a stale release
+        // can conservatively reject an admission, never over-admit one. The
+        // counter carries no payload, so Relaxed is sufficient for its atomic
+        // accounting.
+        let reserved = self.reserved_connections.load(Ordering::Relaxed);
         if current + reserved < max {
-            self.reserved_connections.fetch_add(1, Ordering::SeqCst);
+            self.reserved_connections.fetch_add(1, Ordering::Relaxed);
             true
         } else {
             false
@@ -121,7 +126,7 @@ impl ConnectionPool {
     /// connection.
     pub fn cancel_reservation(&self) {
         if self.max_connections.is_some() {
-            self.reserved_connections.fetch_sub(1, Ordering::SeqCst);
+            self.reserved_connections.fetch_sub(1, Ordering::Relaxed);
         }
     }
 
@@ -149,7 +154,7 @@ impl ConnectionPool {
     pub fn add_connection_reserved(&self, addr: std::net::SocketAddr) -> ConnectionId {
         let id = self.add_connection(addr);
         if self.max_connections.is_some() {
-            self.reserved_connections.fetch_sub(1, Ordering::SeqCst);
+            self.reserved_connections.fetch_sub(1, Ordering::Relaxed);
         }
         id
     }
