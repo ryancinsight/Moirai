@@ -29,6 +29,8 @@
       Clippy, and doctest gates.
 - [x] Scope the non-Linux-only futex fallback lint expectation so the Linux
       workspace gate does not fail on an unfulfilled ratchet.
+- [x] Scope the integration-test unwrap expectation to `cfg(test)` so
+      `--all-targets` library compilation remains warning-clean.
 
 ### MOI-NUMA-001 / MOI-TREE-001 closure
 
