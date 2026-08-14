@@ -44,51 +44,44 @@ fn numa_builder_policy_reaches_executor_configuration() {
 fn test_spawn_fn() {
     let moirai = Moirai::new().unwrap();
 
-    // Test basic task spawning
     let handle = moirai.spawn_fn(|| (0..100).sum::<i32>());
 
-    // Verify the handle was created with a valid task ID
     assert!(handle.id().0 > 0 && handle.id().0 < 100);
 
-    // In std environments, we can actually get the result
-    {
-        // Give the task some time to complete (this is a simple synchronous operation)
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        // Try to get the result
-        if let Some(result) = handle.join() {
-            assert_eq!(result, Ok(4950)); // Sum of 0..100
-        }
-    }
+    moirai.join().unwrap();
+    assert_eq!(
+        handle.join().expect("spawned task must retain a result"),
+        Ok(4950)
+    );
+    moirai.shutdown();
 }
 
 #[test]
 fn test_task_panic_handling() {
     let moirai = Moirai::new().unwrap();
 
-    // Spawn a task that panics
     let handle = moirai.spawn_fn(|| {
         panic!("Task intentionally panicked!");
     });
 
-    // Give the task time to execute and panic
-    std::thread::sleep(std::time::Duration::from_millis(50));
-
-    // Verify the handle was created properly
     assert!(handle.id().0 > 0);
 
-    // Try to join - the task should have panicked and been caught by the executor
-    let _result = handle.join();
-    // The executor should handle panics gracefully and return a result
-    // indicating the panic occurred, rather than propagating the panic
+    moirai.join().unwrap();
+    assert!(matches!(handle.join(), Some(Err(_))));
+    moirai.shutdown();
 }
 
 #[test]
 fn test_spawn_async() {
     let moirai = Moirai::new().unwrap();
     let handle = moirai.spawn_async(async { 42 });
-    // Verify the handle was created with a valid task ID
     assert!(handle.id().0 > 0 && handle.id().0 < 100);
+    moirai.join().unwrap();
+    assert_eq!(
+        handle.join().expect("async task must retain a result"),
+        Ok(42)
+    );
+    moirai.shutdown();
 }
 
 #[test]
@@ -268,34 +261,20 @@ fn test_task_result_retrieval() {
     assert!(handle2.id().0 < 100);
     assert!(handle3.id().0 < 100);
 
-    // Give tasks time to complete
-    std::thread::sleep(std::time::Duration::from_millis(50));
-
-    // Verify we can retrieve results - using blocking join for more reliable tests
-    // Note: In a real concurrent environment, we should use proper synchronization
-
-    // Try non-blocking first
-    let result1 = handle1.join();
-    let result2 = handle2.join();
-    let result3 = handle3.join();
-
-    // Print debug info to see what's happening
-    println!("Result 1: {result1:?}");
-    println!("Result 2: {result2:?}");
-    println!("Result 3: {result3:?}");
-
-    // If we get results, verify they're correct
-    if let Some(result) = result1 {
-        assert_eq!(result, Ok(84));
-    }
-
-    if let Some(result) = result2 {
-        assert_eq!(result, Ok("Hello, Moirai".to_string()));
-    }
-
-    if let Some(result) = result3 {
-        assert_eq!(result, Ok(3_628_800)); // 10!
-    }
+    moirai.join().unwrap();
+    assert_eq!(
+        handle1.join().expect("numeric task must retain a result"),
+        Ok(84)
+    );
+    assert_eq!(
+        handle2.join().expect("string task must retain a result"),
+        Ok("Hello, Moirai".to_string())
+    );
+    assert_eq!(
+        handle3.join().expect("product task must retain a result"),
+        Ok(3_628_800)
+    );
+    moirai.shutdown();
 }
 
 #[test]

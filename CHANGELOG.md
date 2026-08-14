@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replace facade-test sleeps and conditional result checks with runtime
+  quiescence joins and value-semantic assertions.
 - Thread the `numa_aware` facade builder setting through `ExecutorConfig` and
   the work-stealing scheduler. The `numa` feature now enables the core and
   executor seams together; the default remains topology-aware and an explicit
