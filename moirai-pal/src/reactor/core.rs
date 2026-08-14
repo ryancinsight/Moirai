@@ -104,13 +104,16 @@ impl IoReactor {
 
     /// Run the event loop until stopped.
     pub fn run(&self) -> io::Result<()> {
-        self.running.store(true, Ordering::SeqCst);
+        // Relaxed: `running` is a single-location loop-control flag. It does
+        // not publish reactor state; `stop` separately wakes the platform poll
+        // so this loop observes the flag at its next iteration boundary.
+        self.running.store(true, Ordering::Relaxed);
         self.metrics
             .start_time
             .set(Instant::now())
             .map_err(|_| io::Error::other("Reactor already started"))?;
 
-        while self.running.load(Ordering::SeqCst) {
+        while self.running.load(Ordering::Relaxed) {
             self.run_iteration(Some(Duration::from_millis(10)))?;
         }
 
@@ -140,7 +143,10 @@ impl IoReactor {
 
     /// Stop the event loop.
     pub fn stop(&self) -> io::Result<()> {
-        self.running.store(false, Ordering::SeqCst);
+        // Relaxed: this store only requests loop termination. The platform
+        // wake is the independent progress edge that releases a blocked poll;
+        // no data written before this store is consumed through `running`.
+        self.running.store(false, Ordering::Relaxed);
         self.platform_reactor.wake()
     }
 
