@@ -53,6 +53,13 @@ architecture definition.
   next consumer step.
 - [ ] [patch] Consumer audit: confirm leto/coeus/apollo pull no rayon/tokio even
   transitively; provide drop-in shims where a consumer still reaches for them.
+- [x] [patch] MOI-GPU-SAFE-001: harden GPU buffer range boundaries. Centralize
+  checked offset/length validation for host writes and mappings so malformed
+  ranges return typed validation errors instead of panicking or wrapping in
+  release builds. Added value-semantic boundary tests. Evidence: offline
+  warning-denied Clippy, Nextest 14/14, doctests 0/0, and rustdoc pass at the
+  provider increment; device-route execution remains outside this item and is
+  tracked by Stage E.
 
 
 **Project**: Moirai Concurrency Library

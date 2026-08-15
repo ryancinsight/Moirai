@@ -75,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Validate GPU buffer write and mapping ranges with checked arithmetic, so
+  invalid offsets, bounds, and overflowing spans return typed validation
+  errors before reaching wgpu.
+
 - Close a lost wakeup in the bounded MPMC channel's receiver park path.
   `recv_bounded` re-checked the ring *before* registering in
   `receiver_waiter_count`, while `send_bounded` registered first; a producer
