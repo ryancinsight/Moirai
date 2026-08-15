@@ -51,8 +51,10 @@ architecture definition.
   (3) persistent kernels with device-side work queues remain open; hephaestus
   consuming these shapes in place of its fixed 256-wide workgroups is the
   next consumer step.
-- [ ] [patch] Consumer audit: confirm leto/coeus/apollo pull no rayon/tokio even
-  transitively; provide drop-in shims where a consumer still reaches for them.
+- [x] [patch] Consumer audit: confirm leto/coeus/apollo pull no rayon/tokio even
+  transitively. Fresh `cargo tree --workspace -e no-dev` scans at Leto
+  `293beec`, Coeus `8ccb481`, and Apollo `df2c40b` returned zero matches; no
+  compatibility shims are required or permitted.
 - [x] [patch] MOI-GPU-SAFE-001: harden GPU buffer range boundaries. Centralize
   checked offset/length validation for host writes and mappings so malformed
   ranges return typed validation errors instead of panicking or wrapping in
