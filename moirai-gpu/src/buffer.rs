@@ -9,8 +9,36 @@
 
 use crate::{error::GpuResult, GpuDevice, GpuError};
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::Mutex;
 use wgpu::{util::DeviceExt, Buffer, BufferDescriptor, BufferUsages};
+
+fn checked_buffer_range(
+    buffer_size: u64,
+    offset: u64,
+    requested_size: Option<u64>,
+) -> GpuResult<Range<u64>> {
+    if offset > buffer_size {
+        return Err(GpuError::ValidationError(format!(
+            "Buffer offset {offset} exceeds buffer size {buffer_size}"
+        )));
+    }
+
+    let size = requested_size.unwrap_or(buffer_size - offset);
+    let end = offset.checked_add(size).ok_or_else(|| {
+        GpuError::ValidationError(format!(
+            "Buffer range {offset}..{size} overflows the address space"
+        ))
+    })?;
+
+    if end > buffer_size {
+        return Err(GpuError::ValidationError(format!(
+            "Buffer range {offset}..{end} exceeds buffer size {buffer_size}"
+        )));
+    }
+
+    Ok(offset..end)
+}
 
 /// Buffer usage patterns for optimization
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -117,11 +145,10 @@ impl GpuBuffer {
     /// Write data to the buffer
     pub fn write<T: bytemuck::Pod>(&self, data: &[T], offset: u64) -> GpuResult<()> {
         let bytes = bytemuck::cast_slice(data);
-        if offset + bytes.len() as u64 > self.size {
-            return Err(GpuError::ValidationError(
-                "Write would exceed buffer bounds".to_string(),
-            ));
-        }
+        let byte_count = u64::try_from(bytes.len()).map_err(|_| {
+            GpuError::ValidationError("Buffer write length exceeds u64 address space".to_string())
+        })?;
+        checked_buffer_range(self.size, offset, Some(byte_count))?;
 
         self.device
             .queue()
@@ -131,9 +158,9 @@ impl GpuBuffer {
 
     /// Map buffer for reading (async)
     pub async fn map_read(&self, offset: u64, size: Option<u64>) -> GpuResult<()> {
-        let map_size = size.unwrap_or(self.size - offset);
-
-        let buffer_slice = self.buffer.slice(offset..offset + map_size);
+        let buffer_slice = self
+            .buffer
+            .slice(checked_buffer_range(self.size, offset, size)?);
         let (sender, receiver) = futures::channel::oneshot::channel();
 
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
@@ -153,9 +180,9 @@ impl GpuBuffer {
 
     /// Map buffer for writing (async)
     pub async fn map_write(&self, offset: u64, size: Option<u64>) -> GpuResult<()> {
-        let map_size = size.unwrap_or(self.size - offset);
-
-        let buffer_slice = self.buffer.slice(offset..offset + map_size);
+        let buffer_slice = self
+            .buffer
+            .slice(checked_buffer_range(self.size, offset, size)?);
         let (sender, receiver) = futures::channel::oneshot::channel();
 
         buffer_slice.map_async(wgpu::MapMode::Write, move |result| {
@@ -183,6 +210,45 @@ impl GpuBuffer {
 
         encoder.copy_buffer_to_buffer(&src.buffer, 0, &self.buffer, 0, self.size);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::{checked_buffer_range, GpuError};
+
+    #[test]
+    fn buffer_range_accepts_empty_end_boundary() {
+        assert!(matches!(
+            checked_buffer_range(16, 16, None),
+            Ok(range) if range == (16..16)
+        ));
+    }
+
+    #[test]
+    fn buffer_range_rejects_offset_past_buffer() {
+        let Err(GpuError::ValidationError(message)) = checked_buffer_range(16, 17, None) else {
+            panic!("an out-of-bounds offset must be rejected");
+        };
+        assert!(message.contains("exceeds buffer size"));
+    }
+
+    #[test]
+    fn buffer_range_rejects_requested_end_past_buffer() {
+        let Err(GpuError::ValidationError(message)) = checked_buffer_range(16, 12, Some(5)) else {
+            panic!("an out-of-bounds range must be rejected");
+        };
+        assert!(message.contains("exceeds buffer size"));
+    }
+
+    #[test]
+    fn buffer_range_rejects_end_overflow() {
+        let Err(GpuError::ValidationError(message)) =
+            checked_buffer_range(u64::MAX, u64::MAX - 1, Some(2))
+        else {
+            panic!("an overflowing range must be rejected");
+        };
+        assert!(message.contains("overflows"));
     }
 }
 

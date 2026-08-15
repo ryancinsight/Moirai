@@ -49,14 +49,15 @@
 
 - [x] Claim `moirai-gpu/src/buffer.rs`, its co-located tests, and the provider
       PM records on the shared Moirai tree.
-- [ ] Replace unchecked buffer offset/length arithmetic with one checked
+- [x] Replace unchecked buffer offset/length arithmetic with one checked
       validation seam used by write and mapping operations.
-- [ ] Add negative, boundary, and overflow-range value assertions.
-- [ ] Run focused formatting, Clippy, Nextest, doctest, and rustdoc gates;
-      record exact results in `GAP_ANALYSIS.md`.
+- [x] Add negative, boundary, and overflow-range value assertions.
+- [x] Run focused formatting, offline warning-denied Clippy, Nextest 14/14,
+      doctests 0/0, and rustdoc; record exact results in `GAP_ANALYSIS.md`.
 - [ ] Commit and publish the provider increment before any Atlas gitlink
-      advance. Stage E device-route execution remains a separate
-      Hephaestus/Coeus co-evolution item.
+      advance. The shared Atlas overlay prevents the locked local gate until
+      the peer-owned lockfile is reconciled. Stage E device-route execution
+      remains a separate Hephaestus/Coeus co-evolution item.
 
 ## In-flight claim — ISSUE-214 resource-pool clear linearizability [patch]
 

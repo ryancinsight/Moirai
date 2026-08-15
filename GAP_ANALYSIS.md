@@ -1,5 +1,25 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-08-14 GPU buffer range validation
+
+### Fixed
+
+`moirai-gpu::GpuBuffer::write`, `map_read`, and `map_write` previously formed
+buffer ranges with unchecked addition and subtraction. An invalid offset could
+panic in debug builds or produce wrapped bounds in release builds before wgpu
+validated the request. The provider now uses one checked range seam for all
+three operations. It rejects offsets past the buffer, requested ends past the
+buffer, and address-space overflow with `GpuError::ValidationError`.
+
+Evidence: the co-located tests cover the empty end boundary, an out-of-bounds
+offset, an out-of-bounds requested end, and `u64` end overflow. Offline
+provider gates pass: warning-denied Clippy, Nextest 14/14, doctests 0/0, and
+rustdoc. The `--locked` form was not runnable in this Atlas checkout because
+the parent development overlay has generated local patch entries that are not
+represented by the provider's committed lockfile; the peer-owned `Cargo.lock`
+was preserved. No GPU hardware execution is claimed. Device-route execution
+remains the separate Hephaestus/Coeus Stage E integration item.
+
 ## 2026-08-14 Interleaved execution tests use event synchronization
 
 ### Fixed
