@@ -2,12 +2,8 @@
 
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
-#![expect(
-    clippy::unwrap_used,
-    reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
-)]
 
-use crate::{error::GpuResult, GpuDevice, GpuError};
+use crate::{error::GpuResult, lock_mutex, GpuDevice, GpuError};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Mutex;
@@ -282,8 +278,8 @@ impl GpuBufferPool {
         size: u64,
         usage: BufferUsage,
     ) -> GpuResult<GpuBuffer> {
-        let mut pools = self.pools.lock().unwrap();
-        let mut stats = self.stats.lock().unwrap();
+        let mut pools = lock_mutex(&self.pools);
+        let mut stats = lock_mutex(&self.stats);
 
         let key = (size, usage);
 
@@ -305,7 +301,7 @@ impl GpuBufferPool {
 
     /// Return a buffer to the pool
     pub fn release(&self, buffer: GpuBuffer) {
-        let mut pools = self.pools.lock().unwrap();
+        let mut pools = lock_mutex(&self.pools);
         let key = (buffer.size(), buffer.usage());
 
         pools.entry(key).or_default().push(buffer);
@@ -313,7 +309,7 @@ impl GpuBufferPool {
 
     /// Get pool statistics
     pub fn stats(&self) -> (u64, u64, u64, u64) {
-        let stats = self.stats.lock().unwrap();
+        let stats = lock_mutex(&self.stats);
         (
             stats.total_allocated,
             stats.total_reused,
@@ -324,8 +320,8 @@ impl GpuBufferPool {
 
     /// Clear the pool and free all buffers
     pub fn clear(&self) {
-        let mut pools = self.pools.lock().unwrap();
-        let mut stats = self.stats.lock().unwrap();
+        let mut pools = lock_mutex(&self.pools);
+        let mut stats = lock_mutex(&self.stats);
 
         pools.clear();
         stats.current_memory_usage = 0;
@@ -335,5 +331,23 @@ impl GpuBufferPool {
 impl Default for GpuBufferPool {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod lock_tests {
+    use super::lock_mutex;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::sync::Mutex;
+
+    #[test]
+    fn poisoned_pool_lock_recovers_state() {
+        let mutex = Mutex::new(7_u32);
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = mutex.lock().expect("test lock must be available");
+            panic!("poison the test lock");
+        }));
+
+        assert_eq!(*lock_mutex(&mutex), 7);
     }
 }

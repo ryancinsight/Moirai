@@ -75,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Recover poisoned GPU buffer-pool mutexes instead of propagating a prior
+  worker panic into every later pool operation.
+
 - Validate GPU buffer write and mapping ranges with checked arithmetic, so
   invalid offsets, bounds, and overflowing spans return typed validation
   errors before reaching wgpu.
