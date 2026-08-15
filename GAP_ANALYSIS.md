@@ -1,5 +1,22 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-08-14 Interleaved execution tests use event synchronization
+
+### Fixed
+
+`tests/src/interleaved_execution_tests.rs` used `std::thread::sleep`,
+wall-clock polling, and completion-time assertions in the rapid-switching,
+cascade, burst-load, and error-handling cases. The error-condition predicate
+was also unreachable inside its branch (`i % 10 == 0` under `i % 4 == 3`), so
+the intended handled-error result was never produced.
+
+The tests now retain task handles, join every task, and use bounded channel
+receives only where an inter-stage completion event is part of the contract.
+The burst case compares returned work against an independently computed exact
+sum, and the error case asserts 15 successes plus 5 handled errors. Evidence:
+`cargo fmt --all -- --check` and configured Nextest
+`-p moirai-tests interleaved_execution_tests::` pass 6/6 on Windows.
+
 ## 2026-07-27 Unreproduced exactly-once failure in the Chase-Lev deque
 
 ### Open — watchpoint, not a confirmed defect
