@@ -6,7 +6,7 @@
 
 `tests/src/interleaved_execution_tests.rs` used `std::thread::sleep`,
 wall-clock polling, and completion-time assertions in the rapid-switching,
-cascade, burst-load, and error-handling cases. The error simulation predicate
+cascade, burst-load, and error-handling cases. The error-condition predicate
 was also unreachable inside its branch (`i % 10 == 0` under `i % 4 == 3`), so
 the intended handled-error result was never produced.
 
