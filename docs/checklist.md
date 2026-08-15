@@ -45,6 +45,16 @@
 
 ## Remaining Gap Register
 
+## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
+
+- [x] Claim `moirai-gpu/src/lib.rs`, `moirai-gpu/src/buffer.rs`, their
+      co-located tests, and the provider PM records on the shared Moirai tree.
+- [ ] Centralize poison recovery for the GPU buffer-pool mutexes.
+- [ ] Add a deterministic regression proving a poisoned lock remains usable.
+- [ ] Run focused formatting, warning-denied Clippy, Nextest, doctest, and
+      rustdoc gates; publish and merge the provider increment before any Atlas
+      gitlink advance.
+
 ## In-flight claim — MOI-GPU-SAFE-001 GPU buffer range validation [patch]
 
 - [x] Claim `moirai-gpu/src/buffer.rs`, its co-located tests, and the provider
