@@ -2,6 +2,19 @@
 
 **Target**: Unreleased
 
+## MOI-INTERLEAVED-065 — event-synchronized execution coverage [patch] — complete
+
+- Owner: Codex on `test/moirai-interleaved-synchronization`.
+- [x] Replace sleep/poll synchronization and wall-clock performance assertions
+      in `tests/src/interleaved_execution_tests.rs` with task joins and bounded
+      completion channels.
+- [x] Exercise the interleaved error result branch and assert the exact
+      success/error partition; retain exact work, cascade-stage, and resource
+      integrity assertions.
+- Evidence: `cargo fmt --all -- --check` and configured Nextest
+  `-p moirai-tests interleaved_execution_tests::` pass, 6/6 tests. The test
+  module contains no `std::thread::sleep`, `Instant`, or wall-clock polling.
+
 ## MOI-MNEMOSYNE-PACKAGE-1 — package identity [patch] — complete
 
 - Owner: Codex on `codex/moirai-mnemosyne-package`.
