@@ -65,7 +65,9 @@ architecture definition.
   turning a prior worker panic into a permanent panic on every later pool
   operation. Added one crate-local lock policy and a deterministic
   poison-recovery regression. Evidence: offline warning-denied Clippy, Nextest
-  15/15, doctests 0/0, and rustdoc pass; hosted publication remains pending.
+  15/15, doctests 0/0, and rustdoc pass. Provider PR #139 merged as
+  `8e04022`; hosted workspace, binding, platform-wheel, Loom, and CodeRabbit
+  checks were green, while the report-only `recurseml/analysis` job errored.
 
 
 **Project**: Moirai Concurrency Library

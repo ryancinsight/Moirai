@@ -16,7 +16,9 @@ Evidence: offline formatting, warning-denied Clippy, Nextest 15/15, doctests
 asserts that the recovered value remains available. The provider's `--locked`
 gate remains blocked by the parent Atlas overlay's generated local patch
 entries; the peer-owned lockfile is preserved. No GPU hardware execution or
-accelerator-route integration is claimed.
+accelerator-route integration is claimed. Provider PR #139 merged as
+`8e04022` with hosted workspace, binding, platform-wheel, Loom, and CodeRabbit
+checks green; the report-only `recurseml/analysis` job remained errored.
 
 ## 2026-08-14 GPU buffer range validation
 
