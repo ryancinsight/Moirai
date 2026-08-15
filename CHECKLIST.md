@@ -2,6 +2,16 @@
 
 **Target**: Unreleased
 
+## MOI-CI-EXACT-001 — exact-head Rust and Loom verification [patch] — complete
+
+- [x] Dispatch the committed Rust workflow against the Atlas-pinned provider
+      head `a6337abe7fee865d92872c1364d3870a8ee398f1`.
+- [x] Verify both the workspace gate and Loom channel models at that exact
+      head.
+- Evidence: hosted Rust Workspace run `31870317060` passed both `Workspace
+  gate` and `Loom channel models` at the exact provider head. The Atlas
+  gitlink already matches this head; no pointer change is required.
+
 ## MOI-INTERLEAVED-065 — event-synchronized execution coverage [patch] — complete
 
 - Owner: Codex on `test/moirai-interleaved-synchronization`.
