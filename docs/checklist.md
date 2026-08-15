@@ -21,6 +21,12 @@
 
 **Current verification**: Moirai 0.5.0 follows the merged Mnemosyne 0.7/Core 0.2 provider graph and requires Rust 1.95. Rust 1.95 compiles the focused GPU consumer while Rust 1.94 rejects the graph; Clippy is warning-clean, Nextest passes 10/10, doctests pass 0/0, rustdoc is warning-clean, and each provider has one resolved lock source identity.
 
+### Consumer dependency boundary audit
+
+- [x] [patch] Audit Leto `293beec`, Coeus `8ccb481`, and Apollo `df2c40b`
+      with `cargo tree --workspace -e no-dev`; each returns zero `rayon` and
+      `tokio` matches. No compatibility shim is added.
+
 ### Facade test synchronization
 
 - [x] Replace wall-clock sleeps, conditional result checks, and debug output

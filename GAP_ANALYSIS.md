@@ -1,5 +1,13 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-08-14 Consumer dependency boundary audit
+
+The requested Leto, Coeus, and Apollo consumer boundary is clean at the
+current fetched heads: `293beec`, `8ccb481`, and `df2c40b`, respectively.
+`cargo tree --workspace -e no-dev` returned zero `rayon` or `tokio` matches for
+each consumer. No compatibility shim is required; the provider boundary is
+already direct and dependency-clean.
+
 ## 2026-08-14 GPU buffer-pool lock recovery
 
 ### Fixed
