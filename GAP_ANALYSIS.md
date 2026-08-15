@@ -17,8 +17,11 @@ provider gates pass: warning-denied Clippy, Nextest 14/14, doctests 0/0, and
 rustdoc. The `--locked` form was not runnable in this Atlas checkout because
 the parent development overlay has generated local patch entries that are not
 represented by the provider's committed lockfile; the peer-owned `Cargo.lock`
-was preserved. No GPU hardware execution is claimed. Device-route execution
-remains the separate Hephaestus/Coeus Stage E integration item.
+was preserved. Provider PR #137 merged as `d51e73e` with the hosted workspace,
+binding, platform-wheel, loom, CodeRabbit, and source checks green; the
+report-only `recurseml/analysis` context remained errored. No GPU hardware
+execution is claimed. Device-route execution remains the separate
+Hephaestus/Coeus Stage E integration item.
 
 ## 2026-08-14 Interleaved execution tests use event synchronization
 
