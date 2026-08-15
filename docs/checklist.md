@@ -52,8 +52,10 @@
 - [x] Centralize poison recovery for the GPU buffer-pool mutexes.
 - [x] Add a deterministic regression proving a poisoned lock remains usable.
 - [x] Run focused formatting, warning-denied Clippy, Nextest 15/15, doctests
-      0/0, and rustdoc. Publish and merge the provider increment before any
-      Atlas gitlink advance.
+      0/0, and rustdoc. Provider PR #139 merged as `8e04022`; retain the
+      exact `--locked` limitation from the shared Atlas overlay and the
+      separate Stage E Hephaestus/Coeus boundary before any Atlas gitlink
+      advance.
 
 ## In-flight claim — MOI-GPU-SAFE-001 GPU buffer range validation [patch]
 
