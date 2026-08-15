@@ -45,6 +45,19 @@
 
 ## Remaining Gap Register
 
+## In-flight claim — MOI-GPU-SAFE-001 GPU buffer range validation [patch]
+
+- [x] Claim `moirai-gpu/src/buffer.rs`, its co-located tests, and the provider
+      PM records on the shared Moirai tree.
+- [ ] Replace unchecked buffer offset/length arithmetic with one checked
+      validation seam used by write and mapping operations.
+- [ ] Add negative, boundary, and overflow-range value assertions.
+- [ ] Run focused formatting, Clippy, Nextest, doctest, and rustdoc gates;
+      record exact results in `GAP_ANALYSIS.md`.
+- [ ] Commit and publish the provider increment before any Atlas gitlink
+      advance. Stage E device-route execution remains a separate
+      Hephaestus/Coeus co-evolution item.
+
 ## In-flight claim — ISSUE-214 resource-pool clear linearizability [patch]
 
 - [x] Claim `moirai-sync/src/sync/resource_pool.rs`, its co-located tests and
