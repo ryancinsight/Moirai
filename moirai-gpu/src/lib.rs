@@ -46,6 +46,13 @@
 
 #[cfg(feature = "wgpu-backend")]
 use std::sync::Arc;
+#[cfg(feature = "wgpu-backend")]
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+#[cfg(feature = "wgpu-backend")]
+pub(crate) fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 #[cfg(feature = "wgpu-backend")]
 pub mod buffer;

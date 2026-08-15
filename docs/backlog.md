@@ -60,11 +60,12 @@ architecture definition.
   warning-denied Clippy, Nextest 14/14, doctests 0/0, and rustdoc pass at the
   provider increment; device-route execution remains outside this item and is
   tracked by Stage E.
-- [~] [patch] MOI-GPU-SAFE-002: make GPU buffer-pool mutex recovery explicit.
+- [x] [patch] MOI-GPU-SAFE-002: make GPU buffer-pool mutex recovery explicit.
   A poisoned pool lock must recover its structurally valid state rather than
   turning a prior worker panic into a permanent panic on every later pool
-  operation. Add one crate-local lock policy and a deterministic poison-recovery
-  regression.
+  operation. Added one crate-local lock policy and a deterministic
+  poison-recovery regression. Evidence: offline warning-denied Clippy, Nextest
+  15/15, doctests 0/0, and rustdoc pass; hosted publication remains pending.
 
 
 **Project**: Moirai Concurrency Library

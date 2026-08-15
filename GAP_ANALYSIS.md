@@ -1,5 +1,23 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-08-14 GPU buffer-pool lock recovery
+
+### Fixed
+
+`GpuBufferPool` previously unwrapped both pool mutexes. A panic while a worker
+held one of those locks poisoned the mutex and made every later acquire,
+release, statistics, or clear operation panic as well. The GPU provider now
+owns one crate-local poison-recovery policy, matching the transport layer's
+structural-state contract, and the pool's state remains usable after a
+poisoning panic.
+
+Evidence: offline formatting, warning-denied Clippy, Nextest 15/15, doctests
+0/0, and rustdoc pass. The regression poisons a mutex with `catch_unwind` and
+asserts that the recovered value remains available. The provider's `--locked`
+gate remains blocked by the parent Atlas overlay's generated local patch
+entries; the peer-owned lockfile is preserved. No GPU hardware execution or
+accelerator-route integration is claimed.
+
 ## 2026-08-14 GPU buffer range validation
 
 ### Fixed
