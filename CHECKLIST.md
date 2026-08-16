@@ -2,14 +2,32 @@
 
 **Target**: Unreleased
 
-## ATLAS-MOIRAI-AUDIT-076 — Isolated provider re-verification — in progress 2026-08-16
+## ATLAS-MOIRAI-AUDIT-076 — Isolated provider re-verification — closed 2026-08-16
 
-- [ ] Re-run the locked workspace gate set from an isolated checkout at the
+- [x] Re-run the locked workspace gate set from an isolated checkout at the
       current provider head and record exact results in `GAP_ANALYSIS.md`.
-- [ ] Reconcile release and trusted-publisher status with the existing
+- [x] Reconcile release and trusted-publisher status with the existing
       provider boundaries; do not represent the external PyPI account blocker
       as a code defect or release completion.
-- [ ] Complete the provider-local audit documentation and hosted checks.
+- [x] Complete the provider-local audit documentation and hosted checks.
+      Local gates are green; hosted validation remains the release boundary.
+
+## MOI-SEC-077 — dependency advisory closure — open residuals
+
+- [x] Upgrade the direct PyO3 dependency from `0.22.6` to `0.29.2`, replace
+      the removed `Python::allow_threads` API with `Python::detach`, and pass
+      the full Rust workspace gate.
+- [x] Remove the unused benchmark-only `statistical` dependency and its
+      deprecated `rand_os` transitive chain.
+- [x] Add `deny.toml` and a pinned supply-chain CI job. The configured check
+      passes advisories, bans, licenses, and sources; duplicate-version and
+      workspace path-dependency wildcard diagnostics remain warnings.
+- [ ] Replace or remove RSA signing and verification before exposing it to an
+      attacker-observable service. `rsa 0.9.10` remains under
+      `RUSTSEC-2023-0071`; no safe upstream release exists, so the advisory is
+      an explicit cargo-deny residual rather than a hidden pass.
+- [ ] Replace the indirect `paste` dependency pulled by the wgpu Metal stack
+      when a safe upstream route exists (`RUSTSEC-2024-0436`).
 
 ## MOI-CI-EXACT-001 — exact-head Rust and Loom verification [patch] — complete
 

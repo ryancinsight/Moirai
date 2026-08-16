@@ -1,5 +1,39 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-08-16 Provider audit and dependency-advisory closure
+
+The isolated provider head is `a648a82` before this increment. The audit first
+ran the existing locked workspace gates: formatting, all-target/all-feature
+check, strict Clippy, 800/800 Nextest tests with 6 configured skips, workspace
+doctests (18 passed, 2 ignored), and warning-denied Rustdoc. The full post-fix
+gate was then repeated after the dependency changes and remained green: locked
+check, strict Clippy, 800/800 Nextest with 6 skips, workspace doctests (18
+passed, 2 ignored), and Rustdoc.
+
+The supply-chain gap was closed by adding `deny.toml` and a pinned
+`Supply-chain` job to `rust-ci.yml`. With the Atlas development overlay
+temporarily disabled by the committed overlay script, the locked cargo-deny
+run reported `advisories ok, bans ok, licenses ok, sources ok`. Duplicate
+versions and workspace path-dependency wildcards remain warnings because they
+are current graph structure, not ignored security findings.
+
+The direct PyO3 `0.22.6` dependency carried `RUSTSEC-2025-0020` and
+`RUSTSEC-2026-0177`. It now resolves to `0.29.2`; the PyO3 0.29 API migration
+uses `Python::detach` in the binding boundary. The unused benchmark-only
+`statistical` dependency was deleted, removing its deprecated `rand_os`
+chain. The direct RSA dependency remains at `0.9.10` under
+`RUSTSEC-2023-0071` because the advisory has no safe upstream release; RSA
+replacement/removal is an explicit open checklist residual. The indirect
+`paste` advisory (`RUSTSEC-2024-0436`) is likewise retained as an explicit
+residual through the wgpu Metal dependency path.
+
+The local evidence covers Rust compilation, value-semantic tests, doctests,
+documentation, and dependency-policy evaluation. It does not establish
+Python wheel installation on every supported platform, GPU hardware behavior,
+runtime performance, memory usage, or trusted-publisher registration. Those
+remain governed by the hosted Python/release workflows and the existing
+release checklist, including the external PyPI blocker.
+
 ## 2026-08-14 Consumer dependency boundary audit
 
 The requested Leto, Coeus, and Apollo consumer boundary is clean at the
