@@ -2,6 +2,15 @@
 
 **Target**: Unreleased
 
+## ATLAS-MOIRAI-AUDIT-076 — Isolated provider re-verification — in progress 2026-08-16
+
+- [ ] Re-run the locked workspace gate set from an isolated checkout at the
+      current provider head and record exact results in `GAP_ANALYSIS.md`.
+- [ ] Reconcile release and trusted-publisher status with the existing
+      provider boundaries; do not represent the external PyPI account blocker
+      as a code defect or release completion.
+- [ ] Complete the provider-local audit documentation and hosted checks.
+
 ## MOI-CI-EXACT-001 — exact-head Rust and Loom verification [patch] — complete
 
 - [x] Dispatch the committed Rust workflow against the Atlas-pinned provider
