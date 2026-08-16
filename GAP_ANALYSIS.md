@@ -17,6 +17,13 @@ run reported `advisories ok, bans ok, licenses ok, sources ok`. Duplicate
 versions and workspace path-dependency wildcards remain warnings because they
 are current graph structure, not ignored security findings.
 
+The policy was tightened after review: the pinned action is annotated as
+cargo-deny-action 2.1.1, and `unused-ignored-advisory = "deny"` makes a stale
+exception fail the gate. Both residual advisories use structured entries with
+their replacement rationale. cargo-deny 0.20.2 passes the locked graph with
+both residual advisories encountered, so the exceptions are active rather than
+unused.
+
 The direct PyO3 `0.22.6` dependency carried `RUSTSEC-2025-0020` and
 `RUSTSEC-2026-0177`. It now resolves to `0.29.2`; the PyO3 0.29 API migration
 uses `Python::detach` in the binding boundary. The unused benchmark-only

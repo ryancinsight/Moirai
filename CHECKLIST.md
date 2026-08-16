@@ -22,6 +22,10 @@
 - [x] Add `deny.toml` and a pinned supply-chain CI job. The configured check
       passes advisories, bans, licenses, and sources; duplicate-version and
       workspace path-dependency wildcard diagnostics remain warnings.
+- [x] Align the pinned action annotation with cargo-deny-action 2.1.1 and set
+      `unused-ignored-advisory = "deny"` with structured residual reasons;
+      cargo-deny 0.20.2 passes the locked graph with both residual advisories
+      encountered and no unused-ignore diagnostics.
 - [ ] Replace or remove RSA signing and verification before exposing it to an
       attacker-observable service. `rsa 0.9.10` remains under
       `RUSTSEC-2023-0071`; no safe upstream release exists, so the advisory is

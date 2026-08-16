@@ -3,11 +3,12 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+unused-ignored-advisory = "deny"
 # These advisories have no safe upstream release that removes the finding.
 # Each remains a tracked residual in CHECKLIST.md and GAP_ANALYSIS.md.
 ignore = [
-    "RUSTSEC-2023-0071", # RSA Marvin timing risk; RSA support needs a replacement design.
-    "RUSTSEC-2024-0436", # paste is pulled by wgpu's Metal backend; no safe upgrade exists.
+    { id = "RUSTSEC-2023-0071", reason = "RSA support remains required by moirai-crypto; replacement design is tracked in CHECKLIST.md because no safe upstream release is available." },
+    { id = "RUSTSEC-2024-0436", reason = "paste is pulled by wgpu's Metal backend; no safe upstream upgrade exists and the residual is tracked in CHECKLIST.md." },
 ]
 
 [licenses]
