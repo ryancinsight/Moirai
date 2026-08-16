@@ -80,7 +80,7 @@ fastrand = "2.0"
 proptest = "1.4"
 quickcheck = "1.0"
 quickcheck_macros = "1.0"
-pyo3 = "0.22"
+pyo3 = "0.29.2"
 # Exhaustive-interleaving model checker for lock-free code (gated behind
 # `--cfg loom`; not built in normal/CI test runs).
 loom = "0.7"
