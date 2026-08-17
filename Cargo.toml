@@ -86,7 +86,7 @@ pyo3 = "0.29.2"
 loom = "0.7"
 
 [profile.release]
-lto = true
+lto = "thin"
 codegen-units = 1
 panic = "abort"
 opt-level = 3
