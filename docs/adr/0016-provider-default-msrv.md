@@ -1,6 +1,6 @@
 # ADR 016: Provider-default MSRV alignment
 
-Status: accepted
+Status: Accepted
 
 ## Context
 
