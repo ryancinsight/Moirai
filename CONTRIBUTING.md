@@ -21,8 +21,9 @@ is `moirai/` (package `moirai-runtime`, library name `moirai`), and
   targets on the `moirai` facade package, so run them with
   `cargo run -p moirai-runtime --example <name>`.
 - `docs/book/` is an mdBook deployed to GitHub Pages.
-- `docs/adr.md` and `docs/*-checklist.md` carry architecture decisions and their
-  execution state; `docs/backlog.md` is the work board.
+- `docs/adr/` carries one architecture decision per file, indexed by the
+  generated `docs/adr/README.md`; `docs/*-checklist.md` carries their execution
+  state; `docs/backlog.md` is the work board.
 
 ## Branching and pull requests
 
@@ -112,7 +113,8 @@ Documentation ships in the same change as the code it describes.
 
 - Public API contracts belong in Rustdoc, with `# Errors`, `# Panics`, and
   `# Safety` sections where they apply and a runnable `# Examples` doctest.
-- Architecture decisions belong in `docs/adr.md` and the per-ADR checklists.
+- Architecture decisions belong in `docs/adr/` (one record per file) and the
+  per-ADR checklists.
 - Externally observable changes go in `CHANGELOG.md` under `## [Unreleased]`,
   in Keep a Changelog format. Do not bump versions in a feature PR; the version
   is assigned at release.

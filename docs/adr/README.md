@@ -6,4 +6,35 @@
 
 | ADR | Title | Status |
 | --- | ----- | ------ |
-| [0016](0016-provider-default-msrv.md) | Provider-default MSRV alignment | Accepted |
+| [0001](0001-moirai-as-complete-alternative-to-tokio-rayon.md) | Moirai as Complete Alternative to Tokio/Rayon | Accepted |
+| [0002](0002-wasm-first-async-architecture.md) | WASM-First Async Architecture | Accepted |
+| [0003](0003-zero-copy-communication-primitives.md) | Zero-Copy Communication Primitives | Accepted |
+| [0004](0004-hybrid-execution-model.md) | Hybrid Execution Model | Accepted |
+| [0005](0005-unified-thread-scheduler-for-executor-work-classes.md) | Unified Thread Scheduler for Executor Work Classes | Accepted |
+| [0006](0006-async-i-o-compatibility-and-tokio-trait-integration.md) | Async I/O Compatibility and Tokio Trait Integration | Accepted |
+| [0007](0007-webassembly-browser-event-loop-integration.md) | WebAssembly Browser Event-Loop Integration | Accepted |
+| [0008](0008-scheduler-route-consumption-and-transport-ownership-boundary.md) | Scheduler Route Consumption and Transport Ownership Boundary | Accepted |
+| [0009](0009-parallel-iterator-vertical-split.md) | Parallel Iterator Vertical Split | Accepted |
+| [0010](0010-rayon-style-transform-adapter-expansion.md) | Rayon-Style Transform Adapter Expansion | Accepted |
+| [0011](0011-rayon-style-utility-adapter-expansion.md) | Rayon-Style Utility Adapter Expansion | Accepted |
+| [0012](0012-parallel-slice-sorting-boundary.md) | Parallel Slice Sorting Boundary | Accepted |
+| [0013](0013-async-i-o-facade-audit-boundary.md) | Async I/O Facade Audit Boundary | Accepted |
+| [0014](0014-reactor-bound-async-i-o-and-readiness-integration.md) | Reactor-Bound Async I/O and Readiness Integration | Accepted |
+| [0016](0016-one-ring-buffer-core-and-one-channel-family-in-moirai-core.md) | One Ring-Buffer Core and One Channel Family in moirai-core | Proposed |
+| [0017](0017-moirai-iter-disposition-prune-vs-continue.md) | moirai-iter Disposition (prune vs continue) | Accepted |
+| [0018](0018-streaming-asynciterator-poll-next-to-remove-into-vec-block-on.md) | Streaming AsyncIterator (poll_next) to remove into_vec block_on | Proposed |
+| [0019](0019-help-while-waiting-scheduler-scope-nested-scope-soundness.md) | Help-while-waiting scheduler scope (nested-scope soundness) | Accepted |
+| [0020](0020-typed-work-stealing-capabilities.md) | Typed work-stealing capabilities | Accepted |
+| [0021](0021-dedicated-bounded-lane-for-blocking-work.md) | Dedicated bounded lane for blocking work | Accepted |
+| [0022](0022-moirai-iter-nested-fork-join-runs-on-the-scheduler-scope.md) | moirai-iter nested fork-join runs on the scheduler scope | Accepted |
+| [0023](0023-delete-moirai-iter-s-threadpool.md) | Delete `moirai-iter`'s ThreadPool | Accepted |
+| [0024](0024-spscchannel-is-reached-only-through-its-halves.md) | SpscChannel is reached only through its halves | Accepted |
+| [0025](0025-producer-and-consumer-roles-and-a-cached-opposite-index.md) | Producer and Consumer roles, and a cached opposite index | Accepted |
+| [0026](0026-a-borrowed-spsc-half-pair-beside-the-arc-backed-one.md) | A borrowed SPSC half pair beside the `Arc`-backed one | Accepted |
+| [0027](0027-facade-numa-policy-reaches-scheduler-construction.md) | Facade NUMA policy reaches scheduler construction | Accepted |
+| [0028](0028-pyo3-python-comparison-harness-boundary.md) | PyO3 Python Comparison Harness Boundary | Accepted |
+| [0029](0029-typed-iterator-channel-fusion-boundary.md) | Typed Iterator Channel Fusion Boundary | Accepted |
+| [0030](0030-iterator-base-and-streaming-monomorphization.md) | Iterator Base And Streaming Monomorphization | Accepted |
+| [0031](0031-timer-wheel-lazy-cancellation.md) | Timer Wheel Lazy Cancellation | Accepted |
+| [0032](0032-blocking-result-wait-spin-budget.md) | Blocking Result Wait Spin Budget | Accepted |
+| [0033](0033-provider-default-msrv.md) | Provider-default MSRV alignment | Accepted |

@@ -1,4 +1,4 @@
-# ADR 016: Provider-default MSRV alignment
+# ADR-033: Provider-default MSRV alignment
 
 Status: Accepted
 

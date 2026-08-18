@@ -77,7 +77,7 @@ fn scheduler_routes_bind_to_archived_transport_without_fake_remote_execution() {
     let route = read_benchmark("../moirai-transport/src/route.rs");
     let route_tests = read_benchmark("../moirai-transport/src/route/tests.rs");
     let route_all = format!("{payload}\n{route}\n{route_tests}");
-    let adr = read_benchmark("../docs/adr.md");
+    let adr = read_benchmark("../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md");
     let checklist = read_benchmark("../docs/adr-008-checklist.md");
 
     for required in [
@@ -195,7 +195,7 @@ fn remote_transport_uses_real_length_prefixed_tcp_bytes() {
         .find("/// TCP transport for reliable network communication.")
         .expect("TCP transport marker must follow NetworkTransport impl");
     let network_impl = &network_tail[..network_end];
-    let adr = read_benchmark("../docs/adr.md");
+    let adr = read_benchmark("../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md");
     let checklist = read_benchmark("../docs/adr-008-checklist.md");
 
     for required in [
@@ -266,7 +266,7 @@ fn remote_task_envelopes_execute_value_checked_builtin_operations() {
     let server = read_benchmark("../moirai-transport/src/remote_task/server.rs");
     let tests = read_benchmark("../moirai-transport/src/remote_task/tests.rs");
     let source_all = format!("{payload}\n{source}\n{capability}\n{server}\n{tests}");
-    let adr = read_benchmark("../docs/adr.md");
+    let adr = read_benchmark("../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md");
     let checklist = read_benchmark("../docs/adr-008-checklist.md");
 
     assert!(
@@ -370,7 +370,7 @@ fn remote_task_envelopes_execute_value_checked_builtin_operations() {
 fn process_supervisor_uses_real_os_process_lifecycle() {
     let lib = read_benchmark("../moirai-transport/src/lib.rs");
     let source = read_benchmark("../moirai-transport/src/process.rs");
-    let adr = read_benchmark("../docs/adr.md");
+    let adr = read_benchmark("../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md");
     let checklist = read_benchmark("../docs/adr-008-checklist.md");
 
     assert!(

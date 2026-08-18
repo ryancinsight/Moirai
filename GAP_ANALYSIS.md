@@ -382,7 +382,7 @@ deques, and the `moirai-async` reactor/waker via independent adversarial passes.
 - `AsyncFutureState::future_present` now uses a poll-owner `UnsafeCell<bool>` drop guard instead of atomic synchronization, and `result_handle_diagnostics` separates async completed-state store, future-present drop, lifecycle completion, sender-cell send/join, and full ready-completion component cost. `AsyncFutureState::poll` no longer checks that flag because the state machine is the authoritative poll-permission guard.
 - `moirai-python` now provides PyO3 wrappers over `moirai::Moirai`; the package removed standalone scheduler, planner, backend logic, workload kernels, Python comparison scripts, optional joblib dependency, generated CSV results, and empty/deprecated package trees.
 - `moirai-python` exposes only the native runtime lifecycle facade. Benchmark-specific Python functions remain excluded unless they correspond to comparable joblib or Tokio runtime primitives.
-- Formally designed and accepted [ADR-006](file:///d:/Moirai/docs/adr.md#adr-006-async-io-compatibility-and-tokio-trait-integration) (Async I/O Compatibility and Tokio Trait Integration) and [ADR-007](file:///d:/Moirai/docs/adr.md#adr-007-webassembly-browser-event-loop-integration) (WebAssembly Browser Event-Loop Integration), closing the deferred design gaps.
+- Formally designed and accepted [ADR-006](docs/adr/0006-async-i-o-compatibility-and-tokio-trait-integration.md) (Async I/O Compatibility and Tokio Trait Integration) and [ADR-007](docs/adr/0007-webassembly-browser-event-loop-integration.md) (WebAssembly Browser Event-Loop Integration), closing the deferred design gaps.
 - `moirai-iter::MoiraiIterator` now lives in a vertical `facade` leaf, carries `ExecutionContext` directly across transforms instead of reconstructing contexts through string matching, and rejects hidden empty-output fallbacks on execution failure.
 - `parallel_iterator_regression` adds focused multi-size Moirai/Rayon rows for parallel iterator throughput regression checks independent of the broader adapter suite, including borrowed copied reductions, chunked map/reduce, indexed step/interleave, partition/unzip, and position/find terminals.
 - `moirai-executor::schedule::route` now defines concrete thread/process/server/async-lane route values, sealed zero-sized `RoutePolicy` markers, and `HybridRouter<P>` for monomorphized route decisions. `process_server_scheduler_routing` benchmarks value-checked route summaries for sync, async, and blocking work classes without fabricating OS process or server execution.
@@ -537,7 +537,7 @@ pool.install(|| {
 - ✅ PAL reactor task handles publish completion for spawned ready tasks
 - ✅ PAL reactor task queues use bounded inline future storage, monomorphized future dispatch, and static platform reactor dispatch
 - ✅ Moirai async file and UDP comparison rows use the Moirai runtime surface
-- ✅ Production reactor-native Tokio I/O compatibility designed and accepted under [ADR-006](file:///d:/Moirai/docs/adr.md#adr-006-async-io-compatibility-and-tokio-trait-integration).
+- ✅ Production reactor-native Tokio I/O compatibility designed and accepted under [ADR-006](docs/adr/0006-async-i-o-compatibility-and-tokio-trait-integration.md).
 
 ### Impact: HIGH
 Essential for async applications requiring I/O operations.
@@ -616,7 +616,7 @@ Can be implemented as separate crates or community contributions.
 
 ### Current Status:
 - ✅ Basic WASM executor stub
-- ✅ Production WebAssembly browser event-loop integration designed and accepted under [ADR-007](file:///d:/Moirai/docs/adr.md#adr-007-webassembly-browser-event-loop-integration).
+- ✅ Production WebAssembly browser event-loop integration designed and accepted under [ADR-007](docs/adr/0007-webassembly-browser-event-loop-integration.md).
 
 ### Impact: MEDIUM
 Important for web deployment scenarios.

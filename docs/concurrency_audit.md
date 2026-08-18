@@ -308,7 +308,8 @@ grounds:
    `allocate_task_id`) was previously implemented, benchmarked, and rejected:
    it regressed `task_scheduling_overhead` (558–595 ns vs the mutex baseline)
    while only marginally helping the isolated spawn/join number — see
-   `docs/adr.md` (the "Lock-free registry allocator A/B" and "rejected after a
+   `docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md`
+   (the "Lock-free registry allocator A/B" and "rejected after a
    scheduling-gate regression" entries). The lock is **not** the bottleneck:
    per the ADR attribution it is ~26–31 ns (lock-only) / ~44–50 ns (full
    mutex registration), while slot initialization (108–133 ns) and lifecycle

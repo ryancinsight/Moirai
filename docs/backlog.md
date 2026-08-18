@@ -376,7 +376,7 @@ architecture definition.
   covers this caller) + empirical (`moirai-iter` 194/194, paired Criterion
   before/after: −45.7% stable 10 K, −9.8% unstable 4 M, no change on the
   remaining rows against a +3–11% noise floor).
-- **ADR**: `docs/adr.md` ADR-022 (Accepted).
+- **ADR**: `docs/adr/0022-moirai-iter-nested-fork-join-runs-on-the-scheduler-scope.md` (Accepted).
 - **Follow-ups**: `join_with`'s refused-fork panic (ISSUE-220, done);
   `ThreadPool` removal in favour of sequential fallbacks in `cache.rs`,
   `iter_ops/parallel.rs`, and `execution/parallel.rs`; the sort's caller-lane
@@ -403,7 +403,7 @@ architecture definition.
   `execute_iter` order, completeness and truncation tests; the truncation test
   verified red against the parent revision at 32 of 40 items returned) plus
   type-level (the deleted API is unreachable).
-- **ADR**: `docs/adr.md` ADR-023 (Accepted).
+- **ADR**: `docs/adr/0023-delete-moirai-iter-s-threadpool.md` (Accepted).
 - **Residual**: `execute_iter`'s `T/F/R: 'static` bounds are now unnecessary —
   the closure is borrowed, not moved into a `'static` job — but relaxing them
   changes `ExecutionContext::execute_iter` too and is left as its own item.
@@ -2761,7 +2761,7 @@ architecture definition.
 
 ### **Process Risks**  
 - **R004**: Documentation drift from implementation
-  - **Mitigation**: Update docs/adr.md every 3 sprints per Phase requirements
+  - **Mitigation**: Update docs/adr/ every 3 sprints per Phase requirements
   - **Probability**: Medium
   - **Impact**: Medium (maintenance burden)
 

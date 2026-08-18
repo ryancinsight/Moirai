@@ -285,7 +285,8 @@
 
 - [x] Remove direct Themis, Mnemosyne, and Melinoe revisions plus the local
   Melinoe patch from the workspace dependency SSOT.
-- [x] Record ADR 016: merged Mnemosyne 0.5/Core 0.2 requires Rust 1.95, so the
+- [x] Record ADR-033 (recorded as ADR 016 before the duplicate-number
+  resolution): merged Mnemosyne 0.5/Core 0.2 requires Rust 1.95, so the
   workspace advances from 0.3.1 to 0.4.0 without a compatibility branch.
 - [x] Refresh the lockfile against merged provider heads and prove one source
   identity for Melinoe, Themis, and Mnemosyne.
