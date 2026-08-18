@@ -17,7 +17,8 @@ pub mod timer;
 
 // Re-export io functionality
 pub use io::{
-    AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, MoiraiCompat, TokioCompat,
+    AsyncBufRead, AsyncLength, AsyncMemReader, AsyncRead, AsyncReadAt, AsyncReadExt, AsyncWrite,
+    AsyncWriteExt, MoiraiCompat, TokioCompat,
 };
 
 // Re-export async executor functionality
