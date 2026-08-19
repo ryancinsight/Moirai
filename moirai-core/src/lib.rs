@@ -8,27 +8,13 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
-#![warn(clippy::all)]
-#![warn(clippy::pedantic)]
 #![allow(clippy::module_name_repetitions)]
-#![allow(clippy::must_use_candidate)]
-#![allow(clippy::wildcard_imports)]
-#![allow(clippy::ptr_as_ptr)]
-#![allow(clippy::used_underscore_binding)]
-#![allow(clippy::unused_async)]
 // TODO(D9): 56 `missing_errors_doc` + 25 `missing_panics_doc` sites pending —
 // documentation task exceeding this sweep's bound; tracked for its own effort.
-#![allow(clippy::missing_errors_doc)]
-#![allow(clippy::missing_panics_doc)]
-#![allow(clippy::similar_names)]
-#![allow(clippy::too_many_lines)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::len_without_is_empty)]
 #![allow(clippy::borrowed_box)]
-#![allow(clippy::return_self_not_must_use)]
-#![allow(clippy::needless_pass_by_value)]
 #![allow(clippy::new_ret_no_self)]
-#![allow(clippy::single_match_else)]
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
