@@ -2,6 +2,20 @@
 
 **Target**: Unreleased
 
+## MOI-PACKAGE-REPRO-001 — self-contained workspace packaging [patch] — complete
+
+- [x] Add explicit `0.5.0` requirements to the benchmark and integration-test
+      path dependencies so Cargo can package the unpublished harnesses.
+- [x] Move the runtime examples under `moirai/examples/`, point every
+      `[[example]]` target and documentation link at the crate-owned files, and
+      set the facade README path to the package-local README.
+- [x] Complete binding and harness package metadata and update the route
+      contract assertion for the versioned transport dependency.
+- Evidence: standalone `cargo package --workspace --locked` packages and
+      verifies every workspace member with no warnings; pinned Clippy passes
+      with `-D warnings`, Nextest passes `800/800` with 6 configured skips,
+      doctests pass with 1 ignored case, and workspace rustdoc completes.
+
 ## ATLAS-MOIRAI-AUDIT-076 — Isolated provider re-verification — closed 2026-08-16
 
 - [x] Re-run the locked workspace gate set from an isolated checkout at the

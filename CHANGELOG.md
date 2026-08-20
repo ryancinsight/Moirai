@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Make the workspace packageable from a standalone checkout: internal
+  benchmark and integration-test dependencies carry explicit version
+  requirements, runtime examples live under the facade crate, and the PyO3
+  binding and test-harness manifests carry complete package metadata. Update
+  the routed-execution contract to track the versioned transport dependency.
 - Replace facade-test sleeps and conditional result checks with runtime
   quiescence joins and value-semantic assertions.
 - Thread the `numa_aware` facade builder setting through `ExecutorConfig` and
