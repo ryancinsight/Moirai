@@ -18,6 +18,20 @@ use std::sync::Arc;
 
 use moirai_scheduler::{ChaseLevDeque, ChaseLevStealer, SplitDeque, StealResult, StolenBatch};
 
+struct DropTracked {
+    id: usize,
+    drops: Arc<Vec<AtomicUsize>>,
+}
+
+impl Drop for DropTracked {
+    fn drop(&mut self) {
+        self.drops
+            .get(self.id)
+            .expect("test item id must be within the drop marks")
+            .fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// One generic harness over both deque implementations. The method names match
 /// the inherent ones; in the generic test body only the trait methods are in
 /// scope, so dispatch is unambiguous.
@@ -230,6 +244,49 @@ fn chase_lev_batch_exactly_once_high_thief_contention() {
     for _ in 0..8 {
         chase_lev(30_000, 8, 128, true);
     }
+}
+
+#[test]
+fn chase_lev_batch_claims_non_copy_values_before_reading_them() {
+    let n = 30_000;
+    let drops: Arc<Vec<AtomicUsize>> = Arc::new((0..n).map(|_| AtomicUsize::new(0)).collect());
+    let consumed = Arc::new(AtomicUsize::new(0));
+    let mut owner = ChaseLevDeque::<DropTracked>::new(128);
+
+    for id in 0..n {
+        owner.push(DropTracked {
+            id,
+            drops: Arc::clone(&drops),
+        });
+    }
+
+    let handles: Vec<_> = (0..8)
+        .map(|_| {
+            let stealer = owner.stealer();
+            let consumed = Arc::clone(&consumed);
+            std::thread::spawn(move || {
+                while consumed.load(Ordering::Acquire) < n {
+                    match stealer.steal_batch() {
+                        StealResult::Success(items) => {
+                            for item in items {
+                                std::hint::black_box(item);
+                                consumed.fetch_add(1, Ordering::Release);
+                            }
+                        }
+                        StealResult::Empty | StealResult::Retry => std::thread::yield_now(),
+                    }
+                }
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        handle.join().expect("thief thread must not panic");
+    }
+    drop(owner);
+
+    assert_eq!(consumed.load(Ordering::Acquire), n);
+    assert!(drops.iter().all(|count| count.load(Ordering::Relaxed) == 1));
 }
 
 // ── SplitDeque ──────────────────────────────────────────────────────────────
