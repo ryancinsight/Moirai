@@ -31,7 +31,10 @@
       index wrapping, single- and eight-thief exactly-once contention, batch
       contention, split-deque consumers, and non-`Copy` drop accounting.
       Pinned warning-denied Clippy passes for all scheduler targets, and the
-      pinned Loom Chase-Lev model passes 1/1.
+      pinned Loom Chase-Lev model passes 1/1. Nightly Miri passes all 16
+      deque-focused unit tests, including the panic-repair memmove; the full
+      19-test crate invocation reaches the remaining NUMA test, which calls
+      Themis' Windows NUMA FFI unsupported by Miri.
 
 ## ATLAS-MOIRAI-AUDIT-076 — Isolated provider re-verification — closed 2026-08-16
 

@@ -133,11 +133,8 @@ impl<'a, T, const N: usize> Drop for OffloadGuard<'a, T, N> {
             // elements, all within `N`. `copy` is a memmove, so the overlap
             // between source and destination is fine.
             unsafe {
-                std::ptr::copy(
-                    self.stack.items.as_ptr().add(self.moved),
-                    self.stack.items.as_mut_ptr(),
-                    remaining_to_move + retained,
-                );
+                let base = self.stack.items.as_mut_ptr();
+                std::ptr::copy(base.add(self.moved), base, remaining_to_move + retained);
             }
             self.stack.len -= self.moved;
         } else {
@@ -149,11 +146,8 @@ impl<'a, T, const N: usize> Drop for OffloadGuard<'a, T, N> {
                 // `retained` down to index 0 stays in bounds, and `copy`
                 // tolerates the overlap.
                 unsafe {
-                    std::ptr::copy(
-                        self.stack.items.as_ptr().add(self.count),
-                        self.stack.items.as_mut_ptr(),
-                        retained,
-                    );
+                    let base = self.stack.items.as_mut_ptr();
+                    std::ptr::copy(base.add(self.count), base, retained);
                 }
             }
             self.stack.len = retained;

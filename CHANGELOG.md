@@ -147,6 +147,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve Miri-valid provenance in `SplitDeque`'s panic-repair memmove by
+  deriving one mutable base pointer before the overlapping copy. The deque
+  unit suite now passes the focused Miri run without raw-copy violations.
+
 - Return every chunk from `ParallelContext::execute_iter`. It collected results
   from a channel until the senders dropped, so a panicking chunk ended the
   collect early and the call returned a short `Vec` with `Ok` — 32 of 40 items
