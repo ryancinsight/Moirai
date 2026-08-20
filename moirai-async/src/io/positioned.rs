@@ -19,6 +19,18 @@ pub trait AsyncReadAt: Send + Sync {
 pub trait AsyncLength: Send + Sync {
     /// Return the total number of readable bytes.
     fn len(&self) -> impl Future<Output = io::Result<u64>> + Send;
+
+    /// Whether the source has no readable bytes.
+    ///
+    /// Provided rather than required: a zero length is the only way to be
+    /// empty, so an implementor that answers `len` has already answered this.
+    /// It exists because a caller checking for an empty source should not have
+    /// to compare against zero itself, and because a `len` without an
+    /// `is_empty` is a trait-shape defect that `clippy::len_without_is_empty`
+    /// correctly rejects.
+    fn is_empty(&self) -> impl Future<Output = io::Result<bool>> + Send {
+        async move { Ok(self.len().await? == 0) }
+    }
 }
 
 /// A cloneable, read-only in-memory positioned source for tests and examples.
@@ -132,5 +144,20 @@ mod tests {
         let mut output = [];
 
         block_on(reader.read_at(u64::MAX, &mut output)).expect("empty read must succeed");
+    }
+
+    #[test]
+    fn empty_source_reports_is_empty() {
+        // The provided `is_empty` must agree with `len` at the boundary that
+        // matters: a source with no bytes, and one with exactly one.
+        block_on(async {
+            let empty = AsyncMemReader::new();
+            assert_eq!(empty.len().await.expect("len"), 0);
+            assert!(empty.is_empty().await.expect("is_empty"));
+
+            let one = AsyncMemReader::from_bytes(vec![0u8; 1]);
+            assert_eq!(one.len().await.expect("len"), 1);
+            assert!(!one.is_empty().await.expect("is_empty"));
+        });
     }
 }
