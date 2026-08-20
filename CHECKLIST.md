@@ -13,8 +13,23 @@
       contract assertion for the versioned transport dependency.
 - Evidence: standalone `cargo package --workspace --locked` packages and
       verifies every workspace member with no warnings; pinned Clippy passes
-      with `-D warnings`, Nextest passes `800/800` with 6 configured skips,
+      with `-D warnings`, Nextest passes `801/801` with 6 configured skips,
       doctests pass with 1 ignored case, and workspace rustdoc completes.
+
+## MOI-SCHED-EXACT-002 — Chase-Lev slot ownership [patch] — complete
+
+- [x] Claim each slot generation before moving a non-`Copy` value so a thief
+      cannot race owner reuse of a wrapped ring slot; publish the correct
+      generation for bottom pops and advance it for steals.
+- [x] Quiesce thief accesses during resize and copy generation state with live
+      values while retaining the allocation-free `MaybeUninit` storage contract.
+- [x] Add a non-`Copy` drop-count regression and update the artificial
+      index-wrap fixture to initialize generation state through the test seam.
+- Evidence: pinned Moirai scheduler nextest passes 27/27, including resize,
+      index wrapping, single- and eight-thief exactly-once contention, batch
+      contention, split-deque consumers, and non-`Copy` drop accounting.
+      Pinned warning-denied Clippy passes for all scheduler targets, and the
+      pinned Loom Chase-Lev model passes 1/1.
 
 ## ATLAS-MOIRAI-AUDIT-076 — Isolated provider re-verification — closed 2026-08-16
 

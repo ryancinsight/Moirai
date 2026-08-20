@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   executor seams together; the default remains topology-aware and an explicit
   `false` value skips NUMA assignment construction. This controls scheduler
   locality only and does not claim topology-directed memory placement.
+- Harden the Chase-Lev deque's inline storage protocol for arbitrary `Send`
+  values: slot generation claims now serialize owner reuse with thief reads,
+  resize quiescence preserves those claims across buffer replacement, and
+  batch steals use the same exactly-once arbitration as single steals without
+  per-item heap nodes.
 - **Breaking.** `Moirai::channel()` now returns a channel bounded at
   `moirai_core::channel::DEFAULT_CHANNEL_CAPACITY` (1024) instead of an
   unbounded one. A producer that outruns its consumer now blocks (or gets
