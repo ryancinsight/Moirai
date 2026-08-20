@@ -10,6 +10,8 @@ keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
 publish = false
+description = "PyO3 bindings for the Moirai concurrency runtime"
+documentation = "https://docs.rs/moirai-python"
 
 [lib]
 name = "_native"
