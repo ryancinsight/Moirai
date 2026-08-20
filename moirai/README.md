@@ -23,7 +23,7 @@ assert_eq!(total, 55);
 
 `join()` returns a nested result: the outer reports whether the task completed,
 the inner whether it errored. The runnable form of this is
-[`examples/basic_usage.rs`](../examples/basic_usage.rs).
+[`examples/basic_usage.rs`](examples/basic_usage.rs).
 
 ## What this crate is
 

@@ -37,7 +37,7 @@ This fragmentation leads to:
 
 #### Allowed Tokio/Rayon Usage
 - **Benchmarks Only**: Performance comparison testing (`benchmarks/` directory)
-- **Examples Only**: Comparison demonstrations (`examples/moirai_vs_tokio_rayon_comparison.rs`)
+- **Examples Only**: Comparison demonstrations (`moirai/examples/moirai_vs_tokio_rayon_comparison.rs`)
 - **Development Dependencies**: Testing infrastructure only
 
 #### Prohibited Tokio/Rayon Usage
