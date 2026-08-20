@@ -46,6 +46,17 @@
 - [x] Complete the provider-local audit documentation and hosted checks.
       Local gates are green; hosted validation remains the release boundary.
 
+## ATLAS-MOIRAI-BOOK-TEST-2026-08-20 — executable book examples [patch] — in progress
+
+- [x] Enable the shared Pages workflow's `mdbook-test` path with Rust `1.97.0`
+      and `cargo-package: moirai-runtime`.
+- [x] Add explicit `extern crate moirai;` declarations to both included book
+      example sources so rustdoc can resolve the staged facade library.
+- Evidence: format, locked runtime example check, example Clippy with
+      `-D warnings`, and `mdbook build` pass locally. PR #144 at `4d9bfb0` has
+      hosted Rust, Python, and Pages jobs queued; clean hosted execution is the
+      acceptance gate because the shared Windows target mixes historical rlibs.
+
 ## MOI-SEC-077 — dependency advisory closure — open residuals
 
 - [x] Upgrade the direct PyO3 dependency from `0.22.6` to `0.29.2`, replace

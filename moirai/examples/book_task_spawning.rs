@@ -5,6 +5,8 @@
 //! tasks, and demonstrates that results arrive in any order because the
 //! work-stealing scheduler assigns tasks to idle workers dynamically.
 
+extern crate moirai;
+
 use moirai::{Moirai, Priority};
 
 fn main() {

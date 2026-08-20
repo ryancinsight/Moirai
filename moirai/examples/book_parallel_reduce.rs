@@ -4,6 +4,8 @@
 //! task, and reduce the partial sums.  The work-stealing scheduler
 //! balances the load across all available CPU cores automatically.
 
+extern crate moirai;
+
 use moirai::Moirai;
 
 const N: usize = 1_000_000;
