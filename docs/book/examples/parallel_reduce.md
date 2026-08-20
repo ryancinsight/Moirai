@@ -1,7 +1,7 @@
 # Example: Parallel Reduce
 
 **Crate**: `moirai`
-**Source**: `examples/book_parallel_reduce.rs`
+**Source**: `moirai/examples/book_parallel_reduce.rs`
 
 Divide a 1 M-element array into 8 chunks, sum each chunk in a separate
 work-stealing task, and reduce the partial sums.  The scheduler balances the
@@ -10,7 +10,7 @@ load across all available CPU cores automatically.
 ## Source
 
 ```rust
-{{#include ../../../examples/book_parallel_reduce.rs}}
+{{#include ../../../moirai/examples/book_parallel_reduce.rs}}
 ```
 
 ## Output

@@ -297,8 +297,7 @@ fn test_chase_lev_deque_index_wrapping() {
     let stealer = deque.stealer();
 
     // Artificially initialize bottom and top to near overflow (isize::MAX)
-    deque.inner.top.store(isize::MAX - 2, Ordering::Relaxed);
-    deque.inner.bottom.store(isize::MAX - 2, Ordering::Relaxed);
+    deque.set_indices_for_test(isize::MAX - 2);
 
     // Push 3 items. bottom will transition:
     // isize::MAX - 2 -> isize::MAX - 1 -> isize::MAX -> isize::MIN

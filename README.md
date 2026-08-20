@@ -261,16 +261,16 @@ cargo run -p moirai-runtime --example realtime_chat_server
 cargo run -p moirai-runtime --example rayon_parallel_patterns
 ```
 
-- [Basic usage](examples/basic_usage.rs), [blocking channels](examples/blocking_channels.rs),
-  [sync primitives](examples/sync_primitives.rs), [iterator showcase](examples/iterator_showcase.rs)
-- [Web crawler](examples/web_crawler_parallel.rs), [video processing pipeline](examples/video_processing_pipeline.rs)
-- [Financial transaction processing](examples/financial_transaction_processing.rs),
-  [high-frequency data pipeline](examples/high_frequency_data_pipeline.rs)
-- [Chat server](examples/realtime_chat_server.rs), [load balancing](examples/network_service_load_balancing.rs),
-  [IoT device management](examples/iot_device_management.rs)
-- [Rayon-style patterns](examples/rayon_parallel_patterns.rs),
-  [Tokio-style patterns](examples/tokio_task_fanout.rs),
-  [Moirai vs Tokio/Rayon](examples/moirai_vs_tokio_rayon_comparison.rs)
+- [Basic usage](moirai/examples/basic_usage.rs), [blocking channels](moirai/examples/blocking_channels.rs),
+  [sync primitives](moirai/examples/sync_primitives.rs), [iterator showcase](moirai/examples/iterator_showcase.rs)
+- [Web crawler](moirai/examples/web_crawler_parallel.rs), [video processing pipeline](moirai/examples/video_processing_pipeline.rs)
+- [Financial transaction processing](moirai/examples/financial_transaction_processing.rs),
+  [high-frequency data pipeline](moirai/examples/high_frequency_data_pipeline.rs)
+- [Chat server](moirai/examples/realtime_chat_server.rs), [load balancing](moirai/examples/network_service_load_balancing.rs),
+  [IoT device management](moirai/examples/iot_device_management.rs)
+- [Rayon-style patterns](moirai/examples/rayon_parallel_patterns.rs),
+  [Tokio-style patterns](moirai/examples/tokio_task_fanout.rs),
+  [Moirai vs Tokio/Rayon](moirai/examples/moirai_vs_tokio_rayon_comparison.rs)
 
 Some examples require non-default features (`gpu_acceleration` needs `gpu`;
 `async_timer` and `tokio_task_fanout` need `async`).

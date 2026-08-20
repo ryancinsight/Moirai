@@ -2,6 +2,40 @@
 
 **Target**: Unreleased
 
+## MOI-PACKAGE-REPRO-001 — self-contained workspace packaging [patch] — complete
+
+- [x] Add explicit `0.5.0` requirements to the benchmark and integration-test
+      path dependencies so Cargo can package the unpublished harnesses.
+- [x] Move the runtime examples under `moirai/examples/`, point every
+      `[[example]]` target and documentation link at the crate-owned files, and
+      set the facade README path to the package-local README.
+- [x] Complete binding and harness package metadata and update the route
+      contract assertion for the versioned transport dependency.
+- Evidence: standalone `cargo package --workspace --locked` packages and
+      verifies every workspace member with no warnings; pinned Clippy passes
+      with `-D warnings`, Nextest passes `801/801` with 6 configured skips,
+      doctests pass with 1 ignored case, and workspace rustdoc completes.
+
+## MOI-SCHED-EXACT-002 — Chase-Lev slot ownership [patch] — complete
+
+- [x] Claim each slot generation before moving a non-`Copy` value so a thief
+      cannot race owner reuse of a wrapped ring slot; publish the correct
+      generation for bottom pops and advance it for steals.
+- [x] Quiesce thief accesses during resize and copy generation state with live
+      values while retaining the allocation-free `MaybeUninit` storage contract.
+- [x] Add a non-`Copy` drop-count regression and update the artificial
+      index-wrap fixture to initialize generation state through the test seam.
+- [x] Use strong arbitration CAS operations so `Retry` reports contention,
+      not a permitted weak-CAS spurious failure, at single-steal contracts.
+- Evidence: pinned Moirai scheduler nextest passes 27/27, including resize,
+      index wrapping, single- and eight-thief exactly-once contention, batch
+      contention, split-deque consumers, and non-`Copy` drop accounting.
+      Pinned warning-denied Clippy passes for all scheduler targets, and the
+      pinned Loom Chase-Lev model passes 1/1. Nightly Miri passes all 16
+      deque-focused unit tests, including the panic-repair memmove; the full
+      19-test crate invocation reaches the remaining NUMA test, which calls
+      Themis' Windows NUMA FFI unsupported by Miri.
+
 ## ATLAS-MOIRAI-AUDIT-076 — Isolated provider re-verification — closed 2026-08-16
 
 - [x] Re-run the locked workspace gate set from an isolated checkout at the

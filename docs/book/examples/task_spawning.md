@@ -1,7 +1,7 @@
 # Example: Task Spawning
 
 **Crate**: `moirai`
-**Source**: `examples/book_task_spawning.rs`
+**Source**: `moirai/examples/book_task_spawning.rs`
 
 Create a `Moirai` runtime, spawn three independent compute tasks, join their
 results, and demonstrate the `Priority` hint.
@@ -9,7 +9,7 @@ results, and demonstrate the `Priority` hint.
 ## Source
 
 ```rust
-{{#include ../../../examples/book_task_spawning.rs}}
+{{#include ../../../moirai/examples/book_task_spawning.rs}}
 ```
 
 ## Output

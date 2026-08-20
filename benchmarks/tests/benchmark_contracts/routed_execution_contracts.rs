@@ -91,7 +91,7 @@ fn process_server_routed_execution_benchmark_uses_real_routes() {
         "benchmark manifest must register process_server_routed_execution"
     );
     assert!(
-        manifest.contains("moirai-transport = { path = \"../moirai-transport\", features = [\"scheduler-routes\"] }"),
+        manifest.contains("moirai-transport = { path = \"../moirai-transport\", version = \"0.5.0\", features = [\"scheduler-routes\"] }"),
         "routed execution benchmark must compile route consumers"
     );
 

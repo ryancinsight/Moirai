@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-readme.workspace = true
+readme = "README.md"
 homepage.workspace = true
 documentation = "https://docs.rs/moirai-runtime"
 keywords.workspace = true
@@ -41,103 +41,103 @@ tokio = { version = "1.0", features = ["full"] }
 
 [[example]]
 name = "basic_usage"
-path = "../examples/basic_usage.rs"
+path = "examples/basic_usage.rs"
 
 [[example]]
 name = "blocking_channels"
-path = "../examples/blocking_channels.rs"
+path = "examples/blocking_channels.rs"
 
 [[example]]
 name = "iterator_showcase"
-path = "../examples/iterator_showcase.rs"
+path = "examples/iterator_showcase.rs"
 
 [[example]]
 name = "sync_primitives"
-path = "../examples/sync_primitives.rs"
+path = "examples/sync_primitives.rs"
 
 [[example]]
 name = "performance_demo"
-path = "../examples/performance_demo.rs"
+path = "examples/performance_demo.rs"
 
 [[example]]
 name = "moirai_vs_tokio_rayon_comparison"
-path = "../examples/moirai_vs_tokio_rayon_comparison.rs"
+path = "examples/moirai_vs_tokio_rayon_comparison.rs"
 
 [[example]]
 name = "real_world_data_pipeline"
-path = "../examples/real_world_data_pipeline.rs"
+path = "examples/real_world_data_pipeline.rs"
 
 [[example]]
 name = "rayon_parallel_patterns"
-path = "../examples/rayon_parallel_patterns.rs"
+path = "examples/rayon_parallel_patterns.rs"
 
 [[example]]
 name = "tokio_task_fanout"
-path = "../examples/tokio_task_fanout.rs"
+path = "examples/tokio_task_fanout.rs"
 required-features = ["async"]
 
 [[example]]
 name = "tokio_mpsc_pipeline"
-path = "../examples/tokio_mpsc_pipeline.rs"
+path = "examples/tokio_mpsc_pipeline.rs"
 
 [[example]]
 name = "tokio_multi_producer_pipeline"
-path = "../examples/tokio_multi_producer_pipeline.rs"
+path = "examples/tokio_multi_producer_pipeline.rs"
 
 [[example]]
 name = "async_timer"
-path = "../examples/async_timer.rs"
+path = "examples/async_timer.rs"
 required-features = ["async"]
 
 [[example]]
 name = "iterator_showcase_basic"
-path = "../examples/iterator_showcase_basic.rs"
+path = "examples/iterator_showcase_basic.rs"
 required-features = ["iter"]
 
 [[example]]
 name = "web_crawler_parallel"
-path = "../examples/web_crawler_parallel.rs"
+path = "examples/web_crawler_parallel.rs"
 
 [[example]]
 name = "realtime_chat_server"
-path = "../examples/realtime_chat_server.rs"
+path = "examples/realtime_chat_server.rs"
 
 [[example]]
 name = "video_processing_pipeline"
-path = "../examples/video_processing_pipeline.rs"
+path = "examples/video_processing_pipeline.rs"
 
 [[example]]
 name = "iot_device_management"
-path = "../examples/iot_device_management.rs"
+path = "examples/iot_device_management.rs"
 
 [[example]]
 name = "financial_transaction_processing"
-path = "../examples/financial_transaction_processing.rs"
+path = "examples/financial_transaction_processing.rs"
 
 [[example]]
 name = "high_frequency_data_pipeline"
-path = "../examples/high_frequency_data_pipeline.rs"
+path = "examples/high_frequency_data_pipeline.rs"
 
 [[example]]
 name = "network_service_load_balancing"
-path = "../examples/network_service_load_balancing.rs"
+path = "examples/network_service_load_balancing.rs"
 
 [[example]]
 name = "distributed_task_coordination"
-path = "../examples/distributed_task_coordination.rs"
+path = "examples/distributed_task_coordination.rs"
 
 [[example]]
 name = "gpu_acceleration"
-path = "../examples/gpu_acceleration.rs"
+path = "examples/gpu_acceleration.rs"
 required-features = ["gpu"]
 
 [[example]]
 name = "book_task_spawning"
-path = "../examples/book_task_spawning.rs"
+path = "examples/book_task_spawning.rs"
 
 [[example]]
 name = "book_parallel_reduce"
-path = "../examples/book_parallel_reduce.rs"
+path = "examples/book_parallel_reduce.rs"
 
 [features]
 default = ["async", "iter", "parallel", "local", "mnemosyne-memory", "melinoe"]

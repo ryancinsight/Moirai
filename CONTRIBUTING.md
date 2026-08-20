@@ -17,8 +17,8 @@ The repository is a Cargo workspace. Domain crates live at the top level
 is `moirai/` (package `moirai-runtime`, library name `moirai`), and
 `benchmarks/` and `tests/` are unpublished harnesses.
 
-- `examples/` holds the example sources; they are registered as `[[example]]`
-  targets on the `moirai` facade package, so run them with
+- `moirai/examples/` holds the example sources; they are registered as
+  `[[example]]` targets on the `moirai` facade package, so run them with
   `cargo run -p moirai-runtime --example <name>`.
 - `docs/book/` is an mdBook deployed to GitHub Pages.
 - `docs/adr/` carries one architecture decision per file, indexed by the

@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Make the workspace packageable from a standalone checkout: internal
+  benchmark and integration-test dependencies carry explicit version
+  requirements, runtime examples live under the facade crate, and the PyO3
+  binding and test-harness manifests carry complete package metadata. Update
+  the routed-execution contract to track the versioned transport dependency.
 - Replace facade-test sleeps and conditional result checks with runtime
   quiescence joins and value-semantic assertions.
 - Thread the `numa_aware` facade builder setting through `ExecutorConfig` and
@@ -36,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   executor seams together; the default remains topology-aware and an explicit
   `false` value skips NUMA assignment construction. This controls scheduler
   locality only and does not claim topology-directed memory placement.
+- Harden the Chase-Lev deque's inline storage protocol for arbitrary `Send`
+  values: slot generation claims now serialize owner reuse with thief reads,
+  resize quiescence preserves those claims across buffer replacement, and
+  batch steals use the same exactly-once arbitration as single steals without
+  per-item heap nodes. Steal arbitration uses strong CAS operations so a single
+  attempt reports only real contention rather than a spurious retry.
 - **Breaking.** `Moirai::channel()` now returns a channel bounded at
   `moirai_core::channel::DEFAULT_CHANNEL_CAPACITY` (1024) instead of an
   unbounded one. A producer that outruns its consumer now blocks (or gets
@@ -135,6 +146,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `moirai_executor::global()`.
 
 ### Fixed
+
+- Preserve Miri-valid provenance in `SplitDeque`'s panic-repair memmove by
+  deriving one mutable base pointer before the overlapping copy. The deque
+  unit suite now passes the focused Miri run without raw-copy violations.
 
 - Return every chunk from `ParallelContext::execute_iter`. It collected results
   from a channel until the senders dropped, so a panicking chunk ended the

@@ -10,16 +10,16 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/ryancinsight/Moirai"
 
 [dependencies]
-moirai = { package = "moirai-runtime", path = "../moirai", default-features = false, features = ["distributed"] }
-moirai-core = { path = "../moirai-core" }
-moirai-executor = { path = "../moirai-executor" }
-moirai-scheduler = { path = "../moirai-scheduler" }
-moirai-sync = { path = "../moirai-sync" }
-moirai-transport = { path = "../moirai-transport", features = ["scheduler-routes"] }
-moirai-utils = { path = "../moirai-utils" }
-moirai-iter = { path = "../moirai-iter" }
-moirai-async = { path = "../moirai-async", features = ["tokio-compat"] }
-moirai-metrics = { path = "../moirai-metrics" }
+moirai = { package = "moirai-runtime", path = "../moirai", version = "0.5.0", default-features = false, features = ["distributed"] }
+moirai-core = { path = "../moirai-core", version = "0.5.0" }
+moirai-executor = { path = "../moirai-executor", version = "0.5.0" }
+moirai-scheduler = { path = "../moirai-scheduler", version = "0.5.0" }
+moirai-sync = { path = "../moirai-sync", version = "0.5.0" }
+moirai-transport = { path = "../moirai-transport", version = "0.5.0", features = ["scheduler-routes"] }
+moirai-utils = { path = "../moirai-utils", version = "0.5.0" }
+moirai-iter = { path = "../moirai-iter", version = "0.5.0" }
+moirai-async = { path = "../moirai-async", version = "0.5.0", features = ["tokio-compat"] }
+moirai-metrics = { path = "../moirai-metrics", version = "0.5.0" }
 mnemosyne = { workspace = true }
 
 # Benchmarking framework
