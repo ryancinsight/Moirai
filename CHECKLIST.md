@@ -25,6 +25,8 @@
       values while retaining the allocation-free `MaybeUninit` storage contract.
 - [x] Add a non-`Copy` drop-count regression and update the artificial
       index-wrap fixture to initialize generation state through the test seam.
+- [x] Use strong arbitration CAS operations so `Retry` reports contention,
+      not a permitted weak-CAS spurious failure, at single-steal contracts.
 - Evidence: pinned Moirai scheduler nextest passes 27/27, including resize,
       index wrapping, single- and eight-thief exactly-once contention, batch
       contention, split-deque consumers, and non-`Copy` drop accounting.

@@ -318,7 +318,7 @@ where
             }
             if self
                 .top
-                .compare_exchange_weak(t, t.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed)
+                .compare_exchange(t, t.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed)
                 .is_ok()
             {
                 self.bottom.store(b.wrapping_add(1), Ordering::Relaxed);
@@ -358,7 +358,7 @@ where
 
             if self
                 .top
-                .compare_exchange_weak(t, t.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed)
+                .compare_exchange(t, t.wrapping_add(1), Ordering::SeqCst, Ordering::Relaxed)
                 .is_ok()
             {
                 // SAFETY: the generation claim and successful CAS claim this

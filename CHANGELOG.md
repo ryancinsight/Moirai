@@ -45,7 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   values: slot generation claims now serialize owner reuse with thief reads,
   resize quiescence preserves those claims across buffer replacement, and
   batch steals use the same exactly-once arbitration as single steals without
-  per-item heap nodes.
+  per-item heap nodes. Steal arbitration uses strong CAS operations so a single
+  attempt reports only real contention rather than a spurious retry.
 - **Breaking.** `Moirai::channel()` now returns a channel bounded at
   `moirai_core::channel::DEFAULT_CHANNEL_CAPACITY` (1024) instead of an
   unbounded one. A producer that outruns its consumer now blocks (or gets
