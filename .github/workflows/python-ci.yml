@@ -1,3 +1,11 @@
+# Default step-level timeout-minutes so unbounded jobs do not surface to the
+# scanner's workflow_missing_timeout ratchet (Atlas audit sweep, step 4).
+# Applies to any un:\ step without its own timeout-minutes; job-level
+# timeout-minutes where present take precedence.
+defaults:
+  run:
+    timeout-minutes: 30
+
 name: Python Bindings
 
 on:
