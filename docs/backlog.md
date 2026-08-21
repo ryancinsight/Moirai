@@ -588,7 +588,10 @@ architecture definition.
   `AcceleratorId`, `AcceleratorKind::{Cpu,Gpu,Tpu,Npu}`, and
   `SchedulerRoute::Accelerator` to the static route model. Accelerator routes
   include coordinator process/thread/async-lane metadata and do not execute a
-  device backend. Split `moirai-executor::schedule::route` into vertical
+  device backend. `RouteAddressBook` now returns a typed `RouteResolution`
+  carrying the original route, transport address, and accelerator identity
+  together, so address binding cannot discard `AcceleratorKind` or
+  `AcceleratorId`. Split `moirai-executor::schedule::route` into vertical
   `policy`, `ids`, `topology`, `decision`, `summary`, and `router` leaves.
 - **Evidence**: Route unit tests assert exact accelerator metadata distribution
   and async-lane retention. `process_server_scheduler_routing` adds

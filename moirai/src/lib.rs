@@ -245,8 +245,8 @@ pub use moirai_transport::{
         SumU64Capability,
     },
     route::{
-        ProcessEndpoint, RouteAddressBook, RouteNamespace, RouteService, RoutedProcessTaskError,
-        RoutedProcessTaskOutput, ServerEndpoint,
+        ProcessEndpoint, RouteAddressBook, RouteNamespace, RouteResolution, RouteService,
+        RoutedProcessTaskError, RoutedProcessTaskOutput, ServerEndpoint,
     },
 };
 

@@ -19,7 +19,8 @@ use crate::{
 };
 use moirai_core::Priority;
 use moirai_executor::schedule::{
-    AsyncLaneId, ProcessId, RoutePolicy, SchedulerRoute, ServerId, ThreadId, WorkClass,
+    AcceleratorRoute, AsyncLaneId, ProcessId, RoutePolicy, SchedulerRoute, ServerId, ThreadId,
+    WorkClass,
 };
 use std::{marker::PhantomData, sync::Arc};
 
@@ -98,6 +99,70 @@ pub struct ProcessEndpoint {
     pub task_server: RemoteAddress,
 }
 
+/// Route resolution that retains scheduler placement beside its transport address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteResolution {
+    route: SchedulerRoute,
+    address: Address,
+    placement: RoutePlacement,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RoutePlacement {
+    Local,
+    Remote,
+    Accelerator(AcceleratorRoute),
+}
+
+impl RouteResolution {
+    fn local(route: SchedulerRoute, address: Address) -> Self {
+        Self {
+            route,
+            address,
+            placement: RoutePlacement::Local,
+        }
+    }
+
+    fn remote(route: SchedulerRoute, address: Address) -> Self {
+        Self {
+            route,
+            address,
+            placement: RoutePlacement::Remote,
+        }
+    }
+
+    fn for_accelerator(route: AcceleratorRoute, address: Address) -> Self {
+        Self {
+            route: SchedulerRoute::Accelerator(route),
+            address,
+            placement: RoutePlacement::Accelerator(route),
+        }
+    }
+
+    /// Return the scheduler decision preserved by this resolution.
+    pub const fn route(&self) -> SchedulerRoute {
+        self.route
+    }
+
+    /// Borrow the transport address selected for the scheduler decision.
+    pub const fn address(&self) -> &Address {
+        &self.address
+    }
+
+    /// Return accelerator placement when this resolution targets a device.
+    pub const fn accelerator(&self) -> Option<AcceleratorRoute> {
+        match self.placement {
+            RoutePlacement::Accelerator(route) => Some(route),
+            RoutePlacement::Local | RoutePlacement::Remote => None,
+        }
+    }
+
+    /// Consume the resolution and return its transport address.
+    pub fn into_address(self) -> Address {
+        self.address
+    }
+}
+
 impl ProcessEndpoint {
     /// Construct a process endpoint.
     pub fn new(process: ProcessId, spec: ProcessSpec, task_server: RemoteAddress) -> Self {
@@ -122,28 +187,41 @@ impl RouteAddressBook {
         Self { namespace, servers }
     }
 
-    /// Resolve a scheduler route into a transport address.
-    pub fn resolve(&self, route: SchedulerRoute) -> Address {
+    /// Resolve a scheduler route without discarding accelerator placement.
+    pub fn resolve(&self, route: SchedulerRoute) -> RouteResolution {
         match route {
-            SchedulerRoute::Thread(route) => self.local(route.process, route.thread, None),
-            SchedulerRoute::Process(route) => {
-                self.local(route.process, route.thread, route.async_lane)
-            }
-            SchedulerRoute::Accelerator(route) => {
-                self.local(route.process, route.thread, route.async_lane)
-            }
+            SchedulerRoute::Thread(route) => RouteResolution::local(
+                SchedulerRoute::Thread(route),
+                self.local(route.process, route.thread, None),
+            ),
+            SchedulerRoute::Process(route) => RouteResolution::local(
+                SchedulerRoute::Process(route),
+                self.local(route.process, route.thread, route.async_lane),
+            ),
+            SchedulerRoute::Accelerator(route) => RouteResolution::for_accelerator(
+                route,
+                self.local(route.process, route.thread, route.async_lane),
+            ),
             SchedulerRoute::Server(route) => self
                 .servers
                 .iter()
                 .find(|endpoint| endpoint.server == route.server)
                 .map(|endpoint| {
-                    Address::Remote(RemoteAddress {
-                        host: endpoint.host.clone(),
-                        port: endpoint.port,
-                        service: endpoint.service.as_str().to_string(),
-                    })
+                    RouteResolution::remote(
+                        SchedulerRoute::Server(route),
+                        Address::Remote(RemoteAddress {
+                            host: endpoint.host.clone(),
+                            port: endpoint.port,
+                            service: endpoint.service.as_str().to_string(),
+                        }),
+                    )
                 })
-                .unwrap_or_else(|| self.local(route.process, route.thread, route.async_lane)),
+                .unwrap_or_else(|| {
+                    RouteResolution::local(
+                        SchedulerRoute::Server(route),
+                        self.local(route.process, route.thread, route.async_lane),
+                    )
+                }),
         }
     }
 
@@ -221,14 +299,20 @@ impl<P: RoutePolicy> RoutedArchivedSender<P> {
     }
 
     /// Archive and send a value to the address selected by `route`.
-    pub fn send_route<T>(&self, route: SchedulerRoute, value: &T) -> TransportResult<Address>
+    pub fn send_route<T>(
+        &self,
+        route: SchedulerRoute,
+        value: &T,
+    ) -> TransportResult<RouteResolution>
     where
         T: ArchiveSerialize + ?Sized,
     {
-        let address = self.address_book.resolve(route);
-        self.transport
-            .send(&address, archive_route_payload(route, value)?)?;
-        Ok(address)
+        let resolution = self.address_book.resolve(route);
+        self.transport.send(
+            resolution.address(),
+            archive_route_payload(resolution.route(), value)?,
+        )?;
+        Ok(resolution)
     }
 
     /// Archive and send a value after selecting a route from `router`.
@@ -284,8 +368,9 @@ impl<P: RoutePolicy> RoutedArchivedReceiver<P> {
     where
         T: ArchiveView,
     {
+        let resolution = self.address_book.resolve(route);
         self.transport
-            .recv(&self.address_book.resolve(route))
+            .recv(resolution.address())
             .map(ArchivedMessage::from_bytes)
     }
 }
@@ -314,11 +399,12 @@ impl<P: RoutePolicy> RoutedRemoteTaskClient<P> {
         task_id: RemoteTaskId,
         operation: RemoteTaskOperation,
     ) -> TransportResult<RemoteTaskResult> {
-        let Address::Remote(server) = self.address_book.resolve(route) else {
+        let resolution = self.address_book.resolve(route);
+        let Address::Remote(server) = resolution.address() else {
             return Err(TransportError::Closed);
         };
 
-        RemoteTaskClient::new(server, self.reply_to.clone()).execute(task_id, operation)
+        RemoteTaskClient::new(server.clone(), self.reply_to.clone()).execute(task_id, operation)
     }
 
     /// Select a scheduler route and execute a fixed-format remote task there.
