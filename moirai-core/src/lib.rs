@@ -6,6 +6,7 @@
 //! Moirai crates build upon, including task abstractions, executor traits,
 //! and scheduling interfaces.
 
+#![deny(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 #![warn(clippy::all)]

@@ -1,5 +1,6 @@
 //! PyO3 extension module for the Moirai runtime.
 
+#![deny(missing_docs)]
 pub mod ffi;
 
 use pyo3::prelude::*;

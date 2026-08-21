@@ -1,4 +1,5 @@
 //! Integration tests for Moirai concurrency library.
+#![deny(missing_docs)]
 #![allow(dead_code, unused_variables)]
 #![cfg_attr(
     test,

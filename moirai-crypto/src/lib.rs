@@ -14,6 +14,7 @@
 //! let provider = moirai_crypto::provider();
 //! ```
 
+#![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
 mod aead;
