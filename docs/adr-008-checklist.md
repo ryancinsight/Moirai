@@ -2,7 +2,7 @@
 
 ## Completed
 
-- [x] Route-to-transport address binding: `moirai-transport` exposes a feature-gated transport route consumer that maps `SchedulerRoute` values to concrete `Address` values.
+- [x] Route-to-transport address binding: `moirai-transport` exposes a feature-gated transport route consumer that maps `SchedulerRoute` values to `RouteResolution` values carrying the concrete `Address` without losing accelerator placement.
 - [x] Archived local route roundtrip: routed send/receive uses transport-owned archive bytes and borrowed `ArchiveView` validation for the local in-memory backend.
 - [x] Static route policy consumption: `RoutedArchivedSender<P>` and `RoutedArchivedReceiver<P>` remain generic over sealed ZST `RoutePolicy` markers.
 - [x] Server route endpoint resolution: known `ServerId` values resolve to `RemoteAddress` metadata without claiming remote execution.
@@ -15,6 +15,7 @@
 - [x] Arbitrary closure remoting boundary: `RemoteCapabilityToken<C>` uses sealed zero-sized capability markers to admit only fixed-format built-in operations; arbitrary Rust closures and dynamic task traits remain outside the process/server transport contract.
 - [x] Public fixed-capability routed facade: `Moirai::execute_routed_server_task` and `Moirai::execute_routed_process_task` admit only `FixedRemoteTask<C, P>` values built from sealed `RemoteCapabilityToken<C>` plus matching payloads, then delegate to existing process/server route clients.
 - [x] Mnemosyne allocator ownership handoff: `TransportPayload<R>` tags owned archive bytes with sealed thread/process/server/device payload regions, moves buffers between regions without cloning, rejects pointer transfer across process/server/device regions, and relies on the top-level Mnemosyne global allocator feature for process-local allocations.
+- [x] Accelerator identity handoff: `RouteAddressBook::resolve` and `RoutedArchivedSender::send_route` retain the selected `AcceleratorKind`, `AcceleratorId`, coordinator placement, and transport address in one typed `RouteResolution`; backend execution remains deferred.
 - [x] End-to-end routed execution benchmark: `process_server_routed_execution` measures selected server-route and process-route fixed-format `SumU64` execution with real `RemoteTaskServer`, TCP request/result frames, supervised child process execution, and value assertions.
 
 ## Open

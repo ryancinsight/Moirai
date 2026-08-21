@@ -2,12 +2,12 @@
 
 Status: Accepted
 
-**Date**: 2026-06-02
+**Date**: 2026-06-02; revised 2026-08-21
 **Context**: Process/server scheduler routing
 
 ### Decision
 
-Scheduler route selection and transport execution are separate bounded contexts. `moirai-executor` owns `HybridRouter<P>` and concrete `SchedulerRoute` values. `moirai-transport` consumes those values behind the `scheduler-routes` feature, resolves them to concrete `Address` values, and sends archived payload bytes through the existing transport ownership boundary.
+Scheduler route selection and transport execution are separate bounded contexts. `moirai-executor` owns `HybridRouter<P>` and concrete `SchedulerRoute` values. `moirai-transport` consumes those values behind the `scheduler-routes` feature, resolves them to a `RouteResolution` that retains the original route and any accelerator placement beside its concrete `Address`, and sends archived payload bytes through the existing transport ownership boundary.
 
 Route values are metadata until a transport backend consumes them. A route benchmark may measure route decisions and address resolution, but it must not claim OS process execution or server execution unless the corresponding process or network backend performs real work and returns value-checked results.
 
@@ -22,10 +22,11 @@ Route values are metadata until a transport backend consumes them. A route bench
 ### Implementation
 
 - `moirai-transport` feature `scheduler-routes` optionally depends on `moirai-executor`.
-- `RouteAddressBook` maps `SchedulerRoute::Thread` and `SchedulerRoute::Process` to local transport addresses and known `SchedulerRoute::Server` targets to remote addresses.
-- `RoutedArchivedSender<P>` archives payloads through `ArchiveSerialize`, sends transport-owned bytes to the selected route address, and returns the selected route or address for value checks.
-- `RoutedArchivedReceiver<P>` receives bytes from a route address and returns `ArchivedMessage<T>` so callers borrow validated views from the owned message buffer.
-- Tests cover local archived route roundtrip, async process route async-lane address resolution, and server route remote endpoint resolution without sending.
+- `RouteAddressBook` maps `SchedulerRoute::Thread` and `SchedulerRoute::Process` to local transport addresses, known `SchedulerRoute::Server` targets to remote addresses, and `SchedulerRoute::Accelerator` targets to local transport addresses without discarding `AcceleratorKind` or `AcceleratorId`.
+- `RouteResolution` is the typed handoff between scheduling and transport. Its private invariant keeps the scheduler route, transport address, and accelerator placement consistent; the later accelerator backend consumes `route()`/`accelerator()` while transport code uses `address()`.
+- `RoutedArchivedSender<P>` archives payloads through `ArchiveSerialize`, sends transport-owned bytes to the selected route address, and returns the `RouteResolution` for value checks and downstream accelerator dispatch.
+- `RoutedArchivedReceiver<P>` receives bytes from a resolved route address and returns `ArchivedMessage<T>` so callers borrow validated views from the owned message buffer.
+- Tests cover local archived route roundtrip, accelerator identity preservation, async process route async-lane address resolution, and server route remote endpoint resolution without sending.
 - `NetworkTransport` sends and receives remote payload bytes through a blocking TCP length-prefixed frame with a fixed maximum message size.
 - Remote byte transport is not remote task execution. Task envelopes, result envelopes, scheduler integration, and failure propagation remain separate contracts.
 - Remote task envelopes/results are fixed-format archive contracts. Only explicit built-in operations are executable: `EchoBytes` returns the request payload and `SumU64` computes a wrapping sum without materializing the borrowed `u64` archive view.
@@ -40,7 +41,19 @@ Route values are metadata until a transport backend consumes them. A route bench
 
 ### Deferred Work
 
-No deferred ADR-008 implementation work remains.
+Accelerator backend execution remains a downstream Hephaestus/Themis concern.
+This ADR deliberately preserves the route identity and does not claim device
+allocation, kernel dispatch, or CPU/WGPU equivalence until that backend edge is
+implemented and verified.
+
+### Revision note — 2026-08-21
+
+The original decision treated accelerator routes as address metadata and the
+transport API returned only `Address`, which made `AcceleratorKind` and
+`AcceleratorId` unreachable after resolution. The route contract now returns
+`RouteResolution`; the transport address remains available, while the typed
+placement survives for a real downstream backend. This preserves the original
+bounded-context dependency direction and closes the metadata-loss defect.
 
 ### Verification
 

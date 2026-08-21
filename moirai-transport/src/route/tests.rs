@@ -102,12 +102,73 @@ fn accelerator_route_archives_owned_device_payload_bytes() {
 }
 
 #[test]
+fn accelerator_route_resolution_preserves_identity() {
+    let router = HybridRouter::<AcceleratorRoutePolicy>::new(
+        topology(0).with_accelerators(AcceleratorCounts::new(1, 1, 1, 1)),
+    );
+    let route = (0..64)
+        .map(|sequence| router.select::<SyncTask>(Priority::Normal, sequence))
+        .find(|route| matches!(route, SchedulerRoute::Accelerator(_)))
+        .expect("accelerator topology must produce an accelerator route");
+    let resolution = address_book().resolve(route);
+
+    assert_eq!(resolution.route(), route);
+    assert_eq!(
+        resolution.accelerator(),
+        match route {
+            SchedulerRoute::Accelerator(route) => Some(route),
+            SchedulerRoute::Thread(_) | SchedulerRoute::Process(_) | SchedulerRoute::Server(_) => {
+                None
+            }
+        }
+    );
+    match resolution.address() {
+        Address::Local(address) => {
+            assert!(address.contains("/process/"));
+            assert!(address.contains("/thread/"));
+        }
+        Address::Remote(_) => panic!("accelerator route must retain a local transport address"),
+    }
+}
+
+#[test]
+fn accelerator_route_sender_returns_identity_with_transport_address() {
+    let router = HybridRouter::<AcceleratorRoutePolicy>::new(
+        topology(0).with_accelerators(AcceleratorCounts::new(1, 1, 1, 1)),
+    );
+    let route = (0..64)
+        .map(|sequence| router.select::<SyncTask>(Priority::Normal, sequence))
+        .find(|route| matches!(route, SchedulerRoute::Accelerator(_)))
+        .expect("accelerator topology must produce an accelerator route");
+    let sender = RoutedArchivedSender::<AcceleratorRoutePolicy>::new(
+        Arc::new(crate::TransportManager::new()),
+        address_book(),
+    );
+
+    let resolution = sender
+        .send_route(route, "device-bound archive bytes")
+        .unwrap();
+
+    assert_eq!(resolution.route(), route);
+    assert_eq!(
+        resolution.accelerator(),
+        match route {
+            SchedulerRoute::Accelerator(route) => Some(route),
+            SchedulerRoute::Thread(_) | SchedulerRoute::Process(_) | SchedulerRoute::Server(_) => {
+                None
+            }
+        }
+    );
+    assert!(matches!(resolution.address(), Address::Local(_)));
+}
+
+#[test]
 fn async_process_route_resolves_to_async_lane_address() {
     let router = HybridRouter::<HybridRoutePolicy>::new(topology(0));
     let route = router.select::<AsyncTask>(Priority::High, 5);
-    let address = address_book().resolve(route);
+    let resolution = address_book().resolve(route);
 
-    match address {
+    match resolution.address() {
         Address::Local(address) => {
             assert!(address.contains("/process/"));
             assert!(address.contains("/thread/"));
@@ -124,9 +185,9 @@ fn server_route_resolves_to_remote_endpoint_without_sending() {
         .map(|sequence| router.select::<AsyncTask>(Priority::Critical, sequence))
         .find(|route| matches!(route, SchedulerRoute::Server(_)))
         .expect("test topology must produce a server route");
-    let address = address_book().resolve(route);
+    let resolution = address_book().resolve(route);
 
-    match address {
+    match resolution.address() {
         Address::Remote(remote) => {
             assert_eq!(remote.host, "127.0.0.1");
             assert_eq!(remote.port, 9700);

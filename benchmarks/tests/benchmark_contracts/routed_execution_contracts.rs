@@ -43,7 +43,7 @@ fn transport_payload_regions_define_mnemosyne_handoff_boundary() {
     }
 
     for required in [
-        "archive_route_payload(route, value)",
+        "archive_route_payload(resolution.route(), value)",
         "payload.handoff::<ProcessPayloadRegion>().into_bytes()",
         "payload.handoff::<ServerPayloadRegion>().into_bytes()",
         "payload.handoff::<DevicePayloadRegion>().into_bytes()",
