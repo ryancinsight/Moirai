@@ -2843,7 +2843,8 @@ are recorded so the archive can retire. Evidence probes ran read-only.
 - Scope: add `#![deny(missing_docs)]` to moirai-core, moirai-crypto,
   moirai-gpu, moirai-python, and the tests harness crate (5 of 19 lack it as
   of `ff56d60`); fix what the lint surfaces.
-- Status: todo (re-verified open)
+- Status: done (2026-08-22, Moirai PR #151 merged at bd70d29 - deny armed in
+  all five crates; zero surfaced violations; nextest 143/143)
 
 ### MOI-AUDIT-VER-006 - Raise SAFETY-contract coverage on the unsafe surface [verification] [patch] [L]
 
