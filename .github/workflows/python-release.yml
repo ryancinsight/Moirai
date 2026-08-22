@@ -17,7 +17,8 @@ concurrency:
 
 jobs:
   wheels:
-    timeout-minutes: 30
+    # Reusable-workflow callers accept no timeout-minutes; the bound lives
+    # inside ryancinsight/atlas/.github/workflows/python-wheels.yml.
     if: startsWith(github.event.release.tag_name, 'moirai-python-v')
     name: Build and attach wheels
     permissions:
