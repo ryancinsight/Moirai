@@ -1,11 +1,7 @@
-# Default step-level timeout-minutes so unbounded jobs do not surface to the
-# scanner's workflow_missing_timeout ratchet (Atlas audit sweep, step 4).
-# Applies to any un:\ step without its own timeout-minutes; job-level
-# timeout-minutes where present take precedence.
-defaults:
-  run:
-    timeout-minutes: 30
-
+# Job-level timeout-minutes so unbounded jobs do not surface to the
+# scanner workflow_missing_timeout ratchet (Atlas audit sweep, step 4).
+# GitHub defaults.run supports only shell/working-directory, so the
+# bound is declared per job; steps inherit it.
 name: Python Release
 
 on:
@@ -21,6 +17,7 @@ concurrency:
 
 jobs:
   wheels:
+    timeout-minutes: 30
     if: startsWith(github.event.release.tag_name, 'moirai-python-v')
     name: Build and attach wheels
     permissions:
@@ -39,6 +36,7 @@ jobs:
       python-versions: '["3.10", "3.11", "3.12", "3.13"]'
 
   publish:
+    timeout-minutes: 30
     if: startsWith(github.event.release.tag_name, 'moirai-python-v')
     name: Publish wheels to PyPI
     needs: wheels
