@@ -2827,3 +2827,75 @@ Safety:   100%  → 100%  → 100% ✅
 **Next Review**: Post-critical fixes completion  
 **Owner**: Senior Rust Engineer  
 **Stakeholders**: Moirai Team, Community Contributors
+
+
+## Reclaimed from the archived dead-checkout board (2026-08-21)
+
+The primary checkout taken over at `ff56d60` carried an untracked 462 KB
+board whose twelve open items exist nowhere in this tracked SSOT. Each was
+re-verified against current `main` before admission; verdicts for the rest
+are recorded so the archive can retire. Evidence probes ran read-only.
+
+### MOI-AUDIT-FLOOR-012 - Finish the crate-level conformance floor [docs] [patch] [S]
+
+- Outcome: every workspace crate denies missing docs, so undocumented public
+  API fails the build by construction.
+- Scope: add `#![deny(missing_docs)]` to moirai-core, moirai-crypto,
+  moirai-gpu, moirai-python, and the tests harness crate (5 of 19 lack it as
+  of `ff56d60`); fix what the lint surfaces.
+- Status: todo (re-verified open)
+
+### MOI-AUDIT-VER-006 - Raise SAFETY-contract coverage on the unsafe surface [verification] [patch] [L]
+
+- Outcome: every production `unsafe fn` and block carries its documented
+  safety contract, so auditors can discharge each obligation at the site.
+- Scope: probe found unsafe declarations without any nearby safety note -
+  e.g. `moirai-utils/src/simd/arch/aarch64.rs` (`add` and siblings),
+  `moirai-scheduler/src/deque/chase_lev/storage.rs:110`. Exact census needs a
+  per-site pass; type-position `unsafe fn(...)` pointers are out of scope.
+- Status: todo (re-verified open with named examples)
+
+### MOI-AUDIT-VER-010 - Property coverage for the concurrency primitives [verification] [patch] [M]
+
+- Outcome: the lock-free primitives hold their invariants under generated
+  interleavings and value distributions, not only curated cases.
+- Scope: no `proptest` dependency exists anywhere in the tree as of
+  `ff56d60`; admit it for scheduler/deque/channel suites alongside loom.
+- Status: todo (re-verified open)
+
+### MOI-AUDIT-SEC-001 - Fuzz and restriction floor for untrusted-input parsers [security] [minor] [M]
+
+- Outcome: parsers crossing trust boundaries are fuzz-covered and deny
+  panicking arithmetic/indexing lints.
+- Scope: no `fuzz/` target set and no `indexing_slicing` /
+  `arithmetic_side_effects` restrictions as of `ff56d60`.
+- Status: todo (re-verified open)
+
+### MOI-AUDIT-DOC-009 - Domain book for route and transport layers [docs] [minor] [M]
+
+- Outcome: a built mdBook teaches the routing/transport design from first
+  principles.
+- Scope: no `book.toml` or book sources exist as of `ff56d60`; outline
+  first, then chapters per subsystem.
+- Status: todo (re-verified open)
+
+### MOI-AUDIT-PM-008 - ADR index generator [pm-hygiene] [patch] [S]
+
+- Outcome: `docs/adr/README.md` regenerates from front-matter so the index
+  cannot drift.
+- Scope: index README exists; no generator script does.
+- Status: todo (re-verified open)
+
+### Closed upstream between capture and reclaim
+
+- MOI-AUDIT-VER-002: Miri gate present in hosted CI.
+- MOI-AUDIT-VER-003: Loom models run under `.github/workflows/rust-ci.yml`.
+- MOI-AUDIT-VER-004: Windows/macOS PAL compile coverage in the CI matrix.
+- MOI-AUDIT-DOC-005: `docs/adr/0015*` exists.
+
+### Held for manual review
+
+- MOI-AUDIT-PM-007 (one owner per PM fact): structural judgment call, not
+  mechanically probeable.
+- MOI-AUDIT-VER-011 (bench runtime budgets): nextest `slow-timeout` is
+  committed; bench-specific wall-clock budgets were not probed.
