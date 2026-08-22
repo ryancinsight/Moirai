@@ -1,3 +1,7 @@
+# Job-level timeout-minutes so unbounded jobs do not surface to the
+# scanner workflow_missing_timeout ratchet (Atlas audit sweep, step 4).
+# GitHub defaults.run supports only shell/working-directory, so the
+# bound is declared per job; steps inherit it.
 name: Python Release
 
 on:
@@ -13,6 +17,8 @@ concurrency:
 
 jobs:
   wheels:
+    # Reusable-workflow callers accept no timeout-minutes; the bound lives
+    # inside ryancinsight/atlas/.github/workflows/python-wheels.yml.
     if: startsWith(github.event.release.tag_name, 'moirai-python-v')
     name: Build and attach wheels
     permissions:
@@ -31,6 +37,7 @@ jobs:
       python-versions: '["3.10", "3.11", "3.12", "3.13"]'
 
   publish:
+    timeout-minutes: 30
     if: startsWith(github.event.release.tag_name, 'moirai-python-v')
     name: Publish wheels to PyPI
     needs: wheels

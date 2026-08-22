@@ -1,3 +1,7 @@
+# Job-level timeout-minutes so unbounded jobs do not surface to the
+# scanner workflow_missing_timeout ratchet (Atlas audit sweep, step 4).
+# GitHub defaults.run supports only shell/working-directory, so the
+# bound is declared per job; steps inherit it.
 name: Python Bindings
 
 on:
@@ -18,6 +22,7 @@ env:
 
 jobs:
   rust:
+    timeout-minutes: 30
     name: Rust binding checks
     runs-on: ubuntu-latest
     steps:
@@ -64,6 +69,7 @@ jobs:
         run: cargo test --locked -p moirai-python --all-features --doc
 
   wheel:
+    timeout-minutes: 30
     name: ${{ matrix.os }} wheel smoke test
     runs-on: ${{ matrix.os }}
     strategy:
