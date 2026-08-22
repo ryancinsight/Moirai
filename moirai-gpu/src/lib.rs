@@ -24,6 +24,7 @@
 //! - **Idiomatic**: Follows Rust and wgpu best practices
 //! - **Domain-centric**: Designed specifically for concurrent GPU compute
 
+#![deny(missing_docs)]
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 #![warn(clippy::pedantic)]
