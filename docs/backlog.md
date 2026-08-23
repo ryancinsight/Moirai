@@ -2871,7 +2871,14 @@ are recorded so the archive can retire. Evidence probes ran read-only.
   panicking arithmetic/indexing lints.
 - Scope: no `fuzz/` target set and no `indexing_slicing` /
   `arithmetic_side_effects` restrictions as of `ff56d60`.
-- Status: todo (re-verified open)
+- Status: part-landed (2026-08-23). Part 1 - restriction floors - is PR #154
+  (moirai-http crate-wide + ipc module-scoped deny; 14 violations fixed
+  structurally or discharged with per-site invariant expectations). Part 2 -
+  fuzz targets - lands on the same branch: fuzz/http_response covers the HTTP
+  response codec under a slowloris budget; runs via cargo +nightly fuzz.
+  Remaining: an IPC metadata fuzz target is blocked on a public pure-validation
+  seam (layout_for is private); CI wiring for scheduled fuzz runs follows the
+  workflow-heavy-suite cadence.
 
 ### MOI-AUDIT-DOC-009 - Domain book for route and transport layers [docs] [minor] [M]
 

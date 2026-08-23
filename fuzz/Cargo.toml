@@ -1,0 +1,33 @@
+[package]
+name = "moirai-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.moirai-async]
+path = "../moirai-async"
+
+[dependencies.moirai-http]
+path = "../moirai-http"
+
+[dependencies.moirai-runtime]
+package = "moirai-runtime"
+path = "../moirai"
+
+# Keep the fuzz tree out of the workspace so `cargo build` never pulls
+# libfuzzer-sys into normal or CI builds; targets run only through
+# `cargo +nightly fuzz run <target>`.
+[workspace]
+
+[[bin]]
+name = "http_response"
+path = "fuzz_targets/http_response.rs"
+test = false
+doc = false
+bench = false

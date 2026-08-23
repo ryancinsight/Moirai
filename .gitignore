@@ -30,3 +30,6 @@ __pycache__/
 # rustc ICE dumps: crash debris, recurrent under the shared CARGO_TARGET_DIR
 # when a concurrent build prunes the incremental cache mid-compile.
 rustc-ice-*.txt
+fuzz/corpus
+fuzz/artifacts
+fuzz/coverage
