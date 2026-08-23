@@ -7,6 +7,10 @@
 //! (ADR-015). Vendor protocols (e.g. S3 SigV4) are built by callers on top of this
 //! — this crate knows HTTP, not S3.
 
+// Trust-boundary floor (MOI-AUDIT-SEC-001): response bytes are hostile
+// input; panicking arithmetic/indexing must fail the build here. Sites
+// with proven invariants carry local #![expect] discharges.
+#![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 

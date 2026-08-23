@@ -100,7 +100,9 @@ impl<'a, S: AsyncReadExt + Unpin> Buffered<'a, S> {
     }
 
     fn available(&self) -> usize {
-        self.buf.len() - self.pos
+        // `pos` never exceeds `buf.len()` (every advance is bounded by a
+        // preceding search or length check), so saturation is a no-op.
+        self.buf.len().saturating_sub(self.pos)
     }
 
     /// Read more bytes from the stream into the buffer. Returns bytes read (0 = EOF).
@@ -117,7 +119,12 @@ impl<'a, S: AsyncReadExt + Unpin> Buffered<'a, S> {
         }
         let mut tmp = [0u8; 8192];
         let n = self.stream.read(&mut tmp).await?;
-        self.buf.extend_from_slice(&tmp[..n]);
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "n <= tmp.len() per the Read trait contract"
+        )]
+        let src = &tmp[..n];
+        self.buf.extend_from_slice(src);
         if self.buf.len() > self.limit {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -130,9 +137,23 @@ impl<'a, S: AsyncReadExt + Unpin> Buffered<'a, S> {
     /// Read and consume one CRLF-terminated line (without the CRLF).
     async fn read_crlf_line(&mut self) -> io::Result<String> {
         loop {
-            if let Some(rel) = find_crlf(&self.buf[self.pos..]) {
-                let line = self.buf[self.pos..self.pos + rel].to_vec();
-                self.pos += rel + 2;
+            // pos <= buf.len() holds by construction; find_crlf bounds rel
+            // within buf[pos..].
+            let (_, tail) = self.buf.split_at(self.pos);
+            if let Some(rel) = find_crlf(tail) {
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "rel < tail.len() per the CRLF search above"
+                )]
+                let line = tail[..rel].to_vec();
+                // `rel + 2 <= tail.len()` and every advance keeps
+                // `pos <= buf.len()`; the checked chain documents the
+                // invariant at the only place it could break.
+                self.pos = self
+                    .pos
+                    .checked_add(rel)
+                    .and_then(|after_line| after_line.checked_add(2))
+                    .expect("invariant: CRLF line fits inside the buffered prefix");
                 return String::from_utf8(line).map_err(|_| {
                     io::Error::new(io::ErrorKind::InvalidData, "non-UTF8 header line")
                 });
@@ -150,15 +171,25 @@ impl<'a, S: AsyncReadExt + Unpin> Buffered<'a, S> {
                 return Err(eof("body"));
             }
         }
-        let out = self.buf[self.pos..self.pos + n].to_vec();
-        self.pos += n;
+        // The loop above guarantees available() >= n.
+        let (_, rest) = self.buf.split_at(self.pos);
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "rest.len() >= n follows from available() >= n"
+        )]
+        let out = rest[..n].to_vec();
+        self.pos = self
+            .pos
+            .checked_add(n)
+            .expect("invariant: n <= available() was established by the fill loop");
         Ok(out)
     }
 
     /// Read everything until the peer closes the connection.
     async fn read_to_eof(&mut self) -> io::Result<Vec<u8>> {
         while self.fill().await? != 0 {}
-        Ok(self.buf[self.pos..].to_vec())
+        let (_, tail) = self.buf.split_at(self.pos);
+        Ok(tail.to_vec())
     }
 
     /// Decode a chunked transfer-encoded body.
@@ -203,7 +234,10 @@ pub async fn read_response<S: AsyncReadExt + Unpin>(
     let (status, headers) = loop {
         let mut header_storage = [httparse::EMPTY_HEADER; 96];
         let mut resp = httparse::Response::new(&mut header_storage);
-        match resp.parse(&r.buf[r.pos..]) {
+        // SAFETY-adjacent lint note: `pos <= buf.len()` holds because every
+        // advance is bounded by httparse's consumed count or a length check.
+        let (_, tail) = r.buf.split_at(r.pos);
+        match resp.parse(tail) {
             Ok(httparse::Status::Complete(consumed)) => {
                 let status = resp
                     .code
@@ -218,7 +252,12 @@ pub async fn read_response<S: AsyncReadExt + Unpin>(
                         )
                     })
                     .collect();
-                r.pos += consumed;
+                // httparse Complete(consumed) guarantees
+                // consumed <= buffered bytes.
+                r.pos = r
+                    .pos
+                    .checked_add(consumed)
+                    .expect("invariant: header parse cannot consume beyond the buffer");
                 break (status, headers);
             }
             Ok(httparse::Status::Partial) => {
@@ -327,10 +366,17 @@ mod tests {
             _cx: &mut Context<'_>,
             buf: &mut [u8],
         ) -> Poll<io::Result<usize>> {
-            let remaining = self.data.len() - self.pos;
-            let n = remaining.min(buf.len());
-            buf[..n].copy_from_slice(&self.data[self.pos..self.pos + n]);
-            self.pos += n;
+            let (_, rest) = self.data.split_at(self.pos);
+            let n = rest.len().min(buf.len());
+            #[expect(clippy::indexing_slicing, reason = "n <= buf.len() by the min above")]
+            let dst = &mut buf[..n];
+            #[expect(clippy::indexing_slicing, reason = "n <= rest.len() by the min above")]
+            let src = &rest[..n];
+            dst.copy_from_slice(src);
+            self.pos = self
+                .pos
+                .checked_add(n)
+                .expect("invariant: n <= data.len() - pos");
             Poll::Ready(Ok(n))
         }
     }

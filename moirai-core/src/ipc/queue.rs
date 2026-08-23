@@ -1,3 +1,5 @@
+#![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
+
 use super::error::IpcError;
 use super::memory::SharedMemory;
 use core::mem;
@@ -137,6 +139,13 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
                 return Err(value);
             }
 
+            // SAFETY-adjacent lint note: `capacity` is >= 1 by construction
+            // (`layout_for` rejects zero at create/open), so the modulo
+            // cannot panic.
+            #[expect(
+                clippy::arithmetic_side_effects,
+                reason = "capacity >= 1 is validated at create/open via layout_for"
+            )]
             core::ptr::write(self.buffer.add(head % self.capacity), value);
             (*self.meta)
                 .head
@@ -156,6 +165,10 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
                 return None;
             }
 
+            #[expect(
+                clippy::arithmetic_side_effects,
+                reason = "capacity >= 1 is validated at create/open via layout_for"
+            )]
             let value = core::ptr::read(self.buffer.add(tail % self.capacity));
             (*self.meta)
                 .tail
