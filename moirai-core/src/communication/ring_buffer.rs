@@ -59,6 +59,9 @@ impl<T> RingBuffer<T> {
             return Err(value);
         }
 
+        // SAFETY: SPSC capacity check keeps this slot outside the consumer
+        // window; the write lock-free protocol makes this thread the sole
+        // producer, and the slot is uninitialized until this write.
         unsafe {
             let slot = &mut *self.buffer[current & self.mask].get();
             slot.write(value);
@@ -125,6 +128,9 @@ impl<T> Drop for RingBuffer<T> {
         let len = producer.wrapping_sub(consumer);
         for i in 0..len {
             let idx = (consumer.wrapping_add(i)) & self.mask;
+            // SAFETY: exclusive `&mut self` in drop; every live index in
+            // `consumer..producer` was written by produce and not yet read,
+            // so dropping it here discharges each value exactly once.
             unsafe {
                 let slot = &mut *self.buffer[idx].get();
                 slot.assume_init_drop();
