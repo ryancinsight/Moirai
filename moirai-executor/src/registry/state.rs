@@ -216,13 +216,12 @@ impl TaskStateBlock {
 
     /// Shared view of the state at `slot`, if the slot is occupied and in range.
     pub(super) fn get(&self, slot: usize) -> Option<&TaskState> {
+        let cell = self.slots.get(slot);
         // SAFETY: per the struct's safety contract, we form only a shared
-        // `&TaskState` to interior-mutable state; the registry never writes this
-        // slot's `Option` while a token to it is live, and concurrent token
-        // access touches only the same state's atomics/mutex.
-        self.slots
-            .get(slot)
-            .and_then(|cell| unsafe { (*cell.get()).as_ref() })
+        // `&TaskState` to interior-mutable state; the registry never writes
+        // this slot's `Option` while a token to it is live, and concurrent
+        // token access touches only the same state's atomics/mutex.
+        cell.and_then(|cell| unsafe { (*cell.get()).as_ref() })
     }
 
     /// Insert a fresh state at `slot`, returning a stable pointer to it.
@@ -255,10 +254,9 @@ impl TaskStateBlock {
 
     /// Iterate shared views of the occupied states in this block.
     pub(super) fn states(&self) -> impl Iterator<Item = &TaskState> {
+        let cells = self.slots.iter();
         // SAFETY: as in `get` — shared views of interior-mutable state.
-        self.slots
-            .iter()
-            .filter_map(|cell| unsafe { (*cell.get()).as_ref() })
+        cells.filter_map(|cell| unsafe { (*cell.get()).as_ref() })
     }
 
     pub(super) fn is_empty(&self) -> bool {

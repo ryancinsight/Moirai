@@ -73,11 +73,11 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
 
         let memory = SharedMemory::create(name, total_size)?;
 
+        // SAFETY: `memory.ptr` is the base of an OS shared-memory mapping
+        // (mmap / MapViewOfFile), always page-aligned, satisfying
+        // `QueueMetadata`'s 64-byte alignment; header fields are written
+        // before any peer maps the segment (created above).
         unsafe {
-            // SAFETY: `memory.ptr` is the base of an OS shared-memory
-            // mapping (mmap / MapViewOfFile), always page-aligned, satisfying
-            // `QueueMetadata`'s 64-byte alignment; header fields are written
-            // before any peer maps the segment (created above).
             #[allow(clippy::cast_ptr_alignment)]
             let meta = memory.ptr as *mut QueueMetadata;
             (*meta).head = AtomicUsize::new(0);
@@ -105,10 +105,10 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
 
         let memory = SharedMemory::open(name, total_size)?;
 
+        // SAFETY: `memory.ptr` is a page-aligned OS mapping base, satisfying
+        // `QueueMetadata`'s 64-byte alignment; capacity is validated against
+        // the creator's value before data access.
         unsafe {
-            // SAFETY: `memory.ptr` is a page-aligned OS mapping base,
-            // satisfying `QueueMetadata`'s 64-byte alignment; capacity is
-            // validated against the creator's value before data access.
             #[allow(clippy::cast_ptr_alignment)]
             let meta = memory.ptr as *mut QueueMetadata;
             // The header lives in the first page, so it is always within the

@@ -185,6 +185,9 @@ pub(super) struct LifoSlot {
     pub(super) job: std::cell::UnsafeCell<std::mem::MaybeUninit<ScheduledJob>>,
 }
 
+// SAFETY: every access to `job` is gated by the `state` machine — a thread
+// touches the cell only after winning the empty->1 or full->{1,3} CAS,
+// which transfers exclusive ownership of the slot contents.
 unsafe impl Sync for LifoSlot {}
 
 impl LifoSlot {
@@ -203,6 +206,8 @@ impl LifoSlot {
                 .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
                 .is_ok()
         {
+            // SAFETY: the won CAS makes this thread exclusive owner of the
+            // cell while state==1; it holds no live value until this store.
             unsafe {
                 *self.job.get() = std::mem::MaybeUninit::new(job);
             }
@@ -219,6 +224,8 @@ impl LifoSlot {
                 .compare_exchange(2, 1, Ordering::Acquire, Ordering::Relaxed)
                 .is_ok()
             {
+                // SAFETY: the won full->1 CAS transfers exclusive ownership;
+                // reading moves the value out before state returns to 0.
                 let job = unsafe { std::ptr::read((*self.job.get()).as_ptr()) };
                 self.state.store(0, Ordering::Release);
                 Some(job)
@@ -237,6 +244,9 @@ impl LifoSlot {
                 .compare_exchange(2, 3, Ordering::Acquire, Ordering::Relaxed)
                 .is_ok()
             {
+                // SAFETY: the won full->3 CAS transfers ownership to the
+                // stealing thread; the read moves the value out before the
+                // state resets to 0.
                 let job = unsafe { std::ptr::read((*self.job.get()).as_ptr()) };
                 self.state.store(0, Ordering::Release);
                 Some(job)
@@ -252,6 +262,9 @@ impl LifoSlot {
 impl Drop for LifoSlot {
     fn drop(&mut self) {
         if *self.state.get_mut() == 2 {
+            // SAFETY: exclusive `&mut self` in drop plus state==2 prove an
+            // unconsumed value still sits in the cell; dropping it here
+            // discharges the obligation the pop/steal paths would have.
             unsafe {
                 std::ptr::drop_in_place((*self.job.get()).as_mut_ptr());
             }
