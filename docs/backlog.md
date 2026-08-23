@@ -2860,9 +2860,10 @@ are recorded so the archive can retire. Evidence probes ran read-only.
 
 - Outcome: the lock-free primitives hold their invariants under generated
   interleavings and value distributions, not only curated cases.
-- Scope: no `proptest` dependency exists anywhere in the tree as of
-  `ff56d60`; admit it for scheduler/deque/channel suites alongside loom.
-- Status: todo (re-verified open)
+- Scope: proptest is admitted as a workspace/dev dependency (landed after
+  this item was filed); the remaining work is the property suites themselves
+  for the scheduler/deque/channel primitives alongside the loom models.
+- Status: in-progress (integrator: ryanclanton session 2026-08-23)
 
 ### MOI-AUDIT-SEC-001 - Fuzz and restriction floor for untrusted-input parsers [security] [minor] [M]
 
