@@ -12,6 +12,9 @@
 pub fn prefetch_read<T>(ptr: *const T) {
     #[cfg(target_arch = "x86_64")]
     {
+        // SAFETY: prefetch hints are non-faulting and advisory, so `ptr`
+        // need not be dereferenceable; SSE is baseline on x86_64 and the
+        // cast carries only the address.
         unsafe {
             core::arch::x86_64::_mm_prefetch(ptr as *const i8, core::arch::x86_64::_MM_HINT_T0);
         }
@@ -32,6 +35,9 @@ pub fn prefetch_read<T>(ptr: *const T) {
 pub fn prefetch_write<T>(ptr: *const T) {
     #[cfg(target_arch = "x86_64")]
     {
+        // SAFETY: prefetch hints are non-faulting and advisory, so `ptr`
+        // need not be dereferenceable; SSE is baseline on x86_64 and the
+        // cast carries only the address.
         unsafe {
             core::arch::x86_64::_mm_prefetch(ptr as *const i8, core::arch::x86_64::_MM_HINT_T0);
         }

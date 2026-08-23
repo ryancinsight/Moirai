@@ -172,6 +172,9 @@ impl SimdScalar for f32 {
         #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
         {
             if let Some(chunk_len) = native_vector_chunk_len(len) {
+                // SAFETY: `chunk_len` is a LANES multiple <= len with the ISA
+                // feature probed, so the sliced arguments satisfy the arch
+                // fn contract.
                 unsafe {
                     arch::add(
                         &left[..chunk_len],
@@ -198,6 +201,9 @@ impl SimdScalar for f32 {
         #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
         {
             if let Some(chunk_len) = native_vector_chunk_len(len) {
+                // SAFETY: `chunk_len` is a LANES multiple <= len with the ISA
+                // feature probed, so the sliced arguments satisfy the arch
+                // fn contract.
                 unsafe {
                     arch::mul(
                         &left[..chunk_len],
@@ -254,6 +260,8 @@ impl SimdScalar for f32 {
     fn matrix_mul_square<const N: usize>(left: &[Self], right: &[Self], result: &mut [Self]) {
         if N == 4 && native_vector_available() {
             scalar_matrix_shape::<N>(left, right, result);
+            // SAFETY: N == 4 fixes the 16-element shape and the feature
+            // probe passed, satisfying the arch fn contract.
             unsafe {
                 arch::matrix_mul_square(left, right, result);
             }
@@ -323,6 +331,9 @@ impl SimdScalar for f64 {
         #[cfg(target_arch = "x86_64")]
         {
             if let Some(chunk_len) = native_vector_chunk_len(len) {
+                // SAFETY: `chunk_len` is an 8-lane multiple <= len with AVX2
+                // probed, so the sliced arguments satisfy the arch fn
+                // contract.
                 unsafe {
                     arch::add_wide(
                         &left[..chunk_len],
@@ -349,6 +360,9 @@ impl SimdScalar for f64 {
         #[cfg(target_arch = "x86_64")]
         {
             if let Some(chunk_len) = native_vector_chunk_len(len) {
+                // SAFETY: `chunk_len` is an 8-lane multiple <= len with AVX2
+                // probed, so the sliced arguments satisfy the arch fn
+                // contract.
                 unsafe {
                     arch::mul_wide(
                         &left[..chunk_len],
