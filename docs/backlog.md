@@ -2854,7 +2854,7 @@ are recorded so the archive can retire. Evidence probes ran read-only.
   e.g. `moirai-utils/src/simd/arch/aarch64.rs` (`add` and siblings),
   `moirai-scheduler/src/deque/chase_lev/storage.rs:110`. Exact census needs a
   per-site pass; type-position `unsafe fn(...)` pointers are out of scope.
-- Status: todo (re-verified open with named examples)
+- Status: in-progress (integrator: ryanclanton session 2026-08-22; census pass starting)
 
 ### MOI-AUDIT-VER-010 - Property coverage for the concurrency primitives [verification] [patch] [M]
 
