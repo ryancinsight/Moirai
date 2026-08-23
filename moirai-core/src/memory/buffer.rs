@@ -58,6 +58,10 @@ impl<T> UnifiedRingBuffer<T> {
             return Err(item);
         }
 
+        // SAFETY: the write lock makes this thread the sole producer; the
+        // fullness check (`next_head != tail`) guarantees the masked slot is
+        // outside the pending-consumer window, and the slot is
+        // uninitialized until this `ptr::write`.
         unsafe {
             let slot = self.buffer.as_ptr().add(head & self.mask);
             ptr::write((*slot).as_mut_ptr(), item);
@@ -78,6 +82,10 @@ impl<T> UnifiedRingBuffer<T> {
             return None;
         }
 
+        // SAFETY: the read lock makes this thread the sole consumer; the
+        // emptiness check (`tail != head`) guarantees the masked slot was
+        // published by a producer and holds an initialized value that this
+        // `ptr::read` moves out exactly once before `tail` advances.
         let item = unsafe {
             let slot = self.buffer.as_ptr().add(tail & self.mask);
             ptr::read((*slot).as_ptr())
@@ -115,12 +123,19 @@ impl<T> Drop for UnifiedRingBuffer<T> {
             // Items are dropped automatically
         }
 
-        // Deallocate buffer
+        // SAFETY: remaining items were drained above, so no live values are
+        // leaked; the pointer, type, and count match the allocating call
+        // exactly and no reference survives into `drop`.
         unsafe {
             CacheAlignedAllocator::deallocate(self.buffer, self.capacity);
         }
     }
 }
 
+// SAFETY: values transfer between threads through the ring, so `T` must be
+// `Send`; the raw pointer never yields references.
 unsafe impl<T: Send> Send for UnifiedRingBuffer<T> {}
+// SAFETY: shared access is serialized by the per-side mutexes and
+// head/tail atomics; no `&T` aliasing is ever exposed, so `T: Send`
+// suffices.
 unsafe impl<T: Send> Sync for UnifiedRingBuffer<T> {}
