@@ -2863,7 +2863,7 @@ are recorded so the archive can retire. Evidence probes ran read-only.
 - Scope: proptest is admitted as a workspace/dev dependency (landed after
   this item was filed); the remaining work is the property suites themselves
   for the scheduler/deque/channel primitives alongside the loom models.
-- Status: in-progress (integrator: ryanclanton session 2026-08-23)
+- Status: in-review (Moirai PR #153; six properties across SPSC/MPMC/ChaseLev; local gates green, hosted checks pending)
 
 ### MOI-AUDIT-SEC-001 - Fuzz and restriction floor for untrusted-input parsers [security] [minor] [M]
 
