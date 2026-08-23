@@ -272,6 +272,10 @@ impl<'a, T> Drop for MergeGuard<'a, T> {
     fn drop(&mut self) {
         let remaining = self.mid - self.i;
         if remaining > 0 {
+            // SAFETY: drop runs only when merge bailed early with unconsumed
+            // left elements; source range stays inside `left_vec`'s len and
+            // destination slots k..mid were vacated by the consumed prefix,
+            // so ranges are disjoint and uninitialized-valid as MaybeUninit.
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     self.left_vec.as_ptr().add(self.i),
@@ -294,6 +298,11 @@ where
     }
 
     let mut left_vec: Vec<MaybeUninit<T>> = Vec::with_capacity(mid);
+    // SAFETY: capacity mid was just reserved; copying mid initialized
+    // elements from the slice's left half makes them initialized owners, so
+    // set_len is honest and no value is duplicated (the slice side of these
+    // slots is logically moved out and never dropped twice — merge writes
+    // every slot before any later drop).
     unsafe {
         std::ptr::copy_nonoverlapping(
             slice.as_ptr().cast::<MaybeUninit<T>>(),
@@ -313,10 +322,15 @@ where
     };
 
     while guard.i < guard.mid && guard.j < len {
+        // SAFETY: i < mid bounds the index and the vector holds mid
+        // initialized values per the copy above.
         let left_val = unsafe { &*guard.left_vec.as_ptr().add(guard.i).cast::<T>() };
         let right_val = &guard.slice[guard.j];
 
         if compare(left_val, right_val) == std::cmp::Ordering::Greater {
+            // SAFETY: j < len and k <= j hold during the right-run advance,
+            // so forward `copy` handles the overlap correctly and both
+            // indices stay in bounds.
             unsafe {
                 std::ptr::copy(
                     guard.slice.as_ptr().add(guard.j),
@@ -326,6 +340,9 @@ where
             }
             guard.j += 1;
         } else {
+            // SAFETY: i < mid bounds the source; k <= i + (j - mid) keeps the
+            // destination at or behind consumed positions, disjoint from the
+            // still-referenced left_vec range, and within slice bounds.
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     guard.left_vec.as_ptr().add(guard.i),

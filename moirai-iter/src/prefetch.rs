@@ -89,6 +89,8 @@ impl<'a, T> PrefetchSliceIter<'a, T> {
 
         // Prefetch initial data
         if !slice.is_empty() && prefetch_distance < slice.len() {
+            // SAFETY: address arithmetic stays inside `slice` because
+            // prefetch_distance < len; hints are non-faulting.
             unsafe {
                 let future_ptr = slice.as_ptr().add(prefetch_distance);
                 prefetch_read_data(future_ptr as *const u8, 0);
@@ -113,6 +115,8 @@ impl<'a, T> Iterator for PrefetchSliceIter<'a, T> {
 
         // Prefetch future data
         if self.prefetch_distance < self.slice.len() {
+            // SAFETY: index below len keeps the hinted address in-bounds;
+            // prefetch never dereferences.
             unsafe {
                 let future_ptr = self.slice.as_ptr().add(self.prefetch_distance);
                 prefetch_read_data(future_ptr as *const u8, 0);
@@ -142,6 +146,8 @@ impl<'a, T> PrefetchSliceIterMut<'a, T> {
 
         // Prefetch initial data for writing
         if !slice.is_empty() && prefetch_distance < slice.len() {
+            // SAFETY: bounded by the distance check; write hints do not
+            // mutate memory.
             unsafe {
                 let future_ptr = slice.as_mut_ptr().add(prefetch_distance);
                 prefetch_write_data(future_ptr as *mut u8, 0);
@@ -166,6 +172,8 @@ impl<'a, T> Iterator for PrefetchSliceIterMut<'a, T> {
 
         // Prefetch future data for writing
         if self.prefetch_distance < self.slice.len() {
+            // SAFETY: index below len keeps the hinted address in-bounds;
+            // write hints are advisory only.
             unsafe {
                 let future_ptr = self.slice.as_mut_ptr().add(self.prefetch_distance);
                 prefetch_write_data(future_ptr as *mut u8, 0);
@@ -222,6 +230,8 @@ impl<'a, T> PrefetchChunks<'a, T> {
 
         // Prefetch first chunk
         if !slice.is_empty() {
+            // SAFETY: every hinted offset is clamped below slice.len(); the
+            // stride stays positive since size_of::<T> >= 1.
             unsafe {
                 let chunk_end = chunk_size.min(slice.len());
                 for i in (0..chunk_end).step_by(64 / mem::size_of::<T>().max(1)) {
@@ -248,6 +258,8 @@ impl<'a, T> Iterator for PrefetchChunks<'a, T> {
         // Prefetch next chunk
         let next_position = self.position + self.chunk_size;
         if next_position < self.slice.len() {
+            // SAFETY: next_chunk_end is clamped to slice.len(), so all
+            // hinted offsets are in-bounds; hints never dereference.
             unsafe {
                 let next_chunk_end = (next_position + self.chunk_size).min(self.slice.len());
                 // Prefetch every cache line in the next chunk
