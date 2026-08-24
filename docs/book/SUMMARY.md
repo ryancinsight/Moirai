@@ -31,3 +31,4 @@
 
 - [Transports and their capability contract](transports.md)
 - [Payload framing and ownership regions](payloads.md)
+- [Safe channels: typed endpoints over raw links](safe-channels.md)
