@@ -143,11 +143,25 @@ jobs:
           persist-credentials: false
 
       # Pinned nightly: libFuzzer builds track the unstable surface, and an
-      # unpinned nightly would drift the toolchain under the gate.
+      # unpinned nightly would drift the toolchain under the gate. The musl
+      # target is what cargo-fuzz selects for the build; installing it here
+      # keeps rustup from silently resolving a different default toolchain.
       - name: Set up pinned nightly Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: nightly-2026-08-01
+          targets: x86_64-unknown-linux-musl
+
+      - name: Select and assert the fuzz toolchain
+        run: |
+          rustup default nightly-2026-08-01
+          rustup override unset || true
+          actual="$(rustc --version)"
+          echo "fuzz toolchain: $actual"
+          case "$actual" in
+            *nightly*) ;;
+            *) echo "ERROR: fuzz job requires a nightly compiler, got $actual" >&2; exit 1 ;;
+          esac
 
       - name: Install cargo-fuzz
         uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
