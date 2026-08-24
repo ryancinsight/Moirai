@@ -41,7 +41,7 @@ Part IV extends this book from one process to many. Its chapters:
 | [Safe channels: typed endpoints over raw links](safe-channels.md) | `safe_channel.rs` | written |
 | [Routes: from scheduler decision to wire address](routes.md) | `route.rs` | written |
 | [The message router: topic fan-out over transports](router.md) | `router.rs` | written |
-| Remote tasks: capabilities and server lifecycle | `remote_task/` | planned |
+| [Remote tasks: capabilities and server lifecycle](remote-tasks.md) | `remote_task/` | written |
 
-Planned entries gain links as their teaching content lands under
-`MOI-AUDIT-DOC-009`; no placeholder pages.
+All six chapters are written; the part is complete under
+`MOI-AUDIT-DOC-009`.
