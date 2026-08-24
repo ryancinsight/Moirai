@@ -2933,7 +2933,7 @@ Part IV chapter map (grounded in moirai-transport):
 - Blocker: `layout_for` is private and inseparable from OS mapping calls;
   needs a public pure-validation function over header bytes first
   (`SharedQueue::open` then routes through it).
-- Status: todo (blocked on the seam extraction)
+- Status: in-review (seam extracted + ipc_header target at Moirai PR #163; scheduled campaign from #162 picks it up automatically)
 
 ### MOI-SEC-001-B - Scheduled fuzz CI job for the target set [security] [patch] [S]
 
