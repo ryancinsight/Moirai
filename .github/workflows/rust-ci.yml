@@ -136,6 +136,11 @@ jobs:
     name: Fuzz parsers
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Highest toolchain-selection precedence: without this, the repo's
+    # rust-toolchain.toml (1.97.0 stable) overrides any rustup default and
+    # libFuzzer's -Z flags fail to build.
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-08-01
     steps:
       - name: Checkout source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -152,10 +157,8 @@ jobs:
           toolchain: nightly-2026-08-01
           targets: x86_64-unknown-linux-musl
 
-      - name: Select and assert the fuzz toolchain
+      - name: Assert the fuzz toolchain
         run: |
-          rustup default nightly-2026-08-01
-          rustup override unset || true
           actual="$(rustc --version)"
           echo "fuzz toolchain: $actual"
           case "$actual" in
