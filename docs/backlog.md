@@ -2958,7 +2958,7 @@ Part IV chapter map (grounded in moirai-transport):
   the two implementations; keep the `Transport` trait for external
   implementors if any exist outside the manager; differential tests
   must show identical routing decisions before/after.
-- Status: in-review (Moirai PR #161; enum dispatch landed, differential tests green, hosted checks pending)
+- Status: done (2026-08-24, Moirai PR #161 merged; enum dispatch, all hosted gates green)
 ### Closed upstream between capture and reclaim
 
 - MOI-AUDIT-VER-002: Miri gate present in hosted CI.
