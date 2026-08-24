@@ -2889,7 +2889,7 @@ are recorded so the archive can retire. Evidence probes ran read-only.
   route/transport material: a new Part IV in the existing book, not a
   parallel book tree. Chapter map below; each lands when its teaching
   content exists, never as placeholders.
-- Status: in-progress (integrator: ryanclanton session 2026-08-24)
+- Status: in-review (Part IV opened: transports chapter at Moirai PR #155; chapters 2-6 sequenced in the Part IV map above)
 
 Part IV chapter map (grounded in moirai-transport):
 
