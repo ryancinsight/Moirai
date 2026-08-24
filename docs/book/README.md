@@ -39,8 +39,8 @@ Part IV extends this book from one process to many. Its chapters:
 | [Transports and their capability contract](transports.md) | `transport.rs`, `network.rs`, `process.rs` | written |
 | [Payload framing and ownership regions](payloads.md) | `payload.rs` | written |
 | [Safe channels: typed endpoints over raw links](safe-channels.md) | `safe_channel.rs` | written |
-| Routes: from scheduler decision to wire address | `route.rs` | planned |
-| The router: dispatch, retries, backpressure | `router.rs` | planned |
+| [Routes: from scheduler decision to wire address](routes.md) | `route.rs` | written |
+| [The message router: topic fan-out over transports](router.md) | `router.rs` | written |
 | Remote tasks: capabilities and server lifecycle | `remote_task/` | planned |
 
 Planned entries gain links as their teaching content lands under

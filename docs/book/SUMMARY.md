@@ -33,3 +33,4 @@
 - [Payload framing and ownership regions](payloads.md)
 - [Safe channels: typed endpoints over raw links](safe-channels.md)
 - [Routes: from scheduler decision to wire address](routes.md)
+- [The message router: topic fan-out over transports](router.md)
