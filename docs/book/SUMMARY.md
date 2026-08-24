@@ -30,3 +30,4 @@
 # Part IV — Routing and Transport
 
 - [Transports and their capability contract](transports.md)
+- [Payload framing and ownership regions](payloads.md)
