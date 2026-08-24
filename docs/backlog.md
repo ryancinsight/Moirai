@@ -2943,7 +2943,7 @@ Part IV chapter map (grounded in moirai-transport):
   cargo-fuzz install cached) running `http_response`; extend the target
   list as targets land. Workflow hygiene rules apply (SHA-pinned actions,
   timeout-minutes, least-privilege token).
-- Status: todo
+- Status: in-review (Moirai PR #162; weekly cron + dispatch, pinned nightly, bounded 180s smoke over committed seeds)
 
 ### MOI-TRANSPORT-DYN-001 - Enum-dispatch the transport manager's backends [arch] [minor] [M]
 
