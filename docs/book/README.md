@@ -28,3 +28,20 @@ and `tokio` for Atlas consumers.
 7. Blocking tasks for I/O and FFI.
 8. Channels, barriers, and mutexes.
 9. Where moirai fits in the Atlas stack.
+
+
+## Part IV — Routing and transport
+
+Part IV extends this book from one process to many. Its chapters:
+
+| Chapter | Source of truth | Status |
+| --- | --- | --- |
+| [Transports and their capability contract](transports.md) | `transport.rs`, `network.rs`, `process.rs` | written |
+| [Payload framing and ownership regions](payloads.md) | `payload.rs` | written |
+| [Safe channels: typed endpoints over raw links](safe-channels.md) | `safe_channel.rs` | written |
+| Routes: from scheduler decision to wire address | `route.rs` | planned |
+| The router: dispatch, retries, backpressure | `router.rs` | planned |
+| Remote tasks: capabilities and server lifecycle | `remote_task/` | planned |
+
+Planned entries gain links as their teaching content lands under
+`MOI-AUDIT-DOC-009`; no placeholder pages.
