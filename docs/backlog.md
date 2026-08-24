@@ -2958,7 +2958,7 @@ Part IV chapter map (grounded in moirai-transport):
   the two implementations; keep the `Transport` trait for external
   implementors if any exist outside the manager; differential tests
   must show identical routing decisions before/after.
-- Status: todo
+- Status: in-progress (integrator: ryanclanton session 2026-08-24)
 ### Closed upstream between capture and reclaim
 
 - MOI-AUDIT-VER-002: Miri gate present in hosted CI.
