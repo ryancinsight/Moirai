@@ -2875,9 +2875,8 @@ are recorded so the archive can retire. Evidence probes ran read-only.
   restriction floors denied at moirai-http (crate) and src/ipc (module);
   fourteen violations fixed structurally or discharged with per-site
   invariant expectations. Part 2: fuzz/http_response target over the HTTP
-  codec under a slowloris budget. Remaining follow-up filed below: an IPC
-  metadata target blocked on a public pure-validation seam; scheduled fuzz
-  CI wiring follows the heavy-suite cadence.
+  codec under a slowloris budget. Follow-ups tracked as MOI-SEC-001-A/B
+  below.
 
 ### MOI-AUDIT-DOC-009 - Domain book for route and transport layers [docs] [minor] [M]
 
@@ -2926,6 +2925,40 @@ Part IV chapter map (grounded in moirai-transport):
   exit 0 covering repos/moirai; kwavers drift caught-and-repaired by the
   same gate the same day, demonstrating the enforcement path works.
 
+
+### MOI-SEC-001-A - IPC metadata fuzz target behind a pure validation seam [security] [patch] [S]
+
+- Outcome: shared-memory queue headers are fuzz-covered like the HTTP
+  codec, so peer-corrupted metadata cannot panic or misaddress reads.
+- Blocker: `layout_for` is private and inseparable from OS mapping calls;
+  needs a public pure-validation function over header bytes first
+  (`SharedQueue::open` then routes through it).
+- Status: todo (blocked on the seam extraction)
+
+### MOI-SEC-001-B - Scheduled fuzz CI job for the target set [security] [patch] [S]
+
+- Outcome: `cargo +nightly fuzz` runs on a schedule so corpus growth and
+  parser regressions surface without per-push cost.
+- Scope: add a workflow job (schedule trigger only, pinned nightly,
+  cargo-fuzz install cached) running `http_response`; extend the target
+  list as targets land. Workflow hygiene rules apply (SHA-pinned actions,
+  timeout-minutes, least-privilege token).
+- Status: todo
+
+### MOI-TRANSPORT-DYN-001 - Enum-dispatch the transport manager's backends [arch] [minor] [M]
+
+- Outcome: every routed message reaches its backend without vtable
+  indirection, and the backend set is closed by construction.
+- Evidence: `TransportManager` holds `Vec<Box<dyn Transport>>`
+  (transport.rs:110) and dispatches each send/recv through it - the
+  per-message hot path. The backend set is closed at design time
+  (in-memory, network), which is exactly the enum-dispatch case in
+  standards; no documented exception annotation exists today.
+- Scope: replace the boxed trait objects with a backend enum carrying
+  the two implementations; keep the `Transport` trait for external
+  implementors if any exist outside the manager; differential tests
+  must show identical routing decisions before/after.
+- Status: todo
 ### Closed upstream between capture and reclaim
 
 - MOI-AUDIT-VER-002: Miri gate present in hosted CI.
