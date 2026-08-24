@@ -2889,7 +2889,10 @@ are recorded so the archive can retire. Evidence probes ran read-only.
   route/transport material: a new Part IV in the existing book, not a
   parallel book tree. Chapter map below; each lands when its teaching
   content exists, never as placeholders.
-- Status: in-progress (Part IV chapters 1-4 merged (#155-158), chapter 5 message router in review at #159; chapter 6 remote tasks remains)
+- Status: done (2026-08-24, Part IV complete through Moirai PR #160:
+  chapters 1-6 written against current sources - transports #155,
+  payloads #156, safe channels #157, routes #158, router #159, remote
+  tasks #160; no placeholders or dead links; mdbook builds clean)
 
 Part IV chapter map (grounded in moirai-transport):
 
