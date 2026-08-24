@@ -105,9 +105,42 @@ impl Transport for InMemoryTransport {
     }
 }
 
+/// Backends the manager routes across. The set is closed at design time
+/// (in-memory for `Address::Local`, network frames for `Address::Remote`),
+/// so dispatch is an exhaustive match - monomorphized per arm, no vtable on
+/// the per-message path. A third backend joins by adding a variant here,
+/// which surfaces every match site at compile time.
+enum ManagedTransport {
+    InMemory(InMemoryTransport),
+    Network(NetworkTransport),
+}
+
+impl ManagedTransport {
+    fn send(&self, target: &Address, data: Vec<u8>) -> TransportResult<()> {
+        match self {
+            Self::InMemory(transport) => Transport::send(transport, target, data),
+            Self::Network(transport) => Transport::send(transport, target, data),
+        }
+    }
+
+    fn recv(&self, source: &Address) -> TransportResult<Vec<u8>> {
+        match self {
+            Self::InMemory(transport) => Transport::recv(transport, source),
+            Self::Network(transport) => Transport::recv(transport, source),
+        }
+    }
+
+    fn supports(&self, address: &Address) -> bool {
+        match self {
+            Self::InMemory(transport) => Transport::supports(transport, address),
+            Self::Network(transport) => Transport::supports(transport, address),
+        }
+    }
+}
+
 /// Transport manager that routes messages to appropriate transport
 pub struct TransportManager {
-    transports: Vec<Box<dyn Transport>>,
+    transports: [ManagedTransport; 2],
 }
 
 impl TransportManager {
@@ -115,9 +148,9 @@ impl TransportManager {
     /// over the network transport.
     pub fn new() -> Self {
         Self {
-            transports: vec![
-                Box::new(InMemoryTransport::new()),
-                Box::new(NetworkTransport {}),
+            transports: [
+                ManagedTransport::InMemory(InMemoryTransport::new()),
+                ManagedTransport::Network(NetworkTransport {}),
             ],
         }
     }
