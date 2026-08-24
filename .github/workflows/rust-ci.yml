@@ -22,6 +22,9 @@ on:
       - "deny.toml"
       - "rust-toolchain.toml"
       - ".github/workflows/rust-ci.yml"
+  schedule:
+    # Weekly parser-fuzz campaign (MOI-SEC-001-B); runs on main only.
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -127,3 +130,53 @@ jobs:
 
       - name: Check dependency graph
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+
+
+  fuzz:
+    name: Fuzz parsers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Highest toolchain-selection precedence: without this, the repo's
+    # rust-toolchain.toml (1.97.0 stable) overrides any rustup default and
+    # libFuzzer's -Z flags fail to build.
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-08-01
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Pinned nightly: libFuzzer builds track the unstable surface, and an
+      # unpinned nightly would drift the toolchain under the gate. The musl
+      # target is what cargo-fuzz selects for the build; installing it here
+      # keeps rustup from silently resolving a different default toolchain.
+      - name: Set up pinned nightly Rust
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: nightly-2026-08-01
+          targets: x86_64-unknown-linux-musl
+
+      - name: Assert the fuzz toolchain
+        run: |
+          actual="$(rustc --version)"
+          echo "fuzz toolchain: $actual"
+          case "$actual" in
+            *nightly*) ;;
+            *) echo "ERROR: fuzz job requires a nightly compiler, got $actual" >&2; exit 1 ;;
+          esac
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
+        with:
+          tool: cargo-fuzz
+
+      - name: Build fuzz targets
+        working-directory: fuzz
+        run: cargo fuzz build http_response
+
+      # Bounded smoke campaign over committed seeds: enough execution to catch
+      # parser regressions without turning CI into a standing campaign.
+      - name: Smoke-run http_response over the seed corpus
+        working-directory: fuzz
+        run: cargo fuzz run http_response -- -max_total_time=180 -rss_limit_mb=4096 seeds
