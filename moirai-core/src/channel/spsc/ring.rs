@@ -98,6 +98,9 @@ impl<T> Drop for SpscChannel<T> {
         let head = self.head.0.load(Ordering::Relaxed);
         let len = head.wrapping_sub(tail);
         for i in 0..len {
+            // SAFETY: exclusive `&mut self` in drop; indices span exactly
+            // the live window tail..head, each holding a value that has not
+            // been consumed, dropped once here.
             unsafe {
                 let slot = &mut *self.buffer[(tail.wrapping_add(i)) & self.mask].get();
                 slot.assume_init_drop();
@@ -263,7 +266,9 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
 
             // Check if there's space
             if head.wrapping_sub(tail) < self.buffer.len() {
-                // There's space, try to send
+                // SAFETY: sole-producer role of this blocking sender plus
+                // the space check keep the masked slot outside the consumer
+                // window and uninitialized before this write.
                 unsafe {
                     let slot = &mut *self.buffer[head & self.mask].get();
                     slot.write(value);
@@ -299,6 +304,8 @@ impl<T: Send> Channel<T> for SpscChannel<T> {
             return Err(ChannelError::Full);
         }
 
+        // SAFETY: sole-producer role plus the fullness check guarantee an
+        // uninitialized, unconsumed masked slot for this write.
         unsafe {
             let slot = &mut *self.buffer[head & self.mask].get();
             slot.write(value);

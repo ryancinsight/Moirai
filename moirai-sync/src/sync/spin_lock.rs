@@ -41,7 +41,11 @@ impl<T> fmt::Debug for SpinLock<T> {
     }
 }
 
+// SAFETY: guarded values move with the lock; no address-sensitive state
+// beyond `T`.
 unsafe impl<T: Send> Send for SpinLock<T> {}
+// SAFETY: the atomic `locked` bit serializes access, so data references via
+// guards are exclusive while held; `T: Send` covers cross-thread transfer.
 unsafe impl<T: Send> Sync for SpinLock<T> {}
 
 impl<T> SpinLock<T> {
@@ -132,12 +136,16 @@ impl<'a, T> Deref for SpinLockGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
+        // SAFETY: holding the guard proves the lock bit is ours, so no other
+        // reference to `data` exists; shared reborrow cannot race a writer.
         unsafe { &*self.lock.data.get() }
     }
 }
 
 impl<'a, T> DerefMut for SpinLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: unique guard plus the lock bit exclude all other access to
+        // `data` for the guard's lifetime.
         unsafe { &mut *self.lock.data.get() }
     }
 }

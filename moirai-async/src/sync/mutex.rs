@@ -17,7 +17,13 @@ pub struct Mutex<T> {
     state: std::sync::Mutex<MutexState>,
 }
 
+// SAFETY: shared access serializes on `state`; a guard exists only after
+// acquiring it, so `&T`/`&mut T` from `data` are never concurrent. `Sync`
+// additionally needs `T: Sync` because guard derefs expose `&T` across
+// threads.
 unsafe impl<T: Send + Sync> Sync for Mutex<T> {}
+// SAFETY: the mutex owns its data and moves with it; no thread-local or
+// address-sensitive state exists beyond `T` itself.
 unsafe impl<T: Send> Send for Mutex<T> {}
 
 struct MutexState {
@@ -137,12 +143,17 @@ pub struct MutexGuard<'a, T> {
 impl<'a, T> Deref for MutexGuard<'a, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
+        // SAFETY: the guard's existence proves the state lock was acquired;
+        // no other guard can coexist, so the shared reborrow is exclusive in
+        // practice and no mutable alias is live.
         unsafe { &*self.mutex.data.get() }
     }
 }
 
 impl<'a, T> DerefMut for MutexGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: unique guard plus serialized acquisition prove no other
+        // reference to `data` exists while this guard lives.
         unsafe { &mut *self.mutex.data.get() }
     }
 }

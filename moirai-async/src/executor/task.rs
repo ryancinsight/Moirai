@@ -125,12 +125,17 @@ impl ErasedTaskFuture {
     }
 
     pub(super) fn poll(&mut self, context: &mut Context<'_>) -> Poll<()> {
+        // SAFETY: `ptr` owns the boxed future whose type matches the vtable
+        // entry stamped in `new`, and `&mut self` excludes any concurrent
+        // poll under the AsyncTask Sync protocol.
         unsafe { (self.poll)(self.ptr, context) }
     }
 }
 
 impl Drop for ErasedTaskFuture {
     fn drop(&mut self) {
+        // SAFETY: same ownership/type pairing as the poll path; this is the
+        // final access, so reconstructing and dropping the box is sound.
         unsafe {
             (self.drop)(self.ptr);
         }
@@ -141,6 +146,10 @@ unsafe fn poll_erased_future<F>(ptr: NonNull<()>, context: &mut Context<'_>) -> 
 where
     F: Future<Output = ()> + Send + 'static,
 {
+    // SAFETY: the future lives in a heap allocation whose address never
+    // changes between polls (`Box::into_raw` in `new`, freed only by
+    // `drop_erased_future`), which is exactly the pinning guarantee
+    // `Pin::new_unchecked` requires.
     let future = unsafe { Pin::new_unchecked(&mut *ptr.cast::<F>().as_ptr()) };
     future.poll(context)
 }
@@ -149,6 +158,8 @@ unsafe fn drop_erased_future<F>(ptr: NonNull<()>)
 where
     F: Future<Output = ()> + Send + 'static,
 {
+    // SAFETY: reconstructs the exact `Box<F>` leaked by `Box::into_raw` in
+    // `new`, restoring allocator and type for a single well-formed free.
     unsafe {
         drop(Box::from_raw(ptr.cast::<F>().as_ptr()));
     }

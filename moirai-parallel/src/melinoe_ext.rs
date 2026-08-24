@@ -79,6 +79,8 @@ where
             };
             let shard = WriterShard::new(chunk_ref);
             let result = f(start, shard);
+            // SAFETY: chunk index c is visited exactly once by the indexed
+            // schedule, writing an uninitialized-but-reserved slot once.
             unsafe {
                 out_ptr.get_mut(c).write(result);
             }

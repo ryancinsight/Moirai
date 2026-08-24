@@ -26,6 +26,9 @@ impl<T> ThreadLocalPool<T> {
     where
         F: FnOnce() -> T,
     {
+        // SAFETY: `ThreadLocalPool` is !Sync (and !Send) via its raw-pointer
+        // phantom marker, so `&self` implies same-thread access; the cell is
+        // therefore not aliased and unique `&mut` is sound.
         unsafe {
             let pool = &mut *self.pool.get();
             pool.pop().unwrap_or_else(create)
@@ -34,6 +37,8 @@ impl<T> ThreadLocalPool<T> {
 
     /// Return an object to the pool
     pub fn put(&self, obj: T) {
+        // SAFETY: same-thread uniqueness as in `get_or_create`; the cell is
+        // never aliased on a !Sync type.
         unsafe {
             let pool = &mut *self.pool.get();
             if pool.len() < self.max_size {

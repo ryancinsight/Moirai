@@ -64,6 +64,10 @@ impl<T> BoundedMpmcQueue<T> {
                         Ordering::Relaxed,
                     ) {
                         Ok(_) => {
+                            // SAFETY: winning the enqueue-position CAS grants
+                            // exclusive right to fill this sequence slot; its
+                            // value cell is uninit (fresh or drained) until
+                            // this write publishes it.
                             unsafe {
                                 (*slot.value.get()).write(value);
                             }
@@ -144,6 +148,9 @@ impl<T> Drop for BoundedMpmcQueue<T> {
             let slot = &mut self.buffer[pos & self.mask];
             let sequence = *slot.sequence.get_mut();
             if sequence == pos.wrapping_add(1) {
+                // SAFETY: exclusive `&mut self` in drop; the published
+                // sequence marks the cell initialized, and drain order visits
+                // each published slot once.
                 unsafe {
                     (*slot.value.get()).assume_init_drop();
                 }
@@ -152,5 +159,10 @@ impl<T> Drop for BoundedMpmcQueue<T> {
     }
 }
 
+// SAFETY: values move between threads through sequence-gated slots, so
+// `T: Send` is required and sufficient; no references escape.
 unsafe impl<T: Send> Send for BoundedMpmcQueue<T> {}
+// SAFETY: all shared access is arbitrated by the position CAS protocol on
+// atomics; stored values are touched only by the thread that owns their
+// sequence claim, so `T: Send` suffices.
 unsafe impl<T: Send> Sync for BoundedMpmcQueue<T> {}

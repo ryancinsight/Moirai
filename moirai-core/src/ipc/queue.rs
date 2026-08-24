@@ -15,6 +15,8 @@ pub struct SharedQueue<T> {
     capacity: usize,
 }
 
+// SAFETY: queue contents move between threads and processes as plain `Pod`
+// bits, so `T: Send` is required; no references into shared memory escape.
 unsafe impl<T: Send> Send for SharedQueue<T> {}
 
 /// Alignment of the metadata header. The data buffer begins at
@@ -71,10 +73,11 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
 
         let memory = SharedMemory::create(name, total_size)?;
 
+        // SAFETY: `memory.ptr` is the base of an OS shared-memory mapping
+        // (mmap / MapViewOfFile), always page-aligned, satisfying
+        // `QueueMetadata`'s 64-byte alignment; header fields are written
+        // before any peer maps the segment (created above).
         unsafe {
-            // justification: `memory.ptr` is the base of an OS shared-memory
-            // mapping (mmap / MapViewOfFile), which is always page-aligned and
-            // therefore satisfies `QueueMetadata`'s 64-byte alignment.
             #[allow(clippy::cast_ptr_alignment)]
             let meta = memory.ptr as *mut QueueMetadata;
             (*meta).head = AtomicUsize::new(0);
@@ -102,9 +105,10 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
 
         let memory = SharedMemory::open(name, total_size)?;
 
+        // SAFETY: `memory.ptr` is a page-aligned OS mapping base, satisfying
+        // `QueueMetadata`'s 64-byte alignment; capacity is validated against
+        // the creator's value before data access.
         unsafe {
-            // justification: `memory.ptr` is a page-aligned OS mapping base, which
-            // satisfies `QueueMetadata`'s 64-byte alignment requirement.
             #[allow(clippy::cast_ptr_alignment)]
             let meta = memory.ptr as *mut QueueMetadata;
             // The header lives in the first page, so it is always within the
@@ -125,6 +129,10 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
 
     /// Send a value
     pub fn send(&mut self, value: T) -> Result<(), T> {
+        // SAFETY: `&mut self` makes this process the sole sender endpoint
+        // (SPSC contract across processes); the fullness check keeps the
+        // head slot outside the consumer window, and Pod writes need no
+        // drop coordination.
         unsafe {
             if (*self.meta).closed.load(Ordering::Relaxed) {
                 return Err(value);
@@ -148,6 +156,9 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
 
     /// Receive a value
     pub fn recv(&mut self) -> Option<T> {
+        // SAFETY: `&mut self` makes this process the sole receiver endpoint;
+        // the emptiness check guarantees the tail slot was published by the
+        // sender and reading it as Pod bits moves it out exactly once.
         unsafe {
             let tail = (*self.meta).tail.load(Ordering::Relaxed);
             let head = (*self.meta).head.load(Ordering::Acquire);

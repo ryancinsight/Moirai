@@ -105,6 +105,10 @@ impl<T> SlabAllocator<T> {
                 .is_ok()
             {
                 // Successfully claimed the slot
+                // SAFETY: winning the free-list CAS grants exclusive
+                // ownership of `free_idx` until it re-enters the list; the
+                // value cell starts uninit and was moved out on any prior
+                // removal, so writing here cannot alias or double-drop.
                 unsafe {
                     (*entry.value.get()).write(value);
                 }

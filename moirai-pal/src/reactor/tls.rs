@@ -61,6 +61,10 @@ impl IoReactor {
     /// panicking — readiness still makes progress, just without an event loop.
     pub fn get_active() -> Option<&'static IoReactor> {
         if let Some(ptr) = active_reactor::get() {
+            // SAFETY: the pointer was installed by `with_active` on this
+            // thread from a live reactor whose borrow outlives the call (the
+            // RAII restore keeps the slot pointing at a valid reactor or
+            // clears it before any drop completes).
             return Some(unsafe { &*ptr });
         }
 

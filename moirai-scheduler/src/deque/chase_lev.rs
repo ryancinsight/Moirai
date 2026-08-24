@@ -484,6 +484,9 @@ impl<T> ChaseLevInner<T, SharedEpochReclaim> {
         if self.reclaim.active_accesses() == 0 {
             for array_ptr in retired.drain(..) {
                 if !array_ptr.is_null() {
+                    // SAFETY: active_accesses()==0 proves no thread holds a
+                    // reference into this retired array; the pointer came
+                    // from Box::into_raw at retirement.
                     unsafe {
                         drop(Box::from_raw(array_ptr));
                     }
@@ -508,10 +511,14 @@ where
         let array_ptr = *self.array.get_mut();
 
         if !array_ptr.is_null() {
+            // SAFETY: exclusive &mut self in drop; array_ptr originated from
+            // Box::into_raw and no concurrent access can exist during drop.
             let array = unsafe { Box::from_raw(array_ptr) };
             let len = bottom.wrapping_sub(top);
             for i in 0..len {
                 let index = top.wrapping_add(i);
+                // SAFETY: indices span exactly the live window top..bottom;
+                // read() moves each stored value out for its one true drop.
                 unsafe {
                     drop(array.read(index));
                 }
@@ -523,6 +530,9 @@ where
             .get_mut()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         for array_ptr in retired_arrays.drain(..) {
+            // SAFETY: exclusive &mut self in drop outranks any quiescent
+            // stealer references; retired pointers are Box::into_raw origins
+            // freed exactly once here.
             unsafe {
                 drop(Box::from_raw(array_ptr));
             }
@@ -530,6 +540,8 @@ where
     }
 }
 
+// SAFETY: deque endpoints transfer `T` by ownership (owner push/pop,
+// stealer take), so values never yield cross-thread references.
 unsafe impl<T, P> Send for ChaseLevInner<T, P>
 where
     T: Send,
@@ -538,6 +550,9 @@ where
 {
 }
 
+// SAFETY: all shared access is arbitrated by the top/bottom index protocol
+// and the reclamation policy's epoch accounting; slot contents are touched
+// only by the thread that won the claiming CAS.
 unsafe impl<T, P> Sync for ChaseLevInner<T, P>
 where
     T: Send,

@@ -17,7 +17,13 @@ impl CacheAlignedAllocator {
         let align = align_of::<T>().max(CACHE_LINE_SIZE);
 
         let layout = Layout::from_size_align(size, align).ok()?;
+        // A zero-sized layout violates `GlobalAlloc::alloc`'s contract.
+        if layout.size() == 0 {
+            return None;
+        }
 
+        // SAFETY: `layout` is valid and non-zero-sized; allocation failure
+        // is surfaced as `None` through the null check.
         unsafe {
             #[cfg(feature = "mnemosyne")]
             {

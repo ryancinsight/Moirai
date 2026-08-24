@@ -99,6 +99,10 @@ struct TaskResultSlot<T> {
 #[cfg(feature = "std")]
 unsafe impl<T: Send> Send for TaskResultSlot<T> {}
 
+// SAFETY: shared access still routes every read/write through the
+// state-machine transitions described above; two threads never touch a
+// cell outside PENDING/WAITING/WRITING/READY/TAKEN ordering, so `T: Send`
+// suffices for concurrent `&self` use.
 #[cfg(feature = "std")]
 unsafe impl<T: Send> Sync for TaskResultSlot<T> {}
 

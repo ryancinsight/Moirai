@@ -92,6 +92,10 @@ impl Drop for TaskLifecycleToken {
         // A token reaches Drop only when admission or queued execution ends
         // before `start`; publish terminal completion so registry slots and
         // waiters cannot remain permanently active.
+        //
+        // SAFETY: `state` points at the stable registry-owned slot handed to
+        // this token at construction; the token is the unique completion
+        // authority for that slot, so publishing here cannot double-complete.
         unsafe { self.state.as_ref().mark_completed() }
     }
 }

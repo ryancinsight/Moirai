@@ -550,6 +550,8 @@ pub fn for_each_chunk_pair_mut_enumerated_with<P, A, B, F>(
             // distinct, non-aliasing buffers, so the two references never alias.
             let ca =
                 unsafe { core::slice::from_raw_parts_mut(abase.base().add(start), ea - start) };
+            // SAFETY: same disjointness argument as `ca`, within `b`'s own
+            // non-aliasing buffer.
             let cb =
                 unsafe { core::slice::from_raw_parts_mut(bbase.base().add(start), eb - start) };
             f(c, ca, cb);
@@ -621,10 +623,16 @@ pub fn for_each_chunk_quad_mut_enumerated_with<P, A, B, C, D, F>(
             // alias each other.
             let ca =
                 unsafe { core::slice::from_raw_parts_mut(abase.base().add(start), ea - start) };
+            // SAFETY: same disjointness argument as `ca`, within `b`'s own
+            // non-aliasing buffer.
             let cb =
                 unsafe { core::slice::from_raw_parts_mut(bbase.base().add(start), eb - start) };
+            // SAFETY: same disjointness argument as `ca`, within `c`'s own
+            // non-aliasing buffer.
             let cc =
                 unsafe { core::slice::from_raw_parts_mut(cbase.base().add(start), ec - start) };
+            // SAFETY: same disjointness argument as `ca`, within `d`'s own
+            // non-aliasing buffer.
             let cd =
                 unsafe { core::slice::from_raw_parts_mut(dbase.base().add(start), ed - start) };
             f(chunk_index, ca, cb, cc, cd);
@@ -687,8 +695,12 @@ pub fn for_each_chunk_triple_mut_enumerated_with<P, A, B, C, F>(
             // alias each other.
             let ca =
                 unsafe { core::slice::from_raw_parts_mut(abase.base().add(start), ea - start) };
+            // SAFETY: same disjointness argument as `ca`, within `b`'s own
+            // non-aliasing buffer.
             let cb =
                 unsafe { core::slice::from_raw_parts_mut(bbase.base().add(start), eb - start) };
+            // SAFETY: same disjointness argument as `ca`, within `c`'s own
+            // non-aliasing buffer.
             let cc =
                 unsafe { core::slice::from_raw_parts_mut(cbase.base().add(start), ec - start) };
             f(chunk_index, ca, cb, cc);
@@ -909,8 +921,12 @@ where
         .for_each_indexed::<SyncTask, _>(n, move |i| {
             // SAFETY: each index in `0..n` is visited exactly once, so neither the
             // input element nor the output slot at `i` aliases another task's.
+            // SAFETY: unique visit of index i under the indexed scheduler,
+            // so this mutable view aliases nothing.
             let elem = unsafe { data_ptr.get_mut(i) };
             let result = f(i, elem);
+            // SAFETY: slot i was lengthened into place above and is written
+            // exactly once by this unique visit.
             unsafe { out_ptr.get_mut(i).write(result) };
         })
         .expect("moirai global executor: map_collect_mut_with");

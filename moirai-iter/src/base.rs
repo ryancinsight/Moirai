@@ -51,7 +51,12 @@ impl<T> Clone for SendPtr<T> {
 
 impl<T> Copy for SendPtr<T> {}
 
+// SAFETY: `SendPtr` exists to hand raw element pointers into parallel
+// iteration; every dereference goes through `as_ptr`, whose `# Safety`
+// section puts validity and synchronization on the split-scheme caller.
 unsafe impl<T> Send for SendPtr<T> {}
+// SAFETY: shared use never forms references through the pointer except via
+// `as_ptr` under the same caller obligations.
 unsafe impl<T> Sync for SendPtr<T> {}
 
 impl<T> SendPtr<T> {

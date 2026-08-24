@@ -259,7 +259,11 @@ impl<T> Drop for LockFreeStack<T> {
     }
 }
 
+// SAFETY: values change hands through the atomic LIFO head, so `T` must be
+// `Send`; no references to stored values escape the stack.
 unsafe impl<T: Send> Send for LockFreeStack<T> {}
+// SAFETY: shared access runs through lock-free CAS on the head pointer;
+// popped values are owned, never aliased, so `T: Send` suffices.
 unsafe impl<T: Send> Sync for LockFreeStack<T> {}
 
 pub use moirai_utils::cache::CacheAligned;

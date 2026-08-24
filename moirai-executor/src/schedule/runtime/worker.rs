@@ -78,6 +78,10 @@ fn run_idle_memory_maintenance() {
         if should_run {
             let _ =
                 <MemoryBackendWrapper as LocalAllocatorSelector<MemoryBackendWrapper>>::with_allocator(
+                    // SAFETY: the selector hands this closure the allocator
+                    // instance registered for this worker thread; the sweep
+                    // requires exactly that exclusive per-thread allocator
+                    // view for its duration.
                     |alloc| unsafe {
                         alloc.periodic_defragmentation_sweep::<StandardPolicy>();
                     },
