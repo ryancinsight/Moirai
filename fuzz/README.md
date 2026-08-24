@@ -18,9 +18,8 @@ Targets:
   arbitrary bytes under a 1 MiB slowloris budget. Any panic, hang, or
   allocation blowup on hostile input is a defect; rejection paths must
   be typed `io::Error`s.
+- `ipc_header` - throws peer-controlled header bytes and size pairs at
+  the pure shared-queue checks (`parse_header_capacity`, `layout_total`)
+  behind a cfg(fuzzing) accessor. Short or malformed headers must remain
+  typed `IpcError`s, never panics.
 
-Coverage note: the IPC shared-memory validator (`layout_for`,
-`SharedQueue::open`) is not yet fuzzable because its validation logic is
-private and inseparable from OS shared-memory resources; that target is
-blocked on a public pure-validation seam and tracked on the SEC-001
-board item.
