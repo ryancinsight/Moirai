@@ -47,6 +47,47 @@ struct QueueMetadata {
     _pad3: [u8; 63],
 }
 
+/// Header size in bytes; the capacity field sits right after the producer
+/// position (`head`) at this offset.
+pub(crate) const QUEUE_META_SIZE: usize = mem::size_of::<QueueMetadata>();
+
+/// Pure layout arithmetic behind [`layout_for`]: total mapping size for
+/// `meta_size` header bytes plus `elem_count * elem_size`, rejecting zero
+/// count and overflow. Split out so the fuzz targets can exercise the exact
+/// arithmetic `create`/`open` rely on without OS resources.
+pub(crate) fn layout_total(
+    meta_size: usize,
+    elem_size: usize,
+    elem_align: usize,
+    elem_count: usize,
+) -> Result<usize, IpcError> {
+    if elem_count == 0 || elem_align > HEADER_ALIGN || meta_size == 0 || elem_size == 0 {
+        return Err(IpcError::InvalidArgument);
+    }
+    elem_count
+        .checked_mul(elem_size)
+        .and_then(|data| data.checked_add(meta_size))
+        .ok_or(IpcError::InvalidArgument)
+}
+
+/// Parse the recorded capacity out of raw header bytes. Pure so the fuzz
+/// targets can throw peer-controlled bytes at the exact check `open`
+/// performs; tolerant of unaligned input because it copies through
+/// `from_le_bytes`.
+pub(crate) fn parse_header_capacity(bytes: &[u8]) -> Result<usize, IpcError> {
+    const WIDTH: usize = mem::size_of::<usize>();
+    let off = mem::size_of::<AtomicUsize>();
+    if bytes.len() < QUEUE_META_SIZE {
+        return Err(IpcError::InvalidArgument);
+    }
+    let end = off.checked_add(WIDTH).ok_or(IpcError::InvalidArgument)?;
+    let raw: [u8; WIDTH] = bytes
+        .get(off..end)
+        .and_then(|field| field.try_into().ok())
+        .ok_or(IpcError::InvalidArgument)?;
+    Ok(usize::from_le_bytes(raw))
+}
+
 /// Compute the total mapping size for `capacity` elements of `T`, rejecting a
 /// zero capacity (`% capacity` would divide by zero) and any size-overflow
 /// (which would otherwise produce an undersized mapping and out-of-bounds
@@ -55,11 +96,12 @@ fn layout_for<T>(capacity: usize) -> Result<usize, IpcError> {
     if capacity == 0 || mem::align_of::<T>() > HEADER_ALIGN {
         return Err(IpcError::InvalidArgument);
     }
-    let meta_size = mem::size_of::<QueueMetadata>();
-    capacity
-        .checked_mul(mem::size_of::<T>())
-        .and_then(|data_size| meta_size.checked_add(data_size))
-        .ok_or(IpcError::InvalidArgument)
+    layout_total(
+        QUEUE_META_SIZE,
+        mem::size_of::<T>(),
+        mem::align_of::<T>(),
+        capacity,
+    )
 }
 
 impl<T: bytemuck::Pod> SharedQueue<T> {
@@ -108,16 +150,27 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
         let memory = SharedMemory::open(name, total_size)?;
 
         // SAFETY: `memory.ptr` is a page-aligned OS mapping base, satisfying
-        // `QueueMetadata`'s 64-byte alignment; capacity is validated against
-        // the creator's value before data access.
+        // `QueueMetadata`'s 64-byte alignment; the header lives in the first
+        // page regardless of `capacity`.
+        let mut header = [0u8; QUEUE_META_SIZE];
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                memory.ptr.cast::<u8>(),
+                header.as_mut_ptr(),
+                QUEUE_META_SIZE,
+            );
+        }
+        // Capacity is immutable after creation, so a plain copy carries no
+        // ordering obligation; the recorded value must match ours or the
+        // segment was created with a different geometry.
+        let stored = parse_header_capacity(&header)?;
+        if stored != capacity {
+            return Err(IpcError::InvalidArgument);
+        }
+
         unsafe {
             #[allow(clippy::cast_ptr_alignment)]
             let meta = memory.ptr as *mut QueueMetadata;
-            // The header lives in the first page, so it is always within the
-            // mapping regardless of `capacity`; validate before touching data.
-            if (*meta).capacity.load(Ordering::Acquire) != capacity {
-                return Err(IpcError::InvalidArgument);
-            }
             let buffer = memory.ptr.add(meta_size) as *mut T;
 
             Ok(Self {

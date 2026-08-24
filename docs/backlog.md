@@ -2933,7 +2933,7 @@ Part IV chapter map (grounded in moirai-transport):
 - Blocker: `layout_for` is private and inseparable from OS mapping calls;
   needs a public pure-validation function over header bytes first
   (`SharedQueue::open` then routes through it).
-- Status: todo (blocked on the seam extraction)
+- Status: done (2026-08-24, Moirai PR #163 merged at head of main; seam extracted, ipc_header target landed, all hosted gates green)
 
 ### MOI-SEC-001-B - Scheduled fuzz CI job for the target set [security] [patch] [S]
 
@@ -2943,7 +2943,7 @@ Part IV chapter map (grounded in moirai-transport):
   cargo-fuzz install cached) running `http_response`; extend the target
   list as targets land. Workflow hygiene rules apply (SHA-pinned actions,
   timeout-minutes, least-privilege token).
-- Status: todo
+- Status: in-review (Moirai PR #162; weekly cron + dispatch, pinned nightly, bounded 180s smoke over committed seeds)
 
 ### MOI-TRANSPORT-DYN-001 - Enum-dispatch the transport manager's backends [arch] [minor] [M]
 
