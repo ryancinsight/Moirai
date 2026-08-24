@@ -2854,7 +2854,7 @@ are recorded so the archive can retire. Evidence probes ran read-only.
   e.g. `moirai-utils/src/simd/arch/aarch64.rs` (`add` and siblings),
   `moirai-scheduler/src/deque/chase_lev/storage.rs:110`. Exact census needs a
   per-site pass; type-position `unsafe fn(...)` pointers are out of scope.
-- Status: in-review (Moirai PR #152; census 0 missing / 226 sites from 77; fmt + clippy -D warnings + nextest 805/805 + loom 7/7 green locally; hosted checks pending)
+- Status: done (2026-08-23, Moirai PR #152 merged at a788d98; census 0 missing / 226 sites from 77; hosted gates green)
 
 ### MOI-AUDIT-VER-010 - Property coverage for the concurrency primitives [verification] [patch] [M]
 
@@ -2863,7 +2863,7 @@ are recorded so the archive can retire. Evidence probes ran read-only.
 - Scope: proptest is admitted as a workspace/dev dependency (landed after
   this item was filed); the remaining work is the property suites themselves
   for the scheduler/deque/channel primitives alongside the loom models.
-- Status: in-review (Moirai PR #153; six properties across SPSC/MPMC/ChaseLev; local gates green, hosted checks pending)
+- Status: done (2026-08-23, Moirai PR #153 merged at c2d8b61; six properties across SPSC/MPMC/ChaseLev; hosted gates green)
 
 ### MOI-AUDIT-SEC-001 - Fuzz and restriction floor for untrusted-input parsers [security] [minor] [M]
 
@@ -2871,14 +2871,13 @@ are recorded so the archive can retire. Evidence probes ran read-only.
   panicking arithmetic/indexing lints.
 - Scope: no `fuzz/` target set and no `indexing_slicing` /
   `arithmetic_side_effects` restrictions as of `ff56d60`.
-- Status: part-landed (2026-08-23). Part 1 - restriction floors - is PR #154
-  (moirai-http crate-wide + ipc module-scoped deny; 14 violations fixed
-  structurally or discharged with per-site invariant expectations). Part 2 -
-  fuzz targets - lands on the same branch: fuzz/http_response covers the HTTP
-  response codec under a slowloris budget; runs via cargo +nightly fuzz.
-  Remaining: an IPC metadata fuzz target is blocked on a public pure-validation
-  seam (layout_for is private); CI wiring for scheduled fuzz runs follows the
-  workflow-heavy-suite cadence.
+- Status: done (2026-08-23, Moirai PR #154 merged at 87c0284). Part 1:
+  restriction floors denied at moirai-http (crate) and src/ipc (module);
+  fourteen violations fixed structurally or discharged with per-site
+  invariant expectations. Part 2: fuzz/http_response target over the HTTP
+  codec under a slowloris budget. Remaining follow-up filed below: an IPC
+  metadata target blocked on a public pure-validation seam; scheduled fuzz
+  CI wiring follows the heavy-suite cadence.
 
 ### MOI-AUDIT-DOC-009 - Domain book for route and transport layers [docs] [minor] [M]
 
