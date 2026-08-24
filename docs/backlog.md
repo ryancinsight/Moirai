@@ -2883,16 +2883,45 @@ are recorded so the archive can retire. Evidence probes ran read-only.
 
 - Outcome: a built mdBook teaches the routing/transport design from first
   principles.
-- Scope: no `book.toml` or book sources exist as of `ff56d60`; outline
-  first, then chapters per subsystem.
-- Status: todo (re-verified open)
+- Scope (corrected 2026-08-24): the concurrency book landed upstream since
+  this item was filed - docs/book covers Parts I-III (task model,
+  execution modes, synchronization). The remaining gap is exactly the
+  route/transport material: a new Part IV in the existing book, not a
+  parallel book tree. Chapter map below; each lands when its teaching
+  content exists, never as placeholders.
+- Status: in-progress (integrator: ryanclanton session 2026-08-24)
+
+Part IV chapter map (grounded in moirai-transport):
+
+1. Transports and their capability contract - transport.rs, network.rs,
+   process.rs.
+2. Payload framing and versioning - payload.rs.
+3. Safe channels: typed endpoints over raw links - safe_channel.rs.
+4. Routes: resolution, precedence, failure semantics - route.rs.
+5. The router: dispatch, retries, backpressure - router.rs.
+6. Remote tasks: capability negotiation and server lifecycle -
+   remote_task/capability.rs, remote_task/server.rs.
+
+- Follow-up chapters (each lands when its teaching content exists, never as
+  placeholders): 1) transports and their capability contract (transport.rs,
+  network.rs, process.rs); 2) payload framing and versioning (payload.rs);
+  3) safe channels as typed endpoint discipline (safe_channel.rs);
+  4) routes: resolution, precedence, failure semantics (route.rs);
+  5) router dispatch: retry, backpressure, ordering (router.rs);
+  6) remote tasks: capability negotiation and server lifecycle
+  (remote_task/capability.rs, remote_task/server.rs).
 
 ### MOI-AUDIT-PM-008 - ADR index generator [pm-hygiene] [patch] [S]
 
 - Outcome: `docs/adr/README.md` regenerates from front-matter so the index
   cannot drift.
 - Scope: index README exists; no generator script does.
-- Status: todo (re-verified open)
+- Status: done by stack ownership (2026-08-23): the atlas meta-repo owns
+  `scripts/adr-index.py`, which generates and gates this repo's index
+  alongside every other member under one canonical implementation -
+  duplicating it here would fork derived state. Evidence: full-stack gate
+  exit 0 covering repos/moirai; kwavers drift caught-and-repaired by the
+  same gate the same day, demonstrating the enforcement path works.
 
 ### Closed upstream between capture and reclaim
 

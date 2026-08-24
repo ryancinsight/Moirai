@@ -33,3 +33,4 @@ rustc-ice-*.txt
 fuzz/corpus
 fuzz/artifacts
 fuzz/coverage
+docs/book/book
