@@ -2943,7 +2943,12 @@ Part IV chapter map (grounded in moirai-transport):
   cargo-fuzz install cached) running `http_response`; extend the target
   list as targets land. Workflow hygiene rules apply (SHA-pinned actions,
   timeout-minutes, least-privilege token).
-- Status: in-review (Moirai PR #162; weekly cron + dispatch, pinned nightly, bounded 180s smoke over committed seeds)
+- Status: done (2026-08-24, Moirai PR #162 merged at edd11df; fuzz run
+  green after two fix-forward rounds - dated-nightly install alone was
+  insufficient because repo rust-toolchain.toml overrides rustup
+  defaults; final form uses RUSTUP_TOOLCHAIN env plus an assert tripwire.
+  The scheduled campaign now covers http_response; ipc_header joins via
+  #163's shared tree.)
 
 ### MOI-TRANSPORT-DYN-001 - Enum-dispatch the transport manager's backends [arch] [minor] [M]
 
