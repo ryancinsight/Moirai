@@ -196,4 +196,4 @@ jobs:
       # parser regressions without turning CI into a standing campaign.
       - name: Smoke-run http_response over the seed corpus
         working-directory: fuzz
-        run: cargo fuzz run http_response -- -max_total_time=180 -rss_limit_mb=4096 seeds
+        run: cargo fuzz run --target x86_64-unknown-linux-gnu http_response -- -max_total_time=180 -rss_limit_mb=4096 seeds
