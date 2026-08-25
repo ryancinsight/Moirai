@@ -156,14 +156,12 @@ jobs:
           persist-credentials: false
 
       # Pinned nightly: libFuzzer builds track the unstable surface, and an
-      # unpinned nightly would drift the toolchain under the gate. The musl
-      # target is what cargo-fuzz selects for the build; installing it here
-      # keeps rustup from silently resolving a different default toolchain.
+      # unpinned nightly would drift the toolchain under the gate.
       - name: Set up pinned nightly Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: nightly-2026-08-01
-          targets: x86_64-unknown-linux-musl
+          targets: x86_64-unknown-linux-gnu
 
       - name: Assert the fuzz toolchain
         run: |
@@ -179,12 +177,23 @@ jobs:
         with:
           tool: cargo-fuzz
 
+      # The target is explicit because cargo-fuzz defaults it to the triple
+      # cargo-fuzz itself was built for, and cargo-binstall fetches the musl
+      # build. A musl target implies `+crt-static`, and libFuzzer always builds
+      # with `-Zsanitizer=address`, which rustc rejects against a statically
+      # linked libc:
+      #
+      #   error: sanitizer is incompatible with statically linked libc,
+      #          disable it using `-C target-feature=-crt-static`
+      #
+      # Naming the gnu target fixes the cause. Installing the musl target
+      # instead only moved the failure one step later.
       - name: Build fuzz targets
         working-directory: fuzz
-        run: cargo fuzz build http_response
+        run: cargo fuzz build --target x86_64-unknown-linux-gnu http_response
 
       # Bounded smoke campaign over committed seeds: enough execution to catch
       # parser regressions without turning CI into a standing campaign.
       - name: Smoke-run http_response over the seed corpus
         working-directory: fuzz
-        run: cargo fuzz run http_response -- -max_total_time=180 -rss_limit_mb=4096 seeds
+        run: cargo fuzz run --target x86_64-unknown-linux-gnu http_response -- -max_total_time=180 -rss_limit_mb=4096 seeds
