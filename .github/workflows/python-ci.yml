@@ -6,8 +6,10 @@ name: Python Bindings
 
 on:
   pull_request:
+    paths: ["moirai-python/**", "Cargo.toml", "Cargo.lock", ".github/workflows/python-ci.yml"]
   push:
     branches: [main]
+    paths: ["moirai-python/**", "Cargo.toml", "Cargo.lock", ".github/workflows/python-ci.yml"]
 
 permissions:
   contents: read
