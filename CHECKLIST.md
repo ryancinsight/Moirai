@@ -2,6 +2,26 @@
 
 **Target**: Unreleased
 
+## MOI-INDEXED-SCOPE-ALLOC-2026-08-26 — stack-owned indexed completion [patch] — in progress
+
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** `moirai-executor/src/schedule/runtime/{scheduler/data_parallel.rs,types.rs}`,
+  focused scheduler tests, this item, and its Unreleased changelog entry through
+  the next verified commit.
+- **Outcome:** indexed completion-only fan-out reuses the scheduler's existing
+  stack-owned scoped lifetime proof instead of allocating one `Arc` state per
+  call. An Apollo FFT consumer triggered the finding by observing two 32-byte
+  allocations per transform from two row fan-outs.
+- **Acceptance:** existing indexed/scope panic, saturation, nesting, and
+  exactly-once tests pass; an allocation regression proves repeated
+  `for_each_indexed` calls allocate zero bytes after scheduler initialization;
+  Apollo's warm complex transform returns to zero transient allocations.
+- [ ] Replace shared heap completion with the existing borrowing completion
+      token while preserving queue-refusal and panic accounting.
+- [ ] Add value-semantic allocation and failure-path coverage.
+- [ ] Pass focused Nextest, warning-denied Clippy, docs, and the Apollo consumer
+      census; synchronize the changelog and close the lease.
+
 ## MOI-PACKAGE-REPRO-001 — self-contained workspace packaging [patch] — complete
 
 - [x] Add explicit `0.5.0` requirements to the benchmark and integration-test
