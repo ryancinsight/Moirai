@@ -1,7 +1,6 @@
 //! SchedulerScope implementation.
 
 use std::{
-    marker::PhantomData,
     mem,
     panic::{catch_unwind, AssertUnwindSafe},
 };
@@ -32,10 +31,7 @@ where
         F: FnOnce(usize) + Send + 'scope,
     {
         self.state().register_task();
-        let completion = ScopedTaskCompletion {
-            state: self.state,
-            _state: PhantomData,
-        };
+        let completion = ScopedTaskCompletion::new(self.state());
         let scoped_task = move |worker_id| {
             let _completion = completion;
             let result = catch_unwind(AssertUnwindSafe(|| task(worker_id)));

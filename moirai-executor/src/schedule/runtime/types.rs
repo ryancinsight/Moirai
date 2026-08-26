@@ -433,46 +433,25 @@ impl SchedulerScopeState {
 }
 
 pub(super) struct ScopedTaskCompletion<'scope> {
-    pub(super) state: NonNull<SchedulerScopeState>,
-    pub(super) _state: PhantomData<&'scope SchedulerScopeState>,
+    state: &'scope SchedulerScopeState,
 }
 
-pub(super) struct SharedScopedTaskCompletion {
-    pub(super) state: Arc<SchedulerScopeState>,
-}
+impl<'scope> ScopedTaskCompletion<'scope> {
+    pub(super) fn new(state: &'scope SchedulerScopeState) -> Self {
+        Self { state }
+    }
 
-// Safety: the pointer targets the stack-owned scope state in
-// `ThreadScheduler::scope`. That function waits for every scoped job before the
-// state is dropped, and `SchedulerScopeState` uses atomics plus a mutex/condvar
-// for cross-thread synchronization.
-unsafe impl Send for ScopedTaskCompletion<'_> {}
-
-impl ScopedTaskCompletion<'_> {
     pub(super) fn mark_failed(&self) {
         self.state().mark_failed();
     }
 
     pub(super) fn state(&self) -> &SchedulerScopeState {
-        // Safety: this completion token is created only by `SchedulerScope`,
-        // whose caller waits for all scoped jobs before the state is dropped.
-        unsafe { self.state.as_ref() }
+        self.state
     }
 }
 
 impl Drop for ScopedTaskCompletion<'_> {
     fn drop(&mut self) {
         self.state().complete_task();
-    }
-}
-
-impl SharedScopedTaskCompletion {
-    pub(super) fn mark_failed(&self) {
-        self.state.mark_failed();
-    }
-}
-
-impl Drop for SharedScopedTaskCompletion {
-    fn drop(&mut self) {
-        self.state.complete_task();
     }
 }

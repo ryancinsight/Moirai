@@ -11,19 +11,19 @@
 //!
 //! When the per-worker admission queue is full (`ResourceExhausted`), a rejected
 //! job is dropped by the scheduler before returning the error. Dropping the job
-//! fires the scoped `SharedScopedTaskCompletion` token, correctly decrementing
-//! the scope's pending-task counter. The *work* inside the job was never
-//! executed, however. Both `for_each_indexed` and `map_reduce_indexed` detect
-//! this case and execute the rejected chunk inline on the caller thread before
-//! continuing the scheduling loop. Inline execution uses the same panic
+//! fires its borrowing `ScopedTaskCompletion` token, correctly decrementing
+//! the stack-owned scope's pending-task counter. The *work* inside the job was
+//! never executed, however. Both `for_each_indexed` and `map_reduce_indexed`
+//! detect this case and execute the rejected chunk inline on the caller thread
+//! before continuing the scheduling loop. Inline execution uses the same panic
 //! boundary as worker execution, and [`ThreadScheduler::admission_caller_runs`]
 //! exposes each backpressure event. The result is identical to parallel
-//! execution (every item is visited exactly once) while preserving zero-cost
-//! semantics when the queue is healthy.
+//! execution (every item is visited exactly once) without per-call completion
+//! state allocation.
 
 use std::{
-    panic::{catch_unwind, AssertUnwindSafe},
-    sync::{atomic::Ordering, Arc},
+    panic::{catch_unwind, resume_unwind, AssertUnwindSafe},
+    sync::atomic::Ordering,
 };
 
 use moirai_core::{
@@ -34,7 +34,7 @@ use moirai_core::{
 use super::super::super::{class::WorkClass, reduce::ReduceSlots};
 use super::super::types::{
     get_current_worker_id, is_in_indexed_region, IndexedRegionGuard, SchedulerScopeState,
-    SharedScopedTaskCompletion, ThreadScheduler,
+    ScopedTaskCompletion, ThreadScheduler,
 };
 use super::super::worker::{
     indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
@@ -97,7 +97,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             });
         }
 
-        let state = Arc::new(SchedulerScopeState::new());
+        let state = SchedulerScopeState::new();
         let task = &task;
         let mut schedule_result = Ok(());
         let mut inline_result = Ok(());
@@ -106,9 +106,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             let (start, end) = indexed_chunk_bounds(count, chunk_count, chunk_index);
 
             state.register_task();
-            let completion = SharedScopedTaskCompletion {
-                state: Arc::clone(&state),
-            };
+            let completion = ScopedTaskCompletion::new(&state);
             let scoped_job = move |_| {
                 let completion = completion;
                 let result = execute_catching_panic(|| {
@@ -123,7 +121,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             };
 
             if let Err(error) =
-                self.schedule_scoped_job::<C, _>(priority, locality_hint, scoped_job)
+                self.schedule_indexed_job::<C, _>(&state, priority, locality_hint, scoped_job)
             {
                 match error {
                     // Admission queue was full. The scheduler dropped the job,
@@ -214,8 +212,8 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             return inline_map_reduce(count, identity, map, reduce);
         }
 
-        let state = Arc::new(SchedulerScopeState::new());
-        let slots = Arc::new(ReduceSlots::new(chunk_count - 1));
+        let state = SchedulerScopeState::new();
+        let slots = ReduceSlots::new(chunk_count - 1);
         let map = &map;
         let reduce = &reduce;
         let mut schedule_result = Ok(());
@@ -224,14 +222,18 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         for chunk_index in 1..chunk_count {
             let (start, end) = indexed_chunk_bounds(count, chunk_count, chunk_index);
 
-            state.register_task();
-            let completion = SharedScopedTaskCompletion {
-                state: Arc::clone(&state),
+            let identity_chunk = match execute_catching_panic(|| identity.clone()) {
+                Ok(identity) => identity,
+                Err(error) => {
+                    inline_result = Err(error);
+                    break;
+                }
             };
+            state.register_task();
+            let completion = ScopedTaskCompletion::new(&state);
             // Use distinct names so the outer `slots`/`identity` remain accessible
             // in the ResourceExhausted inline fallback below.
-            let slots_chunk = Arc::clone(&slots);
-            let identity_chunk = identity.clone();
+            let slots_chunk = &slots;
             let scoped_job = move |_| {
                 let completion = completion;
                 let result = execute_catching_panic(|| {
@@ -245,7 +247,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             };
 
             if let Err(error) =
-                self.schedule_scoped_job::<C, _>(priority, locality_hint, scoped_job)
+                self.schedule_indexed_job::<C, _>(&state, priority, locality_hint, scoped_job)
             {
                 match error {
                     // Admission queue was full. The scheduler dropped the job,
@@ -271,14 +273,12 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             }
         }
 
-        let caller_result = if schedule_result.is_ok() && inline_result.is_ok() {
+        let caller_result = (schedule_result.is_ok() && inline_result.is_ok()).then(|| {
             execute_catching_panic(|| {
                 let _region = IndexedRegionGuard::enter();
                 map_reduce_range(0, caller_end, identity.clone(), map, reduce)
             })
-        } else {
-            Ok(identity.clone())
-        };
+        });
 
         self.drain_scope(&state);
 
@@ -288,7 +288,33 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             ))
         } else {
             schedule_result?;
-            Ok(slots.reduce(caller_result?, reduce))
+            let caller_result = caller_result
+                .expect("invariant: caller reduction runs after successful scheduling")?;
+            Ok(slots.reduce(caller_result, reduce))
+        }
+    }
+
+    fn schedule_indexed_job<'scope, C, F>(
+        &self,
+        state: &'scope SchedulerScopeState,
+        priority: Priority,
+        locality_hint: Option<usize>,
+        scoped_job: F,
+    ) -> ExecutorResult<()>
+    where
+        C: WorkClass,
+        F: FnOnce(usize) + Send + 'scope,
+    {
+        // Scoped job storage erases `'scope`; a scheduling unwind after an
+        // earlier admission must not release the borrowed stack state first.
+        match catch_unwind(AssertUnwindSafe(|| {
+            self.schedule_scoped_job::<C, _>(priority, locality_hint, scoped_job)
+        })) {
+            Ok(result) => result,
+            Err(payload) => {
+                self.drain_scope(state);
+                resume_unwind(payload);
+            }
         }
     }
 }

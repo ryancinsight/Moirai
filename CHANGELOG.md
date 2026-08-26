@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Keep indexed completion state on the caller's stack. Warmed
+  `ThreadScheduler::for_each_indexed` calls now allocate nothing, while
+  `map_reduce_indexed` allocates only its result-slot buffer instead of adding
+  reference-counted scope and slot ownership around it. Scoped scheduling and
+  identity-clone unwinds now drain already-admitted borrowing jobs before their
+  stack state is released.
 - Make the workspace packageable from a standalone checkout: internal
   benchmark and integration-test dependencies carry explicit version
   requirements, runtime examples live under the facade crate, and the PyO3
