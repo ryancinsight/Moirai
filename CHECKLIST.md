@@ -2,6 +2,36 @@
 
 **Target**: Unreleased
 
+## MOI-INDEXED-SCOPE-ALLOC-2026-08-26 — stack-owned indexed completion [patch] — in progress
+
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** none. Provider source and test work is complete; Apollo consumer
+  validation remains.
+- **Outcome:** indexed completion-only fan-out reuses the scheduler's existing
+  stack-owned scoped lifetime proof instead of allocating one `Arc` state per
+  call. An Apollo FFT consumer triggered the finding by observing two 32-byte
+  allocations per transform from two row fan-outs. Unwinds during identity
+  cloning, scheduling, or scope flushing drain admitted borrowing jobs before
+  their stack state is released.
+- **Acceptance:** existing indexed/scope panic, saturation, nesting, and
+      exactly-once tests pass; an allocation regression proves repeated
+  `for_each_indexed` calls allocate zero bytes and `map_reduce_indexed` retains
+  only its result-slot allocation after scheduler initialization; Apollo's warm
+  complex transform returns to zero transient allocations.
+- [x] Replace shared heap completion with the existing borrowing completion
+      token while preserving queue-refusal and panic accounting.
+- [x] Add value-semantic allocation and held-active clone-panic coverage, and
+      retain the existing panic, queue-refusal, nesting, and quiescence coverage.
+- [x] Pass focused and package Nextest, the scoped-completion Loom model,
+      all-feature warning-denied Clippy, and warning-denied Rustdoc.
+- [ ] Pass the Apollo consumer census, record the exact provider/consumer
+      revisions, and close the item.
+- Evidence: `cargo nextest run --offline -p moirai-executor` passed 94/94 with
+  one cfg-gated skip; the release Loom scope model passed 1/1; all-feature,
+  all-target Clippy passed with `-D warnings`; warning-denied Rustdoc passed.
+  Warmed allocation coverage observes zero allocations for `for_each_indexed`
+  and one result-slot allocation per `map_reduce_indexed` call.
+
 ## MOI-PACKAGE-REPRO-001 — self-contained workspace packaging [patch] — complete
 
 - [x] Add explicit `0.5.0` requirements to the benchmark and integration-test

@@ -204,16 +204,23 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         };
 
         let body_result = catch_unwind(AssertUnwindSafe(|| body(&scope)));
-        let flush_result = scope.flush();
+        // `flush` may enqueue lifetime-erased borrowing jobs before an internal
+        // unwind. Catch it so the scope state remains live through the drain.
+        let flush_result = catch_unwind(AssertUnwindSafe(|| scope.flush()));
         self.drain_scope(&state);
 
         match body_result {
-            Ok(Ok(())) if state.failed_tasks.load(Ordering::Acquire) => Err(
-                ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked),
-            ),
-            Ok(Ok(())) => flush_result,
-            Ok(result) => result,
             Err(payload) => std::panic::resume_unwind(payload),
+            Ok(body_result) => match flush_result {
+                Err(payload) => std::panic::resume_unwind(payload),
+                Ok(flush_result) => match body_result {
+                    Ok(()) if state.failed_tasks.load(Ordering::Acquire) => Err(
+                        ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked),
+                    ),
+                    Ok(()) => flush_result,
+                    Err(error) => Err(error),
+                },
+            },
         }
     }
 

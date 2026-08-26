@@ -1013,6 +1013,61 @@ fn indexed_map_reduce_reports_panicked_mapper() {
 }
 
 #[test]
+fn indexed_map_reduce_drains_queued_work_after_identity_clone_panics() {
+    struct PanicOnSecondClone {
+        value: usize,
+        clone_attempts: Arc<AtomicUsize>,
+    }
+
+    impl Clone for PanicOnSecondClone {
+        fn clone(&self) -> Self {
+            let attempt = self.clone_attempts.fetch_add(1, Ordering::AcqRel);
+            assert_ne!(attempt, 1, "second identity clone panic");
+            Self {
+                value: self.value,
+                clone_attempts: Arc::clone(&self.clone_attempts),
+            }
+        }
+    }
+
+    let scheduler = ThreadScheduler::new(2, "test-indexed-reduce-clone-panic").unwrap();
+    let clone_attempts = Arc::new(AtomicUsize::new(0));
+    let mapped = AtomicUsize::new(0);
+    let identity = PanicOnSecondClone {
+        value: 0,
+        clone_attempts: Arc::clone(&clone_attempts),
+    };
+
+    let result = scheduler.map_reduce_indexed::<SyncTask, _, _, _>(
+        Priority::Normal,
+        None,
+        6,
+        identity,
+        |index| {
+            while clone_attempts.load(Ordering::Acquire) < 2 {
+                core::hint::spin_loop();
+            }
+            mapped.fetch_add(1, Ordering::Relaxed);
+            PanicOnSecondClone {
+                value: index + 1,
+                clone_attempts: Arc::clone(&clone_attempts),
+            }
+        },
+        |left, right| PanicOnSecondClone {
+            value: left.value + right.value,
+            clone_attempts: left.clone_attempts,
+        },
+    );
+
+    scheduler.shutdown();
+    assert!(matches!(
+        result,
+        Err(ExecutorError::SpawnFailed(TaskError::Panicked))
+    ));
+    assert_eq!(mapped.load(Ordering::Relaxed), 2);
+}
+
+#[test]
 fn indexed_map_reduce_caps_chunks_at_worker_plus_caller_lanes() {
     let scheduler = ThreadScheduler::new(2, "test-indexed-reduce-parallel").unwrap();
 
