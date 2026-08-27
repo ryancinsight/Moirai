@@ -744,7 +744,10 @@ mod tests {
                 break;
             }
         }
-        assert!(saw_rejection, "an 8-slot injector must fill within 4096 pushes");
+        assert!(
+            saw_rejection,
+            "an 8-slot injector must fill within 4096 pushes"
+        );
 
         // The injector is full and its only drain is gated: every enqueue
         // retry rejects, so the wake must complete the future inline. The

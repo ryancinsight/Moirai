@@ -129,7 +129,10 @@ fn send_wakes_outside_the_waker_registry_lock() {
     assert_eq!(Pin::new(&mut fut).poll(&mut cx), Poll::Pending);
 
     tx.send(9).unwrap();
-    assert!(probe.woken.load(Ordering::SeqCst), "send must wake the future");
+    assert!(
+        probe.woken.load(Ordering::SeqCst),
+        "send must wake the future"
+    );
     assert!(
         !probe.held_during_wake.load(Ordering::SeqCst),
         "wake ran while notify_consumers held the waker registry lock"
