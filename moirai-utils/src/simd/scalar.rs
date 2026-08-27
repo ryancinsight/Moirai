@@ -327,9 +327,9 @@ impl SimdScalar for f64 {
 
     #[inline]
     fn add_slices(left: &[Self], right: &[Self], result: &mut [Self]) {
-        let len = left.len();
         #[cfg(target_arch = "x86_64")]
         {
+            let len = left.len();
             if let Some(chunk_len) = native_vector_chunk_len(len) {
                 // SAFETY: `chunk_len` is an 8-lane multiple <= len with AVX2
                 // probed, so the sliced arguments satisfy the arch fn
@@ -356,9 +356,9 @@ impl SimdScalar for f64 {
 
     #[inline]
     fn mul_slices(left: &[Self], right: &[Self], result: &mut [Self]) {
-        let len = left.len();
         #[cfg(target_arch = "x86_64")]
         {
+            let len = left.len();
             if let Some(chunk_len) = native_vector_chunk_len(len) {
                 // SAFETY: `chunk_len` is an 8-lane multiple <= len with AVX2
                 // probed, so the sliced arguments satisfy the arch fn
@@ -385,9 +385,9 @@ impl SimdScalar for f64 {
 
     #[inline]
     fn dot_slice(left: &[Self], right: &[Self]) -> Self {
-        let len = left.len();
         #[cfg(target_arch = "x86_64")]
         {
+            let len = left.len();
             if let Some(chunk_len) = native_vector_chunk_len(len) {
                 let mut sum = unsafe { arch::dot_wide(&left[..chunk_len], &right[..chunk_len]) };
                 if chunk_len < len {
@@ -401,9 +401,9 @@ impl SimdScalar for f64 {
 
     #[inline]
     fn sum_slice(data: &[Self]) -> Self {
-        let len = data.len();
         #[cfg(target_arch = "x86_64")]
         {
+            let len = data.len();
             if let Some(chunk_len) = native_vector_chunk_len(len) {
                 let mut total = unsafe { arch::sum_wide(&data[..chunk_len]) };
                 if chunk_len < len {
