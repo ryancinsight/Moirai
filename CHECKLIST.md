@@ -2,6 +2,16 @@
 
 **Target**: Unreleased
 
+## MOI-AARCH64-SIMD-CFG-2026-08-27 — cfg-local SIMD lengths [patch] — in progress
+
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** `moirai-utils/src/simd/scalar.rs` and this item through the
+  AArch64 warning-fix commit.
+- **Outcome:** scalar fallbacks compile warning-free when the x86 native-vector
+  blocks are absent, preserving the existing x86 chunk/tail behavior.
+- **Acceptance:** strict host Clippy, Moirai utility tests, and Apollo's strict
+  AArch64 all-target check pass against the delivered provider revision.
+
 ## MOI-INDEXED-SCOPE-ALLOC-2026-08-26 — stack-owned indexed completion [patch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
