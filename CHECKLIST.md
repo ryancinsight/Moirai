@@ -2,6 +2,24 @@
 
 **Target**: Unreleased
 
+## MOI-WAKE-CORRECTNESS-2026-08-27 — Lost-wake, channel fence, ZST deque alloc [patch] — in-progress
+
+- **Integrator:** claude-fable session 03d80d33 subagent.
+- **Lease:** `moirai-executor/src/hybrid/async_state.rs`,
+  `moirai-core/src/channel/hybrid/`,
+  `moirai-scheduler/src/deque/chase_lev/storage.rs`, plus this entry.
+- **Outcome:** three defects closed with regression coverage: (1) `Waker::wake`
+  and the repoll-reschedule path discard injector-admission failure, stranding a
+  QUEUED task no later wake can rescue; (2) the hybrid channel's Dekker
+  park/produce protocol lacks the StoreLoad fence the tree's futex_mutex
+  documents, permitting a last-message hang; (3) `chase_lev::storage::Array`
+  passes a zero-size layout to the allocator for ZST elements — library UB
+  reachable from safe code.
+- **Acceptance:** admission-rejection wake regression, park/unpark last-message
+  stress regression, and ZST deque push/pop/steal coverage pass under the
+  committed nextest budgets; warning-denied Clippy passes.
+- **Last-update:** 2026-08-27.
+
 ## MOI-AARCH64-SIMD-CFG-2026-08-27 — cfg-local SIMD lengths [patch] — review
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
