@@ -2,11 +2,12 @@
 
 **Target**: Unreleased
 
-## MOI-WAKE-CORRECTNESS-2026-08-27 — Lost-wake, channel fence, ZST deque alloc [patch] — review
+## MOI-WAKE-CORRECTNESS-2026-08-27 — Lost-wake, channel fence, ZST deque alloc [patch] — done 2026-08-27
 
-- **Integrator:** claude-fable session 03d80d33 subagent.
-- **Lease:** none; fixes and regression coverage are complete on
-  `fix/moirai-wake-correctness`, PR open awaiting review/merge.
+- **Delivered:** PR #171 merged as `6641293` (integrator review: exactly-once
+  poll CAS makes the inline-wake rung race-free; ZST dangling base coherent
+  with the states-array protocol; fmt cure `0584fb0`).
+- **Integrator:** claude-fable session 03d80d33.
 - **Outcome:** three defects closed with regression coverage: (1) `Waker::wake`
   and the repoll-reschedule path discard injector-admission failure, stranding a
   QUEUED task no later wake can rescue; (2) the hybrid channel's Dekker
@@ -26,6 +27,19 @@
   model (std parking is not loom-swappable), so its fence placement rests on
   the futex_mutex/mpmc-waiter precedent plus stress coverage.
 - **Last-update:** 2026-08-27.
+
+## MOI-INLINE-POLL-DEPTH-2026-08-27 — Bound nested inline-wake polls [patch] — todo
+
+- Owner: unclaimed.
+- Outcome: the wake path's inline-poll rung carries an explicit nesting bound.
+- Evidence (integrator review of PR #171): `schedule_wake`'s inline poll runs
+  on the waking thread after the 64-attempt admission ladder; a future whose
+  poll sends into another saturated task's channel can wake inline again, so
+  under sustained total saturation inline polls can nest without an explicit
+  depth bound (each level costs a full spin/yield ladder, so growth is slow
+  and requires adversarial permanent saturation — hardening, not a defect).
+- Direction: thread-local inline-poll depth counter; past the bound, fall
+  back to the yield rung indefinitely (never drop the wake).
 
 ## MOI-REGISTRY-UNBOUNDED-2026-08-27 — Bound the task registry [patch] — todo
 
