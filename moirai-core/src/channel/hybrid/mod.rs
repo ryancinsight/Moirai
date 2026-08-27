@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex};
 
 mod future;
+mod notify;
 mod recv;
 mod send;
 #[cfg(test)]

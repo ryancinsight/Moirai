@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Waker;
 
+use super::notify::notify_consumers;
+
 /// Sender half of hybrid channel
 pub struct HybridSender<T> {
     pub(super) ring: Arc<RingBuffer<T>>,
@@ -18,6 +20,12 @@ pub struct HybridSender<T> {
 
 impl<T: Send> HybridSender<T> {
     /// Send value with zero-copy when possible
+    ///
+    /// # Errors
+    /// Returns [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed)
+    /// when the receiver is gone and
+    /// [`ChannelError::Full`](crate::channel::error::ChannelError::Full) when the
+    /// ring has no free slot.
     pub fn send(&self, value: T) -> Result<()> {
         if self.closed.load(Ordering::Acquire) {
             return Err(crate::channel::error::ChannelError::Closed);
@@ -27,35 +35,28 @@ impl<T: Send> HybridSender<T> {
             .try_produce(value)
             .map_err(|_| crate::channel::error::ChannelError::Full)?;
 
-        // Unpark any waiting threads if there are any
-        if self.parked_count.load(Ordering::Relaxed) > 0 {
-            if let Ok(mut parked) = self.parker.lock() {
-                for thread in parked.drain(..) {
-                    thread.unpark();
-                }
-                self.parked_count.store(0, Ordering::Release);
-            }
-        }
-
-        // Wake any waiting async tasks if there are any
-        if self.waker_count.load(Ordering::Relaxed) > 0 {
-            if let Ok(mut wakers) = self.async_wakers.lock() {
-                for (_, waker) in wakers.drain(..) {
-                    waker.wake();
-                }
-                self.waker_count.store(0, Ordering::Release);
-            }
-        }
-
+        // Fenced Dekker gate between the produce above and the counter loads
+        // (see `notify_consumers`): skipping it lets this thread miss a
+        // concurrent registration while the registrant misses the produce.
+        self.notify_consumers();
         Ok(())
     }
 
     /// Try to send without blocking
+    ///
+    /// # Errors
+    /// Propagates [`Self::send`], which never blocks.
     pub fn try_send(&self, value: T) -> Result<()> {
         self.send(value)
     }
 
     /// Send with timeout
+    ///
+    /// # Errors
+    /// Returns [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed)
+    /// when the receiver is gone and
+    /// [`ChannelError::Full`](crate::channel::error::ChannelError::Full) when no
+    /// slot freed within `timeout`.
     pub fn send_timeout(&self, mut value: T, timeout: std::time::Duration) -> Result<()> {
         let start = std::time::Instant::now();
 
@@ -66,26 +67,8 @@ impl<T: Send> HybridSender<T> {
 
             match self.ring.try_produce(value) {
                 Ok(()) => {
-                    // Unpark any waiting threads if there are any
-                    if self.parked_count.load(Ordering::Relaxed) > 0 {
-                        if let Ok(mut parked) = self.parker.lock() {
-                            for thread in parked.drain(..) {
-                                thread.unpark();
-                            }
-                            self.parked_count.store(0, Ordering::Release);
-                        }
-                    }
-
-                    // Wake any waiting async tasks if there are any
-                    if self.waker_count.load(Ordering::Relaxed) > 0 {
-                        if let Ok(mut wakers) = self.async_wakers.lock() {
-                            for (_, waker) in wakers.drain(..) {
-                                waker.wake();
-                            }
-                            self.waker_count.store(0, Ordering::Release);
-                        }
-                    }
-
+                    // Same fenced gate as `send`.
+                    self.notify_consumers();
                     return Ok(());
                 }
                 Err(v) => {
@@ -112,28 +95,28 @@ impl<T: Send> HybridSender<T> {
             self.ring.capacity() - self.ring.len()
         }
     }
+
+    fn notify_consumers(&self) {
+        notify_consumers(
+            &self.parker,
+            &self.parked_count,
+            &self.async_wakers,
+            &self.waker_count,
+        );
+    }
 }
 
 impl<T> Drop for HybridSender<T> {
     fn drop(&mut self) {
         self.closed.store(true, Ordering::Release);
-        // Unpark any waiting threads if there are any
-        if self.parked_count.load(Ordering::Relaxed) > 0 {
-            if let Ok(mut parked) = self.parker.lock() {
-                for thread in parked.drain(..) {
-                    thread.unpark();
-                }
-                self.parked_count.store(0, Ordering::Release);
-            }
-        }
-        // Wake any waiting async tasks if there are any
-        if self.waker_count.load(Ordering::Relaxed) > 0 {
-            if let Ok(mut wakers) = self.async_wakers.lock() {
-                for (_, waker) in wakers.drain(..) {
-                    waker.wake();
-                }
-                self.waker_count.store(0, Ordering::Release);
-            }
-        }
+        // Fenced Dekker gate between the close above and the counter loads
+        // (see `notify_consumers`): a receiver registering concurrently with
+        // this drop must not park against a channel that will never send.
+        notify_consumers(
+            &self.parker,
+            &self.parked_count,
+            &self.async_wakers,
+            &self.waker_count,
+        );
     }
 }

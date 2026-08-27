@@ -2,6 +2,104 @@
 
 **Target**: Unreleased
 
+## MOI-WAKE-CORRECTNESS-2026-08-27 — Lost-wake, channel fence, ZST deque alloc [patch] — review
+
+- **Integrator:** claude-fable session 03d80d33 subagent.
+- **Lease:** none; fixes and regression coverage are complete on
+  `fix/moirai-wake-correctness`, PR open awaiting review/merge.
+- **Outcome:** three defects closed with regression coverage: (1) `Waker::wake`
+  and the repoll-reschedule path discard injector-admission failure, stranding a
+  QUEUED task no later wake can rescue; (2) the hybrid channel's Dekker
+  park/produce protocol lacks the StoreLoad fence the tree's futex_mutex
+  documents, permitting a last-message hang; (3) `chase_lev::storage::Array`
+  passes a zero-size layout to the allocator for ZST elements — library UB
+  reachable from safe code.
+- **Acceptance:** admission-rejection wake regression, park/unpark last-message
+  stress regression, and ZST deque push/pop/steal coverage pass under the
+  committed nextest budgets; warning-denied Clippy passes.
+- **Evidence:** warning-denied workspace all-target Clippy passes; Nextest
+  passes 256/256 (1 configured skip) across executor, core, scheduler, and
+  utils, including 8 new regression tests; `moirai-core` doctests pass 3/3
+  (1 ignored); the loom channel models pass 5/5, whose negative controls
+  prove the modeled protocol loses wakeups without the fence and with
+  inverted registration. Residual: the hybrid channel itself has no loom
+  model (std parking is not loom-swappable), so its fence placement rests on
+  the futex_mutex/mpmc-waiter precedent plus stress coverage.
+- **Last-update:** 2026-08-27.
+
+## MOI-REGISTRY-UNBOUNDED-2026-08-27 — Bound the task registry [patch] — todo
+
+- Unowned. Task registry grows without bound: `cleanup_completed` has no
+  production caller (only `registry/tests.rs`); slots for monotonic
+  never-reused IDs are permanent (~100 MB per million tasks) and completion
+  wakers are retained. Fix direction: invoke cleanup from the idle-maintenance
+  hook (`schedule/runtime/worker.rs:57`) or clear on lifecycle completion with
+  no observer. Evidence: `registry/registry.rs:99-122`, `registry/state.rs:55-67`,
+  `hybrid/spawner.rs:49,83`, `hybrid/mod.rs:261-268`.
+
+## MOI-SPAWN-GLOBAL-MUTEX-2026-08-27 — Shard spawn registry locking [patch] — todo
+
+- Unowned. One global `Arc<Mutex<TaskRegistry>>` serializes every spawn kind
+  ahead of the lock-free scheduler, and `wait_for_task` re-locks per poll
+  (`hybrid/manager.rs:77-104`). Fix direction: shard by per-worker ID ranges or
+  lock-free block insertion. Evidence: `hybrid/mod.rs:75,261-268`.
+
+## MOI-PAR-ITER-SEQUENTIAL-TERMINALS-2026-08-27 — Parallel terminals collect sequentially [patch] — todo
+
+- Unowned. `sum`/`product`/`min`/`max`/`fold`/`partition`/`unzip`/`find_last`/
+  `position`/`try_for_each`/`count` and friends call `seq_items()` — collect
+  everything, then a std sequential pass (`parallel/traits.rs:622-685` and
+  listed ranges; `parallel/split.rs:12-32`); `count` collects just to take
+  `len()`. `par_iter().map(f).sum()` is sequential plus an O(n) allocation.
+  Fix direction: route terminals through folding/counting consumers like
+  `reduce`.
+
+## MOI-PAR-ITER-SPLIT-COPY-2026-08-27 — Index-range splits over Vec::split_off [patch] — todo
+
+- Unowned. Drive splits use `Vec::split_off` (alloc+memmove per level,
+  O(n log n) copy traffic); `VecRefParIter` materializes `Vec<&T>`;
+  `ReduceConsumer`/`FindConsumer` collect each leaf shard so
+  `find_any`/`any`/`all` never short-circuit (`parallel/sources.rs:128-157,
+  339-347,408-439`; `parallel/consumers.rs:161-170,238-245`). Fix direction:
+  index-range splitting over a shared slice; stream leaves through fold.
+
+## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — todo
+
+- Unowned. A parked worker whose wake was consumed re-parks without re-setting
+  its `IdleBitset` bit (`schedule/runtime/worker.rs:344-372`;
+  `schedule/runtime/idle.rs:60-82`) — invisible to the wake lottery until the
+  blind fallback lands; under-utilization under contention. Fix: re-set the
+  bit inside the loop before each `park()`.
+
+## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — todo
+
+- Unowned. `ThreadScheduler::drop`'s `Arc::strong_count == 1` guard is
+  unreachable while workers hold strong clones
+  (`schedule/runtime/scheduler/core.rs:603-611,135`) — dropping the last
+  external handle without `shutdown()` leaks the pool. Fix direction: workers
+  hold `Weak` or an external-handle counter.
+
+## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — todo
+
+- Unowned. Mid-construction thread-spawn failure returns `Err` with
+  already-spawned workers parked forever holding `inner`
+  (`schedule/runtime/scheduler/core.rs:137-156`). Fix: on spawn error, set
+  shutdown, wake, join the partial set.
+
+## MOI-STEAL-BATCH-GATE-HOIST-2026-08-27 — Enter steal resize gate once per batch [patch] — todo
+
+- Unowned. `steal_batch` pays the resize-gate `fetch_add`+`fetch_sub` SeqCst
+  pair per item — up to 32 contended RMWs per batch on a line shared by all
+  thieves (`deque/chase_lev.rs:203-218`). Fix: enter the gate once per batch.
+
+## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] — todo
+
+- Unowned. Unbounded no-yield spins: `claim_for_write`
+  (`deque/chase_lev/storage.rs:103-107`), the resize gate wait
+  (`deque/chase_lev.rs:433-435`), and steal `Retry` loops
+  (`schedule/queue/mod.rs:102-111,169-190`). Escalate to `yield_now` after a
+  bounded spin budget per the tree's SpinLock ladder.
+
 ## MOI-AARCH64-SIMD-CFG-2026-08-27 — cfg-local SIMD lengths [patch] — review
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.

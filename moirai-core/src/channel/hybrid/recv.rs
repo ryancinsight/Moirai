@@ -1,9 +1,11 @@
 use crate::channel::error::Result;
 use crate::communication::RingBuffer;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{fence, AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Waker;
+
+use super::notify::notify_consumers;
 
 /// Receiver half of hybrid channel
 pub struct HybridReceiver<T> {
@@ -18,7 +20,43 @@ pub struct HybridReceiver<T> {
 }
 
 impl<T: Send> HybridReceiver<T> {
+    /// Register the calling thread for sender unparks.
+    ///
+    /// The `SeqCst` increment is half of the Dekker pair documented on
+    /// [`notify_consumers`](super::notify::notify_consumers); the caller must
+    /// execute `fence(SeqCst)` and re-check the ring (and `closed`) before
+    /// parking, or a concurrent send can miss this registration while the
+    /// re-check misses its message — the last-message hang.
+    fn register_parked(&self, current_thread: &std::thread::Thread) {
+        let mut parked = self
+            .parker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !parked.iter().any(|t| t.id() == current_thread.id()) {
+            parked.push(current_thread.clone());
+            self.parked_count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Remove the calling thread from the unpark registry.
+    fn deregister_parked(&self, current_thread: &std::thread::Thread) {
+        let mut parked = self
+            .parker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let old_len = parked.len();
+        parked.retain(|t| !t.id().eq(&current_thread.id()));
+        let removed = old_len - parked.len();
+        if removed > 0 {
+            self.parked_count.fetch_sub(removed, Ordering::SeqCst);
+        }
+    }
+
     /// Receive value with zero-copy
+    ///
+    /// # Errors
+    /// Returns [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed)
+    /// when the sender is gone and the ring is drained.
     pub fn recv(&self) -> Result<T> {
         // Fast path: try to receive without blocking
         if let Some(value) = self.ring.try_consume() {
@@ -33,37 +71,23 @@ impl<T: Send> HybridReceiver<T> {
                 return Err(crate::channel::error::ChannelError::Closed);
             }
 
-            // Register this thread for unparking if not already present
-            if let Ok(mut parked) = self.parker.lock() {
-                if !parked.iter().any(|t| t.id() == current_thread.id()) {
-                    parked.push(current_thread.clone());
-                    self.parked_count.fetch_add(1, Ordering::Release);
-                }
-            }
+            self.register_parked(&current_thread);
 
-            // Check again after registering (to avoid race)
+            // Dekker fence between the registration above and the re-checks
+            // below; pairs with the fence in `notify_consumers` between the
+            // sender's publication and its counter gate loads. Without both
+            // fences a StoreLoad reorder lets the sender read a zero count
+            // while this re-check reads an empty ring, and the thread parks
+            // against a delivered message.
+            fence(Ordering::SeqCst);
+
             if let Some(value) = self.ring.try_consume() {
-                // Remove ourselves from the parker list
-                if let Ok(mut parked) = self.parker.lock() {
-                    let old_len = parked.len();
-                    parked.retain(|t| !t.id().eq(&current_thread.id()));
-                    let removed = old_len - parked.len();
-                    if removed > 0 {
-                        self.parked_count.fetch_sub(removed, Ordering::Release);
-                    }
-                }
+                self.deregister_parked(&current_thread);
                 return Ok(value);
             }
 
             if self.closed.load(Ordering::Acquire) && self.ring.is_empty() {
-                if let Ok(mut parked) = self.parker.lock() {
-                    let old_len = parked.len();
-                    parked.retain(|t| !t.id().eq(&current_thread.id()));
-                    let removed = old_len - parked.len();
-                    if removed > 0 {
-                        self.parked_count.fetch_sub(removed, Ordering::Release);
-                    }
-                }
+                self.deregister_parked(&current_thread);
                 return Err(crate::channel::error::ChannelError::Closed);
             }
 
@@ -73,6 +97,12 @@ impl<T: Send> HybridReceiver<T> {
     }
 
     /// Try to receive without blocking
+    ///
+    /// # Errors
+    /// Returns [`ChannelError::Empty`](crate::channel::error::ChannelError::Empty)
+    /// when no message is ready and
+    /// [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed) when
+    /// the sender is gone.
     pub fn try_recv(&self) -> Result<T> {
         if let Some(value) = self.ring.try_consume() {
             Ok(value)
@@ -84,6 +114,12 @@ impl<T: Send> HybridReceiver<T> {
     }
 
     /// Receive with timeout
+    ///
+    /// # Errors
+    /// Returns [`ChannelError::Empty`](crate::channel::error::ChannelError::Empty)
+    /// when `timeout` elapses without a message and
+    /// [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed) when
+    /// the sender is gone.
     pub fn recv_timeout(&self, timeout: std::time::Duration) -> Result<T> {
         let start = std::time::Instant::now();
 
@@ -97,11 +133,16 @@ impl<T: Send> HybridReceiver<T> {
 
                     // Register for wake-up before checking again
                     let current_thread = std::thread::current();
-                    if let Ok(mut parked) = self.parker.lock() {
-                        if !parked.iter().any(|t| t.id() == current_thread.id()) {
-                            parked.push(current_thread.clone());
-                            self.parked_count.fetch_add(1, Ordering::Release);
-                        }
+                    self.register_parked(&current_thread);
+
+                    // Same Dekker fence-and-re-check as `recv`: without it a
+                    // send racing this registration is missed on both sides
+                    // and the thread pays the full remaining timeout for a
+                    // message that is already in the ring.
+                    fence(Ordering::SeqCst);
+                    if let Some(value) = self.ring.try_consume() {
+                        self.deregister_parked(&current_thread);
+                        return Ok(value);
                     }
 
                     // Park for the remaining timeout budget.
@@ -109,15 +150,7 @@ impl<T: Send> HybridReceiver<T> {
                         std::thread::park_timeout(remaining);
                     }
 
-                    // Remove from parker list
-                    if let Ok(mut parked) = self.parker.lock() {
-                        let old_len = parked.len();
-                        parked.retain(|t| !t.id().eq(&current_thread.id()));
-                        let removed = old_len - parked.len();
-                        if removed > 0 {
-                            self.parked_count.fetch_sub(removed, Ordering::Release);
-                        }
-                    }
+                    self.deregister_parked(&current_thread);
                 }
                 Err(e) => return Err(e),
             }
@@ -156,23 +189,13 @@ impl<T: Send> HybridReceiver<T> {
 impl<T> Drop for HybridReceiver<T> {
     fn drop(&mut self) {
         self.closed.store(true, Ordering::Release);
-        // Unpark any waiting threads (just in case) if there are any
-        if self.parked_count.load(Ordering::Relaxed) > 0 {
-            if let Ok(mut parked) = self.parker.lock() {
-                for thread in parked.drain(..) {
-                    thread.unpark();
-                }
-                self.parked_count.store(0, Ordering::Release);
-            }
-        }
-        // Wake any waiting async tasks (just in case) if there are any
-        if self.waker_count.load(Ordering::Relaxed) > 0 {
-            if let Ok(mut wakers) = self.async_wakers.lock() {
-                for (_, waker) in wakers.drain(..) {
-                    waker.wake();
-                }
-                self.waker_count.store(0, Ordering::Release);
-            }
-        }
+        // Fenced Dekker gate between the close above and the counter loads
+        // (see `notify_consumers`), mirroring the sender drop.
+        notify_consumers(
+            &self.parker,
+            &self.parked_count,
+            &self.async_wakers,
+            &self.waker_count,
+        );
     }
 }
