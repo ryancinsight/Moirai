@@ -56,7 +56,17 @@ fn pool_retained_footprint_attribution() {
     let _serial = HARNESS.lock().expect("harness lock");
     let _hooks = allocation_ledger::MnemosyneHooks::install();
     const JOBS: usize = 256;
-    let workers = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
+    // The contract under test is per-worker structure, so a bounded worker
+    // set witnesses it on any host; more workers add allocations, not
+    // information. The bound keeps the probe inside the ledger everywhere:
+    // construction records ~30 allocations per worker (684 measured at 24),
+    // so 64 workers sit within the 2,048-slot ledger with 3x headroom, while
+    // an unclamped 256-core host would trip the ledger's overflow assert and
+    // a host past 4,096 would fail queue partitioning outright.
+    const PROBE_WORKERS_MAX: usize = 64;
+    let workers = std::thread::available_parallelism()
+        .map_or(4, std::num::NonZeroUsize::get)
+        .min(PROBE_WORKERS_MAX);
     println!("workers = {workers}, jobs per fan-out = {JOBS}");
 
     let (scheduler, construction) = allocation_ledger::footprint_window("construction", || {
