@@ -6,7 +6,7 @@ Status: Accepted
 - Change class: [major] [arch]
 - Refs: `MOI-LOCAL-QUEUE-CAPACITY-036`, ADR-034
 
-### Context
+## Context
 
 `ExecutorConfig::max_local_queue_size` and both public builders expose a hard
 maximum, but executor construction discards the value. Each worker instead
@@ -26,7 +26,7 @@ normalization overflows for sufficiently large inputs, which either panics or
 produces a capacity smaller than the request depending on build semantics. A
 public configuration path must reject that value before worker threads start.
 
-### Decision
+## Decision
 
 Replace the false maximum contract directly:
 
@@ -64,7 +64,7 @@ capacity is not backpressure: retained initial slots scale as
 Growth remains the Chase-Lev algorithm's existing owner-only resize. Work is
 never rejected because a local deque reaches its initial capacity.
 
-### Failure modes
+## Failure modes
 
 - An unrepresentable normalization or concrete element layout returns
   `ExecutorError::InvalidLocalQueueInitialCapacity` before any worker starts.
@@ -77,7 +77,7 @@ never rejected because a local deque reaches its initial capacity.
   Exactly-once behavior is verified with real owner/thief execution because
   the fixed-capacity Loom model does not model resize.
 
-### Alternatives rejected
+## Alternatives rejected
 
 1. Keep the public maximum name and impose a hard bound. Rejected because the
    local deque has no rejection channel and bounded local admission would
@@ -90,7 +90,7 @@ never rejected because a local deque reaches its initial capacity.
 4. Clamp overflowing requests. Rejected because the resulting allocation would
    violate the documented at-least-requested contract.
 
-### Migration
+## Migration
 
 Replace `max_local_queue_size(value)` with
 `local_queue_initial_capacity(value)`, and replace direct
@@ -102,7 +102,7 @@ capacity explicitly. Direct Chase-Lev users construct a
 `DequeCapacity::<T>` with `TryFrom<usize>` and pass it to
 `ChaseLevDeque::new`.
 
-### Verification plan
+## Verification plan
 
 - Test normalization at zero, below/at/above the minimum, a non-power-of-two,
   the first overflowing value, and a normalized capacity whose concrete slot

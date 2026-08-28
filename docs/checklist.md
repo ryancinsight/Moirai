@@ -66,7 +66,7 @@
 - [x] Replace the no-op maximum API without aliases and route the initial capacity into every worker's priority deques.
 - [x] Verify normalization boundaries, rejected overflow, configured construction, and adversarial exactly-once growth/stealing without sleeps.
 - [x] Synchronize Rustdoc, the runtime book, CHANGELOG migration guidance, PM state, and SemVer classification.
-- [ ] Pass focused and workspace warning-denied/value gates, obtain independent review, publish, and merge.
+- [x] Pass focused and workspace warning-denied/value gates, obtain independent review, and merge as PR #182 / `7272d78`.
 
 ### MOI-LINT-AUTHORITY-037 — stale-branch rescue
 

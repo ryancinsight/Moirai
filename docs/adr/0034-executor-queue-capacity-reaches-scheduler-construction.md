@@ -8,7 +8,7 @@ Status: Accepted
 - Revision: 2026-08-27 — independent review established that the queue's
   sequence generations alias at capacity one; require two slots per worker.
 
-### Context
+## Context
 
 `ExecutorConfig::max_global_queue_size` and both public builders expose a
 maximum task count for the global admission queue. `HybridExecutor::new`
@@ -30,7 +30,7 @@ argument as an initial capacity, not a maximum.
 the former no-op maximum contract and routes the initial capacity into
 scheduler construction.
 
-### Decision
+## Decision
 
 Keep the per-worker injectors because selected-worker placement preserves the
 scheduler's priority, locality, and NUMA routing. At executor construction,
@@ -47,7 +47,7 @@ Pass `C` once through `HybridExecutor` and `ThreadScheduler` into every
 `WorkerQueues` allocation. Direct `ThreadScheduler` construction derives from
 `DEFAULT_GLOBAL_QUEUE_CAPACITY`, preserving one construction implementation.
 
-### Alternatives rejected
+## Alternatives rejected
 
 1. Retain a fixed per-worker constant. Rejected because worker count then
    multiplies memory independently of the public maximum.
@@ -59,7 +59,7 @@ Pass `C` once through `HybridExecutor` and `ThreadScheduler` into every
 4. Change the default constant only. Rejected because another unexplained
    constant leaves custom configuration ineffective.
 
-### Verification plan
+## Verification plan
 
 - Unit-test exact and non-power-of-two partitions, minimum valid capacity, and
   rejection when the executor-wide maximum cannot supply two slots per worker.
