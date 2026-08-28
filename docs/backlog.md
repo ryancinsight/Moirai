@@ -145,14 +145,11 @@ architecture definition.
 - **Evidence**: PR #180 merged as `851245f`; focused handshake Nextest passes 7/7, workspace Nextest passes 858/858 in 11.772 seconds, exact standalone `cargo deny check` passes, and hosted supply-chain verification is green.
 - **Lease**: none.
 
-### 🟨 MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
+### ✅ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
 - **Outcome**: replace the no-op `max_local_queue_size` contract with the scheduler's real resizable Chase-Lev initial-capacity policy, updating all first-party callers without a compatibility shim.
-- **Acceptance**: the accepted ADR defines the public migration, configuration reaches construction, adversarial growth preserves exactly-once semantics, and SemVer plus consumer gates classify the delivered break.
-- **Dependency**: follows MOI-QUEUE-CAPACITY-034 so global admission and local work-stealing policies remain separate increments.
-- **Evidence**: host all-feature Nextest passes 876/876 in 11.741 seconds and affected-crate release Nextest passes 274/274 in 7.113 seconds; the deterministic 257-job owner-growth/cross-worker-steal case completes in 0.185 seconds. Warning-denied workspace Clippy/rustdoc, all-feature doctests, AArch64 Linux and Windows all-target checks, and the changed Criterion binary smoke pass. SemVer reports five major categories in `moirai-core` and one each in `moirai-executor` and `moirai-runtime`; the scheduler scan passes 196/196 but does not detect the manually classified `ChaseLevDeque::new(usize)` parameter-type break.
-- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `feat/executor-local-queue-capacity`.
-- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` — ADR 0035, executor configuration/builders, scheduler local-queue construction and tests, CHANGELOG, runtime book, and this item's PM sections; last update 2026-08-28.
+- **Evidence**: PR #182 merged as `7272d78`; independent exact-revision review is green. Host all-feature Nextest passes 875/875 in 11.766 seconds, affected-crate release Nextest passes 274/274 in 7.113 seconds, and the deterministic 257-job owner-growth/cross-worker-steal case completes in 0.185 seconds. Warning-denied workspace Clippy/rustdoc, all-feature doctests, AArch64 Linux and Windows all-target checks, the changed Criterion binary smoke, SemVer classification, and the hosted required matrix pass.
+- **Lease**: none.
 
 ### ✅ MOI-THEMIS-CPU-001 [patch]: Route default CPU sizing through Themis
 
