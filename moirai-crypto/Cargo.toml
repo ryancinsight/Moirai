@@ -53,5 +53,5 @@ elliptic-curve  = { version = "0.13", default-features = false, features = ["all
 pki-types       = { package = "rustls-pki-types", version = "1" }
 
 [dev-dependencies]
-# Self-signed certificate generation for the in-memory handshake test.
-rcgen = { workspace = true }
+# Deterministic PEM parsing for the in-memory handshake fixture.
+rustls-pemfile = { workspace = true }

@@ -112,10 +112,10 @@ architecture definition.
 
 ### 🟡 MOI-TLS-FIXTURE-039 [patch]: Recover deterministic TLS fixtures
 
-- **Outcome**: port the unique `778021e` TLS fixture and fail-closed verification increment onto current `main`, removing the `rcgen`/`ring` test graph without carrying stale branch reversions.
+- **Outcome**: port the unique `778021e` TLS fixture and fail-closed verification increment onto current `main`, removing `rcgen`'s native certificate-generation test graph without carrying stale branch reversions.
 - **Acceptance**: current TLS and crypto handshakes validate trusted, wrong-hostname, untrusted, and expired certificates from committed fixtures; focused and workspace gates remain within their budgets; no native certificate-generation dependency remains.
-- **Status**: in progress; `b548bc9` is already equivalent on `main`, while `778021e` is the only unique stale-branch commit.
-- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns TLS/crypto fixtures, their manifests/tests, and conflict resolution against current `main` through the next verified commit.
+- **Status**: exact-lock focused Nextest 7/7 and workspace Nextest 838/838 in 11.452 seconds pass; warning-denied workspace Clippy/rustdoc, 19 doctests, and standalone lock validation with 10 first-party Git sources pass. Delivery remains.
+- **Lease**: none after the verified fixture commit.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 

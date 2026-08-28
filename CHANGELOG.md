@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Deterministic TLS integration fixtures for trusted, wrong-hostname,
+  untrusted, and expired certificate cases. The handshake tests now match
+  Rustls certificate-error variants and require rejected server handshakes to
+  terminate within their existing deadline. Replacing runtime `rcgen`
+  certificate generation removes its native test-only dependency graph.
 - `moirai_utils::DESTRUCTIVE_INTERFERENCE_SIZE` and `moirai_utils::CachePad`.
   `moirai-utils` now owns the per-target cache tables that six crates
   previously each hardcoded at 64, and distinguishes the transfer granularity

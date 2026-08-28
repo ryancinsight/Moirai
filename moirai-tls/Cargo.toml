@@ -28,4 +28,4 @@ webpki-roots = { workspace = true }
 
 [dev-dependencies]
 moirai = { package = "moirai-runtime", path = "../moirai", default-features = false, features = ["async"] }
-rcgen = { workspace = true }
+rustls-pemfile = { workspace = true }

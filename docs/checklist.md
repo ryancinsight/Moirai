@@ -84,8 +84,9 @@
 ### MOI-TLS-FIXTURE-039 — deterministic TLS fixtures
 
 - [x] Confirm `b548bc9` is patch-equivalent on `main` and isolate `778021e` as the stale branch's unique increment.
-- [ ] Port only the still-current fixture, manifest, and value-semantic handshake changes without reverting newer work.
-- [ ] Pass focused TLS/crypto and workspace warning-denied gates, then publish and merge.
+- [x] Port only the still-current fixture, manifest, and value-semantic handshake changes without reverting newer work.
+- [x] Pass focused TLS/crypto and workspace warning-denied gates.
+- [ ] Publish and merge.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
