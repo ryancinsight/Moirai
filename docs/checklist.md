@@ -27,7 +27,8 @@
       cross-target, documentation, and controlled benchmark gates.
 - [x] Complete independent review of the lifetime-erased task/completion
       ordering and allocator-test split.
-- [ ] Commit, merge, and record exact hosted evidence.
+- [x] Commit as `2b83475`, merge through PR #185 / `fd66287`, and record
+      exact hosted run `33167891216`.
 
 ## Nightly TLS gate cleanup
 
