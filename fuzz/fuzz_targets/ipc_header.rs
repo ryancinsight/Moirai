@@ -8,12 +8,28 @@
 
 #![no_main]
 
-use moirai_core::__fuzz_ipc_header;
+use moirai_core::ipc::__fuzz_ipc_header;
 
 libfuzzer_sys::fuzz_target!(|data: (u64, u64, &[u8])| {
     // Sizes are clamped to realistic magnitudes so the target explores
     // boundary values without spending time on absurd multiplies.
     let elem_size = (data.0 % (1 << 16)) as usize;
     let capacity = (data.1 % (1 << 20)) as usize;
-    __fuzz_ipc_header(data.2, elem_size, capacity);
+    let (header, layout) = __fuzz_ipc_header(data.2, elem_size, capacity);
+    match header {
+        Ok(value) => {
+            std::hint::black_box(value);
+        }
+        Err(error) => {
+            std::hint::black_box(error);
+        }
+    }
+    match layout {
+        Ok(value) => {
+            std::hint::black_box(value);
+        }
+        Err(error) => {
+            std::hint::black_box(error);
+        }
+    }
 });

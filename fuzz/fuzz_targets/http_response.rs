@@ -45,5 +45,12 @@ libfuzzer_sys::fuzz_target!(|data: &[u8]| {
     let mut reader = FuzzReader { data, pos: 0 };
     // A parser that panics or aborts on hostile bytes fails the run; every
     // rejection path must be a typed io::Error instead.
-    let _ = moirai_runtime::block_on(read_response(&mut reader, false, budget));
+    moirai_executor::block_on(read_response(&mut reader, false, budget)).map_or_else(
+        |error| {
+            std::hint::black_box(error);
+        },
+        |response| {
+            std::hint::black_box(response);
+        },
+    );
 });

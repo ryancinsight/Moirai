@@ -7,9 +7,10 @@ and CI builds never compile it.
 ## Run
 
 ```
-rustup toolchain install nightly
-cargo install cargo-fuzz
-cargo +nightly fuzz run http_response -- fuzz/seeds
+rustup toolchain install nightly-2026-08-01
+cargo install cargo-fuzz --version 0.13.2 --locked
+cargo +nightly-2026-08-01 fuzz run http_response seeds/http_response
+cargo +nightly-2026-08-01 fuzz run ipc_header seeds/ipc_header
 ```
 
 Targets:
@@ -23,3 +24,7 @@ Targets:
   behind a cfg(fuzzing) accessor. Short or malformed headers must remain
   typed `IpcError`s, never panics.
 
+Pull-request verification executes every committed seed once for both
+targets. The weekly and manually dispatched jobs run both mutation campaigns
+concurrently for 180 seconds per target; generated corpus entries remain in
+the runner's temporary output directory.
