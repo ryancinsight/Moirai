@@ -99,12 +99,13 @@
 ### MOI-HTTP-REDIRECT-041 — bounded redirects and idle-pool eviction
 
 - [x] Reconcile atlas ADR-0045, RFC 9110 redirect semantics, RFC 3986 reference resolution, stale branch `778021e`, and the current 9/9 package baseline.
-- [ ] Split the client, redirect, pool, and tests into canonical leaves before extending behavior.
-- [ ] Apply one logical-request deadline across redirects and stale idempotent retries.
-- [ ] Implement capped redirects, destination-aware header filtering, and access-triggered idle eviction without pool-lock panics.
-- [ ] Add value tests for redirect status/method/body/header/URI matrices, limit and location failures, deterministic eviction, and timeout/retry boundaries; remove the 300 ms sleep-based test.
-- [ ] Synchronize README, CHANGELOG, ADR P2 state, benchmark source aliases, and provider PM records.
-- [ ] Pass focused and workspace Nextest, warning-denied Clippy/rustdoc, doctests, SemVer, cross-target, source-contract, lock, and independent-review gates; publish and merge.
+- [x] Split the client, redirect, pool, and tests into canonical leaves before extending behavior.
+- [x] Apply one logical-request deadline across redirects and stale idempotent retries.
+- [x] Implement capped redirects, destination-aware header filtering, and access-triggered idle eviction without pool-lock panics.
+- [x] Add value tests for redirect status/method/body/header/URI matrices, limit and location failures, deterministic eviction, and timeout/retry boundaries; remove the 300 ms sleep-based test.
+- [x] Synchronize the provider README, CHANGELOG, ADR P2 checklist, and PM records; the source-contract scan found no `moirai-http/src/lib.rs` benchmark alias to update.
+- [x] Pass focused Nextest 23/23, exact-lock workspace Nextest 854/854, warning-denied package Clippy/rustdoc, doctests, 196/196 SemVer checks, AArch64 Linux/Windows all-target checks, and standalone lock validation on the working diff.
+- [ ] Obtain independent review, publish and merge the provider, then update atlas ADR-0045 with the exact delivery revision.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 

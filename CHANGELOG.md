@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `moirai-http` now follows at most ten redirects by default with RFC 9110
+  method/body behavior and RFC 3986 relative-reference resolution. One timeout
+  bounds the complete logical request, including redirects and a stale
+  idempotent-connection retry. Cross-origin redirects remove credentials,
+  destination framing is regenerated, and pooled connections expire lazily
+  after five idle minutes without a background task. `set_max_redirects` and
+  `set_idle_timeout` configure those bounds.
 - Native positioned reads for `moirai_async::fs::File` through the existing
   `AsyncReadAt` and `AsyncLength` contracts. Unix uses cursor-independent
   `read_at`; Windows serializes only the cursor save/read/restore sequence, so
