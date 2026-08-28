@@ -141,7 +141,7 @@ architecture definition.
 - **Risk / dependency**: concurrency/lifecycle patch blocking MOI-HTTP-REDIRECT-041 delivery; timer notification preserves its mutex/condition-variable happens-before edge without waking per ordinary cancellation, and readiness cleanup preserves independent read/write waiters while removing completed interests.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
 - **Evidence**: deterministic timer, one-shot readiness, stale-generation dispatch, and backend re-arm failure tests pass. Exact-lock affected-package Nextest passes 215/215 in 1.849 seconds, including the formerly deadline-rescued redirect in 0.203 seconds; workspace Nextest passes 858/858 in 11.684 seconds. Warning-denied workspace Clippy and affected AArch64 Linux/Windows all-target checks pass; whole-workspace AArch64 remains outside this evidence because PyO3 requires cross-Python configuration.
-- **Lease**: none after the correction commit; the session retains integration responsibility through independent re-review and merge.
+- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` leases `moirai-pal` reactor source/tests, the async source contract, CHANGELOG, and this item's checklist through the native identity correction commit.
 
 ### 🟨 MOI-PEM-PARSER-043 [patch]: Remove the unmaintained PEM parser
 
