@@ -86,6 +86,15 @@ architecture definition.
 
 ## Current closure record
 
+### 🟨 MOI-INDEXED-SCOPE-ALLOC-2026-08-26 [patch]: Stack-owned indexed completion
+
+- **Outcome:** indexed completion-only fan-out reuses the scheduler's stack-owned scoped lifetime proof instead of allocating one reference-counted completion state per call. Unhinted multi-batch scopes select one base worker before admission and distribute physical batches across the worker set, preventing state-sensitive rerouting onto one occupied lane under nested saturation.
+- **Scope / non-goals:** `moirai-executor` indexed and scoped scheduling, its value-semantic allocation/liveness coverage, scheduler source contracts, ADR-005, release notes, and the Apollo allocation consumer only; no public API, queue-capacity, explicit-locality, single-job, or refusal-fallback change.
+- **Acceptance:** repeated warmed `for_each_indexed` calls allocate zero bytes; `map_reduce_indexed` retains only its result-slot allocation; panic, clone-unwind, refusal, nesting, saturation, exactly-once, and quiescence contracts pass; saturated outer scope jobs occupy every worker lane; Apollo's warm complex transform returns to zero transient allocations.
+- **Risk / dependency:** scheduler liveness and scoped-borrow safety [patch]. Provider implementation and local verification are complete at `1572ec9`; independent re-review, hosted Linux verification, PR merge, and the Apollo consumer census remain before closure.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: this item and fuzz-closure PM regions only through the next reviewed commit; source lease discharged at `1572ec9`; last update 2026-08-28.
+- **Evidence:** provider commit `1572ec9` passes package Nextest 126/126 in debug and release, the release Loom scope model 1/1, all-feature warning-denied Clippy, warning-denied Rustdoc, and the exact workspace all-feature run 890/890 in 12.173 seconds. The hosted entry failure took 60.005 seconds in `nested_indexed_saturation_completes`; the corrected full-suite case completes in about 0.2 seconds and asserts both worker lanes plus the original arithmetic results.
+
 ### 🟨 MOI-CI-FUZZ-SCOPE-2026-08-28 [patch]: Event-scope parser fuzz verification
 
 - **Outcome:** pull requests execute every committed parser seed deterministically while the weekly and manually dispatched jobs retain bounded mutation campaigns over every shipped fuzz target.

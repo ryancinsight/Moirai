@@ -152,10 +152,9 @@
 ## MOI-INDEXED-SCOPE-ALLOC-2026-08-26 — stack-owned indexed completion [patch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-- **Lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns
-  `moirai-executor/src/schedule/runtime/scheduler/{core.rs,scope.rs}`, focused
-  scheduler tests, and this item's PM region through the next verified commit.
-  Apollo consumer validation remains.
+- **Lease:** source lease discharged at `1572ec9`; Codex
+  `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns this item's PM region through
+  independent re-review. Apollo consumer validation remains.
 - **Outcome:** indexed completion-only fan-out reuses the scheduler's existing
   stack-owned scoped lifetime proof instead of allocating one `Arc` state per
   call. An Apollo FFT consumer triggered the finding by observing two 32-byte
@@ -177,7 +176,8 @@
       all-feature warning-denied Clippy, and warning-denied Rustdoc.
 - [ ] Pass the Apollo consumer census, record the exact provider/consumer
       revisions, and close the item.
-- Evidence: `cargo nextest run --offline -p moirai-executor` passes 126/126;
+- Evidence: provider commit `1572ec9` passes
+  `cargo nextest run --offline -p moirai-executor` 126/126;
   the release package run passes 126/126; the release Loom scope model passes
   1/1; all-feature, all-target Clippy passes with `-D warnings`; and the exact
   workspace all-feature run passes 890/890 in 12.173 seconds. The hosted entry
