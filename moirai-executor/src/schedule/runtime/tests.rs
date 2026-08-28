@@ -190,6 +190,20 @@ fn configured_local_capacity_reaches_every_worker_after_normalization() {
 }
 
 #[test]
+fn measured_default_local_capacity_reaches_every_worker() {
+    let scheduler = ThreadScheduler::new(3, "default-local-capacity").unwrap();
+    let capacities = scheduler
+        .inner
+        .workers
+        .iter()
+        .map(|worker| worker.queues.local_queue_initial_capacity())
+        .collect::<Vec<_>>();
+
+    assert_eq!(capacities, vec![128; 3]);
+    scheduler.shutdown();
+}
+
+#[test]
 fn unrepresentable_local_capacity_is_rejected_before_worker_startup() {
     for requested in [isize::MAX as usize, usize::MAX] {
         let result = scheduler_with_queue_config::<256>(

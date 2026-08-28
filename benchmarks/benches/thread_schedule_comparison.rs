@@ -3,6 +3,9 @@
 //! This benchmark isolates spawn, dispatch, execution, and join overhead for
 //! small ready tasks across Moirai's unified scheduler, Tokio, and Rayon.
 
+#[path = "thread_schedule_comparison/local_queue_capacity.rs"]
+mod local_queue_capacity;
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use crossbeam::channel::{bounded, TrySendError};
 use moirai::Moirai;
@@ -779,6 +782,7 @@ criterion_group!(
     bench_indexed_reduce_scaling,
     bench_mixed_unified_schedule,
     bench_real_application_mixed_workload,
-    bench_standalone_deque_reclaim_policy
+    bench_standalone_deque_reclaim_policy,
+    local_queue_capacity::bench
 );
 criterion_main!(benches);

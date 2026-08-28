@@ -1,5 +1,12 @@
 # Moirai Development Checklist
 
+## MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 [patch] [arch] — Codex
+
+- [x] Replace size-only counting with pointer-identity global and direct-Mnemosyne allocation ledgers covering failed reallocations, address reuse, and window-close races.
+- [x] Attribute construction, first growth, warmed fan-out, and teardown across 16, 32, 64, 128, and 256 slots without changing queue workloads or timed regions.
+- [x] Select 128 as the smallest candidate without a controlled warm confidence-interval regression against 256, and record the bounded cold-growth tradeoff in ADR 0035.
+- [ ] Pass focused warning-denied checks, Nextest, docs, cross-target and SemVer gates; verify the Apollo consumer; complete independent review and merge.
+
 ## MOI-QUEUE-RETENTION-036 [patch] [arch] — Codex
 
 - [x] Record ADR-036 from the current queue layout, admission contract, alternatives, and bounded experiment.

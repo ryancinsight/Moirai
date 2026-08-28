@@ -2,6 +2,8 @@
 
 use moirai_core::Priority;
 use moirai_executor::{SyncTask, ThreadScheduler};
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+use moirai_scheduler::{ChaseLevDeque, DequeCapacity};
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(not(miri))]
 #[path = "indexed_allocation_contract/allocation_ledger.rs"]
@@ -10,6 +12,24 @@ mod allocation_ledger;
 /// Serializes the two tests: both drive the same global counting state, and
 /// the plain `cargo test` harness runs tests as threads of one process.
 static HARNESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+const LOCAL_QUEUE_CAPACITIES: &[usize] = &[16, 32, 64, 128, 256];
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+const LOCAL_QUEUE_GROWTH_ITEMS: usize = 257;
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+const LOCAL_QUEUE_PLANES: usize = 4;
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+const SCHEDULED_JOB_WORDS: usize = 16;
+
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+#[repr(transparent)]
+struct LocalQueueProbe([usize; SCHEDULED_JOB_WORDS]);
+
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+const _: () = assert!(
+    core::mem::size_of::<LocalQueueProbe>() == SCHEDULED_JOB_WORDS * core::mem::size_of::<usize>()
+);
 
 struct AllocationCount {
     #[cfg(not(miri))]
@@ -37,6 +57,178 @@ fn measure_allocations<T>(operation: impl FnOnce() -> T) -> (T, AllocationCount)
         let output = operation();
         (output, AllocationCount {})
     }
+}
+
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+fn assert_no_window_allocations(snapshot: &allocation_ledger::FootprintSnapshot, operation: &str) {
+    assert_eq!(
+        (
+            snapshot.global.allocations(),
+            snapshot.global.retained(),
+            snapshot.direct.allocations(),
+            snapshot.direct.retained(),
+        ),
+        (0, 0, 0, 0),
+        "{operation} must allocate nothing"
+    );
+}
+
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+fn probe_scheduler_capacity(
+    workers: usize,
+    capacity: usize,
+    hits: &[AtomicUsize],
+    payload: [usize; 32],
+) {
+    let construction_label = format!("construction capacity {capacity}");
+    let (scheduler, construction) =
+        allocation_ledger::footprint_window(&construction_label, || {
+            ThreadScheduler::<256>::new_with_local_queue_initial_capacity(
+                workers,
+                "pool-footprint",
+                capacity,
+            )
+            .expect("the probe scheduler must start")
+        });
+
+    const SLOT_WORDS: usize = 18;
+    let partition_slots =
+        1usize << (moirai_core::executor::config::DEFAULT_GLOBAL_QUEUE_CAPACITY / workers).ilog2();
+    let queue_buffer_bytes = partition_slots * SLOT_WORDS * core::mem::size_of::<usize>();
+    assert_eq!(
+        construction.global.block_count(queue_buffer_bytes),
+        workers,
+        "construction must retain one partition-sized global injector per worker"
+    );
+
+    let local_buffer_bytes = capacity * core::mem::size_of::<LocalQueueProbe>();
+    assert_eq!(
+        construction.direct.total_blocks(),
+        workers * LOCAL_QUEUE_PLANES,
+        "construction must retain four direct local-queue buffers per worker"
+    );
+    assert_eq!(
+        construction.direct.block_count(local_buffer_bytes),
+        workers * LOCAL_QUEUE_PLANES,
+        "each direct local-queue buffer must match the candidate capacity"
+    );
+
+    let first_label = format!("first fan-out capacity {capacity}");
+    let ((), first) = allocation_ledger::footprint_window(&first_label, || {
+        scheduler
+            .for_each_indexed::<SyncTask, _>(Priority::Normal, None, hits.len(), |index| {
+                hits[index].fetch_add(1, Ordering::Relaxed);
+            })
+            .expect("the first fan-out must complete");
+    });
+    assert_no_window_allocations(&first, "the first indexed fan-out");
+
+    let warm_label = format!("warm fan-out capacity {capacity}");
+    let ((), warm) = allocation_ledger::footprint_window(&warm_label, || {
+        scheduler
+            .for_each_indexed::<SyncTask, _>(Priority::Normal, None, hits.len(), move |index| {
+                std::hint::black_box(payload[index % payload.len()]);
+            })
+            .expect("the warm fan-out must complete");
+    });
+    assert_no_window_allocations(&warm, "the warm wide-capture fan-out");
+
+    let shutdown_label = format!("shutdown capacity {capacity}");
+    let ((), shutdown) =
+        allocation_ledger::footprint_window(&shutdown_label, || scheduler.shutdown());
+    assert_no_window_allocations(&shutdown, "scheduler shutdown");
+}
+
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+fn local_queue_probe_sum(deque: &mut ChaseLevDeque<LocalQueueProbe>, count: usize) -> usize {
+    for value in 0..count {
+        deque.push(LocalQueueProbe(
+            [value.wrapping_add(1); SCHEDULED_JOB_WORDS],
+        ));
+    }
+
+    let mut sum = 0usize;
+    while let Some(payload) = deque.pop() {
+        sum = sum.wrapping_add(payload.0[0]);
+    }
+    sum
+}
+
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+fn expected_growth_capacities(initial: usize, items: usize) -> Vec<usize> {
+    let final_capacity = items
+        .checked_add(1)
+        .expect("probe item count must fit usize")
+        .next_power_of_two();
+    core::iter::successors(Some(initial * 2), |capacity| Some(capacity * 2))
+        .take_while(|capacity| *capacity <= final_capacity)
+        .collect()
+}
+
+#[cfg(all(not(miri), feature = "mnemosyne"))]
+fn probe_first_growth(capacity: usize) {
+    let deque_capacity =
+        DequeCapacity::try_from(capacity).expect("candidate capacity must be representable");
+    let mut deque = ChaseLevDeque::new(deque_capacity);
+    let growth_capacities = expected_growth_capacities(capacity, LOCAL_QUEUE_GROWTH_ITEMS);
+    let growth_label = format!("first growth capacity {capacity}");
+    let (sum, growth) = allocation_ledger::footprint_window(&growth_label, || {
+        local_queue_probe_sum(&mut deque, LOCAL_QUEUE_GROWTH_ITEMS)
+    });
+    assert_eq!(
+        sum,
+        LOCAL_QUEUE_GROWTH_ITEMS * (LOCAL_QUEUE_GROWTH_ITEMS + 1) / 2
+    );
+    assert_eq!(growth.direct.allocations(), growth_capacities.len());
+    let expected_retained = growth_capacities.iter().fold(0usize, |total, slots| {
+        total + slots * core::mem::size_of::<LocalQueueProbe>()
+    });
+    assert_eq!(
+        growth.direct.retained(),
+        isize::try_from(expected_retained).expect("growth footprint must fit isize")
+    );
+    for grown_capacity in &growth_capacities {
+        assert_eq!(
+            growth
+                .direct
+                .block_count(grown_capacity * core::mem::size_of::<LocalQueueProbe>()),
+            1,
+            "each doubling step must retain one direct queue buffer"
+        );
+    }
+
+    let warm_label = format!("warm queue capacity {capacity}");
+    let (sum, warm) = allocation_ledger::footprint_window(&warm_label, || {
+        local_queue_probe_sum(&mut deque, LOCAL_QUEUE_GROWTH_ITEMS)
+    });
+    assert_eq!(
+        sum,
+        LOCAL_QUEUE_GROWTH_ITEMS * (LOCAL_QUEUE_GROWTH_ITEMS + 1) / 2
+    );
+    assert_no_window_allocations(&warm, "the warmed local queue");
+
+    drop(deque);
+    let lifecycle_label = format!("full lifecycle capacity {capacity}");
+    let (sum, lifecycle) = allocation_ledger::footprint_window(&lifecycle_label, || {
+        let deque_capacity =
+            DequeCapacity::try_from(capacity).expect("candidate capacity must be representable");
+        let mut lifecycle_deque = ChaseLevDeque::new(deque_capacity);
+        local_queue_probe_sum(&mut lifecycle_deque, LOCAL_QUEUE_GROWTH_ITEMS)
+    });
+    assert_eq!(
+        sum,
+        LOCAL_QUEUE_GROWTH_ITEMS * (LOCAL_QUEUE_GROWTH_ITEMS + 1) / 2
+    );
+    assert_eq!(
+        lifecycle.direct.allocations(),
+        growth_capacities.len() + 1,
+        "full lifecycle must allocate the initial and each grown direct buffer"
+    );
+    assert_eq!(
+        lifecycle.direct.retained(),
+        0,
+        "dropping the queue must release every direct buffer"
+    );
 }
 
 /// Retained-footprint instrument for the pool itself
@@ -69,99 +261,15 @@ fn pool_retained_footprint_attribution() {
         .min(PROBE_WORKERS_MAX);
     println!("workers = {workers}, jobs per fan-out = {JOBS}");
 
-    let (scheduler, construction) = allocation_ledger::footprint_window("construction", || {
-        ThreadScheduler::new(workers, "pool-footprint").expect("the probe scheduler must start")
-    });
-
-    // Each global injector stores one sequence word beside the 17-word queued
-    // `(Priority, ScheduledJob)` value. Construction may retain other smaller
-    // global blocks, so this oracle filters by the derived injector size.
-    const SLOT_WORDS: usize = 18;
-    let partition_slots =
-        1usize << (moirai_core::executor::config::DEFAULT_GLOBAL_QUEUE_CAPACITY / workers).ilog2();
-    let queue_buffer_bytes = partition_slots * SLOT_WORDS * core::mem::size_of::<usize>();
-    assert_eq!(
-        construction.global.block_count(queue_buffer_bytes),
-        workers,
-        "construction must retain one partition-sized global injector per worker"
-    );
-
-    // `ScheduledJob` is independently pinned to 16 words by its crate-local
-    // layout test. Each worker owns four local Chase-Lev planes.
-    const SCHEDULED_JOB_WORDS: usize = 16;
-    const LOCAL_PLANES: usize = 4;
-    let local_buffer_bytes = moirai_core::executor::config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY
-        * SCHEDULED_JOB_WORDS
-        * core::mem::size_of::<usize>();
-    assert_eq!(
-        construction.direct.total_blocks(),
-        workers * LOCAL_PLANES,
-        "construction must retain four direct local-queue buffers per worker"
-    );
-    assert_eq!(
-        construction.direct.block_count(local_buffer_bytes),
-        workers * LOCAL_PLANES,
-        "each direct local-queue buffer must match the configured initial capacity"
-    );
-
     let hits: Vec<AtomicUsize> = (0..JOBS).map(|_| AtomicUsize::new(0)).collect();
-    let ((), trivial) = allocation_ledger::footprint_window("first trivial fan-out", || {
-        scheduler
-            .for_each_indexed::<SyncTask, _>(Priority::Normal, None, JOBS, |index| {
-                hits[index].fetch_add(1, Ordering::Relaxed);
-            })
-            .expect("the trivial fan-out must complete");
-    });
-    assert_eq!(
-        (
-            trivial.global.allocations(),
-            trivial.global.retained(),
-            trivial.direct.allocations(),
-            trivial.direct.retained(),
-        ),
-        (0, 0, 0, 0),
-        "the first indexed fan-out must allocate nothing: it shares one closure by reference"
-    );
-
-    // 32 words of capture: past the inline-job words, the shape closest to a
-    // capture-heavy consumer.
     let payload: [usize; 32] = std::array::from_fn(|i| i);
-    let ((), wide) = allocation_ledger::footprint_window("first wide-capture fan-out", || {
-        scheduler
-            .for_each_indexed::<SyncTask, _>(Priority::Normal, None, JOBS, move |index| {
-                std::hint::black_box(payload[index % 32]);
-            })
-            .expect("the wide-capture fan-out must complete");
-    });
-    assert_eq!(
-        (
-            wide.global.allocations(),
-            wide.global.retained(),
-            wide.direct.allocations(),
-            wide.direct.retained(),
-        ),
-        (0, 0, 0, 0),
-        "a capture past the inline-job words changes nothing: indexed fan-out has no per-job storage"
-    );
-    let ((), repeat) = allocation_ledger::footprint_window("repeat wide-capture fan-out", || {
-        scheduler
-            .for_each_indexed::<SyncTask, _>(Priority::Normal, None, JOBS, move |index| {
-                std::hint::black_box(payload[index % 32]);
-            })
-            .expect("the repeat fan-out must complete");
-    });
-    assert_eq!(
-        (
-            repeat.global.allocations(),
-            repeat.global.retained(),
-            repeat.direct.allocations(),
-            repeat.direct.retained(),
-        ),
-        (0, 0, 0, 0)
-    );
-
-    allocation_ledger::footprint_window("shutdown", || scheduler.shutdown());
-    assert!(hits.iter().all(|h| h.load(Ordering::Relaxed) == 1));
+    for &capacity in LOCAL_QUEUE_CAPACITIES {
+        probe_scheduler_capacity(workers, capacity, &hits, payload);
+        probe_first_growth(capacity);
+    }
+    assert!(hits
+        .iter()
+        .all(|h| { h.load(Ordering::Relaxed) == LOCAL_QUEUE_CAPACITIES.len() }));
 }
 
 #[test]

@@ -54,6 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-worker injectors without exceeding the configured total; configurations
   smaller than two slots per worker now return `InvalidConfiguration`, matching
   the queue sequence protocol's minimum valid ring size.
+- Reduce the default resizable local-queue initial capacity from 256 to 128.
+  Four 128-byte priority planes per worker now retain 1,572,864 direct bytes
+  at 24 workers instead of 3,145,728, while the controlled warmed queue-kernel
+  confidence interval overlaps the former policy. A cold 257-item burst pays
+  one additional owner-only growth step; admission and exactly-once scheduling
+  semantics are unchanged.
 - **Breaking.** Replace the ineffective `max_local_queue_size` configuration
   field and builder methods with `local_queue_initial_capacity`. The value now
   reaches all four resizable priority-local Chase-Lev deques on every worker,

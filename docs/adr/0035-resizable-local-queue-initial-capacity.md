@@ -4,7 +4,11 @@ Status: Accepted
 
 - Date: 2026-08-28
 - Change class: [major] [arch]
-- Refs: `MOI-LOCAL-QUEUE-CAPACITY-036`, ADR-034
+- Refs: `MOI-LOCAL-QUEUE-CAPACITY-036`,
+  `MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28`, ADR-034
+- Revision: 2026-08-28 — reduce the default initial capacity from 256 to 128
+  after exact retained-footprint attribution and controlled queue-kernel
+  measurements.
 
 ## Context
 
@@ -64,6 +68,25 @@ capacity is not backpressure: retained initial slots scale as
 Growth remains the Chase-Lev algorithm's existing owner-only resize. Work is
 never rejected because a local deque reaches its initial capacity.
 
+The default initial capacity is 128 slots. At 24 workers, four 128-byte
+`ScheduledJob` planes per worker retain 1,572,864 direct bytes, half the
+3,145,728 bytes retained by the former 256-slot policy. In the final
+20-sample same-binary run, the warmed 15-item production-deque interval at
+128 slots was 277.34–280.56 ns and overlapped the 256-slot interval of
+280.42–282.49 ns. A cold 257-item burst was 5.412–5.550 us at 128 slots
+versus 4.955–5.033 us at 256 slots: the selected policy accepts one
+additional owner-only resize on that cold burst in exchange for the bounded
+50% steady-state storage reduction. Capacities 16, 32, and 64 were rejected
+because at least one controlled warm run produced a non-overlapping regression
+against 256; 128 was the smallest candidate without that result.
+
+Apollo's exact release retained-footprint probe, built against this local
+Moirai source, observes the same 1,572,864 direct bytes during pool warmup.
+Its warm in-place FFT remains at zero global and direct allocations for
+1,024 through 262,144 elements. This confirms that the provider reduction
+reaches the downstream consumer without moving allocation into its warm
+transform path.
+
 ## Failure modes
 
 - An unrepresentable normalization or concrete element layout returns
@@ -89,6 +112,9 @@ never rejected because a local deque reaches its initial capacity.
    drift and cannot make invalid deque construction unrepresentable.
 4. Clamp overflowing requests. Rejected because the resulting allocation would
    violate the documented at-least-requested contract.
+5. Select the 16-slot minimum. Rejected because its five-step cold growth and
+   non-overlapping warm regression in one controlled run do not justify the
+   additional storage reduction over the measured 128-slot policy.
 
 ## Migration
 
