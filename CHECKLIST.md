@@ -5,7 +5,8 @@
 ## MOI-CI-FUZZ-SCOPE-2026-08-28 — Event-scoped parser fuzzing [patch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-- **Lease:** `.github/workflows/rust-ci.yml`, `Cargo.toml`, `fuzz/`, `moirai-core/src/ipc/mod.rs`, and this item's PM regions through the next verified commit.
+- **Lease:** this item's PM regions only. Provider source is merged in PR #189;
+  closure waits on the indexed-scope liveness fix exposed by the manual campaign.
 - [x] Replace the 180-second pull-request campaign with deterministic execution of every committed parser seed while retaining the bounded full campaign on schedule and manual dispatch.
 - [x] Include every shipped parser fuzz target in smoke and campaign coverage; reconcile the workflow with the target-set documentation.
 - [ ] Verify workflow syntax, exact seed execution, the scheduled command surface, and the reduced pull-request runtime without weakening parser inputs or production tests.
@@ -146,8 +147,10 @@
 ## MOI-INDEXED-SCOPE-ALLOC-2026-08-26 — stack-owned indexed completion [patch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-- **Lease:** none. Provider source and test work is complete; Apollo consumer
-  validation remains.
+- **Lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns
+  `moirai-executor/src/schedule/runtime/scheduler/scope.rs`, focused scheduler
+  tests, and this item's PM region through the next verified commit. Apollo
+  consumer validation remains.
 - **Outcome:** indexed completion-only fan-out reuses the scheduler's existing
   stack-owned scoped lifetime proof instead of allocating one `Arc` state per
   call. An Apollo FFT consumer triggered the finding by observing two 32-byte
@@ -172,6 +175,8 @@
   all-target Clippy passed with `-D warnings`; warning-denied Rustdoc passed.
   Warmed allocation coverage observes zero allocations for `for_each_indexed`
   and one result-slot allocation per `map_reduce_indexed` call.
+  Hosted workflow run `33195364037` exposed a 60.005-second deadlock in
+  `nested_indexed_saturation_completes`; the same test passes locally in 18 ms.
 
 ## MOI-PACKAGE-REPRO-001 — self-contained workspace packaging [patch] — complete
 
