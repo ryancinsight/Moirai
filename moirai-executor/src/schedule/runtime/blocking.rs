@@ -14,7 +14,11 @@ use moirai_core::{
     Priority,
 };
 
-use super::{super::job::ScheduledJob, types::SchedulerInner, worker::execute_blocking_job};
+use super::{
+    super::job::ScheduledJob,
+    types::SchedulerInner,
+    worker::{execute_blocking_job, join_other_threads},
+};
 
 const PRIORITY_LEVELS: usize = 4;
 
@@ -189,9 +193,7 @@ impl<const QUEUE_CAPACITY: usize> BlockingLane<QUEUE_CAPACITY> {
             queue.close();
         }
         let mut handles = lock_mutex(&self.handles);
-        while let Some(handle) = handles.pop() {
-            let _ = handle.join();
-        }
+        join_other_threads(&mut handles);
     }
 }
 

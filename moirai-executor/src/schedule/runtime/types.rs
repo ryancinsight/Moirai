@@ -1,6 +1,7 @@
 //! Internal types for the unified thread scheduler runtime.
 
 use std::{
+    any::Any,
     cell::RefCell,
     marker::PhantomData,
     ptr::NonNull,
@@ -178,6 +179,11 @@ pub(super) struct SchedulerInner<const QUEUE_CAPACITY: usize> {
     /// Serializes only first-use initialization and shutdown, not submissions.
     pub(super) blocking_lane_init: Mutex<()>,
     pub(super) blocking_lane_prefix: Box<str>,
+    /// Cold-path ownership anchor installed once by the executor facade.
+    ///
+    /// Dynamic type erasure is confined to this construction/destruction
+    /// boundary; scheduling and worker dispatch remain monomorphic.
+    pub(super) lifetime_owner: OnceLock<Box<dyn Any + Send + Sync>>,
 }
 
 pub(super) struct LifoSlot {

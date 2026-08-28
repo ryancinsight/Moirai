@@ -71,13 +71,15 @@
 - [x] Tag each `WSAPoll` snapshot with its registration generation and reject stale cleanup/events.
 - [x] Add a deterministic same-handle replacement regression without wall-clock synchronization.
 - [x] Pass warning-denied Windows check/Clippy and PAL+TLS Nextest 25/25; full Nextest passes both TLS cases and exposes MOI-WAKE-PROGRESS-038.
-- [ ] Re-run the workspace gate after MOI-WAKE-PROGRESS-038, then publish and merge.
+- [x] Re-run the workspace gate after MOI-WAKE-PROGRESS-038: 835/835 pass in 11.096 seconds.
+- [ ] Publish and merge the generation fix with its executor prerequisite.
 
 ### MOI-WAKE-PROGRESS-038 — saturated async wake
 
-- [ ] Replace unbounded test-phase waits with event-bounded diagnostics and locate the stalled transition.
-- [ ] Fix the owning state/admission mechanism and add a deterministic regression.
-- [ ] Pass focused debug/release and full workspace Nextest inside the committed budgets.
+- [x] Replace unbounded test-phase waits with event-bounded diagnostics and locate the stalled transition.
+- [x] Fix the owning state/admission mechanism and add a deterministic regression.
+- [x] Pass focused executor Nextest (107/107 release), full workspace Nextest (835/835 in 11.096 seconds), focused Miri, warning-denied Clippy, doctests, and rustdoc inside their committed budgets.
+- [ ] Publish and merge the lifetime and wake correction.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 

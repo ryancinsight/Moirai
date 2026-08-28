@@ -31,7 +31,7 @@ impl TaskRegistry {
         self.next_id = self.next_id.saturating_add(1);
         let (block_index, slot_index) = task_location(id);
         self.ensure_block(block_index);
-        let _ = self.blocks[block_index].insert(slot_index);
+        self.blocks[block_index].insert(slot_index);
         id
     }
 
@@ -78,16 +78,25 @@ impl TaskRegistry {
     /// Diagnostic-only production token lifecycle path with registry-local ID allocation.
     #[doc(hidden)]
     pub fn diagnostic_register_next_and_complete_with_token(&mut self) -> Duration {
-        let id = self.next_id;
-        let lifecycle = self.register_task_with_id(id);
+        // SAFETY: this method completes and drops the token before returning,
+        // so `self` and its block storage outlive the scheduled lease.
+        let (_id, lifecycle) = unsafe { self.register_next_scheduled_task() };
+        lifecycle.start(0).complete()
+    }
+
+    /// Diagnostic-only block-retaining token lifecycle for ownership-cost attribution.
+    #[doc(hidden)]
+    pub fn diagnostic_register_next_and_complete_with_retained_token(&mut self) -> Duration {
+        let (_id, lifecycle) = self.register_next_task();
         lifecycle.start(0).complete()
     }
 
     /// Diagnostic-only production token lifecycle path with registry-local ID output.
     #[doc(hidden)]
     pub fn diagnostic_register_next_and_complete_with_token_id(&mut self) -> (u64, Duration) {
-        let id = self.next_id;
-        let lifecycle = self.register_task_with_id(id);
+        // SAFETY: this method completes and drops the token before returning,
+        // so `self` and its block storage outlive the scheduled lease.
+        let (id, lifecycle) = unsafe { self.register_next_scheduled_task() };
         (id, lifecycle.start(0).complete())
     }
 }

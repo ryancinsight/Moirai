@@ -4,12 +4,67 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use super::super::HybridExecutor;
-    use crate::SyncTask;
+    use crate::{BlockingTask, SyncTask, WorkClass};
     use moirai_core::{
         executor::{ExecutorConfig, ExecutorControl, TaskManager, TaskSpawner, TaskStatus},
         task::TaskBuilder,
         Priority,
     };
+    use std::{
+        sync::{mpsc, Arc},
+        time::Duration,
+    };
+
+    fn executor_last_owner_drops_inside_job<C: WorkClass>() {
+        let executor = Arc::new(
+            HybridExecutor::new(ExecutorConfig {
+                worker_threads: 1,
+                ..ExecutorConfig::default()
+            })
+            .expect("executor"),
+        );
+        let registry_owner = Arc::downgrade(&executor.task_registry);
+        let metrics_owner = Arc::downgrade(&executor.metrics);
+        let executor_in_job = Arc::clone(&executor);
+        let (release_sender, release_receiver) = mpsc::sync_channel(0);
+        let (completed_sender, completed_receiver) = mpsc::sync_channel(1);
+        let handle = executor
+            .spawn_result::<C, _>(Priority::Normal, None, move || {
+                release_receiver.recv().expect("release observer alive");
+                drop(executor_in_job);
+                assert!(
+                    registry_owner.upgrade().is_some(),
+                    "scheduler must retain registry storage through the job wrapper"
+                );
+                assert!(
+                    metrics_owner.upgrade().is_some(),
+                    "scheduler must retain metrics storage through the job wrapper"
+                );
+                completed_sender
+                    .send(37usize)
+                    .expect("completion observer alive");
+                37usize
+            })
+            .expect("job admits");
+
+        drop(executor);
+        release_sender
+            .send(())
+            .expect("scheduled job retains the executor");
+        assert_eq!(
+            completed_receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("re-entrant executor drop must not self-join"),
+            37
+        );
+        assert_eq!(handle.join(), Some(Ok(37)));
+    }
+
+    #[test]
+    fn scheduler_owner_outlives_reentrant_executor_drop() {
+        executor_last_owner_drops_inside_job::<SyncTask>();
+        executor_last_owner_drops_inside_job::<BlockingTask>();
+    }
 
     #[test]
     fn configured_global_queue_capacity_reaches_worker_injectors() {

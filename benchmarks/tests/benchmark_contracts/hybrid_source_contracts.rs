@@ -3,11 +3,12 @@ fn async_public_handle_path_uses_inline_future_state() {
     let source = read_benchmark("../moirai-executor/src/hybrid/mod.rs");
 
     for required in [
-        "struct AsyncFutureState<S, F>",
+        "struct AsyncFutureState<S, F, L = OwnedStateLease>",
         "future: UnsafeCell<MaybeUninit<F>>",
-        "lifecycle: UnsafeCell<AsyncLifecycle>",
+        "lifecycle: UnsafeCell<AsyncLifecycle<L>>",
         "result_sender: UnsafeCell<Option<TaskResultSender<F::Output>>>",
         "future_present: UnsafeCell<bool>",
+        "L: StateLease",
         "Pin::new_unchecked",
         "ASYNC_NOTIFIED",
         "ASYNC_INLINE_REPOLL_LIMIT",
@@ -15,7 +16,8 @@ fn async_public_handle_path_uses_inline_future_state() {
         "fn take_result_sender(&self) -> Option<TaskResultSender<F::Output>>",
         "fn schedule_wake(self: &Arc<Self>)",
         "self.schedule_wake();",
-        "impl<S, F> Wake for AsyncFutureState<S, F>",
+        "impl<S, F, L> Wake for AsyncFutureState<S, F, L>",
+        "self.register_scheduled_task(Priority::Normal)?",
     ] {
         assert!(
             source.contains(required),
@@ -38,6 +40,25 @@ fn async_public_handle_path_uses_inline_future_state() {
             "async public-handle state must not reintroduce {prohibited}"
         );
     }
+
+    let async_state_start = source
+        .find("pub(crate) struct AsyncFutureState<S, F, L = OwnedStateLease>")
+        .expect("async future state must remain present");
+    let async_state = &source[async_state_start..];
+    let async_state_end = async_state
+        .find("\n}\n\n// Safety: `state` serializes")
+        .expect("async future state must retain its safety contract");
+    let async_state = &async_state[..async_state_end];
+    let lifecycle_field = async_state
+        .find("lifecycle: UnsafeCell<AsyncLifecycle<L>>")
+        .expect("async lifecycle field must remain present");
+    let scheduler_field = async_state
+        .find("scheduler: S,")
+        .expect("async scheduler field must remain present");
+    assert!(
+        lifecycle_field < scheduler_field,
+        "async lifecycle must drop before its scheduler-owned storage"
+    );
 }
 
 #[test]

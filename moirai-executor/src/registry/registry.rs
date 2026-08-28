@@ -3,11 +3,11 @@
     reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
 )]
 
-use std::time::Duration;
+use std::{ptr::NonNull, sync::Arc, time::Duration};
 
 use super::super::task::TaskMetadata;
 use super::state::{task_location, TaskState, TaskStateBlock};
-use super::token::TaskLifecycleToken;
+use super::token::{SchedulerStateLease, TaskLifecycleToken};
 
 /// Outcome of a cooperative cancel request against a registered task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,7 +21,7 @@ pub(crate) enum CancelOutcome {
 /// Public task registry facade used by executor lifecycle tracking and tests.
 #[derive(Debug)]
 pub struct TaskRegistry {
-    pub(super) blocks: Vec<TaskStateBlock>,
+    pub(super) blocks: Vec<Arc<TaskStateBlock>>,
     pub(super) next_id: u64,
 }
 
@@ -44,6 +44,7 @@ impl TaskRegistry {
     }
 
     /// Register a new task and return its ID plus lifecycle mutation token.
+    #[cfg(any(test, feature = "registry-diagnostics"))]
     pub(crate) fn register_next_task(&mut self) -> (u64, TaskLifecycleToken) {
         let id = self.next_id;
         let lifecycle = self.register_task_with_id(id);
@@ -52,6 +53,30 @@ impl TaskRegistry {
 
     /// Register a task with an externally allocated ID.
     pub(crate) fn register_task_with_id(&mut self, id: u64) -> TaskLifecycleToken {
+        let (block_index, state) = self.initialize_task_with_id(id);
+        TaskLifecycleToken::new_owned(Arc::clone(&self.blocks[block_index]), state)
+    }
+
+    /// Register a task whose lifecycle cannot outlive this registry.
+    ///
+    /// # Safety
+    ///
+    /// The caller must keep this registry's blocks alive until the returned
+    /// lifecycle token is consumed or dropped. Slot cleanup remains safe while
+    /// the token is live because registration marks the slot active.
+    pub(crate) unsafe fn register_next_scheduled_task(
+        &mut self,
+    ) -> (u64, TaskLifecycleToken<SchedulerStateLease>) {
+        let id = self.next_id;
+        let (_block_index, state) = self.initialize_task_with_id(id);
+        (
+            id,
+            // SAFETY: forwarded from this method's caller contract.
+            unsafe { TaskLifecycleToken::new_scheduled(state) },
+        )
+    }
+
+    fn initialize_task_with_id(&mut self, id: u64) -> (usize, NonNull<TaskState>) {
         self.next_id = self.next_id.max(id.saturating_add(1));
         let (block_index, slot_index) = task_location(id);
         self.ensure_block(block_index);
@@ -60,13 +85,12 @@ impl TaskRegistry {
         assert!(
             block
                 .get(slot_index)
-                .is_none_or(|state| state.is_completed()),
+                .is_none_or(|state| state.is_completed() && !state.token_active()),
             "task ID must not be re-registered while active"
         );
 
-        TaskLifecycleToken {
-            state: block.insert(slot_index),
-        }
+        let state = block.insert(slot_index);
+        (block_index, state)
     }
 
     /// Mark a task as started.
@@ -106,17 +130,19 @@ impl TaskRegistry {
         };
         for block in &self.blocks {
             for slot_index in 0..block.len() {
-                if block
-                    .get(slot_index)
-                    .and_then(TaskState::completed_at)
-                    .is_some_and(|completed| completed <= cutoff)
-                {
+                let removable = block.get(slot_index).is_some_and(|state| {
+                    !state.token_active()
+                        && state
+                            .completed_at()
+                            .is_some_and(|completed| completed <= cutoff)
+                });
+                if removable {
                     block.clear(slot_index);
                 }
             }
         }
 
-        while self.blocks.last().is_some_and(TaskStateBlock::is_empty) {
+        while self.blocks.last().is_some_and(|block| block.is_empty()) {
             self.blocks.pop();
         }
     }
@@ -143,7 +169,7 @@ impl TaskRegistry {
 
     pub(super) fn ensure_block(&mut self, block_index: usize) {
         while self.blocks.len() <= block_index {
-            self.blocks.push(TaskStateBlock::new());
+            self.blocks.push(Arc::new(TaskStateBlock::new()));
         }
     }
 

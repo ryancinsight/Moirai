@@ -79,11 +79,11 @@ fn registry_lifecycle_keeps_qpc_out_of_production_path() {
         "fn elapsed_nanos_since(origin: Instant) -> u64",
         "elapsed_nanos_since(self.created_at)",
         "mark_completed_since(self.started_after_ns)",
-        "completed_after_ns >= started_after_ns",
+        "elapsed_nanos_since(self.created_at).max(started_after_ns)",
         "Duration::from_nanos(completed_after_ns - started_after_ns)",
-        "pub(crate) fn complete(self) -> Duration",
-        "token.completed = true;",
-        "mark_completed_since(token.started_after_ns)",
+        "pub(crate) fn complete(mut self) -> Duration",
+        "self.completed = true;",
+        "mark_completed_since(self.started_after_ns)",
     ] {
         assert!(
             source.contains(required),
@@ -94,7 +94,7 @@ fn registry_lifecycle_keeps_qpc_out_of_production_path() {
     let prohibited = "completed_after_ns.saturating_sub(started_after_ns)";
     assert!(
         !source.contains(prohibited),
-        "registry lifecycle completion must expose the monotonic timestamp invariant through {prohibited}"
+        "registry lifecycle completion must clamp the sampled timestamp before plain subtraction, not use {prohibited}"
     );
 
     let prohibited = "token.complete_once().unwrap_or(Duration::ZERO)";
@@ -226,16 +226,26 @@ fn scheduler_scope_buffers_inline_scheduled_jobs() {
 fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
     let registry_source = read_benchmark("../moirai-executor/src/registry/mod.rs");
     let hybrid_source = read_benchmark("../moirai-executor/src/hybrid/mod.rs");
+    let scheduler_source = format!(
+        "{}\n{}\n{}",
+        read_benchmark("../moirai-executor/src/schedule/runtime/types.rs"),
+        read_benchmark("../moirai-executor/src/schedule/runtime/scheduler/core.rs"),
+        read_benchmark("../moirai-executor/src/schedule/runtime/worker.rs")
+    );
 
     for required in [
-        "blocks: Vec<TaskStateBlock>",
-        // Dense inline slots, now interior-mutable so a lifecycle token's stable
-        // `NonNull<TaskState>` is sound under the aliasing model while the
-        // registry mutates sibling slots. `UnsafeCell` is zero-cost: same dense
-        // layout and address stability, no per-task allocation.
+        "blocks: Vec<Arc<TaskStateBlock>>",
+        // Dense inline slots remain one block allocation per 1024 tasks. Async
+        // tokens retain the block; scheduler-bounded tokens use a non-owning
+        // lifetime policy without restoring one allocation per task.
         "slots: Box<[UnsafeCell<Option<TaskState>>]>",
+        "block: Arc<TaskStateBlock>",
+        "token_active: AtomicBool",
+        "pub(crate) struct OwnedStateLease",
+        "pub(crate) struct SchedulerStateLease",
         "fn ensure_block(&mut self, block_index: usize)",
-        "TaskLifecycleToken {",
+        "TaskLifecycleToken::new_owned(Arc::clone(&self.blocks[block_index]), state)",
+        "TaskLifecycleToken::new_scheduled(state)",
     ] {
         assert!(
             registry_source.contains(required),
@@ -245,9 +255,10 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
 
     for required in [
         "task_registry: Arc<Mutex<TaskRegistry>>",
-        "task_registry: Arc::new(Mutex::new(TaskRegistry::new()))",
+        "let task_registry = Arc::new(Mutex::new(TaskRegistry::new()))",
+        "scheduler.retain_lifetime_owner((Arc::clone(&task_registry), Arc::clone(&metrics)))",
         "let mut registry = self.task_registry.lock().map_err",
-        "let (task_id, lifecycle) = registry.register_next_task();",
+        "unsafe { registry.register_next_scheduled_task() }",
         "Ok((TaskId::new(task_id), lifecycle))",
     ] {
         assert!(
@@ -256,7 +267,20 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
         );
     }
 
+    for required in [
+        "lifetime_owner: OnceLock<Box<dyn Any + Send + Sync>>",
+        "pub(crate) fn retain_lifetime_owner<T>(&self, owner: T)",
+        "pub(super) fn join_other_threads(handles: &mut Vec<JoinHandle<()>>)",
+        "handle.thread().id() != current",
+    ] {
+        assert!(
+            scheduler_source.contains(required),
+            "scheduler must retain the registry through every job through {required}"
+        );
+    }
+
     for prohibited in [
+        "Arc<TaskState>",
         "pub(crate) struct ConcurrentTaskRegistry",
         "register_unique_task_with_id",
         "fn register_unique(&self, id: u64)",
@@ -300,6 +324,7 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         "state.mark_completed_since(started_after_ns)",
         "lifecycle.start(0).complete()",
         "pub fn diagnostic_register_next_and_complete_with_token(&mut self) -> Duration",
+        "pub fn diagnostic_register_next_and_complete_with_retained_token(&mut self) -> Duration",
         "pub fn diagnostic_register_next_and_complete_with_token_id(&mut self) -> (u64, Duration)",
     ] {
         assert!(
@@ -318,6 +343,7 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         "fn registry_completion_release_publication(completed_after_ns: &AtomicUsize) -> usize",
         "fn registry_duration_offset_math() -> usize",
         "fn direct_registry_token_lifecycle(",
+        "fn direct_registry_retained_token_lifecycle(",
         "fn direct_scheduled_public_token_wrapper_components(",
         "fn direct_scheduled_public_registry_token_wrapper_components(",
         "fn direct_scheduled_public_registry_token_wrapper_after_send_quiescent(",
