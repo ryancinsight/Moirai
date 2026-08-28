@@ -177,6 +177,65 @@ mod tests {
 
     use super::{inline_job_fits, InlineJob, InlineJobStorage, ScheduledJob, INLINE_JOB_WORDS};
 
+    struct DropCounter {
+        drops: Arc<AtomicUsize>,
+    }
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    struct OversizedCapture {
+        counter: DropCounter,
+        padding: [usize; INLINE_JOB_WORDS],
+    }
+
+    impl OversizedCapture {
+        fn run(self, worker_id: usize) {
+            assert_eq!(self.padding[0], worker_id);
+            drop(self.counter);
+        }
+    }
+
+    #[repr(align(16))]
+    struct OverAlignedCapture {
+        counter: DropCounter,
+    }
+
+    impl OverAlignedCapture {
+        fn run(self, worker_id: usize) {
+            assert_eq!(worker_id, 0);
+            drop(self.counter);
+        }
+    }
+
+    enum ExpectedStorage {
+        Inline,
+        Boxed,
+    }
+
+    fn assert_dropped_once_before_and_after_execution<F, M>(expected: ExpectedStorage, make_task: M)
+    where
+        F: FnOnce(usize) + Send + 'static,
+        M: Fn(Arc<AtomicUsize>) -> F,
+    {
+        match expected {
+            ExpectedStorage::Inline => assert!(inline_job_fits::<F>()),
+            ExpectedStorage::Boxed => assert!(!inline_job_fits::<F>()),
+        }
+
+        let unexecuted_drops = Arc::new(AtomicUsize::new(0));
+        drop(ScheduledJob::new(make_task(Arc::clone(&unexecuted_drops))));
+        assert_eq!(unexecuted_drops.load(Ordering::Relaxed), 1);
+
+        let executed_drops = Arc::new(AtomicUsize::new(0));
+        let job = ScheduledJob::new(make_task(Arc::clone(&executed_drops)));
+        assert!(job.execute(0));
+        assert_eq!(executed_drops.load(Ordering::Relaxed), 1);
+    }
+
     fn scheduled_job_requiring_box<F>(task: F) -> ScheduledJob
     where
         F: FnOnce(usize) + Send + 'static,
@@ -249,25 +308,50 @@ mod tests {
 
     #[test]
     fn over_aligned_job_uses_typed_boxed_trampoline() {
+        let observed = Arc::new(AtomicUsize::new(0));
         #[repr(align(16))]
-        struct OverAlignedCapture {
-            observed: Arc<AtomicUsize>,
-        }
+        struct ObservedCapture(Arc<AtomicUsize>);
 
-        impl OverAlignedCapture {
+        impl ObservedCapture {
             fn record(self, worker_id: usize) {
-                self.observed.store(worker_id + 1, Ordering::Relaxed);
+                self.0.store(worker_id + 1, Ordering::Relaxed);
             }
         }
 
-        let observed = Arc::new(AtomicUsize::new(0));
-        let capture = OverAlignedCapture {
-            observed: Arc::clone(&observed),
-        };
+        let capture = ObservedCapture(Arc::clone(&observed));
         let job = scheduled_job_requiring_box(move |worker_id| capture.record(worker_id));
 
         assert!(job.execute(8));
         assert_eq!(observed.load(Ordering::Relaxed), 9);
+    }
+
+    #[test]
+    fn inline_job_drops_capture_once_before_and_after_execution() {
+        assert_dropped_once_before_and_after_execution(ExpectedStorage::Inline, |drops| {
+            let counter = DropCounter { drops };
+            move |_| drop(counter)
+        });
+    }
+
+    #[test]
+    fn oversized_job_drops_capture_once_before_and_after_execution() {
+        assert_dropped_once_before_and_after_execution(ExpectedStorage::Boxed, |drops| {
+            let capture = OversizedCapture {
+                counter: DropCounter { drops },
+                padding: [0; INLINE_JOB_WORDS],
+            };
+            move |worker_id| capture.run(worker_id)
+        });
+    }
+
+    #[test]
+    fn over_aligned_job_drops_capture_once_before_and_after_execution() {
+        assert_dropped_once_before_and_after_execution(ExpectedStorage::Boxed, |drops| {
+            let capture = OverAlignedCapture {
+                counter: DropCounter { drops },
+            };
+            move |worker_id| capture.run(worker_id)
+        });
     }
 
     #[test]

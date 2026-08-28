@@ -169,6 +169,9 @@ fn scheduled_job_storage_keeps_inline_capacity_without_slot_alignment() {
         "maximum_inline_capacity_job_uses_inline_storage",
         "over_aligned_job_uses_typed_boxed_trampoline",
         "oversized_job_uses_boxed_inline_trampoline",
+        "inline_job_drops_capture_once_before_and_after_execution",
+        "oversized_job_drops_capture_once_before_and_after_execution",
+        "over_aligned_job_drops_capture_once_before_and_after_execution",
     ] {
         assert!(
             source.contains(required),

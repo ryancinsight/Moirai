@@ -30,9 +30,10 @@ for cross-thread mutation. Forced alignment on the payload increases every
 empty slot as well as every occupied slot.
 
 The entry baseline uses Criterion sample size 20, 500 ms warmup, and 2 s
-measurement windows. Relevant medians and 95% confidence intervals are:
+measurement windows. Relevant slope estimates and 95% confidence intervals
+are:
 
-| Path | Entry measurement |
+| Path | Entry slope estimate |
 | --- | --- |
 | fresh priority queue push/pop | 893.02 ns [880.83, 905.17] |
 | fresh submission publication | 887.91 ns [882.50, 897.57] |
@@ -125,9 +126,9 @@ value assertions complete in 0.02 seconds. The 16-byte difference from the
 requested-byte model is allocator or harness bookkeeping below the queue-slot
 layout boundary.
 
-The saved same-machine Criterion comparison reports:
+The saved same-machine Criterion slope-estimate comparison reports:
 
-| Path | Accepted measurement | Change classification |
+| Path | Accepted slope estimate | Change classification |
 | --- | --- | --- |
 | fresh priority queue push/pop | 871.14 ns [867.28, 875.51] | -1.35%, within noise threshold |
 | fresh submission publication | 880.49 ns [874.54, 885.86] | -3.25%, improved |
@@ -140,11 +141,13 @@ The saved same-machine Criterion comparison reports:
 | retained-worker maximum-inline dequeue | 100.69 ns [100.42, 100.96] | no detected change |
 | retained-worker oversized dequeue | 122.64 ns [122.29, 122.98] | +0.76%, within noise threshold |
 
-Focused Nextest passes 149/149 executor and utility tests and 68/68 benchmark
-contracts. Full-workspace Nextest passes 878/878 tests with six configured
-skips in 11.8 seconds. Workspace doctests pass, with one documented ignored
-example, and warning-denied workspace Clippy and Rustdoc pass. The affected
-executor and utility packages pass 149/149 optimized release tests. The four
-executor Loom models pass 6/6 release tests. These checks establish value,
-layout, diagnostics, and modeled scheduler-handshake behavior; they do not
-model the unchanged generic MPMC implementation itself.
+Debug and optimized Nextest pass 152/152 executor and utility tests and 68/68
+benchmark contracts. Full-workspace Nextest passes 881/881 tests with six
+configured skips in 12.0 seconds. Workspace doctests pass, with one documented
+ignored example, and warning-denied workspace Clippy and Rustdoc pass. Focused
+Miri passes all 9 inline-job tests, including exactly-once drop coverage before
+and after execution for inline, oversized, and over-aligned captures. The four
+executor Loom models pass 6/6 release tests, and warning-denied AArch64
+all-target compilation passes. These checks establish value, layout,
+diagnostics, and modeled scheduler-handshake behavior; they do not model the
+unchanged generic MPMC implementation itself.

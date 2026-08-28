@@ -8,10 +8,12 @@
 - [x] Add value, boundary, saturation, wake-progress, Loom, allocation, and throughput regression coverage.
 - [ ] Verify the Apollo pool-warmup consumer probe and complete independent review before merge.
 - Evidence: the exact Apollo probe retains 1,169,112 bytes, down 688,112 bytes
-  (37.1%). Full-workspace Nextest passes 878/878 in 11.8 seconds; optimized
-  affected-package Nextest passes 149/149; release Loom passes 6/6;
-  warning-denied workspace Clippy and Rustdoc and workspace doctests pass.
-  Independent review and hosted exact-lock gates remain.
+  (37.1%). Full-workspace Nextest passes 881/881 in 12.0 seconds; debug and
+  optimized affected-package and benchmark-contract suites pass 220/220;
+  focused Miri passes 9/9; release Loom passes 6/6; warning-denied AArch64
+  compilation, workspace Clippy and Rustdoc, and workspace doctests pass. The
+  first independent review's drop-coverage, stale-comment, and estimator-label
+  findings are fixed; re-review and hosted exact-lock gates remain.
 
 ## Nightly TLS gate cleanup
 
