@@ -83,7 +83,7 @@ impl HybridExecutor<ThreadScheduler> {
     /// # Errors
     ///
     /// Returns [`ExecutorError::InvalidConfiguration`] when the configured
-    /// global admission bound cannot supply at least one slot per worker, or
+    /// global admission bound cannot supply at least two slots per worker, or
     /// propagates scheduler thread-pool construction failures.
     pub fn new(config: ExecutorConfig) -> ExecutorResult<Self> {
         let numa_aware = {
