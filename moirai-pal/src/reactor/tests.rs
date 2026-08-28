@@ -157,3 +157,108 @@ fn readiness_delivery_consumes_only_reported_interest() {
         "consumed descriptor must be absent from the platform poll set"
     );
 }
+
+#[test]
+#[cfg(windows)]
+fn stale_polled_generation_cannot_consume_replacement_registration() {
+    let reactor = IoReactor::new().expect("reactor");
+    let receiver = UdpSocket::bind("127.0.0.1:0").expect("receiver bind");
+    receiver
+        .set_nonblocking(true)
+        .expect("receiver nonblocking");
+    let sender = UdpSocket::bind("127.0.0.1:0").expect("sender bind");
+    let fd = socket_to_raw(&receiver);
+    let replaced_count = Arc::new(WakeCount::default());
+    let current_count = Arc::new(WakeCount::default());
+
+    reactor
+        .register_waker(
+            fd,
+            Interest::READABLE,
+            Waker::from(Arc::clone(&replaced_count)),
+        )
+        .expect("register replaced interest");
+    sender
+        .send_to(b"stale", receiver.local_addr().expect("receiver address"))
+        .expect("send readiness payload");
+    let stale_event = reactor
+        .platform_reactor
+        .poll_registered_events(Some(Duration::from_secs(1)))
+        .expect("poll replaced readiness")
+        .into_iter()
+        .find(|event| FdKey::from(event.descriptor()) == FdKey::from(fd))
+        .expect("replaced descriptor is readable");
+
+    reactor
+        .unregister_fd(fd)
+        .expect("remove replaced registration");
+    reactor
+        .register_waker(
+            fd,
+            Interest::WRITABLE,
+            Waker::from(Arc::clone(&current_count)),
+        )
+        .expect("register current interest");
+    reactor
+        .handle_polled_event(stale_event)
+        .expect("discard stale readiness");
+
+    assert_eq!(replaced_count.0.load(Ordering::Relaxed), 0);
+    assert_eq!(current_count.0.load(Ordering::Relaxed), 0);
+    let fds = reactor
+        .registered_fds
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let current = fds
+        .get(&FdKey::from(fd))
+        .expect("replacement registration remains");
+    assert!(!current.interest.readable);
+    assert!(current.interest.writable);
+}
+
+#[test]
+fn backend_rearm_failure_wakes_reported_and_remaining_waiters() {
+    let reactor = IoReactor::new().expect("reactor");
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("socket bind");
+    socket.set_nonblocking(true).expect("socket nonblocking");
+    let fd = socket_to_raw(&socket);
+    let read_count = Arc::new(WakeCount::default());
+    let write_count = Arc::new(WakeCount::default());
+
+    reactor
+        .register_waker(fd, Interest::READABLE, Waker::from(Arc::clone(&read_count)))
+        .expect("register read interest");
+    reactor
+        .register_waker(
+            fd,
+            Interest::WRITABLE,
+            Waker::from(Arc::clone(&write_count)),
+        )
+        .expect("register write interest");
+
+    let result = reactor.wake_fd_waiters_with_platform(
+        Event {
+            fd,
+            readable: true,
+            writable: false,
+            error: false,
+            hangup: false,
+        },
+        |_| true,
+        |_, _, _| Err(std::io::Error::other("injected re-arm failure")),
+    );
+
+    assert_eq!(
+        result
+            .expect_err("injected re-arm failure must propagate")
+            .kind(),
+        std::io::ErrorKind::Other
+    );
+    assert_eq!(read_count.0.load(Ordering::Relaxed), 1);
+    assert_eq!(write_count.0.load(Ordering::Relaxed), 1);
+    assert!(!reactor
+        .registered_fds
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .contains_key(&FdKey::from(fd)));
+}

@@ -8,6 +8,8 @@ use std::task::Waker;
 use std::time::{Duration, Instant};
 
 use super::metrics::ReactorMetrics;
+#[cfg(windows)]
+use crate::windows::poll::PolledEvent;
 use crate::{create_reactor, Event, Interest, PlatformReactor, RawFd, Reactor};
 
 /// Send/Sync-safe internal key for platform handles.
@@ -64,14 +66,15 @@ impl IoReactor {
 
     /// Register a file descriptor for async I/O operations.
     pub fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()> {
-        // Register with platform reactor
-        self.platform_reactor.register_fd(fd, interest)?;
-
-        // Track registration
         let mut fds = self
             .registered_fds
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
+
+        // Hold central state across platform publication so readiness cannot be
+        // dispatched before its matching central registration exists.
+        self.platform_reactor.register_fd(fd, interest)?;
+
         fds.insert(
             FdKey::from(fd),
             FdInfo {
@@ -94,11 +97,12 @@ impl IoReactor {
 
     /// Unregister a file descriptor.
     pub fn unregister_fd(&self, fd: RawFd) -> io::Result<()> {
-        self.platform_reactor.unregister_fd(fd)?;
-        self.registered_fds
+        let mut fds = self
+            .registered_fds
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .remove(&FdKey::from(fd));
+            .unwrap_or_else(|poison| poison.into_inner());
+        self.platform_reactor.unregister_fd(fd)?;
+        fds.remove(&FdKey::from(fd));
         Ok(())
     }
 
@@ -124,12 +128,20 @@ impl IoReactor {
     pub fn run_iteration(&self, timeout: Option<Duration>) -> io::Result<()> {
         let iteration_start = Instant::now();
 
-        // Poll for I/O events
-        let events = self.platform_reactor.poll_events(timeout)?;
+        #[cfg(windows)]
+        {
+            let events = self.platform_reactor.poll_registered_events(timeout)?;
+            for event in events {
+                self.handle_polled_event(event)?;
+            }
+        }
 
-        // Process I/O events
-        for event in events {
-            self.handle_event(event)?;
+        #[cfg(not(windows))]
+        {
+            let events = self.platform_reactor.poll_events(timeout)?;
+            for event in events {
+                self.handle_event(event)?;
+            }
         }
 
         // Update metrics
@@ -151,6 +163,7 @@ impl IoReactor {
     }
 
     /// Handle a single I/O event.
+    #[cfg(not(windows))]
     fn handle_event(&self, event: Event) -> io::Result<()> {
         // Update metrics
         self.metrics
@@ -162,8 +175,47 @@ impl IoReactor {
         self.wake_fd_waiters(event)
     }
 
+    /// Handle readiness paired with its Windows registration generation.
+    #[cfg(windows)]
+    pub(super) fn handle_polled_event(&self, event: PolledEvent) -> io::Result<()> {
+        self.metrics
+            .events_processed
+            .fetch_add(1, Ordering::Relaxed);
+
+        let readiness = event.event().clone();
+        self.wake_fd_waiters_if_current(readiness, |platform| {
+            platform.is_current_polled_event(&event)
+        })
+    }
+
     /// Wake tasks waiting on a specific file descriptor event.
+    #[cfg(any(not(windows), test))]
     pub(super) fn wake_fd_waiters(&self, event: Event) -> io::Result<()> {
+        self.wake_fd_waiters_if_current(event, |_| true)
+    }
+
+    fn wake_fd_waiters_if_current(
+        &self,
+        event: Event,
+        is_current: impl FnOnce(&PlatformReactor) -> bool,
+    ) -> io::Result<()> {
+        self.wake_fd_waiters_with_platform(event, is_current, |platform, fd, remaining| {
+            platform.unregister_fd(fd).and_then(|()| {
+                if remaining.readable || remaining.writable {
+                    platform.register_fd(fd, remaining)
+                } else {
+                    Ok(())
+                }
+            })
+        })
+    }
+
+    pub(super) fn wake_fd_waiters_with_platform(
+        &self,
+        event: Event,
+        is_current: impl FnOnce(&PlatformReactor) -> bool,
+        update_platform: impl FnOnce(&PlatformReactor, RawFd, Interest) -> io::Result<()>,
+    ) -> io::Result<()> {
         let key = FdKey::from(event.fd);
         let mut fds = self
             .registered_fds
@@ -172,6 +224,9 @@ impl IoReactor {
         let Some(fd_info) = fds.get_mut(&key) else {
             return Ok(());
         };
+        if !is_current(&self.platform_reactor) {
+            return Ok(());
+        }
         fd_info.event_count += 1;
 
         let consume_read =
@@ -192,10 +247,7 @@ impl IoReactor {
         // platform backends are level-triggered only to close the syscall-to-
         // registration race; retaining a delivered writable interest would
         // otherwise make the event loop spin indefinitely.
-        self.platform_reactor.unregister_fd(event.fd)?;
-        if remaining.readable || remaining.writable {
-            self.platform_reactor.register_fd(event.fd, remaining)?;
-        }
+        let platform_result = update_platform(&self.platform_reactor, event.fd, remaining);
 
         let fd_info = fds
             .get_mut(&key)
@@ -210,7 +262,12 @@ impl IoReactor {
         } else {
             None
         };
-        if remaining.readable || remaining.writable {
+        let (stranded_read_waker, stranded_write_waker) = if platform_result.is_err() {
+            (fd_info.read_waker.take(), fd_info.write_waker.take())
+        } else {
+            (None, None)
+        };
+        if platform_result.is_ok() && (remaining.readable || remaining.writable) {
             fd_info.interest = remaining;
         } else {
             fds.remove(&key);
@@ -223,7 +280,13 @@ impl IoReactor {
         if let Some(waker) = write_waker {
             waker.wake();
         }
-        Ok(())
+        if let Some(waker) = stranded_read_waker {
+            waker.wake();
+        }
+        if let Some(waker) = stranded_write_waker {
+            waker.wake();
+        }
+        platform_result
     }
 
     /// Register a task's waker for a file descriptor and interest.

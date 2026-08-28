@@ -549,6 +549,7 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "../moirai-pal/src/reactor/core.rs",
         "../moirai-pal/src/reactor/tests.rs",
         "../moirai-pal/src/reactor/tls.rs",
+        "../moirai-pal/src/windows/poll.rs",
     ]
     .into_iter()
     .map(read_benchmark)
@@ -641,7 +642,12 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "fd_info.interest.writable && (event.writable || event.error || event.hangup);",
         "fd_info.read_waker.take()",
         "fd_info.write_waker.take()",
+        "poll_registered_events",
+        "is_current_polled_event",
+        "let platform_result = update_platform",
         "readiness_delivery_consumes_only_reported_interest",
+        "stale_polled_generation_cannot_consume_replacement_registration",
+        "backend_rearm_failure_wakes_reported_and_remaining_waiters",
         "with_active_restores_thread_local_on_panic",
     ] {
         assert!(
