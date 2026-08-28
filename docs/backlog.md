@@ -86,11 +86,17 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-QUEUE-CAPACITY-034 [patch] [arch]: Enforce the executor admission bound
+### ✅ MOI-QUEUE-CAPACITY-034 [patch] [arch]: Enforce the executor admission bound
 
 - **Outcome**: route `ExecutorConfig::max_global_queue_size` through hybrid and scheduler construction, partitioning it into power-of-two worker injectors without exceeding the configured aggregate.
-- **Evidence**: focused and release Nextest pass; Apollo's unchanged retained-footprint probe reduces injector retention from 6 MiB to 1.5 MiB while its warm transform stays allocation-free. The one-slot sequence-generation alias found in independent review now has boundary and minimum-partition regressions; second review and merge remain.
-- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` discharges the minimum-capacity correction through its verified commit.
+- **Evidence**: PR #172 merged as `53d4912`; focused/release Nextest, hosted workspace/Loom/fuzz/supply-chain gates, and independent review pass. Apollo's unchanged probe reduces injector retention from 6 MiB to 1.5 MiB with a zero-allocation warm transform.
+- **Lease**: none.
+
+### 🟡 MOI-LINT-AUTHORITY-037 [patch]: Restore workspace lint authority
+
+- **Outcome**: rescue the stale one-commit cleanup that removes crate-level Clippy escalation and redundant blanket allows from `moirai-core` and `moirai-gpu`, so the inherited workspace lint table is authoritative.
+- **Acceptance**: current-main all-target/all-feature warning-denied Clippy and focused Nextest pass; no diagnostic is hidden; the stale branch is deleted after merge.
+- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns the four lint-attribute files and this item through the next verified commit.
 
 ### ⬜ MOI-TLS-PROGRESS-035 [patch]: Diagnose nondeterministic loopback TLS loss of progress
 

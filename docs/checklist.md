@@ -57,7 +57,13 @@
 - [x] Route the configured aggregate through `HybridExecutor`, `ThreadScheduler`, and every worker injector.
 - [x] Verify exact partition, impossible configuration, saturation, wake, release, and Apollo retained-memory behavior.
 - [x] Resolve the release-only test-order assumption with an explicit first-poll event.
-- [ ] Commit, obtain independent architecture review, merge, and bind the Apollo retained-footprint record to the provider revision.
+- [x] Commit, obtain independent architecture review, and merge as PR #172 / `53d4912`; Apollo retained-footprint evidence is bound in the backlog closure.
+
+### MOI-LINT-AUTHORITY-037 — stale-branch rescue
+
+- [x] Establish that commit `0746861` remains unique and its former GPU leases are closed.
+- [ ] Apply the four-file attribute cleanup to current main and run warning-denied Clippy plus focused Nextest.
+- [ ] Commit, publish, merge, and delete the superseded local branch.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
@@ -772,4 +778,3 @@ remain hidden behind stale counters.
 **Risk Assessment**: Low - mature, well-tested codebase with comprehensive error handling
 
 **Conclusion**: Moirai concurrency library is production-ready and exceeds initial requirements for performance, safety, and code quality. The implementation demonstrates excellence in concurrent systems design and provides a solid foundation for high-performance Rust applications.
-
