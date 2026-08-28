@@ -107,6 +107,14 @@
 - [x] Pass focused Nextest 23/23, exact-lock workspace Nextest 854/854, warning-denied package Clippy/rustdoc, doctests, 196/196 SemVer checks, AArch64 Linux/Windows all-target checks, and standalone lock validation on the working diff.
 - [ ] Obtain independent review, publish and merge the provider, then update atlas ADR-0045 with the exact delivery revision.
 
+### MOI-TIMER-CANCEL-WAKE-042 — timer head cancellation wake
+
+- [x] Reproduce the lifecycle defect through the HTTP exact-revision run and trace it to the missing driver notification after timer-head cancellation.
+- [ ] Notify only when cancellation removes the effective heap head or compaction changes the heap, retaining the non-head fast path.
+- [ ] Add deterministic notification-selection coverage without wall-clock synchronization.
+- [ ] Verify the formerly 30.160-second HTTP case, affected packages, warning-denied host/cross-target builds, documentation, and the exact-lock workspace.
+- [ ] Commit, publish, independently review, merge, and discharge the lease before resuming MOI-HTTP-REDIRECT-041 delivery.
+
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
 - [x] Claim `moirai-gpu/src/lib.rs`, `moirai-gpu/src/buffer.rs`, their

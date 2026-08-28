@@ -130,7 +130,17 @@ architecture definition.
 - **Risk / dependency**: additive public configuration with trust-boundary parsing; governed by atlas ADR-0045 and based on the 9/9 exact-lock package baseline at `76e78ce`.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
 - **Evidence**: focused Nextest passes 23/23 in 0.189 seconds and the exact-lock workspace passes 854/854 in 11.496 seconds; warning-denied package Clippy/rustdoc, doctests, AArch64 Linux/Windows all-target checks, and 196/196 SemVer checks pass on the working diff.
+- **Blocker**: an exact-revision focused run completed all assertions but held the process for 30.160 seconds because cancelling the timer heap head does not wake the sleeping driver; reopen delivery when MOI-TIMER-CANCEL-WAKE-042 lands.
 - **Lease**: none after the verified provider implementation commit; the session retains integration responsibility through independent review and merge.
+
+### 🟨 MOI-TIMER-CANCEL-WAKE-042 [patch]: Wake the timer driver after effective-head cancellation
+
+- **Outcome**: cancelling the timer that determines the driver's current wait immediately wakes the driver, while non-head cancellation retains the existing no-wakeup fast path.
+- **Scope / non-goals**: `moirai-async` timer-driver cancellation, deterministic tests, CHANGELOG, and PM records; no timer API, heap ordering, deadline, or executor changes.
+- **Acceptance**: a deterministic test distinguishes head from non-head cancellation notifications; the formerly 30.160-second HTTP redirect case exits within the committed native-test budget; warning-denied, documentation, exact-lock, and affected cross-target gates pass.
+- **Risk / dependency**: concurrency/lifecycle patch blocking MOI-HTTP-REDIRECT-041 delivery; the state mutex and condition variable must preserve the wait/notification happens-before edge without adding a wake per ordinary cancellation.
+- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
+- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` — `moirai-async/src/timer/driver.rs`, its tests, CHANGELOG, and owner-local PM entries.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
