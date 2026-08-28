@@ -7,6 +7,11 @@
 - [x] Implement one canonical queue representation without changing capacity or scheduling semantics.
 - [x] Add value, boundary, saturation, wake-progress, Loom, allocation, and throughput regression coverage.
 - [ ] Verify the Apollo pool-warmup consumer probe and complete independent review before merge.
+- Evidence: the exact Apollo probe retains 1,169,112 bytes, down 688,112 bytes
+  (37.1%). Full-workspace Nextest passes 878/878 in 11.8 seconds; optimized
+  affected-package Nextest passes 149/149; release Loom passes 6/6;
+  warning-denied workspace Clippy and Rustdoc and workspace doctests pass.
+  Independent review and hosted exact-lock gates remain.
 
 ## Nightly TLS gate cleanup
 

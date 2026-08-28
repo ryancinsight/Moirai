@@ -141,7 +141,10 @@ The saved same-machine Criterion comparison reports:
 | retained-worker oversized dequeue | 122.64 ns [122.29, 122.98] | +0.76%, within noise threshold |
 
 Focused Nextest passes 149/149 executor and utility tests and 68/68 benchmark
-contracts. Warning-denied Clippy passes for the affected crates and benchmark
-targets. The four executor Loom models pass 6/6 release tests. These checks
-establish value, layout, diagnostics, and modeled scheduler-handshake behavior;
-they do not model the unchanged generic MPMC implementation itself.
+contracts. Full-workspace Nextest passes 878/878 tests with six configured
+skips in 11.8 seconds. Workspace doctests pass, with one documented ignored
+example, and warning-denied workspace Clippy and Rustdoc pass. The affected
+executor and utility packages pass 149/149 optimized release tests. The four
+executor Loom models pass 6/6 release tests. These checks establish value,
+layout, diagnostics, and modeled scheduler-handshake behavior; they do not
+model the unchanged generic MPMC implementation itself.
