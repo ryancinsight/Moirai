@@ -92,7 +92,8 @@ architecture definition.
 - **Scope / non-goals**: `moirai-executor` allocation instrumentation, local-queue capacity policy, the existing scheduler comparison benchmark, ADR 0035, tests, and release documentation; no fixed-capacity queue, queue algorithm replacement, benchmark workload reduction, or timeout increase.
 - **Acceptance**: the instrument handles allocation failure, reallocation, address reuse, and window-close races; observes all four local deque planes per worker through Mnemosyne hooks; capacity candidates preserve exact scheduling/growth/steal semantics; controlled Criterion baselines support the selected default; warning-denied, Nextest, documentation, cross-target, SemVer, and consumer gates pass.
 - **Risk / dependency**: internal policy and test-instrument correction with an architecture decision revision; Apollo PR #169 independently removes FFT-owned row scratch and supplies the consumer retained-footprint oracle.
-- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: `moirai-executor/tests/indexed_allocation_contract.rs`, scheduler-capacity benchmark rows, ADR 0035, tests, and affected documentation through the next verified commit.
+- **Evidence**: exact pointer-identity and reallocation regressions pass 4/4; warning-denied all-feature and no-default-feature Clippy pass. The 24-worker release probe attributes 24 global 36,864-byte injectors and 96 direct 32,768-byte local buffers (3,145,728 direct bytes); all warmed fan-out windows allocate zero bytes through both sources.
+- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: scheduler-capacity benchmark rows, ADR 0035, tests, and affected documentation through the next verified commit.
 
 ### ✅ MOI-QUEUE-RETENTION-036 [patch] [arch]: Bound retained worker-queue storage
 

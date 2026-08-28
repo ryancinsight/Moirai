@@ -129,8 +129,11 @@ impl AllocationCounter {
     }
 
     fn snapshot(&self) -> CounterSnapshot {
+        #[cfg(feature = "mnemosyne")]
         let filled = self.next.load(Ordering::Relaxed).min(LEDGER_SLOTS);
+        #[cfg(feature = "mnemosyne")]
         let mut blocks = Vec::<(usize, usize)>::new();
+        #[cfg(feature = "mnemosyne")]
         for slot in 0..filled {
             if !self.pointers[slot].load(Ordering::Acquire).is_null() {
                 let size = self.sizes[slot].load(Ordering::Relaxed);
@@ -140,19 +143,24 @@ impl AllocationCounter {
                 }
             }
         }
+        #[cfg(feature = "mnemosyne")]
         blocks.sort_unstable_by(|left, right| right.cmp(left));
 
+        #[cfg(feature = "mnemosyne")]
         let retained = self.live.load(Ordering::Relaxed);
+        #[cfg(feature = "mnemosyne")]
         let listed = blocks.iter().fold(0usize, |total, (size, count)| {
             total
                 .checked_add(size.checked_mul(*count).expect("block total fits usize"))
                 .expect("ledger total fits usize")
         });
+        #[cfg(feature = "mnemosyne")]
         assert_eq!(
             retained,
             isize::try_from(listed).expect("ledger total fits isize"),
             "live-byte balance must equal the pointer-ledger total"
         );
+        #[cfg(feature = "mnemosyne")]
         assert_eq!(
             self.dropped.load(Ordering::Relaxed),
             0,
@@ -161,8 +169,11 @@ impl AllocationCounter {
 
         CounterSnapshot {
             allocations: self.allocations.load(Ordering::Relaxed),
+            #[cfg(feature = "mnemosyne")]
             peak: self.peak.load(Ordering::Relaxed),
+            #[cfg(feature = "mnemosyne")]
             retained,
+            #[cfg(feature = "mnemosyne")]
             blocks,
         }
     }
@@ -334,8 +345,11 @@ fn close_window() {
 
 pub(super) struct CounterSnapshot {
     allocations: usize,
+    #[cfg(feature = "mnemosyne")]
     peak: isize,
+    #[cfg(feature = "mnemosyne")]
     retained: isize,
+    #[cfg(feature = "mnemosyne")]
     blocks: Vec<(usize, usize)>,
 }
 
@@ -344,10 +358,12 @@ impl CounterSnapshot {
         self.allocations
     }
 
+    #[cfg(feature = "mnemosyne")]
     pub(super) fn retained(&self) -> isize {
         self.retained
     }
 
+    #[cfg(feature = "mnemosyne")]
     pub(super) fn block_count(&self, size: usize) -> usize {
         self.blocks
             .iter()
@@ -355,10 +371,12 @@ impl CounterSnapshot {
             .unwrap_or(0)
     }
 
+    #[cfg(feature = "mnemosyne")]
     pub(super) fn total_blocks(&self) -> usize {
         self.blocks.iter().map(|(_, count)| count).sum()
     }
 
+    #[cfg(feature = "mnemosyne")]
     fn print(&self, label: &str, source: &str) {
         let blocks = self
             .blocks
@@ -375,6 +393,7 @@ impl CounterSnapshot {
 
 pub(super) struct FootprintSnapshot {
     pub(super) global: CounterSnapshot,
+    #[cfg(feature = "mnemosyne")]
     pub(super) direct: CounterSnapshot,
 }
 
@@ -386,11 +405,13 @@ pub(super) fn measure<R>(operation: impl FnOnce() -> R) -> (R, FootprintSnapshot
         output,
         FootprintSnapshot {
             global: GLOBAL_ALLOCATIONS.snapshot(),
+            #[cfg(feature = "mnemosyne")]
             direct: MNEMOSYNE_ALLOCATIONS.snapshot(),
         },
     )
 }
 
+#[cfg(feature = "mnemosyne")]
 pub(super) fn footprint_window<R>(
     label: &str,
     operation: impl FnOnce() -> R,

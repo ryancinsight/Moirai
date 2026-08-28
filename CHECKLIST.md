@@ -5,11 +5,12 @@
 ## MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 — Retained local-queue storage [patch] [arch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-- **Lease:** `moirai-executor/tests/indexed_allocation_contract.rs`, scheduler-capacity benchmark rows, ADR 0035, tests, and affected documentation through the next verified commit.
-- [ ] Replace size-only accounting with a pointer-identity, generation-drained ledger for successful global and direct Mnemosyne allocations; cover reallocation failure and address reuse.
+- **Lease:** scheduler-capacity benchmark rows, ADR 0035, tests, and affected documentation through the next verified commit.
+- [x] Replace size-only accounting with a pointer-identity, generation-drained ledger for successful global and direct Mnemosyne allocations; cover reallocation failure and address reuse.
 - [ ] Attribute construction, first-growth, warm fan-out, and shutdown storage across candidate initial capacities without changing workloads or timing regions.
 - [ ] Select the default from controlled Criterion confidence intervals and retained-byte evidence; preserve exact growth, steal, panic, and allocation semantics.
 - [ ] Pass focused and full provider gates, independent review, Apollo consumer verification, and PR merge; synchronize ADR 0035, the backlog, and release documentation.
+- **Evidence:** the focused Nextest binary passes 4/4 in 0.038 seconds; all-feature and no-default-feature warning-denied Clippy pass. The isolated release probe completes in 0.020 seconds and attributes 24 global 36,864-byte injectors plus 96 direct 32,768-byte local buffers (3,145,728 direct bytes), with zero global or direct allocations in every warmed fan-out window.
 
 ## MOI-WAKE-CORRECTNESS-2026-08-27 — Lost-wake, channel fence, ZST deque alloc [patch] — done 2026-08-27
 
