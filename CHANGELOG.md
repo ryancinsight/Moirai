@@ -120,14 +120,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Consume delivered socket readiness as a one-shot interest before waking its
   task. Independent read/write waiters remain armed, while completed writable
   registrations no longer spin the reactor or remain stale across raw socket
-  reuse until a request deadline forces another poll. Windows dispatch retains
-  the polled registration generation through central consumption, and a backend
-  re-arm failure wakes both the delivered waiter and any now-stranded
-  independent waiter after removing inconsistent central state.
-- Prevent stale Windows `WSAPoll` results from deleting or waking a newer
-  registration that reused the same raw socket value. Poll snapshots now carry
-  registration generations in a reused sidecar buffer, preserving allocation-
-  free warm polling while rejecting stale `POLLNVAL` cleanup and readiness.
+  reuse until a request deadline forces another poll. Native epoll, kqueue, and
+  `WSAPoll` dispatch retain the polled registration generation through central
+  consumption. A backend transition failure wakes delivered and independent
+  waiters after unlocking, while central state mirrors the interest the backend
+  reports as still armed instead of discarding a live registration.
+- Prevent stale epoll, kqueue, and Windows `WSAPoll` results from deleting or
+  waking a newer registration that reused the same raw descriptor value. Poll
+  results carry a private registration generation while the public `Event`
+  contract remains unchanged. Re-registering an existing descriptor installs a
+  fresh generation, including when platform cleanup removed only its prior poll
+  entry. Reused polling buffers still avoid per-iteration snapshot allocation.
 - Keep task registry and metrics storage alive once through scheduler worker
   teardown, including re-entrant executor destruction, while standalone
   lifecycle tokens retain their dense block. Slot reclamation and task-ID reuse

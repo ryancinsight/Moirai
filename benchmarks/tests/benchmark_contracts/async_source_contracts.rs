@@ -547,8 +547,11 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
     let pal_net = read_benchmark("../moirai-pal/src/net.rs");
     let pal_reactor = [
         "../moirai-pal/src/reactor/core.rs",
+        "../moirai-pal/src/reactor/registration.rs",
         "../moirai-pal/src/reactor/tests.rs",
         "../moirai-pal/src/reactor/tls.rs",
+        "../moirai-pal/src/unix/epoll.rs",
+        "../moirai-pal/src/unix/kqueue.rs",
         "../moirai-pal/src/windows/poll.rs",
     ]
     .into_iter()
@@ -644,10 +647,14 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "fd_info.write_waker.take()",
         "poll_registered_events",
         "is_current_polled_event",
+        "replace_platform_registration",
         "let platform_result = update_platform",
+        "PlatformUpdateFailure",
+        "armed_interest",
         "readiness_delivery_consumes_only_reported_interest",
         "stale_polled_generation_cannot_consume_replacement_registration",
-        "backend_rearm_failure_wakes_reported_and_remaining_waiters",
+        "backend_update_failure_preserves_retained_registration_and_wakes_unlocked",
+        "backend_update_failure_removes_absent_registration_and_wakes_waiters",
         "with_active_restores_thread_local_on_panic",
     ] {
         assert!(

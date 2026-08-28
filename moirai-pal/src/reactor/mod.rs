@@ -8,6 +8,7 @@
 pub mod core;
 /// Reactor performance counters.
 pub mod metrics;
+pub(crate) mod registration;
 /// Thread-local / process-global active-reactor installation.
 pub mod tls;
 

@@ -8,8 +8,9 @@ use std::task::Waker;
 use std::time::{Duration, Instant};
 
 use super::metrics::ReactorMetrics;
-#[cfg(windows)]
-use crate::windows::poll::PolledEvent;
+use super::registration::PlatformUpdateFailure;
+#[cfg(any(unix, windows))]
+use super::registration::PolledEvent;
 use crate::{create_reactor, Event, Interest, PlatformReactor, RawFd, Reactor};
 
 /// Send/Sync-safe internal key for platform handles.
@@ -128,7 +129,7 @@ impl IoReactor {
     pub fn run_iteration(&self, timeout: Option<Duration>) -> io::Result<()> {
         let iteration_start = Instant::now();
 
-        #[cfg(windows)]
+        #[cfg(any(unix, windows))]
         {
             let events = self.platform_reactor.poll_registered_events(timeout)?;
             for event in events {
@@ -136,7 +137,7 @@ impl IoReactor {
             }
         }
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(unix, windows)))]
         {
             let events = self.platform_reactor.poll_events(timeout)?;
             for event in events {
@@ -163,7 +164,7 @@ impl IoReactor {
     }
 
     /// Handle a single I/O event.
-    #[cfg(not(windows))]
+    #[cfg(not(any(unix, windows)))]
     fn handle_event(&self, event: Event) -> io::Result<()> {
         // Update metrics
         self.metrics
@@ -175,8 +176,8 @@ impl IoReactor {
         self.wake_fd_waiters(event)
     }
 
-    /// Handle readiness paired with its Windows registration generation.
-    #[cfg(windows)]
+    /// Handle readiness paired with its platform registration generation.
+    #[cfg(any(unix, windows))]
     pub(super) fn handle_polled_event(&self, event: PolledEvent) -> io::Result<()> {
         self.metrics
             .events_processed
@@ -189,7 +190,7 @@ impl IoReactor {
     }
 
     /// Wake tasks waiting on a specific file descriptor event.
-    #[cfg(any(not(windows), test))]
+    #[cfg(any(not(any(unix, windows)), test))]
     pub(super) fn wake_fd_waiters(&self, event: Event) -> io::Result<()> {
         self.wake_fd_waiters_if_current(event, |_| true)
     }
@@ -199,22 +200,58 @@ impl IoReactor {
         event: Event,
         is_current: impl FnOnce(&PlatformReactor) -> bool,
     ) -> io::Result<()> {
-        self.wake_fd_waiters_with_platform(event, is_current, |platform, fd, remaining| {
-            platform.unregister_fd(fd).and_then(|()| {
-                if remaining.readable || remaining.writable {
-                    platform.register_fd(fd, remaining)
-                } else {
-                    Ok(())
-                }
-            })
+        self.wake_fd_waiters_with_platform(event, is_current, |_, fd, interest| {
+            self.update_platform_registration(fd, interest)
         })
+    }
+
+    fn update_platform_registration(
+        &self,
+        fd: RawFd,
+        interest: Interest,
+    ) -> Result<(), PlatformUpdateFailure> {
+        #[cfg(any(unix, windows))]
+        {
+            self.platform_reactor.update_registration(fd, interest)
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            self.platform_reactor
+                .unregister_fd(fd)
+                .map_err(|error| PlatformUpdateFailure::new(error, None))?;
+            if interest.readable || interest.writable {
+                self.platform_reactor
+                    .register_fd(fd, interest)
+                    .map_err(|error| PlatformUpdateFailure::new(error, None))?;
+            }
+            Ok(())
+        }
+    }
+
+    fn replace_platform_registration(
+        &self,
+        fd: RawFd,
+        interest: Interest,
+    ) -> Result<(), PlatformUpdateFailure> {
+        #[cfg(any(unix, windows))]
+        {
+            self.platform_reactor.replace_registration(fd, interest)
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            self.update_platform_registration(fd, interest)
+        }
     }
 
     pub(super) fn wake_fd_waiters_with_platform(
         &self,
         event: Event,
         is_current: impl FnOnce(&PlatformReactor) -> bool,
-        update_platform: impl FnOnce(&PlatformReactor, RawFd, Interest) -> io::Result<()>,
+        update_platform: impl FnOnce(
+            &PlatformReactor,
+            RawFd,
+            Interest,
+        ) -> Result<(), PlatformUpdateFailure>,
     ) -> io::Result<()> {
         let key = FdKey::from(event.fd);
         let mut fds = self
@@ -262,14 +299,33 @@ impl IoReactor {
         } else {
             None
         };
-        let (stranded_read_waker, stranded_write_waker) = if platform_result.is_err() {
-            (fd_info.read_waker.take(), fd_info.write_waker.take())
-        } else {
-            (None, None)
+        let mut stranded_read_waker = None;
+        let mut stranded_write_waker = None;
+        let (remove_registration, platform_error) = match platform_result {
+            Ok(()) => {
+                if remaining.readable || remaining.writable {
+                    fd_info.interest = remaining;
+                    (false, None)
+                } else {
+                    (true, None)
+                }
+            }
+            Err(failure) => {
+                // A delivered waiter must observe its wake even when the
+                // backend transition fails. Wake every remaining waiter too:
+                // each one must re-poll and republish its interest instead of
+                // depending on a transition that did not complete.
+                stranded_read_waker = fd_info.read_waker.take();
+                stranded_write_waker = fd_info.write_waker.take();
+                if let Some(armed_interest) = failure.armed_interest() {
+                    fd_info.interest = armed_interest;
+                    (false, Some(failure.into_error()))
+                } else {
+                    (true, Some(failure.into_error()))
+                }
+            }
         };
-        if platform_result.is_ok() && (remaining.readable || remaining.writable) {
-            fd_info.interest = remaining;
-        } else {
+        if remove_registration {
             fds.remove(&key);
         }
         drop(fds);
@@ -286,7 +342,7 @@ impl IoReactor {
         if let Some(waker) = stranded_write_waker {
             waker.wake();
         }
-        platform_result
+        platform_error.map_or(Ok(()), Err)
     }
 
     /// Register a task's waker for a file descriptor and interest.
@@ -303,15 +359,28 @@ impl IoReactor {
             if interest.writable {
                 new_interest.writable = true;
             }
-            // Always re-register with the platform reactor: the socket may have
-            // been pruned from the platform-level interest map via POLLNVAL (when
-            // the previous socket with the same FD number was closed), while the
-            // `registered_fds` entry was left behind. Blindly trusting the cached
-            // interest and skipping re-registration leaves the new socket invisible
-            // to `poll_events`, so its readiness is never signalled and reads/writes
-            // block until the debug timeout fires.
-            let _ = self.platform_reactor.unregister_fd(fd); // best-effort; may already be absent
-            self.platform_reactor.register_fd(fd, new_interest)?;
+            if let Err(failure) = self.replace_platform_registration(fd, new_interest) {
+                let read_waker = fd_info.read_waker.take();
+                let write_waker = fd_info.write_waker.take();
+                let remove_registration = if let Some(armed_interest) = failure.armed_interest() {
+                    fd_info.interest = armed_interest;
+                    false
+                } else {
+                    true
+                };
+                let error = failure.into_error();
+                if remove_registration {
+                    fds.remove(&FdKey::from(fd));
+                }
+                drop(fds);
+                if let Some(waker) = read_waker {
+                    waker.wake();
+                }
+                if let Some(waker) = write_waker {
+                    waker.wake();
+                }
+                return Err(error);
+            }
             fd_info.interest = new_interest;
 
             if interest.readable {

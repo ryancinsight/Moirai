@@ -116,9 +116,9 @@
 - [x] Falsify timer cancellation as the sole cause: the isolated redirect case exits in 24 ms, while the complete focused run still exposes a 30.216-second deadline-rescued readiness stall.
 - [x] Consume delivered read/write readiness interests without removing an independent waiter, and update the benchmark source contract.
 - [x] Add deterministic one-shot readiness coverage and verify the formerly slow redirect in the complete focused suite.
-- [x] Pass exact-lock affected-package Nextest 215/215 in 1.849 seconds and workspace Nextest 858/858 in 11.684 seconds; pass warning-denied workspace Clippy/rustdoc, workspace doctests, affected AArch64 checks, formatting, diff, and standalone-lock validation.
-- [x] Preserve the polled registration generation through central dispatch and reject a stale event after descriptor replacement.
-- [x] Finalize central one-shot consumption and wake reported plus stranded independent waiters when backend re-arm fails.
+- [x] Pass `moirai-pal` Nextest 28/28 in 0.207 seconds and workspace Nextest 859/859 in 11.307 seconds; pass warning-denied workspace Clippy, affected x86-64 Windows/AArch64 Linux all-target checks, and the macOS kqueue library check.
+- [x] Preserve private epoll, kqueue, and `WSAPoll` registration generations through central dispatch and reject same-interest stale readiness after descriptor replacement.
+- [x] Finalize central one-shot consumption on every backend result, wake reported plus stranded independent waiters after unlocking, and retain or remove central state according to the platform's reported armed interest.
 - [ ] Obtain independent review, publish/merge, and discharge integration responsibility before resuming MOI-HTTP-REDIRECT-041 delivery.
 
 ### MOI-PEM-PARSER-043 — maintained PEM fixture parsing
@@ -126,7 +126,7 @@
 - [x] Confirm PR #180 fails supply-chain verification on RUSTSEC-2025-0134 and verify the locked `rustls-pki-types` PEM API.
 - [x] Replace both handshake fixture loaders, remove `rustls-pemfile`, and regenerate the exact standalone lockfile.
 - [x] Pass focused value tests 7/7, workspace Nextest 858/858, warning-denied workspace Clippy, lock validation, and exact standalone `cargo deny`.
-- [ ] Commit and publish the delivery-blocker correction; confirm hosted supply-chain verification before merge.
+- [x] Commit and publish the correction as `b3d4346`; hosted supply-chain verification is green.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 

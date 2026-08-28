@@ -129,19 +129,19 @@ architecture definition.
 - **Acceptance**: method/body preservation and rewrite cases, same- versus cross-origin header forwarding, normal and abnormal relative references, missing/invalid locations, redirect exhaustion, deterministic zero-duration eviction, pool reuse/cardinality, stale idempotent retry, lock-poison recovery, and the full logical-request timeout are value-tested; warning-denied, documentation, SemVer, and exact-lock gates pass.
 - **Risk / dependency**: additive public configuration with trust-boundary parsing; governed by atlas ADR-0045 and based on the 9/9 exact-lock package baseline at `76e78ce`.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Evidence**: focused Nextest passes 23/23 in 0.189 seconds; after the MOI-IO-WAKE-042 correction, exact-lock workspace Nextest passes 858/858 in 11.354 seconds. Warning-denied workspace Clippy/rustdoc, workspace doctests, AArch64 Linux/Windows all-target checks, and 196/196 SemVer checks pass on the working diff.
+- **Evidence**: focused Nextest passes 23/23 in 0.189 seconds; after the MOI-IO-WAKE-042 correction, workspace Nextest passes 859/859 in 11.307 seconds. Warning-denied workspace Clippy/rustdoc, workspace doctests, affected cross-target checks, and 196/196 SemVer checks pass on the branch series.
 - **Dependency**: MOI-IO-WAKE-042 removes the deadline-rescued readiness stall locally; provider delivery resumes after independent review and merge of the shared branch.
 - **Lease**: none after the verified provider implementation commit; the session retains integration responsibility through independent review and merge.
 
 ### 🟨 MOI-IO-WAKE-042 [patch]: Eliminate deadline-rescued I/O stalls
 
-- **Outcome**: cancelled timer heads wake the deadline driver, and delivered socket readiness consumes its one-shot interest so stale writable/readable registrations cannot spin or race a reused socket until a deadline poll rescues progress.
+- **Outcome**: cancelled timer heads wake the deadline driver; delivered socket readiness consumes its one-shot interest; and private native registration generations prevent stale epoll, kqueue, or `WSAPoll` results from consuming a replacement descriptor registration.
 - **Scope / non-goals**: `moirai-async` timer cancellation plus `moirai-pal` readiness-registration lifecycle, deterministic tests, source contracts, CHANGELOG, and PM records; no public timer/network API, heap ordering, deadline, executor, or protocol changes.
-- **Acceptance**: deterministic tests distinguish head from non-head timer cancellation and prove readiness interests are consumed after delivery; the formerly 30.160/30.216-second HTTP redirect case and complete focused suite stay within the committed native-test budget; warning-denied, documentation, exact-lock, and affected cross-target gates pass.
-- **Risk / dependency**: concurrency/lifecycle patch blocking MOI-HTTP-REDIRECT-041 delivery; timer notification preserves its mutex/condition-variable happens-before edge without waking per ordinary cancellation, and readiness cleanup preserves independent read/write waiters while removing completed interests.
+- **Acceptance**: deterministic tests distinguish head from non-head timer cancellation, prove one-shot readiness consumption, reject same-interest stale generations after descriptor replacement, and verify backend failures wake delivered and stranded waiters after unlocking while central state matches the actually armed platform interest; the formerly 30.160/30.216-second HTTP redirect case and complete focused suite stay within the committed native-test budget; warning-denied, documentation, exact-lock, and affected cross-target gates pass.
+- **Risk / dependency**: concurrency/lifecycle patch blocking MOI-HTTP-REDIRECT-041 delivery; timer notification preserves its mutex/condition-variable happens-before edge without waking per ordinary cancellation, and readiness cleanup preserves independent read/write waiters while reconciling partial backend transitions.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Evidence**: deterministic timer, one-shot readiness, stale-generation dispatch, and backend re-arm failure tests pass. Exact-lock affected-package Nextest passes 215/215 in 1.849 seconds, including the formerly deadline-rescued redirect in 0.203 seconds; workspace Nextest passes 858/858 in 11.684 seconds. Warning-denied workspace Clippy and affected AArch64 Linux/Windows all-target checks pass; whole-workspace AArch64 remains outside this evidence because PyO3 requires cross-Python configuration.
-- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` leases `moirai-pal` reactor source/tests, the async source contract, CHANGELOG, and this item's checklist through the native identity correction commit.
+- **Evidence**: independent review rejected `b3d4346` because Unix dispatch lacked generation identity and backend errors discarded possibly live registrations. The corrected working diff passes 28/28 `moirai-pal` Nextest tests in 0.207 seconds and 859/859 workspace tests in 11.307 seconds. Warning-denied workspace Clippy, x86-64 Windows and AArch64 Linux all-target checks, and the macOS kqueue library check pass; whole-workspace AArch64 remains outside this evidence because PyO3 requires cross-Python configuration.
+- **Lease**: none after the native identity correction commit; the session retains integration responsibility through independent re-review and merge.
 
 ### 🟨 MOI-PEM-PARSER-043 [patch]: Remove the unmaintained PEM parser
 
@@ -150,8 +150,8 @@ architecture definition.
 - **Acceptance**: trusted, wrong-hostname, untrusted, and expired handshake cases retain their value semantics; warning-denied checks and standalone-lock validation pass; `cargo deny` no longer reports RUSTSEC-2025-0134.
 - **Risk / dependency**: delivery blocker exposed by PR #180 supply-chain verification; both parsers use the same `rustls-pki-types` DER ownership types.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Evidence**: `rustls-pemfile 2.2.0` is absent from the regenerated standalone lock. Focused handshake Nextest passes 7/7, workspace Nextest passes 858/858 in 11.772 seconds, warning-denied workspace Clippy passes, and exact standalone `cargo deny check` reports advisories, bans, licenses, and sources OK.
-- **Lease**: none after the implementation commit; the session retains integration responsibility through hosted verification and merge.
+- **Evidence**: commit `b3d4346` removes `rustls-pemfile 2.2.0` from the standalone lock. Focused handshake Nextest passes 7/7, workspace Nextest passes 858/858 in 11.772 seconds, warning-denied workspace Clippy passes, exact standalone `cargo deny check` reports advisories, bans, licenses, and sources OK, and hosted supply-chain verification is green.
+- **Lease**: none after commit `b3d4346`; the session retains integration responsibility through PR #180 merge.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
