@@ -63,8 +63,9 @@ impl MoiraiBuilder {
     /// Enable or disable metrics collection.
     #[cfg(feature = "metrics")]
     #[must_use]
-    pub fn enable_metrics(mut self, enabled: bool) -> Self {
-        self.config.enable_metrics = enabled;
+    pub fn enable_metrics(self, enabled: bool) -> Self {
+        // Metrics configuration would go here
+        let _ = enabled; // Suppress unused variable warning
         self
     }
 

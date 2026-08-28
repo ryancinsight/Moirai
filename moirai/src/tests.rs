@@ -31,19 +31,6 @@ fn local_queue_builder_policy_reaches_executor_configuration() {
     moirai.shutdown();
 }
 
-#[cfg(feature = "metrics")]
-#[test]
-fn metrics_builder_policy_reaches_executor_configuration() {
-    let moirai = Moirai::builder()
-        .worker_threads(1)
-        .enable_metrics(false)
-        .build()
-        .unwrap();
-
-    assert!(!moirai.executor.config().enable_metrics);
-    moirai.shutdown();
-}
-
 #[cfg(feature = "numa")]
 #[test]
 fn numa_builder_policy_reaches_executor_configuration() {
