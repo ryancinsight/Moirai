@@ -86,7 +86,7 @@
 - [x] Confirm `b548bc9` is patch-equivalent on `main` and isolate `778021e` as the stale branch's unique increment.
 - [x] Port only the still-current fixture, manifest, and value-semantic handshake changes without reverting newer work.
 - [x] Pass focused TLS/crypto and workspace warning-denied gates.
-- [ ] Publish and merge.
+- [x] Publish and merge as PR #176 / `28488ca`.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
