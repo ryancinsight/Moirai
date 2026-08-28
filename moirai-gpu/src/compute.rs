@@ -1,8 +1,5 @@
 //! GPU compute shader and kernel management
 
-#![allow(clippy::missing_errors_doc)]
-#![allow(clippy::missing_panics_doc)]
-
 use crate::{error::GpuResult, GpuBuffer, GpuDevice};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
