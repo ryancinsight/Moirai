@@ -231,6 +231,30 @@ fn pool_retained_footprint_attribution() {
     let (scheduler, _, _) = footprint_window("construction", 4096, || {
         ThreadScheduler::new(workers, "pool-footprint").expect("the probe scheduler must start")
     });
+    // Construction contract: exactly one at-or-above-floor buffer per worker,
+    // sized by the global-queue partition — pow2floor(8192 / workers) slots of
+    // 18 words each: 17 for the queued `(Priority, ScheduledJob)` after PR
+    // #184 removed the inline job's forced alignment, plus the sequence word.
+    // Retained-total is not asserted: construction also retains sub-floor
+    // bookkeeping (worker handles, queue headers) whose size is not contract.
+    const SLOT_WORDS: usize = 18;
+    let partition_slots =
+        1usize << (moirai_core::executor::config::DEFAULT_GLOBAL_QUEUE_CAPACITY / workers).ilog2();
+    let queue_buffer_bytes = partition_slots * SLOT_WORDS * core::mem::size_of::<usize>();
+    let filled = LEDGER_NEXT.load(Ordering::Relaxed).min(LEDGER_SLOTS);
+    let live_blocks: Vec<usize> = (0..filled)
+        .filter(|&slot| LEDGER_LIVE[slot].load(Ordering::Relaxed))
+        .map(|slot| LEDGER_SIZE[slot].load(Ordering::Relaxed))
+        .collect();
+    assert_eq!(
+        live_blocks.len(),
+        workers,
+        "construction must retain exactly one at-or-above-floor buffer per worker, saw {live_blocks:?}"
+    );
+    assert!(
+        live_blocks.iter().all(|&size| size == queue_buffer_bytes),
+        "per-worker buffer must be the partition-sized queue ({queue_buffer_bytes} bytes), saw {live_blocks:?}"
+    );
 
     let hits: Vec<AtomicUsize> = (0..JOBS).map(|_| AtomicUsize::new(0)).collect();
     let ((), trivial_allocs, trivial_retained) =
