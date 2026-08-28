@@ -9,6 +9,10 @@ while removing cache-line alignment that amplified every bounded injector slot.
 **Revision (second)**: 2026-08-28 — scoped jobs publish completion only after
 their borrowing task call frame and captures have been destroyed; Miri exposed
 the prior early-publication lifetime violation.
+**Revision (third)**: 2026-08-28 — an unhinted multi-batch scope selects its
+base worker once and distributes successive physical batches across workers;
+reselecting after each admission could route every batch to one occupied lane
+and deadlock a saturated nested scope.
 
 ### Decision
 
@@ -47,6 +51,7 @@ the prior early-publication lifetime violation.
 - The parking waker in `block_on_current_thread` replaces sleep-loop future polling for ready or properly waking futures.
 - Borrowed completion-only fan-out uses `ThreadScheduler::scope`, exposed through `HybridExecutor::scope` and `Moirai::scope`.
 - Scoped logical jobs are buffered as inline `ScheduledJob` values during the scope body and coalesced into worker-sized physical scheduler batches. This preserves the scope lifetime invariant while avoiding boxed `dyn FnOnce` scoped buffers, per-item result slots, and per-item scheduler submission when the caller only needs a completion barrier.
+- An unhinted scope selects one base worker before admitting its first physical batch and wraps successive batches across the worker set. An explicit locality hint remains attached to every physical batch. This keeps the scheduling decision independent of state changes caused by earlier admissions and guarantees that worker-sized coalescing can occupy distinct lanes under saturation.
 - Single scoped jobs use stack-owned scope state, direct scheduler closures, and no chunk vector or wrapper closure allocation.
 - Scoped task execution owns a distinct completion closure. It destroys the borrowing task and its call frame before invoking completion, and dropping an unexecuted job drops the completion token without calling it. Directly scheduled and indexed task panics reach scheduler failure metrics; a batched scoped panic remains scope-local because the enclosing physical batch completes. This ordering prevents the caller from reclaiming stack state while a worker still carries a protected borrow.
 - Typed indexed fan-out uses `ThreadScheduler::for_each_indexed`, exposed through `HybridExecutor::for_each_indexed` and `Moirai::for_each_indexed`.

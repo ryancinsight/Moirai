@@ -5,12 +5,18 @@
 ## MOI-CI-FUZZ-SCOPE-2026-08-28 — Event-scoped parser fuzzing [patch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-- **Lease:** `.github/workflows/rust-ci.yml`, `Cargo.toml`, `fuzz/`, `moirai-core/src/ipc/mod.rs`, and this item's PM regions through the next verified commit.
+- **Lease:** this item's PM regions only. Provider source is merged in PR #189;
+  closure waits on the indexed-scope liveness fix exposed by the manual campaign.
 - [x] Replace the 180-second pull-request campaign with deterministic execution of every committed parser seed while retaining the bounded full campaign on schedule and manual dispatch.
 - [x] Include every shipped parser fuzz target in smoke and campaign coverage; reconcile the workflow with the target-set documentation.
-- [ ] Verify workflow syntax, exact seed execution, the scheduled command surface, and the reduced pull-request runtime without weakening parser inputs or production tests.
+- [x] Verify workflow syntax, exact seed execution, the scheduled command surface, and the reduced pull-request runtime without weakening parser inputs or production tests.
 - **Entry evidence:** PR #187 job `98921194919` spent 263 seconds on an unrelated scheduler change, including the full 180-second `http_response` campaign. The workflow omits the shipped `ipc_header` target, its manifest registration, and the cfg-only accessor it imports although the backlog records it as scheduled coverage.
-- **Local evidence:** cargo-fuzz 0.13.2 confirms explicit artifact inputs; standalone warning-denied checks compile both targets against the committed 190-package lock in 16.63 seconds. `moirai-core` Clippy passes and Nextest passes 99/99. Windows cannot link libFuzzer coverage sections, so hosted Linux seed execution and runtime remain the final acceptance gate.
+- **Evidence:** PR #189 / implementation `6885c1c` / merge `ff41a09`
+  registers and builds both targets. Hosted PR job `98929756503` executes every
+  committed seed once and completes in 89 seconds versus the 263-second entry
+  run. Manual job `98931077319` starts both 180-second campaigns concurrently
+  and completes them in 181 seconds. Its separate workspace job exposed the
+  indexed-scope liveness defect tracked below; the fuzz job itself is green.
 
 ## MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 — Retained local-queue storage [patch] [arch] — done 2026-08-28
 
@@ -146,8 +152,9 @@
 ## MOI-INDEXED-SCOPE-ALLOC-2026-08-26 — stack-owned indexed completion [patch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-- **Lease:** none. Provider source and test work is complete; Apollo consumer
-  validation remains.
+- **Lease:** source lease discharged at `1572ec9`; Codex
+  `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns this item's PM region through
+  independent re-review. Apollo consumer validation remains.
 - **Outcome:** indexed completion-only fan-out reuses the scheduler's existing
   stack-owned scoped lifetime proof instead of allocating one `Arc` state per
   call. An Apollo FFT consumer triggered the finding by observing two 32-byte
@@ -163,13 +170,20 @@
       token while preserving queue-refusal and panic accounting.
 - [x] Add value-semantic allocation and held-active clone-panic coverage, and
       retain the existing panic, queue-refusal, nesting, and quiescence coverage.
+- [x] Distribute unhinted physical scope batches from one preselected base
+      worker and assert that saturated nested execution occupies every lane.
 - [x] Pass focused and package Nextest, the scoped-completion Loom model,
       all-feature warning-denied Clippy, and warning-denied Rustdoc.
 - [ ] Pass the Apollo consumer census, record the exact provider/consumer
       revisions, and close the item.
-- Evidence: `cargo nextest run --offline -p moirai-executor` passed 94/94 with
-  one cfg-gated skip; the release Loom scope model passed 1/1; all-feature,
-  all-target Clippy passed with `-D warnings`; warning-denied Rustdoc passed.
+- Evidence: provider commit `1572ec9` passes
+  `cargo nextest run --offline -p moirai-executor` 126/126;
+  the release package run passes 126/126; the release Loom scope model passes
+  1/1; all-feature, all-target Clippy passes with `-D warnings`; and the exact
+  workspace all-feature run passes 890/890 in 12.173 seconds. The hosted entry
+  failure took 60.005 seconds in `nested_indexed_saturation_completes`; the
+  corrected full-suite regression completes in about 0.2 seconds and asserts
+  both worker lanes execute outer scope jobs.
   Warmed allocation coverage observes zero allocations for `for_each_indexed`
   and one result-slot allocation per `map_reduce_indexed` call.
 

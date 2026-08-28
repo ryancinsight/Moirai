@@ -67,9 +67,13 @@ where
         let worker_count = self.scheduler.worker_count();
         let chunk_count = jobs.len().min(worker_count.max(1));
         let chunk_size = jobs.len().div_ceil(chunk_count);
+        let spread_start = self
+            .locality_hint
+            .is_none()
+            .then(|| self.scheduler.select_worker::<C>(self.priority, None));
         let mut pending_jobs = jobs.into_iter();
 
-        for _ in 0..chunk_count {
+        for chunk_index in 0..chunk_count {
             let mut chunk = Vec::with_capacity(chunk_size);
             for _ in 0..chunk_size {
                 if let Some(job) = pending_jobs.next() {
@@ -81,21 +85,37 @@ where
                 break;
             }
 
-            self.schedule_chunk(chunk)?;
+            // Select the unhinted batch base once, then distribute physical
+            // batches across distinct workers. Re-running selection after each
+            // admission lets a fast first batch change pending/active state and
+            // route later batches back to its occupied lane, defeating the
+            // worker-sized coalescing contract and deadlocking saturated joins.
+            let locality_hint = self.locality_hint.or_else(|| {
+                spread_start.map(|start| start.wrapping_add(chunk_index) % worker_count)
+            });
+            self.schedule_chunk(chunk, locality_hint)?;
         }
 
         Ok(())
     }
 
     fn schedule_single(&self, job: ScheduledJob) -> ExecutorResult<()> {
+        self.schedule_job(job, self.locality_hint)
+    }
+
+    fn schedule_job(&self, job: ScheduledJob, locality_hint: Option<usize>) -> ExecutorResult<()> {
         let mut job = Some(job);
         let admitted = self
             .scheduler
-            .admit_job::<C>(self.priority, self.locality_hint, &mut job);
+            .admit_job::<C>(self.priority, locality_hint, &mut job);
         self.run_if_refused(admitted, job)
     }
 
-    fn schedule_chunk(&self, jobs: Vec<ScheduledJob>) -> ExecutorResult<()> {
+    fn schedule_chunk(
+        &self,
+        jobs: Vec<ScheduledJob>,
+        locality_hint: Option<usize>,
+    ) -> ExecutorResult<()> {
         let scoped_job = move |worker_id| {
             for job in jobs {
                 let _ = job.execute(worker_id);
@@ -107,7 +127,7 @@ where
         // expire. A refused job runs below, inside the same scope, so it
         // observes the same live borrows.
         let job = unsafe { ScheduledJob::new_scoped(scoped_job) };
-        self.schedule_single(job)
+        self.schedule_job(job, locality_hint)
     }
 
     /// Run a job the scheduler refused on the calling lane.

@@ -86,14 +86,23 @@ architecture definition.
 
 ## Current closure record
 
+### 🟨 MOI-INDEXED-SCOPE-ALLOC-2026-08-26 [patch]: Stack-owned indexed completion
+
+- **Outcome:** indexed completion-only fan-out reuses the scheduler's stack-owned scoped lifetime proof instead of allocating one reference-counted completion state per call. Unhinted multi-batch scopes select one base worker before admission and distribute physical batches across the worker set, preventing state-sensitive rerouting onto one occupied lane under nested saturation.
+- **Scope / non-goals:** `moirai-executor` indexed and scoped scheduling, its value-semantic allocation/liveness coverage, scheduler source contracts, ADR-005, release notes, and the Apollo allocation consumer only; no public API, queue-capacity, explicit-locality, single-job, or refusal-fallback change.
+- **Acceptance:** repeated warmed `for_each_indexed` calls allocate zero bytes; `map_reduce_indexed` retains only its result-slot allocation; panic, clone-unwind, refusal, nesting, saturation, exactly-once, and quiescence contracts pass; saturated outer scope jobs occupy every worker lane; Apollo's warm complex transform returns to zero transient allocations.
+- **Risk / dependency:** scheduler liveness and scoped-borrow safety [patch]. Provider implementation and local verification are complete at `1572ec9`; independent re-review, hosted Linux verification, PR merge, and the Apollo consumer census remain before closure.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: this item and fuzz-closure PM regions only through the next reviewed commit; source lease discharged at `1572ec9`; last update 2026-08-28.
+- **Evidence:** provider commit `1572ec9` passes package Nextest 126/126 in debug and release, the release Loom scope model 1/1, all-feature warning-denied Clippy, warning-denied Rustdoc, and the exact workspace all-feature run 890/890 in 12.173 seconds. The hosted entry failure took 60.005 seconds in `nested_indexed_saturation_completes`; the corrected full-suite case completes in about 0.2 seconds and asserts both worker lanes plus the original arithmetic results.
+
 ### 🟨 MOI-CI-FUZZ-SCOPE-2026-08-28 [patch]: Event-scope parser fuzz verification
 
 - **Outcome:** pull requests execute every committed parser seed deterministically while the weekly and manually dispatched jobs retain bounded mutation campaigns over every shipped fuzz target.
 - **Scope / non-goals:** `.github/workflows/rust-ci.yml`, the existing `fuzz/` target corpus and documentation, and this item only; no parser behavior change, corpus removal, target removal, production-test reduction, or timeout increase.
 - **Acceptance:** both `http_response` and `ipc_header` build and execute in pull-request smoke and scheduled campaign modes; committed seeds execute without mutation-budget waiting on pull requests; the full 180-second-per-target campaign remains schedule/manual-only; workflow syntax and focused commands pass within their committed bounds.
 - **Risk / dependency:** CI-only [patch]; depends on cargo-fuzz/libFuzzer's verified corpus and run-count semantics. Entry run `33192481872`, job `98921194919`, spent 263 seconds on an unrelated scheduler change while omitting `ipc_header`.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: `.github/workflows/rust-ci.yml`, `Cargo.toml`, `fuzz/`, `moirai-core/src/ipc/mod.rs`, and this item's PM regions through the next verified commit; last update 2026-08-28.
-- **Evidence:** the implementation registers and builds both targets, executes each committed seed as an explicit artifact on pull requests, and runs concurrent 180-second campaigns only on schedule/manual dispatch. The standalone warning-denied two-target check passes against the committed 190-package Git-source lock; `moirai-core` Clippy and 99/99 Nextest pass. Hosted Linux remains the seed-execution and runtime oracle because local MSVC libFuzzer coverage linking is unsupported.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: this item's PM regions only while the indexed-scope liveness blocker is fixed; last update 2026-08-28.
+- **Evidence:** PR #189 / implementation `6885c1c` / merge `ff41a09` registers and builds both targets. Hosted PR job `98929756503` executes every committed seed once and completes in 89 seconds versus the 263-second entry run. Manual job `98931077319` starts both 180-second campaigns concurrently and completes them in 181 seconds. Its separate workspace job exposed the indexed-scope liveness defect now under correction; the fuzz job is green. Local MSVC cannot link libFuzzer coverage sections, so hosted Linux supplies the execution evidence.
 
 ### ✅ MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 [patch] [arch]: Reduce retained local-queue storage
 
@@ -3031,16 +3040,15 @@ Part IV chapter map (grounded in moirai-transport):
 
 - Outcome: `cargo +nightly fuzz` runs on a schedule so corpus growth and
   parser regressions surface without per-push cost.
-- Scope: add a workflow job (schedule trigger only, pinned nightly,
-  cargo-fuzz install cached) running `http_response`; extend the target
-  list as targets land. Workflow hygiene rules apply (SHA-pinned actions,
-  timeout-minutes, least-privilege token).
-- Status: done (2026-08-24, Moirai PR #162 merged at edd11df; fuzz run
-  green after two fix-forward rounds - dated-nightly install alone was
-  insufficient because repo rust-toolchain.toml overrides rustup
-  defaults; final form uses RUSTUP_TOOLCHAIN env plus an assert tripwire.
-  The scheduled campaign now covers http_response; ipc_header joins via
-  #163's shared tree.)
+- Scope: run the complete registered target set on pinned nightly with cached
+  cargo-fuzz installation. Pull requests execute committed seeds once;
+  schedule and manual dispatch retain bounded mutation campaigns. Workflow
+  hygiene rules apply (SHA-pinned actions, timeout-minutes, least-privilege
+  token).
+- Status: done (2026-08-28, PR #189 / implementation `6885c1c` / merge
+  `ff41a09`; both `http_response` and `ipc_header` build, run every committed
+  seed in pull-request smoke, and run concurrent 180-second campaigns on
+  schedule or manual dispatch.)
 
 ### MOI-TRANSPORT-DYN-001 - Enum-dispatch the transport manager's backends [arch] [minor] [M]
 

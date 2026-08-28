@@ -1090,6 +1090,7 @@ fn nested_indexed_saturation_completes() {
     const INNER_ITEMS: usize = 1024;
     let scheduler = ThreadScheduler::new(WORKERS, "test-nested-indexed").unwrap();
     let barrier = Barrier::new(WORKERS);
+    let outer_lanes = AtomicUsize::new(0);
     let sum = AtomicUsize::new(0);
     let reduced_sum = AtomicUsize::new(0);
 
@@ -1098,11 +1099,13 @@ fn nested_indexed_saturation_completes() {
             for outer_index in 0..WORKERS {
                 let scheduler = &scheduler;
                 let barrier = &barrier;
+                let outer_lanes = &outer_lanes;
                 let sum = &sum;
                 let reduced_sum = &reduced_sum;
                 scope.spawn(move |_| {
                     let outer_worker = get_current_worker_id()
                         .expect("scoped outer task must execute on a scheduler worker");
+                    outer_lanes.fetch_or(1usize << outer_worker, Ordering::Relaxed);
                     barrier.wait();
                     scheduler
                         .for_each_indexed::<SyncTask, _>(
@@ -1142,6 +1145,7 @@ fn nested_indexed_saturation_completes() {
 
     let item_count = WORKERS * INNER_ITEMS;
     let expected = item_count * (item_count + 1) / 2;
+    assert_eq!(outer_lanes.load(Ordering::Relaxed), (1usize << WORKERS) - 1);
     assert_eq!(sum.load(Ordering::Relaxed), expected);
     assert_eq!(reduced_sum.load(Ordering::Relaxed), expected);
     scheduler.join().unwrap();

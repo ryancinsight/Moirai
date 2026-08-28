@@ -76,6 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference-counted scope and slot ownership around it. Scoped scheduling and
   identity-clone unwinds now drain already-admitted borrowing jobs before their
   stack state is released.
+- Distribute unhinted multi-batch scopes from one preselected base worker
+  across the worker set. This prevents an earlier admission from changing
+  selection state and routing every physical batch to one occupied lane during
+  saturated nested execution. Explicit locality hints and single-job scope
+  admission retain their existing behavior.
 - Make the workspace packageable from a standalone checkout: internal
   benchmark and integration-test dependencies carry explicit version
   requirements, runtime examples live under the facade crate, and the PyO3
