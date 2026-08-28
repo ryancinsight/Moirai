@@ -88,6 +88,13 @@
 - [x] Pass focused TLS/crypto and workspace warning-denied gates.
 - [x] Publish and merge as PR #176 / `28488ca`.
 
+### MOI-POSITIONED-FILE-040 — native positioned file reads
+
+- [x] Verify the Unix and Windows standard-library cursor contracts and reject the stale all-operation mutex design.
+- [ ] Add PAL positioned reads with synchronization limited to Windows cursor restoration.
+- [ ] Implement `AsyncReadAt` and `AsyncLength` for `moirai_async::fs::File` with exact-read and overflow handling.
+- [ ] Pass value, cross-target, warning-denied, documentation, and SemVer gates; publish and merge.
+
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
 - [x] Claim `moirai-gpu/src/lib.rs`, `moirai-gpu/src/buffer.rs`, their

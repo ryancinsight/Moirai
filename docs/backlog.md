@@ -116,6 +116,14 @@ architecture definition.
 - **Evidence**: PR #176 merged as `28488ca`; exact-lock focused Nextest 7/7, workspace Nextest 838/838 in 11.452 seconds, warning-denied Clippy/rustdoc, 19 doctests, and lock validation pass.
 - **Lease**: none.
 
+### 🟡 MOI-POSITIONED-FILE-040 [minor]: Implement native positioned file reads
+
+- **Outcome**: make `moirai_async::fs::File` implement the existing `AsyncReadAt` and `AsyncLength` contracts through PAL-owned platform reads, without adding synchronization to ordinary file I/O.
+- **Acceptance**: exact, short, empty, overflow, length, and cursor-preservation behavior is value-checked; Windows serializes only save/read/restore positioned operations, Unix uses cursor-independent `read_at`; warning-denied host/cross checks, Nextest, docs, and SemVer gates pass.
+- **Scope**: `moirai-pal` file positioning, the `moirai-async` file adapter/tests, public docs, changelog, and PM state. HTTP/S3 behavior is excluded.
+- **Status**: in progress; stale commit `778021e` established the consumer requirement, but its all-operation file mutex is rejected because it would serialize unrelated I/O.
+- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns `moirai-pal/src/fs.rs`, `moirai-async/src/fs/{file,stats,tests}.rs`, and this item's docs through the next verified commit.
+
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
 - **Outcome**: replace the no-op `max_local_queue_size` contract with the scheduler's real resizable Chase-Lev initial-capacity policy, updating all first-party callers without a compatibility shim.
