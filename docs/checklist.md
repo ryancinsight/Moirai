@@ -121,7 +121,7 @@
 - [x] Finalize central one-shot consumption on every backend result, wake reported plus stranded independent waiters after unlocking, and retain or remove central state according to the platform's reported armed interest.
 - [x] Collapse every kqueue filter to a known state when descriptor lifecycle loss invalidates one expected filter; recover replacement registration only after the old generation is wholly absent.
 - [x] Pin interrupted receipt semantics to the native `kevent(2)`/XNU contract and add host-executable deterministic state-transition regressions.
-- [ ] Obtain independent review, publish/merge, and discharge integration responsibility before resuming MOI-HTTP-REDIRECT-041 delivery.
+- [x] Obtain independent review, publish/merge as PR #180 / `851245f`, and discharge integration responsibility before resuming MOI-HTTP-REDIRECT-041 delivery.
 
 ### MOI-PEM-PARSER-043 — maintained PEM fixture parsing
 
