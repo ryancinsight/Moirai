@@ -281,13 +281,23 @@ impl<T> Drop for LockFreeQueue<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::sync::atomic::AtomicUsize;
+    use core::{mem::size_of, num::NonZeroUsize, sync::atomic::AtomicUsize};
 
     #[cfg(feature = "std")]
     use std::sync::Arc;
 
     #[cfg(not(feature = "std"))]
     use alloc::sync::Arc;
+
+    #[test]
+    fn slot_adds_one_machine_word_to_niche_payload() {
+        type RepresentativePayload = (NonZeroUsize, [usize; 16]);
+        let word_size = size_of::<usize>();
+
+        assert_eq!(size_of::<RepresentativePayload>(), 17 * word_size);
+        assert_eq!(size_of::<Option<RepresentativePayload>>(), 17 * word_size);
+        assert_eq!(size_of::<Slot<RepresentativePayload>>(), 18 * word_size);
+    }
 
     #[test]
     fn test_lock_free_queue_basic() {

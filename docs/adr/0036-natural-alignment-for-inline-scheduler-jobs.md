@@ -1,10 +1,12 @@
 # ADR-036: Natural alignment for inline scheduler jobs
 
-Status: Proposed
+Status: Accepted
 
 - Date: 2026-08-28
 - Change class: [arch] [patch]
 - Refs: `MOI-QUEUE-RETENTION-036`, ADR-005, ADR-034, Apollo PR #158
+- Revision: 2026-08-28 — accepted after the exact Apollo retained-footprint
+  probe and saved Criterion comparison passed the stated stop conditions.
 
 ## Context
 
@@ -48,7 +50,7 @@ rows isolate steady-state queue use. Both classes are required because this
 decision changes retained construction storage but must not regress worker
 execution.
 
-## Proposed decision
+## Decision
 
 Keep the 14-word inline capacity and monomorphized function-pointer dispatch,
 but remove the forced 64-byte alignment from `InlineJob`. The storage uses its
@@ -64,10 +66,9 @@ requested injector storage falls from 1,572,864 to 884,736 bytes, a reduction
 of 688,128 bytes, while the executor-wide admission capacity remains 6,144
 tasks under ADR-034.
 
-Accept this proposal only if the exact Apollo retained-allocation probe
-confirms the reduction and the retained-worker Criterion confidence intervals
-show no statistically significant regression. A regression rejects the
-candidate; it does not authorize shrinking coverage or widening the bound.
+The exact Apollo retained-allocation probe and retained-worker Criterion
+confidence intervals are the acceptance gates. A later regression reopens this
+decision; it does not authorize shrinking coverage or widening the bound.
 
 ## Failure modes
 
@@ -108,3 +109,39 @@ candidate; it does not authorize shrinking coverage or widening the bound.
 - Compare the saved same-machine Criterion baseline against the candidate and
   rerun Apollo's exact retained-footprint instrument against the provider
   revision.
+
+## Evidence
+
+The layout tests establish a 17-machine-word injector payload and an
+18-machine-word queue slot. The 64-bit build therefore requests 36,864 bytes
+for each 256-slot worker injector.
+
+Apollo's exact release-mode probe, rebuilt against this provider tree, reports
+936 pool-warmup allocations, a 1,173,414-byte peak, and 1,169,112 retained
+bytes. The prior exact retained value was 1,857,224 bytes. The change removes
+688,112 retained bytes (37.1%), and no allocation at or above the 65,536-byte
+ledger floor remains in the pool-warmup window. The probe's FFT workload and
+value assertions complete in 0.02 seconds. The 16-byte difference from the
+requested-byte model is allocator or harness bookkeeping below the queue-slot
+layout boundary.
+
+The saved same-machine Criterion comparison reports:
+
+| Path | Accepted measurement | Change classification |
+| --- | --- | --- |
+| fresh priority queue push/pop | 871.14 ns [867.28, 875.51] | -1.35%, within noise threshold |
+| fresh submission publication | 880.49 ns [874.54, 885.86] | -3.25%, improved |
+| maximum-inline construct/drop | 1.3328 ns [1.2974, 1.3919] | no detected change |
+| maximum-inline construct/execute | 7.0290 ns [6.9876, 7.0945] | no detected change |
+| oversized construct/drop | 22.317 ns [22.176, 22.505] | no detected change |
+| oversized construct/execute | 21.564 ns [21.434, 21.771] | -8.40%, improved |
+| fresh maximum-inline queue round trip | 896.59 ns [882.66, 917.96] | no detected change |
+| fresh oversized queue round trip | 927.27 ns [899.83, 948.20] | no detected change |
+| retained-worker maximum-inline dequeue | 100.69 ns [100.42, 100.96] | no detected change |
+| retained-worker oversized dequeue | 122.64 ns [122.29, 122.98] | +0.76%, within noise threshold |
+
+Focused Nextest passes 149/149 executor and utility tests and 68/68 benchmark
+contracts. Warning-denied Clippy passes for the affected crates and benchmark
+targets. The four executor Loom models pass 6/6 release tests. These checks
+establish value, layout, diagnostics, and modeled scheduler-handshake behavior;
+they do not model the unchanged generic MPMC implementation itself.

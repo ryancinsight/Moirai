@@ -221,6 +221,7 @@ impl WorkerQueueOwner {
 
 #[cfg(test)]
 mod tests {
+    use core::mem::size_of;
     use std::sync::{Arc, Mutex};
 
     use super::WorkerQueues;
@@ -232,6 +233,15 @@ mod tests {
 
     fn local_capacity(requested: usize) -> DequeCapacity<ScheduledJob> {
         DequeCapacity::try_from(requested).expect("test capacity must be representable")
+    }
+
+    #[test]
+    fn injector_payload_uses_seventeen_machine_words() {
+        type InjectorPayload = (Priority, ScheduledJob);
+        let expected_payload_bytes = 17 * size_of::<usize>();
+
+        assert_eq!(size_of::<InjectorPayload>(), expected_payload_bytes);
+        assert_eq!(size_of::<Option<InjectorPayload>>(), expected_payload_bytes);
     }
 
     #[test]

@@ -4,6 +4,8 @@ Status: Accepted
 
 **Date**: 2026-05-22
 **Context**: HybridExecutor scheduler replacement
+**Revision**: 2026-08-28 — ADR-036 retains the 14-word inline capacity
+while removing cache-line alignment that amplified every bounded injector slot.
 
 ### Decision
 
@@ -18,7 +20,7 @@ Status: Accepted
 - Task handles use a shared one-shot result slot instead of per-task `std::sync::mpsc` result channels.
 - The public task result slot uses a single-producer atomic state machine over one initialized result cell, so completed joins avoid mutex-protected result storage while preserving cancellation and panic values.
 - Public result handles wait with bounded spin followed by an explicit `WAITING` result-state and one inline registered parked thread. Completion unparks the registered waiter only, preserving single-consumer semantics without condvar wait overhead, waiter-mutex overhead, or READY/park lost wakes.
-- Small scheduled closures use inline erased storage sized to 14 machine words while keeping `InlineJob` at two cache lines. The consumed state is encoded by swapping the stored drop function to a no-op after execution, recovering one payload word without increasing the queue element footprint. Oversized closures allocate one typed `Box<F>` behind the same inline job trampoline instead of using `Box<dyn FnOnce>` or a separate raw-pointer heap job variant. The scheduler still has one heterogeneous erased boundary, but common small jobs avoid a heap allocation at that boundary without making every queue element carry a 16-word slot.
+- Small scheduled closures use naturally aligned inline erased storage sized to 14 machine words. The consumed state is encoded by swapping the stored drop function to a no-op after execution, recovering one payload word without increasing the queue element footprint. Oversized or over-aligned closures allocate one typed `Box<F>` behind the same inline job trampoline instead of using `Box<dyn FnOnce>` or a separate raw-pointer heap job variant. The scheduler still has one heterogeneous erased boundary, but common small jobs avoid a heap allocation without forcing cache-line alignment through every bounded injector slot. [ADR-036](0036-natural-alignment-for-inline-scheduler-jobs.md) owns the storage-alignment decision.
 - Queue mutation is mediated by a `QueueAccess` permission guard over one priority queue state per worker, reducing lock count and making mutable access explicit.
 - Lifecycle mutation is mediated by `TaskLifecycleToken` and `RunningTaskToken`; the registry owns observation, and the scheduled job owns mutation authority.
 - Lifecycle and metrics timestamps use atomic offsets from their creation instant instead of mutex-protected `Instant` fields on hot paths.
