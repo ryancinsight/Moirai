@@ -110,6 +110,13 @@ architecture definition.
 - **Evidence**: PR #174 merged as `f162c59`; release executor Nextest 107/107, workspace Nextest 835/835 in 11.096 seconds, focused Miri, warning-denied Clippy/rustdoc, and doctests pass. The scheduled-token benchmark detects no regression against `e49331c` (108.6 ns, −5.1% to +2.0%, p=0.42).
 - **Lease**: none.
 
+### 🟡 MOI-TLS-FIXTURE-039 [patch]: Recover deterministic TLS fixtures
+
+- **Outcome**: port the unique `778021e` TLS fixture and fail-closed verification increment onto current `main`, removing the `rcgen`/`ring` test graph without carrying stale branch reversions.
+- **Acceptance**: current TLS and crypto handshakes validate trusted, wrong-hostname, untrusted, and expired certificates from committed fixtures; focused and workspace gates remain within their budgets; no native certificate-generation dependency remains.
+- **Status**: in progress; `b548bc9` is already equivalent on `main`, while `778021e` is the only unique stale-branch commit.
+- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns TLS/crypto fixtures, their manifests/tests, and conflict resolution against current `main` through the next verified commit.
+
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
 - **Outcome**: replace the no-op `max_local_queue_size` contract with the scheduler's real resizable Chase-Lev initial-capacity policy, updating all first-party callers without a compatibility shim.

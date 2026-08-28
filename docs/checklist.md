@@ -81,6 +81,12 @@
 - [x] Pass focused executor Nextest (107/107 release), full workspace Nextest (835/835 in 11.096 seconds), focused Miri, warning-denied Clippy, doctests, and rustdoc inside their committed budgets.
 - [x] Publish and merge the lifetime and wake correction as PR #174 / `f162c59`.
 
+### MOI-TLS-FIXTURE-039 — deterministic TLS fixtures
+
+- [x] Confirm `b548bc9` is patch-equivalent on `main` and isolate `778021e` as the stale branch's unique increment.
+- [ ] Port only the still-current fixture, manifest, and value-semantic handshake changes without reverting newer work.
+- [ ] Pass focused TLS/crypto and workspace warning-denied gates, then publish and merge.
+
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
 - [x] Claim `moirai-gpu/src/lib.rs`, `moirai-gpu/src/buffer.rs`, their
