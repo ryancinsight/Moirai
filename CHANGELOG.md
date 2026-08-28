@@ -124,7 +124,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `WSAPoll` dispatch retain the polled registration generation through central
   consumption. A backend transition failure wakes delivered and independent
   waiters after unlocking, while central state mirrors the interest the backend
-  reports as still armed instead of discarding a live registration.
+  reports as still armed instead of discarding a live registration. Kqueue
+  collapses every sibling filter when an expected filter is already absent,
+  and installs a replacement generation only after the prior lifecycle is
+  wholly absent. Receipt changes are not replayed after `EINTR`, matching the
+  native changelist-before-interruption contract.
 - Prevent stale epoll, kqueue, and Windows `WSAPoll` results from deleting or
   waking a newer registration that reused the same raw descriptor value. Poll
   results carry a private registration generation while the public `Event`

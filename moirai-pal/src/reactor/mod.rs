@@ -6,6 +6,14 @@
 
 /// The [`IoReactor`] driving waker registration and event dispatch.
 pub mod core;
+#[cfg(any(
+    test,
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd"
+))]
+pub(crate) mod kqueue_transition;
 /// Reactor performance counters.
 pub mod metrics;
 pub(crate) mod registration;

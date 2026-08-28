@@ -7,6 +7,10 @@ use std::{
     time::Duration,
 };
 
+use crate::reactor::kqueue_transition::{
+    classify_receipt_error, transition_interest, FilterChange, InterestFilter, InterestTransition,
+    ReceiptErrorDisposition,
+};
 use crate::reactor::registration::{
     PlatformUpdateFailure, PolledEvent, RegistrationGeneration, RegistrationTable,
 };
@@ -14,7 +18,6 @@ use crate::{Event, Interest, RawFd, Reactor};
 
 const EVENT_CAPACITY: usize = 1024;
 const WAKE_IDENT: usize = usize::MAX;
-const CHANGE_ATTEMPTS: usize = 2;
 
 thread_local! {
     /// Per-poller output storage keeps the hot poll path allocation-free while
@@ -68,18 +71,19 @@ impl KqueueReactor {
                 None,
             ));
         };
-        let (armed_interest, error) =
+        let transition =
             self.transition_interest(fd, current.interest, interest, current.generation);
+        let armed_interest = transition.actual;
         if armed_interest.readable || armed_interest.writable {
             let updated = registrations.update_interest(fd, current.generation, armed_interest);
             debug_assert!(updated, "registration remained locked during update");
         } else {
             registrations.remove(fd);
         }
-        error.map_or(Ok(()), |error| {
+        transition.failure.map_or(Ok(()), |failure| {
             let armed =
                 (armed_interest.readable || armed_interest.writable).then_some(armed_interest);
-            Err(PlatformUpdateFailure::new(error, armed))
+            Err(PlatformUpdateFailure::new(failure.error, armed))
         })
     }
 
@@ -95,17 +99,20 @@ impl KqueueReactor {
                 writable: false,
                 error: current.interest.error,
             };
-            let (residual, error) =
+            let transition =
                 self.transition_interest(fd, current.interest, empty, current.generation);
+            let residual = transition.actual;
             if residual.readable || residual.writable {
                 let updated = registrations.update_interest(fd, current.generation, residual);
                 debug_assert!(updated, "registration remained locked during replacement");
             } else {
                 registrations.remove(fd);
             }
-            if let Some(error) = error {
+            if let Some(failure) = transition.failure {
                 let armed = (residual.readable || residual.writable).then_some(residual);
-                return Err(PlatformUpdateFailure::new(error, armed));
+                if !failure.lifecycle_lost || armed.is_some() {
+                    return Err(PlatformUpdateFailure::new(failure.error, armed));
+                }
             }
         }
 
@@ -117,13 +124,14 @@ impl KqueueReactor {
             writable: false,
             error: interest.error,
         };
-        let (actual, error) = self.transition_interest(fd, empty, interest, generation);
+        let transition = self.transition_interest(fd, empty, interest, generation);
+        let actual = transition.actual;
         if actual.readable || actual.writable {
             registrations.commit(fd, actual, generation);
         }
-        error.map_or(Ok(()), |error| {
+        transition.failure.map_or(Ok(()), |failure| {
             let armed = (actual.readable || actual.writable).then_some(actual);
-            Err(PlatformUpdateFailure::new(error, armed))
+            Err(PlatformUpdateFailure::new(failure.error, armed))
         })
     }
 
@@ -140,16 +148,12 @@ impl KqueueReactor {
         current: Interest,
         desired: Interest,
         generation: RegistrationGeneration,
-    ) -> (Interest, Option<io::Error>) {
-        let mut actual = current;
-        let mut first_error = None;
-        for (filter, current_enabled, desired_enabled) in [
-            (libc::EVFILT_READ, current.readable, desired.readable),
-            (libc::EVFILT_WRITE, current.writable, desired.writable),
-        ] {
-            if current_enabled == desired_enabled {
-                continue;
-            }
+    ) -> InterestTransition {
+        transition_interest(current, desired, |filter, desired_enabled| {
+            let filter = match filter {
+                InterestFilter::Readable => libc::EVFILT_READ,
+                InterestFilter::Writable => libc::EVFILT_WRITE,
+            };
             let flags = if desired_enabled {
                 libc::EV_ADD
             } else {
@@ -157,20 +161,13 @@ impl KqueueReactor {
             };
             let mut change = fd_event(fd, filter, flags, generation);
             match submit_interest_change(self.kqueue_fd, &mut change) {
-                Ok(()) => set_interest_filter(&mut actual, filter, desired_enabled),
-                Err(error) if !desired_enabled && error.raw_os_error() == Some(libc::ENOENT) => {
-                    // The filter is already absent, which is the requested
-                    // postcondition; reconcile the sidecar without failing.
-                    set_interest_filter(&mut actual, filter, false);
+                Ok(()) => Ok(FilterChange::Applied),
+                Err(error) if !desired_enabled && filter_is_absent(&error) => {
+                    Ok(FilterChange::AlreadyAbsent(error))
                 }
-                Err(error) => {
-                    if first_error.is_none() {
-                        first_error = Some(error);
-                    }
-                }
+                Err(error) => Err(error),
             }
-        }
-        (actual, first_error)
+        })
     }
 
     fn poll_events_with<T>(
@@ -254,18 +251,22 @@ impl Reactor for KqueueReactor {
             writable: false,
             error: interest.error,
         };
-        let (actual, error) = self.transition_interest(fd, empty, interest, generation);
-        if let Some(error) = error {
+        let transition = self.transition_interest(fd, empty, interest, generation);
+        let actual = transition.actual;
+        if let Some(failure) = transition.failure {
             // Registration is transactional at the trait boundary. If one
             // filter was added before another failed, remove the successful
             // subset before reporting failure. Retain the exact residual only
             // if that compensating removal itself fails, so later polling can
             // still identify and reconcile it.
-            let (residual, cleanup_error) = self.transition_interest(fd, actual, empty, generation);
+            let cleanup = self.transition_interest(fd, actual, empty, generation);
+            let residual = cleanup.actual;
             if residual.readable || residual.writable {
                 registrations.commit(fd, residual, generation);
             }
-            return Err(cleanup_error.unwrap_or(error));
+            return Err(cleanup
+                .failure
+                .map_or(failure.error, |cleanup_failure| cleanup_failure.error));
         }
         if actual.readable || actual.writable {
             registrations.commit(fd, actual, generation);
@@ -283,15 +284,17 @@ impl Reactor for KqueueReactor {
             writable: false,
             error: current.interest.error,
         };
-        let (actual, error) =
-            self.transition_interest(fd, current.interest, empty, current.generation);
+        let transition = self.transition_interest(fd, current.interest, empty, current.generation);
+        let actual = transition.actual;
         if actual.readable || actual.writable {
             let updated = registrations.update_interest(fd, current.generation, actual);
             debug_assert!(updated, "registration remained locked during removal");
         } else {
             registrations.remove(fd);
         }
-        error.map_or(Ok(()), Err)
+        transition
+            .failure
+            .map_or(Ok(()), |failure| Err(failure.error))
     }
 
     fn poll_events(&self, timeout: Option<Duration>) -> io::Result<Vec<Event>> {
@@ -338,35 +341,28 @@ fn submit_changes(kqueue_fd: RawFd, changes: &mut [libc::kevent]) -> io::Result<
 
 fn submit_interest_change(kqueue_fd: RawFd, change: &mut libc::kevent) -> io::Result<()> {
     change.flags |= libc::EV_RECEIPT;
-    for attempt in 0..CHANGE_ATTEMPTS {
-        let mut receipt = zeroed_event();
-        // SAFETY: `change` and `receipt` each point to one initialized kevent.
-        // EV_RECEIPT makes the kernel return the per-change status in `receipt`.
-        let result = unsafe { libc::kevent(kqueue_fd, change, 1, &mut receipt, 1, ptr::null()) };
-        if result < 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::Interrupted && attempt == 0 {
-                // The kernel may have applied the change before EINTR. One
-                // identical retry resolves that ambiguity: EV_ADD updates an
-                // existing filter, and a repeated EV_DELETE reports ENOENT,
-                // which the caller treats as the requested absent state.
-                continue;
-            }
-            return Err(error);
-        }
-        if result != 1 || (receipt.flags & libc::EV_ERROR) == 0 {
-            return Err(io::Error::other(
-                "kqueue did not return the requested change receipt",
-            ));
-        }
-        if receipt.data == 0 {
-            return Ok(());
-        }
-        let errno = i32::try_from(receipt.data)
-            .map_err(|_| io::Error::other("kqueue receipt returned an invalid errno"))?;
-        return Err(io::Error::from_raw_os_error(errno));
+    let mut receipt = zeroed_event();
+    // SAFETY: `change` and `receipt` each point to one initialized kevent.
+    // EV_RECEIPT makes the kernel return the per-change status in `receipt`.
+    let result = unsafe { libc::kevent(kqueue_fd, change, 1, &mut receipt, 1, ptr::null()) };
+    if result < 0 {
+        let error = io::Error::last_os_error();
+        return match classify_receipt_error(error.kind()) {
+            ReceiptErrorDisposition::Applied => Ok(()),
+            ReceiptErrorDisposition::Failed => Err(error),
+        };
     }
-    unreachable!("bounded kqueue change attempts return from every iteration")
+    if result != 1 || (receipt.flags & libc::EV_ERROR) == 0 {
+        return Err(io::Error::other(
+            "kqueue did not return the requested change receipt",
+        ));
+    }
+    if receipt.data == 0 {
+        return Ok(());
+    }
+    let errno = i32::try_from(receipt.data)
+        .map_err(|_| io::Error::other("kqueue receipt returned an invalid errno"))?;
+    Err(io::Error::from_raw_os_error(errno))
 }
 
 fn fd_event(
@@ -383,13 +379,11 @@ fn fd_event(
     event
 }
 
-fn set_interest_filter(interest: &mut Interest, filter: i16, enabled: bool) {
-    if filter == libc::EVFILT_READ {
-        interest.readable = enabled;
-    } else {
-        debug_assert_eq!(filter, libc::EVFILT_WRITE);
-        interest.writable = enabled;
-    }
+fn filter_is_absent(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(code) if code == libc::ENOENT || code == libc::EBADF
+    )
 }
 
 fn user_event(ident: usize, flags: u16, fflags: u32) -> libc::kevent {
