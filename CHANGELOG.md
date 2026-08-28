@@ -97,6 +97,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Prevent stale Windows `WSAPoll` results from deleting or waking a newer
+  registration that reused the same raw socket value. Poll snapshots now carry
+  registration generations in a reused sidecar buffer, preserving allocation-
+  free warm polling while rejecting stale `POLLNVAL` cleanup and readiness.
 - Recover poisoned GPU buffer-pool mutexes instead of propagating a prior
   worker panic into every later pool operation.
 

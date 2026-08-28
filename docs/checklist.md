@@ -68,9 +68,16 @@
 ### MOI-TLS-PROGRESS-035 — Windows registration generations
 
 - [x] Reproduce the workspace timeout and isolate the stale-`POLLNVAL` handle-reuse interleaving.
-- [ ] Tag each `WSAPoll` snapshot with its registration generation and reject stale cleanup/events.
-- [ ] Add a deterministic same-handle replacement regression without wall-clock synchronization.
-- [ ] Run focused Windows PAL/TLS and bounded workspace Nextest, then publish and merge.
+- [x] Tag each `WSAPoll` snapshot with its registration generation and reject stale cleanup/events.
+- [x] Add a deterministic same-handle replacement regression without wall-clock synchronization.
+- [x] Pass warning-denied Windows check/Clippy and PAL+TLS Nextest 25/25; full Nextest passes both TLS cases and exposes MOI-WAKE-PROGRESS-038.
+- [ ] Re-run the workspace gate after MOI-WAKE-PROGRESS-038, then publish and merge.
+
+### MOI-WAKE-PROGRESS-038 — saturated async wake
+
+- [ ] Replace unbounded test-phase waits with event-bounded diagnostics and locate the stalled transition.
+- [ ] Fix the owning state/admission mechanism and add a deterministic regression.
+- [ ] Pass focused debug/release and full workspace Nextest inside the committed budgets.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 

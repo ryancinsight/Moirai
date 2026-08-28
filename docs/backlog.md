@@ -102,8 +102,16 @@ architecture definition.
 
 - **Outcome**: identify and correct the runtime mechanism that can strand `tls_round_trip_trusted_cert` under workspace concurrency; do not add retries or widen the 60-second termination bound.
 - **Acceptance**: a deterministic regression exercises the failed interleaving, the owning runtime path is fixed, and focused plus workspace Nextest complete inside the committed 30/60-second budgets.
-- **Evidence**: exact queue-capacity diff passed this test once, then a second workspace run timed it out at 60.236 seconds after 824/825 tests passed. A `WSAPoll` snapshot can report `POLLNVAL` after the raw socket value has been re-registered; unconditional stale cleanup then deletes the newer registration and strands its waker.
-- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns `moirai-pal/src/windows/poll.rs`, the focused reactor/TLS tests, and this item through the next verified commit.
+- **Evidence**: a `WSAPoll` snapshot can report `POLLNVAL` after the raw socket value has been re-registered; generation-matched cleanup fixes that interleaving. Warning-denied Windows check/Clippy pass, PAL+TLS Nextest passes 25/25, and the full run passes both TLS cases while exposing MOI-WAKE-PROGRESS-038 after 829/830 passes.
+- **Status**: blocked only on the workspace gate; re-open when MOI-WAKE-PROGRESS-038 lands.
+- **Lease**: none after the focused verified commit.
+
+### 🟡 MOI-WAKE-PROGRESS-038 [patch]: Bound saturated wake completion
+
+- **Outcome**: correct the executor mechanism that can strand `woken_task_completes_while_worker_injector_is_full`; do not retry the flaky run, weaken saturation, or widen the 60-second bound.
+- **Acceptance**: event-bounded phase diagnostics locate the stalled transition, a deterministic regression covers it, and focused plus workspace Nextest pass within the committed budgets.
+- **Evidence**: the first full Windows workspace run after the WSAPoll correction passes 829/830 but terminates this test at 60.238 seconds.
+- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns `moirai-executor/src/hybrid/async_state.rs`, its focused tests, and this item through the next verified commit.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
