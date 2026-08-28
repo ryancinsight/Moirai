@@ -106,11 +106,10 @@ opt-level = 1
 debug = "line-tables-only"
 
 [workspace.lints.rust]
-# `loom` is a cfg set only by the model runs (`RUSTFLAGS="--cfg loom"`), never by
-# cargo, so declare it or every build warns about an unexpected condition name.
+# `loom` and `fuzzing` are supplied by verification tools rather than Cargo.
 # Declared workspace-wide because a member cannot carry its own `[lints.rust]`
 # table alongside `lints.workspace = true`.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(fuzzing)'] }
 
 [workspace.lints.clippy]
 pedantic = { level = "deny", priority = -1 }

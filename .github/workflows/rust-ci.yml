@@ -7,6 +7,7 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - "**/build.rs"
+      - "fuzz/seeds/**"
       - ".cargo/**"
       - "deny.toml"
       - "rust-toolchain.toml"
@@ -18,6 +19,7 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - "**/build.rs"
+      - "fuzz/seeds/**"
       - ".cargo/**"
       - "deny.toml"
       - "rust-toolchain.toml"
@@ -143,7 +145,10 @@ jobs:
   fuzz:
     name: Fuzz parsers
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Entry cold setup/build plus one 180-second campaign completed in 263
+    # seconds. The second campaign runs concurrently; six minutes preserves
+    # bounded infrastructure slack.
+    timeout-minutes: 6
     # Highest toolchain-selection precedence: without this, the repo's
     # rust-toolchain.toml (1.97.0 stable) overrides any rustup default and
     # libFuzzer's -Z flags fail to build.
@@ -154,16 +159,65 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
+
+      - name: Select fuzz verification mode
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "mode=campaign" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE_SHA"
+          else
+            base="$BEFORE_SHA"
+          fi
+
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            echo "mode=smoke" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$base"
+          fi
+
+          mode=skip
+          while IFS= read -r path; do
+            case "$path" in
+              fuzz/* | \
+              moirai-http/* | \
+              moirai-async/Cargo.toml | moirai-async/src/io/* | \
+              moirai-core/Cargo.toml | moirai-core/src/ipc/* | \
+              moirai-executor/Cargo.toml | moirai-executor/src/lib.rs | \
+              moirai-executor/src/schedule/wake/* | \
+              Cargo.toml | rust-toolchain.toml | .cargo/* | \
+              .github/workflows/rust-ci.yml)
+                mode=smoke
+                break
+                ;;
+            esac
+          done < <(git diff --name-only "$base" "$GITHUB_SHA")
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
 
       # Pinned nightly: libFuzzer builds track the unstable surface, and an
       # unpinned nightly would drift the toolchain under the gate.
       - name: Set up pinned nightly Rust
+        if: steps.scope.outputs.mode != 'skip'
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: nightly-2026-08-01
           targets: x86_64-unknown-linux-gnu
 
       - name: Assert the fuzz toolchain
+        if: steps.scope.outputs.mode != 'skip'
         run: |
           actual="$(rustc --version)"
           echo "fuzz toolchain: $actual"
@@ -172,10 +226,17 @@ jobs:
             *) echo "ERROR: fuzz job requires a nightly compiler, got $actual" >&2; exit 1 ;;
           esac
 
+      - name: Verify the fuzz lockfile
+        if: steps.scope.outputs.mode != 'skip'
+        working-directory: fuzz
+        run: cargo metadata --locked --format-version 1 --no-deps > /dev/null
+
       - name: Install cargo-fuzz
+        if: steps.scope.outputs.mode != 'skip'
         uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
         with:
-          tool: cargo-fuzz
+          tool: cargo-fuzz@0.13.2
+          checksum: true
 
       # The target is explicit because cargo-fuzz defaults it to the triple
       # cargo-fuzz itself was built for, and cargo-binstall fetches the musl
@@ -188,12 +249,51 @@ jobs:
       #
       # Naming the gnu target fixes the cause. Installing the musl target
       # instead only moved the failure one step later.
-      - name: Build fuzz targets
+      - name: Build all fuzz targets
+        if: steps.scope.outputs.mode != 'skip'
         working-directory: fuzz
-        run: cargo fuzz build --target x86_64-unknown-linux-gnu http_response
+        run: cargo fuzz build --target x86_64-unknown-linux-gnu
 
-      # Bounded smoke campaign over committed seeds: enough execution to catch
-      # parser regressions without turning CI into a standing campaign.
-      - name: Smoke-run http_response over the seed corpus
+      - name: Execute every committed parser seed
+        if: steps.scope.outputs.mode == 'smoke'
         working-directory: fuzz
-        run: cargo fuzz run --target x86_64-unknown-linux-gnu http_response -- -max_total_time=180 -rss_limit_mb=4096 seeds
+        shell: bash
+        run: |
+          targets=(http_response ipc_header)
+          for target in "${targets[@]}"; do
+            mapfile -d '' seeds < <(find "seeds/$target" -type f -print0 | sort -z)
+            if (( ${#seeds[@]} == 0 )); then
+              echo "ERROR: $target has no committed seeds" >&2
+              exit 1
+            fi
+            for seed in "${seeds[@]}"; do
+              cargo fuzz run --target x86_64-unknown-linux-gnu \
+                "$target" "$seed" -- -runs=1 -rss_limit_mb=4096
+            done
+          done
+
+      - name: Run bounded parser mutation campaigns
+        if: steps.scope.outputs.mode == 'campaign'
+        working-directory: fuzz
+        shell: bash
+        run: |
+          targets=(http_response ipc_header)
+          declare -a pids
+          for target in "${targets[@]}"; do
+            corpus="$RUNNER_TEMP/moirai-fuzz/$target"
+            mkdir -p "$corpus"
+            cp -a "seeds/$target/." "$corpus/"
+            cargo fuzz run --target x86_64-unknown-linux-gnu \
+              "$target" "$corpus" -- \
+              -max_total_time=180 -rss_limit_mb=4096 &
+            pids+=("$!")
+          done
+
+          status=0
+          for index in "${!pids[@]}"; do
+            if ! wait "${pids[$index]}"; then
+              echo "ERROR: ${targets[$index]} campaign failed" >&2
+              status=1
+            fi
+          done
+          exit "$status"

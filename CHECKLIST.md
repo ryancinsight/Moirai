@@ -2,6 +2,16 @@
 
 **Target**: Unreleased
 
+## MOI-CI-FUZZ-SCOPE-2026-08-28 — Event-scoped parser fuzzing [patch] — in progress
+
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** `.github/workflows/rust-ci.yml`, `Cargo.toml`, `fuzz/`, `moirai-core/src/ipc/mod.rs`, and this item's PM regions through the next verified commit.
+- [x] Replace the 180-second pull-request campaign with deterministic execution of every committed parser seed while retaining the bounded full campaign on schedule and manual dispatch.
+- [x] Include every shipped parser fuzz target in smoke and campaign coverage; reconcile the workflow with the target-set documentation.
+- [ ] Verify workflow syntax, exact seed execution, the scheduled command surface, and the reduced pull-request runtime without weakening parser inputs or production tests.
+- **Entry evidence:** PR #187 job `98921194919` spent 263 seconds on an unrelated scheduler change, including the full 180-second `http_response` campaign. The workflow omits the shipped `ipc_header` target, its manifest registration, and the cfg-only accessor it imports although the backlog records it as scheduled coverage.
+- **Local evidence:** cargo-fuzz 0.13.2 confirms explicit artifact inputs; standalone warning-denied checks compile both targets against the committed 190-package lock in 16.63 seconds. `moirai-core` Clippy passes and Nextest passes 99/99. Windows cannot link libFuzzer coverage sections, so hosted Linux seed execution and runtime remain the final acceptance gate.
+
 ## MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 — Retained local-queue storage [patch] [arch] — done 2026-08-28
 
 - **Delivered:** PR #187 / implementation `cf84fc29` / merge `32f9d08d` selects the 128-slot default after independent exact-head review at `cdb494e2`; lease: none.

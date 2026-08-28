@@ -13,12 +13,15 @@ libfuzzer-sys = "0.4"
 [dependencies.moirai-async]
 path = "../moirai-async"
 
+[dependencies.moirai-core]
+path = "../moirai-core"
+
 [dependencies.moirai-http]
 path = "../moirai-http"
 
-[dependencies.moirai-runtime]
-package = "moirai-runtime"
-path = "../moirai"
+[dependencies.moirai-executor]
+path = "../moirai-executor"
+default-features = false
 
 # Keep the fuzz tree out of the workspace so `cargo build` never pulls
 # libfuzzer-sys into normal or CI builds; targets run only through
@@ -28,6 +31,13 @@ path = "../moirai"
 [[bin]]
 name = "http_response"
 path = "fuzz_targets/http_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ipc_header"
+path = "fuzz_targets/ipc_header.rs"
 test = false
 doc = false
 bench = false
