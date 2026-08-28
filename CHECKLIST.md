@@ -7,9 +7,9 @@
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
 - **Lease:** `moirai-executor/src/hybrid/tests.rs` and this item's PM regions
   through the next verified commit.
-- [ ] Parameterize the single-worker gate by `WorkClass` and occupy the same
+- [x] Parameterize the single-worker gate by `WorkClass` and occupy the same
       scheduler lane as each queued cancellation target.
-- [ ] Assert the target is `Queued` before cancellation, then preserve the
+- [x] Assert the target is `Queued` before cancellation, then preserve the
       existing body/poll, handle-result, status, and metrics assertions.
 - [ ] Pass focused and workspace Nextest, warning-denied Clippy, independent
       review, and hosted main verification within existing time bounds.
@@ -17,6 +17,9 @@
   `Some(Ok(3))` instead of `Some(Err(Cancelled))`. The helper occupied the
   dedicated `BlockingTask` lane while `spawn_async` used the compute worker,
   so the test's queued-state premise was false.
+- **Local evidence:** both queued cancellation cases pass 2/2 in 28 ms;
+  all-feature warning-denied `moirai-executor` Clippy passes; exact workspace
+  all-feature Nextest passes 890/890 in 12.232 seconds.
 
 ## MOI-CI-FUZZ-SCOPE-2026-08-28 — Event-scoped parser fuzzing [patch] — in progress
 

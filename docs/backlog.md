@@ -93,6 +93,7 @@ architecture definition.
 - **Acceptance:** each queued-cancellation case asserts `TaskStatus::Queued` before requesting cancellation, then proves the body/future never runs and the handle/status publish `Cancelled`; focused and workspace Nextest pass within the committed bounds; hosted main closes green.
 - **Risk / dependency:** test-contract [patch]. Hosted PR #190 run `33197342394`, job `98937736061`, observed `Ok(3)` because `gate_single_worker` occupied the ADR-021 blocking lane while `spawn_async` remained free on the compute worker. The previously green source run demonstrates scheduling sensitivity, not correctness of the old precondition.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: `moirai-executor/src/hybrid/tests.rs` and this item's PM regions through the next verified commit; last update 2026-08-28.
+- **Evidence:** the candidate work-class-generic gate and explicit queued-state assertions pass both queued cancellation cases 2/2 in 28 ms, all-feature warning-denied `moirai-executor` Clippy, and exact workspace all-feature Nextest 890/890 in 12.232 seconds. Independent review and hosted main closure remain.
 
 ### 🟨 MOI-INDEXED-SCOPE-ALLOC-2026-08-26 [patch]: Stack-owned indexed completion
 
