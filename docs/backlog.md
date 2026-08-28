@@ -86,14 +86,11 @@ architecture definition.
 
 ## Current closure record
 
-### 🟨 MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 [patch] [arch]: Reduce retained local-queue storage
+### ✅ MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 [patch] [arch]: Reduce retained local-queue storage
 
-- **Outcome**: establish exact pointer-identity attribution for global and direct Mnemosyne allocations, then select the smallest Chase-Lev initial capacity whose controlled throughput confidence intervals do not regress against the current 256-slot policy.
-- **Scope / non-goals**: `moirai-executor` allocation instrumentation, local-queue capacity policy, the existing scheduler comparison benchmark, ADR 0035, tests, and release documentation; no fixed-capacity queue, queue algorithm replacement, benchmark workload reduction, or timeout increase.
-- **Acceptance**: the instrument handles allocation failure, reallocation, address reuse, and window-close races; observes all four local deque planes per worker through Mnemosyne hooks; capacity candidates preserve exact scheduling/growth/steal semantics; controlled Criterion baselines support the selected default; warning-denied, Nextest, documentation, cross-target, SemVer, and consumer gates pass.
-- **Risk / dependency**: internal policy and test-instrument correction with an architecture decision revision; Apollo PR #169 independently removes FFT-owned row scratch and supplies the consumer retained-footprint oracle.
-- **Evidence**: the exact five-candidate release probe passes in 0.031 seconds. At 24 workers, 128 slots retain 1,572,864 direct bytes versus 3,145,728 at 256; first and warm indexed fan-out allocate zero, every growth step is attributed, and full queue teardown retains zero direct bytes. Final 20-sample warm intervals overlap at 128 (277.34–280.56 ns) and 256 (280.42–282.49 ns); the 257-item cold intervals are 5.412–5.550 us and 4.955–5.033 us, respectively. Apollo's exact release consumer probe observes the same 1,572,864-byte pool warmup and zero global/direct warm-transform allocations from 1,024 through 262,144 elements.
-- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: scheduler-capacity benchmark rows, ADR 0035, tests, and affected documentation through the next verified commit.
+- **Delivered:** PR #187 / implementation `cf84fc29` / merge `32f9d08d` selects the 128-slot default after independent exact-head review at `cdb494e2`; lease: none.
+- **Evidence:** the exact probe records 1,572,864 direct retained bytes at 128 versus 3,145,728 at 256 across 24 workers, overlapping controlled warm confidence intervals, zero warm fan-out allocations, and zero retained bytes after teardown. Provider Nextest passes 328/328; host, AArch64, documentation, SemVer, and all hosted gates pass.
+- **Consumer:** Apollo observes the same retained pool footprint and zero global/direct warm-transform allocations from 1,024 through 262,144 elements.
 
 ### ✅ MOI-QUEUE-RETENTION-036 [patch] [arch]: Bound retained worker-queue storage
 
