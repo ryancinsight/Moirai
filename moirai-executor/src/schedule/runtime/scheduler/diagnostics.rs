@@ -7,7 +7,8 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use moirai_core::Priority;
+use moirai_core::{executor::config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY, Priority};
+use moirai_scheduler::DequeCapacity;
 
 use crate::schedule::job::ScheduledJob;
 use crate::schedule::queue::WorkerQueues;
@@ -18,8 +19,13 @@ use crate::schedule::runtime::worker::{
 };
 use crate::schedule::{ThreadScheduler, WorkClass};
 
-impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
-    ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+fn diagnostic_local_queue_capacity() -> DequeCapacity<ScheduledJob> {
+    DequeCapacity::try_from(DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY)
+        .expect("invariant: default local queue capacity is representable")
+}
+
+impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
+    ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
     /// Probe worker selection for a diagnostic scheduler state.
     pub fn diagnostic_select_worker_for_state<C>(
@@ -51,7 +57,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
     /// Push and execute one diagnostic priority-queue job.
     pub fn diagnostic_priority_queue_push_pop(priority: Priority) -> usize {
-        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(2);
+        let (mut owner, queues) = WorkerQueues::new(2, diagnostic_local_queue_capacity());
         let () = queues
             .try_push_external(priority, ScheduledJob::new(|_| {}))
             .map_or((), |_| panic!("diagnostic queue has capacity"));
@@ -81,7 +87,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             active_before_submit,
         );
         let previous_pending = pending_tasks.fetch_add(1, Ordering::Release);
-        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(2);
+        let (mut owner, queues) = WorkerQueues::new(2, diagnostic_local_queue_capacity());
         let () = queues
             .try_push_external(priority, ScheduledJob::new(|_| {}))
             .map_or((), |_| panic!("diagnostic queue has capacity"));
@@ -160,7 +166,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// Push and execute a maximum inline-sized queue job.
     pub fn diagnostic_max_inline_queue_push_pop_execute() -> usize {
         let words = [1usize; 14];
-        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(2);
+        let (mut owner, queues) = WorkerQueues::new(2, diagnostic_local_queue_capacity());
         let () = queues
             .try_push_external(
                 Priority::Normal,
@@ -179,7 +185,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// Push and execute an oversized queue job.
     pub fn diagnostic_oversized_queue_push_pop_execute() -> usize {
         let words = [1usize; 32];
-        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(2);
+        let (mut owner, queues) = WorkerQueues::new(2, diagnostic_local_queue_capacity());
         let () = queues
             .try_push_external(
                 Priority::Normal,

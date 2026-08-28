@@ -26,9 +26,10 @@ moirai-scheduler = "0.5"
 ```
 
 ```rust
-use moirai_scheduler::ChaseLevDeque;
+use moirai_scheduler::{ChaseLevDeque, DequeCapacity};
 
-let mut deque: ChaseLevDeque<u32> = ChaseLevDeque::new(64);
+let capacity = DequeCapacity::<u32>::try_from(64).expect("64 is representable");
+let mut deque: ChaseLevDeque<u32> = ChaseLevDeque::new(capacity);
 let stealer = deque.stealer();
 
 deque.push(1);

@@ -59,6 +59,15 @@
 - [x] Resolve the release-only test-order assumption with an explicit first-poll event.
 - [x] Commit, obtain independent architecture review, and merge as PR #172 / `53d4912`; Apollo retained-footprint evidence is bound in the backlog closure.
 
+### MOI-LOCAL-QUEUE-CAPACITY-036 — resizable local-queue policy
+
+- [x] Claim the item and reserve ADR 0035 for the breaking contract correction.
+- [x] Record the accepted migration and separate local initial capacity from blocking-lane admission.
+- [x] Replace the no-op maximum API without aliases and route the initial capacity into every worker's priority deques.
+- [x] Verify normalization boundaries, rejected overflow, configured construction, and adversarial exactly-once growth/stealing without sleeps.
+- [x] Synchronize Rustdoc, the runtime book, CHANGELOG migration guidance, PM state, and SemVer classification.
+- [ ] Pass focused and workspace warning-denied/value gates, obtain independent review, publish, and merge.
+
 ### MOI-LINT-AUTHORITY-037 — stale-branch rescue
 
 - [x] Establish that commit `0746861` remains unique and its former GPU leases are closed.

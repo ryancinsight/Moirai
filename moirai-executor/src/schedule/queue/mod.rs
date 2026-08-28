@@ -8,7 +8,7 @@ use std::sync::{
 };
 
 use moirai_core::Priority;
-use moirai_scheduler::{ChaseLevDeque, ChaseLevStealer, StealResult};
+use moirai_scheduler::{ChaseLevDeque, ChaseLevStealer, DequeCapacity, StealResult};
 use moirai_utils::CacheAligned;
 
 use super::job::ScheduledJob;
@@ -32,9 +32,11 @@ const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] = [
 ///
 /// Queue contents are synchronized by `state` (note: required contract comment).
 /// Worker queues are also used to coordinate scheduler quiescence.
-pub(crate) struct WorkerQueues<const CAPACITY: usize> {
+pub(crate) struct WorkerQueues {
     local_stealers: [ChaseLevStealer<ScheduledJob>; PRIORITY_LEVELS],
     injector: moirai_utils::queue::LockFreeQueue<(Priority, ScheduledJob)>,
+    #[cfg(test)]
+    local_queue_initial_capacity: usize,
     /// Advisory fast-path count used to skip checking when the queues are visibly
     /// empty. The owner writes it on every push/pop and thieves write it on every
     /// `steal_batch`, so it is cache-line isolated to keep those cross-thread RMWs
@@ -43,19 +45,29 @@ pub(crate) struct WorkerQueues<const CAPACITY: usize> {
 }
 
 /// Unique bottom-side queue capabilities owned by one worker thread.
-pub(crate) struct WorkerQueueOwner<const CAPACITY: usize> {
+pub(crate) struct WorkerQueueOwner {
     local_queues: [ChaseLevDeque<ScheduledJob>; PRIORITY_LEVELS],
-    shared: Arc<WorkerQueues<CAPACITY>>,
+    shared: Arc<WorkerQueues>,
 }
 
-impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
+impl WorkerQueues {
     /// Create empty queues for one worker.
-    pub(crate) fn new(injector_capacity: usize) -> (WorkerQueueOwner<CAPACITY>, Arc<Self>) {
-        let local_queues = std::array::from_fn(|_| ChaseLevDeque::new(CAPACITY));
+    pub(crate) fn new(
+        injector_capacity: usize,
+        local_queue_capacity: DequeCapacity<ScheduledJob>,
+    ) -> (WorkerQueueOwner, Arc<Self>) {
+        let local_queues = [
+            ChaseLevDeque::new(local_queue_capacity),
+            ChaseLevDeque::new(local_queue_capacity),
+            ChaseLevDeque::new(local_queue_capacity),
+            ChaseLevDeque::new(local_queue_capacity),
+        ];
         let local_stealers = std::array::from_fn(|index| local_queues[index].stealer());
         let shared = Arc::new(Self {
             local_stealers,
             injector: moirai_utils::queue::LockFreeQueue::with_capacity(injector_capacity),
+            #[cfg(test)]
+            local_queue_initial_capacity: local_queue_capacity.get(),
             len: CacheAligned::new(AtomicUsize::new(0)),
         });
         (
@@ -122,9 +134,15 @@ impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
     pub(crate) fn injector_capacity(&self) -> usize {
         self.injector.capacity()
     }
+
+    /// Normalized initial slot count of each local priority queue.
+    #[cfg(test)]
+    pub(crate) fn local_queue_initial_capacity(&self) -> usize {
+        self.local_queue_initial_capacity
+    }
 }
 
-impl<const CAPACITY: usize> WorkerQueueOwner<CAPACITY> {
+impl WorkerQueueOwner {
     pub(crate) fn pop_local(&mut self) -> Option<ScheduledJob> {
         if self.shared.len.load(Ordering::Relaxed) == 0 {
             return None;
@@ -148,7 +166,7 @@ impl<const CAPACITY: usize> WorkerQueueOwner<CAPACITY> {
     }
 
     /// Steal multiple jobs from another worker, retaining all but one locally.
-    pub(crate) fn steal_batch(&mut self, target: &WorkerQueues<CAPACITY>) -> Option<ScheduledJob> {
+    pub(crate) fn steal_batch(&mut self, target: &WorkerQueues) -> Option<ScheduledJob> {
         if target.len.load(Ordering::Relaxed) == 0 {
             return None;
         }
@@ -208,13 +226,18 @@ mod tests {
     use super::WorkerQueues;
     use crate::schedule::job::ScheduledJob;
     use moirai_core::Priority;
+    use moirai_scheduler::DequeCapacity;
 
     const TEST_INJECTOR_CAPACITY: usize = 8;
+
+    fn local_capacity(requested: usize) -> DequeCapacity<ScheduledJob> {
+        DequeCapacity::try_from(requested).expect("test capacity must be representable")
+    }
 
     #[test]
     fn worker_queue_pops_highest_priority_first() {
         let observed = Arc::new(Mutex::new(Vec::new()));
-        let (mut owner, queues) = WorkerQueues::<256>::new(TEST_INJECTOR_CAPACITY);
+        let (mut owner, queues) = WorkerQueues::new(TEST_INJECTOR_CAPACITY, local_capacity(256));
 
         for (priority, value) in [(Priority::Low, 1), (Priority::Critical, 2)] {
             let observed = Arc::clone(&observed);
@@ -237,8 +260,15 @@ mod tests {
 
     #[test]
     fn injector_uses_configured_capacity() {
-        let (_owner, queues) = WorkerQueues::<256>::new(TEST_INJECTOR_CAPACITY);
+        let (_owner, queues) = WorkerQueues::new(TEST_INJECTOR_CAPACITY, local_capacity(256));
         assert_eq!(queues.injector_capacity(), TEST_INJECTOR_CAPACITY);
+    }
+
+    #[test]
+    fn local_queues_use_the_normalized_initial_capacity() {
+        let (_owner, queues) = WorkerQueues::new(TEST_INJECTOR_CAPACITY, local_capacity(17));
+
+        assert_eq!(queues.local_queue_initial_capacity(), 32);
     }
 
     #[test]
@@ -246,7 +276,7 @@ mod tests {
         // The reduced-capacity injector still enqueues and drains: an external
         // push lands in the injector and pops out via pop_local's drain path.
         let observed = Arc::new(Mutex::new(Vec::new()));
-        let (mut owner, queues) = WorkerQueues::<256>::new(TEST_INJECTOR_CAPACITY);
+        let (mut owner, queues) = WorkerQueues::new(TEST_INJECTOR_CAPACITY, local_capacity(256));
 
         for (priority, value) in [(Priority::Normal, 7), (Priority::Critical, 9)] {
             let observed = Arc::clone(&observed);
@@ -270,7 +300,7 @@ mod tests {
 
     #[test]
     fn full_injector_returns_and_drops_rejected_job_once() {
-        let (_owner, queues) = WorkerQueues::<256>::new(TEST_INJECTOR_CAPACITY);
+        let (_owner, queues) = WorkerQueues::new(TEST_INJECTOR_CAPACITY, local_capacity(256));
         for _ in 0..TEST_INJECTOR_CAPACITY {
             let () = queues
                 .try_push_external(Priority::Normal, ScheduledJob::new(|_| {}))

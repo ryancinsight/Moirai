@@ -100,6 +100,11 @@ pub enum ExecutorError {
     AlreadyRunning,
     /// Executor configuration is invalid
     InvalidConfiguration,
+    /// The requested local queue initial capacity cannot form a supported allocation.
+    InvalidLocalQueueInitialCapacity {
+        /// Requested slot count before power-of-two normalization.
+        requested: usize,
+    },
     /// Thread pool creation failed
     ThreadPoolCreationFailed,
     /// Task spawn failed
@@ -120,6 +125,10 @@ impl fmt::Display for ExecutorError {
             Self::ShuttingDown => write!(f, "Executor is shutting down"),
             Self::AlreadyRunning => write!(f, "Executor is already running"),
             Self::InvalidConfiguration => write!(f, "Invalid executor configuration"),
+            Self::InvalidLocalQueueInitialCapacity { requested } => write!(
+                f,
+                "local queue initial capacity {requested} cannot form a supported allocation"
+            ),
             Self::ThreadPoolCreationFailed => write!(f, "Failed to create thread pool"),
             Self::SpawnFailed(err) => write!(f, "Failed to spawn task: {err}"),
             Self::ResourceExhausted(msg) => write!(f, "Resource exhausted: {msg}"),

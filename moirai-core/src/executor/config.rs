@@ -16,9 +16,11 @@ pub const LARGE_POOL_SIZE: usize = 16 * MEGABYTE;
 /// Sized for burst absorption across all workers before producers observe
 /// backpressure.
 pub const DEFAULT_GLOBAL_QUEUE_CAPACITY: usize = 8192;
-/// Default bound for each worker's local queue (tasks, not bytes). Small so
-/// idle workers can steal instead of one worker hoarding a deep queue.
-pub const DEFAULT_LOCAL_QUEUE_CAPACITY: usize = 256;
+/// Default initial slot count for each worker's resizable local priority queue.
+///
+/// This is a retained-storage policy, not an admission bound. The Chase-Lev
+/// queues grow when full and normalize this value to a supported power of two.
+pub const DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY: usize = 256;
 
 /// Configuration settings for executor behavior and performance characteristics.
 ///
@@ -35,8 +37,11 @@ pub struct ExecutorConfig {
     /// Executor construction partitions this bound across workers without
     /// exceeding it. The value must supply at least two slots per worker.
     pub max_global_queue_size: usize,
-    /// Maximum size of per-thread local queues
-    pub max_local_queue_size: usize,
+    /// Initial slot count for each resizable per-worker local priority queue.
+    ///
+    /// Values below the deque minimum normalize upward. Local queues grow when
+    /// full; [`Self::max_global_queue_size`] is the external admission bound.
+    pub local_queue_initial_capacity: usize,
     /// Thread name prefix for worker threads
     pub thread_name_prefix: String,
     /// Whether to enable NUMA-aware thread placement
@@ -59,7 +64,7 @@ impl Default for ExecutorConfig {
             worker_threads: super::num_cpus(),
             async_threads: (super::num_cpus() / 4).max(1),
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
-            max_local_queue_size: DEFAULT_LOCAL_QUEUE_CAPACITY,
+            local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
             thread_name_prefix: "moirai-worker".into(),
             #[cfg(feature = "numa")]
             numa_aware: true,

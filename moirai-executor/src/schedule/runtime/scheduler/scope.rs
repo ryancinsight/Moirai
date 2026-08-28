@@ -10,8 +10,8 @@ use moirai_core::error::{ExecutorError, ExecutorResult};
 use super::super::super::{class::WorkClass, job::ScheduledJob};
 use super::super::types::{SchedulerScope, SchedulerScopeState, ScopedTaskCompletion};
 
-impl<'scope, C, const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
-    SchedulerScope<'scope, C, QUEUE_CAPACITY, SPIN_LIMIT>
+impl<'scope, C, const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
+    SchedulerScope<'scope, C, BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 where
     C: WorkClass,
 {

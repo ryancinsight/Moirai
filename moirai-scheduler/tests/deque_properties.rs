@@ -9,9 +9,13 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use moirai_scheduler::{ChaseLevDeque, StealResult};
+use moirai_scheduler::{ChaseLevDeque, DequeCapacity, StealResult};
 
 use proptest::prelude::*;
+
+fn capacity<T>(requested: usize) -> DequeCapacity<T> {
+    DequeCapacity::try_from(requested).expect("generated capacity must be representable")
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum DequeOp {
@@ -45,7 +49,8 @@ proptest! {
         init_cap_exp in 1u32..8,
         ops in deque_ops(),
     ) {
-        let mut deque: ChaseLevDeque<u64> = ChaseLevDeque::new(1usize << init_cap_exp);
+        let mut deque: ChaseLevDeque<u64> =
+            ChaseLevDeque::new(capacity(1usize << init_cap_exp));
         let stealer = deque.stealer();
         let mut model: Vec<u64> = Vec::new();
         for op in ops {
@@ -69,7 +74,7 @@ proptest! {
 
     #[test]
     fn concurrent_owner_and_thief_consume_exactly_once(total in 1usize..512) {
-        let owned: ChaseLevDeque<usize> = ChaseLevDeque::new(4);
+        let owned: ChaseLevDeque<usize> = ChaseLevDeque::new(capacity(4));
         let stealer = owned.stealer();
         let deque = Arc::new(Mutex::new(owned));
 
@@ -132,7 +137,8 @@ proptest! {
     #[test]
     fn capacity_growth_preserves_lifo(init_cap_exp in 1u32..5, factor in 2usize..9) {
         let total = (1usize << init_cap_exp) * factor;
-        let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(1usize << init_cap_exp);
+        let mut deque: ChaseLevDeque<usize> =
+            ChaseLevDeque::new(capacity(1usize << init_cap_exp));
         for v in 0..total {
             deque.push(v);
         }

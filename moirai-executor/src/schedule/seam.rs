@@ -123,8 +123,8 @@ impl<S> WorkScheduler for S where S: WorkSubmit + SchedulerControl + DataParalle
 // adds no behavior — it only re-exposes the existing surface as a substitutable
 // contract.
 
-impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> WorkSubmit
-    for ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> WorkSubmit
+    for ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
     fn schedule<C, F>(
         &self,
@@ -140,8 +140,8 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> WorkSubmit
     }
 }
 
-impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> SchedulerControl
-    for ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> SchedulerControl
+    for ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
     fn pending_tasks(&self) -> usize {
         ThreadScheduler::pending_tasks(self)
@@ -166,8 +166,8 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> SchedulerControl
     }
 }
 
-impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> DataParallel
-    for ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> DataParallel
+    for ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
     fn for_each_indexed<C, F>(
         &self,

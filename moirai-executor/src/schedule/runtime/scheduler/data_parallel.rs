@@ -45,8 +45,8 @@ fn execute_catching_panic<T>(operation: impl FnOnce() -> T) -> ExecutorResult<T>
         .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked))
 }
 
-impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
-    ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
+    ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
     /// Run an indexed scoped fan-out with worker-sized scheduler chunks.
     ///

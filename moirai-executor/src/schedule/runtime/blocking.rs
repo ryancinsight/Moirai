@@ -124,14 +124,14 @@ enum BlockingAdmission {
 /// admission bottleneck. After lane initialization, submissions move jobs
 /// into a selected queue without serialization or cloning; queue storage is
 /// bounded by the admission counter.
-pub(super) struct BlockingLane<const QUEUE_CAPACITY: usize> {
+pub(super) struct BlockingLane<const BLOCKING_QUEUE_CAPACITY: usize> {
     queues: Box<[Arc<BlockingQueue>]>,
     handles: Mutex<Vec<JoinHandle<()>>>,
 }
 
-impl<const QUEUE_CAPACITY: usize> BlockingLane<QUEUE_CAPACITY> {
+impl<const BLOCKING_QUEUE_CAPACITY: usize> BlockingLane<BLOCKING_QUEUE_CAPACITY> {
     pub(super) fn new(worker_count: usize) -> Self {
-        let capacity = QUEUE_CAPACITY.max(1);
+        let capacity = BLOCKING_QUEUE_CAPACITY.max(1);
         let queues = (0..worker_count)
             .map(|_| Arc::new(BlockingQueue::new(capacity)))
             .collect::<Vec<_>>()
@@ -144,7 +144,7 @@ impl<const QUEUE_CAPACITY: usize> BlockingLane<QUEUE_CAPACITY> {
 
     pub(super) fn start(
         &self,
-        inner: Arc<SchedulerInner<QUEUE_CAPACITY>>,
+        inner: Arc<SchedulerInner<BLOCKING_QUEUE_CAPACITY>>,
         thread_name_prefix: &str,
     ) -> ExecutorResult<()> {
         let mut handles = lock_mutex(&self.handles);
@@ -197,7 +197,7 @@ impl<const QUEUE_CAPACITY: usize> BlockingLane<QUEUE_CAPACITY> {
     }
 }
 
-impl<const QUEUE_CAPACITY: usize> Drop for BlockingLane<QUEUE_CAPACITY> {
+impl<const BLOCKING_QUEUE_CAPACITY: usize> Drop for BlockingLane<BLOCKING_QUEUE_CAPACITY> {
     fn drop(&mut self) {
         self.shutdown();
     }

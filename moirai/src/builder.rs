@@ -38,10 +38,10 @@ impl MoiraiBuilder {
         self
     }
 
-    /// Set the maximum local queue size.
+    /// Set the initial capacity of each resizable local priority queue.
     #[must_use]
-    pub fn max_local_queue_size(mut self, size: usize) -> Self {
-        self.config.max_local_queue_size = size;
+    pub fn local_queue_initial_capacity(mut self, size: usize) -> Self {
+        self.config.local_queue_initial_capacity = size;
         self
     }
 

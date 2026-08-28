@@ -16,7 +16,13 @@
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use moirai_scheduler::{ChaseLevDeque, ChaseLevStealer, SplitDeque, StealResult, StolenBatch};
+use moirai_scheduler::{
+    ChaseLevDeque, ChaseLevStealer, DequeCapacity, SplitDeque, StealResult, StolenBatch,
+};
+
+fn capacity<T>(requested: usize) -> DequeCapacity<T> {
+    DequeCapacity::try_from(requested).expect("test capacity must be representable")
+}
 
 struct DropTracked {
     id: usize,
@@ -206,7 +212,12 @@ where
 }
 
 fn chase_lev(n: usize, thieves: usize, capacity: usize, batch: bool) {
-    exactly_once_inner(ChaseLevDeque::<usize>::new(capacity), n, thieves, batch);
+    exactly_once_inner(
+        ChaseLevDeque::<usize>::new(self::capacity(capacity)),
+        n,
+        thieves,
+        batch,
+    );
 }
 
 fn split(n: usize, thieves: usize, batch: bool) {
@@ -251,7 +262,7 @@ fn chase_lev_batch_claims_non_copy_values_before_reading_them() {
     let n = 30_000;
     let drops: Arc<Vec<AtomicUsize>> = Arc::new((0..n).map(|_| AtomicUsize::new(0)).collect());
     let consumed = Arc::new(AtomicUsize::new(0));
-    let mut owner = ChaseLevDeque::<DropTracked>::new(128);
+    let mut owner = ChaseLevDeque::<DropTracked>::new(capacity(128));
 
     for id in 0..n {
         owner.push(DropTracked {
