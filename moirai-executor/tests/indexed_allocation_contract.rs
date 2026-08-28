@@ -4,122 +4,12 @@ use moirai_core::Priority;
 use moirai_executor::{SyncTask, ThreadScheduler};
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(not(miri))]
-use std::{
-    alloc::{GlobalAlloc, Layout, System},
-    sync::atomic::AtomicBool,
-};
+#[path = "indexed_allocation_contract/allocation_ledger.rs"]
+mod allocation_ledger;
 
 /// Serializes the two tests: both drive the same global counting state, and
 /// the plain `cargo test` harness runs tests as threads of one process.
 static HARNESS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-#[cfg(not(miri))]
-static COUNTING: AtomicBool = AtomicBool::new(false);
-#[cfg(not(miri))]
-static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
-/// Live-bytes balance inside a window; signed for frees of pre-window blocks.
-#[cfg(not(miri))]
-static LIVE: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
-/// Ledger floor: allocations at or above this many bytes are listed by size.
-#[cfg(not(miri))]
-static LEDGER_FLOOR: AtomicUsize = AtomicUsize::new(usize::MAX);
-#[cfg(not(miri))]
-const LEDGER_SLOTS: usize = 512;
-#[cfg(not(miri))]
-static LEDGER_SIZE: [AtomicUsize; LEDGER_SLOTS] = [const { AtomicUsize::new(0) }; LEDGER_SLOTS];
-#[cfg(not(miri))]
-static LEDGER_LIVE: [AtomicBool; LEDGER_SLOTS] = [const { AtomicBool::new(false) }; LEDGER_SLOTS];
-#[cfg(not(miri))]
-static LEDGER_NEXT: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(not(miri))]
-fn ledger_push(size: usize) {
-    let slot = LEDGER_NEXT.fetch_add(1, Ordering::Relaxed);
-    if slot < LEDGER_SLOTS {
-        LEDGER_SIZE[slot].store(size, Ordering::Relaxed);
-        LEDGER_LIVE[slot].store(true, Ordering::Relaxed);
-    }
-}
-
-#[cfg(not(miri))]
-fn ledger_free(size: usize) {
-    let filled = LEDGER_NEXT.load(Ordering::Relaxed).min(LEDGER_SLOTS);
-    for slot in 0..filled {
-        if LEDGER_SIZE[slot].load(Ordering::Relaxed) == size
-            && LEDGER_LIVE[slot]
-                .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
-                .is_ok()
-        {
-            return;
-        }
-    }
-}
-
-#[cfg(not(miri))]
-fn track(delta: isize, size: usize, freed: bool) {
-    LIVE.fetch_add(delta, Ordering::Relaxed);
-    if size >= LEDGER_FLOOR.load(Ordering::Relaxed) {
-        if freed {
-            ledger_free(size);
-        } else {
-            ledger_push(size);
-        }
-    }
-}
-
-#[cfg(not(miri))]
-struct CountingAllocator;
-
-// SAFETY: every operation delegates to `System` with identical arguments; the
-// relaxed counters observe calls and do not affect allocation semantics.
-#[cfg(not(miri))]
-unsafe impl GlobalAlloc for CountingAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if COUNTING.load(Ordering::Relaxed) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-            track(
-                isize::try_from(layout.size()).expect("layout size fits isize"),
-                layout.size(),
-                false,
-            );
-        }
-        // SAFETY: this method preserves the caller's allocation contract.
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        if COUNTING.load(Ordering::Relaxed) {
-            track(
-                -isize::try_from(layout.size()).expect("layout size fits isize"),
-                layout.size(),
-                true,
-            );
-        }
-        // SAFETY: this method forwards the pointer and layout unchanged.
-        unsafe { System.dealloc(pointer, layout) }
-    }
-
-    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if COUNTING.load(Ordering::Relaxed) {
-            ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-            track(
-                isize::try_from(new_size).expect("layout size fits isize")
-                    - isize::try_from(layout.size()).expect("layout size fits isize"),
-                layout.size(),
-                true,
-            );
-            if new_size >= LEDGER_FLOOR.load(Ordering::Relaxed) {
-                ledger_push(new_size);
-            }
-        }
-        // SAFETY: this method forwards the allocation arguments unchanged.
-        unsafe { System.realloc(pointer, layout, new_size) }
-    }
-}
-
-#[cfg(not(miri))]
-#[global_allocator]
-static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 struct AllocationCount {
     #[cfg(not(miri))]
@@ -133,171 +23,134 @@ impl AllocationCount {
     }
 }
 
-#[cfg(not(miri))]
-struct AllocationWindow;
-
-#[cfg(not(miri))]
-impl AllocationWindow {
-    fn start() -> Self {
-        ALLOCATIONS.store(0, Ordering::Relaxed);
-        COUNTING.store(true, Ordering::Relaxed);
-        Self
-    }
-}
-
-#[cfg(not(miri))]
-impl Drop for AllocationWindow {
-    fn drop(&mut self) {
-        COUNTING.store(false, Ordering::Relaxed);
-    }
-}
-
 fn measure_allocations<T>(operation: impl FnOnce() -> T) -> (T, AllocationCount) {
     #[cfg(not(miri))]
-    let window = AllocationWindow::start();
-
-    let output = operation();
-
-    #[cfg(not(miri))]
     {
-        drop(window);
+        let (output, snapshot) = allocation_ledger::measure(operation);
         let count = AllocationCount {
-            value: ALLOCATIONS.load(Ordering::Relaxed),
+            value: snapshot.global.allocations(),
         };
         (output, count)
     }
     #[cfg(miri)]
     {
+        let output = operation();
         (output, AllocationCount {})
     }
 }
 
-/// Runs `f` in a fresh ledger window and prints its allocation summary and
-/// the surviving blocks at or above `floor` bytes, as `size x count`.
-#[cfg(not(miri))]
-fn footprint_window<R>(label: &str, floor: usize, f: impl FnOnce() -> R) -> (R, usize, isize) {
-    ALLOCATIONS.store(0, Ordering::Relaxed);
-    LIVE.store(0, Ordering::Relaxed);
-    LEDGER_NEXT.store(0, Ordering::Relaxed);
-    LEDGER_FLOOR.store(floor, Ordering::Relaxed);
-    COUNTING.store(true, Ordering::Relaxed);
-    let result = f();
-    COUNTING.store(false, Ordering::Relaxed);
-
-    let filled = LEDGER_NEXT.load(Ordering::Relaxed).min(LEDGER_SLOTS);
-    let mut survivors: Vec<(usize, usize)> = Vec::new();
-    for slot in 0..filled {
-        if LEDGER_LIVE[slot].load(Ordering::Relaxed) {
-            let size = LEDGER_SIZE[slot].load(Ordering::Relaxed);
-            match survivors.iter_mut().find(|(s, _)| *s == size) {
-                Some((_, count)) => *count += 1,
-                None => survivors.push((size, 1)),
-            }
-        }
-    }
-    survivors.sort_unstable_by(|a, b| b.cmp(a));
-    let blocks = survivors
-        .iter()
-        .map(|(size, count)| format!("{size}x{count}"))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let allocs = ALLOCATIONS.load(Ordering::Relaxed);
-    let retained = LIVE.load(Ordering::Relaxed);
-    println!("  {label:<28} allocs {allocs:>5}  retained {retained:>10}  blocks: {blocks}");
-    (result, allocs, retained)
-}
-
 /// Retained-footprint instrument for the pool itself
-/// (`MOIRAI-POOL-RETAINED-FOOTPRINT-2026-08-27`, delivered by PR #184).
+/// (`MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28`).
 ///
-/// The item's consumer probe lived in apollo; this is the provider-side
-/// instrument, so the next retention change measures here. Windows per
-/// stage: scheduler construction, the first trivial fan-out, the first
-/// fan-out whose closure exceeds the inline job words, a repeat of it, and
-/// shutdown. Post-#184 baselines on a 24-worker host: construction retains
-/// one 36,864-byte buffer per worker — 256 queue slots at the de-aligned
-/// 18-word slot exactly — and every fan-out window allocates and retains
-/// zero: indexed fan-out shares one closure by reference, so no per-job
-/// storage exists on any path. Asserts the zero-allocation fan-out contract;
-/// prints the rest. Run with `--ignored --nocapture`.
-#[cfg(not(miri))]
+/// Pointer-identity ledgers cover both the installed global allocator and
+/// direct Mnemosyne allocation hooks. Windows isolate scheduler construction,
+/// first and repeated fan-out, and shutdown. The construction oracle requires
+/// one partitioned global injector and four local deque planes per worker;
+/// fan-out remains allocation-free after initialization. Run this test alone
+/// with `--run-ignored ignored-only --no-capture` so unrelated test-process
+/// activity cannot enter its process-wide window.
+#[cfg(all(not(miri), feature = "mnemosyne"))]
 #[test]
+#[ignore = "measurement probe for retained scheduler footprint"]
 fn pool_retained_footprint_attribution() {
     let _serial = HARNESS.lock().expect("harness lock");
+    let _hooks = allocation_ledger::MnemosyneHooks::install();
     const JOBS: usize = 256;
     let workers = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
-    println!("workers = {workers}, jobs per fan-out = {JOBS} (ledger floor 4096)");
+    println!("workers = {workers}, jobs per fan-out = {JOBS}");
 
-    let (scheduler, _, _) = footprint_window("construction", 4096, || {
+    let (scheduler, construction) = allocation_ledger::footprint_window("construction", || {
         ThreadScheduler::new(workers, "pool-footprint").expect("the probe scheduler must start")
     });
-    // Construction contract: exactly one at-or-above-floor buffer per worker,
-    // sized by the global-queue partition — pow2floor(8192 / workers) slots of
-    // 18 words each: 17 for the queued `(Priority, ScheduledJob)` after PR
-    // #184 removed the inline job's forced alignment, plus the sequence word.
-    // Retained-total is not asserted: construction also retains sub-floor
-    // bookkeeping (worker handles, queue headers) whose size is not contract.
+
+    // Each global injector stores one sequence word beside the 17-word queued
+    // `(Priority, ScheduledJob)` value. Construction may retain other smaller
+    // global blocks, so this oracle filters by the derived injector size.
     const SLOT_WORDS: usize = 18;
     let partition_slots =
         1usize << (moirai_core::executor::config::DEFAULT_GLOBAL_QUEUE_CAPACITY / workers).ilog2();
     let queue_buffer_bytes = partition_slots * SLOT_WORDS * core::mem::size_of::<usize>();
-    let filled = LEDGER_NEXT.load(Ordering::Relaxed).min(LEDGER_SLOTS);
-    let live_blocks: Vec<usize> = (0..filled)
-        .filter(|&slot| LEDGER_LIVE[slot].load(Ordering::Relaxed))
-        .map(|slot| LEDGER_SIZE[slot].load(Ordering::Relaxed))
-        .collect();
     assert_eq!(
-        live_blocks.len(),
+        construction.global.block_count(queue_buffer_bytes),
         workers,
-        "construction must retain exactly one at-or-above-floor buffer per worker, saw {live_blocks:?}"
+        "construction must retain one partition-sized global injector per worker"
     );
-    assert!(
-        live_blocks.iter().all(|&size| size == queue_buffer_bytes),
-        "per-worker buffer must be the partition-sized queue ({queue_buffer_bytes} bytes), saw {live_blocks:?}"
+
+    // `ScheduledJob` is independently pinned to 16 words by its crate-local
+    // layout test. Each worker owns four local Chase-Lev planes.
+    const SCHEDULED_JOB_WORDS: usize = 16;
+    const LOCAL_PLANES: usize = 4;
+    let local_buffer_bytes = moirai_core::executor::config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY
+        * SCHEDULED_JOB_WORDS
+        * core::mem::size_of::<usize>();
+    assert_eq!(
+        construction.direct.total_blocks(),
+        workers * LOCAL_PLANES,
+        "construction must retain four direct local-queue buffers per worker"
+    );
+    assert_eq!(
+        construction.direct.block_count(local_buffer_bytes),
+        workers * LOCAL_PLANES,
+        "each direct local-queue buffer must match the configured initial capacity"
     );
 
     let hits: Vec<AtomicUsize> = (0..JOBS).map(|_| AtomicUsize::new(0)).collect();
-    let ((), trivial_allocs, trivial_retained) =
-        footprint_window("first trivial fan-out", 4096, || {
-            scheduler
-                .for_each_indexed::<SyncTask, _>(Priority::Normal, None, JOBS, |index| {
-                    hits[index].fetch_add(1, Ordering::Relaxed);
-                })
-                .expect("the trivial fan-out must complete");
-        });
+    let ((), trivial) = allocation_ledger::footprint_window("first trivial fan-out", || {
+        scheduler
+            .for_each_indexed::<SyncTask, _>(Priority::Normal, None, JOBS, |index| {
+                hits[index].fetch_add(1, Ordering::Relaxed);
+            })
+            .expect("the trivial fan-out must complete");
+    });
     assert_eq!(
-        (trivial_allocs, trivial_retained),
-        (0, 0),
+        (
+            trivial.global.allocations(),
+            trivial.global.retained(),
+            trivial.direct.allocations(),
+            trivial.direct.retained(),
+        ),
+        (0, 0, 0, 0),
         "the first indexed fan-out must allocate nothing: it shares one closure by reference"
     );
 
     // 32 words of capture: past the inline-job words, the shape closest to a
     // capture-heavy consumer.
     let payload: [usize; 32] = std::array::from_fn(|i| i);
-    let ((), wide_allocs, wide_retained) =
-        footprint_window("first wide-capture fan-out", 4096, || {
-            scheduler
-                .for_each_indexed::<SyncTask, _>(Priority::Normal, None, JOBS, move |index| {
-                    std::hint::black_box(payload[index % 32]);
-                })
-                .expect("the wide-capture fan-out must complete");
-        });
+    let ((), wide) = allocation_ledger::footprint_window("first wide-capture fan-out", || {
+        scheduler
+            .for_each_indexed::<SyncTask, _>(Priority::Normal, None, JOBS, move |index| {
+                std::hint::black_box(payload[index % 32]);
+            })
+            .expect("the wide-capture fan-out must complete");
+    });
     assert_eq!(
-        (wide_allocs, wide_retained),
-        (0, 0),
+        (
+            wide.global.allocations(),
+            wide.global.retained(),
+            wide.direct.allocations(),
+            wide.direct.retained(),
+        ),
+        (0, 0, 0, 0),
         "a capture past the inline-job words changes nothing: indexed fan-out has no per-job storage"
     );
-    let ((), repeat_allocs, repeat_retained) =
-        footprint_window("repeat wide-capture fan-out", 4096, || {
-            scheduler
-                .for_each_indexed::<SyncTask, _>(Priority::Normal, None, JOBS, move |index| {
-                    std::hint::black_box(payload[index % 32]);
-                })
-                .expect("the repeat fan-out must complete");
-        });
-    assert_eq!((repeat_allocs, repeat_retained), (0, 0));
+    let ((), repeat) = allocation_ledger::footprint_window("repeat wide-capture fan-out", || {
+        scheduler
+            .for_each_indexed::<SyncTask, _>(Priority::Normal, None, JOBS, move |index| {
+                std::hint::black_box(payload[index % 32]);
+            })
+            .expect("the repeat fan-out must complete");
+    });
+    assert_eq!(
+        (
+            repeat.global.allocations(),
+            repeat.global.retained(),
+            repeat.direct.allocations(),
+            repeat.direct.retained(),
+        ),
+        (0, 0, 0, 0)
+    );
 
-    footprint_window("shutdown", 4096, || scheduler.shutdown());
+    allocation_ledger::footprint_window("shutdown", || scheduler.shutdown());
     assert!(hits.iter().all(|h| h.load(Ordering::Relaxed) == 1));
 }
 
