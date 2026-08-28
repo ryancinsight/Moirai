@@ -5,11 +5,11 @@
 ## MOI-CI-FUZZ-SCOPE-2026-08-28 — Event-scoped parser fuzzing [patch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-- **Lease:** `.github/workflows/rust-ci.yml`, `fuzz/`, and this item's PM regions through the next verified commit.
+- **Lease:** `.github/workflows/rust-ci.yml`, `fuzz/`, `moirai-core/src/ipc/mod.rs`, and this item's PM regions through the next verified commit.
 - [ ] Replace the 180-second pull-request campaign with deterministic execution of every committed parser seed while retaining the bounded full campaign on schedule and manual dispatch.
 - [ ] Include every shipped parser fuzz target in smoke and campaign coverage; reconcile the workflow with the target-set documentation.
 - [ ] Verify workflow syntax, exact seed execution, the scheduled command surface, and the reduced pull-request runtime without weakening parser inputs or production tests.
-- **Entry evidence:** PR #187 job `98921194919` spent 263 seconds on an unrelated scheduler change, including the full 180-second `http_response` campaign. The workflow omits the shipped `ipc_header` target although the backlog records it as scheduled coverage.
+- **Entry evidence:** PR #187 job `98921194919` spent 263 seconds on an unrelated scheduler change, including the full 180-second `http_response` campaign. The workflow omits the shipped `ipc_header` target, its manifest registration, and the cfg-only accessor it imports although the backlog records it as scheduled coverage.
 
 ## MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 — Retained local-queue storage [patch] [arch] — done 2026-08-28
 
