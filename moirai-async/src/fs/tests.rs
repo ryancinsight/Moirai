@@ -1,4 +1,5 @@
 use super::*;
+use crate::io::{AsyncLength, AsyncReadAt};
 use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -78,6 +79,89 @@ fn test_file_write_read_append_and_stats_values() {
         assert_eq!(file.stats().seek_operations, 1);
     });
     std::fs::remove_file(&path).expect("test file cleanup must succeed");
+}
+
+#[test]
+fn test_file_positioned_read_preserves_cursor_length_and_stream_stats() {
+    let path = test_path("positioned.bin");
+    let expected = b"0123456789";
+    std::fs::write(&path, expected).expect("positioned source write must succeed");
+
+    futures::executor::block_on(async {
+        let mut file = File::open(&path).await.expect("open must succeed");
+        let mut prefix = [0_u8; 2];
+        let prefix_read = file
+            .read(&mut prefix)
+            .await
+            .expect("stream read must succeed");
+        assert_eq!(prefix_read, prefix.len());
+        assert_eq!(&prefix, b"01");
+
+        let mut positioned = [0_u8; 4];
+        file.read_at(6, &mut positioned)
+            .await
+            .expect("positioned read must succeed");
+        assert_eq!(&positioned, b"6789");
+        assert_eq!(
+            file.stream_position().await.expect("position must succeed"),
+            2
+        );
+        assert_eq!(
+            file.len().await.expect("length must succeed"),
+            u64::try_from(expected.len()).expect("fixture length fits u64")
+        );
+        assert!(!file.is_empty().await.expect("empty query must succeed"));
+        assert_eq!(file.stats().bytes_read, 2);
+        assert_eq!(file.stats().read_operations, 1);
+    });
+
+    std::fs::remove_file(&path).expect("positioned file cleanup must succeed");
+}
+
+#[test]
+fn test_file_positioned_read_reports_short_source() {
+    let path = test_path("positioned-short.bin");
+    std::fs::write(&path, b"0123456789").expect("short positioned source write must succeed");
+
+    futures::executor::block_on(async {
+        let file = File::open(&path).await.expect("open must succeed");
+        let mut output = [0_u8; 4];
+        let error = file
+            .read_at(8, &mut output)
+            .await
+            .expect_err("positioned read must reject a short source");
+        assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
+        assert_eq!(&output[..2], b"89");
+    });
+
+    std::fs::remove_file(&path).expect("short positioned file cleanup must succeed");
+}
+
+#[test]
+fn test_file_positioned_read_validates_empty_and_overflow_ranges() {
+    let path = test_path("positioned-range.bin");
+    std::fs::write(&path, b"").expect("positioned source write must succeed");
+
+    futures::executor::block_on(async {
+        let file = File::open(&path).await.expect("open must succeed");
+        assert_eq!(file.len().await.expect("length must succeed"), 0);
+        assert!(file.is_empty().await.expect("empty query must succeed"));
+
+        let mut empty = [];
+        file.read_at(u64::MAX, &mut empty)
+            .await
+            .expect("empty positioned read must not inspect its offset");
+
+        let mut output = [0xA5_u8; 1];
+        let error = file
+            .read_at(u64::MAX, &mut output)
+            .await
+            .expect_err("overflowing range must fail before I/O");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(output, [0xA5]);
+    });
+
+    std::fs::remove_file(&path).expect("positioned range file cleanup must succeed");
 }
 
 #[test]
