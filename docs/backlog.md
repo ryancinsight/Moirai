@@ -141,7 +141,7 @@ architecture definition.
 - **Risk / dependency**: concurrency/lifecycle patch blocking MOI-HTTP-REDIRECT-041 delivery; timer notification preserves its mutex/condition-variable happens-before edge without waking per ordinary cancellation, and readiness cleanup preserves independent read/write waiters while removing completed interests.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
 - **Evidence**: the deterministic notification regression passes; exact-lock `moirai-async` coverage contributes 95/95 passing tests to the 118-test focused run; warning-denied Clippy, rustdoc, doctests, and AArch64 Linux/Windows all-target checks pass. The full focused run's remaining 30.216-second readiness stall falsifies timer cancellation as the sole cause.
-- **Lease**: none after the verified timer-driver increment; the next increment renews the lease for reactor readiness consumption.
+- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` — `moirai-pal/src/reactor/{core.rs,tests.rs}`, the async benchmark source contract, CHANGELOG, and owner-local PM entries.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
