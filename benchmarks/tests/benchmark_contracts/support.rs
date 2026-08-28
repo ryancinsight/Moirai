@@ -185,6 +185,15 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "../moirai-pal/src/fs.rs",
+        &[
+            "../moirai-pal/src/fs/mod.rs",
+            "../moirai-pal/src/fs/file.rs",
+            "../moirai-pal/src/fs/path.rs",
+            "../moirai-pal/src/fs/tests.rs",
+        ],
+    ),
+    (
         "../moirai-core/src/memory.rs",
         &[
             "../moirai-core/src/memory/mod.rs",

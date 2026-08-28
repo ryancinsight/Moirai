@@ -121,8 +121,8 @@ architecture definition.
 - **Outcome**: make `moirai_async::fs::File` implement the existing `AsyncReadAt` and `AsyncLength` contracts through PAL-owned platform reads, without adding synchronization to ordinary file I/O.
 - **Acceptance**: exact, short, empty, overflow, length, and cursor-preservation behavior is value-checked; Windows serializes only save/read/restore positioned operations, Unix uses cursor-independent `read_at`; warning-denied host/cross checks, Nextest, docs, and SemVer gates pass.
 - **Scope**: `moirai-pal` file positioning, the `moirai-async` file adapter/tests, public docs, changelog, and PM state. HTTP/S3 behavior is excluded.
-- **Status**: in progress; stale commit `778021e` established the consumer requirement, but its all-operation file mutex is rejected because it would serialize unrelated I/O.
-- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns `moirai-pal/src/fs.rs`, `moirai-async/src/fs/{file,stats,tests}.rs`, and this item's docs through the next verified commit.
+- **Status**: implementation and local gates complete. Exact-lock Nextest passes 120/120 focused, 68/68 benchmark contracts, and 842/842 workspace in 11.740 seconds; workspace Clippy and rustdoc are warning-clean; 19 doctests pass with one ignored; affected-package all-target checks pass with warnings denied on AArch64 Linux and Windows; standalone lock validation reports 10 first-party Git sources; `cargo-semver-checks` passes 196/196 for both changed crates against `b7458ee`. The mixed 635-line PAL file module is split into bounded manifest, file, path, and test leaves. Whole-workspace AArch64 checking additionally requires PyO3 cross-Python configuration and is not claimed by this increment.
+- **Lease**: none after the verified implementation commit.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 

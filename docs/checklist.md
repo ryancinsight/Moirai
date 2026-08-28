@@ -91,9 +91,10 @@
 ### MOI-POSITIONED-FILE-040 — native positioned file reads
 
 - [x] Verify the Unix and Windows standard-library cursor contracts and reject the stale all-operation mutex design.
-- [ ] Add PAL positioned reads with synchronization limited to Windows cursor restoration.
-- [ ] Implement `AsyncReadAt` and `AsyncLength` for `moirai_async::fs::File` with exact-read and overflow handling.
-- [ ] Pass value, cross-target, warning-denied, documentation, and SemVer gates; publish and merge.
+- [x] Add PAL positioned reads with synchronization limited to Windows cursor restoration.
+- [x] Implement `AsyncReadAt` and `AsyncLength` for `moirai_async::fs::File` with exact-read and overflow handling.
+- [x] Pass value, affected-package cross-target, warning-denied host-workspace, documentation, lock, and SemVer gates.
+- [ ] Publish and merge the verified implementation.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 

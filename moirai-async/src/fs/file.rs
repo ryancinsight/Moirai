@@ -6,9 +6,9 @@ use std::task::{Context, Poll};
 
 use crate::fs::options::FileOpenOptions;
 use crate::fs::stats::FileStats;
-use crate::io::{AsyncRead, AsyncWrite};
+use crate::io::{AsyncLength, AsyncRead, AsyncReadAt, AsyncWrite};
 
-/// High-performance async file handle with native implementation
+/// Async file handle supporting stateful streams and positioned reads.
 pub struct File {
     inner: AsyncFile,
     path: PathBuf,
@@ -144,9 +144,52 @@ impl File {
         &self.path
     }
 
-    /// Get file statistics
+    /// Get statistics for stateful stream operations.
+    ///
+    /// Positioned reads do not advance the stream and are not included.
     pub fn stats(&self) -> &FileStats {
         &self.stats
+    }
+}
+
+impl AsyncReadAt for File {
+    async fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+        if buf.is_empty() {
+            return Ok(());
+        }
+
+        let requested = u64::try_from(buf.len()).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "read length does not fit u64")
+        })?;
+        offset.checked_add(requested).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "read range overflows u64")
+        })?;
+
+        let mut filled = 0;
+        while filled < buf.len() {
+            let filled_offset = u64::try_from(filled).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "read offset does not fit u64")
+            })?;
+            let position = offset.checked_add(filled_offset).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "read range overflows u64")
+            })?;
+            moirai_pal::fs::yield_now().await;
+            let count = self.inner.read_at(&mut buf[filled..], position)?;
+            if count == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "positioned read reached end of file before filling buffer",
+                ));
+            }
+            filled += count;
+        }
+        Ok(())
+    }
+}
+
+impl AsyncLength for File {
+    async fn len(&self) -> io::Result<u64> {
+        Ok(self.metadata().await?.len())
     }
 }
 

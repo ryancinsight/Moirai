@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Native positioned reads for `moirai_async::fs::File` through the existing
+  `AsyncReadAt` and `AsyncLength` contracts. Unix uses cursor-independent
+  `read_at`; Windows serializes only the cursor save/read/restore sequence, so
+  ordinary file operations retain their existing lock-free path.
 - Deterministic TLS integration fixtures for trusted, wrong-hostname,
   untrusted, and expired certificate cases. The handshake tests now match
   Rustls certificate-error variants and require rejected server handshakes to

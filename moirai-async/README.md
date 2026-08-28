@@ -10,7 +10,8 @@ data-parallel domain in `moirai-parallel`.
 - `io` — `AsyncRead` / `AsyncWrite` (signature-identical to `futures-io`) with
   `AsyncReadExt` / `AsyncWriteExt`, plus `TokioCompat` / `MoiraiCompat` bridges.
 - `net` — `TcpStream`, `TcpListener`, `UdpSocket`, and connection pooling.
-- `fs` — async file operations (`read`, `write`, `File`, `FileOpenOptions`, …).
+- `fs` — async file operations (`read`, `write`, `File`, `FileOpenOptions`, …),
+  including exact cursor-preserving `AsyncReadAt` and `AsyncLength` access.
 - `timer` — `sleep`, `timeout`, `interval`, `RateLimiter`, `TimerWheel`.
 - `sync` — `Mutex`, `RwLock`, `Semaphore`, `Notify`, `Broadcast`, `Watch`.
 - `executor` — `AsyncExecutor` and `AsyncHandle`.
