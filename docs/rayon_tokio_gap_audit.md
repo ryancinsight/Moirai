@@ -1,5 +1,22 @@
 # Rayon/Tokio Gap Audit
 
+## 2026-08-28 scoped-completion publication pattern
+
+A lifetime-erased borrowing job must not own the token whose `Drop` tells the
+caller that the borrow has ended. Dropping that token inside the task body can
+publish zero pending tasks before the worker's call frame and captured shared
+references are destroyed, allowing the caller to deallocate protected stack
+state. Native value tests do not establish this ordering.
+
+The canonical job representation stores task and completion separately,
+destroys the task first, then publishes success or failure. Dropping an
+unexecuted job drops both without invoking completion. Every future borrowing
+queue path requires a filtered Miri integration test that lets the caller
+destroy its borrowed state immediately after the completion barrier; direct
+tests cover inline, typed-boxed, dropped, and panicking jobs. This pattern was
+found while removing the indexed allocation test's custom allocator under
+`MOI-MIRI-ALLOCATOR-HARNESS-2026-08-28`.
+
 ## 2026-08-09 bounded-admission comparison
 
 ISSUE-216 is closed with a value-checked Criterion comparison in

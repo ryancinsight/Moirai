@@ -1,6 +1,7 @@
 include!("support.rs");
 include!("artifact_contracts.rs");
 include!("source_contracts.rs");
+include!("job_source_contracts.rs");
 include!("transport_source_contracts.rs");
 include!("routed_execution_contracts.rs");
 include!("hybrid_source_contracts.rs");

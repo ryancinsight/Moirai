@@ -92,18 +92,14 @@ architecture definition.
 - **Evidence**: retained Apollo pool bytes fall from 1,857,224 to 1,169,112 (688,112 bytes, 37.1%) with no block at or above 65,536 bytes; provider run `33163390162` and consumer run `33164426704` pass, and independent provider and consumer reviews are GREEN.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: none.
 
-### 🔵 MOI-MIRI-ALLOCATOR-HARNESS-2026-08-28 [patch]: Preserve allocation contracts under Miri
+### 🔵 MOI-MIRI-ALLOCATOR-HARNESS-2026-08-28 [patch]: Verify allocator and scoped-completion lifetimes under Miri
 
-- **Outcome**: the indexed-operation allocation instrument preserves native allocation-count assertions and permits Miri to run filtered executor integration suites without a custom-global-allocator provenance failure.
-- **Scope / non-goals**: `moirai-executor/tests/indexed_allocation_contract.rs` allocator instrumentation and its Miri/native gates; no production allocator or scheduler change.
-- **Acceptance oracle**: the native warmed allocation assertion remains value-semantic, while a filtered `cargo +nightly miri test -p moirai-executor` no longer aborts in the integration-test allocator shim.
-- **Evidence**: the 2026-08-28 broad Miri run aborts in `CountingAllocator::dealloc` at `indexed_allocation_contract.rs:26`; the library-only inline-job Miri suite passes 9/9, isolating the failure to the integration harness.
-- **Risk / change class**: [patch], verification-infrastructure ownership and pointer provenance.
-- **Integrator / lease**: Codex session
-  `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease
-  `moirai-executor/tests/indexed_allocation_contract.rs`, this item block, and
-  the matching checklist section through the next verified commit; last update
-  2026-08-28.
+- **Outcome**: preserve exact native indexed-operation allocation assertions while Miri executes the same value workload and verifies that borrowing jobs publish completion only after task teardown.
+- **Scope / non-goals**: indexed allocation instrumentation; scoped job representation, completion ordering, direct/indexed panic metrics, and tests; ADR-005 and the scheduler audit pattern. Batched scoped failures remain scope-local. No queue-capacity, public API, production allocator, or scheduling-policy change.
+- **Acceptance oracle**: warmed native fan-out retains zero allocations and map/reduce retains one result-slot allocation per call; filtered Miri completes without allocator-provenance or protected-borrow violations; inline, typed-boxed, dropped, and panicking scoped jobs preserve value and lifecycle semantics.
+- **Evidence**: the entry Miri run first aborts in the custom `CountingAllocator`, then exposes `deallocating while item [SharedReadOnly] is strongly protected` after switching to Miri's allocator. The corrected exact integration test passes 1/1 in 20.46 seconds and direct scoped-job Miri passes 4/4, including typed-boxed teardown. Native allocation assertions pass; workspace Nextest passes 885/885 in 11.72 seconds; release executor passes 122/122; source contracts pass 68/68 in debug and release; Loom passes 7/7; warning-denied AArch64, workspace Clippy, doctests, and Rustdoc pass. A forced-rebuild same-machine Criterion A/B against pre-fix `2700344` reports no scoped-ready regression at 64, 256, or 1024 tasks; candidate intervals are 10.406-10.732 us, 21.556-24.788 us, and 61.663-65.384 us.
+- **Risk / change class**: [patch], lifetime-erased borrowing job soundness and verification-infrastructure provenance; independent review is GREEN after narrowing the documented metric boundary for batched scopes.
+- **Integrator / lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease `moirai-executor/src/schedule/job`, scheduler scoped/indexed completion paths and tests, indexed allocation contract, benchmark source contracts, ADR-005, changelog, audit pattern, this item block, and matching checklist through the next verified commit; last update 2026-08-28.
 
 ### ✅ MOI-QUEUE-CAPACITY-034 [patch] [arch]: Enforce the executor admission bound
 

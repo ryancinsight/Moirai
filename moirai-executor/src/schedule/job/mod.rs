@@ -25,6 +25,11 @@ struct InlineJobStorage {
     words: [MaybeUninit<usize>; INLINE_JOB_WORDS],
 }
 
+struct ScopedJob<F, Complete> {
+    task: F,
+    complete: Complete,
+}
+
 impl ScheduledJob {
     /// Create a scheduled job from a worker-aware closure.
     pub(crate) fn new<F>(task: F) -> Self
@@ -63,6 +68,30 @@ impl ScheduledJob {
         }
     }
 
+    /// Create a scoped job whose completion is published after task teardown.
+    ///
+    /// `complete` runs after the borrowing task's call frame and captures have
+    /// been destroyed. If the queued job is dropped without execution, the
+    /// completion closure is dropped without being called.
+    ///
+    /// # Safety
+    ///
+    /// The caller must prove that every queued job is either executed or
+    /// dropped before the borrowed scope ends. `complete` must release the
+    /// scope's corresponding pending-task registration when called or dropped.
+    pub(crate) unsafe fn new_scoped_with_completion<'scope, F, Complete>(
+        task: F,
+        complete: Complete,
+    ) -> Self
+    where
+        F: FnOnce(usize) + Send + 'scope,
+        Complete: FnOnce(bool) + Send + 'scope,
+    {
+        Self {
+            job: InlineJob::new_scoped(task, complete),
+        }
+    }
+
     /// Execute the job exactly once.
     pub(crate) fn execute(mut self, worker_id: usize) -> bool {
         self.job.execute(worker_id)
@@ -73,6 +102,26 @@ impl InlineJob {
     fn new<F>(task: F) -> Self
     where
         F: FnOnce(usize) + Send,
+    {
+        Self::new_with(task, execute_inline::<F>)
+    }
+
+    fn new_scoped<F, Complete>(task: F, complete: Complete) -> Self
+    where
+        F: FnOnce(usize) + Send,
+        Complete: FnOnce(bool) + Send,
+    {
+        let scoped = ScopedJob { task, complete };
+        if inline_job_fits::<ScopedJob<F, Complete>>() {
+            Self::new_with(scoped, execute_scoped_inline::<F, Complete>)
+        } else {
+            Self::new_with(Box::new(scoped), execute_boxed_scoped::<F, Complete>)
+        }
+    }
+
+    fn new_with<F>(task: F, execute: unsafe fn(*mut InlineJobStorage, usize) -> bool) -> Self
+    where
+        F: Send,
     {
         // Checked in release too, not just under `debug_assert`: this is a safe
         // function whose precondition is UB-critical, since an `F` too large for
@@ -90,7 +139,7 @@ impl InlineJob {
         assert!(inline_job_fits::<F>());
         let mut job = Self {
             storage: InlineJobStorage::new(),
-            execute: execute_inline::<F>,
+            execute,
             drop: drop_inline::<F>,
         };
 
@@ -156,10 +205,46 @@ where
     catch_unwind(AssertUnwindSafe(|| task(worker_id))).is_ok()
 }
 
-unsafe fn drop_inline<F>(storage: *mut InlineJobStorage)
+unsafe fn execute_scoped_inline<F, Complete>(
+    storage: *mut InlineJobStorage,
+    worker_id: usize,
+) -> bool
 where
     F: FnOnce(usize) + Send,
+    Complete: FnOnce(bool) + Send,
 {
+    // SAFETY: `InlineJob::new_scoped` initialized the storage with this exact
+    // scoped wrapper type and execution consumes it once.
+    let scoped = unsafe { ptr::read((*storage).as_mut_ptr::<ScopedJob<F, Complete>>()) };
+    execute_scoped(scoped, worker_id)
+}
+
+unsafe fn execute_boxed_scoped<F, Complete>(
+    storage: *mut InlineJobStorage,
+    worker_id: usize,
+) -> bool
+where
+    F: FnOnce(usize) + Send,
+    Complete: FnOnce(bool) + Send,
+{
+    // SAFETY: `InlineJob::new_scoped` initialized the storage with a box of
+    // this exact scoped wrapper type and execution consumes it once.
+    let scoped = unsafe { ptr::read((*storage).as_mut_ptr::<Box<ScopedJob<F, Complete>>>()) };
+    execute_scoped(*scoped, worker_id)
+}
+
+fn execute_scoped<F, Complete>(scoped: ScopedJob<F, Complete>, worker_id: usize) -> bool
+where
+    F: FnOnce(usize) + Send,
+    Complete: FnOnce(bool) + Send,
+{
+    let ScopedJob { task, complete } = scoped;
+    let succeeded = catch_unwind(AssertUnwindSafe(move || task(worker_id))).is_ok();
+    complete(succeeded);
+    succeeded
+}
+
+unsafe fn drop_inline<F>(storage: *mut InlineJobStorage) {
     // Safety: called only when the inline job was not consumed.
     unsafe {
         ptr::drop_in_place((*storage).as_mut_ptr::<F>());
@@ -167,6 +252,9 @@ where
 }
 
 unsafe fn drop_consumed(_: *mut InlineJobStorage) {}
+
+#[cfg(test)]
+mod scoped_tests;
 
 #[cfg(test)]
 mod tests {

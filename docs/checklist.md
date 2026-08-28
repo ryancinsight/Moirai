@@ -18,11 +18,15 @@
 
 ## MOI-MIRI-ALLOCATOR-HARNESS-2026-08-28 [patch] — Codex
 
-- [ ] Reproduce the integration-test allocator provenance failure under Miri.
-- [ ] Preserve native warmed-allocation value assertions without custom
+- [x] Reproduce the allocator-provenance failure and the scoped-task protected-borrow violation under Miri.
+- [x] Preserve native warmed-allocation value assertions without custom
       allocator pointer bookkeeping that Miri cannot validate.
-- [ ] Pass focused native Nextest, filtered Miri, strict Clippy, and independent
-      review.
+- [x] Publish completion after task teardown and cover inline, typed-boxed,
+      dropped, and panicking scoped-job semantics.
+- [x] Pass full native/release Nextest, filtered Miri, strict Clippy,
+      cross-target, documentation, and controlled benchmark gates.
+- [x] Complete independent review of the lifetime-erased task/completion
+      ordering and allocator-test split.
 - [ ] Commit, merge, and record exact hosted evidence.
 
 ## Nightly TLS gate cleanup

@@ -1,9 +1,6 @@
 //! SchedulerScope implementation.
 
-use std::{
-    mem,
-    panic::{catch_unwind, AssertUnwindSafe},
-};
+use std::mem;
 
 use moirai_core::error::{ExecutorError, ExecutorResult};
 
@@ -32,18 +29,16 @@ where
     {
         self.state().register_task();
         let completion = ScopedTaskCompletion::new(self.state());
-        let scoped_task = move |worker_id| {
-            let _completion = completion;
-            let result = catch_unwind(AssertUnwindSafe(|| task(worker_id)));
-            if result.is_err() {
-                _completion.mark_failed();
+        let complete = move |succeeded: bool| {
+            if !succeeded {
+                completion.mark_failed();
             }
         };
 
-        // Safety: `ThreadScheduler::scope` waits for every scheduled scoped
+        // SAFETY: `ThreadScheduler::scope` waits for every scheduled scoped
         // job and drops unscheduled buffered jobs before borrowed scope data
         // can expire.
-        let job = unsafe { ScheduledJob::new_scoped(scoped_task) };
+        let job = unsafe { ScheduledJob::new_scoped_with_completion(task, complete) };
         self.jobs.borrow_mut().push(job);
         Ok(())
     }

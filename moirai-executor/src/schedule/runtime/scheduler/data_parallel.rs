@@ -107,22 +107,24 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
             state.register_task();
             let completion = ScopedTaskCompletion::new(&state);
-            let scoped_job = move |_| {
-                let completion = completion;
-                let result = execute_catching_panic(|| {
-                    for index in start..end {
-                        task(index);
-                    }
-                });
-
-                if result.is_err() {
+            let chunk_task = move |_| {
+                for index in start..end {
+                    task(index);
+                }
+            };
+            let complete = move |succeeded: bool| {
+                if !succeeded {
                     completion.mark_failed();
                 }
             };
 
-            if let Err(error) =
-                self.schedule_indexed_job::<C, _>(&state, priority, locality_hint, scoped_job)
-            {
+            if let Err(error) = self.schedule_indexed_job::<C, _, _>(
+                &state,
+                priority,
+                locality_hint,
+                chunk_task,
+                complete,
+            ) {
                 match error {
                     // Admission queue was full. The scheduler dropped the job,
                     // which fired the completion token (scope counter correct).
@@ -234,21 +236,23 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             // Use distinct names so the outer `slots`/`identity` remain accessible
             // in the ResourceExhausted inline fallback below.
             let slots_chunk = &slots;
-            let scoped_job = move |_| {
-                let completion = completion;
-                let result = execute_catching_panic(|| {
-                    let accumulator = map_reduce_range(start, end, identity_chunk, map, reduce);
-                    slots_chunk.write(chunk_index - 1, accumulator);
-                });
-
-                if result.is_err() {
+            let chunk_task = move |_| {
+                let accumulator = map_reduce_range(start, end, identity_chunk, map, reduce);
+                slots_chunk.write(chunk_index - 1, accumulator);
+            };
+            let complete = move |succeeded: bool| {
+                if !succeeded {
                     completion.mark_failed();
                 }
             };
 
-            if let Err(error) =
-                self.schedule_indexed_job::<C, _>(&state, priority, locality_hint, scoped_job)
-            {
+            if let Err(error) = self.schedule_indexed_job::<C, _, _>(
+                &state,
+                priority,
+                locality_hint,
+                chunk_task,
+                complete,
+            ) {
                 match error {
                     // Admission queue was full. The scheduler dropped the job,
                     // which fired the completion token (scope counter correct).
@@ -294,21 +298,23 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
     }
 
-    fn schedule_indexed_job<'scope, C, F>(
+    fn schedule_indexed_job<'scope, C, F, Complete>(
         &self,
         state: &'scope SchedulerScopeState,
         priority: Priority,
         locality_hint: Option<usize>,
         scoped_job: F,
+        complete: Complete,
     ) -> ExecutorResult<()>
     where
         C: WorkClass,
         F: FnOnce(usize) + Send + 'scope,
+        Complete: FnOnce(bool) + Send + 'scope,
     {
         // Scoped job storage erases `'scope`; a scheduling unwind after an
         // earlier admission must not release the borrowed stack state first.
         match catch_unwind(AssertUnwindSafe(|| {
-            self.schedule_scoped_job::<C, _>(priority, locality_hint, scoped_job)
+            self.schedule_scoped_job::<C, _, _>(priority, locality_hint, scoped_job, complete)
         })) {
             Ok(result) => result,
             Err(payload) => {
