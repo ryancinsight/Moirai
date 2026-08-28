@@ -95,8 +95,8 @@ architecture definition.
 ### 🟡 MOI-LINT-AUTHORITY-037 [patch]: Restore workspace lint authority
 
 - **Outcome**: rescue the stale one-commit cleanup that removes crate-level Clippy escalation and redundant blanket allows from `moirai-core` and `moirai-gpu`, so the inherited workspace lint table is authoritative.
-- **Acceptance**: current-main all-target/all-feature warning-denied Clippy and focused Nextest pass; no diagnostic is hidden; the stale branch is deleted after merge.
-- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns the four lint-attribute files and this item through the next verified commit.
+- **Evidence**: current-main all-target/all-feature warning-denied Clippy passes; focused Nextest passes 111/111; doctests and warning-denied rustdoc pass. The change deletes 31 redundant lint attributes without suppressing a diagnostic.
+- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` discharges the four lint-attribute files through its verified commit; merge and stale-branch deletion remain.
 
 ### ⬜ MOI-TLS-PROGRESS-035 [patch]: Diagnose nondeterministic loopback TLS loss of progress
 

@@ -62,7 +62,7 @@
 ### MOI-LINT-AUTHORITY-037 — stale-branch rescue
 
 - [x] Establish that commit `0746861` remains unique and its former GPU leases are closed.
-- [ ] Apply the four-file attribute cleanup to current main and run warning-denied Clippy plus focused Nextest.
+- [x] Apply the four-file attribute cleanup to current main and run warning-denied Clippy plus focused Nextest (111/111), doctests, and rustdoc.
 - [ ] Commit, publish, merge, and delete the superseded local branch.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
