@@ -86,32 +86,24 @@ architecture definition.
 
 ## Current closure record
 
-### 🟨 MOI-ASYNC-CANCEL-LANE-GATE-2026-08-28 [patch]: Match cancellation tests to scheduler lanes
+### ✅ MOI-ASYNC-CANCEL-LANE-GATE-2026-08-28 [patch]: Match cancellation tests to scheduler lanes
 
-- **Outcome:** queued async cancellation is tested with the compute worker occupied by an `AsyncTask`-class gate, so the future is observably queued before cancellation instead of racing an unrelated dedicated blocking lane.
-- **Scope / non-goals:** the shared single-worker test gate, queued sync/async cancellation assertions, this item, and hosted main closure only; no production scheduler, cancellation, lane, timeout, or public API change.
-- **Acceptance:** each queued-cancellation case asserts `TaskStatus::Queued` before requesting cancellation, then proves the body/future never runs and the handle/status publish `Cancelled`; focused and workspace Nextest pass within the committed bounds; hosted main closes green.
-- **Risk / dependency:** test-contract [patch]. Hosted PR #190 run `33197342394`, job `98937736061`, observed `Ok(3)` because `gate_single_worker` occupied the ADR-021 blocking lane while `spawn_async` remained free on the compute worker. The previously green source run demonstrates scheduling sensitivity, not correctness of the old precondition.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: `moirai-executor/src/hybrid/tests.rs` and this item's PM regions through the next verified commit; last update 2026-08-28.
-- **Evidence:** the candidate work-class-generic gate and explicit queued-state assertions pass both queued cancellation cases 2/2 in 28 ms, all-feature warning-denied `moirai-executor` Clippy, and exact workspace all-feature Nextest 890/890 in 12.232 seconds. Independent review and hosted main closure remain.
+- **Delivered:** PR #191 / implementation `3dcc0aa` / merge `fc2dce9` makes each cancellation gate occupy the target's work class and asserts `TaskStatus::Queued` before cancellation; independent exact-head review is green; lease: none.
+- **Evidence:** focused cases pass 2/2 in 28 ms, all-feature warning-denied Clippy and workspace Nextest 890/890 pass locally, and hosted run `33197943762` passes every job with workspace job `98939799878` completing in 2m11s.
 
 ### 🟨 MOI-INDEXED-SCOPE-ALLOC-2026-08-26 [patch]: Stack-owned indexed completion
 
 - **Outcome:** indexed completion-only fan-out reuses the scheduler's stack-owned scoped lifetime proof instead of allocating one reference-counted completion state per call. Unhinted multi-batch scopes select one base worker before admission and distribute physical batches across the worker set, preventing state-sensitive rerouting onto one occupied lane under nested saturation.
 - **Scope / non-goals:** `moirai-executor` indexed and scoped scheduling, its value-semantic allocation/liveness coverage, scheduler source contracts, ADR-005, release notes, and the Apollo allocation consumer only; no public API, queue-capacity, explicit-locality, single-job, or refusal-fallback change.
 - **Acceptance:** repeated warmed `for_each_indexed` calls allocate zero bytes; `map_reduce_indexed` retains only its result-slot allocation; panic, clone-unwind, refusal, nesting, saturation, exactly-once, and quiescence contracts pass; saturated outer scope jobs occupy every worker lane; Apollo's warm complex transform returns to zero transient allocations.
-- **Risk / dependency:** scheduler liveness and scoped-borrow safety [patch]. Provider implementation and local verification are complete at `1572ec9`; independent re-review, hosted Linux verification, PR merge, and the Apollo consumer census remain before closure.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: this item and fuzz-closure PM regions only through the next reviewed commit; source lease discharged at `1572ec9`; last update 2026-08-28.
-- **Evidence:** provider commit `1572ec9` passes package Nextest 126/126 in debug and release, the release Loom scope model 1/1, all-feature warning-denied Clippy, warning-denied Rustdoc, and the exact workspace all-feature run 890/890 in 12.173 seconds. The hosted entry failure took 60.005 seconds in `nested_indexed_saturation_completes`; the corrected full-suite case completes in about 0.2 seconds and asserts both worker lanes plus the original arithmetic results.
+- **Risk / dependency:** scheduler liveness and scoped-borrow safety [patch]. Provider implementation, independent review, hosted Linux verification, and merge are complete; only the Apollo consumer census remains before closure.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: none; last update 2026-08-28.
+- **Evidence:** PR #190 / provider `1572ec9` / PM sync `239c8e0` / merge `7eefe6e`; independent exact-head review and hosted source run `33197082236` are green. Package Nextest passes 126/126 in debug and release, the release Loom model passes 1/1, warning-denied Clippy and Rustdoc pass, and workspace Nextest passes 890/890 in 12.173 seconds. The corrected saturation regression completes in about 0.2 seconds and asserts both worker lanes plus the original arithmetic results.
 
-### 🟨 MOI-CI-FUZZ-SCOPE-2026-08-28 [patch]: Event-scope parser fuzz verification
+### ✅ MOI-CI-FUZZ-SCOPE-2026-08-28 [patch]: Event-scope parser fuzz verification
 
-- **Outcome:** pull requests execute every committed parser seed deterministically while the weekly and manually dispatched jobs retain bounded mutation campaigns over every shipped fuzz target.
-- **Scope / non-goals:** `.github/workflows/rust-ci.yml`, the existing `fuzz/` target corpus and documentation, and this item only; no parser behavior change, corpus removal, target removal, production-test reduction, or timeout increase.
-- **Acceptance:** both `http_response` and `ipc_header` build and execute in pull-request smoke and scheduled campaign modes; committed seeds execute without mutation-budget waiting on pull requests; the full 180-second-per-target campaign remains schedule/manual-only; workflow syntax and focused commands pass within their committed bounds.
-- **Risk / dependency:** CI-only [patch]; depends on cargo-fuzz/libFuzzer's verified corpus and run-count semantics. Entry run `33192481872`, job `98921194919`, spent 263 seconds on an unrelated scheduler change while omitting `ipc_header`.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: this item's PM regions only while the indexed-scope liveness blocker is fixed; last update 2026-08-28.
-- **Evidence:** PR #189 / implementation `6885c1c` / merge `ff41a09` registers and builds both targets. Hosted PR job `98929756503` executes every committed seed once and completes in 89 seconds versus the 263-second entry run. Manual job `98931077319` starts both 180-second campaigns concurrently and completes them in 181 seconds. Its separate workspace job exposed the indexed-scope liveness defect now under correction; the fuzz job is green. Local MSVC cannot link libFuzzer coverage sections, so hosted Linux supplies the execution evidence.
+- **Delivered:** PR #189 / implementation `6885c1c` / merge `ff41a09` registers both parser targets and separates deterministic pull-request seed execution from bounded scheduled/manual mutation campaigns; lease: none.
+- **Evidence:** hosted PR job `98929756503` executes every committed seed once in 89 seconds versus the 263-second entry run. Manual job `98931077319` runs both 180-second campaigns concurrently in 181 seconds; the exposed scheduler defect is fixed by PR #190 and exact closure run `33197943762` is green. Local MSVC cannot link libFuzzer coverage sections, so hosted Linux supplies execution evidence.
 
 ### ✅ MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 [patch] [arch]: Reduce retained local-queue storage
 
