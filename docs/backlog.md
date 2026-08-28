@@ -93,7 +93,7 @@ architecture definition.
 - **Acceptance:** both `http_response` and `ipc_header` build and execute in pull-request smoke and scheduled campaign modes; committed seeds execute without mutation-budget waiting on pull requests; the full 180-second-per-target campaign remains schedule/manual-only; workflow syntax and focused commands pass within their committed bounds.
 - **Risk / dependency:** CI-only [patch]; depends on cargo-fuzz/libFuzzer's verified corpus and run-count semantics. Entry run `33192481872`, job `98921194919`, spent 263 seconds on an unrelated scheduler change while omitting `ipc_header`.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: this item's PM regions only while the indexed-scope liveness blocker is fixed; last update 2026-08-28.
-- **Evidence:** the implementation registers and builds both targets, executes each committed seed as an explicit artifact on pull requests, and runs concurrent 180-second campaigns only on schedule/manual dispatch. The standalone warning-denied two-target check passes against the committed 190-package Git-source lock; `moirai-core` Clippy and 99/99 Nextest pass. Hosted Linux remains the seed-execution and runtime oracle because local MSVC libFuzzer coverage linking is unsupported.
+- **Evidence:** PR #189 / implementation `6885c1c` / merge `ff41a09` registers and builds both targets. Hosted PR job `98929756503` executes every committed seed once and completes in 89 seconds versus the 263-second entry run. Manual job `98931077319` starts both 180-second campaigns concurrently and completes them in 181 seconds. Its separate workspace job exposed the indexed-scope liveness defect now under correction; the fuzz job is green. Local MSVC cannot link libFuzzer coverage sections, so hosted Linux supplies the execution evidence.
 
 ### ✅ MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 [patch] [arch]: Reduce retained local-queue storage
 
@@ -3031,16 +3031,15 @@ Part IV chapter map (grounded in moirai-transport):
 
 - Outcome: `cargo +nightly fuzz` runs on a schedule so corpus growth and
   parser regressions surface without per-push cost.
-- Scope: add a workflow job (schedule trigger only, pinned nightly,
-  cargo-fuzz install cached) running `http_response`; extend the target
-  list as targets land. Workflow hygiene rules apply (SHA-pinned actions,
-  timeout-minutes, least-privilege token).
-- Status: done (2026-08-24, Moirai PR #162 merged at edd11df; fuzz run
-  green after two fix-forward rounds - dated-nightly install alone was
-  insufficient because repo rust-toolchain.toml overrides rustup
-  defaults; final form uses RUSTUP_TOOLCHAIN env plus an assert tripwire.
-  The scheduled campaign now covers http_response; ipc_header joins via
-  #163's shared tree.)
+- Scope: run the complete registered target set on pinned nightly with cached
+  cargo-fuzz installation. Pull requests execute committed seeds once;
+  schedule and manual dispatch retain bounded mutation campaigns. Workflow
+  hygiene rules apply (SHA-pinned actions, timeout-minutes, least-privilege
+  token).
+- Status: done (2026-08-28, PR #189 / implementation `6885c1c` / merge
+  `ff41a09`; both `http_response` and `ipc_header` build, run every committed
+  seed in pull-request smoke, and run concurrent 180-second campaigns on
+  schedule or manual dispatch.)
 
 ### MOI-TRANSPORT-DYN-001 - Enum-dispatch the transport manager's backends [arch] [minor] [M]
 

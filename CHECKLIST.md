@@ -9,9 +9,14 @@
   closure waits on the indexed-scope liveness fix exposed by the manual campaign.
 - [x] Replace the 180-second pull-request campaign with deterministic execution of every committed parser seed while retaining the bounded full campaign on schedule and manual dispatch.
 - [x] Include every shipped parser fuzz target in smoke and campaign coverage; reconcile the workflow with the target-set documentation.
-- [ ] Verify workflow syntax, exact seed execution, the scheduled command surface, and the reduced pull-request runtime without weakening parser inputs or production tests.
+- [x] Verify workflow syntax, exact seed execution, the scheduled command surface, and the reduced pull-request runtime without weakening parser inputs or production tests.
 - **Entry evidence:** PR #187 job `98921194919` spent 263 seconds on an unrelated scheduler change, including the full 180-second `http_response` campaign. The workflow omits the shipped `ipc_header` target, its manifest registration, and the cfg-only accessor it imports although the backlog records it as scheduled coverage.
-- **Local evidence:** cargo-fuzz 0.13.2 confirms explicit artifact inputs; standalone warning-denied checks compile both targets against the committed 190-package lock in 16.63 seconds. `moirai-core` Clippy passes and Nextest passes 99/99. Windows cannot link libFuzzer coverage sections, so hosted Linux seed execution and runtime remain the final acceptance gate.
+- **Evidence:** PR #189 / implementation `6885c1c` / merge `ff41a09`
+  registers and builds both targets. Hosted PR job `98929756503` executes every
+  committed seed once and completes in 89 seconds versus the 263-second entry
+  run. Manual job `98931077319` starts both 180-second campaigns concurrently
+  and completes them in 181 seconds. Its separate workspace job exposed the
+  indexed-scope liveness defect tracked below; the fuzz job itself is green.
 
 ## MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 — Retained local-queue storage [patch] [arch] — done 2026-08-28
 
@@ -166,17 +171,21 @@
       token while preserving queue-refusal and panic accounting.
 - [x] Add value-semantic allocation and held-active clone-panic coverage, and
       retain the existing panic, queue-refusal, nesting, and quiescence coverage.
+- [x] Distribute unhinted physical scope batches from one preselected base
+      worker and assert that saturated nested execution occupies every lane.
 - [x] Pass focused and package Nextest, the scoped-completion Loom model,
       all-feature warning-denied Clippy, and warning-denied Rustdoc.
 - [ ] Pass the Apollo consumer census, record the exact provider/consumer
       revisions, and close the item.
-- Evidence: `cargo nextest run --offline -p moirai-executor` passed 94/94 with
-  one cfg-gated skip; the release Loom scope model passed 1/1; all-feature,
-  all-target Clippy passed with `-D warnings`; warning-denied Rustdoc passed.
+- Evidence: `cargo nextest run --offline -p moirai-executor` passes 126/126;
+  the release package run passes 126/126; the release Loom scope model passes
+  1/1; all-feature, all-target Clippy passes with `-D warnings`; and the exact
+  workspace all-feature run passes 890/890 in 12.173 seconds. The hosted entry
+  failure took 60.005 seconds in `nested_indexed_saturation_completes`; the
+  corrected full-suite regression completes in about 0.2 seconds and asserts
+  both worker lanes execute outer scope jobs.
   Warmed allocation coverage observes zero allocations for `for_each_indexed`
   and one result-slot allocation per `map_reduce_indexed` call.
-  Hosted workflow run `33195364037` exposed a 60.005-second deadlock in
-  `nested_indexed_saturation_completes`; the same test passes locally in 18 ms.
 
 ## MOI-PACKAGE-REPRO-001 — self-contained workspace packaging [patch] — complete
 

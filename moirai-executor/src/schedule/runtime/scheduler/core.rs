@@ -660,7 +660,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         join_other_threads(&mut handles);
     }
 
-    #[cfg(test)]
     pub(crate) fn select_worker<C>(&self, priority: Priority, locality_hint: Option<usize>) -> usize
     where
         C: WorkClass,
