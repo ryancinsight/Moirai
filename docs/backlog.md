@@ -130,17 +130,18 @@ architecture definition.
 - **Risk / dependency**: additive public configuration with trust-boundary parsing; governed by atlas ADR-0045 and based on the 9/9 exact-lock package baseline at `76e78ce`.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
 - **Evidence**: focused Nextest passes 23/23 in 0.189 seconds and the exact-lock workspace passes 854/854 in 11.496 seconds; warning-denied package Clippy/rustdoc, doctests, AArch64 Linux/Windows all-target checks, and 196/196 SemVer checks pass on the working diff.
-- **Blocker**: an exact-revision focused run completed all assertions but held the process for 30.160 seconds because cancelling the timer heap head does not wake the sleeping driver; reopen delivery when MOI-TIMER-CANCEL-WAKE-042 lands.
+- **Blocker**: the timer-head cure reduced the isolated redirect case to 24 ms, but the complete focused run still exposed a 30.216-second deadline-rescued readiness stall; reopen delivery when MOI-IO-WAKE-042 closes both wake paths.
 - **Lease**: none after the verified provider implementation commit; the session retains integration responsibility through independent review and merge.
 
-### 🟨 MOI-TIMER-CANCEL-WAKE-042 [patch]: Wake the timer driver after effective-head cancellation
+### 🟨 MOI-IO-WAKE-042 [patch]: Eliminate deadline-rescued I/O stalls
 
-- **Outcome**: cancelling the timer that determines the driver's current wait immediately wakes the driver, while non-head cancellation retains the existing no-wakeup fast path.
-- **Scope / non-goals**: `moirai-async` timer-driver cancellation, deterministic tests, CHANGELOG, and PM records; no timer API, heap ordering, deadline, or executor changes.
-- **Acceptance**: a deterministic test distinguishes head from non-head cancellation notifications; the formerly 30.160-second HTTP redirect case exits within the committed native-test budget; warning-denied, documentation, exact-lock, and affected cross-target gates pass.
-- **Risk / dependency**: concurrency/lifecycle patch blocking MOI-HTTP-REDIRECT-041 delivery; the state mutex and condition variable must preserve the wait/notification happens-before edge without adding a wake per ordinary cancellation.
+- **Outcome**: cancelled timer heads wake the deadline driver, and delivered socket readiness consumes its one-shot interest so stale writable/readable registrations cannot spin or race a reused socket until a deadline poll rescues progress.
+- **Scope / non-goals**: `moirai-async` timer cancellation plus `moirai-pal` readiness-registration lifecycle, deterministic tests, source contracts, CHANGELOG, and PM records; no public timer/network API, heap ordering, deadline, executor, or protocol changes.
+- **Acceptance**: deterministic tests distinguish head from non-head timer cancellation and prove readiness interests are consumed after delivery; the formerly 30.160/30.216-second HTTP redirect case and complete focused suite stay within the committed native-test budget; warning-denied, documentation, exact-lock, and affected cross-target gates pass.
+- **Risk / dependency**: concurrency/lifecycle patch blocking MOI-HTTP-REDIRECT-041 delivery; timer notification preserves its mutex/condition-variable happens-before edge without waking per ordinary cancellation, and readiness cleanup preserves independent read/write waiters while removing completed interests.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` — `moirai-async/src/timer/driver.rs`, its tests, CHANGELOG, and owner-local PM entries.
+- **Evidence**: the deterministic notification regression passes; exact-lock `moirai-async` coverage contributes 95/95 passing tests to the 118-test focused run; warning-denied Clippy, rustdoc, doctests, and AArch64 Linux/Windows all-target checks pass. The full focused run's remaining 30.216-second readiness stall falsifies timer cancellation as the sole cause.
+- **Lease**: none after the verified timer-driver increment; the next increment renews the lease for reactor readiness consumption.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 

@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Cancelling the timer that determines the driver's current wait now wakes the
+  driver immediately. Non-head cancellation retains the no-wakeup fast path,
+  and heap compaction also wakes the driver when it may change the next
+  deadline.
 - Honor `ExecutorConfig::max_global_queue_size` at scheduler construction.
   The executor-wide external-admission bound is partitioned into power-of-two
   per-worker injectors without exceeding the configured total; configurations

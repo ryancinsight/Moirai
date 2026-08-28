@@ -107,13 +107,16 @@
 - [x] Pass focused Nextest 23/23, exact-lock workspace Nextest 854/854, warning-denied package Clippy/rustdoc, doctests, 196/196 SemVer checks, AArch64 Linux/Windows all-target checks, and standalone lock validation on the working diff.
 - [ ] Obtain independent review, publish and merge the provider, then update atlas ADR-0045 with the exact delivery revision.
 
-### MOI-TIMER-CANCEL-WAKE-042 — timer head cancellation wake
+### MOI-IO-WAKE-042 — timer and socket readiness wake closure
 
 - [x] Reproduce the lifecycle defect through the HTTP exact-revision run and trace it to the missing driver notification after timer-head cancellation.
-- [ ] Notify only when cancellation removes the effective heap head or compaction changes the heap, retaining the non-head fast path.
-- [ ] Add deterministic notification-selection coverage without wall-clock synchronization.
-- [ ] Verify the formerly 30.160-second HTTP case, affected packages, warning-denied host/cross-target builds, documentation, and the exact-lock workspace.
-- [ ] Commit, publish, independently review, merge, and discharge the lease before resuming MOI-HTTP-REDIRECT-041 delivery.
+- [x] Notify only when cancellation removes the effective heap head or compaction changes the heap, retaining the non-head fast path.
+- [x] Add deterministic notification-selection coverage without wall-clock synchronization.
+- [x] Verify 95/95 `moirai-async` tests plus warning-denied Clippy, rustdoc, doctests, and AArch64 Linux/Windows all-target checks for the timer increment.
+- [x] Falsify timer cancellation as the sole cause: the isolated redirect case exits in 24 ms, while the complete focused run still exposes a 30.216-second deadline-rescued readiness stall.
+- [ ] Consume delivered read/write readiness interests without removing an independent waiter, and update the benchmark source contract.
+- [ ] Add deterministic one-shot readiness coverage and verify the formerly slow redirect in the complete focused suite.
+- [ ] Pass the exact-lock workspace, independent review, publish/merge, and discharge the lease before resuming MOI-HTTP-REDIRECT-041 delivery.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
