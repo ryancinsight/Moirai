@@ -15,6 +15,15 @@
   first independent review's drop-coverage, stale-comment, and estimator-label
   findings are fixed; re-review and hosted exact-lock gates remain.
 
+## MOI-MIRI-ALLOCATOR-HARNESS-2026-08-28 [patch] — Codex
+
+- [ ] Reproduce the integration-test allocator provenance failure under Miri.
+- [ ] Preserve native warmed-allocation value assertions without custom
+      allocator pointer bookkeeping that Miri cannot validate.
+- [ ] Pass focused native Nextest, filtered Miri, strict Clippy, and independent
+      review.
+- [ ] Commit, merge, and record exact hosted evidence.
+
 ## Nightly TLS gate cleanup
 
 - [x] Confirm `moirai-core` does not invoke Melinoe's TLS macro.

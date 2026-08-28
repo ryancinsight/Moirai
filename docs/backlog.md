@@ -103,7 +103,11 @@ architecture definition.
 - **Acceptance oracle**: the native warmed allocation assertion remains value-semantic, while a filtered `cargo +nightly miri test -p moirai-executor` no longer aborts in the integration-test allocator shim.
 - **Evidence**: the 2026-08-28 broad Miri run aborts in `CountingAllocator::dealloc` at `indexed_allocation_contract.rs:26`; the library-only inline-job Miri suite passes 9/9, isolating the failure to the integration harness.
 - **Risk / change class**: [patch], verification-infrastructure ownership and pointer provenance.
-- **Integrator / lease**: unclaimed; none.
+- **Integrator / lease**: Codex session
+  `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease
+  `moirai-executor/tests/indexed_allocation_contract.rs`, this item block, and
+  the matching checklist section through the next verified commit; last update
+  2026-08-28.
 
 ### ✅ MOI-QUEUE-CAPACITY-034 [patch] [arch]: Enforce the executor admission bound
 
