@@ -15,6 +15,12 @@ use moirai_core::{
     Priority,
 };
 
+const TEST_ADMISSION_CAPACITY: usize = 8;
+
+fn scheduler_with_bounded_admission(name: &str) -> ThreadScheduler<256> {
+    ThreadScheduler::<256>::new_with_queue_config(1, name, TEST_ADMISSION_CAPACITY, false).unwrap()
+}
+
 #[test]
 fn scheduler_runs_all_work_classes_through_one_facade() {
     let scheduler = ThreadScheduler::new(2, "test-scheduler").unwrap();
@@ -81,6 +87,30 @@ fn scheduler_numa_policy_controls_worker_assignments() {
 }
 
 #[test]
+fn configured_global_capacity_is_partitioned_without_exceeding_the_bound() {
+    let scheduler =
+        ThreadScheduler::<256>::new_with_queue_config(3, "partitioned", 1000, false).unwrap();
+
+    let capacities = scheduler
+        .inner
+        .workers
+        .iter()
+        .map(|worker| worker.queues.injector_capacity())
+        .collect::<Vec<_>>();
+
+    assert_eq!(capacities, vec![256; 3]);
+    assert_eq!(capacities.into_iter().sum::<usize>(), 768);
+    scheduler.shutdown();
+}
+
+#[test]
+fn global_capacity_smaller_than_worker_count_is_rejected() {
+    let result = ThreadScheduler::<256>::new_with_queue_config(4, "invalid", 3, false);
+
+    assert!(matches!(result, Err(ExecutorError::InvalidConfiguration)));
+}
+
+#[test]
 fn saturated_admission_rolls_back_pending_and_recovers() {
     let scheduler = ThreadScheduler::<256>::new(1, "bounded-admission").unwrap();
     let (started_tx, started_rx) = mpsc::channel();
@@ -117,8 +147,7 @@ fn saturated_admission_rolls_back_pending_and_recovers() {
 
 #[test]
 fn saturated_indexed_admission_runs_rejected_chunks_on_caller() {
-    const ADMISSION_CAPACITY: usize = crate::schedule::queue::INJECTOR_CAPACITY;
-    let scheduler = ThreadScheduler::<256>::new(1, "indexed-caller-runs").unwrap();
+    let scheduler = scheduler_with_bounded_admission("indexed-caller-runs");
     let (started_tx, started_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     scheduler
@@ -129,7 +158,7 @@ fn saturated_indexed_admission_runs_rejected_chunks_on_caller() {
         .unwrap();
     started_rx.recv().unwrap();
 
-    for _ in 0..ADMISSION_CAPACITY {
+    for _ in 0..TEST_ADMISSION_CAPACITY {
         scheduler
             .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
             .unwrap();
@@ -202,10 +231,9 @@ fn saturated_scope_admission_runs_rejected_jobs_on_caller() {
     // caller resumed as though borrowed work had happened when it never did —
     // silent, and invisible to the scope's own counters, which the dropped
     // job's completion token decrements either way.
-    const ADMISSION_CAPACITY: usize = crate::schedule::queue::INJECTOR_CAPACITY;
     const SCOPED_JOBS: usize = 4;
 
-    let scheduler = ThreadScheduler::<256>::new(1, "scope-caller-runs").unwrap();
+    let scheduler = scheduler_with_bounded_admission("scope-caller-runs");
     let (started_tx, started_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     scheduler
@@ -216,7 +244,7 @@ fn saturated_scope_admission_runs_rejected_jobs_on_caller() {
         .unwrap();
     started_rx.recv().unwrap();
 
-    for _ in 0..ADMISSION_CAPACITY {
+    for _ in 0..TEST_ADMISSION_CAPACITY {
         scheduler
             .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
             .unwrap();
@@ -263,9 +291,7 @@ fn saturated_scope_admission_runs_rejected_jobs_on_caller() {
 fn saturated_scope_propagates_a_caller_run_job_panic() {
     // A job the caller runs keeps a worker's panic semantics: the scope reports
     // failure rather than unwinding through the scope body.
-    const ADMISSION_CAPACITY: usize = crate::schedule::queue::INJECTOR_CAPACITY;
-
-    let scheduler = ThreadScheduler::<256>::new(1, "scope-caller-panic").unwrap();
+    let scheduler = scheduler_with_bounded_admission("scope-caller-panic");
     let (started_tx, started_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     scheduler
@@ -276,7 +302,7 @@ fn saturated_scope_propagates_a_caller_run_job_panic() {
         .unwrap();
     started_rx.recv().unwrap();
 
-    for _ in 0..ADMISSION_CAPACITY {
+    for _ in 0..TEST_ADMISSION_CAPACITY {
         scheduler
             .schedule::<SyncTask, _>(Priority::Normal, None, |_| {})
             .unwrap();

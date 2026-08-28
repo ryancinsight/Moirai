@@ -12,6 +12,33 @@ mod tests {
     };
 
     #[test]
+    fn configured_global_queue_capacity_reaches_worker_injectors() {
+        let mut executor = HybridExecutor::new(ExecutorConfig {
+            worker_threads: 3,
+            max_global_queue_size: 1000,
+            ..ExecutorConfig::default()
+        })
+        .unwrap();
+
+        assert_eq!(executor.scheduler.injector_capacity_per_worker(), 256);
+        HybridExecutor::shutdown(&mut executor).unwrap();
+    }
+
+    #[test]
+    fn impossible_global_queue_capacity_is_rejected_before_startup() {
+        let result = HybridExecutor::new(ExecutorConfig {
+            worker_threads: 4,
+            max_global_queue_size: 3,
+            ..ExecutorConfig::default()
+        });
+
+        assert!(matches!(
+            result,
+            Err(moirai_core::ExecutorError::InvalidConfiguration)
+        ));
+    }
+
+    #[test]
     fn spawn_blocking_returns_value_and_updates_status() {
         let executor = HybridExecutor::new(ExecutorConfig {
             worker_threads: 2,

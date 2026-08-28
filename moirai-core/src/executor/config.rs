@@ -29,7 +29,10 @@ pub struct ExecutorConfig {
     pub worker_threads: usize,
     /// Number of threads dedicated to async tasks
     pub async_threads: usize,
-    /// Maximum size of the global task queue
+    /// Maximum aggregate size of the workers' external admission queues.
+    ///
+    /// Executor construction partitions this bound across workers without
+    /// exceeding it. The value must supply at least one slot per worker.
     pub max_global_queue_size: usize,
     /// Maximum size of per-thread local queues
     pub max_local_queue_size: usize,

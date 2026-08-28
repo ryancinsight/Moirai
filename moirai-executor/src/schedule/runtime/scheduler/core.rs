@@ -13,6 +13,7 @@ use std::{
 
 use moirai_core::{
     error::{ExecutorError, ExecutorResult},
+    executor::ExecutorConfig,
     Priority,
 };
 
@@ -77,11 +78,27 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         thread_name_prefix: &str,
         numa_aware: bool,
     ) -> ExecutorResult<Self> {
+        Self::new_with_queue_config(
+            worker_count,
+            thread_name_prefix,
+            ExecutorConfig::default().max_global_queue_size,
+            numa_aware,
+        )
+    }
+
+    pub(crate) fn new_with_queue_config(
+        worker_count: usize,
+        thread_name_prefix: &str,
+        max_global_queue_size: usize,
+        numa_aware: bool,
+    ) -> ExecutorResult<Self> {
         let worker_count = worker_count.max(1);
+        let injector_capacity = partition_global_queue(max_global_queue_size, worker_count)?;
         let mut queue_owners = Vec::with_capacity(worker_count);
         let workers = (0..worker_count)
             .map(|_| {
-                let (owner, queues) = super::super::super::queue::WorkerQueues::new();
+                let (owner, queues) =
+                    super::super::super::queue::WorkerQueues::new(injector_capacity);
                 queue_owners.push(owner);
                 Arc::new(super::super::types::WorkerState::new(queues))
             })
@@ -516,6 +533,11 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         self.inner.workers.len()
     }
 
+    #[cfg(test)]
+    pub(crate) fn injector_capacity_per_worker(&self) -> usize {
+        self.inner.workers[0].queues.injector_capacity()
+    }
+
     /// Capture scheduler metrics.
     pub fn metrics(&self) -> super::super::types::ScheduleMetrics {
         super::super::types::ScheduleMetrics {
@@ -598,6 +620,18 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             .wrapping_add(priority.index())
             % worker_count
     }
+}
+
+fn partition_global_queue(
+    max_global_queue_size: usize,
+    worker_count: usize,
+) -> ExecutorResult<usize> {
+    let partition = max_global_queue_size / worker_count;
+    if partition == 0 {
+        return Err(ExecutorError::InvalidConfiguration);
+    }
+
+    Ok(1usize << partition.ilog2())
 }
 
 impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Drop

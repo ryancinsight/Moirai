@@ -51,6 +51,14 @@
 
 ## Remaining Gap Register
 
+### MOI-QUEUE-CAPACITY-034 — executor admission bound
+
+- [x] Record ADR-034 and the pre-change 24 × 1024-slot retained baseline.
+- [x] Route the configured aggregate through `HybridExecutor`, `ThreadScheduler`, and every worker injector.
+- [x] Verify exact partition, impossible configuration, saturation, wake, release, and Apollo retained-memory behavior.
+- [x] Resolve the release-only test-order assumption with an explicit first-poll event.
+- [ ] Commit, obtain independent architecture review, merge, and bind the Apollo retained-footprint record to the provider revision.
+
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
 - [x] Claim `moirai-gpu/src/lib.rs`, `moirai-gpu/src/buffer.rs`, their

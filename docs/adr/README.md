@@ -38,4 +38,4 @@
 | [0031](0031-timer-wheel-lazy-cancellation.md) | Timer Wheel Lazy Cancellation | Accepted |
 | [0032](0032-blocking-result-wait-spin-budget.md) | Blocking Result Wait Spin Budget | Accepted |
 | [0033](0033-provider-default-msrv.md) | Provider-default MSRV alignment | Accepted |
-| [0034](0034-executor-queue-capacity-reaches-scheduler-construction.md) | Executor Queue Capacity Reaches Scheduler Construction | Proposed |
+| [0034](0034-executor-queue-capacity-reaches-scheduler-construction.md) | Executor Queue Capacity Reaches Scheduler Construction | Accepted |

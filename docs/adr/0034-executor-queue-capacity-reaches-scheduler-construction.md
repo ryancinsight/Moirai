@@ -1,6 +1,6 @@
 # ADR-034: Executor queue capacity reaches scheduler construction
 
-Status: Proposed
+Status: Accepted
 
 - Date: 2026-08-27
 - Change class: [arch] [patch]
@@ -18,7 +18,7 @@ scratch storage.
 
 The scheduler uses one priority-carrying injector per worker rather than one
 shared queue. `LockFreeQueue` requires a non-zero power-of-two capacity, so an
-arbitrary process-wide maximum cannot always be divided exactly.
+arbitrary executor-wide maximum cannot always be divided exactly.
 
 `ExecutorConfig::max_local_queue_size` is a separate contract discrepancy.
 The Chase-Lev queues are resizable and interpret their constructor argument as
@@ -48,7 +48,7 @@ Pass `C` once through `HybridExecutor` and `ThreadScheduler` into every
    multiplies memory independently of the public maximum.
 2. Round each partition upward. Rejected because aggregate capacity can exceed
    the documented hard maximum.
-3. Replace the worker injectors with one process-wide queue. Rejected because
+3. Replace the worker injectors with one executor-wide queue. Rejected because
    it removes selected-worker placement and introduces a shared contention
    point to solve a construction-policy defect.
 4. Change the default constant only. Rejected because another unexplained
@@ -57,10 +57,22 @@ Pass `C` once through `HybridExecutor` and `ThreadScheduler` into every
 ### Verification plan
 
 - Unit-test exact and non-power-of-two partitions, minimum valid capacity, and
-  rejection when the process-wide maximum cannot supply one slot per worker.
+  rejection when the executor-wide maximum cannot supply one slot per worker.
 - Assert scheduler construction uses the derived capacity on every worker.
 - Preserve saturation, caller-runs, wake-retry, shutdown, and priority tests.
 - Run configured Nextest, warning-denied Clippy, rustdoc, doctests, and the
   standalone locked workspace gate.
 - Re-run Apollo's retained-allocation instrument against the provider commit;
   allocation bytes, not elapsed time, are the acceptance oracle.
+
+### Evidence
+
+Apollo's unchanged release-mode retained-footprint probe, built against this
+provider tree, reports 24 surviving 65,536-byte queue blocks at N = 65,536.
+The entry measurement was 24 blocks of 262,144 bytes. Injector retention is
+therefore 1.5 MiB versus 6 MiB, exactly matching the configured 8192-task bound
+partition (`8192 / 24` rounded down to 256 slots per worker). The complete
+first-forward window retains 4,061,316 bytes, and the warm-forward window
+remains allocation-free. The test body completed in 0.02 seconds; its release
+build and link took 2 minutes 21 seconds and is compile-structure evidence, not
+runtime-kernel evidence.

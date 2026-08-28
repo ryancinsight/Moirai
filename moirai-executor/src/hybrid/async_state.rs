@@ -539,17 +539,22 @@ mod tests {
         output: i32,
         polls: Arc<AtomicUsize>,
         waker: Arc<Mutex<Option<Waker>>>,
+        first_poll_sender: Option<mpsc::Sender<()>>,
     }
 
     impl Future for WakeThenReady {
         type Output = i32;
 
         fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<i32> {
-            if self.polls.fetch_add(1, Ordering::SeqCst) == 0 {
-                *self.waker.lock().unwrap() = Some(cx.waker().clone());
+            let this = self.get_mut();
+            if this.polls.fetch_add(1, Ordering::SeqCst) == 0 {
+                *this.waker.lock().unwrap() = Some(cx.waker().clone());
+                if let Some(sender) = this.first_poll_sender.take() {
+                    sender.send(()).expect("first-poll observer alive");
+                }
                 Poll::Pending
             } else {
-                Poll::Ready(self.output)
+                Poll::Ready(this.output)
             }
         }
     }
@@ -563,6 +568,25 @@ mod tests {
     }
 
     fn pending_async_state<S: WorkSubmit>(scheduler: S, output: i32) -> PendingTask<S> {
+        pending_async_state_inner(scheduler, output, None)
+    }
+
+    fn pending_async_state_with_first_poll_signal<S: WorkSubmit>(
+        scheduler: S,
+        output: i32,
+    ) -> (PendingTask<S>, mpsc::Receiver<()>) {
+        let (sender, receiver) = mpsc::channel();
+        (
+            pending_async_state_inner(scheduler, output, Some(sender)),
+            receiver,
+        )
+    }
+
+    fn pending_async_state_inner<S: WorkSubmit>(
+        scheduler: S,
+        output: i32,
+        first_poll_sender: Option<mpsc::Sender<()>>,
+    ) -> PendingTask<S> {
         let mut registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
         let (handle, result_sender) = TaskHandle::new_pending(TaskId(task_id));
@@ -574,6 +598,7 @@ mod tests {
                 output,
                 polls: Arc::clone(&polls),
                 waker: Arc::clone(&waker),
+                first_poll_sender,
             },
             lifecycle,
             result_sender,
@@ -699,16 +724,23 @@ mod tests {
     #[test]
     fn woken_task_completes_while_worker_injector_is_full() {
         let scheduler =
-            ThreadScheduler::<8>::new_with_config(1, "wake-full-injector").expect("scheduler");
-        let PendingTask {
-            state,
-            handle,
-            waker,
-            polls,
-        } = pending_async_state(scheduler.clone(), 1789);
+            ThreadScheduler::<8>::new_with_queue_config(1, "wake-full-injector", 8, false)
+                .expect("scheduler");
+        let (
+            PendingTask {
+                state,
+                handle,
+                waker,
+                polls,
+            },
+            first_poll_receiver,
+        ) = pending_async_state_with_first_poll_signal(scheduler.clone(), 1789);
 
         // First poll runs on the worker and publishes the waker.
         Arc::clone(&state).schedule().expect("first poll admits");
+        first_poll_receiver
+            .recv()
+            .expect("first poll published its waker");
 
         // Gate the only worker inside a job so nothing can drain the injector.
         let (entered_tx, entered_rx) = mpsc::channel::<()>();
@@ -720,9 +752,6 @@ mod tests {
             })
             .expect("gate job admits");
         entered_rx.recv().expect("worker entered the gate");
-        // Jobs run in admission order on the single worker, so the gate having
-        // started proves the first poll finished: the waker is published and
-        // the task is back to IDLE.
         let waker = waker
             .lock()
             .unwrap()
