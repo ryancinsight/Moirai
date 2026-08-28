@@ -51,7 +51,3 @@ elliptic-curve  = { version = "0.13", default-features = false, features = ["all
 
 # pki-types re-exported by rustls; must match version in lockfile
 pki-types       = { package = "rustls-pki-types", version = "1" }
-
-[dev-dependencies]
-# Deterministic PEM parsing for the in-memory handshake fixture.
-rustls-pemfile = { workspace = true }

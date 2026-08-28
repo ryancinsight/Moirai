@@ -124,8 +124,9 @@
 ### MOI-PEM-PARSER-043 — maintained PEM fixture parsing
 
 - [x] Confirm PR #180 fails supply-chain verification on RUSTSEC-2025-0134 and verify the locked `rustls-pki-types` PEM API.
-- [ ] Replace both handshake fixture loaders, remove `rustls-pemfile`, and regenerate the exact standalone lockfile.
-- [ ] Pass focused value tests, warning-denied checks, lock validation, and `cargo deny`; commit and publish the delivery-blocker correction.
+- [x] Replace both handshake fixture loaders, remove `rustls-pemfile`, and regenerate the exact standalone lockfile.
+- [x] Pass focused value tests 7/7, workspace Nextest 858/858, warning-denied workspace Clippy, lock validation, and exact standalone `cargo deny`.
+- [ ] Commit and publish the delivery-blocker correction; confirm hosted supply-chain verification before merge.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 

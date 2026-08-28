@@ -150,8 +150,8 @@ architecture definition.
 - **Acceptance**: trusted, wrong-hostname, untrusted, and expired handshake cases retain their value semantics; warning-denied checks and standalone-lock validation pass; `cargo deny` no longer reports RUSTSEC-2025-0134.
 - **Risk / dependency**: delivery blocker exposed by PR #180 supply-chain verification; both parsers use the same `rustls-pki-types` DER ownership types.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Evidence**: hosted supply-chain verification reports unmaintained `rustls-pemfile 2.2.0`; implementation and verification pending.
-- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` — workspace/dev manifests, TLS and crypto handshake fixture loaders, lockfile, and owner-local PM entries.
+- **Evidence**: `rustls-pemfile 2.2.0` is absent from the regenerated standalone lock. Focused handshake Nextest passes 7/7, workspace Nextest passes 858/858 in 11.772 seconds, warning-denied workspace Clippy passes, and exact standalone `cargo deny check` reports advisories, bans, licenses, and sources OK.
+- **Lease**: none after the implementation commit; the session retains integration responsibility through hosted verification and merge.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 

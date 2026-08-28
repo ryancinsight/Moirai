@@ -12,7 +12,7 @@ use moirai_async::net::{TcpListener, TcpStream};
 use moirai_async::timer::timeout;
 use moirai_tls::rustls::{CertificateError, Error as RustlsError, ServerConfig};
 use moirai_tls::{client_config_with_roots, ServerName, TlsConnector, ToFuturesIo, ToMoiraiIo};
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use rustls_pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 
 const REJECTED_HANDSHAKE_DEADLINE: Duration = Duration::from_secs(5);
 
@@ -61,23 +61,18 @@ async fn accept_rejected_handshake(
     }
 }
 
-/// Deterministic localhost certificate + key and a matching `rustls` server acceptor.
-fn server_acceptor() -> (CertificateDer<'static>, futures_rustls::TlsAcceptor) {
-    let mut cert_pem = &include_bytes!("../../tests/fixtures/localhost-cert.pem")[..];
-    let certs = rustls_pemfile::certs(&mut cert_pem)
+fn fixture_acceptor<const CHAIN_LEN: usize>(
+    certificate_pem: &[u8],
+    private_key_pem: &[u8],
+) -> (CertificateDer<'static>, futures_rustls::TlsAcceptor) {
+    let certs = CertificateDer::pem_slice_iter(certificate_pem)
         .collect::<Result<Vec<_>, _>>()
         .expect("certificate fixture parses");
-    assert_eq!(
-        certs.len(),
-        3,
-        "fixture contains leaf, intermediate, and root"
-    );
+    assert_eq!(certs.len(), CHAIN_LEN, "fixture certificate count");
     let root_der = certs.last().expect("root certificate exists").clone();
 
-    let mut key_pem = &include_bytes!("../../tests/fixtures/localhost-key.pem")[..];
-    let key_der: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut key_pem)
-        .expect("private-key fixture parses")
-        .expect("private-key fixture exists");
+    let key_der =
+        PrivateKeyDer::from_pem_slice(private_key_pem).expect("private-key fixture parses");
 
     let config = ServerConfig::builder_with_provider(Arc::new(moirai_crypto::provider()))
         .with_safe_default_protocol_versions()
@@ -92,31 +87,20 @@ fn server_acceptor() -> (CertificateDer<'static>, futures_rustls::TlsAcceptor) {
     )
 }
 
+/// Deterministic localhost certificate + key and a matching `rustls` server acceptor.
+fn server_acceptor() -> (CertificateDer<'static>, futures_rustls::TlsAcceptor) {
+    fixture_acceptor::<3>(
+        include_bytes!("../../tests/fixtures/localhost-cert.pem"),
+        include_bytes!("../../tests/fixtures/localhost-key.pem"),
+    )
+}
+
 /// An acceptor presenting a chain whose leaf is permanently expired (2024-01-01
 /// to 2024-12-31) under a valid root, so only the lifetime check can fail.
 fn expired_server_acceptor() -> (CertificateDer<'static>, futures_rustls::TlsAcceptor) {
-    let mut cert_pem = &include_bytes!("../../tests/fixtures/expired-cert.pem")[..];
-    let certs = rustls_pemfile::certs(&mut cert_pem)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("expired certificate fixture parses");
-    assert_eq!(certs.len(), 2, "fixture contains expired leaf and root");
-    let root_der = certs.last().expect("root certificate exists").clone();
-
-    let mut key_pem = &include_bytes!("../../tests/fixtures/expired-key.pem")[..];
-    let key_der: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut key_pem)
-        .expect("expired private-key fixture parses")
-        .expect("expired private-key fixture exists");
-
-    let config = ServerConfig::builder_with_provider(Arc::new(moirai_crypto::provider()))
-        .with_safe_default_protocol_versions()
-        .expect("safe default protocol versions")
-        .with_no_client_auth()
-        .with_single_cert(certs, key_der)
-        .expect("server single cert");
-
-    (
-        root_der,
-        futures_rustls::TlsAcceptor::from(Arc::new(config)),
+    fixture_acceptor::<2>(
+        include_bytes!("../../tests/fixtures/expired-cert.pem"),
+        include_bytes!("../../tests/fixtures/expired-key.pem"),
     )
 }
 
