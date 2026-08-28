@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `moirai-http` now follows at most ten redirects by default with RFC 9110
+  method/body behavior and RFC 3986 relative-reference resolution. One timeout
+  bounds the complete logical request, including redirects and a stale
+  idempotent-connection retry. Cross-origin redirects remove credentials,
+  destination framing is regenerated, and pooled connections expire lazily
+  after five idle minutes without a background task. `set_max_redirects` and
+  `set_idle_timeout` configure those bounds.
 - Native positioned reads for `moirai_async::fs::File` through the existing
   `AsyncReadAt` and `AsyncLength` contracts. Unix uses cursor-independent
   `read_at`; Windows serializes only the cursor save/read/restore sequence, so
@@ -38,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Cancelling the timer that determines the driver's current wait now wakes the
+  driver immediately. Non-head cancellation retains the no-wakeup fast path,
+  and heap compaction also wakes the driver when it may change the next
+  deadline.
 - Honor `ExecutorConfig::max_global_queue_size` at scheduler construction.
   The executor-wide external-admission bound is partitioned into power-of-two
   per-worker injectors without exceeding the configured total; configurations
@@ -106,10 +117,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Prevent stale Windows `WSAPoll` results from deleting or waking a newer
-  registration that reused the same raw socket value. Poll snapshots now carry
-  registration generations in a reused sidecar buffer, preserving allocation-
-  free warm polling while rejecting stale `POLLNVAL` cleanup and readiness.
+- Consume delivered socket readiness as a one-shot interest before waking its
+  task. Independent read/write waiters remain armed, while completed writable
+  registrations no longer spin the reactor or remain stale across raw socket
+  reuse until a request deadline forces another poll. Native epoll, kqueue, and
+  `WSAPoll` dispatch retain the polled registration generation through central
+  consumption. A backend transition failure wakes delivered and independent
+  waiters after unlocking, while central state mirrors the interest the backend
+  reports as still armed instead of discarding a live registration. Kqueue
+  collapses every sibling filter when an expected filter is already absent,
+  and installs a replacement generation only after the prior lifecycle is
+  wholly absent. Receipt changes are not replayed after `EINTR`, matching the
+  native changelist-before-interruption contract.
+- Prevent stale epoll, kqueue, and Windows `WSAPoll` results from deleting or
+  waking a newer registration that reused the same raw descriptor value. Poll
+  results carry a private registration generation while the public `Event`
+  contract remains unchanged. Re-registering an existing descriptor installs a
+  fresh generation, including when platform cleanup removed only its prior poll
+  entry. Reused polling buffers still avoid per-iteration snapshot allocation.
 - Keep task registry and metrics storage alive once through scheduler worker
   teardown, including re-entrant executor destruction, while standalone
   lifecycle tokens retain their dense block. Slot reclamation and task-ID reuse

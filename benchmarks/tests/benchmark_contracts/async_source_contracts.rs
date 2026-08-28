@@ -547,8 +547,13 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
     let pal_net = read_benchmark("../moirai-pal/src/net.rs");
     let pal_reactor = [
         "../moirai-pal/src/reactor/core.rs",
+        "../moirai-pal/src/reactor/kqueue_transition.rs",
+        "../moirai-pal/src/reactor/registration.rs",
         "../moirai-pal/src/reactor/tests.rs",
         "../moirai-pal/src/reactor/tls.rs",
+        "../moirai-pal/src/unix/epoll.rs",
+        "../moirai-pal/src/unix/kqueue.rs",
+        "../moirai-pal/src/windows/poll.rs",
     ]
     .into_iter()
     .map(read_benchmark)
@@ -635,8 +640,26 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "pub fn register_waker(&self, fd: RawFd, interest: Interest, waker: Waker) -> io::Result<()>",
         "pub fn deregister_waker(&self, fd: RawFd, interest: Interest)",
         "fn wake_fd_waiters(&self, event: Event)",
-        "read_waker = fd_info.read_waker.take();",
-        "write_waker = fd_info.write_waker.take();",
+        "let consume_read =",
+        "fd_info.interest.readable && (event.readable || event.error || event.hangup);",
+        "let consume_write =",
+        "fd_info.interest.writable && (event.writable || event.error || event.hangup);",
+        "fd_info.read_waker.take()",
+        "fd_info.write_waker.take()",
+        "poll_registered_events",
+        "is_current_polled_event",
+        "replace_platform_registration",
+        "let platform_result = update_platform",
+        "PlatformUpdateFailure",
+        "armed_interest",
+        "readiness_delivery_consumes_only_reported_interest",
+        "stale_polled_generation_cannot_consume_replacement_registration",
+        "backend_update_failure_preserves_retained_registration_and_wakes_unlocked",
+        "backend_update_failure_removes_absent_registration_and_wakes_waiters",
+        "collapse_generation",
+        "if !failure.lifecycle_lost || armed.is_some()",
+        "absent_changed_filter_collapses_unchanged_sibling",
+        "consecutive_interrupted_receipts_are_definitively_applied",
         "with_active_restores_thread_local_on_panic",
     ] {
         assert!(

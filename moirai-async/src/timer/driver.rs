@@ -5,6 +5,8 @@
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -42,6 +44,8 @@ impl Ord for ScheduledTimer {
 pub(super) struct TimerDriver {
     state: Mutex<TimerDriverState>,
     available: Condvar,
+    #[cfg(test)]
+    notifications: AtomicUsize,
 }
 
 struct TimerDriverState {
@@ -76,15 +80,21 @@ impl TimerDriverState {
 }
 
 impl TimerDriver {
-    fn start() -> Arc<Self> {
-        let driver = Arc::new(Self {
+    fn new() -> Self {
+        Self {
             state: Mutex::new(TimerDriverState {
                 timers: BinaryHeap::new(),
                 next_sequence: 0,
                 dead: 0,
             }),
             available: Condvar::new(),
-        });
+            #[cfg(test)]
+            notifications: AtomicUsize::new(0),
+        }
+    }
+
+    fn start() -> Arc<Self> {
+        let driver = Arc::new(Self::new());
 
         let worker = Arc::clone(&driver);
         std::thread::Builder::new()
@@ -105,7 +115,8 @@ impl TimerDriver {
             sequence,
             registration,
         });
-        self.available.notify_one();
+        drop(state);
+        self.notify_driver();
     }
 
     /// Cancel a registration, accounting for its now-dead heap entry and
@@ -120,15 +131,35 @@ impl TimerDriver {
     /// growing with the cancel-rate x timeout-horizon product.
     pub(super) fn cancel(&self, registration: &TimerRegistration) {
         let mut state = self.state.lock().unwrap();
+        let mut wake_driver = false;
         // First cancellation of a still-resident entry: count it dead. Both
         // checks happen under the state mutex, so they cannot race the driver
         // thread's pops.
         if registration.cancel() && registration.is_in_heap() {
+            wake_driver = state
+                .timers
+                .peek()
+                .is_some_and(|timer| std::ptr::eq(timer.registration.as_ref(), registration));
             state.dead += 1;
-            if 2 * state.dead > state.timers.len() {
+            if state.dead > state.timers.len() / 2 {
                 state.compact();
+                wake_driver = true;
             }
         }
+        drop(state);
+
+        // Cancellation changes the driver's current wait only when it removes
+        // the heap head or a compaction rebuilds the heap. The state mutex and
+        // condition-variable wait prevent a notification from being lost.
+        if wake_driver {
+            self.notify_driver();
+        }
+    }
+
+    fn notify_driver(&self) {
+        #[cfg(test)]
+        self.notifications.fetch_add(1, AtomicOrdering::Relaxed);
+        self.available.notify_one();
     }
 
     /// Number of heap-resident entries (live + not-yet-reclaimed dead).
@@ -136,6 +167,11 @@ impl TimerDriver {
     #[cfg(test)]
     pub(super) fn scheduled_len(&self) -> usize {
         self.state.lock().unwrap().timers.len()
+    }
+
+    #[cfg(test)]
+    fn notification_count(&self) -> usize {
+        self.notifications.load(AtomicOrdering::Relaxed)
     }
 
     fn run(&self) {
@@ -184,12 +220,36 @@ pub(super) fn timer_driver() -> &'static Arc<TimerDriver> {
 
 #[cfg(test)]
 mod tests {
-    use super::timer_driver;
+    use super::{timer_driver, TimerDriver};
+    use crate::timer::registration::TimerRegistration;
     use crate::timer::Delay;
     use std::future::Future;
     use std::pin::Pin;
+    use std::sync::Arc;
     use std::task::{Context, Waker};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn cancellation_notifies_only_for_effective_head_changes() {
+        let driver = TimerDriver::new();
+        let now = Instant::now();
+        let head = TimerRegistration::new(Waker::noop().clone());
+        let later = TimerRegistration::new(Waker::noop().clone());
+
+        driver.schedule(now + Duration::from_secs(60), Arc::clone(&head));
+        driver.schedule(now + Duration::from_secs(120), Arc::clone(&later));
+        let scheduled_notifications = driver.notification_count();
+
+        driver.cancel(&later);
+        assert_eq!(driver.notification_count(), scheduled_notifications);
+
+        driver.cancel(&head);
+        assert_eq!(driver.notification_count(), scheduled_notifications + 1);
+        assert_eq!(driver.scheduled_len(), 0);
+
+        driver.cancel(&head);
+        assert_eq!(driver.notification_count(), scheduled_notifications + 1);
+    }
 
     #[test]
     fn cancelled_timers_are_compacted_before_their_deadline() {

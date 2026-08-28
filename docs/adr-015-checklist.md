@@ -53,8 +53,13 @@ Contract: HTTP/1.1 client over `moirai-tls`/`moirai-net`, reusing `http` + `http
 
 - [ ] Request serialization from `http::Request`; response head parse via `httparse`.
 - [ ] Body framing: Content-Length **and** chunked transfer decoding (incl. trailers).
-- [ ] Bounded-capacity keep-alive connection pool (no unbounded queues; idle-eviction timer).
-- [ ] Redirect handling (3xx, capped hops) and per-request deadline via Moirai timer.
+- [x] Bounded-capacity keep-alive connection pool with access-triggered idle
+  eviction. Eviction runs while the pool is accessed rather than through a
+  background timer task, preserving the bounded-state contract without adding
+  worker lifecycle state.
+- [x] Redirect handling for 301/302/303/307/308 with capped hops, RFC 3986
+  relative-reference resolution, destination-aware header filtering, and one
+  Moirai timer deadline across the complete logical request.
 - [ ] **Tests**: local HTTP/1.1 test server; property tests on chunked vs Content-Length
   framing and pool connection reuse; **differential — identical GET via `reqwest` vs
   `moirai-http` → byte-identical status/headers/body**; slow-loris timeout; server close

@@ -8,7 +8,7 @@
 use std::io::{Read, Write};
 use std::sync::Arc;
 
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection};
 
 fn certificate_error(error: rustls::Error) -> rustls::CertificateError {
@@ -40,20 +40,19 @@ fn transfer(
 }
 
 fn test_material() -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
-    let mut cert_pem = &include_bytes!("../../tests/fixtures/localhost-cert.pem")[..];
-    let certs = rustls_pemfile::certs(&mut cert_pem)
-        .collect::<Result<Vec<_>, _>>()
-        .expect("certificate fixture parses");
+    let certs =
+        CertificateDer::pem_slice_iter(include_bytes!("../../tests/fixtures/localhost-cert.pem"))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("certificate fixture parses");
     assert_eq!(
         certs.len(),
         3,
         "fixture contains leaf, intermediate, and root"
     );
 
-    let mut key_pem = &include_bytes!("../../tests/fixtures/localhost-key.pem")[..];
-    let key_der = rustls_pemfile::private_key(&mut key_pem)
-        .expect("private-key fixture parses")
-        .expect("private-key fixture exists");
+    let key_der =
+        PrivateKeyDer::from_pem_slice(include_bytes!("../../tests/fixtures/localhost-key.pem"))
+            .expect("private-key fixture parses");
 
     (certs, key_der)
 }

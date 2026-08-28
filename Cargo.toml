@@ -75,7 +75,6 @@ bytemuck = "1.14"
 
 # Development and testing dependencies only (not used in runtime)
 criterion = "0.5"
-rustls-pemfile = "2"
 fastrand = "2.0"
 proptest = "1.4"
 quickcheck = "1.0"

@@ -8,6 +8,9 @@ use std::task::Waker;
 use std::time::{Duration, Instant};
 
 use super::metrics::ReactorMetrics;
+use super::registration::PlatformUpdateFailure;
+#[cfg(any(unix, windows))]
+use super::registration::PolledEvent;
 use crate::{create_reactor, Event, Interest, PlatformReactor, RawFd, Reactor};
 
 /// Send/Sync-safe internal key for platform handles.
@@ -64,14 +67,15 @@ impl IoReactor {
 
     /// Register a file descriptor for async I/O operations.
     pub fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()> {
-        // Register with platform reactor
-        self.platform_reactor.register_fd(fd, interest)?;
-
-        // Track registration
         let mut fds = self
             .registered_fds
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
+
+        // Hold central state across platform publication so readiness cannot be
+        // dispatched before its matching central registration exists.
+        self.platform_reactor.register_fd(fd, interest)?;
+
         fds.insert(
             FdKey::from(fd),
             FdInfo {
@@ -94,11 +98,12 @@ impl IoReactor {
 
     /// Unregister a file descriptor.
     pub fn unregister_fd(&self, fd: RawFd) -> io::Result<()> {
-        self.platform_reactor.unregister_fd(fd)?;
-        self.registered_fds
+        let mut fds = self
+            .registered_fds
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .remove(&FdKey::from(fd));
+            .unwrap_or_else(|poison| poison.into_inner());
+        self.platform_reactor.unregister_fd(fd)?;
+        fds.remove(&FdKey::from(fd));
         Ok(())
     }
 
@@ -124,12 +129,20 @@ impl IoReactor {
     pub fn run_iteration(&self, timeout: Option<Duration>) -> io::Result<()> {
         let iteration_start = Instant::now();
 
-        // Poll for I/O events
-        let events = self.platform_reactor.poll_events(timeout)?;
+        #[cfg(any(unix, windows))]
+        {
+            let events = self.platform_reactor.poll_registered_events(timeout)?;
+            for event in events {
+                self.handle_polled_event(event)?;
+            }
+        }
 
-        // Process I/O events
-        for event in events {
-            self.handle_event(event)?;
+        #[cfg(not(any(unix, windows)))]
+        {
+            let events = self.platform_reactor.poll_events(timeout)?;
+            for event in events {
+                self.handle_event(event)?;
+            }
         }
 
         // Update metrics
@@ -151,40 +164,171 @@ impl IoReactor {
     }
 
     /// Handle a single I/O event.
+    #[cfg(not(any(unix, windows)))]
     fn handle_event(&self, event: Event) -> io::Result<()> {
-        // Update FD event count
-        if let Ok(mut fds) = self.registered_fds.lock() {
-            if let Some(fd_info) = fds.get_mut(&FdKey::from(event.fd)) {
-                fd_info.event_count += 1;
-            }
-        }
-
         // Update metrics
         self.metrics
             .events_processed
             .fetch_add(1, Ordering::Relaxed);
 
-        // Wake any tasks waiting on this file descriptor
-        self.wake_fd_waiters(event);
+        // Consume matching one-shot interests before waking their tasks. A
+        // task that still observes WouldBlock re-arms its interest on re-poll.
+        self.wake_fd_waiters(event)
+    }
 
-        Ok(())
+    /// Handle readiness paired with its platform registration generation.
+    #[cfg(any(unix, windows))]
+    pub(super) fn handle_polled_event(&self, event: PolledEvent) -> io::Result<()> {
+        self.metrics
+            .events_processed
+            .fetch_add(1, Ordering::Relaxed);
+
+        let readiness = event.event().clone();
+        self.wake_fd_waiters_if_current(readiness, |platform| {
+            platform.is_current_polled_event(&event)
+        })
     }
 
     /// Wake tasks waiting on a specific file descriptor event.
-    fn wake_fd_waiters(&self, event: Event) {
-        let mut read_waker = None;
-        let mut write_waker = None;
+    #[cfg(any(not(any(unix, windows)), test))]
+    pub(super) fn wake_fd_waiters(&self, event: Event) -> io::Result<()> {
+        self.wake_fd_waiters_if_current(event, |_| true)
+    }
 
-        if let Ok(mut fds) = self.registered_fds.lock() {
-            if let Some(fd_info) = fds.get_mut(&FdKey::from(event.fd)) {
-                if event.readable || event.error || event.hangup {
-                    read_waker = fd_info.read_waker.take();
-                }
-                if event.writable || event.error || event.hangup {
-                    write_waker = fd_info.write_waker.take();
+    fn wake_fd_waiters_if_current(
+        &self,
+        event: Event,
+        is_current: impl FnOnce(&PlatformReactor) -> bool,
+    ) -> io::Result<()> {
+        self.wake_fd_waiters_with_platform(event, is_current, |_, fd, interest| {
+            self.update_platform_registration(fd, interest)
+        })
+    }
+
+    fn update_platform_registration(
+        &self,
+        fd: RawFd,
+        interest: Interest,
+    ) -> Result<(), PlatformUpdateFailure> {
+        #[cfg(any(unix, windows))]
+        {
+            self.platform_reactor.update_registration(fd, interest)
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            self.platform_reactor
+                .unregister_fd(fd)
+                .map_err(|error| PlatformUpdateFailure::new(error, None))?;
+            if interest.readable || interest.writable {
+                self.platform_reactor
+                    .register_fd(fd, interest)
+                    .map_err(|error| PlatformUpdateFailure::new(error, None))?;
+            }
+            Ok(())
+        }
+    }
+
+    fn replace_platform_registration(
+        &self,
+        fd: RawFd,
+        interest: Interest,
+    ) -> Result<(), PlatformUpdateFailure> {
+        #[cfg(any(unix, windows))]
+        {
+            self.platform_reactor.replace_registration(fd, interest)
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            self.update_platform_registration(fd, interest)
+        }
+    }
+
+    pub(super) fn wake_fd_waiters_with_platform(
+        &self,
+        event: Event,
+        is_current: impl FnOnce(&PlatformReactor) -> bool,
+        update_platform: impl FnOnce(
+            &PlatformReactor,
+            RawFd,
+            Interest,
+        ) -> Result<(), PlatformUpdateFailure>,
+    ) -> io::Result<()> {
+        let key = FdKey::from(event.fd);
+        let mut fds = self
+            .registered_fds
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let Some(fd_info) = fds.get_mut(&key) else {
+            return Ok(());
+        };
+        if !is_current(&self.platform_reactor) {
+            return Ok(());
+        }
+        fd_info.event_count += 1;
+
+        let consume_read =
+            fd_info.interest.readable && (event.readable || event.error || event.hangup);
+        let consume_write =
+            fd_info.interest.writable && (event.writable || event.error || event.hangup);
+        if !consume_read && !consume_write {
+            return Ok(());
+        }
+
+        let remaining = Interest {
+            readable: fd_info.interest.readable && !consume_read,
+            writable: fd_info.interest.writable && !consume_write,
+            error: fd_info.interest.error,
+        };
+
+        // Every registered readiness interest is one-shot at this layer. The
+        // platform backends are level-triggered only to close the syscall-to-
+        // registration race; retaining a delivered writable interest would
+        // otherwise make the event loop spin indefinitely.
+        let platform_result = update_platform(&self.platform_reactor, event.fd, remaining);
+
+        let fd_info = fds
+            .get_mut(&key)
+            .expect("fd registration remained locked during readiness update");
+        let read_waker = if consume_read {
+            fd_info.read_waker.take()
+        } else {
+            None
+        };
+        let write_waker = if consume_write {
+            fd_info.write_waker.take()
+        } else {
+            None
+        };
+        let mut stranded_read_waker = None;
+        let mut stranded_write_waker = None;
+        let (remove_registration, platform_error) = match platform_result {
+            Ok(()) => {
+                if remaining.readable || remaining.writable {
+                    fd_info.interest = remaining;
+                    (false, None)
+                } else {
+                    (true, None)
                 }
             }
+            Err(failure) => {
+                // A delivered waiter must observe its wake even when the
+                // backend transition fails. Wake every remaining waiter too:
+                // each one must re-poll and republish its interest instead of
+                // depending on a transition that did not complete.
+                stranded_read_waker = fd_info.read_waker.take();
+                stranded_write_waker = fd_info.write_waker.take();
+                if let Some(armed_interest) = failure.armed_interest() {
+                    fd_info.interest = armed_interest;
+                    (false, Some(failure.into_error()))
+                } else {
+                    (true, Some(failure.into_error()))
+                }
+            }
+        };
+        if remove_registration {
+            fds.remove(&key);
         }
+        drop(fds);
 
         if let Some(waker) = read_waker {
             waker.wake();
@@ -192,6 +336,13 @@ impl IoReactor {
         if let Some(waker) = write_waker {
             waker.wake();
         }
+        if let Some(waker) = stranded_read_waker {
+            waker.wake();
+        }
+        if let Some(waker) = stranded_write_waker {
+            waker.wake();
+        }
+        platform_error.map_or(Ok(()), Err)
     }
 
     /// Register a task's waker for a file descriptor and interest.
@@ -208,15 +359,28 @@ impl IoReactor {
             if interest.writable {
                 new_interest.writable = true;
             }
-            // Always re-register with the platform reactor: the socket may have
-            // been pruned from the platform-level interest map via POLLNVAL (when
-            // the previous socket with the same FD number was closed), while the
-            // `registered_fds` entry was left behind. Blindly trusting the cached
-            // interest and skipping re-registration leaves the new socket invisible
-            // to `poll_events`, so its readiness is never signalled and reads/writes
-            // block until the debug timeout fires.
-            let _ = self.platform_reactor.unregister_fd(fd); // best-effort; may already be absent
-            self.platform_reactor.register_fd(fd, new_interest)?;
+            if let Err(failure) = self.replace_platform_registration(fd, new_interest) {
+                let read_waker = fd_info.read_waker.take();
+                let write_waker = fd_info.write_waker.take();
+                let remove_registration = if let Some(armed_interest) = failure.armed_interest() {
+                    fd_info.interest = armed_interest;
+                    false
+                } else {
+                    true
+                };
+                let error = failure.into_error();
+                if remove_registration {
+                    fds.remove(&FdKey::from(fd));
+                }
+                drop(fds);
+                if let Some(waker) = read_waker {
+                    waker.wake();
+                }
+                if let Some(waker) = write_waker {
+                    waker.wake();
+                }
+                return Err(error);
+            }
             fd_info.interest = new_interest;
 
             if interest.readable {
@@ -227,21 +391,30 @@ impl IoReactor {
             }
             Ok(())
         } else {
-            drop(fds);
-            self.register_fd(fd, interest)?;
-            let mut fds = self
-                .registered_fds
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            let fd_info = fds
-                .get_mut(&FdKey::from(fd))
-                .expect("fd was just registered");
+            let mut fd_info = FdInfo {
+                interest,
+                registered_at: Instant::now(),
+                event_count: 0,
+                read_waker: None,
+                write_waker: None,
+            };
             if interest.readable {
                 fd_info.read_waker = Some(waker.clone());
             }
             if interest.writable {
                 fd_info.write_waker = Some(waker);
             }
+
+            // Publish the waker in the same state-lock transaction as the
+            // platform registration. The poll thread may observe readiness as
+            // soon as `register_fd` wakes it, but it cannot consume a
+            // temporarily wakerless entry before this insertion completes.
+            self.platform_reactor.register_fd(fd, interest)?;
+            fds.insert(FdKey::from(fd), fd_info);
+            let current_count = fds.len() as u64;
+            self.metrics
+                .peak_fd_count
+                .fetch_max(current_count, Ordering::Relaxed);
             Ok(())
         }
     }

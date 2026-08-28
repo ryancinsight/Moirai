@@ -9,9 +9,10 @@ runtime. Runs over Moirai async sockets and
 
 Scope is the request shapes object-storage clients need: `GET` with `Range`,
 `HEAD`, and small `PUT`/`POST` bodies, with Content-Length and chunked response
-framing, a bounded keep-alive connection pool, and per-request timeouts. HTTP/2
-is out of scope. Vendor protocols (for example S3 SigV4) are built by callers on
-top of this — the crate knows HTTP, not S3.
+framing, a bounded keep-alive connection pool with access-triggered idle
+eviction, capped RFC 9110 redirects, and one deadline across each logical
+request. HTTP/2 is out of scope. Vendor protocols (for example S3 SigV4) are
+built by callers on top of this — the crate knows HTTP, not S3.
 
 ```toml
 [dependencies]
@@ -35,7 +36,10 @@ async fn fetch(url: &str) -> std::io::Result<()> {
 `Response` exposes `status`, `headers` (lowercased, in receive order), `body`,
 and `keep_alive`, plus `header(name)` for a case-insensitive lookup. Limits are
 configured on the client: `set_timeout`, `set_max_response_bytes`, and
-`set_max_idle_per_host`.
+`set_max_idle_per_host`, plus `set_idle_timeout` and `set_max_redirects` for
+connection reuse and redirect chains. Redirects resolve relative references per
+RFC 3986, never forward credentials across origins, and preserve methods and
+bodies for 307/308 responses.
 
 Full documentation: <https://docs.rs/moirai-http>
 

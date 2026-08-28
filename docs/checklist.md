@@ -96,6 +96,40 @@
 - [x] Pass value, affected-package cross-target, warning-denied host-workspace, documentation, lock, and SemVer gates.
 - [x] Publish and merge the verified implementation as PR #178 / `7ff3c13`.
 
+### MOI-HTTP-REDIRECT-041 — bounded redirects and idle-pool eviction
+
+- [x] Reconcile atlas ADR-0045, RFC 9110 redirect semantics, RFC 3986 reference resolution, stale branch `778021e`, and the current 9/9 package baseline.
+- [x] Split the client, redirect, pool, and tests into canonical leaves before extending behavior.
+- [x] Apply one logical-request deadline across redirects and stale idempotent retries.
+- [x] Implement capped redirects, destination-aware header filtering, and access-triggered idle eviction without pool-lock panics.
+- [x] Add value tests for redirect status/method/body/header/URI matrices, limit and location failures, deterministic eviction, and timeout/retry boundaries; remove the 300 ms sleep-based test.
+- [x] Synchronize the provider README, CHANGELOG, ADR P2 checklist, and PM records; the source-contract scan found no `moirai-http/src/lib.rs` benchmark alias to update.
+- [x] Pass focused Nextest 23/23, exact-lock workspace Nextest 854/854, warning-denied package Clippy/rustdoc, doctests, 196/196 SemVer checks, AArch64 Linux/Windows all-target checks, and standalone lock validation on the working diff.
+- [ ] Obtain independent review, publish and merge the provider, then update atlas ADR-0045 with the exact delivery revision.
+
+### MOI-IO-WAKE-042 — timer and socket readiness wake closure
+
+- [x] Reproduce the lifecycle defect through the HTTP exact-revision run and trace it to the missing driver notification after timer-head cancellation.
+- [x] Notify only when cancellation removes the effective heap head or compaction changes the heap, retaining the non-head fast path.
+- [x] Add deterministic notification-selection coverage without wall-clock synchronization.
+- [x] Verify 95/95 `moirai-async` tests plus warning-denied Clippy, rustdoc, doctests, and AArch64 Linux/Windows all-target checks for the timer increment.
+- [x] Falsify timer cancellation as the sole cause: the isolated redirect case exits in 24 ms, while the complete focused run still exposes a 30.216-second deadline-rescued readiness stall.
+- [x] Consume delivered read/write readiness interests without removing an independent waiter, and update the benchmark source contract.
+- [x] Add deterministic one-shot readiness coverage and verify the formerly slow redirect in the complete focused suite.
+- [x] Pass `moirai-pal` Nextest 31/31 in 0.270 seconds and workspace Nextest 862/862 in 11.762 seconds; pass warning-denied workspace Clippy, affected x86-64 Windows/AArch64 Linux all-target checks, and the macOS kqueue library check.
+- [x] Preserve private epoll, kqueue, and `WSAPoll` registration generations through central dispatch and reject same-interest stale readiness after descriptor replacement.
+- [x] Finalize central one-shot consumption on every backend result, wake reported plus stranded independent waiters after unlocking, and retain or remove central state according to the platform's reported armed interest.
+- [x] Collapse every kqueue filter to a known state when descriptor lifecycle loss invalidates one expected filter; recover replacement registration only after the old generation is wholly absent.
+- [x] Pin interrupted receipt semantics to the native `kevent(2)`/XNU contract and add host-executable deterministic state-transition regressions.
+- [ ] Obtain independent review, publish/merge, and discharge integration responsibility before resuming MOI-HTTP-REDIRECT-041 delivery.
+
+### MOI-PEM-PARSER-043 — maintained PEM fixture parsing
+
+- [x] Confirm PR #180 fails supply-chain verification on RUSTSEC-2025-0134 and verify the locked `rustls-pki-types` PEM API.
+- [x] Replace both handshake fixture loaders, remove `rustls-pemfile`, and regenerate the exact standalone lockfile.
+- [x] Pass focused value tests 7/7, workspace Nextest 858/858, warning-denied workspace Clippy, lock validation, and exact standalone `cargo deny`.
+- [x] Commit and publish the correction as `b3d4346`; hosted supply-chain verification is green.
+
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
 - [x] Claim `moirai-gpu/src/lib.rs`, `moirai-gpu/src/buffer.rs`, their
