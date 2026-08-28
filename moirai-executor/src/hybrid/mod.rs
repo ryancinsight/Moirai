@@ -79,6 +79,12 @@ pub struct HybridExecutor<S: WorkScheduler = ThreadScheduler> {
 
 impl HybridExecutor<ThreadScheduler> {
     /// Create a new hybrid executor with the given configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutorError::InvalidConfiguration`] when the configured
+    /// global admission bound cannot supply at least two slots per worker, or
+    /// propagates scheduler thread-pool construction failures.
     pub fn new(config: ExecutorConfig) -> ExecutorResult<Self> {
         let numa_aware = {
             #[cfg(feature = "numa")]
@@ -90,9 +96,10 @@ impl HybridExecutor<ThreadScheduler> {
                 true
             }
         };
-        let scheduler = ThreadScheduler::new_with_numa(
+        let scheduler = ThreadScheduler::new_with_queue_config(
             config.worker_threads,
             &config.thread_name_prefix,
+            config.max_global_queue_size,
             numa_aware,
         )?;
         let metrics = Arc::new(ExecutorMetrics::new());

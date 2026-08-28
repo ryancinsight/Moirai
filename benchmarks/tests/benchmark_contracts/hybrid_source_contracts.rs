@@ -13,8 +13,8 @@ fn async_public_handle_path_uses_inline_future_state() {
         "ASYNC_INLINE_REPOLL_LIMIT",
         "finish_pending_poll",
         "fn take_result_sender(&self) -> Option<TaskResultSender<F::Output>>",
-        "fn schedule_by_ref(self: &Arc<Self>) -> ExecutorResult<()>",
-        "let _ = self.schedule_by_ref();",
+        "fn schedule_wake(self: &Arc<Self>)",
+        "self.schedule_wake();",
         "impl<S, F> Wake for AsyncFutureState<S, F>",
     ] {
         assert!(

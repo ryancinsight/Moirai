@@ -46,10 +46,10 @@ impl ExecutorBuilder {
         self
     }
 
-    /// Sets the maximum size of the global task queue.
+    /// Sets the aggregate maximum of the workers' external admission queues.
     ///
     /// # Arguments
-    /// * `size` - Maximum number of tasks in the global queue
+    /// * `size` - Maximum queued tasks across all worker injectors
     ///
     /// # Returns
     /// The builder instance for method chaining

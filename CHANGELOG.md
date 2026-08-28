@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Honor `ExecutorConfig::max_global_queue_size` at scheduler construction.
+  The executor-wide external-admission bound is partitioned into power-of-two
+  per-worker injectors without exceeding the configured total; configurations
+  smaller than two slots per worker now return `InvalidConfiguration`, matching
+  the queue sequence protocol's minimum valid ring size.
 - Keep indexed completion state on the caller's stack. Warmed
   `ThreadScheduler::for_each_indexed` calls now allocate nothing, while
   `map_reduce_indexed` allocates only its result-slot buffer instead of adding
@@ -115,6 +120,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Size worker injectors from the process-wide admission bound instead of
+  allocating 1024 slots per worker independently. With the default 8192-task
+  bound and 24 workers, injector storage falls from 24 × 1024 to 24 × 256
+  slots. Apollo's unchanged retained-allocation probe confirms the queue blocks
+  fall from 24 × 262,144 bytes (6 MiB) to 24 × 65,536 bytes (1.5 MiB), while
+  its warm forward transform remains allocation-free.
 - Weaken 5 of the 11 `SeqCst` accesses on the MPMC waiter counters to
   `Relaxed`: the four deregistering `fetch_sub`es (over-counting costs only a
   spurious `notify_one`) and the two notify-gating loads whose paired queue

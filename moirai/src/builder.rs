@@ -31,7 +31,7 @@ impl MoiraiBuilder {
         self
     }
 
-    /// Set the maximum global queue size.
+    /// Set the aggregate maximum across worker admission queues.
     #[must_use]
     pub fn max_global_queue_size(mut self, size: usize) -> Self {
         self.config.max_global_queue_size = size;

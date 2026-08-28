@@ -15,18 +15,6 @@ use super::job::ScheduledJob;
 
 /// One queue per priority level; indices come from [`Priority::index`] (SSOT).
 const PRIORITY_LEVELS: usize = Priority::Critical.index() + 1;
-/// Initial slot count for each worker's multi-producer injector queue.
-///
-/// The injector holds `(Priority, ScheduledJob)` elements (~256 B each); the
-/// previous `LockFreeQueue::new()` default of 65536 slots pre-allocated ~16 MiB
-/// per worker at startup regardless of load (~256 MiB idle on 16 workers). A
-/// 1024-slot injector bounds that to ~256 KiB per worker while the enqueue path
-/// still backs off and eventually succeeds when momentarily full (unblocked-
-/// sender contract), so throughput under burst load is unaffected.
-///
-/// This is a subtractive sizing fix; threading `ExecutorConfig::
-/// max_global_queue_size` to this construction site is a separate follow-up.
-pub(super) const INJECTOR_CAPACITY: usize = 1024;
 /// Pop scan order: highest [`Priority::index`] first.
 const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] = [
     Priority::Critical.index(),
@@ -62,12 +50,12 @@ pub(crate) struct WorkerQueueOwner<const CAPACITY: usize> {
 
 impl<const CAPACITY: usize> WorkerQueues<CAPACITY> {
     /// Create empty queues for one worker.
-    pub(crate) fn new() -> (WorkerQueueOwner<CAPACITY>, Arc<Self>) {
+    pub(crate) fn new(injector_capacity: usize) -> (WorkerQueueOwner<CAPACITY>, Arc<Self>) {
         let local_queues = std::array::from_fn(|_| ChaseLevDeque::new(CAPACITY));
         let local_stealers = std::array::from_fn(|index| local_queues[index].stealer());
         let shared = Arc::new(Self {
             local_stealers,
-            injector: moirai_utils::queue::LockFreeQueue::with_capacity(INJECTOR_CAPACITY),
+            injector: moirai_utils::queue::LockFreeQueue::with_capacity(injector_capacity),
             len: CacheAligned::new(AtomicUsize::new(0)),
         });
         (
@@ -221,10 +209,12 @@ mod tests {
     use crate::schedule::job::ScheduledJob;
     use moirai_core::Priority;
 
+    const TEST_INJECTOR_CAPACITY: usize = 8;
+
     #[test]
     fn worker_queue_pops_highest_priority_first() {
         let observed = Arc::new(Mutex::new(Vec::new()));
-        let (mut owner, queues) = WorkerQueues::<256>::new();
+        let (mut owner, queues) = WorkerQueues::<256>::new(TEST_INJECTOR_CAPACITY);
 
         for (priority, value) in [(Priority::Low, 1), (Priority::Critical, 2)] {
             let observed = Arc::clone(&observed);
@@ -246,14 +236,9 @@ mod tests {
     }
 
     #[test]
-    fn injector_uses_sane_default_capacity_not_65536() {
-        // The injector must not pre-allocate the LockFreeQueue 65536-slot
-        // default (~16 MiB/worker for (Priority, ScheduledJob)); it is sized to
-        // INJECTOR_CAPACITY instead.
-        let (_owner, queues) = WorkerQueues::<256>::new();
-        assert_eq!(queues.injector_capacity(), super::INJECTOR_CAPACITY);
-        assert_eq!(queues.injector_capacity(), 1024);
-        assert_ne!(queues.injector_capacity(), 65536);
+    fn injector_uses_configured_capacity() {
+        let (_owner, queues) = WorkerQueues::<256>::new(TEST_INJECTOR_CAPACITY);
+        assert_eq!(queues.injector_capacity(), TEST_INJECTOR_CAPACITY);
     }
 
     #[test]
@@ -261,7 +246,7 @@ mod tests {
         // The reduced-capacity injector still enqueues and drains: an external
         // push lands in the injector and pops out via pop_local's drain path.
         let observed = Arc::new(Mutex::new(Vec::new()));
-        let (mut owner, queues) = WorkerQueues::<256>::new();
+        let (mut owner, queues) = WorkerQueues::<256>::new(TEST_INJECTOR_CAPACITY);
 
         for (priority, value) in [(Priority::Normal, 7), (Priority::Critical, 9)] {
             let observed = Arc::clone(&observed);
@@ -285,8 +270,8 @@ mod tests {
 
     #[test]
     fn full_injector_returns_and_drops_rejected_job_once() {
-        let (_owner, queues) = WorkerQueues::<256>::new();
-        for _ in 0..super::INJECTOR_CAPACITY {
+        let (_owner, queues) = WorkerQueues::<256>::new(TEST_INJECTOR_CAPACITY);
+        for _ in 0..TEST_INJECTOR_CAPACITY {
             let () = queues
                 .try_push_external(Priority::Normal, ScheduledJob::new(|_| {}))
                 .map_or((), |_| panic!("capacity-sized admission must succeed"));
@@ -301,7 +286,7 @@ mod tests {
             )
             .expect("one job beyond capacity must be rejected");
 
-        assert_eq!(queues.len(), super::INJECTOR_CAPACITY);
+        assert_eq!(queues.len(), TEST_INJECTOR_CAPACITY);
         assert_eq!(Arc::strong_count(&capture), 2);
         drop(rejected);
         assert_eq!(Arc::strong_count(&capture), 1);

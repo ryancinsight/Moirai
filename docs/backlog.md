@@ -86,6 +86,24 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-QUEUE-CAPACITY-034 [patch] [arch]: Enforce the executor admission bound
+
+- **Outcome**: route `ExecutorConfig::max_global_queue_size` through hybrid and scheduler construction, partitioning it into power-of-two worker injectors without exceeding the configured aggregate.
+- **Evidence**: focused and release Nextest pass; Apollo's unchanged retained-footprint probe reduces injector retention from 6 MiB to 1.5 MiB while its warm transform stays allocation-free. The one-slot sequence-generation alias found in independent review now has boundary and minimum-partition regressions; second review and merge remain.
+- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` discharges the minimum-capacity correction through its verified commit.
+
+### ⬜ MOI-TLS-PROGRESS-035 [patch]: Diagnose nondeterministic loopback TLS loss of progress
+
+- **Outcome**: identify and correct the runtime mechanism that can strand `tls_round_trip_trusted_cert` under workspace concurrency; do not add retries or widen the 60-second termination bound.
+- **Acceptance**: a deterministic regression exercises the failed interleaving, the owning runtime path is fixed, and focused plus workspace Nextest complete inside the committed 30/60-second budgets.
+- **Evidence**: exact queue-capacity diff passed this test once, then a second workspace run timed it out at 60.236 seconds after 824/825 tests passed; phase and mechanism remain unlocated.
+
+### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
+
+- **Outcome**: replace the no-op `max_local_queue_size` contract with the scheduler's real resizable Chase-Lev initial-capacity policy, updating all first-party callers without a compatibility shim.
+- **Acceptance**: the accepted ADR defines the public migration, configuration reaches construction, adversarial growth preserves exactly-once semantics, and SemVer plus consumer gates classify the delivered break.
+- **Dependency**: follows MOI-QUEUE-CAPACITY-034 so global admission and local work-stealing policies remain separate increments.
+
 ### ✅ MOI-THEMIS-CPU-001 [patch]: Route default CPU sizing through Themis
 
 - **Scope**: `moirai-core`, `moirai-executor`, `moirai-iter`,

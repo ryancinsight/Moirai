@@ -12,8 +12,9 @@ pub const MEDIUM_POOL_SIZE: usize = MEGABYTE;
 /// Default capacity for the large object allocation pool.
 pub const LARGE_POOL_SIZE: usize = 16 * MEGABYTE;
 
-/// Default bound for the global task queue (tasks, not bytes). Sized for
-/// burst absorption across all workers before producers observe backpressure.
+/// Default aggregate bound for worker admission queues (tasks, not bytes).
+/// Sized for burst absorption across all workers before producers observe
+/// backpressure.
 pub const DEFAULT_GLOBAL_QUEUE_CAPACITY: usize = 8192;
 /// Default bound for each worker's local queue (tasks, not bytes). Small so
 /// idle workers can steal instead of one worker hoarding a deep queue.
@@ -29,7 +30,10 @@ pub struct ExecutorConfig {
     pub worker_threads: usize,
     /// Number of threads dedicated to async tasks
     pub async_threads: usize,
-    /// Maximum size of the global task queue
+    /// Maximum aggregate size of the workers' external admission queues.
+    ///
+    /// Executor construction partitions this bound across workers without
+    /// exceeding it. The value must supply at least two slots per worker.
     pub max_global_queue_size: usize,
     /// Maximum size of per-thread local queues
     pub max_local_queue_size: usize,
