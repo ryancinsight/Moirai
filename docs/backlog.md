@@ -86,6 +86,14 @@ architecture definition.
 
 ## Current closure record
 
+### 🟨 MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 [patch] [arch]: Reduce retained local-queue storage
+
+- **Outcome**: establish exact pointer-identity attribution for global and direct Mnemosyne allocations, then select the smallest Chase-Lev initial capacity whose controlled throughput confidence intervals do not regress against the current 256-slot policy.
+- **Scope / non-goals**: `moirai-executor` allocation instrumentation, local-queue capacity policy, the existing scheduler comparison benchmark, ADR 0035, tests, and release documentation; no fixed-capacity queue, queue algorithm replacement, benchmark workload reduction, or timeout increase.
+- **Acceptance**: the instrument handles allocation failure, reallocation, address reuse, and window-close races; observes all four local deque planes per worker through Mnemosyne hooks; capacity candidates preserve exact scheduling/growth/steal semantics; controlled Criterion baselines support the selected default; warning-denied, Nextest, documentation, cross-target, SemVer, and consumer gates pass.
+- **Risk / dependency**: internal policy and test-instrument correction with an architecture decision revision; Apollo PR #169 independently removes FFT-owned row scratch and supplies the consumer retained-footprint oracle.
+- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: `moirai-executor/tests/indexed_allocation_contract.rs`, scheduler-capacity benchmark rows, ADR 0035, tests, and affected documentation through the next verified commit.
+
 ### ✅ MOI-QUEUE-RETENTION-036 [patch] [arch]: Bound retained worker-queue storage
 
 - **Delivered**: Moirai PR #184 / merge `b42ec745` removes forced inline-job alignment; Apollo PR #162 / commit `bfeca7fc` / merge `e27e2890` advances all 13 consumer lock entries.
