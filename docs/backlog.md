@@ -122,6 +122,15 @@ architecture definition.
 - **Evidence**: PR #178 merged as `7ff3c13`; exact-lock Nextest passes 120/120 focused, 68/68 benchmark contracts, and 842/842 workspace in 11.740 seconds; warning-denied host docs/Clippy, affected AArch64 targets, SemVer 196/196 for both changed crates, and standalone lock validation pass. Whole-workspace AArch64 remains outside this evidence because PyO3 requires cross-Python configuration.
 - **Lease**: none.
 
+### 🟨 MOI-HTTP-REDIRECT-041 [minor]: Complete bounded HTTP redirect and idle-pool policy
+
+- **Outcome**: complete atlas ADR-0045 P2 with RFC 9110 redirect semantics, RFC 3986 reference resolution, one deadline across the logical request, and access-triggered idle connection eviction without a background task.
+- **Scope / non-goals**: `moirai-http` client, redirect, pool, tests, documentation, and benchmark source contracts; no HTTP/2, proxy, cookie store, S3 protocol, or backend fallback.
+- **Acceptance**: method/body preservation and rewrite cases, same- versus cross-origin header forwarding, normal and abnormal relative references, missing/invalid locations, redirect exhaustion, deterministic zero-duration eviction, pool reuse/cardinality, stale idempotent retry, lock-poison recovery, and the full logical-request timeout are value-tested; warning-denied, documentation, SemVer, and exact-lock gates pass.
+- **Risk / dependency**: additive public configuration with trust-boundary parsing; governed by atlas ADR-0045 and based on the 9/9 exact-lock package baseline at `76e78ce`.
+- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
+- **Lease**: same session — `moirai-http/{src,tests,README.md}`, `benchmarks/tests/benchmark_contracts/support.rs`, `docs/{backlog.md,checklist.md,adr-015-checklist.md}`, and `CHANGELOG.md` until the next verified commit.
+
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
 - **Outcome**: replace the no-op `max_local_queue_size` contract with the scheduler's real resizable Chase-Lev initial-capacity policy, updating all first-party callers without a compatibility shim.
