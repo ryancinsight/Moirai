@@ -86,6 +86,14 @@ architecture definition.
 
 ## Current closure record
 
+### 🟨 MOI-CI-FUZZ-SCOPE-2026-08-28 [patch]: Event-scope parser fuzz verification
+
+- **Outcome:** pull requests execute every committed parser seed deterministically while the weekly and manually dispatched jobs retain bounded mutation campaigns over every shipped fuzz target.
+- **Scope / non-goals:** `.github/workflows/rust-ci.yml`, the existing `fuzz/` target corpus and documentation, and this item only; no parser behavior change, corpus removal, target removal, production-test reduction, or timeout increase.
+- **Acceptance:** both `http_response` and `ipc_header` build and execute in pull-request smoke and scheduled campaign modes; committed seeds execute without mutation-budget waiting on pull requests; the full 180-second-per-target campaign remains schedule/manual-only; workflow syntax and focused commands pass within their committed bounds.
+- **Risk / dependency:** CI-only [patch]; depends on cargo-fuzz/libFuzzer's verified corpus and run-count semantics. Entry run `33192481872`, job `98921194919`, spent 263 seconds on an unrelated scheduler change while omitting `ipc_header`.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: `.github/workflows/rust-ci.yml`, `fuzz/`, and this item's PM regions through the next verified commit; last update 2026-08-28.
+
 ### ✅ MOI-LOCAL-QUEUE-FOOTPRINT-2026-08-28 [patch] [arch]: Reduce retained local-queue storage
 
 - **Delivered:** PR #187 / implementation `cf84fc29` / merge `32f9d08d` selects the 128-slot default after independent exact-head review at `cdb494e2`; lease: none.
