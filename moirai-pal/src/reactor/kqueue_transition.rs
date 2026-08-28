@@ -64,7 +64,7 @@ pub(crate) fn transition_interest(
             Ok(FilterChange::AlreadyAbsent(error)) => {
                 debug_assert!(!desired_enabled, "only deletion can prove absence");
                 filter.set(&mut actual, false);
-                collapse_generation(&mut actual, &mut change);
+                let error = collapse_generation(&mut actual, &mut change).unwrap_or(error);
                 return InterestTransition {
                     actual,
                     failure: Some(TransitionFailure {
@@ -92,7 +92,8 @@ pub(crate) fn transition_interest(
 fn collapse_generation(
     actual: &mut Interest,
     change: &mut impl FnMut(InterestFilter, bool) -> io::Result<FilterChange>,
-) {
+) -> Option<io::Error> {
+    let mut first_error = None;
     for filter in [InterestFilter::Readable, InterestFilter::Writable] {
         if !filter.enabled(*actual) {
             continue;
@@ -101,11 +102,15 @@ fn collapse_generation(
             Ok(FilterChange::Applied | FilterChange::AlreadyAbsent(_)) => {
                 filter.set(actual, false);
             }
-            Err(_) => {
+            Err(error) => {
                 // A receipt error leaves the pre-change filter state intact.
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
             }
         }
     }
+    first_error
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,7 +203,8 @@ mod tests {
         assert!(transition.actual.writable);
         assert_eq!(calls, 2);
         let failure = transition.failure.expect("lifecycle loss is reported");
-        assert_eq!(failure.error.kind(), io::ErrorKind::NotFound);
+        assert_eq!(failure.error.kind(), io::ErrorKind::Other);
+        assert_eq!(failure.error.to_string(), "injected collapse failure");
         assert!(failure.lifecycle_lost);
     }
 
