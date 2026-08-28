@@ -119,6 +119,8 @@
 - [x] Pass `moirai-pal` Nextest 28/28 in 0.207 seconds and workspace Nextest 859/859 in 11.307 seconds; pass warning-denied workspace Clippy, affected x86-64 Windows/AArch64 Linux all-target checks, and the macOS kqueue library check.
 - [x] Preserve private epoll, kqueue, and `WSAPoll` registration generations through central dispatch and reject same-interest stale readiness after descriptor replacement.
 - [x] Finalize central one-shot consumption on every backend result, wake reported plus stranded independent waiters after unlocking, and retain or remove central state according to the platform's reported armed interest.
+- [ ] Collapse every kqueue filter to a known state when descriptor lifecycle loss invalidates one expected filter; recover replacement registration only after the old generation is wholly absent.
+- [ ] Pin interrupted receipt semantics to the native `kevent(2)`/XNU contract and add host-executable deterministic state-transition regressions.
 - [ ] Obtain independent review, publish/merge, and discharge integration responsibility before resuming MOI-HTTP-REDIRECT-041 delivery.
 
 ### MOI-PEM-PARSER-043 — maintained PEM fixture parsing
