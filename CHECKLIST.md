@@ -148,9 +148,9 @@
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
 - **Lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns
-  `moirai-executor/src/schedule/runtime/scheduler/scope.rs`, focused scheduler
-  tests, and this item's PM region through the next verified commit. Apollo
-  consumer validation remains.
+  `moirai-executor/src/schedule/runtime/scheduler/{core.rs,scope.rs}`, focused
+  scheduler tests, and this item's PM region through the next verified commit.
+  Apollo consumer validation remains.
 - **Outcome:** indexed completion-only fan-out reuses the scheduler's existing
   stack-owned scoped lifetime proof instead of allocating one `Arc` state per
   call. An Apollo FFT consumer triggered the finding by observing two 32-byte
