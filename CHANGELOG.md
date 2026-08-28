@@ -127,6 +127,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Publish scoped scheduler completion only after the borrowing task's call
+  frame and captures are destroyed. The previous task-owned completion token
+  could release the caller's stack state while the worker still held a shared
+  borrow; Miri reproduced the invalid deallocation between task return and
+  worker-frame teardown. Inline and typed-boxed jobs now share the ordered
+  completion path, and dropped jobs release their token without running work.
+  Directly scheduled and indexed panics reach failed-task metrics; batched
+  scoped failures remain scope-local while the enclosing physical batch
+  completes. The indexed allocation test keeps exact
+  native allocation counts while using Miri's allocator for provenance-safe
+  lifetime verification.
 - Consume delivered socket readiness as a one-shot interest before waking its
   task. Independent read/write waiters remain armed, while completed writable
   registrations no longer spin the reactor or remain stale across raw socket

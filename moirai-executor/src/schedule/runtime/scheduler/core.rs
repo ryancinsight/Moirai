@@ -13,7 +13,10 @@ use std::{
 
 use moirai_core::{
     error::{ExecutorError, ExecutorResult},
-    executor::{config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY, ExecutorConfig},
+    executor::{
+        config::{DEFAULT_GLOBAL_QUEUE_CAPACITY, DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY},
+        ExecutorConfig,
+    },
     Priority,
 };
 use moirai_scheduler::DequeCapacity;
@@ -103,11 +106,10 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         thread_name_prefix: &str,
         local_queue_initial_capacity: usize,
     ) -> ExecutorResult<Self> {
-        let defaults = ExecutorConfig::default();
         Self::from_construction(SchedulerConstruction {
             worker_count,
             thread_name_prefix,
-            max_global_queue_size: defaults.max_global_queue_size,
+            max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity,
             numa_aware: true,
         })
@@ -158,8 +160,18 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         // Detect NUMA topology once at construction; derive a per-worker node
         // assignment so `steal_job` can prefer same-node victims without runtime
         // discovery overhead.  Falls back to `None` on single-node / VM systems.
-        let topology = if numa_aware {
-            moirai_scheduler::numa::CpuTopology::detect()
+        let topology: Option<moirai_scheduler::numa::CpuTopology> = if numa_aware {
+            #[cfg(miri)]
+            {
+                // Miri cannot execute the platform topology FFI. `None` is the
+                // scheduler's normal no-topology fallback and leaves queue and
+                // stealing semantics available to the interpreter.
+                None
+            }
+            #[cfg(not(miri))]
+            {
+                moirai_scheduler::numa::CpuTopology::detect()
+            }
         } else {
             None
         };
@@ -530,21 +542,23 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         Ok(())
     }
 
-    pub(crate) fn schedule_scoped_job<'scope, C, F>(
+    pub(crate) fn schedule_scoped_job<'scope, C, F, Complete>(
         &self,
         priority: Priority,
         locality_hint: Option<usize>,
         scoped_job: F,
+        complete: Complete,
     ) -> ExecutorResult<()>
     where
         C: WorkClass,
         F: FnOnce(usize) + Send + 'scope,
+        Complete: FnOnce(bool) + Send + 'scope,
     {
-        // Safety: callers wait for their scope state counter to reach zero
-        // before returning. Every scoped scheduler job owns a completion token
-        // whose Drop decrements that counter on normal return, panic, or queued
-        // drop. Scheduler shutdown drains queued work before workers exit.
-        let job = unsafe { ScheduledJob::new_scoped(scoped_job) };
+        // SAFETY: callers wait for their scope state counter to reach zero
+        // before returning. Completion is published only after borrowing task
+        // teardown; dropping an unadmitted job drops the same completion token.
+        // Scheduler shutdown drains queued work before workers exit.
+        let job = unsafe { ScheduledJob::new_scoped_with_completion(scoped_job, complete) };
         self.schedule_job::<C>(priority, locality_hint, job)
     }
 
