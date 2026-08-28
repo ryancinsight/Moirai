@@ -7,10 +7,10 @@
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
 - **Lease:** scheduler-capacity benchmark rows, ADR 0035, tests, and affected documentation through the next verified commit.
 - [x] Replace size-only accounting with a pointer-identity, generation-drained ledger for successful global and direct Mnemosyne allocations; cover reallocation failure and address reuse.
-- [ ] Attribute construction, first-growth, warm fan-out, and shutdown storage across candidate initial capacities without changing workloads or timing regions.
-- [ ] Select the default from controlled Criterion confidence intervals and retained-byte evidence; preserve exact growth, steal, panic, and allocation semantics.
+- [x] Attribute construction, first growth, warm fan-out, and shutdown storage across 16, 32, 64, 128, and 256 slots without changing workloads or timing regions.
+- [x] Select 128 as the smallest default without a controlled warm confidence-interval regression against 256; preserve exact growth, steal, panic, and allocation semantics.
 - [ ] Pass focused and full provider gates, independent review, Apollo consumer verification, and PR merge; synchronize ADR 0035, the backlog, and release documentation.
-- **Evidence:** the focused Nextest binary passes 4/4 in 0.038 seconds; all-feature and no-default-feature warning-denied Clippy pass. The isolated release probe completes in 0.020 seconds and attributes 24 global 36,864-byte injectors plus 96 direct 32,768-byte local buffers (3,145,728 direct bytes), with zero global or direct allocations in every warmed fan-out window.
+- **Evidence:** the exact five-candidate release probe passes in 0.031 seconds. At 24 workers, 128 slots retain 1,572,864 direct bytes versus 3,145,728 at 256; first and warm fan-out allocate zero, every growth step is attributed, and full teardown retains zero direct bytes. The 20-sample warm intervals overlap at 128 (277.34–280.56 ns) and 256 (280.42–282.49 ns). Provider Nextest passes 328/328 in 3.443 seconds; warning-denied host, AArch64, documentation, and SemVer gates pass; the hosted matrix is green. Apollo observes the same pool footprint and zero warm-transform allocations.
 
 ## MOI-WAKE-CORRECTNESS-2026-08-27 — Lost-wake, channel fence, ZST deque alloc [patch] — done 2026-08-27
 
