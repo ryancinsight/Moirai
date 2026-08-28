@@ -4,7 +4,7 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use super::super::HybridExecutor;
-    use crate::{BlockingTask, SyncTask, WorkClass};
+    use crate::{AsyncTask, BlockingTask, SyncTask, WorkClass};
     use moirai_core::{
         executor::{ExecutorConfig, ExecutorControl, TaskManager, TaskSpawner, TaskStatus},
         task::TaskBuilder,
@@ -400,7 +400,7 @@ mod tests {
 
     /// Occupy the single worker with a job gated on a channel; returns the
     /// release sender and blocks until the gate job has started.
-    fn gate_single_worker(
+    fn gate_single_worker<C: WorkClass>(
         executor: &HybridExecutor,
     ) -> (
         std::sync::mpsc::Sender<()>,
@@ -409,7 +409,7 @@ mod tests {
         let (release_sender, release_receiver) = std::sync::mpsc::channel::<()>();
         let (started_sender, started_receiver) = std::sync::mpsc::channel::<()>();
         let handle = executor
-            .spawn_blocking(move || {
+            .spawn_result::<C, _>(Priority::Normal, None, move || {
                 started_sender.send(()).unwrap();
                 release_receiver
                     .recv_timeout(std::time::Duration::from_secs(10))
@@ -433,7 +433,7 @@ mod tests {
         })
         .unwrap();
 
-        let (release, gate_handle) = gate_single_worker(&executor);
+        let (release, gate_handle) = gate_single_worker::<BlockingTask>(&executor);
 
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_in_task = Arc::clone(&counter);
@@ -445,7 +445,7 @@ mod tests {
             .unwrap();
         let id = handle.id();
 
-        // The single worker is busy with the gate, so the task is still queued.
+        assert_eq!(executor.task_status(id), Some(TaskStatus::Queued));
         executor.cancel_task(id).unwrap();
         release.send(()).unwrap();
 
@@ -476,7 +476,7 @@ mod tests {
         })
         .unwrap();
 
-        let (release, gate_handle) = gate_single_worker(&executor);
+        let (release, gate_handle) = gate_single_worker::<AsyncTask>(&executor);
 
         let polls = Arc::new(AtomicUsize::new(0));
         let polls_in_future = Arc::clone(&polls);
@@ -488,6 +488,7 @@ mod tests {
             .unwrap();
         let id = handle.id();
 
+        assert_eq!(executor.task_status(id), Some(TaskStatus::Queued));
         executor.cancel_task(id).unwrap();
         release.send(()).unwrap();
 
@@ -571,7 +572,7 @@ mod tests {
         })
         .unwrap();
 
-        let (release, gate_handle) = gate_single_worker(&executor);
+        let (release, gate_handle) = gate_single_worker::<BlockingTask>(&executor);
         let handle = executor.spawn_blocking(|| 9usize).unwrap();
         let id = handle.id();
 
@@ -631,7 +632,7 @@ mod tests {
 
         // A never-completing task expires with the typed timeout once the
         // deadline passes (deadline is checked on every poll).
-        let (release, gate_handle) = gate_single_worker(&executor);
+        let (release, gate_handle) = gate_single_worker::<BlockingTask>(&executor);
         let handle = executor.spawn_blocking(|| 1usize).unwrap();
         let mut wait = std::pin::pin!(
             executor.wait_for_task(handle.id(), Some(std::time::Duration::from_millis(40)))
