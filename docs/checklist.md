@@ -94,7 +94,7 @@
 - [x] Add PAL positioned reads with synchronization limited to Windows cursor restoration.
 - [x] Implement `AsyncReadAt` and `AsyncLength` for `moirai_async::fs::File` with exact-read and overflow handling.
 - [x] Pass value, affected-package cross-target, warning-denied host-workspace, documentation, lock, and SemVer gates.
-- [ ] Publish and merge the verified implementation.
+- [x] Publish and merge the verified implementation as PR #178 / `7ff3c13`.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
