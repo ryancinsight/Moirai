@@ -117,6 +117,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Consume delivered socket readiness as a one-shot interest before waking its
+  task. Independent read/write waiters remain armed, while completed writable
+  registrations no longer spin the reactor or remain stale across raw socket
+  reuse until a request deadline forces another poll.
 - Prevent stale Windows `WSAPoll` results from deleting or waking a newer
   registration that reused the same raw socket value. Poll snapshots now carry
   registration generations in a reused sidecar buffer, preserving allocation-

@@ -129,8 +129,8 @@ architecture definition.
 - **Acceptance**: method/body preservation and rewrite cases, same- versus cross-origin header forwarding, normal and abnormal relative references, missing/invalid locations, redirect exhaustion, deterministic zero-duration eviction, pool reuse/cardinality, stale idempotent retry, lock-poison recovery, and the full logical-request timeout are value-tested; warning-denied, documentation, SemVer, and exact-lock gates pass.
 - **Risk / dependency**: additive public configuration with trust-boundary parsing; governed by atlas ADR-0045 and based on the 9/9 exact-lock package baseline at `76e78ce`.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Evidence**: focused Nextest passes 23/23 in 0.189 seconds and the exact-lock workspace passes 854/854 in 11.496 seconds; warning-denied package Clippy/rustdoc, doctests, AArch64 Linux/Windows all-target checks, and 196/196 SemVer checks pass on the working diff.
-- **Blocker**: the timer-head cure reduced the isolated redirect case to 24 ms, but the complete focused run still exposed a 30.216-second deadline-rescued readiness stall; reopen delivery when MOI-IO-WAKE-042 closes both wake paths.
+- **Evidence**: focused Nextest passes 23/23 in 0.189 seconds; after the MOI-IO-WAKE-042 correction, exact-lock workspace Nextest passes 858/858 in 11.354 seconds. Warning-denied workspace Clippy/rustdoc, workspace doctests, AArch64 Linux/Windows all-target checks, and 196/196 SemVer checks pass on the working diff.
+- **Dependency**: MOI-IO-WAKE-042 removes the deadline-rescued readiness stall locally; provider delivery resumes after independent review and merge of the shared branch.
 - **Lease**: none after the verified provider implementation commit; the session retains integration responsibility through independent review and merge.
 
 ### 🟨 MOI-IO-WAKE-042 [patch]: Eliminate deadline-rescued I/O stalls
@@ -140,8 +140,8 @@ architecture definition.
 - **Acceptance**: deterministic tests distinguish head from non-head timer cancellation and prove readiness interests are consumed after delivery; the formerly 30.160/30.216-second HTTP redirect case and complete focused suite stay within the committed native-test budget; warning-denied, documentation, exact-lock, and affected cross-target gates pass.
 - **Risk / dependency**: concurrency/lifecycle patch blocking MOI-HTTP-REDIRECT-041 delivery; timer notification preserves its mutex/condition-variable happens-before edge without waking per ordinary cancellation, and readiness cleanup preserves independent read/write waiters while removing completed interests.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Evidence**: the deterministic notification regression passes; exact-lock `moirai-async` coverage contributes 95/95 passing tests to the 118-test focused run; warning-denied Clippy, rustdoc, doctests, and AArch64 Linux/Windows all-target checks pass. The full focused run's remaining 30.216-second readiness stall falsifies timer cancellation as the sole cause.
-- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` — `moirai-pal/src/reactor/{core.rs,tests.rs}`, the async benchmark source contract, CHANGELOG, and owner-local PM entries.
+- **Evidence**: deterministic timer-notification and one-shot readiness tests pass. Exact-lock affected-package Nextest passes 213/213 in 1.947 seconds, including the formerly deadline-rescued redirect in 0.247 seconds; workspace Nextest passes 858/858 in 11.354 seconds. Warning-denied workspace Clippy/rustdoc, workspace doctests, AArch64 Linux/Windows affected-package checks, formatting, diff, and standalone-lock validation pass.
+- **Lease**: none after the verified reactor implementation commit; the session retains integration responsibility through independent review and merge.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 

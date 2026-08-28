@@ -635,8 +635,13 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "pub fn register_waker(&self, fd: RawFd, interest: Interest, waker: Waker) -> io::Result<()>",
         "pub fn deregister_waker(&self, fd: RawFd, interest: Interest)",
         "fn wake_fd_waiters(&self, event: Event)",
-        "read_waker = fd_info.read_waker.take();",
-        "write_waker = fd_info.write_waker.take();",
+        "let consume_read =",
+        "fd_info.interest.readable && (event.readable || event.error || event.hangup);",
+        "let consume_write =",
+        "fd_info.interest.writable && (event.writable || event.error || event.hangup);",
+        "fd_info.read_waker.take()",
+        "fd_info.write_waker.take()",
+        "readiness_delivery_consumes_only_reported_interest",
         "with_active_restores_thread_local_on_panic",
     ] {
         assert!(

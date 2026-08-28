@@ -114,9 +114,10 @@
 - [x] Add deterministic notification-selection coverage without wall-clock synchronization.
 - [x] Verify 95/95 `moirai-async` tests plus warning-denied Clippy, rustdoc, doctests, and AArch64 Linux/Windows all-target checks for the timer increment.
 - [x] Falsify timer cancellation as the sole cause: the isolated redirect case exits in 24 ms, while the complete focused run still exposes a 30.216-second deadline-rescued readiness stall.
-- [ ] Consume delivered read/write readiness interests without removing an independent waiter, and update the benchmark source contract.
-- [ ] Add deterministic one-shot readiness coverage and verify the formerly slow redirect in the complete focused suite.
-- [ ] Pass the exact-lock workspace, independent review, publish/merge, and discharge the lease before resuming MOI-HTTP-REDIRECT-041 delivery.
+- [x] Consume delivered read/write readiness interests without removing an independent waiter, and update the benchmark source contract.
+- [x] Add deterministic one-shot readiness coverage and verify the formerly slow redirect in the complete focused suite.
+- [x] Pass exact-lock affected-package Nextest 213/213 in 1.947 seconds and workspace Nextest 858/858 in 11.354 seconds; pass warning-denied workspace Clippy/rustdoc, workspace doctests, affected AArch64 checks, formatting, diff, and standalone-lock validation.
+- [ ] Obtain independent review, publish/merge, and discharge integration responsibility before resuming MOI-HTTP-REDIRECT-041 delivery.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
