@@ -42,6 +42,7 @@ use super::reclaim::{DeferredReclaim, DequeReclaimPolicy, DequeReclaimState, Sha
 use moirai_core::CacheAligned;
 use std::{
     cell::Cell,
+    fmt,
     marker::PhantomData,
     mem::MaybeUninit,
     sync::{
@@ -55,6 +56,88 @@ use storage::Array;
 
 pub(crate) const MIN_DEQUE_CAPACITY: usize = 16;
 const MAX_BATCH_STEAL: usize = 16;
+
+/// A validated Chase-Lev allocation capacity for element type `T`.
+///
+/// Values below the implementation minimum normalize to 16 slots. Other
+/// values round upward to the next power of two. Use [`TryFrom<usize>`] so an
+/// unrepresentable next power or concrete slot/state layout is reported before
+/// allocation.
+#[repr(transparent)]
+pub struct DequeCapacity<T> {
+    slots: usize,
+    element: PhantomData<fn() -> T>,
+}
+
+impl<T> Copy for DequeCapacity<T> {}
+
+impl<T> Clone for DequeCapacity<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> fmt::Debug for DequeCapacity<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("DequeCapacity")
+            .field(&self.slots)
+            .finish()
+    }
+}
+
+impl<T> DequeCapacity<T> {
+    /// Return the normalized slot count.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.slots
+    }
+}
+
+impl<T> TryFrom<usize> for DequeCapacity<T> {
+    type Error = DequeCapacityError;
+
+    fn try_from(requested: usize) -> Result<Self, Self::Error> {
+        let slots = requested
+            .checked_next_power_of_two()
+            .map(|capacity| capacity.max(MIN_DEQUE_CAPACITY))
+            .ok_or(DequeCapacityError { requested })?;
+        std::alloc::Layout::array::<std::cell::UnsafeCell<MaybeUninit<T>>>(slots)
+            .and_then(|_| std::alloc::Layout::array::<AtomicIsize>(slots))
+            .map_err(|_| DequeCapacityError { requested })?;
+        Ok(Self {
+            slots,
+            element: PhantomData,
+        })
+    }
+}
+
+/// Failure to represent a requested Chase-Lev allocation capacity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DequeCapacityError {
+    requested: usize,
+}
+
+impl DequeCapacityError {
+    /// Return the requested, unrepresentable capacity.
+    #[must_use]
+    pub const fn requested(self) -> usize {
+        self.requested
+    }
+}
+
+impl fmt::Display for DequeCapacityError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "deque capacity {} cannot form a supported allocation",
+            self.requested
+        )
+    }
+}
+
+impl std::error::Error for DequeCapacityError {}
 
 // Compile-time guarantee of the false-sharing fix: wrapping `bottom`/`top` in
 // `CacheAligned` forces the whole deque to ≥64-byte alignment, so two deques in
@@ -129,8 +212,9 @@ impl<T> Drop for StolenBatch<T> {
 /// create cloneable top-side endpoints.
 ///
 /// ```compile_fail
-/// use moirai_scheduler::ChaseLevDeque;
-/// let owner = ChaseLevDeque::<usize>::new(16);
+/// use moirai_scheduler::{ChaseLevDeque, DequeCapacity};
+/// let capacity = DequeCapacity::<usize>::try_from(16).expect("16 is representable");
+/// let owner = ChaseLevDeque::<usize>::new(capacity);
 /// owner.steal();
 /// ```
 pub struct ChaseLevDeque<T, P = DeferredReclaim>
@@ -144,8 +228,9 @@ where
 /// A cloneable top-side endpoint of a Chase-Lev work-stealing deque.
 ///
 /// ```compile_fail
-/// use moirai_scheduler::ChaseLevDeque;
-/// let owner = ChaseLevDeque::<usize>::new(16);
+/// use moirai_scheduler::{ChaseLevDeque, DequeCapacity};
+/// let capacity = DequeCapacity::<usize>::try_from(16).expect("16 is representable");
+/// let owner = ChaseLevDeque::<usize>::new(capacity);
 /// let mut stealer = owner.stealer();
 /// stealer.push(1);
 /// ```
@@ -217,8 +302,8 @@ where
         }
     }
 
-    fn new(initial_capacity: usize) -> Self {
-        let capacity = initial_capacity.next_power_of_two().max(MIN_DEQUE_CAPACITY);
+    fn new(capacity: DequeCapacity<T>) -> Self {
+        let capacity = capacity.get();
         let array = Box::new(Array::new(capacity, 0));
 
         Self {
@@ -439,7 +524,15 @@ where
         // the reclaim guard and resize gate keep the buffer live and free of
         // in-flight thief accesses.
         let old_array = unsafe { &*old_array_ptr };
-        let new_capacity = old_array.capacity() * 2;
+        // Growth has no rejection channel. Once doubling can no longer form a
+        // valid allocation layout, follow the allocator's unrecoverable
+        // resource-exhaustion policy instead of panicking through safe `push`.
+        let new_capacity = old_array
+            .capacity()
+            .checked_mul(2)
+            .and_then(|capacity| DequeCapacity::<T>::try_from(capacity).ok())
+            .unwrap_or_else(|| std::process::abort())
+            .get();
 
         let b = self.bottom.load(Ordering::Relaxed);
         let t = self.top.load(Ordering::Relaxed);
@@ -566,10 +659,10 @@ where
     T: Send,
     P: DequeReclaimPolicy,
 {
-    /// Creates an empty deque with at least `initial_capacity` slots.
-    pub fn new(initial_capacity: usize) -> Self {
+    /// Creates an empty deque with the validated allocation capacity.
+    pub fn new(capacity: DequeCapacity<T>) -> Self {
         Self {
-            inner: Arc::new(ChaseLevInner::new(initial_capacity)),
+            inner: Arc::new(ChaseLevInner::new(capacity)),
             not_sync: PhantomData,
         }
     }

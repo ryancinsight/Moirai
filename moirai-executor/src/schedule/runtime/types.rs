@@ -36,6 +36,10 @@ pub struct ScheduleMetrics {
 
 /// Single scheduler used by all executor task classes.
 ///
+/// `BLOCKING_QUEUE_CAPACITY` is the hard per-queue admission bound of the lazy
+/// blocking lane. Resizable compute-local queues use the independent runtime
+/// initial-capacity policy from [`ExecutorConfig`](moirai_core::ExecutorConfig).
+///
 /// `SPIN_LIMIT` is how many times an idle worker re-checks for work (with
 /// `spin_loop`) before parking. The default 8192 (~60 µs on this class of x86)
 /// catches work arriving in a short burst while still parking quickly to avoid
@@ -43,8 +47,11 @@ pub struct ScheduleMetrics {
 /// is independent of this value (the spin never engages while work is
 /// available), so latency-critical deployments can raise it for sub-µs wake
 /// latency at the cost of more pre-park busy-spin.
-pub struct ThreadScheduler<const QUEUE_CAPACITY: usize = 256, const SPIN_LIMIT: usize = 8192> {
-    pub(super) inner: Arc<SchedulerInner<QUEUE_CAPACITY>>,
+pub struct ThreadScheduler<
+    const BLOCKING_QUEUE_CAPACITY: usize = 256,
+    const SPIN_LIMIT: usize = 8192,
+> {
+    pub(super) inner: Arc<SchedulerInner<BLOCKING_QUEUE_CAPACITY>>,
 }
 
 pub(super) mod contended_wake {
@@ -126,8 +133,8 @@ impl DiagnosticWakeDecision for SaturatedWakeDecision {
     }
 }
 
-impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Clone
-    for ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Clone
+    for ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
     fn clone(&self) -> Self {
         Self {
@@ -140,10 +147,10 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Clone
 pub struct SchedulerScope<
     'scope,
     C: WorkClass,
-    const QUEUE_CAPACITY: usize = 256,
+    const BLOCKING_QUEUE_CAPACITY: usize = 256,
     const SPIN_LIMIT: usize = 8192,
 > {
-    pub(super) scheduler: &'scope ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>,
+    pub(super) scheduler: &'scope ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>,
     pub(super) state: NonNull<SchedulerScopeState>,
     pub(super) priority: Priority,
     pub(super) locality_hint: Option<usize>,
@@ -152,8 +159,8 @@ pub struct SchedulerScope<
     pub(super) _class: PhantomData<C>,
 }
 
-pub(super) struct SchedulerInner<const QUEUE_CAPACITY: usize> {
-    pub(super) workers: Box<[Arc<WorkerState<QUEUE_CAPACITY>>]>,
+pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
+    pub(super) workers: Box<[Arc<WorkerState>]>,
     pub(super) handles: Mutex<Vec<JoinHandle<()>>>,
     pub(super) pending_tasks: CacheAligned<AtomicUsize>,
     pub(super) active_workers: CacheAligned<AtomicUsize>,
@@ -175,7 +182,7 @@ pub(super) struct SchedulerInner<const QUEUE_CAPACITY: usize> {
     /// the hot steal-path — this slice is read-only after construction.
     pub(super) worker_numa_nodes: Box<[Option<usize>]>,
     /// Lazily initialized so compute-only schedulers allocate no blocking lane.
-    pub(super) blocking_lane: OnceLock<BlockingLane<QUEUE_CAPACITY>>,
+    pub(super) blocking_lane: OnceLock<BlockingLane<BLOCKING_QUEUE_CAPACITY>>,
     /// Serializes only first-use initialization and shutdown, not submissions.
     pub(super) blocking_lane_init: Mutex<()>,
     pub(super) blocking_lane_prefix: Box<str>,
@@ -340,15 +347,15 @@ impl Drop for IndexedRegionGuard {
 /// `#[repr(align(64))]`: 64 is too narrow on x86-64/aarch64, where the
 /// adjacent-line prefetcher operates on 128-byte pairs, and the per-target
 /// value belongs to `moirai-utils` rather than a literal here.
-pub(super) struct WorkerState<const QUEUE_CAPACITY: usize> {
+pub(super) struct WorkerState {
     _sector: CachePad,
-    pub(super) queues: Arc<WorkerQueues<QUEUE_CAPACITY>>,
+    pub(super) queues: Arc<WorkerQueues>,
     pub(super) lifo_slot: LifoSlot,
     pub(super) thread: OnceLock<thread::Thread>,
 }
 
-impl<const QUEUE_CAPACITY: usize> WorkerState<QUEUE_CAPACITY> {
-    pub(super) fn new(queues: Arc<WorkerQueues<QUEUE_CAPACITY>>) -> Self {
+impl WorkerState {
+    pub(super) fn new(queues: Arc<WorkerQueues>) -> Self {
         Self {
             _sector: CachePad::new(()),
             queues,

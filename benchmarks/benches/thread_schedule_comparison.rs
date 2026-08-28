@@ -8,7 +8,7 @@ use crossbeam::channel::{bounded, TrySendError};
 use moirai::Moirai;
 use moirai_core::{channel::spsc, error::ExecutorError, Priority};
 use moirai_executor::{BlockingTask, ThreadScheduler};
-use moirai_scheduler::{ChaseLevDeque, SharedEpochReclaim, SplitDeque};
+use moirai_scheduler::{ChaseLevDeque, DequeCapacity, SharedEpochReclaim, SplitDeque};
 use rayon::prelude::*;
 use std::{
     sync::atomic::{AtomicUsize, Ordering},
@@ -27,6 +27,10 @@ const REAL_APP_ANALYTICS_RECORDS: usize = 1_048_576;
 const REAL_APP_CHANNEL_CAPACITY: usize = 128;
 const DEQUE_RECLAIM_ITEMS: usize = 256;
 const WORKER_THREADS: usize = 4;
+
+fn deque_capacity<T>(requested: usize) -> DequeCapacity<T> {
+    DequeCapacity::try_from(requested).expect("benchmark capacity must be representable")
+}
 
 fn expected_ready_sum(count: usize) -> usize {
     count.wrapping_mul(count.wrapping_add(1)) / 2
@@ -59,7 +63,7 @@ fn verify_real_app_sum(sum: usize, count: usize) -> usize {
 }
 
 fn moirai_deque_deferred_reclaim_sum(count: usize) -> usize {
-    let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+    let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(deque_capacity(2));
     for value in 0..count {
         deque.push(black_box(value.wrapping_add(1)));
     }
@@ -72,7 +76,7 @@ fn moirai_deque_deferred_reclaim_sum(count: usize) -> usize {
 }
 
 fn moirai_deque_shared_epoch_reclaim_sum(count: usize) -> usize {
-    let mut deque: ChaseLevDeque<usize, SharedEpochReclaim> = ChaseLevDeque::new(2);
+    let mut deque: ChaseLevDeque<usize, SharedEpochReclaim> = ChaseLevDeque::new(deque_capacity(2));
     for value in 0..count {
         deque.push(black_box(value.wrapping_add(1)));
     }

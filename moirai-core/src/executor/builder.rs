@@ -59,16 +59,16 @@ impl ExecutorBuilder {
         self
     }
 
-    /// Sets the maximum size of per-worker local queues.
+    /// Sets the initial capacity of each resizable local priority queue.
     ///
     /// # Arguments
-    /// * `size` - Maximum number of tasks in each local queue
+    /// * `size` - Requested initial slots per local priority queue
     ///
     /// # Returns
     /// The builder instance for method chaining
     #[must_use]
-    pub fn max_local_queue_size(mut self, size: usize) -> Self {
-        self.config.max_local_queue_size = size;
+    pub fn local_queue_initial_capacity(mut self, size: usize) -> Self {
+        self.config.local_queue_initial_capacity = size;
         self
     }
 
@@ -144,5 +144,17 @@ impl ExecutorBuilder {
 impl Default for ExecutorBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExecutorBuilder;
+
+    #[test]
+    fn local_queue_initial_capacity_updates_the_configuration() {
+        let builder = ExecutorBuilder::new().local_queue_initial_capacity(17);
+
+        assert_eq!(builder.config.local_queue_initial_capacity, 17);
     }
 }

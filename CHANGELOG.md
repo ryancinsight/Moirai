@@ -54,6 +54,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-worker injectors without exceeding the configured total; configurations
   smaller than two slots per worker now return `InvalidConfiguration`, matching
   the queue sequence protocol's minimum valid ring size.
+- **Breaking.** Replace the ineffective `max_local_queue_size` configuration
+  field and builder methods with `local_queue_initial_capacity`. The value now
+  reaches all four resizable priority-local Chase-Lev deques on every worker,
+  normalizes to a supported power of two, and returns
+  `InvalidLocalQueueInitialCapacity` before worker startup when normalization
+  or the concrete slot layout is unrepresentable. `ThreadScheduler` callers
+  replace `new_with_config` with `new_with_local_queue_initial_capacity`;
+  direct deque callers construct `DequeCapacity::<T>` and pass the validated
+  value to `ChaseLevDeque::new`. The scheduler's first const parameter now
+  controls only bounded blocking-lane admission.
 - Keep indexed completion state on the caller's stack. Warmed
   `ThreadScheduler::for_each_indexed` calls now allocate nothing, while
   `map_reduce_indexed` allocates only its result-slot buffer instead of adding

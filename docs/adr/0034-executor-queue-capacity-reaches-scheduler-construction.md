@@ -24,10 +24,11 @@ its sequence protocol needs distinct empty and full generations, which alias
 in a one-slot ring. An arbitrary executor-wide maximum therefore cannot always
 be divided exactly.
 
-`ExecutorConfig::max_local_queue_size` is a separate contract discrepancy.
-The Chase-Lev queues are resizable and interpret their constructor argument as
-an initial capacity, not a maximum. This decision does not relabel that policy
-inside the global-capacity correction.
+The local Chase-Lev queues are resizable and interpret their constructor
+argument as an initial capacity, not a maximum.
+[ADR-035](0035-resizable-local-queue-initial-capacity.md) separately replaces
+the former no-op maximum contract and routes the initial capacity into
+scheduler construction.
 
 ### Decision
 

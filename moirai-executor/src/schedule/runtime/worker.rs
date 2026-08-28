@@ -33,10 +33,10 @@ pub(super) fn join_other_threads(handles: &mut Vec<JoinHandle<()>>) {
     }
 }
 
-pub(super) fn worker_loop<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
-    inner: std::sync::Arc<SchedulerInner<QUEUE_CAPACITY>>,
+pub(super) fn worker_loop<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
+    inner: std::sync::Arc<SchedulerInner<BLOCKING_QUEUE_CAPACITY>>,
     worker_id: usize,
-    mut owner: WorkerQueueOwner<QUEUE_CAPACITY>,
+    mut owner: WorkerQueueOwner,
 ) {
     set_current_worker_id(Some(worker_id));
     let _ = inner.workers[worker_id].thread.set(thread::current());
@@ -51,7 +51,7 @@ pub(super) fn worker_loop<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
             break;
         }
 
-        if spin_for_work::<QUEUE_CAPACITY, SPIN_LIMIT>(&inner, worker_id) {
+        if spin_for_work::<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>(&inner, worker_id) {
             continue;
         }
 
@@ -105,10 +105,10 @@ fn run_idle_memory_maintenance() {
     }
 }
 
-pub(super) fn next_job<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+pub(super) fn next_job<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
     worker_id: usize,
-    owner: &mut WorkerQueueOwner<QUEUE_CAPACITY>,
+    owner: &mut WorkerQueueOwner,
 ) -> Option<ScheduledJob> {
     let local = &inner.workers[worker_id];
     local
@@ -119,8 +119,8 @@ pub(super) fn next_job<const QUEUE_CAPACITY: usize>(
 }
 
 /// Obtain runnable work using only shared top-side capabilities.
-pub(super) fn next_shared_job<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+pub(super) fn next_shared_job<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
     worker_id: usize,
 ) -> Option<ScheduledJob> {
     let local = &inner.workers[worker_id];
@@ -131,10 +131,10 @@ pub(super) fn next_shared_job<const QUEUE_CAPACITY: usize>(
         .or_else(|| steal_shared_job(inner, worker_id))
 }
 
-fn steal_job<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+fn steal_job<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
     worker_id: usize,
-    owner: &mut WorkerQueueOwner<QUEUE_CAPACITY>,
+    owner: &mut WorkerQueueOwner,
 ) -> Option<ScheduledJob> {
     let worker_count = inner.workers.len();
     let my_node = inner.worker_numa_nodes.get(worker_id).copied().flatten();
@@ -192,8 +192,8 @@ fn steal_job<const QUEUE_CAPACITY: usize>(
     None
 }
 
-fn steal_shared_job<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+fn steal_shared_job<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
     worker_id: usize,
 ) -> Option<ScheduledJob> {
     let worker_count = inner.workers.len();
@@ -239,8 +239,8 @@ fn next_steal_start() -> usize {
     })
 }
 
-pub(super) fn execute_job<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+pub(super) fn execute_job<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
     worker_id: usize,
     job: ScheduledJob,
 ) {
@@ -253,8 +253,8 @@ pub(super) fn execute_job<const QUEUE_CAPACITY: usize>(
     );
 }
 
-pub(super) fn execute_blocking_job<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+pub(super) fn execute_blocking_job<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
     worker_id: usize,
     job: ScheduledJob,
 ) {
@@ -267,8 +267,8 @@ pub(super) fn execute_blocking_job<const QUEUE_CAPACITY: usize>(
     );
 }
 
-fn execute_job_with_counters<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+fn execute_job_with_counters<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
     worker_id: usize,
     job: ScheduledJob,
     pending_tasks: &std::sync::atomic::AtomicUsize,
@@ -299,13 +299,15 @@ fn execute_job_with_counters<const QUEUE_CAPACITY: usize>(
     }
 }
 
-fn should_stop<const QUEUE_CAPACITY: usize>(inner: &SchedulerInner<QUEUE_CAPACITY>) -> bool {
+fn should_stop<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
+) -> bool {
     use std::sync::atomic::Ordering;
     inner.shutdown.load(Ordering::Acquire) && inner.pending_tasks.load(Ordering::Acquire) == 0
 }
 
-fn spin_for_work<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+fn spin_for_work<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
     worker_id: usize,
 ) -> bool {
     use std::sync::atomic::Ordering;
@@ -328,8 +330,8 @@ fn spin_for_work<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
     false
 }
 
-fn has_stealable_work<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+fn has_stealable_work<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
     worker_id: usize,
 ) -> bool {
     use std::sync::atomic::Ordering;
@@ -356,8 +358,8 @@ fn has_stealable_work<const QUEUE_CAPACITY: usize>(
     false
 }
 
-fn wait_for_work<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+fn wait_for_work<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
     worker_id: usize,
 ) {
     use std::sync::atomic::Ordering;
@@ -386,14 +388,14 @@ fn wait_for_work<const QUEUE_CAPACITY: usize>(
     inner.idle_workers.clear(worker_id);
 }
 
-pub(super) fn wake_worker<const QUEUE_CAPACITY: usize>(worker: &WorkerState<QUEUE_CAPACITY>) {
+pub(super) fn wake_worker(worker: &WorkerState) {
     if let Some(thread) = worker.thread.get() {
         thread.unpark();
     }
 }
 
-pub(super) fn wake_all_workers<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+pub(super) fn wake_all_workers<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
 ) {
     for worker in inner.workers.iter() {
         wake_worker(worker);
@@ -412,7 +414,9 @@ pub(super) trait ContendedWakable {
         P: ContendedWakePolicy;
 }
 
-impl<const QUEUE_CAPACITY: usize> ContendedWakable for SchedulerInner<QUEUE_CAPACITY> {
+impl<const BLOCKING_QUEUE_CAPACITY: usize> ContendedWakable
+    for SchedulerInner<BLOCKING_QUEUE_CAPACITY>
+{
     #[cfg(feature = "scheduler-diagnostics")]
     fn worker_count(&self) -> usize {
         self.workers.len()
@@ -471,8 +475,8 @@ pub(super) fn diagnostic_publish_work_available(
     }
 }
 
-pub(super) fn notify_quiescent<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+pub(super) fn notify_quiescent<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
 ) {
     use std::sync::atomic::Ordering;
     // SeqCst: the worker half of the quiescence Dekker handshake (see the
@@ -487,8 +491,8 @@ pub(super) fn notify_quiescent<const QUEUE_CAPACITY: usize>(
     }
 }
 
-pub(super) fn is_quiescent<const QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<QUEUE_CAPACITY>,
+pub(super) fn is_quiescent<const BLOCKING_QUEUE_CAPACITY: usize>(
+    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
 ) -> bool {
     use std::sync::atomic::Ordering;
     // SeqCst: the `active_workers` load is the joiner's half of the quiescence

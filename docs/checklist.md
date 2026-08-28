@@ -62,10 +62,10 @@
 ### MOI-LOCAL-QUEUE-CAPACITY-036 — resizable local-queue policy
 
 - [x] Claim the item and reserve ADR 0035 for the breaking contract correction.
-- [ ] Record the accepted migration and separate local initial capacity from blocking-lane admission.
-- [ ] Replace the no-op maximum API without aliases and route the initial capacity into every worker's priority deques.
-- [ ] Verify normalization boundaries, rejected overflow, configured construction, and adversarial exactly-once growth/stealing without sleeps.
-- [ ] Synchronize Rustdoc, the runtime book, CHANGELOG migration guidance, PM state, and SemVer classification.
+- [x] Record the accepted migration and separate local initial capacity from blocking-lane admission.
+- [x] Replace the no-op maximum API without aliases and route the initial capacity into every worker's priority deques.
+- [x] Verify normalization boundaries, rejected overflow, configured construction, and adversarial exactly-once growth/stealing without sleeps.
+- [x] Synchronize Rustdoc, the runtime book, CHANGELOG migration guidance, PM state, and SemVer classification.
 - [ ] Pass focused and workspace warning-denied/value gates, obtain independent review, publish, and merge.
 
 ### MOI-LINT-AUTHORITY-037 — stale-branch rescue

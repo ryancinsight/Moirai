@@ -17,8 +17,8 @@ did not affect the scheduler it described.
 ### Decision
 
 Keep one scheduler construction implementation with an explicit NUMA policy
-parameter. `ThreadScheduler::new` and `new_with_config` pass `true` to retain
-their existing topology-aware behavior. The `HybridExecutor` passes the
+parameter. Direct `ThreadScheduler` construction retains topology-aware
+behavior. The `HybridExecutor` passes the
 configured value when its `numa` feature is active and passes `true` when the
 feature is absent, preserving the existing non-NUMA build behavior. The
 facade's `numa_aware` method mutates the existing `ExecutorConfig` field, and

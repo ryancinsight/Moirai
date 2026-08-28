@@ -13,9 +13,10 @@ use std::{
 
 use moirai_core::{
     error::{ExecutorError, ExecutorResult},
-    executor::ExecutorConfig,
+    executor::{config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY, ExecutorConfig},
     Priority,
 };
+use moirai_scheduler::DequeCapacity;
 
 use moirai_utils::cache::CacheAligned;
 
@@ -58,47 +59,96 @@ fn next_round_robin_ticket() -> usize {
     })
 }
 
+struct SchedulerConstruction<'config> {
+    worker_count: usize,
+    thread_name_prefix: &'config str,
+    max_global_queue_size: usize,
+    local_queue_initial_capacity: usize,
+    numa_aware: bool,
+}
+
 impl ThreadScheduler<256, 8192> {
     /// Start a scheduler with a compute worker set and a lazy blocking lane.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the default queue policy cannot be constructed or
+    /// a worker thread cannot be started.
     pub fn new(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
-        Self::new_with_config(worker_count, thread_name_prefix)
+        Self::new_with_local_queue_initial_capacity(
+            worker_count,
+            thread_name_prefix,
+            DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+        )
     }
 }
 
-impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
-    ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
+    ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
-    /// Start a scheduler with custom configurations.
-    pub fn new_with_config(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
-        Self::new_with_numa(worker_count, thread_name_prefix, true)
-    }
-
-    pub(crate) fn new_with_numa(
+    /// Start a scheduler with a runtime-selected local queue initial capacity.
+    ///
+    /// The first const parameter remains the blocking lane's hard per-queue
+    /// admission bound. `local_queue_initial_capacity` controls only initial
+    /// retained storage for resizable compute-local priority queues.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutorError::InvalidLocalQueueInitialCapacity`] when the
+    /// requested capacity cannot normalize or form the required scheduled-job
+    /// deque allocation layouts, or propagates worker thread construction
+    /// failures.
+    pub fn new_with_local_queue_initial_capacity(
         worker_count: usize,
         thread_name_prefix: &str,
-        numa_aware: bool,
+        local_queue_initial_capacity: usize,
     ) -> ExecutorResult<Self> {
-        Self::new_with_queue_config(
+        let defaults = ExecutorConfig::default();
+        Self::from_construction(SchedulerConstruction {
             worker_count,
             thread_name_prefix,
-            ExecutorConfig::default().max_global_queue_size,
-            numa_aware,
-        )
+            max_global_queue_size: defaults.max_global_queue_size,
+            local_queue_initial_capacity,
+            numa_aware: true,
+        })
     }
 
-    pub(crate) fn new_with_queue_config(
-        worker_count: usize,
-        thread_name_prefix: &str,
-        max_global_queue_size: usize,
+    pub(crate) fn from_executor_config(
+        config: &ExecutorConfig,
         numa_aware: bool,
     ) -> ExecutorResult<Self> {
+        Self::from_construction(SchedulerConstruction {
+            worker_count: config.worker_threads,
+            thread_name_prefix: &config.thread_name_prefix,
+            max_global_queue_size: config.max_global_queue_size,
+            local_queue_initial_capacity: config.local_queue_initial_capacity,
+            numa_aware,
+        })
+    }
+
+    fn from_construction(config: SchedulerConstruction<'_>) -> ExecutorResult<Self> {
+        let SchedulerConstruction {
+            worker_count,
+            thread_name_prefix,
+            max_global_queue_size,
+            local_queue_initial_capacity,
+            numa_aware,
+        } = config;
         let worker_count = worker_count.max(1);
         let injector_capacity = partition_global_queue(max_global_queue_size, worker_count)?;
+        let local_queue_capacity = DequeCapacity::<ScheduledJob>::try_from(
+            local_queue_initial_capacity,
+        )
+        .map_err(|error| ExecutorError::InvalidLocalQueueInitialCapacity {
+            requested: error.requested(),
+        })?;
         let mut queue_owners = Vec::with_capacity(worker_count);
         let workers = (0..worker_count)
             .map(|_| {
-                let (owner, queues) =
-                    super::super::super::queue::WorkerQueues::new(injector_capacity);
+                let (owner, queues) = super::super::super::queue::WorkerQueues::new(
+                    injector_capacity,
+                    local_queue_capacity,
+                );
                 queue_owners.push(owner);
                 Arc::new(super::super::types::WorkerState::new(queues))
             })
@@ -155,7 +205,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             let handle = thread::Builder::new()
                 .name(thread_name)
                 .spawn(move || {
-                    super::super::worker::worker_loop::<QUEUE_CAPACITY, SPIN_LIMIT>(
+                    super::super::worker::worker_loop::<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>(
                         worker_inner,
                         worker_id,
                         owner,
@@ -217,7 +267,9 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     ) -> ExecutorResult<()>
     where
         C: WorkClass,
-        F: FnOnce(&SchedulerScope<'scope, C, QUEUE_CAPACITY, SPIN_LIMIT>) -> ExecutorResult<()>,
+        F: FnOnce(
+            &SchedulerScope<'scope, C, BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>,
+        ) -> ExecutorResult<()>,
     {
         if self.inner.shutdown.load(Ordering::Acquire) {
             return Err(ExecutorError::ShuttingDown);
@@ -646,8 +698,8 @@ fn partition_global_queue(
     Ok(1usize << partition.ilog2())
 }
 
-impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Drop
-    for ThreadScheduler<QUEUE_CAPACITY, SPIN_LIMIT>
+impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Drop
+    for ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
     fn drop(&mut self) {
         if Arc::strong_count(&self.inner) == 1 {

@@ -178,10 +178,14 @@ where
     /// # Panics
     ///
     /// Panics if `N < 2`: the spill path moves the oldest *half* of the
-    /// private stack, which is not a meaningful split below two slots.
+    /// private stack, which is not a meaningful split below two slots. It also
+    /// panics when `N` and `T` cannot form the shared deque's allocation layout.
+    #[track_caller]
     pub fn new() -> Self {
         assert!(N >= 2, "SplitDeque capacity N must be at least 2");
-        let shared = ChaseLevDeque::new(N);
+        let capacity = super::DequeCapacity::<T>::try_from(N)
+            .expect("invariant: SplitDeque capacity and element layout must be representable");
+        let shared = ChaseLevDeque::new(capacity);
         let stealer = shared.stealer();
         Self {
             owner: Mutex::new(SplitOwner {

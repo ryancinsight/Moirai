@@ -4,21 +4,72 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc, Arc, Barrier,
 };
+use std::time::Duration;
 
 use super::types::{get_current_worker_id, ThreadScheduler};
 use crate::schedule::{AsyncTask, BlockingTask, SyncTask};
 use moirai_core::{
     error::{ExecutorError, TaskError},
+    executor::{config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY, ExecutorConfig},
     Priority,
 };
 
 const TEST_ADMISSION_CAPACITY: usize = 8;
+const TEST_EVENT_DEADLINE: Duration = Duration::from_secs(5);
+
+fn scheduler_with_queue_config<const BLOCKING_QUEUE_CAPACITY: usize>(
+    worker_count: usize,
+    name: &str,
+    max_global_queue_size: usize,
+    local_queue_initial_capacity: usize,
+    numa_aware: bool,
+) -> Result<ThreadScheduler<BLOCKING_QUEUE_CAPACITY>, ExecutorError> {
+    ThreadScheduler::<BLOCKING_QUEUE_CAPACITY>::from_executor_config(
+        &ExecutorConfig {
+            worker_threads: worker_count,
+            max_global_queue_size,
+            local_queue_initial_capacity,
+            thread_name_prefix: name.into(),
+            ..ExecutorConfig::default()
+        },
+        numa_aware,
+    )
+}
 
 fn scheduler_with_bounded_admission(name: &str) -> ThreadScheduler<256> {
-    ThreadScheduler::<256>::new_with_queue_config(1, name, TEST_ADMISSION_CAPACITY, false).unwrap()
+    scheduler_with_queue_config::<256>(
+        1,
+        name,
+        TEST_ADMISSION_CAPACITY,
+        DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+        false,
+    )
+    .unwrap()
+}
+
+fn occupy_compute_worker(
+    scheduler: &ThreadScheduler,
+    locality_hint: usize,
+) -> (usize, mpsc::SyncSender<()>) {
+    let (started_sender, started_receiver) = mpsc::sync_channel(0);
+    let (release_sender, release_receiver) = mpsc::sync_channel(0);
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Critical, Some(locality_hint), move |worker_id| {
+            started_sender
+                .send(worker_id)
+                .expect("test observer remains connected");
+            release_receiver
+                .recv()
+                .expect("test controller releases the occupied worker");
+        })
+        .expect("gate job must be admitted");
+    let worker_id = started_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("gate job must start before the test deadline");
+    (worker_id, release_sender)
 }
 
 #[test]
@@ -75,7 +126,14 @@ fn scheduler_runs_all_work_classes_through_one_facade() {
 
 #[test]
 fn scheduler_numa_policy_controls_worker_assignments() {
-    let scheduler = ThreadScheduler::<256, 8192>::new_with_numa(2, "numa-disabled", false).unwrap();
+    let scheduler = scheduler_with_queue_config::<256>(
+        2,
+        "numa-disabled",
+        ExecutorConfig::default().max_global_queue_size,
+        DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+        false,
+    )
+    .unwrap();
 
     assert!(scheduler
         .inner
@@ -88,8 +146,14 @@ fn scheduler_numa_policy_controls_worker_assignments() {
 
 #[test]
 fn configured_global_capacity_is_partitioned_without_exceeding_the_bound() {
-    let scheduler =
-        ThreadScheduler::<256>::new_with_queue_config(3, "partitioned", 1000, false).unwrap();
+    let scheduler = scheduler_with_queue_config::<256>(
+        3,
+        "partitioned",
+        1000,
+        DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+        false,
+    )
+    .unwrap();
 
     let capacities = scheduler
         .inner
@@ -104,15 +168,135 @@ fn configured_global_capacity_is_partitioned_without_exceeding_the_bound() {
 }
 
 #[test]
+fn configured_local_capacity_reaches_every_worker_after_normalization() {
+    let scheduler = scheduler_with_queue_config::<256>(
+        3,
+        "local-capacity",
+        ExecutorConfig::default().max_global_queue_size,
+        17,
+        false,
+    )
+    .unwrap();
+
+    let capacities = scheduler
+        .inner
+        .workers
+        .iter()
+        .map(|worker| worker.queues.local_queue_initial_capacity())
+        .collect::<Vec<_>>();
+
+    assert_eq!(capacities, vec![32; 3]);
+    scheduler.shutdown();
+}
+
+#[test]
+fn unrepresentable_local_capacity_is_rejected_before_worker_startup() {
+    for requested in [isize::MAX as usize, usize::MAX] {
+        let result = scheduler_with_queue_config::<256>(
+            2,
+            "invalid-local-capacity",
+            ExecutorConfig::default().max_global_queue_size,
+            requested,
+            false,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ExecutorError::InvalidLocalQueueInitialCapacity { requested: actual })
+                if actual == requested
+        ));
+    }
+}
+
+#[test]
+fn local_queue_growth_and_cross_worker_steal_execute_each_job_once() {
+    const JOBS: usize = 257;
+
+    let scheduler =
+        ThreadScheduler::new_with_local_queue_initial_capacity(2, "local-growth-steal", 16)
+            .unwrap();
+    let (owner_lane, owner_release) = occupy_compute_worker(&scheduler, 0);
+    let (thief_lane, thief_release) = occupy_compute_worker(&scheduler, owner_lane + 1);
+    assert_ne!(owner_lane, thief_lane);
+
+    let visits: Arc<[AtomicUsize]> = (0..JOBS)
+        .map(|_| AtomicUsize::new(0))
+        .collect::<Vec<_>>()
+        .into();
+    let first_stolen = Arc::new(AtomicBool::new(false));
+    let (stolen_sender, stolen_receiver) = mpsc::sync_channel(1);
+    for index in 0..JOBS {
+        let visits = Arc::clone(&visits);
+        let first_stolen = Arc::clone(&first_stolen);
+        let stolen_sender = stolen_sender.clone();
+        scheduler
+            .schedule::<SyncTask, _>(Priority::Normal, Some(owner_lane), move |worker_id| {
+                visits[index].fetch_add(1, Ordering::AcqRel);
+                if !first_stolen.swap(true, Ordering::AcqRel) {
+                    stolen_sender
+                        .send((index, worker_id))
+                        .expect("steal observer remains connected");
+                }
+            })
+            .unwrap();
+    }
+
+    let (marker_started_sender, marker_started_receiver) = mpsc::sync_channel(0);
+    let (marker_release_sender, marker_release_receiver) = mpsc::sync_channel(0);
+    scheduler
+        .schedule::<SyncTask, _>(Priority::High, Some(owner_lane), move |_| {
+            marker_started_sender
+                .send(())
+                .expect("marker observer remains connected");
+            marker_release_receiver
+                .recv()
+                .expect("test controller releases the marker");
+        })
+        .unwrap();
+
+    owner_release.send(()).unwrap();
+    marker_started_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("owner must drain and grow its local queues");
+    thief_release.send(()).unwrap();
+    let (_, executing_lane) = stolen_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("the released peer must steal from the blocked owner");
+    assert_eq!(executing_lane, thief_lane);
+    marker_release_sender.send(()).unwrap();
+
+    scheduler.join().unwrap();
+    for (index, count) in visits.iter().enumerate() {
+        assert_eq!(count.load(Ordering::Acquire), 1, "job {index}");
+    }
+    assert_eq!(scheduler.pending_tasks(), 0);
+    assert_eq!(scheduler.metrics().completed_tasks, JOBS as u64 + 3);
+    scheduler.shutdown();
+}
+
+#[test]
 fn global_capacity_below_two_slots_per_worker_is_rejected() {
-    let result = ThreadScheduler::<256>::new_with_queue_config(4, "invalid", 7, false);
+    let result = scheduler_with_queue_config::<256>(
+        4,
+        "invalid",
+        7,
+        DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+        false,
+    );
 
     assert!(matches!(result, Err(ExecutorError::InvalidConfiguration)));
 }
 
 #[test]
 fn global_capacity_supports_minimum_two_slots_per_worker() {
-    let scheduler = ThreadScheduler::<256>::new_with_queue_config(4, "minimum", 8, false).unwrap();
+    let scheduler = scheduler_with_queue_config::<256>(
+        4,
+        "minimum",
+        8,
+        DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+        false,
+    )
+    .unwrap();
 
     assert!(scheduler
         .inner
@@ -405,7 +589,12 @@ fn blocking_lane_accepts_concurrent_producers() {
 
 #[test]
 fn blocking_lane_preserves_priority_order() {
-    let scheduler = ThreadScheduler::<8>::new_with_config(1, "blocking-lane-priority").unwrap();
+    let scheduler = ThreadScheduler::<8>::new_with_local_queue_initial_capacity(
+        1,
+        "blocking-lane-priority",
+        DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+    )
+    .unwrap();
     let blocking_started = Arc::new(Barrier::new(2));
     let blocking_release = Arc::new(Barrier::new(2));
     let (observed_sender, observed_receiver) = mpsc::channel();

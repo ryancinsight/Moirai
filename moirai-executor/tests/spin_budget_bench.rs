@@ -17,7 +17,7 @@
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use moirai_core::Priority;
+use moirai_core::{executor::config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY, Priority};
 use moirai_executor::schedule::{SyncTask, ThreadScheduler};
 
 const WORKERS: usize = 8;
@@ -89,7 +89,12 @@ fn submit_and_wait<const SPIN: usize>(
 /// Submit one task per idle `gap` and record submit -> start-of-execution
 /// latency. Returns (median, p99, lost-wakeup count).
 fn wake_latency<const SPIN: usize>(gap: Duration, iters: usize) -> (Duration, Duration, usize) {
-    let sched = ThreadScheduler::<256, SPIN>::new_with_config(WORKERS, "spin-bench").unwrap();
+    let sched = ThreadScheduler::<256, SPIN>::new_with_local_queue_initial_capacity(
+        WORKERS,
+        "spin-bench",
+        DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+    )
+    .unwrap();
     for _ in 0..(WORKERS * 4) {
         let _ = submit_and_wait(&sched);
     }
@@ -123,7 +128,12 @@ fn sustained_drain<const SPIN: usize>(tasks: usize) -> Duration {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    let sched = ThreadScheduler::<256, SPIN>::new_with_config(WORKERS, "spin-bench").unwrap();
+    let sched = ThreadScheduler::<256, SPIN>::new_with_local_queue_initial_capacity(
+        WORKERS,
+        "spin-bench",
+        DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+    )
+    .unwrap();
     for _ in 0..(WORKERS * 4) {
         let _ = submit_and_wait(&sched);
     }

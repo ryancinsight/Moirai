@@ -1,4 +1,4 @@
-use super::chase_lev::{ChaseLevDeque, ChaseLevStealer, StealResult};
+use super::chase_lev::{ChaseLevDeque, ChaseLevStealer, DequeCapacity, StealResult};
 use super::reclaim::{
     DeferredAccessGuard, DeferredReclaim, DeferredState, DequeReclaimState, SharedEpochReclaim,
     SharedEpochState,
@@ -11,9 +11,46 @@ static_assertions::assert_impl_all!(ChaseLevDeque<usize>: Send);
 static_assertions::assert_not_impl_any!(ChaseLevDeque<usize>: Clone, Sync);
 static_assertions::assert_impl_all!(ChaseLevStealer<usize>: Clone, Send, Sync);
 
+fn capacity<T>(requested: usize) -> DequeCapacity<T> {
+    DequeCapacity::try_from(requested).expect("test capacity must be representable")
+}
+
+#[test]
+fn deque_capacity_normalizes_supported_boundaries() {
+    for (requested, expected) in [(0, 16), (1, 16), (15, 16), (16, 16), (17, 32)] {
+        assert_eq!(capacity::<usize>(requested).get(), expected);
+    }
+}
+
+#[test]
+fn deque_capacity_rejects_unrepresentable_power_of_two() {
+    let error = DequeCapacity::<usize>::try_from(usize::MAX).expect_err("usize::MAX must overflow");
+
+    assert_eq!(error.requested(), usize::MAX);
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "deque capacity {} cannot form a supported allocation",
+            usize::MAX
+        )
+    );
+}
+
+#[test]
+fn deque_capacity_rejects_invalid_element_and_state_layouts() {
+    let requested = isize::MAX as usize;
+    let element_error = DequeCapacity::<usize>::try_from(requested)
+        .expect_err("the element allocation exceeds the supported layout range");
+    let state_error = DequeCapacity::<()>::try_from(requested)
+        .expect_err("the generation-state allocation exceeds the supported layout range");
+
+    assert_eq!(element_error.requested(), requested);
+    assert_eq!(state_error.requested(), requested);
+}
+
 #[test]
 fn test_chase_lev_deque_basic_operations() {
-    let mut deque: ChaseLevDeque<i32> = ChaseLevDeque::new(16);
+    let mut deque: ChaseLevDeque<i32> = ChaseLevDeque::new(capacity(16));
 
     deque.push(1);
     deque.push(2);
@@ -32,7 +69,7 @@ fn test_chase_lev_deque_basic_operations() {
 
 #[test]
 fn test_chase_lev_deque_steal() {
-    let mut deque: ChaseLevDeque<i32> = ChaseLevDeque::new(16);
+    let mut deque: ChaseLevDeque<i32> = ChaseLevDeque::new(capacity(16));
     let stealer = deque.stealer();
 
     for i in 1..=5 {
@@ -53,7 +90,7 @@ fn test_chase_lev_deque_steal() {
 
 #[test]
 fn chase_lev_deque_resizes_without_per_item_heap_nodes() {
-    let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+    let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(capacity(2));
     let stealer = deque.stealer();
 
     for value in 0..40 {
@@ -79,7 +116,7 @@ fn chase_lev_deque_recovers_poisoned_retired_array_lock() {
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+        let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(capacity(2));
         for value in 0..40 {
             deque.push(value);
         }
@@ -108,7 +145,7 @@ fn chase_lev_deque_recovers_poisoned_retired_array_lock() {
 
 #[test]
 fn chase_lev_deque_defers_retired_arrays_until_final_endpoint_drop() {
-    let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+    let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(capacity(2));
 
     for value in 0..40 {
         deque.push(value);
@@ -139,7 +176,7 @@ fn chase_lev_deque_reclamation_policies_are_static() {
 
 #[test]
 fn chase_lev_deque_shared_epoch_reclaim_waits_for_active_access() {
-    let mut deque: ChaseLevDeque<usize, SharedEpochReclaim> = ChaseLevDeque::new(2);
+    let mut deque: ChaseLevDeque<usize, SharedEpochReclaim> = ChaseLevDeque::new(capacity(2));
 
     for value in 0..40 {
         deque.push(value);
@@ -176,7 +213,7 @@ fn chase_lev_deque_drops_each_inline_item_once() {
     let drops = Arc::new(AtomicUsize::new(0));
 
     {
-        let mut deque: ChaseLevDeque<DropProbe> = ChaseLevDeque::new(2);
+        let mut deque: ChaseLevDeque<DropProbe> = ChaseLevDeque::new(capacity(2));
         let stealer = deque.stealer();
         for _ in 0..40 {
             deque.push(DropProbe(Arc::clone(&drops)));
@@ -202,7 +239,7 @@ fn chase_lev_deque_drops_each_inline_item_once() {
 
 #[test]
 fn chase_lev_stealer_keeps_pending_storage_alive_after_owner_drop() {
-    let mut owner: ChaseLevDeque<usize> = ChaseLevDeque::new(2);
+    let mut owner: ChaseLevDeque<usize> = ChaseLevDeque::new(capacity(2));
     let stealer = owner.stealer();
     for value in 0..40 {
         owner.push(value);
@@ -230,7 +267,7 @@ fn chase_lev_batch_drops_unconsumed_tail_exactly_once() {
     }
 
     let drops = Arc::new(AtomicUsize::new(0));
-    let mut owner: ChaseLevDeque<DropProbe> = ChaseLevDeque::new(2);
+    let mut owner: ChaseLevDeque<DropProbe> = ChaseLevDeque::new(capacity(2));
     let stealer = owner.stealer();
     for _ in 0..10 {
         owner.push(DropProbe(Arc::clone(&drops)));
@@ -293,7 +330,7 @@ fn test_split_deque_threshold_offloading() {
 
 #[test]
 fn test_chase_lev_deque_index_wrapping() {
-    let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(4);
+    let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(capacity(4));
     let stealer = deque.stealer();
 
     // Artificially initialize bottom and top to near overflow (isize::MAX)

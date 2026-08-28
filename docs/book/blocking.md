@@ -20,5 +20,7 @@ let content = handle.join()??;
 | Async I/O, network, timers | `spawn` (async pool) |
 | Synchronous I/O, FFI | `spawn_blocking` |
 
-The blocking pool grows on demand up to `max_blocking_threads`. Threads park
-after idle timeout and are recycled on the next call.
+The blocking lane initializes lazily on the first blocking submission, with
+one blocking worker and one bounded priority queue per configured compute
+worker. Blocking-queue admission is independent of the resizable compute-local
+queue initial capacity.

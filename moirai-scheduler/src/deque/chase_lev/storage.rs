@@ -214,7 +214,9 @@ mod tests {
 
         // Capacity 2 forces resizes (dangling-base `copy_slot_to`) on the way
         // to 64 queued ZSTs.
-        let mut deque: ChaseLevDeque<()> = ChaseLevDeque::new(2);
+        let capacity = super::super::DequeCapacity::<()>::try_from(2)
+            .expect("test capacity must be representable");
+        let mut deque: ChaseLevDeque<()> = ChaseLevDeque::new(capacity);
         let stealer = deque.stealer();
         for _ in 0..PUSHED {
             deque.push(());

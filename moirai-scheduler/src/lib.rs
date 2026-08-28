@@ -34,6 +34,7 @@ pub mod numa;
 
 pub use deque::{
     ChaseLevDeque, ChaseLevStealer, DeferredAccessGuard, DeferredReclaim, DeferredState,
-    DequeReclaimPolicy, DequeReclaimState, SharedEpochAccessGuard, SharedEpochReclaim,
-    SharedEpochState, SplitDeque, StealResult, StolenBatch,
+    DequeCapacity, DequeCapacityError, DequeReclaimPolicy, DequeReclaimState,
+    SharedEpochAccessGuard, SharedEpochReclaim, SharedEpochState, SplitDeque, StealResult,
+    StolenBatch,
 };

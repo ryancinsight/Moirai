@@ -82,8 +82,10 @@ impl HybridExecutor<ThreadScheduler> {
     /// # Errors
     ///
     /// Returns [`ExecutorError::InvalidConfiguration`] when the configured
-    /// global admission bound cannot supply at least two slots per worker, or
-    /// propagates scheduler thread-pool construction failures.
+    /// global admission bound cannot supply at least two slots per worker,
+    /// [`ExecutorError::InvalidLocalQueueInitialCapacity`] when local capacity
+    /// cannot normalize or form the required deque allocation layouts, or
+    /// propagates scheduler construction failures.
     pub fn new(config: ExecutorConfig) -> ExecutorResult<Self> {
         let numa_aware = {
             #[cfg(feature = "numa")]
@@ -95,12 +97,7 @@ impl HybridExecutor<ThreadScheduler> {
                 true
             }
         };
-        let scheduler = ThreadScheduler::new_with_queue_config(
-            config.worker_threads,
-            &config.thread_name_prefix,
-            config.max_global_queue_size,
-            numa_aware,
-        )?;
+        let scheduler = ThreadScheduler::from_executor_config(&config, numa_aware)?;
         let task_registry = Arc::new(Mutex::new(TaskRegistry::new()));
         let metrics = Arc::new(ExecutorMetrics::new());
         scheduler.retain_lifetime_owner((Arc::clone(&task_registry), Arc::clone(&metrics)));

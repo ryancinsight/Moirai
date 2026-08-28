@@ -94,6 +94,37 @@ mod tests {
     }
 
     #[test]
+    fn local_queue_capacity_configuration_is_retained() {
+        let mut executor = HybridExecutor::new(ExecutorConfig {
+            worker_threads: 2,
+            local_queue_initial_capacity: 17,
+            ..ExecutorConfig::default()
+        })
+        .unwrap();
+
+        assert_eq!(executor.config().local_queue_initial_capacity, 17);
+        HybridExecutor::shutdown(&mut executor).unwrap();
+    }
+
+    #[test]
+    fn invalid_local_queue_capacity_is_rejected_before_startup() {
+        let result = HybridExecutor::new(ExecutorConfig {
+            worker_threads: 2,
+            local_queue_initial_capacity: usize::MAX,
+            ..ExecutorConfig::default()
+        });
+
+        assert!(matches!(
+            result,
+            Err(
+                moirai_core::ExecutorError::InvalidLocalQueueInitialCapacity {
+                    requested: usize::MAX
+                }
+            )
+        ));
+    }
+
+    #[test]
     fn spawn_blocking_returns_value_and_updates_status() {
         let executor = HybridExecutor::new(ExecutorConfig {
             worker_threads: 2,

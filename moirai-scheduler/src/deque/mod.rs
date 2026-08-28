@@ -7,7 +7,9 @@ mod split;
 #[cfg(test)]
 mod tests;
 
-pub use chase_lev::{ChaseLevDeque, ChaseLevStealer, StealResult, StolenBatch};
+pub use chase_lev::{
+    ChaseLevDeque, ChaseLevStealer, DequeCapacity, DequeCapacityError, StealResult, StolenBatch,
+};
 pub use reclaim::{
     DeferredAccessGuard, DeferredReclaim, DeferredState, DequeReclaimPolicy, DequeReclaimState,
     SharedEpochAccessGuard, SharedEpochReclaim, SharedEpochState,
