@@ -40,3 +40,4 @@
 | [0033](0033-provider-default-msrv.md) | Provider-default MSRV alignment | Accepted |
 | [0034](0034-executor-queue-capacity-reaches-scheduler-construction.md) | Executor queue capacity reaches scheduler construction | Accepted |
 | [0035](0035-resizable-local-queue-initial-capacity.md) | Resizable local-queue initial capacity | Accepted |
+| [0036](0036-natural-alignment-for-inline-scheduler-jobs.md) | Natural alignment for inline scheduler jobs | Proposed |

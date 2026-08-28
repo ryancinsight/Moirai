@@ -2,7 +2,7 @@
 
 ## MOI-QUEUE-RETENTION-036 [patch] [arch] — Codex
 
-- [ ] Record ADR-036 from the current queue layout, admission contract, alternatives, and bounded experiment.
+- [x] Record ADR-036 from the current queue layout, admission contract, alternatives, and bounded experiment.
 - [ ] Attribute retained bytes to exact queue fields and identify the binding storage/lifetime mechanism.
 - [ ] Implement one canonical queue representation without changing capacity or scheduling semantics.
 - [ ] Add value, boundary, saturation, wake-progress, Loom, allocation, and throughput regression coverage.
