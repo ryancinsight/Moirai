@@ -140,8 +140,8 @@ architecture definition.
 - **Acceptance**: deterministic tests distinguish head from non-head timer cancellation and prove readiness interests are consumed after delivery; the formerly 30.160/30.216-second HTTP redirect case and complete focused suite stay within the committed native-test budget; warning-denied, documentation, exact-lock, and affected cross-target gates pass.
 - **Risk / dependency**: concurrency/lifecycle patch blocking MOI-HTTP-REDIRECT-041 delivery; timer notification preserves its mutex/condition-variable happens-before edge without waking per ordinary cancellation, and readiness cleanup preserves independent read/write waiters while removing completed interests.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Evidence**: deterministic timer-notification and one-shot readiness tests pass. Exact-lock affected-package Nextest passes 213/213 in 1.947 seconds, including the formerly deadline-rescued redirect in 0.247 seconds; workspace Nextest passes 858/858 in 11.354 seconds. Warning-denied workspace Clippy/rustdoc, workspace doctests, AArch64 Linux/Windows affected-package checks, formatting, diff, and standalone-lock validation pass.
-- **Lease**: none after the verified reactor implementation commit; the session retains integration responsibility through independent review and merge.
+- **Evidence**: deterministic timer-notification and one-shot readiness tests pass. Exact-lock affected-package Nextest passes 213/213 in 1.947 seconds, including the formerly deadline-rescued redirect in 0.247 seconds; workspace Nextest passes 858/858 in 11.354 seconds. Independent review of `174fa7d` blocks delivery until dispatch preserves the polled registration generation across descriptor reuse and backend re-arm failures finalize and wake consumed state.
+- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` — PAL event identity, reactor backend-failure finalization, deterministic regressions, executable source contract, CHANGELOG, and owner-local PM entries.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 

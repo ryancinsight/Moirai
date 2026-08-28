@@ -117,6 +117,8 @@
 - [x] Consume delivered read/write readiness interests without removing an independent waiter, and update the benchmark source contract.
 - [x] Add deterministic one-shot readiness coverage and verify the formerly slow redirect in the complete focused suite.
 - [x] Pass exact-lock affected-package Nextest 213/213 in 1.947 seconds and workspace Nextest 858/858 in 11.354 seconds; pass warning-denied workspace Clippy/rustdoc, workspace doctests, affected AArch64 checks, formatting, diff, and standalone-lock validation.
+- [ ] Preserve the polled registration generation through central dispatch and reject a stale event after descriptor replacement.
+- [ ] Finalize central one-shot consumption and wake reported plus stranded independent waiters when backend re-arm fails.
 - [ ] Obtain independent review, publish/merge, and discharge integration responsibility before resuming MOI-HTTP-REDIRECT-041 delivery.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
