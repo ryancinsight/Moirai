@@ -8,8 +8,15 @@
 use std::io::{Read, Write};
 use std::sync::Arc;
 
-use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection};
+
+fn certificate_error(error: rustls::Error) -> rustls::CertificateError {
+    let rustls::Error::InvalidCertificate(certificate_error) = error else {
+        panic!("expected certificate validation failure, got {error:?}");
+    };
+    certificate_error
+}
 
 /// Pump handshake/data bytes from `from` into `to`, surfacing any
 /// `process_new_packets` error (e.g. certificate verification failure).
@@ -32,11 +39,28 @@ fn transfer(
     Ok(())
 }
 
+fn test_material() -> (Vec<CertificateDer<'static>>, PrivateKeyDer<'static>) {
+    let mut cert_pem = &include_bytes!("../../tests/fixtures/localhost-cert.pem")[..];
+    let certs = rustls_pemfile::certs(&mut cert_pem)
+        .collect::<Result<Vec<_>, _>>()
+        .expect("certificate fixture parses");
+    assert_eq!(
+        certs.len(),
+        3,
+        "fixture contains leaf, intermediate, and root"
+    );
+
+    let mut key_pem = &include_bytes!("../../tests/fixtures/localhost-key.pem")[..];
+    let key_der = rustls_pemfile::private_key(&mut key_pem)
+        .expect("private-key fixture parses")
+        .expect("private-key fixture exists");
+
+    (certs, key_der)
+}
+
 fn round_trip_with(server_name: &'static str) {
-    let ck = rcgen::generate_simple_self_signed(vec![server_name.to_string()])
-        .expect("self-signed cert generation");
-    let cert_der = ck.cert.der().clone();
-    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(ck.key_pair.serialize_der()));
+    let (certs, key_der) = test_material();
+    let root_der = certs.last().expect("root certificate exists").clone();
 
     let provider = Arc::new(moirai_crypto::provider());
 
@@ -44,11 +68,11 @@ fn round_trip_with(server_name: &'static str) {
         .with_safe_default_protocol_versions()
         .expect("server protocol versions")
         .with_no_client_auth()
-        .with_single_cert(vec![cert_der.clone()], key_der)
+        .with_single_cert(certs.clone(), key_der)
         .expect("server single cert");
 
     let mut roots = RootCertStore::empty();
-    roots.add(cert_der).expect("trust self-signed root");
+    roots.add(root_der).expect("trust fixture root");
     let client_config = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .expect("client protocol versions")
@@ -105,14 +129,67 @@ fn tls13_in_memory_round_trip() {
     round_trip_with("localhost");
 }
 
-/// A client that does not trust the server's self-signed certificate must fail
-/// the handshake — confirming `verify.rs` actually rejects untrusted chains.
+/// A client using the wrong server name must fail certificate validation.
+#[test]
+fn wrong_server_name_is_rejected() {
+    let (certs, key_der) = test_material();
+    let root_der = certs.last().expect("root certificate exists").clone();
+
+    let provider = Arc::new(moirai_crypto::provider());
+    let server_config = ServerConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .expect("server protocol versions")
+        .with_no_client_auth()
+        .with_single_cert(certs, key_der)
+        .expect("server single cert");
+
+    let mut roots = RootCertStore::empty();
+    roots.add(root_der).expect("trust fixture root");
+    let client_config = ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("client protocol versions")
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+
+    let mut client: rustls::Connection = ClientConnection::new(
+        Arc::new(client_config),
+        ServerName::try_from("wrong.example").unwrap(),
+    )
+    .expect("client connection")
+    .into();
+    let mut server: rustls::Connection = ServerConnection::new(Arc::new(server_config))
+        .expect("server connection")
+        .into();
+
+    let mut client_err = None;
+    for _ in 0..16 {
+        if let Err(error) = transfer(&mut client, &mut server) {
+            client_err = Some(error);
+            break;
+        }
+        if let Err(error) = transfer(&mut server, &mut client) {
+            client_err = Some(error);
+            break;
+        }
+        if !client.is_handshaking() && !server.is_handshaking() {
+            break;
+        }
+    }
+
+    let error = certificate_error(client_err.expect("wrong hostname must fail the handshake"));
+    assert!(
+        matches!(
+            error,
+            rustls::CertificateError::NotValidForName
+                | rustls::CertificateError::NotValidForNameContext { .. }
+        ),
+        "wrong hostname must produce NotValidForName, got {error:?}"
+    );
+}
+
 #[test]
 fn untrusted_cert_is_rejected() {
-    let ck = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-        .expect("self-signed cert generation");
-    let cert_der = ck.cert.der().clone();
-    let key_der = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(ck.key_pair.serialize_der()));
+    let (certs, key_der) = test_material();
 
     let provider = Arc::new(moirai_crypto::provider());
 
@@ -120,7 +197,7 @@ fn untrusted_cert_is_rejected() {
         .with_safe_default_protocol_versions()
         .expect("server protocol versions")
         .with_no_client_auth()
-        .with_single_cert(vec![cert_der], key_der)
+        .with_single_cert(certs, key_der)
         .expect("server single cert");
 
     // Client trusts an *empty* root store, so the server cert is untrusted.
@@ -157,8 +234,9 @@ fn untrusted_cert_is_rejected() {
         }
     }
 
+    let error = certificate_error(client_err.expect("untrusted certificate must fail handshake"));
     assert!(
-        client_err.is_some(),
-        "handshake must fail for an untrusted certificate"
+        matches!(error, rustls::CertificateError::UnknownIssuer),
+        "untrusted chain must produce UnknownIssuer, got {error:?}"
     );
 }
