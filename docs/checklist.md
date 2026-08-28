@@ -6,14 +6,15 @@
 - [x] Attribute retained bytes to exact queue fields and identify the binding storage/lifetime mechanism.
 - [x] Implement one canonical queue representation without changing capacity or scheduling semantics.
 - [x] Add value, boundary, saturation, wake-progress, Loom, allocation, and throughput regression coverage.
-- [ ] Verify the Apollo pool-warmup consumer probe and complete independent review before merge.
+- [x] Verify the Apollo pool-warmup consumer probe and complete independent review before merge.
 - Evidence: the exact Apollo probe retains 1,169,112 bytes, down 688,112 bytes
   (37.1%). Full-workspace Nextest passes 881/881 in 12.0 seconds; debug and
   optimized affected-package and benchmark-contract suites pass 220/220;
   focused Miri passes 9/9; release Loom passes 6/6; warning-denied AArch64
   compilation, workspace Clippy and Rustdoc, and workspace doctests pass. The
   first independent review's drop-coverage, stale-comment, and estimator-label
-  findings are fixed; re-review and hosted exact-lock gates remain.
+  findings are fixed. Moirai PR #184 / merge `b42ec745` and Apollo PR #162 /
+  merge `e27e2890` pass exact merged-head hosted gates and independent review.
 
 ## MOI-MIRI-ALLOCATOR-HARNESS-2026-08-28 [patch] — Codex
 
