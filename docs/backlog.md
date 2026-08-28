@@ -129,29 +129,21 @@ architecture definition.
 - **Acceptance**: method/body preservation and rewrite cases, same- versus cross-origin header forwarding, normal and abnormal relative references, missing/invalid locations, redirect exhaustion, deterministic zero-duration eviction, pool reuse/cardinality, stale idempotent retry, lock-poison recovery, and the full logical-request timeout are value-tested; warning-denied, documentation, SemVer, and exact-lock gates pass.
 - **Risk / dependency**: additive public configuration with trust-boundary parsing; governed by atlas ADR-0045 and based on the 9/9 exact-lock package baseline at `76e78ce`.
 - **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Evidence**: focused Nextest passes 23/23 in 0.189 seconds; after the MOI-IO-WAKE-042 correction, workspace Nextest passes 859/859 in 11.307 seconds. Warning-denied workspace Clippy/rustdoc, workspace doctests, affected cross-target checks, and 196/196 SemVer checks pass on the branch series.
-- **Dependency**: MOI-IO-WAKE-042 removes the deadline-rescued readiness stall locally; provider delivery resumes after independent review and merge of the shared branch.
-- **Lease**: none after the verified provider implementation commit; the session retains integration responsibility through independent review and merge.
+- **Evidence**: PR #180 merged as `851245f`; focused Nextest passes 23/23 in 0.189 seconds and the final workspace passes 862/862 in 11.762 seconds. Warning-denied workspace Clippy/rustdoc, doctests, affected cross-target checks, 196/196 SemVer checks, fuzzing, Loom, supply-chain, bindings, and wheel smoke tests pass.
+- **Dependency**: provider delivery is complete; atlas ADR-0045 still requires the exact Moirai merge revision before closure.
+- **Lease**: none.
 
-### 🟨 MOI-IO-WAKE-042 [patch]: Eliminate deadline-rescued I/O stalls
+### ✅ MOI-IO-WAKE-042 [patch]: Eliminate deadline-rescued I/O stalls
 
 - **Outcome**: cancelled timer heads wake the deadline driver; delivered socket readiness consumes its one-shot interest; and private native registration generations prevent stale epoll, kqueue, or `WSAPoll` results from consuming a replacement descriptor registration.
-- **Scope / non-goals**: `moirai-async` timer cancellation plus `moirai-pal` readiness-registration lifecycle, deterministic tests, source contracts, CHANGELOG, and PM records; no public timer/network API, heap ordering, deadline, executor, or protocol changes.
-- **Acceptance**: deterministic tests distinguish head from non-head timer cancellation, prove one-shot readiness consumption, reject same-interest stale generations after descriptor replacement, and verify backend failures wake delivered and stranded waiters after unlocking while central state matches the actually armed platform interest; the formerly 30.160/30.216-second HTTP redirect case and complete focused suite stay within the committed native-test budget; warning-denied, documentation, exact-lock, and affected cross-target gates pass.
-- **Risk / dependency**: concurrency/lifecycle patch blocking MOI-HTTP-REDIRECT-041 delivery; timer notification preserves its mutex/condition-variable happens-before edge without waking per ordinary cancellation, and readiness cleanup preserves independent read/write waiters while reconciling partial backend transitions.
-- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Evidence**: independent review rejected `b3d4346` because Unix dispatch lacked generation identity and backend errors discarded possibly live registrations. Commit `d56a558` passes 28/28 `moirai-pal` Nextest tests in 0.207 seconds and 859/859 workspace tests in 11.307 seconds; its exact-head hosted matrix is green. Independent re-review then found that kqueue could inherit an unchanged filter across descriptor lifecycle loss and questioned interrupted receipt postconditions. The correction collapses sibling filters before replacement and follows the FreeBSD/NetBSD/OpenBSD `kevent(2)` plus Darwin XNU changelist-before-scan contracts without replay; exact review of `9382c66` is green. Self-review also preserves the terminal sibling-collapse error while retaining its exact residual armed state. On the working diff, `moirai-pal` passes 31/31 tests in 0.270 seconds and the workspace passes 862/862 in 11.762 seconds; workspace Clippy, x86-64 Windows/AArch64 Linux warning-denied all-target checks, and the warning-denied macOS package library pass.
-- **Lease**: none after the verified collapse-error preservation commit; the session retains integration responsibility through exact review and merge.
+- **Evidence**: PR #180 merged as `851245f` after independent exact-revision review; `moirai-pal` Nextest passes 31/31 in 0.270 seconds and workspace Nextest passes 862/862 in 11.762 seconds, with warning-denied host/cross-target gates and the complete hosted matrix green.
+- **Lease**: none.
 
-### 🟨 MOI-PEM-PARSER-043 [patch]: Remove the unmaintained PEM parser
+### ✅ MOI-PEM-PARSER-043 [patch]: Remove the unmaintained PEM parser
 
 - **Outcome**: parse committed TLS test certificates and keys through the existing `rustls-pki-types` provider and remove `rustls-pemfile` from the resolved graph.
-- **Scope / non-goals**: workspace and TLS/crypto development manifests, handshake fixture loaders, lockfile, tests, and PM records; no production TLS protocol, trust-policy, fixture, or public API change.
-- **Acceptance**: trusted, wrong-hostname, untrusted, and expired handshake cases retain their value semantics; warning-denied checks and standalone-lock validation pass; `cargo deny` no longer reports RUSTSEC-2025-0134.
-- **Risk / dependency**: delivery blocker exposed by PR #180 supply-chain verification; both parsers use the same `rustls-pki-types` DER ownership types.
-- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
-- **Evidence**: commit `b3d4346` removes `rustls-pemfile 2.2.0` from the standalone lock. Focused handshake Nextest passes 7/7, workspace Nextest passes 858/858 in 11.772 seconds, warning-denied workspace Clippy passes, exact standalone `cargo deny check` reports advisories, bans, licenses, and sources OK, and hosted supply-chain verification is green.
-- **Lease**: none after commit `b3d4346`; the session retains integration responsibility through PR #180 merge.
+- **Evidence**: PR #180 merged as `851245f`; focused handshake Nextest passes 7/7, workspace Nextest passes 858/858 in 11.772 seconds, exact standalone `cargo deny check` passes, and hosted supply-chain verification is green.
+- **Lease**: none.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
