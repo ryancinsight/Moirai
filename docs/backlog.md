@@ -86,6 +86,25 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-QUEUE-RETENTION-036 [patch] [arch]: Bound retained worker-queue storage
+
+- **Outcome**: derive worker-queue storage from live scheduler demand without changing the configured admission bound, selected-worker routing, or zero-allocation steady-state execution.
+- **Scope / non-goals**: queue representation and scheduler construction, value/loom tests, retained-memory and throughput instruments, ADR-036, and consumer verification; no public capacity rename, retry path, or reduced workload.
+- **Acceptance oracle**: Apollo's exact pool-warmup probe reduces the current 24 × 65,536-byte block subtotal while Moirai saturation, wake-progress, Loom, and queue-throughput gates remain green with no statistically significant regression.
+- **Evidence**: Apollo PR #158 / `aa8d8f5c` reports the 1,857,224-byte entry state. ADR-036 removes forced payload alignment while retaining the 14-word inline capacity; exact layout tests pin 17-word payloads and 18-word slots. The rebuilt Apollo probe retains 1,169,112 bytes, 688,112 bytes (37.1%) below entry, with no 65,536-byte queue blocks. Debug and optimized affected-package Nextest pass 220/220; full-workspace Nextest passes 881/881 in 12.0 seconds; focused Miri passes 9/9; release Loom passes 6/6; warning-denied AArch64 compilation, workspace Clippy and Rustdoc, and workspace doctests pass. Saved Criterion slope-estimate comparison finds no retained-worker regression.
+- **Risk / change class**: [arch] [patch], lock-free-adjacent storage/lifetime change; ADR and independent review required.
+- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease**: ADR-036, queue storage/construction, focused queue tests/benchmarks, this item block, and the matching checklist section; last update 2026-08-28.
+
+### 🔵 MOI-MIRI-ALLOCATOR-HARNESS-2026-08-28 [patch]: Preserve allocation contracts under Miri
+
+- **Outcome**: the indexed-operation allocation instrument preserves native allocation-count assertions and permits Miri to run filtered executor integration suites without a custom-global-allocator provenance failure.
+- **Scope / non-goals**: `moirai-executor/tests/indexed_allocation_contract.rs` allocator instrumentation and its Miri/native gates; no production allocator or scheduler change.
+- **Acceptance oracle**: the native warmed allocation assertion remains value-semantic, while a filtered `cargo +nightly miri test -p moirai-executor` no longer aborts in the integration-test allocator shim.
+- **Evidence**: the 2026-08-28 broad Miri run aborts in `CountingAllocator::dealloc` at `indexed_allocation_contract.rs:26`; the library-only inline-job Miri suite passes 9/9, isolating the failure to the integration harness.
+- **Risk / change class**: [patch], verification-infrastructure ownership and pointer provenance.
+- **Integrator / lease**: unclaimed; none.
+
 ### ✅ MOI-QUEUE-CAPACITY-034 [patch] [arch]: Enforce the executor admission bound
 
 - **Outcome**: route `ExecutorConfig::max_global_queue_size` through hybrid and scheduler construction, partitioning it into power-of-two worker injectors without exceeding the configured aggregate.

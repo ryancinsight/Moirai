@@ -177,6 +177,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Retain the 14-word inline scheduled-job capacity while removing forced
+  cache-line alignment from each queue payload. A 256-slot worker injector now
+  requests 36,864 bytes instead of 65,536 bytes on 64-bit targets; oversized
+  and over-aligned closures continue through the existing typed boxed fallback.
+  Apollo's exact pool-warmup probe drops from 1,857,224 to 1,169,112 retained
+  bytes (37.1%) with no statistically significant retained-worker throughput
+  regression.
 - Size worker injectors from the process-wide admission bound instead of
   allocating 1024 slots per worker independently. With the default 8192-task
   bound and 24 workers, injector storage falls from 24 × 1024 to 24 × 256

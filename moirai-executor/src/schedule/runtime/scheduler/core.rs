@@ -399,9 +399,9 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// spawned job runs before the scope returns" contract under backpressure.
     ///
     /// The job travels by slot rather than inside the error so the hot path
-    /// keeps a small `Result`: a `ScheduledJob` carries inline, cache-line
-    /// aligned storage, and an `Err` variant holding one would widen every
-    /// admission return, success included.
+    /// keeps a small `Result`: a `ScheduledJob` carries fixed-size inline
+    /// storage, and an `Err` variant holding one would widen every admission
+    /// return, success included.
     pub(crate) fn admit_job<C>(
         &self,
         priority: Priority,

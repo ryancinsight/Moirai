@@ -154,20 +154,24 @@ fn task_result_wait_uses_zero_sized_policy_and_load_gated_take() {
 }
 
 #[test]
-fn scheduled_job_storage_keeps_two_cache_line_inline_budget() {
+fn scheduled_job_storage_keeps_inline_capacity_without_slot_alignment() {
     let source = read_benchmark("../moirai-executor/src/schedule/job/mod.rs");
 
     for required in [
         "const INLINE_JOB_WORDS: usize = 14",
-        "#[repr(C, align(64))]",
+        "#[repr(C)]",
         "pub(crate) struct ScheduledJob",
         "job: InlineJob",
         "InlineJob::new(boxed_job(task))",
         "fn boxed_job<F>(task: F) -> impl FnOnce(usize) + Send",
         "drop_consumed",
-        "inline_job_uses_two_cache_line_budget",
-        "maximum_two_cache_line_job_uses_inline_storage",
+        "inline_job_uses_natural_alignment_with_same_capacity",
+        "maximum_inline_capacity_job_uses_inline_storage",
+        "over_aligned_job_uses_typed_boxed_trampoline",
         "oversized_job_uses_boxed_inline_trampoline",
+        "inline_job_drops_capture_once_before_and_after_execution",
+        "oversized_job_drops_capture_once_before_and_after_execution",
+        "over_aligned_job_drops_capture_once_before_and_after_execution",
     ] {
         assert!(
             source.contains(required),
@@ -176,6 +180,7 @@ fn scheduled_job_storage_keeps_two_cache_line_inline_budget() {
     }
 
     for prohibited in [
+        "#[repr(C, align(64))]",
         "pub(crate) enum ScheduledJob",
         "struct HeapJob",
         "Box<dyn FnOnce",

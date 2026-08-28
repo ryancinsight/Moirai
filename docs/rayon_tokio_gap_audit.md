@@ -170,7 +170,7 @@ Rayon does not expose a per-task result handle equivalent to `TaskHandle<T>`, so
 | Work shape routing is zero-sized | sealed `WorkClass` markers: `SyncTask`, `AsyncTask`, `BlockingTask` | `work_class_markers_are_zero_sized`, `benchmark_contracts` source checks |
 | Scheduler calls are monomorphized | `schedule::<SyncTask, _>`, `schedule::<AsyncTask, _>`, `schedule::<BlockingTask, _>` | scheduler tests and `benchmark_contracts` |
 | Indexed chunking uses worker plus caller lanes | chunk caps include `worker_count + 1` because the caller computes one chunk while worker threads execute scheduled chunks | `indexed_reduce_uses_worker_plus_caller_lane`, scheduler tests |
-| Small jobs avoid heap allocation | 14-word inline erased `InlineJob` storage within the two-cache-line job footprint | `inline_job_uses_two_cache_line_budget`, `maximum_two_cache_line_job_uses_inline_storage` |
+| Small jobs avoid heap allocation | naturally aligned 14-word erased `InlineJob` storage; oversized or over-aligned captures use one typed box | `inline_job_uses_natural_alignment_with_same_capacity`, `maximum_inline_capacity_job_uses_inline_storage`, `over_aligned_job_uses_typed_boxed_trampoline` |
 | Oversized jobs avoid dynamic task dispatch | one typed `Box<F>` captured by a monomorphized trampoline closure | `oversized_job_uses_boxed_inline_trampoline`, `benchmark_contracts` |
 | Async public handles avoid boxed futures | future and lifecycle state live inline in heap-stable async state | async public-handle state contract checks |
 | Async public result sender avoids mutex storage | one-shot sender lives in `UnsafeCell<Option<TaskResultSender<_>>>` under the async poll-owner state machine | async public-handle state contract checks |
