@@ -30,7 +30,9 @@
 //!
 //! A wake arriving mid-poll CASes `POLLING → NOTIFIED` rather than enqueuing, so
 //! it is never lost: the poll owner re-polls inline (bounded by
-//! `ASYNC_INLINE_REPOLL_LIMIT`) or reschedules. The future is dropped once, by
+//! `ASYNC_INLINE_REPOLL_LIMIT`) or reschedules. If that bounded reschedule is
+//! rejected by a full queue, the task completes with `ResourceExhausted`
+//! instead of recursing on the waking thread. The future is dropped once, by
 //! the `future_present` flag: the poll owner drops it on completion and `Drop`
 //! (reached only after the last `Arc`, whose refcount release/acquire orders the
 //! owner's write before the destructor's read) skips an already-dropped future.
@@ -42,11 +44,11 @@
 //! admits, so a discarded admission failure strands the task — `QUEUED` with no
 //! job in any queue means every later wake short-circuits as "already
 //! scheduled" and the future is never polled again. `schedule_wake` therefore
-//! never drops the obligation on a full injector: it retries admission through
-//! a bounded spin/yield ladder (each retry re-selects a worker round-robin) and
-//! past the ladder polls inline on the waking thread, which needs no queue
-//! slot. Only scheduler shutdown — after which no job of any kind can ever be
-//! admitted or run — releases the obligation, by reverting `QUEUED → IDLE`.
+//! never drops the obligation on a full injector: it polls inline on the waking
+//! thread after the first rejected admission, which needs no queue slot and
+//! gives saturation no scheduler-dependent retry latency. Only scheduler
+//! shutdown — after which no job of any kind can ever be admitted or run —
+//! releases the obligation, by reverting `QUEUED → IDLE`.
 //! The spawn-time `schedule` instead propagates admission failure to the
 //! spawner (the spawn-backpressure contract) after the same revert, which is
 //! race-free there because wakers are minted only inside `poll`.
@@ -73,7 +75,7 @@ use moirai_core::{
 
 use crate::{
     metrics::ExecutorMetrics,
-    registry::{RunningTaskToken, TaskLifecycleToken},
+    registry::{OwnedStateLease, RunningTaskToken, StateLease, TaskLifecycleToken},
     schedule::{AsyncTask, WorkSubmit},
 };
 
@@ -84,37 +86,32 @@ const ASYNC_NOTIFIED: u8 = 3;
 const ASYNC_COMPLETED: u8 = 4;
 const ASYNC_INLINE_REPOLL_LIMIT: usize = 1;
 
-/// Admission retries separated by `spin_loop` before the ladder escalates.
-///
-/// A rejected wake needs one worker pop to free an injector slot — a
-/// sub-microsecond window a short spin covers. The split between the spin and
-/// yield rungs is a latency/CPU trade only: never-lose correctness is carried
-/// by the inline-poll rung past the ladder, not by these budgets.
-const WAKE_ENQUEUE_SPIN_RETRIES: usize = 32;
-/// Admission retries separated by `yield_now` before polling inline.
-///
-/// A yield hands the OS a slice so a descheduled worker can drain; saturation
-/// that survives the full ladder is persistent, and waiting longer would be
-/// the unbounded wait the bounded-resource rule prohibits.
-const WAKE_ENQUEUE_YIELD_RETRIES: usize = 32;
+enum PendingPoll {
+    Return,
+    Repoll,
+    Reschedule,
+}
 
-pub(super) enum AsyncLifecycle {
-    Registered(TaskLifecycleToken),
-    Running(RunningTaskToken),
+pub(super) enum AsyncLifecycle<L: StateLease> {
+    Registered(TaskLifecycleToken<L>),
+    Running(RunningTaskToken<L>),
     Completed,
 }
 
-pub(crate) struct AsyncFutureState<S, F>
+pub(crate) struct AsyncFutureState<S, F, L = OwnedStateLease>
 where
     F: Future,
+    L: StateLease,
 {
-    scheduler: S,
+    lifecycle: UnsafeCell<AsyncLifecycle<L>>,
     future: UnsafeCell<MaybeUninit<F>>,
-    lifecycle: UnsafeCell<AsyncLifecycle>,
     result_sender: UnsafeCell<Option<TaskResultSender<F::Output>>>,
     metrics: Arc<ExecutorMetrics>,
     state: AtomicU8,
     future_present: UnsafeCell<bool>,
+    // Must remain last: production lifecycle leases borrow storage retained by
+    // the scheduler, so every lease must retire before scheduler destruction.
+    scheduler: S,
 }
 
 // Safety: `state` serializes all future polling. Wakers may schedule work
@@ -122,46 +119,49 @@ where
 // The future cell is dropped either by the unique polling thread after Ready or
 // panic, or by `Drop` after the last `Arc` reference is gone. The scheduler `S`
 // is itself `Send + Sync`, so sharing it across wakers is sound.
-unsafe impl<S, F> Send for AsyncFutureState<S, F>
+unsafe impl<S, F, L> Send for AsyncFutureState<S, F, L>
 where
     S: Send + Sync,
     F: Future + Send,
     F::Output: Send,
+    L: StateLease,
 {
 }
 
 // Safety: see the `Send` impl. Shared references are used only for atomic
 // scheduling, metrics, and fields guarded by the single poll owner selected by
 // the async state machine.
-unsafe impl<S, F> Sync for AsyncFutureState<S, F>
+unsafe impl<S, F, L> Sync for AsyncFutureState<S, F, L>
 where
     S: Send + Sync,
     F: Future + Send,
     F::Output: Send,
+    L: StateLease,
 {
 }
 
-impl<S, F> AsyncFutureState<S, F>
+impl<S, F, L> AsyncFutureState<S, F, L>
 where
     S: WorkSubmit,
     F: Future + Send + 'static,
     F::Output: Send + 'static,
+    L: StateLease,
 {
     pub(crate) fn new(
         scheduler: S,
         future: F,
-        lifecycle: TaskLifecycleToken,
+        lifecycle: TaskLifecycleToken<L>,
         result_sender: TaskResultSender<F::Output>,
         metrics: Arc<ExecutorMetrics>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            scheduler,
-            future: UnsafeCell::new(MaybeUninit::new(future)),
             lifecycle: UnsafeCell::new(AsyncLifecycle::Registered(lifecycle)),
+            future: UnsafeCell::new(MaybeUninit::new(future)),
             result_sender: UnsafeCell::new(Some(result_sender)),
             metrics,
             state: AtomicU8::new(ASYNC_IDLE),
             future_present: UnsafeCell::new(true),
+            scheduler,
         })
     }
 
@@ -243,43 +243,27 @@ where
     /// - the shutdown revert (no job can ever be admitted or run again, so the
     ///   wake is unfulfillable rather than lost to backpressure).
     ///
-    /// Admission rejection retries through a spin-then-yield ladder; each
-    /// retry re-selects a worker round-robin inside the scheduler, so any
-    /// worker's pop unblocks it. Past the ladder the waking thread polls the
-    /// future itself — mirroring how `SchedulerScope::flush` runs
-    /// admission-refused jobs on the calling lane — which cannot lose the
-    /// transition because `poll` consumes the `QUEUED` state directly. Inline
-    /// polling also keeps a saturated single-worker pool deadlock-free where
-    /// an unbounded enqueue retry from inside that worker's own poll would
-    /// spin forever against a queue only it can drain.
+    /// On admission rejection the waking thread polls the future itself —
+    /// mirroring how `SchedulerScope::flush` runs admission-refused jobs on the
+    /// calling lane. This cannot lose the transition because `poll` consumes
+    /// the `QUEUED` state directly, and it keeps saturated pools independent of
+    /// OS yield latency or a queue that only a gated worker can drain.
     fn schedule_wake(self: &Arc<Self>) {
         if !self.claim_enqueue() {
             return;
         }
-        let mut attempts = 0usize;
-        loop {
-            match Arc::clone(self).enqueue() {
-                Ok(()) => return,
-                Err(ExecutorError::ResourceExhausted(_)) => {
-                    attempts += 1;
-                    if attempts <= WAKE_ENQUEUE_SPIN_RETRIES {
-                        core::hint::spin_loop();
-                    } else if attempts <= WAKE_ENQUEUE_SPIN_RETRIES + WAKE_ENQUEUE_YIELD_RETRIES {
-                        std::thread::yield_now();
-                    } else {
-                        // Registry diagnostics report the task as running off
-                        // the worker pool; `NO_WORKER` is display-only there.
-                        self.poll(crate::registry::state::NO_WORKER);
-                        return;
-                    }
-                }
-                Err(_) => {
-                    // ShuttingDown: the scheduler admits and runs nothing from
-                    // here on, so no poll of this task can ever be admitted —
-                    // reverting keeps the state honest for `Drop`.
-                    self.state.store(ASYNC_IDLE, Ordering::Release);
-                    return;
-                }
+        match Arc::clone(self).enqueue() {
+            Ok(()) => {}
+            Err(ExecutorError::ResourceExhausted(_)) => {
+                // Registry diagnostics report the task as running off the
+                // worker pool; `NO_WORKER` is display-only there.
+                self.poll(crate::registry::state::NO_WORKER);
+            }
+            Err(_) => {
+                // ShuttingDown: the scheduler admits and runs nothing from
+                // here on, so no poll of this task can ever be admitted —
+                // reverting keeps the state honest for `Drop`.
+                self.state.store(ASYNC_IDLE, Ordering::Release);
             }
         }
     }
@@ -349,12 +333,14 @@ where
                     self.metrics.record_task_completed(execution_time);
                     return;
                 }
-                Ok(Poll::Pending) => {
-                    if self.finish_pending_poll(&mut inline_repolls) {
-                        continue;
+                Ok(Poll::Pending) => match self.finish_pending_poll(&mut inline_repolls) {
+                    PendingPoll::Return => return,
+                    PendingPoll::Repoll => continue,
+                    PendingPoll::Reschedule => {
+                        self.reschedule_notified();
+                        return;
                     }
-                    return;
-                }
+                },
                 Err(_) => {
                     self.drop_future();
                     self.state.store(ASYNC_COMPLETED, Ordering::Release);
@@ -438,14 +424,14 @@ where
     }
 
     #[inline]
-    fn finish_pending_poll(self: &Arc<Self>, inline_repolls: &mut usize) -> bool {
+    fn finish_pending_poll(&self, inline_repolls: &mut usize) -> PendingPoll {
         match self.state.compare_exchange(
             ASYNC_POLLING,
             ASYNC_IDLE,
             Ordering::AcqRel,
             Ordering::Acquire,
         ) {
-            Ok(_) => false,
+            Ok(_) => PendingPoll::Return,
             Err(ASYNC_NOTIFIED) if *inline_repolls < ASYNC_INLINE_REPOLL_LIMIT => {
                 if self
                     .state
@@ -458,27 +444,58 @@ where
                     .is_ok()
                 {
                     *inline_repolls += 1;
-                    true
+                    PendingPoll::Repoll
                 } else {
-                    false
+                    PendingPoll::Return
                 }
             }
-            Err(ASYNC_NOTIFIED) => {
-                // The inline-repoll budget is spent, so the wake absorbed as
-                // NOTIFIED converts back into an enqueue obligation; the
-                // never-lose path keeps it alive under admission rejection.
-                self.state.store(ASYNC_IDLE, Ordering::Release);
-                self.schedule_wake();
-                false
+            Err(ASYNC_NOTIFIED) => PendingPoll::Reschedule,
+            Err(_) => PendingPoll::Return,
+        }
+    }
+
+    /// Discharge a wake absorbed after the inline-repoll budget was consumed.
+    ///
+    /// The current poll owner transfers `NOTIFIED` directly to `QUEUED`, so no
+    /// recursive call can grow the waking thread's stack. Persistent admission
+    /// saturation becomes an explicit task failure; the wake is never silently
+    /// dropped and the caller can distinguish resource exhaustion from output.
+    fn reschedule_notified(self: &Arc<Self>) {
+        if self
+            .state
+            .compare_exchange(
+                ASYNC_NOTIFIED,
+                ASYNC_QUEUED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            return;
+        }
+
+        match Arc::clone(self).enqueue() {
+            Ok(()) => {}
+            Err(ExecutorError::ResourceExhausted(_)) => {
+                self.drop_future();
+                self.state.store(ASYNC_COMPLETED, Ordering::Release);
+                self.complete_lifecycle();
+                if let Some(sender) = self.take_result_sender() {
+                    sender.send(Err(TaskError::ResourceExhausted));
+                }
+                self.metrics.record_task_failed();
             }
-            Err(_) => false,
+            Err(_) => {
+                self.state.store(ASYNC_IDLE, Ordering::Release);
+            }
         }
     }
 }
 
-impl<S, F> Drop for AsyncFutureState<S, F>
+impl<S, F, L> Drop for AsyncFutureState<S, F, L>
 where
     F: Future,
+    L: StateLease,
 {
     fn drop(&mut self) {
         if *self.future_present.get_mut() {
@@ -491,11 +508,12 @@ where
     }
 }
 
-impl<S, F> Wake for AsyncFutureState<S, F>
+impl<S, F, L> Wake for AsyncFutureState<S, F, L>
 where
     S: WorkSubmit,
     F: Future + Send + 'static,
     F::Output: Send + 'static,
+    L: StateLease,
 {
     fn wake(self: Arc<Self>) {
         self.schedule_wake();
@@ -518,10 +536,11 @@ mod tests {
             mpsc, Arc, Mutex,
         },
         task::{Context, Poll, Waker},
+        time::Duration,
     };
 
     use moirai_core::{
-        error::{ExecutorError, ExecutorResult},
+        error::{ExecutorError, ExecutorResult, TaskError},
         task::{TaskHandle, TaskId},
         Priority,
     };
@@ -530,6 +549,75 @@ mod tests {
     use crate::metrics::ExecutorMetrics;
     use crate::registry::TaskRegistry;
     use crate::schedule::{SyncTask, ThreadScheduler, WorkClass, WorkSubmit};
+
+    impl WorkSubmit for Arc<Mutex<TaskRegistry>> {
+        fn schedule<C, F>(
+            &self,
+            _priority: Priority,
+            _locality_hint: Option<usize>,
+            task: F,
+        ) -> ExecutorResult<()>
+        where
+            C: WorkClass,
+            F: FnOnce(usize) + Send + 'static,
+        {
+            task(0);
+            Ok(())
+        }
+    }
+
+    /// Four scheduler phases remain below the 30-second slow-test threshold
+    /// even if each consumes its complete event deadline.
+    const TEST_EVENT_DEADLINE: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn scheduled_lifecycle_retires_before_its_registry_owner() {
+        let registry = Arc::new(Mutex::new(TaskRegistry::new()));
+        let (task_id, lifecycle) = {
+            let mut registry = registry.lock().unwrap();
+            // SAFETY: the async state owns the only remaining registry Arc
+            // through its scheduler field, which is declared after lifecycle.
+            unsafe { registry.register_next_scheduled_task() }
+        };
+        let registry_owner = Arc::downgrade(&registry);
+        let (_handle, result_sender) = TaskHandle::<()>::new_pending(TaskId(task_id));
+        let state = AsyncFutureState::new(
+            Arc::clone(&registry),
+            std::future::pending::<()>(),
+            lifecycle,
+            result_sender,
+            Arc::new(ExecutorMetrics::new()),
+        );
+
+        drop(registry);
+        assert!(registry_owner.upgrade().is_some());
+        drop(state);
+        assert!(registry_owner.upgrade().is_none());
+    }
+
+    struct GateRelease(Option<mpsc::Sender<()>>);
+
+    impl GateRelease {
+        fn release(&mut self) {
+            self.0
+                .take()
+                .expect("gate release is sent once")
+                .send(())
+                .expect("gated worker remains alive");
+        }
+    }
+
+    impl Drop for GateRelease {
+        fn drop(&mut self) {
+            if let Some(sender) = self.0.take() {
+                // Receiver exit means the worker already left the gate, so no
+                // cleanup action remains for this non-panicking test guard.
+                match sender.send(()) {
+                    Ok(()) | Err(_) => {}
+                }
+            }
+        }
+    }
 
     /// Returns `Pending` once, publishing its waker, then `Ready(output)`.
     ///
@@ -540,6 +628,20 @@ mod tests {
         polls: Arc<AtomicUsize>,
         waker: Arc<Mutex<Option<Waker>>>,
         first_poll_sender: Option<mpsc::Sender<()>>,
+    }
+
+    struct AlwaysSelfWake {
+        polls: Arc<AtomicUsize>,
+    }
+
+    impl Future for AlwaysSelfWake {
+        type Output = i32;
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<i32> {
+            self.polls.fetch_add(1, Ordering::SeqCst);
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
     }
 
     impl Future for WakeThenReady {
@@ -665,9 +767,8 @@ mod tests {
         }
     }
 
-    /// A wake rejected `refusals` times must be admitted on the next attempt
-    /// with no wake lost: the future still completes with its exact output.
-    fn wake_survives_admission_refusals(refusals: usize, output: i32) {
+    /// A rejected wake polls inline with no retry or lost output.
+    fn wake_survives_admission_rejection(output: i32) {
         let injector = GatedInjector::new();
         let PendingTask {
             state,
@@ -685,35 +786,53 @@ mod tests {
             .expect("first poll published its waker");
         assert_eq!(polls.load(Ordering::SeqCst), 1);
 
-        injector.refuse_next.store(refusals, Ordering::SeqCst);
+        injector.refuse_next.store(1, Ordering::SeqCst);
         waker.wake();
         assert_eq!(
             injector.rejections.load(Ordering::SeqCst),
-            refusals,
-            "the ladder must retry through every refused admission"
+            1,
+            "the full injector must reject exactly one admission"
         );
         assert_eq!(
             injector.refuse_next.load(Ordering::SeqCst),
             0,
-            "admission must have been retried until the injector accepted"
+            "the rejection must be consumed"
         );
 
-        injector.drain();
         assert_eq!(polls.load(Ordering::SeqCst), 2);
         assert_eq!(handle.join(), Some(Ok(output)));
     }
 
     #[test]
-    fn wake_retries_through_spin_rung_until_admitted() {
-        // Below the spin budget: every retry stays on the spin rung.
-        wake_survives_admission_refusals(super::WAKE_ENQUEUE_SPIN_RETRIES - 2, 41);
+    fn wake_polls_inline_after_admission_rejection() {
+        wake_survives_admission_rejection(41);
     }
 
     #[test]
-    fn wake_retries_through_yield_rung_until_admitted() {
-        // Past the spin budget, inside the yield budget: the yield rung must
-        // keep retrying rather than dropping the wake.
-        wake_survives_admission_refusals(super::WAKE_ENQUEUE_SPIN_RETRIES + 8, 43);
+    fn repeated_self_wake_reports_saturated_reschedule_without_recursion() {
+        let injector = GatedInjector::new();
+        let mut registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+        let (handle, result_sender) = TaskHandle::new_pending(TaskId(task_id));
+        let polls = Arc::new(AtomicUsize::new(0));
+        let state = AsyncFutureState::new(
+            Arc::clone(&injector),
+            AlwaysSelfWake {
+                polls: Arc::clone(&polls),
+            },
+            lifecycle,
+            result_sender,
+            Arc::new(ExecutorMetrics::new()),
+        );
+
+        Arc::clone(&state).schedule().expect("first poll admits");
+        injector.refuse_next.store(1, Ordering::SeqCst);
+        injector.drain();
+
+        assert_eq!(polls.load(Ordering::SeqCst), 2);
+        assert_eq!(injector.rejections.load(Ordering::SeqCst), 1);
+        assert!(handle.is_finished());
+        assert_eq!(handle.join(), Some(Err(TaskError::ResourceExhausted)));
     }
 
     /// M1 regression at the real scheduler: a worker's injector is provably
@@ -739,25 +858,49 @@ mod tests {
         // First poll runs on the worker and publishes the waker.
         Arc::clone(&state).schedule().expect("first poll admits");
         first_poll_receiver
-            .recv()
-            .expect("first poll published its waker");
+            .recv_timeout(TEST_EVENT_DEADLINE)
+            .expect("first poll must publish its waker before the event deadline");
 
         // Gate the only worker inside a job so nothing can drain the injector.
         let (entered_tx, entered_rx) = mpsc::channel::<()>();
         let (release_tx, release_rx) = mpsc::channel::<()>();
+        let mut gate_release = GateRelease(Some(release_tx));
         scheduler
             .schedule::<SyncTask, _>(Priority::Normal, None, move |_worker| {
                 entered_tx.send(()).expect("test observer alive");
                 release_rx.recv().expect("release signal");
             })
             .expect("gate job admits");
-        entered_rx.recv().expect("worker entered the gate");
+        entered_rx
+            .recv_timeout(TEST_EVENT_DEADLINE)
+            .expect("worker must enter the gate before the event deadline");
         let waker = waker
             .lock()
             .unwrap()
             .take()
             .expect("first poll published its waker");
         assert_eq!(polls.load(Ordering::SeqCst), 1);
+
+        // Start and park the waking thread before saturating the scheduler. The
+        // timed wake phase then measures the wake path, not OS thread creation
+        // latency under a concurrently loaded workspace test run.
+        let wake_phase = Arc::new(AtomicUsize::new(0));
+        let wake_phase_thread = Arc::clone(&wake_phase);
+        let (wake_ready_tx, wake_ready_rx) = mpsc::sync_channel(1);
+        let (wake_start_tx, wake_start_rx) = mpsc::sync_channel(0);
+        let (wake_done_tx, wake_done_rx) = mpsc::sync_channel(1);
+        let waking = std::thread::spawn(move || {
+            wake_phase_thread.store(1, Ordering::SeqCst);
+            wake_ready_tx.send(()).expect("wake-ready observer alive");
+            wake_start_rx.recv().expect("wake-start observer alive");
+            wake_phase_thread.store(2, Ordering::SeqCst);
+            waker.wake();
+            wake_phase_thread.store(3, Ordering::SeqCst);
+            wake_done_tx.send(()).expect("wake observer alive");
+        });
+        wake_ready_rx
+            .recv_timeout(TEST_EVENT_DEADLINE)
+            .expect("waking thread must park before the event deadline");
 
         // Fill the gated worker's injector until admission genuinely rejects.
         let filler_runs = Arc::new(AtomicUsize::new(0));
@@ -781,11 +924,33 @@ mod tests {
         // The injector is full and its only drain is gated: every enqueue
         // retry rejects, so the wake must complete the future inline. The
         // handle resolving *before* the gate opens proves no worker polled.
-        waker.wake();
-        assert_eq!(polls.load(Ordering::SeqCst), 2);
-        assert_eq!(handle.join(), Some(Ok(1789)));
+        wake_start_tx
+            .send(())
+            .expect("parked waking thread remains alive");
+        wake_done_rx
+            .recv_timeout(TEST_EVENT_DEADLINE)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "saturated wake must complete before the event deadline: {error}; phase={}, state={}, polls={}, finished={}, pending={}",
+                    wake_phase.load(Ordering::SeqCst),
+                    state.state.load(Ordering::SeqCst),
+                    polls.load(Ordering::SeqCst),
+                    handle.is_finished(),
+                    scheduler.pending_tasks()
+                )
+            });
+        waking.join().expect("waking thread");
+        let poll_count_before_release = polls.load(Ordering::SeqCst);
+        let finished_before_release = handle.is_finished();
 
-        release_tx.send(()).expect("worker still parked in gate");
+        gate_release.release();
         scheduler.shutdown();
+
+        assert_eq!(poll_count_before_release, 2);
+        assert!(
+            finished_before_release,
+            "the wake must poll inline before the gated worker is released"
+        );
+        assert_eq!(handle.join(), Some(Ok(1789)));
     }
 }

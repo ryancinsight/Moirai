@@ -46,7 +46,7 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
         F: core::future::Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let (task_id, lifecycle) = self.register_task(Priority::Normal)?;
+        let (task_id, lifecycle) = self.register_scheduled_task(Priority::Normal)?;
 
         let (handle, result_sender) = TaskHandle::new_pending(task_id);
         let state = AsyncFutureState::new(
@@ -80,7 +80,7 @@ impl<S: WorkScheduler> TaskSpawner for HybridExecutor<S> {
         // no `Arc<TaskResultSlot>` heap allocation or atomic refcount — the win
         // over routing through `spawn_result`. Lifecycle tracking and metrics
         // are preserved so shutdown drain and counters stay accurate.
-        let (_task_id, lifecycle) = self.register_task(Priority::Normal)?;
+        let (_task_id, lifecycle) = self.register_scheduled_task(Priority::Normal)?;
         let metrics = MetricsRef::new(&self.metrics);
 
         self.scheduler

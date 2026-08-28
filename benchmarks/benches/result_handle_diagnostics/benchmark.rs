@@ -682,9 +682,16 @@ pub(crate) fn benchmark_result_handle_diagnostics(c: &mut Criterion) {
     });
 
     #[cfg(feature = "registry-diagnostics")]
+    let mut token_registry = TaskRegistry::new();
+
+    #[cfg(feature = "registry-diagnostics")]
     group.bench_function("direct_registry_token_lifecycle", |bench| {
-        let mut registry = TaskRegistry::new();
-        bench.iter(|| direct_registry_token_lifecycle(&mut registry));
+        bench.iter(|| direct_registry_token_lifecycle(&mut token_registry));
+    });
+
+    #[cfg(feature = "registry-diagnostics")]
+    group.bench_function("direct_registry_retained_token_lifecycle", |bench| {
+        bench.iter(|| direct_registry_retained_token_lifecycle(&mut token_registry));
     });
 
     group.bench_function("registry_mutex_lock_only", |bench| {

@@ -97,6 +97,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Prevent stale Windows `WSAPoll` results from deleting or waking a newer
+  registration that reused the same raw socket value. Poll snapshots now carry
+  registration generations in a reused sidecar buffer, preserving allocation-
+  free warm polling while rejecting stale `POLLNVAL` cleanup and readiness.
+- Keep task registry and metrics storage alive once through scheduler worker
+  teardown, including re-entrant executor destruction, while standalone
+  lifecycle tokens retain their dense block. Slot reclamation and task-ID reuse
+  wait for token retirement without adding production per-task ownership traffic.
+- Complete saturated async wakes inline after the first rejected scheduler
+  admission instead of issuing 64 spin/yield retries. Repeated self-wakes use a
+  bounded non-recursive requeue and surface persistent saturation as
+  `TaskError::ResourceExhausted`. Lifecycle completion offsets also preserve
+  `Instant`'s documented saturating behavior.
 - Recover poisoned GPU buffer-pool mutexes instead of propagating a prior
   worker panic into every later pool operation.
 

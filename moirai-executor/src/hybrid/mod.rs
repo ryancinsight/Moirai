@@ -24,7 +24,7 @@ use moirai_core::{
 
 use crate::{
     metrics::ExecutorMetrics,
-    registry::{TaskLifecycleToken, TaskRegistry},
+    registry::{SchedulerStateLease, TaskLifecycleToken, TaskRegistry},
     schedule::{SchedulerScope, SyncTask, ThreadScheduler, WorkClass, WorkScheduler},
 };
 
@@ -40,10 +40,9 @@ struct MetricsRef {
     metrics: NonNull<ExecutorMetrics>,
 }
 
-// Safety: `MetricsRef` points at `HybridExecutor.metrics`. The executor owns
-// the scheduler and drains scheduled jobs during shutdown/drop before dropping
-// the metrics allocation, so scheduled synchronous/blocking jobs cannot observe
-// a dangling metrics pointer.
+// Safety: `MetricsRef` points at `HybridExecutor.metrics`. Construction retains
+// the metrics Arc in the scheduler's lifetime owner, and each scheduled job
+// retains scheduler state until its final metrics access completes.
 unsafe impl Send for MetricsRef {}
 
 impl MetricsRef {
@@ -102,13 +101,15 @@ impl HybridExecutor<ThreadScheduler> {
             config.max_global_queue_size,
             numa_aware,
         )?;
+        let task_registry = Arc::new(Mutex::new(TaskRegistry::new()));
         let metrics = Arc::new(ExecutorMetrics::new());
+        scheduler.retain_lifetime_owner((Arc::clone(&task_registry), Arc::clone(&metrics)));
         metrics.update_worker_counts(0, scheduler.worker_count(), scheduler.worker_count());
 
         Ok(Self {
             config,
             scheduler,
-            task_registry: Arc::new(Mutex::new(TaskRegistry::new())),
+            task_registry,
             metrics,
             shutdown_signal: Arc::new(AtomicBool::new(false)),
         })
@@ -178,7 +179,7 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         C: WorkClass,
         R: Send + 'static,
     {
-        let (task_id, lifecycle) = self.register_task(priority)?;
+        let (task_id, lifecycle) = self.register_scheduled_task(priority)?;
 
         let (handle, result_sender) = TaskHandle::new_pending(task_id);
         let metrics = MetricsRef::new(&self.metrics);
@@ -265,11 +266,18 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         Ok(())
     }
 
-    fn register_task(&self, priority: Priority) -> ExecutorResult<(TaskId, TaskLifecycleToken)> {
+    fn register_scheduled_task(
+        &self,
+        priority: Priority,
+    ) -> ExecutorResult<(TaskId, TaskLifecycleToken<SchedulerStateLease>)> {
         let mut registry = self.task_registry.lock().map_err(|_| {
             ExecutorError::ResourceExhausted("task registry lock poisoned".to_string())
         })?;
-        let (task_id, lifecycle) = registry.register_next_task();
+        // SAFETY: synchronous and blocking lifecycle tokens move only into
+        // scheduler-owned jobs. Construction installs the registry and metrics
+        // as the scheduler's lifetime owner; each worker holds scheduler state
+        // until its current job returns, including re-entrant destruction.
+        let (task_id, lifecycle) = unsafe { registry.register_next_scheduled_task() };
         lifecycle.set_priority(priority);
         Ok((TaskId::new(task_id), lifecycle))
     }

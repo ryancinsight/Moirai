@@ -27,21 +27,73 @@ use crate::{Event, Interest, RawFd, Reactor};
 
 /// `WSAPoll`-based readiness reactor.
 pub struct WsaPollReactor {
-    /// Registered sockets (by raw `SOCKET` value) and their interest.
-    interests: Mutex<HashMap<usize, Interest>>,
+    /// Registered sockets and the generation that distinguishes reused raw
+    /// `SOCKET` values.
+    registrations: Mutex<RegistrationTable>,
     /// Loopback UDP socket used to interrupt a blocking `WSAPoll`: `wake()` sends
     /// a datagram to `wake_addr`, making this socket readable so the poll returns
     /// promptly (e.g. after a new registration or on shutdown).
     wake: UdpSocket,
     wake_addr: std::net::SocketAddr,
-    /// Reused `WSAPoll` fd array, so the hot poll loop does not rebuild a fresh
-    /// vector allocation per iteration. Lock order: `pollfds` before
-    /// `interests` (the only path taking both is `poll_events`; every other
-    /// path takes at most `interests`), so no cycle exists.
-    pollfds: Mutex<Vec<WSAPOLLFD>>,
+    /// Reused `WSAPoll` snapshot, so the hot poll loop does not allocate fd or
+    /// generation arrays per iteration. Lock order: `poll_buffer` before
+    /// `registrations`; every other path takes at most `registrations`.
+    poll_buffer: Mutex<PollBuffer>,
 }
 
-// Safety: all shared state is behind the `interests` and `pollfds` `Mutex`es;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RegistrationGeneration(u64);
+
+#[derive(Clone, Copy)]
+struct Registration {
+    interest: Interest,
+    generation: RegistrationGeneration,
+}
+
+#[derive(Default)]
+struct RegistrationTable {
+    entries: HashMap<usize, Registration>,
+    next_generation: u64,
+}
+
+impl RegistrationTable {
+    fn register(&mut self, socket: usize, interest: Interest) -> io::Result<()> {
+        let next_generation = self
+            .next_generation
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("WSAPoll registration generation exhausted"))?;
+        self.next_generation = next_generation;
+        self.entries.insert(
+            socket,
+            Registration {
+                interest,
+                generation: RegistrationGeneration(next_generation),
+            },
+        );
+        Ok(())
+    }
+
+    fn is_current(&self, socket: usize, generation: RegistrationGeneration) -> bool {
+        self.entries
+            .get(&socket)
+            .is_some_and(|registration| registration.generation == generation)
+    }
+
+    fn remove_if_current(&mut self, socket: usize, generation: RegistrationGeneration) -> bool {
+        if !self.is_current(socket, generation) {
+            return false;
+        }
+        self.entries.remove(&socket).is_some()
+    }
+}
+
+#[derive(Default)]
+struct PollBuffer {
+    fds: Vec<WSAPOLLFD>,
+    generations: Vec<RegistrationGeneration>,
+}
+
+// Safety: all shared state is behind the `registrations` and `poll_buffer` `Mutex`es;
 // the `wake` `UdpSocket` supports concurrent `send_to` (any thread) and `recv`
 // (the poll thread), which winsock permits for UDP.
 unsafe impl Send for WsaPollReactor {}
@@ -54,10 +106,10 @@ impl WsaPollReactor {
         wake.set_nonblocking(true)?;
         let wake_addr = wake.local_addr()?;
         Ok(Self {
-            interests: Mutex::new(HashMap::new()),
+            registrations: Mutex::new(RegistrationTable::default()),
             wake,
             wake_addr,
-            pollfds: Mutex::new(Vec::new()),
+            poll_buffer: Mutex::new(PollBuffer::default()),
         })
     }
 
@@ -74,55 +126,66 @@ impl WsaPollReactor {
 
 impl Reactor for WsaPollReactor {
     fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()> {
-        lock_mutex(&self.interests).insert(fd as usize, interest);
+        lock_mutex(&self.registrations).register(fd as usize, interest)?;
         // Interrupt any in-flight blocking poll so the new socket is included.
         let _ = self.wake();
         Ok(())
     }
 
     fn unregister_fd(&self, fd: RawFd) -> io::Result<()> {
-        lock_mutex(&self.interests).remove(&(fd as usize));
+        lock_mutex(&self.registrations)
+            .entries
+            .remove(&(fd as usize));
         Ok(())
     }
 
     fn poll_events(&self, timeout: Option<Duration>) -> io::Result<Vec<Event>> {
         // Reuse the persistent fd array; the mutex serializes concurrent
         // pollers (the reactor is driven by one event-loop thread in practice).
-        // The interest map is snapshotted directly into the reused buffer under
+        // The registration table is snapshotted into the reused buffer under
         // a short-lived lock, released before the (potentially blocking) poll
         // so `register_fd`/`unregister_fd` never wait on a poll in flight.
-        let mut pollfds = lock_mutex(&self.pollfds);
-        pollfds.clear();
+        let mut poll_buffer = lock_mutex(&self.poll_buffer);
+        poll_buffer.fds.clear();
+        poll_buffer.generations.clear();
         // Slot 0 is always the wake socket, so `nfds >= 1` (WSAPoll rejects 0).
-        pollfds.push(WSAPOLLFD {
+        poll_buffer.fds.push(WSAPOLLFD {
             fd: SOCKET(self.wake_socket()),
             events: POLLRDNORM,
             revents: WSAPOLL_EVENT_FLAGS(0),
         });
         {
-            let map = lock_mutex(&self.interests);
-            pollfds.reserve(map.len());
-            for (sock, interest) in map.iter() {
+            let registrations = lock_mutex(&self.registrations);
+            poll_buffer.fds.reserve(registrations.entries.len());
+            poll_buffer.generations.reserve(registrations.entries.len());
+            for (socket, registration) in &registrations.entries {
                 let mut events = WSAPOLL_EVENT_FLAGS(0);
-                if interest.readable {
+                if registration.interest.readable {
                     events |= POLLRDNORM;
                 }
-                if interest.writable {
+                if registration.interest.writable {
                     events |= POLLWRNORM;
                 }
-                pollfds.push(WSAPOLLFD {
-                    fd: SOCKET(*sock),
+                poll_buffer.fds.push(WSAPOLLFD {
+                    fd: SOCKET(*socket),
                     events,
                     revents: WSAPOLL_EVENT_FLAGS(0),
                 });
+                poll_buffer.generations.push(registration.generation);
             }
         }
 
         let timeout_ms = timeout.map_or(-1, |d| d.as_millis().min(i32::MAX as u128) as i32);
 
-        // Safety: `pollfds` is a valid, correctly-sized array of `WSAPOLLFD` that
+        // Safety: `fds` is a valid, correctly-sized array of `WSAPOLLFD` that
         // outlives the call; `WSAPoll` writes only into the `revents` fields.
-        let n = unsafe { WSAPoll(pollfds.as_mut_ptr(), pollfds.len() as u32, timeout_ms) };
+        let n = unsafe {
+            WSAPoll(
+                poll_buffer.fds.as_mut_ptr(),
+                poll_buffer.fds.len() as u32,
+                timeout_ms,
+            )
+        };
         if n == SOCKET_ERROR {
             return Err(io::Error::last_os_error());
         }
@@ -130,36 +193,34 @@ impl Reactor for WsaPollReactor {
             return Ok(Vec::new()); // timeout
         }
 
-        if pollfds[0].revents.0 != 0 {
+        if poll_buffer.fds[0].revents.0 != 0 {
             self.drain_wake();
         }
 
         let mut events_out = Vec::new();
-        let mut invalid: Vec<usize> = Vec::new();
-        for pfd in &pollfds[1..] {
+        let mut registrations = lock_mutex(&self.registrations);
+        for (pfd, generation) in poll_buffer.fds[1..].iter().zip(&poll_buffer.generations) {
             let r = pfd.revents.0; // raw i16 flag bits
             if r == 0 {
                 continue;
             }
+            let socket = pfd.fd.0;
+            if !registrations.is_current(socket, *generation) {
+                continue;
+            }
             if r & POLLNVAL.0 != 0 {
-                // Socket was closed by its owner; drop it from the interest set.
-                invalid.push(pfd.fd.0);
+                // Remove only the registration represented by this snapshot;
+                // the raw SOCKET value may already belong to a newer socket.
+                registrations.remove_if_current(socket, *generation);
                 continue;
             }
             events_out.push(Event {
-                fd: pfd.fd.0 as RawFd,
+                fd: socket as RawFd,
                 readable: r & (POLLRDNORM.0 | POLLHUP.0 | POLLERR.0) != 0,
                 writable: r & POLLWRNORM.0 != 0,
                 error: r & POLLERR.0 != 0,
                 hangup: r & POLLHUP.0 != 0,
             });
-        }
-
-        if !invalid.is_empty() {
-            let mut map = lock_mutex(&self.interests);
-            for sock in invalid {
-                map.remove(&sock);
-            }
         }
 
         Ok(events_out)
@@ -223,21 +284,23 @@ mod tests {
     fn wsapoll_reactor_wake_interrupts_a_blocking_poll() {
         let reactor = Arc::new(WsaPollReactor::new().expect("reactor"));
         let polling = Arc::clone(&reactor);
-        let started = std::time::Instant::now();
+        let start = Arc::new(std::sync::Barrier::new(2));
+        let polling_start = Arc::clone(&start);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
         let handle = std::thread::spawn(move || {
             // Would block up to 5s; wake() must interrupt it well before.
             // (Don't return the `Vec<Event>` — it is `!Send` on Windows.)
-            let _ = polling
-                .poll_events(Some(Duration::from_secs(5)))
-                .expect("poll");
+            polling_start.wait();
+            let result = polling.poll_events(Some(Duration::from_secs(5))).map(drop);
+            done_tx.send(result).expect("report poll completion");
         });
-        std::thread::sleep(Duration::from_millis(50));
+        start.wait();
         reactor.wake().expect("wake");
+        done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("wake must complete the poll before the deadline")
+            .expect("poll");
         handle.join().expect("poll thread");
-        assert!(
-            started.elapsed() < Duration::from_secs(2),
-            "wake() must promptly interrupt a blocking poll"
-        );
     }
 
     #[test]
@@ -256,8 +319,36 @@ mod tests {
             .poll_events(Some(Duration::from_millis(50)))
             .expect("poll must not error on a stale socket");
         assert!(
-            lock_mutex(&reactor.interests).is_empty(),
+            lock_mutex(&reactor.registrations).entries.is_empty(),
             "closed socket must be self-cleaned from the interest set"
         );
+    }
+
+    #[test]
+    fn stale_snapshot_cannot_remove_or_match_reused_socket() {
+        let socket = 41;
+        let mut registrations = RegistrationTable::default();
+        registrations
+            .register(socket, Interest::READABLE)
+            .expect("first registration");
+        let stale_generation = registrations
+            .entries
+            .get(&socket)
+            .expect("first registration exists")
+            .generation;
+
+        registrations
+            .register(socket, Interest::WRITABLE)
+            .expect("replacement registration");
+        let current_generation = registrations
+            .entries
+            .get(&socket)
+            .expect("replacement registration exists")
+            .generation;
+
+        assert_ne!(stale_generation, current_generation);
+        assert!(!registrations.is_current(socket, stale_generation));
+        assert!(!registrations.remove_if_current(socket, stale_generation));
+        assert!(registrations.is_current(socket, current_generation));
     }
 }

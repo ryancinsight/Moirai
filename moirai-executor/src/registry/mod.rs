@@ -10,4 +10,6 @@ pub(crate) mod token;
 
 pub(crate) use registry::CancelOutcome;
 pub use registry::TaskRegistry;
-pub(crate) use token::{RunningTaskToken, TaskLifecycleToken};
+pub(crate) use token::{
+    OwnedStateLease, RunningTaskToken, SchedulerStateLease, StateLease, TaskLifecycleToken,
+};

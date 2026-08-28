@@ -12,6 +12,12 @@ fn direct_registry_token_lifecycle(registry: &mut TaskRegistry) -> usize {
     black_box(duration.as_nanos() as usize)
 }
 
+#[cfg(feature = "registry-diagnostics")]
+fn direct_registry_retained_token_lifecycle(registry: &mut TaskRegistry) -> usize {
+    let duration = registry.diagnostic_register_next_and_complete_with_retained_token();
+    black_box(duration.as_nanos() as usize)
+}
+
 fn registry_mutex_lock_only(registry: &Mutex<TaskRegistry>) -> usize {
     let guard = registry
         .lock()

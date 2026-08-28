@@ -63,7 +63,23 @@
 
 - [x] Establish that commit `0746861` remains unique and its former GPU leases are closed.
 - [x] Apply the four-file attribute cleanup to current main and run warning-denied Clippy plus focused Nextest (111/111), doctests, and rustdoc.
-- [ ] Commit, publish, merge, and delete the superseded local branch.
+- [x] Commit, publish, merge as PR #173 / `841e7d9`, and delete the superseded local branch.
+
+### MOI-TLS-PROGRESS-035 — Windows registration generations
+
+- [x] Reproduce the workspace timeout and isolate the stale-`POLLNVAL` handle-reuse interleaving.
+- [x] Tag each `WSAPoll` snapshot with its registration generation and reject stale cleanup/events.
+- [x] Add a deterministic same-handle replacement regression without wall-clock synchronization.
+- [x] Pass warning-denied Windows check/Clippy and PAL+TLS Nextest 25/25; full Nextest passes both TLS cases and exposes MOI-WAKE-PROGRESS-038.
+- [x] Re-run the workspace gate after MOI-WAKE-PROGRESS-038: 835/835 pass in 11.096 seconds.
+- [ ] Publish and merge the generation fix with its executor prerequisite.
+
+### MOI-WAKE-PROGRESS-038 — saturated async wake
+
+- [x] Replace unbounded test-phase waits with event-bounded diagnostics and locate the stalled transition.
+- [x] Fix the owning state/admission mechanism and add a deterministic regression.
+- [x] Pass focused executor Nextest (107/107 release), full workspace Nextest (835/835 in 11.096 seconds), focused Miri, warning-denied Clippy, doctests, and rustdoc inside their committed budgets.
+- [ ] Publish and merge the lifetime and wake correction.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 

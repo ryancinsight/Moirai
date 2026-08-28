@@ -3,12 +3,12 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
     use moirai_core::Priority;
 
     use super::super::registry::{CancelOutcome, TaskRegistry};
-    use super::super::state::{PRIORITY_FROM_INDEX, TASK_STATE_BLOCK_SIZE};
+    use super::super::state::{task_location, PRIORITY_FROM_INDEX, TASK_STATE_BLOCK_SIZE};
 
     #[test]
     fn lifecycle_token_records_started_and_completed_metadata() {
@@ -45,6 +45,42 @@ mod tests {
         assert!(metadata.started_at.is_some());
         assert!(metadata.completed_at.is_some());
         assert_eq!(metadata.execution_duration(), Some(execution_time));
+    }
+
+    #[test]
+    fn lifecycle_token_keeps_its_dense_block_alive_after_registry_drop() {
+        let (lifecycle, block) = {
+            let mut registry = TaskRegistry::new();
+            let (task_id, lifecycle) = registry.register_next_task();
+            let (block_index, _) = task_location(task_id);
+            let block = Arc::downgrade(&registry.blocks[block_index]);
+            assert_eq!(block.strong_count(), 2);
+            (lifecycle, block)
+        };
+
+        assert_eq!(block.strong_count(), 1);
+        lifecycle.start(5).complete();
+        assert!(
+            block.upgrade().is_none(),
+            "the token must release its sole block owner after completion"
+        );
+    }
+
+    #[test]
+    fn cleanup_retains_completed_state_until_running_token_retires() {
+        let mut registry = TaskRegistry::new();
+        let (task_id, lifecycle) = registry.register_next_task();
+        let running = lifecycle.start(3);
+
+        // A registry observer can publish completion independently, but the
+        // running token still owns lifecycle access until it is consumed.
+        registry.mark_completed(task_id);
+        registry.cleanup_completed(Duration::ZERO);
+        assert!(registry.get_metadata(task_id).is_some());
+
+        running.complete();
+        registry.cleanup_completed(Duration::ZERO);
+        assert!(registry.get_metadata(task_id).is_none());
     }
 
     #[test]

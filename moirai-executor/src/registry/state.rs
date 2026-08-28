@@ -29,27 +29,31 @@ pub(crate) const TASK_STATE_BLOCK_SIZE: usize = 1024;
 
 /// One fixed-size block of task-state slots.
 ///
-/// Slots are `UnsafeCell` so the block can hand a stable `NonNull<TaskState>`
-/// (via [`TaskStateBlock::insert`]) to a `TaskLifecycleToken` while the registry
-/// keeps reading and structurally mutating other slots. All access goes through
-/// the methods below, which touch a slot only through its own `UnsafeCell` —
-/// never a `&mut`/`&` spanning the whole slice — so a live token's pointer into
-/// one slot is never invalidated by activity on another.
+/// Slots are `UnsafeCell` so the registry can initialize and retire individual
+/// states while lifecycle tokens retain shared ownership of the block. All
+/// access goes through the methods below, which touch a slot only through its
+/// own `UnsafeCell` — never a `&mut`/`&` spanning the whole slice.
 ///
 /// # Safety contract (relied on by every slot accessor below)
-/// 1. The owning [`super::TaskRegistry`] is shared only as
-///    `Arc<Mutex<TaskRegistry>>`, so at most one registry method touches these
-///    blocks at a time (no registry-vs-registry races).
+/// 1. Structural slot mutation requires exclusive [`super::TaskRegistry`]
+///    access. The executor shares that registry only through `Arc<Mutex<_>>`,
+///    so no two registry operations mutate a block concurrently.
 /// 2. A slot's [`TaskState`] is interior-mutable (atomics + a `Mutex`). A
-///    `TaskLifecycleToken` accesses only those fields through its `NonNull`,
-///    without the registry mutex; that aliases the registry's shared reads of
-///    the same fields soundly because all such access is atomic/locked.
-/// 3. The registry writes a slot's `Option` only when no token aliases it:
-///    `insert` targets a fresh unoccupied id; `clear` targets a completed slot
-///    whose token has been consumed.
+///    lifecycle token accesses only those fields through a shared block view or
+///    a stable pointer, so concurrent token and registry reads are atomic/locked.
+/// 3. The registry writes a slot's `Option` only when `token_active == false`:
+///    `insert` targets a fresh or retired id; `clear` targets a completed,
+///    retired slot. An owned token's block `Arc` keeps the allocation alive;
+///    scheduler-bounded tokens require their registry to outlive the job.
 pub(super) struct TaskStateBlock {
     slots: Box<[UnsafeCell<Option<TaskState>>]>,
 }
+
+// SAFETY: registry mutation is serialized and writes only one slot's
+// `UnsafeCell` after that slot's token retires. Lifecycle tokens keep the block
+// alive and access only their slot's atomic/mutex fields. Sibling-slot writes
+// are disjoint, so sharing the block across token and registry threads is safe.
+unsafe impl Sync for TaskStateBlock {}
 
 /// Shared lifecycle state for one task.
 pub(crate) struct TaskState {
@@ -58,6 +62,8 @@ pub(crate) struct TaskState {
     pub(super) completed_after_ns: AtomicU64,
     pub(super) worker_id: AtomicUsize,
     pub(super) waker: std::sync::Mutex<Option<std::task::Waker>>,
+    /// True while a lifecycle token can still access this slot.
+    token_active: AtomicBool,
     /// Spawn priority stored as its [`Priority::index`] discriminant.
     pub(super) priority: AtomicU8,
     /// Set by `cancel_task`; observed cooperatively at job start.
@@ -87,6 +93,7 @@ impl TaskState {
             completed_after_ns: AtomicU64::new(TIMESTAMP_NOT_RECORDED),
             worker_id: AtomicUsize::new(NO_WORKER),
             waker: std::sync::Mutex::new(None),
+            token_active: AtomicBool::new(true),
             // Lossless enum-to-int cast: Priority discriminants are 0..=3.
             priority: AtomicU8::new(Priority::Normal as u8),
             cancel_requested: AtomicBool::new(false),
@@ -123,6 +130,16 @@ impl TaskState {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    #[inline]
+    pub(super) fn token_active(&self) -> bool {
+        self.token_active.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    pub(super) fn retire_token(&self) {
+        self.token_active.store(false, Ordering::Release);
+    }
+
     /// Publish that a cancel request was honored: the task completes without
     /// its body having run, and any registered waiter is woken.
     pub(super) fn mark_cancelled(&self) {
@@ -141,14 +158,12 @@ impl TaskState {
 
     #[inline]
     pub(super) fn mark_completed_since(&self, started_after_ns: u64) -> Duration {
-        let completed_after_ns = elapsed_nanos_since(self.created_at);
+        // `Instant` documents saturation for rare platform monotonicity
+        // violations. Preserve that contract across thread/core migration by
+        // clamping the published completion offset to the recorded start.
+        let completed_after_ns = elapsed_nanos_since(self.created_at).max(started_after_ns);
         self.completed_after_ns
             .store(completed_after_ns, Ordering::Release);
-
-        debug_assert!(
-            completed_after_ns >= started_after_ns,
-            "monotonic lifecycle completion offset must not precede start offset"
-        );
 
         if let Some(waker) = self.waker.lock().unwrap().take() {
             waker.wake();
@@ -224,18 +239,14 @@ impl TaskStateBlock {
         cell.and_then(|cell| unsafe { (*cell.get()).as_ref() })
     }
 
-    /// Insert a fresh state at `slot`, returning a stable pointer to it.
+    /// Insert a fresh state at `slot`, returning its stable address.
     pub(super) fn insert(&self, slot: usize) -> NonNull<TaskState> {
         let cell = self.slots[slot].get();
-        // SAFETY: per the struct's safety contract, both the write and the
-        // pointer derivation go through this slot's own `UnsafeCell` raw pointer,
-        // never a `&mut`/`&` spanning the slice, so live tokens into sibling
-        // slots stay valid. Assigning through the place drops any prior
-        // (completed) state. The returned pointer is derived from a *shared*
-        // view of the freshly written state: the token uses it only for the
-        // state's interior-mutable (atomic/mutex) fields, so shared provenance
-        // suffices and stays valid under both Stacked and Tree Borrows (a
-        // `&mut`-derived pointer would be disabled by later shared reads).
+        // SAFETY: per the struct's safety contract, the write goes through this
+        // slot's own `UnsafeCell`; no active token aliases the replaced state,
+        // and live tokens into sibling slots touch disjoint cells. The pointer
+        // derives from a shared view because tokens use only interior-mutability
+        // operations; registry code never moves an initialized live slot.
         unsafe {
             *cell = Some(TaskState::new());
             NonNull::from((*cell).as_ref().unwrap_unchecked())
@@ -244,8 +255,12 @@ impl TaskStateBlock {
 
     /// Clear the state at `slot`, dropping it.
     pub(super) fn clear(&self, slot: usize) {
+        debug_assert!(
+            self.get(slot).is_none_or(|state| !state.token_active()),
+            "retiring a registry slot requires its lifecycle token to be gone"
+        );
         // SAFETY: per the struct's safety contract, callers clear only completed
-        // slots whose token has been consumed, so no live pointer aliases the
+        // slots whose token has retired, so no lifecycle access aliases the
         // dropped state; the write is through this slot's own `UnsafeCell`.
         unsafe {
             *self.slots[slot].get() = None;
@@ -290,4 +305,27 @@ pub(crate) fn instant_from_offset(origin: Instant, offset_ns: u64) -> Option<Ins
 pub(crate) fn task_location(id: u64) -> (usize, usize) {
     let index = usize::try_from(id).expect("task ID must fit in usize");
     (index / TASK_STATE_BLOCK_SIZE, index % TASK_STATE_BLOCK_SIZE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{elapsed_nanos_since, TaskState};
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    #[test]
+    fn completion_clamps_to_recorded_start_offset() {
+        let state = TaskState::new();
+        let future_start = elapsed_nanos_since(state.created_at).saturating_add(1_000_000);
+        state
+            .started_after_ns
+            .store(future_start, Ordering::Release);
+
+        let elapsed = state.mark_completed_since(future_start);
+        let snapshot = state.snapshot(7);
+
+        assert_eq!(elapsed, Duration::ZERO);
+        assert_eq!(snapshot.started_at, snapshot.completed_at);
+        assert_eq!(snapshot.execution_duration(), Some(Duration::ZERO));
+    }
 }

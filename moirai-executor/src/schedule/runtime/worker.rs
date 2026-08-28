@@ -2,7 +2,7 @@
 
 use std::{
     sync::{Mutex, MutexGuard},
-    thread,
+    thread::{self, JoinHandle},
 };
 
 use moirai_core::error::{ExecutorError, ExecutorResult};
@@ -17,6 +17,21 @@ use super::types::BoundedContendedWake;
 
 pub(super) const WORKER_IDLE_SPIN_ATTEMPTS: usize = 256;
 pub(super) const JOIN_FAST_SPIN_ATTEMPTS: usize = WORKER_IDLE_SPIN_ATTEMPTS;
+
+/// Join every worker except the thread currently executing shutdown.
+///
+/// A runtime may lose its final external owner inside one of its own jobs. The
+/// current worker cannot join itself; dropping that handle detaches it, while
+/// its local scheduler `Arc` keeps runtime state alive until the job and worker
+/// loop return.
+pub(super) fn join_other_threads(handles: &mut Vec<JoinHandle<()>>) {
+    let current = thread::current().id();
+    while let Some(handle) = handles.pop() {
+        if handle.thread().id() != current {
+            let _ = handle.join();
+        }
+    }
+}
 
 pub(super) fn worker_loop<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
     inner: std::sync::Arc<SchedulerInner<QUEUE_CAPACITY>>,

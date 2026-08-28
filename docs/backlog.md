@@ -92,17 +92,26 @@ architecture definition.
 - **Evidence**: PR #172 merged as `53d4912`; focused/release Nextest, hosted workspace/Loom/fuzz/supply-chain gates, and independent review pass. Apollo's unchanged probe reduces injector retention from 6 MiB to 1.5 MiB with a zero-allocation warm transform.
 - **Lease**: none.
 
-### 🟡 MOI-LINT-AUTHORITY-037 [patch]: Restore workspace lint authority
+### ✅ MOI-LINT-AUTHORITY-037 [patch]: Restore workspace lint authority
 
 - **Outcome**: rescue the stale one-commit cleanup that removes crate-level Clippy escalation and redundant blanket allows from `moirai-core` and `moirai-gpu`, so the inherited workspace lint table is authoritative.
-- **Evidence**: current-main all-target/all-feature warning-denied Clippy passes; focused Nextest passes 111/111; doctests and warning-denied rustdoc pass. The change deletes 31 redundant lint attributes without suppressing a diagnostic.
-- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` discharges the four lint-attribute files through its verified commit; merge and stale-branch deletion remain.
+- **Evidence**: PR #173 merged as `841e7d9`; all-target/all-feature warning-denied Clippy, focused Nextest 111/111, doctests, and warning-denied rustdoc pass. The stale local branch is deleted.
+- **Lease**: none.
 
-### ⬜ MOI-TLS-PROGRESS-035 [patch]: Diagnose nondeterministic loopback TLS loss of progress
+### 🟡 MOI-TLS-PROGRESS-035 [patch]: Diagnose nondeterministic loopback TLS loss of progress
 
 - **Outcome**: identify and correct the runtime mechanism that can strand `tls_round_trip_trusted_cert` under workspace concurrency; do not add retries or widen the 60-second termination bound.
 - **Acceptance**: a deterministic regression exercises the failed interleaving, the owning runtime path is fixed, and focused plus workspace Nextest complete inside the committed 30/60-second budgets.
-- **Evidence**: exact queue-capacity diff passed this test once, then a second workspace run timed it out at 60.236 seconds after 824/825 tests passed; phase and mechanism remain unlocated.
+- **Evidence**: a `WSAPoll` snapshot can report `POLLNVAL` after the raw socket value has been re-registered; generation-matched cleanup fixes that interleaving. Warning-denied Windows check/Clippy pass, PAL+TLS Nextest passes 25/25, and the post-fix workspace run passes 835/835 in 11.096 seconds, including both TLS cases.
+- **Status**: implementation and local gates complete; publication and merge remain.
+- **Lease**: none after the focused verified commit.
+
+### 🟡 MOI-WAKE-PROGRESS-038 [patch]: Bound saturated wake completion
+
+- **Outcome**: correct the executor mechanism that can strand `woken_task_completes_while_worker_injector_is_full`; do not retry the flaky run, weaken saturation, or widen the 60-second bound.
+- **Acceptance**: event-bounded phase diagnostics locate the stalled transition, a deterministic regression covers it, and focused plus workspace Nextest pass within the committed budgets.
+- **Evidence**: bounded phase diagnostics showed the future completed after two polls while result publication remained blocked in lifecycle completion. The scheduler now retains registry and metrics storage once through worker teardown, standalone tokens retain their dense block, and explicit token retirement governs cleanup and task-ID reuse. Re-entrant last-owner drop is covered on compute and blocking workers. A full injector polls inline after its first rejected admission; repeated self-wakes use a bounded non-recursive requeue and return typed resource exhaustion if that requeue is refused. Focused executor Nextest passes 107/107 in release; workspace Nextest passes 835/835 in 11.096 seconds. Focused Miri passes block ownership, scheduled drop order, cleanup retirement, and repeated-self-wake tests; the re-entrant scheduler-drop test is Miri-blocked by unsupported Windows NUMA FFI but passes natively. Warning-denied workspace Clippy, doctests, and rustdoc pass. The scheduled token benchmark detects no regression against `e49331c` (108.6 ns, −5.1% to +2.0%, p=0.42); same-binary attribution measures 101.7 ns scheduled versus 117.7 ns block-retaining, and production async now uses the scheduled policy.
+- **Lease**: none after this verified commit.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 

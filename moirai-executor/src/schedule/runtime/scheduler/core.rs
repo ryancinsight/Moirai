@@ -25,7 +25,7 @@ use super::super::types::{
     SchedulerScopeState, ThreadScheduler,
 };
 use super::super::worker::{
-    execute_job, is_quiescent, lock_mutex, next_shared_job, wake_all_workers,
+    execute_job, is_quiescent, join_other_threads, lock_mutex, next_shared_job, wake_all_workers,
     wake_contended_workers, wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
 };
 
@@ -146,6 +146,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             blocking_lane: OnceLock::new(),
             blocking_lane_init: Mutex::new(()),
             blocking_lane_prefix: thread_name_prefix.into(),
+            lifetime_owner: OnceLock::new(),
         });
 
         for (worker_id, owner) in queue_owners.into_iter().enumerate() {
@@ -173,6 +174,19 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
 
         Ok(Self { inner })
+    }
+
+    /// Keep an executor-owned allocation alive until every scheduler worker
+    /// and queued job has released the shared scheduler state.
+    pub(crate) fn retain_lifetime_owner<T>(&self, owner: T)
+    where
+        T: Send + Sync + 'static,
+    {
+        let owner: Box<dyn std::any::Any + Send + Sync> = Box::new(owner);
+        assert!(
+            self.inner.lifetime_owner.set(owner).is_ok(),
+            "invariant: scheduler lifetime owner is installed once"
+        );
     }
 
     /// Schedule a job for a compile-time work class.
@@ -577,9 +591,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         }
 
         let mut handles = lock_mutex(&self.inner.handles);
-        while let Some(handle) = handles.pop() {
-            let _ = handle.join();
-        }
+        join_other_threads(&mut handles);
     }
 
     #[cfg(test)]
