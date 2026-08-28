@@ -92,17 +92,18 @@ architecture definition.
 - **Evidence**: PR #172 merged as `53d4912`; focused/release Nextest, hosted workspace/Loom/fuzz/supply-chain gates, and independent review pass. Apollo's unchanged probe reduces injector retention from 6 MiB to 1.5 MiB with a zero-allocation warm transform.
 - **Lease**: none.
 
-### 🟡 MOI-LINT-AUTHORITY-037 [patch]: Restore workspace lint authority
+### ✅ MOI-LINT-AUTHORITY-037 [patch]: Restore workspace lint authority
 
 - **Outcome**: rescue the stale one-commit cleanup that removes crate-level Clippy escalation and redundant blanket allows from `moirai-core` and `moirai-gpu`, so the inherited workspace lint table is authoritative.
-- **Evidence**: current-main all-target/all-feature warning-denied Clippy passes; focused Nextest passes 111/111; doctests and warning-denied rustdoc pass. The change deletes 31 redundant lint attributes without suppressing a diagnostic.
-- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` discharges the four lint-attribute files through its verified commit; merge and stale-branch deletion remain.
+- **Evidence**: PR #173 merged as `841e7d9`; all-target/all-feature warning-denied Clippy, focused Nextest 111/111, doctests, and warning-denied rustdoc pass. The stale local branch is deleted.
+- **Lease**: none.
 
-### ⬜ MOI-TLS-PROGRESS-035 [patch]: Diagnose nondeterministic loopback TLS loss of progress
+### 🟡 MOI-TLS-PROGRESS-035 [patch]: Diagnose nondeterministic loopback TLS loss of progress
 
 - **Outcome**: identify and correct the runtime mechanism that can strand `tls_round_trip_trusted_cert` under workspace concurrency; do not add retries or widen the 60-second termination bound.
 - **Acceptance**: a deterministic regression exercises the failed interleaving, the owning runtime path is fixed, and focused plus workspace Nextest complete inside the committed 30/60-second budgets.
-- **Evidence**: exact queue-capacity diff passed this test once, then a second workspace run timed it out at 60.236 seconds after 824/825 tests passed; phase and mechanism remain unlocated.
+- **Evidence**: exact queue-capacity diff passed this test once, then a second workspace run timed it out at 60.236 seconds after 824/825 tests passed. A `WSAPoll` snapshot can report `POLLNVAL` after the raw socket value has been re-registered; unconditional stale cleanup then deletes the newer registration and strands its waker.
+- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns `moirai-pal/src/windows/poll.rs`, the focused reactor/TLS tests, and this item through the next verified commit.
 
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 

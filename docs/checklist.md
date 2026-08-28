@@ -63,7 +63,14 @@
 
 - [x] Establish that commit `0746861` remains unique and its former GPU leases are closed.
 - [x] Apply the four-file attribute cleanup to current main and run warning-denied Clippy plus focused Nextest (111/111), doctests, and rustdoc.
-- [ ] Commit, publish, merge, and delete the superseded local branch.
+- [x] Commit, publish, merge as PR #173 / `841e7d9`, and delete the superseded local branch.
+
+### MOI-TLS-PROGRESS-035 — Windows registration generations
+
+- [x] Reproduce the workspace timeout and isolate the stale-`POLLNVAL` handle-reuse interleaving.
+- [ ] Tag each `WSAPoll` snapshot with its registration generation and reject stale cleanup/events.
+- [ ] Add a deterministic same-handle replacement regression without wall-clock synchronization.
+- [ ] Run focused Windows PAL/TLS and bounded workspace Nextest, then publish and merge.
 
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
