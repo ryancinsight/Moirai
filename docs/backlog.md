@@ -86,6 +86,14 @@ architecture definition.
 
 ## Current closure record
 
+### 🟨 MOI-ASYNC-CANCEL-LANE-GATE-2026-08-28 [patch]: Match cancellation tests to scheduler lanes
+
+- **Outcome:** queued async cancellation is tested with the compute worker occupied by an `AsyncTask`-class gate, so the future is observably queued before cancellation instead of racing an unrelated dedicated blocking lane.
+- **Scope / non-goals:** the shared single-worker test gate, queued sync/async cancellation assertions, this item, and hosted main closure only; no production scheduler, cancellation, lane, timeout, or public API change.
+- **Acceptance:** each queued-cancellation case asserts `TaskStatus::Queued` before requesting cancellation, then proves the body/future never runs and the handle/status publish `Cancelled`; focused and workspace Nextest pass within the committed bounds; hosted main closes green.
+- **Risk / dependency:** test-contract [patch]. Hosted PR #190 run `33197342394`, job `98937736061`, observed `Ok(3)` because `gate_single_worker` occupied the ADR-021 blocking lane while `spawn_async` remained free on the compute worker. The previously green source run demonstrates scheduling sensitivity, not correctness of the old precondition.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: `moirai-executor/src/hybrid/tests.rs` and this item's PM regions through the next verified commit; last update 2026-08-28.
+
 ### 🟨 MOI-INDEXED-SCOPE-ALLOC-2026-08-26 [patch]: Stack-owned indexed completion
 
 - **Outcome:** indexed completion-only fan-out reuses the scheduler's stack-owned scoped lifetime proof instead of allocating one reference-counted completion state per call. Unhinted multi-batch scopes select one base worker before admission and distribute physical batches across the worker set, preventing state-sensitive rerouting onto one occupied lane under nested saturation.

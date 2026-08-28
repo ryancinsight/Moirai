@@ -2,6 +2,22 @@
 
 **Target**: Unreleased
 
+## MOI-ASYNC-CANCEL-LANE-GATE-2026-08-28 — Work-class-matched cancellation gate [patch] — in progress
+
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** `moirai-executor/src/hybrid/tests.rs` and this item's PM regions
+  through the next verified commit.
+- [ ] Parameterize the single-worker gate by `WorkClass` and occupy the same
+      scheduler lane as each queued cancellation target.
+- [ ] Assert the target is `Queued` before cancellation, then preserve the
+      existing body/poll, handle-result, status, and metrics assertions.
+- [ ] Pass focused and workspace Nextest, warning-denied Clippy, independent
+      review, and hosted main verification within existing time bounds.
+- **Entry evidence:** PR #190 run `33197342394`, job `98937736061`, observed
+  `Some(Ok(3))` instead of `Some(Err(Cancelled))`. The helper occupied the
+  dedicated `BlockingTask` lane while `spawn_async` used the compute worker,
+  so the test's queued-state premise was false.
+
 ## MOI-CI-FUZZ-SCOPE-2026-08-28 — Event-scoped parser fuzzing [patch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
