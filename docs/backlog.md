@@ -89,8 +89,8 @@ architecture definition.
 ### 🟡 MOI-QUEUE-CAPACITY-034 [patch] [arch]: Enforce the executor admission bound
 
 - **Outcome**: route `ExecutorConfig::max_global_queue_size` through hybrid and scheduler construction, partitioning it into power-of-two worker injectors without exceeding the configured aggregate.
-- **Evidence**: focused and release Nextest pass; Apollo's unchanged retained-footprint probe reduces injector retention from 6 MiB to 1.5 MiB while its warm transform stays allocation-free. Local architecture review and merge remain.
-- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` owns the queue/config/tests/docs increment; discharge on the implementation commit.
+- **Evidence**: focused and release Nextest pass; Apollo's unchanged retained-footprint probe reduces injector retention from 6 MiB to 1.5 MiB while its warm transform stays allocation-free. The one-slot sequence-generation alias found in independent review now has boundary and minimum-partition regressions; second review and merge remain.
+- **Lease**: `01a0253c-6013-7552-99cc-36bbbcf77f6d` discharges the minimum-capacity correction through its verified commit.
 
 ### ⬜ MOI-TLS-PROGRESS-035 [patch]: Diagnose nondeterministic loopback TLS loss of progress
 

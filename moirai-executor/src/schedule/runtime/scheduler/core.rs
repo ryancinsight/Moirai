@@ -627,7 +627,7 @@ fn partition_global_queue(
     worker_count: usize,
 ) -> ExecutorResult<usize> {
     let partition = max_global_queue_size / worker_count;
-    if partition == 0 {
+    if partition < 2 {
         return Err(ExecutorError::InvalidConfiguration);
     }
 

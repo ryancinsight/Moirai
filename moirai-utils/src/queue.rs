@@ -42,9 +42,9 @@ struct Slot<T> {
 /// # Capacity
 ///
 /// The queue is bounded. [`LockFreeQueue::new`] creates a queue with
-/// `DEFAULT_QUEUE_CAPACITY` slots. [`LockFreeQueue::with_capacity`] allows
-/// a custom power-of-two capacity. When the queue is full, [`enqueue`]
-/// retries with exponential backoff (preserving the unblocked-sender
+/// `DEFAULT_QUEUE_CAPACITY` slots. [`LockFreeQueue::with_capacity`] allows a
+/// custom power-of-two capacity of at least two slots. When the queue is full,
+/// [`enqueue`] retries with exponential backoff (preserving the unblocked-sender
 /// contract of the previous API), while [`try_enqueue`] returns `Err(item)`
 /// immediately for callers that prefer explicit backpressure.
 ///
@@ -86,13 +86,16 @@ impl<T> LockFreeQueue<T> {
         Self::with_capacity(DEFAULT_QUEUE_CAPACITY)
     }
 
-    /// Create a new queue with a custom capacity (must be a power of 2).
+    /// Create a new queue with a custom capacity.
     ///
     /// # Panics
     ///
-    /// Panics if `capacity` is 0 or not a power of 2.
+    /// Panics if `capacity` is less than 2 or not a power of 2. The sequence
+    /// protocol requires distinct empty and full generations for each slot;
+    /// a one-slot ring aliases those generations.
+    #[track_caller]
     pub fn with_capacity(capacity: usize) -> Self {
-        assert!(capacity > 0, "Capacity must be greater than 0");
+        assert!(capacity >= 2, "Capacity must be at least 2");
         assert!(capacity.is_power_of_two(), "Capacity must be a power of 2");
 
         #[cfg(feature = "std")]
@@ -299,6 +302,12 @@ mod tests {
         assert_eq!(queue.try_dequeue(), Some(2));
         assert_eq!(queue.try_dequeue(), None);
         assert!(queue.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "Capacity must be at least 2")]
+    fn lock_free_queue_rejects_single_slot_generation_alias() {
+        let _queue = LockFreeQueue::<i32>::with_capacity(1);
     }
 
     #[test]

@@ -104,10 +104,22 @@ fn configured_global_capacity_is_partitioned_without_exceeding_the_bound() {
 }
 
 #[test]
-fn global_capacity_smaller_than_worker_count_is_rejected() {
-    let result = ThreadScheduler::<256>::new_with_queue_config(4, "invalid", 3, false);
+fn global_capacity_below_two_slots_per_worker_is_rejected() {
+    let result = ThreadScheduler::<256>::new_with_queue_config(4, "invalid", 7, false);
 
     assert!(matches!(result, Err(ExecutorError::InvalidConfiguration)));
+}
+
+#[test]
+fn global_capacity_supports_minimum_two_slots_per_worker() {
+    let scheduler = ThreadScheduler::<256>::new_with_queue_config(4, "minimum", 8, false).unwrap();
+
+    assert!(scheduler
+        .inner
+        .workers
+        .iter()
+        .all(|worker| worker.queues.injector_capacity() == 2));
+    scheduler.shutdown();
 }
 
 #[test]

@@ -5,6 +5,8 @@ Status: Accepted
 - Date: 2026-08-27
 - Change class: [arch] [patch]
 - Refs: `MOI-QUEUE-CAPACITY-034`, Apollo retained-footprint investigation
+- Revision: 2026-08-27 — independent review established that the queue's
+  sequence generations alias at capacity one; require two slots per worker.
 
 ### Context
 
@@ -17,8 +19,10 @@ retained 24 allocations of 262,144 bytes: 6 MiB before any workload-dependent
 scratch storage.
 
 The scheduler uses one priority-carrying injector per worker rather than one
-shared queue. `LockFreeQueue` requires a non-zero power-of-two capacity, so an
-arbitrary executor-wide maximum cannot always be divided exactly.
+shared queue. `LockFreeQueue` requires a power-of-two capacity of at least two:
+its sequence protocol needs distinct empty and full generations, which alias
+in a one-slot ring. An arbitrary executor-wide maximum therefore cannot always
+be divided exactly.
 
 `ExecutorConfig::max_local_queue_size` is a separate contract discrepancy.
 The Chase-Lev queues are resizable and interpret their constructor argument as
@@ -34,7 +38,7 @@ normalize the worker count to at least one and derive one injector capacity:
 `C = 2^floor(log2(floor(M / W)))`
 
 where `M` is `max_global_queue_size` and `W` is the normalized worker count.
-Construction rejects `M < W`, because every worker requires at least one slot.
+Construction rejects `M < 2W`, because every worker requires at least two slots.
 The resulting aggregate capacity satisfies `W * C <= M`; the unused remainder
 is the cost of the queue's power-of-two indexing invariant.
 
@@ -57,7 +61,7 @@ Pass `C` once through `HybridExecutor` and `ThreadScheduler` into every
 ### Verification plan
 
 - Unit-test exact and non-power-of-two partitions, minimum valid capacity, and
-  rejection when the executor-wide maximum cannot supply one slot per worker.
+  rejection when the executor-wide maximum cannot supply two slots per worker.
 - Assert scheduler construction uses the derived capacity on every worker.
 - Preserve saturation, caller-runs, wake-retry, shutdown, and priority tests.
 - Run configured Nextest, warning-denied Clippy, rustdoc, doctests, and the

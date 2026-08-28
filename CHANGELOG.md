@@ -32,7 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Honor `ExecutorConfig::max_global_queue_size` at scheduler construction.
   The executor-wide external-admission bound is partitioned into power-of-two
   per-worker injectors without exceeding the configured total; configurations
-  smaller than one slot per worker now return `InvalidConfiguration`.
+  smaller than two slots per worker now return `InvalidConfiguration`, matching
+  the queue sequence protocol's minimum valid ring size.
 - Keep indexed completion state on the caller's stack. Warmed
   `ThreadScheduler::for_each_indexed` calls now allocate nothing, while
   `map_reduce_indexed` allocates only its result-slot buffer instead of adding

@@ -51,7 +51,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
     /// Push and execute one diagnostic priority-queue job.
     pub fn diagnostic_priority_queue_push_pop(priority: Priority) -> usize {
-        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(1);
+        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(2);
         let () = queues
             .try_push_external(priority, ScheduledJob::new(|_| {}))
             .map_or((), |_| panic!("diagnostic queue has capacity"));
@@ -81,7 +81,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             active_before_submit,
         );
         let previous_pending = pending_tasks.fetch_add(1, Ordering::Release);
-        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(1);
+        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(2);
         let () = queues
             .try_push_external(priority, ScheduledJob::new(|_| {}))
             .map_or((), |_| panic!("diagnostic queue has capacity"));
@@ -160,7 +160,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// Push and execute a maximum inline-sized queue job.
     pub fn diagnostic_max_inline_queue_push_pop_execute() -> usize {
         let words = [1usize; 14];
-        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(1);
+        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(2);
         let () = queues
             .try_push_external(
                 Priority::Normal,
@@ -179,7 +179,7 @@ impl<const QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// Push and execute an oversized queue job.
     pub fn diagnostic_oversized_queue_push_pop_execute() -> usize {
         let words = [1usize; 32];
-        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(1);
+        let (mut owner, queues) = WorkerQueues::<QUEUE_CAPACITY>::new(2);
         let () = queues
             .try_push_external(
                 Priority::Normal,
