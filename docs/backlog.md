@@ -145,11 +145,13 @@ architecture definition.
 - **Evidence**: PR #180 merged as `851245f`; focused handshake Nextest passes 7/7, workspace Nextest passes 858/858 in 11.772 seconds, exact standalone `cargo deny check` passes, and hosted supply-chain verification is green.
 - **Lease**: none.
 
-### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
+### 🟨 MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
 - **Outcome**: replace the no-op `max_local_queue_size` contract with the scheduler's real resizable Chase-Lev initial-capacity policy, updating all first-party callers without a compatibility shim.
 - **Acceptance**: the accepted ADR defines the public migration, configuration reaches construction, adversarial growth preserves exactly-once semantics, and SemVer plus consumer gates classify the delivered break.
 - **Dependency**: follows MOI-QUEUE-CAPACITY-034 so global admission and local work-stealing policies remain separate increments.
+- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `feat/executor-local-queue-capacity`.
+- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` — ADR 0035, executor configuration/builders, scheduler local-queue construction and tests, CHANGELOG, runtime book, and this item's PM sections; last update 2026-08-28.
 
 ### ✅ MOI-THEMIS-CPU-001 [patch]: Route default CPU sizing through Themis
 
