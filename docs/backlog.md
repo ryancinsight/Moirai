@@ -143,6 +143,16 @@ architecture definition.
 - **Evidence**: deterministic timer, one-shot readiness, stale-generation dispatch, and backend re-arm failure tests pass. Exact-lock affected-package Nextest passes 215/215 in 1.849 seconds, including the formerly deadline-rescued redirect in 0.203 seconds; workspace Nextest passes 858/858 in 11.684 seconds. Warning-denied workspace Clippy and affected AArch64 Linux/Windows all-target checks pass; whole-workspace AArch64 remains outside this evidence because PyO3 requires cross-Python configuration.
 - **Lease**: none after the correction commit; the session retains integration responsibility through independent re-review and merge.
 
+### 🟨 MOI-PEM-PARSER-043 [patch]: Remove the unmaintained PEM parser
+
+- **Outcome**: parse committed TLS test certificates and keys through the existing `rustls-pki-types` provider and remove `rustls-pemfile` from the resolved graph.
+- **Scope / non-goals**: workspace and TLS/crypto development manifests, handshake fixture loaders, lockfile, tests, and PM records; no production TLS protocol, trust-policy, fixture, or public API change.
+- **Acceptance**: trusted, wrong-hostname, untrusted, and expired handshake cases retain their value semantics; warning-denied checks and standalone-lock validation pass; `cargo deny` no longer reports RUSTSEC-2025-0134.
+- **Risk / dependency**: delivery blocker exposed by PR #180 supply-chain verification; both parsers use the same `rustls-pki-types` DER ownership types.
+- **Integrator**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on `codex/moirai-http-redirect-pool`.
+- **Evidence**: hosted supply-chain verification reports unmaintained `rustls-pemfile 2.2.0`; implementation and verification pending.
+- **Lease**: Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` — workspace/dev manifests, TLS and crypto handshake fixture loaders, lockfile, and owner-local PM entries.
+
 ### ⬜ MOI-LOCAL-QUEUE-CAPACITY-036 [major] [arch]: Correct the local-queue policy contract
 
 - **Outcome**: replace the no-op `max_local_queue_size` contract with the scheduler's real resizable Chase-Lev initial-capacity policy, updating all first-party callers without a compatibility shim.

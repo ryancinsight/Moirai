@@ -121,6 +121,12 @@
 - [x] Finalize central one-shot consumption and wake reported plus stranded independent waiters when backend re-arm fails.
 - [ ] Obtain independent review, publish/merge, and discharge integration responsibility before resuming MOI-HTTP-REDIRECT-041 delivery.
 
+### MOI-PEM-PARSER-043 — maintained PEM fixture parsing
+
+- [x] Confirm PR #180 fails supply-chain verification on RUSTSEC-2025-0134 and verify the locked `rustls-pki-types` PEM API.
+- [ ] Replace both handshake fixture loaders, remove `rustls-pemfile`, and regenerate the exact standalone lockfile.
+- [ ] Pass focused value tests, warning-denied checks, lock validation, and `cargo deny`; commit and publish the delivery-blocker correction.
+
 ## In-flight claim — MOI-GPU-SAFE-002 GPU pool lock recovery [patch]
 
 - [x] Claim `moirai-gpu/src/lib.rs`, `moirai-gpu/src/buffer.rs`, their
