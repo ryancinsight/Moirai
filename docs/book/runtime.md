@@ -18,7 +18,7 @@ let runtime = Moirai::builder()
 - `worker_threads(n)` — number of CPU-bound worker threads (defaults to logical core count)
 - `async_threads(n)` — configured async execution width
 - `max_global_queue_size(n)` — aggregate bound for external worker admission
-- `local_queue_initial_capacity(n)` — initial slots in each resizable local priority queue
+- `local_queue_initial_capacity(n)` — initial slots in each resizable local priority queue (128 by default)
 - `thread_name_prefix(s)` — prefix for thread names in diagnostics
 
 The local queue setting controls retained initial storage, not backpressure.

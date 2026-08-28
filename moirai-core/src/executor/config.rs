@@ -20,7 +20,7 @@ pub const DEFAULT_GLOBAL_QUEUE_CAPACITY: usize = 8192;
 ///
 /// This is a retained-storage policy, not an admission bound. The Chase-Lev
 /// queues grow when full and normalize this value to a supported power of two.
-pub const DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY: usize = 256;
+pub const DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY: usize = 128;
 
 /// Configuration settings for executor behavior and performance characteristics.
 ///

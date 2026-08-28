@@ -192,6 +192,32 @@ fn saturated_admission_benchmark_compares_bounded_rejection_paths() {
 }
 
 #[test]
+fn local_queue_capacity_benchmark_preserves_payload_and_workloads() {
+    let source = read_benchmark(
+        "benches/thread_schedule_comparison/local_queue_capacity.rs",
+    );
+    let source = source.split_whitespace().collect::<String>();
+
+    for required in [
+        "const CAPACITIES: &[usize] = &[16, 32, 64, 128, 256];",
+        "struct QueuePayload([usize; 16]);",
+        "size_of::<QueuePayload>() == 16 * core::mem::size_of::<usize>()",
+        "const WARM_ITEMS: usize = 15;",
+        "const BURST_ITEMS: usize = 257;",
+        "group.sample_size(20);",
+        "BenchmarkId::new(\"warm_no_growth\", capacity)",
+        "BenchmarkId::new(\"cold_growth_burst\", capacity)",
+        "verify_sum(batch_sum(&mut deque, WARM_ITEMS), WARM_ITEMS)",
+        "verify_sum(cold_burst_sum(capacity, BURST_ITEMS), BURST_ITEMS)",
+    ] {
+        assert!(
+            source.contains(&required.split_whitespace().collect::<String>()),
+            "local queue capacity benchmark must retain its measured contract through {required}"
+        );
+    }
+}
+
+#[test]
 fn indexed_reduce_uses_worker_plus_caller_lane() {
     let source = read_benchmark("../moirai-executor/src/schedule/runtime/worker.rs");
 
