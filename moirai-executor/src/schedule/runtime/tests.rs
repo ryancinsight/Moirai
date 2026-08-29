@@ -981,17 +981,31 @@ fn scheduler_scope_reports_panicked_job() {
 fn scheduler_join_waits_for_queued_and_active_work() {
     let scheduler = ThreadScheduler::new(2, "test-join").unwrap();
     let completed = Arc::new(AtomicUsize::new(0));
+    // Every job parks on this gate, which the test holds until it has observed
+    // the outstanding work. Without it the precondition is a race the workers
+    // usually win: two threads drain eight atomic increments long before the
+    // scheduling loop returns, so `has_work` reports quiescence and the
+    // assertion fails intermittently rather than describing the scheduler.
+    // Holding the gate pins the state the test name claims — the pool's two
+    // workers active inside a job, the remaining six queued behind them.
+    let gate = Arc::new(std::sync::Mutex::new(()));
+    let held = gate.lock().expect("fresh test gate is never poisoned");
 
     for _ in 0..8 {
         let completed = Arc::clone(&completed);
+        let gate = Arc::clone(&gate);
         scheduler
             .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+                drop(gate.lock().expect("test gate is never poisoned"));
                 completed.fetch_add(1, Ordering::AcqRel);
             })
             .unwrap();
     }
 
     assert!(scheduler.has_work());
+    // Release the gate before joining: `join` blocks this thread until the
+    // work drains, so the jobs must be free to finish first.
+    drop(held);
     scheduler.join().unwrap();
     let metrics = scheduler.metrics();
 

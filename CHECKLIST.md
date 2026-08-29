@@ -2,6 +2,30 @@
 
 **Target**: Unreleased
 
+## MOI-FLAKY-JOIN-PRECONDITION-2026-08-28 — Make the join test's precondition deterministic [patch] — review
+
+- **Outcome:** `scheduler_join_waits_for_queued_and_active_work` asserted
+  `has_work()` after scheduling eight trivial jobs on a two-worker pool, with
+  nothing ordering the assertion before the workers drained the queue. The
+  jobs now park on a gate the test holds until it has observed the outstanding
+  work, so the state the test name claims — two workers active inside a job,
+  six queued behind them — is pinned rather than raced for. The gate is
+  released before `join()`, which blocks the test thread.
+- **Why it matters:** this is the failure that turned moirai `main` red at
+  `fc2dce94` (PR #191's merge run, `tests.rs:994`), and the same SHA
+  `ff41a098` appears in the run list as both a success and a failure. An
+  intermittently red gate stops being read.
+- **Evidence (the race is structural, not machine-specific):** the original
+  passes 60/60 locally, so local repetition proves nothing — this host wins
+  the race consistently where a contended 2-core runner does not. Injecting a
+  50 ms delay before the assertion makes the **original fail** (the workers
+  drain and `has_work()` reports quiescence) and the **gated version pass**
+  under the identical delay. That isolates the dependence on timing and shows
+  the gate removes it. Fixed version also 60/60 under repetition.
+- **Integrator:** claude-fable session 03d80d33. Gates: `fmt --check` clean,
+  Clippy `-D warnings` clean, `moirai-executor` nextest 126/126.
+- **Last update:** 2026-08-28.
+
 ## MOI-PAR-TERMINALS-2026-08-28 — Parallel terminals and index-range splits [patch] — review
 
 - **Outcome:** the `ParallelIterator` terminal set stops routing through
