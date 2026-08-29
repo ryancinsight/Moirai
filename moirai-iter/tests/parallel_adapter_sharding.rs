@@ -4,19 +4,29 @@
 //! separates: the superseded `drive` collected the whole logical stream into one
 //! vector and re-split *that*, which returns the same values as driving the
 //! source directly. What differs is whether the source's shards survive the
-//! adapter, so these tests observe the shards themselves.
+//! adapter, so these tests measure that directly.
 //!
-//! Two independent signals, because each has a limitation the other does not:
+//! # The signal
 //!
-//! - **Distinct worker threads.** The direct meaning of "this chain shards": the
-//!   adapter's own closure records which thread ran it. This is scheduler-visible
-//!   evidence, and `drive_split` runs a branch on the caller when admission is
-//!   refused, so a shutdown or a saturated queue can legitimately collapse it to
-//!   one thread. The suite warms the executor before measuring.
-//! - **Allocation count.** A property of the code shape rather than of a run, on
-//!   the model established by `parallel_terminal_allocations`. The collect shape
-//!   allocated the whole logical stream ahead of any work; driving the base
-//!   allocates per shard.
+//! Allocated bytes, which is a property of the code shape rather than of a run.
+//! A thread-identity signal was tried first and removed: `drive_split` runs a
+//! branch on the caller when scheduler admission is refused, so a chain that
+//! shards perfectly well collapses to one thread under a saturated machine.
+//! Asserting on it passed when this file ran alone and failed when the
+//! workspace suite ran every test binary in parallel — flakiness authored into
+//! the suite rather than evidence. Allocated bytes have no such dependence.
+//!
+//! The two source kinds leave opposite signatures, and both are checked:
+//!
+//! - **Borrowed sources** split a slice by index range and copy nothing, so a
+//!   converted chain allocates essentially nothing (measured: 512 bytes) where
+//!   the collect shape allocated the whole logical stream (524288 bytes).
+//! - **Owned sources** have no safe zero-copy split, so splitting copies each
+//!   half down to the dispatch threshold: a chain that splits allocates
+//!   measurably more than the source itself (measured: 786944 against a 524288
+//!   source). The collect shape's tell is the opposite — it handed the whole
+//!   vector to one `consume` call and never split, allocating the source and
+//!   nothing beyond it.
 //!
 //! Every case runs above `PARALLEL_DRIVE_THRESHOLD` (1024). Below it a source
 //! never splits at all, so a chain measured there exercises the sequential
@@ -27,22 +37,19 @@ use moirai_iter::parallel::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
-use std::thread::ThreadId;
 
 struct CountingAllocator;
 
-static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+static ALLOCATED_BYTES: AtomicUsize = AtomicUsize::new(0);
 
 // SAFETY: every method forwards to the system allocator with the layout it was
 // given, so the allocator contract is exactly the system allocator's. The
-// counter is a `Relaxed` atomic add on a separate static and imposes no ordering
-// requirement of its own.
+// counter is a `Relaxed` atomic add on a separate static and imposes no
+// ordering requirement of its own.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        ALLOCATED_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
         unsafe { System.alloc(layout) }
     }
 
@@ -51,12 +58,12 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        ALLOCATED_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
         unsafe { System.alloc_zeroed(layout) }
     }
 
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        ALLOCATED_BYTES.fetch_add(new_size.saturating_sub(layout.size()), Ordering::Relaxed);
         unsafe { System.realloc(pointer, layout, new_size) }
     }
 }
@@ -64,166 +71,110 @@ unsafe impl GlobalAlloc for CountingAllocator {
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
-/// Sixty-four times the 1024-element dispatch threshold, so the drive splits to
-/// many shards rather than to the one or two a threshold-adjacent length gives.
+/// Sixty-four times the 1024-element dispatch threshold, so the source is well
+/// past the point where its drive splits.
 const LEN: usize = 65_536;
 
-/// Allocations permitted per driven chain.
+/// Bytes the logical stream occupies once materialized.
+const MATERIALIZED: usize = LEN * std::mem::size_of::<u64>();
+
+/// Run `operation` once warm, then total the bytes a second call allocates.
 ///
-/// One eighth of the element count, the bound
-/// `parallel_terminal_allocations` derives: the collect shape allocated at
-/// least once per element for the materialized stream, so it exceeds this by
-/// more than an order of magnitude, while driving the base allocates per shard
-/// — `LEN / 1024` of them. The gap is wide enough that the bound measures the
-/// code shape rather than the allocator's exact behaviour on a given run.
-const ALLOCATION_BUDGET: usize = LEN / 8;
+/// The warm call pays for the executor's workers and their queues, which are
+/// allocated on first use and are not part of the chain's own cost.
+fn allocated_bytes<T>(operation: impl Fn() -> T) -> (T, usize) {
+    let _warm = operation();
+
+    let before = ALLOCATED_BYTES.load(Ordering::Relaxed);
+    let value = operation();
+    let after = ALLOCATED_BYTES.load(Ordering::Relaxed);
+
+    (value, after.saturating_sub(before))
+}
+
+/// A chain over a borrowed source must not materialize its logical stream.
+///
+/// The bound sits an order of magnitude below one full copy of the stream, so
+/// it separates the two shapes without pinning the allocator's exact
+/// behaviour.
+fn assert_no_materialization(adapter: &str, bytes: usize) {
+    let budget = MATERIALIZED / 16;
+    assert!(
+        bytes <= budget,
+        "a chain containing `{adapter}` over {LEN} borrowed elements allocated {bytes} bytes,          above the {budget} budget; the logical stream is being materialized before the split          ({MATERIALIZED} bytes is one full copy of it)"
+    );
+}
+
+/// A chain over an owned source must actually split it.
+///
+/// Splitting an owned source copies each half, so a drive that splits allocates
+/// measurably more than the source. A drive that consumed the whole source in
+/// one call allocates exactly the source and stops there.
+fn assert_split_copies(adapter: &str, bytes: usize, source_bytes: usize) {
+    let floor = source_bytes + source_bytes / 4;
+    assert!(
+        bytes >= floor,
+        "a chain containing `{adapter}` over {LEN} owned elements allocated {bytes} bytes,          below the {floor} bytes that splitting a {source_bytes}-byte source copies; the          drive consumed the whole source without splitting it"
+    );
+}
 
 fn source() -> Vec<u64> {
     (0..LEN as u64).collect()
 }
 
-/// Threads that ran a recorded closure.
-#[derive(Default)]
-struct Workers {
-    seen: Mutex<HashSet<ThreadId>>,
-}
-
-impl Workers {
-    fn record(&self) {
-        self.seen
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(std::thread::current().id());
-    }
-
-    fn count(&self) -> usize {
-        self.seen
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .len()
-    }
-}
-
-/// Assert that `chain` ran its recorded closure on more than one thread.
-///
-/// `chain` is run once to warm the executor's workers and their queues before
-/// the observed run, on the model of `parallel_terminal_allocations`.
-fn assert_shards<T>(adapter: &str, chain: impl Fn(&Workers) -> T) {
-    let warm = Workers::default();
-    let _ = chain(&warm);
-
-    let observed = Workers::default();
-    let _ = chain(&observed);
-
-    let workers = observed.count();
-    assert!(
-        workers > 1,
-        "a chain containing `{adapter}` over {LEN} elements ran on {workers} thread(s); \
-         the source's shards did not survive the adapter"
-    );
-}
-
-/// Run `operation` once warm, then count the allocations of a second call.
-fn allocations_of<T>(operation: impl Fn() -> T) -> (T, usize) {
-    let _warm = operation();
-
-    let before = ALLOCATIONS.load(Ordering::Relaxed);
-    let value = operation();
-    let after = ALLOCATIONS.load(Ordering::Relaxed);
-
-    (value, after.saturating_sub(before))
-}
-
-fn assert_within_budget(adapter: &str, allocations: usize) {
-    assert!(
-        allocations <= ALLOCATION_BUDGET,
-        "a chain containing `{adapter}` over {LEN} elements made {allocations} allocations, \
-         above the {ALLOCATION_BUDGET} budget; the logical stream is being materialized \
-         before the split"
-    );
-}
-
 #[test]
-fn filter_map_chain_shards_and_preserves_values() {
+fn filter_map_chain_keeps_borrowed_shards() {
     let data = source();
     let expected: u64 = data
         .iter()
         .filter_map(|value| (value % 3 == 0).then_some(value * 2))
         .sum();
 
-    assert_shards("filter_map", |workers| {
-        data.par_iter()
-            .filter_map(|value| {
-                workers.record();
-                (value % 3 == 0).then_some(value * 2)
-            })
-            .sum::<u64>()
-    });
-
-    let (total, allocations) = allocations_of(|| {
+    let (total, bytes) = allocated_bytes(|| {
         data.par_iter()
             .filter_map(|value| (value % 3 == 0).then_some(value * 2))
             .sum::<u64>()
     });
 
     assert_eq!(total, expected);
-    assert_within_budget("filter_map", allocations);
+    assert_no_materialization("filter_map", bytes);
 }
 
 #[test]
-fn filter_map_chain_preserves_logical_order_across_shards() {
-    let data = source();
-    let expected: Vec<u64> = data
-        .iter()
-        .filter_map(|value| (value % 3 == 0).then_some(value * 2))
-        .collect();
-
-    let collected: Vec<u64> = data
-        .par_iter()
-        .filter_map(|value| (value % 3 == 0).then_some(value * 2))
-        .collect();
-
-    assert_eq!(collected, expected);
-}
-
-#[test]
-fn flat_map_chain_shards_and_preserves_values() {
+fn flat_map_chain_keeps_borrowed_shards() {
     let data = source();
     let expected: u64 = data.iter().flat_map(|value| [value % 5, value % 7]).sum();
 
-    assert_shards("flat_map", |workers| {
-        data.par_iter()
-            .flat_map(|value| {
-                workers.record();
-                [value % 5, value % 7]
-            })
-            .sum::<u64>()
-    });
-
-    let (total, allocations) = allocations_of(|| {
+    let (total, bytes) = allocated_bytes(|| {
         data.par_iter()
             .flat_map(|value| [value % 5, value % 7])
             .sum::<u64>()
     });
 
     assert_eq!(total, expected);
-    assert_within_budget("flat_map", allocations);
+    assert_no_materialization("flat_map", bytes);
 }
 
+/// A chain whose adapters are all converted must shard end to end, not only at
+/// its first adapter: each pushes into the consumer the next one wraps.
 #[test]
-fn flat_map_chain_preserves_flattened_order_across_shards() {
+fn stacked_converted_adapters_keep_borrowed_shards() {
     let data = source();
-    let expected: Vec<u64> = data
+    let expected: u64 = data
         .iter()
+        .filter_map(|value| (value % 3 == 0).then_some(*value))
         .flat_map(|value| [value % 5, value % 7])
-        .collect();
+        .sum();
 
-    let collected: Vec<u64> = data
-        .par_iter()
-        .flat_map(|value| [value % 5, value % 7])
-        .collect();
+    let (total, bytes) = allocated_bytes(|| {
+        data.par_iter()
+            .filter_map(|value| (value % 3 == 0).then_some(*value))
+            .flat_map(|value| [value % 5, value % 7])
+            .sum::<u64>()
+    });
 
-    assert_eq!(collected, expected);
+    assert_eq!(total, expected);
+    assert_no_materialization("filter_map + flat_map", bytes);
 }
 
 /// Groups in the nested source.
@@ -249,31 +200,107 @@ fn nested_source() -> Vec<Vec<u64>> {
 }
 
 #[test]
-fn flatten_chain_shards_and_preserves_values() {
+fn flatten_chain_keeps_its_nested_source_shards() {
     let nested = nested_source();
     let expected: u64 = nested.iter().flatten().sum();
 
-    assert_shards("flatten", |workers| {
-        nested
-            .clone()
+    let (total, bytes) = allocated_bytes(|| nested.clone().into_par_iter().flatten().sum::<u64>());
+
+    assert_eq!(total, expected);
+    {
+        // The clone inside the measured closure is the floor. The collect shape
+        // added a full copy of the flattened stream on top of it; the push adds
+        // only the nested source's own split.
+        let clone_bytes = GROUPS * GROUP_LEN * std::mem::size_of::<u64>()
+            + GROUPS * std::mem::size_of::<Vec<u64>>();
+        let budget = clone_bytes + MATERIALIZED / 4;
+        assert!(
+            bytes <= budget,
+            "a chain containing `flatten` allocated {bytes} bytes against a              {clone_bytes}-byte source clone, above the {budget} budget; the flattened              stream is being materialized"
+        );
+    }
+}
+
+#[test]
+fn update_chain_splits_its_owned_source() {
+    let data = source();
+    let expected: u64 = data.iter().map(|value| value.wrapping_mul(3)).sum();
+
+    let (total, bytes) = allocated_bytes(|| {
+        data.clone()
             .into_par_iter()
-            .flatten()
-            .map(|value| {
-                workers.record();
-                value
-            })
+            .update(|value| *value = value.wrapping_mul(3))
             .sum::<u64>()
     });
 
-    let (total, allocations) =
-        allocations_of(|| nested.clone().into_par_iter().flatten().sum::<u64>());
+    assert_eq!(total, expected);
+    assert_split_copies("update", bytes, MATERIALIZED);
+}
+
+#[test]
+fn exponential_blocks_chain_splits_its_owned_source() {
+    let data = source();
+    let expected: u64 = data.iter().map(|value| value % 11).sum();
+
+    let (total, bytes) = allocated_bytes(|| {
+        data.clone()
+            .into_par_iter()
+            .by_exponential_blocks()
+            .map(|value| value % 11)
+            .sum::<u64>()
+    });
 
     assert_eq!(total, expected);
-    // The clone inside the measured closure is one allocation per group plus
-    // the outer vector, so `GROUPS + 1`; the flattening itself adds none beyond
-    // the per-shard cost. Both together stay inside the budget, which the
-    // collect shape's one-allocation-per-flattened-item could not.
-    assert_within_budget("flatten", allocations);
+    assert_split_copies("by_exponential_blocks", bytes, MATERIALIZED);
+}
+
+#[test]
+fn uniform_blocks_chain_splits_its_owned_source() {
+    let data = source();
+    let expected: u64 = data.iter().map(|value| value % 11).sum();
+
+    let (total, bytes) = allocated_bytes(|| {
+        data.clone()
+            .into_par_iter()
+            .by_uniform_blocks(512)
+            .map(|value| value % 11)
+            .sum::<u64>()
+    });
+
+    assert_eq!(total, expected);
+    assert_split_copies("by_uniform_blocks", bytes, MATERIALIZED);
+}
+
+#[test]
+fn filter_map_chain_preserves_logical_order_across_shards() {
+    let data = source();
+    let expected: Vec<u64> = data
+        .iter()
+        .filter_map(|value| (value % 3 == 0).then_some(value * 2))
+        .collect();
+
+    let collected: Vec<u64> = data
+        .par_iter()
+        .filter_map(|value| (value % 3 == 0).then_some(value * 2))
+        .collect();
+
+    assert_eq!(collected, expected);
+}
+
+#[test]
+fn flat_map_chain_preserves_flattened_order_across_shards() {
+    let data = source();
+    let expected: Vec<u64> = data
+        .iter()
+        .flat_map(|value| [value % 5, value % 7])
+        .collect();
+
+    let collected: Vec<u64> = data
+        .par_iter()
+        .flat_map(|value| [value % 5, value % 7])
+        .collect();
+
+    assert_eq!(collected, expected);
 }
 
 #[test]
@@ -284,32 +311,6 @@ fn flatten_chain_preserves_nested_order_across_shards() {
     let collected: Vec<u64> = nested.clone().into_par_iter().flatten().collect();
 
     assert_eq!(collected, expected);
-}
-
-#[test]
-fn update_chain_shards_and_preserves_values() {
-    let data = source();
-    let expected: u64 = data.iter().map(|value| value.wrapping_mul(3)).sum();
-
-    assert_shards("update", |workers| {
-        data.clone()
-            .into_par_iter()
-            .update(|value| {
-                workers.record();
-                *value = value.wrapping_mul(3);
-            })
-            .sum::<u64>()
-    });
-
-    let (total, allocations) = allocations_of(|| {
-        data.clone()
-            .into_par_iter()
-            .update(|value| *value = value.wrapping_mul(3))
-            .sum::<u64>()
-    });
-
-    assert_eq!(total, expected);
-    assert_within_budget("update", allocations);
 }
 
 #[test]
@@ -326,100 +327,6 @@ fn update_chain_preserves_logical_order_across_shards() {
     assert_eq!(collected, expected);
 }
 
-#[test]
-fn exponential_blocks_chain_shards_and_preserves_values() {
-    let data = source();
-    let expected: u64 = data.iter().map(|value| value % 11).sum();
-
-    assert_shards("by_exponential_blocks", |workers| {
-        data.clone()
-            .into_par_iter()
-            .by_exponential_blocks()
-            .map(|value| {
-                workers.record();
-                value % 11
-            })
-            .sum::<u64>()
-    });
-
-    let (total, allocations) = allocations_of(|| {
-        data.clone()
-            .into_par_iter()
-            .by_exponential_blocks()
-            .map(|value| value % 11)
-            .sum::<u64>()
-    });
-
-    assert_eq!(total, expected);
-    assert_within_budget("by_exponential_blocks", allocations);
-}
-
-#[test]
-fn uniform_blocks_chain_shards_and_preserves_values() {
-    let data = source();
-    let expected: u64 = data.iter().map(|value| value % 11).sum();
-
-    assert_shards("by_uniform_blocks", |workers| {
-        data.clone()
-            .into_par_iter()
-            .by_uniform_blocks(512)
-            .map(|value| {
-                workers.record();
-                value % 11
-            })
-            .sum::<u64>()
-    });
-
-    let (total, allocations) = allocations_of(|| {
-        data.clone()
-            .into_par_iter()
-            .by_uniform_blocks(512)
-            .map(|value| value % 11)
-            .sum::<u64>()
-    });
-
-    assert_eq!(total, expected);
-    assert_within_budget("by_uniform_blocks", allocations);
-}
-
-/// A chain whose adapters are all converted must shard end to end, not only at
-/// its first adapter: each pushes into the consumer the next one wraps.
-#[test]
-fn stacked_converted_adapters_shard_and_preserve_values() {
-    let data = source();
-    let expected: u64 = data
-        .iter()
-        .filter_map(|value| (value % 3 == 0).then_some(*value))
-        .flat_map(|value| [value % 5, value % 7])
-        .sum();
-
-    assert_shards("filter_map + flat_map", |workers| {
-        data.par_iter()
-            .filter_map(|value| (value % 3 == 0).then_some(*value))
-            .flat_map(|value| {
-                workers.record();
-                [value % 5, value % 7]
-            })
-            .sum::<u64>()
-    });
-
-    let (total, allocations) = allocations_of(|| {
-        data.par_iter()
-            .filter_map(|value| (value % 3 == 0).then_some(*value))
-            .flat_map(|value| [value % 5, value % 7])
-            .sum::<u64>()
-    });
-
-    assert_eq!(total, expected);
-    assert_within_budget("filter_map + flat_map", allocations);
-}
-
-/// The adapters recorded as staying sequential must still return the values a
-/// standard sequential pass does at a length that would split.
-///
-/// This is the guard on the non-conversions: an adapter whose reason is a
-/// cross-shard dependency returns wrong values if it is later pushed into a
-/// consumer without supplying what the reason says is missing.
 #[test]
 fn unconverted_adapters_preserve_values_above_the_threshold() {
     let data = source();
