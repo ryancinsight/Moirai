@@ -1,8 +1,6 @@
-use super::super::{Consumer, FilterConsumer, ParallelIterator, VecParIter, VecRefParIter};
-use super::flat::Flatten;
+use super::super::{Consumer, FilterConsumer, ParallelIterator, VecParIter};
 use super::map::Map;
 use super::pair::ZipEq;
-use super::ref_ops::Copied;
 use std::ops::ControlFlow;
 
 /// Filter adapter for parallel iterators.
@@ -14,35 +12,6 @@ pub struct Filter<I, F> {
 impl<I, F> Filter<I, F> {
     pub(crate) fn new(base: I, filter_fn: F) -> Self {
         Self { base, filter_fn }
-    }
-}
-
-impl<I, MapFn, FilterFn, Mapped> Filter<Map<Flatten<I>, MapFn>, FilterFn>
-where
-    I: ParallelIterator,
-    I::Item: IntoIterator,
-    MapFn: Fn(<I::Item as IntoIterator>::Item) -> Mapped + Send + Sync + Clone,
-    FilterFn: Fn(&Mapped) -> bool + Send + Sync + Clone,
-    Mapped: Send,
-{
-    /// Sum a flattened, mapped, filtered nested stream without intermediate vectors.
-    pub fn sum<S>(self) -> S
-    where
-        S: std::iter::Sum<Mapped> + Send,
-    {
-        let filter_fn = self.filter_fn;
-        let map = self.base;
-        let map_fn = map.map_fn;
-        let flatten = map.base;
-
-        flatten
-            .base
-            .seq_items()
-            .into_iter()
-            .flat_map(IntoIterator::into_iter)
-            .map(map_fn)
-            .filter(filter_fn)
-            .sum()
     }
 }
 
@@ -78,35 +47,6 @@ where
             .map(map_fn)
             .filter(filter_fn)
             .collect()
-    }
-}
-
-impl<'data, T, MapFn, FilterFn, Mapped>
-    Filter<Map<Copied<VecRefParIter<'data, T>>, MapFn>, FilterFn>
-where
-    T: Copy + Send + Sync + 'data,
-    MapFn: Fn(T) -> Mapped + Send + Sync + Clone,
-    FilterFn: Fn(&Mapped) -> bool + Send + Sync + Clone,
-    Mapped: Send,
-{
-    /// Sum a borrowed copied-map-filter stream without materializing references.
-    pub fn sum<S>(self) -> S
-    where
-        S: std::iter::Sum<Mapped> + Send,
-    {
-        let filter_fn = self.filter_fn;
-        let map = self.base;
-        let map_fn = map.map_fn;
-        let copied = map.base;
-
-        copied
-            .base
-            .into_slice()
-            .iter()
-            .copied()
-            .map(map_fn)
-            .filter(filter_fn)
-            .sum()
     }
 }
 

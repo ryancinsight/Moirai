@@ -74,7 +74,7 @@
   decide the shape-changing ones against the indexed boundary already recorded
   in the Rayon adapter audit.
 
-## MOI-PAR-INHERENT-SUM-BYPASS-2026-08-28 — Inherent sum overrides run single-threaded [patch] — todo
+## MOI-PAR-INHERENT-SUM-BYPASS-2026-08-28 — Inherent sum overrides run single-threaded [patch] — review
 
 - Unowned. Four inherent `sum` implementations shadow the trait terminal and
   run the whole chain on one thread (`adapters/map.rs:151,174`,
@@ -85,6 +85,24 @@
   where the trait path measures 11.18us on comparable work. Fix direction:
   delete all four and let the chains take the trait terminal, updating the
   audit contract markers that pin their doc lines.
+- **Delivered 2026-08-28** by claude-fable session 03d80d33: all four impl
+  blocks deleted (`Map<Chunks<I>>`, `Map<Enumerate<Interleave<StepBy<..>>>>`,
+  `Filter<Map<Flatten<I>>>`, `Filter<Map<Copied<VecRefParIter>>>`), 191 lines
+  removed against 15 added. The chains now resolve to the trait terminal and
+  compile unchanged, so no caller is affected.
+- **Contract strengthened rather than merely relaxed:** the four doc lines
+  moved from the *required* list to the *prohibited* one, so the shadowing
+  shape cannot return under its original wording, and the terminal that
+  replaced it stays pinned.
+- **Evidence:** pinned to four P-cores at high priority, 200 warm-up
+  iterations then 400 timed samples of
+  `par_iter().copied().map(..).filter(..).sum()` over 131072 `u64`:
+  **29.70us → 16.40us median (1.81x)**, p10–p90 `29.30–30.50` against
+  `15.70–17.40` — fully disjoint, far outside this host's ~32% same-code
+  spread. An earlier 40-sample run showed an overlapping tail that a longer
+  warm-up removed, so the tighter run is the reported one. Gates: `fmt
+  --check` clean, Clippy `-D warnings` clean, workspace Nextest 899/899 with
+  7 configured skips, workspace doctests pass.
 
 ## MOI-ASYNC-CANCEL-LANE-GATE-2026-08-28 — Work-class-matched cancellation gate [patch] — done 2026-08-28
 
