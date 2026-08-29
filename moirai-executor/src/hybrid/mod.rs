@@ -81,9 +81,11 @@ impl HybridExecutor<ThreadScheduler> {
     ///
     /// # Errors
     ///
-    /// Returns [`ExecutorError::InvalidConfiguration`] when the configured
-    /// global admission bound cannot supply at least two slots per worker,
-    /// [`ExecutorError::InvalidLocalQueueInitialCapacity`] when local capacity
+    /// Returns [`ExecutorError::InvalidConfiguration`](moirai_core::error::ExecutorError::InvalidConfiguration)
+    /// when the configured global admission bound cannot supply at least two
+    /// slots per worker,
+    /// [`ExecutorError::InvalidLocalQueueInitialCapacity`](moirai_core::error::ExecutorError::InvalidLocalQueueInitialCapacity)
+    /// when local capacity
     /// cannot normalize or form the required deque allocation layouts, or
     /// propagates scheduler construction failures.
     pub fn new(config: ExecutorConfig) -> ExecutorResult<Self> {
