@@ -33,9 +33,10 @@ use std::sync::Mutex;
 
 mod chunks;
 pub use chunks::{
-    for_each_chunk_mut_enumerated_with, for_each_chunk_mut_with, for_each_chunk_mut_with_state,
+    for_each_chunk_buffers_mut_enumerated_with, for_each_chunk_mut_enumerated_with,
+    for_each_chunk_mut_with, for_each_chunk_mut_with_state,
     for_each_chunk_pair_mut_enumerated_with, for_each_chunk_quad_mut_enumerated_with,
-    for_each_chunk_triple_mut_enumerated_with,
+    for_each_chunk_triple_mut_enumerated_with, ChunkBuffersError,
 };
 
 /// State of the scheduled branch of a join.

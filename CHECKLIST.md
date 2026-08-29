@@ -8,14 +8,19 @@
   kernel can mutate an arbitrary fixed number of disjoint buffers in one
   scheduler traversal without arity-specific provider clones.
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-- **Lease:** `moirai-parallel/src/{ops.rs,lib.rs,tests.rs}` plus this item and
-  its `docs/backlog.md` record; last update 2026-08-29.
+- **Lease:** `moirai-parallel/src/{ops.rs,lib.rs,ops/chunks.rs,ops/chunks/tests.rs}`
+  plus CHANGELOG and this item's PM records; last update 2026-08-29.
 - **Acceptance:** equal-length buffers process every full and ragged chunk
   exactly once under sequential and parallel policies; zero buffers, empty
   buffers, and zero chunk size perform no work; unequal lengths reject before
   mutation; focused Nextest, warning-denied Clippy, Rustdoc, doctests, and the
   Kwavers SWE fused-stress consumer pass without transient allocation or
   workload/timeout changes.
+- **Provider evidence:** behavior-preserving chunk-module split `004f1a6`; the
+  additive candidate passes warning-denied all-target Clippy, package Nextest
+  37/37, doctests 3/3, warning-denied Rustdoc, and cargo-semver-checks 196/196
+  under minor. Consumer integration, independent review, and merge remain
+  pending.
 
 ## MOI-CONTRACT-AUDIT-STALENESS-2026-08-29 — Source-pinning contracts can audit stale or foreign sources [patch] — todo
 

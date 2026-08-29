@@ -102,8 +102,11 @@ architecture definition.
   the safe API relies on exclusive slice borrows and exact indexed completion.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `codex/perf-moirai-chunk-arrays`; lease:
-  `moirai-parallel/src/{ops.rs,lib.rs,tests.rs}` plus item PM records; last
-  update 2026-08-29.
+  `moirai-parallel/src/{ops.rs,lib.rs,ops/chunks.rs,ops/chunks/tests.rs}` plus
+  CHANGELOG and item PM records; last update 2026-08-29. Provider candidate
+  passes warning-denied all-target Clippy, package Nextest 37/37, doctests 3/3,
+  warning-denied Rustdoc, and cargo-semver-checks 196/196 under minor; consumer
+  integration, independent review, and merge remain pending.
 
 ### ✅ MOI-ASYNC-CANCEL-LANE-GATE-2026-08-28 [patch]: Match cancellation tests to scheduler lanes
 

@@ -4,6 +4,41 @@ use super::super::DisjointMutPtr;
 use crate::policy::ExecutionPolicy;
 use moirai_executor::{global, SyncTask};
 
+#[cfg(test)]
+mod tests;
+
+/// Failure to partition a fixed set of mutable buffers into matching chunks.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ChunkBuffersError {
+    /// A buffer does not have the same element count as the first buffer.
+    LengthMismatch {
+        /// Zero-based position of the mismatched buffer.
+        buffer_index: usize,
+        /// Required element count, taken from the first buffer.
+        expected: usize,
+        /// Actual element count of the mismatched buffer.
+        actual: usize,
+    },
+}
+
+impl core::fmt::Display for ChunkBuffersError {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::LengthMismatch {
+                buffer_index,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "chunk buffer {buffer_index} has length {actual}, expected {expected}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ChunkBuffersError {}
+
 /// Apply `f` to each consecutive `chunk_size`-element mutable chunk of `data` in
 /// parallel, scheduled by policy `P`. The final chunk may be shorter.
 ///
@@ -103,6 +138,115 @@ pub fn for_each_chunk_mut_with_state<P, T, S, Init, F>(
             }
         })
         .expect("moirai global executor: for_each_chunk_mut_with_state");
+}
+
+/// Apply `f(index, chunks)` to matching chunks from a fixed set of distinct
+/// mutable buffers, scheduled by policy `P`.
+///
+/// All buffers must have the same length. Validation completes before any
+/// buffer is mutated. The final chunk may be shorter than `chunk_size`; zero
+/// buffers, empty buffers, and a zero chunk size are no-ops.
+///
+/// The fixed-size array keeps the operation allocation-free and lets callers
+/// fuse any homogeneous number of output-buffer passes without adding another
+/// arity-specific operator.
+///
+/// # Examples
+///
+/// ```
+/// use moirai_parallel::{
+///     for_each_chunk_buffers_mut_enumerated_with, ChunkBuffersError, Sequential,
+/// };
+///
+/// let mut left = [0_u32; 5];
+/// let mut right = [0_u32; 5];
+/// for_each_chunk_buffers_mut_enumerated_with::<Sequential, _, _, 2>(
+///     [&mut left, &mut right],
+///     2,
+///     |chunk_index, [left, right]| {
+///         left.fill(chunk_index as u32);
+///         right.fill((chunk_index as u32) + 10);
+///     },
+/// )?;
+///
+/// assert_eq!(left, [0, 0, 1, 1, 2]);
+/// assert_eq!(right, [10, 10, 11, 11, 12]);
+/// # Ok::<(), ChunkBuffersError>(())
+/// ```
+///
+/// # Errors
+///
+/// Returns [`ChunkBuffersError::LengthMismatch`] when a buffer length differs
+/// from the first buffer's length.
+pub fn for_each_chunk_buffers_mut_enumerated_with<P, T, F, const N: usize>(
+    mut buffers: [&mut [T]; N],
+    chunk_size: usize,
+    f: F,
+) -> Result<(), ChunkBuffersError>
+where
+    P: ExecutionPolicy,
+    T: Send,
+    F: for<'chunk> Fn(usize, [&'chunk mut [T]; N]) + Send + Sync,
+{
+    let Some(first) = buffers.first() else {
+        return Ok(());
+    };
+    let length = first.len();
+    if let Some((buffer_index, actual)) =
+        buffers
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find_map(|(buffer_index, buffer)| {
+                (buffer.len() != length).then_some((buffer_index, buffer.len()))
+            })
+    {
+        return Err(ChunkBuffersError::LengthMismatch {
+            buffer_index,
+            expected: length,
+            actual,
+        });
+    }
+    if length == 0 || chunk_size == 0 {
+        return Ok(());
+    }
+
+    let num_chunks = length.div_ceil(chunk_size);
+    if !P::parallelize(length) || num_chunks <= 1 {
+        for chunk_index in 0..num_chunks {
+            let start = chunk_index * chunk_size;
+            let end = (start + chunk_size).min(length);
+            let chunks = buffers.each_mut().map(|buffer| {
+                buffer
+                    .get_mut(start..end)
+                    .expect("invariant: equal buffer lengths were validated before mutation")
+            });
+            f(chunk_index, chunks);
+        }
+        return Ok(());
+    }
+
+    let bases = buffers
+        .each_mut()
+        .map(|buffer| DisjointMutPtr(buffer.as_mut_ptr()));
+    let f = &f;
+    global()
+        .for_each_indexed::<SyncTask, _>(num_chunks, move |chunk_index| {
+            let start = chunk_index * chunk_size;
+            let end = (start + chunk_size).min(length);
+            let chunks = core::array::from_fn(|buffer_index| {
+                let base = bases
+                    .get(buffer_index)
+                    .expect("invariant: array-generated buffer index is in bounds");
+                // SAFETY: safe construction of `buffers` proves the N mutable
+                // slices do not alias. Equal lengths were validated above, and
+                // distinct tasks own pairwise-disjoint `[start, end)` ranges.
+                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) }
+            });
+            f(chunk_index, chunks);
+        })
+        .expect("moirai global executor: for_each_chunk_buffers_mut_enumerated_with");
+    Ok(())
 }
 
 /// Apply `f(index, a_chunk, b_chunk)` to paired `chunk_size`-element mutable

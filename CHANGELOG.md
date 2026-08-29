@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `moirai_parallel::for_each_chunk_buffers_mut_enumerated_with` applies one
+  indexed operation to matching chunks from any const-generic number of
+  homogeneous mutable buffers. Equal lengths validate before mutation, ragged
+  tails remain visible, and fixed arrays keep the provider path allocation-free.
 - `moirai-http` now follows at most ten redirects by default with RFC 9110
   method/body behavior and RFC 3986 relative-reference resolution. One timeout
   bounds the complete logical request, including redirects and a stale
