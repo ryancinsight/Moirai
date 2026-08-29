@@ -284,6 +284,63 @@ mod tests {
         }
     }
 
+    /// A waker registered against an already-completed task must not be kept.
+    ///
+    /// `wait_for_task` documents the race this covers: it checks completion,
+    /// registers a waker, then re-checks. If the task completes between the
+    /// check and the registration, completion has already taken the (absent)
+    /// waker, so nothing will ever take the one just stored — it and whatever
+    /// the waker holds, typically an `Arc` to async task state, stay alive for
+    /// the life of the registry slot, which is never reclaimed.
+    #[test]
+    fn waker_registered_after_completion_is_not_retained() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::task::{RawWaker, RawWakerVTable, Waker};
+
+        static DROPPED: AtomicUsize = AtomicUsize::new(0);
+
+        // A waker whose payload is an Arc, so retention is observable through
+        // the strong count rather than inferred.
+        unsafe fn clone_raw(data: *const ()) -> RawWaker {
+            let arc = unsafe { Arc::from_raw(data.cast::<usize>()) };
+            let cloned = Arc::clone(&arc);
+            core::mem::forget(arc);
+            RawWaker::new(Arc::into_raw(cloned).cast(), &VTABLE)
+        }
+        unsafe fn wake_raw(data: *const ()) {
+            drop(unsafe { Arc::from_raw(data.cast::<usize>()) });
+            DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+        unsafe fn wake_by_ref_raw(_: *const ()) {}
+        unsafe fn drop_raw(data: *const ()) {
+            drop(unsafe { Arc::from_raw(data.cast::<usize>()) });
+            DROPPED.fetch_add(1, Ordering::SeqCst);
+        }
+        static VTABLE: RawWakerVTable =
+            RawWakerVTable::new(clone_raw, wake_raw, wake_by_ref_raw, drop_raw);
+
+        let payload = Arc::new(0usize);
+        let probe = Arc::clone(&payload);
+        let waker = unsafe { Waker::from_raw(RawWaker::new(Arc::into_raw(probe).cast(), &VTABLE)) };
+
+        let registry = TaskRegistry::new();
+        let id = registry.register_task();
+        registry.mark_started(id, 0);
+        registry.mark_completed(id);
+
+        assert!(
+            registry.register_waker(id, &waker),
+            "the slot is still registered, so registration reports success"
+        );
+        drop(waker);
+
+        assert_eq!(
+            Arc::strong_count(&payload),
+            1,
+            "a waker registered after completion is still held by the registry slot;              nothing will ever take it, so it leaks for the life of the slot"
+        );
+    }
+
     #[test]
     #[should_panic(expected = "task ID must not be re-registered while active")]
     fn lifecycle_registry_rejects_active_id_reuse() {
