@@ -3,6 +3,7 @@ use super::{
     IntoParallelRefIterator, ParallelExtend, ParallelIterator,
 };
 use moirai_executor::{global, SyncTask};
+use std::ops::ControlFlow;
 use std::sync::Mutex;
 
 /// Minimum source size for scheduler-backed non-indexed driving.
@@ -125,35 +126,48 @@ impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
         self.data
     }
 
-    fn drive<C, R>(mut self, consumer: C) -> R
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.data.into_iter().try_fold(init, fold_fn)
+    }
+
+    fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        if self.data.len() <= 1 {
-            return consumer.consume(SequentialIterAdapter::new(self.data.into_iter()));
+        // At or below the dispatch threshold a shard is consumed in one
+        // sequential pass. The superseded shape kept splitting to
+        // single-element shards, which bought no parallelism below the
+        // threshold — the scheduler is only engaged above it — and cost one
+        // consumer split and one combine per element.
+        if self.data.len() <= PARALLEL_DRIVE_THRESHOLD {
+            return consumer.consume(self);
         }
 
-        let total_len = self.data.len();
-        let mid = total_len / 2;
-        let right_data = self.data.split_off(mid);
-        let left_data = std::mem::take(&mut self.data);
+        // Owned elements have no safe zero-copy split: handing a shard its own
+        // range of a `Vec<T>` without moving the elements needs either raw
+        // pointer reads or an `Option` slot per element, and `Option<T>` is only
+        // niche-packed when `T` has a spare value — for a plain scalar it
+        // doubles the buffer and adds a write per element read back out, which
+        // measured worse than the copy it replaced. Splitting therefore still
+        // copies, but only down to the threshold, so copy traffic is
+        // proportional to `log(len / threshold)` levels rather than `log(len)`.
+        let mut data = self.data;
+        let mid = data.len() / 2;
+        let right_data = data.split_off(mid);
+        let left_data = std::mem::take(&mut data);
 
         let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
 
-        if total_len > PARALLEL_DRIVE_THRESHOLD {
-            return drive_split(
-                VecParIter::new(left_data),
-                VecParIter::new(right_data),
-                left_consumer,
-                right_consumer,
-            );
-        }
-
-        let left_result = left_consumer.consume(VecParIter::new(left_data));
-        let right_result = right_consumer.consume(VecParIter::new(right_data));
-
-        C::combine(left_result, right_result)
+        drive_split(
+            VecParIter::new(left_data),
+            VecParIter::new(right_data),
+            left_consumer,
+            right_consumer,
+        )
     }
 }
 
@@ -197,6 +211,19 @@ where
             current = current + T::from(1u8);
         }
         items
+    }
+
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        let mut accumulator = init;
+        let mut current = self.start;
+        while current < self.end {
+            accumulator = fold_fn(accumulator, current.clone())?;
+            current = current + T::from(1u8);
+        }
+        ControlFlow::Continue(accumulator)
     }
 
     fn drive<C, R>(self, consumer: C) -> R
@@ -258,6 +285,17 @@ where
 
     fn seq_items(self) -> Vec<Self::Item> {
         self.iter.collect()
+    }
+
+    fn seq_try_fold<Acc, B, FoldFn>(self, mut init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        let mut iter = self.iter;
+        for item in iter.by_ref() {
+            init = fold_fn(init, item)?;
+        }
+        ControlFlow::Continue(init)
     }
 
     fn drive<C, R>(self, consumer: C) -> R
@@ -336,13 +374,72 @@ impl<'data, T: Send + Sync + 'data> ParallelIterator for VecRefParIter<'data, T>
         self.data.iter().collect()
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.data.iter().try_fold(init, fold_fn)
+    }
+
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        let refs: Vec<&'data T> = self.data.iter().collect();
-        consumer.consume(RefVecParIter::new(refs))
+        // Drive the backing storage directly. Collecting `Vec<&T>` first cost
+        // one pointer per element before any work started, and every split
+        // below then copied halves of that pointer vector.
+        SliceParIter::new(self.data.as_slice()).drive(consumer)
+    }
+}
+
+/// Borrowed shard addressed as a subslice of one shared slice.
+///
+/// Splitting is `slice::split_at`, so neither an element nor a reference to one
+/// is copied at any depth of the drive recursion.
+struct SliceParIter<'data, T> {
+    data: &'data [T],
+}
+
+impl<'data, T> SliceParIter<'data, T> {
+    fn new(data: &'data [T]) -> Self {
+        Self { data }
+    }
+}
+
+impl<'data, T: Send + Sync + 'data> ParallelIterator for SliceParIter<'data, T> {
+    type Item = &'data T;
+
+    fn seq_items(self) -> Vec<Self::Item> {
+        self.data.iter().collect()
+    }
+
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.data.iter().try_fold(init, fold_fn)
+    }
+
+    fn drive<C, R>(self, consumer: C) -> R
+    where
+        C: Consumer<Self::Item, Result = R> + Send + Sync,
+        R: Send,
+    {
+        if self.data.len() <= PARALLEL_DRIVE_THRESHOLD {
+            return consumer.consume(self);
+        }
+
+        let mid = self.data.len() / 2;
+        let (left_data, right_data) = self.data.split_at(mid);
+        let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
+
+        drive_split(
+            SliceParIter::new(left_data),
+            SliceParIter::new(right_data),
+            left_consumer,
+            right_consumer,
+        )
     }
 }
 
@@ -378,6 +475,17 @@ where
             .collect()
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.data
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| (self.predicate)(item).then_some(index))
+            .try_fold(init, fold_fn)
+    }
+
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -405,37 +513,38 @@ impl<'a, T: Send + Sync> ParallelIterator for RefVecParIter<'a, T> {
         self.data
     }
 
-    fn drive<C, R>(mut self, consumer: C) -> R
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.data.into_iter().try_fold(init, fold_fn)
+    }
+
+    fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
         // Sequential base case: consumer.consume(RefVecParIter) is safe because
-        // CollectConsumer::consume now calls seq_items(), terminating the chain.
-        if self.data.len() <= 1 {
-            return consumer.consume(RefVecParIter::new(self.data));
+        // the base consumers terminate on the item stream rather than driving
+        // it again.
+        if self.data.len() <= PARALLEL_DRIVE_THRESHOLD {
+            return consumer.consume(self);
         }
 
-        let total_len = self.data.len();
-        let mid = total_len / 2;
-        let right_data = self.data.split_off(mid);
-        let left_data = std::mem::take(&mut self.data);
+        let mut data = self.data;
+        let mid = data.len() / 2;
+        let right_data = data.split_off(mid);
+        let left_data = std::mem::take(&mut data);
 
         let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
 
-        if total_len > PARALLEL_DRIVE_THRESHOLD {
-            return drive_split(
-                RefVecParIter::new(left_data),
-                RefVecParIter::new(right_data),
-                left_consumer,
-                right_consumer,
-            );
-        }
-
-        let left_result = left_consumer.consume(RefVecParIter::new(left_data));
-        let right_result = right_consumer.consume(RefVecParIter::new(right_data));
-
-        C::combine(left_result, right_result)
+        drive_split(
+            RefVecParIter::new(left_data),
+            RefVecParIter::new(right_data),
+            left_consumer,
+            right_consumer,
+        )
     }
 }
 

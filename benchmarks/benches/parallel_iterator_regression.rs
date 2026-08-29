@@ -221,6 +221,71 @@ fn rayon_partition_unzip(data: Vec<u64>) -> (u64, u64, usize, usize) {
     )
 }
 
+/// Sentinel planted at a single position so `find_any` has exactly one match
+/// and Moirai's logical-order result equals Rayon's any-order result.
+const FIND_SENTINEL: u64 = u64::MAX;
+
+/// Plant the sentinel one eighth into the input so a short-circuiting search
+/// can abandon the remaining seven eighths.
+fn early_hit_data(len: usize) -> Vec<u64> {
+    let mut data = source_data(len);
+    if !data.is_empty() {
+        let position = data.len() / 8;
+        data[position] = FIND_SENTINEL;
+    }
+    data
+}
+
+fn moirai_find_any(data: &Vec<u64>) -> Option<u64> {
+    MoiraiIntoParallelRefIterator::par_iter(data)
+        .copied()
+        .find_any(|value| *value == FIND_SENTINEL)
+}
+
+fn rayon_find_any(data: &Vec<u64>) -> Option<u64> {
+    rayon::iter::IntoParallelRefIterator::par_iter(data)
+        .copied()
+        .find_any(|value| *value == FIND_SENTINEL)
+}
+
+fn moirai_borrowed_sum(data: &Vec<u64>) -> u64 {
+    MoiraiIntoParallelRefIterator::par_iter(data)
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .sum::<u64>()
+}
+
+fn rayon_borrowed_sum(data: &Vec<u64>) -> u64 {
+    rayon::iter::IntoParallelRefIterator::par_iter(data)
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .sum::<u64>()
+}
+
+fn moirai_count_min_max(data: &Vec<u64>) -> (usize, Option<u64>, Option<u64>) {
+    let count = MoiraiIntoParallelRefIterator::par_iter(data)
+        .copied()
+        .filter(|value| value % 3 != 0)
+        .count();
+    let min = MoiraiIntoParallelRefIterator::par_iter(data).copied().min();
+    let max = MoiraiIntoParallelRefIterator::par_iter(data).copied().max();
+
+    (count, min, max)
+}
+
+fn rayon_count_min_max(data: &Vec<u64>) -> (usize, Option<u64>, Option<u64>) {
+    let count = rayon::iter::IntoParallelRefIterator::par_iter(data)
+        .copied()
+        .filter(|value| value % 3 != 0)
+        .count();
+    let min = rayon::iter::IntoParallelRefIterator::par_iter(data)
+        .copied()
+        .min();
+    let max = rayon::iter::IntoParallelRefIterator::par_iter(data)
+        .copied()
+        .max();
+
+    (count, min, max)
+}
+
 fn moirai_position_find(data: Vec<u64>) -> (Option<usize>, Option<u64>, Option<u64>) {
     let position = MoiraiIntoParallelIterator::into_par_iter(data.clone())
         .map(|value| value.wrapping_mul(43).wrapping_add(11))
@@ -411,6 +476,58 @@ fn parallel_iterator_regression(c: &mut Criterion) {
         });
     }
     partition_unzip.finish();
+
+    let mut borrowed_sum = c.benchmark_group("parallel_iterator_borrowed_sum_sizes");
+    for len in INPUT_SIZES {
+        let data = source_data(len);
+        assert_eq!(moirai_borrowed_sum(&data), rayon_borrowed_sum(&data));
+        borrowed_sum.bench_with_input(BenchmarkId::new("moirai", len), &data, |b, input| {
+            b.iter(|| black_box(moirai_borrowed_sum(black_box(input))))
+        });
+        borrowed_sum.bench_with_input(BenchmarkId::new("rayon", len), &data, |b, input| {
+            b.iter(|| black_box(rayon_borrowed_sum(black_box(input))))
+        });
+    }
+    borrowed_sum.finish();
+
+    let mut count_min_max = c.benchmark_group("parallel_iterator_count_min_max_sizes");
+    for len in INPUT_SIZES {
+        let data = source_data(len);
+        assert_eq!(moirai_count_min_max(&data), rayon_count_min_max(&data));
+        count_min_max.bench_with_input(BenchmarkId::new("moirai", len), &data, |b, input| {
+            b.iter(|| black_box(moirai_count_min_max(black_box(input))))
+        });
+        count_min_max.bench_with_input(BenchmarkId::new("rayon", len), &data, |b, input| {
+            b.iter(|| black_box(rayon_count_min_max(black_box(input))))
+        });
+    }
+    count_min_max.finish();
+
+    let mut find_any_early = c.benchmark_group("parallel_iterator_find_any_early_sizes");
+    for len in INPUT_SIZES {
+        let data = early_hit_data(len);
+        assert_eq!(moirai_find_any(&data), rayon_find_any(&data));
+        find_any_early.bench_with_input(BenchmarkId::new("moirai", len), &data, |b, input| {
+            b.iter(|| black_box(moirai_find_any(black_box(input))))
+        });
+        find_any_early.bench_with_input(BenchmarkId::new("rayon", len), &data, |b, input| {
+            b.iter(|| black_box(rayon_find_any(black_box(input))))
+        });
+    }
+    find_any_early.finish();
+
+    let mut find_any_miss = c.benchmark_group("parallel_iterator_find_any_miss_sizes");
+    for len in INPUT_SIZES {
+        let data = source_data(len);
+        assert_eq!(moirai_find_any(&data), rayon_find_any(&data));
+        find_any_miss.bench_with_input(BenchmarkId::new("moirai", len), &data, |b, input| {
+            b.iter(|| black_box(moirai_find_any(black_box(input))))
+        });
+        find_any_miss.bench_with_input(BenchmarkId::new("rayon", len), &data, |b, input| {
+            b.iter(|| black_box(rayon_find_any(black_box(input))))
+        });
+    }
+    find_any_miss.finish();
 
     let mut position_find = c.benchmark_group("parallel_iterator_position_find_sizes");
     for len in INPUT_SIZES {

@@ -3,6 +3,7 @@ use super::flat::Flatten;
 use super::map::Map;
 use super::pair::ZipEq;
 use super::ref_ops::Copied;
+use std::ops::ControlFlow;
 
 /// Filter adapter for parallel iterators.
 pub struct Filter<I, F> {
@@ -124,6 +125,20 @@ where
             .collect()
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        let filter_fn = self.filter_fn;
+        self.base.seq_try_fold(init, move |accumulator, item| {
+            if filter_fn(&item) {
+                fold_fn(accumulator, item)
+            } else {
+                ControlFlow::Continue(accumulator)
+            }
+        })
+    }
+
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -156,6 +171,18 @@ where
     R: Send + Sync + 'static,
 {
     type Item = R;
+
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        let filter_map_fn = self.filter_map_fn;
+        self.base
+            .seq_try_fold(init, move |accumulator, item| match filter_map_fn(item) {
+                Some(mapped) => fold_fn(accumulator, mapped),
+                None => ControlFlow::Continue(accumulator),
+            })
+    }
 
     fn seq_items(self) -> Vec<Self::Item> {
         self.base

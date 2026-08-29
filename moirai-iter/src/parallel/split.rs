@@ -18,15 +18,19 @@ where
     L: Send,
     R: Send,
 {
+    // Measured sequential, for the reason recorded on
+    // `ParallelIterator::partition`: a pair-of-vectors accumulator moved
+    // through a fold closure per item, plus an ordered append of the shard
+    // outputs, cost more than the collect it replaced at every input size.
+    // The stream folds rather than collecting, so no intermediate vector of
+    // items is built.
     let mut left = A::default();
     let mut right = B::default();
 
-    for item in iterator.seq_items() {
-        match predicate(item) {
-            Either::Left(value) => left.extend(std::iter::once(value)),
-            Either::Right(value) => right.extend(std::iter::once(value)),
-        }
-    }
+    iterator.seq_fold((), |(), item| match predicate(item) {
+        Either::Left(value) => left.extend(std::iter::once(value)),
+        Either::Right(value) => right.extend(std::iter::once(value)),
+    });
 
     (left, right)
 }

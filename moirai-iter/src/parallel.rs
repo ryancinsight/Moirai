@@ -25,7 +25,7 @@ pub use adapters::{
     MapWith, PanicFuse, Positions, Rev, Skip, SkipAnyWhile, StepBy, Take, TakeAnyWhile,
     UniformBlocks, Update, WhileSome, Zip, ZipEq,
 };
-pub use consumers::Reduction;
+pub use consumers::{Folded, Reduction};
 pub use fallible::TryStreamItem;
 pub use indexed::IndexedParallelIterator;
 pub use sorting::ParallelSliceMut;
@@ -39,6 +39,6 @@ pub use traits::{
 };
 
 use consumers::{
-    CollectConsumer, FilterConsumer, FindConsumer, InspectConsumer, MapConsumer, NullConsumer,
-    ReduceConsumer,
+    CollectConsumer, FilterConsumer, FoldConsumer, InspectConsumer, MapConsumer, NullConsumer,
+    ReduceConsumer, ShortCircuitConsumer,
 };

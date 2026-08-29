@@ -3,6 +3,7 @@ use super::chunks::Chunks;
 use super::pair::Interleave;
 use super::ref_ops::Enumerate;
 use super::stride::StepBy;
+use std::ops::ControlFlow;
 
 /// Map adapter for parallel iterators.
 pub struct Map<I, F> {
@@ -57,6 +58,16 @@ where
 
     fn seq_items(self) -> Vec<Self::Item> {
         self.base.seq_items().into_iter().map(self.map_fn).collect()
+    }
+
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        let map_fn = self.map_fn;
+        self.base.seq_try_fold(init, move |accumulator, item| {
+            fold_fn(accumulator, map_fn(item))
+        })
     }
 
     fn seq_items_window(self, skip: usize, take: Option<usize>) -> Vec<Self::Item> {

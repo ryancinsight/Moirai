@@ -609,6 +609,12 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "pub enum Either<L, R>",
         "Either::Left(value) => left.extend(std::iter::once(value))",
         "Either::Right(value) => right.extend(std::iter::once(value))",
+        "pub struct FoldConsumer<Acc, InitFn, FoldFn, CombineFn>",
+        "pub struct ShortCircuitConsumer<Acc, InitFn, FoldFn, CombineFn>",
+        "for FoldConsumer<Acc, InitFn, FoldFn, CombineFn>",
+        "for ShortCircuitConsumer<Acc, InitFn, FoldFn, CombineFn>",
+        "fn seq_try_fold<T, B, F>(self, init: T, fold_fn: F) -> std::ops::ControlFlow<B, T>",
+        "fn seq_fold<T, F>(self, init: T, mut fold_fn: F) -> T",
         "pub trait TryStreamItem: private::Sealed + Send",
         "impl<T> TryStreamItem for Option<T>",
         "impl<T, E> TryStreamItem for Result<T, E>",
@@ -648,12 +654,19 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "impl<'data, T: Send + Sync + 'data> IntoParallelRefIterator<'data> for Vec<T>",
         "impl IntoParallelIterator for std::ops::Range<usize>",
         "data: Vec<T>",
-        "self.data.split_off(mid)",
-        "std::mem::take(&mut self.data)",
+        // The borrowed drive splits a slice by index range and copies nothing.
+        // The owned drive still splits by move, because owned elements have no
+        // safe zero-copy split, but only down to the dispatch threshold.
+        "struct SliceParIter<'data, T>",
+        "self.data.split_at(mid)",
+        "let right_data = data.split_off(mid);",
         "pub struct Reduction<T, F>",
         "let reduction: Reduction<Self::Item, F> = self.drive(ReduceConsumer::new(reduce_fn));",
         "Some(reduce_fn(left, right))",
-        "self.data.len() <= 1",
+        // A shard at or below the dispatch threshold is consumed in one
+        // sequential pass; recursing to single-element shards bought no
+        // parallelism and cost a consumer split and combine per element.
+        "self.data.len() <= PARALLEL_DRIVE_THRESHOLD",
         "Preserve sequential value semantics for this API",
         "Segment count is not part of the semantic contract",
         "list.push_back(items)",
@@ -735,13 +748,21 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "known limitation of the current consumer",
         "Simplified - should use reduce_fn",
         "Should use reduce_fn",
-        "pub struct FoldConsumer",
+        // The banned shape is the two-parameter placeholder introduced in
+        // 8cd4286, which carried no `Consumer` implementation and was handed to
+        // `drive` as scaffolding. The folding consumer that replaced it is
+        // required below, and its marker pins the trait implementation rather
+        // than the struct so a placeholder cannot satisfy it.
+        "pub struct FoldConsumer<T, F>",
         "Rayon-compatible API",
         "matches Rayon's API",
         "Rayon compatibility",
         "Arc<Vec<T>>",
         "VecNonCloneParIter",
         "std::mem::ManuallyDrop::new",
+        // The borrowed drive must never rebuild a reference vector before
+        // splitting; that cost one pointer per element ahead of any work.
+        "let refs: Vec<&'data T> = self.data.iter().collect();",
         "impl<T: Send + Sync + Clone + 'static> IntoParallelIterator for Vec<T>",
         "impl<'data, T: Send + Sync + Clone + 'static> IntoParallelRefIterator<'data> for Vec<T>",
     ] {
