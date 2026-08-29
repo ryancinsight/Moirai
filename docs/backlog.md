@@ -86,6 +86,31 @@ architecture definition.
 
 ## Current closure record
 
+### 🟨 MOI-CHUNK-ARRAYS-2026-08-29 [minor]: Homogeneous multi-buffer chunks
+
+- **Outcome:** add one const-generic same-element-type mutable chunk operator
+  for fixed sets of disjoint buffers, eliminating arity-specific provider
+  growth when a consumer fuses several output fields.
+- **Scope / non-goals:** `moirai-parallel` API, safety contract, value tests,
+  release notes, and the Kwavers SWE fused-stress consumer; no scheduler,
+  execution-policy threshold, queue, chunk-size, workload, or timeout change.
+- **Acceptance:** equal lengths process every full and ragged chunk exactly
+  once under sequential and parallel policies; zero/empty inputs are no-ops;
+  unequal lengths reject before mutation; focused Nextest, warning-denied
+  Clippy, Rustdoc, doctests, a warmed allocation census, and the unchanged
+  consumer workload pass.
+- **Risk / dependency:** additive public unsafe-backed slicing surface [minor];
+  the safe API relies on exclusive slice borrows and exact indexed completion.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `codex/perf-moirai-chunk-arrays`; lease:
+  `moirai-parallel/src/{ops.rs,lib.rs,ops/chunks.rs,ops/chunks/tests.rs}` plus
+  CHANGELOG and item PM records; last update 2026-08-29. Provider candidate
+  passes warning-denied all-target Clippy, package Nextest 38/38, doctests 3/3,
+  warning-denied Rustdoc, and cargo-semver-checks 196/196 under minor. A
+  dedicated warmed six-buffer census records zero allocations, and
+  non-idempotent value assertions detect missing or duplicate chunk calls;
+  consumer integration, independent re-review, and merge remain pending.
+
 ### ✅ MOI-ASYNC-CANCEL-LANE-GATE-2026-08-28 [patch]: Match cancellation tests to scheduler lanes
 
 - **Delivered:** PR #191 / implementation `3dcc0aa` / merge `fc2dce9` makes each cancellation gate occupy the target's work class and asserts `TaskStatus::Queued` before cancellation; independent exact-head review is green; lease: none.
