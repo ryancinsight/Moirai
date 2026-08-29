@@ -405,25 +405,18 @@ pub trait ParallelIterator: Sized + Send {
         F: Fn(&Self::Item) -> bool + Send + Sync + Clone,
         Self::Item: Sync + 'static,
     {
-        let (left_items, right_items) = self
-            .drive(FoldConsumer::new(
-                || (Vec::new(), Vec::new()),
-                move |(mut left, mut right): (Vec<Self::Item>, Vec<Self::Item>), item| {
-                    if predicate(&item) {
-                        left.push(item);
-                    } else {
-                        right.push(item);
-                    }
-                    (left, right)
-                },
-                |(mut left, mut right): (Vec<Self::Item>, Vec<Self::Item>),
-                 (mut later_left, mut later_right): (Vec<Self::Item>, Vec<Self::Item>)| {
-                    left.append(&mut later_left);
-                    right.append(&mut later_right);
-                    (left, right)
-                },
-            ))
-            .into_value();
+        // Measured sequential. Folding this in parallel was tried and was
+        // slower at every input size, including sizes below the dispatch
+        // threshold where no shard is created at all: the accumulator is a pair
+        // of vectors moved through the fold closure per item, and the shard
+        // outputs then have to be appended back together in order. Collecting
+        // once and letting the standard partition size both outputs from the
+        // known length beat both effects. Parallelising this terminal needs a
+        // size-hinted output collection, not a fold.
+        let (left_items, right_items): (Vec<Self::Item>, Vec<Self::Item>) = self
+            .seq_items()
+            .into_iter()
+            .partition(|item| predicate(item));
 
         (
             left_items.into_iter().collect(),
@@ -452,33 +445,9 @@ pub trait ParallelIterator: Sized + Send {
         A: Send,
         B: Send,
     {
-        // `FromA`/`FromB` are only `Extend`, so two partial outputs cannot be
-        // merged in their own representation. Shards accumulate into vectors,
-        // which do merge in shard order, and the output collections are
-        // extended once from the merged result.
-        let (left_items, right_items) = self
-            .drive(FoldConsumer::new(
-                || (Vec::new(), Vec::new()),
-                |(mut left, mut right): (Vec<A>, Vec<B>), (left_item, right_item)| {
-                    left.push(left_item);
-                    right.push(right_item);
-                    (left, right)
-                },
-                |(mut left, mut right): (Vec<A>, Vec<B>),
-                 (mut later_left, mut later_right): (Vec<A>, Vec<B>)| {
-                    left.append(&mut later_left);
-                    right.append(&mut later_right);
-                    (left, right)
-                },
-            ))
-            .into_value();
-
-        let mut left = FromA::default();
-        let mut right = FromB::default();
-        left.extend(left_items);
-        right.extend(right_items);
-
-        (left, right)
+        // Measured sequential for the reason given on
+        // [`partition`](Self::partition).
+        self.seq_items().into_iter().unzip()
     }
 
     /// Convert to a sequential iterator.
