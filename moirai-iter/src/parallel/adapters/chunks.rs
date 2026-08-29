@@ -65,6 +65,15 @@ where
         chunks
     }
 
+    /// # Why this stays sequential (chunk boundaries are logical positions)
+    ///
+    /// A chunk is defined by its position in the logical stream, and the source
+    /// splits at its own midpoint, which is not in general a multiple of
+    /// `chunk_size`. A shard chunking its own range alone would emit a short
+    /// chunk at every internal shard boundary, so a stream whose only short
+    /// chunk should be the tail would gain one per split. Aligning splits to
+    /// chunk boundaries is a producer-side decision, not something this adapter
+    /// can express by pushing into a consumer.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,

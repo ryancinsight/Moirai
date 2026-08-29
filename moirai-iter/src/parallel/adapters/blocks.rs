@@ -1,4 +1,5 @@
-use super::super::{Consumer, ParallelIterator, VecParIter};
+use super::super::{Consumer, ParallelIterator};
+use std::ops::ControlFlow;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct ExponentialBlockPolicy;
@@ -44,12 +45,25 @@ where
         self.base.seq_items()
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        let _policy = self.policy;
+        self.base.seq_try_fold(init, fold_fn)
+    }
+
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecParIter::new(self.seq_items()))
+        // The block policy selects a logical scheduling shape and leaves the
+        // item stream identical to the base's, so this adapter drives the base
+        // directly rather than collecting it. Collecting cost the source's
+        // shards to express an identity.
+        let _policy = self.policy;
+        self.base.drive(consumer)
     }
 }
 
@@ -83,12 +97,24 @@ where
         self.base.seq_items()
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        let _block_size = self.block_size;
+        let _policy = self.policy;
+        self.base.seq_try_fold(init, fold_fn)
+    }
+
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecParIter::new(self.seq_items()))
+        // Identity item stream, as on [`ExponentialBlocks`].
+        let _block_size = self.block_size;
+        let _policy = self.policy;
+        self.base.drive(consumer)
     }
 }
 

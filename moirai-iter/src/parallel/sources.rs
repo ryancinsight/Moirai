@@ -486,6 +486,10 @@ where
             .try_fold(init, fold_fn)
     }
 
+    /// # Why this stays sequential
+    ///
+    /// The yielded item is a logical index, so this stream needs the offset
+    /// documented as absent on the `Enumerate` adapter.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,

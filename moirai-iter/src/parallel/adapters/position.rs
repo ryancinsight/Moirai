@@ -45,6 +45,11 @@ where
             .collect()
     }
 
+    /// # Why this stays sequential
+    ///
+    /// The yielded item *is* a logical index, so this adapter needs exactly the
+    /// offset documented as absent on
+    /// [`Enumerate`](super::ref_ops::Enumerate).
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -75,6 +80,9 @@ where
             .collect()
     }
 
+    /// # Why this stays sequential
+    ///
+    /// Yields logical indices, per [`Positions`].
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,

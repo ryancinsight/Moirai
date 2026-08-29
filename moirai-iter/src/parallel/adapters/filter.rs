@@ -1,4 +1,4 @@
-use super::super::{Consumer, FilterConsumer, ParallelIterator, VecParIter};
+use super::super::{Consumer, FilterConsumer, FilterMapConsumer, ParallelIterator, VecParIter};
 use super::map::Map;
 use super::pair::ZipEq;
 use std::ops::ControlFlow;
@@ -137,7 +137,12 @@ where
         C: Consumer<Self::Item, Result = R2> + Send + Sync,
         R2: Send,
     {
-        consumer.consume(VecParIter::new(self.seq_items()))
+        // Push the filtering map into the consumer and drive the base, the way
+        // `Filter` and `Map` do. Materializing `seq_items()` first collected the
+        // whole logical stream into one vector before any split, discarding the
+        // source's shards for every chain containing `filter_map()`.
+        self.base
+            .drive(FilterMapConsumer::new(consumer, self.filter_map_fn))
     }
 }
 
@@ -167,6 +172,15 @@ where
             .collect()
     }
 
+    /// # Why this stays sequential
+    ///
+    /// `while_some` stops the whole logical stream at the first `None`, so
+    /// whether a shard's items survive depends on whether an earlier shard
+    /// already stopped — a cross-shard dependency the consumer protocol cannot
+    /// express. A shard that ran `map_while` over its own range alone would
+    /// keep items that follow an earlier shard's `None`, which is a different
+    /// stream, not a reordering of the same one. `take_any_while` and
+    /// `skip_any_while` stay sequential for this same prefix dependency.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,

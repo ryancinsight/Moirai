@@ -83,6 +83,118 @@ where
     }
 }
 
+/// Consumer that applies a filtering map to a shard's items before the base
+/// consumer folds them.
+///
+/// # Why this is sound across a split
+///
+/// `filter_map` decides each item alone and carries no state between items, so
+/// a shard's surviving items are exactly the ones a sequential pass over that
+/// same range would keep, and [`Consumer::combine`] merges shards in logical
+/// order. Element count changes, but no shard's output depends on another
+/// shard's. That is what separates this adapter from the prefix-dependent ones
+/// (`while_some`, `take_any_while`), which cannot be pushed into a consumer at
+/// all, and from the index-bearing ones (`enumerate`, `positions`), which need
+/// a logical offset the non-indexed protocol does not carry.
+pub struct FilterMapConsumer<C, F> {
+    base: C,
+    filter_map_fn: F,
+}
+
+impl<C, F> FilterMapConsumer<C, F> {
+    pub(super) fn new(base: C, filter_map_fn: F) -> Self {
+        Self {
+            base,
+            filter_map_fn,
+        }
+    }
+}
+
+impl<C, F, T, R> Consumer<T> for FilterMapConsumer<C, F>
+where
+    C: Consumer<R>,
+    F: Fn(T) -> Option<R> + Send + Sync + Clone,
+    T: Send,
+    R: Send + Sync + 'static,
+{
+    type Result = C::Result;
+
+    fn consume<I>(self, iter: I) -> Self::Result
+    where
+        I: ParallelIterator<Item = T>,
+    {
+        self.base.consume(iter.filter_map(self.filter_map_fn))
+    }
+
+    fn split_at(self, index: usize) -> (Self, Self) {
+        let (left, right) = self.base.split_at(index);
+        (
+            FilterMapConsumer::new(left, self.filter_map_fn.clone()),
+            FilterMapConsumer::new(right, self.filter_map_fn),
+        )
+    }
+
+    fn combine(left: Self::Result, right: Self::Result) -> Self::Result {
+        C::combine(left, right)
+    }
+}
+
+/// Consumer that expands each of a shard's items into a nested sequence before
+/// the base consumer folds them.
+///
+/// # Why this is sound across a split
+///
+/// Each input item's expansion depends on that item alone, so a shard produces
+/// exactly the sub-sequence a sequential pass over its range would produce, and
+/// combining shards in logical order concatenates those sub-sequences in the
+/// order `Iterator::flat_map` would. One input mapping to many outputs is not
+/// the property that blocks a push into the consumer — a cross-shard dependency
+/// is, and this adapter has none.
+///
+/// `flatten` is this consumer with the identity expansion, so both adapters
+/// share one implementation rather than duplicating the split and combine
+/// forwarding.
+pub struct FlatMapConsumer<C, F> {
+    base: C,
+    flat_map_fn: F,
+}
+
+impl<C, F> FlatMapConsumer<C, F> {
+    pub(super) fn new(base: C, flat_map_fn: F) -> Self {
+        Self { base, flat_map_fn }
+    }
+}
+
+impl<C, F, T, U> Consumer<T> for FlatMapConsumer<C, F>
+where
+    C: Consumer<U::Item>,
+    F: Fn(T) -> U + Send + Sync + Clone,
+    T: Send,
+    U: IntoIterator,
+    U::Item: Send + Sync + 'static,
+{
+    type Result = C::Result;
+
+    fn consume<I>(self, iter: I) -> Self::Result
+    where
+        I: ParallelIterator<Item = T>,
+    {
+        self.base.consume(iter.flat_map(self.flat_map_fn))
+    }
+
+    fn split_at(self, index: usize) -> (Self, Self) {
+        let (left, right) = self.base.split_at(index);
+        (
+            FlatMapConsumer::new(left, self.flat_map_fn.clone()),
+            FlatMapConsumer::new(right, self.flat_map_fn),
+        )
+    }
+
+    fn combine(left: Self::Result, right: Self::Result) -> Self::Result {
+        C::combine(left, right)
+    }
+}
+
 pub struct InspectConsumer<C, F> {
     base: C,
     inspect_fn: F,

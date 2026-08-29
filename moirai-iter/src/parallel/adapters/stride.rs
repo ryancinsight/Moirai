@@ -49,6 +49,11 @@ where
             .collect()
     }
 
+    /// # Why this stays sequential
+    ///
+    /// Which of a shard's items survive depends on the shard's logical start
+    /// index modulo `step`, the same absent offset documented on
+    /// [`Enumerate`](super::ref_ops::Enumerate).
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,

@@ -32,6 +32,26 @@ where
             .collect()
     }
 
+    /// # Why this stays sequential (the logical-index boundary)
+    ///
+    /// Pairing an item with its logical index needs the count of items that
+    /// precede it in the whole stream, and the non-indexed consumer protocol
+    /// does not carry one. `Consumer::split_at` receives the *source's* split
+    /// point — `left.len()` at the source being divided — which equals the
+    /// logical offset only when nothing between the source and this adapter
+    /// changes the element count. A `filter` below invalidates it, and the
+    /// consumer cannot tell the two cases apart, so a shard handed that number
+    /// as a base index would silently emit wrong indices for exactly the chains
+    /// where it matters. No consumer in the tree reads the index today, which
+    /// is why the mismatch is currently latent rather than a live defect.
+    ///
+    /// Supplying a true logical offset means an indexed producer boundary that
+    /// knows each shard's position in the logical stream — the change recorded
+    /// as the indexed adapter model in the Rayon adapter surface audit, not a
+    /// consumer this adapter can push itself into. `positions`,
+    /// `Map::positions`, and the borrowed position stream stay sequential for
+    /// this same reason, as do `take`, `skip`, and `step_by`, whose retained
+    /// items are a function of that same absent offset.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
