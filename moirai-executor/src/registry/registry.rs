@@ -282,8 +282,26 @@ impl TaskRegistry {
     /// Register a waker to be notified when the task completes.
     pub fn register_waker(&self, task_id: u64, waker: &std::task::Waker) -> bool {
         self.with_state(task_id, |state| {
-            let mut guard = state.waker.lock().unwrap();
-            *guard = Some(waker.clone());
+            {
+                let mut guard = state.waker.lock().unwrap();
+                *guard = Some(waker.clone());
+            }
+            // Store first, then re-check completion, mirroring the ordering
+            // `mark_completed_since` publishes: it stores the completion offset
+            // before taking the waker. A task that completed before this store
+            // has already taken the absent waker and will never take again, so
+            // the one just stored would be held for the life of the slot —
+            // along with whatever it owns, typically an `Arc` to async task
+            // state. Reclaiming it here is race-free in both directions: if
+            // completion lands after the store, it takes and wakes; if it
+            // landed before, this take wins and wakes instead. Only one take
+            // can succeed, and a spurious wake is always permitted.
+            if state.is_completed() {
+                let stranded = state.waker.lock().unwrap().take();
+                if let Some(stranded) = stranded {
+                    stranded.wake();
+                }
+            }
         })
         .is_some()
     }

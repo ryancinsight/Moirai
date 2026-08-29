@@ -268,15 +268,51 @@
 - Direction: thread-local inline-poll depth counter; past the bound, fall
   back to the yield rung indefinitely (never drop the wake).
 
-## MOI-REGISTRY-UNBOUNDED-2026-08-27 — Bound the task registry [patch] — todo
+## MOI-REGISTRY-UNBOUNDED-2026-08-27 — Bound the task registry [minor] — partly delivered; the bulk needs a contract decision
 
-- Unowned. Task registry grows without bound: `cleanup_completed` has no
-  production caller (only `registry/tests.rs`); slots for monotonic
-  never-reused IDs are permanent (~100 MB per million tasks) and completion
-  wakers are retained. Fix direction: invoke cleanup from the idle-maintenance
-  hook (`schedule/runtime/worker.rs:57`) or clear on lifecycle completion with
-  no observer. Evidence: `registry/registry.rs:99-122`, `registry/state.rs:55-67`,
-  `hybrid/spawner.rs:49,83`, `hybrid/mod.rs:261-268`.
+- **Growth confirmed by measurement (2026-08-29).** A counting global allocator
+  over a live executor: live heap rises linearly with completed tasks at
+  **~74 bytes each** — +3.71 MB per 50 000, +14.57 MB by 200 000, i.e. about
+  **74 MB per million**. The filed ~100 MB/million was the right order.
+- **`cleanup_completed` works; nothing calls it.** A standalone registry
+  retains 737 728 bytes over 10 000 completed tasks and releases 737 600 of
+  them on one `cleanup_completed(ZERO)` call. The function is not the problem.
+- **DELIVERED: the one retention that could be fixed without changing any
+  contract.** `register_waker` stored unconditionally, with no completion
+  check. `wait_for_task` documents the race: it checks completion, registers,
+  then re-checks. If the task completes between the check and the store,
+  completion has already taken the absent waker and will never take again, so
+  the stored waker — and whatever it owns, typically an `Arc` to async task
+  state — is held for the life of the slot, which is never reclaimed.
+  `register_waker` now re-checks completion after storing and reclaims the
+  stranded waker, which is race-free in both directions because only one
+  `take` can win and a spurious wake is always permitted. Regression test
+  asserts the payload `Arc` strong count returns to 1; it fails on the
+  unfixed code.
+- **CORRECTION to this item's own text:** "completion wakers are retained" was
+  wrong as written. The normal path does take and wake the waker
+  (`mark_completed_since`); only the post-completion registration above
+  stranded one.
+- **NOT delivered, and it is not a wiring job — it is a contract decision.**
+  Sweeping completed slots automatically changes documented behaviour:
+  `cancel_task` states "Cancelling an already-completed task is a no-op
+  `Ok(())`" and "An unknown task ID is an error", so a swept id turns a
+  documented `Ok` into an `Err`. `task_status`/`task_stats` likewise go from
+  answering forever to answering for a window. Wiring `cleanup_completed` into
+  the idle hook as filed would ship that silently. A second obstacle: the
+  sweep is O(blocks x 1024) under the directory write lock, so a naive
+  periodic call reintroduces exactly the spawn stall that
+  `MOI-SPAWN-GLOBAL-MUTEX` removed.
+- **Design worth considering instead of a plain sweep:** ids are monotonic, so
+  a completed-watermark ("every id at or below N is completed and swept") plus
+  a small exception set answers `is_completed` and `cancel_task` in O(1) for
+  swept ids while releasing their 80-byte `TaskState`. That preserves both
+  documented contracts; only `task_stats` timing detail is genuinely lost, and
+  that loss should be a stated policy rather than a side effect. Bounded,
+  cursor-based sweeping keeps the lock hold short.
+- Evidence: `registry/registry.rs`, `registry/state.rs:59-73`,
+  `hybrid/manager.rs:31-41` (the cancel contract), `schedule/runtime/worker.rs:57-95`
+  (the hook and its existing 500 ms throttle).
 
 ## MOI-SPAWN-GLOBAL-MUTEX-2026-08-27 — Shard spawn registry locking [arch] — ON MAIN, review still owed (revises ADR 0005)
 
