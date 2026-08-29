@@ -147,9 +147,11 @@ pub fn for_each_chunk_mut_with_state<P, T, S, Init, F>(
 /// buffer is mutated. The final chunk may be shorter than `chunk_size`; zero
 /// buffers, empty buffers, and a zero chunk size are no-ops.
 ///
-/// The fixed-size array keeps the operation allocation-free and lets callers
-/// fuse any homogeneous number of output-buffer passes without adding another
-/// arity-specific operator.
+/// The fixed-size array and chunk derivation add no heap allocation after the
+/// global executor is initialized. A first parallel call can allocate while
+/// constructing that process-wide executor and its worker pool. The operation
+/// lets callers fuse any homogeneous number of output-buffer passes without
+/// adding another arity-specific operator.
 ///
 /// # Examples
 ///

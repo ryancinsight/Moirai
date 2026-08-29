@@ -97,16 +97,19 @@ architecture definition.
 - **Acceptance:** equal lengths process every full and ragged chunk exactly
   once under sequential and parallel policies; zero/empty inputs are no-ops;
   unequal lengths reject before mutation; focused Nextest, warning-denied
-  Clippy, Rustdoc, doctests, and the unchanged consumer workload pass.
+  Clippy, Rustdoc, doctests, a warmed allocation census, and the unchanged
+  consumer workload pass.
 - **Risk / dependency:** additive public unsafe-backed slicing surface [minor];
   the safe API relies on exclusive slice borrows and exact indexed completion.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `codex/perf-moirai-chunk-arrays`; lease:
   `moirai-parallel/src/{ops.rs,lib.rs,ops/chunks.rs,ops/chunks/tests.rs}` plus
   CHANGELOG and item PM records; last update 2026-08-29. Provider candidate
-  passes warning-denied all-target Clippy, package Nextest 37/37, doctests 3/3,
-  warning-denied Rustdoc, and cargo-semver-checks 196/196 under minor; consumer
-  integration, independent review, and merge remain pending.
+  passes warning-denied all-target Clippy, package Nextest 38/38, doctests 3/3,
+  warning-denied Rustdoc, and cargo-semver-checks 196/196 under minor. A
+  dedicated warmed six-buffer census records zero allocations, and
+  non-idempotent value assertions detect missing or duplicate chunk calls;
+  consumer integration, independent re-review, and merge remain pending.
 
 ### ✅ MOI-ASYNC-CANCEL-LANE-GATE-2026-08-28 [patch]: Match cancellation tests to scheduler lanes
 

@@ -19,7 +19,7 @@ where
             for (buffer_index, chunk) in chunks.into_iter().enumerate() {
                 for (lane, value) in chunk.iter_mut().enumerate() {
                     let absolute = chunk_index * CHUNK_SIZE + lane;
-                    *value = buffer_index * 1_000 + absolute;
+                    *value += buffer_index * 1_000 + absolute + 1;
                 }
             }
         },
@@ -28,7 +28,7 @@ where
 
     for (buffer_index, buffer) in buffers.iter().enumerate() {
         for (index, &value) in buffer.iter().enumerate() {
-            assert_eq!(value, buffer_index * 1_000 + index);
+            assert_eq!(value, buffer_index * 1_000 + index + 1);
         }
     }
 }

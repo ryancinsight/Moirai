@@ -14,13 +14,14 @@
   exactly once under sequential and parallel policies; zero buffers, empty
   buffers, and zero chunk size perform no work; unequal lengths reject before
   mutation; focused Nextest, warning-denied Clippy, Rustdoc, doctests, and the
-  Kwavers SWE fused-stress consumer pass without transient allocation or
-  workload/timeout changes.
+  warmed allocation census, plus the Kwavers SWE fused-stress consumer, pass
+  without workload/timeout changes.
 - **Provider evidence:** behavior-preserving chunk-module split `004f1a6`; the
   additive candidate passes warning-denied all-target Clippy, package Nextest
-  37/37, doctests 3/3, warning-denied Rustdoc, and cargo-semver-checks 196/196
-  under minor. Consumer integration, independent review, and merge remain
-  pending.
+  38/38, doctests 3/3, warning-denied Rustdoc, and cargo-semver-checks 196/196
+  under minor. A dedicated warmed six-buffer census records zero allocations,
+  and non-idempotent value assertions detect missing or duplicate chunk calls.
+  Consumer integration, independent re-review, and merge remain pending.
 
 ## MOI-CONTRACT-AUDIT-STALENESS-2026-08-29 — Source-pinning contracts can audit stale or foreign sources [patch] — todo
 
