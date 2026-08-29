@@ -257,12 +257,23 @@
   no observer. Evidence: `registry/registry.rs:99-122`, `registry/state.rs:55-67`,
   `hybrid/spawner.rs:49,83`, `hybrid/mod.rs:261-268`.
 
-## MOI-SPAWN-GLOBAL-MUTEX-2026-08-27 — Shard spawn registry locking [arch] — review (revises ADR 0005)
+## MOI-SPAWN-GLOBAL-MUTEX-2026-08-27 — Shard spawn registry locking [arch] — ON MAIN, review still owed (revises ADR 0005)
 
-- **Integrator:** claude-fable session 03d80d33. Branch
-  `perf/moirai-spawn-registry`. **Not self-merged:** this reverses a decision
-  ADR 0005 records as rejected, so it is opened for review with the ADR
-  revision that argues the reversal.
+- **Integrator:** claude-fable session 03d80d33. PR #196.
+- **It reached `main` by an unintended route, and that is worth knowing.** This
+  reverses a decision ADR 0005 records as rejected, so PR #196 was deliberately
+  left unmerged for review. It landed anyway: the board-filing branch for
+  `MOI-CONTRACT-AUDIT-STALENESS-2026-08-29` was cut with `git switch -c` while
+  the main tree still had `perf/moirai-spawn-registry` checked out, so it
+  inherited commit `3575f9b`, and merging that filing (PR #198) carried the
+  registry change onto `main`. Nobody reviewed the ADR revision.
+- **Consequence:** the change is on `main` and green, but the review it was
+  held for has not happened. Reverting is a live option and needs no
+  justification beyond wanting the review — the change is self-contained in
+  `moirai-executor` plus its contract markers and diagnostic rows. Re-read the
+  ADR 0005 revision before deciding; the single-producer regression is real.
+- **Process lesson:** branch from `origin/<default>` explicitly, never from
+  whatever the tree happens to have checked out.
 - **Delivered:** the executor holds `Arc<TaskRegistry>`; registration takes
   `&self` through an atomic id counter and an `RwLock` over the block
   directory. The spawn path resolves its block under the shared guard and
