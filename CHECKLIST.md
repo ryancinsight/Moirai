@@ -59,9 +59,19 @@
   collecting. Owned splits still copy down to the threshold.
 - **Last update:** 2026-08-28.
 
-## MOI-PAR-ADAPTER-DRIVE-COLLECT-2026-08-28 — Adapters collect in drive [patch] — todo
+## MOI-PAR-ADAPTER-DRIVE-COLLECT-2026-08-28 — Adapters collect in drive [patch] — in-progress
 
-- Unowned. Twenty-five adapter `drive` implementations call
+- **Integrator:** claude-fable session 03d80d33 subagent.
+- **Lease:** claude-fable session 03d80d33 subagent —
+  `moirai-iter/src/parallel/consumers.rs`,
+  `moirai-iter/src/parallel/adapters/` (`blocks.rs`, `chunks.rs`, `filter.rs`,
+  `flat.rs`, `map.rs`, `pair.rs`, `position.rs`, `ref_ops.rs`,
+  `side_effect.rs`, `slice_ops.rs`, `stride.rs`, `window.rs`),
+  `moirai-iter/src/parallel/mod.rs`, `moirai-iter/tests/`,
+  `benchmarks/tests/benchmark_contracts/iter_source_contracts.rs`.
+  No `moirai-executor` files.
+- **Last update:** 2026-08-29.
+- Twenty-five adapter `drive` implementations call
   `consumer.consume(VecParIter::new(self.seq_items()))`, collecting the whole
   logical stream into one vector before any split, which discards the source's
   shards for any chain containing them (`blocks.rs`, `chunks.rs`, `filter.rs`
