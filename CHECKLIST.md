@@ -59,30 +59,71 @@
   collecting. Owned splits still copy down to the threshold.
 - **Last update:** 2026-08-28.
 
-## MOI-PAR-ADAPTER-DRIVE-COLLECT-2026-08-28 — Adapters collect in drive [patch] — in-progress
+## MOI-PAR-ADAPTER-DRIVE-COLLECT-2026-08-28 — Adapters collect in drive [patch] — review
 
-- **Integrator:** claude-fable session 03d80d33 subagent.
-- **Lease:** claude-fable session 03d80d33 subagent —
-  `moirai-iter/src/parallel/consumers.rs`,
-  `moirai-iter/src/parallel/adapters/` (`blocks.rs`, `chunks.rs`, `filter.rs`,
-  `flat.rs`, `map.rs`, `pair.rs`, `position.rs`, `ref_ops.rs`,
-  `side_effect.rs`, `slice_ops.rs`, `stride.rs`, `window.rs`),
-  `moirai-iter/src/parallel/mod.rs`, `moirai-iter/tests/`,
-  `benchmarks/tests/benchmark_contracts/iter_source_contracts.rs`.
-  No `moirai-executor` files.
+- **Integrator:** claude-fable session 03d80d33 subagent. Lease: released.
 - **Last update:** 2026-08-29.
-- Twenty-five adapter `drive` implementations call
-  `consumer.consume(VecParIter::new(self.seq_items()))`, collecting the whole
-  logical stream into one vector before any split, which discards the source's
-  shards for any chain containing them (`blocks.rs`, `chunks.rs`, `filter.rs`
-  `FilterMap`/`WhileSome`, `flat.rs`, `map.rs`, `pair.rs`, `position.rs`,
-  `ref_ops.rs` `Enumerate`, `slice_ops.rs`, `stride.rs`, `window.rs`).
-  `Copied`/`Cloned` were converted to a `MapConsumer` push under
-  `MOI-PAR-TERMINALS-2026-08-28`; the rest are not all one-to-one maps, so
-  shape-changing adapters need their own consumer or an indexed producer.
-  Fix direction: push one-to-one adapters into consumers as `Map` does, and
-  decide the shape-changing ones against the indexed boundary already recorded
-  in the Rayon adapter audit.
+- **Outcome:** twenty-six adapter and source `drive` implementations collected
+  the whole logical stream into one vector before any split, discarding the
+  source's shards for every chain containing them. Six are converted to push
+  their transform into a consumer and drive the base, as `map`, `filter`,
+  `inspect`, `copied`, and `cloned` already did: `filter_map` and `flat_map`
+  through new `FilterMapConsumer`/`FlatMapConsumer`, `flatten` through the
+  latter with the identity expansion, `update` through `MapConsumer`, and the
+  two block adapters directly, their item stream being identical to the base's.
+- **Correction to the item as written:** it listed `Filter` among the
+  unconverted. `Filter` and `Inspect` already drove through consumers on
+  entry; only `FilterMap` and `WhileSome` in `filter.rs` collected.
+- **Not converted, twenty, each recording its reason at the `drive` that
+  stays.** Absent logical offset — `Consumer::split_at` carries the *source's*
+  split point, which a length-changing adapter invalidates: `enumerate`,
+  `positions`, `Map::positions`, the borrowed position stream, `take`, `skip`,
+  `step_by`. Prefix dependency, where a shard cannot know an earlier shard
+  already stopped: `while_some`, `take_any_while`, `skip_any_while`. Chunk
+  boundaries are logical positions, so a split not aligned to one emits a short
+  chunk per shard: `chunks`. Adjacency across a shard boundary: `intersperse`.
+  Fixed `combine(left, right)` order: `rev`. Two sources split in lockstep:
+  `zip`, `zip_eq`, `interleave`, `interleave_shortest`. Threaded state:
+  `map_with`, `map_init`. `chain` needs its left branch's logical length to
+  split, which it cannot know without the materialization the conversion
+  removes.
+- **Evidence — allocated bytes, machine-independent.** Borrowed chains at
+  65536 elements: 524288 bytes (one full copy of the stream) to **512**, for
+  `filter_map`, `flat_map`, and the two stacked. `flatten` 1097728 to 598528
+  against a 573440-byte source clone. Owned chains gain 524288 to 786944,
+  which is the signature of actually splitting: an owned source has no
+  zero-copy split, and the collect shape's tell was allocating exactly the
+  source and never splitting it. `enumerate` is byte-identical either side,
+  confirming the probe discriminates.
+- **Evidence — wall clock**, 131072 elements, Ultra 9 285K pinned to CPUs 0-7,
+  one chain per process, 200 warm-up and 200 measured iterations, median with
+  a 95% percentile interval. `filter_map().sum()` 373.10us to 16.20us
+  (**23.0x**); `flat_map().sum()` 842.10 to 58.80 (**14.3x**);
+  `flatten().sum()` 1017.80 to 93.00 (**10.9x**);
+  `filter_map().flat_map().sum()` 420.50 to 28.70 (**14.6x**). Control:
+  `filter().sum()` 16.40 against 16.80, unchanged as its code is.
+- **Owned-source chains are unresolved on this host, not improved.** `update`
+  measured 1.0x to 1.5x across repeats. The calibration is an internal
+  control: owned `map().sum()`, whose code is byte-identical on both branches,
+  itself measured 315.60, 422.70, and 424.70us across three runs of the same
+  binary and showed an apparent 1.44x branch difference in one pairing. This
+  host cannot resolve below roughly 1.5x for this chain class. The mechanism
+  that could produce a real owned-source cost is recorded above: splitting an
+  owned source copies, and the collect shape never split at all.
+- **Method note.** A first measurement pass ran every chain in one process and
+  reported `filter().sum()` at 54.30 against 15.80 on identical code; that was
+  cross-contamination from the preceding chain and disappeared under
+  one-chain-per-process. Numbers from the batched pass are not reported.
+- **Contract.** The audit read seven of twelve adapter files; `filter`, `flat`,
+  `map`, `ref_ops`, and `slice_ops` are now in the audited set and pass the
+  existing prohibitions unchanged. A new contract pins each converted `drive`
+  shape, requires every remaining collect site to carry its recorded reason,
+  and holds a non-increasing baseline of collect sites at 20, down from 26.
+  Both failing arms were verified against `origin/main` sources.
+- **Residual risk.** `drive_split` calls `consume`, not `drive`, on each half,
+  so a source splits exactly two ways however long it is; the wins above come
+  from removing the materialization rather than from shard count. Raising the
+  split depth is separate work and is not attempted here.
 
 ## MOI-PAR-INHERENT-SUM-BYPASS-2026-08-28 — Inherent sum overrides run single-threaded [patch] — review
 
