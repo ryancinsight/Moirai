@@ -165,7 +165,11 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
     );
 
     for required in [
-        "blocks: Vec<Arc<TaskStateBlock>>",
+        // Dense blocks are the point of this contract: one block allocation
+        // per 1024 tasks, never one per task. The directory gained a lock so
+        // registration takes `&self` (ADR 0005, 2026-08-29 revision); the
+        // block granularity it guards is unchanged.
+        "blocks: RwLock<Vec<Arc<TaskStateBlock>>>",
         // Dense inline slots remain one block allocation per 1024 tasks. Async
         // tokens retain the block; scheduler-bounded tokens use a non-owning
         // lifetime policy without restoring one allocation per task.
@@ -174,8 +178,8 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
         "token_active: AtomicBool",
         "pub(crate) struct OwnedStateLease",
         "pub(crate) struct SchedulerStateLease",
-        "fn ensure_block(&mut self, block_index: usize)",
-        "TaskLifecycleToken::new_owned(Arc::clone(&self.blocks[block_index]), state)",
+        "pub(super) fn ensure_block(&self, block_index: usize) -> Arc<TaskStateBlock>",
+        "TaskLifecycleToken::new_owned(block, state)",
         "TaskLifecycleToken::new_scheduled(state)",
     ] {
         assert!(
@@ -185,10 +189,10 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
     }
 
     for required in [
-        "task_registry: Arc<Mutex<TaskRegistry>>",
-        "let task_registry = Arc::new(Mutex::new(TaskRegistry::new()))",
+        "task_registry: Arc<TaskRegistry>,",
+        "let task_registry = Arc::new(TaskRegistry::new())",
         "scheduler.retain_lifetime_owner((Arc::clone(&task_registry), Arc::clone(&metrics)))",
-        "let mut registry = self.task_registry.lock().map_err",
+        "let registry = &self.task_registry;",
         "unsafe { registry.register_next_scheduled_task() }",
         "Ok((TaskId::new(task_id), lifecycle))",
     ] {
@@ -210,14 +214,24 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
         );
     }
 
+    // The 2026-05 rejection stands on its own terms and stays enforced: the
+    // design refused there allocated one `Arc<TaskState>` per task and split id
+    // allocation from registration, so an id could exist unregistered. The
+    // 2026-08-29 revision changes only where the lock sits — registration is
+    // still a single call that allocates the id and claims the slot together,
+    // and slots are still dense blocks. Every marker below is still banned.
     for prohibited in [
         "Arc<TaskState>",
         "pub(crate) struct ConcurrentTaskRegistry",
         "register_unique_task_with_id",
         "fn register_unique(&self, id: u64)",
-        "next_task_id: AtomicU64",
         "fn allocate_task_id(&self) -> TaskId",
         "registry.register_task_with_id(task_id.0)",
+        // Re-introducing the global registry mutex would restore the
+        // multi-producer collapse the revision removed: spawn throughput fell
+        // from 3.13 to 3.08 M/s between one and eight producers, where it now
+        // rises to 4.90 M/s.
+        "task_registry: Arc<Mutex<TaskRegistry>>",
     ] {
         assert!(
             !registry_source.contains(prohibited) && !hybrid_source.contains(prohibited),
@@ -239,24 +253,24 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
         read_benchmark("benches/result_handle_diagnostics/registry_paths.rs");
 
     for required in [
-        "pub fn diagnostic_block_lookup(&mut self) -> u64",
-        "pub fn diagnostic_slot_initialize(&mut self) -> u64",
+        "pub fn diagnostic_block_lookup(&self) -> u64",
+        "pub fn diagnostic_slot_initialize(&self) -> u64",
         "pub fn diagnostic_lifecycle_timestamp_publication() -> Duration",
         "self.ensure_block(block_index);",
         // Diagnostics and production register/lookup now share the same
         // `TaskStateBlock` accessors (interior-mutable `UnsafeCell` slots), so
         // the diagnostic block-lookup and slot-init paths still exercise the
         // exact production code rather than a divergent copy.
-        "self.blocks[block_index].get(slot_index)",
-        "self.blocks[block_index].insert(slot_index)",
+        "let slot_occupied = block.get(slot_index).is_some();",
+        "self.ensure_block(block_index).insert(slot_index)",
         "fn snapshot(&self, id: u64) -> TaskMetadata",
         "id,\n            created_at",
         "let started_after_ns = state.mark_started(0);",
         "state.mark_completed_since(started_after_ns)",
         "lifecycle.start(0).complete()",
-        "pub fn diagnostic_register_next_and_complete_with_token(&mut self) -> Duration",
-        "pub fn diagnostic_register_next_and_complete_with_retained_token(&mut self) -> Duration",
-        "pub fn diagnostic_register_next_and_complete_with_token_id(&mut self) -> (u64, Duration)",
+        "pub fn diagnostic_register_next_and_complete_with_token(&self) -> Duration",
+        "pub fn diagnostic_register_next_and_complete_with_retained_token(&self) -> Duration",
+        "pub fn diagnostic_register_next_and_complete_with_token_id(&self) -> (u64, Duration)",
     ] {
         assert!(
             registry_source.contains(required),
@@ -265,9 +279,9 @@ fn registry_hot_path_diagnostics_use_production_registry_paths() {
     }
 
     for required in [
-        "fn registry_mutex_lock_only(registry: &Mutex<TaskRegistry>) -> usize",
-        "fn registry_block_lookup(registry: &mut TaskRegistry) -> usize",
-        "fn registry_slot_initialize(registry: &mut TaskRegistry) -> usize",
+        "fn registry_shared_acquire_only(registry: &TaskRegistry) -> usize",
+        "fn registry_block_lookup(registry: &TaskRegistry) -> usize",
+        "fn registry_slot_initialize(registry: &TaskRegistry) -> usize",
         "fn registry_lifecycle_timestamp_publication() -> usize",
         "fn registry_elapsed_nanos_since_origin(origin: Instant) -> usize",
         "fn registry_start_release_publication(",

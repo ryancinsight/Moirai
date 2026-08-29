@@ -12,7 +12,7 @@ mod tests {
 
     #[test]
     fn lifecycle_token_records_started_and_completed_metadata() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let lifecycle = registry.register_task_with_id(7);
 
         let running = lifecycle.start(3);
@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn register_next_task_returns_id_and_lifecycle_token() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
 
         let running = lifecycle.start(2);
@@ -50,10 +50,11 @@ mod tests {
     #[test]
     fn lifecycle_token_keeps_its_dense_block_alive_after_registry_drop() {
         let (lifecycle, block) = {
-            let mut registry = TaskRegistry::new();
+            let registry = TaskRegistry::new();
             let (task_id, lifecycle) = registry.register_next_task();
             let (block_index, _) = task_location(task_id);
-            let block = Arc::downgrade(&registry.blocks[block_index]);
+            let block =
+                Arc::downgrade(&registry.blocks.read().expect("test registry lock")[block_index]);
             assert_eq!(block.strong_count(), 2);
             (lifecycle, block)
         };
@@ -68,7 +69,7 @@ mod tests {
 
     #[test]
     fn cleanup_retains_completed_state_until_running_token_retires() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
         let running = lifecycle.start(3);
 
@@ -85,7 +86,7 @@ mod tests {
 
     #[test]
     fn unstarted_lifecycle_token_drop_publishes_rejection_completion() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
 
         drop(lifecycle);
@@ -102,7 +103,7 @@ mod tests {
 
     #[test]
     fn running_lifecycle_token_completes_on_drop() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let lifecycle = registry.register_task_with_id(8);
 
         drop(lifecycle.start(1));
@@ -112,7 +113,7 @@ mod tests {
 
     #[test]
     fn lifecycle_blocks_preserve_sparse_metadata_and_cleanup_completed_slots() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let first_id = (TASK_STATE_BLOCK_SIZE - 1) as u64;
         let second_id = TASK_STATE_BLOCK_SIZE as u64;
 
@@ -137,7 +138,7 @@ mod tests {
 
     #[test]
     fn cleanup_completed_releases_empty_trailing_blocks() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let first_id = (TASK_STATE_BLOCK_SIZE - 1) as u64;
         let second_id = TASK_STATE_BLOCK_SIZE as u64;
 
@@ -146,11 +147,15 @@ mod tests {
             .register_task_with_id(second_id)
             .start(0)
             .complete();
-        assert_eq!(registry.blocks.len(), 2);
+        assert_eq!(registry.blocks.read().expect("test registry lock").len(), 2);
 
         registry.cleanup_completed(Duration::ZERO);
 
-        assert!(registry.blocks.is_empty());
+        assert!(registry
+            .blocks
+            .read()
+            .expect("test registry lock")
+            .is_empty());
         assert!(registry.get_metadata(first_id).is_none());
         assert!(registry.get_metadata(second_id).is_none());
     }
@@ -174,7 +179,7 @@ mod tests {
 
     #[test]
     fn lifecycle_token_records_spawn_priority() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
         lifecycle.set_priority(Priority::Critical);
 
@@ -193,7 +198,7 @@ mod tests {
 
     #[test]
     fn cancel_before_start_skips_body_and_completes_as_cancelled() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
 
         assert_eq!(
@@ -213,7 +218,7 @@ mod tests {
 
     #[test]
     fn cancel_after_completion_reports_already_completed() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
         lifecycle.start(0).complete();
 
@@ -230,10 +235,59 @@ mod tests {
         assert_eq!(registry.request_cancel(999), None);
     }
 
+    /// Concurrent registration must hand out distinct ids and distinct slots.
+    ///
+    /// The registry is shared as `Arc<TaskRegistry>` without an outer mutex, so
+    /// this is the contract that replaced it: many producers registering at
+    /// once, across the 1024-id block boundary so the directory has to grow
+    /// underneath them. A lost `fetch_add`, a torn directory growth, or two
+    /// producers claiming one slot would show up as a duplicate id or a
+    /// missing metadata entry.
+    #[test]
+    fn concurrent_registration_yields_distinct_ids_across_block_growth() {
+        use std::collections::BTreeSet;
+        use std::sync::Mutex;
+
+        const PRODUCERS: usize = 8;
+        const PER_PRODUCER: usize = 400; // 3200 ids: spans several 1024-id blocks
+
+        let registry = Arc::new(TaskRegistry::new());
+        let ids: Mutex<Vec<u64>> = Mutex::new(Vec::with_capacity(PRODUCERS * PER_PRODUCER));
+
+        std::thread::scope(|scope| {
+            for _ in 0..PRODUCERS {
+                let registry = Arc::clone(&registry);
+                let ids = &ids;
+                scope.spawn(move || {
+                    let mut local = Vec::with_capacity(PER_PRODUCER);
+                    for _ in 0..PER_PRODUCER {
+                        local.push(registry.register_task());
+                    }
+                    ids.lock().expect("test id collector").extend(local);
+                });
+            }
+        });
+
+        let ids = ids.into_inner().expect("test id collector");
+        assert_eq!(ids.len(), PRODUCERS * PER_PRODUCER);
+        let unique: BTreeSet<u64> = ids.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            ids.len(),
+            "concurrent registration handed out a duplicate task id"
+        );
+        for id in ids {
+            assert!(
+                registry.get_metadata(id).is_some(),
+                "registered task {id} has no slot"
+            );
+        }
+    }
+
     #[test]
     #[should_panic(expected = "task ID must not be re-registered while active")]
     fn lifecycle_registry_rejects_active_id_reuse() {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let _running = registry.register_task_with_id(21).start(0);
 
         let _duplicate = registry.register_task_with_id(21);

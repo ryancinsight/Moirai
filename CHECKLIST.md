@@ -169,12 +169,45 @@
   no observer. Evidence: `registry/registry.rs:99-122`, `registry/state.rs:55-67`,
   `hybrid/spawner.rs:49,83`, `hybrid/mod.rs:261-268`.
 
-## MOI-SPAWN-GLOBAL-MUTEX-2026-08-27 — Shard spawn registry locking [patch] — todo
+## MOI-SPAWN-GLOBAL-MUTEX-2026-08-27 — Shard spawn registry locking [arch] — review (revises ADR 0005)
 
-- Unowned. One global `Arc<Mutex<TaskRegistry>>` serializes every spawn kind
-  ahead of the lock-free scheduler, and `wait_for_task` re-locks per poll
-  (`hybrid/manager.rs:77-104`). Fix direction: shard by per-worker ID ranges or
-  lock-free block insertion. Evidence: `hybrid/mod.rs:75,261-268`.
+- **Integrator:** claude-fable session 03d80d33. Branch
+  `perf/moirai-spawn-registry`. **Not self-merged:** this reverses a decision
+  ADR 0005 records as rejected, so it is opened for review with the ADR
+  revision that argues the reversal.
+- **Delivered:** the executor holds `Arc<TaskRegistry>`; registration takes
+  `&self` through an atomic id counter and an `RwLock` over the block
+  directory. The spawn path resolves its block under the shared guard and
+  never clones the block `Arc`, because the scheduled token borrows the slot.
+- **Measured (8-core pin, 3 runs, medians; disjoint ranges where claimed):**
+  executor spawn 1 producer 3.126 → 2.989 M/s (**4% slower**, disjoint),
+  4 producers 3.256 → 4.581 (**1.41x**), 8 producers 3.082 → 4.895
+  (**1.59x**). The shape is the real result: before, throughput *fell* from
+  one to eight producers; after, it rises. Control (raw scheduler, unchanged
+  code) held at ~4.7 → ~9.2 M/s in both states.
+- **Attribution:** the same probe reaching the scheduler *without* the
+  registry scaled while the executor path did not, which is what located the
+  cost in registration rather than in scheduling.
+- **The prior rejection's failure condition does not recur:**
+  `task_scheduling_overhead` — the benchmark that killed the 2026-05 attempt —
+  measures 5.5257 µs baseline vs 5.5348 µs, medians 0.16% apart with
+  overlapping intervals. That benchmark is noisy at 10 samples, so this is
+  "no detectable change", not an improvement.
+- **What is preserved:** dense registry-owned blocks at one allocation per
+  1024 tasks, no per-task `Arc<TaskState>`, and single-call registration. The
+  benchmark contract still bans the rejected design and now also bans
+  re-introducing the production `task_registry: Arc<Mutex<TaskRegistry>>`.
+  The `registry_mutex_lock_only` attribution row became meaningless and was
+  replaced by `registry_shared_acquire_only` rather than deleted, so the
+  tradeoff stays measurable.
+- **Gates:** `fmt --check` clean, Clippy `-D warnings --all-features` clean,
+  workspace Nextest 900/900 (7 configured skips), doctests pass,
+  `cargo semver-checks -p moirai-executor` reports no update required.
+- **Residual:** single-producer spawn is ~4% slower; the cost split still says
+  slot initialization and timestamp publication dominate per-operation cost
+  and remain the next targets. `MOI-REGISTRY-UNBOUNDED-2026-08-27` is
+  unaffected but now easier — `cleanup_completed` takes `&self`.
+- **Last update:** 2026-08-29.
 
 ## MOI-PAR-ITER-SEQUENTIAL-TERMINALS-2026-08-27 — Parallel terminals collect sequentially [patch] — done 2026-08-28
 

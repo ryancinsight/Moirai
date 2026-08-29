@@ -1,7 +1,7 @@
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_token_wrapper_components(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
@@ -36,7 +36,7 @@ fn direct_scheduled_public_token_wrapper_components(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_registry_token_wrapper_components(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
@@ -71,7 +71,7 @@ fn direct_scheduled_public_registry_token_wrapper_components(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_registry_token_wrapper_after_send_quiescent(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
@@ -111,7 +111,7 @@ fn direct_scheduled_public_registry_token_wrapper_after_send_quiescent(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_registry_token_wrapper_local_metrics_quiescent(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
 ) -> usize {
     let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
@@ -157,7 +157,7 @@ fn direct_scheduled_public_registry_token_wrapper_local_metrics_quiescent(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_token_wrapper_without_metrics(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
 ) -> usize {
     let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
@@ -184,7 +184,7 @@ fn direct_scheduled_public_token_wrapper_without_metrics(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_registry_token_wrapper_without_metrics(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
 ) -> usize {
     let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
@@ -211,7 +211,7 @@ fn direct_scheduled_public_registry_token_wrapper_without_metrics(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_token_wrapper_without_catch(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
@@ -237,7 +237,7 @@ fn direct_scheduled_public_token_wrapper_without_catch(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_token_wrapper_atomic_result(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let (_id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
@@ -297,7 +297,7 @@ fn direct_scheduled_public_token_wrapper_without_lifecycle(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_token_wrapper_oversized_components(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let words = [1usize; OVERSIZED_CAPTURE_WORDS];
@@ -333,7 +333,7 @@ fn direct_scheduled_public_token_wrapper_oversized_components(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_token_wrapper_oversized_storage_only(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let words = [1usize; OVERSIZED_CAPTURE_WORDS];
@@ -370,7 +370,7 @@ fn direct_scheduled_public_token_wrapper_oversized_storage_only(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_token_wrapper_oversized_read_one_components(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &Arc<ExecutorMetrics>,
 ) -> usize {
     let words = [1usize; OVERSIZED_CAPTURE_WORDS];
@@ -406,7 +406,7 @@ fn direct_scheduled_public_token_wrapper_oversized_read_one_components(
 #[cfg(feature = "registry-diagnostics")]
 fn direct_scheduled_public_token_wrapper_oversized_without_metrics(
     scheduler: &ThreadScheduler,
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
 ) -> usize {
     let words = [1usize; OVERSIZED_CAPTURE_WORDS];
     let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
