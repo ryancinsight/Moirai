@@ -308,12 +308,22 @@ where
 ///   have not started return their initial accumulator. Terminals that accept
 ///   any matching answer (`find_any`, `any`, `all`) use this.
 ///
-/// The flag is read once per shard, not once per item, so a shard already
-/// running finishes its own range. Short-circuit granularity is the shard
-/// length, which bounds wasted work without putting an atomic load on the
-/// per-item path. `Relaxed` ordering suffices because the flag is a hint: a
-/// shard that misses the store merely does work whose result `combine`
+/// The flag is read once on entry and then once every [`STOP_POLL_STRIDE`]
+/// items, so a shard already running abandons its range rather than finishing
+/// it. Reading per item would put a shared cache line on the fold's inner loop;
+/// reading only on entry left a running shard scanning its whole range after
+/// the answer was already known, which measured as no short-circuit at all.
+/// `Relaxed` ordering suffices because the flag is a hint: a shard that misses
+/// the store does at most one more stride of work, whose result `combine`
 /// discards.
+/// Items a shard folds between reads of the shared stop flag.
+///
+/// A power of two so the countdown compiles to a mask-free decrement and test,
+/// and small enough that abandoning a running shard costs at most this many
+/// items of wasted work against a shard length bounded by the dispatch
+/// threshold.
+const STOP_POLL_STRIDE: usize = 128;
+
 pub struct ShortCircuitConsumer<Acc, InitFn, FoldFn, CombineFn> {
     init_fn: InitFn,
     fold_fn: FoldFn,
@@ -376,34 +386,54 @@ where
     where
         I: ParallelIterator<Item = Item>,
     {
-        let already_stopped = self
-            .stop
+        let Self {
+            init_fn,
+            fold_fn,
+            combine_fn,
+            stop,
+            _accumulator,
+        } = self;
+
+        if stop
             .as_ref()
-            .is_some_and(|stop| stop.load(Ordering::Relaxed));
-        if already_stopped {
+            .is_some_and(|stop| stop.load(Ordering::Relaxed))
+        {
             return Folded {
-                value: (self.init_fn)(),
-                combine_fn: self.combine_fn,
+                value: init_fn(),
+                combine_fn,
             };
         }
 
-        let fold_fn = self.fold_fn;
-        let value = match iter.seq_try_fold((self.init_fn)(), |accumulator, item| {
+        let mut countdown = STOP_POLL_STRIDE;
+        let folded = iter.seq_try_fold(init_fn(), |accumulator, item| {
+            if let Some(stop) = &stop {
+                countdown -= 1;
+                if countdown == 0 {
+                    countdown = STOP_POLL_STRIDE;
+                    if stop.load(Ordering::Relaxed) {
+                        // Abandoning returns the accumulator as it stands. Only
+                        // the shared-stop terminals reach here, and their result
+                        // is an `Option` that is still `None` at this point, so
+                        // `combine` discards it.
+                        return ControlFlow::Break(accumulator);
+                    }
+                }
+            }
+
             fold_fn(accumulator, item)
-        }) {
+        });
+
+        let value = match folded {
             ControlFlow::Continue(value) => value,
             ControlFlow::Break(value) => {
-                if let Some(stop) = &self.stop {
+                if let Some(stop) = &stop {
                     stop.store(true, Ordering::Relaxed);
                 }
                 value
             }
         };
 
-        Folded {
-            value,
-            combine_fn: self.combine_fn,
-        }
+        Folded { value, combine_fn }
     }
 
     fn split_at(self, _index: usize) -> (Self, Self) {
