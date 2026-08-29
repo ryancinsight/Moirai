@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use moirai_core::{
     error::{ExecutorError, ExecutorResult, TaskError},
@@ -7,17 +7,9 @@ use moirai_core::{
 };
 
 use super::HybridExecutor;
-use crate::registry::{CancelOutcome, TaskRegistry};
+use crate::registry::CancelOutcome;
 use crate::schedule::WorkScheduler;
 use crate::task::TaskMetadata;
-
-fn lock_registry(
-    registry: &Mutex<TaskRegistry>,
-) -> ExecutorResult<std::sync::MutexGuard<'_, TaskRegistry>> {
-    registry
-        .lock()
-        .map_err(|_| ExecutorError::ResourceExhausted("task registry lock poisoned".to_string()))
-}
 
 /// Derive the observable [`TaskStatus`] from registry metadata.
 fn status_of(metadata: &TaskMetadata) -> TaskStatus {
@@ -42,16 +34,14 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
     /// recorded but has no effect). Cancelling an already-completed task is a
     /// no-op `Ok(())`. An unknown task ID is an error.
     fn cancel_task(&self, id: TaskId) -> ExecutorResult<()> {
-        let registry = lock_registry(&self.task_registry)?;
-        match registry.request_cancel(id.0) {
+        match self.task_registry.request_cancel(id.0) {
             Some(CancelOutcome::Requested | CancelOutcome::AlreadyCompleted) => Ok(()),
             None => Err(ExecutorError::SpawnFailed(TaskError::InvalidOperation)),
         }
     }
 
     fn task_status(&self, id: TaskId) -> Option<TaskStatus> {
-        let registry = self.task_registry.lock().ok()?;
-        registry
+        self.task_registry
             .get_metadata(id.0)
             .map(|metadata| status_of(&metadata))
     }
@@ -75,11 +65,6 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
         let deadline = timeout.and_then(|timeout| std::time::Instant::now().checked_add(timeout));
 
         std::future::poll_fn(move |context| {
-            let registry = match lock_registry(&registry) {
-                Ok(registry) => registry,
-                Err(error) => return std::task::Poll::Ready(Err(error)),
-            };
-
             if registry.is_completed(id.0) {
                 return std::task::Poll::Ready(Ok(()));
             }
@@ -109,17 +94,18 @@ impl<S: WorkScheduler> TaskManager for HybridExecutor<S> {
     /// `priority` is the value recorded at spawn; timing fields come from the
     /// registry's lifecycle timestamps.
     fn task_stats(&self, id: TaskId) -> Option<TaskStats> {
-        let registry = self.task_registry.lock().ok()?;
-        registry.get_metadata(id.0).map(|metadata| TaskStats {
-            id,
-            priority: metadata.priority,
-            status: status_of(&metadata),
-            spawn_time: metadata.created_at,
-            start_time: metadata.started_at,
-            completion_time: metadata.completed_at,
-            cpu_time_ns: metadata
-                .execution_duration()
-                .map_or(0, |duration| duration.as_nanos() as u64),
-        })
+        self.task_registry
+            .get_metadata(id.0)
+            .map(|metadata| TaskStats {
+                id,
+                priority: metadata.priority,
+                status: status_of(&metadata),
+                spawn_time: metadata.created_at,
+                start_time: metadata.started_at,
+                completion_time: metadata.completed_at,
+                cpu_time_ns: metadata
+                    .execution_duration()
+                    .map_or(0, |duration| duration.as_nanos() as u64),
+            })
     }
 }

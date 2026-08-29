@@ -1,4 +1,4 @@
-fn direct_public_wrapper_without_metrics(registry: &mut TaskRegistry) -> usize {
+fn direct_public_wrapper_without_metrics(registry: &TaskRegistry) -> usize {
     let id = registry.register_task();
     let (handle, sender) = TaskHandle::new_pending(TaskId(id));
 
@@ -20,7 +20,7 @@ fn direct_public_wrapper_without_metrics(registry: &mut TaskRegistry) -> usize {
 }
 
 fn direct_public_wrapper_components(
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &ExecutorMetrics,
 ) -> usize {
     let id = registry.register_task();
@@ -56,7 +56,7 @@ fn direct_public_wrapper_components(
 
 #[cfg(feature = "registry-diagnostics")]
 fn direct_public_token_wrapper_components(
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &ExecutorMetrics,
 ) -> usize {
     let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
@@ -86,7 +86,7 @@ fn direct_public_token_wrapper_components(
 
 #[cfg(feature = "registry-diagnostics")]
 fn direct_public_token_wrapper_after_send_components(
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &ExecutorMetrics,
 ) -> usize {
     let (id, execution_time) = registry.diagnostic_register_next_and_complete_with_token_id();
@@ -116,7 +116,7 @@ fn direct_public_token_wrapper_after_send_components(
 }
 
 fn direct_public_wrapper_oversized_captured_components(
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &ExecutorMetrics,
 ) -> usize {
     let words = [1usize; OVERSIZED_CAPTURE_WORDS];
@@ -152,7 +152,7 @@ fn direct_public_wrapper_oversized_captured_components(
 }
 
 fn direct_public_wrapper_oversized_capture_read_one_components(
-    registry: &mut TaskRegistry,
+    registry: &TaskRegistry,
     metrics: &ExecutorMetrics,
 ) -> usize {
     let words = [1usize; OVERSIZED_CAPTURE_WORDS];

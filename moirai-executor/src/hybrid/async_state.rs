@@ -551,7 +551,7 @@ mod tests {
     use crate::registry::TaskRegistry;
     use crate::schedule::{SyncTask, ThreadScheduler, WorkClass, WorkSubmit};
 
-    impl WorkSubmit for Arc<Mutex<TaskRegistry>> {
+    impl WorkSubmit for Arc<TaskRegistry> {
         fn schedule<C, F>(
             &self,
             _priority: Priority,
@@ -573,13 +573,10 @@ mod tests {
 
     #[test]
     fn scheduled_lifecycle_retires_before_its_registry_owner() {
-        let registry = Arc::new(Mutex::new(TaskRegistry::new()));
-        let (task_id, lifecycle) = {
-            let mut registry = registry.lock().unwrap();
-            // SAFETY: the async state owns the only remaining registry Arc
-            // through its scheduler field, which is declared after lifecycle.
-            unsafe { registry.register_next_scheduled_task() }
-        };
+        let registry = Arc::new(TaskRegistry::new());
+        // SAFETY: the async state owns the only remaining registry Arc
+        // through its scheduler field, which is declared after lifecycle.
+        let (task_id, lifecycle) = unsafe { registry.register_next_scheduled_task() };
         let registry_owner = Arc::downgrade(&registry);
         let (_handle, result_sender) = TaskHandle::<()>::new_pending(TaskId(task_id));
         let state = AsyncFutureState::new(
@@ -690,7 +687,7 @@ mod tests {
         output: i32,
         first_poll_sender: Option<mpsc::Sender<()>>,
     ) -> PendingTask<S> {
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
         let (handle, result_sender) = TaskHandle::new_pending(TaskId(task_id));
         let polls = Arc::new(AtomicUsize::new(0));
@@ -812,7 +809,7 @@ mod tests {
     #[test]
     fn repeated_self_wake_reports_saturated_reschedule_without_recursion() {
         let injector = GatedInjector::new();
-        let mut registry = TaskRegistry::new();
+        let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
         let (handle, result_sender) = TaskHandle::new_pending(TaskId(task_id));
         let polls = Arc::new(AtomicUsize::new(0));

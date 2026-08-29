@@ -11,12 +11,12 @@ use std::{
     ptr::NonNull,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc,
     },
 };
 
 use moirai_core::{
-    error::{ExecutorError, ExecutorResult, TaskError},
+    error::{ExecutorResult, TaskError},
     executor::ExecutorConfig,
     task::{TaskHandle, TaskId, TaskResultSender},
     Priority,
@@ -71,7 +71,7 @@ impl MetricsRef {
 pub struct HybridExecutor<S: WorkScheduler = ThreadScheduler> {
     config: ExecutorConfig,
     scheduler: S,
-    task_registry: Arc<Mutex<TaskRegistry>>,
+    task_registry: Arc<TaskRegistry>,
     metrics: Arc<ExecutorMetrics>,
     shutdown_signal: Arc<AtomicBool>,
 }
@@ -98,7 +98,7 @@ impl HybridExecutor<ThreadScheduler> {
             }
         };
         let scheduler = ThreadScheduler::from_executor_config(&config, numa_aware)?;
-        let task_registry = Arc::new(Mutex::new(TaskRegistry::new()));
+        let task_registry = Arc::new(TaskRegistry::new());
         let metrics = Arc::new(ExecutorMetrics::new());
         scheduler.retain_lifetime_owner((Arc::clone(&task_registry), Arc::clone(&metrics)));
         metrics.update_worker_counts(0, scheduler.worker_count(), scheduler.worker_count());
@@ -267,9 +267,7 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         &self,
         priority: Priority,
     ) -> ExecutorResult<(TaskId, TaskLifecycleToken<SchedulerStateLease>)> {
-        let mut registry = self.task_registry.lock().map_err(|_| {
-            ExecutorError::ResourceExhausted("task registry lock poisoned".to_string())
-        })?;
+        let registry = &self.task_registry;
         // SAFETY: synchronous and blocking lifecycle tokens move only into
         // scheduler-owned jobs. Construction installs the registry and metrics
         // as the scheduler's lifetime owner; each worker holds scheduler state
