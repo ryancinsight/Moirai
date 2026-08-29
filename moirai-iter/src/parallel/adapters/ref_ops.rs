@@ -1,4 +1,4 @@
-use super::super::{Consumer, ParallelIterator, VecParIter};
+use super::super::{Consumer, MapConsumer, ParallelIterator, VecParIter};
 use std::ops::ControlFlow;
 
 /// Enumerate adapter for value-semantic index pairing.
@@ -76,7 +76,12 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecParIter::new(self.seq_items()))
+        // Push the copy into the consumer and drive the base, the way `Map`
+        // does. Materializing `seq_items()` first collected the whole stream
+        // into one vector before any split, which discarded the borrowed
+        // source's zero-copy split for every chain containing `copied()`.
+        self.base
+            .drive(MapConsumer::new(consumer, |item: &'data T| *item))
     }
 }
 
@@ -116,6 +121,8 @@ where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecParIter::new(self.seq_items()))
+        // Push the clone into the consumer, as `Copied` does above.
+        self.base
+            .drive(MapConsumer::new(consumer, |item: &'data T| item.clone()))
     }
 }
