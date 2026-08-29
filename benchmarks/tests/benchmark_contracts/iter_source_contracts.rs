@@ -654,12 +654,22 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "impl<'data, T: Send + Sync + 'data> IntoParallelRefIterator<'data> for Vec<T>",
         "impl IntoParallelIterator for std::ops::Range<usize>",
         "data: Vec<T>",
-        "self.data.split_off(mid)",
-        "std::mem::take(&mut self.data)",
+        // Drive shards are index ranges over one buffer. The previous shape
+        // called `Vec::split_off` at every recursion level, allocating and
+        // memmoving half the remaining elements per level; that call is
+        // prohibited below so it cannot return.
+        "struct SlotParIter<'data, T>",
+        "struct SliceParIter<'data, T>",
+        "self.slots.split_at_mut(mid)",
+        "self.data.split_at(mid)",
         "pub struct Reduction<T, F>",
         "let reduction: Reduction<Self::Item, F> = self.drive(ReduceConsumer::new(reduce_fn));",
         "Some(reduce_fn(left, right))",
-        "self.data.len() <= 1",
+        // A shard at or below the dispatch threshold is consumed in one
+        // sequential pass; recursing to single-element shards bought no
+        // parallelism and cost a consumer split and combine per element.
+        "self.slots.len() <= PARALLEL_DRIVE_THRESHOLD",
+        "self.data.len() <= PARALLEL_DRIVE_THRESHOLD",
         "Preserve sequential value semantics for this API",
         "Segment count is not part of the semantic contract",
         "list.push_back(items)",
@@ -753,6 +763,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "Arc<Vec<T>>",
         "VecNonCloneParIter",
         "std::mem::ManuallyDrop::new",
+        "split_off(mid)",
         "impl<T: Send + Sync + Clone + 'static> IntoParallelIterator for Vec<T>",
         "impl<'data, T: Send + Sync + Clone + 'static> IntoParallelRefIterator<'data> for Vec<T>",
     ] {
