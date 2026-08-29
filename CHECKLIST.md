@@ -2,6 +2,21 @@
 
 **Target**: Unreleased
 
+## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — in progress
+
+- **Outcome:** expose one const-generic same-element-type chunk operator so a
+  kernel can mutate an arbitrary fixed number of disjoint buffers in one
+  scheduler traversal without arity-specific provider clones.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** `moirai-parallel/src/{ops.rs,lib.rs,tests.rs}` plus this item and
+  its `docs/backlog.md` record; last update 2026-08-29.
+- **Acceptance:** equal-length buffers process every full and ragged chunk
+  exactly once under sequential and parallel policies; zero buffers, empty
+  buffers, and zero chunk size perform no work; unequal lengths reject before
+  mutation; focused Nextest, warning-denied Clippy, Rustdoc, doctests, and the
+  Kwavers SWE fused-stress consumer pass without transient allocation or
+  workload/timeout changes.
+
 ## MOI-CONTRACT-AUDIT-STALENESS-2026-08-29 — Source-pinning contracts can audit stale or foreign sources [patch] — todo
 
 - **Unowned.** The `benchmark_contracts` suite is this repo's guard against
