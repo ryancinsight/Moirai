@@ -2,6 +2,43 @@
 
 **Target**: Unreleased
 
+## MOI-CONTRACT-AUDIT-STALENESS-2026-08-29 — Source-pinning contracts can audit stale or foreign sources [patch] — todo
+
+- **Unowned.** The `benchmark_contracts` suite is this repo's guard against
+  regressing accepted designs: it asserts that named shapes are present in, or
+  absent from, specific source files. Two properties of *how* it reads them let
+  it report a pass it did not verify.
+- **1. The audited files are not compile inputs.** `support.rs` reads them with
+  `fs::read_to_string` at run time, so changing the code under test does not
+  make the test binary stale. Cargo reuses the old binary and the assertions
+  re-run against whatever the binary happens to read — or, when nothing forces
+  a rebuild, do not re-run meaningfully at all. **Observed 2026-08-29:**
+  `executor_registry_registration_rejects_regressed_lock_free_allocator`
+  reported PASS against source that violated three of its required markers;
+  `touch`ing the test file and re-running turned it red immediately. A guard
+  that passes on violating source is worse than no guard, because it is
+  believed.
+- **2. The root path is baked at compile time.** `benchmark_path` is
+  `Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)`. `env!` resolves when
+  the binary is *compiled*, so under the stack-mandated shared
+  `CARGO_TARGET_DIR` a binary compiled from one worktree audits **that
+  worktree's** sources even when run from another. **Observed the same day:**
+  two contract tests failed in a lane against an unrelated uncommitted edit
+  sitting in the repo's main tree; rebuilding from the lane gave 70/70. Results
+  therefore depend on which worktree last built — and this fleet routinely runs
+  several worktrees against one target directory.
+- **Fix direction, one change for both:** make the audited files compile-time
+  inputs via `include_str!`. Its paths resolve relative to the containing
+  source file (no `CARGO_MANIFEST_DIR`, so no foreign-tree read), and Cargo
+  tracks included files as dependencies, so editing audited source rebuilds the
+  test. The `SPLIT_MODULE_ALIASES` table stays expressible as a const table of
+  `include_str!` values. Where a path must stay dynamic, resolve the repo root
+  from the test's own file rather than the manifest env var.
+- **Acceptance:** editing an audited file without touching the test makes the
+  relevant contract fail on the next `cargo nextest run`; and a contract run in
+  a worktree reports on that worktree's sources with another worktree dirty.
+  Both are falsifiable — verify each against the current behaviour first.
+
 ## MOI-FLAKY-JOIN-PRECONDITION-2026-08-28 — Make the join test's precondition deterministic [patch] — review
 
 - **Outcome:** `scheduler_join_waits_for_queued_and_active_work` asserted
