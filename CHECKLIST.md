@@ -2,6 +2,24 @@
 
 **Target**: Unreleased
 
+## MOI-PAR-TERMINALS-2026-08-28 — Parallel terminals and index-range splits [patch] — in-progress
+
+- **Outcome:** the `ParallelIterator` terminal set stops routing through
+  `seq_items()` — folding consumers drive `sum`/`product`/`count`/`min`/`max`
+  and their comparator and key variants through the existing `Consumer`
+  protocol, and drive splits stop copying with `Vec::split_off`. Closes
+  `MOI-PAR-ITER-SEQUENTIAL-TERMINALS-2026-08-27` and
+  `MOI-PAR-ITER-SPLIT-COPY-2026-08-27`.
+- **Integrator:** claude-fable session 03d80d33 subagent.
+- **Acceptance:** existing terminal and property tests pass unchanged;
+  before/after criterion evidence from `parallel_iterator_regression` on one
+  pinned machine class; warning-denied Clippy and workspace Nextest pass.
+- **Lease:** claude-fable session 03d80d33 subagent —
+  `moirai-iter/src/parallel/{traits.rs,consumers.rs,sources.rs,split.rs,tests.rs}`,
+  `moirai-iter/src/parallel/adapters/`,
+  `benchmarks/benches/parallel_iterator_regression.rs`.
+- **Last update:** 2026-08-28.
+
 ## MOI-ASYNC-CANCEL-LANE-GATE-2026-08-28 — Work-class-matched cancellation gate [patch] — done 2026-08-28
 
 - **Delivered:** PR #191 / implementation `3dcc0aa` / merge `fc2dce9`; independent exact-head review is green; lease: none.
