@@ -636,11 +636,8 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "struct ChunkSize(usize)",
         "assert!(value != 0, \"chunk size must be non-zero\");",
         "pub(in crate::parallel) fn into_parts(self) -> (I, usize)",
-        "Sum mapped chunk outputs without materializing the chunk-output stream",
-        "Sum mapped vector-backed interleaved index/value pairs without building pair streams",
         "pub(in crate::parallel) fn into_vec(self) -> Vec<T>",
         "pub(in crate::parallel) fn into_slice(self) -> &'data [T]",
-        "Sum a borrowed copied-map-filter stream without materializing references",
         "pub use adapters::{",
         "Inspect",
         "PanicFuse",
@@ -763,6 +760,20 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         // The borrowed drive must never rebuild a reference vector before
         // splitting; that cost one pointer per element ahead of any work.
         "let refs: Vec<&'data T> = self.data.iter().collect();",
+        // Inherent `sum` on an adapter shadows the trait terminal, because an
+        // inherent method wins method resolution against a trait one. Four
+        // such specializations existed to dodge the intermediate vectors the
+        // trait path used to build; now that the terminal folds shards through
+        // `Consumer`, a shadowing `sum` silently returns the chain to one
+        // thread — `copied().map().filter().sum()` measured 35.55us against
+        // the trait path's 11.18us at 131072 elements. The doc lines of the
+        // four removed specializations are banned so they cannot return under
+        // their original wording, and the marker below pins the terminal that
+        // replaced them.
+        "Sum mapped chunk outputs without materializing the chunk-output stream",
+        "Sum mapped vector-backed interleaved index/value pairs without building pair streams",
+        "Sum a borrowed copied-map-filter stream without materializing references",
+        "Sum a flattened, mapped, filtered nested stream without intermediate vectors",
         "impl<T: Send + Sync + Clone + 'static> IntoParallelIterator for Vec<T>",
         "impl<'data, T: Send + Sync + Clone + 'static> IntoParallelRefIterator<'data> for Vec<T>",
     ] {
