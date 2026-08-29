@@ -2,23 +2,65 @@
 
 **Target**: Unreleased
 
-## MOI-PAR-TERMINALS-2026-08-28 — Parallel terminals and index-range splits [patch] — in-progress
+## MOI-PAR-TERMINALS-2026-08-28 — Parallel terminals and index-range splits [patch] — review
 
 - **Outcome:** the `ParallelIterator` terminal set stops routing through
-  `seq_items()` — folding consumers drive `sum`/`product`/`count`/`min`/`max`
-  and their comparator and key variants through the existing `Consumer`
-  protocol, and drive splits stop copying with `Vec::split_off`. Closes
-  `MOI-PAR-ITER-SEQUENTIAL-TERMINALS-2026-08-27` and
+  `seq_items()`. `FoldConsumer` and `ShortCircuitConsumer` fold shards through
+  the existing `Consumer` protocol, `ParallelIterator::seq_try_fold` is the
+  streaming base under them, borrowed drive shards are zero-copy `split_at`
+  subslices, and owned shards stop splitting at the dispatch threshold.
+  Closes `MOI-PAR-ITER-SEQUENTIAL-TERMINALS-2026-08-27` and
   `MOI-PAR-ITER-SPLIT-COPY-2026-08-27`.
-- **Integrator:** claude-fable session 03d80d33 subagent.
-- **Acceptance:** existing terminal and property tests pass unchanged;
-  before/after criterion evidence from `parallel_iterator_regression` on one
-  pinned machine class; warning-denied Clippy and workspace Nextest pass.
-- **Lease:** claude-fable session 03d80d33 subagent —
-  `moirai-iter/src/parallel/{traits.rs,consumers.rs,sources.rs,split.rs,tests.rs}`,
-  `moirai-iter/src/parallel/adapters/`,
-  `benchmarks/benches/parallel_iterator_regression.rs`.
+- **Integrator:** claude-fable session 03d80d33 subagent. Lease: none.
+- **Evidence:** pinned criterion medians at 131072 elements —
+  `par_iter().map(f).sum()` 391.25us to 11.18us (35x, and 6.7x under Rayon),
+  `count`/`min`/`max` 1.156ms to 36.93us (31x), `find_any` with an early match
+  412.92us to 5.13us (80x, and 1.85x under Rayon), `find_any` with no match
+  431.25us to 20.58us (21x). Same-code run-to-run spread on this hybrid-core
+  host reaches 32%, so movements under about 1.6x are not resolved; every
+  claim above is far outside that band. Allocation probes pin sub-linear
+  allocation independently of the host. Workspace Nextest 899/899 with 7
+  configured skips, warning-denied all-target Clippy, workspace doctests, and
+  `cargo fmt --check` all pass.
+- **Measured and rejected:** folding `partition`/`unzip` across shards was
+  2.4x slower at 1024 elements and 2.3x at 32768 — slower below the dispatch
+  threshold too, so the cost is the pair-of-vectors accumulator moved through
+  the fold closure, not the parallelism. They stay sequential; parallelising
+  them needs a size-hinted output collection.
+- **Residual:** `fold`, `try_reduce`, `for_each_with`/`_init` and
+  `try_for_each_with`/`_init` stay sequential by contract (one threaded
+  accumulator or state value) and `position_first`/`position_last` stay
+  sequential because the non-indexed protocol cannot hand a shard a correct
+  logical offset through a length-changing adapter. All now stream instead of
+  collecting. Owned splits still copy down to the threshold.
 - **Last update:** 2026-08-28.
+
+## MOI-PAR-ADAPTER-DRIVE-COLLECT-2026-08-28 — Adapters collect in drive [patch] — todo
+
+- Unowned. Twenty-five adapter `drive` implementations call
+  `consumer.consume(VecParIter::new(self.seq_items()))`, collecting the whole
+  logical stream into one vector before any split, which discards the source's
+  shards for any chain containing them (`blocks.rs`, `chunks.rs`, `filter.rs`
+  `FilterMap`/`WhileSome`, `flat.rs`, `map.rs`, `pair.rs`, `position.rs`,
+  `ref_ops.rs` `Enumerate`, `slice_ops.rs`, `stride.rs`, `window.rs`).
+  `Copied`/`Cloned` were converted to a `MapConsumer` push under
+  `MOI-PAR-TERMINALS-2026-08-28`; the rest are not all one-to-one maps, so
+  shape-changing adapters need their own consumer or an indexed producer.
+  Fix direction: push one-to-one adapters into consumers as `Map` does, and
+  decide the shape-changing ones against the indexed boundary already recorded
+  in the Rayon adapter audit.
+
+## MOI-PAR-INHERENT-SUM-BYPASS-2026-08-28 — Inherent sum overrides run single-threaded [patch] — todo
+
+- Unowned. Four inherent `sum` implementations shadow the trait terminal and
+  run the whole chain on one thread (`adapters/map.rs:151,174`,
+  `adapters/filter.rs:28,92`). They were written to avoid the intermediate
+  vectors the trait path used to build; the trait path no longer builds them
+  and is now parallel, so these are slower than the method they shadow —
+  `par_iter().copied().map(..).filter(..).sum()` measures 35.55us at 131072
+  where the trait path measures 11.18us on comparable work. Fix direction:
+  delete all four and let the chains take the trait terminal, updating the
+  audit contract markers that pin their doc lines.
 
 ## MOI-ASYNC-CANCEL-LANE-GATE-2026-08-28 — Work-class-matched cancellation gate [patch] — done 2026-08-28
 
@@ -92,24 +134,15 @@
   (`hybrid/manager.rs:77-104`). Fix direction: shard by per-worker ID ranges or
   lock-free block insertion. Evidence: `hybrid/mod.rs:75,261-268`.
 
-## MOI-PAR-ITER-SEQUENTIAL-TERMINALS-2026-08-27 — Parallel terminals collect sequentially [patch] — todo
+## MOI-PAR-ITER-SEQUENTIAL-TERMINALS-2026-08-27 — Parallel terminals collect sequentially [patch] — done 2026-08-28
 
-- Unowned. `sum`/`product`/`min`/`max`/`fold`/`partition`/`unzip`/`find_last`/
-  `position`/`try_for_each`/`count` and friends call `seq_items()` — collect
-  everything, then a std sequential pass (`parallel/traits.rs:622-685` and
-  listed ranges; `parallel/split.rs:12-32`); `count` collects just to take
-  `len()`. `par_iter().map(f).sum()` is sequential plus an O(n) allocation.
-  Fix direction: route terminals through folding/counting consumers like
-  `reduce`.
+- **Delivered:** closed by `MOI-PAR-TERMINALS-2026-08-28`; folding consumers replace
+  the `seq_items()` terminals.
 
-## MOI-PAR-ITER-SPLIT-COPY-2026-08-27 — Index-range splits over Vec::split_off [patch] — todo
+## MOI-PAR-ITER-SPLIT-COPY-2026-08-27 — Index-range splits over Vec::split_off [patch] — done 2026-08-28
 
-- Unowned. Drive splits use `Vec::split_off` (alloc+memmove per level,
-  O(n log n) copy traffic); `VecRefParIter` materializes `Vec<&T>`;
-  `ReduceConsumer`/`FindConsumer` collect each leaf shard so
-  `find_any`/`any`/`all` never short-circuit (`parallel/sources.rs:128-157,
-  339-347,408-439`; `parallel/consumers.rs:161-170,238-245`). Fix direction:
-  index-range splitting over a shared slice; stream leaves through fold.
+- **Delivered:** closed by `MOI-PAR-TERMINALS-2026-08-28`; borrowed shards are
+  zero-copy subslices and owned shards stop splitting at the dispatch threshold.
 
 ## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — todo
 
