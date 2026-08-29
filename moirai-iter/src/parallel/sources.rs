@@ -138,74 +138,33 @@ impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
+        // At or below the dispatch threshold a shard is consumed in one
+        // sequential pass. The superseded shape kept splitting to
+        // single-element shards, which bought no parallelism below the
+        // threshold — the scheduler is only engaged above it — and cost one
+        // consumer split and one combine per element.
         if self.data.len() <= PARALLEL_DRIVE_THRESHOLD {
             return consumer.consume(self);
         }
 
-        // One pass moves the elements into slot storage; every split below is
-        // then a `split_at_mut` on that one buffer. The previous shape called
-        // `Vec::split_off` at each level, allocating and memmoving half the
-        // remaining elements per level down to single-element shards.
-        let mut slots: Vec<Option<T>> = self.data.into_iter().map(Some).collect();
+        // Owned elements have no safe zero-copy split: handing a shard its own
+        // range of a `Vec<T>` without moving the elements needs either raw
+        // pointer reads or an `Option` slot per element, and `Option<T>` is only
+        // niche-packed when `T` has a spare value — for a plain scalar it
+        // doubles the buffer and adds a write per element read back out, which
+        // measured worse than the copy it replaced. Splitting therefore still
+        // copies, but only down to the threshold, so copy traffic is
+        // proportional to `log(len / threshold)` levels rather than `log(len)`.
+        let mut data = self.data;
+        let mid = data.len() / 2;
+        let right_data = data.split_off(mid);
+        let left_data = std::mem::take(&mut data);
 
-        SlotParIter::new(&mut slots).drive(consumer)
-    }
-}
-
-/// Owned shard addressed as an index range over one shared slot buffer.
-///
-/// Each element sits in its own `Option` slot, so a shard moves its elements
-/// out with `Option::take` while sibling shards do the same to disjoint slots.
-/// Splitting is `slice::split_at_mut`: a pointer and length adjustment that
-/// copies no element and allocates nothing, at any depth of the drive
-/// recursion. `Option<T>` is niche-packed for the reference and non-null cases,
-/// so the slot buffer is the same width as the source for those element types.
-struct SlotParIter<'data, T> {
-    slots: &'data mut [Option<T>],
-}
-
-impl<'data, T> SlotParIter<'data, T> {
-    fn new(slots: &'data mut [Option<T>]) -> Self {
-        Self { slots }
-    }
-}
-
-impl<T: Send> ParallelIterator for SlotParIter<'_, T> {
-    type Item = T;
-
-    fn seq_items(self) -> Vec<Self::Item> {
-        self.slots.iter_mut().filter_map(Option::take).collect()
-    }
-
-    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
-    where
-        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
-    {
-        self.slots
-            .iter_mut()
-            .filter_map(Option::take)
-            .try_fold(init, fold_fn)
-    }
-
-    fn drive<C, R>(self, consumer: C) -> R
-    where
-        C: Consumer<Self::Item, Result = R> + Send + Sync,
-        R: Send,
-    {
-        // At or below the dispatch threshold a shard is consumed in one
-        // sequential pass. Recursing further buys no parallelism and costs one
-        // consumer split and combine per element.
-        if self.slots.len() <= PARALLEL_DRIVE_THRESHOLD {
-            return consumer.consume(self);
-        }
-
-        let mid = self.slots.len() / 2;
-        let (left_slots, right_slots) = self.slots.split_at_mut(mid);
-        let (left_consumer, right_consumer) = consumer.split_at(left_slots.len());
+        let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
 
         drive_split(
-            SlotParIter::new(left_slots),
-            SlotParIter::new(right_slots),
+            VecParIter::new(left_data),
+            VecParIter::new(right_data),
             left_consumer,
             right_consumer,
         )
@@ -573,13 +532,19 @@ impl<'a, T: Send + Sync> ParallelIterator for RefVecParIter<'a, T> {
             return consumer.consume(self);
         }
 
-        // Slot storage over the reference vector, split by index range. The
-        // previous shape called `Vec::split_off` at every level. `Option<&T>`
-        // is niche-packed, so the slot buffer is exactly as wide as the
-        // reference vector it replaces.
-        let mut slots: Vec<Option<&'a T>> = self.data.into_iter().map(Some).collect();
+        let mut data = self.data;
+        let mid = data.len() / 2;
+        let right_data = data.split_off(mid);
+        let left_data = std::mem::take(&mut data);
 
-        SlotParIter::new(&mut slots).drive(consumer)
+        let (left_consumer, right_consumer) = consumer.split_at(left_data.len());
+
+        drive_split(
+            RefVecParIter::new(left_data),
+            RefVecParIter::new(right_data),
+            left_consumer,
+            right_consumer,
+        )
     }
 }
 
