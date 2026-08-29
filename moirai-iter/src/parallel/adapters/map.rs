@@ -178,6 +178,12 @@ where
             .collect()
     }
 
+    /// # Why this stays sequential
+    ///
+    /// One state value threads through the whole stream, so `map_fn` observes
+    /// every prior item's effect on it. Giving each shard its own clone is a
+    /// different contract, not a parallelisation of this one — the same reason
+    /// `for_each_with` and `try_for_each_with` stay sequential.
     fn drive<C, R2>(self, consumer: C) -> R2
     where
         C: Consumer<Self::Item, Result = R2> + Send + Sync,
@@ -219,6 +225,9 @@ where
             .collect()
     }
 
+    /// # Why this stays sequential
+    ///
+    /// Threaded state, for the reason given on [`MapWith`].
     fn drive<C, R2>(self, consumer: C) -> R2
     where
         C: Consumer<Self::Item, Result = R2> + Send + Sync,
@@ -259,11 +268,30 @@ where
             .collect()
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        let update_fn = self.update_fn;
+        self.base.seq_try_fold(init, move |accumulator, mut item| {
+            update_fn(&mut item);
+            fold_fn(accumulator, item)
+        })
+    }
+
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
         R: Send,
     {
-        consumer.consume(VecParIter::new(self.seq_items()))
+        // One input, one output, no state between items: the same push `Map`
+        // makes. Materializing `seq_items()` first discarded the source's shards
+        // for every chain containing `update()`.
+        let update_fn = self.update_fn;
+        self.base
+            .drive(MapConsumer::new(consumer, move |mut item: I::Item| {
+                update_fn(&mut item);
+                item
+            }))
     }
 }

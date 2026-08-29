@@ -39,6 +39,6 @@ pub use traits::{
 };
 
 use consumers::{
-    CollectConsumer, FilterConsumer, FoldConsumer, InspectConsumer, MapConsumer, NullConsumer,
-    ReduceConsumer, ShortCircuitConsumer,
+    CollectConsumer, FilterConsumer, FilterMapConsumer, FlatMapConsumer, FoldConsumer,
+    InspectConsumer, MapConsumer, NullConsumer, ReduceConsumer, ShortCircuitConsumer,
 };

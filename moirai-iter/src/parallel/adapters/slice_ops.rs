@@ -49,6 +49,11 @@ where
         items
     }
 
+    /// # Why this stays sequential
+    ///
+    /// The retained prefix is defined by a count over the whole logical stream,
+    /// so a shard cannot tell how many items precede it — the absent offset
+    /// documented on [`Enumerate`](super::ref_ops::Enumerate).
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -86,6 +91,9 @@ where
             .seq_items_window(self.count.saturating_add(skip), take)
     }
 
+    /// # Why this stays sequential
+    ///
+    /// The discarded prefix is a logical count, per [`Take`].
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -135,6 +143,14 @@ where
         items
     }
 
+    /// # Why this stays sequential
+    ///
+    /// Both branches could drive their own consumer and combine in order, but
+    /// `Consumer::split_at` takes the left branch's logical length, which this
+    /// adapter cannot know without consuming the left input first — the very
+    /// materialisation the conversion exists to remove. Concatenation belongs
+    /// at the same indexed producer boundary as the other length-bearing
+    /// adapters.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -187,6 +203,12 @@ where
         output
     }
 
+    /// # Why this stays sequential
+    ///
+    /// The separator goes *between* adjacent items, so the first item of every
+    /// shard but the logically first needs a separator ahead of it, and the
+    /// shard cannot tell which one it is. Combining shards that each interspersed
+    /// their own range would drop exactly one separator per shard boundary.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -240,6 +262,13 @@ where
         self.base.seq_items_window(0, Some(count))
     }
 
+    /// # Why this stays sequential
+    ///
+    /// Reversal needs both each shard's own stream reversed and the shard order
+    /// flipped, but `Consumer::combine(left, right)` fixes the merge order as
+    /// logically-earlier-first. Expressing this needs an order-reversing
+    /// consumer wrapper whose base combine is inverted, which is a protocol
+    /// change rather than an adapter push.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,

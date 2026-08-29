@@ -72,6 +72,17 @@ where
             .collect()
     }
 
+    /// # Why this stays sequential (two sources, one split)
+    ///
+    /// Pairing needs both inputs split at the same logical positions. The
+    /// consumer protocol splits one source and hands the halves one consumer
+    /// each; it carries no way to divide a second, independently shaped
+    /// iterator in lockstep. Splitting the left input alone and re-driving the
+    /// right per shard would re-run the right input once per shard, which is a
+    /// different program, not a parallelisation of this one. `zip_eq`,
+    /// `interleave`, and `interleave_shortest` share this boundary; interleaving
+    /// additionally depends on alternation parity carrying across the shard
+    /// boundary.
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -113,6 +124,9 @@ where
         left.into_iter().zip(right).collect()
     }
 
+    /// # Why this stays sequential
+    ///
+    /// Two sources split in lockstep, per [`Zip`].
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -146,6 +160,9 @@ where
         interleave_all(self.left.seq_items(), self.right.seq_items())
     }
 
+    /// # Why this stays sequential
+    ///
+    /// Two sources split in lockstep, per [`Zip`].
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -179,6 +196,9 @@ where
         interleave_shortest(self.left.seq_items(), self.right.seq_items())
     }
 
+    /// # Why this stays sequential
+    ///
+    /// Two sources split in lockstep, per [`Zip`].
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
