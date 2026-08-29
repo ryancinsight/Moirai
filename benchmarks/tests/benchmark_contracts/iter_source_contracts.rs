@@ -607,8 +607,14 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "pub struct MapPositions<I, MapFn, Predicate>",
         "predicate(map_fn(item)).then_some(index)",
         "pub enum Either<L, R>",
-        "Either::Left(value) => left.extend(std::iter::once(value))",
-        "Either::Right(value) => right.extend(std::iter::once(value))",
+        "Either::Left(value) => left.push(value),",
+        "Either::Right(value) => right.push(value),",
+        "pub struct FoldConsumer<Acc, InitFn, FoldFn, CombineFn>",
+        "pub struct ShortCircuitConsumer<Acc, InitFn, FoldFn, CombineFn>",
+        "for FoldConsumer<Acc, InitFn, FoldFn, CombineFn>",
+        "for ShortCircuitConsumer<Acc, InitFn, FoldFn, CombineFn>",
+        "fn seq_try_fold<T, B, F>(self, init: T, fold_fn: F) -> std::ops::ControlFlow<B, T>",
+        "fn seq_fold<T, F>(self, init: T, mut fold_fn: F) -> T",
         "pub trait TryStreamItem: private::Sealed + Send",
         "impl<T> TryStreamItem for Option<T>",
         "impl<T, E> TryStreamItem for Result<T, E>",
@@ -735,7 +741,12 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "known limitation of the current consumer",
         "Simplified - should use reduce_fn",
         "Should use reduce_fn",
-        "pub struct FoldConsumer",
+        // The banned shape is the two-parameter placeholder introduced in
+        // 8cd4286, which carried no `Consumer` implementation and was handed to
+        // `drive` as scaffolding. The folding consumer that replaced it is
+        // required below, and its marker pins the trait implementation rather
+        // than the struct so a placeholder cannot satisfy it.
+        "pub struct FoldConsumer<T, F>",
         "Rayon-compatible API",
         "matches Rayon's API",
         "Rayon compatibility",

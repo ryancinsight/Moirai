@@ -3,6 +3,7 @@ use super::{
     IntoParallelRefIterator, ParallelExtend, ParallelIterator,
 };
 use moirai_executor::{global, SyncTask};
+use std::ops::ControlFlow;
 use std::sync::Mutex;
 
 /// Minimum source size for scheduler-backed non-indexed driving.
@@ -125,6 +126,13 @@ impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
         self.data
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.data.into_iter().try_fold(init, fold_fn)
+    }
+
     fn drive<C, R>(mut self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -199,6 +207,19 @@ where
         items
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        let mut accumulator = init;
+        let mut current = self.start;
+        while current < self.end {
+            accumulator = fold_fn(accumulator, current.clone())?;
+            current = current + T::from(1u8);
+        }
+        ControlFlow::Continue(accumulator)
+    }
+
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -258,6 +279,17 @@ where
 
     fn seq_items(self) -> Vec<Self::Item> {
         self.iter.collect()
+    }
+
+    fn seq_try_fold<Acc, B, FoldFn>(self, mut init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        let mut iter = self.iter;
+        for item in iter.by_ref() {
+            init = fold_fn(init, item)?;
+        }
+        ControlFlow::Continue(init)
     }
 
     fn drive<C, R>(self, consumer: C) -> R
@@ -336,6 +368,13 @@ impl<'data, T: Send + Sync + 'data> ParallelIterator for VecRefParIter<'data, T>
         self.data.iter().collect()
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.data.iter().try_fold(init, fold_fn)
+    }
+
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -378,6 +417,17 @@ where
             .collect()
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.data
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| (self.predicate)(item).then_some(index))
+            .try_fold(init, fold_fn)
+    }
+
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -403,6 +453,13 @@ impl<'a, T: Send + Sync> ParallelIterator for RefVecParIter<'a, T> {
 
     fn seq_items(self) -> Vec<Self::Item> {
         self.data
+    }
+
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.data.into_iter().try_fold(init, fold_fn)
     }
 
     fn drive<C, R>(mut self, consumer: C) -> R

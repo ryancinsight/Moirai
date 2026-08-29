@@ -1,4 +1,5 @@
 use super::super::{Consumer, ParallelIterator, VecParIter};
+use std::ops::ControlFlow;
 
 /// Enumerate adapter for value-semantic index pairing.
 pub struct Enumerate<I> {
@@ -62,6 +63,14 @@ where
         self.base.seq_items().into_iter().copied().collect()
     }
 
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.base
+            .seq_try_fold(init, move |accumulator, item| fold_fn(accumulator, *item))
+    }
+
     fn drive<C, R>(self, consumer: C) -> R
     where
         C: Consumer<Self::Item, Result = R> + Send + Sync,
@@ -91,6 +100,15 @@ where
 
     fn seq_items(self) -> Vec<Self::Item> {
         self.base.seq_items().into_iter().cloned().collect()
+    }
+
+    fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
+    where
+        FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
+    {
+        self.base.seq_try_fold(init, move |accumulator, item| {
+            fold_fn(accumulator, item.clone())
+        })
     }
 
     fn drive<C, R>(self, consumer: C) -> R

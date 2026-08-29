@@ -1,5 +1,8 @@
 use super::{Consumer, ParallelIterator};
 use std::marker::PhantomData;
+use std::ops::ControlFlow;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 pub struct MapConsumer<C, F> {
     base: C,
@@ -162,10 +165,14 @@ where
     where
         I: ParallelIterator<Item = T>,
     {
-        let data: Vec<T> = iter.drive(CollectConsumer::new());
-
         let reduce_fn = self.reduce_fn;
-        let value = data.into_iter().reduce(&reduce_fn);
+        // Streaming fold rather than a shard-local `Vec`: the reduction is the
+        // only value that has to survive the shard.
+        let value = iter.seq_fold(None, |accumulator, item| match accumulator {
+            None => Some(item),
+            Some(accumulator) => Some(reduce_fn(accumulator, item)),
+        });
+
         Reduction::new(value, reduce_fn)
     }
 
@@ -184,6 +191,230 @@ where
             (None, None) => None,
         };
         Reduction::new(value, reduce_fn)
+    }
+}
+
+/// Partial fold result: one shard's accumulator plus the operation needed to
+/// merge it with a sibling shard's accumulator.
+///
+/// `Consumer::combine` is an associated function with no receiver, so the
+/// merging operation has to travel inside the result. [`Reduction`] carries
+/// `reduce` the same way; this is that shape generalized to an accumulator type
+/// distinct from the item type.
+pub struct Folded<Acc, CombineFn> {
+    value: Acc,
+    combine_fn: CombineFn,
+}
+
+impl<Acc, CombineFn> Folded<Acc, CombineFn> {
+    pub(super) fn into_value(self) -> Acc {
+        self.value
+    }
+}
+
+/// Consumer that folds each shard's item stream into a partial accumulator and
+/// merges partial accumulators in logical shard order.
+///
+/// # Ordering
+///
+/// `drive` splits a source at a midpoint determined solely by its length and
+/// passes the logically earlier shard's result to `combine` as `left`. The
+/// merge tree is therefore a function of the input length alone: it does not
+/// depend on which shard finishes first, on worker count, or on scheduler
+/// admission. A non-associative merge (floating-point addition) still yields
+/// the same value on every run for a given input length, though not
+/// necessarily the value a strictly left-to-right sequential fold would
+/// produce.
+///
+/// # Allocation
+///
+/// Shards fold through [`ParallelIterator::seq_fold`], so a shard's items are
+/// never gathered into an intermediate `Vec`.
+pub struct FoldConsumer<Acc, InitFn, FoldFn, CombineFn> {
+    init_fn: InitFn,
+    fold_fn: FoldFn,
+    combine_fn: CombineFn,
+    _accumulator: PhantomData<fn() -> Acc>,
+}
+
+impl<Acc, InitFn, FoldFn, CombineFn> FoldConsumer<Acc, InitFn, FoldFn, CombineFn> {
+    pub(super) fn new(init_fn: InitFn, fold_fn: FoldFn, combine_fn: CombineFn) -> Self {
+        Self {
+            init_fn,
+            fold_fn,
+            combine_fn,
+            _accumulator: PhantomData,
+        }
+    }
+}
+
+impl<Item, Acc, InitFn, FoldFn, CombineFn> Consumer<Item>
+    for FoldConsumer<Acc, InitFn, FoldFn, CombineFn>
+where
+    Item: Send,
+    Acc: Send,
+    InitFn: Fn() -> Acc + Send + Sync + Clone,
+    FoldFn: Fn(Acc, Item) -> Acc + Send + Sync + Clone,
+    CombineFn: Fn(Acc, Acc) -> Acc + Send + Sync + Clone,
+{
+    type Result = Folded<Acc, CombineFn>;
+
+    fn consume<I>(self, iter: I) -> Self::Result
+    where
+        I: ParallelIterator<Item = Item>,
+    {
+        let fold_fn = self.fold_fn;
+        let value = iter.seq_fold((self.init_fn)(), |accumulator, item| {
+            fold_fn(accumulator, item)
+        });
+
+        Folded {
+            value,
+            combine_fn: self.combine_fn,
+        }
+    }
+
+    fn split_at(self, _index: usize) -> (Self, Self) {
+        (
+            FoldConsumer::new(
+                self.init_fn.clone(),
+                self.fold_fn.clone(),
+                self.combine_fn.clone(),
+            ),
+            FoldConsumer::new(self.init_fn, self.fold_fn, self.combine_fn),
+        )
+    }
+
+    fn combine(left: Self::Result, right: Self::Result) -> Self::Result {
+        let combine_fn = left.combine_fn;
+        let value = combine_fn(left.value, right.value);
+
+        Folded { value, combine_fn }
+    }
+}
+
+/// Consumer that folds each shard with early exit, optionally sharing one stop
+/// flag across shards.
+///
+/// # Stop scope
+///
+/// `stop` selects between two contracts a single fold shape serves:
+///
+/// - `None` — a shard stops at its own first `Break`, but every shard still
+///   runs. Terminals whose result depends on logical order (`find_first`,
+///   `try_for_each`) need this: skipping a shard that has not started could
+///   discard an earlier answer than the one that triggered the stop.
+/// - `Some(flag)` — the first shard to `Break` sets the flag and shards that
+///   have not started return their initial accumulator. Terminals that accept
+///   any matching answer (`find_any`, `any`, `all`) use this.
+///
+/// The flag is read once per shard, not once per item, so a shard already
+/// running finishes its own range. Short-circuit granularity is the shard
+/// length, which bounds wasted work without putting an atomic load on the
+/// per-item path. `Relaxed` ordering suffices because the flag is a hint: a
+/// shard that misses the store merely does work whose result `combine`
+/// discards.
+pub struct ShortCircuitConsumer<Acc, InitFn, FoldFn, CombineFn> {
+    init_fn: InitFn,
+    fold_fn: FoldFn,
+    combine_fn: CombineFn,
+    stop: Option<Arc<AtomicBool>>,
+    _accumulator: PhantomData<fn() -> Acc>,
+}
+
+impl<Acc, InitFn, FoldFn, CombineFn> ShortCircuitConsumer<Acc, InitFn, FoldFn, CombineFn> {
+    /// Fold with per-shard early exit only; every shard runs.
+    pub(super) fn ordered(init_fn: InitFn, fold_fn: FoldFn, combine_fn: CombineFn) -> Self {
+        Self {
+            init_fn,
+            fold_fn,
+            combine_fn,
+            stop: None,
+            _accumulator: PhantomData,
+        }
+    }
+
+    /// Fold with a stop flag shared across shards.
+    pub(super) fn abortable(init_fn: InitFn, fold_fn: FoldFn, combine_fn: CombineFn) -> Self {
+        Self {
+            init_fn,
+            fold_fn,
+            combine_fn,
+            stop: Some(Arc::new(AtomicBool::new(false))),
+            _accumulator: PhantomData,
+        }
+    }
+
+    fn split_shard(&self) -> Self
+    where
+        InitFn: Clone,
+        FoldFn: Clone,
+        CombineFn: Clone,
+    {
+        Self {
+            init_fn: self.init_fn.clone(),
+            fold_fn: self.fold_fn.clone(),
+            combine_fn: self.combine_fn.clone(),
+            stop: self.stop.clone(),
+            _accumulator: PhantomData,
+        }
+    }
+}
+
+impl<Item, Acc, InitFn, FoldFn, CombineFn> Consumer<Item>
+    for ShortCircuitConsumer<Acc, InitFn, FoldFn, CombineFn>
+where
+    Item: Send,
+    Acc: Send,
+    InitFn: Fn() -> Acc + Send + Sync + Clone,
+    FoldFn: Fn(Acc, Item) -> ControlFlow<Acc, Acc> + Send + Sync + Clone,
+    CombineFn: Fn(Acc, Acc) -> Acc + Send + Sync + Clone,
+{
+    type Result = Folded<Acc, CombineFn>;
+
+    fn consume<I>(self, iter: I) -> Self::Result
+    where
+        I: ParallelIterator<Item = Item>,
+    {
+        let already_stopped = self
+            .stop
+            .as_ref()
+            .is_some_and(|stop| stop.load(Ordering::Relaxed));
+        if already_stopped {
+            return Folded {
+                value: (self.init_fn)(),
+                combine_fn: self.combine_fn,
+            };
+        }
+
+        let fold_fn = self.fold_fn;
+        let value = match iter.seq_try_fold((self.init_fn)(), |accumulator, item| {
+            fold_fn(accumulator, item)
+        }) {
+            ControlFlow::Continue(value) => value,
+            ControlFlow::Break(value) => {
+                if let Some(stop) = &self.stop {
+                    stop.store(true, Ordering::Relaxed);
+                }
+                value
+            }
+        };
+
+        Folded {
+            value,
+            combine_fn: self.combine_fn,
+        }
+    }
+
+    fn split_at(self, _index: usize) -> (Self, Self) {
+        (self.split_shard(), self)
+    }
+
+    fn combine(left: Self::Result, right: Self::Result) -> Self::Result {
+        let combine_fn = left.combine_fn;
+        let value = combine_fn(left.value, right.value);
+
+        Folded { value, combine_fn }
     }
 }
 
@@ -218,44 +449,6 @@ impl<T: Send + Sync> Consumer<T> for CollectConsumer {
     }
 }
 
-pub struct FindConsumer<F> {
-    predicate: F,
-}
-
-impl<F> FindConsumer<F> {
-    pub(super) fn new(predicate: F) -> Self {
-        Self { predicate }
-    }
-}
-
-impl<F, T> Consumer<T> for FindConsumer<F>
-where
-    F: Fn(&T) -> bool + Send + Sync + Clone,
-    T: Send + Sync,
-{
-    type Result = Option<T>;
-
-    fn consume<I>(self, iter: I) -> Self::Result
-    where
-        I: ParallelIterator<Item = T>,
-    {
-        let data: Vec<T> = iter.drive(CollectConsumer::new());
-
-        data.into_iter().find(|item| (self.predicate)(item))
-    }
-
-    fn split_at(self, _index: usize) -> (Self, Self) {
-        (
-            FindConsumer::new(self.predicate.clone()),
-            FindConsumer::new(self.predicate),
-        )
-    }
-
-    fn combine(left: Self::Result, right: Self::Result) -> Self::Result {
-        left.or(right)
-    }
-}
-
 pub struct NullConsumer<T> {
     _phantom: PhantomData<T>,
 }
@@ -275,9 +468,11 @@ impl<T: Send + Sync> Consumer<T> for NullConsumer<T> {
     where
         I: ParallelIterator<Item = T>,
     {
-        // Drive side effects (e.g. from for_each) by collecting items and dropping.
-        // seq_items applies any upstream map/filter transforms for their side effects.
-        let _ = iter.seq_items();
+        // Drive side effects (e.g. from for_each) by streaming the item stream
+        // and dropping each item as it is produced. Folding rather than
+        // collecting applies the same upstream map/filter transforms without
+        // holding the whole shard in memory.
+        iter.seq_fold((), |(), _item| ());
     }
 
     fn split_at(self, _index: usize) -> (Self, Self) {

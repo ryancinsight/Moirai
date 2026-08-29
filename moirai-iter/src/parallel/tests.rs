@@ -1193,6 +1193,248 @@ fn test_parallel_all() {
 // shard boundaries, for arbitrary data and predicate. Order preservation is the
 // error-prone part: shards run concurrently but their matches must merge back in
 // index order with none dropped or duplicated.
+/// Source length that forces the scheduler-backed drive path.
+///
+/// `PARALLEL_DRIVE_THRESHOLD` is 1024 and a source is only split across the
+/// scheduler above it, so every terminal test below this length exercises the
+/// inline branch only. These regressions pin the terminal contracts on the
+/// path that actually splits.
+const ABOVE_DRIVE_THRESHOLD: usize = 8_192;
+
+fn threshold_crossing_data() -> Vec<u64> {
+    (0..ABOVE_DRIVE_THRESHOLD as u64)
+        .map(|value| value.wrapping_mul(2_654_435_761) % 100_003)
+        .collect()
+}
+
+#[test]
+fn test_parallel_value_terminals_match_sequential_above_drive_threshold() {
+    let data = threshold_crossing_data();
+
+    assert_eq!(
+        data.clone().into_par_iter().sum::<u64>(),
+        data.iter().copied().sum::<u64>()
+    );
+    assert_eq!(
+        data.clone().into_par_iter().map(|value| value % 7).count(),
+        data.len()
+    );
+    assert_eq!(
+        data.clone().into_par_iter().min(),
+        data.iter().copied().min()
+    );
+    assert_eq!(
+        data.clone().into_par_iter().max(),
+        data.iter().copied().max()
+    );
+    assert_eq!(
+        data.clone()
+            .into_par_iter()
+            .filter(|value| value % 3 == 0)
+            .sum::<u64>(),
+        data.iter().copied().filter(|value| value % 3 == 0).sum()
+    );
+
+    // Mostly ones so an 8192-term product stays inside u64: overflow-checked
+    // debug arithmetic would abort before the terminal contract is observed.
+    let product_data: Vec<u64> = data
+        .iter()
+        .enumerate()
+        .map(|(index, _)| if index % 512 == 0 { 2 } else { 1 })
+        .collect();
+    assert_eq!(
+        product_data.clone().into_par_iter().product::<u64>(),
+        product_data.iter().copied().product::<u64>()
+    );
+}
+
+#[test]
+fn test_parallel_extremum_tie_breaking_matches_sequential_above_drive_threshold() {
+    // Keys repeat many times across shard boundaries, so first-minimum and
+    // last-maximum selection is decided by the merge tree rather than by a
+    // unique extremum.
+    let data: Vec<(u64, u64)> = (0..ABOVE_DRIVE_THRESHOLD as u64)
+        .map(|index| (index, index % 16))
+        .collect();
+
+    assert_eq!(
+        data.clone()
+            .into_par_iter()
+            .min_by(|left, right| left.1.cmp(&right.1)),
+        data.iter()
+            .copied()
+            .min_by(|left, right| left.1.cmp(&right.1))
+    );
+    assert_eq!(
+        data.clone()
+            .into_par_iter()
+            .max_by(|left, right| left.1.cmp(&right.1)),
+        data.iter()
+            .copied()
+            .max_by(|left, right| left.1.cmp(&right.1))
+    );
+    assert_eq!(
+        data.clone().into_par_iter().min_by_key(|pair| pair.1),
+        data.iter().copied().min_by_key(|pair| pair.1)
+    );
+    assert_eq!(
+        data.clone().into_par_iter().max_by_key(|pair| pair.1),
+        data.iter().copied().max_by_key(|pair| pair.1)
+    );
+}
+
+#[test]
+fn test_parallel_search_terminals_match_sequential_above_drive_threshold() {
+    let data = threshold_crossing_data();
+    // Matches many positions spread across shard boundaries, so first, last and
+    // any selection are genuinely distinguishable.
+    let matches = |value: &u64| value % 1_000 == 42;
+
+    assert_eq!(
+        data.clone().into_par_iter().find_first(matches),
+        data.iter().copied().find(matches)
+    );
+    assert_eq!(
+        data.clone().into_par_iter().find_last(matches),
+        data.iter().copied().rfind(matches)
+    );
+    assert_eq!(
+        data.clone()
+            .into_par_iter()
+            .position_first(|value| value % 1_000 == 42),
+        data.iter().position(|value| *value % 1_000 == 42)
+    );
+    assert_eq!(
+        data.clone()
+            .into_par_iter()
+            .position_last(|value| value % 1_000 == 42),
+        data.iter().rposition(|value| *value % 1_000 == 42)
+    );
+    assert_eq!(
+        data.clone()
+            .into_par_iter()
+            .find_map_first(|value| (value % 1_000 == 42).then_some(value * 2)),
+        data.iter()
+            .copied()
+            .find_map(|value| (value % 1_000 == 42).then_some(value * 2))
+    );
+    assert_eq!(
+        data.clone()
+            .into_par_iter()
+            .find_map_last(|value| (value % 1_000 == 42).then_some(value * 2)),
+        data.iter()
+            .copied()
+            .rev()
+            .find_map(|value| (value % 1_000 == 42).then_some(value * 2))
+    );
+
+    // `find_any` may return any match, so pin existence rather than identity.
+    let any = data.clone().into_par_iter().find_any(matches);
+    assert!(any.is_some_and(|value| matches(&value)));
+    assert!(data.clone().into_par_iter().any(matches));
+    assert!(!data.clone().into_par_iter().any(|value| *value > 100_003));
+    assert!(data.clone().into_par_iter().all(|value| *value < 100_003));
+    assert!(!data.into_par_iter().all(matches));
+}
+
+#[test]
+fn test_parallel_find_any_short_circuits_without_losing_the_only_match() {
+    // One planted match one eighth in: the abort flag must not let a shard that
+    // has not started discard the single answer.
+    let mut data = vec![0_u64; ABOVE_DRIVE_THRESHOLD];
+    data[ABOVE_DRIVE_THRESHOLD / 8] = 7;
+
+    for _ in 0..64 {
+        assert_eq!(
+            data.clone().into_par_iter().find_any(|value| *value == 7),
+            Some(7)
+        );
+        assert!(data.clone().into_par_iter().any(|value| *value == 7));
+        assert!(!data.clone().into_par_iter().all(|value| *value == 0));
+    }
+}
+
+#[test]
+fn test_parallel_try_for_each_returns_first_error_above_drive_threshold() {
+    let data: Vec<u64> = (0..ABOVE_DRIVE_THRESHOLD as u64).collect();
+    // Two errors in different shards: the earlier one must win regardless of
+    // which shard finishes first.
+    let result = data.into_par_iter().try_for_each(|value| {
+        if value == 3_000 || value == 6_000 {
+            Err(value)
+        } else {
+            Ok(())
+        }
+    });
+
+    assert_eq!(result, Err(3_000));
+}
+
+#[test]
+fn test_parallel_partition_and_unzip_preserve_order_above_drive_threshold() {
+    let data = threshold_crossing_data();
+
+    let (accepted, rejected): (Vec<u64>, Vec<u64>) = data
+        .clone()
+        .into_par_iter()
+        .partition(|value| value % 2 == 0);
+    let (expected_accepted, expected_rejected): (Vec<u64>, Vec<u64>) =
+        data.iter().copied().partition(|value| value % 2 == 0);
+    assert_eq!(accepted, expected_accepted);
+    assert_eq!(rejected, expected_rejected);
+
+    let (left, right): (Vec<u64>, Vec<u64>) = data
+        .clone()
+        .into_par_iter()
+        .map(|value| (value, value.wrapping_mul(3)))
+        .unzip();
+    let (expected_left, expected_right): (Vec<u64>, Vec<u64>) = data
+        .iter()
+        .copied()
+        .map(|value| (value, value.wrapping_mul(3)))
+        .unzip();
+    assert_eq!(left, expected_left);
+    assert_eq!(right, expected_right);
+
+    let (evens, odds): (Vec<u64>, Vec<u64>) = data.into_par_iter().partition_map(|value| {
+        if value % 2 == 0 {
+            Either::Left(value)
+        } else {
+            Either::Right(value)
+        }
+    });
+    assert_eq!(evens, expected_accepted);
+    assert_eq!(odds, expected_rejected);
+}
+
+#[test]
+fn test_parallel_float_sum_is_reproducible_and_within_the_derived_bound() {
+    // Floating-point addition is not associative, so the shard merge tree
+    // re-associates the additions. Two properties hold and are checked here:
+    // the merge tree depends only on the input length, so the value repeats
+    // exactly across runs; and the divergence from a sequential sum stays
+    // inside the error bound the two summations share.
+    let data: Vec<f64> = (0..ABOVE_DRIVE_THRESHOLD)
+        .map(|index| 1.0 / ((index + 1) as f64))
+        .collect();
+
+    let parallel = data.clone().into_par_iter().sum::<f64>();
+    for _ in 0..16 {
+        assert_eq!(data.clone().into_par_iter().sum::<f64>(), parallel);
+    }
+
+    let sequential: f64 = data.iter().copied().sum();
+    // Sequential summation of n terms carries an error of at most
+    // (n-1)*eps*sum|x|; a balanced merge tree carries at most log2(n)*eps*sum|x|.
+    // Their difference is therefore bounded by n*eps*sum|x|.
+    let magnitude: f64 = data.iter().map(|value| value.abs()).sum();
+    let bound = (data.len() as f64) * f64::EPSILON * magnitude;
+    assert!(
+        (parallel - sequential).abs() <= bound,
+        "parallel {parallel} and sequential {sequential} differ by more than the derived bound {bound}"
+    );
+}
+
 proptest::proptest! {
     #[test]
     fn prop_parallel_positions_match_sequential_filter(
