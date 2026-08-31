@@ -507,11 +507,83 @@
   (`schedule/runtime/scheduler/core.rs:137-156`). Fix: on spawn error, set
   shutdown, wake, join the partial set.
 
-## MOI-STEAL-BATCH-GATE-HOIST-2026-08-27 — Enter steal resize gate once per batch [patch] — todo
+## MOI-STEAL-BATCH-GATE-HOIST-2026-08-27 — Enter steal resize gate once per batch [patch] — review
 
-- Unowned. `steal_batch` pays the resize-gate `fetch_add`+`fetch_sub` SeqCst
-  pair per item — up to 32 contended RMWs per batch on a line shared by all
-  thieves (`deque/chase_lev.rs:203-218`). Fix: enter the gate once per batch.
+- **Integrator:** claude-fable session 5050c72a. **Lease:** none; provider
+  source, instrument, and focused verification are complete. **Last update:**
+  2026-08-31.
+- **Finding (line citations corrected).** `steal_batch`
+  (`deque/chase_lev.rs:478-528`) looped `steal`, and each `steal` opened
+  `enter_steal_access` (`:288-303`) — a `SeqCst` `fetch_add`/`fetch_sub` pair on
+  the counter every thief shares — plus a reclaim guard. At
+  `MAX_BATCH_STEAL = 16` that is up to 32 contended RMWs on one line to move at
+  most 16 elements. The filed `:203-218` citation had drifted.
+- **Delivered.** `steal` keeps the gate and the guard and delegates to a new
+  `steal_within_access`; `steal_batch` takes both once and loops that. No
+  ordering, no claim-protocol step, and no `Acquire` array load moved.
+- **The tradeoff, measured rather than assumed.** `resize` spins until
+  `steal_accesses` reaches zero, so one long hold replaces many short ones and a
+  racing resize can now wait behind a whole batch. The instrument therefore
+  measures both sides:
+  `benchmarks/benches/thread_schedule_comparison/steal_batch_gate.rs`
+  (criterion, sample_size 20, 2 s measurement, 300 ms warm-up, ~35 s for the
+  group, 0.41 s under the single-iteration smoke). `thief_drain` times K thieves
+  draining a pre-filled deque, where no resize can run; `owner_growth_under_
+  thieves` times only the owner's push loop from the 16-slot minimum, so its
+  nine resizes race live thieves. Both rows assert exactly-once transfer and a
+  closed-form payload sum, so a row cannot go fast by losing work.
+- **Result** (medians with 95% intervals, one bench binary, only
+  `chase_lev.rs` swapped between arms):
+
+  | row | per-item | per-batch | change |
+  | --- | --- | --- | --- |
+  | `thief_drain/2` | 612.14 µs [607.09, 616.14] | 467.05 µs [464.58, 470.11] | **−23.2%** (p=0.00) |
+  | `thief_drain/4` | 875.65 µs [872.68, 878.70] | 769.46 µs [764.05, 774.24] | **−12.0%** (p=0.00) |
+  | `thief_drain/8` | 1.2067 ms [1.2004, 1.2128] | 1.0760 ms [1.0728, 1.0791] | **−12.0%** (p=0.00) |
+  | `owner_growth/2` | 491.42 µs [484.41, 498.62] | 401.42 µs [395.11, 407.90] | **−19.6%** (p=0.00) |
+  | `owner_growth/4` | 828.34 µs [821.54, 836.88] | 828.59 µs [823.34, 835.43] | none (p=0.68) |
+  | `owner_growth/8` | 1.6478 ms [1.6245, 1.6671] | 1.6552 ms [1.6439, 1.6692] | none (p=0.62) |
+
+- **Instrument noise, stated because it bounds the verdict.** This host is a
+  hybrid Core Ultra 9 285K and thread placement is not controlled. Replaying the
+  *identical* build against its own baseline moved medians by at most 6.2%
+  (`owner_growth/2`), so only changes beyond that carry a verdict; every result
+  above is either well outside it or an explicit "no change". An earlier
+  four-point ladder that included a single-thief row drifted up to 52% on that
+  row and 42% on `owner_growth/4`; the committed ladder starts at two thieves
+  because contention is the subject and the one-thief row measured placement.
+- **Verdict: the hoist earns its place.** No thief count shows an owner-side
+  regression, so the starvation risk the hold creates does not materialize at
+  this batch bound — the traffic removed from the shared line outweighs the
+  longer hold. A batch also no longer stalls mid-flight on a resize opening
+  between two of its items.
+- **Loom coverage, stated honestly.** `tests/loom_chase_lev.rs` passes, but it
+  models the `top`/`bottom`/fence/CAS ordering protocol over a loom-tracked
+  slot store; it models neither `steal_accesses`/`resizing` nor `steal_batch`.
+  The change moves no modeled ordering, so the model still applies unchanged —
+  and it supplies no evidence about the hoist. That evidence is the resize-gate
+  stress coverage (`deque_concurrency::chase_lev_exactly_once_small_capacity_
+  forces_resize` and `..._high_thief_contention`, both green) plus the gate's
+  own contract: per-batch entry keeps a thief inside the access region strictly
+  longer than per-item entry, never shorter, so `resize` never republishes
+  earlier than before. See MOI-LOOM-RESIZE-GATE-2026-08-31.
+- **Gates:** `cargo fmt --all -- --check` clean; `cargo clippy --workspace
+  --all-targets --features moirai-benchmarks/registry-diagnostics -D warnings`
+  clean; `moirai-scheduler` + `moirai-executor` nextest 162/162;
+  `benchmark_contracts` 70/70; `moirai-scheduler` doctests 2/2;
+  `RUSTFLAGS="--cfg loom"` `loom_chase_lev` 1/1.
+
+## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — todo
+
+- Unowned. `loom_chase_lev.rs` covers the steal/pop ordering protocol but not
+  the resize gate: `enter_steal_access`'s add/re-check/back-off retry, the
+  `resizing` flag, and `resize`'s spin to zero are unmodelled, so no exhaustive
+  interleaving check covers a thief entering the gate against a resize claiming
+  it, nor a batch holding it across several steals. Surfaced by
+  MOI-STEAL-BATCH-GATE-HOIST, which changed the hold duration with only stress
+  tests and a contract argument as evidence. Model the flag and the counter with
+  the production orderings and assert that no thief is inside the access region
+  across the buffer republish.
 
 ## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] — todo
 

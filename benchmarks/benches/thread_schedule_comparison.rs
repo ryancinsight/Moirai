@@ -5,6 +5,8 @@
 
 #[path = "thread_schedule_comparison/local_queue_capacity.rs"]
 mod local_queue_capacity;
+#[path = "thread_schedule_comparison/steal_batch_gate.rs"]
+mod steal_batch_gate;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use crossbeam::channel::{bounded, TrySendError};
@@ -783,6 +785,7 @@ criterion_group!(
     bench_mixed_unified_schedule,
     bench_real_application_mixed_workload,
     bench_standalone_deque_reclaim_policy,
-    local_queue_capacity::bench
+    local_queue_capacity::bench,
+    steal_batch_gate::bench
 );
 criterion_main!(benches);

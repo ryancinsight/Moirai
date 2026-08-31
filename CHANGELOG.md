@@ -204,6 +204,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Enter the Chase-Lev resize gate once per batch steal instead of once per
+  element. `steal_batch` moves up to sixteen items and previously paid a
+  `SeqCst` increment and decrement on the counter every thief shares for each
+  one, up to 32 contended read-modify-writes on one line per batch; it now pays
+  two. Under a criterion harness with two, four, and eight thieves, batch drain
+  of a pre-filled deque improves 23.2%, 12.0%, and 12.0%. The gate is
+  consequently held longer, so `resize` — which spins until it is empty — can
+  wait behind a whole batch: the owner's growth path under the same thief
+  counts improves 19.6% at two thieves and shows no change at four or eight,
+  against a same-code repeat drift of at most 6.2% on that host. Exactly-once
+  transfer, the steal/pop ordering protocol, and every memory ordering are
+  unchanged.
 - Retain the 14-word inline scheduled-job capacity while removing forced
   cache-line alignment from each queue payload. A 256-slot worker injector now
   requests 36,864 bytes instead of 65,536 bytes on 64-bit targets; oversized
