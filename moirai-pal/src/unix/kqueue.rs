@@ -257,7 +257,7 @@ impl Reactor for KqueueReactor {
             // Registration is transactional at the trait boundary. If one
             // filter was added before another failed, remove the successful
             // subset before reporting failure. Retain the exact residual only
-            // if that compensating removal itself fails, so later polling can
+            // Retain the exact residual when that compensating removal fails, so later polling can
             // still identify and reconcile it.
             let cleanup = self.transition_interest(fd, actual, empty, generation);
             let residual = cleanup.actual;

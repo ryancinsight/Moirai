@@ -32,6 +32,11 @@
 //!   `Acquire` to pair with `resize`'s `Release` store, so a thief never
 //!   dereferences a stale buffer.
 //!
+//! The steal gate is entered once per *access*, not once per element: a batch
+//! steal holds it across all of its items, so `resize` waits behind a whole
+//! batch rather than a single steal, and a batch never stalls mid-flight on a
+//! resize that opens between two of its items.
+//!
 //! A resize closes the steal gate, waits for active thieves to leave, copies the
 //! live generation state, and then publishes the new buffer. Old buffers freed
 //! by `resize` are retired to a guarded list and reclaimed only once no accessor
@@ -426,6 +431,20 @@ where
     fn steal(&self) -> StealResult<T> {
         let _access = self.enter_steal_access();
         let _guard = self.reclaim.enter();
+        self.steal_within_access()
+    }
+
+    /// One steal, with the resize gate and the reclaim guard already held by the
+    /// caller.
+    ///
+    /// The gate and the guard are per-*access*, not per-item: the gate makes
+    /// `resize` wait, and the reclaim guard keeps the buffer live. Both hold for
+    /// the whole call, so a caller taking them once and stealing repeatedly
+    /// observes exactly the state one `steal` would — the array pointer cannot
+    /// change under it, because `resize` publishes a new buffer only after the
+    /// gate is empty. The `Acquire` load of the pointer is kept per item so this
+    /// body remains identical to the single-item path.
+    fn steal_within_access(&self) -> StealResult<T> {
         let t = self.top.load(Ordering::Acquire);
         std::sync::atomic::fence(Ordering::SeqCst);
         let b = self.bottom.load(Ordering::Acquire);
@@ -433,8 +452,8 @@ where
         if b.wrapping_sub(t) > 0 {
             let array_ptr = self.array.load(Ordering::Acquire);
             // SAFETY: the `Acquire` load pairs with `resize`'s `Release` store, so
-            // this is a live buffer; the reclaim guard keeps it from being freed
-            // while borrowed.
+            // this is a live buffer; the caller's reclaim guard keeps it from
+            // being freed while borrowed.
             let array = unsafe { &*array_ptr };
 
             if !array.claim(t) {
@@ -447,8 +466,8 @@ where
                 .is_ok()
             {
                 // SAFETY: the generation claim and successful CAS claim this
-                // index against every other thief and the owner; the reclaim
-                // guard keeps the array allocation live while the value moves.
+                // index against every other thief and the owner; the caller's
+                // reclaim guard keeps the allocation live while the value moves.
                 let value = unsafe { array.read(t) };
                 array.release(t);
                 return StealResult::Success(value);
@@ -467,12 +486,27 @@ where
         let mut count = 0;
         let mut retry = false;
 
+        // One gate entry and one reclaim guard for the batch, not one per item.
+        // `enter_steal_access` is a sequentially-consistent increment and
+        // decrement of a counter every thief shares, so per-item entry put up to 2 ×
+        // MAX_BATCH_STEAL contended RMWs on one line to move at most
+        // MAX_BATCH_STEAL elements.
+        //
+        // The cost is on the other side: `resize` spins until the counter
+        // reaches zero, so it now waits behind a whole batch instead of a
+        // single steal. The batch cannot block — every step below is a bounded
+        // sequence of atomics with no wait on the owner — so the wait is
+        // bounded by MAX_BATCH_STEAL steal attempts, and in exchange a batch no
+        // longer stalls mid-flight when a resize opens between two of its items.
+        let _access = self.enter_steal_access();
+        let _guard = self.reclaim.enter();
+
         // Claim each element through the single-item protocol before moving it
         // out of storage. A single atomic range claim can overlap owner pops
         // that advance `bottom` while leaving `top` unchanged, so batching the
         // reads must not bypass the last-item arbitration in `steal`.
         while count < MAX_BATCH_STEAL {
-            match self.steal() {
+            match self.steal_within_access() {
                 StealResult::Success(item) => {
                     items[count].write(item);
                     count += 1;

@@ -15,6 +15,17 @@
 //! - Proper memory ordering with acquire-release semantics
 //! - Safe cleanup on drop with reference counting
 
+/// Ordering for channel protocols that require a two-sided StoreLoad barrier.
+///
+/// A waiter publishes its registration before checking channel state while a
+/// notifier publishes channel state before checking the waiter registration.
+/// Acquire/release does not forbid both later loads from seeing stale values;
+/// sequential consistency is the weakest Rust ordering that supplies the
+/// required global order. Ordinary queue publication and counter maintenance
+/// keep their weaker acquire/release or relaxed orderings.
+pub(crate) const CHANNEL_STORE_LOAD_ORDER: std::sync::atomic::Ordering =
+    std::sync::atomic::Ordering::SeqCst;
+
 pub mod config;
 pub mod error;
 pub mod hybrid;

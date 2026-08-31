@@ -4,6 +4,8 @@ use std::pin::Pin;
 use std::sync::atomic::{fence, Ordering};
 use std::task::{Context, Poll};
 
+use crate::channel::CHANNEL_STORE_LOAD_ORDER;
+
 /// Future implementation for zero-cost async receive
 pub struct RecvFuture<'a, T> {
     pub(super) receiver: &'a super::recv::HybridReceiver<T>,
@@ -46,14 +48,18 @@ impl<T: Send> Future for RecvFuture<'_, T> {
                 // A previous send drained this future's entry; re-register
                 // under the same ID and re-count it.
                 wakers.push((id, waker.clone()));
-                this.receiver.waker_count.fetch_add(1, Ordering::SeqCst);
+                this.receiver
+                    .waker_count
+                    .fetch_add(1, CHANNEL_STORE_LOAD_ORDER);
             }
             id
         } else {
             let id = this.receiver.next_id.fetch_add(1, Ordering::Relaxed);
             wakers.push((id, waker.clone()));
             this.id = Some(id);
-            this.receiver.waker_count.fetch_add(1, Ordering::SeqCst);
+            this.receiver
+                .waker_count
+                .fetch_add(1, CHANNEL_STORE_LOAD_ORDER);
             id
         };
 
@@ -61,7 +67,7 @@ impl<T: Send> Future for RecvFuture<'_, T> {
         // below; pairs with the fence in `notify_consumers` between the
         // sender's publication and its counter gate loads (the same
         // store-buffer pair `moirai-sync`'s `FutexMutex` documents).
-        fence(Ordering::SeqCst);
+        fence(CHANNEL_STORE_LOAD_ORDER);
 
         let ready = if let Some(value) = this.receiver.ring.try_consume() {
             Some(Ok(value))
@@ -76,7 +82,9 @@ impl<T: Send> Future for RecvFuture<'_, T> {
             // not leave a counted waker behind for senders to wake.
             if let Some(pos) = wakers.iter().position(|(w_id, _)| *w_id == id) {
                 wakers.remove(pos);
-                this.receiver.waker_count.fetch_sub(1, Ordering::SeqCst);
+                this.receiver
+                    .waker_count
+                    .fetch_sub(1, CHANNEL_STORE_LOAD_ORDER);
             }
             return Poll::Ready(output);
         }
@@ -95,7 +103,9 @@ impl<T> Drop for RecvFuture<'_, T> {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(pos) = wakers.iter().position(|(w_id, _)| *w_id == id) {
                 wakers.remove(pos);
-                self.receiver.waker_count.fetch_sub(1, Ordering::SeqCst);
+                self.receiver
+                    .waker_count
+                    .fetch_sub(1, CHANNEL_STORE_LOAD_ORDER);
             }
         }
     }

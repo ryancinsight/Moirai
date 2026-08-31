@@ -2,6 +2,25 @@
 
 **Target**: Unreleased
 
+## MOI-ATLAS-CONFORMANCE-RATCHET-2026-08-31 — Restore the stack hygiene ratchet [patch] — review
+
+- **Outcome:** remove the Moirai source, test, comment, and atomic-ordering
+  regressions reported by Atlas conformance without raising or suppressing the
+  committed baseline or changing public behavior.
+- **Integrator:** Codex `/root/moirai_conformance`.
+- **Lease:** none. Source candidate `e13ae98` is pushed on PR #203.
+- **Acceptance:** the live-tree Moirai scan is at or below every committed
+  Atlas class; exact route values replace existence-only checks; oversized
+  files split at existing concern boundaries; the hybrid wake protocol keeps
+  its load-bearing sequentially-consistent StoreLoad barriers behind one named
+  ordering policy; focused value, Loom, Clippy, Rustdoc, and contract gates are
+  green; no baseline or timeout changes.
+- **Evidence:** Atlas reports oversized 37, existence-only 33, commented-code
+  6, sequentially-consistent sites 76, and target forks 0. Affected Nextest is
+  650/650; Loom is 5/5; warning-denied affected all-target Clippy, complete SIMD
+  benchmark smoke, Rustdoc, doctests, formatting, and diff checks pass.
+  Independent exact-commit review and refreshed hosted checks remain open.
+
 ## MOI-ADAPTIVE-THRESHOLD-PREMISE-2026-08-31 — `Adaptive` costs up to 20.6x on cheap bodies [patch] [perf] — documented 2026-08-31, decision open
 
 - **Finding.** `ADAPTIVE_PARALLEL_THRESHOLD = 1024` is an element count, but
@@ -57,7 +76,7 @@
 - **Acceptance.** The floor measured by the same probe drops materially, and
   the threshold item is re-derived against it.
 
-## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — in progress
+## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — done
 
 - **Outcome:** expose one const-generic same-element-type chunk operator so a
   kernel can mutate an arbitrary fixed number of disjoint buffers in one
@@ -76,11 +95,53 @@
   38/38, doctests 3/3, warning-denied Rustdoc, and cargo-semver-checks 196/196
   under minor. A dedicated warmed six-buffer census records zero allocations,
   and non-idempotent value assertions detect missing or duplicate chunk calls.
-  Consumer integration, independent re-review, and merge remain pending.
+- **Merged:** PR #200 (`2b9c806`), carrying `004f1a6`, `5f617db`, `620398c`;
+  `moirai-parallel/src/ops/chunks.rs` is on `main`. Label corrected from
+  in-progress on 2026-08-31 — the work landed, only the status lagged.
 
-## MOI-CONTRACT-AUDIT-STALENESS-2026-08-29 — Source-pinning contracts can audit stale or foreign sources [patch] — todo
+## MOI-CONTRACT-AUDIT-STALENESS-2026-08-29 — Source-pinning contracts can audit stale or foreign sources [patch] — review
 
-- **Unowned.** The `benchmark_contracts` suite is this repo's guard against
+- **Integrator:** claude-fable session 5050c72a. **Lease:** none; provider
+  source and focused verification are complete. **Last update:** 2026-08-31.
+- **Delivered:** `support.rs` now embeds every audited file at compile time
+  through an `EMBEDDED_SOURCES` table of `include_str!` values (283 entries,
+  generated once and kept as source). `read_benchmark` resolves a path against
+  that table instead of `fs::read_to_string`, so Cargo tracks each audited file
+  as a build dependency of the test binary and the paths resolve relative to
+  `support.rs` rather than to `CARGO_MANIFEST_DIR`. Assertions are unchanged —
+  only the byte source moved.
+- **Guard liveness, before (defect reproduced, not argued):** with the test
+  binary fresh, editing an audited source left it byte-identical
+  (`cargo build --test benchmark_contracts` → `Finished ... 0.22s`, md5
+  unchanged), so the verdict was never a function of the binary. Two worktrees
+  sharing `CARGO_TARGET_DIR` then collide on one output name: with the main
+  tree's `moirai-gpu/src/task.rs` violating
+  `gpu_task_adapter_uses_moirai_block_on_not_pollster` and a lane clean, a lane
+  build followed by a main-tree run reported `1 passed` — a **PASS against
+  violating source**, exactly the filed observation. Corroboration in the
+  shared cache: a `benchmark_contracts-*.exe` dated 2026-08-29 still carries
+  `D:\atlas\worktrees\moirai-registry-growth` as its baked audit root.
+- **Guard liveness, after:** the same edit now recompiles the test binary
+  (`Compiling moirai-benchmarks`) and the contract **fails**; a repeat of the
+  cross-worktree sequence also rebuilds, because the embedded bytes differ, so
+  the main tree audits the main tree. A renamed or deleted audited file is now
+  a **compile error** instead of the previous silently-empty alias read.
+- **Meaning-preserving cleanups forced by the change:** three alias leaves named
+  files that no longer exist (`moirai-pal/src/reactor/{future,task}.rs`,
+  `moirai-iter/src/async_iter.rs`) and were contributing empty strings; they are
+  removed. `moirai-pal/src/reactor/{registration,kqueue_transition}.rs` are
+  audited directly elsewhere, so no reactor coverage is lost.
+- **Residual, stated rather than worked around:** one audit asserts a file's
+  *absence* (`simd_iter_backup.rs`). `include_str!` cannot express that — naming
+  a missing file is a compile error, not a readable fact — so it keeps
+  `benchmark_path` and with it the `CARGO_MANIFEST_DIR` root. It is the only
+  remaining run-time path resolution in the suite and is documented as such at
+  the function.
+- **Gates:** `cargo fmt --all -- --check` clean; `cargo clippy --workspace
+  --all-targets --features moirai-benchmarks/registry-diagnostics -D warnings`
+  clean; `benchmark_contracts` 70/70.
+
+- **Original filing.** The `benchmark_contracts` suite is this repo's guard against
   regressing accepted designs: it asserts that named shapes are present in, or
   absent from, specific source files. Two properties of *how* it reads them let
   it report a pass it did not verify.
@@ -114,6 +175,18 @@
   relevant contract fail on the next `cargo nextest run`; and a contract run in
   a worktree reports on that worktree's sources with another worktree dirty.
   Both are falsifiable — verify each against the current behaviour first.
+
+## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — todo
+
+- Unowned. `benchmarks/benches/result_handle_diagnostics/registry_paths.rs`
+  calls `TaskRegistry::diagnostic_directory_shared_acquire`, which lives behind
+  `moirai-executor/registry-diagnostics`, but the `[[bench]]` target declares no
+  `required-features`. `cargo clippy --workspace --all-targets -- -D warnings`
+  therefore fails on clean `main` (verified at `1866626` in a separate
+  worktree) with `E0599`, and only passes when
+  `--features moirai-benchmarks/registry-diagnostics` is added. Fix:
+  `required-features = ["registry-diagnostics"]` on that bench target so the
+  default gate selects the targets it can build.
 
 ## MOI-FLAKY-JOIN-PRECONDITION-2026-08-28 — Make the join test's precondition deterministic [patch] — review
 
@@ -453,11 +526,83 @@
   (`schedule/runtime/scheduler/core.rs:137-156`). Fix: on spawn error, set
   shutdown, wake, join the partial set.
 
-## MOI-STEAL-BATCH-GATE-HOIST-2026-08-27 — Enter steal resize gate once per batch [patch] — todo
+## MOI-STEAL-BATCH-GATE-HOIST-2026-08-27 — Enter steal resize gate once per batch [patch] — review
 
-- Unowned. `steal_batch` pays the resize-gate `fetch_add`+`fetch_sub` SeqCst
-  pair per item — up to 32 contended RMWs per batch on a line shared by all
-  thieves (`deque/chase_lev.rs:203-218`). Fix: enter the gate once per batch.
+- **Integrator:** claude-fable session 5050c72a. **Lease:** none; provider
+  source, instrument, and focused verification are complete. **Last update:**
+  2026-08-31.
+- **Finding (line citations corrected).** `steal_batch`
+  (`deque/chase_lev.rs:478-528`) looped `steal`, and each `steal` opened
+  `enter_steal_access` (`:288-303`) — a `SeqCst` `fetch_add`/`fetch_sub` pair on
+  the counter every thief shares — plus a reclaim guard. At
+  `MAX_BATCH_STEAL = 16` that is up to 32 contended RMWs on one line to move at
+  most 16 elements. The filed `:203-218` citation had drifted.
+- **Delivered.** `steal` keeps the gate and the guard and delegates to a new
+  `steal_within_access`; `steal_batch` takes both once and loops that. No
+  ordering, no claim-protocol step, and no `Acquire` array load moved.
+- **The tradeoff, measured rather than assumed.** `resize` spins until
+  `steal_accesses` reaches zero, so one long hold replaces many short ones and a
+  racing resize can now wait behind a whole batch. The instrument therefore
+  measures both sides:
+  `benchmarks/benches/thread_schedule_comparison/steal_batch_gate.rs`
+  (criterion, sample_size 20, 2 s measurement, 300 ms warm-up, ~35 s for the
+  group, 0.41 s under the single-iteration smoke). `thief_drain` times K thieves
+  draining a pre-filled deque, where no resize can run; `owner_growth_under_
+  thieves` times only the owner's push loop from the 16-slot minimum, so its
+  nine resizes race live thieves. Both rows assert exactly-once transfer and a
+  closed-form payload sum, so a row cannot go fast by losing work.
+- **Result** (medians with 95% intervals, one bench binary, only
+  `chase_lev.rs` swapped between arms):
+
+  | row | per-item | per-batch | change |
+  | --- | --- | --- | --- |
+  | `thief_drain/2` | 612.14 µs [607.09, 616.14] | 467.05 µs [464.58, 470.11] | **−23.2%** (p=0.00) |
+  | `thief_drain/4` | 875.65 µs [872.68, 878.70] | 769.46 µs [764.05, 774.24] | **−12.0%** (p=0.00) |
+  | `thief_drain/8` | 1.2067 ms [1.2004, 1.2128] | 1.0760 ms [1.0728, 1.0791] | **−12.0%** (p=0.00) |
+  | `owner_growth/2` | 491.42 µs [484.41, 498.62] | 401.42 µs [395.11, 407.90] | **−19.6%** (p=0.00) |
+  | `owner_growth/4` | 828.34 µs [821.54, 836.88] | 828.59 µs [823.34, 835.43] | none (p=0.68) |
+  | `owner_growth/8` | 1.6478 ms [1.6245, 1.6671] | 1.6552 ms [1.6439, 1.6692] | none (p=0.62) |
+
+- **Instrument noise, stated because it bounds the verdict.** This host is a
+  hybrid Core Ultra 9 285K and thread placement is not controlled. Replaying the
+  *identical* build against its own baseline moved medians by at most 6.2%
+  (`owner_growth/2`), so only changes beyond that carry a verdict; every result
+  above is either well outside it or an explicit "no change". An earlier
+  four-point ladder that included a single-thief row drifted up to 52% on that
+  row and 42% on `owner_growth/4`; the committed ladder starts at two thieves
+  because contention is the subject and the one-thief row measured placement.
+- **Verdict: the hoist earns its place.** No thief count shows an owner-side
+  regression, so the starvation risk the hold creates does not materialize at
+  this batch bound — the traffic removed from the shared line outweighs the
+  longer hold. A batch also no longer stalls mid-flight on a resize opening
+  between two of its items.
+- **Loom coverage, stated honestly.** `tests/loom_chase_lev.rs` passes, but it
+  models the `top`/`bottom`/fence/CAS ordering protocol over a loom-tracked
+  slot store; it models neither `steal_accesses`/`resizing` nor `steal_batch`.
+  The change moves no modeled ordering, so the model still applies unchanged —
+  and it supplies no evidence about the hoist. That evidence is the resize-gate
+  stress coverage (`deque_concurrency::chase_lev_exactly_once_small_capacity_
+  forces_resize` and `..._high_thief_contention`, both green) plus the gate's
+  own contract: per-batch entry keeps a thief inside the access region strictly
+  longer than per-item entry, never shorter, so `resize` never republishes
+  earlier than before. See MOI-LOOM-RESIZE-GATE-2026-08-31.
+- **Gates:** `cargo fmt --all -- --check` clean; `cargo clippy --workspace
+  --all-targets --features moirai-benchmarks/registry-diagnostics -D warnings`
+  clean; `moirai-scheduler` + `moirai-executor` nextest 162/162;
+  `benchmark_contracts` 70/70; `moirai-scheduler` doctests 2/2;
+  `RUSTFLAGS="--cfg loom"` `loom_chase_lev` 1/1.
+
+## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — todo
+
+- Unowned. `loom_chase_lev.rs` covers the steal/pop ordering protocol but not
+  the resize gate: `enter_steal_access`'s add/re-check/back-off retry, the
+  `resizing` flag, and `resize`'s spin to zero are unmodelled, so no exhaustive
+  interleaving check covers a thief entering the gate against a resize claiming
+  it, nor a batch holding it across several steals. Surfaced by
+  MOI-STEAL-BATCH-GATE-HOIST, which changed the hold duration with only stress
+  tests and a contract argument as evidence. Model the flag and the counter with
+  the production orderings and assert that no thief is inside the access region
+  across the buffer republish.
 
 ## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] — todo
 
