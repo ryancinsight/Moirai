@@ -18,8 +18,40 @@
 
 /// Element count at or above which [`Adaptive`] chooses parallel execution.
 ///
-/// Mirrors `moirai-iter`'s `parallel_threshold`: below this, dispatch and join
-/// overhead typically exceeds the benefit of parallelism.
+/// # This value encodes an assumption about per-element cost
+///
+/// An element count cannot decide this on its own. Parallel wins once
+/// `n * per_element_cost` exceeds the fixed dispatch cost, so the crossover
+/// moves with how expensive the body is, and any single count is right for one
+/// body weight and wrong for the others.
+///
+/// Measured on this workstation (best of 30 blocks, `map_reduce`, parallel
+/// against the same fold run serially; the dispatch floor is ~11.9 us, which
+/// is one task spawned per worker chunk plus the joins):
+///
+/// ```text
+///   body weight                     crossover   parallel/serial at n = 1024
+///   one multiply                    ~21K-32K    20.6x worse
+///   sqrt + ln_1p                    ~8K          4.1x worse
+///   24 chained fused multiply-adds  ~512-1024    0.25x  (parallel wins)
+/// ```
+///
+/// So 1024 is tuned for an expensive body. A caller folding a cheap expression
+/// over 1K-16K elements pays 1.3x to 20.6x for the parallel choice, and the
+/// earlier claim here — that below this value dispatch overhead "typically
+/// exceeds the benefit" — is the opposite of what happens above it for such a
+/// body.
+///
+/// It is left at 1024 deliberately rather than raised: the stack's own heavy
+/// consumers (spherical-harmonic mode loops, for one) fold expensive bodies
+/// over exactly the 1K-16K range where raising it would serialize them. The
+/// two ways out are re-deriving it against a stated body weight, or shrinking
+/// the dispatch floor so the choice matters less; both are tracked rather than
+/// guessed at here.
+///
+/// A caller who knows its body is cheap should select [`Sequential`], and one
+/// who knows it is expensive should select [`Parallel`]. `Adaptive` is for
+/// callers who know neither, and it cannot be right for both.
 pub const ADAPTIVE_PARALLEL_THRESHOLD: usize = 1024;
 
 /// Compile-time strategy selector for the data-parallel operations in this crate.

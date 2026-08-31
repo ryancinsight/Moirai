@@ -2,6 +2,61 @@
 
 **Target**: Unreleased
 
+## MOI-ADAPTIVE-THRESHOLD-PREMISE-2026-08-31 — `Adaptive` costs up to 20.6x on cheap bodies [patch] [perf] — documented 2026-08-31, decision open
+
+- **Finding.** `ADAPTIVE_PARALLEL_THRESHOLD = 1024` is an element count, but
+  what decides is work: parallel wins once `n * per_element_cost` clears the
+  fixed dispatch cost. Measured floor on this workstation: **~11.9 us**, flat
+  from n = 1024 to n = 65536 — one task spawned per worker chunk plus the joins
+  (`data_parallel.rs` spawns `chunk_count - 1` tasks and allocates
+  `ReduceSlots`).
+- **Measured crossovers** (best of 30 blocks, `map_reduce`, against the same
+  fold run serially):
+
+  | body | crossover | par/ser @1024 | @4096 | @16384 |
+  |---|---|---|---|---|
+  | one multiply | ~21K-32K | **20.6x worse** | 5.64x worse | 1.30x worse |
+  | `sqrt` + `ln_1p` | ~8K | 4.10x worse | 1.07x worse | 0.27x |
+  | 24 chained FMAs | ~512-1024 | 0.25x (wins) | 0.10x | 0.09x |
+
+  Below the threshold every weight measures par/ser ~= 1.0, so the routing
+  works; only the line's position is in question.
+- **The doc was wrong, and is fixed.** It claimed that below 1024 dispatch
+  overhead "typically exceeds the benefit of parallelism". For a cheap body
+  that holds up to roughly 21K, not 1024 — the opposite of what the constant
+  asserts above its own value. `policy.rs` now carries the measurement, the
+  body-weight assumption the value encodes, and the escape hatches
+  (`Sequential` / `Parallel` for callers who know their body).
+- **Deliberately not raised.** Raising it to fit a cheap body would serialize
+  heavy consumers over exactly the range where they win: apollo's
+  spherical-harmonic mode loops fold an expensive body through `Adaptive` at
+  these sizes, and a heavy body measures 4x better parallel at n = 1024. One
+  count cannot serve both, and changing it blind trades a measured 20.6x loss
+  for an unmeasured regression in a consumer not instrumentable from here.
+- **Re-open trigger:** `MOI-DISPATCH-FLOOR-2026-08-31` lands, or a decision is
+  taken on which body weight `Adaptive` targets.
+
+## MOI-DISPATCH-FLOOR-2026-08-31 — The data-parallel dispatch floor is ~11.9 us [minor] [perf] — todo
+
+- **Finding.** Every `Adaptive`/`Parallel` operation pays ~11.9 us before any
+  work happens, flat across n = 1024 to 65536.
+  `map_reduce_indexed` in `schedule/runtime/scheduler/data_parallel.rs`
+  allocates `ReduceSlots` and spawns one task per worker chunk, then joins —
+  roughly 600 ns per spawn at this host's worker count.
+- **Why it matters.** It sets the crossover for every parallel operation in the
+  stack. At ~11.9 us a cheap body needs ~21K elements before parallelism pays;
+  at 2 us it would need ~3.5K, close enough to the current threshold that
+  `Adaptive` would be roughly right for every body weight instead of one. That
+  makes this the better of the two ways out of
+  `MOI-ADAPTIVE-THRESHOLD-PREMISE-2026-08-31`.
+- **Direction, not prescription.** A persistent worker barrier with
+  pre-registered chunk bounds avoids per-call task construction; static
+  distribution avoids the slot allocation. Both are executor changes needing
+  their own measurement, and any candidate must hold value parity and the
+  existing panic-propagation behaviour.
+- **Acceptance.** The floor measured by the same probe drops materially, and
+  the threshold item is re-derived against it.
+
 ## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — in progress
 
 - **Outcome:** expose one const-generic same-element-type chunk operator so a
