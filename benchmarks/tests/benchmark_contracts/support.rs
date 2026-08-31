@@ -279,6 +279,28 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-async/src/sync/watch.rs",
         ],
     ),
+    (
+        "../moirai-transport/src/route.rs",
+        &[
+            "../moirai-transport/src/route.rs",
+            "../moirai-transport/src/route/process_client.rs",
+        ],
+    ),
+    (
+        "../moirai-utils/src/simd/scalar.rs",
+        &[
+            "../moirai-utils/src/simd/scalar.rs",
+            "../moirai-utils/src/simd/scalar/capability.rs",
+            "../moirai-utils/src/simd/scalar/validation.rs",
+        ],
+    ),
+    (
+        "benches/simd_benchmarks.rs",
+        &[
+            "benches/simd_benchmarks.rs",
+            "benches/simd_benchmarks/wide.rs",
+        ],
+    ),
 ];
 
 /// Audited sources, embedded at compile time.
@@ -528,6 +550,7 @@ embedded_sources![
     "../moirai-transport/src/remote_task/server.rs",
     "../moirai-transport/src/remote_task/tests.rs",
     "../moirai-transport/src/route.rs",
+    "../moirai-transport/src/route/process_client.rs",
     "../moirai-transport/src/route/tests.rs",
     "../moirai-transport/src/safe_channel.rs",
     "../moirai-transport/src/transport.rs",
@@ -536,6 +559,8 @@ embedded_sources![
     "../moirai-utils/src/simd/arch/mod.rs",
     "../moirai-utils/src/simd/mod.rs",
     "../moirai-utils/src/simd/scalar.rs",
+    "../moirai-utils/src/simd/scalar/capability.rs",
+    "../moirai-utils/src/simd/scalar/validation.rs",
     "../moirai-utils/src/simd/tests.rs",
     "../moirai/Cargo.toml",
     "../moirai/src/builder.rs",
@@ -586,6 +611,7 @@ embedded_sources![
     "benches/result_handle_diagnostics/wrapper_primitives.rs",
     "benches/result_handle_diagnostics/wrapper_registry.rs",
     "benches/simd_benchmarks.rs",
+    "benches/simd_benchmarks/wide.rs",
     "benches/sorting_comparison.rs",
     "benches/thread_schedule_comparison.rs",
     "benches/thread_schedule_comparison/local_queue_capacity.rs",

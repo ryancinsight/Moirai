@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::task::Waker;
 
 use super::notify::notify_consumers;
+use crate::channel::CHANNEL_STORE_LOAD_ORDER;
 
 /// Receiver half of hybrid channel
 pub struct HybridReceiver<T> {
@@ -22,11 +23,13 @@ pub struct HybridReceiver<T> {
 impl<T: Send> HybridReceiver<T> {
     /// Register the calling thread for sender unparks.
     ///
-    /// The `SeqCst` increment is half of the Dekker pair documented on
+    /// The sequentially-consistent increment is half of the Dekker pair on
     /// [`notify_consumers`](super::notify::notify_consumers); the caller must
-    /// execute `fence(SeqCst)` and re-check the ring (and `closed`) before
+    /// execute the matching fence and re-check the ring (and `closed`) before
     /// parking, or a concurrent send can miss this registration while the
     /// re-check misses its message — the last-message hang.
+    /// [`CHANNEL_STORE_LOAD_ORDER`] is the single source for that load-bearing
+    /// ordering.
     fn register_parked(&self, current_thread: &std::thread::Thread) {
         let mut parked = self
             .parker
@@ -34,7 +37,7 @@ impl<T: Send> HybridReceiver<T> {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if !parked.iter().any(|t| t.id() == current_thread.id()) {
             parked.push(current_thread.clone());
-            self.parked_count.fetch_add(1, Ordering::SeqCst);
+            self.parked_count.fetch_add(1, CHANNEL_STORE_LOAD_ORDER);
         }
     }
 
@@ -48,7 +51,8 @@ impl<T: Send> HybridReceiver<T> {
         parked.retain(|t| !t.id().eq(&current_thread.id()));
         let removed = old_len - parked.len();
         if removed > 0 {
-            self.parked_count.fetch_sub(removed, Ordering::SeqCst);
+            self.parked_count
+                .fetch_sub(removed, CHANNEL_STORE_LOAD_ORDER);
         }
     }
 
@@ -77,9 +81,9 @@ impl<T: Send> HybridReceiver<T> {
             // below; pairs with the fence in `notify_consumers` between the
             // sender's publication and its counter gate loads. Without both
             // fences a StoreLoad reorder lets the sender read a zero count
-            // while this re-check reads an empty ring, and the thread parks
+            // This re-check could read an empty ring while the thread parks
             // against a delivered message.
-            fence(Ordering::SeqCst);
+            fence(CHANNEL_STORE_LOAD_ORDER);
 
             if let Some(value) = self.ring.try_consume() {
                 self.deregister_parked(&current_thread);
@@ -139,7 +143,7 @@ impl<T: Send> HybridReceiver<T> {
                     // send racing this registration is missed on both sides
                     // and the thread pays the full remaining timeout for a
                     // message that is already in the ring.
-                    fence(Ordering::SeqCst);
+                    fence(CHANNEL_STORE_LOAD_ORDER);
                     if let Some(value) = self.ring.try_consume() {
                         self.deregister_parked(&current_thread);
                         return Ok(value);

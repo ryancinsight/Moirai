@@ -487,8 +487,8 @@ where
         let mut retry = false;
 
         // One gate entry and one reclaim guard for the batch, not one per item.
-        // `enter_steal_access` is a `SeqCst` increment and decrement of a
-        // counter every thief shares, so per-item entry put up to 2 ×
+        // `enter_steal_access` is a sequentially-consistent increment and
+        // decrement of a counter every thief shares, so per-item entry put up to 2 ×
         // MAX_BATCH_STEAL contended RMWs on one line to move at most
         // MAX_BATCH_STEAL elements.
         //

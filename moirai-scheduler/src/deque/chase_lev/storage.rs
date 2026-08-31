@@ -38,7 +38,7 @@ impl<T> Array<T> {
             NonNull::dangling()
         } else {
             // SAFETY: `layout` has non-zero size (checked above) and is valid
-            // for the slot array; allocation failure is handled before
+            // The slot-array layout is valid; allocation failure is handled before
             // constructing `NonNull`.
             let raw_ptr = unsafe {
                 #[cfg(feature = "mnemosyne")]

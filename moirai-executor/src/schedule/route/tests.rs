@@ -1,9 +1,9 @@
 use moirai_core::Priority;
 
 use super::{
-    AcceleratorCounts, AcceleratorRoutePolicy, AsyncLanesPerProcess, HybridRoutePolicy,
-    HybridRouter, ProcessCount, RouteSummary, RouteTopology, SchedulerRoute, ServerCount,
-    ServerRoutePolicy, ThreadRoutePolicy, WorkerCount,
+    AcceleratorCounts, AcceleratorRoutePolicy, AsyncLaneId, AsyncLanesPerProcess,
+    HybridRoutePolicy, HybridRouter, ProcessCount, RouteSummary, RouteTopology, SchedulerRoute,
+    ServerCount, ServerRoutePolicy, ThreadRoutePolicy, WorkerCount,
 };
 use crate::schedule::{AsyncTask, BlockingTask, SyncTask};
 
@@ -33,12 +33,18 @@ fn async_work_routes_to_process_async_lanes() {
         let route = router.select::<AsyncTask>(Priority::Normal, sequence);
         match route {
             SchedulerRoute::Process(route) => {
-                assert!(route.async_lane.is_some());
+                assert_eq!(
+                    route.async_lane,
+                    Some(AsyncLaneId::new((sequence + route.process.get()) % 2))
+                );
                 observed.process_routes += 1;
                 observed.async_lane_routes += 1;
             }
             SchedulerRoute::Server(route) => {
-                assert!(route.async_lane.is_some());
+                assert_eq!(
+                    route.async_lane,
+                    Some(AsyncLaneId::new((sequence + route.process.get()) % 2))
+                );
                 observed.server_routes += 1;
                 observed.async_lane_routes += 1;
             }

@@ -143,6 +143,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restore the Atlas source-hygiene ratchet without changing runtime behavior:
+  channel StoreLoad handshakes now share one documented
+  sequentially-consistent ordering policy, exact scheduler-route values replace
+  presence-only assertions, and oversized SIMD benchmark, MPMC role, transport
+  process-client, and SIMD scalar concerns live in dedicated modules.
 - Publish scoped scheduler completion only after the borrowing task's call
   frame and captures are destroyed. The previous task-owned completion token
   could release the caller's stack state while the worker still held a shared

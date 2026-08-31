@@ -4,6 +4,8 @@ use std::sync::atomic::{fence, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::task::Waker;
 
+use crate::channel::CHANNEL_STORE_LOAD_ORDER;
+
 /// Wake every parked thread and registered async waker after a publication.
 ///
 /// The caller has just published state consumers must observe — a produced
@@ -23,8 +25,8 @@ use std::task::Waker;
 /// message already delivered — the last-message hang. `moirai-sync`'s
 /// `FutexMutex` (`lock_slow`/`unlock` in `src/sync/futex_mutex.rs`) documents
 /// and fences this exact pattern on its `waiters`/`locked` pair; the
-/// `fence(SeqCst)` here follows it and pairs with the fence each registration
-/// site executes between its counter increment and its re-check.
+/// the sequentially-consistent fence here follows it and pairs with the fence
+/// each registration site executes between its counter increment and re-check.
 ///
 /// Wakers are drained under the registry lock but woken after it is released:
 /// `Waker::wake` may execute the woken task inline on this thread (the
@@ -38,7 +40,7 @@ pub(super) fn notify_consumers(
     async_wakers: &Mutex<Vec<(u64, Waker)>>,
     waker_count: &AtomicUsize,
 ) {
-    fence(Ordering::SeqCst);
+    fence(CHANNEL_STORE_LOAD_ORDER);
 
     if parked_count.load(Ordering::Relaxed) > 0 {
         let parked = {

@@ -286,7 +286,7 @@ where
     {
         // One input, one output, no state between items: the same push `Map`
         // makes. Materializing `seq_items()` first discarded the source's shards
-        // for every chain containing `update()`.
+        // Every chain containing `update()` lost its source shards.
         let update_fn = self.update_fn;
         self.base
             .drive(MapConsumer::new(consumer, move |mut item: I::Item| {

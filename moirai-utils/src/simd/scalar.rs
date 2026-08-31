@@ -4,6 +4,15 @@ use super::arch;
 use core::iter::Sum;
 use core::ops::{Add, Div, Mul, Sub};
 
+mod capability;
+mod validation;
+
+use capability::{
+    native_vector_available, native_vector_chunk_len, native_wide_vector_available,
+    uses_native_vector_path, uses_native_wide_vector_path,
+};
+use validation::scalar_matrix_shape;
+
 pub(crate) mod sealed {
     pub trait Sealed {}
 }
@@ -479,88 +488,4 @@ impl SimdScalar for u64 {
 impl sealed::Sealed for usize {}
 impl SimdScalar for usize {
     const ZERO: Self = 0;
-}
-
-#[inline]
-fn native_vector_available() -> bool {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if arch::has_avx2_support() {
-            return true;
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    {
-        if arch::has_neon_support() {
-            return true;
-        }
-    }
-
-    false
-}
-
-#[inline]
-fn uses_native_vector_path(len: usize) -> bool {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if arch::has_avx2_support() && len >= arch::LANES {
-            return true;
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    {
-        if arch::has_neon_support() && len >= arch::LANES {
-            return true;
-        }
-    }
-
-    false
-}
-
-#[inline]
-fn native_wide_vector_available() -> bool {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if arch::has_avx2_support() {
-            return true;
-        }
-    }
-
-    false
-}
-
-#[inline]
-fn uses_native_wide_vector_path(len: usize) -> bool {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if arch::has_avx2_support() && len >= arch::LANES {
-            return true;
-        }
-    }
-
-    let _ = len;
-    false
-}
-
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-#[inline]
-fn native_vector_chunk_len(len: usize) -> Option<usize> {
-    native_vector_available()
-        .then_some((len / arch::LANES) * arch::LANES)
-        .filter(|chunk_len| *chunk_len != 0)
-}
-
-#[inline]
-fn scalar_matrix_shape<const N: usize>(left: &[f32], right: &[f32], result: &mut [f32]) {
-    assert!(N != 0, "matrix dimension must be non-zero");
-    let expected = N.checked_mul(N).expect("matrix dimension overflow");
-    assert_eq!(left.len(), expected, "left matrix size must equal N * N");
-    assert_eq!(right.len(), expected, "right matrix size must equal N * N");
-    assert_eq!(
-        result.len(),
-        expected,
-        "result matrix size must equal N * N"
-    );
 }
