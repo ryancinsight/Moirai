@@ -2,6 +2,24 @@
 
 **Target**: Unreleased
 
+## MOI-ATLAS-CONFORMANCE-RATCHET-2026-08-31 — Restore the stack hygiene ratchet [patch] — in progress
+
+- **Outcome:** remove the Moirai source, test, comment, and atomic-ordering
+  regressions reported by Atlas conformance without raising or suppressing the
+  committed baseline or changing public behavior.
+- **Integrator:** Codex `/root/moirai_conformance`.
+- **Lease:** benchmark contract support and SIMD benchmark module boundaries;
+  MPMC channel and transport-route module boundaries; hybrid-channel ordering
+  policy; scheduler-route tests; the four newly detected prose/code-comment
+  sites; this item and the corresponding CHANGELOG entry. Last update:
+  2026-08-31.
+- **Acceptance:** the live-tree Moirai scan is at or below every committed
+  Atlas class; exact route values replace existence-only checks; oversized
+  files split at existing concern boundaries; the hybrid wake protocol keeps
+  its load-bearing sequentially-consistent StoreLoad barriers behind one named
+  ordering policy; focused value, Loom, Clippy, Rustdoc, and contract gates are
+  green; no baseline or timeout changes.
+
 ## MOI-ADAPTIVE-THRESHOLD-PREMISE-2026-08-31 — `Adaptive` costs up to 20.6x on cheap bodies [patch] [perf] — documented 2026-08-31, decision open
 
 - **Finding.** `ADAPTIVE_PARALLEL_THRESHOLD = 1024` is an element count, but
