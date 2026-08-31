@@ -2,24 +2,14 @@
 
 **Target**: Unreleased
 
-## MOI-ATLAS-CONFORMANCE-RATCHET-2026-08-31 — Restore the stack hygiene ratchet [patch] — review
+## MOI-ATLAS-CONFORMANCE-RATCHET-2026-08-31 — Restore the stack hygiene ratchet [patch] — complete
 
-- **Outcome:** remove the Moirai source, test, comment, and atomic-ordering
-  regressions reported by Atlas conformance without raising or suppressing the
-  committed baseline or changing public behavior.
-- **Integrator:** Codex `/root/moirai_conformance`.
-- **Lease:** none. Source candidate `e13ae98` is pushed on PR #203.
-- **Acceptance:** the live-tree Moirai scan is at or below every committed
-  Atlas class; exact route values replace existence-only checks; oversized
-  files split at existing concern boundaries; the hybrid wake protocol keeps
-  its load-bearing sequentially-consistent StoreLoad barriers behind one named
-  ordering policy; focused value, Loom, Clippy, Rustdoc, and contract gates are
-  green; no baseline or timeout changes.
-- **Evidence:** Atlas reports oversized 37, existence-only 33, commented-code
-  6, sequentially-consistent sites 76, and target forks 0. Affected Nextest is
-  650/650; Loom is 5/5; warning-denied affected all-target Clippy, complete SIMD
-  benchmark smoke, Rustdoc, doctests, formatting, and diff checks pass.
-  Independent exact-commit review and refreshed hosted checks remain open.
+- Source `e13ae98` merged through PR #203 as `a98154b`; the exact scan is
+  oversized 37, existence-only 33, commented-code 6, sequentially-consistent
+  sites 76, and target forks 0, with no baseline or timeout change.
+- Independent exact-Git review and hosted run `33445215503` are green. Local
+  evidence is affected Nextest 650/650, Loom 5/5, warning-denied all-target
+  Clippy, complete SIMD smoke, Rustdoc, doctests, formatting, and diff checks.
 
 ## MOI-ADAPTIVE-THRESHOLD-PREMISE-2026-08-31 — `Adaptive` costs up to 20.6x on cheap bodies [patch] [perf] — documented 2026-08-31, decision open
 
