@@ -57,7 +57,7 @@
 - **Acceptance.** The floor measured by the same probe drops materially, and
   the threshold item is re-derived against it.
 
-## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — in progress
+## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — done
 
 - **Outcome:** expose one const-generic same-element-type chunk operator so a
   kernel can mutate an arbitrary fixed number of disjoint buffers in one
@@ -76,11 +76,53 @@
   38/38, doctests 3/3, warning-denied Rustdoc, and cargo-semver-checks 196/196
   under minor. A dedicated warmed six-buffer census records zero allocations,
   and non-idempotent value assertions detect missing or duplicate chunk calls.
-  Consumer integration, independent re-review, and merge remain pending.
+- **Merged:** PR #200 (`2b9c806`), carrying `004f1a6`, `5f617db`, `620398c`;
+  `moirai-parallel/src/ops/chunks.rs` is on `main`. Label corrected from
+  in-progress on 2026-08-31 — the work landed, only the status lagged.
 
-## MOI-CONTRACT-AUDIT-STALENESS-2026-08-29 — Source-pinning contracts can audit stale or foreign sources [patch] — todo
+## MOI-CONTRACT-AUDIT-STALENESS-2026-08-29 — Source-pinning contracts can audit stale or foreign sources [patch] — review
 
-- **Unowned.** The `benchmark_contracts` suite is this repo's guard against
+- **Integrator:** claude-fable session 5050c72a. **Lease:** none; provider
+  source and focused verification are complete. **Last update:** 2026-08-31.
+- **Delivered:** `support.rs` now embeds every audited file at compile time
+  through an `EMBEDDED_SOURCES` table of `include_str!` values (283 entries,
+  generated once and kept as source). `read_benchmark` resolves a path against
+  that table instead of `fs::read_to_string`, so Cargo tracks each audited file
+  as a build dependency of the test binary and the paths resolve relative to
+  `support.rs` rather than to `CARGO_MANIFEST_DIR`. Assertions are unchanged —
+  only the byte source moved.
+- **Guard liveness, before (defect reproduced, not argued):** with the test
+  binary fresh, editing an audited source left it byte-identical
+  (`cargo build --test benchmark_contracts` → `Finished ... 0.22s`, md5
+  unchanged), so the verdict was never a function of the binary. Two worktrees
+  sharing `CARGO_TARGET_DIR` then collide on one output name: with the main
+  tree's `moirai-gpu/src/task.rs` violating
+  `gpu_task_adapter_uses_moirai_block_on_not_pollster` and a lane clean, a lane
+  build followed by a main-tree run reported `1 passed` — a **PASS against
+  violating source**, exactly the filed observation. Corroboration in the
+  shared cache: a `benchmark_contracts-*.exe` dated 2026-08-29 still carries
+  `D:\atlas\worktrees\moirai-registry-growth` as its baked audit root.
+- **Guard liveness, after:** the same edit now recompiles the test binary
+  (`Compiling moirai-benchmarks`) and the contract **fails**; a repeat of the
+  cross-worktree sequence also rebuilds, because the embedded bytes differ, so
+  the main tree audits the main tree. A renamed or deleted audited file is now
+  a **compile error** instead of the previous silently-empty alias read.
+- **Meaning-preserving cleanups forced by the change:** three alias leaves named
+  files that no longer exist (`moirai-pal/src/reactor/{future,task}.rs`,
+  `moirai-iter/src/async_iter.rs`) and were contributing empty strings; they are
+  removed. `moirai-pal/src/reactor/{registration,kqueue_transition}.rs` are
+  audited directly elsewhere, so no reactor coverage is lost.
+- **Residual, stated rather than worked around:** one audit asserts a file's
+  *absence* (`simd_iter_backup.rs`). `include_str!` cannot express that — naming
+  a missing file is a compile error, not a readable fact — so it keeps
+  `benchmark_path` and with it the `CARGO_MANIFEST_DIR` root. It is the only
+  remaining run-time path resolution in the suite and is documented as such at
+  the function.
+- **Gates:** `cargo fmt --all -- --check` clean; `cargo clippy --workspace
+  --all-targets --features moirai-benchmarks/registry-diagnostics -D warnings`
+  clean; `benchmark_contracts` 70/70.
+
+- **Original filing.** The `benchmark_contracts` suite is this repo's guard against
   regressing accepted designs: it asserts that named shapes are present in, or
   absent from, specific source files. Two properties of *how* it reads them let
   it report a pass it did not verify.
@@ -114,6 +156,18 @@
   relevant contract fail on the next `cargo nextest run`; and a contract run in
   a worktree reports on that worktree's sources with another worktree dirty.
   Both are falsifiable — verify each against the current behaviour first.
+
+## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — todo
+
+- Unowned. `benchmarks/benches/result_handle_diagnostics/registry_paths.rs`
+  calls `TaskRegistry::diagnostic_directory_shared_acquire`, which lives behind
+  `moirai-executor/registry-diagnostics`, but the `[[bench]]` target declares no
+  `required-features`. `cargo clippy --workspace --all-targets -- -D warnings`
+  therefore fails on clean `main` (verified at `1866626` in a separate
+  worktree) with `E0599`, and only passes when
+  `--features moirai-benchmarks/registry-diagnostics` is added. Fix:
+  `required-features = ["registry-diagnostics"]` on that bench target so the
+  default gate selects the targets it can build.
 
 ## MOI-FLAKY-JOIN-PRECONDITION-2026-08-28 — Make the join test's precondition deterministic [patch] — review
 
