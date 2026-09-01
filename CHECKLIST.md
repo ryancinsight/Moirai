@@ -2,6 +2,32 @@
 
 **Target**: Unreleased
 
+## MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 — Remove count-only async-context topology discovery [patch] [perf] — in progress
+
+- **Outcome:** measure and, only if attributed, remove full topology discovery
+  from `ExecutionContext::Parallel` async concurrency selection when only a
+  process-available lane count is required.
+- **Acceptance:** an unchanged warmed public ready-future map allocation census
+  checks every ordered value and separates context/concurrency/output costs; a
+  correction removes only attributed topology/cgroup-query allocations, reuses
+  the process-wide count, and leaves explicit async/hybrid concurrency limits
+  unchanged. Paired Criterion evidence, debug/release Nextest, warning-denied
+  Clippy/Rustdoc, cross-target check, doctests, benchmark smoke, SemVer, and
+  independent review pass.
+- **Scope / non-goals:** `execution/base.rs`, the existing private
+  process-parallelism capability, one focused public allocation/value test, the
+  retained execution-context Criterion binary and contract coverage, CHANGELOG,
+  and PM state. No scheduler topology, executor construction, public API,
+  workload, or timeout change.
+- **Risk / change:** internal `[patch]`; stop after measurement if topology is
+  not a repeat allocation source or if sharing the count changes configured
+  async/hybrid limits or public values.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-context-parallelism-probe`; lease: `execution/base.rs`, one focused
+  allocation test, `execution_context_comparison.rs`, related benchmark contract
+  coverage, CHANGELOG, and this item. Entry measurement pending; last update
+  2026-09-01.
+
 ## MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 — Remove count-only topology discovery [patch] [perf] — in progress
 
 - **Outcome:** measure and, only if attributed, remove full NUMA/cache topology

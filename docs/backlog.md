@@ -86,6 +86,33 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 [patch] [perf]: Remove count-only async-context topology discovery
+
+- **Outcome:** measure and, only if attributed, remove full topology discovery
+  from the parallel execution context's async concurrency selection when it
+  consumes only a process-available lane count.
+- **Scope / non-goals:** `moirai-iter/src/execution/base.rs`, the existing
+  private process-parallelism capability, one public facade allocation/value
+  regression, the retained execution-context Criterion binary, CHANGELOG, and
+  PM state. No explicit async/hybrid concurrency setting, scheduler topology,
+  executor construction, public API, workload, or timeout change.
+- **Acceptance:** an unchanged warmed census separates input, context,
+  concurrency selection, and output allocation for a ready-future public map;
+  every ordered result remains exact; the candidate removes only attributed
+  topology/cgroup-query allocations and reuses the process-wide count;
+  async/hybrid configured limits remain unchanged; paired Criterion evidence
+  does not regress; focused/debug/release tests, warning-denied Clippy/docs,
+  cross-target check, benchmark smoke, SemVer, and independent review pass.
+- **Risk / change:** internal `[patch]`; stop after measurement if topology is
+  not a repeat allocation source or if sharing the process count changes the
+  explicit async/hybrid limits or public values.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-context-parallelism-probe`; live lease:
+  `moirai-iter/src/execution/base.rs`, one focused allocation test,
+  `benchmarks/benches/execution_context_comparison.rs`, related benchmark
+  contract coverage, CHANGELOG, and this item; status: entry measurement; last
+  update 2026-09-01.
+
 ### 🟡 MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 [patch] [perf]: Remove count-only topology discovery
 
 - **Outcome:** measure and, only if attributed, remove full NUMA/cache topology
