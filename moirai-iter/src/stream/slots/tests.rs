@@ -9,12 +9,28 @@ use std::sync::Arc;
 use futures::task::{waker, ArcWake};
 use futures::{Stream, StreamExt};
 
-use super::wake::WakeBlock;
+use super::wake::{WakeBlock, WAKE_TOKEN_BYTES};
 use super::{retained_buffered, retained_unordered, RetainedSlots, SlotKey};
 
 struct PendingOnce<T> {
     value: Option<T>,
     pending: bool,
+}
+
+#[test]
+fn retained_slot_metadata_word_is_overlapped() {
+    let word = core::mem::size_of::<usize>();
+    let future = core::mem::size_of::<PendingOnce<u64>>();
+    let slot = core::mem::size_of::<super::FutureSlot<PendingOnce<u64>>>();
+
+    assert_eq!(WAKE_TOKEN_BYTES, 2 * word);
+    assert_eq!(slot, future + 2 * word);
+    #[cfg(target_pointer_width = "64")]
+    {
+        assert_eq!(future, 24);
+        assert_eq!(slot, 40);
+        assert_eq!(WAKE_TOKEN_BYTES, 16);
+    }
 }
 
 impl<T> Unpin for PendingOnce<T> {}
@@ -35,6 +51,16 @@ impl<T> Future for PendingOnce<T> {
                     .expect("pending-once future polled after completion"),
             )
         }
+    }
+}
+
+struct ReadyZst;
+
+impl Future for ReadyZst {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, _context: &mut Context<'_>) -> Poll<Self::Output> {
+        Poll::Ready(())
     }
 }
 
@@ -229,6 +255,37 @@ fn repeated_tail_slot_refill_uses_one_word_and_head_probe() {
         REPLACEMENTS,
         "each refill must inspect only the intrusive vacancy head"
     );
+}
+
+#[test]
+fn zero_sized_futures_preserve_full_width_output_indices_across_refill() {
+    let mut slots = RetainedSlots::new(3, 3, true);
+
+    for output_index in [usize::MAX, 3, 11] {
+        slots.insert(ReadyZst, output_index);
+    }
+    let mut first = Vec::new();
+    while let Some(key) = slots.take_ready() {
+        let Poll::Ready((output_index, ())) = slots.poll(key) else {
+            panic!("ready zero-sized future returned Pending");
+        };
+        first.push(output_index);
+    }
+    first.sort_unstable();
+    assert_eq!(first, [3, 11, usize::MAX]);
+
+    for output_index in [5, 7, 13] {
+        slots.insert(ReadyZst, output_index);
+    }
+    let mut refill = Vec::new();
+    while let Some(key) = slots.take_ready() {
+        let Poll::Ready((output_index, ())) = slots.poll(key) else {
+            panic!("refilled zero-sized future returned Pending");
+        };
+        refill.push(output_index);
+    }
+    refill.sort_unstable();
+    assert_eq!(refill, [5, 7, 13]);
 }
 
 #[test]

@@ -2,7 +2,70 @@
 
 **Target**: Unreleased
 
-## MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 — Consolidate retained-slot wake ownership [patch] [perf] — review complete; delivery pending
+## MOI-ITER-SLOT-METADATA-LAYOUT-2026-09-01 — Overlap retained-slot metadata [patch] [perf] — in progress
+
+- **Outcome:** remove storage reserved simultaneously for `output_index` and
+  `vacant_next` even though slot occupancy makes those values mutually
+  exclusive, reducing every retained future slot without changing admission,
+  output ordering, or vacancy traversal.
+- **Acceptance:** record the exact `FutureSlot` and `WakeToken` layouts plus the
+  unchanged public pending-map allocation ledger before editing representation.
+  A candidate must encode one occupancy-discriminated metadata word, reduce the
+  measured slot stride and gross retained bytes, preserve empty/full/ragged
+  vacancy chains, ordered values, pending refills, cancellation, panic/drop
+  counts, and zero-sized futures, and add no allocation or unsafe operation.
+  No retained Criterion row may regress by 5% or more; Miri, debug/release
+  Nextest, warning-denied host/cross-target checks, docs, SemVer, and independent
+  review must pass.
+- **Scope / non-goals:** private `FutureSlot` metadata in
+  `moirai-iter/src/stream/slots.rs`, focused layout/value/drop/allocation tests,
+  the unchanged retained Criterion instrument, CHANGELOG, and PM state. No wake
+  protocol, future storage, block growth, scheduler, public API, workload,
+  assertion, or timeout change; no pointer-derived index or packed sentinel.
+- **Risk / change:** internal layout `[patch]`; stop with the instrument if the
+  two words do not increase the actual slot stride or if overlap complicates
+  panic/drop ownership.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-slot-metadata-layout`; source `77f2832`; PR #228; source
+  lease: none; independent review is GREEN; hosted collection and merge remain;
+  last update 2026-09-01.
+- **Dependency:** shared wake ownership merged through PR #227 as `a83361a`;
+  every repository-owned post-merge check is green.
+- **Entry evidence:** on the 64-bit host, the focused layout regression pins
+  `PendingOnce<u64>` at 24 bytes, `FutureSlot<PendingOnce<u64>>` at 48 bytes,
+  and `WakeToken` at 16 bytes; the slot's 24-byte overhead is exactly three
+  words: occupancy padding plus separate output and vacancy metadata. The
+  unchanged public 1,024-item pending-map ledger at limits 1 / 8 / 24 retains
+  15 / 15 / 15 allocations and 16,568 / 17,128 / 18,408 gross bytes, an exact
+  80-byte residual per-slot slope. Subtracting the measured 16-byte token
+  identifies a 64-byte public-path future slot, so one metadata word is a
+  material 12.5% candidate reduction in the future slot and 10% in combined
+  retained slot-plus-token storage.
+- **Candidate evidence:** one occupancy-discriminated `metadata` word now stores
+  the output index while occupied and the vacancy link while empty. On the same
+  64-bit host, `FutureSlot<PendingOnce<u64>>` is 40 bytes instead of 48 while
+  `WakeToken` remains 16 bytes. The unchanged public ledger retains 15 / 15 /
+  15 allocation calls and measures 16,560 / 17,064 / 18,216 gross bytes at
+  limits 1 / 8 / 24: exactly eight fewer bytes per retained slot and a residual
+  72-byte slope. The focused suite passes 16 / 16, including full-width
+  `usize::MAX` output indices on zero-sized futures, vacancy refill,
+  cancellation, panic-unwind drops, and cross-thread wake routing. Debug and
+  release all-feature Nextest pass 252 / 252 with three configured skips;
+  warning-denied host and AArch64 Windows all-target/all-feature Clippy,
+  Rustdoc, 4 / 4 doctests, focused Miri 16 / 16, and 72 / 72 benchmark-contract
+  tests pass. Directory-baseline cargo-semver-checks passes 223 / 223 checks
+  with 31 inapplicable skips and requires no version change. A forced-rebuild,
+  pinned-core comparison against exact parent `a83361a` measures retained-row
+  medians (95% CI) of 32.353 us [32.029, 32.804] to 33.115 us [32.744,
+  33.395] for ready async (+2.35%), 62.089 us [61.708, 89.205] to 62.383 us
+  [62.035, 62.842] for pending async (+0.47%), and 110.477 us [109.008,
+  116.922] to 109.803 us [108.445, 112.628] for sparse pending (-0.61%). No
+  retained row reaches the 5% regression bound; broad intervals and control
+  movement preclude a throughput claim. Independent static review of exact
+  cumulative source `a83361a...77f2832` is GREEN; the reviewer inspected the
+  committed diff only and did not rerun dynamic gates.
+
+## MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 — Consolidate retained-slot wake ownership [patch] [perf] — complete
 
 - **Outcome:** remove the measured per-slot `Arc<WakeToken>` allocation fanout
   from bounded retained async terminals while preserving stable `Waker`
@@ -26,8 +89,8 @@
   obligation and exact stale-waker/drop tests, or if allocation reduction does
   not survive the public warmed ledger.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-shared-wake-block`; source `4bb8c3b`; draft PR #227; lease: none;
-  last update 2026-09-01.
+  `perf/iter-shared-wake-block`; source `4bb8c3b`; PM `8971f01`; PR #227 merged
+  with history as `a83361a`; lease: none; last update 2026-09-01.
 - **Dependency:** retained slots merged through PR #226 as
   `c0feafbca9689731abd372ebe41dee7732af5953`; all repository jobs are green.
 - **Entry evidence:** the retained release allocation instrument holds input,
@@ -58,8 +121,9 @@
   Loom (2/2), Rustdoc, four doctests, 72 benchmark-contract tests, formatting,
   diff checks, and cargo-semver-checks (223/223 under patch) pass. Independent
   committed-object review of `c0feafb...4bb8c3b` is GREEN; it did not rerun
-  Cargo, Miri, Loom, allocation, or Criterion evidence. PR #227 verification
-  and delivery collection remain.
+  Cargo, Miri, Loom, allocation, or Criterion evidence. Every repository check
+  on merged PR #227 passed, including Workspace, Loom, supply-chain, lockfile,
+  fuzz, and CodeRabbit.
 
 ## MOI-ITER-RETAINED-FUTURE-SLOTS-2026-09-01 — Reuse bounded in-flight future storage [patch] [perf] — complete
 

@@ -32,11 +32,14 @@ const _: () = assert!(
 /// `occupied` is set before a future may be polled and cleared before that
 /// future is dropped. This makes cancellation and unwinding drop each inserted
 /// future at most once without moving a pinned value.
+///
+/// `metadata` stores the output index while occupied and the intrusive vacancy
+/// link while empty. The occupancy bit is the discriminant, so `VACANT_END`
+/// remains a valid output index.
 struct FutureSlot<Fut> {
     storage: MaybeUninit<Fut>,
     occupied: bool,
-    output_index: usize,
-    vacant_next: usize,
+    metadata: usize,
 }
 
 impl<Fut> FutureSlot<Fut> {
@@ -44,8 +47,7 @@ impl<Fut> FutureSlot<Fut> {
         Self {
             storage: MaybeUninit::uninit(),
             occupied: false,
-            output_index: 0,
-            vacant_next,
+            metadata: vacant_next,
         }
     }
 
@@ -59,11 +61,11 @@ impl<Fut> FutureSlot<Fut> {
         let this = unsafe { self.get_unchecked_mut() };
         debug_assert!(!this.occupied, "retained future slot must be empty");
         debug_assert_eq!(
-            this.vacant_next, VACANT_END,
+            this.metadata, VACANT_END,
             "retained future slot must be detached from the vacancy list"
         );
         this.storage.write(future);
-        this.output_index = output_index;
+        this.metadata = output_index;
         this.occupied = true;
     }
 
@@ -72,7 +74,7 @@ impl<Fut> FutureSlot<Fut> {
         // future storage, which is uninitialized while this slot is vacant.
         let this = unsafe { self.get_unchecked_mut() };
         debug_assert!(!this.occupied, "vacant future slot must be empty");
-        core::mem::replace(&mut this.vacant_next, VACANT_END)
+        core::mem::replace(&mut this.metadata, VACANT_END)
     }
 
     fn return_to_vacant(self: Pin<&mut Self>, next: usize) {
@@ -81,10 +83,10 @@ impl<Fut> FutureSlot<Fut> {
         let this = unsafe { self.get_unchecked_mut() };
         debug_assert!(!this.occupied, "returned future slot must be empty");
         debug_assert_eq!(
-            this.vacant_next, VACANT_END,
+            this.metadata, VACANT_END,
             "returned future slot must not already be vacant"
         );
-        this.vacant_next = next;
+        this.metadata = next;
     }
 }
 
@@ -104,7 +106,7 @@ where
         let poll = unsafe { Pin::new_unchecked(&mut *future) }.poll(context);
         match poll {
             Poll::Ready(output) => {
-                let output_index = this.output_index;
+                let output_index = core::mem::replace(&mut this.metadata, VACANT_END);
                 // Clear first so an unwinding destructor cannot be run twice by
                 // `FutureSlot::drop`.
                 this.occupied = false;

@@ -181,6 +181,9 @@ struct WakeToken {
     owner: NonNull<WakeBlock>,
 }
 
+#[cfg(test)]
+pub(super) const WAKE_TOKEN_BYTES: usize = core::mem::size_of::<WakeToken>();
+
 // SAFETY: `owner` comes from `Arc::into_raw` on this stable allocation. Every
 // exposed raw waker owns a strong count on that same allocation, so the token
 // cannot outlive or race destruction of its owner.
