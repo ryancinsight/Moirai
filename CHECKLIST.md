@@ -2,6 +2,30 @@
 
 **Target**: Unreleased
 
+## MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 — Remove standard-terminal materialization [minor] [perf] — in progress
+
+- **Outcome:** preserve one-call `Sum<Item>` / `Product<Item>` semantics while
+  letting sources and compatible adapters expose their logical stream directly,
+  without first collecting it into a full-size vector.
+- **Acceptance:** lawful batch-sensitive/custom accumulators and empty/value
+  semantics remain unchanged; a warmed borrowed copied/map/filter standard sum
+  drops its full-stream allocation to zero; baseline and candidate Criterion
+  medians use one retained instrument; non-streaming adapters keep the default
+  path; debug/release Nextest, allocation, Clippy, Rustdoc/doctest, benchmark
+  smoke, SemVer, and independent review gates pass.
+- **Scope / non-goals:** the `ParallelIterator` sequential-item seam, compatible
+  sources/adapters, standard-terminal allocation/value tests, one existing
+  Criterion binary, Rustdoc, CHANGELOG, and PM state. No reassociated-terminal,
+  scheduler, fan-out, threshold, workload, timeout, or release change.
+- **Risk / change:** additive defaulted trait method, `[minor]`; no implementor
+  migration. Stop with the instrument only if the exact baseline has no
+  full-stream allocation or candidate timing materially regresses.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-standard-terminal-stream`.
+- **Lease:** Codex — `moirai-iter/src/parallel`, standard-terminal allocation
+  tests, one iterator Criterion binary/contracts, CHANGELOG, and this item's PM
+  regions. Last update 2026-09-01.
+
 ## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — in progress
 
 - **Outcome:** draft pull requests schedule no repository jobs; opening or

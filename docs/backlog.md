@@ -86,6 +86,28 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 [minor] [perf]: Remove standard-terminal materialization
+
+- **Outcome:** preserve one-call `Sum<Item>` / `Product<Item>` semantics while
+  exposing compatible source/adapter streams directly instead of collecting a
+  full-size intermediate vector.
+- **Scope / non-goals:** the defaulted sequential-item trait seam, compatible
+  sources/adapters, standard-terminal value/allocation tests, one retained
+  Criterion binary, Rustdoc, CHANGELOG, and PM state. No reassociated terminal,
+  scheduler, fan-out, threshold, workload, timeout, or release change.
+- **Acceptance:** custom and batch-sensitive accumulators retain exact values;
+  a warmed borrowed copied/map/filter standard sum reaches zero provider
+  allocations; retained baseline/candidate Criterion medians do not materially
+  regress; focused/release tests, warning-denied Clippy, docs, benchmark smoke,
+  SemVer, and independent review pass.
+- **Risk / change:** additive defaulted trait method, `[minor]`; no implementor
+  migration. Stop with the instrument only if baseline materialization is absent
+  or the candidate materially regresses.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-standard-terminal-stream`; lease covers the iterator seam,
+  compatible sources/adapters, tests/instrument, CHANGELOG, and this item's PM
+  regions; status: in progress; last update 2026-09-01.
+
 ### 🟡 MOI-CI-DRAFT-GATE-2026-09-01 [patch] [ci]: Suppress draft pull-request runners
 
 - **Outcome:** draft pull requests schedule no repository jobs; opening or
