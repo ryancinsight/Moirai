@@ -2,7 +2,66 @@
 
 **Target**: Unreleased
 
-## MOI-ITER-RETAINED-FUTURE-SLOTS-2026-09-01 — Reuse bounded in-flight future storage [patch] [perf] — in progress
+## MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 — Consolidate retained-slot wake ownership [patch] [perf] — review complete; delivery pending
+
+- **Outcome:** remove the measured per-slot `Arc<WakeToken>` allocation fanout
+  from bounded retained async terminals while preserving stable `Waker`
+  identity, cross-thread wake routing, and stale-waker memory safety.
+- **Acceptance:** an entry census across several explicit concurrency bounds
+  attributes allocation growth to retained wake tokens. The candidate owns all
+  stable token addresses in one retained wake block per geometric slot block;
+  constructing and refilling slots performs no per-slot allocation, and the
+  warmed public allocation ledger loses the attributed slope without changing
+  values or gross output storage. Cloned wakers may outlive their slot future,
+  stream, and owning operator without use-after-free or ABA wake delivery;
+  concurrent clone/wake/drop interleavings are covered by Miri and a bounded
+  Loom model. No timed Criterion row regresses by 5% or more.
+- **Scope / non-goals:** `moirai-iter/src/stream/slots/wake.rs`, the narrow
+  retained-slot integration in `slots.rs`, focused value/lifetime/allocation
+  tests, the retained Criterion instrument, CHANGELOG, and PM state. No public
+  API, executor, scheduler, concurrency limit, workload, assertion, or timeout
+  change; no pointer tagging or integer/provenance round-trip.
+- **Risk / change:** internal unsafe-lifetime `[patch]`; reject a custom-waker
+  design unless every raw ownership transition has one documented strong-count
+  obligation and exact stale-waker/drop tests, or if allocation reduction does
+  not survive the public warmed ledger.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-shared-wake-block`; source `4bb8c3b`; draft PR #227; lease: none;
+  last update 2026-09-01.
+- **Dependency:** retained slots merged through PR #226 as
+  `c0feafbca9689731abd372ebe41dee7732af5953`; all repository jobs are green.
+- **Entry evidence:** the retained release allocation instrument holds input,
+  pending-future behavior, and ordered output constant while selecting explicit
+  concurrency limits 1, 8, and 24. It measures 16 / 23 / 39 allocations and
+  16,568 / 17,296 / 18,960 gross bytes: exactly one allocation and 104 bytes
+  per additional retained slot, matching the `Arc<WakeToken>` construction
+  fanout. The candidate must remove that allocation slope without changing the
+  instrument or output values.
+- **Candidate evidence:** one `Arc<WakeBlock>` owns its ready words, stable
+  inline token slice, parent route, and raw-waker strong-count protocol. The
+  unchanged release instrument measures 15 / 15 / 15 allocations and 16,568 /
+  17,128 / 18,408 gross bytes at limits 1 / 8 / 24, removing all 24 attributed
+  per-slot allocation calls at limit 24 while preserving every ordered value.
+  The remaining 80 bytes per slot are retained future/token storage, not an
+  allocator-call slope. Initial Miri execution found that deriving the owner
+  pointer before `Arc::get_mut` invalidated its provenance. The retained design
+  initializes each token once through `MaybeUninit`/`OnceLock` and derives the
+  raw owner only from `Arc::into_raw`; all 14 focused slot tests pass under
+  Miri, including cloned-waker lifetime and parent-wake unwind. Both the
+  stale-slot generation model and bounded raw-owner clone/wake/cancel Loom
+  model pass. Exact no-flag same-binary paired Criterion medians for owned,
+  ready, pending, and sparse Moirai rows move -1.0%, -2.4%, -24.4%, and -3.1%;
+  the futures control moves -8.6% and baseline intervals are broad, so this
+  establishes no observed >=5% regression, not a speedup. Host warning-denied
+  all-target/all-feature Clippy, AArch64 Windows warning-denied all-target check,
+  debug and release all-feature Nextest (250/250 with three configured skips),
+  Loom (2/2), Rustdoc, four doctests, 72 benchmark-contract tests, formatting,
+  diff checks, and cargo-semver-checks (223/223 under patch) pass. Independent
+  committed-object review of `c0feafb...4bb8c3b` is GREEN; it did not rerun
+  Cargo, Miri, Loom, allocation, or Criterion evidence. PR #227 verification
+  and delivery collection remain.
+
+## MOI-ITER-RETAINED-FUTURE-SLOTS-2026-09-01 — Reuse bounded in-flight future storage [patch] [perf] — complete
 
 - **Outcome:** remove the measured one-task-allocation-per-item residue from
   bounded ordered async iterator terminals by retaining and refilling a fixed
@@ -28,10 +87,11 @@
   sparsity or large configured bounds create a paired timing regression, and
   reject any candidate that moves a pinned future, changes refill/order
   semantics, or weakens cancellation/drop behavior.
-- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-retained-future-slots`; lease: none; source `8c5e425`; review
-  correction `d35bbf3`; PR #226. Independent review is GREEN; hosted collection
-  and merge remain; last update 2026-09-01.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
+  lease: none; source `8c5e425`; review correction `d35bbf3`; PR #226 merged
+  with history preserved as `c0feafbca9689731abd372ebe41dee7732af5953`.
+  Independent review and every repository job are GREEN; last update
+  2026-09-01.
 - **Entry evidence:** futures-util 0.3.34 `FuturesOrdered::push_back` delegates
   every item to `FuturesUnordered::push`, whose implementation constructs one
   new `Arc<Task>` per future. The prior public 1,024-item ready-map census left

@@ -171,8 +171,8 @@ fn context_pending_map_values(data: Vec<u64>) -> Vec<u64> {
     })
 }
 
-fn context_large_limit_map_values(data: Vec<u64>) -> Vec<u64> {
-    let context = ExecutionContext::Async(AsyncContext::new().with_max_concurrent(usize::MAX));
+fn context_pending_map_values_with_limit(data: Vec<u64>, max_concurrent: usize) -> Vec<u64> {
+    let context = ExecutionContext::Async(AsyncContext::new().with_max_concurrent(max_concurrent));
     futures::executor::block_on(async {
         MoiraiIterator::new(data, context)
             .map_async(|value| pending_once(value.wrapping_mul(5).wrapping_add(3)))
@@ -180,6 +180,10 @@ fn context_large_limit_map_values(data: Vec<u64>) -> Vec<u64> {
             .collect()
             .await
     })
+}
+
+fn context_large_limit_map_values(data: Vec<u64>) -> Vec<u64> {
+    context_pending_map_values_with_limit(data, usize::MAX)
 }
 
 fn context_pending_for_each(data: Vec<usize>, visits: Arc<Vec<AtomicUsize>>) {
@@ -500,6 +504,36 @@ fn parallel_context_pending_map_records_entry_allocation_ledger() {
         "pending ordered map allocated {allocated_bytes} gross bytes; entry futures and output \
          must fit the {byte_budget}-byte budget"
     );
+}
+
+#[test]
+#[ignore = "allocation attribution instrument; run explicitly with --nocapture"]
+fn retained_wake_allocation_attribution() {
+    const LIMITS: [usize; 3] = [1, 8, 24];
+    let source = || {
+        (0..CONTEXT_MAP_LEN as u64)
+            .map(|value| value.wrapping_mul(19).wrapping_add(7))
+            .collect::<Vec<_>>()
+    };
+
+    for max_concurrent in LIMITS {
+        let (mapped, allocations, allocated_bytes) = warmed_allocation_ledger(
+            (source(), max_concurrent),
+            (source(), max_concurrent),
+            |(data, limit)| context_pending_map_values_with_limit(data, limit),
+        );
+        assert!(
+            mapped.iter().enumerate().all(|(index, value)| {
+                let input = (index as u64).wrapping_mul(19).wrapping_add(7);
+                *value == input.wrapping_mul(5).wrapping_add(3)
+            }),
+            "allocation attribution must preserve every ordered output value"
+        );
+        eprintln!(
+            "retained wake limit {max_concurrent:>2}: {allocations:>3} allocations, \
+             {allocated_bytes:>6} gross bytes"
+        );
+    }
 }
 
 #[test]
