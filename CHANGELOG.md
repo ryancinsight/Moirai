@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Gate `result_handle_diagnostics` on its `registry-diagnostics` feature so
+  default all-target verification does not select a benchmark whose diagnostic
+  API is disabled. Feature-enabled benchmark behavior and workload are
+  unchanged.
 - Route the public CPU-bound indexed fan-out and reduction facade through the
   compute-worker pool instead of the dedicated blocking lane. Indexed-only
   runtimes no longer lazily construct blocking workers; retained four-worker

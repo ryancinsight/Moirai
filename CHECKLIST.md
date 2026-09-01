@@ -42,7 +42,7 @@
   distribution or a body-cost-aware policy is specified without adding
   per-element dispatch.
 
-## MOI-DISPATCH-FLOOR-2026-08-31 — Keep indexed CPU work on compute workers [patch] [perf] — review
+## MOI-DISPATCH-FLOOR-2026-08-31 — Keep indexed CPU work on compute workers [patch] [perf] — done
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
 - **Lease:** none. Instrument `0a267f9`, source/docs candidate `d2fc4d4`, and
@@ -72,8 +72,8 @@
   routing regression and warmed allocation census pass 1/1 each, benchmark
   contracts pass 1/1, and warning-denied all-target/all-feature Clippy,
   Rustdoc, doctests 7/7, formatting, and diff checks are green. Independent
-  exact-Git review of `eed1c54..d2fc4d4` is GREEN; hosted collection and merge
-  remain pending.
+  exact-Git review of `eed1c54..d2fc4d4` is GREEN. PR #205 merged with history
+  preserved as `84793eb`.
 
 ## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — done
 
@@ -175,17 +175,20 @@
   a worktree reports on that worktree's sources with another worktree dirty.
   Both are falsifiable — verify each against the current behaviour first.
 
-## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — todo
+## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — review
 
-- Unowned. `benchmarks/benches/result_handle_diagnostics/registry_paths.rs`
-  calls `TaskRegistry::diagnostic_directory_shared_acquire`, which lives behind
-  `moirai-executor/registry-diagnostics`, but the `[[bench]]` target declares no
-  `required-features`. `cargo clippy --workspace --all-targets -- -D warnings`
-  therefore fails on clean `main` (verified at `1866626` in a separate
-  worktree) with `E0599`, and only passes when
-  `--features moirai-benchmarks/registry-diagnostics` is added. Fix:
-  `required-features = ["registry-diagnostics"]` on that bench target so the
-  default gate selects the targets it can build.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+  **Lease:** none. Source commit `8b8110b`; last update 2026-08-31.
+- **Outcome:** declare `registry-diagnostics` as a required feature of
+  `result_handle_diagnostics`; default all-target verification now omits the
+  target whose diagnostic API is disabled, while feature-enabled execution is
+  unchanged. An embedded-manifest regression pins the target-feature relation.
+- **Evidence:** default `cargo check --offline -p moirai-benchmarks
+  --all-targets`; focused Nextest 1/1; default and feature-enabled all-target
+  warning-denied Clippy; feature-enabled Criterion `--test` smoke of every row
+  completed in about 45 seconds; fmt, diff, and standalone lock hash
+  `dab0b1f06ba224ac29d750921e033d4135f9765c` are clean. Independent exact-object
+  review is GREEN; PR #206 carries the history-preserved candidate.
 
 ## MOI-FLAKY-JOIN-PRECONDITION-2026-08-28 — Make the join test's precondition deterministic [patch] — review
 
