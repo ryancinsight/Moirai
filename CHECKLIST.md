@@ -639,46 +639,10 @@
   same cross-check reaches its own pre-existing Stockham and cfg-warning debt
   after compiling `moirai-utils` cleanly.
 
-## MOI-INDEXED-SCOPE-ALLOC-2026-08-26 — stack-owned indexed completion [patch] — in progress
+## MOI-INDEXED-SCOPE-ALLOC-2026-08-26 — stack-owned indexed completion [patch] — done
 
-- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-- **Lease:** none; provider source, review, hosted verification, and merge are
-  complete. Apollo consumer validation remains.
-- **Outcome:** indexed completion-only fan-out reuses the scheduler's existing
-  stack-owned scoped lifetime proof instead of allocating one `Arc` state per
-  call. An Apollo FFT consumer triggered the finding by observing two 32-byte
-  allocations per transform from two row fan-outs. Unwinds during identity
-  cloning, scheduling, or scope flushing drain admitted borrowing jobs before
-  their stack state is released.
-- **Acceptance:** existing indexed/scope panic, saturation, nesting, and
-      exactly-once tests pass; an allocation regression proves repeated
-  `for_each_indexed` calls allocate zero bytes and `map_reduce_indexed` retains
-  only its result-slot allocation after scheduler initialization; Apollo's warm
-  complex transform returns to zero transient allocations.
-- [x] Replace shared heap completion with the existing borrowing completion
-      token while preserving queue-refusal and panic accounting.
-- [x] Add value-semantic allocation and held-active clone-panic coverage, and
-      retain the existing panic, queue-refusal, nesting, and quiescence coverage.
-- [x] Distribute unhinted physical scope batches from one preselected base
-      worker and assert that saturated nested execution occupies every lane.
-- [x] Pass focused and package Nextest, the scoped-completion Loom model,
-      all-feature warning-denied Clippy, and warning-denied Rustdoc.
-- [x] Pass independent exact-head review and hosted Linux verification, then
-      merge provider PR #190.
-- [ ] Pass the Apollo consumer census, record the exact provider/consumer
-      revisions, and close the item.
-- Evidence: PR #190 / provider `1572ec9` / PM sync `239c8e0` / merge `7eefe6e`;
-  independent exact-head review and hosted source run `33197082236` are green.
-  Provider commit `1572ec9` passes
-  `cargo nextest run --offline -p moirai-executor` 126/126;
-  the release package run passes 126/126; the release Loom scope model passes
-  1/1; all-feature, all-target Clippy passes with `-D warnings`; and the exact
-  workspace all-feature run passes 890/890 in 12.173 seconds. The hosted entry
-  failure took 60.005 seconds in `nested_indexed_saturation_completes`; the
-  corrected full-suite regression completes in about 0.2 seconds and asserts
-  both worker lanes execute outer scope jobs.
-  Warmed allocation coverage observes zero allocations for `for_each_indexed`
-  and one result-slot allocation per `map_reduce_indexed` call.
+- **Delivered:** provider `1572ec9` / PR #190 / merge `7eefe6e`; exact allocation coverage records zero warmed indexed allocations, and hosted run `33197082236` passes all jobs including corrected liveness contracts.
+- **Consumer:** Apollo `5ca9deb4` plus `424b6ae1` merged in PR #125 as `26fc4ab8`; the bounded census records zero warm complex and multidimensional allocations; lease: none.
 
 ## MOI-PACKAGE-REPRO-001 — self-contained workspace packaging [patch] — complete
 

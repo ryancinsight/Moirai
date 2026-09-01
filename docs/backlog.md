@@ -192,14 +192,10 @@ architecture definition.
 - **Delivered:** PR #191 / implementation `3dcc0aa` / merge `fc2dce9` makes each cancellation gate occupy the target's work class and asserts `TaskStatus::Queued` before cancellation; independent exact-head review is green; lease: none.
 - **Evidence:** focused cases pass 2/2 in 28 ms, all-feature warning-denied Clippy and workspace Nextest 890/890 pass locally, and hosted run `33197943762` passes every job with workspace job `98939799878` completing in 2m11s.
 
-### 🟨 MOI-INDEXED-SCOPE-ALLOC-2026-08-26 [patch]: Stack-owned indexed completion
+### ✅ MOI-INDEXED-SCOPE-ALLOC-2026-08-26 [patch]: Stack-owned indexed completion
 
-- **Outcome:** indexed completion-only fan-out reuses the scheduler's stack-owned scoped lifetime proof instead of allocating one reference-counted completion state per call. Unhinted multi-batch scopes select one base worker before admission and distribute physical batches across the worker set, preventing state-sensitive rerouting onto one occupied lane under nested saturation.
-- **Scope / non-goals:** `moirai-executor` indexed and scoped scheduling, its value-semantic allocation/liveness coverage, scheduler source contracts, ADR-005, release notes, and the Apollo allocation consumer only; no public API, queue-capacity, explicit-locality, single-job, or refusal-fallback change.
-- **Acceptance:** repeated warmed `for_each_indexed` calls allocate zero bytes; `map_reduce_indexed` retains only its result-slot allocation; panic, clone-unwind, refusal, nesting, saturation, exactly-once, and quiescence contracts pass; saturated outer scope jobs occupy every worker lane; Apollo's warm complex transform returns to zero transient allocations.
-- **Risk / dependency:** scheduler liveness and scoped-borrow safety [patch]. Provider implementation, independent review, hosted Linux verification, and merge are complete; only the Apollo consumer census remains before closure.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: none; last update 2026-08-28.
-- **Evidence:** PR #190 / provider `1572ec9` / PM sync `239c8e0` / merge `7eefe6e`; independent exact-head review and hosted source run `33197082236` are green. Package Nextest passes 126/126 in debug and release, the release Loom model passes 1/1, warning-denied Clippy and Rustdoc pass, and workspace Nextest passes 890/890 in 12.173 seconds. The corrected saturation regression completes in about 0.2 seconds and asserts both worker lanes plus the original arithmetic results.
+- **Delivered:** provider `1572ec9` / PR #190 / merge `7eefe6e`; exact allocation coverage records zero warmed indexed allocations, and hosted run `33197082236` passes every repository job, including liveness, Loom, warning-denied, and workspace contracts.
+- **Consumer:** Apollo source `5ca9deb4` plus evidence correction `424b6ae1` merged in PR #125 as `26fc4ab8`; its bounded census records zero warm complex and multidimensional allocations, while the allocating real-output contract remains one `16N`-byte result; lease: none.
 
 ### ✅ MOI-CI-FUZZ-SCOPE-2026-08-28 [patch]: Event-scope parser fuzz verification
 
