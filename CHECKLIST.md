@@ -2,6 +2,22 @@
 
 **Target**: Unreleased
 
+## MOI-PAR-SUM-CONTRACT-2026-09-01 — Preserve standard terminal semantics [minor] [perf] — in progress
+
+- **Outcome:** restore `ParallelIterator::sum` and `product` to the standard
+  `Sum<Item>` / `Product<Item>` contracts and retain the measured parallel
+  fold as explicit reassociated terminals.
+- **Acceptance:** lawful custom accumulators that do not implement
+  `Sum<Self>` / `Product<Self>` compile and preserve whole-stream values;
+  batch-sensitive accumulators prove standard and reassociated semantics are
+  distinct; primitive, empty, floating-point, allocation, benchmark-contract,
+  Clippy, Nextest, Rustdoc, doctest, and SemVer gates pass.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/iter-sum-contract`.
+- **Lease:** Codex — `moirai-iter/src/parallel/traits.rs`, parallel-terminal
+  tests, iterator benchmark/contracts, CHANGELOG, and this item's PM regions.
+  Last update 2026-09-01.
+
 ## MOI-ATLAS-CONFORMANCE-RATCHET-2026-08-31 — Restore the stack hygiene ratchet [patch] — complete
 
 - Source `e13ae98` merged through PR #203 as `a98154b`; the exact scan is

@@ -86,6 +86,34 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-PAR-SUM-CONTRACT-2026-09-01 [minor] [perf]: Preserve standard terminal semantics
+
+- **Outcome:** `ParallelIterator::sum` and `product` retain the standard
+  whole-stream trait contract. The shard-folding implementation remains
+  available only through explicit reassociated terminals whose stronger bounds
+  and changed grouping semantics are part of their public contract.
+- **Scope / non-goals:** iterator terminal trait methods, contract/value tests,
+  the existing terminal allocation and Criterion instruments, Rustdoc,
+  CHANGELOG, and PM state. No scheduler topology, source splitting, consumer
+  arithmetic, dispatch threshold, workload, timeout, or release change.
+- **Acceptance:** restore the previous `Sum<Item>` / `Product<Item>` bounds and
+  arbitrary lawful whole-stream values; add opt-in reassociated terminals with
+  deterministic shard-order documentation; retain the measured sub-linear
+  allocation path and benchmark workload under the explicit method; pass
+  focused and release tests, warning-denied all-target Clippy, Rustdoc,
+  doctests, benchmark smoke, SemVer analysis, and independent review.
+- **Risk / change:** P1 value semantics and source compatibility; `[minor]`
+  additive public API. No version bump or release.
+- **Evidence / cause:** merged source `0123de7` added `Sum<S>` / `Product<P>`
+  bounds and computes one-item partials before merging output values. Those
+  operations are not laws of the standard traits: a lawful batch-sensitive
+  `Sum<Item>` can differ from reassociation, and an accumulator need not
+  implement `Sum<Self>` at all.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/iter-sum-contract`; lease covers the iterator terminal implementation,
+  tests, benchmark/contracts, CHANGELOG, and this item's PM regions; status:
+  in progress; last update 2026-09-01.
+
 ### ✅ MOI-SCHEDULER-DROP-LEAK-2026-08-27 [patch]: Release workers on final external drop
 
 - **Delivered:** reviewed head `b8a5325`, PR #210 merge `f82d83d`; all required
