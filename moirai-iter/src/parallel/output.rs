@@ -7,14 +7,19 @@ use std::{
 };
 
 /// One final output allocation plus per-chunk completion ownership.
-pub(super) struct MapOutput<T> {
+pub(crate) struct MapOutput<T> {
     values: Vec<MaybeUninit<T>>,
-    completed: Vec<Option<Range<usize>>>,
+    completed: Vec<usize>,
+    chunk_size: usize,
 }
 
 impl<T> MapOutput<T> {
     /// Allocate the final output and initialized completion slots.
-    pub(super) fn new(len: usize, chunk_count: usize) -> Self {
+    pub(crate) fn new(len: usize, chunk_size: usize) -> Self {
+        assert!(
+            chunk_size > 0,
+            "invariant: parallel map chunk size must be positive"
+        );
         let mut values = Vec::with_capacity(len);
         // SAFETY: `MaybeUninit<T>` has no initialization validity requirement,
         // and the vector has capacity for exactly `len` logical slots.
@@ -24,32 +29,42 @@ impl<T> MapOutput<T> {
 
         Self {
             values,
-            completed: (0..chunk_count).map(|_| None).collect(),
+            completed: vec![0; len.div_ceil(chunk_size)],
+            chunk_size,
         }
     }
 
+    /// Return the number of disjoint output chunks.
+    pub(crate) fn chunk_count(&self) -> usize {
+        self.completed.len()
+    }
+
     /// Return the final-storage pointer used by disjoint chunk writers.
-    pub(super) fn values_ptr(&mut self) -> *mut MaybeUninit<T> {
+    pub(crate) fn values_ptr(&mut self) -> *mut MaybeUninit<T> {
         self.values.as_mut_ptr()
     }
 
     /// Return the per-chunk completion pointer.
-    pub(super) fn completed_ptr(&mut self) -> *mut Option<Range<usize>> {
+    pub(crate) fn completed_ptr(&mut self) -> *mut usize {
         self.completed.as_mut_ptr()
     }
 
     /// Convert the fully initialized storage without allocating or copying.
-    pub(super) fn into_vec(mut self) -> Vec<T> {
+    pub(crate) fn into_vec(mut self) -> Vec<T> {
         let mut next_start = 0;
-        for completed in &self.completed {
-            let range = completed
-                .as_ref()
-                .expect("invariant: every parallel map chunk completed");
+        for (chunk_index, &completed_end) in self.completed.iter().enumerate() {
+            let range_start = chunk_index
+                .checked_mul(self.chunk_size)
+                .expect("invariant: parallel map chunk start is representable");
             assert_eq!(
-                range.start, next_start,
+                range_start, next_start,
                 "invariant: parallel map chunks completed in source-slot order"
             );
-            next_start = range.end;
+            assert!(
+                completed_end > range_start && completed_end <= self.values.len(),
+                "invariant: every parallel map chunk completed in bounds"
+            );
+            next_start = completed_end;
         }
         assert_eq!(
             next_start,
@@ -75,8 +90,14 @@ impl<T> MapOutput<T> {
 
 impl<T> Drop for MapOutput<T> {
     fn drop(&mut self) {
-        for range in self.completed.iter().flatten() {
-            for index in range.clone() {
+        for (chunk_index, &completed_end) in self.completed.iter().enumerate() {
+            if completed_end == 0 {
+                continue;
+            }
+            let range_start = chunk_index * self.chunk_size;
+            debug_assert!(completed_end > range_start);
+            debug_assert!(completed_end <= self.values.len());
+            for index in range_start..completed_end {
                 // SAFETY: a completion range is published only after all of
                 // its slots are initialized. Ranges belong to distinct chunk
                 // slots and therefore never overlap.
@@ -89,9 +110,11 @@ impl<T> Drop for MapOutput<T> {
 }
 
 /// Owns cleanup for one chunk until that chunk publishes completion.
-pub(super) struct ChunkWriter<T> {
+pub(crate) struct ChunkWriter<T> {
+    /// Pointer to the first slot owned by this writer.
     values: *mut MaybeUninit<T>,
-    range: Range<usize>,
+    len: usize,
+    completed_end: usize,
     initialized: usize,
     armed: bool,
 }
@@ -103,48 +126,50 @@ impl<T> ChunkWriter<T> {
     ///
     /// `values` must remain valid for the complete range until this writer is
     /// dropped. No other writer may access that range.
-    pub(super) unsafe fn new(values: *mut MaybeUninit<T>, range: Range<usize>) -> Self {
+    pub(crate) unsafe fn new(values: *mut MaybeUninit<T>, range: Range<usize>) -> Self {
+        let len = range
+            .end
+            .checked_sub(range.start)
+            .expect("invariant: parallel map output range is ordered");
+        // SAFETY: the caller guarantees that the complete range lies inside
+        // the live output allocation.
+        let values = unsafe { values.add(range.start) };
         Self {
             values,
-            range,
+            len,
+            completed_end: range.end,
             initialized: 0,
             armed: true,
         }
     }
 
     /// Initialize the next logical slot in this writer's range.
-    pub(super) fn push(&mut self, value: T) {
-        let index = self
-            .range
-            .start
-            .checked_add(self.initialized)
-            .expect("invariant: parallel map output index is representable");
-        assert!(
-            index < self.range.end,
-            "invariant: parallel map chunk cannot overrun its output range"
-        );
-        let next_initialized = self
-            .initialized
-            .checked_add(1)
-            .expect("invariant: parallel map initialized count is representable");
-
-        // SAFETY: the constructor grants this writer exclusive access to the
-        // range and the bounds check above keeps `index` inside it.
+    ///
+    /// # Safety
+    ///
+    /// The writer must contain at least one uninitialized slot. Each call
+    /// consumes exactly one such slot.
+    #[inline]
+    pub(crate) unsafe fn push(&mut self, value: T) {
+        debug_assert!(self.initialized < self.len);
+        // SAFETY: the caller guarantees an uninitialized slot remains, and
+        // this writer has exclusive access to its local range.
         unsafe {
-            self.values.add(index).write(MaybeUninit::new(value));
+            self.values
+                .add(self.initialized)
+                .write(MaybeUninit::new(value));
         }
-        self.initialized = next_initialized;
+        self.initialized += 1;
     }
 
     /// Publish ownership of a completely initialized chunk range.
-    pub(super) fn finish(mut self) -> Range<usize> {
-        let expected = self.range.end - self.range.start;
+    pub(crate) fn finish(mut self) -> usize {
         assert_eq!(
-            self.initialized, expected,
+            self.initialized, self.len,
             "invariant: parallel map chunk initialized every output slot"
         );
         self.armed = false;
-        self.range.clone()
+        self.completed_end
     }
 }
 
@@ -155,11 +180,10 @@ impl<T> Drop for ChunkWriter<T> {
         }
 
         for offset in 0..self.initialized {
-            let index = self.range.start + offset;
             // SAFETY: `initialized` advances only after `push` writes the slot,
             // and this writer retains exclusive ownership until `finish`.
             unsafe {
-                ptr::drop_in_place(self.values.add(index).cast::<T>());
+                ptr::drop_in_place(self.values.add(offset).cast::<T>());
             }
         }
     }
@@ -180,23 +204,23 @@ mod tests {
 
     #[test]
     fn completed_chunks_transfer_the_original_allocation() {
-        let mut output = MapOutput::new(5, 2);
+        let mut output = MapOutput::new(5, 3);
         let values = output.values_ptr();
         let completed = output.completed_ptr();
 
         // SAFETY: the two writers receive disjoint ranges within the five-slot
         // allocation, and both writers finish before the allocation is moved.
-        let first = unsafe {
-            let mut writer = ChunkWriter::new(values, 0..2);
+        let first_end = unsafe {
+            let mut writer = ChunkWriter::new(values, 0..3);
             writer.push(10);
             writer.push(11);
+            writer.push(12);
             writer.finish()
         };
         // SAFETY: this range is disjoint from the first writer and remains
         // within the same live five-slot allocation.
-        let second = unsafe {
-            let mut writer = ChunkWriter::new(values, 2..5);
-            writer.push(12);
+        let second_end = unsafe {
+            let mut writer = ChunkWriter::new(values, 3..5);
             writer.push(13);
             writer.push(14);
             writer.finish()
@@ -204,8 +228,8 @@ mod tests {
         // SAFETY: both indices belong to the live two-slot completion array;
         // each range is published exactly once after its writer finishes.
         unsafe {
-            completed.write(Some(first));
-            completed.add(1).write(Some(second));
+            completed.write(first_end);
+            completed.add(1).write(second_end);
         }
 
         let result = output.into_vec();
@@ -216,13 +240,17 @@ mod tests {
     #[test]
     fn unfinished_writer_drops_only_its_initialized_prefix() {
         let drops = AtomicUsize::new(0);
-        let mut output = MapOutput::new(4, 1);
+        let mut output = MapOutput::new(4, 4);
 
         // SAFETY: the writer owns the complete live four-slot allocation and
         // is dropped before the allocation itself.
         let mut writer = unsafe { ChunkWriter::new(output.values_ptr(), 0..4) };
-        writer.push(Tracked(&drops));
-        writer.push(Tracked(&drops));
+        // SAFETY: the writer owns four uninitialized slots and receives only
+        // two values before it is dropped.
+        unsafe {
+            writer.push(Tracked(&drops));
+            writer.push(Tracked(&drops));
+        }
         drop(writer);
 
         assert_eq!(drops.load(Ordering::Relaxed), 2);
@@ -231,14 +259,54 @@ mod tests {
     }
 
     #[test]
+    fn mapper_panic_drops_current_prefix_and_completed_peers_once() {
+        let drops = AtomicUsize::new(0);
+        let mut output = MapOutput::new(6, 3);
+        let values = output.values_ptr();
+        let completed = output.completed_ptr();
+
+        // SAFETY: the first writer exclusively owns the first three live slots
+        // and initializes the complete range before publishing it.
+        let completed_end = unsafe {
+            let mut writer = ChunkWriter::new(values, 0..3);
+            writer.push(Tracked(&drops));
+            writer.push(Tracked(&drops));
+            writer.push(Tracked(&drops));
+            writer.finish()
+        };
+        // SAFETY: index zero is a live completion slot and the first range is
+        // fully initialized.
+        unsafe {
+            completed.write(completed_end);
+        }
+
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // SAFETY: the second writer exclusively owns the final three live
+            // slots and is dropped while unwinding before the output owner.
+            let mut writer = unsafe { ChunkWriter::new(values, 3..6) };
+            // SAFETY: all three slots are initially uninitialized; only the
+            // first is consumed before the simulated mapper panic.
+            unsafe {
+                writer.push(Tracked(&drops));
+            }
+            panic!("simulated mapper panic");
+        }));
+
+        assert!(panic.is_err());
+        assert_eq!(drops.load(Ordering::Relaxed), 1);
+        drop(output);
+        assert_eq!(drops.load(Ordering::Relaxed), 4);
+    }
+
+    #[test]
     fn zero_sized_outputs_retain_their_logical_length() {
-        let mut output = MapOutput::new(3, 1);
+        let mut output = MapOutput::new(3, 3);
         let values = output.values_ptr();
         let completed = output.completed_ptr();
 
         // SAFETY: the writer exclusively owns the full logical range of the
         // live zero-sized allocation and initializes every logical slot.
-        let range = unsafe {
+        let completed_end = unsafe {
             let mut writer = ChunkWriter::new(values, 0..3);
             writer.push(());
             writer.push(());
@@ -247,7 +315,7 @@ mod tests {
         };
         // SAFETY: index zero is the sole live completion slot.
         unsafe {
-            completed.write(Some(range));
+            completed.write(completed_end);
         }
 
         assert_eq!(output.into_vec(), [(), (), ()]);

@@ -10,6 +10,8 @@ const WARM_UP_MILLIS: u64 = 100;
 const MEASUREMENT_MILLIS: u64 = 300;
 const WORK_ITEMS: usize = 1_024;
 const LARGE_WORK_ITEMS: usize = 32_768;
+// First `u64` length above the cache map's scheduler-batch fan-out floor.
+const MAP_FAN_OUT_WORK_ITEMS: usize = 2_097_153;
 
 fn source_data() -> Vec<u64> {
     (0..WORK_ITEMS as u64)
@@ -34,6 +36,23 @@ fn rayon_borrowed_map(data: &[u64]) -> u64 {
     data.par_iter()
         .map(|value| value.wrapping_mul(3).wrapping_add(1))
         .sum()
+}
+
+fn map_fan_out_source_data() -> Vec<u64> {
+    (0..MAP_FAN_OUT_WORK_ITEMS as u64)
+        .map(|value| value.wrapping_mul(31).wrapping_add(17))
+        .collect()
+}
+
+fn moirai_zero_copy_large_map(data: &[u64]) -> Vec<u64> {
+    data.zero_copy_par_iter()
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+}
+
+fn rayon_borrowed_large_map(data: &[u64]) -> Vec<u64> {
+    data.par_iter()
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .collect()
 }
 
 fn moirai_zero_copy_reduce(data: &[u64]) -> u64 {
@@ -63,8 +82,13 @@ fn rayon_borrowed_large_reduce(data: &[u64]) -> u64 {
 fn cache_iterator_comparison(c: &mut Criterion) {
     let data = source_data();
     let large_data = large_source_data();
+    let map_fan_out_data = map_fan_out_source_data();
 
     assert_eq!(moirai_zero_copy_map(&data), rayon_borrowed_map(&data));
+    assert_eq!(
+        moirai_zero_copy_large_map(&map_fan_out_data),
+        rayon_borrowed_large_map(&map_fan_out_data)
+    );
     assert_eq!(moirai_zero_copy_reduce(&data), rayon_borrowed_reduce(&data));
     assert_eq!(
         moirai_zero_copy_large_reduce(&large_data),
@@ -82,6 +106,22 @@ fn cache_iterator_comparison(c: &mut Criterion) {
         b.iter(|| black_box(rayon_borrowed_map(black_box(input))))
     });
     map_group.finish();
+
+    let mut large_map_group = c.benchmark_group("cache_iterator_zero_copy_large_map");
+    large_map_group.sample_size(SAMPLE_SIZE);
+    large_map_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    large_map_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    large_map_group.bench_with_input(
+        BenchmarkId::new("moirai", MAP_FAN_OUT_WORK_ITEMS),
+        &map_fan_out_data,
+        |b, input| b.iter(|| black_box(moirai_zero_copy_large_map(black_box(input)))),
+    );
+    large_map_group.bench_with_input(
+        BenchmarkId::new("rayon", MAP_FAN_OUT_WORK_ITEMS),
+        &map_fan_out_data,
+        |b, input| b.iter(|| black_box(rayon_borrowed_large_map(black_box(input)))),
+    );
+    large_map_group.finish();
 
     let mut reduce_group = c.benchmark_group("cache_iterator_zero_copy_reduce");
     reduce_group.sample_size(SAMPLE_SIZE);

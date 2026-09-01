@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Cache and owned parallel map now share one panic-safe direct-output owner.
+  Each worker writes its disjoint range into the final allocation, publishes a
+  compact completion endpoint only after full initialization, and drops its
+  initialized prefix if mapping panics; the outer owner drops completed peer
+  ranges exactly once. For the 2,097,153-element `u64` fan-out case, the exact
+  release ledger remains two allocations while gross bytes fall from
+  16,777,624 to 16,777,424: the 16,777,224-byte returned vector is unchanged
+  and ancillary metadata falls from 400 bytes of borrowed chunk descriptors to
+  200 bytes of completion endpoints. This rejects the original second-output-
+  allocation hypothesis because Rust already reused the uninitialized vector
+  allocation during collection. A same-instrument Criterion comparison against
+  the pre-change source reports no detected Moirai regression for the new
+  fan-out map row (1.4987 ms baseline, 1.5027 ms candidate; change estimate
+  -1.68% to +7.96%, p=0.32); no throughput claim is made. The cache
+  implementation and allocation-test harness are also split into focused
+  modules without changing their public paths.
 - Bounded ordered async map/filter now stores completed outputs by retained
   physical slot and reuses each slot's occupancy-discriminated metadata as the
   input-order chain, replacing the separate `Vec<Option<Output>>` position

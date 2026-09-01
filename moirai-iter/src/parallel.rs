@@ -12,6 +12,7 @@ mod adapters;
 mod consumers;
 mod fallible;
 mod indexed;
+pub(crate) mod output;
 mod sorting;
 mod sources;
 mod split;
