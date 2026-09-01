@@ -86,22 +86,23 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 [patch] [perf]: Remove count-only async-context topology discovery
+### 🟡 MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 [patch] [perf]: Remove async-context control-plane allocations
 
-- **Outcome:** measure and, only if attributed, remove full topology discovery
-  from the parallel execution context's async concurrency selection when it
-  consumes only a process-available lane count.
+- **Outcome:** remove attributed full-topology discovery and adjacent closure /
+  completion-container allocations from parallel-context async terminals.
 - **Scope / non-goals:** `moirai-iter/src/execution/base.rs`, the existing
   private process-parallelism capability, one public facade allocation/value
   regression, the retained execution-context Criterion binary, CHANGELOG, and
   PM state. No explicit async/hybrid concurrency setting, scheduler topology,
-  executor construction, public API, workload, or timeout change.
+  executor construction, future-buffer implementation, public API, workload,
+  or timeout change.
 - **Acceptance:** an unchanged warmed census separates input, context,
   concurrency selection, and output allocation for a ready-future public map;
   every ordered result remains exact; the candidate removes only attributed
-  topology/cgroup-query allocations and reuses the process-wide count;
+  topology/cgroup-query allocations, reuses the process-wide count, borrows the
+  terminal operation, and drains for-each without collecting `Vec<()>`;
   async/hybrid configured limits remain unchanged; paired Criterion evidence
-  does not regress; focused/debug/release tests, warning-denied Clippy/docs,
+  improves; focused/debug/release tests, warning-denied Clippy/docs,
   cross-target check, benchmark smoke, SemVer, and independent review pass.
 - **Risk / change:** internal `[patch]`; stop after measurement if topology is
   not a repeat allocation source or if sharing the process count changes the
@@ -110,8 +111,15 @@ architecture definition.
   `perf/iter-context-parallelism-probe`; live lease:
   `moirai-iter/src/execution/base.rs`, one focused allocation test,
   `benchmarks/benches/execution_context_comparison.rs`, related benchmark
-  contract coverage, CHANGELOG, and this item; status: entry measurement; last
+  contract coverage, CHANGELOG, and this item; status: source verification; last
   update 2026-09-01.
+- **Evidence:** the warmed public 1,024-item ready-future map moves from 1,118
+  allocations / 152,616 gross bytes to 1,035 / 114,816, with all ordered values
+  exact. The paired Criterion median moves from 81.025 us (95% CI
+  79.601-82.117 us) to 63.307 us (95% CI 63.041-63.545 us), 21.9% lower with
+  disjoint intervals. The residual 1,024-scale allocation count is
+  dependency-owned buffered-future node storage and is the next bounded
+  attribution target, not a removed-allocation claim in this item.
 
 ### 🟡 MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 [patch] [perf]: Remove count-only topology discovery
 

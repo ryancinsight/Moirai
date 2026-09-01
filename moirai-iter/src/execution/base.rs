@@ -1,13 +1,10 @@
 //! Base trait and enum for execution contexts.
 
 use futures::StreamExt;
-use std::sync::Arc;
 
 use super::async_ctx::AsyncContext;
 use super::hybrid::HybridContext;
 use super::parallel::ParallelContext;
-
-const DEFAULT_ASYNC_CONCURRENCY: usize = 1024;
 
 /// Base trait for all execution contexts
 pub trait ExecutionBase: Send + Sync {
@@ -77,12 +74,8 @@ impl ExecutionContext {
         R: Send + 'static,
     {
         let concurrency = self.async_concurrency_limit();
-        let func = Arc::new(func);
         let results = futures::stream::iter(items)
-            .map(|item| {
-                let func = Arc::clone(&func);
-                async move { func(item).await }
-            })
+            .map(func)
             .buffered(concurrency)
             .collect::<Vec<_>>()
             .await;
@@ -101,14 +94,11 @@ impl ExecutionContext {
         Fut: std::future::Future<Output = bool> + Send + 'static,
     {
         let concurrency = self.async_concurrency_limit();
-        let predicate = Arc::new(predicate);
+        let predicate = &predicate;
         let results = futures::stream::iter(items)
-            .map(|item| {
-                let predicate = Arc::clone(&predicate);
-                async move {
-                    let keep = predicate(&item).await;
-                    (keep, item)
-                }
+            .map(|item| async move {
+                let keep = predicate(&item).await;
+                (keep, item)
             })
             .buffered(concurrency)
             .filter_map(|(keep, item)| async move { keep.then_some(item) })
@@ -129,14 +119,10 @@ impl ExecutionContext {
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
         let concurrency = self.async_concurrency_limit();
-        let func = Arc::new(func);
         futures::stream::iter(items)
-            .map(|item| {
-                let func = Arc::clone(&func);
-                async move { func(item).await }
-            })
+            .map(func)
             .buffer_unordered(concurrency)
-            .collect::<Vec<_>>()
+            .for_each(|()| async {})
             .await;
         Ok(())
     }
@@ -165,13 +151,31 @@ impl ExecutionContext {
 
     fn async_concurrency_limit(&self) -> usize {
         match self {
+            ExecutionContext::Parallel(_) => crate::base::process_parallelism(),
             ExecutionContext::Async(ctx) => ctx.max_concurrent,
             ExecutionContext::Hybrid(ctx) => ctx.async_context.max_concurrent,
-            _ => themis::CpuTopology::detect()
-                .map(|topology| topology.logical_processors())
-                .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
-                .unwrap_or(DEFAULT_ASYNC_CONCURRENCY)
-                .max(1),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concurrency_limits_preserve_context_configuration() {
+        let parallel = ExecutionContext::Parallel(ParallelContext::new());
+        assert_eq!(
+            parallel.async_concurrency_limit(),
+            crate::base::process_parallelism()
+        );
+
+        let asynchronous = ExecutionContext::Async(AsyncContext::new().with_max_concurrent(7));
+        assert_eq!(asynchronous.async_concurrency_limit(), 7);
+
+        let mut hybrid = HybridContext::new();
+        hybrid.async_context = AsyncContext::new().with_max_concurrent(11);
+        let hybrid = ExecutionContext::Hybrid(hybrid);
+        assert_eq!(hybrid.async_concurrency_limit(), 11);
     }
 }

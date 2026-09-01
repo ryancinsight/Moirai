@@ -269,6 +269,9 @@ fn execution_context_iter_consumes_owned_chunks_without_clone() {
         "non_clone_parallel_context_execute_iter_consumes_items",
         "non_clone_async_context_execute_iter_consumes_items",
         "owned_chunks_move_values_without_clone_bound",
+        "ExecutionContext::Parallel(_) => crate::base::process_parallelism()",
+        ".map(func)",
+        ".for_each(|()| async {})",
     ] {
         assert!(
             source.contains(required),
@@ -281,6 +284,8 @@ fn execution_context_iter_consumes_owned_chunks_without_clone() {
         "execution_context_owned_map",
         "moirai_parallel_context_map",
         "rayon_owned_map",
+        "execution_context_parallel_async_map",
+        "moirai_parallel_context_async_map",
         "assert_eq!",
     ] {
         assert!(
@@ -294,6 +299,8 @@ fn execution_context_iter_consumes_owned_chunks_without_clone() {
         "let result = func(item.clone());",
         "T: Send + Clone + 'static",
         "Simplified async execution",
+        "let func = Arc::new(func)",
+        "let predicate = Arc::new(predicate)",
     ] {
         assert!(
             !source.contains(prohibited),

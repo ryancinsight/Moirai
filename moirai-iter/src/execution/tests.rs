@@ -104,3 +104,27 @@ async fn async_context_filter_runs_bounded_concurrently_and_preserves_order() {
 
     assert_eq!(filtered, vec![0, 2, 4, 6]);
 }
+
+#[tokio::test]
+async fn parallel_context_async_for_each_visits_every_item_once() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let visits = Arc::new((0..64).map(|_| AtomicUsize::new(0)).collect::<Vec<_>>());
+    let observed = Arc::clone(&visits);
+    ExecutionContext::Parallel(ParallelContext::new())
+        .execute_async_for_each((0..64).collect::<Vec<_>>(), move |index| {
+            let observed = Arc::clone(&observed);
+            async move {
+                observed[index].fetch_add(1, Ordering::Relaxed);
+            }
+        })
+        .await
+        .expect("parallel-context async for-each should complete");
+
+    assert!(
+        visits
+            .iter()
+            .all(|count| count.load(Ordering::Relaxed) == 1),
+        "parallel-context async for-each must visit every item exactly once"
+    );
+}

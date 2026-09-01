@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Parallel-context async iterator terminals now reuse the process-wide cached
+  parallelism count instead of materializing CPU topology on every call. Map,
+  filter, and for-each borrow their operation closure rather than placing it in
+  an `Arc`; for-each also drains completion directly instead of collecting a
+  throwaway `Vec<()>`. For a warmed 1,024-item ready-future map on the measured
+  x86-64 Windows host, the ledger falls from 1,118 allocations / 152,616 gross
+  bytes to 1,035 / 114,816, while every ordered result remains exact. The same
+  Criterion row's median falls from 81.025 us (95% CI 79.601-82.117 us) to
+  63.307 us (95% CI 63.041-63.545 us), a 21.9% reduction. Explicit Async and
+  Hybrid concurrency limits are unchanged.
 - `cache::ZeroCopyParallelIter` construction now uses the process-wide cached
   parallelism count instead of materializing a NUMA/cache topology snapshot for
   every borrowed slice. Rust 1.97's Linux process-parallelism query reads cgroup

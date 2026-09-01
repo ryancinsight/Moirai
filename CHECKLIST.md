@@ -2,31 +2,38 @@
 
 **Target**: Unreleased
 
-## MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 — Remove count-only async-context topology discovery [patch] [perf] — in progress
+## MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 — Remove async-context control-plane allocations [patch] [perf] — in progress
 
-- **Outcome:** measure and, only if attributed, remove full topology discovery
-  from `ExecutionContext::Parallel` async concurrency selection when only a
-  process-available lane count is required.
+- **Outcome:** remove attributed full-topology discovery and adjacent closure /
+  completion-container allocations from parallel-context async terminals.
 - **Acceptance:** an unchanged warmed public ready-future map allocation census
   checks every ordered value and separates context/concurrency/output costs; a
-  correction removes only attributed topology/cgroup-query allocations, reuses
-  the process-wide count, and leaves explicit async/hybrid concurrency limits
-  unchanged. Paired Criterion evidence, debug/release Nextest, warning-denied
+  correction reuses the process-wide count, borrows the terminal operation,
+  drains for-each completion without a throwaway vector, and leaves explicit
+  async/hybrid concurrency limits unchanged. Paired Criterion evidence,
+  debug/release Nextest, warning-denied
   Clippy/Rustdoc, cross-target check, doctests, benchmark smoke, SemVer, and
   independent review pass.
 - **Scope / non-goals:** `execution/base.rs`, the existing private
   process-parallelism capability, one focused public allocation/value test, the
   retained execution-context Criterion binary and contract coverage, CHANGELOG,
   and PM state. No scheduler topology, executor construction, public API,
-  workload, or timeout change.
+  future-buffer implementation, workload, or timeout change.
 - **Risk / change:** internal `[patch]`; stop after measurement if topology is
   not a repeat allocation source or if sharing the count changes configured
   async/hybrid limits or public values.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `perf/iter-context-parallelism-probe`; lease: `execution/base.rs`, one focused
   allocation test, `execution_context_comparison.rs`, related benchmark contract
-  coverage, CHANGELOG, and this item. Entry measurement pending; last update
-  2026-09-01.
+  coverage, CHANGELOG, and this item. Source verification in progress; last
+  update 2026-09-01.
+- **Evidence:** the warmed public 1,024-item ready-future map moves from 1,118
+  allocations / 152,616 gross bytes to 1,035 / 114,816, with all ordered values
+  exact. The paired Criterion median moves from 81.025 us (95% CI
+  79.601-82.117 us) to 63.307 us (95% CI 63.041-63.545 us), 21.9% lower with
+  disjoint intervals. The residual 1,024-scale allocation count is
+  dependency-owned buffered-future node storage and remains outside this
+  control-plane increment.
 
 ## MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 — Remove count-only topology discovery [patch] [perf] — in progress
 
