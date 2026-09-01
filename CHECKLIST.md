@@ -175,7 +175,7 @@
   a worktree reports on that worktree's sources with another worktree dirty.
   Both are falsifiable — verify each against the current behaviour first.
 
-## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — review
+## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — done 2026-08-31
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
   **Lease:** none. Source commit `8b8110b`; last update 2026-08-31.
@@ -188,7 +188,7 @@
   warning-denied Clippy; feature-enabled Criterion `--test` smoke of every row
   completed in about 45 seconds; fmt, diff, and standalone lock hash
   `dab0b1f06ba224ac29d750921e033d4135f9765c` are clean. Independent exact-object
-  review is GREEN; PR #206 carries the history-preserved candidate.
+  review is GREEN; PR #206 merged with history preserved as `c13fbf5`.
 
 ## MOI-FLAKY-JOIN-PRECONDITION-2026-08-28 — Make the join test's precondition deterministic [patch] — review
 
@@ -385,18 +385,27 @@
   the futex_mutex/mpmc-waiter precedent plus stress coverage.
 - **Last-update:** 2026-08-27.
 
-## MOI-INLINE-POLL-DEPTH-2026-08-27 — Bound nested inline-wake polls [patch] — todo
+## MOI-INLINE-POLL-DEPTH-2026-08-27 — Bound nested inline-wake polls [patch] — review
 
-- Owner: unclaimed.
-- Outcome: the wake path's inline-poll rung carries an explicit nesting bound.
-- Evidence (integrator review of PR #171): `schedule_wake`'s inline poll runs
-  on the waking thread after the 64-attempt admission ladder; a future whose
-  poll sends into another saturated task's channel can wake inline again, so
-  under sustained total saturation inline polls can nest without an explicit
-  depth bound (each level costs a full spin/yield ladder, so growth is slow
-  and requires adversarial permanent saturation — hardening, not a defect).
-- Direction: thread-local inline-poll depth counter; past the bound, fall
-  back to the yield rung indefinitely (never drop the wake).
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `chore/inline-poll-depth-closure`; lease: PM records only; source increment
+  committed as `d94ef46`; last update 2026-08-31.
+- **Outcome:** `schedule_wake` now admits one thread-local inline poll after a
+  rejected queue admission. A second rejected wake emitted by that poll owns
+  its `QUEUED` epoch and completes once with typed `TaskError::ResourceExhausted`
+  instead of recursively extending the waking thread's stack.
+- **Decision:** landed `322130d0` bounded self-wake repolls only; it did not
+  bound distinct-task wake chains. Retain its self-wake and shutdown state
+  transitions and add the independent cross-task depth budget.
+- **Evidence:** all-feature executor Nextest passes 129/129 in 1.03 s; the
+  focused debug and release saturation matrices pass 3/3; warning-denied
+  all-target/all-feature Clippy, warning-denied Rustdoc, and doctests pass.
+  The regression also proves a later unrelated rejected wake can poll inline,
+  detecting a leaked thread-local depth lease. The first independent review
+  found stale single-owner and over-broad transition wording in the unsafe
+  proof; `d94ef46` now defines both owners and distinguishes atomic notification
+  from access-permission transfer. Independent exact-Git review is GREEN at
+  `d94ef46040e6c18b90f151e73c6f3d6b41b1449d`; PR/merge closure remains.
 
 ## MOI-REGISTRY-UNBOUNDED-2026-08-27 — Bound the task registry [minor] — partly delivered; the bulk needs a contract decision
 

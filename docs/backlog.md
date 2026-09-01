@@ -86,24 +86,33 @@ architecture definition.
 
 ## Current closure record
 
-### 🟨 MOI-BENCH-REQUIRED-FEATURES-2026-08-31 [patch]: Select the diagnostic benchmark by feature
+### 🟨 MOI-INLINE-POLL-DEPTH-2026-08-27 [patch]: Bound cross-task inline wake depth
 
-- **Outcome:** declare `registry-diagnostics` as a required feature of the
-  `result_handle_diagnostics` benchmark so the default all-target gate does not
-  compile a target whose API surface is intentionally disabled.
-- **Scope / non-goals:** benchmark target metadata, a manifest contract, release
-  and PM records; no benchmark body, workload, feature definition, timeout,
-  runtime behavior, or public API change.
-- **Acceptance:** default all-target checking passes while omitting only the
-  inexpressible target; feature-enabled warning-denied Clippy and benchmark
-  smoke execute it unchanged; the manifest contract pins the selection rule.
+- **Outcome:** source commit `d94ef46` adds a one-level thread-local inline-poll
+  budget. A distinct task awakened from an already-inline poll completes with
+  typed `TaskError::ResourceExhausted` when its own admission is rejected.
+- **Scope / non-goals:** bound only cross-task recursion under total scheduler
+  saturation; retain the existing self-wake repoll, ordinary inline fast path,
+  shutdown behavior, public API, queue admission policy, and allocation shape.
+- **Acceptance:** one rejected wake can poll inline; self-wake cannot recurse
+  without bound; a nested distinct-task rejection completes exactly once with
+  typed exhaustion; the depth lease restores before a later unrelated wake;
+  shutdown remains non-admitting; docs and tests match the production protocol.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/bench-required-features`; source `8b8110b`; status: review; lease: none.
-- **Evidence:** default all-target check; focused Nextest 1/1; default and
-  feature-enabled all-target warning-denied Clippy; unchanged feature-enabled
-  Criterion `--test` smoke completed every row in about 45 seconds; standalone
-  lock hash remains `dab0b1f06ba224ac29d750921e033d4135f9765c`;
-  independent exact-object review is GREEN; PR #206 awaits collection.
+  `chore/inline-poll-depth-closure`; source `d94ef46`; lease: PM records;
+  independent review and merge closure remain pending.
+- **Evidence:** executor Nextest 129/129; focused debug/release saturation tests
+  3/3; warning-denied all-target/all-feature Clippy and Rustdoc green; doctests
+  green. The first independent review found stale unsafe-owner documentation;
+  `d94ef46` corrects the state machine, ownership roles, access-transferring
+  transitions, and per-site proofs. Independent exact-Git review is GREEN at
+  `d94ef46040e6c18b90f151e73c6f3d6b41b1449d`; PR/merge closure remains.
+
+### ✅ MOI-BENCH-REQUIRED-FEATURES-2026-08-31 [patch]: Select the diagnostic benchmark by feature
+
+- **Delivered:** source `8b8110b`; PR #206; merge `c13fbf5`. Default all-target
+  selection now omits only the unavailable diagnostic target; feature-enabled
+  benchmark smoke, warning-denied Clippy, and independent review are GREEN.
 
 ### ✅ MOI-DISPATCH-FLOOR-2026-08-31 [patch] [perf]: Keep indexed CPU work on compute workers
 
