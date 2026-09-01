@@ -22,9 +22,8 @@
   full-stream allocation or candidate timing materially regresses.
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `perf/iter-standard-terminal-stream`.
-- **Lease:** Codex — `moirai-iter/src/parallel`, standard-terminal allocation
-  tests, one iterator Criterion binary/contracts, CHANGELOG, and this item's PM
-  regions. Last update 2026-09-01.
+- **Lease:** none. Reviewed source head `e7483e2`; PR #220; hosted collection
+  pending. Last update 2026-09-01.
 - **Evidence:** the unchanged 65,536-item borrowed copied/map/filter standard
   sum returns the reference value and makes one warmed allocation. With the
   retained `seq_iter` seam it makes zero. Paired Criterion medians
@@ -37,9 +36,9 @@
   retained Criterion binary passes its 28.4-second single-iteration smoke.
   Directory-baseline SemVer analysis passes 196 checks with 58 inapplicable
   skips and reports no required version change. Independent review found one
-  stale `seq_try_fold` materialization statement; the forward correction now
-  describes the `seq_iter` delegation. Exact correction re-review and hosted
-  collection remain pending.
+  stale `seq_try_fold` materialization statement; source `e7483e2` corrects the
+  `seq_iter` delegation contract, and exact cumulative re-review is GREEN.
+  Hosted collection remains pending.
 
 ## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — complete
 

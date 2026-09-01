@@ -104,9 +104,9 @@ architecture definition.
   migration. Stop with the instrument only if baseline materialization is absent
   or the candidate materially regresses.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-standard-terminal-stream`; lease covers the iterator seam,
-  compatible sources/adapters, tests/instrument, CHANGELOG, and this item's PM
-  regions; status: in progress; last update 2026-09-01.
+  `perf/iter-standard-terminal-stream`; reviewed source head `e7483e2`; PR #220;
+  lease: none; status: in progress; hosted collection pending; last update
+  2026-09-01.
 - **Measured evidence:** the exact unchanged baseline returns the reference
   value but makes one warmed allocation for 65,536 borrowed copied/map/filter
   items; the candidate makes zero. Retained Criterion medians
@@ -121,9 +121,9 @@ architecture definition.
   retained Criterion binary passes its 28.4-second single-iteration smoke.
   Directory-baseline SemVer analysis passes 196 checks with 58 inapplicable
   skips and reports no required version change. Independent review found one
-  stale `seq_try_fold` materialization statement; the forward correction now
-  describes the `seq_iter` delegation. Exact correction re-review and hosted
-  collection remain pending.
+  stale `seq_try_fold` materialization statement; source `e7483e2` corrects the
+  `seq_iter` delegation contract, and exact cumulative re-review is GREEN.
+  Hosted collection remains pending.
 
 ### ✅ MOI-CI-DRAFT-GATE-2026-09-01 [patch] [ci]: Suppress draft pull-request runners
 
