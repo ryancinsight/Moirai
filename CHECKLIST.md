@@ -612,9 +612,13 @@
   `benchmark_contracts` 70/70; `moirai-scheduler` doctests 2/2;
   `RUSTFLAGS="--cfg loom"` `loom_chase_lev` 1/1.
 
-## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — todo
+## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — in progress
 
-- Unowned. `loom_chase_lev.rs` covers the steal/pop ordering protocol but not
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/scheduler-resize-gate-loom`; lease: resize-gate Loom model, workflow
+  selection, scheduler documentation, CHANGELOG, and this item; last update
+  2026-09-01.
+- `loom_chase_lev.rs` covers the steal/pop ordering protocol but not
   the resize gate: `enter_steal_access`'s add/re-check/back-off retry, the
   `resizing` flag, and `resize`'s spin to zero are unmodelled, so no exhaustive
   interleaving check covers a thief entering the gate against a resize claiming

@@ -122,6 +122,28 @@ architecture definition.
   Independent exact-head review of `5662e8a` is GREEN. PR #211 hosted
   collection remains.
 
+### 🟨 MOI-LOOM-RESIZE-GATE-2026-08-31 [patch]: Model resize-gate exclusion
+
+- **Outcome:** model the Chase-Lev resize flag and active-stealer counter with
+  the production orderings, proving that resize never republishes storage while
+  a thief holds either a single-item or batch access region.
+- **Scope / non-goals:** bounded Loom state, exact invariant diagnostics,
+  workflow selection, scheduler documentation, and PM state only; no queue
+  arithmetic, public API, scheduling policy, benchmark, workload, or timeout
+  change unless the model exposes a production defect.
+- **Acceptance:** cover entry before resize, entry during resize and retry,
+  resize waiting on an active single thief, and resize waiting across a bounded
+  batch; assert no access overlaps republish and every participant terminates.
+- **Risk / change:** P1 concurrent memory-reclamation verification, `[patch]`;
+  no SemVer change.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/scheduler-resize-gate-loom`; lease: resize-gate Loom model, workflow
+  selection, scheduler documentation, CHANGELOG, and this item; status: in
+  progress; last update 2026-09-01.
+- **Entry evidence:** the existing Chase-Lev Loom model covers top/bottom and
+  slot claim ordering but not `resizing`, `steal_accesses`, or the batch-long
+  access hold introduced by the gate-hoist optimization.
+
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
 - **Delivered:** reviewed head `b8a5325`, PR #210 merge `f82d83d`; all required
