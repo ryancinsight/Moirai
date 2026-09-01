@@ -15,6 +15,10 @@ use super::job::ScheduledJob;
 
 /// One queue per priority level; indices come from [`Priority::index`] (SSOT).
 const PRIORITY_LEVELS: usize = Priority::Critical.index() + 1;
+/// Lost-race attempts retained at one victim priority before the worker-level
+/// scan regains control. This matches the shortest scheduler contention budget
+/// while placing an absolute bound on inner queue retry loops.
+const STEAL_RETRY_ATTEMPTS: usize = 64;
 /// Pop scan order: highest [`Priority::index`] first.
 const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] = [
     Priority::Critical.index(),
@@ -100,17 +104,16 @@ impl WorkerQueues {
             return None;
         }
         for &index in &PRIORITY_POP_ORDER {
-            match self.local_stealers[index].steal() {
-                StealResult::Success(job) => {
-                    self.len.fetch_sub(1, Ordering::Relaxed);
-                    return Some(job);
+            for attempt in 0..STEAL_RETRY_ATTEMPTS {
+                match self.local_stealers[index].steal() {
+                    StealResult::Success(job) => {
+                        self.len.fetch_sub(1, Ordering::Relaxed);
+                        return Some(job);
+                    }
+                    StealResult::Retry if attempt + 1 == STEAL_RETRY_ATTEMPTS => return None,
+                    StealResult::Retry => {}
+                    StealResult::Empty => break,
                 }
-                // The worker and scoped-wait callers already own bounded
-                // retry-then-park ladders. Returning control after one lost
-                // race prevents a single victim/priority from spinning
-                // indefinitely and preserves the next probe's priority scan.
-                StealResult::Retry => return None,
-                StealResult::Empty => {}
             }
         }
         if let Some((_priority, job)) = self.injector.try_dequeue() {
@@ -175,26 +178,27 @@ impl WorkerQueueOwner {
 
         // 1. Try to steal from target's local queues
         for &index in &PRIORITY_POP_ORDER {
-            match target.local_stealers[index].steal_batch() {
-                StealResult::Success(mut batch) => {
-                    let first_job = batch
-                        .next()
-                        .expect("invariant: successful batch contains one job");
-                    let mut pushed_count = 0;
-                    for job in batch {
-                        self.local_queues[index].push(job);
-                        pushed_count += 1;
+            for attempt in 0..STEAL_RETRY_ATTEMPTS {
+                match target.local_stealers[index].steal_batch() {
+                    StealResult::Success(mut batch) => {
+                        let first_job = batch
+                            .next()
+                            .expect("invariant: successful batch contains one job");
+                        let mut pushed_count = 0;
+                        for job in batch {
+                            self.local_queues[index].push(job);
+                            pushed_count += 1;
+                        }
+                        if pushed_count > 0 {
+                            self.shared.len.fetch_add(pushed_count, Ordering::Relaxed);
+                        }
+                        target.len.fetch_sub(pushed_count + 1, Ordering::Relaxed);
+                        return Some(first_job);
                     }
-                    if pushed_count > 0 {
-                        self.shared.len.fetch_add(pushed_count, Ordering::Relaxed);
-                    }
-                    target.len.fetch_sub(pushed_count + 1, Ordering::Relaxed);
-                    return Some(first_job);
+                    StealResult::Retry if attempt + 1 == STEAL_RETRY_ATTEMPTS => return None,
+                    StealResult::Retry => {}
+                    StealResult::Empty => break,
                 }
-                // Re-probe through the worker-level ladder rather than
-                // monopolizing this target after a lost race.
-                StealResult::Retry => return None,
-                StealResult::Empty => {}
             }
         }
 
