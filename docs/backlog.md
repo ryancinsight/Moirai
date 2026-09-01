@@ -86,7 +86,75 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 [patch] [perf]: Remove async-context control-plane allocations
+### 🟡 MOI-ITER-RETAINED-FUTURE-SLOTS-2026-09-01 [patch] [perf]: Reuse bounded in-flight future storage
+
+- **Outcome:** remove the measured one-task-allocation-per-item residue from
+  bounded ordered async iterator terminals by retaining and refilling a fixed
+  number of heap-stable future slots.
+- **Scope / non-goals:** one crate-private retained-slot primitive under
+  `moirai-iter/src/stream/`, ordered consumers in `execution/base.rs`,
+  `async_iter/parallel.rs`, and `ConcurrentStreamExt::concurrent_map_ordered`,
+  focused allocation/value/pending/drop tests, retained Criterion and contract
+  coverage, CHANGELOG, and PM state. The public unordered completion-order
+  stream remains on futures-util unless a candidate preserves wake completion
+  order exactly. No public API, scheduler, AsyncIterator trait/ADR-018,
+  workload, or timeout change.
+- **Acceptance:** entry censuses cover ready and one-pending-poll public map and
+  for-each paths, assert ordered values / exactly-once visits, and attribute
+  allocation count and gross bytes. A retained candidate allocates in
+  proportion to the concurrency bound rather than item count; preserves input
+  order where promised, bounded in-flight work, explicit Async/Hybrid limits,
+  cancellation, and exact drop counts; and does not regress either paired
+  Criterion row by 5% or more. Any pin projection stays behind a safe private
+  API with SAFETY proofs, Miri coverage, panic/drop tests, and warning-denied
+  cross-target checks.
+- **Risk / change:** internal `[patch]`; reject a scan-based candidate if wake
+  sparsity or large configured bounds create a paired timing regression, and
+  reject any candidate that moves a pinned future, changes refill/order
+  semantics, or weakens cancellation/drop behavior.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-retained-future-slots`; lease: none; source `8c5e425`; review
+  correction `d35bbf3`; PR #226; status: independent review GREEN, hosted
+  collection and merge pending; last update 2026-09-01.
+- **Entry evidence:** futures-util 0.3.34 `FuturesOrdered::push_back` delegates
+  every item to `FuturesUnordered::push`, whose implementation constructs one
+  new `Arc<Task>` per future. The prior public 1,024-item ready-map census left
+  1,035 allocations / 114,816 gross bytes after removing topology and closure
+  control-plane churn. Deterministic one-pending-poll censuses reproduce 1,035
+  allocations / 114,816 bytes for ordered map and 1,026 / 98,464 for unordered
+  for-each, with exact ordered values and exactly-once visits. Entry Criterion
+  medians (95% CI) are 66.008 us [65.220, 66.690] for ready map and 124.001 us
+  [123.369, 124.082] for one-pending map; baseline instrument gates pass.
+- **Candidate evidence:** a contiguous-slab scan candidate reduced ready and
+  one-pending costs but measured about 9.26 ms at a valid 1,000-slot sparse-wake
+  bound versus 180.65 us for futures-util and was rejected. A first segmented
+  fix-forward then exposed quadratic initial vacancy discovery and measured
+  255.38 us. The subsequent circular cursor was rejected because repeated tail
+  completion/refill can rescan every occupied slot. The retained design uses a
+  fixed two-word block-vacancy bitset and one intrusive vacancy link per slot;
+  the 64-slot/128-refill regression proves one bitmap-word and one vacancy-head
+  inspection per refill while the other 63 slots remain occupied. Exact-size
+  sources allocate only their
+  clamped reachable block and unknown-size sources grow geometrically after
+  admission. On the measured 24-logical-worker host, ready/pending maps use 39
+  allocations / 18,768 and 39 / 18,960 gross bytes; pending for-each uses 29 /
+  2,232. The eight-byte intrusive link per retained slot changes bytes, not
+  allocation count. Final Criterion median estimates (95% CI) are 25.326 us
+  [25.225, 25.742] for ready map and 47.085 us [46.419, 47.254] for
+  one-pending map, 61.6% and 62.0% below entry. The same-binary sparse-wake row
+  is 125.115 us [123.034, 126.554] versus futures-util 177.750 us
+  [175.229, 179.719], 29.6% lower with disjoint intervals. Debug and release
+  all-feature suites pass 247/247 with two configured skips each;
+  warning-denied host Clippy and AArch64 Windows checks, focused Miri 11/11,
+  and the one-slot/two-generation stale-wake Loom
+  model pass. Warning-denied Rustdoc, 4/4 doctests, 72/72 benchmark contracts,
+  and the full bounded benchmark run pass. Tokio's test-only `sync` feature
+  remains required by Tokio 1.53.1's Loom `AtomicWaker`; removing it fails the
+  exact Loom build. The exact source directory-baseline SemVer comparison
+  against `248c861` passes under the patch contract. Independent read-only
+  review of `248c861...d35bbf3` is GREEN; hosted PR collection and merge remain.
+
+### ✅ MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 [patch] [perf]: Remove async-context control-plane allocations
 
 - **Outcome:** remove attributed full-topology discovery and adjacent closure /
   completion-container allocations from parallel-context async terminals.
@@ -108,8 +176,8 @@ architecture definition.
   not a repeat allocation source or if sharing the process count changes the
   explicit async/hybrid limits or public values.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-context-parallelism-probe`; source lease discharged at `7fee7dd`;
-  independent review green; status: PR #225 delivery; last update 2026-09-01.
+  `perf/iter-context-parallelism-probe`; lease: none; source `7fee7dd`; PM
+  `362d510`; PR #225 merged with history as `248c861`; last update 2026-09-01.
 - **Evidence:** the warmed public 1,024-item ready-future map moves from 1,118
   allocations / 152,616 gross bytes to 1,035 / 114,816, with all ordered values
   exact. The paired Criterion median moves from 81.025 us (95% CI
@@ -124,6 +192,8 @@ architecture definition.
   cargo-semver-checks 223/223 under patch.
   Independent committed-object review of `7fee7dd` found no blocking issue; it
   did not rerun local tests or inspect revision-attested raw Criterion samples.
+  Every repository-owned check on exact PR head `362d510` passed; the external
+  CodeRabbit context remained pending when the history-preserving merge landed.
 
 ### ✅ MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 [patch] [perf]: Remove count-only topology discovery
 
@@ -2577,7 +2647,7 @@ architecture definition.
 #### ✅ ISSUE-111 [minor]: Implement bounded concurrent async iterator polling
 - **Type**: Async Iterator / Performance / Tokio Gap
 - **Root Cause**: Parallel async adapters currently preserve values but do not use their `concurrency` parameter to drive multiple in-flight futures.
-- **Resolution**: `ParAsyncMap`, `ParAsyncFilter`, and `ParAsyncForEach` now route item futures through `futures::stream::buffered(concurrency.max(1))`, preserving ordered map/filter output while bounding in-flight work. Upstream iterator values are materialized before executor entry so composed parallel async adapters do not nest local executor runs.
+- **Resolution**: `ParAsyncMap` and `ParAsyncFilter` route item futures through retained ordered slots, while `ParAsyncForEach` uses retained completion-order slots; all three bound in-flight work by `concurrency.max(1)`. Upstream iterator values are materialized before executor entry so composed parallel async adapters do not nest local executor runs.
 - **Evidence**: Unit tests measure exact max in-flight counts for map, filter, and for_each. `async_iterator_comparison` now includes a bounded one-pending-poll pipeline against Tokio `JoinSet`.
 - **Verification**: `cargo test -p moirai-iter --all-features async_iter -- --nocapture`; `cargo bench -p moirai-benchmarks --bench async_iterator_comparison -- --quiet`.
 - **Performance**: Same-run benchmark measured ready pipeline Moirai at 404.46-590.99 us versus Tokio at 24.904-25.380 ms, and bounded-yield pipeline Moirai at 1.9756-1.9836 ms versus Tokio at 9.5598-9.7768 ms.

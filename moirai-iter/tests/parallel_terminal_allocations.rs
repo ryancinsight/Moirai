@@ -19,11 +19,14 @@ use moirai_iter::{
     cache::CacheIterExt,
     iter_ops::ParallelIter,
     parallel::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
-    MoiraiIterator,
+    AsyncContext, ExecutionContext, MoiraiIterator,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::future::Future;
 use std::hint::black_box;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::task::Poll;
 
 struct CountingAllocator;
 
@@ -75,11 +78,36 @@ const ZERO_COPY_MAP_OUTPUT_BYTES: usize = ZERO_COPY_MAP_LEN * size_of::<u64>();
 
 const CONTEXT_MAP_LEN: usize = 1_024;
 const CONTEXT_MAP_OUTPUT_BYTES: usize = CONTEXT_MAP_LEN * size_of::<u64>();
-// The buffered stream may allocate one node per ready future plus fixed
-// bookkeeping. These budgets admit that dependency-owned residual while
-// rejecting both the removed topology probe and closure-Arc inflation.
-const CONTEXT_MAP_ALLOCATION_BUDGET: usize = CONTEXT_MAP_LEN + 16;
-const CONTEXT_MAP_BYTE_BUDGET: usize = CONTEXT_MAP_OUTPUT_BYTES + CONTEXT_MAP_LEN * 112 + 1_024;
+// Retained future and output slabs scale with the concurrency bound rather than
+// the item count. These budgets include the output vector and fixed executor
+// metadata while rejecting a return to one task-node allocation per item.
+const CONTEXT_FIXED_ALLOCATION_BUDGET: usize = 16;
+const CONTEXT_FOR_EACH_FIXED_ALLOCATION_BUDGET: usize = 8;
+const CONTEXT_SLOT_BYTE_BUDGET: usize = 64;
+const CONTEXT_MAP_FIXED_BYTE_BUDGET: usize = 12_288;
+const CONTEXT_FOR_EACH_FIXED_BYTE_BUDGET: usize = 2_048;
+
+fn context_slot_count() -> usize {
+    std::thread::available_parallelism().map_or(1, usize::from)
+}
+
+fn context_map_allocation_budget() -> usize {
+    context_slot_count() + CONTEXT_FIXED_ALLOCATION_BUDGET
+}
+
+fn context_map_byte_budget() -> usize {
+    CONTEXT_MAP_OUTPUT_BYTES
+        + context_slot_count() * CONTEXT_SLOT_BYTE_BUDGET
+        + CONTEXT_MAP_FIXED_BYTE_BUDGET
+}
+
+fn context_for_each_allocation_budget() -> usize {
+    context_slot_count() + CONTEXT_FOR_EACH_FIXED_ALLOCATION_BUDGET
+}
+
+fn context_for_each_byte_budget() -> usize {
+    context_slot_count() * CONTEXT_SLOT_BYTE_BUDGET + CONTEXT_FOR_EACH_FIXED_BYTE_BUDGET
+}
 
 /// Allocations permitted per terminal call.
 ///
@@ -113,6 +141,73 @@ fn context_map_values(data: Vec<u64>) -> Vec<u64> {
             .collect()
             .await
     })
+}
+
+fn pending_once<T>(value: T) -> impl Future<Output = T> {
+    let mut value = Some(value);
+    let mut first_poll = true;
+    futures::future::poll_fn(move |context| {
+        if first_poll {
+            first_poll = false;
+            context.waker().wake_by_ref();
+            Poll::Pending
+        } else {
+            Poll::Ready(
+                value
+                    .take()
+                    .expect("pending-once future polled after completion"),
+            )
+        }
+    })
+}
+
+fn context_pending_map_values(data: Vec<u64>) -> Vec<u64> {
+    futures::executor::block_on(async {
+        MoiraiIterator::parallel(data)
+            .map_async(|value| pending_once(value.wrapping_mul(5).wrapping_add(3)))
+            .await
+            .collect()
+            .await
+    })
+}
+
+fn context_large_limit_map_values(data: Vec<u64>) -> Vec<u64> {
+    let context = ExecutionContext::Async(AsyncContext::new().with_max_concurrent(usize::MAX));
+    futures::executor::block_on(async {
+        MoiraiIterator::new(data, context)
+            .map_async(|value| pending_once(value.wrapping_mul(5).wrapping_add(3)))
+            .await
+            .collect()
+            .await
+    })
+}
+
+fn context_pending_for_each(data: Vec<usize>, visits: Arc<Vec<AtomicUsize>>) {
+    futures::executor::block_on(MoiraiIterator::parallel(data).for_each_async(move |index| {
+        let visits = Arc::clone(&visits);
+        async move {
+            pending_once(()).await;
+            visits[index].fetch_add(1, Ordering::SeqCst);
+        }
+    }));
+}
+
+fn warmed_allocation_ledger<T, R>(
+    warm_input: T,
+    measured_input: T,
+    mut operation: impl FnMut(T) -> R,
+) -> (R, usize, usize) {
+    let _warm = operation(warm_input);
+    let before_allocations = ALLOCATIONS.load(Ordering::Relaxed);
+    let before_bytes = ALLOCATED_BYTES.load(Ordering::Relaxed);
+    let result = operation(measured_input);
+    let allocations = ALLOCATIONS
+        .load(Ordering::Relaxed)
+        .saturating_sub(before_allocations);
+    let allocated_bytes = ALLOCATED_BYTES
+        .load(Ordering::Relaxed)
+        .saturating_sub(before_bytes);
+    (result, allocations, allocated_bytes)
 }
 
 /// Run `operation` once to warm the executor, then count the allocations of a
@@ -322,19 +417,10 @@ fn parallel_context_async_map_excludes_topology_allocations() {
             .map(|value| value.wrapping_mul(19).wrapping_add(7))
             .collect::<Vec<_>>()
     };
-    let warm = context_map_values(source());
-    assert_eq!(warm.len(), CONTEXT_MAP_LEN);
-
-    let input = source();
-    let before_allocations = ALLOCATIONS.load(Ordering::Relaxed);
-    let before_bytes = ALLOCATED_BYTES.load(Ordering::Relaxed);
-    let mapped = context_map_values(input);
-    let allocations = ALLOCATIONS
-        .load(Ordering::Relaxed)
-        .saturating_sub(before_allocations);
-    let allocated_bytes = ALLOCATED_BYTES
-        .load(Ordering::Relaxed)
-        .saturating_sub(before_bytes);
+    let (mapped, allocations, allocated_bytes) =
+        warmed_allocation_ledger(source(), source(), context_map_values);
+    let allocation_budget = context_map_allocation_budget();
+    let byte_budget = context_map_byte_budget();
 
     assert!(
         mapped.iter().enumerate().all(|(index, value)| {
@@ -344,13 +430,112 @@ fn parallel_context_async_map_excludes_topology_allocations() {
         "parallel-context async map must preserve every ordered output value"
     );
     assert!(
-        allocations <= CONTEXT_MAP_ALLOCATION_BUDGET,
+        allocations <= allocation_budget,
         "warmed parallel-context async map made {allocations} allocations; its buffered futures \
-         and output must fit the {CONTEXT_MAP_ALLOCATION_BUDGET}-allocation budget"
+         and output must fit the {allocation_budget}-allocation budget"
     );
     assert!(
-        allocated_bytes <= CONTEXT_MAP_BYTE_BUDGET,
+        allocated_bytes <= byte_budget,
         "warmed parallel-context async map allocated {allocated_bytes} gross bytes; its buffered \
-         futures, output, and fixed metadata must fit the {CONTEXT_MAP_BYTE_BUDGET}-byte budget"
+        futures, output, and fixed metadata must fit the {byte_budget}-byte budget"
+    );
+}
+
+#[test]
+fn large_context_limit_does_not_reserve_for_empty_or_single_input() {
+    const FIXED_ALLOCATION_BUDGET: usize = 20;
+    const FIXED_BYTE_BUDGET: usize = 8_192;
+
+    let (empty, empty_allocations, empty_bytes) =
+        warmed_allocation_ledger(Vec::new(), Vec::new(), context_large_limit_map_values);
+    let (single, single_allocations, single_bytes) =
+        warmed_allocation_ledger(vec![5], vec![5], context_large_limit_map_values);
+
+    assert!(empty.is_empty());
+    assert_eq!(single, [28]);
+    assert!(
+        empty_allocations <= FIXED_ALLOCATION_BUDGET,
+        "empty map with a usize::MAX ceiling made {empty_allocations} allocations"
+    );
+    assert!(
+        single_allocations <= FIXED_ALLOCATION_BUDGET,
+        "single-item map with a usize::MAX ceiling made {single_allocations} allocations"
+    );
+    assert!(
+        empty_bytes <= FIXED_BYTE_BUDGET,
+        "empty map with a usize::MAX ceiling allocated {empty_bytes} gross bytes"
+    );
+    assert!(
+        single_bytes <= FIXED_BYTE_BUDGET,
+        "single-item map with a usize::MAX ceiling allocated {single_bytes} gross bytes"
+    );
+}
+
+#[test]
+fn parallel_context_pending_map_records_entry_allocation_ledger() {
+    let source = || {
+        (0..CONTEXT_MAP_LEN as u64)
+            .map(|value| value.wrapping_mul(19).wrapping_add(7))
+            .collect::<Vec<_>>()
+    };
+    let (mapped, allocations, allocated_bytes) =
+        warmed_allocation_ledger(source(), source(), context_pending_map_values);
+    let allocation_budget = context_map_allocation_budget();
+    let byte_budget = context_map_byte_budget();
+
+    assert!(
+        mapped.iter().enumerate().all(|(index, value)| {
+            let input = (index as u64).wrapping_mul(19).wrapping_add(7);
+            *value == input.wrapping_mul(5).wrapping_add(3)
+        }),
+        "pending parallel-context map must preserve every ordered output value"
+    );
+    assert!(
+        allocations <= allocation_budget,
+        "pending ordered map made {allocations} allocations; entry futures and output must fit \
+         the {allocation_budget}-allocation budget"
+    );
+    assert!(
+        allocated_bytes <= byte_budget,
+        "pending ordered map allocated {allocated_bytes} gross bytes; entry futures and output \
+         must fit the {byte_budget}-byte budget"
+    );
+}
+
+#[test]
+fn parallel_context_pending_for_each_records_entry_allocation_ledger() {
+    let visits = || {
+        Arc::new(
+            (0..CONTEXT_MAP_LEN)
+                .map(|_| AtomicUsize::new(0))
+                .collect::<Vec<_>>(),
+        )
+    };
+    let input = || (0..CONTEXT_MAP_LEN).collect::<Vec<_>>();
+    let warm_visits = visits();
+    let measured_visits = visits();
+    let ((), allocations, allocated_bytes) = warmed_allocation_ledger(
+        (input(), warm_visits),
+        (input(), Arc::clone(&measured_visits)),
+        |(data, visits)| context_pending_for_each(data, visits),
+    );
+    let allocation_budget = context_for_each_allocation_budget();
+    let byte_budget = context_for_each_byte_budget();
+
+    assert!(
+        measured_visits
+            .iter()
+            .all(|count| count.load(Ordering::SeqCst) == 1),
+        "pending parallel-context for-each must visit every item exactly once"
+    );
+    assert!(
+        allocations <= allocation_budget,
+        "pending for-each made {allocations} allocations; entry futures must fit the \
+         {allocation_budget}-allocation budget"
+    );
+    assert!(
+        allocated_bytes <= byte_budget,
+        "pending for-each allocated {allocated_bytes} gross bytes; entry futures must fit the \
+         {byte_budget}-byte budget"
     );
 }

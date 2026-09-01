@@ -2,6 +2,8 @@
 
 use futures::StreamExt;
 
+use crate::stream::{retained_buffered, retained_unordered};
+
 use super::async_ctx::AsyncContext;
 use super::hybrid::HybridContext;
 use super::parallel::ParallelContext;
@@ -74,9 +76,7 @@ impl ExecutionContext {
         R: Send + 'static,
     {
         let concurrency = self.async_concurrency_limit();
-        let results = futures::stream::iter(items)
-            .map(func)
-            .buffered(concurrency)
+        let results = retained_buffered(futures::stream::iter(items).map(func), concurrency)
             .collect::<Vec<_>>()
             .await;
         Ok(results)
@@ -95,12 +95,11 @@ impl ExecutionContext {
     {
         let concurrency = self.async_concurrency_limit();
         let predicate = &predicate;
-        let results = futures::stream::iter(items)
-            .map(|item| async move {
-                let keep = predicate(&item).await;
-                (keep, item)
-            })
-            .buffered(concurrency)
+        let futures = futures::stream::iter(items).map(|item| async move {
+            let keep = predicate(&item).await;
+            (keep, item)
+        });
+        let results = retained_buffered(futures, concurrency)
             .filter_map(|(keep, item)| async move { keep.then_some(item) })
             .collect::<Vec<_>>()
             .await;
@@ -119,9 +118,7 @@ impl ExecutionContext {
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
         let concurrency = self.async_concurrency_limit();
-        futures::stream::iter(items)
-            .map(func)
-            .buffer_unordered(concurrency)
+        retained_unordered(futures::stream::iter(items).map(func), concurrency)
             .for_each(|()| async {})
             .await;
         Ok(())

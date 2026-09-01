@@ -286,6 +286,11 @@ fn execution_context_iter_consumes_owned_chunks_without_clone() {
         "rayon_owned_map",
         "execution_context_parallel_async_map",
         "moirai_parallel_context_async_map",
+        "execution_context_parallel_pending_async_map",
+        "moirai_parallel_context_pending_async_map",
+        "execution_context_sparse_pending_map",
+        "moirai_sparse_pending_map",
+        "incumbent_sparse_pending_map",
         "assert_eq!",
     ] {
         assert!(
@@ -1146,8 +1151,10 @@ fn async_iterator_terminal_futures_are_value_semantic_and_benchmarked() {
         "assert_eq!(folded, 4)",
         "assert_eq!(reduced, Some(10))",
         "use futures::stream::{self, StreamExt};",
+        "use crate::stream::{retained_buffered, retained_unordered};",
         "let concurrency = self.concurrency.max(1);",
-        ".buffered(concurrency)",
+        "retained_buffered(futures, concurrency)",
+        "retained_unordered(stream::iter(items).map(func), concurrency)",
         "test_parallel_async_map_uses_bounded_in_flight_work",
         "test_parallel_async_filter_uses_bounded_in_flight_work",
         "test_parallel_async_for_each_uses_bounded_in_flight_work",
@@ -1171,6 +1178,8 @@ fn async_iterator_terminal_futures_are_value_semantic_and_benchmarked() {
         "#![allow(dead_code)]",
         "index: usize",
         "current: usize",
+        ".buffered(concurrency)",
+        ".buffer_unordered(concurrency)",
     ] {
         assert!(
             !async_source.contains(prohibited),

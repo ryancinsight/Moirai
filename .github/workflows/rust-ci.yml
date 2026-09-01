@@ -130,6 +130,7 @@ jobs:
           cargo nextest run --locked
           -p moirai-core --test loom_mpmc_waiter --test loom_spsc_ring
           -p moirai-async --test loom_wake_dedup --test loom_connection_pool
+          -p moirai-iter --test loom_retained_ready_set
           -p moirai-scheduler
           --test loom_chase_lev
           --test loom_chase_lev_resize_gate

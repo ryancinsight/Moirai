@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bounded ordered async map/filter and completion-only for-each now retain
+  pinned future blocks and atomic ready bitsets instead of allocating one
+  futures-util task node per item. Exact-size sources allocate only their
+  clamped reachable concurrency; sources without an upper bound grow pinned
+  blocks geometrically after admission, so a large configured ceiling does not
+  reserve unreachable storage. On the measured 24-logical-worker x86-64
+  Windows host, warmed 1,024-item ready/pending ordered maps fall from 1,035
+  allocations / 114,816 gross bytes to 39 / 18,768 and 39 / 18,960; pending
+  for-each falls from 1,026 / 98,464 to 29 / 2,232. A fixed block-vacancy
+  bitset and intrusive per-slot links make repeated refill O(1) without another
+  allocation. Criterion median estimates fall from 66.008 us (95% CI
+  65.220-66.690) to 25.326 us (25.225-25.742) for ready map and from
+  124.001 us (123.369-124.082) to 47.085 us (46.419-47.254) for one-pending
+  map. A same-binary 1,000-slot sparse-wake comparison measures 125.115 us
+  (123.034-126.554) for retained storage versus 177.750 us
+  (175.229-179.719) for futures-util. Ordered values, configured concurrency,
+  cancellation, pinned addresses, and exact drop behavior are unchanged; the
+  public completion-order stream remains on futures-util.
 - Parallel-context async iterator terminals now reuse the process-wide cached
   parallelism count instead of materializing CPU topology on every call. Map,
   filter, and for-each borrow their operation closure rather than placing it in
