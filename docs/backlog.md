@@ -86,6 +86,24 @@ architecture definition.
 
 ## Current closure record
 
+### 🟨 MOI-SCHEDULER-DROP-LEAK-2026-08-27 [patch]: Release workers on final external drop
+
+- **Outcome:** make the last external `ThreadScheduler` handle initiate
+  shutdown even though worker threads retain scheduler state internally.
+- **Scope / non-goals:** scheduler ownership, drop/shutdown coordination,
+  deterministic lifecycle coverage, and synchronized docs only; no queue,
+  scheduling-policy, thread-count, public API, or hot-path allocation change.
+- **Acceptance:** the current unreachable strong-count guard is removed; clone,
+  explicit-shutdown, queue-drain, and self-join behavior remains value-correct;
+  an event-synchronized regression proves worker termination and retained-state
+  release without sleeps or unbounded waits.
+- **Risk / change:** P1 lifecycle/resource correctness, `[patch]`; no SemVer
+  change.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/scheduler-drop-leak`; lease:
+  `moirai-executor/src/schedule/runtime/{types.rs,scheduler/,worker.rs,tests.rs}`
+  plus this item; last update 2026-08-31.
+
 ### 🟨 MOI-IDLE-BIT-REPARK-2026-08-27 [patch]: Re-register workers before every park
 
 - **Outcome:** move idle-bit publication into each zero-work park iteration so a

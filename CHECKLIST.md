@@ -531,13 +531,21 @@
   `f6bc6e262dd5a15af5d40301ce0d3f30cb4a5a2f`. Local standalone `--locked`
   resolution is unavailable under the stack overlay; hosted recollection remains.
 
-## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — todo
+## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — in progress
 
-- Unowned. `ThreadScheduler::drop`'s `Arc::strong_count == 1` guard is
-  unreachable while workers hold strong clones
-  (`schedule/runtime/scheduler/core.rs:603-611,135`) — dropping the last
-  external handle without `shutdown()` leaks the pool. Fix direction: workers
-  hold `Weak` or an external-handle counter.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/scheduler-drop-leak`; lease:
+  `moirai-executor/src/schedule/runtime/{types.rs,scheduler/,worker.rs,tests.rs}`
+  plus this item's PM records; last update 2026-08-31.
+- **Outcome:** dropping the last external `ThreadScheduler` handle initiates
+  shutdown and releases worker-owned scheduler state without requiring an
+  explicit `shutdown()` call.
+- **Acceptance:** remove the unreachable `Arc::strong_count == 1` condition;
+  preserve clone, explicit-shutdown, queue-drain, and self-join semantics; add a
+  deterministic no-sleep regression proving worker termination and retained
+  state release; keep warm scheduling allocation and runtime budgets unchanged.
+- **Risk / change:** P1 lifecycle/resource correctness, `[patch]`; no public API
+  or scheduler policy change.
 
 ## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — todo
 
