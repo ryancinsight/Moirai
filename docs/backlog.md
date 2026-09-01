@@ -86,7 +86,31 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
+### 🟡 MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Remove shard-local map outputs
+
+- **Outcome:** write chunked `ParallelIter::map` results directly into one
+  ordered full-output allocation, removing shard-local output vectors and the
+  second full-result flatten allocation.
+- **Scope / non-goals:** `moirai-iter` chunked map, private initialization
+  cleanup, value/drop/allocation tests, one existing Criterion binary,
+  CHANGELOG, and PM state. No reduce, scheduler, threshold, public API, timeout,
+  or workload reduction.
+- **Acceptance:** an unchanged 131,072-item public baseline reaches fan-out and
+  attributes shard-local plus second full-output storage; exact empty,
+  one-chunk, full-chunk, ragged, non-`Clone`, and success/panic-drop semantics;
+  one warm full-output allocation with no per-shard outputs; no material paired
+  Criterion regression; Miri, debug/release tests, warning-denied Clippy/docs,
+  benchmark smoke, SemVer, and independent review pass.
+- **Risk / change:** internal `[patch]`; direct initialization must remain
+  panic-safe for initialized prefixes, zero-sized outputs, and ragged tails.
+  Stop with the instrument if baseline attribution or performance acceptance
+  fails.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-map-direct-output`; lease covers `moirai-iter` iter-ops map/tests,
+  one retained allocation/throughput instrument, CHANGELOG, and this item's PM
+  regions; status: in progress; last update 2026-09-01.
+
+### ✅ MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
 
 - **Outcome:** drain pending waiter ids directly into one result reserved from
   the pending-count upper bound so a batch grant removes its redundant transient
@@ -104,9 +128,10 @@ architecture definition.
   change if the baseline does not establish the mechanism or direct draining
   changes value semantics.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/async-wake-batch-allocation`; reviewed source head `b690f88`; draft PR
-  #221; lease: none; status: in progress; merge closure pending; last update
-  2026-09-01.
+  `perf/async-wake-batch-allocation`; reviewed source head `b690f88`; PR #221
+  merged with history preserved as
+  `07b3958d38c87b1e7b37139551f709b6fa583dd7`; lease: none; status: done;
+  last update 2026-09-01.
 - **Measured evidence:** exact instrument commit `1cfb9be` measured six
   allocations and a 666.99 ns median (664.49–669.19 ns) for 64 public `Notify`
   waiters. The candidate retains one owned-waker allocation and measures

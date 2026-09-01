@@ -2,7 +2,32 @@
 
 **Target**: Unreleased
 
-## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — in progress
+## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — in progress
+
+- **Outcome:** write chunked `ParallelIter::map` results directly into one
+  ordered full-output allocation, removing shard-local output vectors and the
+  second full-result flatten allocation.
+- **Acceptance:** record an unchanged 131,072-item public allocation baseline
+  that reaches fan-out; empty, one-chunk, full-chunk, and ragged values remain
+  exact; non-`Clone` outputs move once; success and mapper-panic drop counts are
+  exact; warm output storage uses one full allocation with no per-shard output
+  vectors; a retained paired Criterion row does not materially regress; Miri,
+  debug/release tests, warning-denied Clippy/Rustdoc, doctests, benchmark smoke,
+  SemVer, and independent review pass.
+- **Scope / non-goals:** `moirai-iter` chunked `ParallelIter::map`, private
+  initialization cleanup, value/drop/allocation tests, one existing Criterion
+  binary, CHANGELOG, and PM state. No `reduce`, scheduler, chunk threshold,
+  public API, timeout, or workload reduction.
+- **Risk / change:** internal `[patch]`; unsafe direct initialization must remain
+  panic-safe for initialized prefixes, zero-sized outputs, and ragged tails.
+  Stop with the instrument if the baseline misses fan-out, lacks the duplicate
+  full output, or paired intervals establish a regression.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-map-direct-output`; lease covers `moirai-iter` iter-ops map/tests,
+  one retained allocation/throughput instrument, CHANGELOG, and this item's PM
+  regions. Last update 2026-09-01.
+
+## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — done 2026-09-01
 
 - **Outcome:** batch grants drain pending waiter ids directly into one result
   reserved from the pending-count upper bound, removing the redundant id-buffer
@@ -21,8 +46,9 @@
   change if the exact baseline does not attribute a redundant allocation or if
   direct draining changes cancellation/value semantics.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
-  reviewed source head `b690f88`; draft PR #221; lease: none; merge closure
-  pending. Last update 2026-09-01.
+  reviewed source head `b690f88`; PR #221 merged with history preserved as
+  `07b3958d38c87b1e7b37139551f709b6fa583dd7`; lease: none. Last update
+  2026-09-01.
 - **Evidence:** exact instrument commit `1cfb9be` measured six allocations and a
   666.99 ns median (664.49–669.19 ns) for 64 public `Notify` waiters. The
   candidate retains one owned-waker allocation and measures 343.12 ns
