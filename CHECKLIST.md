@@ -2,6 +2,41 @@
 
 **Target**: Unreleased
 
+## MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 — Compact retained ordered outputs [patch] [perf] — in progress
+
+- **Outcome:** replace per-position `Option<Output>` staging with output storage
+  indexed by retained physical slots, using the existing slot metadata as the
+  input-order chain so readiness requires no second heap allocation.
+- **Acceptance:** the unchanged 1,024-item pending-map ledger must first
+  attribute its exact 72-byte concurrency slope to a 40-byte `FutureSlot`, a
+  16-byte `WakeToken`, and a 16-byte `Option<u64>` output cell. The candidate
+  must retain 15 allocation calls while removing exactly eight gross bytes per
+  reachable `u64` slot at limits 1 / 8 / 24, keep fixed stream layout from
+  growing, and keep unknown-size sequential sources proportional to actual slot
+  capacity rather than the configured ceiling. Ordered values, refill,
+  head-of-line blocking, cancellation, panic/drop ownership, zero-sized and
+  non-`Copy` outputs, geometric blocks, ragged tails, and stale wakes must remain
+  exact. No retained Criterion row may regress by 5% or more; focused Miri,
+  debug/release Nextest, warning-denied host/cross-target checks, docs, SemVer,
+  and independent review must pass.
+- **Scope / non-goals:** private retained-slot state and ordered output storage
+  in `moirai-iter/src/stream/slots{.rs,/ordered.rs,/unordered.rs}`, focused
+  slot/allocation tests, the unchanged retained Criterion instrument,
+  CHANGELOG, and PM state. No public API, concurrency policy, wake protocol,
+  scheduler, workload, assertion, timeout, or new dependency.
+- **Risk / change:** internal ownership/layout `[patch]`; reject a separate
+  readiness allocation, a per-output allocation, slot reuse before ordered
+  yield, output-state publication before initialization, or any design whose
+  fixed metadata erases the measured retained-memory reduction.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-ordered-output-storage`; lease: the scoped source/tests/docs above;
+  last update 2026-09-01.
+- **Dependency / entry evidence:** slot metadata layout merged through PR #228
+  as `b7dabcb`; PM closure merged through PR #229 as `af34443`. At limits 1 / 8
+  / 24 the current ledger is 15 / 15 / 15 allocations and 16,560 / 17,064 /
+  18,216 gross bytes; source layout accounts for the exact slope as 40 + 16 +
+  `size_of::<Option<u64>>()` (16) bytes per reachable position.
+
 ## MOI-ITER-SLOT-METADATA-LAYOUT-2026-09-01 — Overlap retained-slot metadata [patch] [perf] — complete
 
 - **Outcome:** remove storage reserved simultaneously for `output_index` and
