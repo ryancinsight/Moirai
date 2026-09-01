@@ -656,23 +656,23 @@
   `316bf8f` is GREEN; PR #212 merged with history preserved as `207273e3`;
   every repository check completed successfully after merge.
 
-## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] [perf] — in progress
+## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] [perf] — review
 
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-spin-budgets`; lease: executor contention helper, focused
-  verification, confirmatory comparison, CHANGELOG, and this item.
+  `fix/scheduler-spin-budgets`; lease: none. Independent final review and merge
+  remain.
 - **Implementation:** one-byte `ContentionWait` owns the 64-hint/yield cycle for
   Chase-Lev storage-generation and resize-owner waits. Executor steal loops
   use one monomorphized helper and Moirai's established 1,000-hint contended
   spin-lock ceiling before yielding, resetting, and retrying the selected victim
   priority. No queue arithmetic, allocation, task ordering, public API,
   benchmark workload, or timeout changed.
-- **Correctness evidence:** the bounded-yield helper test passes 1/1, the debug
-  scheduler/executor suite passes 171/171 with two configured skips, and
-  warning-denied host Clippy, formatting, and diff hygiene pass. The prior
-  return-after-64 source passed focused Loom 7/7, strict AArch64 Windows
-  checking, release tests, Rustdoc, and doctests; those broader gates rerun
-  after the confirmatory candidate is selected.
+- **Correctness evidence:** exact source `c7f670e` passes the bounded-yield
+  helper test 1/1; debug and release scheduler/executor suites 171/171 with two
+  configured skips; focused Loom 8/8; cfg-Loom and host warning-denied Clippy;
+  warning-denied AArch64 Windows all-target/all-feature checking; Rustdoc; and
+  both scheduler doctests. Formatting, diff hygiene, and the committed
+  `Cargo.lock` hash are clean.
 - **Exploratory performance evidence:** the first pre-change 389.37 µs
   two-thief sample was not reproducible in the candidate window. Same-window
   exact baseline
@@ -693,9 +693,21 @@
   [470.09, 473.39]. Exact raw-sample medians also reject 256 hints: candidate
   469.818 µs [466.515, 472.588] versus rebuilt baseline 451.740 µs
   [447.071, 454.804], using the distribution-free 95.86% order-statistic
-  interval for 20 samples. The 1,000-hint successor is selected before
+  interval for 20 samples. The 1,000-hint successor was selected before
   measurement because it matches Moirai's existing contended spin-lock handoff
-  ceiling; fresh confirmatory collection remains pending.
+  ceiling. Initial cross-worktree data that reused one shared executable are
+  excluded; accepted runs visibly rebuilt the affected crates. Rebuilt
+  exact-baseline `207273e3` to candidate `c7f670e` raw medians
+  and distribution-free 95.86% intervals are, at two thieves, drain
+  451.740 [447.071, 454.804] to 453.418 [452.105, 455.365] µs and owner-growth
+  376.822 [337.751, 427.679] to 390.650 [380.462, 413.594] µs; at four,
+  drain 750.561 [732.200, 783.830] to 770.084 [751.014, 779.710] µs and
+  owner-growth 865.385 [860.849, 880.484] to 864.167 [837.386, 876.891] µs;
+  and at eight, drain 1.064612 [1.052046, 1.077879] to
+  1.062258 [1.048112, 1.067219] ms and owner-growth
+  2.010259 [1.868690, 2.168660] to 1.854881 [1.775413, 1.951207] ms. No slower
+  candidate median has a non-overlapping interval, so the candidate satisfies
+  the precommitted rule without a throughput or latency improvement claim.
 
 ## MOI-AARCH64-SIMD-CFG-2026-08-27 — cfg-local SIMD lengths [patch] — review
 

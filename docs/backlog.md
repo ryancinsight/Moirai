@@ -171,16 +171,15 @@ architecture definition.
   claim requires paired Criterion evidence; no SemVer change.
 - **Dependency / integrator:** resize-gate merge `207273e3`; Codex session
   `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-spin-budgets`; lease: executor contention helper, focused
-  verification, confirmatory comparison, CHANGELOG, and this item; status: in
-  progress; last update 2026-09-01.
-- **Verification:** the bounded-yield helper test passes 1/1, the debug
-  scheduler/executor suite passes 171/171 with two configured skips, and
-  warning-denied host Clippy, formatting, and diff hygiene pass. The prior
-  return-after-64 source passed focused Loom 7/7, strict AArch64 Windows
-  checking, release tests, Rustdoc, and two doctests; those broader gates rerun
-  after the confirmatory candidate is selected. The source-visible wait state
-  is one byte and introduces no heap-backed storage or sleep path.
+  `fix/scheduler-spin-budgets`; lease: none; status: review; final independent
+  review and merge remain; last update 2026-09-01.
+- **Verification:** exact source `c7f670e` passes the bounded-yield helper test
+  1/1; debug and release scheduler/executor suites 171/171 with two configured
+  skips; focused Loom 8/8; cfg-Loom and host warning-denied Clippy;
+  warning-denied AArch64 Windows all-target/all-feature checking; Rustdoc; and
+  both scheduler doctests. Formatting, diff hygiene, and the committed
+  `Cargo.lock` hash are clean. The source-visible wait state is one byte and
+  introduces no heap-backed storage or sleep path.
 - **Exploratory performance evidence:** the first 389.37 µs two-thief entry
   sample was not reproducible in the candidate window. Same-window exact
   baseline `bb6087f`
@@ -198,9 +197,21 @@ architecture definition.
   [470.09, 473.39]. Exact raw-sample medians also reject 256 hints: candidate
   469.818 µs [466.515, 472.588] versus rebuilt baseline 451.740 µs
   [447.071, 454.804], using the distribution-free 95.86% order-statistic
-  interval for 20 samples. The next candidate uses Moirai's existing 1,000-hint
-  contended spin-lock handoff ceiling; that selection precedes its fresh
-  confirmatory measurement.
+  interval for 20 samples. The 1,000-hint successor was selected before
+  measurement because it matches Moirai's existing contended spin-lock handoff
+  ceiling. Initial cross-worktree data that reused one shared executable are
+  excluded; accepted runs visibly rebuilt the affected crates. Rebuilt
+  exact-baseline `207273e3` to candidate `c7f670e` raw medians
+  and distribution-free 95.86% intervals are, at two thieves, drain
+  451.740 [447.071, 454.804] to 453.418 [452.105, 455.365] µs and owner-growth
+  376.822 [337.751, 427.679] to 390.650 [380.462, 413.594] µs; at four,
+  drain 750.561 [732.200, 783.830] to 770.084 [751.014, 779.710] µs and
+  owner-growth 865.385 [860.849, 880.484] to 864.167 [837.386, 876.891] µs;
+  and at eight, drain 1.064612 [1.052046, 1.077879] to
+  1.062258 [1.048112, 1.067219] ms and owner-growth
+  2.010259 [1.868690, 2.168660] to 1.854881 [1.775413, 1.951207] ms. No slower
+  candidate median has a non-overlapping interval, so the candidate satisfies
+  the precommitted rule without a throughput or latency improvement claim.
 
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
