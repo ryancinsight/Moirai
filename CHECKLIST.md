@@ -34,7 +34,7 @@
 - **Acceptance:** no placement claim survives that the runtime does not
   actually enforce.
 
-## MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 — Harden cache-map output ownership [patch] [perf] — implementation verified; independent review pending
+## MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 — Harden cache-map output ownership [patch] [perf] — reviewed; repository gate pending
 
 - **Outcome:** make `ZeroCopyParallelIter::map` share the canonical panic-safe
   output owner, drop every initialized value exactly once if mapping panics,
@@ -61,7 +61,8 @@
   per-output allocation, new fixed metadata that erases the full-buffer win,
   or cleanup that leaks/double-drops after partial execution.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/cache-map-direct-output`; lease: `moirai-iter/src/cache*`,
+  `perf/cache-map-direct-output`; source `0a9ef5e`; overflow correction
+  `7e6ef4e`; PR #231; lease: `moirai-iter/src/cache*`,
   `moirai-iter/src/{parallel,iter_ops}/**`, focused tests/benchmark, CHANGELOG,
   and this item; last update 2026-09-01.
 - **Dependency / entry mechanism:** ADR-022 owns the joined indexed fan-out
@@ -84,17 +85,21 @@
   exact base `701ca76` reports 1.4987 ms baseline and 1.5027 ms candidate for
   the fan-out row, with change estimate -1.68% to +7.96% and p=0.32; Criterion
   detects no regression and the noisy controls preclude a throughput claim.
-  Debug and release Nextest pass 263/263 each with four skipped; the additive
-  eight-row benchmark smoke completes in 29.9 seconds. The canonical output
-  owner passes 4/4 focused Miri tests, including exact current-prefix and
+  Debug and release Nextest pass 263/263 each with four skipped before the
+  boundary correction; the corrected exact revision passes 264/264 in debug,
+  with four skipped. The additive eight-row benchmark smoke completes in 29.9
+  seconds. The canonical output owner passes 4/4 focused Miri tests, including
+  exact current-prefix and
   completed-peer cleanup during a simulated mapper panic. Miri cannot enter
   the real executor-integrated cache-map test on Windows because Themis calls
   the unsupported `GetNumaHighestNodeNumber` FFI before mapping; the same real
   panic path passes in both native suites. Warning-denied host Clippy and
   AArch64 all-target checks, Rustdoc, 4/4 doctests, 72/72 benchmark source
   contracts, warning-denied benchmark Clippy, and SemVer 223/223 with 31
-  inapplicable checks skipped are green. Only independent review and delivery
-  remain open.
+  inapplicable checks skipped are green. Independent exact-artifact review is
+  GREEN after both map paths were changed to derive ragged chunk ends from
+  remaining length; the `usize::MAX` boundary regression and focused Miri pass.
+  Only the repository gate and delivery remain open.
 
 ## MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 — Compact retained ordered outputs [patch] [perf] — complete
 

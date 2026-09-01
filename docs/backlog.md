@@ -86,7 +86,7 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Harden cache-map output ownership
+### 🟡 MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Harden cache-map output ownership — reviewed; repository gate pending
 
 - **Outcome:** make `ZeroCopyParallelIter::map` share the canonical panic-safe
   output owner, drop every initialized value exactly once if mapping panics,
@@ -110,7 +110,8 @@ architecture definition.
   allocation, leaked/double-dropped values, or duplicated unsafe machinery.
 - **Integrator / lease:** Codex session
   `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/cache-map-direct-output`; lease: cache/parallel-output source, focused
+  `perf/cache-map-direct-output`; source `0a9ef5e`; overflow correction
+  `7e6ef4e`; PR #231; lease: cache/parallel-output source, focused
   tests/benchmark/docs; last update 2026-09-01.
 - **Dependency / entry mechanism:** ADR-022 owns joined indexed fan-out. The
   exact release entry run maps 2,097,153 `u64` values in 0.029 seconds and
@@ -136,8 +137,11 @@ architecture definition.
   panic path passes in both native suites. Warning-denied host Clippy and
   AArch64 all-target checks, Rustdoc, 4/4 doctests, 72/72 benchmark source
   contracts, warning-denied benchmark Clippy, and SemVer 223/223 with 31
-  inapplicable checks skipped are green. Independent review and delivery remain
-  open.
+  inapplicable checks skipped are green. The corrected exact revision passes
+  264/264 debug tests with four skipped, a focused `usize::MAX` Miri boundary,
+  and warning-denied AArch64 all-target checks. Independent review is GREEN
+  after both map paths were changed to derive ragged ends from remaining
+  length. The repository gate and delivery remain open.
 
 ### ✅ MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 [patch] [perf]: Compact retained ordered outputs
 

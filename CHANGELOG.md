@@ -19,8 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and ancillary metadata falls from 400 bytes of borrowed chunk descriptors to
   200 bytes of completion endpoints. This rejects the original second-output-
   allocation hypothesis because Rust already reused the uninitialized vector
-  allocation during collection. A same-instrument Criterion comparison against
-  the pre-change source reports no detected Moirai regression for the new
+  allocation during collection. Chunk ranges derive their ragged end from the
+  remaining logical length, preventing overflow for valid zero-sized sources
+  whose length approaches `usize::MAX`. A same-instrument Criterion comparison
+  against the pre-change source reports no detected Moirai regression for the new
   fan-out map row (1.4987 ms baseline, 1.5027 ms candidate; change estimate
   -1.68% to +7.96%, p=0.32); no throughput claim is made. The cache
   implementation and allocation-test harness are also split into focused
