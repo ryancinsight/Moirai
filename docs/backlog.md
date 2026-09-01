@@ -86,6 +86,22 @@ architecture definition.
 
 ## Current closure record
 
+### 🟨 MOI-IDLE-BIT-REPARK-2026-08-27 [patch]: Re-register workers before every park
+
+- **Outcome:** move idle-bit publication into each zero-work park iteration so a
+  worker whose prior wake token was consumed remains visible to the next wake
+  lottery after another worker drains the original task.
+- **Scope / non-goals:** worker wait-loop state registration, deterministic race
+  coverage, and synchronized docs only; no queue selection, wake fallback,
+  spin budget, thread count, public API, or allocation change.
+- **Acceptance:** each park is preceded by `idle_workers.set(worker_id)` and the
+  existing SeqCst pending/shutdown recheck; a consumed-wake regression proves
+  the worker is reclaimable and a second task executes once without timed
+  sleeps; existing wake/large-pool tests and package gates remain green.
+- **Risk / change:** P1 correctness and utilization, `[patch]`; no SemVer change.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/idle-bit-repark`; lease: worker wait-loop/tests plus PM and CHANGELOG.
+
 ### 🟨 MOI-INLINE-POLL-DEPTH-2026-08-27 [patch]: Bound cross-task inline wake depth
 
 - **Outcome:** source commit `d94ef46` adds a one-level thread-local inline-poll

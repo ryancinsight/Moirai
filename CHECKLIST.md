@@ -514,13 +514,20 @@
 - **Delivered:** closed by `MOI-PAR-TERMINALS-2026-08-28`; borrowed shards are
   zero-copy subslices and owned shards stop splitting at the dispatch threshold.
 
-## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — todo
+## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — in progress
 
-- Unowned. A parked worker whose wake was consumed re-parks without re-setting
-  its `IdleBitset` bit (`schedule/runtime/worker.rs:344-372`;
-  `schedule/runtime/idle.rs:60-82`) — invisible to the wake lottery until the
-  blind fallback lands; under-utilization under contention. Fix: re-set the
-  bit inside the loop before each `park()`.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/idle-bit-repark`; lease: `moirai-executor/src/schedule/runtime/{worker.rs,tests.rs}`
+  plus this item and its changelog/backlog entries; last update 2026-08-31.
+- **Outcome:** every zero-work park attempt publishes the worker's idle bit
+  before the SeqCst pending-work recheck, including after a claimed wake whose
+  task was drained by another worker.
+- **Acceptance:** a deterministic consumed-wake race proves the target worker
+  becomes claimable again before its second park; a second submission wakes it;
+  all work executes exactly once; shutdown and the existing SeqCst lost-wake
+  handshake remain unchanged; no queue, spin-budget, or public-API change.
+- **Verification:** focused race/value tests, executor Nextest, warning-denied
+  all-target/all-feature Clippy and Rustdoc, release focused test, exact review.
 
 ## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — todo
 
