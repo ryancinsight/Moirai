@@ -86,6 +86,49 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 [patch] [perf]: Compact retained ordered outputs
+
+- **Outcome:** replace per-position `Option<Output>` staging with output storage
+  indexed by retained physical slots, using the existing slot metadata as the
+  input-order chain so readiness requires no second heap allocation.
+- **Scope / non-goals:** private retained-slot state and ordered output storage
+  in `moirai-iter/src/stream/slots{.rs,/ordered.rs,/unordered.rs}`, focused
+  slot/allocation tests, the unchanged retained Criterion instrument,
+  CHANGELOG, and PM state. No public API, concurrency policy, wake protocol,
+  scheduler, workload, assertion, timeout, or new dependency.
+- **Acceptance:** attribute the exact 72-byte pending-map concurrency slope to
+  the 40-byte future slot, 16-byte wake token, and 16-byte `Option<u64>` output
+  cell. Retain 15 allocation calls while removing exactly eight gross bytes per
+  reachable `u64` slot at limits 1 / 8 / 24, add no fixed stream-layout growth,
+  and keep unknown-size sequential storage proportional to actual slot
+  capacity. Preserve ordered values, refill, head-of-line behavior,
+  cancellation, panic/drop ownership, zero-sized and non-`Copy` outputs,
+  geometric/ragged growth, and stale wakes. No retained Criterion row may
+  regress by 5%; Miri, debug/release tests, warning-denied host/cross-target
+  checks, docs, SemVer, and independent review must pass.
+- **Risk / change:** internal ownership/layout `[patch]`; reject a separate
+  readiness allocation, a per-output allocation, early slot reuse, or output
+  state publication before initialization.
+- **Integrator / lease:** Codex session
+  `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-ordered-output-storage`; source `aba0c18`; lease: none; last update
+  2026-09-01. Independent exact-artifact review is GREEN; merge remains open.
+- **Dependency / evidence:** PR #228 merged slot metadata as `b7dabcb`; PR #229
+  merged PM closure as `af34443`. The current limits 1 / 8 / 24 ledger is 15 /
+  15 / 15 allocations and 16,560 / 17,064 / 18,216 gross bytes; source layout
+  accounts for the exact slope as 40 + 16 + 16 bytes per reachable position.
+- **Candidate evidence:** the unchanged ledger remains 15 / 15 / 15 allocations
+  and falls to 16,552 / 17,000 / 18,024 gross bytes, exactly eight bytes per
+  reachable `u64`. Focused slot tests pass 23 / 23; focused Miri passes 6 / 6;
+  debug and release all-feature Nextest each pass 258 / 258 with three skips;
+  warning-denied host/AArch64 checks, Rustdoc, 4 / 4 doctests, and SemVer 223 /
+  223 pass. Forced-distinct, pinned-core parent -> candidate medians move ready
+  Moirai -2.08%, pending Moirai -1.77%, sparse Moirai -0.30%, owned Moirai
+  +0.01%, Rayon -1.37%, and futures-util -0.70%; no row reaches the 5%
+  rejection threshold and no throughput claim is made. The first attempted
+  pair is discarded because one shared executable was reused and the parent
+  rerun overwrote the named candidate JSON.
+
 ### ✅ MOI-ITER-SLOT-METADATA-LAYOUT-2026-09-01 [patch] [perf]: Overlap retained-slot metadata
 
 - **Outcome:** remove storage reserved simultaneously for `output_index` and
