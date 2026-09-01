@@ -92,35 +92,11 @@ architecture definition.
   repository checks passed. Final external-handle drop closes and joins the
   retained workers without changing successful scheduling semantics.
 
-### 🟨 MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 [patch]: Drain partial worker construction
+### ✅ MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 [patch]: Drain partial worker construction
 
-- **Outcome:** make compute-worker construction failure close and join every
-  worker already started by that construction attempt before returning
-  `ThreadPoolCreationFailed`.
-- **Scope / non-goals:** scheduler construction, deterministic failure coverage,
-  ADR 0005, CHANGELOG, and PM state only; no successful scheduling policy,
-  worker count, queue behavior, public API, or hot-path allocation change.
-- **Acceptance:** construct one scheduler owner before spawning; on the real
-  spawn-error branch publish shutdown, wake and join only the partial handle
-  set; an isolated per-construction test point proves worker and retained-state
-  release without OS resource exhaustion, global test state, sleeps, or
-  unbounded waits.
-- **Risk / change:** P1 lifecycle/resource correctness, `[patch]`; no SemVer
-  change.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-partial-spawn-cleanup`; lease: none; status: review; last
-  update 2026-09-01.
-- **Candidate / evidence:** refactor `e5abeb5` isolates scheduler construction;
-  source `31361ce` creates the scheduler owner before worker startup and routes
-  the real spawn-error branch through shutdown. The event-synchronized
-  regression proves the constructor remains blocked until its partial worker
-  exits, then returns the exact typed error and releases retained state. It
-  passes 1/1; all-feature release executor Nextest passes 134/134 with two
-  skipped; workspace Nextest passes 930/930 with seven skipped in 11.262 s.
-  Warning-denied all-target/all-feature Clippy, workspace Rustdoc, doctests, and
-  AArch64 Windows checking pass; rustfmt, diff, and committed-lock checks pass.
-  Independent exact-head review of `5662e8a` is GREEN. PR #211 hosted
-  collection remains.
+- **Delivered:** refactor `e5abeb5`, source `31361ce`, reviewed head `5662e8a`,
+  PR #211 head `400a2bb`, merge `316bf8f`; every repository check passed. A
+  failed construction drains all workers it started before returning its error.
 
 ### ✅ MOI-LOOM-RESIZE-GATE-2026-08-31 [patch]: Model resize-gate exclusion
 
