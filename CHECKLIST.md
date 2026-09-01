@@ -34,72 +34,16 @@
 - **Acceptance:** no placement claim survives that the runtime does not
   actually enforce.
 
-## MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 — Harden cache-map output ownership [patch] [perf] — reviewed; repository gate pending
+## MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 — Harden cache-map output ownership [patch] [perf] — complete
 
-- **Outcome:** make `ZeroCopyParallelIter::map` share the canonical panic-safe
-  output owner, drop every initialized value exactly once if mapping panics,
-  and replace its borrowed-chunk descriptor vector with smaller completion
-  metadata.
-- **Acceptance:** record a warmed large-map allocation/byte baseline that reaches
-  scheduler fan-out and checks every value. Consolidate the existing
-  `MapOutput` / `ChunkWriter` implementation into one private parallel-output
-  home and use it from both map surfaces; no borrowed-chunk allocation or
-  duplicate unsafe initialization remains. Empty, sequential, one-chunk,
-  full-chunk, ragged, zero-sized, and non-`Clone` outputs stay exact. Success
-  and mapper-panic drop counts are exact under Miri. Add a large-map row to the
-  existing cache Criterion binary without changing existing rows; reject a 5%
-  retained-row regression. Debug/release Nextest, warning-denied host and
-  AArch64 checks, Rustdoc/doctests, SemVer, and independent review pass.
-- **Scope / non-goals:** `moirai-iter` cache-map execution, the shared private
-  parallel-output leaf, the touched 634-line cache module split by concern,
-  focused value/drop/allocation tests, the touched benchmark source-contract
-  support split by concern, one additive Criterion row, CHANGELOG, and PM state.
-  No public API, reduce/for-each behavior, scheduler, threshold, existing
-  workload, timeout, or dependency change.
-- **Risk / change:** internal initialized-storage ownership `[patch]`; reject
-  output publication before complete initialization, overlapping writers,
-  per-output allocation, new fixed metadata that erases the full-buffer win,
-  or cleanup that leaks/double-drops after partial execution.
-- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/cache-map-direct-output`; source `0a9ef5e`; overflow correction
-  `7e6ef4e`; PR #231; lease: `moirai-iter/src/cache*`,
-  `moirai-iter/src/{parallel,iter_ops}/**`, focused tests/benchmark, CHANGELOG,
-  and this item; last update 2026-09-01.
-- **Dependency / entry mechanism:** ADR-022 owns the joined indexed fan-out
-  contract. Exact release baseline on this revision:
-  `zero_copy_parallel_map_allocation_attribution` passes 2,097,153 `u64`
-  values in 0.029 seconds and records two allocations / 16,777,624 gross bytes:
-  the 16,777,224-byte output plus 400 bytes of chunk descriptors. This
-  falsifies the source-level second-full-vector hypothesis: Rust reuses the
-  `MaybeUninit` allocation during `collect`. The real defects are that a
-  panicking worker drops neither its initialized prefix nor completed peer
-  ranges and that the chunk-descriptor allocation is avoidable. The parallel
-  iterator already carries the required panic-safe owner in a private sibling
-  leaf, so extension requires consolidation and compact completion metadata.
-- **Candidate evidence:** the exact release census retains two allocations and
-  maps every value while gross bytes fall to 16,777,424: 16,777,224 output
-  bytes plus 200 bytes of completion endpoints. The shared writer was changed
-  to retain a chunk-local pointer and unchecked-in-contract store after an
-  initial Criterion candidate exposed per-element checked bookkeeping as an
-  8.3%-16.4% regression. The corrected same-instrument comparison against
-  exact base `701ca76` reports 1.4987 ms baseline and 1.5027 ms candidate for
-  the fan-out row, with change estimate -1.68% to +7.96% and p=0.32; Criterion
-  detects no regression and the noisy controls preclude a throughput claim.
-  Debug and release Nextest pass 263/263 each with four skipped before the
-  boundary correction; the corrected exact revision passes 264/264 in debug,
-  with four skipped. The additive eight-row benchmark smoke completes in 29.9
-  seconds. The canonical output owner passes 4/4 focused Miri tests, including
-  exact current-prefix and
-  completed-peer cleanup during a simulated mapper panic. Miri cannot enter
-  the real executor-integrated cache-map test on Windows because Themis calls
-  the unsupported `GetNumaHighestNodeNumber` FFI before mapping; the same real
-  panic path passes in both native suites. Warning-denied host Clippy and
-  AArch64 all-target checks, Rustdoc, 4/4 doctests, 72/72 benchmark source
-  contracts, warning-denied benchmark Clippy, and SemVer 223/223 with 31
-  inapplicable checks skipped are green. Independent exact-artifact review is
-  GREEN after both map paths were changed to derive ragged chunk ends from
-  remaining length; the `usize::MAX` boundary regression and focused Miri pass.
-  Only the repository gate and delivery remain open.
+- **Delivered:** source `0a9ef5e`, boundary correction `7e6ef4e`, CI contract
+  correction `63e3289`, PR #231, merge `d352ec1`; lease: none.
+- **Outcome:** one panic-safe output owner now serves both map paths; the warmed
+  2,097,153-value census retains two allocations while gross bytes fall from
+  16,777,624 to 16,777,424, and Criterion detects no retained-row regression.
+- **Closure evidence:** independent review and every exact-head repository gate
+  are green; the hosted workspace gate selects 989 tests with nine skipped and
+  no failures.
 
 ## MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 — Compact retained ordered outputs [patch] [perf] — complete
 
