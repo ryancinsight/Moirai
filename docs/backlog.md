@@ -86,48 +86,11 @@ architecture definition.
 
 ## Current closure record
 
-### 🟨 MOI-SCHEDULER-DROP-LEAK-2026-08-27 [patch]: Release workers on final external drop
+### ✅ MOI-SCHEDULER-DROP-LEAK-2026-08-27 [patch]: Release workers on final external drop
 
-- **Outcome:** make the last external `ThreadScheduler` handle initiate
-  shutdown even though worker threads retain scheduler state internally.
-- **Scope / non-goals:** scheduler ownership, drop/shutdown coordination,
-  deterministic lifecycle coverage, and synchronized docs only; no queue,
-  scheduling-policy, thread-count, public API, or hot-path allocation change.
-- **Acceptance:** the current unreachable strong-count guard is removed; clone,
-  explicit-shutdown, queue-drain, and self-join behavior remains value-correct;
-  an event-synchronized regression proves worker termination and retained-state
-  release without sleeps or unbounded waits.
-- **Risk / change:** P1 lifecycle/resource correctness, `[patch]`; no SemVer
-  change.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-drop-leak`; lease: none; status: review; last update
-  2026-08-31.
-- **Candidate / evidence:** source `eba1ce4` tracks only external handles and
-  retains worker `Arc` lifetime anchoring. Independent review found
-  worker-to-worker cross-join and compute-admission races. Correction `4e034fd`
-  elects one join owner, moves both handle sets out of their locks, and adds the
-  SeqCst pending/shutdown handshake. Deterministic final-drop and cross-lane
-  shutdown regressions pass in debug and release; the new Loom admission model
-  passes 1/1. Release executor Nextest passes 132/132 in 0.977 s, workspace
-  Nextest passes 928/928 in 11.805 s, and embedded-source benchmark contracts
-  pass 72/72 in 0.563 s. Warning-denied all-target Clippy and Rustdoc, doctests,
-  rustfmt, diff, warm-allocation, and committed-lock checks pass. Fresh review
-  found that completion publication outside the waiter mutex could lose the
-  condition-variable notification. Forward correction `ec92944` publishes
-  under the mutex; both shutdown Loom models pass in 0.026 s, warning-denied
-  all-target/all-feature Clippy passes, release executor Nextest passes 132/132
-  in 1.043 s, and workspace Nextest passes 928/928 in 11.965 s. Exact-head
-  review of `36ef05b` found that workers still entered the join election and
-  could cross-join a peer whose accepted job depended on code after
-  `shutdown()` returned. Correction `f704da4` closes the blocking lane before
-  workers return, restricts join election to non-workers, and retains separate
-  close/join phases for synchronous external shutdown. Its deterministic
-  dependency-cycle regression passes 1/1; debug and release executor Nextest
-  pass 133/133, including release in 0.984 s; workspace Nextest passes 929/929
-  in 11.169 s; embedded-source contracts pass 72/72 in 0.586 s; and all 16
-  Loom models pass in 0.582 s. Warning-denied all-target/all-feature Clippy and
-  Rustdoc, doctests, rustfmt, diff, and committed-lock checks pass. Independent
-  exact-head review of `7d67e96` is GREEN. PR #210 hosted collection remains.
+- **Delivered:** reviewed head `b8a5325`, PR #210 merge `f82d83d`; all required
+  repository checks passed. Final external-handle drop closes and joins the
+  retained workers without changing successful scheduling semantics.
 
 ### 🟨 MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 [patch]: Drain partial worker construction
 
@@ -145,33 +108,24 @@ architecture definition.
 - **Risk / change:** P1 lifecycle/resource correctness, `[patch]`; no SemVer
   change.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-partial-spawn-cleanup`; lease: scheduler construction/tests,
-  ADR 0005, CHANGELOG, and this item; last update 2026-09-01.
-- **Entry evidence:** `scheduler/core.rs` applies `?` directly to each compute
-  spawn, so failure after one success drops only the constructor's `Arc`; the
-  started worker retains its clone and remains parked because shutdown was not
-  published. The blocking lane already closes and joins its partial handle set
-  for the same failure class.
+  `fix/scheduler-partial-spawn-cleanup`; lease: none; status: review; last
+  update 2026-09-01.
+- **Candidate / evidence:** refactor `e5abeb5` isolates scheduler construction;
+  source `31361ce` creates the scheduler owner before worker startup and routes
+  the real spawn-error branch through shutdown. The event-synchronized
+  regression proves the constructor remains blocked until its partial worker
+  exits, then returns the exact typed error and releases retained state. It
+  passes 1/1; all-feature release executor Nextest passes 134/134 with two
+  skipped; workspace Nextest passes 930/930 with seven skipped in 11.262 s.
+  Warning-denied all-target/all-feature Clippy, workspace Rustdoc, doctests, and
+  AArch64 Windows checking pass; rustfmt, diff, and committed-lock checks pass.
+  Independent exact-revision review and hosted collection remain.
 
-### 🟨 MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
+### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
-- **Outcome / scope:** make the existing bounded Loom job run all committed
-  `moirai-executor` scheduler models and a bounded final-external-owner model;
-  retain separate harnesses unless timing shows material compile/link duplication.
-- **Acceptance:** workflow commands, channel models, toolchain, cache, and timeout
-  remain otherwise unchanged; every model passes locally and hosted within the
-  existing bound. Missing model selection is a P1 verification `[patch]`.
-- **Entry evidence:** the five omitted executor binaries compile warm in 6.17 s
-  and execute seven models in 0.056 s; that does not justify a consolidation
-  rewrite. The hosted cold-path cost remains to be collected after selection.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
-  lease: none; last update 2026-08-31.
-- **Candidate / evidence:** `aef62cf` adds only the five executor selectors,
-  a two-external-owner election model, and invariant-specific model diagnostics.
-  The exact workflow command passes 16/16 models across nine binaries in
-  0.640 s after a 4.63 s warm compile. Warning-denied `cfg(loom)` Clippy,
-  rustfmt, YAML parsing, diff, and committed-lock checks pass. Independent
-  cumulative review at `7d67e96` is GREEN. Hosted collection remains.
+- **Delivered:** reviewed head `b8a5325`, PR #210 merge `f82d83d`; all required
+  repository checks passed. The bounded workflow executes all 16 committed
+  channel and scheduler Loom models.
 
 ### ✅ MOI-IDLE-BIT-REPARK-2026-08-27 [patch]: Re-register workers before every park
 
