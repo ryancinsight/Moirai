@@ -515,30 +515,11 @@
   repository checks passed. Final external-handle drop now closes and joins the
   retained worker set without changing successful scheduling semantics.
 
-## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — review
+## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — done
 
-- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-partial-spawn-cleanup`; lease: none; last update 2026-09-01.
-- **Outcome:** a compute-worker spawn failure closes and joins every worker
-  started earlier in the same construction attempt before returning the typed
-  `ThreadPoolCreationFailed` error.
-- **Acceptance:** preserve successful construction, queue and scheduling
-  behavior; route the real spawn-error branch through one scheduler owner and
-  the established shutdown lifecycle; use an isolated per-construction test
-  failure point to prove all partial workers and retained state terminate; add
-  no production global hook, hot-path work, public API, or unbounded wait.
-- **Evidence:** refactor `e5abeb5` isolates scheduler construction; source
-  `31361ce` creates the scheduler owner before spawning and routes the real
-  spawn-error branch through its established shutdown lifecycle. The
-  event-synchronized regression proves that construction cannot return until a
-  previously started worker exits, returns the exact typed error, and releases
-  retained scheduler state. The focused regression passes 1/1; all-feature
-  release executor Nextest passes 134/134 with two skipped; workspace Nextest
-  passes 930/930 with seven skipped in 11.262 s. Warning-denied all-target and
-  all-feature Clippy, workspace Rustdoc, doctests, and AArch64 Windows
-  all-target/all-feature checking pass; rustfmt, diff, and committed-lock checks
-  pass. Independent exact-head review of `5662e8a` is GREEN. PR #211 hosted
-  collection remains.
+- **Delivered:** refactor `e5abeb5`, source `31361ce`, reviewed head `5662e8a`,
+  PR #211 head `400a2bb`, merge `316bf8f`; every repository check passed. A
+  failed construction drains all workers it started before returning its error.
 
 ## MOI-EXECUTOR-LOOM-CI-2026-08-31 — Execute scheduler Loom models [patch] — done
 
