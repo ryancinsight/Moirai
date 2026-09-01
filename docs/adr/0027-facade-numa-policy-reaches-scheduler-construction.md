@@ -28,6 +28,19 @@ NUMA awareness means only per-worker victim-selection locality. Moirai does
 not claim topology-directed memory placement; allocation remains owned by the
 provider boundary responsible for memory policy.
 
+Construction retains the locality tier only when the worker assignment
+contains at least two distinct NUMA nodes. A single represented node cannot
+change victim order, so retaining it would execute the same peer scan twice on
+a miss. The full-ring pass remains the sole path for absent, partial-one-node,
+and single-node topology.
+
+Revision 2026-09-01: clarified the multi-node precondition and normalized
+single-node assignments to absence after a source audit found that the original
+construction populated every single-node worker with node zero despite the
+documented skip behavior. Enforced worker-to-processor binding remains a
+separate provider-first correction; topology-derived slots are advisory until
+that correction lands.
+
 ### Alternatives rejected
 
 1. Keep the no-op setter and document the limitation. Rejected because it
@@ -42,5 +55,9 @@ provider boundary responsible for memory policy.
 The facade regression builds enabled and disabled runtimes and asserts the
 corresponding `ExecutorConfig` values. The executor runtime regression builds
 the scheduler with NUMA disabled and asserts every worker assignment is
-unset. The hosted Rust workspace gate verifies the all-feature construction,
+unset. A construction-level regression normalizes absent, one-node, and
+partially known layouts to absence while preserving an exact two-node layout.
+A synchronized three-worker regression proves that a same-node miss reaches a
+cross-node victim without depending on platform NUMA detection.
+The hosted Rust workspace gate verifies the all-feature construction,
 configured Nextest, doctests, Clippy, and rustdoc at the exact merged head.

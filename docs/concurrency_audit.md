@@ -180,6 +180,12 @@ node-assignment injection seam on the scheduler constructor — owned by the NUM
 author; filed as ISSUE-209 rather than added here to avoid editing that hot file
 under concurrent authorship.
 
+**Resolution (2026-09-01).** `MOI-SINGLE-NODE-STEAL-SCAN-2026-09-01` adds the
+test-only assignment seam and a synchronized three-worker regression. The sole
+free worker first misses an empty same-node peer, then executes a target queued
+behind an occupied cross-node victim. This closes ISSUE-209 without sleep or a
+platform NUMA dependency.
+
 **Added (this round):** `scheduler_scope_nested_panic_propagates_and_pool_survives`
 — adversarial guard that a panic in a nested scoped job under help-while-waiting
 surfaces as `SpawnFailed(Panicked)` from the nested scope, its sibling still
