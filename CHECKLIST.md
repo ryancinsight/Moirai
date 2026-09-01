@@ -24,8 +24,17 @@
   `perf/async-wake-batch-allocation`; lease covers `moirai-async` wait-queue
   batch grant/tests, one retained instrument, CHANGELOG, and this item's PM
   regions. Last update 2026-09-01.
+- **Evidence:** exact instrument commit `1cfb9be` measured six allocations and a
+  666.99 ns median (664.49–669.19 ns) for 64 public `Notify` waiters. The
+  candidate retains one owned-waker allocation and measures 343.12 ns
+  (342.52–344.04 ns), a 48.6% median reduction with disjoint intervals. Debug
+  and release Nextest each pass 99/99; warning-denied all-target/all-feature
+  Clippy, warning-denied Rustdoc, doctests, and the focused Criterion smoke pass.
+  The exact directory-baseline SemVer check passes 223/223 applicable checks
+  with 31 skips and requires no version change; independent-review closure
+  remains pending.
 
-## MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 — Remove standard-terminal materialization [minor] [perf] — in progress
+## MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 — Remove standard-terminal materialization [minor] [perf] — done 2026-09-01
 
 - **Outcome:** preserve one-call `Sum<Item>` / `Product<Item>` semantics while
   letting sources and compatible adapters expose their logical stream directly,
@@ -45,8 +54,9 @@
   full-stream allocation or candidate timing materially regresses.
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `perf/iter-standard-terminal-stream`.
-- **Lease:** none. Reviewed source head `e7483e2`; PR #220; hosted collection
-  pending. Last update 2026-09-01.
+- **Lease:** none. Reviewed source head `e7483e2`; PR #220 merged with history
+  preserved as `c06feba8d009645228e7e86f101c190dcc5f352c`. Last update
+  2026-09-01.
 - **Evidence:** the unchanged 65,536-item borrowed copied/map/filter standard
   sum returns the reference value and makes one warmed allocation. With the
   retained `seq_iter` seam it makes zero. Paired Criterion medians

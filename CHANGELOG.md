@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `moirai_async::Notify::notify_waiters` and the shared broadcast-grant path now
+  drain pending waiter identifiers directly into an exactly reserved owned-waker
+  result. At 64 registered waiters this removes the transient identifier buffer
+  and geometric result growth, reducing warmed allocations from six to one and
+  the retained x86-64 Windows Criterion median from 666.99 ns to 343.12 ns
+  (48.6%; disjoint confidence intervals). The remaining allocation owns the
+  wakers until callers release the state lock and wake them.
+
 ### Added
 
 - `ParallelIterator::seq_iter` lets compatible owned/borrowed vector sources and

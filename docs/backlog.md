@@ -107,8 +107,17 @@ architecture definition.
   `perf/async-wake-batch-allocation`; lease covers `moirai-async` wait-queue
   batch grant/tests, one retained instrument, CHANGELOG, and this item's PM
   regions; status: in progress; last update 2026-09-01.
+- **Measured evidence:** exact instrument commit `1cfb9be` measured six
+  allocations and a 666.99 ns median (664.49–669.19 ns) for 64 public `Notify`
+  waiters. The candidate retains one owned-waker allocation and measures
+  343.12 ns (342.52–344.04 ns), a 48.6% median reduction with disjoint
+  intervals. Debug and release Nextest each pass 99/99; warning-denied
+  all-target/all-feature Clippy, warning-denied Rustdoc, doctests, and the
+  focused Criterion smoke pass. The exact directory-baseline SemVer check
+  passes 223/223 applicable checks with 31 skips and requires no version
+  change; independent-review closure remains pending.
 
-### 🟡 MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 [minor] [perf]: Remove standard-terminal materialization
+### ✅ MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 [minor] [perf]: Remove standard-terminal materialization
 
 - **Outcome:** preserve one-call `Sum<Item>` / `Product<Item>` semantics while
   exposing compatible source/adapter streams directly instead of collecting a
@@ -125,10 +134,10 @@ architecture definition.
 - **Risk / change:** additive defaulted trait method, `[minor]`; no implementor
   migration. Stop with the instrument only if baseline materialization is absent
   or the candidate materially regresses.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-standard-terminal-stream`; reviewed source head `e7483e2`; PR #220;
-  lease: none; status: in progress; hosted collection pending; last update
-  2026-09-01.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
+  reviewed source head `e7483e2`; PR #220 merged with history preserved as
+  `c06feba8d009645228e7e86f101c190dcc5f352c`; lease: none; status: done;
+  last update 2026-09-01.
 - **Measured evidence:** the exact unchanged baseline returns the reference
   value but makes one warmed allocation for 65,536 borrowed copied/map/filter
   items; the candidate makes zero. Retained Criterion medians

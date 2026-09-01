@@ -50,10 +50,10 @@ unsafe impl GlobalAlloc for CountingAllocator {
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 const WAITER_COUNT: usize = 64;
-const BATCH_ALLOCATIONS: usize = 6;
+const BATCH_ALLOCATIONS: usize = 1;
 
 #[test]
-fn notify_waiters_batch_allocation_baseline() {
+fn notify_waiters_uses_one_owned_waker_allocation() {
     let notify = Notify::new();
     let mut waiters = (0..WAITER_COUNT)
         .map(|_| notify.notified())
