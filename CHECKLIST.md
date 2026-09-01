@@ -653,15 +653,28 @@
   warning-denied focused cfg-Loom Clippy pass after the correction; backlog and
   checklist now agree on merge status and no active lease.
 - **Review:** independent read-only review of exact PM head `bb6087f` against
-  `316bf8f` is GREEN; PR #212 hosted collection and non-squash merge remain.
+  `316bf8f` is GREEN; PR #212 merged with history preserved as `207273e3`;
+  post-merge repository collection remains.
 
-## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] — todo
+## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] [perf] — in progress
 
-- Unowned. Unbounded no-yield spins: `claim_for_write`
-  (`deque/chase_lev/storage.rs:103-107`), the resize gate wait
-  (`deque/chase_lev.rs:433-435`), and steal `Retry` loops
-  (`schedule/queue/mod.rs:102-111,169-190`). Escalate to `yield_now` after a
-  bounded spin budget per the tree's SpinLock ladder.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/scheduler-spin-budgets`; lease: scheduler contention waits, focused
+  tests, benchmark evidence, scheduler documentation, CHANGELOG, and this item.
+- **Current sites:** `claim_for_write` in
+  `deque/chase_lev/storage.rs`, owner drain in
+  `deque/chase_lev/gate.rs`, and the executor's `StealResult::Retry` loops in
+  `schedule/queue/mod.rs`. The old gate citation drifted when PR #212 extracted
+  the combined gate.
+- **Plan:** derive one private non-allocating spin/yield transition from the
+  existing SpinLock ladder; apply it without changing queue arithmetic or task
+  ordering; add deterministic transition and held-contention coverage; rerun
+  scheduler/executor value suites, warning-denied checks, Rustdoc/doctests, and
+  the immutable six-row Criterion comparison.
+- **Entry baseline:** exact head `bb6087f`; Criterion point estimates for paired
+  two/four/eight-thief drain and owner-growth rows are 389.37/392.41 µs,
+  763.85/876.66 µs, and 1.0461/2.4725 ms. The final owner row is noisy; no
+  performance conclusion is attached to this single run.
 
 ## MOI-AARCH64-SIMD-CFG-2026-08-27 — cfg-local SIMD lengths [patch] — review
 

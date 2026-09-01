@@ -149,7 +149,36 @@ architecture definition.
   thief to back off while claimed, and asserts that its eventual admission
   observes generation one through the gate-release ordering.
 - **Review:** independent read-only review of exact PM head `bb6087f` against
-  `316bf8f` is GREEN. PR #212 hosted collection and non-squash merge remain.
+  `316bf8f` is GREEN. PR #212 merged with history preserved as `207273e3`;
+  post-merge repository collection remains.
+
+### 🟨 MOI-SPIN-BUDGETS-2026-08-27 [patch] [perf]: Bound scheduler contention spins
+
+- **Outcome:** every production retry loop that can wait indefinitely for a
+  Chase-Lev owner, slot, or steal race yields cooperatively after a finite spin
+  budget while preserving the short-contention fast path.
+- **Scope / non-goals:** the private Chase-Lev storage/gate waits, executor
+  steal-retry loops, focused tests, the existing immutable contention
+  instrument, documentation, and PM state; no queue arithmetic, task ordering,
+  public API, workload, assertion, timeout, or sleep-based waiting change.
+- **Acceptance:** one reusable private transition owns the spin/yield ladder;
+  each affected loop resets it after progress, never allocates, never sleeps,
+  and terminates under deterministic held-contention tests. Scheduler/executor
+  value suites, warning-denied host/cross-target checks, Rustdoc/doctests, and
+  the unchanged Criterion instrument remain green. Reject a candidate with a
+  repeatable throughput regression beyond the instrument's observed noise.
+- **Risk / change:** P1 liveness and scheduler fairness, `[patch]`; performance
+  claim requires paired Criterion evidence; no SemVer change.
+- **Dependency / integrator:** resize-gate merge `207273e3`; Codex session
+  `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/scheduler-spin-budgets`; lease: scheduler contention waits, focused
+  tests, benchmark evidence, scheduler documentation, CHANGELOG, and this item;
+  status: in progress; last update 2026-09-01.
+- **Entry evidence:** exact baseline `bb6087f` from the unchanged six-row
+  `steal_batch_gate` instrument reports point estimates of 389.37 µs,
+  392.41 µs, 763.85 µs, 876.66 µs, 1.0461 ms, and 2.4725 ms for the paired
+  two/four/eight-thief drain and owner-growth rows. The eight-thief owner row is
+  noisy; these values define comparison evidence, not an optimization claim.
 
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
