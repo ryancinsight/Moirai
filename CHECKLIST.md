@@ -20,10 +20,9 @@
 - **Risk / change:** internal allocation-only `[patch]`; stop without a source
   change if the exact baseline does not attribute a redundant allocation or if
   direct draining changes cancellation/value semantics.
-- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/async-wake-batch-allocation`; lease covers `moirai-async` wait-queue
-  batch grant/tests, one retained instrument, CHANGELOG, and this item's PM
-  regions. Last update 2026-09-01.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
+  reviewed source head `b690f88`; draft PR #221; lease: none; merge closure
+  pending. Last update 2026-09-01.
 - **Evidence:** exact instrument commit `1cfb9be` measured six allocations and a
   666.99 ns median (664.49–669.19 ns) for 64 public `Notify` waiters. The
   candidate retains one owned-waker allocation and measures 343.12 ns
@@ -31,8 +30,9 @@
   and release Nextest each pass 99/99; warning-denied all-target/all-feature
   Clippy, warning-denied Rustdoc, doctests, and the focused Criterion smoke pass.
   The exact directory-baseline SemVer check passes 223/223 applicable checks
-  with 31 skips and requires no version change; independent-review closure
-  remains pending.
+  with 31 skips and requires no version change. Independent review corrected
+  the original exact-capacity wording for lazy cancellation holes; exact
+  cumulative re-review is GREEN.
 
 ## MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 — Remove standard-terminal materialization [minor] [perf] — done 2026-09-01
 
@@ -71,7 +71,7 @@
   skips and reports no required version change. Independent review found one
   stale `seq_try_fold` materialization statement; source `e7483e2` corrects the
   `seq_iter` delegation contract, and exact cumulative re-review is GREEN.
-  Hosted collection remains pending.
+  Post-merge lockfile, workspace, Loom, supply-chain, and fuzz checks are GREEN.
 
 ## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — complete
 
