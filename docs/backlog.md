@@ -113,10 +113,9 @@ architecture definition.
   reject any candidate that moves a pinned future, changes refill/order
   semantics, or weakens cancellation/drop behavior.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-retained-future-slots`; live lease:
-  `moirai-iter/src/stream/slots/`, focused tests/benchmark contracts,
-  CHANGELOG, and this item; status: fix-forward candidate ready for independent
-  re-review; last update 2026-09-01.
+  `perf/iter-retained-future-slots`; lease: none; source `8c5e425`; review
+  correction `d35bbf3`; PR #226; status: independent review GREEN, hosted
+  collection and merge pending; last update 2026-09-01.
 - **Entry evidence:** futures-util 0.3.34 `FuturesOrdered::push_back` delegates
   every item to `FuturesUnordered::push`, whose implementation constructs one
   new `Arc<Task>` per future. The prior public 1,024-item ready-map census left
@@ -151,9 +150,9 @@ architecture definition.
   model pass. Warning-denied Rustdoc, 4/4 doctests, 72/72 benchmark contracts,
   and the full bounded benchmark run pass. Tokio's test-only `sync` feature
   remains required by Tokio 1.53.1's Loom `AtomicWaker`; removing it fails the
-  exact Loom build. The exact final directory-baseline SemVer comparison
-  against `248c861` passes under the patch contract. Independent re-review and
-  merge remain.
+  exact Loom build. The exact source directory-baseline SemVer comparison
+  against `248c861` passes under the patch contract. Independent read-only
+  review of `248c861...d35bbf3` is GREEN; hosted PR collection and merge remain.
 
 ### ✅ MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 [patch] [perf]: Remove async-context control-plane allocations
 
