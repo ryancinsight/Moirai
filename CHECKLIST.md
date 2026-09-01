@@ -22,6 +22,12 @@
 - **Entry evidence:** draft PR #218 launched all five Rust jobs; the final ready
   run passed in 6s–2m12s. The Python and book workflows expose three more
   independent jobs with the same unguarded draft-event behavior.
+- **Candidate evidence:** source `8ad506d`, draft PR #219. PyYAML parses all
+  three workflows and removing only the activity lists and draft predicates
+  yields the exact prior definitions. Draft runs `33485286665`, `33485286034`,
+  and `33485286617` complete skipped: all eight jobs have zero steps. GitHub's
+  current reusable-workflow syntax explicitly permits `jobs.<job_id>.if`.
+  Ready-event hosted execution remains pending.
 
 ## MOI-PAR-SUM-CONTRACT-2026-09-01 — Preserve standard terminal semantics [minor] [perf] — complete
 

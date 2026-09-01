@@ -103,6 +103,12 @@ architecture definition.
 - **Evidence / cause:** draft PR #218 launched all five Rust jobs, whose final
   ready run completed in 6s–2m12s. The two Python jobs and one book job are
   independent roots under equivalent unguarded pull-request triggers.
+- **Candidate / verification:** source `8ad506d`, draft PR #219. PyYAML parses
+  all three workflows and removing only the activity lists and predicates
+  yields the exact prior definitions. Draft runs `33485286665`, `33485286034`,
+  and `33485286617` complete skipped with zero steps across all eight jobs.
+  GitHub's current reusable-workflow syntax permits `jobs.<job_id>.if`; the
+  ready-event hosted execution remains pending.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `ci/draft-pr-gate`; lease covers the three workflow files, CHANGELOG, and
   this item's PM regions; status: in progress; last update 2026-09-01.
