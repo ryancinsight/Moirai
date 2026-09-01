@@ -138,8 +138,17 @@ fn scheduler_runs_all_work_classes_through_one_facade() {
 fn final_external_handle_drop_drains_and_releases_workers() {
     const COMPUTE_JOBS: usize = 32;
     const BLOCKING_VALUE: usize = 1_024;
-    let scheduler = ThreadScheduler::new(2, "test-final-scheduler-drop").unwrap();
+    let scheduler = ThreadScheduler::new(1, "test-final-scheduler-drop").unwrap();
     let inner = Arc::downgrade(&scheduler.inner);
+    let shutdown_started = Arc::new(Barrier::new(2));
+    assert!(
+        scheduler
+            .inner
+            .shutdown_started_barrier
+            .set(Arc::clone(&shutdown_started))
+            .is_ok(),
+        "test installs one shutdown rendezvous"
+    );
     let owner_drops = Arc::new(AtomicUsize::new(0));
     scheduler.retain_lifetime_owner(DropProbe {
         drops: Arc::clone(&owner_drops),
@@ -159,6 +168,29 @@ fn final_external_handle_drop_drains_and_releases_workers() {
         7,
         "dropping a non-final handle must not stop the shared scheduler"
     );
+
+    let (gate_started_sender, gate_started_receiver) = mpsc::sync_channel(2);
+    let (compute_release_sender, compute_release_receiver) = mpsc::sync_channel(0);
+    surviving_handle
+        .schedule::<SyncTask, _>(Priority::Critical, Some(0), move |_| {
+            gate_started_sender.send(()).unwrap();
+            compute_release_receiver.recv().unwrap();
+        })
+        .unwrap();
+    let (blocking_started_sender, blocking_started_receiver) = mpsc::sync_channel(1);
+    let (blocking_release_sender, blocking_release_receiver) = mpsc::sync_channel(0);
+    surviving_handle
+        .schedule::<BlockingTask, _>(Priority::Critical, Some(0), move |_| {
+            blocking_started_sender.send(()).unwrap();
+            blocking_release_receiver.recv().unwrap();
+        })
+        .unwrap();
+    gate_started_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("compute gate must occupy the sole worker");
+    blocking_started_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("blocking gate must occupy the sole blocking worker");
 
     let completed = Arc::new(AtomicUsize::new(0));
     let capture_drops = Arc::new(AtomicUsize::new(0));
@@ -192,6 +224,23 @@ fn final_external_handle_drop_drains_and_releases_workers() {
         drop(surviving_handle);
         drop_sender.send(()).unwrap();
     });
+    shutdown_started.wait();
+    let live_inner = inner
+        .upgrade()
+        .expect("shutdown rendezvous retains scheduler state");
+    assert_eq!(
+        live_inner.pending_tasks.load(Ordering::Acquire),
+        COMPUTE_JOBS,
+        "all compute values must still be queued when final drop publishes shutdown"
+    );
+    assert_eq!(
+        live_inner.blocking_pending_tasks.load(Ordering::Acquire),
+        1,
+        "the blocking value must still be queued when final drop publishes shutdown"
+    );
+    drop(live_inner);
+    compute_release_sender.send(()).unwrap();
+    blocking_release_sender.send(()).unwrap();
     drop_receiver
         .recv_timeout(TEST_EVENT_DEADLINE)
         .expect("final scheduler drop must synchronously release its workers");
@@ -215,6 +264,47 @@ fn final_external_handle_drop_drains_and_releases_workers() {
         inner.upgrade().is_none(),
         "the final external drop must join workers and release scheduler state"
     );
+}
+
+#[test]
+fn concurrent_compute_and_blocking_shutdown_cannot_cross_join() {
+    let scheduler = ThreadScheduler::new(1, "test-concurrent-shutdown").unwrap();
+    let callers_ready = Arc::new(Barrier::new(3));
+    let (completed_sender, completed_receiver) = mpsc::sync_channel(2);
+
+    let compute_scheduler = scheduler.clone();
+    let compute_ready = Arc::clone(&callers_ready);
+    let compute_completed = completed_sender.clone();
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, Some(0), move |_| {
+            compute_ready.wait();
+            compute_scheduler.shutdown();
+            compute_completed.send(1).unwrap();
+        })
+        .unwrap();
+
+    let blocking_scheduler = scheduler.clone();
+    let blocking_ready = Arc::clone(&callers_ready);
+    scheduler
+        .schedule::<BlockingTask, _>(Priority::Normal, Some(0), move |_| {
+            blocking_ready.wait();
+            blocking_scheduler.shutdown();
+            completed_sender.send(2).unwrap();
+        })
+        .unwrap();
+
+    callers_ready.wait();
+    let mut completions = [
+        completed_receiver
+            .recv_timeout(TEST_EVENT_DEADLINE)
+            .expect("one shutdown caller must complete"),
+        completed_receiver
+            .recv_timeout(TEST_EVENT_DEADLINE)
+            .expect("both shutdown callers must complete"),
+    ];
+    completions.sort_unstable();
+    assert_eq!(completions, [1, 2]);
+    scheduler.shutdown();
 }
 
 #[test]

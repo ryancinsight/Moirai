@@ -19,6 +19,9 @@ dedicated-lane boundary and lazily constructed blocking workers.
 **Revision (fifth)**: 2026-08-31 — final external scheduler ownership is
 tracked independently from worker-held state so implicit teardown drains and
 joins workers without weakening their lifetime anchor.
+**Revision (sixth)**: 2026-08-31 — shutdown elects one join owner, never waits
+while retaining worker-handle locks, and linearizes compute admission against
+worker exit through the existing pending-work publication.
 
 ### Decision
 
@@ -32,6 +35,17 @@ joins workers without weakening their lifetime anchor.
   final transition invokes the existing synchronous, idempotent shutdown path.
   This avoids the ownership cycle in the former `Arc::strong_count` drop guard
   without converting workers to weak references or adding scheduling-path work.
+- Concurrent shutdown callers elect one cold-path join owner. The owner moves
+  compute and blocking handles out of their mutexes before joining; scheduler
+  workers that lose the election return so the owner can join them, while
+  external callers wait on the existing quiescence condition variable. This
+  prevents same-pool and cross-lane join cycles without adding scheduler-path
+  allocation or lock traffic.
+- Compute admission increments the pending counter before its one shutdown
+  observation. The producer and no-work worker use a SeqCst StoreLoad handshake:
+  either admission observes shutdown and rolls back, or the worker observes the
+  pending publication and stays alive to drain it. Blocking admission remains
+  linearized by its bounded queue mutex and closed state.
 - ZST work-class markers keep dispatch monomorphized before heterogeneous queue storage.
 - Per-worker priority queues preserve priority ordering without cloning scheduler algorithms per task class.
 - Per-task lifecycle records remove global registry lock contention from task execution start/completion paths.

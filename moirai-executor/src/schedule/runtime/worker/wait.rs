@@ -8,7 +8,11 @@ use super::next_steal_start;
 pub(super) fn should_stop<const BLOCKING_QUEUE_CAPACITY: usize>(
     inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
 ) -> bool {
-    inner.shutdown.load(Ordering::Acquire) && inner.pending_tasks.load(Ordering::Acquire) == 0
+    // This is the worker half of the shutdown/admission StoreLoad handshake.
+    // A producer publishes pending before observing shutdown; the worker
+    // publishes shutdown before observing pending. SeqCst makes the outcome
+    // where both sides miss the other's publication unreachable.
+    inner.shutdown.load(Ordering::SeqCst) && inner.pending_tasks.load(Ordering::SeqCst) == 0
 }
 
 pub(super) fn spin_for_work<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(

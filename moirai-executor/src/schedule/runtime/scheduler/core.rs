@@ -29,8 +29,8 @@ use super::super::types::{
     SchedulerScopeState, ThreadScheduler,
 };
 use super::super::worker::{
-    execute_job, is_quiescent, join_other_threads, lock_mutex, next_shared_job, wake_all_workers,
-    wake_contended_workers, wake_worker, JOIN_FAST_SPIN_ATTEMPTS,
+    execute_job, is_quiescent, lock_mutex, next_shared_job, wake_contended_workers, wake_worker,
+    JOIN_FAST_SPIN_ATTEMPTS,
 };
 
 /// Busy-spin iterations a worker-thread scope waiter performs after exhausting
@@ -201,6 +201,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             failed_tasks: CacheAligned::new(std::sync::atomic::AtomicU64::new(0)),
             admission_caller_runs: CacheAligned::new(std::sync::atomic::AtomicU64::new(0)),
             shutdown: CacheAligned::new(std::sync::atomic::AtomicBool::new(false)),
+            shutdown_join_state: std::sync::atomic::AtomicU8::new(0),
             join_waiters: CacheAligned::new(AtomicUsize::new(0)),
             wait_lock: std::sync::Mutex::new(()),
             wait_signal: std::sync::Condvar::new(),
@@ -209,6 +210,8 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             blocking_lane: OnceLock::new(),
             blocking_lane_init: Mutex::new(()),
             blocking_lane_prefix: thread_name_prefix.into(),
+            #[cfg(test)]
+            shutdown_started_barrier: OnceLock::new(),
             lifetime_owner: OnceLock::new(),
         });
 
@@ -424,15 +427,11 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     where
         C: WorkClass,
     {
-        if self.inner.shutdown.load(Ordering::Acquire) {
-            return Err(ExecutorError::ShuttingDown);
-        }
-
         if C::USES_BLOCKING_LANE {
+            if self.inner.shutdown.load(Ordering::Acquire) {
+                return Err(ExecutorError::ShuttingDown);
+            }
             if let Some(lane) = self.inner.blocking_lane.get() {
-                if self.inner.shutdown.load(Ordering::Acquire) {
-                    return Err(ExecutorError::ShuttingDown);
-                }
                 return lane.submit(
                     priority,
                     locality_hint,
@@ -485,6 +484,13 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         // `execute_job` decrement (worker.rs) can never underflow from 0.
         // (On x86 `lock xadd` is already full-barrier, so this is free.)
         let previous_pending = self.inner.pending_tasks.fetch_add(1, Ordering::SeqCst);
+        // Pair with the no-work worker's SeqCst shutdown/pending observation.
+        // Either admission sees shutdown and rolls back, or a draining worker
+        // sees this pending publication and remains available to execute it.
+        if self.inner.shutdown.load(Ordering::SeqCst) {
+            self.inner.pending_tasks.fetch_sub(1, Ordering::SeqCst);
+            return Err(ExecutorError::ShuttingDown);
+        }
 
         let admitting = job
             .take()
@@ -646,24 +652,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             .fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Stop workers after queued work drains.
-    ///
-    /// This call joins every worker other than a worker that invokes shutdown
-    /// from its own task. That worker exits after its current task returns.
-    pub fn shutdown(&self) {
-        if !self.inner.shutdown.swap(true, Ordering::AcqRel) {
-            wake_all_workers(&self.inner);
-        }
-
-        let _lane_init = lock_mutex(&self.inner.blocking_lane_init);
-        if let Some(lane) = self.inner.blocking_lane.get() {
-            lane.shutdown();
-        }
-
-        let mut handles = lock_mutex(&self.inner.handles);
-        join_other_threads(&mut handles);
-    }
-
     pub(crate) fn select_worker<C>(&self, priority: Priority, locality_hint: Option<usize>) -> usize
     where
         C: WorkClass,
@@ -713,19 +701,4 @@ fn partition_global_queue(
     }
 
     Ok(1usize << partition.ilog2())
-}
-
-impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Drop
-    for ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
-{
-    fn drop(&mut self) {
-        // Acquire/release orders prior external-handle activity before the
-        // final owner initiates synchronous shutdown. Queue publication and
-        // worker wakeup retain their own stronger synchronization boundaries.
-        let previous = self.inner.external_handles.fetch_sub(1, Ordering::AcqRel);
-        debug_assert!(previous > 0, "scheduler handle count must not underflow");
-        if previous == 1 {
-            self.shutdown();
-        }
-    }
 }

@@ -58,7 +58,9 @@ pub trait SchedulerControl {
     fn join(&self) -> ExecutorResult<()>;
     /// Drain queued work and synchronously stop every other worker.
     ///
-    /// A worker invoking shutdown exits after its current task returns.
+    /// Exactly one concurrent caller joins the worker sets. Other external
+    /// callers wait for that join; scheduler workers return so the elected
+    /// caller can join them, then exit after their current tasks return.
     fn shutdown(&self);
     /// Snapshot the scheduler metrics.
     fn metrics(&self) -> ScheduleMetrics;

@@ -6,7 +6,7 @@ use std::{
     marker::PhantomData,
     ptr::NonNull,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering},
         Arc, Condvar, Mutex, OnceLock,
     },
     thread::{self, JoinHandle},
@@ -183,6 +183,8 @@ pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     pub(super) failed_tasks: CacheAligned<AtomicU64>,
     pub(super) admission_caller_runs: CacheAligned<AtomicU64>,
     pub(super) shutdown: CacheAligned<AtomicBool>,
+    /// Coordinates the single cold-path owner that joins scheduler workers.
+    pub(super) shutdown_join_state: AtomicU8,
     pub(super) join_waiters: CacheAligned<AtomicUsize>,
     pub(super) wait_lock: Mutex<()>,
     pub(super) wait_signal: Condvar,
@@ -199,6 +201,9 @@ pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     /// Serializes only first-use initialization and shutdown, not submissions.
     pub(super) blocking_lane_init: Mutex<()>,
     pub(super) blocking_lane_prefix: Box<str>,
+    /// Test-only rendezvous immediately after shutdown publication.
+    #[cfg(test)]
+    pub(super) shutdown_started_barrier: OnceLock<Arc<std::sync::Barrier>>,
     /// Cold-path ownership anchor installed once by the executor facade.
     ///
     /// Dynamic type erasure is confined to this construction/destruction

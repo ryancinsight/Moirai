@@ -52,8 +52,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Dropping the final external `ThreadScheduler` handle now drains and joins its
   worker pool. Worker-owned scheduler state no longer makes the automatic
-  shutdown condition unreachable; explicit shutdown and cloned-handle behavior
-  remain unchanged.
+  shutdown condition unreachable. Concurrent shutdown callers elect one join
+  owner without retaining handle locks while waiting; scheduler workers return
+  so that owner can join them, while external callers remain synchronous.
+  Compute admission now publishes pending work before its single shutdown
+  observation, preventing workers from exiting between validation and queue
+  publication. Cloned-handle and successful scheduling behavior remain
+  unchanged.
 - Re-publish each worker's idle bit before every park attempt. If a producer
   consumed the previous bit but another worker drained that task first, the
   re-parking worker remains visible to the next wake lottery instead of relying
