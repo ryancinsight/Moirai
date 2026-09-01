@@ -209,39 +209,39 @@ fn entry_retries_after_observing_resize() {
 fn entry_after_completed_resize_observes_published_generation() {
     model_builder().check(|| {
         let gate = Arc::new(ResizeGateModel::new());
-        let (observed_tx, observed_rx) = mpsc::channel();
-        let (resume_tx, resume_rx) = mpsc::channel();
+        let phase = Arc::new(AtomicUsize::new(0));
 
-        let thief_gate = Arc::clone(&gate);
-        let thief = thread::spawn(move || {
-            let mut first_observation = Some((observed_tx, resume_rx));
-            let mut access = thief_gate.enter_observed(
-                || {
-                    if let Some((sender, receiver)) = first_observation.take() {
-                        sender
-                            .send(())
-                            .expect("entry observer must remain connected");
-                        receiver
-                            .recv()
-                            .expect("entry attempt must remain suspended");
-                    }
-                },
-                || {},
-            );
-            access.protected_step();
+        let owner_gate = Arc::clone(&gate);
+        let owner_phase = Arc::clone(&phase);
+        let owner = thread::spawn(move || {
+            owner_gate.resize_observed(|| {
+                owner_phase.store(1, Ordering::Relaxed);
+                while owner_phase.load(Ordering::Relaxed) != 2 {
+                    thread::yield_now();
+                }
+            });
         });
 
-        observed_rx
-            .recv()
-            .expect("thief must observe the pre-resize generation");
-        gate.resize();
-        resume_tx
-            .send(())
-            .expect("suspended entry attempt must remain connected");
+        let thief_gate = Arc::clone(&gate);
+        let thief_phase = Arc::clone(&phase);
+        let thief = thread::spawn(move || {
+            while thief_phase.load(Ordering::Relaxed) != 1 {
+                thread::yield_now();
+            }
+            let mut access =
+                thief_gate.enter_observed(|| {}, || thief_phase.store(2, Ordering::Relaxed));
+            access.protected_step();
+            assert_eq!(
+                access.observed_generation,
+                Some(1),
+                "admission after claim release must observe the published generation"
+            );
+        });
 
         thief
             .join()
             .expect("generation-checking thief must terminate");
+        owner.join().expect("observed resize must terminate");
         gate.assert_idle(1);
     });
 }
