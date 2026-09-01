@@ -2,7 +2,7 @@
 
 **Target**: Unreleased
 
-## MOI-ITER-SLOT-METADATA-LAYOUT-2026-09-01 — Overlap retained-slot metadata [patch] [perf] — in progress
+## MOI-ITER-SLOT-METADATA-LAYOUT-2026-09-01 — Overlap retained-slot metadata [patch] [perf] — complete
 
 - **Outcome:** remove storage reserved simultaneously for `output_index` and
   `vacant_next` even though slot occupancy makes those values mutually
@@ -26,9 +26,9 @@
   two words do not increase the actual slot stride or if overlap complicates
   panic/drop ownership.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-slot-metadata-layout`; source `77f2832`; PR #228; source
-  lease: none; independent review is GREEN; hosted collection and merge remain;
-  last update 2026-09-01.
+  `perf/iter-slot-metadata-layout`; source `77f2832`; PM `95f6807`; PR #228;
+  merge `b7dabcb`; lease: none; independent review and repository-owned
+  post-merge run `33527327831` are GREEN; complete 2026-09-01.
 - **Dependency:** shared wake ownership merged through PR #227 as `a83361a`;
   every repository-owned post-merge check is green.
 - **Entry evidence:** on the 64-bit host, the focused layout regression pins
