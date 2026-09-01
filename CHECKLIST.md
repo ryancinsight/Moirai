@@ -45,7 +45,17 @@
 - **Re-open trigger:** `MOI-DISPATCH-FLOOR-2026-08-31` lands, or a decision is
   taken on which body weight `Adaptive` targets.
 
-## MOI-DISPATCH-FLOOR-2026-08-31 — The data-parallel dispatch floor is ~11.9 us [minor] [perf] — todo
+## MOI-DISPATCH-FLOOR-2026-08-31 — The data-parallel dispatch floor is ~11.9 us [minor] [perf] — in progress
+
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** `moirai-executor/src/schedule/{reduce,runtime/scheduler}/`, focused
+  executor tests and dispatch-floor benchmark instrument, CHANGELOG, and this
+  item; base `eed1c54`; last update 2026-08-31.
+- **Scope / non-goals.** Reduce the warmed fixed dispatch cost without changing
+  public scheduling policy, task-count semantics, panic propagation, worker
+  topology, benchmark workloads, or committed timeout budgets. A persistent
+  barrier is a hypothesis, not an accepted design; the smallest measured
+  allocation/scheduling correction wins.
 
 - **Finding.** Every `Adaptive`/`Parallel` operation pays ~11.9 us before any
   work happens, flat across n = 1024 to 65536.
@@ -64,7 +74,11 @@
   their own measurement, and any candidate must hold value parity and the
   existing panic-propagation behaviour.
 - **Acceptance.** The floor measured by the same probe drops materially, and
-  the threshold item is re-derived against it.
+  the threshold item is re-derived against it. Exact indexed coverage,
+  allocation and panic contracts, nested use, warning-denied Clippy, package
+  Nextest, Rustdoc/doctests, release tests, and paired Criterion evidence pass
+  on the exact candidate. Reject a candidate that changes values or moves cost
+  into an unmeasured lifecycle boundary.
 
 ## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — done
 
