@@ -128,71 +128,12 @@ architecture definition.
   `316bf8f` is GREEN. PR #212 merged with history preserved as `207273e3`;
   every repository check completed successfully after merge.
 
-### 🟨 MOI-SPIN-BUDGETS-2026-08-27 [patch] [perf]: Bound scheduler contention spins
+### ✅ MOI-SPIN-BUDGETS-2026-08-27 [patch] [perf]: Bound scheduler contention spins
 
-- **Outcome:** every production retry loop that can wait indefinitely for a
-  Chase-Lev owner, slot, or steal race yields cooperatively after a finite spin
-  budget while preserving the short-contention fast path.
-- **Scope / non-goals:** the private Chase-Lev storage/gate waits, executor
-  steal-retry loops, focused tests, the existing immutable contention
-  instrument, documentation, and PM state; no queue arithmetic, task ordering,
-  public API, workload, assertion, timeout, or sleep-based waiting change.
-- **Acceptance:** one reusable private transition per crate owns its
-  spin/yield ladder without publishing a cross-crate API; each affected loop
-  resets after progress, never allocates, and never sleeps. Scheduler/executor
-  value suites, warning-denied host/cross-target checks, Rustdoc/doctests, and
-  the unchanged Criterion instrument remain green. Reject a candidate with a
-  repeatable throughput regression beyond the instrument's observed noise.
-- **Risk / change:** P1 liveness and scheduler fairness, `[patch]`; performance
-  claim requires paired Criterion evidence; no SemVer change.
-- **Dependency / integrator:** resize-gate merge `207273e3`; Codex session
-  `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-spin-budgets`; lease: none; status: merge; PR #213 hosted
-  collection and merge remain; last update 2026-09-01.
-- **Verification:** exact source `c7f670e` passes the bounded-yield helper test
-  1/1; debug and release scheduler/executor suites 171/171 with two configured
-  skips; focused Loom 8/8; cfg-Loom and host warning-denied Clippy;
-  warning-denied AArch64 Windows all-target/all-feature checking; Rustdoc; and
-  both scheduler doctests. Formatting, diff hygiene, and the committed
-  `Cargo.lock` hash are clean. The source-visible wait state is one byte and
-  introduces no heap-backed storage or sleep path.
-- **Exploratory performance evidence:** the first 389.37 µs two-thief entry
-  sample was not reproducible in the candidate window. Same-window exact
-  baseline `bb6087f`
-  versus bounded candidate drain/owner-growth estimates are 473.02/352.78
-  versus 471.14/363.02 µs at two thieves, 759.38/902.66 versus
-  752.36/868.77 µs at four, and 1.0536/2.2707 versus 1.0705/2.2418 ms at
-  eight; five confidence intervals overlap. Repeating the separated
-  eight-thief drain gives 1.0849 ms [1.0787, 1.0904], a 1.98% Criterion
-  change. These measurements reject return-after-64 and establish no numeric
-  acceptance threshold. Before fresh measurements, the confirmatory rule is:
-  reject any slower candidate median whose 95% confidence interval does not
-  overlap the exact paired baseline; no throughput or latency win is claimed.
-  The first rebuilt comparison rejects the 64-hint executor candidate: its
-  two-thief drain is 475.74 µs [474.25, 476.84] versus baseline 471.87 µs
-  [470.09, 473.39]. Exact raw-sample medians also reject 256 hints: candidate
-  469.818 µs [466.515, 472.588] versus rebuilt baseline 451.740 µs
-  [447.071, 454.804], using the distribution-free 95.86% order-statistic
-  interval for 20 samples. The 1,000-hint successor was selected before
-  measurement because it matches Moirai's existing contended spin-lock handoff
-  ceiling. Initial cross-worktree data that reused one shared executable are
-  excluded; accepted runs visibly rebuilt the affected crates. Rebuilt
-  exact-baseline `207273e3` to candidate `c7f670e` raw medians
-  and distribution-free 95.86% intervals are, at two thieves, drain
-  451.740 [447.071, 454.804] to 453.418 [452.105, 455.365] µs and owner-growth
-  376.822 [337.751, 427.679] to 390.650 [380.462, 413.594] µs; at four,
-  drain 750.561 [732.200, 783.830] to 770.084 [751.014, 779.710] µs and
-  owner-growth 865.385 [860.849, 880.484] to 864.167 [837.386, 876.891] µs;
-  and at eight, drain 1.064612 [1.052046, 1.077879] to
-  1.062258 [1.048112, 1.067219] ms and owner-growth
-  2.010259 [1.868690, 2.168660] to 1.854881 [1.775413, 1.951207] ms. No slower
-  candidate median has a non-overlapping interval, so the candidate satisfies
-  the precommitted rule without a throughput or latency improvement claim.
-- **Review:** independent read-only review of exact artifact `b08bcf8` against
-  `207273e3` is GREEN. The reviewer verified the production wait transitions,
-  same-victim executor retry, unchanged instrument and timeout blobs, evidence
-  chronology, interval overlap, and synchronized release/PM claims; raw samples
-  were not Git-tracked and therefore were not independently recomputed.
+- **Delivered:** source `c7f670e`, reviewed artifact `b08bcf8`, PR #213 head
+  `e2ef5b3`, merge `c43ae3f`; every repository check passed. Finite cooperative
+  waits preserve locality; paired raw medians satisfy the non-regression rule
+  without an improvement claim.
 
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
