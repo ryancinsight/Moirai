@@ -171,14 +171,23 @@ architecture definition.
   claim requires paired Criterion evidence; no SemVer change.
 - **Dependency / integrator:** resize-gate merge `207273e3`; Codex session
   `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-spin-budgets`; lease: scheduler contention waits, focused
-  tests, benchmark evidence, scheduler documentation, CHANGELOG, and this item;
-  status: in progress; last update 2026-09-01.
-- **Entry evidence:** exact baseline `bb6087f` from the unchanged six-row
-  `steal_batch_gate` instrument reports point estimates of 389.37 µs,
-  392.41 µs, 763.85 µs, 876.66 µs, 1.0461 ms, and 2.4725 ms for the paired
-  two/four/eight-thief drain and owner-growth rows. The eight-thief owner row is
-  noisy; these values define comparison evidence, not an optimization claim.
+  `fix/scheduler-spin-budgets`; lease: none; source `9cb90ff` and bounded
+  retry-locality correction `02a5fb5` complete; status: review; independent
+  review and merge remain; last update 2026-09-01.
+- **Verification:** debug and release Nextest pass 170/170 with two configured
+  skips; focused Loom passes 7/7; warning-denied host and cfg-Loom Clippy,
+  strict AArch64 Windows all-target/all-feature check, Rustdoc, two doctests,
+  formatting, and diff hygiene pass. The source-visible wait state is one byte
+  and introduces no heap-backed storage or sleep path.
+- **Performance evidence:** the first 389.37 µs two-thief entry sample was not
+  reproducible in the candidate window. Same-window exact baseline `bb6087f`
+  versus bounded candidate drain/owner-growth estimates are 473.02/352.78
+  versus 471.14/363.02 µs at two thieves, 759.38/902.66 versus
+  752.36/868.77 µs at four, and 1.0536/2.2707 versus 1.0705/2.2418 ms at
+  eight; five confidence intervals overlap. Repeating the separated
+  eight-thief drain gives 1.0849 ms [1.0787, 1.0904], a 1.98% Criterion
+  change. Every row remains below the predeclared 5% materiality threshold;
+  accept the liveness correction without a throughput or latency claim.
 
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 

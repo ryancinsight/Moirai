@@ -656,25 +656,33 @@
   `316bf8f` is GREEN; PR #212 merged with history preserved as `207273e3`;
   post-merge repository collection remains.
 
-## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] [perf] — in progress
+## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] [perf] — review
 
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-spin-budgets`; lease: scheduler contention waits, focused
-  tests, benchmark evidence, scheduler documentation, CHANGELOG, and this item.
-- **Current sites:** `claim_for_write` in
-  `deque/chase_lev/storage.rs`, owner drain in
-  `deque/chase_lev/gate.rs`, and the executor's `StealResult::Retry` loops in
-  `schedule/queue/mod.rs`. The old gate citation drifted when PR #212 extracted
-  the combined gate.
-- **Plan:** derive one private non-allocating spin/yield transition from the
-  existing SpinLock ladder; apply it without changing queue arithmetic or task
-  ordering; add deterministic transition and held-contention coverage; rerun
-  scheduler/executor value suites, warning-denied checks, Rustdoc/doctests, and
-  the immutable six-row Criterion comparison.
-- **Entry baseline:** exact head `bb6087f`; Criterion point estimates for paired
-  two/four/eight-thief drain and owner-growth rows are 389.37/392.41 µs,
-  763.85/876.66 µs, and 1.0461/2.4725 ms. The final owner row is noisy; no
-  performance conclusion is attached to this single run.
+  `fix/scheduler-spin-budgets`; lease: none. Source `9cb90ff` and bounded
+  retry-locality correction `02a5fb5` are complete; independent review and
+  merge remain.
+- **Implementation:** one-byte `ContentionWait` owns the 64-hint/yield cycle for
+  Chase-Lev storage-generation and resize-owner waits. Executor steal loops
+  retain at most 64 lost-race attempts at one victim priority before returning
+  to the existing worker retry/park ladders. No queue arithmetic, allocation,
+  task ordering, public API, benchmark workload, or timeout changed.
+- **Correctness evidence:** host and release Nextest pass 170/170 with two
+  configured skips; focused Loom passes 7/7; warning-denied host and cfg-Loom
+  Clippy, strict AArch64 Windows all-target/all-feature check, Rustdoc, two
+  doctests, formatting, and diff hygiene pass.
+- **Performance evidence:** the first pre-change 389.37 µs two-thief sample was
+  not reproducible in the candidate window. Same-window exact baseline
+  `bb6087f` versus bounded candidate measures drain/owner-growth at two thieves
+  as 473.02 µs [469.93, 475.64] / 352.78 µs [322.26, 384.28] versus
+  471.14 µs [467.99, 474.57] / 363.02 µs [338.11, 378.26]; at four as
+  759.38 µs [747.42, 775.29] / 902.66 µs [870.47, 933.34] versus
+  752.36 µs [736.71, 774.76] / 868.77 µs [849.73, 887.58]; and at eight as
+  1.0536 ms [1.0461, 1.0619] / 2.2707 ms [2.0777, 2.4312] versus
+  1.0705 ms [1.0648, 1.0779] / 2.2418 ms [2.0707, 2.3735]. Five intervals
+  overlap. The eight-thief drain repeat is 1.0849 ms [1.0787, 1.0904], a
+  1.98% Criterion change. All changes remain below the predeclared 5%
+  materiality threshold; the candidate is accepted without a speedup claim.
 
 ## MOI-AARCH64-SIMD-CFG-2026-08-27 — cfg-local SIMD lengths [patch] — review
 
