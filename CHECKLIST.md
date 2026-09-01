@@ -24,8 +24,8 @@
   | body | crossover | evidence |
   |---|---|---|
   | one multiply | 4,096-8,192 | serial/parallel medians 1.532/1.954 us at 4,096 and 3.028/2.004 us at 8,192 |
-  | `sqrt` + `ln_1p` | below 4,096 | parallel wins at every retained candidate size from 512 through 32,768; 65,536 is statistically unchanged |
-  | 24 chained FMAs | below 512 | parallel wins from 512 through 32,768; 65,536 is statistically unchanged |
+  | `sqrt` + `ln_1p` | 512-1,024 | serial/parallel medians 1.536/1.951 us at 512 and 3.047/2.096 us at 1,024 |
+  | 24 chained FMAs | below 512 | serial/parallel medians 14.287/4.924 us at the smallest retained size, 512 |
 
 - **Implication.** The count-only threshold still cannot fit all bodies. At
   1,024 a multiply-only reduction remains slower in parallel, while the
