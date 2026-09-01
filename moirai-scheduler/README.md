@@ -10,7 +10,9 @@ provides no scheduler of its own.
 
 - `ChaseLevDeque` — the canonical Chase-Lev deque: O(1) wait-free local
   push/pop for the owner, lock-free steal for thieves, dynamic resizing, and
-  `bottom`/`top` isolated to separate cache lines.
+  `bottom`/`top` isolated to separate cache lines. Storage-generation and
+  resize-owner contention uses bounded processor hints followed by cooperative
+  thread yields; it neither allocates nor sleeps.
 - `SplitDeque` — a private owner stack backed by a shared deque, reducing steal
   contention when the spawn rate greatly exceeds the steal rate.
 - `numa::CpuTopology` — hardware NUMA/cache topology discovery, and

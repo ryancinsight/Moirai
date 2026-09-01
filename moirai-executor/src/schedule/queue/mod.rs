@@ -100,15 +100,17 @@ impl WorkerQueues {
             return None;
         }
         for &index in &PRIORITY_POP_ORDER {
-            loop {
-                match self.local_stealers[index].steal() {
-                    StealResult::Success(job) => {
-                        self.len.fetch_sub(1, Ordering::Relaxed);
-                        return Some(job);
-                    }
-                    StealResult::Retry => continue,
-                    StealResult::Empty => break,
+            match self.local_stealers[index].steal() {
+                StealResult::Success(job) => {
+                    self.len.fetch_sub(1, Ordering::Relaxed);
+                    return Some(job);
                 }
+                // The worker and scoped-wait callers already own bounded
+                // retry-then-park ladders. Returning control after one lost
+                // race prevents a single victim/priority from spinning
+                // indefinitely and preserves the next probe's priority scan.
+                StealResult::Retry => return None,
+                StealResult::Empty => {}
             }
         }
         if let Some((_priority, job)) = self.injector.try_dequeue() {
@@ -173,26 +175,26 @@ impl WorkerQueueOwner {
 
         // 1. Try to steal from target's local queues
         for &index in &PRIORITY_POP_ORDER {
-            loop {
-                match target.local_stealers[index].steal_batch() {
-                    StealResult::Success(mut batch) => {
-                        let first_job = batch
-                            .next()
-                            .expect("invariant: successful batch contains one job");
-                        let mut pushed_count = 0;
-                        for job in batch {
-                            self.local_queues[index].push(job);
-                            pushed_count += 1;
-                        }
-                        if pushed_count > 0 {
-                            self.shared.len.fetch_add(pushed_count, Ordering::Relaxed);
-                        }
-                        target.len.fetch_sub(pushed_count + 1, Ordering::Relaxed);
-                        return Some(first_job);
+            match target.local_stealers[index].steal_batch() {
+                StealResult::Success(mut batch) => {
+                    let first_job = batch
+                        .next()
+                        .expect("invariant: successful batch contains one job");
+                    let mut pushed_count = 0;
+                    for job in batch {
+                        self.local_queues[index].push(job);
+                        pushed_count += 1;
                     }
-                    StealResult::Retry => continue,
-                    StealResult::Empty => break,
+                    if pushed_count > 0 {
+                        self.shared.len.fetch_add(pushed_count, Ordering::Relaxed);
+                    }
+                    target.len.fetch_sub(pushed_count + 1, Ordering::Relaxed);
+                    return Some(first_job);
                 }
+                // Re-probe through the worker-level ladder rather than
+                // monopolizing this target after a lost race.
+                StealResult::Retry => return None,
+                StealResult::Empty => {}
             }
         }
 

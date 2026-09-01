@@ -56,6 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bound Chase-Lev storage-generation and resize-owner waits to 64 processor
+  hints before cooperatively yielding, without allocation or sleeping. Executor
+  steal retries now return to the existing worker-level bounded retry/park
+  ladders instead of spinning indefinitely inside one victim priority. Queue
+  arithmetic, task ordering, and public APIs are unchanged; no throughput or
+  latency improvement is claimed without the paired candidate comparison.
 - Dropping the final external `ThreadScheduler` handle now drains and releases
   its worker pool. Worker-owned scheduler state no longer makes the automatic
   shutdown condition unreachable. Only non-worker callers enter the join

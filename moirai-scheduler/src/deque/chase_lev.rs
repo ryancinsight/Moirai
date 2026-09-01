@@ -48,6 +48,12 @@
 //! no accessor
 //! is in-flight (epoch reclamation via the `ReclaimPolicy`), closing the
 //! use-after-free window a thief's `Acquire` array load would open.
+//!
+//! Storage-generation claims and resize-owner draining use bounded cooperative
+//! waits: 64 processor spin hints are followed by a thread yield, then the
+//! sequence repeats. A thief that observes an active resize yields immediately
+//! before retrying admission. These private transitions allocate nothing and
+//! never sleep.
 
 use super::reclaim::{DeferredReclaim, DequeReclaimPolicy, DequeReclaimState, SharedEpochReclaim};
 use moirai_core::CacheAligned;
@@ -62,6 +68,7 @@ use std::{
     },
 };
 
+mod contention;
 mod gate;
 mod storage;
 use gate::{ResizeGate, StealAccessGuard};
