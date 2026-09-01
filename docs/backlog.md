@@ -102,7 +102,8 @@ architecture definition.
 - **Evidence:** default all-target check; focused Nextest 1/1; default and
   feature-enabled all-target warning-denied Clippy; unchanged feature-enabled
   Criterion `--test` smoke completed every row in about 45 seconds; standalone
-  lock hash remains `dab0b1f06ba224ac29d750921e033d4135f9765c`.
+  lock hash remains `dab0b1f06ba224ac29d750921e033d4135f9765c`;
+  independent exact-object review is GREEN; PR #206 awaits collection.
 
 ### ✅ MOI-DISPATCH-FLOOR-2026-08-31 [patch] [perf]: Keep indexed CPU work on compute workers
 

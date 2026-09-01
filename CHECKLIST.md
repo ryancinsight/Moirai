@@ -187,7 +187,8 @@
   --all-targets`; focused Nextest 1/1; default and feature-enabled all-target
   warning-denied Clippy; feature-enabled Criterion `--test` smoke of every row
   completed in about 45 seconds; fmt, diff, and standalone lock hash
-  `dab0b1f06ba224ac29d750921e033d4135f9765c` are clean.
+  `dab0b1f06ba224ac29d750921e033d4135f9765c` are clean. Independent exact-object
+  review is GREEN; PR #206 carries the history-preserved candidate.
 
 ## MOI-FLAKY-JOIN-PRECONDITION-2026-08-28 — Make the join test's precondition deterministic [patch] — review
 
