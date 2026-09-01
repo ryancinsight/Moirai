@@ -551,12 +551,24 @@
   rustfmt, diff, and committed-lock checks pass. Independent exact-head review
   of `7d67e96` is GREEN. PR #210 hosted collection remains.
 
-## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — todo
+## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — in progress
 
-- Unowned. Mid-construction thread-spawn failure returns `Err` with
-  already-spawned workers parked forever holding `inner`
-  (`schedule/runtime/scheduler/core.rs:137-156`). Fix: on spawn error, set
-  shutdown, wake, join the partial set.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/scheduler-partial-spawn-cleanup`; lease: scheduler construction/tests,
+  ADR 0005, CHANGELOG, and this item; last update 2026-09-01.
+- **Outcome:** a compute-worker spawn failure closes and joins every worker
+  started earlier in the same construction attempt before returning the typed
+  `ThreadPoolCreationFailed` error.
+- **Acceptance:** preserve successful construction, queue and scheduling
+  behavior; route the real spawn-error branch through one scheduler owner and
+  the established shutdown lifecycle; use an isolated per-construction test
+  failure point to prove all partial workers and retained state terminate; add
+  no production global hook, hot-path work, public API, or unbounded wait.
+- **Entry evidence:** `scheduler/core.rs` currently applies `?` directly to each
+  compute-thread spawn. A failure after the first success drops only the local
+  `Arc`; the started worker retains its clone and remains parked because
+  shutdown is never published. The blocking lane already closes and joins its
+  partial handle set on the same failure class.
 
 ## MOI-EXECUTOR-LOOM-CI-2026-08-31 — Execute scheduler Loom models [patch] — review
 

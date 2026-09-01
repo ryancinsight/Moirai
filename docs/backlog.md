@@ -129,6 +129,30 @@ architecture definition.
   Rustdoc, doctests, rustfmt, diff, and committed-lock checks pass. Independent
   exact-head review of `7d67e96` is GREEN. PR #210 hosted collection remains.
 
+### 🟨 MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 [patch]: Drain partial worker construction
+
+- **Outcome:** make compute-worker construction failure close and join every
+  worker already started by that construction attempt before returning
+  `ThreadPoolCreationFailed`.
+- **Scope / non-goals:** scheduler construction, deterministic failure coverage,
+  ADR 0005, CHANGELOG, and PM state only; no successful scheduling policy,
+  worker count, queue behavior, public API, or hot-path allocation change.
+- **Acceptance:** construct one scheduler owner before spawning; on the real
+  spawn-error branch publish shutdown, wake and join only the partial handle
+  set; an isolated per-construction test point proves worker and retained-state
+  release without OS resource exhaustion, global test state, sleeps, or
+  unbounded waits.
+- **Risk / change:** P1 lifecycle/resource correctness, `[patch]`; no SemVer
+  change.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/scheduler-partial-spawn-cleanup`; lease: scheduler construction/tests,
+  ADR 0005, CHANGELOG, and this item; last update 2026-09-01.
+- **Entry evidence:** `scheduler/core.rs` applies `?` directly to each compute
+  spawn, so failure after one success drops only the constructor's `Arc`; the
+  started worker retains its clone and remains parked because shutdown was not
+  published. The blocking lane already closes and joins its partial handle set
+  for the same failure class.
+
 ### 🟨 MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
 - **Outcome / scope:** make the existing bounded Loom job run all committed
