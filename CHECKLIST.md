@@ -385,27 +385,16 @@
   the futex_mutex/mpmc-waiter precedent plus stress coverage.
 - **Last-update:** 2026-08-27.
 
-## MOI-INLINE-POLL-DEPTH-2026-08-27 — Bound nested inline-wake polls [patch] — review
+## MOI-INLINE-POLL-DEPTH-2026-08-27 — Bound nested inline-wake polls [patch] — done 2026-08-31
 
-- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `chore/inline-poll-depth-closure`; lease: PM records only; source increment
-  committed as `d94ef46`; last update 2026-08-31.
-- **Outcome:** `schedule_wake` now admits one thread-local inline poll after a
-  rejected queue admission. A second rejected wake emitted by that poll owns
-  its `QUEUED` epoch and completes once with typed `TaskError::ResourceExhausted`
-  instead of recursively extending the waking thread's stack.
-- **Decision:** landed `322130d0` bounded self-wake repolls only; it did not
-  bound distinct-task wake chains. Retain its self-wake and shutdown state
-  transitions and add the independent cross-task depth budget.
-- **Evidence:** all-feature executor Nextest passes 129/129 in 1.03 s; the
-  focused debug and release saturation matrices pass 3/3; warning-denied
-  all-target/all-feature Clippy, warning-denied Rustdoc, and doctests pass.
-  The regression also proves a later unrelated rejected wake can poll inline,
-  detecting a leaked thread-local depth lease. The first independent review
-  found stale single-owner and over-broad transition wording in the unsafe
-  proof; `d94ef46` now defines both owners and distinguishes atomic notification
-  from access-permission transfer. Independent exact-Git review is GREEN at
-  `d94ef46040e6c18b90f151e73c6f3d6b41b1449d`; PR/merge closure remains.
+- **Delivered:** source `d94ef46`, PM `c9eacef`, PR #207, merge
+  `c35205b067e0428904bcebdc40862126106c68dd`; lease: none. Cross-task rejected
+  wakes are bounded to one nested inline poll and deeper wakes complete with
+  typed `TaskError::ResourceExhausted`.
+- **Evidence:** independent exact-Git review GREEN; executor Nextest 129/129,
+  focused debug/release 3/3, warning-denied Clippy/Rustdoc, doctests, and all
+  repository checks green. The external `recurseml/analysis` service errored
+  and is not a required repository check.
 
 ## MOI-REGISTRY-UNBOUNDED-2026-08-27 — Bound the task registry [minor] — partly delivered; the bulk needs a contract decision
 
@@ -514,11 +503,11 @@
 - **Delivered:** closed by `MOI-PAR-TERMINALS-2026-08-28`; borrowed shards are
   zero-copy subslices and owned shards stop splitting at the dispatch threshold.
 
-## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — in progress
+## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — review
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/idle-bit-repark`; lease: `moirai-executor/src/schedule/runtime/{worker.rs,tests.rs}`
-  plus this item and its changelog/backlog entries; last update 2026-08-31.
+  `fix/idle-bit-repark`; source `4d5db90`; lease: PM records only; last update
+  2026-08-31.
 - **Outcome:** every zero-work park attempt publishes the worker's idle bit
   before the SeqCst pending-work recheck, including after a claimed wake whose
   task was drained by another worker.
@@ -526,8 +515,14 @@
   becomes claimable again before its second park; a second submission wakes it;
   all work executes exactly once; shutdown and the existing SeqCst lost-wake
   handshake remain unchanged; no queue, spin-budget, or public-API change.
-- **Verification:** focused race/value tests, executor Nextest, warning-denied
-  all-target/all-feature Clippy and Rustdoc, release focused test, exact review.
+- **Evidence:** the deterministic regression fails the prior one-registration
+  loop because the second park sees no claimable worker, then passes at
+  `4d5db90`. Full all-feature executor Nextest passes 130/130 in 0.955 s; the
+  release regression, warning-denied all-target/all-feature Clippy and Rustdoc,
+  doctests, rustfmt, and diff checks pass. `worker.rs` is split from 613 to 429
+  lines with 132-line wait and 106-line indexed leaves. Independent exact-Git
+  review is GREEN at `4d5db90866bb995550ae0dab8172f47dad6459ec`;
+  PR/merge closure remains.
 
 ## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — todo
 
