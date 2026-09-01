@@ -2,7 +2,7 @@
 
 **Target**: Unreleased
 
-## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — reviewed; merge pending
+## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — post-merge fix-forward
 
 - **Outcome:** write chunked `ParallelIter::map` results directly into one
   ordered full-output allocation, removing shard-local output vectors and the
@@ -23,8 +23,9 @@
   Stop with the instrument if the baseline misses fan-out, lacks the duplicate
   full output, or paired intervals establish a regression.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-map-direct-output`; implementation lease discharged at source
-  `924f5d9`; lease: none. PR #222 remains pending. Last update 2026-09-01.
+  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; lease:
+  `moirai-iter/src/iter_ops/parallel.rs`, allocation regression, CHANGELOG, and
+  PM closure. Last update 2026-09-01.
 - **Entry baseline:** the unchanged warmed public map at 131,072 `u64` values
   makes 114 allocation calls totalling 3,815,568 gross allocated bytes, 3.64×
   the 1,048,576-byte final output. The retained x86-64 Windows Criterion row
@@ -41,7 +42,10 @@
   partial initialization cleanup, and zero-sized output. Public-path Miri stops
   at the unsupported Windows NUMA call before this code. Exact-baseline SemVer
   passes 223 checks, and independent review of `7f7b279...924f5d9` is GREEN.
-  PR #222 and hosted merge closure remain pending.
+  Hosted run `33493866766` then observed 417 allocations and 1,361,702 gross
+  bytes because Linux NUMA topology discovery remained inside every iterator
+  construction. Fix-forward removes that per-call discovery; exact candidate
+  and hosted closure remain open.
 
 ## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — done 2026-09-01
 
