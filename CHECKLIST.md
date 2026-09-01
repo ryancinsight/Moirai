@@ -533,7 +533,12 @@
   workspace Nextest passes 928/928 in 11.805 s, and benchmark contracts pass
   72/72 in 0.563 s. Warning-denied all-target Clippy and Rustdoc, doctests,
   rustfmt, diff, warm-allocation, and committed-lock checks pass. Fresh
-  independent exact-commit review is running.
+  independent exact-commit review found a lost condition-variable notification:
+  completion was published outside the waiter mutex. Forward correction
+  `ec92944` publishes under that mutex; the admission and external-waiter Loom
+  models pass 2/2 in 0.026 s, warning-denied all-target/all-feature Clippy
+  passes, release executor Nextest passes 132/132 in 1.043 s, and workspace
+  Nextest passes 928/928 in 11.965 s. Exact-commit re-review remains.
 
 ## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — todo
 

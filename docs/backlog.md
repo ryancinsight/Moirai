@@ -110,8 +110,13 @@ architecture definition.
   passes 1/1. Release executor Nextest passes 132/132 in 0.977 s, workspace
   Nextest passes 928/928 in 11.805 s, and embedded-source benchmark contracts
   pass 72/72 in 0.563 s. Warning-denied all-target Clippy and Rustdoc, doctests,
-  rustfmt, diff, warm-allocation, and committed-lock checks pass. Fresh
-  independent review and publish/merge closure remain.
+  rustfmt, diff, warm-allocation, and committed-lock checks pass. Fresh review
+  found that completion publication outside the waiter mutex could lose the
+  condition-variable notification. Forward correction `ec92944` publishes
+  under the mutex; both shutdown Loom models pass in 0.026 s, warning-denied
+  all-target/all-feature Clippy passes, release executor Nextest passes 132/132
+  in 1.043 s, and workspace Nextest passes 928/928 in 11.965 s. Exact-commit
+  re-review and publish/merge closure remain.
 
 ### 🟨 MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
