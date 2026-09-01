@@ -663,9 +663,10 @@
   verification, confirmatory comparison, CHANGELOG, and this item.
 - **Implementation:** one-byte `ContentionWait` owns the 64-hint/yield cycle for
   Chase-Lev storage-generation and resize-owner waits. Executor steal loops
-  use one monomorphized helper to emit 64 hints, yield, reset, and retry the
-  selected victim priority. No queue arithmetic, allocation, task ordering,
-  public API, benchmark workload, or timeout changed.
+  use one monomorphized helper and the existing executor-wide 256-hint
+  cooperative window before yielding, resetting, and retrying the selected
+  victim priority. No queue arithmetic, allocation, task ordering, public API,
+  benchmark workload, or timeout changed.
 - **Correctness evidence:** the bounded-yield helper test passes 1/1, the debug
   scheduler/executor suite passes 171/171 with two configured skips, and
   warning-denied host Clippy, formatting, and diff hygiene pass. The prior
@@ -687,6 +688,11 @@
   policy and establish no acceptance threshold. Before the fresh comparison,
   the confirmatory rule is: reject any candidate row with a slower median and
   non-overlapping 95% confidence intervals against the exact paired baseline.
+  The first rebuilt comparison rejects the 64-hint executor candidate: the
+  two-thief drain is 475.74 µs [474.25, 476.84] versus baseline 471.87 µs
+  [470.09, 473.39]. The 256-hint successor is selected before measurement
+  because it reuses the executor's worker-idle/join cooperative window; fresh
+  confirmatory collection remains pending.
 
 ## MOI-AARCH64-SIMD-CFG-2026-08-27 — cfg-local SIMD lengths [patch] — review
 

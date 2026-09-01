@@ -58,10 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bound Chase-Lev storage-generation and resize-owner waits to 64 processor
   hints before cooperatively yielding, without allocation or sleeping. Executor
-  steal retries use the same finite hint/yield cycle while retaining the
-  victim priority selected by the existing scheduler. Queue arithmetic, task
-  ordering, and public APIs are unchanged; no throughput or latency improvement
-  is claimed before the confirmatory paired comparison.
+  steal retries use the executor's existing 256-hint cooperative window while
+  retaining the victim priority selected by the scheduler. Queue arithmetic,
+  task ordering, and public APIs are unchanged; no throughput or latency
+  improvement is claimed before the confirmatory paired comparison.
 - Dropping the final external `ThreadScheduler` handle now drains and releases
   its worker pool. Worker-owned scheduler state no longer makes the automatic
   shutdown condition unreachable. Only non-worker callers enter the join

@@ -193,6 +193,11 @@ architecture definition.
   acceptance threshold. Before fresh measurements, the confirmatory rule is:
   reject any slower candidate median whose 95% confidence interval does not
   overlap the exact paired baseline; no throughput or latency win is claimed.
+  The first rebuilt comparison rejects the 64-hint executor candidate: the
+  two-thief drain is 475.74 µs [474.25, 476.84] versus baseline 471.87 µs
+  [470.09, 473.39]. The next candidate reuses the executor's existing 256-hint
+  worker-idle/join cooperative window; that selection precedes its fresh
+  confirmatory measurement.
 
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 

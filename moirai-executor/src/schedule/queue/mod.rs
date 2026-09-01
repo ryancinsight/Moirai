@@ -11,12 +11,10 @@ use moirai_core::Priority;
 use moirai_scheduler::{ChaseLevDeque, ChaseLevStealer, DequeCapacity, StealResult};
 use moirai_utils::CacheAligned;
 
-use super::job::ScheduledJob;
+use super::{job::ScheduledJob, COOPERATIVE_SPIN_ATTEMPTS};
 
 /// One queue per priority level; indices come from [`Priority::index`] (SSOT).
 const PRIORITY_LEVELS: usize = Priority::Critical.index() + 1;
-/// Lost-race processor hints emitted before yielding to another runnable thread.
-const STEAL_SPINS_BEFORE_YIELD: u8 = 64;
 /// Pop scan order: highest [`Priority::index`] first.
 const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] = [
     Priority::Critical.index(),
@@ -36,12 +34,12 @@ fn steal_after_contention_with<T>(
     mut spin: impl FnMut(),
     mut yield_now: impl FnMut(),
 ) -> Option<T> {
-    let mut spins = 0u8;
+    let mut spins = 0usize;
     loop {
         match steal() {
             StealResult::Success(value) => return Some(value),
             StealResult::Empty => return None,
-            StealResult::Retry if spins < STEAL_SPINS_BEFORE_YIELD => {
+            StealResult::Retry if spins < COOPERATIVE_SPIN_ATTEMPTS => {
                 spins += 1;
                 spin();
             }
@@ -247,8 +245,9 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use super::{steal_after_contention_with, WorkerQueues, STEAL_SPINS_BEFORE_YIELD};
+    use super::{steal_after_contention_with, WorkerQueues};
     use crate::schedule::job::ScheduledJob;
+    use crate::schedule::COOPERATIVE_SPIN_ATTEMPTS;
     use moirai_core::Priority;
     use moirai_scheduler::{DequeCapacity, StealResult};
 
@@ -259,7 +258,7 @@ mod tests {
         let attempts = Cell::new(0usize);
         let spins = Cell::new(0usize);
         let yields = Cell::new(0usize);
-        let retries = 2 * (usize::from(STEAL_SPINS_BEFORE_YIELD) + 1);
+        let retries = 2 * (COOPERATIVE_SPIN_ATTEMPTS + 1);
 
         let result = steal_after_contention_with(
             || {
@@ -277,7 +276,7 @@ mod tests {
 
         assert_eq!(result, Some(7));
         assert_eq!(attempts.get(), retries + 1);
-        assert_eq!(spins.get(), 2 * usize::from(STEAL_SPINS_BEFORE_YIELD));
+        assert_eq!(spins.get(), 2 * COOPERATIVE_SPIN_ATTEMPTS);
         assert_eq!(yields.get(), 2);
     }
 
