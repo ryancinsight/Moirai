@@ -548,8 +548,8 @@
   including release in 0.984 s; workspace Nextest passes 929/929 in 11.169 s;
   benchmark contracts pass 72/72 in 0.586 s; all 16 Loom models pass in
   0.582 s. Warning-denied all-target/all-feature Clippy and Rustdoc, doctests,
-  rustfmt, diff, and committed-lock checks pass. Exact re-review and PR #210
-  collection remain.
+  rustfmt, diff, and committed-lock checks pass. Independent exact-head review
+  of `7d67e96` is GREEN. PR #210 hosted collection remains.
 
 ## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — todo
 
@@ -572,8 +572,8 @@
   the two-owner election model, and invariant-specific model diagnostics. The
   exact workflow selection passes 16/16 across nine binaries in 0.640 s after
   a 4.63 s warm compile; warning-denied `cfg(loom)` Clippy, rustfmt, YAML parse,
-  diff, and committed-lock checks pass. Exact review and hosted collection
-  remain.
+  diff, and committed-lock checks pass. Independent cumulative review at
+  `7d67e96` is GREEN. Hosted collection remains.
 
 ## MOI-STEAL-BATCH-GATE-HOIST-2026-08-27 — Enter steal resize gate once per batch [patch] — review
 
