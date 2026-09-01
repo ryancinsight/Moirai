@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Retained async future slots now overlap the output index and intrusive vacancy
+  link in one occupancy-discriminated metadata word. On the measured 64-bit
+  host, `FutureSlot<PendingOnce<u64>>` falls from 48 to 40 bytes. The unchanged
+  1,024-item pending-map ledger at concurrency limits 1 / 8 / 24 retains 15 /
+  15 / 15 allocation calls while gross bytes fall from 16,568 / 17,128 /
+  18,408 to 16,560 / 17,064 / 18,216, exactly eight bytes per reachable slot.
+  Full-width output indices, including `usize::MAX`, remain valid because slot
+  occupancy—not a packed sentinel—discriminates the metadata. This changes no
+  public API, concurrency bound, scheduler policy, wake protocol, or workload.
+  Forced-rebuild pinned-core measurements show no retained Moirai Criterion
+  median regressing by 5% or more; host variance precludes a throughput claim.
 - Retained async slot blocks now own stable wake identities in one shared
   `WakeBlock` instead of allocating one `Arc<WakeToken>` per in-flight slot.
   The unchanged 1,024-item pending-map ledger at explicit concurrency limits

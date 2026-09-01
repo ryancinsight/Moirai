@@ -115,7 +115,7 @@ architecture definition.
   focused slot/layout/allocation tests, CHANGELOG, and this item; last update
   2026-09-01.
 - **Dependency:** shared wake ownership merged through PR #227 as `a83361a`;
-  default-branch repository verification remains in flight.
+  every repository-owned post-merge check is green.
 - **Entry evidence:** on the 64-bit host, the focused layout regression pins
   `PendingOnce<u64>` at 24 bytes, `FutureSlot<PendingOnce<u64>>` at 48 bytes,
   and `WakeToken` at 16 bytes; the slot's 24-byte overhead is exactly three
@@ -126,6 +126,27 @@ architecture definition.
   identifies a 64-byte public-path future slot, so one metadata word is a
   material 12.5% candidate reduction in the future slot and 10% in combined
   retained slot-plus-token storage.
+- **Candidate evidence:** one occupancy-discriminated `metadata` word now stores
+  the output index while occupied and the vacancy link while empty. On the same
+  64-bit host, `FutureSlot<PendingOnce<u64>>` is 40 bytes instead of 48 while
+  `WakeToken` remains 16 bytes. The unchanged public ledger retains 15 / 15 /
+  15 allocation calls and measures 16,560 / 17,064 / 18,216 gross bytes at
+  limits 1 / 8 / 24: exactly eight fewer bytes per retained slot and a residual
+  72-byte slope. The focused suite passes 16 / 16, including full-width
+  `usize::MAX` output indices on zero-sized futures, vacancy refill,
+  cancellation, panic-unwind drops, and cross-thread wake routing. Debug and
+  release all-feature Nextest pass 252 / 252 with three configured skips;
+  warning-denied host and AArch64 Windows all-target/all-feature Clippy,
+  Rustdoc, 4 / 4 doctests, focused Miri 16 / 16, and 72 / 72 benchmark-contract
+  tests pass. Directory-baseline cargo-semver-checks passes 223 / 223 checks
+  with 31 inapplicable skips and requires no version change. A forced-rebuild,
+  pinned-core comparison against exact parent `a83361a` measures retained-row
+  medians (95% CI) of 32.353 us [32.029, 32.804] to 33.115 us [32.744,
+  33.395] for ready async (+2.35%), 62.089 us [61.708, 89.205] to 62.383 us
+  [62.035, 62.842] for pending async (+0.47%), and 110.477 us [109.008,
+  116.922] to 109.803 us [108.445, 112.628] for sparse pending (-0.61%). No
+  retained row reaches the 5% regression bound; broad intervals and control
+  movement preclude a throughput claim. Independent review remains pending.
 
 ### ✅ MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 [patch] [perf]: Consolidate retained-slot wake ownership
 
