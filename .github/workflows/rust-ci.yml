@@ -2,6 +2,7 @@ name: Rust Workspace
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - "**/*.rs"
       - "**/Cargo.toml"
@@ -45,12 +46,14 @@ jobs:
   # overlay environment that produces it. Calls the shared Atlas workflow.
   lockfile:
     name: Lockfile integrity
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     uses: ryancinsight/atlas/.github/workflows/lockfile-guard.yml@886d85b0e4bea20c8e5ec4b4239e6ba9cdbcf74d
     permissions:
       contents: read
 
   gate:
     name: Workspace gate
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -95,6 +98,7 @@ jobs:
 
   loom:
     name: Loom channel models
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -139,6 +143,7 @@ jobs:
 
   supply-chain:
     name: Supply-chain
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -153,6 +158,7 @@ jobs:
 
   fuzz:
     name: Fuzz parsers
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     # Entry cold setup/build plus one 180-second campaign completed in 263
     # seconds. The second campaign runs concurrently; six minutes preserves

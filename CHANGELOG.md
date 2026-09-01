@@ -61,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Pull-request workflows now skip every Rust, Python, and book job while a pull
+  request is draft, then run the unchanged path-selected workloads when it is
+  opened ready or marked ready for review. Default-branch, scheduled, and
+  manual executions are unchanged.
 - Bound Chase-Lev storage-generation and resize-owner waits to 64 processor
   hints before cooperatively yielding, without allocation or sleeping. Executor
   steal retries use Moirai's established 1,000-hint pre-yield ceiling while
