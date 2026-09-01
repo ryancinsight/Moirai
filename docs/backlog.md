@@ -108,20 +108,24 @@ architecture definition.
   not a repeat allocation source or if sharing the process count changes the
   explicit async/hybrid limits or public values.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-context-parallelism-probe`; live lease:
-  `moirai-iter/src/execution/base.rs`, one focused allocation test,
-  `benchmarks/benches/execution_context_comparison.rs`, related benchmark
-  contract coverage, CHANGELOG, and this item; status: source verification; last
-  update 2026-09-01.
+  `perf/iter-context-parallelism-probe`; source lease discharged at `7fee7dd`;
+  independent review green; status: PR #225 delivery; last update 2026-09-01.
 - **Evidence:** the warmed public 1,024-item ready-future map moves from 1,118
   allocations / 152,616 gross bytes to 1,035 / 114,816, with all ordered values
   exact. The paired Criterion median moves from 81.025 us (95% CI
   79.601-82.117 us) to 63.307 us (95% CI 63.041-63.545 us), 21.9% lower with
   disjoint intervals. The residual 1,024-scale allocation count is
   dependency-owned buffered-future node storage and is the next bounded
-  attribution target, not a removed-allocation claim in this item.
+  attribution target, not a removed-allocation claim in this item. Exact-source
+  gates pass: focused allocation and contract tests; debug and release
+  all-feature suites 233/233 with two configured skips each; warning-denied
+  all-target/all-feature Clippy, Rustdoc, and AArch64 Windows all-target check;
+  4/4 doctests; benchmark smoke; formatting/diff checks; and
+  cargo-semver-checks 223/223 under patch.
+  Independent committed-object review of `7fee7dd` found no blocking issue; it
+  did not rerun local tests or inspect revision-attested raw Criterion samples.
 
-### 🟡 MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 [patch] [perf]: Remove count-only topology discovery
+### ✅ MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 [patch] [perf]: Remove count-only topology discovery
 
 - **Outcome:** measure and, only if attributed, remove full NUMA/cache topology
   discovery from zero-copy iterator construction when only the
@@ -141,10 +145,8 @@ architecture definition.
   probe is not the allocation source or if the replacement changes the chunk
   formula.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-zero-copy-topology-probe`; live lease: `moirai-iter/src/base.rs`,
-  `cache.rs`, `iter_ops/parallel.rs`, one focused allocation test, cache
-  benchmark evidence, CHANGELOG, and this item; source lease discharged; status:
-  delivery and hosted Linux collection pending; last update 2026-09-01.
+  `perf/iter-zero-copy-topology-probe`; lease: none; source `66bc88b`; PM
+  `06e9878`; PR #224 merged with history as `f689900`; last update 2026-09-01.
 - **Evidence:** at exact entry source `8960e3b`, warmed zero-copy construction
   made 82 allocations totalling 13,184 gross bytes; its 1,024-item sequential
   map then made only the 8,192-byte output allocation. The candidate replaces
@@ -157,12 +159,13 @@ architecture definition.
   with two configured skips each; warning-denied all-target/all-feature Clippy,
   Rustdoc, and AArch64 Windows all-target check pass; doctests pass 4/4; the
   unchanged six-row benchmark smoke, formatting/diff checks, and
-  cargo-semver-checks 223/223 under patch pass. Independent review and hosted
-  Linux closure remain. Independent review of `871a1c9` found an
+  cargo-semver-checks 223/223 under patch pass. Independent review of `871a1c9`
+  found an
   oversized-element modulo-by-zero prefetch boundary; the fix-forward clamps
   prefetch spacing to one element and adds an exact-once parallel regression.
-  Exact corrected source `66bc88b` passed independent static re-review; hosted
-  Linux closure remains.
+  Exact corrected source `66bc88b` passed independent static re-review. Every
+  repository check on PR #224 passed; the external non-required
+  `recurseml/analysis` service errored.
 
 ### 🟡 MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Remove shard-local map outputs
 
