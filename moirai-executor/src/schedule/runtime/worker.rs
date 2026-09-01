@@ -1,16 +1,21 @@
 //! Worker loop and associated free functions for the thread scheduler runtime.
 
+mod indexed;
+mod wait;
+
 use std::{
     sync::{Mutex, MutexGuard},
     thread::{self, JoinHandle},
 };
 
-use moirai_core::error::{ExecutorError, ExecutorResult};
-
 use super::super::job::ScheduledJob;
 use super::super::queue::WorkerQueueOwner;
 
 use super::types::{set_current_worker_id, ContendedWakePolicy, SchedulerInner, WorkerState};
+pub(super) use indexed::{
+    indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
+};
+use wait::{should_stop, spin_for_work, wait_for_work};
 
 #[cfg(feature = "scheduler-diagnostics")]
 use super::types::BoundedContendedWake;
@@ -299,95 +304,6 @@ fn execute_job_with_counters<const BLOCKING_QUEUE_CAPACITY: usize>(
     }
 }
 
-fn should_stop<const BLOCKING_QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
-) -> bool {
-    use std::sync::atomic::Ordering;
-    inner.shutdown.load(Ordering::Acquire) && inner.pending_tasks.load(Ordering::Acquire) == 0
-}
-
-fn spin_for_work<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>(
-    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
-    worker_id: usize,
-) -> bool {
-    use std::sync::atomic::Ordering;
-    for attempt in 0..SPIN_LIMIT {
-        core::hint::spin_loop();
-        let local = &inner.workers[worker_id];
-        if !local.queues.is_empty()
-            || local.lifo_slot.state.load(Ordering::Relaxed) == 2
-            || should_stop(inner)
-        {
-            return true;
-        }
-
-        // Periodically check if other workers have stealable tasks to avoid parking
-        if attempt % 32 == 0 && (has_stealable_work(inner, worker_id) || should_stop(inner)) {
-            return true;
-        }
-    }
-
-    false
-}
-
-fn has_stealable_work<const BLOCKING_QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
-    worker_id: usize,
-) -> bool {
-    use std::sync::atomic::Ordering;
-    let worker_count = inner.workers.len();
-    // Bounded randomized probe: instead of scanning all `worker_count - 1`
-    // victims every 32 spins (O(N) per check, cache-line churn on large pools),
-    // probe at most `STEAL_PROBE_LIMIT` victims starting from a random offset.
-    // Missing stealable work is harmless - the worker continues spinning and
-    // `steal_job` (called from `next_job`) still scans the full ring. The probe
-    // only needs to find *some* victim with work to break out of the spin early.
-    const STEAL_PROBE_LIMIT: usize = 8;
-    let start = next_steal_start();
-    let probe_count = worker_count.min(STEAL_PROBE_LIMIT);
-    for offset in 0..probe_count {
-        let victim_index = (start.wrapping_add(offset)) % worker_count;
-        if victim_index == worker_id {
-            continue;
-        }
-        let victim = &inner.workers[victim_index];
-        if !victim.queues.is_empty() || victim.lifo_slot.state.load(Ordering::Relaxed) == 2 {
-            return true;
-        }
-    }
-    false
-}
-
-fn wait_for_work<const BLOCKING_QUEUE_CAPACITY: usize>(
-    inner: &SchedulerInner<BLOCKING_QUEUE_CAPACITY>,
-    worker_id: usize,
-) {
-    use std::sync::atomic::Ordering;
-    // Register this worker as parked in the wake bitset, then re-check
-    // `pending_tasks` under the same SeqCst order. The `set` and the load form
-    // the worker half of the store-buffer handshake with `schedule_job`'s SeqCst
-    // increment + bitset scan, which is what rules out a lost wakeup. Every
-    // worker registers (no id < 64 special case), so large pools have no
-    // unreachable workers.
-    inner.idle_workers.set(worker_id);
-    while inner.pending_tasks.load(Ordering::SeqCst) == 0 && !inner.shutdown.load(Ordering::SeqCst)
-    {
-        // Park until `schedule_job` unparks us. Async I/O readiness is driven by
-        // moirai_pal's dedicated global reactor thread, whose wakers reschedule
-        // their tasks through `schedule_job` -- so a parked worker is woken the
-        // same way for an async completion as for fresh sync work, and never
-        // needs to drive the reactor itself.
-        //
-        // Workers previously ran a 1 ms `reactor.run_iteration` here. That poll
-        // is not interruptible by `unpark` and rounds up to the OS timer
-        // granularity (~15 ms on Windows), so scheduling sync work to an idle
-        // pool stalled until the poll returned -- a latency the large `SPIN_LIMIT`
-        // was masking. Parking restores microsecond wake latency.
-        thread::park();
-    }
-    inner.idle_workers.clear(worker_id);
-}
-
 pub(super) fn wake_worker(worker: &WorkerState) {
     if let Some(thread) = worker.thread.get() {
         thread.unpark();
@@ -506,108 +422,8 @@ pub(super) fn is_quiescent<const BLOCKING_QUEUE_CAPACITY: usize>(
         && inner.blocking_active_workers.load(Ordering::SeqCst) == 0
 }
 
-pub(super) fn inline_map_reduce<T, Map, Reduce>(
-    count: usize,
-    identity: T,
-    map: Map,
-    reduce: Reduce,
-) -> ExecutorResult<T>
-where
-    Map: Fn(usize) -> T,
-    Reduce: Fn(T, T) -> T,
-{
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-    catch_unwind(AssertUnwindSafe(|| {
-        let mut accumulator = identity;
-        for index in 0..count {
-            accumulator = reduce(accumulator, map(index));
-        }
-        accumulator
-    }))
-    .map_err(|_| ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked))
-}
-
-pub(super) fn map_reduce_range<T, Map, Reduce>(
-    start: usize,
-    end: usize,
-    identity: T,
-    map: &Map,
-    reduce: &Reduce,
-) -> T
-where
-    Map: Fn(usize) -> T,
-    Reduce: Fn(T, T) -> T,
-{
-    let mut accumulator = identity;
-    for index in start..end {
-        accumulator = reduce(accumulator, map(index));
-    }
-    accumulator
-}
-
-pub(super) fn indexed_chunk_count(count: usize, worker_count: usize) -> usize {
-    count.min(worker_count.max(1).saturating_add(1))
-}
-
-pub(super) fn indexed_chunk_bounds(
-    count: usize,
-    chunk_count: usize,
-    chunk_index: usize,
-) -> (usize, usize) {
-    let base = count / chunk_count;
-    let remainder = count % chunk_count;
-    let start = chunk_index * base + chunk_index.min(remainder);
-    let len = base + usize::from(chunk_index < remainder);
-    (start, start + len)
-}
-
 pub(super) fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-#[cfg(test)]
-mod indexed_chunk_count_tests {
-    use super::{indexed_chunk_bounds, indexed_chunk_count};
-
-    #[test]
-    fn assigns_small_domains_across_available_lanes() {
-        assert_eq!(indexed_chunk_count(9, 8), 9);
-        assert_eq!(indexed_chunk_count(2, 8), 2);
-        assert_eq!(indexed_chunk_count(1, 8), 1);
-        assert_eq!(indexed_chunk_count(0, 8), 0);
-    }
-
-    #[test]
-    fn caps_large_domains_at_workers_plus_caller() {
-        assert_eq!(indexed_chunk_count(1_000_000, 8), 9);
-    }
-
-    #[test]
-    fn single_worker_uses_worker_plus_caller() {
-        assert_eq!(indexed_chunk_count(1024, 1), 2);
-        assert_eq!(indexed_chunk_count(2, 1), 2);
-    }
-
-    #[test]
-    fn balances_remainder_across_every_chunk() {
-        let bounds: Vec<_> = (0..9)
-            .map(|chunk_index| indexed_chunk_bounds(10, 9, chunk_index))
-            .collect();
-        assert_eq!(
-            bounds,
-            vec![
-                (0, 2),
-                (2, 3),
-                (3, 4),
-                (4, 5),
-                (5, 6),
-                (6, 7),
-                (7, 8),
-                (8, 9),
-                (9, 10)
-            ]
-        );
-    }
 }
