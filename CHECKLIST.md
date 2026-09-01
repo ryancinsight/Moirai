@@ -2,7 +2,7 @@
 
 **Target**: Unreleased
 
-## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — reviewed; merge pending
+## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — post-merge fix-forward
 
 - **Outcome:** write chunked `ParallelIter::map` results directly into one
   ordered full-output allocation, removing shard-local output vectors and the
@@ -23,25 +23,31 @@
   Stop with the instrument if the baseline misses fan-out, lacks the duplicate
   full output, or paired intervals establish a regression.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-map-direct-output`; implementation lease discharged at source
-  `924f5d9`; lease: none. PR #222 remains pending. Last update 2026-09-01.
+  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; fix-forward source
+  is `e424532` in draft PR #223. Source lease discharged; PM/review/hosted
+  collection lease remains. Last update 2026-09-01.
 - **Entry baseline:** the unchanged warmed public map at 131,072 `u64` values
   makes 114 allocation calls totalling 3,815,568 gross allocated bytes, 3.64×
   the 1,048,576-byte final output. The retained x86-64 Windows Criterion row
   measures a 1.3115 ms median (95% CI 1.3023–1.3420 ms). Input construction is
   outside both measured regions; source values and every ordered result are
   checked before accepting the instrument.
-- **Candidate evidence:** warmed gross allocation is 1,062,720 bytes, one
-  1,048,576-byte output plus 14,144 bytes of chunk/completion/scheduler records;
-  total calls are 85 because scheduler task records remain. This is a 72.1%
-  gross-byte reduction and a 25.4% call-count reduction from the exact entry.
-  The retained median is 0.3180 ms (95% CI 0.3016–0.3205 ms), a 75.8% reduction
-  with disjoint intervals. Debug and release value/drop coverage are 226/226
-  green in each profile; focused Miri coverage is 3/3 for allocation transfer,
-  partial initialization cleanup, and zero-sized output. Public-path Miri stops
-  at the unsupported Windows NUMA call before this code. Exact-baseline SemVer
-  passes 223 checks, and independent review of `7f7b279...924f5d9` is GREEN.
-  PR #222 and hosted merge closure remain pending.
+- **Candidate evidence:** PR #222's initial Windows result was 85 calls and
+  1,062,720 gross bytes, but hosted Linux run `33493866766` falsified its
+  platform-independent attribution with 417 calls and 1,361,702 gross bytes.
+  `ParallelIter::new` still materialized a NUMA/cache topology snapshot solely
+  to derive a logical-processor count. The fix-forward uses process-available
+  parallelism directly; the unchanged warmed ledger now structurally requires
+  exactly three allocations and bounds gross bytes to the 1,048,576-byte final
+  output plus 6.25%. The retained median is 0.29612 ms (95% CI
+  0.28512–0.30076 ms), 77.4% below entry with disjoint intervals. Original
+  direct-output debug/release coverage was 226/226, focused Miri coverage was
+  3/3, exact-baseline SemVer passed 223 checks, and independent review of
+  `7f7b279...924f5d9` was GREEN. Fix-forward debug and release Nextest pass
+  227/227 with two configured skips in each profile; warning-denied
+  all-target/all-feature Clippy and Rustdoc pass; 4/4 doctests, formatting, and
+  the focused Criterion target pass. Independent static review of
+  `e009262...c98d979` is GREEN; hosted Linux closure remains open.
 
 ## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — done 2026-09-01
 

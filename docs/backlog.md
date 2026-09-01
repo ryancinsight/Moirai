@@ -106,25 +106,31 @@ architecture definition.
   Stop with the instrument if baseline attribution or performance acceptance
   fails.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-map-direct-output`; implementation lease discharged at source
-  `924f5d9`; lease: none; status: independently reviewed, PR #222 pending;
+  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; fix-forward source
+  is `e424532` in draft PR #223. Source lease discharged; PM/review/hosted
+  collection lease remains; status: post-merge Workspace-gate fix-forward;
   last update 2026-09-01.
 - **Entry evidence:** the unchanged warmed 131,072-item public map makes 114
   allocation calls totalling 3,815,568 gross allocated bytes, 3.64× its
   1,048,576-byte final output. The retained x86-64 Windows Criterion row has a
   1.3115 ms median (95% CI 1.3023–1.3420 ms). The instrument excludes input
   construction from both measured regions and checks every ordered value.
-- **Candidate evidence:** warmed gross allocation is 1,062,720 bytes, comprising
-  one 1,048,576-byte output plus 14,144 bytes of chunk/completion/scheduler
-  records; total calls are 85 because scheduler task records remain. Gross
-  bytes fall 72.1% and calls 25.4%. The retained median is 0.3180 ms (95% CI
-  0.3016–0.3205 ms), 75.8% below entry with disjoint intervals. Debug and
-  release value/drop coverage are 226/226 green in each profile; focused Miri
-  coverage is 3/3 for allocation transfer, partial initialization cleanup, and
-  zero-sized output. Public-path Miri stops at the unsupported Windows NUMA call
-  before this code. Exact-baseline SemVer passes 223 checks, and independent
-  review of `7f7b279...924f5d9` is GREEN. PR #222 and hosted merge closure
-  remain pending.
+- **Candidate evidence:** PR #222's initial Windows result was 85 calls and
+  1,062,720 gross bytes, but hosted Linux run `33493866766` falsified its
+  platform-independent attribution with 417 calls and 1,361,702 gross bytes.
+  `ParallelIter::new` still materialized a NUMA/cache topology snapshot solely
+  to derive a logical-processor count. The fix-forward uses process-available
+  parallelism directly; the unchanged warmed ledger now structurally requires
+  exactly three allocations and bounds gross bytes to the 1,048,576-byte final
+  output plus 6.25%. The retained median is 0.29612 ms (95% CI
+  0.28512–0.30076 ms), 77.4% below entry with disjoint intervals. Original
+  direct-output debug/release coverage was 226/226, focused Miri coverage was
+  3/3, exact-baseline SemVer passed 223 checks, and independent review of
+  `7f7b279...924f5d9` was GREEN. Fix-forward debug and release Nextest pass
+  227/227 with two configured skips in each profile; warning-denied
+  all-target/all-feature Clippy and Rustdoc pass; 4/4 doctests, formatting, and
+  the focused Criterion target pass. Independent static review of
+  `e009262...c98d979` is GREEN; hosted Linux closure remains open.
 
 ### ✅ MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
 

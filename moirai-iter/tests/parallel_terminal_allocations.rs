@@ -231,6 +231,10 @@ fn parallel_iter_map_records_output_allocation_ledger() {
         }),
         "parallel map must preserve every ordered output value"
     );
+    assert_eq!(
+        allocations, 3,
+        "warmed map must allocate only input chunk views, completion ranges, and final output"
+    );
     assert!(
         (MAP_OUTPUT_BYTES..=MAP_OUTPUT_BYTES + MAP_OUTPUT_BYTES / 16).contains(&allocated_bytes),
         "map made {allocations} allocations totalling {allocated_bytes} gross bytes for a \
