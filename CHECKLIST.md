@@ -24,9 +24,8 @@
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `perf/iter-zero-copy-topology-probe`; lease: `moirai-iter/src/base.rs`,
   `cache.rs`, `iter_ops/parallel.rs`, one focused allocation test, retained
-  cache benchmark evidence, CHANGELOG, and this item. Implementation and local
-  gates complete; independent review and hosted Linux closure remain; last
-  update 2026-09-01.
+  cache benchmark evidence, CHANGELOG, and this item. Source lease discharged;
+  delivery and hosted Linux collection remain; last update 2026-09-01.
 - **Evidence:** at exact entry source `8960e3b`, warmed construction made 82
   allocations totalling 13,184 gross bytes before a sequential map made its sole
   8,192-byte output allocation. The candidate caches the process parallelism
@@ -42,7 +41,8 @@
   cargo-semver-checks 223/223 under patch. Independent review and hosted Linux
   closure remain. Independent review of `871a1c9` found an oversized-element
   modulo-by-zero prefetch boundary; the fix-forward clamps prefetch spacing to
-  one element and adds an exact-once parallel regression.
+  one element and adds an exact-once parallel regression. Exact corrected source
+  `66bc88b` passed independent static re-review; hosted Linux closure remains.
 
 ## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — post-merge fix-forward
 

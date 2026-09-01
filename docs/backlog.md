@@ -108,9 +108,8 @@ architecture definition.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `perf/iter-zero-copy-topology-probe`; live lease: `moirai-iter/src/base.rs`,
   `cache.rs`, `iter_ops/parallel.rs`, one focused allocation test, cache
-  benchmark evidence, CHANGELOG, and this item; status: implementation and local
-  gates complete, independent review and hosted Linux closure pending; last
-  update 2026-09-01.
+  benchmark evidence, CHANGELOG, and this item; source lease discharged; status:
+  delivery and hosted Linux collection pending; last update 2026-09-01.
 - **Evidence:** at exact entry source `8960e3b`, warmed zero-copy construction
   made 82 allocations totalling 13,184 gross bytes; its 1,024-item sequential
   map then made only the 8,192-byte output allocation. The candidate replaces
@@ -127,6 +126,8 @@ architecture definition.
   Linux closure remain. Independent review of `871a1c9` found an
   oversized-element modulo-by-zero prefetch boundary; the fix-forward clamps
   prefetch spacing to one element and adds an exact-once parallel regression.
+  Exact corrected source `66bc88b` passed independent static re-review; hosted
+  Linux closure remains.
 
 ### 🟡 MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Remove shard-local map outputs
 
