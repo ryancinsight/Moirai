@@ -137,12 +137,17 @@ architecture definition.
 - **Risk / change:** P1 concurrent memory-reclamation verification, `[patch]`;
   no SemVer change.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-resize-gate-loom`; source candidate `ffdb724`; lease: none;
+  `fix/scheduler-resize-gate-loom`; source candidate `10fcb51`; lease: none;
   status: review; independent correction review, PR publication, hosted
   collection, and merge remain; last update 2026-09-01.
 - **Entry evidence:** the existing Chase-Lev Loom model covers top/bottom and
   slot claim ordering but not `resizing`, `steal_accesses`, or the batch-long
   access hold introduced by the gate-hoist optimization.
+- **Review correction:** the first post-publication case used a channel that
+  supplied an independent happens-before edge. Candidate `10fcb51` instead
+  uses only relaxed pre-publication phase signals, structurally requires the
+  thief to back off while claimed, and asserts that its eventual admission
+  observes generation one through the gate-release ordering.
 
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 

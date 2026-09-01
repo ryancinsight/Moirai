@@ -615,7 +615,7 @@
 ## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — review
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-resize-gate-loom`; source candidate `ffdb724`; lease: none;
+  `fix/scheduler-resize-gate-loom`; source candidate `10fcb51`; lease: none;
   independent review, PR publication, hosted collection, and merge remain; last
   update 2026-09-01.
 - **Finding:** modelling the prior `resizing` flag and `steal_accesses` counter
@@ -645,6 +645,13 @@
   The existing six-row `steal_batch_gate` Criterion smoke passes; no timing
   claim is made because no revision-attested pre-change sample exists for this
   gate correction.
+- **Independent correction:** the first review found that the post-publication
+  case's channel supplied a separate ordering edge and that the backlog still
+  carried the old lease. Candidate `10fcb51` removes that channel, uses only
+  relaxed signals before publication, requires a claimed-state backoff, and
+  asserts generation one after admission. The focused Loom model and
+  warning-denied focused cfg-Loom Clippy pass after the correction; backlog and
+  checklist now agree on review status and no active lease.
 
 ## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] — todo
 
