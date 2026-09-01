@@ -656,11 +656,11 @@
   `316bf8f` is GREEN; PR #212 merged with history preserved as `207273e3`;
   every repository check completed successfully after merge.
 
-## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] [perf] — review
+## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] [perf] — merge
 
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-spin-budgets`; lease: none. Independent final review and merge
-  remain.
+  `fix/scheduler-spin-budgets`; lease: none. PR #213 hosted collection and
+  merge remain.
 - **Implementation:** one-byte `ContentionWait` owns the 64-hint/yield cycle for
   Chase-Lev storage-generation and resize-owner waits. Executor steal loops
   use one monomorphized helper and Moirai's established 1,000-hint contended
@@ -708,6 +708,11 @@
   2.010259 [1.868690, 2.168660] to 1.854881 [1.775413, 1.951207] ms. No slower
   candidate median has a non-overlapping interval, so the candidate satisfies
   the precommitted rule without a throughput or latency improvement claim.
+- **Review:** independent read-only review of exact artifact `b08bcf8` against
+  `207273e3` is GREEN. The reviewer verified the production wait transitions,
+  same-victim executor retry, unchanged instrument and timeout blobs, evidence
+  chronology, interval overlap, and synchronized release/PM claims; raw samples
+  were not Git-tracked and therefore were not independently recomputed.
 
 ## MOI-AARCH64-SIMD-CFG-2026-08-27 — cfg-local SIMD lengths [patch] — review
 

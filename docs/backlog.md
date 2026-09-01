@@ -171,8 +171,8 @@ architecture definition.
   claim requires paired Criterion evidence; no SemVer change.
 - **Dependency / integrator:** resize-gate merge `207273e3`; Codex session
   `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-spin-budgets`; lease: none; status: review; final independent
-  review and merge remain; last update 2026-09-01.
+  `fix/scheduler-spin-budgets`; lease: none; status: merge; PR #213 hosted
+  collection and merge remain; last update 2026-09-01.
 - **Verification:** exact source `c7f670e` passes the bounded-yield helper test
   1/1; debug and release scheduler/executor suites 171/171 with two configured
   skips; focused Loom 8/8; cfg-Loom and host warning-denied Clippy;
@@ -212,6 +212,11 @@ architecture definition.
   2.010259 [1.868690, 2.168660] to 1.854881 [1.775413, 1.951207] ms. No slower
   candidate median has a non-overlapping interval, so the candidate satisfies
   the precommitted rule without a throughput or latency improvement claim.
+- **Review:** independent read-only review of exact artifact `b08bcf8` against
+  `207273e3` is GREEN. The reviewer verified the production wait transitions,
+  same-victim executor retry, unchanged instrument and timeout blobs, evidence
+  chronology, interval overlap, and synchronized release/PM claims; raw samples
+  were not Git-tracked and therefore were not independently recomputed.
 
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
