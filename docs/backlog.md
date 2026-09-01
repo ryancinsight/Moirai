@@ -91,10 +91,11 @@ architecture definition.
 - **Outcome:** measure and, only if attributed, remove full NUMA/cache topology
   discovery from zero-copy iterator construction when only the
   process-available lane count is required.
-- **Scope / non-goals:** `moirai-iter` zero-copy iterator construction, focused
-  allocation/value tests, the existing cache-iterator Criterion binary,
-  CHANGELOG, and PM state. No scheduler topology, executor construction,
-  dispatch threshold, public API, workload, or timeout change.
+- **Scope / non-goals:** one private process-parallelism helper and its two
+  count-only iterator callers, focused allocation/value tests, the existing
+  cache-iterator Criterion binary, CHANGELOG, and PM state. No execution-context
+  or scheduler topology, executor construction, dispatch threshold, public API,
+  workload, or timeout change.
 - **Acceptance:** an unchanged census separates constructor allocations from a
   1,024-item sequential map and checks every value; the candidate eliminates
   only the attributed allocations while preserving empty/small/parallel chunk
@@ -105,9 +106,10 @@ architecture definition.
   probe is not the allocation source or if the replacement changes the chunk
   formula.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-zero-copy-topology-probe`; live lease: `moirai-iter/src/cache.rs`,
-  one focused allocation test, cache benchmark evidence, CHANGELOG, and this
-  item; status: entry measurement; last update 2026-09-01.
+  `perf/iter-zero-copy-topology-probe`; live lease: `moirai-iter/src/base.rs`,
+  `cache.rs`, `iter_ops/parallel.rs`, one focused allocation test, cache
+  benchmark evidence, CHANGELOG, and this item; status: entry measurement;
+  last update 2026-09-01.
 
 ### 🟡 MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Remove shard-local map outputs
 

@@ -13,17 +13,19 @@
   values, eliminate the attributed constructor allocations, and retain a
   non-regressing paired Criterion row. Debug/release Nextest, warning-denied
   Clippy/Rustdoc, doctests, benchmark smoke, SemVer, and independent review pass.
-- **Scope / non-goals:** `moirai-iter` zero-copy iterator construction, focused
-  allocation/value tests, the existing cache-iterator Criterion binary,
-  CHANGELOG, and PM state. No scheduler topology, executor construction,
-  dispatch threshold, public API, workload, or timeout change.
+- **Scope / non-goals:** one private process-parallelism helper and its two
+  count-only iterator callers, focused allocation/value tests, the existing
+  cache-iterator Criterion binary, CHANGELOG, and PM state. No execution-context
+  or scheduler topology, executor construction, dispatch threshold, public API,
+  workload, or timeout change.
 - **Risk / change:** internal `[patch]`; stop with the instrument if topology
   discovery is not the measured allocation source or if process-available
   parallelism changes the existing chunk formula.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-zero-copy-topology-probe`; lease: `moirai-iter/src/cache.rs`, one
-  focused allocation test, retained cache benchmark evidence, CHANGELOG, and
-  this item. Entry allocation census pending; last update 2026-09-01.
+  `perf/iter-zero-copy-topology-probe`; lease: `moirai-iter/src/base.rs`,
+  `cache.rs`, `iter_ops/parallel.rs`, one focused allocation test, retained
+  cache benchmark evidence, CHANGELOG, and this item. Entry allocation census
+  pending; last update 2026-09-01.
 
 ## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — post-merge fix-forward
 
