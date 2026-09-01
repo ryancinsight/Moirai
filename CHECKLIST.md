@@ -2,6 +2,29 @@
 
 **Target**: Unreleased
 
+## MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 — Remove count-only topology discovery [patch] [perf] — in progress
+
+- **Outcome:** measure and, only if attributed, remove full NUMA/cache topology
+  discovery from zero-copy iterator construction when the operation needs only
+  the process-available lane count.
+- **Acceptance:** an unchanged allocation census separates iterator
+  construction from a 1,024-item sequential map and checks every value; a
+  correction must preserve empty/small/parallel chunk planning and public
+  values, eliminate the attributed constructor allocations, and retain a
+  non-regressing paired Criterion row. Debug/release Nextest, warning-denied
+  Clippy/Rustdoc, doctests, benchmark smoke, SemVer, and independent review pass.
+- **Scope / non-goals:** `moirai-iter` zero-copy iterator construction, focused
+  allocation/value tests, the existing cache-iterator Criterion binary,
+  CHANGELOG, and PM state. No scheduler topology, executor construction,
+  dispatch threshold, public API, workload, or timeout change.
+- **Risk / change:** internal `[patch]`; stop with the instrument if topology
+  discovery is not the measured allocation source or if process-available
+  parallelism changes the existing chunk formula.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-zero-copy-topology-probe`; lease: `moirai-iter/src/cache.rs`, one
+  focused allocation test, retained cache benchmark evidence, CHANGELOG, and
+  this item. Entry allocation census pending; last update 2026-09-01.
+
 ## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — post-merge fix-forward
 
 - **Outcome:** write chunked `ParallelIter::map` results directly into one

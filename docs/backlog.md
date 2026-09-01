@@ -86,6 +86,29 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 [patch] [perf]: Remove count-only topology discovery
+
+- **Outcome:** measure and, only if attributed, remove full NUMA/cache topology
+  discovery from zero-copy iterator construction when only the
+  process-available lane count is required.
+- **Scope / non-goals:** `moirai-iter` zero-copy iterator construction, focused
+  allocation/value tests, the existing cache-iterator Criterion binary,
+  CHANGELOG, and PM state. No scheduler topology, executor construction,
+  dispatch threshold, public API, workload, or timeout change.
+- **Acceptance:** an unchanged census separates constructor allocations from a
+  1,024-item sequential map and checks every value; the candidate eliminates
+  only the attributed allocations while preserving empty/small/parallel chunk
+  planning; retained paired Criterion evidence does not regress; focused and
+  release tests, warning-denied Clippy/docs, benchmark smoke, SemVer, and
+  independent review pass.
+- **Risk / change:** internal `[patch]`; stop after measurement if the topology
+  probe is not the allocation source or if the replacement changes the chunk
+  formula.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-zero-copy-topology-probe`; live lease: `moirai-iter/src/cache.rs`,
+  one focused allocation test, cache benchmark evidence, CHANGELOG, and this
+  item; status: entry measurement; last update 2026-09-01.
+
 ### 🟡 MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Remove shard-local map outputs
 
 - **Outcome:** write chunked `ParallelIter::map` results directly into one
