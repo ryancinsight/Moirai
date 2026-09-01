@@ -503,40 +503,16 @@
 - **Delivered:** closed by `MOI-PAR-TERMINALS-2026-08-28`; borrowed shards are
   zero-copy subslices and owned shards stop splitting at the dispatch threshold.
 
-## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — review
+## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — done 2026-08-31
+
+- **Delivered:** source `4d5db90`, PR #208 merge `c4c5dbe`, hosted fix
+  `f6bc6e2`, PR #209 merge `990a3ae`; independent reviews and all required
+  repository checks are GREEN. The non-required external analysis service errored.
+
+## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — review
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/idle-bit-contract`; source `4d5db90`, PR #208 merge `c4c5dbe`, hosted
-  fix-forward `f6bc6e2`; lease: PM records only; last update 2026-08-31.
-- **Outcome:** every zero-work park attempt publishes the worker's idle bit
-  before the SeqCst pending-work recheck, including after a claimed wake whose
-  task was drained by another worker.
-- **Acceptance:** a deterministic consumed-wake race proves the target worker
-  becomes claimable again before its second park; a second submission wakes it;
-  all work executes exactly once; shutdown and the existing SeqCst lost-wake
-  handshake remain unchanged; no queue, spin-budget, or public-API change.
-- **Evidence:** the deterministic regression fails the prior one-registration
-  loop because the second park sees no claimable worker, then passes at
-  `4d5db90`. Full all-feature executor Nextest passes 130/130 in 0.955 s; the
-  release regression, warning-denied all-target/all-feature Clippy and Rustdoc,
-  doctests, rustfmt, and diff checks pass. `worker.rs` is split from 613 to 429
-  lines with 132-line wait and 106-line indexed leaves. Independent exact-Git
-  review is GREEN at `4d5db90866bb995550ae0dab8172f47dad6459ec`.
-  Hosted Workspace gate then exposed a stale source contract that still scanned
-  the pre-split `worker.rs`. `f6bc6e2` binds the unchanged cap/value assertions
-  to the canonical indexed leaf, pins both new leaves in the embedded-source
-  registry, and passes the exact failed test 1/1, all contract tests 72/72,
-  full workspace Nextest 926/926 in 11.696 s, warning-denied benchmark Clippy,
-  rustfmt, and diff checks. Independent exact-Git review is GREEN at
-  `f6bc6e262dd5a15af5d40301ce0d3f30cb4a5a2f`. Local standalone `--locked`
-  resolution is unavailable under the stack overlay; hosted recollection remains.
-
-## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — in progress
-
-- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-drop-leak`; lease:
-  `moirai-executor/src/schedule/runtime/{types.rs,scheduler/,worker.rs,tests.rs}`
-  plus this item's PM records; last update 2026-08-31.
+  `fix/scheduler-drop-leak`; lease: none; last update 2026-08-31.
 - **Outcome:** dropping the last external `ThreadScheduler` handle initiates
   shutdown and releases worker-owned scheduler state without requiring an
   explicit `shutdown()` call.
@@ -546,6 +522,18 @@
   state release; keep warm scheduling allocation and runtime budgets unchanged.
 - **Risk / change:** P1 lifecycle/resource correctness, `[patch]`; no public API
   or scheduler policy change.
+- **Evidence:** source `eba1ce4` replaces the unreachable worker-inclusive
+  strong-count guard with a cold external-handle count while retaining strong
+  worker ownership. Independent review found worker-to-worker cross-join and
+  compute-admission races; correction `4e034fd` elects one join owner, moves
+  both handle sets out of their locks, and adds the SeqCst pending/shutdown
+  handshake. Deterministic final-drop and compute/blocking concurrent-shutdown
+  regressions pass in debug and release; the new Loom admission model passes
+  1/1. All-feature release executor Nextest passes 132/132 in 0.977 s,
+  workspace Nextest passes 928/928 in 11.805 s, and benchmark contracts pass
+  72/72 in 0.563 s. Warning-denied all-target Clippy and Rustdoc, doctests,
+  rustfmt, diff, warm-allocation, and committed-lock checks pass. Fresh
+  independent exact-commit review is running.
 
 ## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — todo
 
@@ -553,6 +541,19 @@
   already-spawned workers parked forever holding `inner`
   (`schedule/runtime/scheduler/core.rs:137-156`). Fix: on spawn error, set
   shutdown, wake, join the partial set.
+
+## MOI-EXECUTOR-LOOM-CI-2026-08-31 — Execute scheduler Loom models [patch] — in progress
+
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease:
+  `.github/workflows/rust-ci.yml`,
+  `moirai-executor/tests/loom_shutdown_admission.rs`, and this item; last update
+  2026-08-31.
+- The workflow step named for channel and executor models runs only
+  `moirai-core` and `moirai-async`; all five committed `moirai-executor`
+  scheduler model binaries are omitted. Their warm local selection compiles in
+  6.17 s and executes seven models in 0.056 s, so consolidation is not yet
+  justified. Add the five binaries under the existing bounded job and include
+  external-handle final-election coverage in the shutdown model.
 
 ## MOI-STEAL-BATCH-GATE-HOIST-2026-08-27 — Enter steal resize gate once per batch [patch] — review
 

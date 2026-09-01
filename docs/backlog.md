@@ -100,37 +100,39 @@ architecture definition.
 - **Risk / change:** P1 lifecycle/resource correctness, `[patch]`; no SemVer
   change.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-drop-leak`; lease:
-  `moirai-executor/src/schedule/runtime/{types.rs,scheduler/,worker.rs,tests.rs}`
-  plus this item; last update 2026-08-31.
+  `fix/scheduler-drop-leak`; lease: none; last update 2026-08-31.
+- **Candidate / evidence:** source `eba1ce4` tracks only external handles and
+  retains worker `Arc` lifetime anchoring. Independent review found
+  worker-to-worker cross-join and compute-admission races. Correction `4e034fd`
+  elects one join owner, moves both handle sets out of their locks, and adds the
+  SeqCst pending/shutdown handshake. Deterministic final-drop and cross-lane
+  shutdown regressions pass in debug and release; the new Loom admission model
+  passes 1/1. Release executor Nextest passes 132/132 in 0.977 s, workspace
+  Nextest passes 928/928 in 11.805 s, and embedded-source benchmark contracts
+  pass 72/72 in 0.563 s. Warning-denied all-target Clippy and Rustdoc, doctests,
+  rustfmt, diff, warm-allocation, and committed-lock checks pass. Fresh
+  independent review and publish/merge closure remain.
 
-### 🟨 MOI-IDLE-BIT-REPARK-2026-08-27 [patch]: Re-register workers before every park
+### 🟨 MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
-- **Outcome:** move idle-bit publication into each zero-work park iteration so a
-  worker whose prior wake token was consumed remains visible to the next wake
-  lottery after another worker drains the original task.
-- **Scope / non-goals:** worker wait-loop state registration, deterministic race
-  coverage, and synchronized docs only; no queue selection, wake fallback,
-  spin budget, thread count, public API, or allocation change.
-- **Acceptance:** each park is preceded by `idle_workers.set(worker_id)` and the
-  existing SeqCst pending/shutdown recheck; a consumed-wake regression proves
-  the worker is reclaimable and a second task executes once without timed
-  sleeps; existing wake/large-pool tests and package gates remain green.
-- **Risk / change:** P1 correctness and utilization, `[patch]`; no SemVer change.
-- **Evidence:** the prior loop fails the injected consumed-wake schedule before
-  the second park; source `4d5db90` passes it in debug and release. Executor
-  Nextest passes 130/130 in 0.955 s; warning-denied Clippy/Rustdoc, doctests,
-  rustfmt, and diff checks pass. The 613-line worker module is split into a
-  429-line coordinator and focused 132/106-line leaves without public-surface
-  or allocation changes. Independent exact-Git review is GREEN at
-  `4d5db90866bb995550ae0dab8172f47dad6459ec`; PR/merge closure remains.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/idle-bit-contract`; source `4d5db90`, PR #208 merge `c4c5dbe`, hosted
-  fix-forward `f6bc6e2`; lease: PM records only. The hosted Workspace gate found
-  the contract scanning the pre-split `worker.rs`; the forward fix retains every
-  cap/value assertion, pins both new leaves, and passes 1/1 focused, 72/72
-  contract, and 926/926 workspace tests plus warning-denied Clippy. Independent
-  exact-Git review is GREEN; hosted standalone recollection remains.
+- **Outcome / scope:** make the existing bounded Loom job run all committed
+  `moirai-executor` scheduler models and a bounded final-external-owner model;
+  retain separate harnesses unless timing shows material compile/link duplication.
+- **Acceptance:** workflow commands, channel models, toolchain, cache, and timeout
+  remain otherwise unchanged; every model passes locally and hosted within the
+  existing bound. Missing model selection is a P1 verification `[patch]`.
+- **Entry evidence:** the five omitted executor binaries compile warm in 6.17 s
+  and execute seven models in 0.056 s; that does not justify a consolidation
+  rewrite. The hosted cold-path cost remains to be collected after selection.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
+  lease: workflow selection, shutdown Loom model, and this item; last update
+  2026-08-31.
+
+### ✅ MOI-IDLE-BIT-REPARK-2026-08-27 [patch]: Re-register workers before every park
+
+- **Delivered:** source `4d5db90`, PR #208 merge `c4c5dbe`, hosted fix
+  `f6bc6e2`, PR #209 merge `990a3ae`; independent reviews and all required
+  repository checks are GREEN. The non-required external analysis service errored.
 
 ### ✅ MOI-INLINE-POLL-DEPTH-2026-08-27 [patch]: Bound cross-task inline wake depth
 
