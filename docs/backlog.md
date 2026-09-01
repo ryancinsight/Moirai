@@ -86,6 +86,36 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 [patch] [perf]: Consolidate retained-slot wake ownership
+
+- **Outcome:** remove the measured per-slot `Arc<WakeToken>` allocation fanout
+  from bounded retained async terminals while preserving stable `Waker`
+  identity, cross-thread wake routing, and stale-waker memory safety.
+- **Scope / non-goals:** `moirai-iter/src/stream/slots/wake.rs`, the narrow
+  retained-slot integration in `slots.rs`, focused value/lifetime/allocation
+  tests, the retained Criterion instrument, CHANGELOG, and PM state. No public
+  API, executor, scheduler, concurrency limit, workload, assertion, or timeout
+  change; no pointer tagging or integer/provenance round-trip.
+- **Acceptance:** entry allocation censuses across explicit concurrency bounds
+  establish the wake-token slope. One retained wake block per geometric slot
+  block owns every stable token address; construction/refill adds no per-slot
+  allocation, and the warmed public ledger loses the attributed slope with
+  exact values and output storage unchanged. Cloned wakers may outlive their
+  future, stream, and operator without use-after-free or ABA delivery; Miri and
+  a bounded Loom model cover clone/wake/drop interleavings. No retained
+  Criterion row regresses by 5% or more.
+- **Risk / change:** internal unsafe-lifetime `[patch]`; reject a custom-waker
+  design without one documented strong-count obligation per raw transition and
+  exact stale-waker/drop tests, or if the public ledger does not confirm the
+  attributed reduction.
+- **Integrator / lease:** Codex session
+  `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-shared-wake-block`; lease:
+  `moirai-iter/src/stream/slots/wake.rs`, narrow `slots.rs` integration,
+  focused tests/benchmark, CHANGELOG, and this item; last update 2026-09-01.
+- **Dependency:** retained slots merged through PR #226 as `c0feafb`; its
+  post-merge repository jobs remain under collection.
+
 ### 🟡 MOI-ITER-RETAINED-FUTURE-SLOTS-2026-09-01 [patch] [perf]: Reuse bounded in-flight future storage
 
 - **Outcome:** remove the measured one-task-allocation-per-item residue from

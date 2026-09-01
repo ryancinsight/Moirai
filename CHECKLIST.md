@@ -2,6 +2,36 @@
 
 **Target**: Unreleased
 
+## MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 — Consolidate retained-slot wake ownership [patch] [perf] — in progress
+
+- **Outcome:** remove the measured per-slot `Arc<WakeToken>` allocation fanout
+  from bounded retained async terminals while preserving stable `Waker`
+  identity, cross-thread wake routing, and stale-waker memory safety.
+- **Acceptance:** an entry census across several explicit concurrency bounds
+  attributes allocation growth to retained wake tokens. The candidate owns all
+  stable token addresses in one retained wake block per geometric slot block;
+  constructing and refilling slots performs no per-slot allocation, and the
+  warmed public allocation ledger loses the attributed slope without changing
+  values or gross output storage. Cloned wakers may outlive their slot future,
+  stream, and owning operator without use-after-free or ABA wake delivery;
+  concurrent clone/wake/drop interleavings are covered by Miri and a bounded
+  Loom model. No timed Criterion row regresses by 5% or more.
+- **Scope / non-goals:** `moirai-iter/src/stream/slots/wake.rs`, the narrow
+  retained-slot integration in `slots.rs`, focused value/lifetime/allocation
+  tests, the retained Criterion instrument, CHANGELOG, and PM state. No public
+  API, executor, scheduler, concurrency limit, workload, assertion, or timeout
+  change; no pointer tagging or integer/provenance round-trip.
+- **Risk / change:** internal unsafe-lifetime `[patch]`; reject a custom-waker
+  design unless every raw ownership transition has one documented strong-count
+  obligation and exact stale-waker/drop tests, or if allocation reduction does
+  not survive the public warmed ledger.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-shared-wake-block`; lease: `moirai-iter/src/stream/slots/wake.rs`,
+  narrow `slots.rs` integration, focused tests/benchmark, CHANGELOG, and this
+  item; last update 2026-09-01.
+- **Dependency:** retained slots merged through PR #226 as `c0feafb`; its
+  post-merge repository jobs remain under collection.
+
 ## MOI-ITER-RETAINED-FUTURE-SLOTS-2026-09-01 — Reuse bounded in-flight future storage [patch] [perf] — in progress
 
 - **Outcome:** remove the measured one-task-allocation-per-item residue from
