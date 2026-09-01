@@ -161,9 +161,9 @@ architecture definition.
   steal-retry loops, focused tests, the existing immutable contention
   instrument, documentation, and PM state; no queue arithmetic, task ordering,
   public API, workload, assertion, timeout, or sleep-based waiting change.
-- **Acceptance:** one reusable private transition owns the spin/yield ladder;
-  each affected loop resets it after progress, never allocates, never sleeps,
-  and terminates under deterministic held-contention tests. Scheduler/executor
+- **Acceptance:** one reusable private transition per crate owns its
+  spin/yield ladder without publishing a cross-crate API; each affected loop
+  resets after progress, never allocates, and never sleeps. Scheduler/executor
   value suites, warning-denied host/cross-target checks, Rustdoc/doctests, and
   the unchanged Criterion instrument remain green. Reject a candidate with a
   repeatable throughput regression beyond the instrument's observed noise.
@@ -171,23 +171,28 @@ architecture definition.
   claim requires paired Criterion evidence; no SemVer change.
 - **Dependency / integrator:** resize-gate merge `207273e3`; Codex session
   `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-spin-budgets`; lease: none; source `9cb90ff` and bounded
-  retry-locality correction `02a5fb5` complete; status: review; independent
-  review and merge remain; last update 2026-09-01.
-- **Verification:** debug and release Nextest pass 170/170 with two configured
-  skips; focused Loom passes 7/7; warning-denied host and cfg-Loom Clippy,
-  strict AArch64 Windows all-target/all-feature check, Rustdoc, two doctests,
-  formatting, and diff hygiene pass. The source-visible wait state is one byte
-  and introduces no heap-backed storage or sleep path.
-- **Performance evidence:** the first 389.37 µs two-thief entry sample was not
-  reproducible in the candidate window. Same-window exact baseline `bb6087f`
+  `fix/scheduler-spin-budgets`; lease: executor contention helper, focused
+  verification, confirmatory comparison, CHANGELOG, and this item; status: in
+  progress; last update 2026-09-01.
+- **Verification:** the bounded-yield helper test passes 1/1, the debug
+  scheduler/executor suite passes 171/171 with two configured skips, and
+  warning-denied host Clippy, formatting, and diff hygiene pass. The prior
+  return-after-64 source passed focused Loom 7/7, strict AArch64 Windows
+  checking, release tests, Rustdoc, and two doctests; those broader gates rerun
+  after the confirmatory candidate is selected. The source-visible wait state
+  is one byte and introduces no heap-backed storage or sleep path.
+- **Exploratory performance evidence:** the first 389.37 µs two-thief entry
+  sample was not reproducible in the candidate window. Same-window exact
+  baseline `bb6087f`
   versus bounded candidate drain/owner-growth estimates are 473.02/352.78
   versus 471.14/363.02 µs at two thieves, 759.38/902.66 versus
   752.36/868.77 µs at four, and 1.0536/2.2707 versus 1.0705/2.2418 ms at
   eight; five confidence intervals overlap. Repeating the separated
   eight-thief drain gives 1.0849 ms [1.0787, 1.0904], a 1.98% Criterion
-  change. Every row remains below the predeclared 5% materiality threshold;
-  accept the liveness correction without a throughput or latency claim.
+  change. These measurements reject return-after-64 and establish no numeric
+  acceptance threshold. Before fresh measurements, the confirmatory rule is:
+  reject any slower candidate median whose 95% confidence interval does not
+  overlap the exact paired baseline; no throughput or latency win is claimed.
 
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
