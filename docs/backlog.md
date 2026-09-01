@@ -86,7 +86,46 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-CI-DRAFT-GATE-2026-09-01 [patch] [ci]: Suppress draft pull-request runners
+### 🟡 MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 [minor] [perf]: Remove standard-terminal materialization
+
+- **Outcome:** preserve one-call `Sum<Item>` / `Product<Item>` semantics while
+  exposing compatible source/adapter streams directly instead of collecting a
+  full-size intermediate vector.
+- **Scope / non-goals:** the defaulted sequential-item trait seam, compatible
+  sources/adapters, standard-terminal value/allocation tests, one retained
+  Criterion binary, Rustdoc, CHANGELOG, and PM state. No reassociated terminal,
+  scheduler, fan-out, threshold, workload, timeout, or release change.
+- **Acceptance:** custom and batch-sensitive accumulators retain exact values;
+  a warmed borrowed copied/map/filter standard sum reaches zero provider
+  allocations; retained baseline/candidate Criterion medians do not materially
+  regress; focused/release tests, warning-denied Clippy, docs, benchmark smoke,
+  SemVer, and independent review pass.
+- **Risk / change:** additive defaulted trait method, `[minor]`; no implementor
+  migration. Stop with the instrument only if baseline materialization is absent
+  or the candidate materially regresses.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-standard-terminal-stream`; reviewed source head `e7483e2`; PR #220;
+  lease: none; status: in progress; hosted collection pending; last update
+  2026-09-01.
+- **Measured evidence:** the exact unchanged baseline returns the reference
+  value but makes one warmed allocation for 65,536 borrowed copied/map/filter
+  items; the candidate makes zero. Retained Criterion medians
+  baseline→candidate are 546.649→262.779 ns, 25.7769→8.37063 µs, and
+  415.962→33.7676 µs at 1,024/32,768/131,072 items respectively, reductions of
+  51.9%/67.5%/91.9% with disjoint paired median confidence intervals. The
+  instrument uses one Intel family 6 model 198, 24-logical-processor Windows
+  host and Rust 1.97.0; the allocation result is the machine-independent claim.
+- **Verification:** debug and release `moirai-iter` Nextest pass 220/220 with
+  two configured skips; warning-denied all-target/all-feature Clippy and
+  Rustdoc pass; 4/4 doctests and 72/72 benchmark contracts pass; the full
+  retained Criterion binary passes its 28.4-second single-iteration smoke.
+  Directory-baseline SemVer analysis passes 196 checks with 58 inapplicable
+  skips and reports no required version change. Independent review found one
+  stale `seq_try_fold` materialization statement; source `e7483e2` corrects the
+  `seq_iter` delegation contract, and exact cumulative re-review is GREEN.
+  Hosted collection remains pending.
+
+### ✅ MOI-CI-DRAFT-GATE-2026-09-01 [patch] [ci]: Suppress draft pull-request runners
 
 - **Outcome:** draft pull requests schedule no repository jobs; opening or
   reopening a non-draft pull request and marking a draft ready preserve every
@@ -103,15 +142,16 @@ architecture definition.
 - **Evidence / cause:** draft PR #218 launched all five Rust jobs, whose final
   ready run completed in 6s–2m12s. The two Python jobs and one book job are
   independent roots under equivalent unguarded pull-request triggers.
-- **Candidate / verification:** source `8ad506d`, draft PR #219. PyYAML parses
+- **Candidate / verification:** final source `bc30759`, PR #219, merge
+  `9603564`. PyYAML parses
   all three workflows and removing only the activity lists and predicates
   yields the exact prior definitions. Draft runs `33485286665`, `33485286034`,
   and `33485286617` complete skipped with zero steps across all eight jobs.
-  GitHub's current reusable-workflow syntax permits `jobs.<job_id>.if`; the
-  ready-event hosted execution remains pending.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `ci/draft-pr-gate`; lease covers the three workflow files, CHANGELOG, and
-  this item's PM regions; status: in progress; last update 2026-09-01.
+  The ready event then passed all unchanged repository work: Rust run
+  `33485592298` (11s–2m22s), Python run `33485591545` (55s–2m9s), and book run
+  `33485592200` (45s build; pull-request deploy skipped by its existing guard).
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
+  lease: none; status: complete; last update 2026-09-01.
 
 ### ✅ MOI-PAR-SUM-CONTRACT-2026-09-01 [minor] [perf]: Preserve standard terminal semantics
 

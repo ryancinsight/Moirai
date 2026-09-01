@@ -83,6 +83,10 @@ where
         self.base.seq_items().into_iter().copied().collect()
     }
 
+    fn seq_iter(self) -> impl Iterator<Item = Self::Item> {
+        self.base.seq_iter().copied()
+    }
+
     fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
     where
         FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
@@ -125,6 +129,10 @@ where
 
     fn seq_items(self) -> Vec<Self::Item> {
         self.base.seq_items().into_iter().cloned().collect()
+    }
+
+    fn seq_iter(self) -> impl Iterator<Item = Self::Item> {
+        self.base.seq_iter().cloned()
     }
 
     fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>

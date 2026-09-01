@@ -2,7 +2,45 @@
 
 **Target**: Unreleased
 
-## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — in progress
+## MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 — Remove standard-terminal materialization [minor] [perf] — in progress
+
+- **Outcome:** preserve one-call `Sum<Item>` / `Product<Item>` semantics while
+  letting sources and compatible adapters expose their logical stream directly,
+  without first collecting it into a full-size vector.
+- **Acceptance:** lawful batch-sensitive/custom accumulators and empty/value
+  semantics remain unchanged; a warmed borrowed copied/map/filter standard sum
+  drops its full-stream allocation to zero; baseline and candidate Criterion
+  medians use one retained instrument; non-streaming adapters keep the default
+  path; debug/release Nextest, allocation, Clippy, Rustdoc/doctest, benchmark
+  smoke, SemVer, and independent review gates pass.
+- **Scope / non-goals:** the `ParallelIterator` sequential-item seam, compatible
+  sources/adapters, standard-terminal allocation/value tests, one existing
+  Criterion binary, Rustdoc, CHANGELOG, and PM state. No reassociated-terminal,
+  scheduler, fan-out, threshold, workload, timeout, or release change.
+- **Risk / change:** additive defaulted trait method, `[minor]`; no implementor
+  migration. Stop with the instrument only if the exact baseline has no
+  full-stream allocation or candidate timing materially regresses.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-standard-terminal-stream`.
+- **Lease:** none. Reviewed source head `e7483e2`; PR #220; hosted collection
+  pending. Last update 2026-09-01.
+- **Evidence:** the unchanged 65,536-item borrowed copied/map/filter standard
+  sum returns the reference value and makes one warmed allocation. With the
+  retained `seq_iter` seam it makes zero. Paired Criterion medians
+  baseline→candidate are 546.649→262.779 ns (1,024),
+  25.7769→8.37063 µs (32,768), and 415.962→33.7676 µs (131,072), reductions of
+  51.9%/67.5%/91.9%; all paired confidence intervals are disjoint.
+- **Local gates:** debug and release `moirai-iter` Nextest pass 220/220 with
+  two configured skips; warning-denied all-target/all-feature Clippy and
+  Rustdoc pass; 4/4 doctests and 72/72 benchmark contracts pass; the complete
+  retained Criterion binary passes its 28.4-second single-iteration smoke.
+  Directory-baseline SemVer analysis passes 196 checks with 58 inapplicable
+  skips and reports no required version change. Independent review found one
+  stale `seq_try_fold` materialization statement; source `e7483e2` corrects the
+  `seq_iter` delegation contract, and exact cumulative re-review is GREEN.
+  Hosted collection remains pending.
+
+## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — complete
 
 - **Outcome:** draft pull requests schedule no repository jobs; opening or
   reopening a non-draft pull request and marking a draft ready preserve every
@@ -15,10 +53,9 @@
 - **Scope / non-goals:** `.github/workflows/{rust-ci,python-ci,book-pages}.yml`,
   CHANGELOG, and this item's PM regions. No command, feature, matrix, cache,
   permission, workload, assertion, or timeout change.
-- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `ci/draft-pr-gate`.
-- **Lease:** Codex — the three workflow files, CHANGELOG, and this item's PM
-  regions. Last update 2026-09-01.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** none. Reviewed head `bc30759`, PR #219, merge `9603564`; last
+  update 2026-09-01.
 - **Entry evidence:** draft PR #218 launched all five Rust jobs; the final ready
   run passed in 6s–2m12s. The Python and book workflows expose three more
   independent jobs with the same unguarded draft-event behavior.
@@ -27,7 +64,9 @@
   yields the exact prior definitions. Draft runs `33485286665`, `33485286034`,
   and `33485286617` complete skipped: all eight jobs have zero steps. GitHub's
   current reusable-workflow syntax explicitly permits `jobs.<job_id>.if`.
-  Ready-event hosted execution remains pending.
+  The exact ready-head runs then passed every unchanged repository job:
+  Rust `33485592298` (11s–2m22s), Python `33485591545` (55s–2m9s), and book
+  `33485592200` (45s build; pull-request deploy correctly skipped).
 
 ## MOI-PAR-SUM-CONTRACT-2026-09-01 — Preserve standard terminal semantics [minor] [perf] — complete
 

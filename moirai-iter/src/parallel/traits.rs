@@ -21,7 +21,7 @@ pub trait ParallelIterator: Sized + Send {
     /// shards remain inline so scheduler overhead does not dominate the work.
     /// Scope admission refusal runs the branch on the caller, preserving the
     /// every-item contract under shutdown or bounded-queue pressure. The
-    /// The resulting consumer combination preserves logical source order. The
+    /// resulting consumer combination preserves logical source order. The
     /// infallible iterator contract recovers an unclaimed branch on the caller
     /// if the scheduler cannot admit the scoped job; bounded admission refusal
     /// is handled by the scheduler's caller-lane fallback before this method
@@ -35,15 +35,38 @@ pub trait ParallelIterator: Sized + Send {
     /// Collect all items sequentially without routing through the consumer protocol.
     fn seq_items(self) -> Vec<Self::Item>;
 
+    /// Convert the logical item stream into a sequential iterator.
+    ///
+    /// The default preserves compatibility for existing implementations by
+    /// materializing through [`seq_items`](Self::seq_items). Sources and
+    /// adapters that can expose their logical stream directly override this
+    /// method, allowing sequential terminals to retain one standard iterator
+    /// invocation without allocating an intermediate vector.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use moirai_iter::parallel::{IntoParallelIterator, ParallelIterator};
+    ///
+    /// let items = vec![1_u32, 2, 3]
+    ///     .into_par_iter()
+    ///     .seq_iter()
+    ///     .collect::<Vec<_>>();
+    /// assert_eq!(items, vec![1, 2, 3]);
+    /// ```
+    fn seq_iter(self) -> impl Iterator<Item = Self::Item> {
+        self.seq_items().into_iter()
+    }
+
     /// Fold this iterator's logical item stream left to right, stopping at the
     /// first `ControlFlow::Break`.
     ///
-    /// This is the streaming counterpart to [`seq_items`](Self::seq_items) and
-    /// the base every folding [`Consumer`] runs on: a shard's items reach the
-    /// accumulator one at a time instead of being gathered into an intermediate
-    /// `Vec`. The default implementation goes through `seq_items` so every
-    /// source and adapter keeps working unchanged; sources and adapters on the
-    /// terminal hot path override it to stream.
+    /// This is the folding counterpart to [`seq_iter`](Self::seq_iter) and the
+    /// base every folding [`Consumer`] runs on: a shard's items reach the
+    /// accumulator one at a time. The default delegates to `seq_iter`, whose
+    /// compatibility implementation materializes through
+    /// [`seq_items`](Self::seq_items); sources and adapters on the terminal hot
+    /// path override `seq_iter` to stream without an intermediate `Vec`.
     ///
     /// The break value is the accumulator as it stood when the fold stopped, so
     /// a caller that needs the partial result on early exit reads it from the
@@ -52,14 +75,14 @@ pub trait ParallelIterator: Sized + Send {
     where
         F: FnMut(T, Self::Item) -> std::ops::ControlFlow<B, T>,
     {
-        self.seq_items().into_iter().try_fold(init, fold_fn)
+        self.seq_iter().try_fold(init, fold_fn)
     }
 
     /// Fold this iterator's logical item stream left to right.
     ///
     /// The non-short-circuiting form of [`seq_try_fold`](Self::seq_try_fold);
-    /// it inherits that method's streaming behaviour, so overriding
-    /// `seq_try_fold` is enough to make both allocation-free.
+    /// it inherits that method's streaming behaviour, so overriding either
+    /// `seq_iter` or `seq_try_fold` is enough to make both allocation-free.
     fn seq_fold<T, F>(self, init: T, mut fold_fn: F) -> T
     where
         F: FnMut(T, Self::Item) -> T,
@@ -821,14 +844,16 @@ pub trait ParallelIterator: Sized + Send {
     ///
     /// [`std::iter::Sum`] does not expose an operation for combining partial
     /// output values. This method therefore preserves every lawful
-    /// `Sum<Self::Item>` implementation by materializing the logical stream
-    /// before aggregation. Use [`sum_reassociated`](Self::sum_reassociated)
-    /// only when the output's partial values may be reassociated.
+    /// `Sum<Self::Item>` implementation through the iterator returned by
+    /// [`seq_iter`](Self::seq_iter). Compatible sources and adapters stream
+    /// directly; other implementations retain the default materialized path.
+    /// Use [`sum_reassociated`](Self::sum_reassociated) only when the output's
+    /// partial values may be reassociated.
     fn sum<S>(self) -> S
     where
         S: std::iter::Sum<Self::Item> + Send,
     {
-        self.seq_items().into_iter().sum()
+        self.seq_iter().sum()
     }
 
     /// Sum independently produced item fragments and merge their outputs.
@@ -864,14 +889,16 @@ pub trait ParallelIterator: Sized + Send {
     /// Multiply the complete logical stream through one standard
     /// [`Iterator::product`] invocation.
     ///
-    /// This preserves every lawful `Product<Self::Item>` implementation. Use
-    /// [`product_reassociated`](Self::product_reassociated) only when partial
-    /// output values may be reassociated.
+    /// This preserves every lawful `Product<Self::Item>` implementation through
+    /// [`seq_iter`](Self::seq_iter). Compatible sources and adapters stream
+    /// directly; other implementations retain the default materialized path.
+    /// Use [`product_reassociated`](Self::product_reassociated) only when
+    /// partial output values may be reassociated.
     fn product<P>(self) -> P
     where
         P: std::iter::Product<Self::Item> + Send,
     {
-        self.seq_items().into_iter().product()
+        self.seq_iter().product()
     }
 
     /// Multiply independently produced item fragments and merge their outputs.

@@ -101,6 +101,31 @@ fn borrowed_map_reassociated_sum_allocates_sublinearly() {
 }
 
 #[test]
+fn borrowed_copied_map_filter_standard_sum_allocates_nothing() {
+    let data = source();
+    let expected: u64 = data
+        .iter()
+        .copied()
+        .map(|value| value.wrapping_mul(19).wrapping_add(23))
+        .filter(|value| value & 7 != 0)
+        .sum();
+
+    let (total, allocations) = allocations_of(|| {
+        data.par_iter()
+            .copied()
+            .map(|value| value.wrapping_mul(19).wrapping_add(23))
+            .filter(|value| value & 7 != 0)
+            .sum::<u64>()
+    });
+
+    assert_eq!(total, expected);
+    assert_eq!(
+        allocations, 0,
+        "warmed borrowed copied/map/filter standard sum over {LEN} elements must not allocate"
+    );
+}
+
+#[test]
 fn owned_map_reassociated_sum_allocates_sublinearly() {
     let data = source();
     let expected: u64 = data.iter().map(|value| value % 7).sum();

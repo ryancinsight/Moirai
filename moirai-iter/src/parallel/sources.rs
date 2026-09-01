@@ -126,6 +126,10 @@ impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
         self.data
     }
 
+    fn seq_iter(self) -> impl Iterator<Item = Self::Item> {
+        self.data.into_iter()
+    }
+
     fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
     where
         FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
@@ -374,6 +378,10 @@ impl<'data, T: Send + Sync + 'data> ParallelIterator for VecRefParIter<'data, T>
         self.data.iter().collect()
     }
 
+    fn seq_iter(self) -> impl Iterator<Item = Self::Item> {
+        self.data.iter()
+    }
+
     fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
     where
         FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
@@ -412,6 +420,10 @@ impl<'data, T: Send + Sync + 'data> ParallelIterator for SliceParIter<'data, T> 
 
     fn seq_items(self) -> Vec<Self::Item> {
         self.data.iter().collect()
+    }
+
+    fn seq_iter(self) -> impl Iterator<Item = Self::Item> {
+        self.data.iter()
     }
 
     fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
@@ -515,6 +527,10 @@ impl<'a, T: Send + Sync> ParallelIterator for RefVecParIter<'a, T> {
 
     fn seq_items(self) -> Vec<Self::Item> {
         self.data
+    }
+
+    fn seq_iter(self) -> impl Iterator<Item = Self::Item> {
+        self.data.into_iter()
     }
 
     fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>

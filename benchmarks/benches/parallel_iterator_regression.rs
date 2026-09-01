@@ -1,4 +1,9 @@
 //! Focused parallel iterator regression benchmarks against Rayon.
+//!
+//! The retained standard-terminal comparison was measured on an Intel family
+//! 6 model 198 host with 24 logical processors, using Rust 1.97.0 on
+//! `x86_64-pc-windows-msvc`. Timing results are machine-specific; the paired
+//! Moirai/Rayon rows share inputs, addresses, and one benchmark binary.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_iter::parallel::IndexedParallelIterator as MoiraiIndexedParallelIterator;
@@ -93,6 +98,22 @@ fn moirai_borrowed_copied_reduce(data: &Vec<u64>) -> u64 {
 }
 
 fn rayon_borrowed_copied_reduce(data: &Vec<u64>) -> u64 {
+    rayon::iter::IntoParallelRefIterator::par_iter(data)
+        .copied()
+        .map(|value| value.wrapping_mul(19).wrapping_add(23))
+        .filter(|value| value & 7 != 0)
+        .sum::<u64>()
+}
+
+fn moirai_borrowed_standard_sum(data: &Vec<u64>) -> u64 {
+    MoiraiIntoParallelRefIterator::par_iter(data)
+        .copied()
+        .map(|value| value.wrapping_mul(19).wrapping_add(23))
+        .filter(|value| value & 7 != 0)
+        .sum::<u64>()
+}
+
+fn rayon_borrowed_standard_sum(data: &Vec<u64>) -> u64 {
     rayon::iter::IntoParallelRefIterator::par_iter(data)
         .copied()
         .map(|value| value.wrapping_mul(19).wrapping_add(23))
@@ -385,6 +406,22 @@ fn parallel_iterator_regression(c: &mut Criterion) {
         });
     }
     borrowed_reduce.finish();
+
+    let mut standard_sum = c.benchmark_group("parallel_iterator_borrowed_standard_sum_sizes");
+    for len in INPUT_SIZES {
+        let data = source_data(len);
+        assert_eq!(
+            moirai_borrowed_standard_sum(&data),
+            rayon_borrowed_standard_sum(&data)
+        );
+        standard_sum.bench_with_input(BenchmarkId::new("moirai", len), &data, |b, input| {
+            b.iter(|| black_box(moirai_borrowed_standard_sum(black_box(input))))
+        });
+        standard_sum.bench_with_input(BenchmarkId::new("rayon", len), &data, |b, input| {
+            b.iter(|| black_box(rayon_borrowed_standard_sum(black_box(input))))
+        });
+    }
+    standard_sum.finish();
 
     let mut collect_existing = c.benchmark_group("parallel_iterator_collect_into_existing_sizes");
     for len in INPUT_SIZES {
