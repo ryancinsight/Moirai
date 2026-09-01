@@ -56,6 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bound Chase-Lev storage-generation and resize-owner waits to 64 processor
+  hints before cooperatively yielding, without allocation or sleeping. Executor
+  steal retries use Moirai's established 1,000-hint pre-yield ceiling while
+  retaining the victim priority selected by the scheduler. Queue arithmetic,
+  task ordering, and public APIs are unchanged. A rebuilt paired comparison
+  satisfies the precommitted raw-median non-regression rule across two, four,
+  and eight thieves; no throughput or latency improvement is claimed.
 - Dropping the final external `ThreadScheduler` handle now drains and releases
   its worker pool. Worker-owned scheduler state no longer makes the automatic
   shutdown condition unreachable. Only non-worker callers enter the join

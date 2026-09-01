@@ -5,6 +5,8 @@ use loom::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(not(loom))]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use super::contention::ContentionWait;
+
 const RESIZE_CLAIMED_BIT: usize = 1;
 const STEAL_ACCESS_UNIT: usize = 2;
 
@@ -72,8 +74,9 @@ impl ResizeGate {
         );
         after_claim();
 
+        let mut wait = ContentionWait::new();
         while self.state() != RESIZE_CLAIMED_BIT {
-            wait_for_owner_progress();
+            wait.wait();
         }
         claim
     }
@@ -91,14 +94,4 @@ fn yield_now() {
 #[cfg(not(loom))]
 fn yield_now() {
     std::thread::yield_now();
-}
-
-#[cfg(loom)]
-fn wait_for_owner_progress() {
-    loom::thread::yield_now();
-}
-
-#[cfg(not(loom))]
-fn wait_for_owner_progress() {
-    std::hint::spin_loop();
 }

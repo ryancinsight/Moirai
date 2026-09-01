@@ -6,6 +6,8 @@ use std::{
     sync::atomic::{AtomicIsize, Ordering},
 };
 
+use super::contention::ContentionWait;
+
 pub(super) struct Array<T> {
     capacity: usize,
     mask: usize,
@@ -101,8 +103,9 @@ impl<T> Array<T> {
     }
 
     pub(super) fn claim_for_write(&self, index: isize) {
+        let mut wait = ContentionWait::new();
         while !self.claim(index) {
-            std::hint::spin_loop();
+            wait.wait();
         }
     }
 

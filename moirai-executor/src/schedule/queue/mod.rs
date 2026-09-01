@@ -15,6 +15,11 @@ use super::job::ScheduledJob;
 
 /// One queue per priority level; indices come from [`Priority::index`] (SSOT).
 const PRIORITY_LEVELS: usize = Priority::Critical.index() + 1;
+/// Lost-race processor hints emitted before yielding to another runnable thread.
+///
+/// This matches the established upper handoff window used by Moirai's
+/// contended spin lock while keeping steal retries allocation- and sleep-free.
+const STEAL_SPINS_BEFORE_YIELD: usize = 1_000;
 /// Pop scan order: highest [`Priority::index`] first.
 const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] = [
     Priority::Critical.index(),
@@ -22,6 +27,34 @@ const PRIORITY_POP_ORDER: [usize; PRIORITY_LEVELS] = [
     Priority::Normal.index(),
     Priority::Low.index(),
 ];
+
+#[inline]
+fn steal_after_contention<T>(steal: impl FnMut() -> StealResult<T>) -> Option<T> {
+    steal_after_contention_with(steal, std::hint::spin_loop, std::thread::yield_now)
+}
+
+#[inline]
+fn steal_after_contention_with<T>(
+    mut steal: impl FnMut() -> StealResult<T>,
+    mut spin: impl FnMut(),
+    mut yield_now: impl FnMut(),
+) -> Option<T> {
+    let mut spins = 0usize;
+    loop {
+        match steal() {
+            StealResult::Success(value) => return Some(value),
+            StealResult::Empty => return None,
+            StealResult::Retry if spins < STEAL_SPINS_BEFORE_YIELD => {
+                spins += 1;
+                spin();
+            }
+            StealResult::Retry => {
+                spins = 0;
+                yield_now();
+            }
+        }
+    }
+}
 
 /// Per-worker task queues partitioned by priority using lock-free Chase-Lev deques.
 ///
@@ -100,15 +133,9 @@ impl WorkerQueues {
             return None;
         }
         for &index in &PRIORITY_POP_ORDER {
-            loop {
-                match self.local_stealers[index].steal() {
-                    StealResult::Success(job) => {
-                        self.len.fetch_sub(1, Ordering::Relaxed);
-                        return Some(job);
-                    }
-                    StealResult::Retry => continue,
-                    StealResult::Empty => break,
-                }
+            if let Some(job) = steal_after_contention(|| self.local_stealers[index].steal()) {
+                self.len.fetch_sub(1, Ordering::Relaxed);
+                return Some(job);
             }
         }
         if let Some((_priority, job)) = self.injector.try_dequeue() {
@@ -173,26 +200,22 @@ impl WorkerQueueOwner {
 
         // 1. Try to steal from target's local queues
         for &index in &PRIORITY_POP_ORDER {
-            loop {
-                match target.local_stealers[index].steal_batch() {
-                    StealResult::Success(mut batch) => {
-                        let first_job = batch
-                            .next()
-                            .expect("invariant: successful batch contains one job");
-                        let mut pushed_count = 0;
-                        for job in batch {
-                            self.local_queues[index].push(job);
-                            pushed_count += 1;
-                        }
-                        if pushed_count > 0 {
-                            self.shared.len.fetch_add(pushed_count, Ordering::Relaxed);
-                        }
-                        target.len.fetch_sub(pushed_count + 1, Ordering::Relaxed);
-                        return Some(first_job);
-                    }
-                    StealResult::Retry => continue,
-                    StealResult::Empty => break,
+            if let Some(mut batch) =
+                steal_after_contention(|| target.local_stealers[index].steal_batch())
+            {
+                let first_job = batch
+                    .next()
+                    .expect("invariant: successful batch contains one job");
+                let mut pushed_count = 0;
+                for job in batch {
+                    self.local_queues[index].push(job);
+                    pushed_count += 1;
                 }
+                if pushed_count > 0 {
+                    self.shared.len.fetch_add(pushed_count, Ordering::Relaxed);
+                }
+                target.len.fetch_sub(pushed_count + 1, Ordering::Relaxed);
+                return Some(first_job);
             }
         }
 
@@ -222,14 +245,44 @@ impl WorkerQueueOwner {
 #[cfg(test)]
 mod tests {
     use core::mem::size_of;
-    use std::sync::{Arc, Mutex};
+    use std::{
+        cell::Cell,
+        sync::{Arc, Mutex},
+    };
 
-    use super::WorkerQueues;
+    use super::{steal_after_contention_with, WorkerQueues, STEAL_SPINS_BEFORE_YIELD};
     use crate::schedule::job::ScheduledJob;
     use moirai_core::Priority;
-    use moirai_scheduler::DequeCapacity;
+    use moirai_scheduler::{DequeCapacity, StealResult};
 
     const TEST_INJECTOR_CAPACITY: usize = 8;
+
+    #[test]
+    fn steal_contention_spins_yields_and_preserves_victim_priority() {
+        let attempts = Cell::new(0usize);
+        let spins = Cell::new(0usize);
+        let yields = Cell::new(0usize);
+        let retries = 2 * (STEAL_SPINS_BEFORE_YIELD + 1);
+
+        let result = steal_after_contention_with(
+            || {
+                let attempt = attempts.get();
+                attempts.set(attempt + 1);
+                if attempt < retries {
+                    StealResult::Retry
+                } else {
+                    StealResult::Success(7usize)
+                }
+            },
+            || spins.set(spins.get() + 1),
+            || yields.set(yields.get() + 1),
+        );
+
+        assert_eq!(result, Some(7));
+        assert_eq!(attempts.get(), retries + 1);
+        assert_eq!(spins.get(), 2 * STEAL_SPINS_BEFORE_YIELD);
+        assert_eq!(yields.get(), 2);
+    }
 
     fn local_capacity(requested: usize) -> DequeCapacity<ScheduledJob> {
         DequeCapacity::try_from(requested).expect("test capacity must be representable")

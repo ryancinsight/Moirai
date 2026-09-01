@@ -653,15 +653,66 @@
   warning-denied focused cfg-Loom Clippy pass after the correction; backlog and
   checklist now agree on merge status and no active lease.
 - **Review:** independent read-only review of exact PM head `bb6087f` against
-  `316bf8f` is GREEN; PR #212 hosted collection and non-squash merge remain.
+  `316bf8f` is GREEN; PR #212 merged with history preserved as `207273e3`;
+  every repository check completed successfully after merge.
 
-## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] — todo
+## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] [perf] — merge
 
-- Unowned. Unbounded no-yield spins: `claim_for_write`
-  (`deque/chase_lev/storage.rs:103-107`), the resize gate wait
-  (`deque/chase_lev.rs:433-435`), and steal `Retry` loops
-  (`schedule/queue/mod.rs:102-111,169-190`). Escalate to `yield_now` after a
-  bounded spin budget per the tree's SpinLock ladder.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/scheduler-spin-budgets`; lease: none. PR #213 hosted collection and
+  merge remain.
+- **Implementation:** one-byte `ContentionWait` owns the 64-hint/yield cycle for
+  Chase-Lev storage-generation and resize-owner waits. Executor steal loops
+  use one monomorphized helper and Moirai's established 1,000-hint contended
+  spin-lock ceiling before yielding, resetting, and retrying the selected victim
+  priority. No queue arithmetic, allocation, task ordering, public API,
+  benchmark workload, or timeout changed.
+- **Correctness evidence:** exact source `c7f670e` passes the bounded-yield
+  helper test 1/1; debug and release scheduler/executor suites 171/171 with two
+  configured skips; focused Loom 8/8; cfg-Loom and host warning-denied Clippy;
+  warning-denied AArch64 Windows all-target/all-feature checking; Rustdoc; and
+  both scheduler doctests. Formatting, diff hygiene, and the committed
+  `Cargo.lock` hash are clean.
+- **Exploratory performance evidence:** the first pre-change 389.37 µs
+  two-thief sample was not reproducible in the candidate window. Same-window
+  exact baseline
+  `bb6087f` versus bounded candidate measures drain/owner-growth at two thieves
+  as 473.02 µs [469.93, 475.64] / 352.78 µs [322.26, 384.28] versus
+  471.14 µs [467.99, 474.57] / 363.02 µs [338.11, 378.26]; at four as
+  759.38 µs [747.42, 775.29] / 902.66 µs [870.47, 933.34] versus
+  752.36 µs [736.71, 774.76] / 868.77 µs [849.73, 887.58]; and at eight as
+  1.0536 ms [1.0461, 1.0619] / 2.2707 ms [2.0777, 2.4312] versus
+  1.0705 ms [1.0648, 1.0779] / 2.2418 ms [2.0707, 2.3735]. Five intervals
+  overlap. The eight-thief drain repeat is 1.0849 ms [1.0787, 1.0904], a
+  1.98% Criterion change. These measurements rejected the return-after-64
+  policy and establish no acceptance threshold. Before the fresh comparison,
+  the confirmatory rule is: reject any candidate row with a slower median and
+  non-overlapping 95% confidence intervals against the exact paired baseline.
+  The first rebuilt comparison rejects the 64-hint executor candidate: its
+  two-thief drain is 475.74 µs [474.25, 476.84] versus baseline 471.87 µs
+  [470.09, 473.39]. Exact raw-sample medians also reject 256 hints: candidate
+  469.818 µs [466.515, 472.588] versus rebuilt baseline 451.740 µs
+  [447.071, 454.804], using the distribution-free 95.86% order-statistic
+  interval for 20 samples. The 1,000-hint successor was selected before
+  measurement because it matches Moirai's existing contended spin-lock handoff
+  ceiling. Initial cross-worktree data that reused one shared executable are
+  excluded; accepted runs visibly rebuilt the affected crates. Rebuilt
+  exact-baseline `207273e3` to candidate `c7f670e` raw medians
+  and distribution-free 95.86% intervals are, at two thieves, drain
+  451.740 [447.071, 454.804] to 453.418 [452.105, 455.365] µs and owner-growth
+  376.822 [337.751, 427.679] to 390.650 [380.462, 413.594] µs; at four,
+  drain 750.561 [732.200, 783.830] to 770.084 [751.014, 779.710] µs and
+  owner-growth 865.385 [860.849, 880.484] to 864.167 [837.386, 876.891] µs;
+  and at eight, drain 1.064612 [1.052046, 1.077879] to
+  1.062258 [1.048112, 1.067219] ms and owner-growth
+  2.010259 [1.868690, 2.168660] to 1.854881 [1.775413, 1.951207] ms. No slower
+  candidate median has a non-overlapping interval, so the candidate satisfies
+  the precommitted rule without a throughput or latency improvement claim.
+- **Review:** independent read-only review of exact artifact `b08bcf8` against
+  `207273e3` is GREEN. The reviewer verified the production wait transitions,
+  same-victim executor retry, unchanged instrument and timeout blobs, evidence
+  chronology, interval overlap, and synchronized release/PM claims; raw samples
+  were not Git-tracked and therefore were not independently recomputed.
 
 ## MOI-AARCH64-SIMD-CFG-2026-08-27 — cfg-local SIMD lengths [patch] — review
 

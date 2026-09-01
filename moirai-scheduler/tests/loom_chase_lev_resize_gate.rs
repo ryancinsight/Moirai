@@ -31,6 +31,8 @@ use loom::sync::atomic::{AtomicUsize, Ordering};
 use loom::sync::{mpsc, Arc};
 use loom::thread;
 
+#[path = "../src/deque/chase_lev/contention.rs"]
+mod contention;
 #[path = "../src/deque/chase_lev/gate.rs"]
 mod production_gate;
 use production_gate::{ResizeGate, StealAccessGuard};
