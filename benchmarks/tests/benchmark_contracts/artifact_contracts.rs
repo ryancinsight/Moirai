@@ -114,6 +114,30 @@ fn competitive_benchmarks_keep_value_assertions() {
 }
 
 #[test]
+fn dispatch_floor_instrument_pins_work_and_values() {
+    let source = read_benchmark("benches/thread_schedule_comparison/dispatch_floor.rs");
+
+    for required in [
+        "WORKER_THREADS: usize = 4",
+        "PRIMITIVE_COUNTS",
+        "CROSSOVER_COUNTS",
+        "for_each_indexed",
+        "map_reduce_indexed",
+        "one_multiply",
+        "square_root_plus_log_one_plus",
+        "chained_fused_multiply_add",
+        "black_box(index)",
+        "assert_reduction_matches",
+        "visits.load(Ordering::Relaxed) == 1",
+    ] {
+        assert!(
+            source.contains(required),
+            "dispatch-floor instrument must retain {required}"
+        );
+    }
+}
+
+#[test]
 fn criterion_benchmarks_are_executable_and_bounded() {
     let manifest = read_benchmark("Cargo.toml");
 
