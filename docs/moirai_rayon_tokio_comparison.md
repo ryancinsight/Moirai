@@ -480,7 +480,7 @@ The current repository records benchmark evidence in `PERFORMANCE_RESULTS.md`, `
 | Iterator try-reduce-with | 8.5426-8.7513 us | Rayon 64.753-66.248 us | `iterator_adapter_try_reduce_with` asserts equal `Option<Result<_, _>>` outputs before timing |
 | Iterator partition | 29.242-30.103 us | Rayon 658.16-693.21 us | Moirai adapter row is ahead after value assertion |
 | Iterator partition-map | 32.468-32.719 us | Rayon 587.36-620.15 us | `iterator_adapter_partition_map` asserts equal left and right mapped collections before timing |
-| Iterator terminal reducers | 64.686-65.272 us | Rayon 218.10-226.27 us | `iterator_adapter_terminal_reducers` asserts equal `(sum, min, max)` before timing |
+| Iterator terminal reducers | 64.686-65.272 us | Rayon 218.10-226.27 us | `iterator_adapter_terminal_reducers` opts into reassociated sum and asserts equal primitive `(sum, min, max)` values before timing |
 | Iterator ordered reducers | 179.38-190.67 us | Rayon 3.3072-5.9357 ms | `iterator_adapter_ordered_reducers` asserts equal `(min_by, max_by, min_by_key, max_by_key)` before timing |
 | Iterator find-map terminals | 77.948-85.530 us | Rayon 238.34-242.20 us | `iterator_adapter_find_map` asserts equal `(find_map_first, find_map_any, find_last, find_map_last)` before timing |
 | Iterator position terminals | 33.601-43.300 us | 13.150-41.006 ms | `iterator_adapter_position` asserts equal `(position_first, position_any, position_last)` before timing |

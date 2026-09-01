@@ -2,6 +2,8 @@ use super::*;
 use std::cell::RefCell;
 use std::sync::Arc;
 
+mod aggregation;
+
 #[test]
 fn test_parallel_map() {
     let data = vec![1, 2, 3, 4, 5];
@@ -1408,7 +1410,7 @@ fn test_parallel_partition_and_unzip_preserve_order_above_drive_threshold() {
 }
 
 #[test]
-fn test_parallel_float_sum_is_reproducible_and_within_the_derived_bound() {
+fn test_reassociated_float_sum_is_reproducible_and_within_the_derived_bound() {
     // Floating-point addition is not associative, so the shard merge tree
     // re-associates the additions. Two properties hold and are checked here:
     // the merge tree depends only on the input length, so the value repeats
@@ -1418,17 +1420,40 @@ fn test_parallel_float_sum_is_reproducible_and_within_the_derived_bound() {
         .map(|index| 1.0 / ((index + 1) as f64))
         .collect();
 
-    let parallel = data.clone().into_par_iter().sum::<f64>();
+    let parallel = data.clone().into_par_iter().sum_reassociated::<f64>();
     for _ in 0..16 {
-        assert_eq!(data.clone().into_par_iter().sum::<f64>(), parallel);
+        assert_eq!(
+            data.clone().into_par_iter().sum_reassociated::<f64>(),
+            parallel
+        );
     }
 
     let sequential: f64 = data.iter().copied().sum();
-    // Sequential summation of n terms carries an error of at most
-    // (n-1)*eps*sum|x|; a balanced merge tree carries at most log2(n)*eps*sum|x|.
-    // Their difference is therefore bounded by n*eps*sum|x|.
-    let magnitude: f64 = data.iter().map(|value| value.abs()).sum();
-    let bound = (data.len() as f64) * f64::EPSILON * magnitude;
+    // For round-to-nearest arithmetic, gamma(k) = k*u/(1-k*u) bounds the
+    // accumulated relative error across k additions. The sequential result
+    // has n-1 additions. Above the dispatch threshold, VecParIter performs one
+    // split; drive_split folds each half sequentially and merges the two
+    // outputs once. The difference is bounded by the sum of those two
+    // forward-error bounds. Inflate the rounded magnitude to an upper bound on
+    // the exact positive sum before applying them.
+    let (leaf_width, merge_depth) = if data.len() <= super::sources::PARALLEL_DRIVE_THRESHOLD {
+        (data.len(), 0)
+    } else {
+        (data.len().div_ceil(2), 1)
+    };
+    let sequential_additions = data.len().saturating_sub(1);
+    let leaf_additions = leaf_width.saturating_sub(1);
+    let reassociated_additions = leaf_additions + merge_depth;
+    let unit_roundoff = f64::EPSILON / 2.0;
+    let gamma = |additions: usize| {
+        let scaled = (additions as f64) * unit_roundoff;
+        scaled / (1.0 - scaled)
+    };
+    let sequential_gamma = gamma(sequential_additions);
+    let reassociated_gamma = gamma(reassociated_additions);
+    let rounded_magnitude: f64 = data.iter().map(|value| value.abs()).sum();
+    let magnitude_upper = rounded_magnitude / (1.0 - sequential_gamma);
+    let bound = (sequential_gamma + reassociated_gamma) * magnitude_upper;
     assert!(
         (parallel - sequential).abs() <= bound,
         "parallel {parallel} and sequential {sequential} differ by more than the derived bound {bound}"

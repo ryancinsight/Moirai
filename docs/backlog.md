@@ -86,6 +86,45 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-PAR-SUM-CONTRACT-2026-09-01 [minor] [perf]: Preserve standard terminal semantics
+
+- **Outcome:** `ParallelIterator::sum` and `product` retain the standard
+  whole-stream trait contract. The shard-folding implementation remains
+  available only through explicit reassociated terminals whose stronger bounds
+  and changed grouping semantics are part of their public contract.
+- **Scope / non-goals:** iterator terminal trait methods, contract/value tests,
+  the existing terminal allocation and Criterion instruments, Rustdoc,
+  CHANGELOG, and PM state. No scheduler topology, source splitting, consumer
+  arithmetic, dispatch threshold, workload, timeout, or release change.
+- **Acceptance:** restore the previous `Sum<Item>` / `Product<Item>` bounds and
+  arbitrary lawful whole-stream values; add opt-in reassociated terminals with
+  deterministic shard-order documentation; retain the measured sub-linear
+  allocation path and benchmark workload under the explicit method; pass
+  focused and release tests, warning-denied all-target Clippy, Rustdoc,
+  doctests, benchmark smoke, SemVer analysis, and independent review.
+- **Risk / change:** P1 value semantics and source compatibility; `[minor]`
+  additive public API. No version bump or release.
+- **Evidence / cause:** merged source `0123de7` added `Sum<S>` / `Product<P>`
+  bounds and computes one-item partials before merging output values. Those
+  operations are not laws of the standard traits: a lawful batch-sensitive
+  `Sum<Item>` can differ from reassociation, and an accumulator need not
+  implement `Sum<Self>` at all.
+- **Verification:** debug and release `moirai-iter` Nextest pass 219/219 with
+  two configured skips; warning-denied all-target/all-feature Clippy, Rustdoc,
+  3/3 doctests, both retained Criterion smoke binaries, and 72/72 benchmark
+  contract tests pass. Directory-baseline SemVer analysis passes 196 checks
+  with 58 inapplicable skips and reports no required version change. The
+  packed-object baseline mode was blocked by its local clone entry-size limit.
+  Independent cumulative review found a stale materialization claim and an
+  under-modeled floating-point leaf fold; source `ee0d08a` fixes the former and
+  source `3f8d729` derives the bound from the actual two 4,096-item leaf folds
+  plus one merge. Exact correction re-review is GREEN. PR #218 hosted
+  recollection and merge remain open.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/iter-sum-contract`; lease covers the iterator terminal implementation,
+  tests, benchmark/contracts, CHANGELOG, and this item's PM regions; status:
+  in progress; last update 2026-09-01.
+
 ### ✅ MOI-SCHEDULER-DROP-LEAK-2026-08-27 [patch]: Release workers on final external drop
 
 - **Delivered:** reviewed head `b8a5325`, PR #210 merge `f82d83d`; all required
@@ -2564,7 +2603,7 @@ architecture definition.
 #### ✅ ISSUE-117 [minor]: Add Rayon-style terminal reducers
 - **Type**: Parallel Iterator / Rayon Gap / Benchmark Infrastructure
 - **Root Cause**: The Rayon-style non-indexed adapter subset covered generic reductions but did not expose the common terminal reducer methods `sum`, `product`, `min`, and `max`.
-- **Resolution**: Added `ParallelIterator::{sum, product, min, max}` with value-semantic tests for non-empty and empty streams, and added `iterator_adapter_terminal_reducers` to the Rayon adapter benchmark target.
+- **Resolution**: Added `ParallelIterator::{sum, product, min, max}` with value-semantic tests for non-empty and empty streams. Standard `sum` and `product` now preserve one whole-stream trait invocation, while explicit `sum_reassociated` and `product_reassociated` retain deterministic shard folding under stronger output-self bounds. `iterator_adapter_terminal_reducers` opts into the reassociated sum after asserting equivalent primitive values.
 - **Evidence**: `iterator_adapter_terminal_reducers` asserts equal `(sum, min, max)` results for Moirai and Rayon before timing. `cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_terminal_reducers --quiet` measured Moirai at 64.686-65.272 us versus Rayon at 218.10-226.27 us.
 - **Verification**: `cargo test -p moirai-iter --all-features parallel -- --nocapture`; `cargo bench -p moirai-benchmarks --bench iterator_adapter_comparison -- iterator_adapter_terminal_reducers --quiet`; `cargo test -p moirai-benchmarks --test benchmark_contracts rayon_adapter_surface_audit_tracks_current_iterator_scope -- --nocapture`.
 - **Residual Risk**: This expands the focused Rayon-style subset; it is not full Rayon adapter parity or a full indexed producer/consumer adapter implementation.

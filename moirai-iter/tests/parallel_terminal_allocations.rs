@@ -82,12 +82,15 @@ fn allocations_of<T>(operation: impl Fn() -> T) -> (T, usize) {
 }
 
 #[test]
-fn borrowed_map_sum_allocates_sublinearly() {
+fn borrowed_map_reassociated_sum_allocates_sublinearly() {
     let data = source();
     let expected: u64 = data.iter().map(|value| value % 7).sum();
 
-    let (total, allocations) =
-        allocations_of(|| data.par_iter().map(|value| value % 7).sum::<u64>());
+    let (total, allocations) = allocations_of(|| {
+        data.par_iter()
+            .map(|value| value % 7)
+            .sum_reassociated::<u64>()
+    });
 
     assert_eq!(total, expected);
     assert!(
@@ -98,7 +101,7 @@ fn borrowed_map_sum_allocates_sublinearly() {
 }
 
 #[test]
-fn owned_map_sum_allocates_sublinearly() {
+fn owned_map_reassociated_sum_allocates_sublinearly() {
     let data = source();
     let expected: u64 = data.iter().map(|value| value % 7).sum();
 
@@ -106,7 +109,7 @@ fn owned_map_sum_allocates_sublinearly() {
         data.clone()
             .into_par_iter()
             .map(|value| value % 7)
-            .sum::<u64>()
+            .sum_reassociated::<u64>()
     });
 
     assert_eq!(total, expected);

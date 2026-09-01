@@ -133,7 +133,7 @@ fn filter_map_chain_keeps_borrowed_shards() {
     let (total, bytes) = allocated_bytes(|| {
         data.par_iter()
             .filter_map(|value| (value % 3 == 0).then_some(value * 2))
-            .sum::<u64>()
+            .sum_reassociated::<u64>()
     });
 
     assert_eq!(total, expected);
@@ -148,7 +148,7 @@ fn flat_map_chain_keeps_borrowed_shards() {
     let (total, bytes) = allocated_bytes(|| {
         data.par_iter()
             .flat_map(|value| [value % 5, value % 7])
-            .sum::<u64>()
+            .sum_reassociated::<u64>()
     });
 
     assert_eq!(total, expected);
@@ -170,7 +170,7 @@ fn stacked_converted_adapters_keep_borrowed_shards() {
         data.par_iter()
             .filter_map(|value| (value % 3 == 0).then_some(*value))
             .flat_map(|value| [value % 5, value % 7])
-            .sum::<u64>()
+            .sum_reassociated::<u64>()
     });
 
     assert_eq!(total, expected);
@@ -204,7 +204,13 @@ fn flatten_chain_keeps_its_nested_source_shards() {
     let nested = nested_source();
     let expected: u64 = nested.iter().flatten().sum();
 
-    let (total, bytes) = allocated_bytes(|| nested.clone().into_par_iter().flatten().sum::<u64>());
+    let (total, bytes) = allocated_bytes(|| {
+        nested
+            .clone()
+            .into_par_iter()
+            .flatten()
+            .sum_reassociated::<u64>()
+    });
 
     assert_eq!(total, expected);
     {
@@ -230,7 +236,7 @@ fn update_chain_splits_its_owned_source() {
         data.clone()
             .into_par_iter()
             .update(|value| *value = value.wrapping_mul(3))
-            .sum::<u64>()
+            .sum_reassociated::<u64>()
     });
 
     assert_eq!(total, expected);
@@ -247,7 +253,7 @@ fn exponential_blocks_chain_splits_its_owned_source() {
             .into_par_iter()
             .by_exponential_blocks()
             .map(|value| value % 11)
-            .sum::<u64>()
+            .sum_reassociated::<u64>()
     });
 
     assert_eq!(total, expected);
@@ -264,7 +270,7 @@ fn uniform_blocks_chain_splits_its_owned_source() {
             .into_par_iter()
             .by_uniform_blocks(512)
             .map(|value| value % 11)
-            .sum::<u64>()
+            .sum_reassociated::<u64>()
     });
 
     assert_eq!(total, expected);

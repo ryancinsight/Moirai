@@ -46,7 +46,7 @@ fn moirai_map_reduce(data: Vec<u64>) -> u64 {
     MoiraiIntoParallelIterator::into_par_iter(data)
         .map(|value| value.wrapping_mul(3).wrapping_add(1))
         .filter(|value| value % 5 != 0)
-        .sum::<u64>()
+        .sum_reassociated::<u64>()
 }
 
 fn rayon_map_reduce(data: Vec<u64>) -> u64 {
@@ -89,7 +89,7 @@ fn moirai_borrowed_copied_reduce(data: &Vec<u64>) -> u64 {
         .copied()
         .map(|value| value.wrapping_mul(19).wrapping_add(23))
         .filter(|value| value & 7 != 0)
-        .sum::<u64>()
+        .sum_reassociated::<u64>()
 }
 
 fn rayon_borrowed_copied_reduce(data: &Vec<u64>) -> u64 {
@@ -125,7 +125,7 @@ fn moirai_nested_flatten_reduce(data: Vec<Vec<u64>>) -> u64 {
         .flatten_iter()
         .map(|value| value.wrapping_mul(13).wrapping_add(5))
         .filter(|value| value % 11 != 0)
-        .sum::<u64>()
+        .sum_reassociated::<u64>()
 }
 
 fn rayon_nested_flatten_reduce(data: Vec<Vec<u64>>) -> u64 {
@@ -146,7 +146,7 @@ fn moirai_chunked_map_reduce(data: Vec<u64>) -> u64 {
                 .filter(|value| value % 13 != 0)
                 .sum::<u64>()
         })
-        .sum::<u64>()
+        .sum_reassociated::<u64>()
 }
 
 fn rayon_chunked_map_reduce(data: Vec<u64>) -> u64 {
@@ -168,7 +168,7 @@ fn moirai_indexed_step_interleave(left: Vec<u64>, right: Vec<u64>) -> u64 {
         .interleave(right)
         .enumerate()
         .map(|(index, value)| value.wrapping_mul((index as u64).wrapping_add(1)))
-        .sum::<u64>()
+        .sum_reassociated::<u64>()
 }
 
 fn rayon_indexed_step_interleave(left: Vec<u64>, right: Vec<u64>) -> u64 {
@@ -251,7 +251,7 @@ fn rayon_find_any(data: &Vec<u64>) -> Option<u64> {
 fn moirai_borrowed_sum(data: &Vec<u64>) -> u64 {
     MoiraiIntoParallelRefIterator::par_iter(data)
         .map(|value| value.wrapping_mul(3).wrapping_add(1))
-        .sum::<u64>()
+        .sum_reassociated::<u64>()
 }
 
 fn rayon_borrowed_sum(data: &Vec<u64>) -> u64 {
