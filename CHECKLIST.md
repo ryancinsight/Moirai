@@ -612,7 +612,7 @@
   `benchmark_contracts` 70/70; `moirai-scheduler` doctests 2/2;
   `RUSTFLAGS="--cfg loom"` `loom_chase_lev` 1/1.
 
-## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — review
+## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — merge
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `fix/scheduler-resize-gate-loom`; source candidate `10fcb51`; lease: none;
@@ -651,7 +651,9 @@
   relaxed signals before publication, requires a claimed-state backoff, and
   asserts generation one after admission. The focused Loom model and
   warning-denied focused cfg-Loom Clippy pass after the correction; backlog and
-  checklist now agree on review status and no active lease.
+  checklist now agree on merge status and no active lease.
+- **Review:** independent read-only review of exact PM head `bb6087f` against
+  `316bf8f` is GREEN; PR #212 hosted collection and non-squash merge remain.
 
 ## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] — todo
 
