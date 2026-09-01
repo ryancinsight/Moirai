@@ -612,17 +612,48 @@
   `benchmark_contracts` 70/70; `moirai-scheduler` doctests 2/2;
   `RUSTFLAGS="--cfg loom"` `loom_chase_lev` 1/1.
 
-## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — todo
+## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — merge
 
-- Unowned. `loom_chase_lev.rs` covers the steal/pop ordering protocol but not
-  the resize gate: `enter_steal_access`'s add/re-check/back-off retry, the
-  `resizing` flag, and `resize`'s spin to zero are unmodelled, so no exhaustive
-  interleaving check covers a thief entering the gate against a resize claiming
-  it, nor a batch holding it across several steals. Surfaced by
-  MOI-STEAL-BATCH-GATE-HOIST, which changed the hold duration with only stress
-  tests and a contract argument as evidence. Model the flag and the counter with
-  the production orderings and assert that no thief is inside the access region
-  across the buffer republish.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/scheduler-resize-gate-loom`; source candidate `10fcb51`; lease: none;
+  independent review, PR publication, hosted collection, and merge remain; last
+  update 2026-09-01.
+- **Finding:** modelling the prior `resizing` flag and `steal_accesses` counter
+  separately exposed an ABA admission window: a resize can claim, republish,
+  and clear the flag between a thief's flag load and counter increment, after
+  which the thief enters against the stale generation. Sequential consistency
+  on two atomics does not make that compound transition indivisible.
+- **Correction:** one `AtomicUsize` now encodes the exclusive owner claim in bit
+  zero and each thief contribution as two. A thief's single steady-state RMW is
+  ordered either before the claim (so the owner waits) or after it (so the
+  thief backs out before storage access). Resize and shared reclamation use the
+  same claim. This removes one atomic field and reduces uncontended thief entry
+  from one load plus one increment plus one validation load to one increment;
+  no latency claim is made without a paired measurement.
+- **Acceptance:** the bounded model must cover racing admission/publication,
+  retry while claimed, entry after publication, a single held access, and a
+  multi-step batch hold. The production stress/value suites, warning-denied
+  checks, Rustdoc/doctests, workflow parse, and full workspace Nextest remain
+  required before review.
+- **Evidence:** the model imports the production gate transition source and
+  passes 5/5 focused cases; the complete workflow selection passes 22/22 Loom
+  cases across 11 binaries. Scheduler debug and release suites pass 34/34 each;
+  the all-feature workspace passes 930/930 tests with 7 configured skips.
+  Warning-denied host all-target/all-feature Clippy, warning-denied cfg-Loom
+  Clippy, warning-denied AArch64 Windows all-target/all-feature check, workspace
+  Rustdoc, workspace doctests, formatting, diff checks, and YAML parsing pass.
+  The existing six-row `steal_batch_gate` Criterion smoke passes; no timing
+  claim is made because no revision-attested pre-change sample exists for this
+  gate correction.
+- **Independent correction:** the first review found that the post-publication
+  case's channel supplied a separate ordering edge and that the backlog still
+  carried the old lease. Candidate `10fcb51` removes that channel, uses only
+  relaxed signals before publication, requires a claimed-state backoff, and
+  asserts generation one after admission. The focused Loom model and
+  warning-denied focused cfg-Loom Clippy pass after the correction; backlog and
+  checklist now agree on merge status and no active lease.
+- **Review:** independent read-only review of exact PM head `bb6087f` against
+  `316bf8f` is GREEN; PR #212 hosted collection and non-squash merge remain.
 
 ## MOI-SPIN-BUDGETS-2026-08-27 — Bound the no-yield spin loops [patch] — todo
 

@@ -1,8 +1,9 @@
 //! Resize-gate cost of batch stealing, measured from both sides.
 //!
 //! `ChaseLevDeque::steal_batch` moves up to sixteen items behind the deque's
-//! resize gate, a `SeqCst` counter every thief shares. Entering the gate once
-//! per item and entering it once per batch differ in *where* the cost lands:
+//! resize gate, one encoded `SeqCst` state every thief shares. Entering the
+//! gate once per item and entering it once per batch differ in *where* the cost
+//! lands:
 //! per-item entry pays contended read-modify-writes on one line for every
 //! element, while per-batch entry holds the gate longer and so makes a
 //! concurrent `resize` — which spins until the gate is empty — wait behind a

@@ -41,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `moirai-core/tests/loom_mpmc_waiter.rs`: a loom model of the bounded MPMC
   channel's waiter-count protocol, covering the shipped shape plus three
   counter-examples (inverted registration, unfenced notifier, unfenced waiter).
+- `moirai-scheduler/tests/loom_chase_lev_resize_gate.rs`: a bounded Loom model
+  of the encoded resize-owner/active-stealer gate, covering entry retry and
+  exclusion while single and batched steal access regions remain active.
+- `moirai-scheduler` now encodes resize ownership and active thief access in one
+  atomic gate. This closes the separate flag/counter admission window and also
+  excludes new thief access while shared retired storage is reclaimed.
 
 - `moirai-benchmarks/thread_schedule_comparison` now includes a bounded
   saturated-admission comparison: one-worker Moirai capacity-plus-one rejection
@@ -815,11 +821,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`ArchivedUniversalSender`/`ArchivedUniversalReceiver`/`ArchivedMessage` +
   `ArchiveSerialize`/`ArchiveView`) at the crate root — the canonical typed
   cross-boundary channel.
-- `moirai-scheduler`: a `loom` exhaustive-interleaving model of the Chase-Lev
-  steal/pop ordering protocol (`tests/loom_chase_lev.rs`, gated behind
-  `--cfg loom`), machine-checking the exactly-once invariant across all
-  interleavings. `loom` is wired as a `cfg(loom)`-only dev-dependency, so normal
-  builds and CI are unaffected.
+- `moirai-scheduler`: a bounded `loom` model of the Chase-Lev steal/pop ordering
+  protocol (`tests/loom_chase_lev.rs`, gated behind `--cfg loom`), checking the
+  exactly-once invariant across the modeled interleavings. `loom` is wired as a
+  `cfg(loom)`-only dependency, so normal builds are unaffected.
 - `moirai-transport`: `MessageRouter::{unsubscribe, subscriber_count}` and
   `ConnectionManager::{state, is_connected, connected_addresses}` query methods;
   `ConnectionState` is now a public, `Copy` enum.

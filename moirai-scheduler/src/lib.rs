@@ -14,8 +14,8 @@
 //! - [`SplitDeque`] — a private owner stack backed by a shared deque, reducing
 //!   steal contention when spawn rate greatly exceeds steal rate.
 //!
-//! Correctness is covered by exactly-once concurrency stress tests and a `loom`
-//! exhaustive model of the Chase-Lev steal/pop ordering protocol.
+//! Correctness is covered by exactly-once concurrency stress tests and bounded
+//! `loom` models of the Chase-Lev transfer and resize-exclusion protocols.
 //!
 //! ## NUMA primitives
 //!
