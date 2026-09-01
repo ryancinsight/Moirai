@@ -26,9 +26,9 @@
   two words do not increase the actual slot stride or if overlap complicates
   panic/drop ownership.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-slot-metadata-layout`; lease: `moirai-iter/src/stream/slots.rs`,
-  focused slot/layout/allocation tests, CHANGELOG, and this item; last update
-  2026-09-01.
+  `perf/iter-slot-metadata-layout`; source `77f2832`; PR #228; source
+  lease: none; independent review is GREEN; hosted collection and merge remain;
+  last update 2026-09-01.
 - **Dependency:** shared wake ownership merged through PR #227 as `a83361a`;
   every repository-owned post-merge check is green.
 - **Entry evidence:** on the 64-bit host, the focused layout regression pins
@@ -61,7 +61,9 @@
   [62.035, 62.842] for pending async (+0.47%), and 110.477 us [109.008,
   116.922] to 109.803 us [108.445, 112.628] for sparse pending (-0.61%). No
   retained row reaches the 5% regression bound; broad intervals and control
-  movement preclude a throughput claim. Independent review remains pending.
+  movement preclude a throughput claim. Independent static review of exact
+  cumulative source `a83361a...77f2832` is GREEN; the reviewer inspected the
+  committed diff only and did not rerun dynamic gates.
 
 ## MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 — Consolidate retained-slot wake ownership [patch] [perf] — complete
 
