@@ -108,7 +108,7 @@ architecture definition.
   compatible sources/adapters, tests/instrument, CHANGELOG, and this item's PM
   regions; status: in progress; last update 2026-09-01.
 
-### 🟡 MOI-CI-DRAFT-GATE-2026-09-01 [patch] [ci]: Suppress draft pull-request runners
+### ✅ MOI-CI-DRAFT-GATE-2026-09-01 [patch] [ci]: Suppress draft pull-request runners
 
 - **Outcome:** draft pull requests schedule no repository jobs; opening or
   reopening a non-draft pull request and marking a draft ready preserve every
@@ -125,15 +125,16 @@ architecture definition.
 - **Evidence / cause:** draft PR #218 launched all five Rust jobs, whose final
   ready run completed in 6s–2m12s. The two Python jobs and one book job are
   independent roots under equivalent unguarded pull-request triggers.
-- **Candidate / verification:** source `8ad506d`, draft PR #219. PyYAML parses
+- **Candidate / verification:** final source `bc30759`, PR #219, merge
+  `9603564`. PyYAML parses
   all three workflows and removing only the activity lists and predicates
   yields the exact prior definitions. Draft runs `33485286665`, `33485286034`,
   and `33485286617` complete skipped with zero steps across all eight jobs.
-  GitHub's current reusable-workflow syntax permits `jobs.<job_id>.if`; the
-  ready-event hosted execution remains pending.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `ci/draft-pr-gate`; lease covers the three workflow files, CHANGELOG, and
-  this item's PM regions; status: in progress; last update 2026-09-01.
+  The ready event then passed all unchanged repository work: Rust run
+  `33485592298` (11s–2m22s), Python run `33485591545` (55s–2m9s), and book run
+  `33485592200` (45s build; pull-request deploy skipped by its existing guard).
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
+  lease: none; status: complete; last update 2026-09-01.
 
 ### ✅ MOI-PAR-SUM-CONTRACT-2026-09-01 [minor] [perf]: Preserve standard terminal semantics
 

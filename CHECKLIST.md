@@ -26,7 +26,7 @@
   tests, one iterator Criterion binary/contracts, CHANGELOG, and this item's PM
   regions. Last update 2026-09-01.
 
-## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — in progress
+## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — complete
 
 - **Outcome:** draft pull requests schedule no repository jobs; opening or
   reopening a non-draft pull request and marking a draft ready preserve every
@@ -39,10 +39,9 @@
 - **Scope / non-goals:** `.github/workflows/{rust-ci,python-ci,book-pages}.yml`,
   CHANGELOG, and this item's PM regions. No command, feature, matrix, cache,
   permission, workload, assertion, or timeout change.
-- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `ci/draft-pr-gate`.
-- **Lease:** Codex — the three workflow files, CHANGELOG, and this item's PM
-  regions. Last update 2026-09-01.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** none. Reviewed head `bc30759`, PR #219, merge `9603564`; last
+  update 2026-09-01.
 - **Entry evidence:** draft PR #218 launched all five Rust jobs; the final ready
   run passed in 6s–2m12s. The Python and book workflows expose three more
   independent jobs with the same unguarded draft-event behavior.
@@ -51,7 +50,9 @@
   yields the exact prior definitions. Draft runs `33485286665`, `33485286034`,
   and `33485286617` complete skipped: all eight jobs have zero steps. GitHub's
   current reusable-workflow syntax explicitly permits `jobs.<job_id>.if`.
-  Ready-event hosted execution remains pending.
+  The exact ready-head runs then passed every unchanged repository job:
+  Rust `33485592298` (11s–2m22s), Python `33485591545` (55s–2m9s), and book
+  `33485592200` (45s build; pull-request deploy correctly skipped).
 
 ## MOI-PAR-SUM-CONTRACT-2026-09-01 — Preserve standard terminal semantics [minor] [perf] — complete
 
