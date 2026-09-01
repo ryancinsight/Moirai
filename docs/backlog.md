@@ -86,7 +86,38 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 [patch] [perf]: Compact retained ordered outputs
+### 🟡 MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Reuse cache-map output storage
+
+- **Outcome:** make `ZeroCopyParallelIter::map` initialize and return one final
+  output allocation directly while dropping every initialized value exactly
+  once if mapping panics.
+- **Scope / non-goals:** cache-map execution, one shared private parallel-output
+  leaf, the touched cache-module concern split, focused value/drop/allocation
+  tests, one additive existing-binary Criterion row, CHANGELOG, and PM state.
+  No public API, reduce/for-each behavior, scheduler, threshold, existing
+  workload, timeout, or dependency change.
+- **Acceptance:** a warmed large borrowed map must reach fan-out and record exact
+  allocation calls, bytes, and every ordered value. Both map surfaces use one
+  canonical `MapOutput` / `ChunkWriter`; cache map allocates no second full
+  result and drops initialized prefixes/peer ranges exactly once on mapper
+  panic. Empty/sequential/full/ragged, zero-sized, and non-`Clone` values pass;
+  Miri, debug/release tests, warning-denied host/AArch64 checks, docs, SemVer,
+  additive Criterion evidence under a 5% regression bound, and independent
+  review pass.
+- **Risk / change:** internal initialized-storage ownership `[patch]`; reject
+  publication before initialization, overlapping writers, per-output
+  allocation, leaked/double-dropped values, or duplicated unsafe machinery.
+- **Integrator / lease:** Codex session
+  `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/cache-map-direct-output`; lease: cache/parallel-output source, focused
+  tests/benchmark/docs; last update 2026-09-01.
+- **Dependency / entry mechanism:** ADR-022 owns joined indexed fan-out.
+  `cache.rs` allocates uninitialized output and then collects it into a second
+  full vector; `MaybeUninit` also suppresses already-initialized destructors on
+  mapper panic. The existing parallel-map leaf already implements the required
+  direct transfer and panic cleanup and must become the single shared home.
+
+### ✅ MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 [patch] [perf]: Compact retained ordered outputs
 
 - **Outcome:** replace per-position `Option<Output>` staging with output storage
   indexed by retained physical slots, using the existing slot metadata as the
@@ -111,8 +142,10 @@ architecture definition.
   state publication before initialization.
 - **Integrator / lease:** Codex session
   `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-ordered-output-storage`; source `aba0c18`; lease: none; last update
-  2026-09-01. Independent exact-artifact review is GREEN; merge remains open.
+  `perf/iter-ordered-output-storage`; source `aba0c18`; PM `d1b82f3`; PR #230
+  merged with history as `701ca76`; lease: none; last update 2026-09-01.
+  Independent exact-artifact review and every repository check are GREEN; the
+  non-required external `recurseml/analysis` service errored.
 - **Dependency / evidence:** PR #228 merged slot metadata as `b7dabcb`; PR #229
   merged PM closure as `af34443`. The current limits 1 / 8 / 24 ledger is 15 /
   15 / 15 allocations and 16,560 / 17,064 / 18,216 gross bytes; source layout

@@ -34,7 +34,42 @@
 - **Acceptance:** no placement claim survives that the runtime does not
   actually enforce.
 
-## MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 — Compact retained ordered outputs [patch] [perf] — reviewed; merge pending
+## MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 — Reuse cache-map output storage [patch] [perf] — in progress
+
+- **Outcome:** make `ZeroCopyParallelIter::map` initialize and return one final
+  output allocation directly while dropping every initialized value exactly
+  once if mapping panics.
+- **Acceptance:** record a warmed large-map allocation/byte baseline that reaches
+  scheduler fan-out and checks every value. Consolidate the existing
+  `MapOutput` / `ChunkWriter` implementation into one private parallel-output
+  home and use it from both map surfaces; no second full-result allocation or
+  duplicate unsafe initialization remains. Empty, sequential, one-chunk,
+  full-chunk, ragged, zero-sized, and non-`Clone` outputs stay exact. Success
+  and mapper-panic drop counts are exact under Miri. Add a large-map row to the
+  existing cache Criterion binary without changing existing rows; reject a 5%
+  retained-row regression. Debug/release Nextest, warning-denied host and
+  AArch64 checks, Rustdoc/doctests, SemVer, and independent review pass.
+- **Scope / non-goals:** `moirai-iter` cache-map execution, the shared private
+  parallel-output leaf, the touched 634-line cache module split by concern,
+  focused value/drop/allocation tests, one additive Criterion row, CHANGELOG,
+  and PM state. No public API, reduce/for-each behavior, scheduler, threshold,
+  existing workload, timeout, or dependency change.
+- **Risk / change:** internal initialized-storage ownership `[patch]`; reject
+  output publication before complete initialization, overlapping writers,
+  per-output allocation, new fixed metadata that erases the full-buffer win,
+  or cleanup that leaks/double-drops after partial execution.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/cache-map-direct-output`; lease: `moirai-iter/src/cache*`,
+  `moirai-iter/src/{parallel,iter_ops}/**`, focused tests/benchmark, CHANGELOG,
+  and this item; last update 2026-09-01.
+- **Dependency / entry mechanism:** ADR-022 owns the joined indexed fan-out
+  contract. `cache.rs` currently allocates `Vec<MaybeUninit<R>>`, then
+  `collect`s into a second full `Vec<R>`; a panicking worker drops neither its
+  initialized prefix nor completed peer ranges. The parallel iterator already
+  carries the required panic-safe direct-output implementation in a private
+  sibling leaf, so extension requires consolidation rather than another copy.
+
+## MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 — Compact retained ordered outputs [patch] [perf] — complete
 
 - **Outcome:** replace per-position `Option<Output>` staging with output storage
   indexed by retained physical slots, using the existing slot metadata as the
@@ -61,8 +96,8 @@
   yield, output-state publication before initialization, or any design whose
   fixed metadata erases the measured retained-memory reduction.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-ordered-output-storage`; source `aba0c18`; lease: none; last update
-  2026-09-01.
+  `perf/iter-ordered-output-storage`; source `aba0c18`; PM `d1b82f3`; PR #230
+  merged with history as `701ca76`; lease: none; last update 2026-09-01.
 - **Dependency / entry evidence:** slot metadata layout merged through PR #228
   as `b7dabcb`; PM closure merged through PR #229 as `af34443`. At limits 1 / 8
   / 24 the current ledger is 15 / 15 / 15 allocations and 16,560 / 17,064 /
