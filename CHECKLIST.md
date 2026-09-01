@@ -175,7 +175,7 @@
   a worktree reports on that worktree's sources with another worktree dirty.
   Both are falsifiable — verify each against the current behaviour first.
 
-## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — review
+## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — done 2026-08-31
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
   **Lease:** none. Source commit `8b8110b`; last update 2026-08-31.
@@ -188,7 +188,7 @@
   warning-denied Clippy; feature-enabled Criterion `--test` smoke of every row
   completed in about 45 seconds; fmt, diff, and standalone lock hash
   `dab0b1f06ba224ac29d750921e033d4135f9765c` are clean. Independent exact-object
-  review is GREEN; PR #206 carries the history-preserved candidate.
+  review is GREEN; PR #206 merged with history preserved as `c13fbf5`.
 
 ## MOI-FLAKY-JOIN-PRECONDITION-2026-08-28 — Make the join test's precondition deterministic [patch] — review
 
@@ -385,9 +385,11 @@
   the futex_mutex/mpmc-waiter precedent plus stress coverage.
 - **Last-update:** 2026-08-27.
 
-## MOI-INLINE-POLL-DEPTH-2026-08-27 — Bound nested inline-wake polls [patch] — todo
+## MOI-INLINE-POLL-DEPTH-2026-08-27 — Bound nested inline-wake polls [patch] — in progress
 
-- Owner: unclaimed.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `chore/inline-poll-depth-closure`; lease: PM records only; source remains
+  read-only; last update 2026-08-31.
 - Outcome: the wake path's inline-poll rung carries an explicit nesting bound.
 - Evidence (integrator review of PR #171): `schedule_wake`'s inline poll runs
   on the waking thread after the 64-attempt admission ladder; a future whose
@@ -397,6 +399,11 @@
   and requires adversarial permanent saturation — hardening, not a defect).
 - Direction: thread-local inline-poll depth counter; past the bound, fall
   back to the yield rung indefinitely (never drop the wake).
+- **Reconciliation hypothesis:** `322130d0` superseded this direction with a
+  stronger non-recursive state-machine bound: one inline repoll, then one
+  queued reschedule; persistent saturation completes with typed
+  `ResourceExhausted`. Verify the exact regression and public error semantics
+  before closing this stale record.
 
 ## MOI-REGISTRY-UNBOUNDED-2026-08-27 — Bound the task registry [minor] — partly delivered; the bulk needs a contract decision
 
