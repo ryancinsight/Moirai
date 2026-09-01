@@ -192,13 +192,19 @@ impl<T: Send + Sync> ParallelIter<T> {
 
 #[inline]
 fn chunk_size(len: usize) -> usize {
-    let worker_count = themis::CpuTopology::detect()
-        .map(|topology| topology.logical_processors())
-        .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
-        .unwrap_or(1)
-        .max(1);
+    let worker_count = std::thread::available_parallelism().map_or(1, usize::from);
 
-    len.div_ceil(worker_count).max(1)
+    chunk_size_for_lanes(len, worker_count)
+}
+
+const fn chunk_size_for_lanes(len: usize, lane_count: usize) -> usize {
+    let lanes = if lane_count == 0 { 1 } else { lane_count };
+    let size = len.div_ceil(lanes);
+    if size == 0 {
+        1
+    } else {
+        size
+    }
 }
 
 #[inline]
@@ -233,6 +239,14 @@ mod tests {
 
     const CHUNK: usize = DEFAULT_RING_BUFFER_CAPACITY + 1;
     const LEN: usize = CHUNK * 4 + 7; // several chunks plus a short remainder
+
+    #[test]
+    fn chunk_size_normalizes_lanes_and_covers_the_domain() {
+        assert_eq!(chunk_size_for_lanes(0, 0), 1);
+        assert_eq!(chunk_size_for_lanes(1, 0), 1);
+        assert_eq!(chunk_size_for_lanes(10, 3), 4);
+        assert_eq!(chunk_size_for_lanes(10, 32), 1);
+    }
 
     #[test]
     fn parallel_map_preserves_boundary_shapes_and_order() {

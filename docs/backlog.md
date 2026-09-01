@@ -115,20 +115,22 @@ architecture definition.
   1,048,576-byte final output. The retained x86-64 Windows Criterion row has a
   1.3115 ms median (95% CI 1.3023–1.3420 ms). The instrument excludes input
   construction from both measured regions and checks every ordered value.
-- **Candidate evidence:** warmed gross allocation is 1,062,720 bytes, comprising
-  one 1,048,576-byte output plus 14,144 bytes of chunk/completion/scheduler
-  records; total calls are 85 because scheduler task records remain. Gross
-  bytes fall 72.1% and calls 25.4%. The retained median is 0.3180 ms (95% CI
-  0.3016–0.3205 ms), 75.8% below entry with disjoint intervals. Debug and
-  release value/drop coverage are 226/226 green in each profile; focused Miri
-  coverage is 3/3 for allocation transfer, partial initialization cleanup, and
-  zero-sized output. Public-path Miri stops at the unsupported Windows NUMA call
-  before this code. Exact-baseline SemVer passes 223 checks, and independent
-  review of `7f7b279...924f5d9` is GREEN. Hosted run `33493866766` then
-  falsified the platform-independent allocation claim: Linux NUMA topology
-  discovery made the warmed call perform 417 allocations totalling 1,361,702
-  gross bytes. Fix-forward removes the per-operation topology discovery used
-  only to derive chunk count; exact candidate and hosted closure remain open.
+- **Candidate evidence:** PR #222's initial Windows result was 85 calls and
+  1,062,720 gross bytes, but hosted Linux run `33493866766` falsified its
+  platform-independent attribution with 417 calls and 1,361,702 gross bytes.
+  `ParallelIter::new` still materialized a NUMA/cache topology snapshot solely
+  to derive a logical-processor count. The fix-forward uses process-available
+  parallelism directly; the unchanged warmed ledger now structurally requires
+  exactly three allocations and bounds gross bytes to the 1,048,576-byte final
+  output plus 6.25%. The retained median is 0.29612 ms (95% CI
+  0.28512–0.30076 ms), 77.4% below entry with disjoint intervals. Original
+  direct-output debug/release coverage was 226/226, focused Miri coverage was
+  3/3, exact-baseline SemVer passed 223 checks, and independent review of
+  `7f7b279...924f5d9` was GREEN. Fix-forward debug and release Nextest pass
+  227/227 with two configured skips in each profile; warning-denied
+  all-target/all-feature Clippy and Rustdoc pass; 4/4 doctests, formatting, and
+  the focused Criterion target pass. Hosted Linux closure and independent
+  fix-forward review remain open.
 
 ### ✅ MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
 
