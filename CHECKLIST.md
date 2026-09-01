@@ -509,11 +509,10 @@
   `f6bc6e2`, PR #209 merge `990a3ae`; independent reviews and all required
   repository checks are GREEN. The non-required external analysis service errored.
 
-## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — in progress
+## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — review
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-drop-leak`; lease: scheduler lifecycle/tests, ADR 0005,
-  CHANGELOG, and this item; last update 2026-08-31.
+  `fix/scheduler-drop-leak`; lease: none; last update 2026-08-31.
 - **Outcome:** dropping the last external `ThreadScheduler` handle initiates
   shutdown and releases worker-owned scheduler state without requiring an
   explicit `shutdown()` call.
@@ -539,10 +538,18 @@
   `ec92944` publishes under that mutex; the admission and external-waiter Loom
   models pass 2/2 in 0.026 s, warning-denied all-target/all-feature Clippy
   passes, release executor Nextest passes 132/132 in 1.043 s, and workspace
-  Nextest passes 928/928 in 11.965 s. Exact-head review of `36ef05b` found
-  that workers still entered the join election and could cross-join a peer
-  whose accepted job depended on code after `shutdown()` returned. Correction,
-  exact re-review, and PR #210 collection remain.
+  Nextest passes 928/928 in 11.965 s. Exact-head review of `36ef05b` found that
+  workers still entered the join election and could cross-join a peer whose
+  accepted job depended on code after `shutdown()` returned. Correction
+  `f704da4` closes the blocking lane before scheduler workers return, admits
+  only non-workers to the join election, and retains separate close/join phases
+  for synchronous external shutdown. The deterministic dependency-cycle
+  regression passes 1/1; debug and release executor Nextest pass 133/133,
+  including release in 0.984 s; workspace Nextest passes 929/929 in 11.169 s;
+  benchmark contracts pass 72/72 in 0.586 s; all 16 Loom models pass in
+  0.582 s. Warning-denied all-target/all-feature Clippy and Rustdoc, doctests,
+  rustfmt, diff, and committed-lock checks pass. Exact re-review and PR #210
+  collection remain.
 
 ## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — todo
 

@@ -100,8 +100,8 @@ architecture definition.
 - **Risk / change:** P1 lifecycle/resource correctness, `[patch]`; no SemVer
   change.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-drop-leak`; lease: scheduler lifecycle/tests, ADR 0005,
-  CHANGELOG, and this item; last update 2026-08-31.
+  `fix/scheduler-drop-leak`; lease: none; status: review; last update
+  2026-08-31.
 - **Candidate / evidence:** source `eba1ce4` tracks only external handles and
   retains worker `Arc` lifetime anchoring. Independent review found
   worker-to-worker cross-join and compute-admission races. Correction `4e034fd`
@@ -119,8 +119,15 @@ architecture definition.
   in 1.043 s, and workspace Nextest passes 928/928 in 11.965 s. Exact-head
   review of `36ef05b` found that workers still entered the join election and
   could cross-join a peer whose accepted job depended on code after
-  `shutdown()` returned. Correction, exact re-review, and PR #210 collection
-  remain.
+  `shutdown()` returned. Correction `f704da4` closes the blocking lane before
+  workers return, restricts join election to non-workers, and retains separate
+  close/join phases for synchronous external shutdown. Its deterministic
+  dependency-cycle regression passes 1/1; debug and release executor Nextest
+  pass 133/133, including release in 0.984 s; workspace Nextest passes 929/929
+  in 11.169 s; embedded-source contracts pass 72/72 in 0.586 s; and all 16
+  Loom models pass in 0.582 s. Warning-denied all-target/all-feature Clippy and
+  Rustdoc, doctests, rustfmt, diff, and committed-lock checks pass. Exact
+  re-review and PR #210 collection remain.
 
 ### 🟨 MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
