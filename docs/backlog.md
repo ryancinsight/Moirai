@@ -98,8 +98,11 @@ architecture definition.
   inexpressible target; feature-enabled warning-denied Clippy and benchmark
   smoke execute it unchanged; the manifest contract pins the selection rule.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/bench-required-features`; lease: `benchmarks/Cargo.toml`, benchmark
-  target-selection contract, CHANGELOG, and this item; base `84793eb`.
+  `fix/bench-required-features`; source `8b8110b`; status: review; lease: none.
+- **Evidence:** default all-target check; focused Nextest 1/1; default and
+  feature-enabled all-target warning-denied Clippy; unchanged feature-enabled
+  Criterion `--test` smoke completed every row in about 45 seconds; standalone
+  lock hash remains `dab0b1f06ba224ac29d750921e033d4135f9765c`.
 
 ### ✅ MOI-DISPATCH-FLOOR-2026-08-31 [patch] [perf]: Keep indexed CPU work on compute workers
 

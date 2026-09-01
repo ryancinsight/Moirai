@@ -175,25 +175,19 @@
   a worktree reports on that worktree's sources with another worktree dirty.
   Both are falsifiable — verify each against the current behaviour first.
 
-## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — in progress
+## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — review
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-  **Lease:** `benchmarks/Cargo.toml`, benchmark target-selection contract,
-  CHANGELOG, backlog, and this item; base `84793eb`; last update 2026-08-31.
-- **Finding.** `benchmarks/benches/result_handle_diagnostics/registry_paths.rs`
-  calls `TaskRegistry::diagnostic_directory_shared_acquire`, which lives behind
-  `moirai-executor/registry-diagnostics`, but the `[[bench]]` target declares no
-  `required-features`. `cargo clippy --workspace --all-targets -- -D warnings`
-  therefore fails on clean `main` (verified at `1866626` in a separate
-  worktree) with `E0599`, and only passes when
-  `--features moirai-benchmarks/registry-diagnostics` is added. Fix:
-  `required-features = ["registry-diagnostics"]` on that bench target so the
-  default gate selects the targets it can build.
-- **Acceptance:** default all-target checking skips only this inexpressible
-  diagnostic target; enabling `registry-diagnostics` builds and smoke-runs the
-  unchanged benchmark; a manifest contract pins the target-feature relation;
-  no benchmark body, workload, feature definition, timeout, or public API
-  changes.
+  **Lease:** none. Source commit `8b8110b`; last update 2026-08-31.
+- **Outcome:** declare `registry-diagnostics` as a required feature of
+  `result_handle_diagnostics`; default all-target verification now omits the
+  target whose diagnostic API is disabled, while feature-enabled execution is
+  unchanged. An embedded-manifest regression pins the target-feature relation.
+- **Evidence:** default `cargo check --offline -p moirai-benchmarks
+  --all-targets`; focused Nextest 1/1; default and feature-enabled all-target
+  warning-denied Clippy; feature-enabled Criterion `--test` smoke of every row
+  completed in about 45 seconds; fmt, diff, and standalone lock hash
+  `dab0b1f06ba224ac29d750921e033d4135f9765c` are clean.
 
 ## MOI-FLAKY-JOIN-PRECONDITION-2026-08-28 — Make the join test's precondition deterministic [patch] — review
 
