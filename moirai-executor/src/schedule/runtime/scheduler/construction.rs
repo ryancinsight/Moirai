@@ -25,6 +25,21 @@ struct SchedulerConstruction<'config> {
     max_global_queue_size: usize,
     local_queue_initial_capacity: usize,
     numa_aware: bool,
+    #[cfg(test)]
+    failure_probe: Option<ConstructionFailureProbe>,
+}
+
+#[cfg(test)]
+struct ConstructionFailureProbe {
+    worker_id: usize,
+    lifetime_owner: Box<dyn std::any::Any + Send + Sync>,
+    worker_exit_gate: Option<WorkerExitGate>,
+}
+
+#[cfg(test)]
+struct WorkerExitGate {
+    reached: std::sync::mpsc::SyncSender<()>,
+    release: std::sync::mpsc::Receiver<()>,
 }
 
 impl ThreadScheduler<256, 8192> {
@@ -33,7 +48,8 @@ impl ThreadScheduler<256, 8192> {
     /// # Errors
     ///
     /// Returns an error when the default queue policy cannot be constructed or
-    /// a worker thread cannot be started.
+    /// a worker thread cannot be started. A partially started worker set is
+    /// shut down and joined before the error returns.
     pub fn new(worker_count: usize, thread_name_prefix: &str) -> ExecutorResult<Self> {
         Self::new_with_local_queue_initial_capacity(
             worker_count,
@@ -57,7 +73,8 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// Returns [`ExecutorError::InvalidLocalQueueInitialCapacity`] when the
     /// requested capacity cannot normalize or form the required scheduled-job
     /// deque allocation layouts, or propagates worker thread construction
-    /// failures.
+    /// failures after shutting down and joining any workers already started by
+    /// the same construction attempt.
     pub fn new_with_local_queue_initial_capacity(
         worker_count: usize,
         thread_name_prefix: &str,
@@ -69,6 +86,8 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity,
             numa_aware: true,
+            #[cfg(test)]
+            failure_probe: None,
         })
     }
 
@@ -82,6 +101,36 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             max_global_queue_size: config.max_global_queue_size,
             local_queue_initial_capacity: config.local_queue_initial_capacity,
             numa_aware,
+            #[cfg(test)]
+            failure_probe: None,
+        })
+    }
+
+    #[cfg(test)]
+    fn with_worker_construction_failure<T>(
+        worker_count: usize,
+        failing_worker_id: usize,
+        lifetime_owner: T,
+        worker_exit_gate: WorkerExitGate,
+    ) -> ExecutorResult<Self>
+    where
+        T: Send + Sync + 'static,
+    {
+        assert!(
+            failing_worker_id < worker_count.max(1),
+            "invariant: injected worker failure targets the construction set"
+        );
+        Self::from_construction(SchedulerConstruction {
+            worker_count,
+            thread_name_prefix: "test-partial-spawn",
+            max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
+            local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+            numa_aware: false,
+            failure_probe: Some(ConstructionFailureProbe {
+                worker_id: failing_worker_id,
+                lifetime_owner: Box::new(lifetime_owner),
+                worker_exit_gate: Some(worker_exit_gate),
+            }),
         })
     }
 
@@ -92,6 +141,8 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             max_global_queue_size,
             local_queue_initial_capacity,
             numa_aware,
+            #[cfg(test)]
+            mut failure_probe,
         } = config;
         let worker_count = worker_count.max(1);
         let injector_capacity = partition_global_queue(max_global_queue_size, worker_count)?;
@@ -171,32 +222,80 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             shutdown_started_barrier: OnceLock::new(),
             lifetime_owner: OnceLock::new(),
         });
+        let scheduler = Self { inner };
+
+        #[cfg(test)]
+        let failing_worker_id = failure_probe.as_ref().map(|probe| probe.worker_id);
+        #[cfg(test)]
+        let mut worker_exit_gate = failure_probe
+            .as_mut()
+            .and_then(|probe| probe.worker_exit_gate.take());
+        #[cfg(test)]
+        if let Some(probe) = failure_probe {
+            assert!(
+                scheduler
+                    .inner
+                    .lifetime_owner
+                    .set(probe.lifetime_owner)
+                    .is_ok(),
+                "invariant: construction failure owner is installed once"
+            );
+        }
 
         for (worker_id, owner) in queue_owners.into_iter().enumerate() {
-            let worker_inner = Arc::clone(&inner);
+            let worker_inner = Arc::clone(&scheduler.inner);
             let thread_name = format!("{thread_name_prefix}-{worker_id}");
-            let handle = thread::Builder::new()
-                .name(thread_name)
-                .spawn(move || {
+            #[cfg(test)]
+            let inject_failure = failing_worker_id == Some(worker_id);
+            #[cfg(not(test))]
+            let inject_failure = false;
+            #[cfg(test)]
+            let exit_gate = if worker_id == 0 {
+                worker_exit_gate.take()
+            } else {
+                None
+            };
+            let spawn_result = if inject_failure {
+                Err(std::io::Error::other(
+                    "injected worker construction failure",
+                ))
+            } else {
+                thread::Builder::new().name(thread_name).spawn(move || {
                     super::super::worker::worker_loop::<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>(
                         worker_inner,
                         worker_id,
                         owner,
-                    )
+                    );
+                    #[cfg(test)]
+                    if let Some(gate) = exit_gate {
+                        gate.reached
+                            .send(())
+                            .expect("test controller must observe worker exit");
+                        gate.release
+                            .recv()
+                            .expect("test controller must release worker exit");
+                    }
                 })
-                .map_err(|_| ExecutorError::ThreadPoolCreationFailed)?;
+            };
+            let handle = match spawn_result {
+                Ok(handle) => handle,
+                Err(_) => {
+                    scheduler.shutdown();
+                    return Err(ExecutorError::ThreadPoolCreationFailed);
+                }
+            };
 
-            lock_mutex(&inner.handles).push(handle);
+            lock_mutex(&scheduler.inner.handles).push(handle);
         }
 
         // Wait until all workers have registered their thread handles
-        for worker in &inner.workers {
+        for worker in &scheduler.inner.workers {
             while worker.thread.get().is_none() {
                 thread::yield_now();
             }
         }
 
-        Ok(Self { inner })
+        Ok(scheduler)
     }
 
     /// Keep an executor-owned allocation alive until every scheduler worker
@@ -223,4 +322,84 @@ fn partition_global_queue(
     }
 
     Ok(1usize << partition.ilog2())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc, Arc,
+        },
+        thread,
+        time::Duration,
+    };
+
+    use moirai_core::error::ExecutorError;
+
+    use super::{ThreadScheduler, WorkerExitGate};
+
+    const TEST_EVENT_DEADLINE: Duration = Duration::from_secs(5);
+
+    struct DropSignal {
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn partial_worker_spawn_failure_joins_started_workers() {
+        let released = Arc::new(AtomicBool::new(false));
+        let (exit_reached_sender, exit_reached_receiver) = mpsc::sync_channel(0);
+        let (exit_release_sender, exit_release_receiver) = mpsc::sync_channel(0);
+        let (result_sender, result_receiver) = mpsc::sync_channel(1);
+        let released_by_constructor = Arc::clone(&released);
+        let constructor = thread::spawn(move || {
+            let result = ThreadScheduler::<256, 8192>::with_worker_construction_failure(
+                2,
+                1,
+                DropSignal {
+                    dropped: released_by_constructor,
+                },
+                WorkerExitGate {
+                    reached: exit_reached_sender,
+                    release: exit_release_receiver,
+                },
+            );
+            result_sender
+                .send(matches!(
+                    result,
+                    Err(ExecutorError::ThreadPoolCreationFailed)
+                ))
+                .expect("test controller must collect construction result");
+        });
+
+        exit_reached_receiver
+            .recv_timeout(TEST_EVENT_DEADLINE)
+            .expect("partial worker must observe shutdown and reach exit");
+        assert!(
+            matches!(result_receiver.try_recv(), Err(mpsc::TryRecvError::Empty)),
+            "constructor must not return before its partial worker exits"
+        );
+        exit_release_sender
+            .send(())
+            .expect("test controller releases the partial worker");
+        assert!(
+            result_receiver
+                .recv_timeout(TEST_EVENT_DEADLINE)
+                .expect("constructor must return after its partial worker exits"),
+            "construction must preserve the typed spawn failure"
+        );
+        constructor
+            .join()
+            .expect("construction test controller must not panic");
+        assert!(
+            released.load(Ordering::Acquire),
+            "error return must release retained scheduler state"
+        );
+    }
 }

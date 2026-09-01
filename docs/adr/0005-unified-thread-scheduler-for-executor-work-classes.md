@@ -28,6 +28,10 @@ condition-variable notification.
 and return before the join election. Only non-worker callers join peers; a
 worker-owned final handle instead releases scheduler state as the drained worker
 loops return, preventing worker dependency cycles.
+**Revision (eighth)**: 2026-09-01 — scheduler construction establishes its
+external owner before spawning workers. A spawn failure routes that owner
+through normal shutdown, so every worker started by the failed construction is
+woken and joined before the typed error returns.
 
 ### Decision
 

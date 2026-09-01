@@ -173,6 +173,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Shut down and join compute workers already started when a later worker thread
+  fails to spawn. Failed `ThreadScheduler` construction no longer leaves a
+  partial worker set parked with retained scheduler state.
 - Restore the Atlas source-hygiene ratchet without changing runtime behavior:
   channel StoreLoad handshakes now share one documented
   sequentially-consistent ordering policy, exact scheduler-route values replace
