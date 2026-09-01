@@ -119,7 +119,8 @@ architecture definition.
   skipped; workspace Nextest passes 930/930 with seven skipped in 11.262 s.
   Warning-denied all-target/all-feature Clippy, workspace Rustdoc, doctests, and
   AArch64 Windows checking pass; rustfmt, diff, and committed-lock checks pass.
-  Independent exact-revision review and hosted collection remain.
+  Independent exact-head review of `5662e8a` is GREEN. PR #211 hosted
+  collection remains.
 
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 

@@ -537,7 +537,8 @@
   passes 930/930 with seven skipped in 11.262 s. Warning-denied all-target and
   all-feature Clippy, workspace Rustdoc, doctests, and AArch64 Windows
   all-target/all-feature checking pass; rustfmt, diff, and committed-lock checks
-  pass. Independent exact-revision review and hosted collection remain.
+  pass. Independent exact-head review of `5662e8a` is GREEN. PR #211 hosted
+  collection remains.
 
 ## MOI-EXECUTOR-LOOM-CI-2026-08-31 — Execute scheduler Loom models [patch] — done
 
