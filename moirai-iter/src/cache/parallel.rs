@@ -12,7 +12,7 @@ use std::mem;
 use super::{prefetch_read_data, CACHE_CHUNK_SIZE, CACHE_LINE_SIZE};
 use crate::{
     base::SendPtr,
-    parallel::output::{ChunkWriter, MapOutput},
+    parallel::output::{output_chunk_range, ChunkWriter, MapOutput},
 };
 
 /// Default scheduler batch capacity used by the cache fan-out gate.
@@ -122,15 +122,13 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             // and one completion slot. Ranges are pairwise disjoint, and the
             // joined fan-out keeps every pointer target alive.
             unsafe {
-                let chunk_start = chunk_index * self.chunk_size;
-                let chunk_end = (chunk_start + self.chunk_size).min(self.data.len());
+                let chunk_range = output_chunk_range(self.data.len(), self.chunk_size, chunk_index);
                 let chunk = std::slice::from_raw_parts(
-                    data_ptr.as_ptr().cast::<T>().add(chunk_start),
-                    chunk_end - chunk_start,
+                    data_ptr.as_ptr().cast::<T>().add(chunk_range.start),
+                    chunk_range.len(),
                 );
                 let func_ref = &*(func_ptr.as_ptr() as *const F);
-                let mut writer =
-                    ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_start..chunk_end);
+                let mut writer = ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_range);
                 for item in chunk {
                     writer.push(func_ref(item));
                 }

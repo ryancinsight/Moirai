@@ -40,7 +40,7 @@
 //! explicit chunk size rather than relying on the core count.
 
 use crate::base::SendPtr;
-use crate::parallel::output::{ChunkWriter, MapOutput};
+use crate::parallel::output::{output_chunk_range, ChunkWriter, MapOutput};
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
@@ -95,15 +95,13 @@ impl<T: Send + Sync> ParallelIter<T> {
             // range and one completion slot. The ranges are disjoint, and the
             // fan-out joins before the input, output, or shared closure drops.
             unsafe {
-                let chunk_start = idx * chunk_size;
-                let chunk_end = (chunk_start + chunk_size).min(data.len());
+                let chunk_range = output_chunk_range(data.len(), chunk_size, idx);
                 let chunk_slice = std::slice::from_raw_parts(
-                    data_ptr.as_ptr().cast::<T>().add(chunk_start),
-                    chunk_end - chunk_start,
+                    data_ptr.as_ptr().cast::<T>().add(chunk_range.start),
+                    chunk_range.len(),
                 );
                 let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-                let mut writer =
-                    ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_start..chunk_end);
+                let mut writer = ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_range);
                 for item in chunk_slice {
                     writer.push(f_ref(item));
                 }

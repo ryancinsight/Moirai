@@ -6,6 +6,29 @@ use std::{
     ptr,
 };
 
+/// Derive one in-bounds output range without overflowing at the slice limit.
+pub(crate) fn output_chunk_range(
+    len: usize,
+    chunk_size: usize,
+    chunk_index: usize,
+) -> Range<usize> {
+    assert!(
+        chunk_size > 0,
+        "invariant: parallel map chunk size must be positive"
+    );
+    let start = chunk_index
+        .checked_mul(chunk_size)
+        .expect("invariant: parallel map chunk start is representable");
+    let remaining = len
+        .checked_sub(start)
+        .expect("invariant: parallel map chunk starts in bounds");
+    let chunk_len = remaining.min(chunk_size);
+    let end = start
+        .checked_add(chunk_len)
+        .expect("invariant: in-bounds parallel map chunk end is representable");
+    start..end
+}
+
 /// One final output allocation plus per-chunk completion ownership.
 pub(crate) struct MapOutput<T> {
     values: Vec<MaybeUninit<T>>,
@@ -191,7 +214,7 @@ impl<T> Drop for ChunkWriter<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ChunkWriter, MapOutput};
+    use super::{output_chunk_range, ChunkWriter, MapOutput};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Tracked<'a>(&'a AtomicUsize);
@@ -319,5 +342,18 @@ mod tests {
         }
 
         assert_eq!(output.into_vec(), [(), (), ()]);
+    }
+
+    #[test]
+    fn output_chunk_range_reaches_the_usize_limit_without_overflow() {
+        let chunk_size = 1_024;
+        let last_chunk = usize::MAX.div_ceil(chunk_size) - 1;
+
+        assert_eq!(output_chunk_range(usize::MAX, chunk_size, 0), 0..1_024);
+        assert_eq!(
+            output_chunk_range(usize::MAX, chunk_size, last_chunk),
+            (usize::MAX - 1_023)..usize::MAX
+        );
+        assert_eq!(output_chunk_range(usize::MAX, usize::MAX, 0), 0..usize::MAX);
     }
 }
