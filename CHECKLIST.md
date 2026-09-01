@@ -2,7 +2,7 @@
 
 **Target**: Unreleased
 
-## MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 — Consolidate retained-slot wake ownership [patch] [perf] — in progress
+## MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 — Consolidate retained-slot wake ownership [patch] [perf] — review complete; delivery pending
 
 - **Outcome:** remove the measured per-slot `Arc<WakeToken>` allocation fanout
   from bounded retained async terminals while preserving stable `Waker`
@@ -26,9 +26,8 @@
   obligation and exact stale-waker/drop tests, or if allocation reduction does
   not survive the public warmed ledger.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-shared-wake-block`; lease: `moirai-iter/src/stream/slots/wake.rs`,
-  narrow `slots.rs` integration, focused tests/benchmark, CHANGELOG, and this
-  item; last update 2026-09-01.
+  `perf/iter-shared-wake-block`; source `4bb8c3b`; draft PR #227; lease: none;
+  last update 2026-09-01.
 - **Dependency:** retained slots merged through PR #226 as
   `c0feafbca9689731abd372ebe41dee7732af5953`; all repository jobs are green.
 - **Entry evidence:** the retained release allocation instrument holds input,
@@ -58,7 +57,9 @@
   debug and release all-feature Nextest (250/250 with three configured skips),
   Loom (2/2), Rustdoc, four doctests, 72 benchmark-contract tests, formatting,
   diff checks, and cargo-semver-checks (223/223 under patch) pass. Independent
-  review and delivery collection remain.
+  committed-object review of `c0feafb...4bb8c3b` is GREEN; it did not rerun
+  Cargo, Miri, Loom, allocation, or Criterion evidence. PR #227 verification
+  and delivery collection remain.
 
 ## MOI-ITER-RETAINED-FUTURE-SLOTS-2026-09-01 — Reuse bounded in-flight future storage [patch] [perf] — complete
 
