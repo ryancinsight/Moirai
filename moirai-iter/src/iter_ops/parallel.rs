@@ -7,13 +7,13 @@
 //!
 //! # Fan-out safety
 //!
-//! Both operations hand workers three raw pointers wrapped in `SendPtr` — the
-//! chunk, the caller's closure, and the output slot — because the borrow checker
-//! cannot see that the chunks partition the input. What makes that sound:
+//! Both operations hand workers raw pointers wrapped in `SendPtr` because the
+//! borrow checker cannot see that the chunks partition the input and output.
+//! What makes that sound:
 //!
-//! - **Disjoint writes.** Worker `idx` writes only `results[idx]`, and the
-//!   chunks partition the input, so no two workers touch the same output slot or
-//!   read overlapping data.
+//! - **Disjoint writes.** Map worker `idx` writes only the output range matching
+//!   its input chunk and its own completion slot. Reduce worker `idx` writes
+//!   only `results[idx]`. No two workers touch the same output slot.
 //! - **Shared reads only.** The closure and the chunk are reached as `&F` and
 //!   `&[T]`; nothing is written through them. The `F: Sync` and `T: Sync` bounds
 //!   are what let several workers hold those references at once. The
@@ -22,16 +22,13 @@
 //! - **Lifetime.** Every pointer refers to a local of this frame — the vector,
 //!   the closure, the results — and the fan-out joins every lane before it
 //!   returns. No lane outlives what it points at.
-//! - **Completion.** `results` starts as `None` per chunk and the tail
-//!   `flatten()` silently drops any that stayed `None`, so a chunk that never
-//!   ran would quietly shorten a `map` or omit a term from a `reduce`. That is
-//!   ruled out rather than hoped for: `sequential_fallback_permitted` panics on
-//!   a partially executed fan-out and re-runs the whole domain on the caller
-//!   otherwise.
-//!
-//! Because the outputs are `Option<_>` rather than `MaybeUninit`, a skipped
-//! chunk here would be a wrong answer rather than a read of uninitialized
-//! memory — which is why the completion guarantee is the load-bearing one.
+//! - **Completion.** A map worker publishes its range only after initializing
+//!   every slot. Its local guard drops an initialized prefix if the mapper
+//!   panics; the outer guard drops peer ranges after the fan-out joins. The
+//!   final conversion checks contiguous full coverage first. Reduce outputs
+//!   remain `None` per chunk until complete. `sequential_fallback_permitted`
+//!   panics on partial execution and re-runs the whole domain only when no lane
+//!   ran.
 //!
 //! # Dispatch threshold
 //!
@@ -42,7 +39,10 @@
 //! dependent — tests that need to cover it construct the iterator with an
 //! explicit chunk size rather than relying on the core count.
 
+mod map_output;
+
 use crate::base::SendPtr;
+use map_output::{ChunkWriter, MapOutput};
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
@@ -67,6 +67,11 @@ impl<T: Send + Sync> ParallelIter<T> {
     /// The closure is borrowed by scoped workers, so callers can capture
     /// non-`'static` state without allocating an `Arc` for either the data or
     /// the operation.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the mapping closure panics or indexed fan-out reports a
+    /// failure after any chunk has executed.
     #[inline]
     pub fn map<F, U>(self, f: F) -> Vec<U>
     where
@@ -83,26 +88,34 @@ impl<T: Send + Sync> ParallelIter<T> {
         let chunks: Vec<_> = data.chunks(chunk_size).collect();
         let num_chunks = chunks.len();
 
-        let mut results: Vec<Option<Vec<U>>> = Vec::with_capacity(num_chunks);
-        for _ in 0..num_chunks {
-            results.push(None);
-        }
-
-        let results_ptr = SendPtr(results.as_mut_ptr() as *mut ());
+        let mut output = MapOutput::new(data.len(), num_chunks);
+        let output_ptr = SendPtr(output.values_ptr().cast::<()>());
+        let completed_ptr = SendPtr(output.completed_ptr().cast::<()>());
         let f_ptr_send = SendPtr(&f as *const F as *const () as *mut ());
 
-        // SAFETY: `idx < num_chunks` indexes `chunks` and `results` alike, so
-        // the chunk is a live borrow of `data` and the write lands on this
-        // lane's own slot. `f` outlives the call because the fan-out joins
-        // before returning, and is only read, which `F: Sync` allows.
-        let map_chunk = |idx: usize| unsafe {
-            let chunk = *chunks.get_unchecked(idx);
-            let chunk_ptr = chunk.as_ptr();
-            let chunk_len = chunk.len();
-            let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
-            let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-            let chunk_result = chunk_slice.iter().map(f_ref).collect::<Vec<_>>();
-            *(results_ptr.as_ptr() as *mut Option<Vec<U>>).add(idx) = Some(chunk_result);
+        let map_chunk = |idx: usize| {
+            // SAFETY: `idx < num_chunks` indexes `chunks` and completion slots
+            // alike. `chunk_start..chunk_end` is the disjoint output range that
+            // corresponds to this input chunk. The fan-out joins before the
+            // output, chunks, or shared closure can be dropped.
+            unsafe {
+                let chunk = *chunks.get_unchecked(idx);
+                let chunk_start = idx * chunk_size;
+                let chunk_end = chunk_start + chunk.len();
+                let chunk_slice = std::slice::from_raw_parts(chunk.as_ptr(), chunk.len());
+                let f_ref = &*(f_ptr_send.as_ptr() as *const F);
+                let mut writer =
+                    ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_start..chunk_end);
+                for item in chunk_slice {
+                    writer.push(f_ref(item));
+                }
+                let completed = writer.finish();
+                completed_ptr
+                    .as_ptr()
+                    .cast::<Option<std::ops::Range<usize>>>()
+                    .add(idx)
+                    .write(Some(completed));
+            }
         };
 
         let run_on_global = moirai_executor::global()
@@ -112,7 +125,7 @@ impl<T: Send + Sync> ParallelIter<T> {
             (0..num_chunks).for_each(map_chunk);
         }
 
-        results.into_iter().flatten().flatten().collect()
+        output.into_vec()
     }
 
     /// Reduce borrowed input items through per-chunk partial reductions.
@@ -196,6 +209,13 @@ fn should_execute_scoped(len: usize, chunk_size: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        panic::{catch_unwind, AssertUnwindSafe},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+    };
 
     /// Build an iterator that is guaranteed to take the chunked path.
     ///
@@ -215,16 +235,22 @@ mod tests {
     const LEN: usize = CHUNK * 4 + 7; // several chunks plus a short remainder
 
     #[test]
-    fn parallel_map_matches_the_sequential_result() {
-        let data: Vec<u64> = (0..LEN as u64).collect();
-        let expected: Vec<u64> = data.iter().map(|value| value * 3).collect();
+    fn parallel_map_preserves_boundary_shapes_and_order() {
+        for len in [0, 1, CHUNK, CHUNK * 4, LEN] {
+            let data: Vec<u64> = (0..len as u64).collect();
+            let expected: Vec<u64> = data.iter().map(|value| value * 3).collect();
+            let iter = ParallelIter {
+                data,
+                chunk_size: CHUNK,
+            };
 
-        let mapped = chunked(data, CHUNK).map(|value| value * 3);
+            let mapped = iter.map(|value| value * 3);
 
-        assert_eq!(
-            mapped, expected,
-            "the chunked map must preserve every element and its order"
-        );
+            assert_eq!(
+                mapped, expected,
+                "map must preserve every value for logical length {len}"
+            );
+        }
     }
 
     #[test]
@@ -241,15 +267,88 @@ mod tests {
     }
 
     #[test]
-    fn parallel_map_covers_a_ragged_final_chunk() {
-        // The last chunk is shorter than the rest; a length or offset derived
-        // from `chunk_size` rather than the chunk itself would drop or duplicate
-        // its elements.
-        let data: Vec<u64> = (0..LEN as u64).collect();
+    fn parallel_map_moves_non_clone_outputs_and_drops_them_once() {
+        struct TrackedOutput {
+            value: u64,
+            drops: Arc<AtomicUsize>,
+        }
 
-        let mapped = chunked(data, CHUNK).map(|value| *value);
+        impl Drop for TrackedOutput {
+            fn drop(&mut self) {
+                self.drops.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let drops = Arc::new(AtomicUsize::new(0));
+        let output_drops = Arc::clone(&drops);
+        let mapped = chunked((0..LEN as u64).collect(), CHUNK).map(move |value| TrackedOutput {
+            value: *value * 3,
+            drops: Arc::clone(&output_drops),
+        });
 
         assert_eq!(mapped.len(), LEN);
-        assert_eq!(mapped.last(), Some(&(LEN as u64 - 1)));
+        assert!(
+            mapped
+                .iter()
+                .enumerate()
+                .all(|(index, output)| output.value == index as u64 * 3),
+            "every non-Clone output must move into its ordered final slot"
+        );
+        assert_eq!(drops.load(Ordering::Relaxed), 0);
+        drop(mapped);
+        assert_eq!(drops.load(Ordering::Relaxed), LEN);
+    }
+
+    #[test]
+    fn parallel_map_drops_every_initialized_output_when_mapper_panics() {
+        struct TrackedOutput(Arc<AtomicUsize>);
+
+        impl Drop for TrackedOutput {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let created = Arc::new(AtomicUsize::new(0));
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let output_created = Arc::clone(&created);
+        let output_dropped = Arc::clone(&dropped);
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            chunked((0..LEN as u64).collect(), CHUNK).map(move |value| {
+                assert_ne!(*value, CHUNK as u64 + 3, "mapper panic sentinel");
+                output_created.fetch_add(1, Ordering::Relaxed);
+                TrackedOutput(Arc::clone(&output_dropped))
+            })
+        }));
+
+        let payload = match result {
+            Err(payload) => payload,
+            Ok(mapped) => panic!(
+                "invariant: mapper sentinel must panic, but returned {} outputs",
+                mapped.len()
+            ),
+        };
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .expect("invariant: the scheduler propagates a string panic payload");
+        assert!(
+            message.contains("indexed fan-out failed after partial execution"),
+            "unexpected propagated panic: {message}"
+        );
+        assert_eq!(
+            dropped.load(Ordering::Relaxed),
+            created.load(Ordering::Relaxed),
+            "every output initialized before the panic must be dropped exactly once"
+        );
+    }
+
+    #[test]
+    fn parallel_map_preserves_zero_sized_outputs() {
+        let mapped = chunked(vec![1_u8; LEN], CHUNK).map(|_| ());
+
+        assert_eq!(mapped, vec![(); LEN]);
     }
 }

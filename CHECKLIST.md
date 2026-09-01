@@ -2,7 +2,48 @@
 
 **Target**: Unreleased
 
-## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — in progress
+## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — reviewed; merge pending
+
+- **Outcome:** write chunked `ParallelIter::map` results directly into one
+  ordered full-output allocation, removing shard-local output vectors and the
+  second full-result flatten allocation.
+- **Acceptance:** record an unchanged 131,072-item public allocation baseline
+  that reaches fan-out; empty, one-chunk, full-chunk, and ragged values remain
+  exact; non-`Clone` outputs move once; success and mapper-panic drop counts are
+  exact; warm output storage uses one full allocation with no per-shard output
+  vectors; a retained paired Criterion row does not materially regress; Miri,
+  debug/release tests, warning-denied Clippy/Rustdoc, doctests, benchmark smoke,
+  SemVer, and independent review pass.
+- **Scope / non-goals:** `moirai-iter` chunked `ParallelIter::map`, private
+  initialization cleanup, value/drop/allocation tests, one existing Criterion
+  binary, CHANGELOG, and PM state. No `reduce`, scheduler, chunk threshold,
+  public API, timeout, or workload reduction.
+- **Risk / change:** internal `[patch]`; unsafe direct initialization must remain
+  panic-safe for initialized prefixes, zero-sized outputs, and ragged tails.
+  Stop with the instrument if the baseline misses fan-out, lacks the duplicate
+  full output, or paired intervals establish a regression.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-map-direct-output`; implementation lease discharged at source
+  `924f5d9`; lease: none. PR #222 remains pending. Last update 2026-09-01.
+- **Entry baseline:** the unchanged warmed public map at 131,072 `u64` values
+  makes 114 allocation calls totalling 3,815,568 gross allocated bytes, 3.64×
+  the 1,048,576-byte final output. The retained x86-64 Windows Criterion row
+  measures a 1.3115 ms median (95% CI 1.3023–1.3420 ms). Input construction is
+  outside both measured regions; source values and every ordered result are
+  checked before accepting the instrument.
+- **Candidate evidence:** warmed gross allocation is 1,062,720 bytes, one
+  1,048,576-byte output plus 14,144 bytes of chunk/completion/scheduler records;
+  total calls are 85 because scheduler task records remain. This is a 72.1%
+  gross-byte reduction and a 25.4% call-count reduction from the exact entry.
+  The retained median is 0.3180 ms (95% CI 0.3016–0.3205 ms), a 75.8% reduction
+  with disjoint intervals. Debug and release value/drop coverage are 226/226
+  green in each profile; focused Miri coverage is 3/3 for allocation transfer,
+  partial initialization cleanup, and zero-sized output. Public-path Miri stops
+  at the unsupported Windows NUMA call before this code. Exact-baseline SemVer
+  passes 223 checks, and independent review of `7f7b279...924f5d9` is GREEN.
+  PR #222 and hosted merge closure remain pending.
+
+## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — done 2026-09-01
 
 - **Outcome:** batch grants drain pending waiter ids directly into one result
   reserved from the pending-count upper bound, removing the redundant id-buffer
@@ -21,8 +62,9 @@
   change if the exact baseline does not attribute a redundant allocation or if
   direct draining changes cancellation/value semantics.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
-  reviewed source head `b690f88`; draft PR #221; lease: none; merge closure
-  pending. Last update 2026-09-01.
+  reviewed source head `b690f88`; PR #221 merged with history preserved as
+  `07b3958d38c87b1e7b37139551f709b6fa583dd7`; lease: none. Last update
+  2026-09-01.
 - **Evidence:** exact instrument commit `1cfb9be` measured six allocations and a
   666.99 ns median (664.49–669.19 ns) for 64 public `Notify` waiters. The
   candidate retains one owned-waker allocation and measures 343.12 ns

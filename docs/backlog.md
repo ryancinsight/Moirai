@@ -86,7 +86,47 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
+### 🟡 MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Remove shard-local map outputs
+
+- **Outcome:** write chunked `ParallelIter::map` results directly into one
+  ordered full-output allocation, removing shard-local output vectors and the
+  second full-result flatten allocation.
+- **Scope / non-goals:** `moirai-iter` chunked map, private initialization
+  cleanup, value/drop/allocation tests, one existing Criterion binary,
+  CHANGELOG, and PM state. No reduce, scheduler, threshold, public API, timeout,
+  or workload reduction.
+- **Acceptance:** an unchanged 131,072-item public baseline reaches fan-out and
+  attributes shard-local plus second full-output storage; exact empty,
+  one-chunk, full-chunk, ragged, non-`Clone`, and success/panic-drop semantics;
+  one warm full-output allocation with no per-shard outputs; no material paired
+  Criterion regression; Miri, debug/release tests, warning-denied Clippy/docs,
+  benchmark smoke, SemVer, and independent review pass.
+- **Risk / change:** internal `[patch]`; direct initialization must remain
+  panic-safe for initialized prefixes, zero-sized outputs, and ragged tails.
+  Stop with the instrument if baseline attribution or performance acceptance
+  fails.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-map-direct-output`; implementation lease discharged at source
+  `924f5d9`; lease: none; status: independently reviewed, PR #222 pending;
+  last update 2026-09-01.
+- **Entry evidence:** the unchanged warmed 131,072-item public map makes 114
+  allocation calls totalling 3,815,568 gross allocated bytes, 3.64× its
+  1,048,576-byte final output. The retained x86-64 Windows Criterion row has a
+  1.3115 ms median (95% CI 1.3023–1.3420 ms). The instrument excludes input
+  construction from both measured regions and checks every ordered value.
+- **Candidate evidence:** warmed gross allocation is 1,062,720 bytes, comprising
+  one 1,048,576-byte output plus 14,144 bytes of chunk/completion/scheduler
+  records; total calls are 85 because scheduler task records remain. Gross
+  bytes fall 72.1% and calls 25.4%. The retained median is 0.3180 ms (95% CI
+  0.3016–0.3205 ms), 75.8% below entry with disjoint intervals. Debug and
+  release value/drop coverage are 226/226 green in each profile; focused Miri
+  coverage is 3/3 for allocation transfer, partial initialization cleanup, and
+  zero-sized output. Public-path Miri stops at the unsupported Windows NUMA call
+  before this code. Exact-baseline SemVer passes 223 checks, and independent
+  review of `7f7b279...924f5d9` is GREEN. PR #222 and hosted merge closure
+  remain pending.
+
+### ✅ MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
 
 - **Outcome:** drain pending waiter ids directly into one result reserved from
   the pending-count upper bound so a batch grant removes its redundant transient
@@ -104,9 +144,10 @@ architecture definition.
   change if the baseline does not establish the mechanism or direct draining
   changes value semantics.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/async-wake-batch-allocation`; reviewed source head `b690f88`; draft PR
-  #221; lease: none; status: in progress; merge closure pending; last update
-  2026-09-01.
+  `perf/async-wake-batch-allocation`; reviewed source head `b690f88`; PR #221
+  merged with history preserved as
+  `07b3958d38c87b1e7b37139551f709b6fa583dd7`; lease: none; status: done;
+  last update 2026-09-01.
 - **Measured evidence:** exact instrument commit `1cfb9be` measured six
   allocations and a 666.99 ns median (664.49–669.19 ns) for 64 public `Notify`
   waiters. The candidate retains one owned-waker allocation and measures

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `iter_ops::ParallelIter::map` now initializes ordered chunk results directly
+  in one full-output allocation. Per-chunk guards drop initialized prefixes if
+  a mapper panics, and completed peer ranges remain owned until the scheduler
+  joins. For 131,072 `u64` outputs on the measured x86-64 Windows host, warmed
+  gross allocated bytes fall from 3,815,568 to 1,062,720 (72.1%); total calls
+  fall from 114 to 85 because scheduler task records remain. The retained
+  Criterion median falls from 1.3115 ms to 0.3180 ms (75.8%; disjoint 95%
+  confidence intervals).
 - `moirai_async::Notify::notify_waiters` and the shared broadcast-grant path now
   drain pending waiter identifiers directly into one pre-reserved owned-waker
   result. The pending identifier count is a safe capacity upper bound when

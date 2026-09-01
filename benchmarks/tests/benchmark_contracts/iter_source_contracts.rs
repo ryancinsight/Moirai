@@ -157,6 +157,9 @@ fn iter_ops_parallel_iter_uses_scoped_borrowed_chunks() {
     for required in [
         "name = \"iter_ops_parallel_comparison\"",
         "iter_ops_parallel_map",
+        "iter_ops_parallel_map_output",
+        "DIRECT_OUTPUT_WORK_ITEMS",
+        "BatchSize::LargeInput",
         "iter_ops_parallel_reduce",
         "moirai_parallel_map",
         "rayon_parallel_map",
