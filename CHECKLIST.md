@@ -2,7 +2,44 @@
 
 **Target**: Unreleased
 
-## MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 — Remove async-context control-plane allocations [patch] [perf] — in progress
+## MOI-ITER-RETAINED-FUTURE-SLOTS-2026-09-01 — Reuse bounded in-flight future storage [patch] [perf] — in progress
+
+- **Outcome:** remove the measured one-task-allocation-per-item residue from
+  bounded ordered async iterator terminals by retaining and refilling a fixed
+  number of heap-stable future slots.
+- **Acceptance:** entry censuses cover ready and one-pending-poll public map and
+  for-each paths, assert ordered values / exactly-once visits, and attribute
+  allocation count and gross bytes. A retained candidate allocates in
+  proportion to the concurrency bound rather than item count; preserves input
+  order where promised, bounded in-flight work, explicit Async/Hybrid limits,
+  cancellation, and exact drop counts; and does not regress either paired
+  Criterion row by 5% or more. Any pin projection is isolated behind a safe
+  private API with SAFETY proofs, Miri coverage, panic/drop tests, and
+  warning-denied cross-target checks.
+- **Scope / non-goals:** one crate-private retained-slot primitive under
+  `stream/`, ordered consumers in `execution/base.rs`, `async_iter/parallel.rs`,
+  and `ConcurrentStreamExt::concurrent_map_ordered`, focused allocation/value /
+  pending/drop tests, retained Criterion and contract coverage, CHANGELOG, and
+  PM state. The public unordered completion-order stream remains on
+  futures-util unless a candidate preserves wake completion order exactly. No
+  public API, scheduler, AsyncIterator trait/ADR-018, workload, or timeout
+  change.
+- **Risk / change:** internal `[patch]`; reject a scan-based candidate if wake
+  sparsity or large configured bounds create a paired timing regression, and
+  reject any candidate that moves a pinned future, changes refill/order
+  semantics, or weakens cancellation/drop behavior.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-retained-future-slots`; lease: `moirai-iter/src/stream/slots.rs`,
+  ordered callers in `stream.rs`, `execution/base.rs`, and
+  `async_iter/parallel.rs`, focused tests/benchmark contracts, CHANGELOG, and
+  this item. Entry attribution in progress; last update 2026-09-01.
+- **Entry evidence:** futures-util 0.3.34 `FuturesOrdered::push_back` delegates
+  every item to `FuturesUnordered::push`, whose implementation constructs one
+  new `Arc<Task>` per future. The prior public 1,024-item ready-map census left
+  1,035 allocations / 114,816 gross bytes after removing topology and closure
+  control-plane churn; dynamic pending/drop attribution remains.
+
+## MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 — Remove async-context control-plane allocations [patch] [perf] — complete
 
 - **Outcome:** remove attributed full-topology discovery and adjacent closure /
   completion-container allocations from parallel-context async terminals.
@@ -23,8 +60,8 @@
   not a repeat allocation source or if sharing the count changes configured
   async/hybrid limits or public values.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-context-parallelism-probe`; source lease discharged at `7fee7dd`;
-  independent review green; PR #225 delivery remains; last update 2026-09-01.
+  `perf/iter-context-parallelism-probe`; lease: none; source `7fee7dd`; PM
+  `362d510`; PR #225 merged with history as `248c861`; last update 2026-09-01.
 - **Evidence:** the warmed public 1,024-item ready-future map moves from 1,118
   allocations / 152,616 gross bytes to 1,035 / 114,816, with all ordered values
   exact. The paired Criterion median moves from 81.025 us (95% CI
@@ -38,6 +75,8 @@
   formatting/diff checks; and cargo-semver-checks 223/223 under patch.
   Independent committed-object review of `7fee7dd` found no blocking issue; it
   did not rerun local tests or inspect revision-attested raw Criterion samples.
+  Every repository-owned check on exact PR head `362d510` passed; the external
+  CodeRabbit context remained pending when the history-preserving merge landed.
 
 ## MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 — Remove count-only topology discovery [patch] [perf] — complete
 
