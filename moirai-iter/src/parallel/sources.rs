@@ -12,7 +12,7 @@ use std::sync::Mutex;
 /// overhead does not dominate the work. Larger vector-backed sources split at
 /// each drive level and run one branch through the nesting-safe scheduler
 /// scope; child drives stop at the same threshold.
-const PARALLEL_DRIVE_THRESHOLD: usize = 1024;
+pub(super) const PARALLEL_DRIVE_THRESHOLD: usize = 1024;
 
 fn drive_split<I, C, R>(left: I, right: I, left_consumer: C, right_consumer: C) -> R
 where

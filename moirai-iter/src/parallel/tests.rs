@@ -1429,11 +1429,32 @@ fn test_reassociated_float_sum_is_reproducible_and_within_the_derived_bound() {
     }
 
     let sequential: f64 = data.iter().copied().sum();
-    // Sequential summation of n terms carries an error of at most
-    // (n-1)*eps*sum|x|; a balanced merge tree carries at most log2(n)*eps*sum|x|.
-    // Their difference is therefore bounded by n*eps*sum|x|.
-    let magnitude: f64 = data.iter().map(|value| value.abs()).sum();
-    let bound = (data.len() as f64) * f64::EPSILON * magnitude;
+    // For round-to-nearest arithmetic, gamma(k) = k*u/(1-k*u) bounds the
+    // accumulated relative error across k additions. The sequential result
+    // has n-1 additions. The reassociated result first folds at most one
+    // dispatch-threshold leaf sequentially and then traverses the balanced
+    // leaf-merge tree. The difference is bounded by the sum of those two
+    // forward-error bounds. Inflate the rounded magnitude to
+    // an upper bound on the exact positive sum before applying them.
+    let leaf_count = data
+        .len()
+        .div_ceil(super::sources::PARALLEL_DRIVE_THRESHOLD);
+    let merge_depth = leaf_count.next_power_of_two().ilog2() as usize;
+    let sequential_additions = data.len().saturating_sub(1);
+    let leaf_additions = super::sources::PARALLEL_DRIVE_THRESHOLD
+        .min(data.len())
+        .saturating_sub(1);
+    let reassociated_additions = leaf_additions + merge_depth;
+    let unit_roundoff = f64::EPSILON / 2.0;
+    let gamma = |additions: usize| {
+        let scaled = (additions as f64) * unit_roundoff;
+        scaled / (1.0 - scaled)
+    };
+    let sequential_gamma = gamma(sequential_additions);
+    let reassociated_gamma = gamma(reassociated_additions);
+    let rounded_magnitude: f64 = data.iter().map(|value| value.abs()).sum();
+    let magnitude_upper = rounded_magnitude / (1.0 - sequential_gamma);
+    let bound = (sequential_gamma + reassociated_gamma) * magnitude_upper;
     assert!(
         (parallel - sequential).abs() <= bound,
         "parallel {parallel} and sequential {sequential} differ by more than the derived bound {bound}"

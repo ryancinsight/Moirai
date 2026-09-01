@@ -254,8 +254,9 @@
   accumulator or state value), as do standard `sum` and `product` (one complete
   logical stream). `position_first`/`position_last` stay sequential because the
   non-indexed protocol cannot hand a shard a correct logical offset through a
-  length-changing adapter. All stream instead of collecting. Owned splits still
-  copy down to the threshold.
+  length-changing adapter. Compatible shard-folding terminals stream instead of
+  collecting; standard `sum` and `product` materialize the logical stream once
+  to preserve the trait contract. Owned splits still copy down to the threshold.
 - **Last update:** 2026-08-28.
 
 ## MOI-PAR-ADAPTER-DRIVE-COLLECT-2026-08-28 — Adapters collect in drive [patch] — review
