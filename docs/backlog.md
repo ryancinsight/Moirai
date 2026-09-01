@@ -111,12 +111,23 @@ architecture definition.
   state publication before initialization.
 - **Integrator / lease:** Codex session
   `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-ordered-output-storage`; lease: scoped source/tests/docs; last
-  update 2026-09-01.
+  `perf/iter-ordered-output-storage`; source `aba0c18`; lease: none; last update
+  2026-09-01. Independent exact-artifact review is GREEN; merge remains open.
 - **Dependency / evidence:** PR #228 merged slot metadata as `b7dabcb`; PR #229
   merged PM closure as `af34443`. The current limits 1 / 8 / 24 ledger is 15 /
   15 / 15 allocations and 16,560 / 17,064 / 18,216 gross bytes; source layout
   accounts for the exact slope as 40 + 16 + 16 bytes per reachable position.
+- **Candidate evidence:** the unchanged ledger remains 15 / 15 / 15 allocations
+  and falls to 16,552 / 17,000 / 18,024 gross bytes, exactly eight bytes per
+  reachable `u64`. Focused slot tests pass 23 / 23; focused Miri passes 6 / 6;
+  debug and release all-feature Nextest each pass 258 / 258 with three skips;
+  warning-denied host/AArch64 checks, Rustdoc, 4 / 4 doctests, and SemVer 223 /
+  223 pass. Forced-distinct, pinned-core parent -> candidate medians move ready
+  Moirai -2.08%, pending Moirai -1.77%, sparse Moirai -0.30%, owned Moirai
+  +0.01%, Rayon -1.37%, and futures-util -0.70%; no row reaches the 5%
+  rejection threshold and no throughput claim is made. The first attempted
+  pair is discarded because one shared executable was reused and the parent
+  rerun overwrote the named candidate JSON.
 
 ### ✅ MOI-ITER-SLOT-METADATA-LAYOUT-2026-09-01 [patch] [perf]: Overlap retained-slot metadata
 

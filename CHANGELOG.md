@@ -19,8 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configured limit now retains one output cell instead of growing output
   storage with every yielded position. Ordered values, head-of-line behavior,
   geometric growth, stale wakes, cancellation, and exact drop ownership remain
-  unchanged. This changes no public API, concurrency bound, scheduler policy,
-  wake protocol, workload, or timeout.
+  unchanged. Forced-rebuild pinned-core measurements show the affected ready,
+  pending, and sparse Moirai medians moving -2.08%, -1.77%, and -0.30%; no row
+  reaches the 5% regression threshold, while control movement precludes a
+  throughput claim. This changes no public API, concurrency bound, scheduler
+  policy, wake protocol, workload, or timeout.
 - Retained async future slots now overlap the output index and intrusive vacancy
   link in one occupancy-discriminated metadata word. On the measured 64-bit
   host, `FutureSlot<PendingOnce<u64>>` falls from 48 to 40 bytes. The unchanged
