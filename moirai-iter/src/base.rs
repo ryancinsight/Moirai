@@ -4,7 +4,9 @@
 //! across different iterator implementations, following DRY and SOLID principles.
 
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+static PROCESS_PARALLELISM: OnceLock<usize> = OnceLock::new();
 
 /// Decides whether a failed global-executor indexed fan-out may be re-run on
 /// the caller's thread.
@@ -30,6 +32,17 @@ pub(crate) fn sequential_fallback_permitted(
              retrying would duplicate caller side effects"
         ),
     }
+}
+
+/// Returns the process-available parallelism count without discovering machine
+/// topology that iterator chunk planning does not consume.
+///
+/// The count is fixed on first use, matching the process-global executor's
+/// lifetime. This also keeps Linux cgroup discovery—which allocates temporary
+/// path and read buffers—out of every iterator construction.
+#[inline]
+pub(crate) fn process_parallelism() -> usize {
+    *PROCESS_PARALLELISM.get_or_init(|| std::thread::available_parallelism().map_or(1, usize::from))
 }
 
 /// A pointer wrapper shared across worker threads for zero-copy fan-out.

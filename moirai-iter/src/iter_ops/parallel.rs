@@ -192,7 +192,7 @@ impl<T: Send + Sync> ParallelIter<T> {
 
 #[inline]
 fn chunk_size(len: usize) -> usize {
-    let worker_count = std::thread::available_parallelism().map_or(1, usize::from);
+    let worker_count = crate::base::process_parallelism();
 
     chunk_size_for_lanes(len, worker_count)
 }

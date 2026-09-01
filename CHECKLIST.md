@@ -2,6 +2,48 @@
 
 **Target**: Unreleased
 
+## MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 — Remove count-only topology discovery [patch] [perf] — in progress
+
+- **Outcome:** measure and, only if attributed, remove full NUMA/cache topology
+  discovery from zero-copy iterator construction when the operation needs only
+  the process-available lane count.
+- **Acceptance:** an unchanged allocation census separates iterator
+  construction from a 1,024-item sequential map and checks every value; a
+  correction must preserve empty/small/parallel chunk planning and public
+  values, eliminate the attributed constructor allocations, and retain a
+  non-regressing paired Criterion row. Debug/release Nextest, warning-denied
+  Clippy/Rustdoc, doctests, benchmark smoke, SemVer, and independent review pass.
+- **Scope / non-goals:** one private process-parallelism helper and its two
+  count-only iterator callers, focused allocation/value tests, the existing
+  cache-iterator Criterion binary, CHANGELOG, and PM state. No execution-context
+  or scheduler topology, executor construction, dispatch threshold, public API,
+  workload, or timeout change.
+- **Risk / change:** internal `[patch]`; stop with the instrument if topology
+  discovery is not the measured allocation source or if process-available
+  parallelism changes the existing chunk formula.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-zero-copy-topology-probe`; lease: `moirai-iter/src/base.rs`,
+  `cache.rs`, `iter_ops/parallel.rs`, one focused allocation test, retained
+  cache benchmark evidence, CHANGELOG, and this item. Source lease discharged;
+  delivery and hosted Linux collection remain; last update 2026-09-01.
+- **Evidence:** at exact entry source `8960e3b`, warmed construction made 82
+  allocations totalling 13,184 gross bytes before a sequential map made its sole
+  8,192-byte output allocation. The candidate caches the process parallelism
+  count once and removes full Themis topology construction; warmed construction
+  now makes zero allocations and the map retains exactly one 8,192-byte output
+  allocation, with all 1,024 ordered values checked. The same unchanged
+  Criterion row moves from a 7.0749 us median (95% CI 6.8996-7.1410 us) to
+  368.13 ns (95% CI 362.14-368.34 ns), 94.8% lower with disjoint intervals.
+  Local gates pass: focused allocation coverage 7/7; debug and release
+  all-feature suites 230/230 with two configured skips each; warning-denied
+  all-target/all-feature Clippy, Rustdoc, and AArch64 Windows all-target check;
+  4/4 doctests; unchanged six-row benchmark smoke; formatting/diff checks; and
+  cargo-semver-checks 223/223 under patch. Independent review and hosted Linux
+  closure remain. Independent review of `871a1c9` found an oversized-element
+  modulo-by-zero prefetch boundary; the fix-forward clamps prefetch spacing to
+  one element and adds an exact-once parallel regression. Exact corrected source
+  `66bc88b` passed independent static re-review; hosted Linux closure remains.
+
 ## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — post-merge fix-forward
 
 - **Outcome:** write chunked `ParallelIter::map` results directly into one
@@ -23,9 +65,10 @@
   Stop with the instrument if the baseline misses fan-out, lacks the duplicate
   full output, or paired intervals establish a regression.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; fix-forward source
-  is `e424532` in draft PR #223. Source lease discharged; PM/review/hosted
-  collection lease remains. Last update 2026-09-01.
+  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; PR #223 merged as
+  `5f2882e`. The post-merge Workspace gate exposed a Linux-only repeat-probe
+  allocation and closure continues in the zero-copy topology increment; source
+  lease discharged. Last update 2026-09-01.
 - **Entry baseline:** the unchanged warmed public map at 131,072 `u64` values
   makes 114 allocation calls totalling 3,815,568 gross allocated bytes, 3.64×
   the 1,048,576-byte final output. The retained x86-64 Windows Criterion row
@@ -47,7 +90,11 @@
   227/227 with two configured skips in each profile; warning-denied
   all-target/all-feature Clippy and Rustdoc pass; 4/4 doctests, formatting, and
   the focused Criterion target pass. Independent static review of
-  `e009262...c98d979` is GREEN; hosted Linux closure remains open.
+  `e009262...c98d979` is GREEN. Post-merge Workspace run `33496098579`, job
+  `99818541140`, observed seven calls rather than three because Rust 1.97's Linux
+  `available_parallelism` path allocates cgroup path/read storage on every call.
+  The successor caches that process count once; the focused ledger passes 7/7
+  locally, with hosted Linux closure pending on the successor revision.
 
 ## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — done 2026-09-01
 
