@@ -86,7 +86,7 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-PAR-SUM-CONTRACT-2026-09-01 [minor] [perf]: Preserve standard terminal semantics
+### ✅ MOI-PAR-SUM-CONTRACT-2026-09-01 [minor] [perf]: Preserve standard terminal semantics
 
 - **Outcome:** `ParallelIterator::sum` and `product` retain the standard
   whole-stream trait contract. The shard-folding implementation remains
@@ -118,12 +118,11 @@ architecture definition.
   Independent cumulative review found a stale materialization claim and an
   under-modeled floating-point leaf fold; source `ee0d08a` fixes the former and
   source `3f8d729` derives the bound from the actual two 4,096-item leaf folds
-  plus one merge. Exact correction re-review is GREEN. PR #218 hosted
-  recollection and merge remain open.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/iter-sum-contract`; lease covers the iterator terminal implementation,
-  tests, benchmark/contracts, CHANGELOG, and this item's PM regions; status:
-  in progress; last update 2026-09-01.
+  plus one merge. Exact correction re-review is GREEN. Hosted lockfile, fuzz,
+  Loom, supply-chain, and workspace gates pass; the workspace gate completes
+  in 2m12s.
+- **Delivery:** reviewed head `7c7dfc1`, PR #218, merge `bd435b8`; lease:
+  none; status: complete; last update 2026-09-01.
 
 ### ✅ MOI-SCHEDULER-DROP-LEAK-2026-08-27 [patch]: Release workers on final external drop
 

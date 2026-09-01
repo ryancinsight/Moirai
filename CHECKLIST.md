@@ -2,7 +2,7 @@
 
 **Target**: Unreleased
 
-## MOI-PAR-SUM-CONTRACT-2026-09-01 — Preserve standard terminal semantics [minor] [perf] — in progress
+## MOI-PAR-SUM-CONTRACT-2026-09-01 — Preserve standard terminal semantics [minor] [perf] — complete
 
 - **Outcome:** restore `ParallelIterator::sum` and `product` to the standard
   `Sum<Item>` / `Product<Item>` contracts and retain the measured parallel
@@ -12,11 +12,9 @@
   batch-sensitive accumulators prove standard and reassociated semantics are
   distinct; primitive, empty, floating-point, allocation, benchmark-contract,
   Clippy, Nextest, Rustdoc, doctest, and SemVer gates pass.
-- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/iter-sum-contract`.
-- **Lease:** Codex — `moirai-iter/src/parallel/traits.rs`, parallel-terminal
-  tests, iterator benchmark/contracts, CHANGELOG, and this item's PM regions.
-  Last update 2026-09-01.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** none. Reviewed head `7c7dfc1`, PR #218, merge `bd435b8`;
+  last update 2026-09-01.
 - **Local evidence:** debug and release `moirai-iter` Nextest pass 219/219 with
   two configured skips; warning-denied all-target/all-feature Clippy, Rustdoc,
   3/3 doctests, both retained Criterion smoke binaries, and 72/72 benchmark
@@ -27,7 +25,8 @@
   found and closed two evidence defects: source `ee0d08a` corrects the stale
   materialization claim, and source `3f8d729` derives the floating bound from
   the actual two 4,096-item leaf folds plus one merge. Exact correction
-  re-review is GREEN. PR #218 hosted recollection and merge remain pending.
+  re-review is GREEN. Hosted lockfile, fuzz, Loom, supply-chain, and workspace
+  gates pass; the workspace gate completes in 2m12s.
 
 ## MOI-ATLAS-CONFORMANCE-RATCHET-2026-08-31 — Restore the stack hygiene ratchet [patch] — complete
 
