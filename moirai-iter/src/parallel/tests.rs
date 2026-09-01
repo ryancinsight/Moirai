@@ -1431,19 +1431,18 @@ fn test_reassociated_float_sum_is_reproducible_and_within_the_derived_bound() {
     let sequential: f64 = data.iter().copied().sum();
     // For round-to-nearest arithmetic, gamma(k) = k*u/(1-k*u) bounds the
     // accumulated relative error across k additions. The sequential result
-    // has n-1 additions. The reassociated result first folds at most one
-    // dispatch-threshold leaf sequentially and then traverses the balanced
-    // leaf-merge tree. The difference is bounded by the sum of those two
-    // forward-error bounds. Inflate the rounded magnitude to
-    // an upper bound on the exact positive sum before applying them.
-    let leaf_count = data
-        .len()
-        .div_ceil(super::sources::PARALLEL_DRIVE_THRESHOLD);
-    let merge_depth = leaf_count.next_power_of_two().ilog2() as usize;
+    // has n-1 additions. Above the dispatch threshold, VecParIter performs one
+    // split; drive_split folds each half sequentially and merges the two
+    // outputs once. The difference is bounded by the sum of those two
+    // forward-error bounds. Inflate the rounded magnitude to an upper bound on
+    // the exact positive sum before applying them.
+    let (leaf_width, merge_depth) = if data.len() <= super::sources::PARALLEL_DRIVE_THRESHOLD {
+        (data.len(), 0)
+    } else {
+        (data.len().div_ceil(2), 1)
+    };
     let sequential_additions = data.len().saturating_sub(1);
-    let leaf_additions = super::sources::PARALLEL_DRIVE_THRESHOLD
-        .min(data.len())
-        .saturating_sub(1);
+    let leaf_additions = leaf_width.saturating_sub(1);
     let reassociated_additions = leaf_additions + merge_depth;
     let unit_roundoff = f64::EPSILON / 2.0;
     let gamma = |additions: usize| {
