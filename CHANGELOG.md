@@ -55,6 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shutdown condition unreachable. Concurrent shutdown callers elect one join
   owner without retaining handle locks while waiting; scheduler workers return
   so that owner can join them, while external callers remain synchronous.
+  Completion is published under the waiter mutex so a concurrent external
+  caller cannot miss the condition-variable notification.
   Compute admission now publishes pending work before its single shutdown
   observation, preventing workers from exiting between validation and queue
   publication. Cloned-handle and successful scheduling behavior remain

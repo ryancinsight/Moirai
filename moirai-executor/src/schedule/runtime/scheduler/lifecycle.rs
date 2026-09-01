@@ -42,9 +42,16 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             .is_ok()
         {
             self.join_worker_sets();
-            self.inner
-                .shutdown_join_state
-                .store(JOIN_COMPLETE, Ordering::Release);
+            {
+                // The completion predicate and waiter transition share this
+                // mutex. Publishing while holding it prevents a waiter from
+                // observing `JOIN_IN_PROGRESS` and sleeping after the sole
+                // notification has already passed.
+                let _completion_guard = lock_mutex(&self.inner.wait_lock);
+                self.inner
+                    .shutdown_join_state
+                    .store(JOIN_COMPLETE, Ordering::Release);
+            }
             self.inner.wait_signal.notify_all();
         } else if !current_thread_belongs_to(&self.inner) {
             let mut guard = lock_mutex(&self.inner.wait_lock);

@@ -21,7 +21,9 @@ tracked independently from worker-held state so implicit teardown drains and
 joins workers without weakening their lifetime anchor.
 **Revision (sixth)**: 2026-08-31 — shutdown elects one join owner, never waits
 while retaining worker-handle locks, and linearizes compute admission against
-worker exit through the existing pending-work publication.
+worker exit through the existing pending-work publication. Join completion is
+published under the waiter mutex so an external caller cannot miss the sole
+condition-variable notification.
 
 ### Decision
 
@@ -38,9 +40,11 @@ worker exit through the existing pending-work publication.
 - Concurrent shutdown callers elect one cold-path join owner. The owner moves
   compute and blocking handles out of their mutexes before joining; scheduler
   workers that lose the election return so the owner can join them, while
-  external callers wait on the existing quiescence condition variable. This
-  prevents same-pool and cross-lane join cycles without adding scheduler-path
-  allocation or lock traffic.
+  external callers wait on the existing quiescence condition variable. The
+  owner publishes the completed predicate under the condition variable's mutex,
+  closing the check-to-wait notification window. This prevents same-pool and
+  cross-lane join cycles without adding scheduler-path allocation or lock
+  traffic.
 - Compute admission increments the pending counter before its one shutdown
   observation. The producer and no-work worker use a SeqCst StoreLoad handshake:
   either admission observes shutdown and rolls back, or the worker observes the

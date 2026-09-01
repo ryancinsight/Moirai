@@ -1,17 +1,51 @@
-//! Loom model of compute admission racing scheduler shutdown.
+//! Loom models of scheduler shutdown admission and join completion.
 //!
 //! Run with:
-//! `RUSTFLAGS="--cfg loom" cargo test -p moirai-executor --test loom_shutdown_admission --release`
+//! `RUSTFLAGS="--cfg loom" cargo nextest run -p moirai-executor --test loom_shutdown_admission --release`
 
 #![cfg(loom)]
 
-use loom::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
-use loom::sync::Arc;
+use loom::sync::atomic::{fence, AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use loom::sync::{Arc, Condvar, Mutex};
 use loom::thread;
+
+const JOIN_IN_PROGRESS: u8 = 1;
+const JOIN_COMPLETE: u8 = 2;
 
 struct Admission {
     shutdown: AtomicBool,
     pending: AtomicUsize,
+}
+
+struct JoinCompletion {
+    state: AtomicU8,
+    wait_lock: Mutex<()>,
+    wait_signal: Condvar,
+}
+
+impl JoinCompletion {
+    fn new() -> Self {
+        Self {
+            state: AtomicU8::new(JOIN_IN_PROGRESS),
+            wait_lock: Mutex::new(()),
+            wait_signal: Condvar::new(),
+        }
+    }
+
+    fn publish(&self) {
+        {
+            let _guard = self.wait_lock.lock().unwrap();
+            self.state.store(JOIN_COMPLETE, Ordering::Release);
+        }
+        self.wait_signal.notify_all();
+    }
+
+    fn wait(&self) {
+        let mut guard = self.wait_lock.lock().unwrap();
+        while self.state.load(Ordering::Acquire) != JOIN_COMPLETE {
+            guard = self.wait_signal.wait(guard).unwrap();
+        }
+    }
 }
 
 impl Admission {
@@ -58,5 +92,20 @@ fn shutdown_cannot_exit_while_compute_admission_succeeds() {
             !(worker_would_exit && admitted),
             "shutdown observed no work while a producer admitted work"
         );
+    });
+}
+
+#[test]
+fn join_completion_notification_cannot_pass_external_waiter() {
+    loom::model(|| {
+        let completion = Arc::new(JoinCompletion::new());
+        let waiter = {
+            let completion = Arc::clone(&completion);
+            thread::spawn(move || completion.wait())
+        };
+        let publisher = thread::spawn(move || completion.publish());
+
+        waiter.join().unwrap();
+        publisher.join().unwrap();
     });
 }
