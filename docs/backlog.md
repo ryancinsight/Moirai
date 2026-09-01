@@ -129,8 +129,8 @@ architecture definition.
   `7f7b279...924f5d9` was GREEN. Fix-forward debug and release Nextest pass
   227/227 with two configured skips in each profile; warning-denied
   all-target/all-feature Clippy and Rustdoc pass; 4/4 doctests, formatting, and
-  the focused Criterion target pass. Hosted Linux closure and independent
-  fix-forward review remain open.
+  the focused Criterion target pass. Independent static review of
+  `e009262...c98d979` is GREEN; hosted Linux closure remains open.
 
 ### ✅ MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
 
