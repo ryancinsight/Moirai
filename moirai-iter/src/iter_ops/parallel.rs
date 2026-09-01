@@ -39,10 +39,8 @@
 //! dependent — tests that need to cover it construct the iterator with an
 //! explicit chunk size rather than relying on the core count.
 
-mod map_output;
-
 use crate::base::SendPtr;
-use map_output::{ChunkWriter, MapOutput};
+use crate::parallel::output::{output_chunk_range, ChunkWriter, MapOutput};
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
@@ -85,36 +83,34 @@ impl<T: Send + Sync> ParallelIter<T> {
             return data.iter().map(&f).collect();
         }
 
-        let chunks: Vec<_> = data.chunks(chunk_size).collect();
-        let num_chunks = chunks.len();
-
-        let mut output = MapOutput::new(data.len(), num_chunks);
+        let mut output = MapOutput::new(data.len(), chunk_size);
+        let num_chunks = output.chunk_count();
+        let data_ptr = SendPtr(data.as_ptr().cast_mut().cast::<()>());
         let output_ptr = SendPtr(output.values_ptr().cast::<()>());
         let completed_ptr = SendPtr(output.completed_ptr().cast::<()>());
         let f_ptr_send = SendPtr(&f as *const F as *const () as *mut ());
 
         let map_chunk = |idx: usize| {
-            // SAFETY: `idx < num_chunks` indexes `chunks` and completion slots
-            // alike. `chunk_start..chunk_end` is the disjoint output range that
-            // corresponds to this input chunk. The fan-out joins before the
-            // output, chunks, or shared closure can be dropped.
+            // SAFETY: `idx < num_chunks` identifies one in-bounds input/output
+            // range and one completion slot. The ranges are disjoint, and the
+            // fan-out joins before the input, output, or shared closure drops.
             unsafe {
-                let chunk = *chunks.get_unchecked(idx);
-                let chunk_start = idx * chunk_size;
-                let chunk_end = chunk_start + chunk.len();
-                let chunk_slice = std::slice::from_raw_parts(chunk.as_ptr(), chunk.len());
+                let chunk_range = output_chunk_range(data.len(), chunk_size, idx);
+                let chunk_slice = std::slice::from_raw_parts(
+                    data_ptr.as_ptr().cast::<T>().add(chunk_range.start),
+                    chunk_range.len(),
+                );
                 let f_ref = &*(f_ptr_send.as_ptr() as *const F);
-                let mut writer =
-                    ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_start..chunk_end);
+                let mut writer = ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_range);
                 for item in chunk_slice {
                     writer.push(f_ref(item));
                 }
                 let completed = writer.finish();
                 completed_ptr
                     .as_ptr()
-                    .cast::<Option<std::ops::Range<usize>>>()
+                    .cast::<usize>()
                     .add(idx)
-                    .write(Some(completed));
+                    .write(completed);
             }
         };
 

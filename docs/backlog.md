@@ -86,7 +86,64 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 [patch] [perf]: Compact retained ordered outputs
+### 🟡 MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Harden cache-map output ownership — reviewed; repository gate pending
+
+- **Outcome:** make `ZeroCopyParallelIter::map` share the canonical panic-safe
+  output owner, drop every initialized value exactly once if mapping panics,
+  and replace its borrowed-chunk descriptors with compact completion metadata.
+- **Scope / non-goals:** cache-map execution, one shared private parallel-output
+  leaf, the touched cache-module and benchmark source-contract support split by
+  concern, focused value/drop/allocation tests, one additive existing-binary
+  Criterion row, CHANGELOG, and PM state. No public API, reduce/for-each
+  behavior, scheduler, threshold, existing workload, timeout, or dependency
+  change.
+- **Acceptance:** a warmed large borrowed map must reach fan-out and record exact
+  allocation calls, bytes, and every ordered value. Both map surfaces use one
+  canonical `MapOutput` / `ChunkWriter`; cache map allocates no borrowed
+  chunk vector and drops initialized prefixes/peer ranges exactly once on mapper
+  panic. Empty/sequential/full/ragged, zero-sized, and non-`Clone` values pass;
+  Miri, debug/release tests, warning-denied host/AArch64 checks, docs, SemVer,
+  additive Criterion evidence under a 5% regression bound, and independent
+  review pass.
+- **Risk / change:** internal initialized-storage ownership `[patch]`; reject
+  publication before initialization, overlapping writers, per-output
+  allocation, leaked/double-dropped values, or duplicated unsafe machinery.
+- **Integrator / lease:** Codex session
+  `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/cache-map-direct-output`; source `0a9ef5e`; overflow correction
+  `7e6ef4e`; PR #231; lease: cache/parallel-output source, focused
+  tests/benchmark/docs; last update 2026-09-01.
+- **Dependency / entry mechanism:** ADR-022 owns joined indexed fan-out. The
+  exact release entry run maps 2,097,153 `u64` values in 0.029 seconds and
+  records two allocations / 16,777,624 gross bytes: 16,777,224 output bytes
+  plus 400 chunk-descriptor bytes. Rust reuses the uninitialized allocation
+  during `collect`, falsifying the presumed second full allocation.
+  `MaybeUninit` still suppresses initialized destructors on mapper panic, and
+  the chunk vector remains avoidable. The existing parallel-map leaf already
+  implements direct transfer and panic cleanup and must become the shared home
+  with compact completion metadata.
+- **Candidate evidence:** the exact release census remains two allocations and
+  falls to 16,777,424 gross bytes: 16,777,224 output bytes plus 200 bytes of
+  compact completion endpoints. The shared writer uses a chunk-local output
+  pointer so panic tracking adds no per-element checked indexing. Against exact
+  base `701ca76`, the corrected same-instrument Criterion fan-out row reports
+  1.4987 ms baseline and 1.5027 ms candidate, with change estimate -1.68% to
+  +7.96% and p=0.32; Criterion detects no regression and no throughput claim is
+  made. Debug and release Nextest pass 263/263 each with four skipped; the
+  additive eight-row benchmark smoke completes in 29.9 seconds. The canonical
+  output owner passes 4/4 Miri tests, including simulated mapper-panic cleanup.
+  Windows Miri cannot enter the executor-integrated cache test because Themis
+  calls unsupported `GetNumaHighestNodeNumber` FFI before mapping; the real
+  panic path passes in both native suites. Warning-denied host Clippy and
+  AArch64 all-target checks, Rustdoc, 4/4 doctests, 72/72 benchmark source
+  contracts, warning-denied benchmark Clippy, and SemVer 223/223 with 31
+  inapplicable checks skipped are green. The corrected exact revision passes
+  264/264 debug tests with four skipped, a focused `usize::MAX` Miri boundary,
+  and warning-denied AArch64 all-target checks. Independent review is GREEN
+  after both map paths were changed to derive ragged ends from remaining
+  length. The repository gate and delivery remain open.
+
+### ✅ MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 [patch] [perf]: Compact retained ordered outputs
 
 - **Outcome:** replace per-position `Option<Output>` staging with output storage
   indexed by retained physical slots, using the existing slot metadata as the
@@ -111,8 +168,10 @@ architecture definition.
   state publication before initialization.
 - **Integrator / lease:** Codex session
   `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-ordered-output-storage`; source `aba0c18`; lease: none; last update
-  2026-09-01. Independent exact-artifact review is GREEN; merge remains open.
+  `perf/iter-ordered-output-storage`; source `aba0c18`; PM `d1b82f3`; PR #230
+  merged with history as `701ca76`; lease: none; last update 2026-09-01.
+  Independent exact-artifact review and every repository check are GREEN; the
+  non-required external `recurseml/analysis` service errored.
 - **Dependency / evidence:** PR #228 merged slot metadata as `b7dabcb`; PR #229
   merged PM closure as `af34443`. The current limits 1 / 8 / 24 ledger is 15 /
   15 / 15 allocations and 16,560 / 17,064 / 18,216 gross bytes; source layout
