@@ -16,6 +16,9 @@ and deadlock a saturated nested scope.
 **Revision (fourth)**: 2026-08-31 — public indexed CPU fan-out and reduction
 route through `SyncTask`; classifying them as `BlockingTask` violated ADR-021's
 dedicated-lane boundary and lazily constructed blocking workers.
+**Revision (fifth)**: 2026-08-31 — final external scheduler ownership is
+tracked independently from worker-held state so implicit teardown drains and
+joins workers without weakening their lifetime anchor.
 
 ### Decision
 
@@ -24,6 +27,11 @@ dedicated-lane boundary and lazily constructed blocking workers.
 ### Rationale
 
 - One worker set removes the prior multi-engine split between worker queues and ad hoc async polling.
+- Scheduler workers retain strong ownership of shared state through task return.
+  A separate atomic count tracks only external `ThreadScheduler` handles; its
+  final transition invokes the existing synchronous, idempotent shutdown path.
+  This avoids the ownership cycle in the former `Arc::strong_count` drop guard
+  without converting workers to weak references or adding scheduling-path work.
 - ZST work-class markers keep dispatch monomorphized before heterogeneous queue storage.
 - Per-worker priority queues preserve priority ordering without cloning scheduler algorithms per task class.
 - Per-task lifecycle records remove global registry lock contention from task execution start/completion paths.

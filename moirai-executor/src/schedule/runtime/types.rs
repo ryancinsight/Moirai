@@ -47,6 +47,10 @@ pub struct ScheduleMetrics {
 /// is independent of this value (the spin never engages while work is
 /// available), so latency-critical deployments can raise it for sub-µs wake
 /// latency at the cost of more pre-park busy-spin.
+///
+/// Clones share one worker pool. Dropping the final external handle drains the
+/// pool and releases its workers; an explicit [`shutdown`](Self::shutdown) may
+/// still stop the shared pool earlier.
 pub struct ThreadScheduler<
     const BLOCKING_QUEUE_CAPACITY: usize = 256,
     const SPIN_LIMIT: usize = 8192,
@@ -137,9 +141,12 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Clone
     for ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
     fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
+        let inner = Arc::clone(&self.inner);
+        // Relaxed: the cloned `Arc` already protects the shared state; this
+        // counter only elects which external handle performs final shutdown.
+        let previous = inner.external_handles.fetch_add(1, Ordering::Relaxed);
+        debug_assert!(previous > 0, "scheduler handle count must stay positive");
+        Self { inner }
     }
 }
 
@@ -162,6 +169,12 @@ pub struct SchedulerScope<
 pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     pub(super) workers: Box<[Arc<WorkerState>]>,
     pub(super) handles: Mutex<Vec<JoinHandle<()>>>,
+    /// Counts only public scheduler handles, excluding worker-owned `Arc`s.
+    ///
+    /// Cloning and dropping handles are cold lifecycle operations. The final
+    /// decrement initiates shutdown while its `ThreadScheduler` still owns an
+    /// `Arc`, so worker joins complete before shared state can be released.
+    pub(super) external_handles: AtomicUsize,
     pub(super) pending_tasks: CacheAligned<AtomicUsize>,
     pub(super) active_workers: CacheAligned<AtomicUsize>,
     pub(super) blocking_pending_tasks: CacheAligned<AtomicUsize>,

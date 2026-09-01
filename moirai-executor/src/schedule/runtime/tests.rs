@@ -20,6 +20,16 @@ use moirai_core::{
 const TEST_ADMISSION_CAPACITY: usize = 8;
 const TEST_EVENT_DEADLINE: Duration = Duration::from_secs(5);
 
+struct DropProbe {
+    drops: Arc<AtomicUsize>,
+}
+
+impl Drop for DropProbe {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 fn scheduler_with_queue_config<const BLOCKING_QUEUE_CAPACITY: usize>(
     worker_count: usize,
     name: &str,
@@ -122,6 +132,89 @@ fn scheduler_runs_all_work_classes_through_one_facade() {
     assert_eq!(metrics.pending_tasks, 0);
     assert_eq!(metrics.completed_tasks, 3);
     assert_eq!(metrics.failed_tasks, 0);
+}
+
+#[test]
+fn final_external_handle_drop_drains_and_releases_workers() {
+    const COMPUTE_JOBS: usize = 32;
+    const BLOCKING_VALUE: usize = 1_024;
+    let scheduler = ThreadScheduler::new(2, "test-final-scheduler-drop").unwrap();
+    let inner = Arc::downgrade(&scheduler.inner);
+    let owner_drops = Arc::new(AtomicUsize::new(0));
+    scheduler.retain_lifetime_owner(DropProbe {
+        drops: Arc::clone(&owner_drops),
+    });
+
+    let surviving_handle = scheduler.clone();
+    drop(scheduler);
+
+    let (usable_sender, usable_receiver) = mpsc::sync_channel(1);
+    surviving_handle
+        .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+            usable_sender.send(7).unwrap();
+        })
+        .unwrap();
+    assert_eq!(
+        usable_receiver.recv_timeout(TEST_EVENT_DEADLINE).unwrap(),
+        7,
+        "dropping a non-final handle must not stop the shared scheduler"
+    );
+
+    let completed = Arc::new(AtomicUsize::new(0));
+    let capture_drops = Arc::new(AtomicUsize::new(0));
+
+    for value in 1..=COMPUTE_JOBS {
+        let completed = Arc::clone(&completed);
+        let capture = DropProbe {
+            drops: Arc::clone(&capture_drops),
+        };
+        surviving_handle
+            .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+                completed.fetch_add(value, Ordering::Relaxed);
+                drop(capture);
+            })
+            .unwrap();
+    }
+
+    let blocking_completed = Arc::clone(&completed);
+    let blocking_capture = DropProbe {
+        drops: Arc::clone(&capture_drops),
+    };
+    surviving_handle
+        .schedule::<BlockingTask, _>(Priority::Normal, None, move |_| {
+            blocking_completed.fetch_add(BLOCKING_VALUE, Ordering::Relaxed);
+            drop(blocking_capture);
+        })
+        .unwrap();
+
+    let (drop_sender, drop_receiver) = mpsc::sync_channel(1);
+    let drop_thread = std::thread::spawn(move || {
+        drop(surviving_handle);
+        drop_sender.send(()).unwrap();
+    });
+    drop_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("final scheduler drop must synchronously release its workers");
+    drop_thread.join().unwrap();
+
+    assert_eq!(
+        completed.load(Ordering::Relaxed),
+        COMPUTE_JOBS * (COMPUTE_JOBS + 1) / 2 + BLOCKING_VALUE
+    );
+    assert_eq!(
+        capture_drops.load(Ordering::Relaxed),
+        COMPUTE_JOBS + 1,
+        "every admitted capture must be released exactly once"
+    );
+    assert_eq!(
+        owner_drops.load(Ordering::Relaxed),
+        1,
+        "scheduler-owned facade state must be released exactly once"
+    );
+    assert!(
+        inner.upgrade().is_none(),
+        "the final external drop must join workers and release scheduler state"
+    );
 }
 
 #[test]

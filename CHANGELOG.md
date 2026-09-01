@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Dropping the final external `ThreadScheduler` handle now drains and joins its
+  worker pool. Worker-owned scheduler state no longer makes the automatic
+  shutdown condition unreachable; explicit shutdown and cloned-handle behavior
+  remain unchanged.
 - Re-publish each worker's idle bit before every park attempt. If a producer
   consumed the previous bit but another worker drained that task first, the
   re-parking worker remains visible to the next wake lottery instead of relying

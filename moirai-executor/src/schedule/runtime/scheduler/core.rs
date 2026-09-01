@@ -192,6 +192,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let inner = Arc::new(SchedulerInner {
             workers,
             handles: std::sync::Mutex::new(Vec::with_capacity(worker_count)),
+            external_handles: AtomicUsize::new(1),
             pending_tasks: CacheAligned::new(AtomicUsize::new(0)),
             active_workers: CacheAligned::new(AtomicUsize::new(0)),
             blocking_pending_tasks: CacheAligned::new(AtomicUsize::new(0)),
@@ -646,6 +647,9 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     }
 
     /// Stop workers after queued work drains.
+    ///
+    /// This call joins every worker other than a worker that invokes shutdown
+    /// from its own task. That worker exits after its current task returns.
     pub fn shutdown(&self) {
         if !self.inner.shutdown.swap(true, Ordering::AcqRel) {
             wake_all_workers(&self.inner);
@@ -715,7 +719,12 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Drop
     for ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
     fn drop(&mut self) {
-        if Arc::strong_count(&self.inner) == 1 {
+        // Acquire/release orders prior external-handle activity before the
+        // final owner initiates synchronous shutdown. Queue publication and
+        // worker wakeup retain their own stronger synchronization boundaries.
+        let previous = self.inner.external_handles.fetch_sub(1, Ordering::AcqRel);
+        debug_assert!(previous > 0, "scheduler handle count must not underflow");
+        if previous == 1 {
             self.shutdown();
         }
     }
