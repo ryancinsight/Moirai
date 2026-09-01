@@ -2,7 +2,7 @@
 //!
 //! Generated operation sequences and bounded two-thread partitions,
 //! complementing `deque_concurrency.rs` (fixed contention shapes) and
-//! `loom_chase_lev.rs` (exhaustive interleavings). The concurrent case
+//! `loom_chase_lev.rs` (bounded interleavings). The concurrent case
 //! terminates deterministically: the thief exits on the owner-published
 //! consumed count, never on timing.
 

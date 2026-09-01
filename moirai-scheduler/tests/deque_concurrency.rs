@@ -5,9 +5,10 @@
 //! with a single owner (push/pop from the bottom) and many thieves (steal from the top),
 //! **every pushed item is consumed exactly once** — no loss, no duplication, no
 //! torn value. This is the empirical complement to the weak-memory fence
-//! discipline (Lê, Pop, Cohen & Nardelli, PPoPP 2013); the matching `loom`
-//! exhaustive model check of the steal/pop ordering protocol lives in
-//! `tests/loom_chase_lev.rs` (run with `RUSTFLAGS="--cfg loom"`).
+//! discipline (Lê, Pop, Cohen & Nardelli, PPoPP 2013); the matching bounded
+//! `loom` model checks of the steal/pop ordering and resize-exclusion protocols
+//! live in `tests/loom_chase_lev*.rs` (run with
+//! `RUSTFLAGS="--cfg loom"`).
 //!
 //! The deque contract is single-owner / multi-thief: only the owning thread may
 //! `push`/`pop`; any thread may `steal`. The tests honor that — the owner lives

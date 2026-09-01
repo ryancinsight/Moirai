@@ -25,8 +25,9 @@ criterion = { workspace = true }
 proptest = { workspace = true }
 static_assertions = "1.1"
 
-# loom model checker — only compiled under `--cfg loom` (see tests/loom_chase_lev.rs).
-[target.'cfg(loom)'.dev-dependencies]
+# Loom model checker — only compiled under `--cfg loom` so the models exercise
+# the same gate transition code as production (see tests/loom_chase_lev*.rs).
+[target.'cfg(loom)'.dependencies]
 loom = { workspace = true }
 
 # Register the `loom` cfg so the gate stays warning-clean (it is set via

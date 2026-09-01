@@ -1,4 +1,4 @@
-//! loom exhaustive-interleaving model of the Chase-Lev work-stealing deque's
+//! Bounded Loom model of the Chase-Lev work-stealing deque's
 //! steal/pop ordering protocol.
 //!
 //! The production [`ChaseLevDeque`] (`moirai-scheduler/src/deque/chase_lev.rs`)
@@ -184,7 +184,7 @@ fn chase_lev_pop_steal_take_each_element_exactly_once() {
         }
 
         let mut all = owner_taken;
-        all.extend(thief.join().unwrap());
+        all.extend(thief.join().expect("thief model must terminate"));
         all.sort_unstable();
 
         // The invariant: across every interleaving the owner's pops and the

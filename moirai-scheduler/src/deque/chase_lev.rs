@@ -2,8 +2,9 @@
 //!
 //! Single owner (`push`/`pop` at the bottom), many thieves (`steal` at the top),
 //! implemented per the weak-memory-correct formulation of Lê, Pop, Cohen &
-//! Nardelli (PPoPP 2013). `storage.rs` backs the slots; `tests/loom_chase_lev.rs`
-//! model-checks the protocol exhaustively under `--cfg loom`.
+//! Nardelli (PPoPP 2013). `storage.rs` backs the slots;
+//! `tests/loom_chase_lev.rs` and `tests/loom_chase_lev_resize_gate.rs`
+//! model-check the transfer and resize-exclusion protocols under `--cfg loom`.
 //!
 //! # Memory ordering
 //!
@@ -32,14 +33,19 @@
 //!   `Acquire` to pair with `resize`'s `Release` store, so a thief never
 //!   dereferences a stale buffer.
 //!
-//! The steal gate is entered once per *access*, not once per element: a batch
-//! steal holds it across all of its items, so `resize` waits behind a whole
-//! batch rather than a single steal, and a batch never stalls mid-flight on a
-//! resize that opens between two of its items.
+//! The steal gate packs resize ownership and active thief count into one atomic:
+//! bit zero is the exclusive owner claim and each thief contributes two. One
+//! sequentially consistent read-modify-write therefore orders every admission
+//! against every owner claim without the ABA window created by separate flag
+//! and counter atomics. The gate is entered once per *access*, not once per
+//! element: a batch steal holds it across all of its items, so `resize` waits
+//! behind a whole batch rather than a single steal, and a batch never stalls
+//! mid-flight on a resize that opens between two of its items.
 //!
 //! A resize closes the steal gate, waits for active thieves to leave, copies the
-//! live generation state, and then publishes the new buffer. Old buffers freed
-//! by `resize` are retired to a guarded list and reclaimed only once no accessor
+//! live generation state, and then publishes the new buffer. Old buffers
+//! displaced by `resize` are retired to a guarded list and reclaimed only once
+//! no accessor
 //! is in-flight (epoch reclamation via the `ReclaimPolicy`), closing the
 //! use-after-free window a thief's `Acquire` array load would open.
 
@@ -51,12 +57,14 @@ use std::{
     marker::PhantomData,
     mem::MaybeUninit,
     sync::{
-        atomic::{AtomicBool, AtomicIsize, AtomicPtr, AtomicUsize, Ordering},
+        atomic::{AtomicIsize, AtomicPtr, Ordering},
         Arc, Mutex,
     },
 };
 
+mod gate;
 mod storage;
+use gate::{ResizeGate, StealAccessGuard};
 use storage::Array;
 
 pub(crate) const MIN_DEQUE_CAPACITY: usize = 16;
@@ -260,30 +268,9 @@ where
     pub(crate) top: CacheAligned<AtomicIsize>,
     array: AtomicPtr<Array<T>>,
     retired_arrays: Mutex<Vec<*mut Array<T>>>,
-    steal_accesses: AtomicUsize,
-    resizing: AtomicBool,
+    resize_gate: ResizeGate,
     pub(crate) reclaim: P::State,
     policy: PhantomData<P>,
-}
-
-struct StealAccessGuard<'a> {
-    accesses: &'a AtomicUsize,
-}
-
-impl Drop for StealAccessGuard<'_> {
-    fn drop(&mut self) {
-        self.accesses.fetch_sub(1, Ordering::SeqCst);
-    }
-}
-
-struct ResizeGate<'a> {
-    resizing: &'a AtomicBool,
-}
-
-impl Drop for ResizeGate<'_> {
-    fn drop(&mut self) {
-        self.resizing.store(false, Ordering::SeqCst);
-    }
 }
 
 impl<T, P> ChaseLevInner<T, P>
@@ -291,20 +278,7 @@ where
     P: DequeReclaimPolicy,
 {
     fn enter_steal_access(&self) -> StealAccessGuard<'_> {
-        loop {
-            if self.resizing.load(Ordering::SeqCst) {
-                std::thread::yield_now();
-                continue;
-            }
-
-            self.steal_accesses.fetch_add(1, Ordering::SeqCst);
-            if !self.resizing.load(Ordering::SeqCst) {
-                return StealAccessGuard {
-                    accesses: &self.steal_accesses,
-                };
-            }
-            self.steal_accesses.fetch_sub(1, Ordering::SeqCst);
-        }
+        self.resize_gate.enter(|| {}, || {})
     }
 
     fn new(capacity: DequeCapacity<T>) -> Self {
@@ -316,8 +290,7 @@ where
             top: CacheAligned::new(AtomicIsize::new(0)),
             array: AtomicPtr::new(Box::into_raw(array)),
             retired_arrays: Mutex::new(Vec::new()),
-            steal_accesses: AtomicUsize::new(0),
-            resizing: AtomicBool::new(false),
+            resize_gate: ResizeGate::new(),
             reclaim: P::State::default(),
             policy: PhantomData,
         }
@@ -545,13 +518,7 @@ where
     }
 
     fn resize(&self) {
-        self.resizing.store(true, Ordering::SeqCst);
-        let _resize_gate = ResizeGate {
-            resizing: &self.resizing,
-        };
-        while self.steal_accesses.load(Ordering::SeqCst) != 0 {
-            std::hint::spin_loop();
-        }
+        let _resize_gate = self.resize_gate.claim(|| {});
 
         let old_array_ptr = self.array.load(Ordering::Relaxed);
         // SAFETY: non-null and owner-only (`resize` is reached only from `push`);
@@ -598,6 +565,12 @@ impl<T> ChaseLevInner<T, SharedEpochReclaim> {
         if !self.reclaim.can_reclaim_shared() {
             return false;
         }
+
+        // Closing the same gate used by resize prevents a thief from entering
+        // after the zero-access observation and then loading a retired pointer.
+        // Once the claim is held, the repeated reclaim-state check below covers
+        // owner-side guards while this gate covers every thief-side guard.
+        let _resize_gate = self.resize_gate.claim(|| {});
 
         let mut retired = self
             .retired_arrays

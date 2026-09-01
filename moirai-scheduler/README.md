@@ -16,9 +16,10 @@ provides no scheduler of its own.
 - `numa::CpuTopology` — hardware NUMA/cache topology discovery, and
   `numa::AdaptiveBackoff` for spin/yield/sleep backoff.
 
-Correctness is covered by exactly-once concurrency stress tests and a `loom`
-exhaustive model of the Chase-Lev steal/pop ordering protocol
-(`tests/loom_chase_lev.rs`, compiled only under `--cfg loom`).
+Correctness is covered by exactly-once concurrency stress tests and `loom`
+models of the Chase-Lev steal/pop ordering and its combined resize-owner/
+active-stealer admission protocol (`tests/loom_chase_lev*.rs`, compiled only
+under `--cfg loom`).
 
 ```toml
 [dependencies]
