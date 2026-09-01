@@ -2,6 +2,29 @@
 
 **Target**: Unreleased
 
+## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — in progress
+
+- **Outcome:** batch grants drain pending waiter ids directly and reserve the
+  exact owned-waker result capacity, removing the redundant id-buffer
+  allocation and geometric result growth while retaining wake-after-unlock.
+- **Acceptance:** record the unchanged exact allocation baseline first; FIFO,
+  cancellation, grant payload, and all `Notify`/`Condvar`/`RwLock` value
+  semantics remain exact; batch grant uses one result allocation rather than a
+  second transient id allocation; focused/release tests, allocation census,
+  warning-denied Clippy, Rustdoc/doctests, benchmark smoke, and independent
+  review pass.
+- **Scope / non-goals:** private `WaitQueue::grant_all`, its batch-grant tests,
+  one retained allocation/performance instrument, CHANGELOG, and PM state. No
+  public API, queue representation, lock/wake ordering, scheduler, timeout, or
+  zero-allocation broadcast claim.
+- **Risk / change:** internal allocation-only `[patch]`; stop without a source
+  change if the exact baseline does not attribute a redundant allocation or if
+  direct draining changes cancellation/value semantics.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/async-wake-batch-allocation`; lease covers `moirai-async` wait-queue
+  batch grant/tests, one retained instrument, CHANGELOG, and this item's PM
+  regions. Last update 2026-09-01.
+
 ## MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 — Remove standard-terminal materialization [minor] [perf] — in progress
 
 - **Outcome:** preserve one-call `Sum<Item>` / `Product<Item>` semantics while
