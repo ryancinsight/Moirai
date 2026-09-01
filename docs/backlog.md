@@ -86,19 +86,27 @@ architecture definition.
 
 ## Current closure record
 
-### 🟨 MOI-INLINE-POLL-DEPTH-2026-08-27 [patch]: Reconcile the landed wake-depth bound
+### 🟨 MOI-INLINE-POLL-DEPTH-2026-08-27 [patch]: Bound cross-task inline wake depth
 
-- **Outcome:** verify whether landed commit `322130d0` fully supersedes the
-  stale thread-local-depth proposal with a bounded state-machine transition and
-  typed saturation completion, then close or correct the item from evidence.
-- **Scope / non-goals:** read-only source/history audit, focused async-state
-  value tests, and PM reconciliation; no scheduler behavior change unless the
-  existing correction fails its recorded contract.
+- **Outcome:** source commit `d94ef46` adds a one-level thread-local inline-poll
+  budget. A distinct task awakened from an already-inline poll completes with
+  typed `TaskError::ResourceExhausted` when its own admission is rejected.
+- **Scope / non-goals:** bound only cross-task recursion under total scheduler
+  saturation; retain the existing self-wake repoll, ordinary inline fast path,
+  shutdown behavior, public API, queue admission policy, and allocation shape.
 - **Acceptance:** one rejected wake can poll inline; self-wake cannot recurse
-  without bound; persistent saturation resolves as typed `ResourceExhausted`;
+  without bound; a nested distinct-task rejection completes exactly once with
+  typed exhaustion; the depth lease restores before a later unrelated wake;
   shutdown remains non-admitting; docs and tests match the production protocol.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `chore/inline-poll-depth-closure`; source is read-only; lease: PM records.
+  `chore/inline-poll-depth-closure`; source `d94ef46`; lease: PM records;
+  independent review and merge closure remain pending.
+- **Evidence:** executor Nextest 129/129; focused debug/release saturation tests
+  3/3; warning-denied all-target/all-feature Clippy and Rustdoc green; doctests
+  green. The first independent review found stale unsafe-owner documentation;
+  `d94ef46` corrects the state machine, ownership roles, access-transferring
+  transitions, and per-site proofs. Independent exact-Git review is GREEN at
+  `d94ef46040e6c18b90f151e73c6f3d6b41b1449d`; PR/merge closure remains.
 
 ### ✅ MOI-BENCH-REQUIRED-FEATURES-2026-08-31 [patch]: Select the diagnostic benchmark by feature
 
