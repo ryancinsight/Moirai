@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
 
-use super::{retained_buffered, retained_unordered};
+use super::{retained_buffered, retained_unordered, RetainedSlots, SlotKey};
 
 struct PendingOnce<T> {
     value: Option<T>,
@@ -174,6 +174,35 @@ fn unknown_stream_preserves_values_across_geometric_blocks() {
         futures::executor::block_on(retained_buffered(stream, usize::MAX).collect::<Vec<_>>());
 
     assert_eq!(values, (0..9).collect::<Vec<_>>());
+}
+
+#[test]
+fn repeated_tail_slot_refill_uses_one_vacancy_probe() {
+    const CAPACITY: usize = 64;
+    const REPLACEMENTS: usize = 128;
+
+    let mut slots = RetainedSlots::new(CAPACITY, CAPACITY, true);
+    for index in 0..CAPACITY {
+        slots.insert(core::future::ready(index), index);
+    }
+    let tail = SlotKey {
+        block: 0,
+        slot: CAPACITY - 1,
+    };
+    let baseline_probes = slots.vacancy_probe_count();
+    let mut expected = CAPACITY - 1;
+
+    for replacement in 0..REPLACEMENTS {
+        assert_eq!(slots.poll(tail), Poll::Ready((expected, expected)));
+        expected = CAPACITY + replacement;
+        slots.insert(core::future::ready(expected), expected);
+    }
+
+    assert_eq!(
+        slots.vacancy_probe_count() - baseline_probes,
+        REPLACEMENTS,
+        "each completed tail slot must return directly to the intrusive vacancy list"
+    );
 }
 
 #[test]

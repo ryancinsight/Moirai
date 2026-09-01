@@ -45,18 +45,23 @@
   ready/pending rows but measured about 9.26 ms at a valid 1,000-slot
   sparse-wake bound versus 180.65 us for futures-util and was rejected. A first
   segmented fix-forward then exposed quadratic initial vacancy discovery and
-  measured 255.38 us; a retained circular vacancy cursor removes that scan.
-  The corrected design eagerly allocates only the exact-size source's clamped
-  reachable block and grows unknown-size sources geometrically after admission.
+  measured 255.38 us. The subsequent circular cursor was also rejected because
+  repeated completion and refill of one tail slot can rescan every occupied
+  slot. The retained design uses a fixed two-word block-vacancy bitset and one
+  intrusive vacancy link per slot; a 64-slot/128-refill regression proves one
+  vacancy probe per refill while the other 63 slots remain occupied. It eagerly
+  allocates only the exact-size source's clamped reachable block and grows
+  unknown-size sources geometrically after admission.
   On the 24-logical-worker host, ready/pending maps measure 39 allocations /
-  18,576 and 39 / 18,768 gross bytes; pending for-each measures 29 / 2,040.
-  Final Criterion median estimates (95% CI) are 29.762 us
-  [29.659, 29.896] for ready map and 48.806 us [48.755, 48.878] for
-  one-pending map, 54.9% and 60.6% below entry. The same-binary sparse-wake row
-  is 133.323 us [132.528, 134.032] versus futures-util 179.169 us
-  [178.150, 179.703], 25.6% lower with disjoint intervals. Debug and release
-  all-feature suites pass 246/246 with two configured skips each;
-  warning-denied host Clippy and AArch64 Windows checks, focused Miri 10/10,
+  18,768 and 39 / 18,960 gross bytes; pending for-each measures 29 / 2,232.
+  The eight-byte intrusive link per retained slot changes bytes, not allocation
+  count. Final Criterion median estimates (95% CI) are 25.326 us
+  [25.225, 25.742] for ready map and 47.085 us [46.419, 47.254] for
+  one-pending map, 61.6% and 62.0% below entry. The same-binary sparse-wake row
+  is 125.115 us [123.034, 126.554] versus futures-util 177.750 us
+  [175.229, 179.719], 29.6% lower with disjoint intervals. Debug and release
+  all-feature suites pass 247/247 with two configured skips each;
+  warning-denied host Clippy and AArch64 Windows checks, focused Miri 11/11,
   and the one-slot/two-generation stale-wake Loom model pass. Warning-denied
   Rustdoc, 4/4 doctests, 72/72 benchmark contracts, and the full bounded
   benchmark run pass. Tokio's test-only `sync` feature remains required by
