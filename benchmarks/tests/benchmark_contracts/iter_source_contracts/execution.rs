@@ -81,8 +81,8 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
         "DEFAULT_RING_BUFFER_CAPACITY",
         "should_execute_scoped_cache::<T>(self.data.len(), self.chunk_size)",
         "return self.data.iter().map(&func).collect();",
-        "let chunk_start = chunk_index * self.chunk_size",
-        "ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_start..chunk_end)",
+        "let chunk_range = output_chunk_range(self.data.len(), self.chunk_size, chunk_index);",
+        "ChunkWriter::new(output_ptr.as_ptr().cast(), chunk_range)",
         "for item in chunk",
         "writer.push(func_ref(item))",
         ".write(writer.finish())",
@@ -102,6 +102,11 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
     }
 
     for required in [
+        "pub(crate) fn output_chunk_range(",
+        ".checked_mul(chunk_size)",
+        ".checked_sub(start)",
+        "let chunk_len = remaining.min(chunk_size);",
+        ".checked_add(chunk_len)",
         "pub(crate) struct MapOutput<T>",
         "pub(crate) struct ChunkWriter<T>",
         "impl<T> Drop for ChunkWriter<T>",
@@ -109,6 +114,7 @@ fn cache_zero_copy_parallel_iter_borrows_scoped_map_inputs() {
         "Vec::from_raw_parts",
         "unfinished_writer_drops_only_its_initialized_prefix",
         "zero_sized_outputs_retain_their_logical_length",
+        "output_chunk_range_reaches_the_usize_limit_without_overflow",
     ] {
         assert!(
             output.contains(required),
