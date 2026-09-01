@@ -32,6 +32,15 @@
   measures a 1.3115 ms median (95% CI 1.3023–1.3420 ms). Input construction is
   outside both measured regions; source values and every ordered result are
   checked before accepting the instrument.
+- **Candidate evidence:** warmed gross allocation is 1,062,720 bytes, one
+  1,048,576-byte output plus 14,144 bytes of chunk/completion/scheduler records;
+  total calls are 85 because scheduler task records remain. This is a 72.1%
+  gross-byte reduction and a 25.4% call-count reduction from the exact entry.
+  The retained median is 0.3180 ms (95% CI 0.3016–0.3205 ms), a 75.8% reduction
+  with disjoint intervals. Debug and release value/drop coverage are 226/226
+  green in each profile; focused Miri coverage is 3/3 for allocation transfer,
+  partial initialization cleanup, and zero-sized output. Independent review and
+  merge closure remain pending.
 
 ## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — done 2026-09-01
 

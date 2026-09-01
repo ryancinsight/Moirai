@@ -232,9 +232,9 @@ fn parallel_iter_map_records_output_allocation_ledger() {
         "parallel map must preserve every ordered output value"
     );
     assert!(
-        allocated_bytes >= MAP_OUTPUT_BYTES * 2,
-        "baseline map made {allocations} allocations totalling {allocated_bytes} bytes; \
-         expected at least two full outputs ({})",
-        MAP_OUTPUT_BYTES * 2
+        (MAP_OUTPUT_BYTES..=MAP_OUTPUT_BYTES + MAP_OUTPUT_BYTES / 16).contains(&allocated_bytes),
+        "map made {allocations} allocations totalling {allocated_bytes} gross bytes for a \
+         {MAP_OUTPUT_BYTES}-byte output; \
+         metadata must stay below one-sixteenth of the final output"
     );
 }

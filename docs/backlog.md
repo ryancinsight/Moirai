@@ -114,6 +114,14 @@ architecture definition.
   1,048,576-byte final output. The retained x86-64 Windows Criterion row has a
   1.3115 ms median (95% CI 1.3023–1.3420 ms). The instrument excludes input
   construction from both measured regions and checks every ordered value.
+- **Candidate evidence:** warmed gross allocation is 1,062,720 bytes, comprising
+  one 1,048,576-byte output plus 14,144 bytes of chunk/completion/scheduler
+  records; total calls are 85 because scheduler task records remain. Gross
+  bytes fall 72.1% and calls 25.4%. The retained median is 0.3180 ms (95% CI
+  0.3016–0.3205 ms), 75.8% below entry with disjoint intervals. Debug and
+  release value/drop coverage are 226/226 green in each profile; focused Miri
+  coverage is 3/3 for allocation transfer, partial initialization cleanup, and
+  zero-sized output. Independent review and merge closure remain pending.
 
 ### ✅ MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
 
