@@ -2,7 +2,39 @@
 
 **Target**: Unreleased
 
-## MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 — Remove standard-terminal materialization [minor] [perf] — in progress
+## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — in progress
+
+- **Outcome:** batch grants drain pending waiter ids directly into one result
+  reserved from the pending-count upper bound, removing the redundant id-buffer
+  allocation and geometric result growth while retaining wake-after-unlock.
+- **Acceptance:** record the unchanged exact allocation baseline first; FIFO,
+  cancellation, grant payload, and all `Notify`/`Condvar`/`RwLock` value
+  semantics remain exact; batch grant uses one result allocation rather than a
+  second transient id allocation; focused/release tests, allocation census,
+  warning-denied Clippy, Rustdoc/doctests, benchmark smoke, and independent
+  review pass.
+- **Scope / non-goals:** private `WaitQueue::grant_all`, its batch-grant tests,
+  one retained allocation/performance instrument, CHANGELOG, and PM state. No
+  public API, queue representation, lock/wake ordering, scheduler, timeout, or
+  zero-allocation broadcast claim.
+- **Risk / change:** internal allocation-only `[patch]`; stop without a source
+  change if the exact baseline does not attribute a redundant allocation or if
+  direct draining changes cancellation/value semantics.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
+  reviewed source head `b690f88`; draft PR #221; lease: none; merge closure
+  pending. Last update 2026-09-01.
+- **Evidence:** exact instrument commit `1cfb9be` measured six allocations and a
+  666.99 ns median (664.49–669.19 ns) for 64 public `Notify` waiters. The
+  candidate retains one owned-waker allocation and measures 343.12 ns
+  (342.52–344.04 ns), a 48.6% median reduction with disjoint intervals. Debug
+  and release Nextest each pass 99/99; warning-denied all-target/all-feature
+  Clippy, warning-denied Rustdoc, doctests, and the focused Criterion smoke pass.
+  The exact directory-baseline SemVer check passes 223/223 applicable checks
+  with 31 skips and requires no version change. Independent review corrected
+  the original exact-capacity wording for lazy cancellation holes; exact
+  cumulative re-review is GREEN.
+
+## MOI-PAR-STANDARD-TERMINAL-STREAM-2026-09-01 — Remove standard-terminal materialization [minor] [perf] — done 2026-09-01
 
 - **Outcome:** preserve one-call `Sum<Item>` / `Product<Item>` semantics while
   letting sources and compatible adapters expose their logical stream directly,
@@ -22,8 +54,9 @@
   full-stream allocation or candidate timing materially regresses.
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `perf/iter-standard-terminal-stream`.
-- **Lease:** none. Reviewed source head `e7483e2`; PR #220; hosted collection
-  pending. Last update 2026-09-01.
+- **Lease:** none. Reviewed source head `e7483e2`; PR #220 merged with history
+  preserved as `c06feba8d009645228e7e86f101c190dcc5f352c`. Last update
+  2026-09-01.
 - **Evidence:** the unchanged 65,536-item borrowed copied/map/filter standard
   sum returns the reference value and makes one warmed allocation. With the
   retained `seq_iter` seam it makes zero. Paired Criterion medians
@@ -38,7 +71,7 @@
   skips and reports no required version change. Independent review found one
   stale `seq_try_fold` materialization statement; source `e7483e2` corrects the
   `seq_iter` delegation contract, and exact cumulative re-review is GREEN.
-  Hosted collection remains pending.
+  Post-merge lockfile, workspace, Loom, supply-chain, and fuzz checks are GREEN.
 
 ## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — complete
 

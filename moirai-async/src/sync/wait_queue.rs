@@ -123,9 +123,8 @@ impl<G> WaitQueue<G> {
     where
         G: Clone,
     {
-        let mut wakers = Vec::new();
-        let pending_ids: Vec<u64> = self.pending.drain(..).collect();
-        for id in pending_ids {
+        let mut wakers = Vec::with_capacity(self.pending.len());
+        for id in self.pending.drain(..) {
             if let Some(entry) = self.waiters.get_mut(&id) {
                 if entry.granted.is_none() {
                     entry.granted = Some(payload.clone());
@@ -168,10 +167,41 @@ impl<G> WaitQueue<G> {
 #[cfg(test)]
 mod tests {
     use super::{WaitQueue, WaiterPoll};
-    use std::task::Waker;
+    use std::{
+        sync::{Arc, Mutex},
+        task::{Wake, Waker},
+    };
+
+    struct OrderedWake {
+        id: usize,
+        order: Arc<Mutex<Vec<usize>>>,
+    }
+
+    impl Wake for OrderedWake {
+        fn wake(self: Arc<Self>) {
+            self.order
+                .lock()
+                .expect("wake-order lock must remain available")
+                .push(self.id);
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.order
+                .lock()
+                .expect("wake-order lock must remain available")
+                .push(self.id);
+        }
+    }
 
     fn noop_waker() -> Waker {
         Waker::noop().clone()
+    }
+
+    fn ordered_waker(id: usize, order: &Arc<Mutex<Vec<usize>>>) -> Waker {
+        Waker::from(Arc::new(OrderedWake {
+            id,
+            order: Arc::clone(order),
+        }))
     }
 
     #[test]
@@ -203,6 +233,38 @@ mod tests {
         assert!(matches!(
             queue.poll_waiter(second, &noop_waker()),
             WaiterPoll::Granted(29)
+        ));
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn grant_all_skips_cancelled_ids_and_preserves_wake_order() {
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut queue = WaitQueue::new();
+        let first = queue.register(ordered_waker(1, &order));
+        let cancelled = queue.register(ordered_waker(2, &order));
+        let third = queue.register(ordered_waker(3, &order));
+
+        assert_eq!(queue.deregister(cancelled), None);
+        for waker in queue.grant_all(31_u8) {
+            waker.wake();
+        }
+
+        assert_eq!(
+            *order.lock().expect("wake-order lock must remain available"),
+            vec![1, 3]
+        );
+        assert!(matches!(
+            queue.poll_waiter(first, &noop_waker()),
+            WaiterPoll::Granted(31)
+        ));
+        assert!(matches!(
+            queue.poll_waiter(cancelled, &noop_waker()),
+            WaiterPoll::NotRegistered
+        ));
+        assert!(matches!(
+            queue.poll_waiter(third, &noop_waker()),
+            WaiterPoll::Granted(31)
         ));
         assert!(queue.is_empty());
     }
