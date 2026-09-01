@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ParallelIterator::seq_iter` lets compatible owned/borrowed vector sources and
+  `map`, `filter`, `copied`, and `cloned` adapters expose their logical stream
+  directly. Standard `sum` and `product` retain one whole-stream trait
+  invocation while avoiding an intermediate vector on those pipelines. A
+  warmed borrowed copied/map/filter sum drops from one allocation to zero; the
+  retained 1,024/32,768/131,072-item Criterion medians improve by
+  51.9%/67.5%/91.9% on the measured x86-64 Windows host.
 - `ParallelIterator::{sum_reassociated, product_reassociated}` provide explicit
   deterministic shard-folding terminals for associative output types. Standard
   `sum` and `product` again invoke `Sum<Item>` and `Product<Item>` once over the

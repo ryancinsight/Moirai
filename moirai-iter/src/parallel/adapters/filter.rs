@@ -65,6 +65,10 @@ where
             .collect()
     }
 
+    fn seq_iter(self) -> impl Iterator<Item = Self::Item> {
+        self.base.seq_iter().filter(self.filter_fn)
+    }
+
     fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, mut fold_fn: FoldFn) -> ControlFlow<B, Acc>
     where
         FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,

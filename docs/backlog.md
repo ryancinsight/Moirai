@@ -107,6 +107,21 @@ architecture definition.
   `perf/iter-standard-terminal-stream`; lease covers the iterator seam,
   compatible sources/adapters, tests/instrument, CHANGELOG, and this item's PM
   regions; status: in progress; last update 2026-09-01.
+- **Measured evidence:** the exact unchanged baseline returns the reference
+  value but makes one warmed allocation for 65,536 borrowed copied/map/filter
+  items; the candidate makes zero. Retained Criterion medians
+  baseline→candidate are 546.649→262.779 ns, 25.7769→8.37063 µs, and
+  415.962→33.7676 µs at 1,024/32,768/131,072 items respectively, reductions of
+  51.9%/67.5%/91.9% with disjoint paired median confidence intervals. The
+  instrument uses one Intel family 6 model 198, 24-logical-processor Windows
+  host and Rust 1.97.0; the allocation result is the machine-independent claim.
+- **Verification:** debug and release `moirai-iter` Nextest pass 220/220 with
+  two configured skips; warning-denied all-target/all-feature Clippy and
+  Rustdoc pass; 4/4 doctests and 72/72 benchmark contracts pass; the full
+  retained Criterion binary passes its 28.4-second single-iteration smoke.
+  Directory-baseline SemVer analysis passes 196 checks with 58 inapplicable
+  skips and reports no required version change. Independent review and hosted
+  collection remain pending.
 
 ### ✅ MOI-CI-DRAFT-GATE-2026-09-01 [patch] [ci]: Suppress draft pull-request runners
 

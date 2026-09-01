@@ -25,6 +25,19 @@
 - **Lease:** Codex — `moirai-iter/src/parallel`, standard-terminal allocation
   tests, one iterator Criterion binary/contracts, CHANGELOG, and this item's PM
   regions. Last update 2026-09-01.
+- **Evidence:** the unchanged 65,536-item borrowed copied/map/filter standard
+  sum returns the reference value and makes one warmed allocation. With the
+  retained `seq_iter` seam it makes zero. Paired Criterion medians
+  baseline→candidate are 546.649→262.779 ns (1,024),
+  25.7769→8.37063 µs (32,768), and 415.962→33.7676 µs (131,072), reductions of
+  51.9%/67.5%/91.9%; all paired confidence intervals are disjoint.
+- **Local gates:** debug and release `moirai-iter` Nextest pass 220/220 with
+  two configured skips; warning-denied all-target/all-feature Clippy and
+  Rustdoc pass; 4/4 doctests and 72/72 benchmark contracts pass; the complete
+  retained Criterion binary passes its 28.4-second single-iteration smoke.
+  Directory-baseline SemVer analysis passes 196 checks with 58 inapplicable
+  skips and reports no required version change. Independent review and hosted
+  collection remain pending.
 
 ## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — complete
 
