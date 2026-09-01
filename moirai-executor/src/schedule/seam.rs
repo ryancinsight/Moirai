@@ -56,11 +56,12 @@ pub trait SchedulerControl {
     /// Returns an [`ExecutorError`](moirai_core::error::ExecutorError) if the
     /// scheduler cannot reach quiescence.
     fn join(&self) -> ExecutorResult<()>;
-    /// Drain queued work and synchronously stop every other worker.
+    /// Drain queued work and stop the worker sets.
     ///
-    /// Exactly one concurrent caller joins the worker sets. Other external
-    /// callers wait for that join; scheduler workers return so the elected
-    /// caller can join them, then exit after their current tasks return.
+    /// Exactly one non-worker caller joins the worker sets. Other external
+    /// callers wait for that join. Scheduler workers close the blocking lane
+    /// and return before the election; when no external caller remains, worker
+    /// ownership releases the scheduler after every accepted task drains.
     fn shutdown(&self);
     /// Snapshot the scheduler metrics.
     fn metrics(&self) -> ScheduleMetrics;

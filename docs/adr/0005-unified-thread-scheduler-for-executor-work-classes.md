@@ -24,6 +24,10 @@ while retaining worker-handle locks, and linearizes compute admission against
 worker exit through the existing pending-work publication. Join completion is
 published under the waiter mutex so an external caller cannot miss the sole
 condition-variable notification.
+**Revision (seventh)**: 2026-08-31 — scheduler workers close the blocking lane
+and return before the join election. Only non-worker callers join peers; a
+worker-owned final handle instead releases scheduler state as the drained worker
+loops return, preventing worker dependency cycles.
 
 ### Decision
 
@@ -34,17 +38,20 @@ condition-variable notification.
 - One worker set removes the prior multi-engine split between worker queues and ad hoc async polling.
 - Scheduler workers retain strong ownership of shared state through task return.
   A separate atomic count tracks only external `ThreadScheduler` handles; its
-  final transition invokes the existing synchronous, idempotent shutdown path.
-  This avoids the ownership cycle in the former `Arc::strong_count` drop guard
+  final transition invokes the idempotent shutdown path. External final owners
+  join synchronously. Worker final owners close the blocking lane and return;
+  drained worker loops then release their strong ownership naturally. This
+  avoids the ownership cycle in the former `Arc::strong_count` drop guard
   without converting workers to weak references or adding scheduling-path work.
-- Concurrent shutdown callers elect one cold-path join owner. The owner moves
-  compute and blocking handles out of their mutexes before joining; scheduler
-  workers that lose the election return so the owner can join them, while
-  external callers wait on the existing quiescence condition variable. The
-  owner publishes the completed predicate under the condition variable's mutex,
-  closing the check-to-wait notification window. This prevents same-pool and
-  cross-lane join cycles without adding scheduler-path allocation or lock
-  traffic.
+- Concurrent non-worker shutdown callers elect one cold-path join owner. The
+  owner moves compute and blocking handles out of their mutexes before joining,
+  while other external callers wait on the existing quiescence condition
+  variable. Scheduler workers close the blocking lane and return before the
+  election, so they never join a peer that can depend on code after shutdown
+  returns. The owner publishes the completed predicate under the condition
+  variable's mutex, closing the check-to-wait notification window. This prevents
+  same-pool and cross-lane join cycles without adding scheduling-path allocation
+  or lock traffic.
 - Compute admission increments the pending counter before its one shutdown
   observation. The producer and no-work worker use a SeqCst StoreLoad handshake:
   either admission observes shutdown and rolls back, or the worker observes the

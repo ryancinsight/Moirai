@@ -192,9 +192,17 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize> BlockingLane<BLOCKING_QUEUE_CAPACITY>
     }
 
     pub(super) fn shutdown(&self) {
+        self.close();
+        self.join();
+    }
+
+    pub(super) fn close(&self) {
         for queue in &self.queues {
             queue.close();
         }
+    }
+
+    pub(super) fn join(&self) {
         let mut handles = std::mem::take(&mut *lock_mutex(&self.handles));
         join_other_threads(&mut handles);
     }

@@ -5,7 +5,7 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    mpsc, Arc, Barrier,
+    mpsc, Arc, Barrier, Condvar, Mutex,
 };
 use std::time::Duration;
 
@@ -27,6 +27,19 @@ struct DropProbe {
 impl Drop for DropProbe {
     fn drop(&mut self) {
         self.drops.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+struct DropSignal {
+    state: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl Drop for DropSignal {
+    fn drop(&mut self) {
+        let (lock, signal) = &*self.state;
+        let mut dropped = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *dropped = true;
+        signal.notify_all();
     }
 }
 
@@ -305,6 +318,72 @@ fn concurrent_compute_and_blocking_shutdown_cannot_cross_join() {
     completions.sort_unstable();
     assert_eq!(completions, [1, 2]);
     scheduler.shutdown();
+}
+
+#[test]
+fn final_compute_owner_returns_before_blocking_dependency() {
+    let scheduler = ThreadScheduler::new(1, "test-worker-final-owner").unwrap();
+    let inner = Arc::downgrade(&scheduler.inner);
+    let released = Arc::new((Mutex::new(false), Condvar::new()));
+    scheduler.retain_lifetime_owner(DropSignal {
+        state: Arc::clone(&released),
+    });
+    let final_handle = scheduler.clone();
+
+    let (blocking_started_sender, blocking_started_receiver) = mpsc::sync_channel(0);
+    let (blocking_release_sender, blocking_release_receiver) = mpsc::sync_channel(0);
+    let (blocking_completed_sender, blocking_completed_receiver) = mpsc::sync_channel(1);
+    scheduler
+        .schedule::<BlockingTask, _>(Priority::Normal, Some(0), move |_| {
+            blocking_started_sender.send(()).unwrap();
+            blocking_release_receiver.recv().unwrap();
+            blocking_completed_sender.send(()).unwrap();
+        })
+        .unwrap();
+    blocking_started_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("blocking dependency must start before final-owner drop");
+
+    let (compute_started_sender, compute_started_receiver) = mpsc::sync_channel(0);
+    let (compute_release_sender, compute_release_receiver) = mpsc::sync_channel(0);
+    let (compute_completed_sender, compute_completed_receiver) = mpsc::sync_channel(1);
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, Some(0), move |_| {
+            compute_started_sender.send(()).unwrap();
+            compute_release_receiver.recv().unwrap();
+            drop(final_handle);
+            blocking_release_sender.send(()).unwrap();
+            compute_completed_sender.send(()).unwrap();
+        })
+        .unwrap();
+    compute_started_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("compute final owner must start before release");
+
+    drop(scheduler);
+    compute_release_sender
+        .send(())
+        .expect("test controller releases the compute final owner");
+    compute_completed_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("worker-owned shutdown must return before its peer dependency");
+    blocking_completed_receiver
+        .recv_timeout(TEST_EVENT_DEADLINE)
+        .expect("accepted blocking dependency must drain exactly once");
+
+    let (lock, signal) = &*released;
+    let dropped = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (dropped, timeout) = signal
+        .wait_timeout_while(dropped, TEST_EVENT_DEADLINE, |dropped| !*dropped)
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    assert!(
+        !timeout.timed_out() && *dropped,
+        "worker-owned final drop must release scheduler state"
+    );
+    assert!(
+        inner.upgrade().is_none(),
+        "worker-owned final drop must release every scheduler Arc"
+    );
 }
 
 #[test]
