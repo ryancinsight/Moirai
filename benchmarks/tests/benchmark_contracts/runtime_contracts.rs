@@ -219,7 +219,14 @@ fn local_queue_capacity_benchmark_preserves_payload_and_workloads() {
 
 #[test]
 fn indexed_reduce_uses_worker_plus_caller_lane() {
-    let source = read_benchmark("../moirai-executor/src/schedule/runtime/worker.rs");
+    let worker = read_benchmark("../moirai-executor/src/schedule/runtime/worker.rs");
+    let indexed =
+        read_benchmark("../moirai-executor/src/schedule/runtime/worker/indexed.rs");
+
+    assert!(
+        worker.contains("mod indexed;"),
+        "the worker coordinator must retain the canonical indexed-kernel leaf"
+    );
 
     for required in [
         "count.min(worker_count.max(1).saturating_add(1))",
@@ -227,13 +234,13 @@ fn indexed_reduce_uses_worker_plus_caller_lane() {
         "assert_eq!(indexed_chunk_count(9, 8), 9);",
     ] {
         assert!(
-            source.contains(required),
+            indexed.contains(required),
             "indexed scheduling must retain the worker-plus-caller chunk cap through {required}"
         );
     }
 
     assert!(
-        !source.contains("let max_chunks = count.min(worker_count);"),
+        !indexed.contains("let max_chunks = count.min(worker_count);"),
         "indexed reduction must not cap chunks at worker-only lanes while the caller computes one chunk"
     );
 }

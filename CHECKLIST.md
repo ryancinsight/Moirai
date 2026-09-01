@@ -103,8 +103,8 @@
 - **Integrator:** claude-fable session 5050c72a. **Lease:** none; provider
   source and focused verification are complete. **Last update:** 2026-08-31.
 - **Delivered:** `support.rs` now embeds every audited file at compile time
-  through an `EMBEDDED_SOURCES` table of `include_str!` values (283 entries,
-  generated once and kept as source). `read_benchmark` resolves a path against
+  through an `EMBEDDED_SOURCES` table of `include_str!` values (generated once
+  and kept as source). `read_benchmark` resolves a path against
   that table instead of `fs::read_to_string`, so Cargo tracks each audited file
   as a build dependency of the test binary and the paths resolve relative to
   `support.rs` rather than to `CARGO_MANIFEST_DIR`. Assertions are unchanged —
