@@ -19,6 +19,7 @@ use moirai_iter::{
     cache::CacheIterExt,
     iter_ops::ParallelIter,
     parallel::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
+    MoiraiIterator,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
@@ -72,6 +73,14 @@ const MAP_OUTPUT_BYTES: usize = MAP_LEN * size_of::<u64>();
 const ZERO_COPY_MAP_LEN: usize = 1_024;
 const ZERO_COPY_MAP_OUTPUT_BYTES: usize = ZERO_COPY_MAP_LEN * size_of::<u64>();
 
+const CONTEXT_MAP_LEN: usize = 1_024;
+const CONTEXT_MAP_OUTPUT_BYTES: usize = CONTEXT_MAP_LEN * size_of::<u64>();
+// The buffered stream may allocate one node per ready future plus fixed
+// bookkeeping. These budgets admit that dependency-owned residual while
+// rejecting both the removed topology probe and closure-Arc inflation.
+const CONTEXT_MAP_ALLOCATION_BUDGET: usize = CONTEXT_MAP_LEN + 16;
+const CONTEXT_MAP_BYTE_BUDGET: usize = CONTEXT_MAP_OUTPUT_BYTES + CONTEXT_MAP_LEN * 112 + 1_024;
+
 /// Allocations permitted per terminal call.
 ///
 /// One eighth of the element count. The superseded collect path allocated at
@@ -94,6 +103,16 @@ fn map_source() -> Vec<u64> {
 
 fn map_values(data: Vec<u64>) -> Vec<u64> {
     ParallelIter::new(data).map(|value| value.wrapping_mul(3).wrapping_add(1))
+}
+
+fn context_map_values(data: Vec<u64>) -> Vec<u64> {
+    futures::executor::block_on(async {
+        MoiraiIterator::parallel(data)
+            .map_async(|value| async move { value.wrapping_mul(5).wrapping_add(3) })
+            .await
+            .collect()
+            .await
+    })
 }
 
 /// Run `operation` once to warm the executor, then count the allocations of a
@@ -293,5 +312,45 @@ fn zero_copy_map_separates_constructor_and_output_allocations() {
         ),
         (0, 0, 1, ZERO_COPY_MAP_OUTPUT_BYTES),
         "iterator construction must not allocate and its sequential map must allocate only output"
+    );
+}
+
+#[test]
+fn parallel_context_async_map_excludes_topology_allocations() {
+    let source = || {
+        (0..CONTEXT_MAP_LEN as u64)
+            .map(|value| value.wrapping_mul(19).wrapping_add(7))
+            .collect::<Vec<_>>()
+    };
+    let warm = context_map_values(source());
+    assert_eq!(warm.len(), CONTEXT_MAP_LEN);
+
+    let input = source();
+    let before_allocations = ALLOCATIONS.load(Ordering::Relaxed);
+    let before_bytes = ALLOCATED_BYTES.load(Ordering::Relaxed);
+    let mapped = context_map_values(input);
+    let allocations = ALLOCATIONS
+        .load(Ordering::Relaxed)
+        .saturating_sub(before_allocations);
+    let allocated_bytes = ALLOCATED_BYTES
+        .load(Ordering::Relaxed)
+        .saturating_sub(before_bytes);
+
+    assert!(
+        mapped.iter().enumerate().all(|(index, value)| {
+            let input = (index as u64).wrapping_mul(19).wrapping_add(7);
+            *value == input.wrapping_mul(5).wrapping_add(3)
+        }),
+        "parallel-context async map must preserve every ordered output value"
+    );
+    assert!(
+        allocations <= CONTEXT_MAP_ALLOCATION_BUDGET,
+        "warmed parallel-context async map made {allocations} allocations; its buffered futures \
+         and output must fit the {CONTEXT_MAP_ALLOCATION_BUDGET}-allocation budget"
+    );
+    assert!(
+        allocated_bytes <= CONTEXT_MAP_BYTE_BUDGET,
+        "warmed parallel-context async map allocated {allocated_bytes} gross bytes; its buffered \
+         futures, output, and fixed metadata must fit the {CONTEXT_MAP_BYTE_BUDGET}-byte budget"
     );
 }

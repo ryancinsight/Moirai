@@ -2,7 +2,44 @@
 
 **Target**: Unreleased
 
-## MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 — Remove count-only topology discovery [patch] [perf] — in progress
+## MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 — Remove async-context control-plane allocations [patch] [perf] — in progress
+
+- **Outcome:** remove attributed full-topology discovery and adjacent closure /
+  completion-container allocations from parallel-context async terminals.
+- **Acceptance:** an unchanged warmed public ready-future map allocation census
+  checks every ordered value and separates context/concurrency/output costs; a
+  correction reuses the process-wide count, borrows the terminal operation,
+  drains for-each completion without a throwaway vector, and leaves explicit
+  async/hybrid concurrency limits unchanged. Paired Criterion evidence,
+  debug/release Nextest, warning-denied
+  Clippy/Rustdoc, cross-target check, doctests, benchmark smoke, SemVer, and
+  independent review pass.
+- **Scope / non-goals:** `execution/base.rs`, the existing private
+  process-parallelism capability, one focused public allocation/value test, the
+  retained execution-context Criterion binary and contract coverage, CHANGELOG,
+  and PM state. No scheduler topology, executor construction, public API,
+  future-buffer implementation, workload, or timeout change.
+- **Risk / change:** internal `[patch]`; stop after measurement if topology is
+  not a repeat allocation source or if sharing the count changes configured
+  async/hybrid limits or public values.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-context-parallelism-probe`; source lease discharged at `7fee7dd`;
+  independent review green; PR #225 delivery remains; last update 2026-09-01.
+- **Evidence:** the warmed public 1,024-item ready-future map moves from 1,118
+  allocations / 152,616 gross bytes to 1,035 / 114,816, with all ordered values
+  exact. The paired Criterion median moves from 81.025 us (95% CI
+  79.601-82.117 us) to 63.307 us (95% CI 63.041-63.545 us), 21.9% lower with
+  disjoint intervals. The residual 1,024-scale allocation count is
+  dependency-owned buffered-future node storage and remains outside this
+  control-plane increment. Exact-source gates pass: focused allocation and
+  contract tests; debug and release all-feature suites 233/233 with two
+  configured skips each; warning-denied all-target/all-feature Clippy, Rustdoc,
+  and AArch64 Windows all-target check; 4/4 doctests; benchmark smoke;
+  formatting/diff checks; and cargo-semver-checks 223/223 under patch.
+  Independent committed-object review of `7fee7dd` found no blocking issue; it
+  did not rerun local tests or inspect revision-attested raw Criterion samples.
+
+## MOI-ITER-ZERO-COPY-TOPOLOGY-PROBE-2026-09-01 — Remove count-only topology discovery [patch] [perf] — complete
 
 - **Outcome:** measure and, only if attributed, remove full NUMA/cache topology
   discovery from zero-copy iterator construction when the operation needs only
@@ -22,10 +59,8 @@
   discovery is not the measured allocation source or if process-available
   parallelism changes the existing chunk formula.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-zero-copy-topology-probe`; lease: `moirai-iter/src/base.rs`,
-  `cache.rs`, `iter_ops/parallel.rs`, one focused allocation test, retained
-  cache benchmark evidence, CHANGELOG, and this item. Source lease discharged;
-  delivery and hosted Linux collection remain; last update 2026-09-01.
+  `perf/iter-zero-copy-topology-probe`; lease: none; source `66bc88b`; PM
+  `06e9878`; PR #224 merged with history as `f689900`; last update 2026-09-01.
 - **Evidence:** at exact entry source `8960e3b`, warmed construction made 82
   allocations totalling 13,184 gross bytes before a sequential map made its sole
   8,192-byte output allocation. The candidate caches the process parallelism
@@ -38,11 +73,12 @@
   all-feature suites 230/230 with two configured skips each; warning-denied
   all-target/all-feature Clippy, Rustdoc, and AArch64 Windows all-target check;
   4/4 doctests; unchanged six-row benchmark smoke; formatting/diff checks; and
-  cargo-semver-checks 223/223 under patch. Independent review and hosted Linux
-  closure remain. Independent review of `871a1c9` found an oversized-element
+  cargo-semver-checks 223/223 under patch. Independent review of `871a1c9`
+  found an oversized-element
   modulo-by-zero prefetch boundary; the fix-forward clamps prefetch spacing to
   one element and adds an exact-once parallel regression. Exact corrected source
-  `66bc88b` passed independent static re-review; hosted Linux closure remains.
+  `66bc88b` passed independent static re-review. Every repository check on PR
+  #224 passed; the external non-required `recurseml/analysis` service errored.
 
 ## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — post-merge fix-forward
 
