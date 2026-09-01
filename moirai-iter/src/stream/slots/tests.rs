@@ -12,6 +12,8 @@ use futures::{Stream, StreamExt};
 use super::wake::{WakeBlock, WAKE_TOKEN_BYTES};
 use super::{retained_buffered, retained_unordered, RetainedSlots, SlotKey};
 
+mod ordered_storage;
+
 struct PendingOnce<T> {
     value: Option<T>,
     pending: bool,
@@ -22,14 +24,19 @@ fn retained_slot_metadata_word_is_overlapped() {
     let word = core::mem::size_of::<usize>();
     let future = core::mem::size_of::<PendingOnce<u64>>();
     let slot = core::mem::size_of::<super::FutureSlot<PendingOnce<u64>>>();
+    let optional_output = core::mem::size_of::<Option<u64>>();
+    let retained_output = core::mem::size_of::<core::mem::MaybeUninit<u64>>();
 
     assert_eq!(WAKE_TOKEN_BYTES, 2 * word);
     assert_eq!(slot, future + 2 * word);
+    assert!(optional_output >= retained_output);
     #[cfg(target_pointer_width = "64")]
     {
         assert_eq!(future, 24);
         assert_eq!(slot, 40);
         assert_eq!(WAKE_TOKEN_BYTES, 16);
+        assert_eq!(optional_output, 16);
+        assert_eq!(retained_output, 8);
     }
 }
 
@@ -223,25 +230,46 @@ fn unknown_stream_preserves_values_across_geometric_blocks() {
 }
 
 #[test]
+fn stale_wake_on_completed_output_is_not_repolled() {
+    let mut slots = RetainedSlots::new(1, 1, true);
+    let slot = slots.insert(core::future::ready(17));
+    let stale = WakeBlock::waker(&slots.block(slot.block).wake, slot.slot);
+    assert_eq!(slots.poll(slot), Poll::Ready(17));
+    slots.mark_completed(slot);
+
+    stale.wake_by_ref();
+    let claimed = slots
+        .take_ready()
+        .expect("stale wake must publish the physical slot bit");
+    assert_eq!(claimed, slot);
+    assert!(!slots.is_pollable(claimed));
+
+    assert_eq!(slots.take_completed_next(slot), Some(super::ORDER_END));
+    slots.return_vacant(slot);
+}
+
+#[test]
 fn repeated_tail_slot_refill_uses_one_word_and_head_probe() {
     const CAPACITY: usize = 64;
     const REPLACEMENTS: usize = 128;
 
     let mut slots = RetainedSlots::new(CAPACITY, CAPACITY, true);
     for index in 0..CAPACITY {
-        slots.insert(core::future::ready(index), index);
+        slots.insert(core::future::ready(index));
     }
     let tail = SlotKey {
         block: 0,
         slot: CAPACITY - 1,
+        global: CAPACITY - 1,
     };
     let baseline_probes = slots.vacancy_probe_counts();
     let mut expected = CAPACITY - 1;
 
     for replacement in 0..REPLACEMENTS {
-        assert_eq!(slots.poll(tail), Poll::Ready((expected, expected)));
+        assert_eq!(slots.poll(tail), Poll::Ready(expected));
+        slots.return_vacant(tail);
         expected = CAPACITY + replacement;
-        slots.insert(core::future::ready(expected), expected);
+        assert_eq!(slots.insert(core::future::ready(expected)), tail);
     }
 
     let final_probes = slots.vacancy_probe_counts();
@@ -258,34 +286,36 @@ fn repeated_tail_slot_refill_uses_one_word_and_head_probe() {
 }
 
 #[test]
-fn zero_sized_futures_preserve_full_width_output_indices_across_refill() {
+fn zero_sized_futures_refill_every_physical_slot() {
     let mut slots = RetainedSlots::new(3, 3, true);
 
-    for output_index in [usize::MAX, 3, 11] {
-        slots.insert(ReadyZst, output_index);
+    for _ in 0..3 {
+        slots.insert(ReadyZst);
     }
     let mut first = Vec::new();
     while let Some(key) = slots.take_ready() {
-        let Poll::Ready((output_index, ())) = slots.poll(key) else {
+        let Poll::Ready(()) = slots.poll(key) else {
             panic!("ready zero-sized future returned Pending");
         };
-        first.push(output_index);
+        first.push(key.global);
+        slots.return_vacant(key);
     }
     first.sort_unstable();
-    assert_eq!(first, [3, 11, usize::MAX]);
+    assert_eq!(first, [0, 1, 2]);
 
-    for output_index in [5, 7, 13] {
-        slots.insert(ReadyZst, output_index);
+    for _ in 0..3 {
+        slots.insert(ReadyZst);
     }
     let mut refill = Vec::new();
     while let Some(key) = slots.take_ready() {
-        let Poll::Ready((output_index, ())) = slots.poll(key) else {
+        let Poll::Ready(()) = slots.poll(key) else {
             panic!("refilled zero-sized future returned Pending");
         };
-        refill.push(output_index);
+        refill.push(key.global);
+        slots.return_vacant(key);
     }
     refill.sort_unstable();
-    assert_eq!(refill, [5, 7, 13]);
+    assert_eq!(refill, [0, 1, 2]);
 }
 
 #[test]

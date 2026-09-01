@@ -49,7 +49,7 @@ where
             match self.source.as_mut().poll_next(context) {
                 Poll::Ready(Some(future)) => {
                     self.active += 1;
-                    self.slots.insert(future, 0);
+                    self.slots.insert(future);
                 }
                 Poll::Ready(None) => {
                     self.source_done = true;
@@ -83,10 +83,11 @@ where
             let Some(slot) = this.slots.take_ready() else {
                 break;
             };
-            if this.slots.is_empty(slot) {
+            if !this.slots.is_pollable(slot) {
                 continue;
             }
-            if let Poll::Ready((_, output)) = this.slots.poll(slot) {
+            if let Poll::Ready(output) = this.slots.poll(slot) {
+                this.slots.return_vacant(slot);
                 this.active -= 1;
                 return Poll::Ready(Some(output));
             }

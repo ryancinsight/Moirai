@@ -1,14 +1,13 @@
 //! Retained bounded storage for in-flight futures.
 
 use core::future::Future;
-use core::mem::MaybeUninit;
 use core::pin::Pin;
-use core::ptr;
 use core::task::{Context, Poll};
 
 use futures::stream::Stream;
 use std::sync::Arc;
 
+mod cell;
 mod ordered;
 mod unordered;
 mod wake;
@@ -18,7 +17,10 @@ pub(crate) use unordered::retained_unordered;
 
 use wake::WakeBlock;
 
+use cell::FutureSlot;
+
 const VACANT_END: usize = usize::MAX;
+const ORDER_END: usize = usize::MAX;
 // One-slot geometric growth needs at most `usize::BITS + 1` blocks, including
 // the final truncated block below `usize::MAX`; two words cover that bound.
 const VACANT_BLOCK_WORDS: usize = 2;
@@ -27,115 +29,11 @@ const _: () = assert!(
     "vacancy bitset must cover every geometric slot block",
 );
 
-/// One stable-address future cell inside a pinned contiguous slab.
-///
-/// `occupied` is set before a future may be polled and cleared before that
-/// future is dropped. This makes cancellation and unwinding drop each inserted
-/// future at most once without moving a pinned value.
-///
-/// `metadata` stores the output index while occupied and the intrusive vacancy
-/// link while empty. The occupancy bit is the discriminant, so `VACANT_END`
-/// remains a valid output index.
-struct FutureSlot<Fut> {
-    storage: MaybeUninit<Fut>,
-    occupied: bool,
-    metadata: usize,
-}
-
-impl<Fut> FutureSlot<Fut> {
-    const fn empty(vacant_next: usize) -> Self {
-        Self {
-            storage: MaybeUninit::uninit(),
-            occupied: false,
-            metadata: vacant_next,
-        }
-    }
-
-    const fn is_empty(&self) -> bool {
-        !self.occupied
-    }
-
-    fn insert(self: Pin<&mut Self>, future: Fut, output_index: usize) {
-        // SAFETY: the slot slab is already pinned. This method writes only an
-        // empty slot and never moves an occupied future out of its address.
-        let this = unsafe { self.get_unchecked_mut() };
-        debug_assert!(!this.occupied, "retained future slot must be empty");
-        debug_assert_eq!(
-            this.metadata, VACANT_END,
-            "retained future slot must be detached from the vacancy list"
-        );
-        this.storage.write(future);
-        this.metadata = output_index;
-        this.occupied = true;
-    }
-
-    fn take_vacant_next(self: Pin<&mut Self>) -> usize {
-        // SAFETY: changing the intrusive vacancy link cannot move the pinned
-        // future storage, which is uninitialized while this slot is vacant.
-        let this = unsafe { self.get_unchecked_mut() };
-        debug_assert!(!this.occupied, "vacant future slot must be empty");
-        core::mem::replace(&mut this.metadata, VACANT_END)
-    }
-
-    fn return_to_vacant(self: Pin<&mut Self>, next: usize) {
-        // SAFETY: changing the intrusive vacancy link cannot move the pinned
-        // future storage, which was dropped before this slot became vacant.
-        let this = unsafe { self.get_unchecked_mut() };
-        debug_assert!(!this.occupied, "returned future slot must be empty");
-        debug_assert_eq!(
-            this.metadata, VACANT_END,
-            "returned future slot must not already be vacant"
-        );
-        this.metadata = next;
-    }
-}
-
-impl<Fut> FutureSlot<Fut>
-where
-    Fut: Future,
-{
-    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<(usize, Fut::Output)> {
-        // SAFETY: the slot remains pinned for this call. `storage` is
-        // initialized exactly when `occupied` is true, and this method never
-        // moves the future before dropping it in place after `Ready`.
-        let this = unsafe { self.get_unchecked_mut() };
-        debug_assert!(this.occupied, "retained future slot must be occupied");
-        let future = this.storage.as_mut_ptr();
-        // SAFETY: `future` points to an initialized value in a stable pinned
-        // slab and remains at that address until it is dropped below.
-        let poll = unsafe { Pin::new_unchecked(&mut *future) }.poll(context);
-        match poll {
-            Poll::Ready(output) => {
-                let output_index = core::mem::replace(&mut this.metadata, VACANT_END);
-                // Clear first so an unwinding destructor cannot be run twice by
-                // `FutureSlot::drop`.
-                this.occupied = false;
-                // SAFETY: `future` is initialized and has not been moved. The
-                // occupancy transition makes this its unique drop.
-                unsafe { ptr::drop_in_place(future) };
-                Poll::Ready((output_index, output))
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-impl<Fut> Drop for FutureSlot<Fut> {
-    fn drop(&mut self) {
-        if self.occupied {
-            self.occupied = false;
-            // SAFETY: an occupied slot contains one initialized future. The
-            // slab has not moved it, and clearing first prevents a second drop
-            // if the future destructor unwinds.
-            unsafe { ptr::drop_in_place(self.storage.as_mut_ptr()) };
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct SlotKey {
     block: usize,
     slot: usize,
+    global: usize,
 }
 
 /// One independently pinned block in a lazily growing slot set.
@@ -175,11 +73,11 @@ impl<Fut> SlotBlock<Fut> {
         }
     }
 
-    fn is_empty(&self, index: usize) -> bool {
+    fn is_pollable(&self, index: usize) -> bool {
         self.slots
             .get(index)
             .expect("invariant: retained slot index is in bounds")
-            .is_empty()
+            .is_pollable()
     }
 
     fn slot_mut(
@@ -197,9 +95,28 @@ impl<Fut> SlotBlock<Fut> {
         unsafe { Pin::new_unchecked(slot) }
     }
 
-    fn insert(&mut self, index: usize, future: Fut, output_index: usize) {
-        Self::slot_mut(&mut self.slots, index).insert(future, output_index);
+    fn insert(&mut self, index: usize, future: Fut) {
+        Self::slot_mut(&mut self.slots, index).insert(future);
         self.wake.set(index);
+    }
+
+    fn set_order_next(&mut self, index: usize, next: usize) {
+        Self::slot_mut(&mut self.slots, index).set_order_next(next);
+    }
+
+    fn order_next(&self, index: usize) -> usize {
+        self.slots
+            .get(index)
+            .expect("invariant: retained slot index is in bounds")
+            .order_next()
+    }
+
+    fn mark_completed(&mut self, index: usize) {
+        Self::slot_mut(&mut self.slots, index).mark_completed();
+    }
+
+    fn take_completed_next(&mut self, index: usize) -> Option<usize> {
+        Self::slot_mut(&mut self.slots, index).take_completed_next()
     }
 
     fn take_ready(&mut self) -> Option<usize> {
@@ -230,7 +147,7 @@ impl<Fut> SlotBlock<Fut>
 where
     Fut: Future,
 {
-    fn poll(&mut self, index: usize) -> Poll<(usize, Fut::Output)> {
+    fn poll(&mut self, index: usize) -> Poll<Fut::Output> {
         let waker = WakeBlock::waker(&self.wake, index);
         let mut context = Context::from_waker(&waker);
         Self::slot_mut(&mut self.slots, index).poll(&mut context)
@@ -332,6 +249,37 @@ impl<Fut> RetainedSlots<Fut> {
         }
     }
 
+    fn block_start(&self, block: usize) -> usize {
+        if block == 0 {
+            return 0;
+        }
+        self.initial_block_len
+            .checked_shl(
+                u32::try_from(block - 1)
+                    .expect("invariant: geometric block index fits a shift count"),
+            )
+            .expect("invariant: an existing geometric block start fits usize")
+    }
+
+    fn key_from_global(&self, global: usize) -> SlotKey {
+        debug_assert!(global < self.capacity);
+        let block = if global < self.initial_block_len {
+            0
+        } else {
+            let quotient = global / self.initial_block_len;
+            usize::try_from(quotient.ilog2())
+                .expect("invariant: geometric block logarithm fits usize")
+                + 1
+        };
+        let slot = global - self.block_start(block);
+        debug_assert!(slot < self.block(block).slots.len());
+        SlotKey {
+            block,
+            slot,
+            global,
+        }
+    }
+
     fn grow(&mut self) {
         debug_assert!(self.capacity < self.limit, "retained slot limit is full");
         let remaining = self.limit - self.capacity;
@@ -401,21 +349,46 @@ impl<Fut> RetainedSlots<Fut> {
         if !self.block(block).has_vacant() {
             self.clear_block_vacant(block);
         }
-        Some(SlotKey { block, slot })
+        Some(SlotKey {
+            block,
+            slot,
+            global: self.block_start(block) + slot,
+        })
     }
 
-    fn insert(&mut self, future: Fut, output_index: usize) {
+    fn insert(&mut self, future: Fut) -> SlotKey {
         let key = self.take_vacant().unwrap_or_else(|| {
             self.grow();
             self.take_vacant()
                 .expect("invariant: a grown slot block contains a vacancy")
         });
-        self.block_mut(key.block)
-            .insert(key.slot, future, output_index);
+        self.block_mut(key.block).insert(key.slot, future);
+        key
     }
 
-    fn is_empty(&self, key: SlotKey) -> bool {
-        self.block(key.block).is_empty(key.slot)
+    fn is_pollable(&self, key: SlotKey) -> bool {
+        self.block(key.block).is_pollable(key.slot)
+    }
+
+    fn set_order_next(&mut self, key: SlotKey, next: usize) {
+        self.block_mut(key.block).set_order_next(key.slot, next);
+    }
+
+    fn order_next(&self, key: SlotKey) -> usize {
+        self.block(key.block).order_next(key.slot)
+    }
+
+    fn mark_completed(&mut self, key: SlotKey) {
+        self.block_mut(key.block).mark_completed(key.slot);
+    }
+
+    fn take_completed_next(&mut self, key: SlotKey) -> Option<usize> {
+        self.block_mut(key.block).take_completed_next(key.slot)
+    }
+
+    fn return_vacant(&mut self, key: SlotKey) {
+        self.block_mut(key.block).return_vacant(key.slot);
+        self.mark_block_vacant(key.block);
     }
 
     #[cfg(test)]
@@ -433,7 +406,11 @@ impl<Fut> RetainedSlots<Fut> {
             let block = (start + offset) % block_count;
             if let Some(slot) = self.block_mut(block).take_ready() {
                 self.ready_block_cursor = (block + 1) % block_count;
-                return Some(SlotKey { block, slot });
+                return Some(SlotKey {
+                    block,
+                    slot,
+                    global: self.block_start(block) + slot,
+                });
             }
         }
         None
@@ -444,13 +421,8 @@ impl<Fut> RetainedSlots<Fut>
 where
     Fut: Future,
 {
-    fn poll(&mut self, key: SlotKey) -> Poll<(usize, Fut::Output)> {
-        let poll = self.block_mut(key.block).poll(key.slot);
-        if matches!(&poll, Poll::Ready(_)) {
-            self.block_mut(key.block).return_vacant(key.slot);
-            self.mark_block_vacant(key.block);
-        }
-        poll
+    fn poll(&mut self, key: SlotKey) -> Poll<Fut::Output> {
+        self.block_mut(key.block).poll(key.slot)
     }
 }
 
