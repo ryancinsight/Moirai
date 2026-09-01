@@ -31,6 +31,13 @@
   item; last update 2026-09-01.
 - **Dependency:** retained slots merged through PR #226 as `c0feafb`; its
   post-merge repository jobs remain under collection.
+- **Entry evidence:** the retained release allocation instrument holds input,
+  pending-future behavior, and ordered output constant while selecting explicit
+  concurrency limits 1, 8, and 24. It measures 16 / 23 / 39 allocations and
+  16,568 / 17,296 / 18,960 gross bytes: exactly one allocation and 104 bytes
+  per additional retained slot, matching the `Arc<WakeToken>` construction
+  fanout. The candidate must remove that allocation slope without changing the
+  instrument or output values.
 
 ## MOI-ITER-RETAINED-FUTURE-SLOTS-2026-09-01 — Reuse bounded in-flight future storage [patch] [perf] — in progress
 
