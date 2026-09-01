@@ -3,6 +3,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_iter::{MoiraiIterator, ParallelContext};
 use rayon::prelude::*;
+use std::task::Poll;
 use std::time::Duration;
 
 const SAMPLE_SIZE: usize = 10;
@@ -35,6 +36,29 @@ fn moirai_parallel_context_async_map(data: Vec<u64>) -> u64 {
     futures::executor::block_on(async {
         MoiraiIterator::parallel(data)
             .map_async(|value| async move { value.wrapping_mul(5).wrapping_add(3) })
+            .await
+            .collect()
+            .await
+            .into_iter()
+            .sum()
+    })
+}
+
+fn moirai_parallel_context_pending_async_map(data: Vec<u64>) -> u64 {
+    futures::executor::block_on(async {
+        MoiraiIterator::parallel(data)
+            .map_async(|value| {
+                let mut first_poll = true;
+                futures::future::poll_fn(move |context| {
+                    if first_poll {
+                        first_poll = false;
+                        context.waker().wake_by_ref();
+                        Poll::Pending
+                    } else {
+                        Poll::Ready(value.wrapping_mul(5).wrapping_add(3))
+                    }
+                })
+            })
             .await
             .collect()
             .await
@@ -91,6 +115,27 @@ fn execution_context_comparison(c: &mut Criterion) {
         &async_data,
         |b, input| {
             b.iter(|| black_box(moirai_parallel_context_async_map(black_box(input.clone()))))
+        },
+    );
+    group.finish();
+
+    assert_eq!(
+        moirai_parallel_context_pending_async_map(async_data.clone()),
+        expected
+    );
+    let mut group = c.benchmark_group("execution_context_parallel_pending_async_map");
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    group.bench_with_input(
+        BenchmarkId::new("moirai", ASYNC_WORK_ITEMS),
+        &async_data,
+        |b, input| {
+            b.iter(|| {
+                black_box(moirai_parallel_context_pending_async_map(black_box(
+                    input.clone(),
+                )))
+            })
         },
     );
     group.finish();

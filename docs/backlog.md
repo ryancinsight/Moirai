@@ -122,7 +122,11 @@ architecture definition.
   every item to `FuturesUnordered::push`, whose implementation constructs one
   new `Arc<Task>` per future. The prior public 1,024-item ready-map census left
   1,035 allocations / 114,816 gross bytes after removing topology and closure
-  control-plane churn; dynamic pending/drop attribution remains.
+  control-plane churn. Deterministic one-pending-poll censuses reproduce 1,035
+  allocations / 114,816 bytes for ordered map and 1,026 / 98,464 for unordered
+  for-each, with exact ordered values and exactly-once visits. Entry Criterion
+  medians (95% CI) are 66.008 us [65.220, 66.690] for ready map and 124.001 us
+  [123.369, 124.082] for one-pending map; baseline instrument gates pass.
 
 ### ✅ MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 [patch] [perf]: Remove async-context control-plane allocations
 

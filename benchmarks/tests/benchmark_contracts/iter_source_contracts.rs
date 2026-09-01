@@ -286,6 +286,8 @@ fn execution_context_iter_consumes_owned_chunks_without_clone() {
         "rayon_owned_map",
         "execution_context_parallel_async_map",
         "moirai_parallel_context_async_map",
+        "execution_context_parallel_pending_async_map",
+        "moirai_parallel_context_pending_async_map",
         "assert_eq!",
     ] {
         assert!(
