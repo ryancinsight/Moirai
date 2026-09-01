@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Retained async slot blocks now own stable wake identities in one shared
+  `WakeBlock` instead of allocating one `Arc<WakeToken>` per in-flight slot.
+  The unchanged 1,024-item pending-map ledger at explicit concurrency limits
+  1 / 8 / 24 falls from 16 / 23 / 39 allocation calls to 15 / 15 / 15 while
+  gross bytes move from 16,568 / 17,296 / 18,960 to 16,568 / 17,128 / 18,408,
+  preserving ordered values, cross-thread wake routing, cloned-waker lifetime,
+  cancellation, and panic-unwind ownership. Same-binary paired measurements
+  show no retained Moirai Criterion median regressing by 5% or more; control
+  movement and broad baseline intervals preclude a speedup claim. This changes
+  no public API, concurrency bound, scheduler policy, or workload.
 - Bounded ordered async map/filter and completion-only for-each now retain
   pinned future blocks and atomic ready bitsets instead of allocating one
   futures-util task node per item. Exact-size sources allocate only their

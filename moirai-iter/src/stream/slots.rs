@@ -7,7 +7,6 @@ use core::ptr;
 use core::task::{Context, Poll};
 
 use futures::stream::Stream;
-use futures::task::waker_ref;
 use std::sync::Arc;
 
 mod ordered;
@@ -17,7 +16,7 @@ mod wake;
 pub(crate) use ordered::retained_buffered;
 pub(crate) use unordered::retained_unordered;
 
-use wake::{ReadySet, WakeToken};
+use wake::WakeBlock;
 
 const VACANT_END: usize = usize::MAX;
 // One-slot geometric growth needs at most `usize::BITS + 1` blocks, including
@@ -140,22 +139,21 @@ struct SlotKey {
 /// One independently pinned block in a lazily growing slot set.
 struct SlotBlock<Fut> {
     slots: Pin<Box<[FutureSlot<Fut>]>>,
-    ready: Arc<ReadySet>,
-    wake_tokens: Box<[Arc<WakeToken>]>,
+    wake: Arc<WakeBlock>,
     ready_cursor: usize,
     vacant_head: usize,
 }
 
 impl<Fut> SlotBlock<Fut> {
     fn new_root(len: usize) -> Self {
-        Self::new(len, ReadySet::new_root(len))
+        Self::new(len, WakeBlock::new_root(len))
     }
 
-    fn new_child(len: usize, root: Arc<ReadySet>) -> Self {
-        Self::new(len, ReadySet::new_child(len, root))
+    fn new_child(len: usize, root: Arc<WakeBlock>) -> Self {
+        Self::new(len, WakeBlock::new_child(len, root))
     }
 
-    fn new(len: usize, ready: Arc<ReadySet>) -> Self {
+    fn new(len: usize, wake: Arc<WakeBlock>) -> Self {
         let slots = (0..len)
             .map(|index| {
                 let next = if index + 1 == len {
@@ -169,11 +167,7 @@ impl<Fut> SlotBlock<Fut> {
             .into_boxed_slice();
         Self {
             slots: Box::into_pin(slots),
-            wake_tokens: (0..len)
-                .map(|index| WakeToken::new(index, Arc::clone(&ready)))
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-            ready,
+            wake,
             ready_cursor: 0,
             vacant_head: 0,
         }
@@ -203,11 +197,11 @@ impl<Fut> SlotBlock<Fut> {
 
     fn insert(&mut self, index: usize, future: Fut, output_index: usize) {
         Self::slot_mut(&mut self.slots, index).insert(future, output_index);
-        self.ready.set(index);
+        self.wake.set(index);
     }
 
     fn take_ready(&mut self) -> Option<usize> {
-        self.ready.take_one(&mut self.ready_cursor)
+        self.wake.take_one(&mut self.ready_cursor)
     }
 
     fn take_vacant(&mut self) -> Option<usize> {
@@ -235,11 +229,7 @@ where
     Fut: Future,
 {
     fn poll(&mut self, index: usize) -> Poll<(usize, Fut::Output)> {
-        let token = self
-            .wake_tokens
-            .get(index)
-            .expect("invariant: retained wake token index is in bounds");
-        let waker = waker_ref(token);
+        let waker = WakeBlock::waker(&self.wake, index);
         let mut context = Context::from_waker(&waker);
         Self::slot_mut(&mut self.slots, index).poll(&mut context)
     }
@@ -255,7 +245,7 @@ where
 struct RetainedSlots<Fut> {
     first: Option<SlotBlock<Fut>>,
     overflow: Vec<SlotBlock<Fut>>,
-    root: Option<Arc<ReadySet>>,
+    root: Option<Arc<WakeBlock>>,
     capacity: usize,
     limit: usize,
     initial_block_len: usize,
@@ -355,7 +345,7 @@ impl<Fut> RetainedSlots<Fut> {
                 .push(SlotBlock::new_child(block_len, Arc::clone(root)));
         } else {
             let block = SlotBlock::new_root(block_len);
-            self.root = Some(Arc::clone(&block.ready));
+            self.root = Some(Arc::clone(&block.wake));
             self.first = Some(block);
         }
         self.capacity += block_len;

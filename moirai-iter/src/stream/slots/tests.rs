@@ -6,8 +6,10 @@ use core::task::{Context, Poll};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 
+use futures::task::{waker, ArcWake};
 use futures::{Stream, StreamExt};
 
+use super::wake::WakeBlock;
 use super::{retained_buffered, retained_unordered, RetainedSlots, SlotKey};
 
 struct PendingOnce<T> {
@@ -125,6 +127,24 @@ impl Drop for DropFuture {
     }
 }
 
+struct ParentWake {
+    wakes: AtomicUsize,
+}
+
+impl ArcWake for ParentWake {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+        arc_self.wakes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+struct PanicWake;
+
+impl ArcWake for PanicWake {
+    fn wake_by_ref(_arc_self: &Arc<Self>) {
+        panic!("parent wake failure sentinel");
+    }
+}
+
 #[test]
 fn ordered_slots_preserve_values_across_pending_refills() {
     let stream = futures::stream::iter((0..37).map(pending_once));
@@ -234,6 +254,60 @@ fn retained_slots_route_cross_thread_wakes() {
     }));
     let values = futures::executor::block_on(retained_buffered(stream, 5).collect::<Vec<_>>());
     assert_eq!(values, (0..37).collect::<Vec<_>>());
+}
+
+#[test]
+fn cloned_slot_wakers_keep_the_shared_block_alive() {
+    let parent = Arc::new(ParentWake {
+        wakes: AtomicUsize::new(0),
+    });
+    let parent_waker = waker(Arc::clone(&parent));
+    let block = WakeBlock::new_root(1);
+    block.register(&parent_waker);
+    let owner = Arc::downgrade(&block);
+    let first = WakeBlock::waker(&block, 0);
+    let last = first.clone();
+
+    drop(block);
+    assert!(owner.upgrade().is_some());
+    first.wake_by_ref();
+    assert_eq!(parent.wakes.load(Ordering::SeqCst), 1);
+    drop(first);
+    let retained = owner
+        .upgrade()
+        .expect("cloned waker must retain the shared wake block");
+    retained.register(&parent_waker);
+    drop(retained);
+
+    last.wake();
+    assert_eq!(parent.wakes.load(Ordering::SeqCst), 2);
+    assert!(owner.upgrade().is_none());
+}
+
+#[test]
+fn recreated_slot_wakers_preserve_identity() {
+    let block = WakeBlock::new_root(2);
+    let first = WakeBlock::waker(&block, 0);
+    let recreated = WakeBlock::waker(&block, 0);
+    let other = WakeBlock::waker(&block, 1);
+
+    assert!(first.will_wake(&recreated));
+    assert!(!first.will_wake(&other));
+}
+
+#[test]
+fn consuming_wake_releases_ownership_when_parent_panics() {
+    let parent_waker = waker(Arc::new(PanicWake));
+    let block = WakeBlock::new_root(1);
+    block.register(&parent_waker);
+    let owner = Arc::downgrade(&block);
+    let slot_waker = WakeBlock::waker(&block, 0);
+    drop(block);
+
+    let result = catch_unwind(AssertUnwindSafe(|| slot_waker.wake()));
+
+    assert!(result.is_err());
+    assert!(owner.upgrade().is_none());
 }
 
 #[test]

@@ -22,6 +22,63 @@ use loom::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use loom::sync::Arc;
 use loom::thread;
 
+/// One raw owner count using the same `Arc` operations as the slot-waker
+/// vtable. The pointer remains valid until this owner is dropped or consumed.
+struct RawWakeOwner<T>(*const T);
+
+impl<T> RawWakeOwner<T> {
+    fn new(owner: Arc<T>) -> Self {
+        Self(Arc::into_raw(owner))
+    }
+
+    fn with<R>(&self, operation: impl FnOnce(&T) -> R) -> R {
+        // SAFETY: constructing this wrapper consumes one `Arc` strong count,
+        // and `self` retains that count for the duration of the borrow.
+        operation(unsafe { &*self.0 })
+    }
+}
+
+impl<T> Clone for RawWakeOwner<T> {
+    fn clone(&self) -> Self {
+        // SAFETY: `self` owns a strong count, so the allocation remains valid
+        // while this operation creates the returned owner's count.
+        unsafe { Arc::increment_strong_count(self.0) };
+        Self(self.0)
+    }
+}
+
+impl<T> Drop for RawWakeOwner<T> {
+    fn drop(&mut self) {
+        // SAFETY: each wrapper owns exactly one strong count, released here.
+        unsafe { Arc::decrement_strong_count(self.0) };
+    }
+}
+
+// SAFETY: moving a raw owner transfers its unique strong-count obligation.
+// Access to `T` remains subject to the same `Send + Sync` bounds as `Arc<T>`.
+unsafe impl<T: Send + Sync> Send for RawWakeOwner<T> {}
+
+// SAFETY: shared wrapper access exposes only `&T`, and the retained strong
+// count keeps the allocation stable for every such borrow.
+unsafe impl<T: Send + Sync> Sync for RawWakeOwner<T> {}
+
+struct ModelWakeBlock {
+    publications: Arc<AtomicUsize>,
+    destructions: Arc<AtomicUsize>,
+}
+
+impl ModelWakeBlock {
+    fn publish(&self) {
+        self.publications.fetch_add(1, Ordering::Release);
+    }
+}
+
+impl Drop for ModelWakeBlock {
+    fn drop(&mut self) {
+        self.destructions.fetch_add(1, Ordering::Release);
+    }
+}
+
 fn take_one(word: &AtomicUsize) -> Option<usize> {
     let mut observed = word.load(Ordering::Acquire);
     while observed != 0 {
@@ -108,5 +165,35 @@ fn stale_wake_cannot_erase_replacement_readiness() {
         assert_eq!(completions.load(Ordering::SeqCst), 0b11);
         assert!(!occupied.load(Ordering::Acquire));
         assert_eq!(ready.load(Ordering::SeqCst), 0);
+    });
+}
+
+#[test]
+fn raw_wake_owners_reclaim_after_raced_clone_wake_and_cancel() {
+    loom::model(|| {
+        let publications = Arc::new(AtomicUsize::new(0));
+        let destructions = Arc::new(AtomicUsize::new(0));
+        let block = Arc::new(ModelWakeBlock {
+            publications: Arc::clone(&publications),
+            destructions: Arc::clone(&destructions),
+        });
+        let first = RawWakeOwner::new(Arc::clone(&block));
+        let cancelled = first.clone();
+        drop(block);
+
+        let wake = thread::spawn(move || {
+            let consuming_callback = first.clone();
+            drop(first);
+            thread::yield_now();
+            consuming_callback.with(ModelWakeBlock::publish);
+            drop(consuming_callback);
+        });
+        let cancel = thread::spawn(move || drop(cancelled));
+
+        wake.join().unwrap();
+        cancel.join().unwrap();
+
+        assert_eq!(publications.load(Ordering::Acquire), 1);
+        assert_eq!(destructions.load(Ordering::Acquire), 1);
     });
 }
