@@ -114,8 +114,12 @@ architecture definition.
   3/3 doctests, both retained Criterion smoke binaries, and 72/72 benchmark
   contract tests pass. Directory-baseline SemVer analysis passes 196 checks
   with 58 inapplicable skips and reports no required version change. The
-  packed-object baseline mode was blocked by its local clone entry-size limit;
-  independent review, PR, hosted collection, and merge remain open.
+  packed-object baseline mode was blocked by its local clone entry-size limit.
+  Independent cumulative review found a stale materialization claim and an
+  under-modeled floating-point leaf fold; source `ee0d08a` fixes the former and
+  source `3f8d729` derives the bound from the actual two 4,096-item leaf folds
+  plus one merge. Exact correction re-review is GREEN. PR #218 hosted
+  recollection and merge remain open.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `fix/iter-sum-contract`; lease covers the iterator terminal implementation,
   tests, benchmark/contracts, CHANGELOG, and this item's PM regions; status:

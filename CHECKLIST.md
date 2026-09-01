@@ -23,8 +23,11 @@
   contract tests pass. Directory-baseline `cargo-semver-checks` passes 196
   checks with 58 inapplicable skips and reports no required version change;
   the packed-object baseline mode could not complete because its local clone
-  exceeded the tool's in-memory entry limit. Independent review and hosted
-  collection remain pending.
+  exceeded the tool's in-memory entry limit. Independent cumulative review
+  found and closed two evidence defects: source `ee0d08a` corrects the stale
+  materialization claim, and source `3f8d729` derives the floating bound from
+  the actual two 4,096-item leaf folds plus one merge. Exact correction
+  re-review is GREEN. PR #218 hosted recollection and merge remain pending.
 
 ## MOI-ATLAS-CONFORMANCE-RATCHET-2026-08-31 — Restore the stack hygiene ratchet [patch] — complete
 
