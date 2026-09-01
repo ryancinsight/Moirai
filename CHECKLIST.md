@@ -509,10 +509,11 @@
   `f6bc6e2`, PR #209 merge `990a3ae`; independent reviews and all required
   repository checks are GREEN. The non-required external analysis service errored.
 
-## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — review
+## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-drop-leak`; lease: none; last update 2026-08-31.
+  `fix/scheduler-drop-leak`; lease: scheduler lifecycle/tests, ADR 0005,
+  CHANGELOG, and this item; last update 2026-08-31.
 - **Outcome:** dropping the last external `ThreadScheduler` handle initiates
   shutdown and releases worker-owned scheduler state without requiring an
   explicit `shutdown()` call.
@@ -538,7 +539,10 @@
   `ec92944` publishes under that mutex; the admission and external-waiter Loom
   models pass 2/2 in 0.026 s, warning-denied all-target/all-feature Clippy
   passes, release executor Nextest passes 132/132 in 1.043 s, and workspace
-  Nextest passes 928/928 in 11.965 s. Exact-commit re-review remains.
+  Nextest passes 928/928 in 11.965 s. Exact-head review of `36ef05b` found
+  that workers still entered the join election and could cross-join a peer
+  whose accepted job depended on code after `shutdown()` returned. Correction,
+  exact re-review, and PR #210 collection remain.
 
 ## MOI-PARTIAL-SPAWN-CLEANUP-2026-08-27 — Drain workers on partial spawn failure [patch] — todo
 

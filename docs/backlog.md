@@ -100,7 +100,8 @@ architecture definition.
 - **Risk / change:** P1 lifecycle/resource correctness, `[patch]`; no SemVer
   change.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-drop-leak`; lease: none; last update 2026-08-31.
+  `fix/scheduler-drop-leak`; lease: scheduler lifecycle/tests, ADR 0005,
+  CHANGELOG, and this item; last update 2026-08-31.
 - **Candidate / evidence:** source `eba1ce4` tracks only external handles and
   retains worker `Arc` lifetime anchoring. Independent review found
   worker-to-worker cross-join and compute-admission races. Correction `4e034fd`
@@ -115,8 +116,11 @@ architecture definition.
   condition-variable notification. Forward correction `ec92944` publishes
   under the mutex; both shutdown Loom models pass in 0.026 s, warning-denied
   all-target/all-feature Clippy passes, release executor Nextest passes 132/132
-  in 1.043 s, and workspace Nextest passes 928/928 in 11.965 s. Exact-commit
-  re-review and publish/merge closure remain.
+  in 1.043 s, and workspace Nextest passes 928/928 in 11.965 s. Exact-head
+  review of `36ef05b` found that workers still entered the join election and
+  could cross-join a peer whose accepted job depended on code after
+  `shutdown()` returned. Correction, exact re-review, and PR #210 collection
+  remain.
 
 ### 🟨 MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
 
