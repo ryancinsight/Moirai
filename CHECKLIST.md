@@ -2,6 +2,27 @@
 
 **Target**: Unreleased
 
+## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — in progress
+
+- **Outcome:** draft pull requests schedule no repository jobs; opening or
+  reopening a non-draft pull request and marking a draft ready preserve every
+  existing workflow command and workload.
+- **Acceptance:** all eight independent jobs reject draft pull-request events;
+  ready/non-draft pull requests retain their path-filtered selections; push,
+  schedule, and manual events are unchanged; normalized YAML differs only by
+  the explicit pull-request activity lists and draft predicates; hosted draft
+  and ready transitions confirm the event semantics.
+- **Scope / non-goals:** `.github/workflows/{rust-ci,python-ci,book-pages}.yml`,
+  CHANGELOG, and this item's PM regions. No command, feature, matrix, cache,
+  permission, workload, assertion, or timeout change.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `ci/draft-pr-gate`.
+- **Lease:** Codex — the three workflow files, CHANGELOG, and this item's PM
+  regions. Last update 2026-09-01.
+- **Entry evidence:** draft PR #218 launched all five Rust jobs; the final ready
+  run passed in 6s–2m12s. The Python and book workflows expose three more
+  independent jobs with the same unguarded draft-event behavior.
+
 ## MOI-PAR-SUM-CONTRACT-2026-09-01 — Preserve standard terminal semantics [minor] [perf] — complete
 
 - **Outcome:** restore `ParallelIterator::sum` and `product` to the standard

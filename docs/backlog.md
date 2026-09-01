@@ -86,6 +86,27 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-CI-DRAFT-GATE-2026-09-01 [patch] [ci]: Suppress draft pull-request runners
+
+- **Outcome:** draft pull requests schedule no repository jobs; opening or
+  reopening a non-draft pull request and marking a draft ready preserve every
+  existing path-filtered workflow workload.
+- **Scope / non-goals:** the Rust, Python, and book workflow event/job guards,
+  CHANGELOG, and PM state. No command, feature, matrix, cache, permission,
+  workload, assertion, timeout, push, schedule, or manual-event change.
+- **Acceptance:** all eight independent jobs reject draft pull-request events;
+  ready/non-draft events retain the exact selections; normalized YAML differs
+  only by explicit pull-request activity lists and draft predicates; hosted
+  draft and ready transitions confirm the event semantics.
+- **Risk / change:** `[patch]` CI scheduling only. Reject if normalization finds
+  any workload change or a ready/non-draft pull request omits a prior job.
+- **Evidence / cause:** draft PR #218 launched all five Rust jobs, whose final
+  ready run completed in 6s–2m12s. The two Python jobs and one book job are
+  independent roots under equivalent unguarded pull-request triggers.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `ci/draft-pr-gate`; lease covers the three workflow files, CHANGELOG, and
+  this item's PM regions; status: in progress; last update 2026-09-01.
+
 ### ✅ MOI-PAR-SUM-CONTRACT-2026-09-01 [minor] [perf]: Preserve standard terminal semantics
 
 - **Outcome:** `ParallelIterator::sum` and `product` retain the standard
