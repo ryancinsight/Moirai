@@ -1,5 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use moirai::Moirai;
+use moirai_async::Notify;
 /// Prime modulo for benchmark variation
 const BENCHMARK_PRIME_MODULO: usize = 997;
 
@@ -15,11 +16,48 @@ const SIMD_BENCHMARK_SIZE: usize = 1024;
 /// Default CPU utilization precision factor (percentage * 100)
 const CPU_UTILIZATION_PRECISION: u64 = 100;
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll, Waker},
+    time::{Duration, Instant},
+};
 
 const BENCHMARK_SAMPLE_SIZE: usize = 10;
 const BENCHMARK_MEASUREMENT_SECONDS: u64 = 1;
 const BENCHMARK_WARM_UP_MILLIS: u64 = 250;
+const WAKE_BATCH_WAITERS: usize = 64;
+
+fn benchmark_async_wake_batch(c: &mut Criterion) {
+    c.bench_function("async_notify_waiters_64", |bench| {
+        bench.iter_custom(|iterations| {
+            let mut measured = Duration::ZERO;
+
+            for _ in 0..iterations {
+                let notify = Notify::new();
+                let mut waiters = (0..WAKE_BATCH_WAITERS)
+                    .map(|_| notify.notified())
+                    .collect::<Vec<_>>();
+                let mut context = Context::from_waker(Waker::noop());
+                for waiter in &mut waiters {
+                    assert_eq!(Pin::new(waiter).poll(&mut context), Poll::Pending);
+                }
+
+                let start = Instant::now();
+                notify.notify_waiters();
+                measured += start.elapsed();
+
+                for waiter in &mut waiters {
+                    assert_eq!(Pin::new(waiter).poll(&mut context), Poll::Ready(()));
+                }
+                black_box(waiters.len());
+            }
+
+            measured
+        });
+    });
+}
 
 fn expected_parallel_sum(seed: usize) -> usize {
     (0..DEFAULT_BENCHMARK_OPS)
@@ -371,6 +409,7 @@ criterion_group! {
         .warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS))
         .without_plots();
     targets =
+        benchmark_async_wake_batch,
         benchmark_task_scheduling_overhead,
         benchmark_parallel_scalability,
         benchmark_memory_efficiency,
