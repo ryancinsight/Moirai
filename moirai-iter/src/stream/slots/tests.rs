@@ -133,6 +133,50 @@ fn ordered_slots_preserve_values_across_pending_refills() {
 }
 
 #[test]
+fn exact_empty_stream_does_not_reserve_a_large_limit() {
+    let stream = futures::stream::empty::<PendingOnce<usize>>();
+    let values =
+        futures::executor::block_on(retained_buffered(stream, usize::MAX).collect::<Vec<_>>());
+    assert!(values.is_empty());
+}
+
+#[test]
+fn exact_single_item_clamps_a_large_limit() {
+    let stream = futures::stream::iter([pending_once(17)]);
+    let values =
+        futures::executor::block_on(retained_buffered(stream, usize::MAX).collect::<Vec<_>>());
+    assert_eq!(values, [17]);
+}
+
+#[test]
+fn unknown_single_item_grows_only_after_admission() {
+    let mut future = Some(pending_once(23));
+    let stream = futures::stream::poll_fn(move |_| Poll::Ready(future.take()));
+    let values =
+        futures::executor::block_on(retained_buffered(stream, usize::MAX).collect::<Vec<_>>());
+    assert_eq!(values, [23]);
+}
+
+#[test]
+fn unknown_stream_preserves_values_across_geometric_blocks() {
+    let mut next = 0_u64;
+    let stream = futures::stream::poll_fn(move |_| {
+        if next == 9 {
+            Poll::Ready(None)
+        } else {
+            let value = next;
+            next += 1;
+            Poll::Ready(Some(pending_once(value)))
+        }
+    });
+
+    let values =
+        futures::executor::block_on(retained_buffered(stream, usize::MAX).collect::<Vec<_>>());
+
+    assert_eq!(values, (0..9).collect::<Vec<_>>());
+}
+
+#[test]
 fn unordered_slots_complete_every_value_once() {
     let stream = futures::stream::iter((0..37).map(pending_once));
     let mut values = futures::executor::block_on(retained_unordered(stream, 5).collect::<Vec<_>>());

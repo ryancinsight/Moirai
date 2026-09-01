@@ -19,7 +19,7 @@ use moirai_iter::{
     cache::CacheIterExt,
     iter_ops::ParallelIter,
     parallel::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
-    MoiraiIterator,
+    AsyncContext, ExecutionContext, MoiraiIterator,
 };
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::future::Future;
@@ -164,6 +164,17 @@ fn pending_once<T>(value: T) -> impl Future<Output = T> {
 fn context_pending_map_values(data: Vec<u64>) -> Vec<u64> {
     futures::executor::block_on(async {
         MoiraiIterator::parallel(data)
+            .map_async(|value| pending_once(value.wrapping_mul(5).wrapping_add(3)))
+            .await
+            .collect()
+            .await
+    })
+}
+
+fn context_large_limit_map_values(data: Vec<u64>) -> Vec<u64> {
+    let context = ExecutionContext::Async(AsyncContext::new().with_max_concurrent(usize::MAX));
+    futures::executor::block_on(async {
+        MoiraiIterator::new(data, context)
             .map_async(|value| pending_once(value.wrapping_mul(5).wrapping_add(3)))
             .await
             .collect()
@@ -427,6 +438,36 @@ fn parallel_context_async_map_excludes_topology_allocations() {
         allocated_bytes <= byte_budget,
         "warmed parallel-context async map allocated {allocated_bytes} gross bytes; its buffered \
         futures, output, and fixed metadata must fit the {byte_budget}-byte budget"
+    );
+}
+
+#[test]
+fn large_context_limit_does_not_reserve_for_empty_or_single_input() {
+    const FIXED_ALLOCATION_BUDGET: usize = 20;
+    const FIXED_BYTE_BUDGET: usize = 8_192;
+
+    let (empty, empty_allocations, empty_bytes) =
+        warmed_allocation_ledger(Vec::new(), Vec::new(), context_large_limit_map_values);
+    let (single, single_allocations, single_bytes) =
+        warmed_allocation_ledger(vec![5], vec![5], context_large_limit_map_values);
+
+    assert!(empty.is_empty());
+    assert_eq!(single, [28]);
+    assert!(
+        empty_allocations <= FIXED_ALLOCATION_BUDGET,
+        "empty map with a usize::MAX ceiling made {empty_allocations} allocations"
+    );
+    assert!(
+        single_allocations <= FIXED_ALLOCATION_BUDGET,
+        "single-item map with a usize::MAX ceiling made {single_allocations} allocations"
+    );
+    assert!(
+        empty_bytes <= FIXED_BYTE_BUDGET,
+        "empty map with a usize::MAX ceiling allocated {empty_bytes} gross bytes"
+    );
+    assert!(
+        single_bytes <= FIXED_BYTE_BUDGET,
+        "single-item map with a usize::MAX ceiling allocated {single_bytes} gross bytes"
     );
 }
 

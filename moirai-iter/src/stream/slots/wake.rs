@@ -11,11 +11,24 @@ const WORD_BITS: usize = usize::BITS as usize;
 pub(super) struct ReadySet {
     words: Box<[AtomicUsize]>,
     slot_count: usize,
-    parent: AtomicWaker,
+    parent: ParentWaker,
+}
+
+enum ParentWaker {
+    Root(AtomicWaker),
+    Shared(Arc<ReadySet>),
 }
 
 impl ReadySet {
-    pub(super) fn new(slot_count: usize) -> Arc<Self> {
+    pub(super) fn new_root(slot_count: usize) -> Arc<Self> {
+        Self::new(slot_count, ParentWaker::Root(AtomicWaker::new()))
+    }
+
+    pub(super) fn new_child(slot_count: usize, root: Arc<Self>) -> Arc<Self> {
+        Self::new(slot_count, ParentWaker::Shared(root))
+    }
+
+    fn new(slot_count: usize, parent: ParentWaker) -> Arc<Self> {
         let word_count = slot_count.div_ceil(WORD_BITS);
         Arc::new(Self {
             words: core::iter::repeat_with(|| AtomicUsize::new(0))
@@ -23,17 +36,30 @@ impl ReadySet {
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
             slot_count,
-            parent: AtomicWaker::new(),
+            parent,
         })
     }
 
     pub(super) fn register(&self, waker: &core::task::Waker) {
-        self.parent.register(waker);
+        match &self.parent {
+            ParentWaker::Root(parent) => parent.register(waker),
+            ParentWaker::Shared(root) => root.register(waker),
+        }
     }
 
     pub(super) fn mark_ready(&self, index: usize) {
         self.set(index);
-        self.parent.wake();
+        match &self.parent {
+            ParentWaker::Root(parent) => parent.wake(),
+            ParentWaker::Shared(root) => root.wake_parent(),
+        }
+    }
+
+    fn wake_parent(&self) {
+        match &self.parent {
+            ParentWaker::Root(parent) => parent.wake(),
+            ParentWaker::Shared(root) => root.wake_parent(),
+        }
     }
 
     pub(super) fn set(&self, index: usize) {

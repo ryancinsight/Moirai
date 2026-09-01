@@ -10,7 +10,12 @@ use futures::stream::Stream;
 use futures::task::waker_ref;
 use std::sync::Arc;
 
+mod ordered;
+mod unordered;
 mod wake;
+
+pub(crate) use ordered::retained_buffered;
+pub(crate) use unordered::retained_unordered;
 
 use wake::{ReadySet, WakeToken};
 
@@ -91,24 +96,37 @@ impl<Fut> Drop for FutureSlot<Fut> {
     }
 }
 
-/// Pinned contiguous storage reused for every bounded batch.
-struct RetainedSlots<Fut> {
+#[derive(Clone, Copy)]
+struct SlotKey {
+    block: usize,
+    slot: usize,
+}
+
+/// One independently pinned block in a lazily growing slot set.
+struct SlotBlock<Fut> {
     slots: Pin<Box<[FutureSlot<Fut>]>>,
     ready: Arc<ReadySet>,
     wake_tokens: Box<[Arc<WakeToken>]>,
     ready_cursor: usize,
 }
 
-impl<Fut> RetainedSlots<Fut> {
-    fn new(limit: usize) -> Self {
-        let ready = ReadySet::new(limit);
+impl<Fut> SlotBlock<Fut> {
+    fn new_root(len: usize) -> Self {
+        Self::new(len, ReadySet::new_root(len))
+    }
+
+    fn new_child(len: usize, root: Arc<ReadySet>) -> Self {
+        Self::new(len, ReadySet::new_child(len, root))
+    }
+
+    fn new(len: usize, ready: Arc<ReadySet>) -> Self {
         let slots = core::iter::repeat_with(FutureSlot::empty)
-            .take(limit)
+            .take(len)
             .collect::<Vec<_>>()
             .into_boxed_slice();
         Self {
             slots: Box::into_pin(slots),
-            wake_tokens: (0..limit)
+            wake_tokens: (0..len)
                 .map(|index| WakeToken::new(index, Arc::clone(&ready)))
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
@@ -148,16 +166,12 @@ impl<Fut> RetainedSlots<Fut> {
         self.ready.set(index);
     }
 
-    fn register(&self, context: &Context<'_>) {
-        self.ready.register(context.waker());
-    }
-
     fn take_ready(&mut self) -> Option<usize> {
         self.ready.take_one(&mut self.ready_cursor)
     }
 }
 
-impl<Fut> RetainedSlots<Fut>
+impl<Fut> SlotBlock<Fut>
 where
     Fut: Future,
 {
@@ -172,214 +186,207 @@ where
     }
 }
 
-/// Ordered bounded stream whose future slab is retained and refilled.
-pub(crate) struct RetainedBuffered<S>
-where
-    S: Stream,
-    S::Item: Future,
-{
-    source: Pin<Box<S>>,
-    slots: RetainedSlots<S::Item>,
-    outputs: Box<[Option<<S::Item as Future>::Output>]>,
-    next_insert: usize,
-    next_yield: usize,
-    buffered: usize,
-    source_done: bool,
+/// Lazily segmented pinned storage reused for every bounded batch.
+///
+/// Each block remains at one address even when the block directory grows.
+/// Exact-size sources allocate at most their reachable concurrency on first
+/// admission. Streams without an upper bound grow geometrically only after
+/// yielding another future, so a large configured ceiling is not an eager
+/// reservation.
+struct RetainedSlots<Fut> {
+    first: Option<SlotBlock<Fut>>,
+    overflow: Vec<SlotBlock<Fut>>,
+    root: Option<Arc<ReadySet>>,
+    capacity: usize,
+    limit: usize,
+    initial_block_len: usize,
+    vacant_block_cursor: usize,
+    vacant_slot_cursor: usize,
+    ready_block_cursor: usize,
 }
 
-/// Buffer `source` in input order with storage proportional to `limit`.
-pub(crate) fn retained_buffered<S>(source: S, limit: usize) -> RetainedBuffered<S>
-where
-    S: Stream,
-    S::Item: Future,
-{
-    let limit = limit.max(1);
-    let outputs = core::iter::repeat_with(|| None)
-        .take(limit)
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-    RetainedBuffered {
-        source: Box::pin(source),
-        slots: RetainedSlots::new(limit),
-        outputs,
-        next_insert: 0,
-        next_yield: 0,
-        buffered: 0,
-        source_done: false,
-    }
-}
-
-impl<S> RetainedBuffered<S>
-where
-    S: Stream,
-    S::Item: Future,
-{
-    fn fill(&mut self, context: &mut Context<'_>) {
-        if self.source_done || self.buffered == self.slots.len() {
-            return;
+impl<Fut> RetainedSlots<Fut> {
+    fn new(limit: usize, initial_block_len: usize, eager: bool) -> Self {
+        debug_assert!(limit > 0, "retained future limit must be positive");
+        debug_assert!(initial_block_len > 0, "initial slot block must be positive");
+        debug_assert!(
+            initial_block_len <= limit,
+            "initial slot block cannot exceed the retained limit"
+        );
+        let mut slots = Self {
+            first: None,
+            overflow: Vec::new(),
+            root: None,
+            capacity: 0,
+            limit,
+            initial_block_len,
+            vacant_block_cursor: 0,
+            vacant_slot_cursor: 0,
+            ready_block_cursor: 0,
+        };
+        if eager {
+            slots.grow();
         }
+        slots
+    }
 
-        for slot_index in 0..self.slots.len() {
-            if self.buffered == self.slots.len() || !self.slots.is_empty(slot_index) {
-                continue;
-            }
-            match self.source.as_mut().poll_next(context) {
-                Poll::Ready(Some(future)) => {
-                    let output_index = self.next_insert;
-                    self.next_insert = (self.next_insert + 1) % self.slots.len();
-                    self.buffered += 1;
-                    self.slots.insert(slot_index, future, output_index);
-                }
-                Poll::Ready(None) => {
-                    self.source_done = true;
-                    break;
-                }
-                Poll::Pending => break,
-            }
+    fn limit(&self) -> usize {
+        self.limit
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    fn register(&self, context: &Context<'_>) {
+        if let Some(root) = &self.root {
+            // `AtomicWaker` owns the register-versus-wake race. The Moirai
+            // ready bit remains the durable event when concurrent wakes
+            // coalesce into one parent scheduling edge.
+            root.register(context.waker());
         }
     }
 
-    fn take_next_output(&mut self) -> Option<<S::Item as Future>::Output> {
-        let output = self.outputs.get_mut(self.next_yield)?.take()?;
-        self.next_yield = (self.next_yield + 1) % self.outputs.len();
-        self.buffered -= 1;
-        Some(output)
+    fn block_count(&self) -> usize {
+        usize::from(self.first.is_some()) + self.overflow.len()
     }
-}
 
-impl<S> Stream for RetainedBuffered<S>
-where
-    S: Stream,
-    S::Item: Future,
-{
-    type Item = <S::Item as Future>::Output;
-
-    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // `source` and each future have independent pinned ownership. The
-        // outer value contains no self-reference and may therefore be moved.
-        let this = self.get_mut();
-        this.slots.register(context);
-        this.fill(context);
-
-        if let Some(output) = this.take_next_output() {
-            return Poll::Ready(Some(output));
-        }
-
-        for _ in 0..this.slots.len() {
-            let Some(slot_index) = this.slots.take_ready() else {
-                break;
-            };
-            if this.slots.is_empty(slot_index) {
-                continue;
-            }
-            if let Poll::Ready((output_index, output)) = this.slots.poll(slot_index) {
-                let destination = this
-                    .outputs
-                    .get_mut(output_index)
-                    .expect("invariant: retained output index is in bounds");
-                debug_assert!(destination.is_none(), "retained output slot must be empty");
-                *destination = Some(output);
-            }
-        }
-
-        if let Some(output) = this.take_next_output() {
-            Poll::Ready(Some(output))
-        } else if this.source_done && this.buffered == 0 {
-            Poll::Ready(None)
+    fn block(&self, index: usize) -> &SlotBlock<Fut> {
+        if index == 0 {
+            self.first
+                .as_ref()
+                .expect("invariant: retained first block exists")
         } else {
-            Poll::Pending
+            self.overflow
+                .get(index - 1)
+                .expect("invariant: retained overflow block index is in bounds")
         }
     }
-}
 
-/// Completion-order bounded stream used only when output order is irrelevant.
-pub(crate) struct RetainedUnordered<S>
-where
-    S: Stream,
-    S::Item: Future,
-{
-    source: Pin<Box<S>>,
-    slots: RetainedSlots<S::Item>,
-    active: usize,
-    source_done: bool,
-}
-
-/// Buffer `source` without retaining a task node per item.
-pub(crate) fn retained_unordered<S>(source: S, limit: usize) -> RetainedUnordered<S>
-where
-    S: Stream,
-    S::Item: Future,
-{
-    RetainedUnordered {
-        source: Box::pin(source),
-        slots: RetainedSlots::new(limit.max(1)),
-        active: 0,
-        source_done: false,
-    }
-}
-
-impl<S> RetainedUnordered<S>
-where
-    S: Stream,
-    S::Item: Future,
-{
-    fn fill(&mut self, context: &mut Context<'_>) {
-        if self.source_done || self.active == self.slots.len() {
-            return;
-        }
-
-        for slot_index in 0..self.slots.len() {
-            if self.active == self.slots.len() || !self.slots.is_empty(slot_index) {
-                continue;
-            }
-            match self.source.as_mut().poll_next(context) {
-                Poll::Ready(Some(future)) => {
-                    self.active += 1;
-                    self.slots.insert(slot_index, future, 0);
-                }
-                Poll::Ready(None) => {
-                    self.source_done = true;
-                    break;
-                }
-                Poll::Pending => break,
-            }
-        }
-    }
-}
-
-impl<S> Stream for RetainedUnordered<S>
-where
-    S: Stream,
-    S::Item: Future,
-{
-    type Item = <S::Item as Future>::Output;
-
-    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // `source` and each future have independent pinned ownership. The
-        // outer value contains no self-reference and may therefore be moved.
-        let this = self.get_mut();
-        this.slots.register(context);
-        this.fill(context);
-
-        for _ in 0..this.slots.len() {
-            let Some(slot_index) = this.slots.take_ready() else {
-                break;
-            };
-            if this.slots.is_empty(slot_index) {
-                continue;
-            }
-            if let Poll::Ready((_, output)) = this.slots.poll(slot_index) {
-                this.active -= 1;
-                return Poll::Ready(Some(output));
-            }
-        }
-
-        if this.source_done && this.active == 0 {
-            Poll::Ready(None)
+    fn block_mut(&mut self, index: usize) -> &mut SlotBlock<Fut> {
+        if index == 0 {
+            self.first
+                .as_mut()
+                .expect("invariant: retained first block exists")
         } else {
-            Poll::Pending
+            self.overflow
+                .get_mut(index - 1)
+                .expect("invariant: retained overflow block index is in bounds")
         }
     }
+
+    fn grow(&mut self) {
+        debug_assert!(self.capacity < self.limit, "retained slot limit is full");
+        let remaining = self.limit - self.capacity;
+        let block_len = if self.capacity == 0 {
+            self.initial_block_len
+        } else {
+            self.capacity
+        }
+        .min(remaining);
+        if let Some(root) = &self.root {
+            self.overflow
+                .push(SlotBlock::new_child(block_len, Arc::clone(root)));
+        } else {
+            let block = SlotBlock::new_root(block_len);
+            self.root = Some(Arc::clone(&block.ready));
+            self.first = Some(block);
+        }
+        self.capacity += block_len;
+    }
+
+    fn advance_vacant_cursor(&mut self, key: SlotKey) {
+        let block_len = self.block(key.block).len();
+        if key.slot + 1 == block_len {
+            self.vacant_block_cursor = (key.block + 1) % self.block_count();
+            self.vacant_slot_cursor = 0;
+        } else {
+            self.vacant_block_cursor = key.block;
+            self.vacant_slot_cursor = key.slot + 1;
+        }
+    }
+
+    fn empty_slot(&mut self) -> Option<SlotKey> {
+        let block_count = self.block_count();
+        if block_count == 0 {
+            return None;
+        }
+
+        let start_block = self.vacant_block_cursor % block_count;
+        for block_offset in 0..block_count {
+            let block = (start_block + block_offset) % block_count;
+            let block_len = self.block(block).len();
+            let start_slot = if block == start_block {
+                self.vacant_slot_cursor.min(block_len - 1)
+            } else {
+                0
+            };
+            for slot_offset in 0..block_len {
+                let slot = (start_slot + slot_offset) % block_len;
+                if self.block(block).is_empty(slot) {
+                    let key = SlotKey { block, slot };
+                    self.advance_vacant_cursor(key);
+                    return Some(key);
+                }
+            }
+        }
+        None
+    }
+
+    fn insert(&mut self, future: Fut, output_index: usize) {
+        let key = self.empty_slot().unwrap_or_else(|| {
+            self.grow();
+            let key = SlotKey {
+                block: self.block_count() - 1,
+                slot: 0,
+            };
+            self.advance_vacant_cursor(key);
+            key
+        });
+        self.block_mut(key.block)
+            .insert(key.slot, future, output_index);
+    }
+
+    fn is_empty(&self, key: SlotKey) -> bool {
+        self.block(key.block).is_empty(key.slot)
+    }
+
+    fn take_ready(&mut self) -> Option<SlotKey> {
+        let block_count = self.block_count();
+        if block_count == 0 {
+            return None;
+        }
+        let start = self.ready_block_cursor % block_count;
+        for offset in 0..block_count {
+            let block = (start + offset) % block_count;
+            if let Some(slot) = self.block_mut(block).take_ready() {
+                self.ready_block_cursor = (block + 1) % block_count;
+                return Some(SlotKey { block, slot });
+            }
+        }
+        None
+    }
+}
+
+impl<Fut> RetainedSlots<Fut>
+where
+    Fut: Future,
+{
+    fn poll(&mut self, key: SlotKey) -> Poll<(usize, Fut::Output)> {
+        self.block_mut(key.block).poll(key.slot)
+    }
+}
+
+fn source_slot_plan<S>(source: &S, configured_limit: usize) -> (usize, usize, bool)
+where
+    S: Stream,
+{
+    let configured_limit = configured_limit.max(1);
+    let (lower, upper) = source.size_hint();
+    let limit = upper.map_or(configured_limit, |bound| configured_limit.min(bound.max(1)));
+    let exact = upper == Some(lower);
+    let initial_block_len = if exact { limit.min(lower.max(1)) } else { 1 };
+    (limit, initial_block_len, exact && lower > 0)
 }
 
 #[cfg(test)]

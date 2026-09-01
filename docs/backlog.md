@@ -114,10 +114,9 @@ architecture definition.
   semantics, or weakens cancellation/drop behavior.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `perf/iter-retained-future-slots`; live lease:
-  `moirai-iter/src/stream/slots.rs`, ordered callers in `stream.rs`,
-  `execution/base.rs`, and `async_iter/parallel.rs`, focused tests/benchmark
-  contracts, CHANGELOG, and this item; status: candidate ready for independent
-  review; last update 2026-09-01.
+  `moirai-iter/src/stream/slots/`, focused tests/benchmark contracts,
+  CHANGELOG, and this item; status: fix-forward candidate ready for independent
+  re-review; last update 2026-09-01.
 - **Entry evidence:** futures-util 0.3.34 `FuturesOrdered::push_back` delegates
   every item to `FuturesUnordered::push`, whose implementation constructs one
   new `Arc<Task>` per future. The prior public 1,024-item ready-map census left
@@ -129,21 +128,26 @@ architecture definition.
   [123.369, 124.082] for one-pending map; baseline instrument gates pass.
 - **Candidate evidence:** a contiguous-slab scan candidate reduced ready and
   one-pending costs but measured about 9.26 ms at a valid 1,000-slot sparse-wake
-  bound versus 180.65 us for futures-util and was rejected. The accepted atomic
-  ready-bitset candidate retains one pinned slot and wake token per configured
-  lane, advances readiness fairly by slot, and removes per-item task nodes. On
-  the measured 24-logical-worker host, ready/pending maps use 39 allocations /
-  18,560 and 39 / 18,752 gross bytes; pending for-each uses 29 / 2,024. Final
-  Criterion medians (95% CI) are 27.240 us [27.011, 27.564] for ready map and
-  47.363 us [46.592, 48.246] for one-pending map, 58.7% and 61.8% below entry.
-  The adversarial sparse-wake row is 119.008 us [117.784, 121.601] versus
-  futures-util 180.600 us [179.049, 181.167], 34.1% lower with disjoint
-  intervals. Debug and release all-feature suites pass 241/241 with two
-  configured skips each; warning-denied host Clippy and AArch64 Windows checks,
-  focused Miri 6/6, and the ready-publication Loom model pass. Warning-denied
-  Rustdoc, 4/4 doctests, 72/72 benchmark contracts, executable benchmark smoke,
-  and cargo-semver-checks 223/223 under patch pass. Independent review and merge
-  remain.
+  bound versus 180.65 us for futures-util and was rejected. A first segmented
+  fix-forward then exposed quadratic initial vacancy discovery and measured
+  255.38 us; a retained circular vacancy cursor removes that scan. The corrected
+  design eagerly allocates only the exact-size source's clamped reachable block
+  and grows unknown-size sources geometrically after admission. On the measured
+  24-logical-worker host, ready/pending maps use 39 allocations / 18,576 and 39
+  / 18,768 gross bytes; pending for-each uses 29 / 2,040. Final Criterion median
+  estimates (95% CI) are 29.762 us [29.659, 29.896] for ready map and
+  48.806 us [48.755, 48.878] for one-pending map, 54.9% and 60.6% below
+  entry. The same-binary sparse-wake row is 133.323 us [132.528, 134.032]
+  versus futures-util 179.169 us [178.150, 179.703], 25.6% lower with
+  disjoint intervals. Debug and release all-feature suites pass 246/246 with
+  two configured skips each; warning-denied host Clippy and AArch64 Windows
+  checks, focused Miri 10/10, and the one-slot/two-generation stale-wake Loom
+  model pass. Warning-denied Rustdoc, 4/4 doctests, 72/72 benchmark contracts,
+  and the full bounded benchmark run pass. Tokio's test-only `sync` feature
+  remains required by Tokio 1.53.1's Loom `AtomicWaker`; removing it fails the
+  exact Loom build. The exact final directory-baseline SemVer comparison
+  against `248c861` passes under the patch contract. Independent re-review and
+  merge remain.
 
 ### ✅ MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 [patch] [perf]: Remove async-context control-plane allocations
 

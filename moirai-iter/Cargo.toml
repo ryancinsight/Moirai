@@ -30,6 +30,8 @@ libc = "0.2"
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
+# The workspace Loom command applies `cfg(loom)` globally. Tokio's `time` and
+# local-task modules then require its sync-gated internal `AtomicWaker`.
 tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
 
 [target.'cfg(loom)'.dev-dependencies]
