@@ -87,6 +87,7 @@ harness = false
 [[bench]]
 name = "result_handle_diagnostics"
 harness = false
+required-features = ["registry-diagnostics"]
 
 [[bench]]
 name = "iterator_adapter_comparison"

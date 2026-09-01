@@ -219,6 +219,22 @@ fn criterion_benchmarks_are_executable_and_bounded() {
 }
 
 #[test]
+fn result_handle_diagnostics_requires_registry_diagnostics() {
+    let manifest = read_benchmark("Cargo.toml");
+    let target = concat!(
+        "[[bench]]\n",
+        "name = \"result_handle_diagnostics\"\n",
+        "harness = false\n",
+        "required-features = [\"registry-diagnostics\"]",
+    );
+
+    assert!(
+        manifest.contains(target),
+        "result_handle_diagnostics must require its registry diagnostic API"
+    );
+}
+
+#[test]
 fn version_artifacts_are_synchronized_for_current_target() {
     let manifest = read_benchmark("../Cargo.toml");
     let checklist = read_benchmark("../docs/checklist.md");
