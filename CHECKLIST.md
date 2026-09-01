@@ -4,8 +4,8 @@
 
 ## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — in progress
 
-- **Outcome:** batch grants drain pending waiter ids directly and reserve the
-  exact owned-waker result capacity, removing the redundant id-buffer
+- **Outcome:** batch grants drain pending waiter ids directly into one result
+  reserved from the pending-count upper bound, removing the redundant id-buffer
   allocation and geometric result growth while retaining wake-after-unlock.
 - **Acceptance:** record the unchanged exact allocation baseline first; FIFO,
   cancellation, grant payload, and all `Notify`/`Condvar`/`RwLock` value

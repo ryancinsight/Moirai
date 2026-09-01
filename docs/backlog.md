@@ -88,9 +88,9 @@ architecture definition.
 
 ### 🟡 MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
 
-- **Outcome:** drain pending waiter ids directly and reserve exact owned-waker
-  capacity so a batch grant removes its redundant transient id buffer and
-  geometric result growth while preserving wake-after-unlock.
+- **Outcome:** drain pending waiter ids directly into one result reserved from
+  the pending-count upper bound so a batch grant removes its redundant transient
+  id buffer and geometric result growth while preserving wake-after-unlock.
 - **Scope / non-goals:** private `WaitQueue::grant_all`, batch-grant value and
   allocation tests, one retained instrument, CHANGELOG, and PM state. No public
   API, queue representation, lock/wake ordering, scheduler, timeout, or
