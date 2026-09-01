@@ -612,12 +612,12 @@
   `benchmark_contracts` 70/70; `moirai-scheduler` doctests 2/2;
   `RUSTFLAGS="--cfg loom"` `loom_chase_lev` 1/1.
 
-## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — in progress
+## MOI-LOOM-RESIZE-GATE-2026-08-31 — Model the resize gate under loom [patch] — review
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/scheduler-resize-gate-loom`; lease: resize-gate Loom model, workflow
-  selection, scheduler documentation, CHANGELOG, and this item; last update
-  2026-09-01.
+  `fix/scheduler-resize-gate-loom`; source candidate `ffdb724`; lease: none;
+  independent review, PR publication, hosted collection, and merge remain; last
+  update 2026-09-01.
 - **Finding:** modelling the prior `resizing` flag and `steal_accesses` counter
   separately exposed an ABA admission window: a resize can claim, republish,
   and clear the flag between a thief's flag load and counter increment, after
