@@ -547,18 +547,22 @@
   (`schedule/runtime/scheduler/core.rs:137-156`). Fix: on spawn error, set
   shutdown, wake, join the partial set.
 
-## MOI-EXECUTOR-LOOM-CI-2026-08-31 — Execute scheduler Loom models [patch] — in progress
+## MOI-EXECUTOR-LOOM-CI-2026-08-31 — Execute scheduler Loom models [patch] — review
 
-- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease:
-  `.github/workflows/rust-ci.yml`,
-  `moirai-executor/tests/loom_shutdown_admission.rs`, and this item; last update
-  2026-08-31.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`; lease: none;
+  last update 2026-08-31.
 - The workflow step named for channel and executor models runs only
   `moirai-core` and `moirai-async`; all five committed `moirai-executor`
   scheduler model binaries are omitted. Their warm local selection compiles in
   6.17 s and executes seven models in 0.056 s, so consolidation is not yet
   justified. Add the five binaries under the existing bounded job and include
   external-handle final-election coverage in the shutdown model.
+- **Evidence:** candidate `aef62cf` adds only the five executor test selectors,
+  the two-owner election model, and invariant-specific model diagnostics. The
+  exact workflow selection passes 16/16 across nine binaries in 0.640 s after
+  a 4.63 s warm compile; warning-denied `cfg(loom)` Clippy, rustfmt, YAML parse,
+  diff, and committed-lock checks pass. Exact review and hosted collection
+  remain.
 
 ## MOI-STEAL-BATCH-GATE-HOIST-2026-08-27 — Enter steal resize gate once per batch [patch] — review
 

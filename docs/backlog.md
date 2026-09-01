@@ -130,8 +130,13 @@ architecture definition.
   and execute seven models in 0.056 s; that does not justify a consolidation
   rewrite. The hosted cold-path cost remains to be collected after selection.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
-  lease: workflow selection, shutdown Loom model, and this item; last update
-  2026-08-31.
+  lease: none; last update 2026-08-31.
+- **Candidate / evidence:** `aef62cf` adds only the five executor selectors,
+  a two-external-owner election model, and invariant-specific model diagnostics.
+  The exact workflow command passes 16/16 models across nine binaries in
+  0.640 s after a 4.63 s warm compile. Warning-denied `cfg(loom)` Clippy,
+  rustfmt, YAML parsing, diff, and committed-lock checks pass; exact review and
+  hosted collection remain.
 
 ### ✅ MOI-IDLE-BIT-REPARK-2026-08-27 [patch]: Re-register workers before every park
 
