@@ -177,7 +177,7 @@ fn unknown_stream_preserves_values_across_geometric_blocks() {
 }
 
 #[test]
-fn repeated_tail_slot_refill_uses_one_vacancy_probe() {
+fn repeated_tail_slot_refill_uses_one_word_and_head_probe() {
     const CAPACITY: usize = 64;
     const REPLACEMENTS: usize = 128;
 
@@ -189,7 +189,7 @@ fn repeated_tail_slot_refill_uses_one_vacancy_probe() {
         block: 0,
         slot: CAPACITY - 1,
     };
-    let baseline_probes = slots.vacancy_probe_count();
+    let baseline_probes = slots.vacancy_probe_counts();
     let mut expected = CAPACITY - 1;
 
     for replacement in 0..REPLACEMENTS {
@@ -198,10 +198,16 @@ fn repeated_tail_slot_refill_uses_one_vacancy_probe() {
         slots.insert(core::future::ready(expected), expected);
     }
 
+    let final_probes = slots.vacancy_probe_counts();
     assert_eq!(
-        slots.vacancy_probe_count() - baseline_probes,
+        final_probes.0 - baseline_probes.0,
         REPLACEMENTS,
-        "each completed tail slot must return directly to the intrusive vacancy list"
+        "each refill must inspect only the first vacancy bitmap word"
+    );
+    assert_eq!(
+        final_probes.1 - baseline_probes.1,
+        REPLACEMENTS,
+        "each refill must inspect only the intrusive vacancy head"
     );
 }
 

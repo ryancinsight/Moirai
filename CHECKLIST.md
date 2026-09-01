@@ -49,7 +49,8 @@
   repeated completion and refill of one tail slot can rescan every occupied
   slot. The retained design uses a fixed two-word block-vacancy bitset and one
   intrusive vacancy link per slot; a 64-slot/128-refill regression proves one
-  vacancy probe per refill while the other 63 slots remain occupied. It eagerly
+  bitmap-word and one vacancy-head inspection per refill while the other 63
+  slots remain occupied. It eagerly
   allocates only the exact-size source's clamped reachable block and grows
   unknown-size sources geometrically after admission.
   On the 24-logical-worker host, ready/pending maps measure 39 allocations /

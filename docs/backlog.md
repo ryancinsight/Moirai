@@ -133,8 +133,9 @@ architecture definition.
   255.38 us. The subsequent circular cursor was rejected because repeated tail
   completion/refill can rescan every occupied slot. The retained design uses a
   fixed two-word block-vacancy bitset and one intrusive vacancy link per slot;
-  the 64-slot/128-refill regression proves one vacancy probe per refill while
-  the other 63 slots remain occupied. Exact-size sources allocate only their
+  the 64-slot/128-refill regression proves one bitmap-word and one vacancy-head
+  inspection per refill while the other 63 slots remain occupied. Exact-size
+  sources allocate only their
   clamped reachable block and unknown-size sources grow geometrically after
   admission. On the measured 24-logical-worker host, ready/pending maps use 39
   allocations / 18,768 and 39 / 18,960 gross bytes; pending for-each uses 29 /

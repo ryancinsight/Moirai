@@ -262,7 +262,9 @@ struct RetainedSlots<Fut> {
     vacant_blocks: [usize; VACANT_BLOCK_WORDS],
     ready_block_cursor: usize,
     #[cfg(test)]
-    vacancy_probes: usize,
+    vacancy_word_probes: usize,
+    #[cfg(test)]
+    vacancy_head_probes: usize,
 }
 
 impl<Fut> RetainedSlots<Fut> {
@@ -283,7 +285,9 @@ impl<Fut> RetainedSlots<Fut> {
             vacant_blocks: [0; VACANT_BLOCK_WORDS],
             ready_block_cursor: 0,
             #[cfg(test)]
-            vacancy_probes: 0,
+            vacancy_word_probes: 0,
+            #[cfg(test)]
+            vacancy_head_probes: 0,
         };
         if eager {
             slots.grow();
@@ -378,22 +382,26 @@ impl<Fut> RetainedSlots<Fut> {
         *vacant_word &= !(1usize << bit);
     }
 
-    fn first_vacant_block(&self) -> Option<usize> {
-        self.vacant_blocks
-            .iter()
-            .enumerate()
-            .find_map(|(word_index, word)| {
-                (*word != 0)
-                    .then(|| word_index * usize::BITS as usize + word.trailing_zeros() as usize)
-            })
+    fn first_vacant_block(&mut self) -> Option<usize> {
+        for word_index in 0..VACANT_BLOCK_WORDS {
+            #[cfg(test)]
+            {
+                self.vacancy_word_probes += 1;
+            }
+            let word = self.vacant_blocks[word_index];
+            if word != 0 {
+                return Some(word_index * usize::BITS as usize + word.trailing_zeros() as usize);
+            }
+        }
+        None
     }
 
     fn take_vacant(&mut self) -> Option<SlotKey> {
+        let block = self.first_vacant_block()?;
         #[cfg(test)]
         {
-            self.vacancy_probes += 1;
+            self.vacancy_head_probes += 1;
         }
-        let block = self.first_vacant_block()?;
         let slot = self
             .block_mut(block)
             .take_vacant()
@@ -419,8 +427,8 @@ impl<Fut> RetainedSlots<Fut> {
     }
 
     #[cfg(test)]
-    const fn vacancy_probe_count(&self) -> usize {
-        self.vacancy_probes
+    const fn vacancy_probe_counts(&self) -> (usize, usize) {
+        (self.vacancy_word_probes, self.vacancy_head_probes)
     }
 
     fn take_ready(&mut self) -> Option<SlotKey> {
