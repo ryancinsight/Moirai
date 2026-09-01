@@ -9,15 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `cache::ZeroCopyParallelIter` construction now uses the process-wide cached
+  parallelism count instead of materializing a NUMA/cache topology snapshot for
+  every borrowed slice. Rust 1.97's Linux process-parallelism query reads cgroup
+  files and allocates temporary path/read buffers, so the shared cache also
+  removes that repeated cost from `ParallelIter` construction. For a 1,024-item
+  sequential `u64` map, warmed iterator construction falls from 82 allocations
+  and 13,184 gross bytes to zero; map execution retains its sole 8,192-byte
+  output allocation. On the measured x86-64 Windows host, the retained
+  zero-copy map median falls from 7.0749 us (95% CI 6.8996-7.1410 us) to
+  368.13 ns (95% CI 362.14-368.34 ns), a 94.8% reduction.
 - `iter_ops::ParallelIter::map` now initializes ordered chunk results directly
   in one full-output allocation. Per-chunk guards drop initialized prefixes if
   a mapper panics, and completed peer ranges remain owned until the scheduler
-  joins. Iterator construction reads the process-available parallelism count
-  directly rather than materializing a NUMA/cache topology snapshot solely to
-  derive chunk size. The warmed path now allocates exactly three buffers: input
-  chunk views, completion ranges, and final output. For 131,072 `u64` outputs
-  on the measured x86-64 Windows host, the retained Criterion median falls from
-  1.3115 ms to 0.29612 ms (77.4%; disjoint 95% confidence intervals).
+  joins. Iterator construction reuses the process-wide cached parallelism count
+  rather than materializing topology or Linux cgroup-query storage solely to
+  derive chunk size. The warmed path allocates exactly three buffers: input chunk
+  views, completion ranges, and final output. For 131,072 `u64` outputs on the
+  measured x86-64 Windows host, the retained Criterion median falls from 1.3115
+  ms to 0.29612 ms (77.4%; disjoint 95% confidence intervals).
 - `moirai_async::Notify::notify_waiters` and the shared broadcast-grant path now
   drain pending waiter identifiers directly into one pre-reserved owned-waker
   result. The pending identifier count is a safe capacity upper bound when

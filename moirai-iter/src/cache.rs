@@ -211,16 +211,17 @@ pub struct ZeroCopyParallelIter<'a, T> {
 }
 
 impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
-    /// Create a zero-copy parallel iterator over `data`, choosing a chunk size from the number of available threads.
+    /// Create a zero-copy parallel iterator over `data`.
+    ///
+    /// Chunk planning uses the process-available parallelism fixed at the first
+    /// iterator construction. The count is a scheduling heuristic; it does not
+    /// affect which values the iterator visits.
     pub fn new(data: &'a [T]) -> Self {
-        let num_threads = themis::CpuTopology::detect()
-            .map(|topology| topology.logical_processors())
-            .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
-            .unwrap_or(1)
-            .max(1);
-        let element_size = mem::size_of::<T>();
-        let elems_per_cache = CACHE_CHUNK_SIZE / element_size.max(1);
-        let chunk_size = (data.len() / num_threads).max(elems_per_cache);
+        let chunk_size = zero_copy_chunk_size_for_lanes(
+            data.len(),
+            mem::size_of::<T>(),
+            crate::base::process_parallelism(),
+        );
         Self { data, chunk_size }
     }
 
@@ -403,6 +404,28 @@ fn should_execute_scoped_cache<T>(len: usize, chunk_size: usize) -> bool {
     len > chunk_size && len > scoped_item_floor
 }
 
+const fn zero_copy_chunk_size_for_lanes(
+    len: usize,
+    element_size: usize,
+    lane_count: usize,
+) -> usize {
+    let lanes = if lane_count == 0 { 1 } else { lane_count };
+    let width = if element_size == 0 { 1 } else { element_size };
+    let elems_per_cache = CACHE_CHUNK_SIZE / width;
+    let fair_share = len / lanes;
+    let chunk_size = if fair_share > elems_per_cache {
+        fair_share
+    } else {
+        elems_per_cache
+    };
+
+    if chunk_size == 0 {
+        1
+    } else {
+        chunk_size
+    }
+}
+
 /// Extension trait for slices to provide cache-aware iteration
 pub trait CacheIterExt<T> {
     /// Iterate overlapping windows of `window_size` elements.
@@ -551,6 +574,18 @@ mod tests {
             floor + 1,
             cache_chunk_items
         ));
+    }
+
+    #[test]
+    fn zero_copy_chunk_planning_preserves_cache_floor_and_nonzero_progress() {
+        assert_eq!(zero_copy_chunk_size_for_lanes(0, 8, 8), 2_048);
+        assert_eq!(zero_copy_chunk_size_for_lanes(1_024, 8, 8), 2_048);
+        assert_eq!(zero_copy_chunk_size_for_lanes(32_768, 8, 8), 4_096);
+        assert_eq!(zero_copy_chunk_size_for_lanes(32_768, 8, 0), 32_768);
+        assert_eq!(
+            zero_copy_chunk_size_for_lanes(1, CACHE_CHUNK_SIZE * 2, 64),
+            1
+        );
     }
 
     #[test]

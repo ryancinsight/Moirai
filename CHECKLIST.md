@@ -24,8 +24,23 @@
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `perf/iter-zero-copy-topology-probe`; lease: `moirai-iter/src/base.rs`,
   `cache.rs`, `iter_ops/parallel.rs`, one focused allocation test, retained
-  cache benchmark evidence, CHANGELOG, and this item. Entry allocation census
-  pending; last update 2026-09-01.
+  cache benchmark evidence, CHANGELOG, and this item. Implementation and local
+  gates complete; independent review and hosted Linux closure remain; last
+  update 2026-09-01.
+- **Evidence:** at exact entry source `8960e3b`, warmed construction made 82
+  allocations totalling 13,184 gross bytes before a sequential map made its sole
+  8,192-byte output allocation. The candidate caches the process parallelism
+  count once and removes full Themis topology construction; warmed construction
+  now makes zero allocations and the map retains exactly one 8,192-byte output
+  allocation, with all 1,024 ordered values checked. The same unchanged
+  Criterion row moves from a 7.0749 us median (95% CI 6.8996-7.1410 us) to
+  368.13 ns (95% CI 362.14-368.34 ns), 94.8% lower with disjoint intervals.
+  Local gates pass: focused allocation coverage 7/7; debug and release
+  all-feature suites 229/229 with two configured skips each; warning-denied
+  all-target/all-feature Clippy, Rustdoc, and AArch64 Windows all-target check;
+  4/4 doctests; unchanged six-row benchmark smoke; formatting/diff checks; and
+  cargo-semver-checks 223/223 under patch. Independent review and hosted Linux
+  closure remain.
 
 ## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — post-merge fix-forward
 
@@ -48,9 +63,10 @@
   Stop with the instrument if the baseline misses fan-out, lacks the duplicate
   full output, or paired intervals establish a regression.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; fix-forward source
-  is `e424532` in draft PR #223. Source lease discharged; PM/review/hosted
-  collection lease remains. Last update 2026-09-01.
+  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; PR #223 merged as
+  `5f2882e`. The post-merge Workspace gate exposed a Linux-only repeat-probe
+  allocation and closure continues in the zero-copy topology increment; source
+  lease discharged. Last update 2026-09-01.
 - **Entry baseline:** the unchanged warmed public map at 131,072 `u64` values
   makes 114 allocation calls totalling 3,815,568 gross allocated bytes, 3.64×
   the 1,048,576-byte final output. The retained x86-64 Windows Criterion row
@@ -72,7 +88,11 @@
   227/227 with two configured skips in each profile; warning-denied
   all-target/all-feature Clippy and Rustdoc pass; 4/4 doctests, formatting, and
   the focused Criterion target pass. Independent static review of
-  `e009262...c98d979` is GREEN; hosted Linux closure remains open.
+  `e009262...c98d979` is GREEN. Post-merge Workspace run `33496098579`, job
+  `99818541140`, observed seven calls rather than three because Rust 1.97's Linux
+  `available_parallelism` path allocates cgroup path/read storage on every call.
+  The successor caches that process count once; the focused ledger passes 7/7
+  locally, with hosted Linux closure pending on the successor revision.
 
 ## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — done 2026-09-01
 

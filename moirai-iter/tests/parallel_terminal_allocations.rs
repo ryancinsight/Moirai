@@ -16,10 +16,12 @@
 //! test target rather than a module of the unit-test suite.
 
 use moirai_iter::{
+    cache::CacheIterExt,
     iter_ops::ParallelIter,
     parallel::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
 };
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::hint::black_box;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct CountingAllocator;
@@ -65,6 +67,10 @@ const LEN: usize = 65_536;
 /// the supported CI and measurement hosts.
 const MAP_LEN: usize = 131_072;
 const MAP_OUTPUT_BYTES: usize = MAP_LEN * size_of::<u64>();
+
+/// Small enough to retain the zero-copy iterator's sequential map route.
+const ZERO_COPY_MAP_LEN: usize = 1_024;
+const ZERO_COPY_MAP_OUTPUT_BYTES: usize = ZERO_COPY_MAP_LEN * size_of::<u64>();
 
 /// Allocations permitted per terminal call.
 ///
@@ -240,5 +246,52 @@ fn parallel_iter_map_records_output_allocation_ledger() {
         "map made {allocations} allocations totalling {allocated_bytes} gross bytes for a \
          {MAP_OUTPUT_BYTES}-byte output; \
          metadata must stay below one-sixteenth of the final output"
+    );
+}
+
+#[test]
+fn zero_copy_map_separates_constructor_and_output_allocations() {
+    let data: Vec<u64> = (0..ZERO_COPY_MAP_LEN as u64)
+        .map(|value| value.wrapping_mul(17).wrapping_add(11))
+        .collect();
+
+    black_box(data.zero_copy_par_iter());
+
+    let before_constructor_allocations = ALLOCATIONS.load(Ordering::Relaxed);
+    let before_constructor_bytes = ALLOCATED_BYTES.load(Ordering::Relaxed);
+    let iter = data.zero_copy_par_iter();
+    let constructor_allocations = ALLOCATIONS
+        .load(Ordering::Relaxed)
+        .saturating_sub(before_constructor_allocations);
+    let constructor_bytes = ALLOCATED_BYTES
+        .load(Ordering::Relaxed)
+        .saturating_sub(before_constructor_bytes);
+
+    let before_map_allocations = ALLOCATIONS.load(Ordering::Relaxed);
+    let before_map_bytes = ALLOCATED_BYTES.load(Ordering::Relaxed);
+    let mapped = iter.map(|value| value.wrapping_mul(3).wrapping_add(1));
+    let map_allocations = ALLOCATIONS
+        .load(Ordering::Relaxed)
+        .saturating_sub(before_map_allocations);
+    let map_bytes = ALLOCATED_BYTES
+        .load(Ordering::Relaxed)
+        .saturating_sub(before_map_bytes);
+
+    assert!(
+        mapped.iter().enumerate().all(|(index, value)| {
+            let input = (index as u64).wrapping_mul(17).wrapping_add(11);
+            *value == input.wrapping_mul(3).wrapping_add(1)
+        }),
+        "zero-copy map must preserve every ordered output value"
+    );
+    assert_eq!(
+        (
+            constructor_allocations,
+            constructor_bytes,
+            map_allocations,
+            map_bytes,
+        ),
+        (0, 0, 1, ZERO_COPY_MAP_OUTPUT_BYTES),
+        "iterator construction must not allocate and its sequential map must allocate only output"
     );
 }
