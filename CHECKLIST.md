@@ -2,31 +2,14 @@
 
 **Target**: Unreleased
 
-## MOI-SINGLE-NODE-STEAL-SCAN-2026-09-01 [patch] [perf] — review
+## MOI-SINGLE-NODE-STEAL-SCAN-2026-09-01 [patch] [perf] — complete
 
-- **Outcome:** represent no NUMA locality tier unless the constructed worker
-  assignment contains at least two distinct nodes, so a single-node or
-  partially known assignment reaches only the full-ring steal pass.
-- **Acceptance:** all-absent, one-node, and one-known-node assignments normalize
-  to absence; two-node assignments remain byte-for-byte unchanged. Existing
-  disabled-NUMA construction remains intact, and a synchronized three-worker
-  regression proves a same-node miss reaches a cross-node victim. Claim only
-  source-proven removal of a redundant pass; no latency claim without a
-  controlled benchmark.
-- **Scope / non-goals:** construction-time assignment normalization, focused
-  value tests, NUMA documentation, CHANGELOG, and PM state. No affinity API,
-  worker binding, topology mirror removal, queue algorithm, workload, timeout,
-  or public API change.
-- **Evidence:** source `9d3faaa`; warning-denied all-target/all-feature host
-  Clippy; 137/137 `moirai-executor` Nextest cases with two configured skips;
-  warning-denied AArch64 Windows all-target/all-feature check; warning-denied
-  rustdoc; doctests; direct rustfmt/diff checks; and the unchanged
-  `thread_schedule_comparison` Criterion smoke all pass. The smoke establishes
-  instrument execution only; no timing claim is made. Standalone `Cargo.lock`
-  remains exact at `049155c4ecde1373d54e8825c9c6e4d0549b4a1b`.
-- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/single-node-steal-scan`; lease: none; pending PR review and merge;
-  last update 2026-09-01.
+- **Delivered:** source `9d3faaa`, evidence `6dd208c`, PR #233, merge
+  `42f8956`; lease: none.
+- **Outcome:** single-node and partial-one-node assignments now skip the
+  redundant locality pass; exact multi-node fallback is regression-tested.
+- **Evidence:** host/AArch64 warning-denied gates, 137/137 executor tests,
+  docs, formatting, and benchmark smoke pass; no latency claim is made.
 
 ## MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01 [major] [arch] — todo
 

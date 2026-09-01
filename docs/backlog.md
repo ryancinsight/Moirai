@@ -86,23 +86,14 @@ architecture definition.
 
 ## Current closure record
 
-### ⏳ MOI-SINGLE-NODE-STEAL-SCAN-2026-09-01 [patch] [perf]: Skip redundant locality passes
+### ✅ MOI-SINGLE-NODE-STEAL-SCAN-2026-09-01 [patch] [perf]: Skip redundant locality passes
 
-- **Outcome / acceptance:** construction retains worker NUMA assignments only
-  when at least two distinct nodes are represented. All-absent, one-node, and
-  one-known-node layouts normalize to absence; a two-node layout remains exact,
-  so single-node workers enter only the full-ring steal pass. A synchronized
-  three-worker regression proves a same-node miss reaches a cross-node victim.
-  No timing claim is made without a controlled benchmark.
-- **Scope / ownership:** `moirai-executor` construction/types, focused tests,
-  NUMA docs, CHANGELOG, and PM state on `perf/single-node-steal-scan`; source
-  `9d3faaa`; integrator Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
-  lease: none; status: review pending PR and merge; last update 2026-09-01.
-- **Evidence:** warning-denied host Clippy, 137/137 executor Nextest cases,
-  warning-denied AArch64 Windows all-target check, rustdoc, doctests, formatting,
-  diff integrity, and the unchanged scheduler Criterion smoke pass. The smoke
-  is execution evidence only, not a latency measurement. Standalone lock hash:
-  `049155c4ecde1373d54e8825c9c6e4d0549b4a1b`.
+- **Delivered:** source `9d3faaa`, evidence `6dd208c`, PR #233, merge
+  `42f8956`; lease: none.
+- **Outcome:** single-node and partial-one-node assignments skip the redundant
+  locality pass while exact multi-node fallback remains regression-tested.
+- **Evidence:** host/AArch64 warning-denied gates, 137/137 executor tests,
+  docs, formatting, and benchmark smoke pass; no latency claim is made.
 
 ### ⏳ MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01 [major] [arch]: Remove the topology mirror
 
