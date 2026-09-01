@@ -61,12 +61,12 @@ pub trait ParallelIterator: Sized + Send {
     /// Fold this iterator's logical item stream left to right, stopping at the
     /// first `ControlFlow::Break`.
     ///
-    /// This is the streaming counterpart to [`seq_items`](Self::seq_items) and
-    /// the base every folding [`Consumer`] runs on: a shard's items reach the
-    /// accumulator one at a time instead of being gathered into an intermediate
-    /// `Vec`. The default implementation goes through `seq_items` so every
-    /// source and adapter keeps working unchanged; sources and adapters on the
-    /// terminal hot path override it to stream.
+    /// This is the folding counterpart to [`seq_iter`](Self::seq_iter) and the
+    /// base every folding [`Consumer`] runs on: a shard's items reach the
+    /// accumulator one at a time. The default delegates to `seq_iter`, whose
+    /// compatibility implementation materializes through
+    /// [`seq_items`](Self::seq_items); sources and adapters on the terminal hot
+    /// path override `seq_iter` to stream without an intermediate `Vec`.
     ///
     /// The break value is the accumulator as it stood when the fold stopped, so
     /// a caller that needs the partial result on early exit reads it from the
@@ -81,8 +81,8 @@ pub trait ParallelIterator: Sized + Send {
     /// Fold this iterator's logical item stream left to right.
     ///
     /// The non-short-circuiting form of [`seq_try_fold`](Self::seq_try_fold);
-    /// it inherits that method's streaming behaviour, so overriding
-    /// `seq_try_fold` is enough to make both allocation-free.
+    /// it inherits that method's streaming behaviour, so overriding either
+    /// `seq_iter` or `seq_try_fold` is enough to make both allocation-free.
     fn seq_fold<T, F>(self, init: T, mut fold_fn: F) -> T
     where
         F: FnMut(T, Self::Item) -> T,

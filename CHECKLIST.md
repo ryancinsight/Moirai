@@ -36,7 +36,9 @@
   Rustdoc pass; 4/4 doctests and 72/72 benchmark contracts pass; the complete
   retained Criterion binary passes its 28.4-second single-iteration smoke.
   Directory-baseline SemVer analysis passes 196 checks with 58 inapplicable
-  skips and reports no required version change. Independent review and hosted
+  skips and reports no required version change. Independent review found one
+  stale `seq_try_fold` materialization statement; the forward correction now
+  describes the `seq_iter` delegation. Exact correction re-review and hosted
   collection remain pending.
 
 ## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — complete
