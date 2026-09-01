@@ -503,12 +503,11 @@
 - **Delivered:** closed by `MOI-PAR-TERMINALS-2026-08-28`; borrowed shards are
   zero-copy subslices and owned shards stop splitting at the dispatch threshold.
 
-## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — in progress
+## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — review
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/idle-bit-contract`; source `4d5db90`, PR #208 merge `c4c5dbe`; lease:
-  `benchmarks/tests/benchmark_contracts/{runtime_contracts.rs,support.rs}` plus
-  this item; last update 2026-08-31.
+  `fix/idle-bit-contract`; source `4d5db90`, PR #208 merge `c4c5dbe`, hosted
+  fix-forward `f6bc6e2`; lease: PM records only; last update 2026-08-31.
 - **Outcome:** every zero-work park attempt publishes the worker's idle bit
   before the SeqCst pending-work recheck, including after a claimed wake whose
   task was drained by another worker.
@@ -523,8 +522,14 @@
   doctests, rustfmt, and diff checks pass. `worker.rs` is split from 613 to 429
   lines with 132-line wait and 106-line indexed leaves. Independent exact-Git
   review is GREEN at `4d5db90866bb995550ae0dab8172f47dad6459ec`.
-  Hosted Workspace gate then exposed a stale source contract that still scans
-  the pre-split `worker.rs`; fix-forward and exact-hosted recollection remain.
+  Hosted Workspace gate then exposed a stale source contract that still scanned
+  the pre-split `worker.rs`. `f6bc6e2` binds the unchanged cap/value assertions
+  to the canonical indexed leaf, pins both new leaves in the embedded-source
+  registry, and passes the exact failed test 1/1, all contract tests 72/72,
+  full workspace Nextest 926/926 in 11.696 s, warning-denied benchmark Clippy,
+  rustfmt, and diff checks. Independent exact-Git review is GREEN at
+  `f6bc6e262dd5a15af5d40301ce0d3f30cb4a5a2f`. Local standalone `--locked`
+  resolution is unavailable under the stack overlay; hosted recollection remains.
 
 ## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — todo
 
