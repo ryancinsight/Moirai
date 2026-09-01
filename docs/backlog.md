@@ -106,10 +106,10 @@ architecture definition.
   Stop with the instrument if baseline attribution or performance acceptance
   fails.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; lease: Codex
-  `moirai-iter/src/iter_ops/parallel.rs`, allocation regression, CHANGELOG, and
-  PM closure; status: post-merge Workspace-gate fix-forward; last update
-  2026-09-01.
+  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; fix-forward source
+  is `e424532` in draft PR #223. Source lease discharged; PM/review/hosted
+  collection lease remains; status: post-merge Workspace-gate fix-forward;
+  last update 2026-09-01.
 - **Entry evidence:** the unchanged warmed 131,072-item public map makes 114
   allocation calls totalling 3,815,568 gross allocated bytes, 3.64× its
   1,048,576-byte final output. The retained x86-64 Windows Criterion row has a

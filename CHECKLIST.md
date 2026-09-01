@@ -23,9 +23,9 @@
   Stop with the instrument if the baseline misses fan-out, lacks the duplicate
   full output, or paired intervals establish a regression.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; lease:
-  `moirai-iter/src/iter_ops/parallel.rs`, allocation regression, CHANGELOG, and
-  PM closure. Last update 2026-09-01.
+  `fix/iter-map-topology-probe`; PR #222 merged as `2a782b9`; fix-forward source
+  is `e424532` in draft PR #223. Source lease discharged; PM/review/hosted
+  collection lease remains. Last update 2026-09-01.
 - **Entry baseline:** the unchanged warmed public map at 131,072 `u64` values
   makes 114 allocation calls totalling 3,815,568 gross allocated bytes, 3.64×
   the 1,048,576-byte final output. The retained x86-64 Windows Criterion row
