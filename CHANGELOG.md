@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Re-publish each worker's idle bit before every park attempt. If a producer
+  consumed the previous bit but another worker drained that task first, the
+  re-parking worker remains visible to the next wake lottery instead of relying
+  on the blind wake fallback.
 - Bound cross-task inline wake polling under scheduler saturation to one nested
   level per thread. A deeper rejected wake now completes with typed
   `TaskError::ResourceExhausted`, matching the existing self-wake saturation
