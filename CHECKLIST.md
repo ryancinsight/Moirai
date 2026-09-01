@@ -42,7 +42,7 @@
   distribution or a body-cost-aware policy is specified without adding
   per-element dispatch.
 
-## MOI-DISPATCH-FLOOR-2026-08-31 — Keep indexed CPU work on compute workers [patch] [perf] — review
+## MOI-DISPATCH-FLOOR-2026-08-31 — Keep indexed CPU work on compute workers [patch] [perf] — done
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
 - **Lease:** none. Instrument `0a267f9`, source/docs candidate `d2fc4d4`, and
@@ -72,8 +72,8 @@
   routing regression and warmed allocation census pass 1/1 each, benchmark
   contracts pass 1/1, and warning-denied all-target/all-feature Clippy,
   Rustdoc, doctests 7/7, formatting, and diff checks are green. Independent
-  exact-Git review of `eed1c54..d2fc4d4` is GREEN; hosted collection and merge
-  remain pending.
+  exact-Git review of `eed1c54..d2fc4d4` is GREEN. PR #205 merged with history
+  preserved as `84793eb`.
 
 ## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — done
 
@@ -175,9 +175,12 @@
   a worktree reports on that worktree's sources with another worktree dirty.
   Both are falsifiable — verify each against the current behaviour first.
 
-## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — todo
+## MOI-BENCH-REQUIRED-FEATURES-2026-08-31 — Diagnostic bench breaks the all-targets gate [patch] — in progress
 
-- Unowned. `benchmarks/benches/result_handle_diagnostics/registry_paths.rs`
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+  **Lease:** `benchmarks/Cargo.toml`, benchmark target-selection contract,
+  CHANGELOG, backlog, and this item; base `84793eb`; last update 2026-08-31.
+- **Finding.** `benchmarks/benches/result_handle_diagnostics/registry_paths.rs`
   calls `TaskRegistry::diagnostic_directory_shared_acquire`, which lives behind
   `moirai-executor/registry-diagnostics`, but the `[[bench]]` target declares no
   `required-features`. `cargo clippy --workspace --all-targets -- -D warnings`
@@ -186,6 +189,11 @@
   `--features moirai-benchmarks/registry-diagnostics` is added. Fix:
   `required-features = ["registry-diagnostics"]` on that bench target so the
   default gate selects the targets it can build.
+- **Acceptance:** default all-target checking skips only this inexpressible
+  diagnostic target; enabling `registry-diagnostics` builds and smoke-runs the
+  unchanged benchmark; a manifest contract pins the target-feature relation;
+  no benchmark body, workload, feature definition, timeout, or public API
+  changes.
 
 ## MOI-FLAKY-JOIN-PRECONDITION-2026-08-28 — Make the join test's precondition deterministic [patch] — review
 

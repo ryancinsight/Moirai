@@ -86,7 +86,22 @@ architecture definition.
 
 ## Current closure record
 
-### 🟨 MOI-DISPATCH-FLOOR-2026-08-31 [patch] [perf]: Keep indexed CPU work on compute workers
+### 🟨 MOI-BENCH-REQUIRED-FEATURES-2026-08-31 [patch]: Select the diagnostic benchmark by feature
+
+- **Outcome:** declare `registry-diagnostics` as a required feature of the
+  `result_handle_diagnostics` benchmark so the default all-target gate does not
+  compile a target whose API surface is intentionally disabled.
+- **Scope / non-goals:** benchmark target metadata, a manifest contract, release
+  and PM records; no benchmark body, workload, feature definition, timeout,
+  runtime behavior, or public API change.
+- **Acceptance:** default all-target checking passes while omitting only the
+  inexpressible target; feature-enabled warning-denied Clippy and benchmark
+  smoke execute it unchanged; the manifest contract pins the selection rule.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `fix/bench-required-features`; lease: `benchmarks/Cargo.toml`, benchmark
+  target-selection contract, CHANGELOG, and this item; base `84793eb`.
+
+### ✅ MOI-DISPATCH-FLOOR-2026-08-31 [patch] [perf]: Keep indexed CPU work on compute workers
 
 - **Outcome:** route the public CPU-bound indexed fan-out and reduction facade
   through `SyncTask`, avoiding lazy blocking-lane construction and execution
@@ -107,7 +122,7 @@ architecture definition.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `perf/moirai-dispatch-floor`; instrument `0a267f9`, source/docs `d2fc4d4`,
   evidence correction `1ad24e3`, PR #205. Independent exact-Git source review
-  is GREEN; hosted collection and merge remain pending.
+  is GREEN; merge `84793eb` preserves the reviewed history.
 
 ### 🟨 MOI-CHUNK-ARRAYS-2026-08-29 [minor]: Homogeneous multi-buffer chunks
 
