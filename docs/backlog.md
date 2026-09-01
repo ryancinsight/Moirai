@@ -105,7 +105,9 @@ architecture definition.
   The retained one-multiply crossover moves from the entry 8K-16K interval to
   4K-8K; serial controls at the two boundary sizes move within 0.7%.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/moirai-dispatch-floor`; independent review and delivery remain pending.
+  `perf/moirai-dispatch-floor`; instrument `0a267f9`, source/docs `d2fc4d4`,
+  evidence correction `1ad24e3`, PR #205. Independent exact-Git source review
+  is GREEN; hosted collection and merge remain pending.
 
 ### 🟨 MOI-CHUNK-ARRAYS-2026-08-29 [minor]: Homogeneous multi-buffer chunks
 

@@ -42,12 +42,12 @@
   distribution or a body-cost-aware policy is specified without adding
   per-element dispatch.
 
-## MOI-DISPATCH-FLOOR-2026-08-31 — Keep indexed CPU work on compute workers [patch] [perf] — in progress
+## MOI-DISPATCH-FLOOR-2026-08-31 — Keep indexed CPU work on compute workers [patch] [perf] — review
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
-- **Lease:** `moirai/src/{runtime.rs,tests.rs}`, retained dispatch-floor
-  instrument, ADR-005, CHANGELOG, backlog, and this item; base `eed1c54`; last
-  update 2026-08-31.
+- **Lease:** none. Instrument `0a267f9`, source/docs candidate `d2fc4d4`, and
+  raw-sample evidence correction `1ad24e3` are published in PR #205; base
+  `eed1c54`; last update 2026-08-31.
 - **Finding.** The public `Moirai::{for_each_indexed,map_reduce_indexed}` facade
   classified CPU-bound data-parallel work as `BlockingTask`. After ADR-021,
   that marker uses the dedicated blocking lane, so indexed-only runtimes lazily
@@ -68,6 +68,12 @@
   Nextest, Rustdoc/doctests, release tests, and same-instrument Criterion
   baseline evidence pass on the exact candidate. Reject a candidate that
   changes values or moves cost into an unmeasured lifecycle boundary.
+- **Verification.** Runtime all-feature Nextest passes 28/28, the release
+  routing regression and warmed allocation census pass 1/1 each, benchmark
+  contracts pass 1/1, and warning-denied all-target/all-feature Clippy,
+  Rustdoc, doctests 7/7, formatting, and diff checks are green. Independent
+  exact-Git review of `eed1c54..d2fc4d4` is GREEN; hosted collection and merge
+  remain pending.
 
 ## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — done
 
