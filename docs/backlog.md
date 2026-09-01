@@ -107,7 +107,10 @@ architecture definition.
   or allocation changes. Independent exact-Git review is GREEN at
   `4d5db90866bb995550ae0dab8172f47dad6459ec`; PR/merge closure remains.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/idle-bit-repark`; source `4d5db90`; lease: PM records only.
+  `fix/idle-bit-contract`; source `4d5db90`, PR #208 merge `c4c5dbe`; lease:
+  benchmark source registry/contract plus PM. The hosted Workspace gate found
+  the contract still scanning the pre-split `worker.rs`; fix-forward and
+  exact-hosted recollection remain.
 
 ### ✅ MOI-INLINE-POLL-DEPTH-2026-08-27 [patch]: Bound cross-task inline wake depth
 

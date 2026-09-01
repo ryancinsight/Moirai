@@ -503,11 +503,12 @@
 - **Delivered:** closed by `MOI-PAR-TERMINALS-2026-08-28`; borrowed shards are
   zero-copy subslices and owned shards stop splitting at the dispatch threshold.
 
-## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — review
+## MOI-IDLE-BIT-REPARK-2026-08-27 — Re-set idle bit before re-park [patch] — in progress
 
 - **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/idle-bit-repark`; source `4d5db90`; lease: PM records only; last update
-  2026-08-31.
+  `fix/idle-bit-contract`; source `4d5db90`, PR #208 merge `c4c5dbe`; lease:
+  `benchmarks/tests/benchmark_contracts/{runtime_contracts.rs,support.rs}` plus
+  this item; last update 2026-08-31.
 - **Outcome:** every zero-work park attempt publishes the worker's idle bit
   before the SeqCst pending-work recheck, including after a claimed wake whose
   task was drained by another worker.
@@ -521,8 +522,9 @@
   release regression, warning-denied all-target/all-feature Clippy and Rustdoc,
   doctests, rustfmt, and diff checks pass. `worker.rs` is split from 613 to 429
   lines with 132-line wait and 106-line indexed leaves. Independent exact-Git
-  review is GREEN at `4d5db90866bb995550ae0dab8172f47dad6459ec`;
-  PR/merge closure remains.
+  review is GREEN at `4d5db90866bb995550ae0dab8172f47dad6459ec`.
+  Hosted Workspace gate then exposed a stale source contract that still scans
+  the pre-split `worker.rs`; fix-forward and exact-hosted recollection remain.
 
 ## MOI-SCHEDULER-DROP-LEAK-2026-08-27 — Unreachable Drop shutdown guard [patch] — todo
 
