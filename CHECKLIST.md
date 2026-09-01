@@ -2,7 +2,34 @@
 
 **Target**: Unreleased
 
-## MOI-PAR-SUM-CONTRACT-2026-09-01 — Preserve standard terminal semantics [minor] [perf] — in progress
+## MOI-CI-DRAFT-GATE-2026-09-01 — Suppress draft pull-request runners [patch] [ci] — in progress
+
+- **Outcome:** draft pull requests schedule no repository jobs; opening or
+  reopening a non-draft pull request and marking a draft ready preserve every
+  existing workflow command and workload.
+- **Acceptance:** all eight independent jobs reject draft pull-request events;
+  ready/non-draft pull requests retain their path-filtered selections; push,
+  schedule, and manual events are unchanged; normalized YAML differs only by
+  the explicit pull-request activity lists and draft predicates; hosted draft
+  and ready transitions confirm the event semantics.
+- **Scope / non-goals:** `.github/workflows/{rust-ci,python-ci,book-pages}.yml`,
+  CHANGELOG, and this item's PM regions. No command, feature, matrix, cache,
+  permission, workload, assertion, or timeout change.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `ci/draft-pr-gate`.
+- **Lease:** Codex — the three workflow files, CHANGELOG, and this item's PM
+  regions. Last update 2026-09-01.
+- **Entry evidence:** draft PR #218 launched all five Rust jobs; the final ready
+  run passed in 6s–2m12s. The Python and book workflows expose three more
+  independent jobs with the same unguarded draft-event behavior.
+- **Candidate evidence:** source `8ad506d`, draft PR #219. PyYAML parses all
+  three workflows and removing only the activity lists and draft predicates
+  yields the exact prior definitions. Draft runs `33485286665`, `33485286034`,
+  and `33485286617` complete skipped: all eight jobs have zero steps. GitHub's
+  current reusable-workflow syntax explicitly permits `jobs.<job_id>.if`.
+  Ready-event hosted execution remains pending.
+
+## MOI-PAR-SUM-CONTRACT-2026-09-01 — Preserve standard terminal semantics [minor] [perf] — complete
 
 - **Outcome:** restore `ParallelIterator::sum` and `product` to the standard
   `Sum<Item>` / `Product<Item>` contracts and retain the measured parallel
@@ -12,11 +39,9 @@
   batch-sensitive accumulators prove standard and reassociated semantics are
   distinct; primitive, empty, floating-point, allocation, benchmark-contract,
   Clippy, Nextest, Rustdoc, doctest, and SemVer gates pass.
-- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/iter-sum-contract`.
-- **Lease:** Codex — `moirai-iter/src/parallel/traits.rs`, parallel-terminal
-  tests, iterator benchmark/contracts, CHANGELOG, and this item's PM regions.
-  Last update 2026-09-01.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** none. Reviewed head `7c7dfc1`, PR #218, merge `bd435b8`;
+  last update 2026-09-01.
 - **Local evidence:** debug and release `moirai-iter` Nextest pass 219/219 with
   two configured skips; warning-denied all-target/all-feature Clippy, Rustdoc,
   3/3 doctests, both retained Criterion smoke binaries, and 72/72 benchmark
@@ -27,7 +52,8 @@
   found and closed two evidence defects: source `ee0d08a` corrects the stale
   materialization claim, and source `3f8d729` derives the floating bound from
   the actual two 4,096-item leaf folds plus one merge. Exact correction
-  re-review is GREEN. PR #218 hosted recollection and merge remain pending.
+  re-review is GREEN. Hosted lockfile, fuzz, Loom, supply-chain, and workspace
+  gates pass; the workspace gate completes in 2m12s.
 
 ## MOI-ATLAS-CONFORMANCE-RATCHET-2026-08-31 — Restore the stack hygiene ratchet [patch] — complete
 

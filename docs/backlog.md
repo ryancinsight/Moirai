@@ -86,7 +86,34 @@ architecture definition.
 
 ## Current closure record
 
-### 🟡 MOI-PAR-SUM-CONTRACT-2026-09-01 [minor] [perf]: Preserve standard terminal semantics
+### 🟡 MOI-CI-DRAFT-GATE-2026-09-01 [patch] [ci]: Suppress draft pull-request runners
+
+- **Outcome:** draft pull requests schedule no repository jobs; opening or
+  reopening a non-draft pull request and marking a draft ready preserve every
+  existing path-filtered workflow workload.
+- **Scope / non-goals:** the Rust, Python, and book workflow event/job guards,
+  CHANGELOG, and PM state. No command, feature, matrix, cache, permission,
+  workload, assertion, timeout, push, schedule, or manual-event change.
+- **Acceptance:** all eight independent jobs reject draft pull-request events;
+  ready/non-draft events retain the exact selections; normalized YAML differs
+  only by explicit pull-request activity lists and draft predicates; hosted
+  draft and ready transitions confirm the event semantics.
+- **Risk / change:** `[patch]` CI scheduling only. Reject if normalization finds
+  any workload change or a ready/non-draft pull request omits a prior job.
+- **Evidence / cause:** draft PR #218 launched all five Rust jobs, whose final
+  ready run completed in 6s–2m12s. The two Python jobs and one book job are
+  independent roots under equivalent unguarded pull-request triggers.
+- **Candidate / verification:** source `8ad506d`, draft PR #219. PyYAML parses
+  all three workflows and removing only the activity lists and predicates
+  yields the exact prior definitions. Draft runs `33485286665`, `33485286034`,
+  and `33485286617` complete skipped with zero steps across all eight jobs.
+  GitHub's current reusable-workflow syntax permits `jobs.<job_id>.if`; the
+  ready-event hosted execution remains pending.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `ci/draft-pr-gate`; lease covers the three workflow files, CHANGELOG, and
+  this item's PM regions; status: in progress; last update 2026-09-01.
+
+### ✅ MOI-PAR-SUM-CONTRACT-2026-09-01 [minor] [perf]: Preserve standard terminal semantics
 
 - **Outcome:** `ParallelIterator::sum` and `product` retain the standard
   whole-stream trait contract. The shard-folding implementation remains
@@ -118,12 +145,11 @@ architecture definition.
   Independent cumulative review found a stale materialization claim and an
   under-modeled floating-point leaf fold; source `ee0d08a` fixes the former and
   source `3f8d729` derives the bound from the actual two 4,096-item leaf folds
-  plus one merge. Exact correction re-review is GREEN. PR #218 hosted
-  recollection and merge remain open.
-- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `fix/iter-sum-contract`; lease covers the iterator terminal implementation,
-  tests, benchmark/contracts, CHANGELOG, and this item's PM regions; status:
-  in progress; last update 2026-09-01.
+  plus one merge. Exact correction re-review is GREEN. Hosted lockfile, fuzz,
+  Loom, supply-chain, and workspace gates pass; the workspace gate completes
+  in 2m12s.
+- **Delivery:** reviewed head `7c7dfc1`, PR #218, merge `bd435b8`; lease:
+  none; status: complete; last update 2026-09-01.
 
 ### ✅ MOI-SCHEDULER-DROP-LEAK-2026-08-27 [patch]: Release workers on final external drop
 

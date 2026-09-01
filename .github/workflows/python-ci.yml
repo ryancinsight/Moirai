@@ -6,6 +6,7 @@ name: Python Bindings
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     paths: ["moirai-python/**", "Cargo.toml", "Cargo.lock", ".github/workflows/python-ci.yml"]
   push:
     branches: [main]
@@ -24,6 +25,7 @@ env:
 
 jobs:
   rust:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     timeout-minutes: 30
     name: Rust binding checks
     runs-on: ubuntu-latest
@@ -71,6 +73,7 @@ jobs:
         run: cargo test --locked -p moirai-python --all-features --doc
 
   wheel:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     timeout-minutes: 30
     name: ${{ matrix.os }} wheel smoke test
     runs-on: ${{ matrix.os }}

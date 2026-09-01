@@ -16,6 +16,8 @@ on:
 
   pull_request:
 
+    types: [opened, reopened, synchronize, ready_for_review]
+
     paths:
 
       - "docs/book/**"
@@ -43,6 +45,8 @@ concurrency:
 jobs:
 
   deploy:
+
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
 
     uses: ryancinsight/atlas/.github/workflows/book-pages.yml@20c93980f7c98f2e23a89c4a0540f16c8f2d7239
 
