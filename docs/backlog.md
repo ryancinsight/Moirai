@@ -86,6 +86,42 @@ architecture definition.
 
 ## Current closure record
 
+### ⏳ MOI-SINGLE-NODE-STEAL-SCAN-2026-09-01 [patch] [perf]: Skip redundant locality passes
+
+- **Outcome / acceptance:** construction retains worker NUMA assignments only
+  when at least two distinct nodes are represented. All-absent, one-node, and
+  one-known-node layouts normalize to absence; a two-node layout remains exact,
+  so single-node workers enter only the full-ring steal pass. A synchronized
+  three-worker regression proves a same-node miss reaches a cross-node victim.
+  No timing claim is made without a controlled benchmark.
+- **Scope / ownership:** `moirai-executor` construction/types, focused tests,
+  NUMA docs, CHANGELOG, and PM state on `perf/single-node-steal-scan`; source
+  `9d3faaa`; integrator Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`;
+  lease: none; status: review pending PR and merge; last update 2026-09-01.
+- **Evidence:** warning-denied host Clippy, 137/137 executor Nextest cases,
+  warning-denied AArch64 Windows all-target check, rustdoc, doctests, formatting,
+  diff integrity, and the unchanged scheduler Criterion smoke pass. The smoke
+  is execution evidence only, not a latency measurement. Standalone lock hash:
+  `049155c4ecde1373d54e8825c9c6e4d0549b4a1b`.
+
+### ⏳ MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01 [major] [arch]: Remove the topology mirror
+
+- **Finding / acceptance:** the public Moirai `CpuTopology`, `NumaNode`, and
+  `CacheLevel` mirror Themis, flatten typed cache absence, and disagree on
+  sparse-node distance indexing. Delete the duplicate authority and update the
+  source contract, ADR, migration record, and SemVer classification. Public
+  struct and field removal makes this breaking despite the internal layering
+  correction. Status: todo; dependency: enforced worker-placement provider.
+
+### ⏳ MOI-WORKER-CORE-PREMISE-2026-09-01 [patch] [arch]: Enforce worker placement
+
+- **Finding / acceptance:** construction currently maps worker index to
+  processor index without binding the worker thread. Add provider-owned typed
+  binding, publish assignments only after successful worker startup, preserve
+  typed absence, and make startup failure return before a scheduler escapes.
+  No placement claim may survive that the runtime does not enforce. Status:
+  todo; dependency: Themis current-thread processor binding.
+
 ### ✅ MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Harden cache-map output ownership
 
 - **Delivered:** `0a9ef5e`, `7e6ef4e`, `63e3289`; PR #231; merge
@@ -1276,7 +1312,7 @@ architecture definition.
 - **Evidence tier**: type/analysis (deadlock-freedom argument, ADR-019) +
   empirical (deterministic 30 s→0.01 s reproduction, repeat-clean regression).
 
-#### ⏳ ISSUE-209 [patch]: Cover NUMA two-pass `steal_job` cross-node fallback (owner: NUMA author)
+#### ✅ ISSUE-209 [patch]: Cover NUMA two-pass `steal_job` cross-node fallback
 - **Type**: Scheduler Test Coverage
 - **Root Cause**: `bcaf0bf` (NUMA-aware `steal_job`) ships no `moirai-executor`
   test. On single-node/`None`-topology CI (VMs, containers) Pass 1 is skipped or
@@ -1288,11 +1324,13 @@ architecture definition.
   `worker_numa_nodes` layout (needs a `#[cfg(test)]` node-assignment seam on the
   scheduler constructor) and asserts value-semantic completion when a thief's
   same-node victims are empty and only cross-node victims hold work.
-- **Owner**: NUMA-steal author (upstream ownership — the capability's owner adds
-  its test; not added by the concurrency-review pass to avoid editing the hot
-  constructor under concurrent authorship).
-- **Status**: filed. Also see the Round 21 perf note (2× steal scan on NUMA-miss)
-  — separate criterion item, externally blocked on multi-socket hardware.
+- **Resolution**: `MOI-SINGLE-NODE-STEAL-SCAN-2026-09-01` adds the test-only
+  assignment seam and a synchronized three-worker regression. Worker zero is
+  the sole free thief, worker one is an empty same-node peer, and worker two is
+  the occupied cross-node victim holding the target job; the assertion requires
+  worker zero to execute it. No sleep or platform NUMA topology is involved.
+- **Status**: resolved in the active single-node steal-scan increment. The
+  separate multi-socket Criterion item remains externally blocked.
 
 #### ✅ ISSUE-199 [arch]: Add accelerator route topology without execution fabrication
 - **Type**: Scheduler Architecture / Accelerator Placement

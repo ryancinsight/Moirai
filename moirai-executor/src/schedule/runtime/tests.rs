@@ -407,6 +407,60 @@ fn scheduler_numa_policy_controls_worker_assignments() {
 }
 
 #[test]
+fn numa_steal_falls_back_to_a_cross_node_victim() {
+    let scheduler = ThreadScheduler::<256>::with_worker_numa_nodes(
+        vec![Some(0), Some(0), Some(1)].into_boxed_slice(),
+        "numa-cross-node-fallback",
+    )
+    .unwrap();
+    assert_eq!(
+        &*scheduler.inner.worker_numa_nodes,
+        &[Some(0), Some(0), Some(1)]
+    );
+
+    let mut releases = [None, None, None];
+    for locality_hint in 0..3 {
+        let (worker_id, release) = occupy_compute_worker(&scheduler, locality_hint);
+        assert!(
+            releases[worker_id].replace(release).is_none(),
+            "each gate must occupy a distinct worker"
+        );
+    }
+
+    releases[0]
+        .take()
+        .expect("worker zero must be occupied")
+        .send(())
+        .expect("worker zero gate remains connected");
+
+    let (executed_sender, executed_receiver) = mpsc::sync_channel(1);
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, Some(2), move |worker_id| {
+            executed_sender
+                .send(worker_id)
+                .expect("test observer remains connected");
+        })
+        .unwrap();
+    assert_eq!(
+        executed_receiver
+            .recv_timeout(TEST_EVENT_DEADLINE)
+            .expect("cross-node victim must be reached before the deadline"),
+        0,
+        "the sole free worker must execute the cross-node victim's job"
+    );
+
+    for release in releases.into_iter().flatten() {
+        release
+            .send(())
+            .expect("occupied peer gate remains connected");
+    }
+    scheduler
+        .join()
+        .expect("cross-node fallback workload must join cleanly");
+    scheduler.shutdown();
+}
+
+#[test]
 fn configured_global_capacity_is_partitioned_without_exceeding_the_bound() {
     let scheduler = scheduler_with_queue_config::<256>(
         3,

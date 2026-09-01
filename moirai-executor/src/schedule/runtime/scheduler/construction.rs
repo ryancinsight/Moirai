@@ -26,6 +26,8 @@ struct SchedulerConstruction<'config> {
     local_queue_initial_capacity: usize,
     numa_aware: bool,
     #[cfg(test)]
+    worker_numa_nodes: Option<Box<[Option<usize>]>>,
+    #[cfg(test)]
     failure_probe: Option<ConstructionFailureProbe>,
 }
 
@@ -87,6 +89,8 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             local_queue_initial_capacity,
             numa_aware: true,
             #[cfg(test)]
+            worker_numa_nodes: None,
+            #[cfg(test)]
             failure_probe: None,
         })
     }
@@ -101,6 +105,8 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             max_global_queue_size: config.max_global_queue_size,
             local_queue_initial_capacity: config.local_queue_initial_capacity,
             numa_aware,
+            #[cfg(test)]
+            worker_numa_nodes: None,
             #[cfg(test)]
             failure_probe: None,
         })
@@ -126,11 +132,32 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
             numa_aware: false,
+            worker_numa_nodes: None,
             failure_probe: Some(ConstructionFailureProbe {
                 worker_id: failing_worker_id,
                 lifetime_owner: Box::new(lifetime_owner),
                 worker_exit_gate: Some(worker_exit_gate),
             }),
+        })
+    }
+
+    #[cfg(test)]
+    pub(in crate::schedule::runtime) fn with_worker_numa_nodes(
+        worker_numa_nodes: Box<[Option<usize>]>,
+        thread_name_prefix: &str,
+    ) -> ExecutorResult<Self> {
+        assert!(
+            !worker_numa_nodes.is_empty(),
+            "invariant: a test worker assignment contains at least one worker"
+        );
+        Self::from_construction(SchedulerConstruction {
+            worker_count: worker_numa_nodes.len(),
+            thread_name_prefix,
+            max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
+            local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+            numa_aware: false,
+            worker_numa_nodes: Some(worker_numa_nodes),
+            failure_probe: None,
         })
     }
 
@@ -141,6 +168,8 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             max_global_queue_size,
             local_queue_initial_capacity,
             numa_aware,
+            #[cfg(test)]
+                worker_numa_nodes: injected_worker_numa_nodes,
             #[cfg(test)]
             mut failure_probe,
         } = config;
@@ -167,7 +196,9 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
 
         // Detect NUMA topology once at construction; derive a per-worker node
         // assignment so `steal_job` can prefer same-node victims without runtime
-        // discovery overhead.  Falls back to `None` on single-node / VM systems.
+        // discovery overhead. A locality tier is useful only when the worker set
+        // represents at least two nodes; otherwise the first steal pass would
+        // duplicate the full victim scan.
         let topology: Option<moirai_scheduler::numa::CpuTopology> = if numa_aware {
             #[cfg(miri)]
             {
@@ -196,6 +227,9 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         } else {
             vec![None; worker_count].into_boxed_slice()
         };
+        #[cfg(test)]
+        let worker_numa_nodes = injected_worker_numa_nodes.unwrap_or(worker_numa_nodes);
+        let worker_numa_nodes = normalize_worker_numa_nodes(worker_numa_nodes);
 
         let inner = Arc::new(SchedulerInner {
             workers,
@@ -312,6 +346,21 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     }
 }
 
+fn normalize_worker_numa_nodes(
+    mut worker_numa_nodes: Box<[Option<usize>]>,
+) -> Box<[Option<usize>]> {
+    let mut represented_nodes = worker_numa_nodes.iter().copied().flatten();
+    let has_multiple_nodes = represented_nodes
+        .next()
+        .is_some_and(|first| represented_nodes.any(|node| node != first));
+
+    if !has_multiple_nodes {
+        worker_numa_nodes.fill(None);
+    }
+
+    worker_numa_nodes
+}
+
 fn partition_global_queue(
     max_global_queue_size: usize,
     worker_count: usize,
@@ -337,7 +386,7 @@ mod tests {
 
     use moirai_core::error::ExecutorError;
 
-    use super::{ThreadScheduler, WorkerExitGate};
+    use super::{normalize_worker_numa_nodes, ThreadScheduler, WorkerExitGate};
 
     const TEST_EVENT_DEADLINE: Duration = Duration::from_secs(5);
 
@@ -349,6 +398,26 @@ mod tests {
         fn drop(&mut self) {
             self.dropped.store(true, Ordering::Release);
         }
+    }
+
+    #[test]
+    fn locality_pass_requires_multiple_represented_nodes() {
+        for assignments in [
+            vec![None, None, None].into_boxed_slice(),
+            vec![Some(0), Some(0), Some(0)].into_boxed_slice(),
+            vec![None, Some(3), None].into_boxed_slice(),
+        ] {
+            assert_eq!(
+                &*normalize_worker_numa_nodes(assignments),
+                &[None, None, None]
+            );
+        }
+
+        let multiple = vec![Some(3), None, Some(7), Some(3)].into_boxed_slice();
+        assert_eq!(
+            &*normalize_worker_numa_nodes(multiple),
+            &[Some(3), None, Some(7), Some(3)]
+        );
     }
 
     #[test]

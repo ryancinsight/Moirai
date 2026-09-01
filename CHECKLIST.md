@@ -2,7 +2,33 @@
 
 **Target**: Unreleased
 
-## MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01 [patch] [arch] — todo
+## MOI-SINGLE-NODE-STEAL-SCAN-2026-09-01 [patch] [perf] — review
+
+- **Outcome:** represent no NUMA locality tier unless the constructed worker
+  assignment contains at least two distinct nodes, so a single-node or
+  partially known assignment reaches only the full-ring steal pass.
+- **Acceptance:** all-absent, one-node, and one-known-node assignments normalize
+  to absence; two-node assignments remain byte-for-byte unchanged. Existing
+  disabled-NUMA construction remains intact, and a synchronized three-worker
+  regression proves a same-node miss reaches a cross-node victim. Claim only
+  source-proven removal of a redundant pass; no latency claim without a
+  controlled benchmark.
+- **Scope / non-goals:** construction-time assignment normalization, focused
+  value tests, NUMA documentation, CHANGELOG, and PM state. No affinity API,
+  worker binding, topology mirror removal, queue algorithm, workload, timeout,
+  or public API change.
+- **Evidence:** source `9d3faaa`; warning-denied all-target/all-feature host
+  Clippy; 137/137 `moirai-executor` Nextest cases with two configured skips;
+  warning-denied AArch64 Windows all-target/all-feature check; warning-denied
+  rustdoc; doctests; direct rustfmt/diff checks; and the unchanged
+  `thread_schedule_comparison` Criterion smoke all pass. The smoke establishes
+  instrument execution only; no timing claim is made. Standalone `Cargo.lock`
+  remains exact at `049155c4ecde1373d54e8825c9c6e4d0549b4a1b`.
+- **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/single-node-steal-scan`; lease: none; pending PR review and merge;
+  last update 2026-09-01.
+
+## MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01 [major] [arch] — todo
 
 - **Finding (stack audit 2026-09-01):** `moirai-scheduler/src/numa/topology.rs`
   mirrors themis's `CpuTopology`/`NumaNode`/`CacheLevel` and answers
@@ -20,8 +46,10 @@
   asserts the re-export line as source text, so deletion trips that contract.
 - **Acceptance:** one authority for node distance and cache levels; absence
   preserved rather than flattened; the source contract updated deliberately.
+  Because the three mirrored structs and their fields are public, removal is a
+  breaking change requiring an ADR revision, migration note, and SemVer gate.
 
-## MOI-WORKER-CORE-PREMISE-2026-09-01 [patch] — todo
+## MOI-WORKER-CORE-PREMISE-2026-09-01 [patch] [arch] — todo
 
 - **Finding (stack audit 2026-09-01):** `moirai-executor/src/schedule/runtime/
   scheduler/construction.rs` derives `core_id = worker_id % logical_cores` and

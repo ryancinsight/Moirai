@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Scheduler construction now clears per-worker NUMA assignments unless at
+  least two distinct nodes are represented. Single-node and partially known
+  layouts therefore skip the same-node steal pass instead of scanning the same
+  victims before the unchanged full-ring pass. Multi-node assignments and
+  fallback semantics are unchanged; a synchronized three-worker regression now
+  proves that a same-node miss reaches a cross-node victim. This is a source-
+  and value-test-backed branch-elision result; no latency claim is made without
+  a controlled benchmark.
 - Cache and owned parallel map now share one panic-safe direct-output owner.
   Each worker writes its disjoint range into the final allocation, publishes a
   compact completion endpoint only after full initialization, and drops its

@@ -15,13 +15,16 @@ chains while keeping all cores busy during uneven workloads.
 
 ## NUMA-Aware Stealing
 
-Themis `NumaNodeId` and `WorkerId` identify each worker's NUMA home. Moirai
-prefers to steal from workers on the same NUMA node, escalating to cross-node
-stealing only when the local domain is empty. This reduces remote-memory
-latency on multi-socket systems.
+Themis topology identifies each logical processor's NUMA node. When the
+construction-time worker assignment represents at least two distinct nodes,
+Moirai first scans workers assigned to the same node and then falls back to the
+complete worker ring. Absent, partial-one-node, and single-node assignments use
+only the complete ring, avoiding a duplicate scan with no locality benefit.
 
-The topology is snapshotted at runtime start from `CpuTopology::detect()` and
-invalidated when `TopologyEpoch` advances (hot-plug events).
+The topology is snapshotted at runtime construction. A running scheduler does
+not refresh that snapshot after processor hot-plug; constructing a new runtime
+obtains a new snapshot. Worker assignments are advisory until the tracked
+Themis binding seam enforces processor placement at worker startup.
 
 ## Benchmark Contracts
 
