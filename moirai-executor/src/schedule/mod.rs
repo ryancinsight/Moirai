@@ -7,9 +7,6 @@
 //! static dispatch while heterogeneous jobs are stored at the executor
 //! boundary.
 
-/// Processor hints used by executor contention paths before cooperative handoff.
-const COOPERATIVE_SPIN_ATTEMPTS: usize = 256;
-
 pub mod class;
 pub mod job;
 pub mod queue;

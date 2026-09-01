@@ -8,7 +8,8 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use super::super::{job::ScheduledJob, queue::WorkerQueueOwner, COOPERATIVE_SPIN_ATTEMPTS};
+use super::super::job::ScheduledJob;
+use super::super::queue::WorkerQueueOwner;
 
 use super::types::{set_current_worker_id, ContendedWakePolicy, SchedulerInner, WorkerState};
 pub(super) use indexed::{
@@ -19,7 +20,7 @@ use wait::{should_stop, spin_for_work, wait_for_work};
 #[cfg(feature = "scheduler-diagnostics")]
 use super::types::BoundedContendedWake;
 
-pub(super) const WORKER_IDLE_SPIN_ATTEMPTS: usize = COOPERATIVE_SPIN_ATTEMPTS;
+pub(super) const WORKER_IDLE_SPIN_ATTEMPTS: usize = 256;
 pub(super) const JOIN_FAST_SPIN_ATTEMPTS: usize = WORKER_IDLE_SPIN_ATTEMPTS;
 
 /// Join every worker except the thread currently executing shutdown.

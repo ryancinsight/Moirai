@@ -122,7 +122,7 @@ architecture definition.
   Independent exact-head review of `5662e8a` is GREEN. PR #211 hosted
   collection remains.
 
-### 🟨 MOI-LOOM-RESIZE-GATE-2026-08-31 [patch]: Model resize-gate exclusion
+### ✅ MOI-LOOM-RESIZE-GATE-2026-08-31 [patch]: Model resize-gate exclusion
 
 - **Outcome:** model the Chase-Lev resize flag and active-stealer counter with
   the production orderings, proving that resize never republishes storage while
@@ -138,7 +138,7 @@ architecture definition.
   no SemVer change.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
   `fix/scheduler-resize-gate-loom`; source candidate `10fcb51`; lease: none;
-  status: merge; PR #212 hosted collection and non-squash merge remain; last
+  status: complete; PR #212 merged with history preserved as `207273e3`; last
   update 2026-09-01.
 - **Entry evidence:** the existing Chase-Lev Loom model covers top/bottom and
   slot claim ordering but not `resizing`, `steal_accesses`, or the batch-long
@@ -150,7 +150,7 @@ architecture definition.
   observes generation one through the gate-release ordering.
 - **Review:** independent read-only review of exact PM head `bb6087f` against
   `316bf8f` is GREEN. PR #212 merged with history preserved as `207273e3`;
-  post-merge repository collection remains.
+  every repository check completed successfully after merge.
 
 ### 🟨 MOI-SPIN-BUDGETS-2026-08-27 [patch] [perf]: Bound scheduler contention spins
 
@@ -193,10 +193,13 @@ architecture definition.
   acceptance threshold. Before fresh measurements, the confirmatory rule is:
   reject any slower candidate median whose 95% confidence interval does not
   overlap the exact paired baseline; no throughput or latency win is claimed.
-  The first rebuilt comparison rejects the 64-hint executor candidate: the
+  The first rebuilt comparison rejects the 64-hint executor candidate: its
   two-thief drain is 475.74 µs [474.25, 476.84] versus baseline 471.87 µs
-  [470.09, 473.39]. The next candidate reuses the executor's existing 256-hint
-  worker-idle/join cooperative window; that selection precedes its fresh
+  [470.09, 473.39]. Exact raw-sample medians also reject 256 hints: candidate
+  469.818 µs [466.515, 472.588] versus rebuilt baseline 451.740 µs
+  [447.071, 454.804], using the distribution-free 95.86% order-statistic
+  interval for 20 samples. The next candidate uses Moirai's existing 1,000-hint
+  contended spin-lock handoff ceiling; that selection precedes its fresh
   confirmatory measurement.
 
 ### ✅ MOI-EXECUTOR-LOOM-CI-2026-08-31 [patch]: Execute scheduler Loom models
