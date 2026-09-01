@@ -86,6 +86,37 @@ architecture definition.
 
 ## Current closure record
 
+### 🟡 MOI-ITER-SLOT-METADATA-LAYOUT-2026-09-01 [patch] [perf]: Overlap retained-slot metadata
+
+- **Outcome:** remove storage reserved simultaneously for `output_index` and
+  `vacant_next` even though slot occupancy makes those values mutually
+  exclusive, reducing every retained future slot without changing admission,
+  output ordering, or vacancy traversal.
+- **Scope / non-goals:** private `FutureSlot` metadata in
+  `moirai-iter/src/stream/slots.rs`, focused layout/value/drop/allocation tests,
+  the unchanged retained Criterion instrument, CHANGELOG, and PM state. No wake
+  protocol, future storage, block growth, scheduler, public API, workload,
+  assertion, or timeout change; no pointer-derived index or packed sentinel.
+- **Acceptance:** record the exact `FutureSlot` and `WakeToken` layouts plus the
+  unchanged public pending-map allocation ledger before editing representation.
+  A candidate must encode one occupancy-discriminated metadata word, reduce the
+  measured slot stride and gross retained bytes, preserve empty/full/ragged
+  vacancy chains, ordered values, pending refills, cancellation, panic/drop
+  counts, and zero-sized futures, and add no allocation or unsafe operation.
+  No retained Criterion row may regress by 5% or more; Miri, debug/release
+  Nextest, warning-denied host/cross-target checks, docs, SemVer, and independent
+  review must pass.
+- **Risk / change:** internal layout `[patch]`; stop with the instrument if the
+  two words do not increase the actual slot stride or if overlap complicates
+  panic/drop ownership.
+- **Integrator / lease:** Codex session
+  `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/iter-slot-metadata-layout`; lease: `moirai-iter/src/stream/slots.rs`,
+  focused slot/layout/allocation tests, CHANGELOG, and this item; last update
+  2026-09-01.
+- **Dependency:** shared wake ownership merged through PR #227 as `a83361a`;
+  default-branch repository verification remains in flight.
+
 ### 🟡 MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 [patch] [perf]: Consolidate retained-slot wake ownership
 
 - **Outcome:** remove the measured per-slot `Arc<WakeToken>` allocation fanout
