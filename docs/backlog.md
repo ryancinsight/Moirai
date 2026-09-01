@@ -116,6 +116,16 @@ architecture definition.
   2026-09-01.
 - **Dependency:** shared wake ownership merged through PR #227 as `a83361a`;
   default-branch repository verification remains in flight.
+- **Entry evidence:** on the 64-bit host, the focused layout regression pins
+  `PendingOnce<u64>` at 24 bytes, `FutureSlot<PendingOnce<u64>>` at 48 bytes,
+  and `WakeToken` at 16 bytes; the slot's 24-byte overhead is exactly three
+  words: occupancy padding plus separate output and vacancy metadata. The
+  unchanged public 1,024-item pending-map ledger at limits 1 / 8 / 24 retains
+  15 / 15 / 15 allocations and 16,568 / 17,128 / 18,408 gross bytes, an exact
+  80-byte residual per-slot slope. Subtracting the measured 16-byte token
+  identifies a 64-byte public-path future slot, so one metadata word is a
+  material 12.5% candidate reduction in the future slot and 10% in combined
+  retained slot-plus-token storage.
 
 ### 🟡 MOI-ITER-SHARED-WAKE-BLOCK-2026-09-01 [patch] [perf]: Consolidate retained-slot wake ownership
 

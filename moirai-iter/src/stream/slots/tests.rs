@@ -9,12 +9,28 @@ use std::sync::Arc;
 use futures::task::{waker, ArcWake};
 use futures::{Stream, StreamExt};
 
-use super::wake::WakeBlock;
+use super::wake::{WakeBlock, WAKE_TOKEN_BYTES};
 use super::{retained_buffered, retained_unordered, RetainedSlots, SlotKey};
 
 struct PendingOnce<T> {
     value: Option<T>,
     pending: bool,
+}
+
+#[test]
+fn retained_slot_metadata_words_are_layout_material() {
+    let word = core::mem::size_of::<usize>();
+    let future = core::mem::size_of::<PendingOnce<u64>>();
+    let slot = core::mem::size_of::<super::FutureSlot<PendingOnce<u64>>>();
+
+    assert_eq!(WAKE_TOKEN_BYTES, 2 * word);
+    assert_eq!(slot, future + 3 * word);
+    #[cfg(target_pointer_width = "64")]
+    {
+        assert_eq!(future, 24);
+        assert_eq!(slot, 48);
+        assert_eq!(WAKE_TOKEN_BYTES, 16);
+    }
 }
 
 impl<T> Unpin for PendingOnce<T> {}
