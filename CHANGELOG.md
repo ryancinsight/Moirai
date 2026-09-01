@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ParallelIterator::{sum_reassociated, product_reassociated}` provide explicit
+  deterministic shard-folding terminals for associative output types. Standard
+  `sum` and `product` again invoke `Sum<Item>` and `Product<Item>` once over the
+  complete logical stream, preserving lawful custom accumulator semantics and
+  avoiding output-self trait bounds.
 - `moirai_parallel::for_each_chunk_buffers_mut_enumerated_with` applies one
   indexed operation to matching chunks from any const-generic number of
   homogeneous mutable buffers. Equal lengths validate before mutation, ragged

@@ -707,7 +707,7 @@ fn moirai_terminal_reducer_pipeline(data: Vec<u64>) -> (u64, Option<u64>, Option
     let sum = MoiraiIntoParallelIterator::into_par_iter(data.clone())
         .map(|value| value.wrapping_mul(3))
         .filter(|value| value % 2 == 0)
-        .sum::<u64>();
+        .sum_reassociated::<u64>();
     let min = MoiraiIntoParallelIterator::into_par_iter(data.clone())
         .map(|value| value.wrapping_mul(7).wrapping_add(11))
         .min();
@@ -900,7 +900,7 @@ fn rayon_ref_copied_cloned_pipeline(data: &Vec<u64>) -> (Vec<u64>, Vec<String>) 
 fn moirai_non_clone_ref_map(data: &Vec<NonCloneBenchValue>) -> u64 {
     MoiraiIntoParallelRefIterator::par_iter(data)
         .map(|item| item.value.wrapping_mul(3).wrapping_add(1))
-        .sum::<u64>()
+        .sum_reassociated::<u64>()
 }
 
 fn rayon_non_clone_ref_map(data: &Vec<NonCloneBenchValue>) -> u64 {

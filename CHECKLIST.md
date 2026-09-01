@@ -17,6 +17,14 @@
 - **Lease:** Codex — `moirai-iter/src/parallel/traits.rs`, parallel-terminal
   tests, iterator benchmark/contracts, CHANGELOG, and this item's PM regions.
   Last update 2026-09-01.
+- **Local evidence:** debug and release `moirai-iter` Nextest pass 219/219 with
+  two configured skips; warning-denied all-target/all-feature Clippy, Rustdoc,
+  3/3 doctests, both retained Criterion smoke binaries, and 72/72 benchmark
+  contract tests pass. Directory-baseline `cargo-semver-checks` passes 196
+  checks with 58 inapplicable skips and reports no required version change;
+  the packed-object baseline mode could not complete because its local clone
+  exceeded the tool's in-memory entry limit. Independent review and hosted
+  collection remain pending.
 
 ## MOI-ATLAS-CONFORMANCE-RATCHET-2026-08-31 — Restore the stack hygiene ratchet [patch] — complete
 
@@ -214,16 +222,20 @@
 
 ## MOI-PAR-TERMINALS-2026-08-28 — Parallel terminals and index-range splits [patch] — review
 
-- **Outcome:** the `ParallelIterator` terminal set stops routing through
+- **Outcome:** compatible `ParallelIterator` terminals stop routing through
   `seq_items()`. `FoldConsumer` and `ShortCircuitConsumer` fold shards through
   the existing `Consumer` protocol, `ParallelIterator::seq_try_fold` is the
   streaming base under them, borrowed drive shards are zero-copy `split_at`
   subslices, and owned shards stop splitting at the dispatch threshold.
+  Standard `sum` and `product` remain whole-stream trait invocations because
+  `Sum` and `Product` expose no lawful partial-output combine operation; the
+  measured shard fold is available through explicit reassociated terminals.
   Closes `MOI-PAR-ITER-SEQUENTIAL-TERMINALS-2026-08-27` and
   `MOI-PAR-ITER-SPLIT-COPY-2026-08-27`.
 - **Integrator:** claude-fable session 03d80d33 subagent. Lease: none.
 - **Evidence:** pinned criterion medians at 131072 elements —
-  `par_iter().map(f).sum()` 391.25us to 11.18us (35x, and 6.7x under Rayon),
+  `par_iter().map(f).sum_reassociated()` 391.25us to 11.18us (35x, and 6.7x
+  under Rayon),
   `count`/`min`/`max` 1.156ms to 36.93us (31x), `find_any` with an early match
   412.92us to 5.13us (80x, and 1.85x under Rayon), `find_any` with no match
   431.25us to 20.58us (21x). Same-code run-to-run spread on this hybrid-core
@@ -239,10 +251,11 @@
   them needs a size-hinted output collection.
 - **Residual:** `fold`, `try_reduce`, `for_each_with`/`_init` and
   `try_for_each_with`/`_init` stay sequential by contract (one threaded
-  accumulator or state value) and `position_first`/`position_last` stay
-  sequential because the non-indexed protocol cannot hand a shard a correct
-  logical offset through a length-changing adapter. All now stream instead of
-  collecting. Owned splits still copy down to the threshold.
+  accumulator or state value), as do standard `sum` and `product` (one complete
+  logical stream). `position_first`/`position_last` stay sequential because the
+  non-indexed protocol cannot hand a shard a correct logical offset through a
+  length-changing adapter. All stream instead of collecting. Owned splits still
+  copy down to the threshold.
 - **Last update:** 2026-08-28.
 
 ## MOI-PAR-ADAPTER-DRIVE-COLLECT-2026-08-28 — Adapters collect in drive [patch] — review
@@ -493,8 +506,10 @@
 
 ## MOI-PAR-ITER-SEQUENTIAL-TERMINALS-2026-08-27 — Parallel terminals collect sequentially [patch] — done 2026-08-28
 
-- **Delivered:** closed by `MOI-PAR-TERMINALS-2026-08-28`; folding consumers replace
-  the `seq_items()` terminals.
+- **Delivered:** closed by `MOI-PAR-TERMINALS-2026-08-28`; folding consumers
+  replace compatible `seq_items()` terminals. Standard `sum` and `product`
+  retain whole-stream trait semantics, with explicit reassociated methods for
+  the shard-folding path.
 
 ## MOI-PAR-ITER-SPLIT-COPY-2026-08-27 — Index-range splits over Vec::split_off [patch] — done 2026-08-28
 

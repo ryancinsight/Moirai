@@ -417,11 +417,11 @@ Workload: same-run native scheduler, async iterator, and Rayon-style adapter row
 | Iterator update | 17.161-17.385 us | Rayon 355.51-361.33 us |
 | Iterator intersperse | 35.564-36.352 us | Rayon 337.54-348.60 us |
 | Iterator try-reduce | 8.6967-8.7589 us | Rayon 74.804-76.607 us |
-| Iterator terminal reducers | 36.051-36.607 us | Rayon 210.00-221.47 us |
+| Iterator terminal reducers (reassociated sum) | 36.051-36.607 us | Rayon 210.00-221.47 us |
 | Iterator find-map | 44.891-45.368 us | Rayon 257.55-271.53 us |
 | Iterator position | 23.683-23.933 us | Rayon 221.01-228.09 us |
 | Iterator copied/cloned materialization | 1.8444-1.8703 ms | Rayon 2.8979-2.9487 ms |
-| Iterator non-Clone borrowed ref map | 16.446-17.165 us | Rayon 57.328-79.918 us |
+| Iterator non-Clone borrowed ref map (reassociated sum) | 16.446-17.165 us | Rayon 57.328-79.918 us |
 | Iterator unzip | 29.351-29.744 us | Rayon 493.15-537.41 us |
 | Scoped `iter_ops::ParallelIter` map | 7.0830-7.5290 us | Rayon 46.176-47.066 us |
 | Scoped `iter_ops::ParallelIter` reduce | 1.7471-1.7582 us | Rayon 47.637-50.345 us |

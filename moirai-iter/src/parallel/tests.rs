@@ -2,6 +2,8 @@ use super::*;
 use std::cell::RefCell;
 use std::sync::Arc;
 
+mod aggregation;
+
 #[test]
 fn test_parallel_map() {
     let data = vec![1, 2, 3, 4, 5];
@@ -1408,7 +1410,7 @@ fn test_parallel_partition_and_unzip_preserve_order_above_drive_threshold() {
 }
 
 #[test]
-fn test_parallel_float_sum_is_reproducible_and_within_the_derived_bound() {
+fn test_reassociated_float_sum_is_reproducible_and_within_the_derived_bound() {
     // Floating-point addition is not associative, so the shard merge tree
     // re-associates the additions. Two properties hold and are checked here:
     // the merge tree depends only on the input length, so the value repeats
@@ -1418,9 +1420,12 @@ fn test_parallel_float_sum_is_reproducible_and_within_the_derived_bound() {
         .map(|index| 1.0 / ((index + 1) as f64))
         .collect();
 
-    let parallel = data.clone().into_par_iter().sum::<f64>();
+    let parallel = data.clone().into_par_iter().sum_reassociated::<f64>();
     for _ in 0..16 {
-        assert_eq!(data.clone().into_par_iter().sum::<f64>(), parallel);
+        assert_eq!(
+            data.clone().into_par_iter().sum_reassociated::<f64>(),
+            parallel
+        );
     }
 
     let sequential: f64 = data.iter().copied().sum();

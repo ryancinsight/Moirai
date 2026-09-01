@@ -816,17 +816,36 @@ pub trait ParallelIterator: Sized + Send {
         fallible::try_reduce_with(self, reduce_fn)
     }
 
-    /// Sum all items using the standard `Sum` contract for the item stream.
+    /// Sum the complete logical stream through one standard [`Iterator::sum`]
+    /// invocation.
+    ///
+    /// [`std::iter::Sum`] does not expose an operation for combining partial
+    /// output values. This method therefore preserves every lawful
+    /// `Sum<Self::Item>` implementation by materializing the logical stream
+    /// before aggregation. Use [`sum_reassociated`](Self::sum_reassociated)
+    /// only when the output's partial values may be reassociated.
+    fn sum<S>(self) -> S
+    where
+        S: std::iter::Sum<Self::Item> + Send,
+    {
+        self.seq_items().into_iter().sum()
+    }
+
+    /// Sum independently produced item fragments and merge their outputs.
+    ///
+    /// This terminal invokes `Sum<Self::Item>` on empty and one-item streams,
+    /// then invokes `Sum<S>` on pairs of partial outputs. That stronger
+    /// contract enables parallel shard folding without materializing the full
+    /// logical stream, but it is not equivalent to [`sum`](Self::sum) for an
+    /// arbitrary `Sum` implementation.
     ///
     /// # Ordering
     ///
-    /// Shards are summed independently and merged in logical shard order. The
-    /// merge tree is a function of the input length alone, so the result is
-    /// reproducible across runs and worker counts; it is not necessarily
-    /// bit-identical to a strictly left-to-right `Iterator::sum` when addition
-    /// on `S` is non-associative, as it is for floating point. The
-    /// `Sum<S>` bound is what makes merging two partial sums expressible.
-    fn sum<S>(self) -> S
+    /// Partial outputs are merged in logical shard order. The merge tree is a
+    /// function of the input length alone, so arithmetic results are
+    /// reproducible across runs and worker counts. Floating-point results need
+    /// not be bit-identical to a strictly left-to-right sum.
+    fn sum_reassociated<S>(self) -> S
     where
         S: std::iter::Sum<Self::Item> + std::iter::Sum<S> + Send,
     {
@@ -842,12 +861,26 @@ pub trait ParallelIterator: Sized + Send {
         .into_value()
     }
 
-    /// Multiply all items using the standard `Product` contract for the item stream.
+    /// Multiply the complete logical stream through one standard
+    /// [`Iterator::product`] invocation.
     ///
-    /// Shards are multiplied independently and merged in logical shard order;
-    /// see [`sum`](Self::sum) for what that means when multiplication on `P` is
-    /// non-associative.
+    /// This preserves every lawful `Product<Self::Item>` implementation. Use
+    /// [`product_reassociated`](Self::product_reassociated) only when partial
+    /// output values may be reassociated.
     fn product<P>(self) -> P
+    where
+        P: std::iter::Product<Self::Item> + Send,
+    {
+        self.seq_items().into_iter().product()
+    }
+
+    /// Multiply independently produced item fragments and merge their outputs.
+    ///
+    /// This terminal invokes `Product<Self::Item>` on empty and one-item
+    /// streams, then invokes `Product<P>` on pairs of partial outputs. See
+    /// [`sum_reassociated`](Self::sum_reassociated) for the deterministic merge
+    /// ordering and semantic distinction from the standard terminal.
+    fn product_reassociated<P>(self) -> P
     where
         P: std::iter::Product<Self::Item> + std::iter::Product<P> + Send,
     {
