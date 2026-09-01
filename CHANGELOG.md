@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bound cross-task inline wake polling under scheduler saturation to one nested
+  level per thread. A deeper rejected wake now completes with typed
+  `TaskError::ResourceExhausted`, matching the existing self-wake saturation
+  contract instead of growing the waking thread's stack.
 - Gate `result_handle_diagnostics` on its `registry-diagnostics` feature so
   default all-target verification does not select a benchmark whose diagnostic
   API is disabled. Feature-enabled benchmark behavior and workload are

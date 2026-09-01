@@ -10,43 +10,53 @@
 //!
 //! ```text
 //! IDLE ──schedule──▶ QUEUED ──poll claims──▶ POLLING ──Pending, no wake──▶ IDLE
-//!                                              │  │
-//!                          wake during poll ───┘  └── Ready / panic / cancel ─▶ COMPLETED
-//!                                (NOTIFIED, re-polled inline or rescheduled)
+//!                       │                      │  │
+//!     rejected wake ────┴──▶ COMPLETED        │  └── Ready / panic / cancel ─▶ COMPLETED
+//!     shutdown/spawn rejection ─▶ IDLE        └── wake during poll ─▶ NOTIFIED
+//!                                                    (inline repoll or reschedule)
 //! ```
 //!
 //! # Exclusivity invariant
 //!
 //! The `QUEUED → POLLING` compare-exchange in `AsyncFutureState::poll` has
 //! exactly one winner; the loser returns without touching anything. That winner
-//! is the **poll owner**, and it is the *only* accessor of the `future`,
-//! `lifecycle`, `result_sender`, and `future_present` cells until it leaves
-//! `POLLING`. Wakers running on other threads only load/CAS `state` and never
-//! read those cells, so every `UnsafeCell` dereference here is single-threaded
-//! despite the shared `Arc` — this is what the per-site `Safety` comments mean by
-//! "the single poll owner selected by the async state machine". The `&mut` to the
-//! pinned future is dropped before any `state` transition, so no successor poll
-//! can observe it.
+//! is the **poll owner**. A second exclusive role exists only when that queue
+//! admission is rejected: the caller that won `IDLE → QUEUED`, or transferred
+//! `NOTIFIED → QUEUED`, remains the **rejected-queue completion owner** because
+//! no scheduler job was admitted. While either role accesses `future`,
+//! `lifecycle`, `result_sender`, or `future_present`, concurrent wakers only
+//! load/CAS `state`; `QUEUED` and `POLLING` both prevent them from becoming an
+//! accessor. Every `UnsafeCell` dereference is therefore single-threaded despite
+//! the shared `Arc`. A concurrent `POLLING → NOTIFIED` transition may occur
+//! while the poll owner's `&mut` future borrow is live because it transfers no
+//! cell-access permission. That borrow is dropped before any transition that
+//! does transfer permission to a successor poll or rejected-queue completion
+//! owner, so neither can observe it.
 //!
 //! A wake arriving mid-poll CASes `POLLING → NOTIFIED` rather than enqueuing, so
 //! it is never lost: the poll owner re-polls inline (bounded by
 //! `ASYNC_INLINE_REPOLL_LIMIT`) or reschedules. If that bounded reschedule is
 //! rejected by a full queue, the task completes with `ResourceExhausted`
-//! instead of recursing on the waking thread. The future is dropped once, by
-//! the `future_present` flag: the poll owner drops it on completion and `Drop`
-//! (reached only after the last `Arc`, whose refcount release/acquire orders the
-//! owner's write before the destructor's read) skips an already-dropped future.
+//! instead of recursively re-polling itself on the waking thread. Cross-task
+//! inline polls are independently bounded by `ASYNC_INLINE_POLL_DEPTH_LIMIT`;
+//! a saturated nested wake completes with the same typed error instead of
+//! growing the caller's stack. The future is dropped once, by the
+//! `future_present` flag: either the poll owner or rejected-queue completion
+//! owner drops it on completion, and `Drop` (reached only after the last `Arc`,
+//! whose refcount release/acquire orders the owner's write before the
+//! destructor's read) skips an already-dropped future.
 //!
 //! # Enqueue obligation (wakes survive admission rejection)
 //!
-//! The `IDLE → QUEUED` winner owns exactly one *enqueue obligation*: `poll` is
-//! the only exit from `QUEUED`, and it runs only from the job that winner
-//! admits, so a discarded admission failure strands the task — `QUEUED` with no
-//! job in any queue means every later wake short-circuits as "already
-//! scheduled" and the future is never polled again. `schedule_wake` therefore
-//! never drops the obligation on a full injector: it polls inline on the waking
-//! thread after the first rejected admission, which needs no queue slot and
-//! gives saturation no scheduler-dependent retry latency. Only scheduler
+//! The `IDLE → QUEUED` winner owns exactly one *enqueue obligation*. A successful
+//! admission transfers it to the queued job, whose poll claims `POLLING`. A
+//! rejected admission leaves it with the caller, which must either poll inline
+//! or complete the task; dropping that obligation would strand `QUEUED` with no
+//! job and make every later wake short-circuit as "already scheduled".
+//! `schedule_wake` therefore polls inline after the first rejected admission
+//! when the thread-local depth budget is available. A nested rejection past that
+//! budget exits `QUEUED` through `complete_resource_exhausted` as typed task
+//! exhaustion. Only scheduler
 //! shutdown — after which no job of any kind can ever be admitted or run —
 //! releases the obligation, by reverting `QUEUED → IDLE`.
 //! The spawn-time `schedule` instead propagates admission failure to the
@@ -54,7 +64,7 @@
 //! race-free there because wakers are minted only inside `poll`.
 
 use std::{
-    cell::UnsafeCell,
+    cell::{Cell, UnsafeCell},
     future::Future,
     mem::MaybeUninit,
     panic::{catch_unwind, AssertUnwindSafe},
@@ -85,6 +95,33 @@ const ASYNC_POLLING: u8 = 2;
 const ASYNC_NOTIFIED: u8 = 3;
 const ASYNC_COMPLETED: u8 = 4;
 const ASYNC_INLINE_REPOLL_LIMIT: usize = 1;
+const ASYNC_INLINE_POLL_DEPTH_LIMIT: usize = 1;
+
+thread_local! {
+    static ASYNC_INLINE_POLL_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+struct InlinePollDepthGuard {
+    previous: usize,
+}
+
+impl InlinePollDepthGuard {
+    fn try_enter() -> Option<Self> {
+        ASYNC_INLINE_POLL_DEPTH.with(|depth| {
+            let previous = depth.get();
+            (previous < ASYNC_INLINE_POLL_DEPTH_LIMIT).then(|| {
+                depth.set(previous + 1);
+                Self { previous }
+            })
+        })
+    }
+}
+
+impl Drop for InlinePollDepthGuard {
+    fn drop(&mut self) {
+        ASYNC_INLINE_POLL_DEPTH.with(|depth| depth.set(self.previous));
+    }
+}
 
 enum PendingPoll {
     Return,
@@ -255,9 +292,13 @@ where
         match Arc::clone(self).enqueue() {
             Ok(()) => {}
             Err(ExecutorError::ResourceExhausted(_)) => {
-                // Registry diagnostics report the task as running off the
-                // worker pool; `NO_WORKER` is display-only there.
-                self.poll(crate::registry::state::NO_WORKER);
+                if let Some(_depth_guard) = InlinePollDepthGuard::try_enter() {
+                    // Registry diagnostics report the task as running off the
+                    // worker pool; `NO_WORKER` is display-only there.
+                    self.poll(crate::registry::state::NO_WORKER);
+                } else {
+                    self.complete_resource_exhausted();
+                }
             }
             Err(_) => {
                 // ShuttingDown: the scheduler admits and runs nothing from
@@ -388,8 +429,9 @@ where
     }
 
     fn complete_lifecycle(&self) -> core::time::Duration {
-        // Safety: only the poll owner selected by the async state machine calls
-        // this method, so lifecycle mutation is single-threaded.
+        // Safety: only the poll owner or the rejected-queue completion owner
+        // calls this method. Their POLLING/QUEUED states exclude every other
+        // accessor, so lifecycle mutation is single-threaded.
         let lifecycle = unsafe { &mut *self.lifecycle.get() };
         let running = std::mem::replace(lifecycle, AsyncLifecycle::Completed);
         if let AsyncLifecycle::Running(token) = running {
@@ -400,16 +442,18 @@ where
     }
 
     fn drop_future(&self) {
-        // Safety: only the poll owner selected by the async state machine calls
-        // this method while shared references exist. `Drop` reaches the same
-        // flag only after the final `Arc` is gone and has exclusive access.
+        // Safety: only the poll owner or the rejected-queue completion owner
+        // calls this method while shared references exist. Their
+        // POLLING/QUEUED states exclude every other accessor. `Drop` reaches the
+        // same flag only after the final `Arc` is gone and has exclusive access.
         // The poll hot path does not read this flag; `state` is the authoritative
         // polling permission and guarantees initialized future storage.
         let future_present = unsafe { &mut *self.future_present.get() };
         if *future_present {
             *future_present = false;
-            // Safety: the caller owns poll/completion permission or `Drop` owns
-            // the last state reference. The initialized future is dropped once.
+            // Safety: the caller owns poll or rejected-queue completion
+            // permission, or `Drop` owns the last state reference. The
+            // initialized future is dropped once.
             unsafe {
                 ptr::drop_in_place((*self.future.get()).as_mut_ptr());
             }
@@ -417,9 +461,9 @@ where
     }
 
     fn take_result_sender(&self) -> Option<TaskResultSender<F::Output>> {
-        // Safety: result publication is reached only by the single poll owner
-        // selected by the async state machine. `Drop` has exclusive access after
-        // the last `Arc` is gone and does not read this cell.
+        // Safety: result publication is reached only by the poll owner or the
+        // rejected-queue completion owner. Their POLLING/QUEUED states exclude
+        // every other accessor. `Drop` does not read this cell.
         unsafe { (&mut *self.result_sender.get()).take() }
     }
 
@@ -477,18 +521,29 @@ where
         match Arc::clone(self).enqueue() {
             Ok(()) => {}
             Err(ExecutorError::ResourceExhausted(_)) => {
-                self.drop_future();
-                self.state.store(ASYNC_COMPLETED, Ordering::Release);
-                self.complete_lifecycle();
-                if let Some(sender) = self.take_result_sender() {
-                    sender.send(Err(TaskError::ResourceExhausted));
-                }
-                self.metrics.record_task_failed();
+                self.complete_resource_exhausted();
             }
             Err(_) => {
                 self.state.store(ASYNC_IDLE, Ordering::Release);
             }
         }
+    }
+
+    /// Complete a rejected `QUEUED` epoch without polling its future.
+    ///
+    /// The caller exclusively owns this epoch: it either won `IDLE → QUEUED`
+    /// or transferred `NOTIFIED → QUEUED`, and `enqueue` returned the job rather
+    /// than admitting it. Concurrent wakers cannot leave `QUEUED`, and no poll
+    /// job exists, so this owner may drop and publish completion exactly once.
+    fn complete_resource_exhausted(&self) {
+        debug_assert_eq!(self.state.load(Ordering::Acquire), ASYNC_QUEUED);
+        self.drop_future();
+        self.state.store(ASYNC_COMPLETED, Ordering::Release);
+        self.complete_lifecycle();
+        if let Some(sender) = self.take_result_sender() {
+            sender.send(Err(TaskError::ResourceExhausted));
+        }
+        self.metrics.record_task_failed();
     }
 }
 
@@ -632,6 +687,13 @@ mod tests {
         polls: Arc<AtomicUsize>,
     }
 
+    struct WakePeerThenReady {
+        output: i32,
+        polls: Arc<AtomicUsize>,
+        waker: Arc<Mutex<Option<Waker>>>,
+        peer_waker: Arc<Mutex<Option<Waker>>>,
+    }
+
     impl Future for AlwaysSelfWake {
         type Output = i32;
 
@@ -639,6 +701,28 @@ mod tests {
             self.polls.fetch_add(1, Ordering::SeqCst);
             cx.waker().wake_by_ref();
             Poll::Pending
+        }
+    }
+
+    impl Future for WakePeerThenReady {
+        type Output = i32;
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<i32> {
+            let this = self.get_mut();
+            if this.polls.fetch_add(1, Ordering::SeqCst) == 0 {
+                *this.waker.lock().unwrap() = Some(cx.waker().clone());
+                Poll::Pending
+            } else {
+                let peer_waker = this
+                    .peer_waker
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .cloned()
+                    .expect("peer first poll must publish its waker");
+                peer_waker.wake_by_ref();
+                Poll::Ready(this.output)
+            }
         }
     }
 
@@ -831,6 +915,69 @@ mod tests {
         assert_eq!(injector.rejections.load(Ordering::SeqCst), 1);
         assert!(handle.is_finished());
         assert_eq!(handle.join(), Some(Err(TaskError::ResourceExhausted)));
+    }
+
+    #[test]
+    fn cross_task_wake_respects_inline_poll_depth_bound() {
+        let injector = GatedInjector::new();
+        let follower = pending_async_state(Arc::clone(&injector), 19);
+        let recovery = pending_async_state(Arc::clone(&injector), 23);
+        let registry = TaskRegistry::new();
+        let (leader_id, leader_lifecycle) = registry.register_next_task();
+        let (leader_handle, leader_sender) = TaskHandle::new_pending(TaskId(leader_id));
+        let leader_polls = Arc::new(AtomicUsize::new(0));
+        let leader_waker = Arc::new(Mutex::new(None));
+        let leader = AsyncFutureState::new(
+            Arc::clone(&injector),
+            WakePeerThenReady {
+                output: 17,
+                polls: Arc::clone(&leader_polls),
+                waker: Arc::clone(&leader_waker),
+                peer_waker: Arc::clone(&follower.waker),
+            },
+            leader_lifecycle,
+            leader_sender,
+            Arc::new(ExecutorMetrics::new()),
+        );
+
+        Arc::clone(&follower.state)
+            .schedule()
+            .expect("follower first poll admits");
+        Arc::clone(&recovery.state)
+            .schedule()
+            .expect("recovery first poll admits");
+        Arc::clone(&leader)
+            .schedule()
+            .expect("leader first poll admits");
+        injector.drain();
+
+        injector.refuse_next.store(2, Ordering::SeqCst);
+        leader_waker
+            .lock()
+            .unwrap()
+            .take()
+            .expect("leader first poll must publish its waker")
+            .wake();
+
+        assert_eq!(leader_polls.load(Ordering::SeqCst), 2);
+        assert_eq!(follower.polls.load(Ordering::SeqCst), 1);
+        assert_eq!(leader_handle.join(), Some(Ok(17)));
+        assert_eq!(
+            follower.handle.join(),
+            Some(Err(TaskError::ResourceExhausted))
+        );
+        assert_eq!(injector.rejections.load(Ordering::SeqCst), 2);
+
+        injector.refuse_next.store(1, Ordering::SeqCst);
+        recovery
+            .waker
+            .lock()
+            .unwrap()
+            .take()
+            .expect("recovery first poll must publish its waker")
+            .wake();
+        assert_eq!(recovery.polls.load(Ordering::SeqCst), 2);
+        assert_eq!(recovery.handle.join(), Some(Ok(23)));
     }
 
     /// M1 regression at the real scheduler: a worker's injector is provably
