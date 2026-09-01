@@ -30,7 +30,10 @@ libc = "0.2"
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }
-tokio = { version = "1", features = ["rt", "macros", "time"] }
+tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
+
+[target.'cfg(loom)'.dev-dependencies]
+loom = { workspace = true }
 
 [features]
 default = ["parallel", "mnemosyne-memory"]

@@ -20,8 +20,9 @@
 //!   **completion order** ([`StreamExt::buffer_unordered`]) — no head-of-line
 //!   blocking, maximum throughput.
 //! - [`concurrent_map_ordered`](ConcurrentStreamExt::concurrent_map_ordered)
-//!   yields in **input order** ([`StreamExt::buffered`]) — a slow early item
-//!   delays later-completed items, but order is preserved.
+//!   yields in **input order** through retained bounded future slots — a slow
+//!   early item delays later-completed items, but order is preserved without a
+//!   heap task node per input.
 //!
 //! Only operations whose per-item work is heavy enough to outweigh a thread hop
 //! belong here. **Cheap, sequential operations — filtering on a simple
@@ -92,6 +93,10 @@ use futures::future::Either;
 use futures::stream::{Stream, StreamExt};
 use moirai_core::executor::TaskSpawner;
 
+mod slots;
+
+pub(crate) use slots::{retained_buffered, retained_unordered};
+
 /// A future resolving to the output of an item spawned on the unified scheduler.
 ///
 /// Awaiting it is *cooperative*: it registers the task waker on a one-shot
@@ -144,9 +149,9 @@ where
 
 /// Shared dispatch: turn a stream of items into a stream of per-item futures,
 /// each either run inline (`limit == 1`, no concurrency requested) or spawned on
-/// the scheduler (`limit > 1`). The caller applies the bound via `buffered` /
-/// `buffer_unordered`; this is the single place the inline/distributed choice is
-/// made, so the ordered and unordered combinators share it.
+/// the scheduler (`limit > 1`). The caller applies the bound through its
+/// ordered or completion-order buffering policy; this is the single place the
+/// inline/distributed choice is made, so both combinators share it.
 fn dispatch_items<S, F, Fut, R>(
     stream: S,
     limit: usize,
@@ -215,7 +220,7 @@ pub trait ConcurrentStreamExt: Stream + Sized {
         R: Send + 'static,
     {
         let limit = limit.max(1);
-        dispatch_items(self, limit, f).buffered(limit)
+        retained_buffered(dispatch_items(self, limit, f), limit)
     }
 
     /// Run the async `f` for every item with up to `limit` futures in flight,

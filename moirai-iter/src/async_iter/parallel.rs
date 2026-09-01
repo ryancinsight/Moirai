@@ -4,6 +4,7 @@ use futures::stream::{self, StreamExt};
 use std::future::Future;
 
 use super::traits::AsyncIterator;
+use crate::stream::{retained_buffered, retained_unordered};
 
 /// Parallel async map with concurrency control
 pub struct ParAsyncMap<I, F> {
@@ -36,14 +37,11 @@ where
         let map_fn = self.map_fn;
         let items = self.iter.into_vec();
         futures::executor::block_on(async move {
-            stream::iter(items)
-                .map(|item| {
-                    let map_fn = &map_fn;
-                    async move { map_fn(item).await }
-                })
-                .buffered(concurrency)
-                .collect()
-                .await
+            let futures = stream::iter(items).map(|item| {
+                let map_fn = &map_fn;
+                async move { map_fn(item).await }
+            });
+            retained_buffered(futures, concurrency).collect().await
         })
     }
 }
@@ -78,15 +76,14 @@ where
         let filter_fn = self.filter_fn;
         let items = self.iter.into_vec();
         futures::executor::block_on(async move {
-            stream::iter(items)
-                .map(|item| {
-                    let filter_fn = &filter_fn;
-                    async move {
-                        let keep = filter_fn(&item).await;
-                        (item, keep)
-                    }
-                })
-                .buffered(concurrency)
+            let futures = stream::iter(items).map(|item| {
+                let filter_fn = &filter_fn;
+                async move {
+                    let keep = filter_fn(&item).await;
+                    (item, keep)
+                }
+            });
+            retained_buffered(futures, concurrency)
                 .filter_map(|(item, keep)| async move { keep.then_some(item) })
                 .collect()
                 .await
@@ -97,9 +94,9 @@ where
 /// Parallel async for_each with concurrency control.
 ///
 /// Returns a real `Future` driven by the caller's runtime — it never blocks the
-/// executor. `for_each` is order-independent, so it uses `buffer_unordered`
-/// (no head-of-line blocking) while still keeping at most `concurrency` item
-/// futures in flight.
+/// executor. `for_each` is order-independent, so it reuses completion-order
+/// retained slots without head-of-line blocking while keeping at most
+/// `concurrency` item futures in flight.
 pub(super) async fn for_each<I, F, Fut>(iter: I, concurrency: usize, func: F)
 where
     I: AsyncIterator,
@@ -107,9 +104,7 @@ where
     Fut: Future<Output = ()> + Send,
 {
     let items = iter.into_vec();
-    stream::iter(items)
-        .map(func)
-        .buffer_unordered(concurrency.max(1))
+    retained_unordered(stream::iter(items).map(func), concurrency)
         .for_each(|()| async {})
         .await;
 }

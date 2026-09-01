@@ -116,8 +116,8 @@ architecture definition.
   `perf/iter-retained-future-slots`; live lease:
   `moirai-iter/src/stream/slots.rs`, ordered callers in `stream.rs`,
   `execution/base.rs`, and `async_iter/parallel.rs`, focused tests/benchmark
-  contracts, CHANGELOG, and this item; status: entry attribution; last update
-  2026-09-01.
+  contracts, CHANGELOG, and this item; status: candidate ready for independent
+  review; last update 2026-09-01.
 - **Entry evidence:** futures-util 0.3.34 `FuturesOrdered::push_back` delegates
   every item to `FuturesUnordered::push`, whose implementation constructs one
   new `Arc<Task>` per future. The prior public 1,024-item ready-map census left
@@ -127,6 +127,23 @@ architecture definition.
   for-each, with exact ordered values and exactly-once visits. Entry Criterion
   medians (95% CI) are 66.008 us [65.220, 66.690] for ready map and 124.001 us
   [123.369, 124.082] for one-pending map; baseline instrument gates pass.
+- **Candidate evidence:** a contiguous-slab scan candidate reduced ready and
+  one-pending costs but measured about 9.26 ms at a valid 1,000-slot sparse-wake
+  bound versus 180.65 us for futures-util and was rejected. The accepted atomic
+  ready-bitset candidate retains one pinned slot and wake token per configured
+  lane, advances readiness fairly by slot, and removes per-item task nodes. On
+  the measured 24-logical-worker host, ready/pending maps use 39 allocations /
+  18,560 and 39 / 18,752 gross bytes; pending for-each uses 29 / 2,024. Final
+  Criterion medians (95% CI) are 27.240 us [27.011, 27.564] for ready map and
+  47.363 us [46.592, 48.246] for one-pending map, 58.7% and 61.8% below entry.
+  The adversarial sparse-wake row is 119.008 us [117.784, 121.601] versus
+  futures-util 180.600 us [179.049, 181.167], 34.1% lower with disjoint
+  intervals. Debug and release all-feature suites pass 241/241 with two
+  configured skips each; warning-denied host Clippy and AArch64 Windows checks,
+  focused Miri 6/6, and the ready-publication Loom model pass. Warning-denied
+  Rustdoc, 4/4 doctests, 72/72 benchmark contracts, executable benchmark smoke,
+  and cargo-semver-checks 223/223 under patch pass. Independent review and merge
+  remain.
 
 ### ✅ MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 [patch] [perf]: Remove async-context control-plane allocations
 
@@ -2621,7 +2638,7 @@ architecture definition.
 #### ✅ ISSUE-111 [minor]: Implement bounded concurrent async iterator polling
 - **Type**: Async Iterator / Performance / Tokio Gap
 - **Root Cause**: Parallel async adapters currently preserve values but do not use their `concurrency` parameter to drive multiple in-flight futures.
-- **Resolution**: `ParAsyncMap`, `ParAsyncFilter`, and `ParAsyncForEach` now route item futures through `futures::stream::buffered(concurrency.max(1))`, preserving ordered map/filter output while bounding in-flight work. Upstream iterator values are materialized before executor entry so composed parallel async adapters do not nest local executor runs.
+- **Resolution**: `ParAsyncMap` and `ParAsyncFilter` route item futures through retained ordered slots, while `ParAsyncForEach` uses retained completion-order slots; all three bound in-flight work by `concurrency.max(1)`. Upstream iterator values are materialized before executor entry so composed parallel async adapters do not nest local executor runs.
 - **Evidence**: Unit tests measure exact max in-flight counts for map, filter, and for_each. `async_iterator_comparison` now includes a bounded one-pending-poll pipeline against Tokio `JoinSet`.
 - **Verification**: `cargo test -p moirai-iter --all-features async_iter -- --nocapture`; `cargo bench -p moirai-benchmarks --bench async_iterator_comparison -- --quiet`.
 - **Performance**: Same-run benchmark measured ready pipeline Moirai at 404.46-590.99 us versus Tokio at 24.904-25.380 ms, and bounded-yield pipeline Moirai at 1.9756-1.9836 ms versus Tokio at 9.5598-9.7768 ms.

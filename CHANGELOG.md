@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bounded ordered async map/filter and completion-only for-each now retain a
+  fixed pinned future slab and atomic ready bitset instead of allocating one
+  futures-util task node per item. On the measured 24-logical-worker x86-64
+  Windows host, warmed 1,024-item ready/pending ordered maps fall from
+  1,035 allocations / 114,816 gross bytes to 39 / 18,560 and 39 / 18,752;
+  pending for-each falls from 1,026 / 98,464 to 29 / 2,024. Criterion medians
+  fall from 66.008 to 27.240 us for ready map and 124.001 to 47.363 us for
+  one-pending map. A 1,000-slot sparse-wake comparison measures 119.008 us for
+  the retained bitset versus 180.600 us for futures-util, with disjoint 95%
+  confidence intervals. Ordered values, configured concurrency, cancellation,
+  pinned addresses, and exact drop behavior are unchanged; the public
+  completion-order stream remains on futures-util.
 - Parallel-context async iterator terminals now reuse the process-wide cached
   parallelism count instead of materializing CPU topology on every call. Map,
   filter, and for-each borrow their operation closure rather than placing it in

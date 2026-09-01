@@ -32,7 +32,7 @@
   `perf/iter-retained-future-slots`; lease: `moirai-iter/src/stream/slots.rs`,
   ordered callers in `stream.rs`, `execution/base.rs`, and
   `async_iter/parallel.rs`, focused tests/benchmark contracts, CHANGELOG, and
-  this item. Entry attribution in progress; last update 2026-09-01.
+  this item. Candidate ready for independent review; last update 2026-09-01.
 - **Entry evidence:** futures-util 0.3.34 `FuturesOrdered::push_back` delegates
   every item to `FuturesUnordered::push`, whose implementation constructs one
   new `Arc<Task>` per future. The prior public 1,024-item ready-map census left
@@ -42,6 +42,24 @@
   for-each, with exact ordered values and exactly-once visits. Entry Criterion
   medians (95% CI) are 66.008 us [65.220, 66.690] for ready map and 124.001 us
   [123.369, 124.082] for one-pending map; baseline instrument gates pass.
+- **Candidate evidence:** a first contiguous-slab candidate reduced the paired
+  ready/pending rows but scanned every slot on sparse wakes; at a valid 1,000
+  bound it measured about 9.26 ms versus 180.65 us for futures-util and was
+  rejected. The accepted atomic ready-bitset candidate retains one pinned slot
+  and wake token per configured lane, advances readiness fairly by slot, and
+  performs no per-item task-node allocation. On the 24-logical-worker host,
+  ready/pending maps measure 39 allocations / 18,560 and 39 / 18,752 gross
+  bytes; pending for-each measures 29 / 2,024. Final Criterion medians (95% CI)
+  are 27.240 us [27.011, 27.564] for ready map and 47.363 us
+  [46.592, 48.246] for one-pending map, 58.7% and 61.8% below entry. The
+  adversarial sparse-wake row is 119.008 us [117.784, 121.601] versus
+  futures-util 180.600 us [179.049, 181.167], 34.1% lower with disjoint
+  intervals. Debug and release all-feature suites pass 241/241 with two
+  configured skips each; warning-denied host Clippy and AArch64 Windows checks,
+  focused Miri 6/6, and the ready-publication Loom model pass. Warning-denied
+  Rustdoc, 4/4 doctests, 72/72 benchmark contracts, executable benchmark smoke,
+  and cargo-semver-checks 223/223 under patch pass. Independent review and merge
+  remain.
 
 ## MOI-ITER-CONTEXT-PARALLELISM-PROBE-2026-09-01 — Remove async-context control-plane allocations [patch] [perf] — complete
 
