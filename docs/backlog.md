@@ -119,12 +119,14 @@ architecture definition.
   8,192-byte allocation and every ordered value. The unchanged Criterion row's
   median moves from 7.0749 us (95% CI 6.8996-7.1410 us) to 368.13 ns (95% CI
   362.14-368.34 ns), 94.8% lower with disjoint intervals. Focused allocation
-  coverage passes 7/7 locally. Debug and release all-feature suites pass 229/229
+  coverage passes 7/7 locally. Debug and release all-feature suites pass 230/230
   with two configured skips each; warning-denied all-target/all-feature Clippy,
   Rustdoc, and AArch64 Windows all-target check pass; doctests pass 4/4; the
   unchanged six-row benchmark smoke, formatting/diff checks, and
   cargo-semver-checks 223/223 under patch pass. Independent review and hosted
-  Linux closure remain.
+  Linux closure remain. Independent review of `871a1c9` found an
+  oversized-element modulo-by-zero prefetch boundary; the fix-forward clamps
+  prefetch spacing to one element and adds an exact-once parallel regression.
 
 ### 🟡 MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 [patch] [perf]: Remove shard-local map outputs
 

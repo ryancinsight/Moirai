@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removes that repeated cost from `ParallelIter` construction. For a 1,024-item
   sequential `u64` map, warmed iterator construction falls from 82 allocations
   and 13,184 gross bytes to zero; map execution retains its sole 8,192-byte
-  output allocation. On the measured x86-64 Windows host, the retained
+  output allocation. Cache-line prefetch spacing is also clamped to one element,
+  so parallel iteration remains defined when an element exceeds one cache line.
+  On the measured x86-64 Windows host, the retained
   zero-copy map median falls from 7.0749 us (95% CI 6.8996-7.1410 us) to
   368.13 ns (95% CI 362.14-368.34 ns), a 94.8% reduction.
 - `iter_ops::ParallelIter::map` now initializes ordered chunk results directly

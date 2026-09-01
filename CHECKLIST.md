@@ -36,11 +36,13 @@
   Criterion row moves from a 7.0749 us median (95% CI 6.8996-7.1410 us) to
   368.13 ns (95% CI 362.14-368.34 ns), 94.8% lower with disjoint intervals.
   Local gates pass: focused allocation coverage 7/7; debug and release
-  all-feature suites 229/229 with two configured skips each; warning-denied
+  all-feature suites 230/230 with two configured skips each; warning-denied
   all-target/all-feature Clippy, Rustdoc, and AArch64 Windows all-target check;
   4/4 doctests; unchanged six-row benchmark smoke; formatting/diff checks; and
   cargo-semver-checks 223/223 under patch. Independent review and hosted Linux
-  closure remain.
+  closure remain. Independent review of `871a1c9` found an oversized-element
+  modulo-by-zero prefetch boundary; the fix-forward clamps prefetch spacing to
+  one element and adds an exact-once parallel regression.
 
 ## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — post-merge fix-forward
 

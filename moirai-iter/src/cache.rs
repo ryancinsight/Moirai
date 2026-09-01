@@ -248,7 +248,7 @@ impl<'a, T: Sync> ZeroCopyParallelIter<'a, T> {
             let chunk_slice = std::slice::from_raw_parts(chunk_ptr, chunk_len);
             // Optimized: we use a raw pointer cast instead of `let func_ref = &func` to avoid capture lifetime bounds.
             let func_ref = &*(func_ptr.as_ptr() as *const F);
-            let cache_line_elements = CACHE_LINE_SIZE / mem::size_of::<T>().max(1);
+            let cache_line_elements = (CACHE_LINE_SIZE / mem::size_of::<T>().max(1)).max(1);
             for (i, item) in chunk_slice.iter().enumerate() {
                 if i % cache_line_elements == 0 && i + cache_line_elements < chunk_slice.len() {
                     let next_ptr = chunk_slice.as_ptr().add(i + cache_line_elements);
@@ -585,6 +585,37 @@ mod tests {
         assert_eq!(
             zero_copy_chunk_size_for_lanes(1, CACHE_CHUNK_SIZE * 2, 64),
             1
+        );
+    }
+
+    #[test]
+    fn zero_copy_for_each_accepts_elements_wider_than_a_cache_line() {
+        #[repr(align(8))]
+        struct Wide([u64; 24]);
+
+        assert!(mem::size_of::<Wide>() > CACHE_LINE_SIZE);
+        let scoped_floor =
+            (CACHE_CHUNK_SIZE / mem::size_of::<Wide>()).max(1) * DEFAULT_RING_BUFFER_CAPACITY;
+        let data = (0..=scoped_floor)
+            .map(|index| Wide([index as u64; 24]))
+            .collect::<Vec<_>>();
+        let visits = (0..data.len())
+            .map(|_| std::sync::atomic::AtomicUsize::new(0))
+            .collect::<Vec<_>>();
+        let iter = ZeroCopyParallelIter {
+            data: &data,
+            chunk_size: scoped_floor,
+        };
+
+        iter.for_each(|value| {
+            visits[value.0[0] as usize].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        });
+
+        assert!(
+            visits
+                .iter()
+                .all(|count| count.load(std::sync::atomic::Ordering::Relaxed) == 1),
+            "parallel fan-out must visit every oversized element exactly once"
         );
     }
 
