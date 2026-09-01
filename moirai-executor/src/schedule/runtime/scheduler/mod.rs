@@ -1,5 +1,6 @@
 //! Unified thread scheduler module.
 
+mod construction;
 pub mod core;
 pub mod data_parallel;
 mod lifecycle;

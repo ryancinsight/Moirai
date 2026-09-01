@@ -158,8 +158,9 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
     let registry_source = read_benchmark("../moirai-executor/src/registry/mod.rs");
     let hybrid_source = read_benchmark("../moirai-executor/src/hybrid/mod.rs");
     let scheduler_source = format!(
-        "{}\n{}\n{}",
+        "{}\n{}\n{}\n{}",
         read_benchmark("../moirai-executor/src/schedule/runtime/types.rs"),
+        read_benchmark("../moirai-executor/src/schedule/runtime/scheduler/construction.rs"),
         read_benchmark("../moirai-executor/src/schedule/runtime/scheduler/core.rs"),
         read_benchmark("../moirai-executor/src/schedule/runtime/worker.rs")
     );
