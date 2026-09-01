@@ -13,6 +13,9 @@ the prior early-publication lifetime violation.
 base worker once and distributes successive physical batches across workers;
 reselecting after each admission could route every batch to one occupied lane
 and deadlock a saturated nested scope.
+**Revision (fourth)**: 2026-08-31 — public indexed CPU fan-out and reduction
+route through `SyncTask`; classifying them as `BlockingTask` violated ADR-021's
+dedicated-lane boundary and lazily constructed blocking workers.
 
 ### Decision
 
@@ -61,6 +64,10 @@ and deadlock a saturated nested scope.
 - Single scoped jobs use stack-owned scope state, direct scheduler closures, and no chunk vector or wrapper closure allocation.
 - Scoped task execution owns a distinct completion closure. It destroys the borrowing task and its call frame before invoking completion, and dropping an unexecuted job drops the completion token without calling it. Directly scheduled and indexed task panics reach scheduler failure metrics; a batched scoped panic remains scope-local because the enclosing physical batch completes. This ordering prevents the caller from reclaiming stack state while a worker still carries a protected borrow.
 - Typed indexed fan-out uses `ThreadScheduler::for_each_indexed`, exposed through `HybridExecutor::for_each_indexed` and `Moirai::for_each_indexed`.
+- The two public indexed facade operations classify their CPU-bound work as
+  `SyncTask` and therefore use the compute worker set. The lower executor seam
+  remains generic over `WorkClass`; `BlockingTask` remains reserved for work
+  that may block, including the general scoped facade contract under ADR-021.
 - Indexed logical work is split into worker-sized chunks, sharing one typed closure across chunks and avoiding per-item erased scheduler jobs for bounded index domains.
 - Typed indexed map/reduce uses `ThreadScheduler::map_reduce_indexed`, exposed through `HybridExecutor::map_reduce_indexed` and `Moirai::map_reduce_indexed`.
 - Indexed map/reduce computes one local reduction per physical chunk, writes one initialized result slot per chunk, and performs final reduction on the caller thread after the scoped completion barrier.

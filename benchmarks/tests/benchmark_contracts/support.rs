@@ -614,6 +614,7 @@ embedded_sources![
     "benches/simd_benchmarks/wide.rs",
     "benches/sorting_comparison.rs",
     "benches/thread_schedule_comparison.rs",
+    "benches/thread_schedule_comparison/dispatch_floor.rs",
     "benches/thread_schedule_comparison/local_queue_capacity.rs",
     "benches/transport_archive_comparison.rs",
     "tests/benchmark_contracts/support.rs",

@@ -6,7 +6,7 @@ use moirai_core::{
     executor::{ExecutorControl, TaskSpawner},
     Priority, Task, TaskBuilder, TaskHandle,
 };
-use moirai_executor::{BlockingTask, HybridExecutor};
+use moirai_executor::{BlockingTask, HybridExecutor, SyncTask};
 use std::{future::Future, sync::Arc, time::Duration};
 
 /// The main Moirai runtime that provides a unified interface for hybrid concurrency.
@@ -182,9 +182,11 @@ impl Moirai {
 
     /// Run indexed work in worker-sized chunks on the unified scheduler.
     ///
-    /// Use this for data-parallel fan-out where the caller needs completion,
-    /// not one task handle per item. The closure may borrow data that lives for
-    /// the call because all chunks complete before this method returns.
+    /// Use this for CPU-bound data-parallel fan-out where the caller needs
+    /// completion, not one task handle per item. Work executes through the
+    /// compute-worker pool; potentially blocking work belongs on [`Self::scope`].
+    /// The closure may borrow data that lives for the call because all chunks
+    /// complete before this method returns.
     ///
     /// # Errors
     ///
@@ -194,15 +196,14 @@ impl Moirai {
     where
         F: Fn(usize) + Send + Sync + 'scope,
     {
-        self.executor
-            .for_each_indexed::<BlockingTask, _>(count, task)
+        self.executor.for_each_indexed::<SyncTask, _>(count, task)
     }
 
     /// Run indexed map/reduce in worker-sized chunks on the unified scheduler.
     ///
     /// `identity` must be the neutral element for `reduce`. Use this for
-    /// indexed data-parallel reductions where per-item task handles are not
-    /// required.
+    /// CPU-bound indexed data-parallel reductions where per-item task handles
+    /// are not required. Work executes through the compute-worker pool.
     ///
     /// # Errors
     ///
@@ -221,7 +222,7 @@ impl Moirai {
         Reduce: Fn(T, T) -> T + Send + Sync + 'scope,
     {
         self.executor
-            .map_reduce_indexed::<BlockingTask, _, _, _>(count, identity, map, reduce)
+            .map_reduce_indexed::<SyncTask, _, _, _>(count, identity, map, reduce)
     }
 
     /// Spawn a task with a specific priority.

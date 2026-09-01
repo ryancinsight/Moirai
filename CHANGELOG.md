@@ -50,6 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Route the public CPU-bound indexed fan-out and reduction facade through the
+  compute-worker pool instead of the dedicated blocking lane. Indexed-only
+  runtimes no longer lazily construct blocking workers; retained four-worker
+  measurements reduce `map_reduce_indexed` sample medians by 18.2-50.5% from
+  4,096 through 65,536 elements without changing values, task counts, or the
+  generic executor work-class seam.
 - Cancelling the timer that determines the driver's current wait now wakes the
   driver immediately. Non-head cancellation retains the no-wakeup fast path,
   and heap compaction also wakes the driver when it may change the next

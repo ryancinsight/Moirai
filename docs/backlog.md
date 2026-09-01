@@ -86,6 +86,29 @@ architecture definition.
 
 ## Current closure record
 
+### 🟨 MOI-DISPATCH-FLOOR-2026-08-31 [patch] [perf]: Keep indexed CPU work on compute workers
+
+- **Outcome:** route the public CPU-bound indexed fan-out and reduction facade
+  through `SyncTask`, avoiding lazy blocking-lane construction and execution
+  for indexed-only runtimes while preserving the generic executor work-class
+  seam and potentially blocking `Moirai::scope` contract.
+- **Scope / non-goals:** `moirai` facade routing, value/thread-provenance test,
+  retained dispatch-floor instrument, ADR-005, and release records; no scheduler
+  topology, arithmetic, task-count, public signature, benchmark, workload, or
+  timeout change.
+- **Acceptance:** exact indexed values and compute-worker provenance pass with
+  no blocking-lane execution; warmed allocation contracts, package Nextest,
+  warning-denied Clippy, Rustdoc/doctests, release coverage, and
+  same-instrument Criterion baseline evidence pass on the exact candidate.
+- **Evidence:** instrument `0a267f9`; candidate raw reduction medians improve
+  19.4%, 18.2%, 28.5%, and 50.5% at 1,024, 4,096, 16,384, and 65,536 elements.
+  The retained one-multiply crossover moves from the entry 8K-16K interval to
+  4K-8K; serial controls at the two boundary sizes move within 0.7%.
+- **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
+  `perf/moirai-dispatch-floor`; instrument `0a267f9`, source/docs `d2fc4d4`,
+  evidence correction `1ad24e3`, PR #205. Independent exact-Git source review
+  is GREEN; hosted collection and merge remain pending.
+
 ### 🟨 MOI-CHUNK-ARRAYS-2026-08-29 [minor]: Homogeneous multi-buffer chunks
 
 - **Outcome:** add one const-generic same-element-type mutable chunk operator

@@ -11,60 +11,69 @@
   evidence is affected Nextest 650/650, Loom 5/5, warning-denied all-target
   Clippy, complete SIMD smoke, Rustdoc, doctests, formatting, and diff checks.
 
-## MOI-ADAPTIVE-THRESHOLD-PREMISE-2026-08-31 — `Adaptive` costs up to 20.6x on cheap bodies [patch] [perf] — documented 2026-08-31, decision open
+## MOI-ADAPTIVE-THRESHOLD-PREMISE-2026-08-31 — `Adaptive` needs body-cost evidence [patch] [perf] — documented 2026-08-31, decision open
 
-- **Finding.** `ADAPTIVE_PARALLEL_THRESHOLD = 1024` is an element count, but
-  what decides is work: parallel wins once `n * per_element_cost` clears the
-  fixed dispatch cost. Measured floor on this workstation: **~11.9 us**, flat
-  from n = 1024 to n = 65536 — one task spawned per worker chunk plus the joins
-  (`data_parallel.rs` spawns `chunk_count - 1` tasks and allocates
-  `ReduceSlots`).
-- **Measured crossovers** (best of 30 blocks, `map_reduce`, against the same
-  fold run serially):
+- **Corrected finding.** `ADAPTIVE_PARALLEL_THRESHOLD = 1024` is an element
+  count, while the crossover depends on `n * per_element_cost`. The original
+  uncommitted best-of-block probe reported an approximately 11.9 us floor and
+  was not reproducible. The retained Criterion instrument at `0a267f9`
+  measures the entry one-multiply crossover between 8,192 and 16,384 elements.
+- **Candidate crossovers** (four workers, identical inputs and arithmetic,
+  Criterion 10 samples / 1 second measurement):
 
-  | body | crossover | par/ser @1024 | @4096 | @16384 |
-  |---|---|---|---|---|
-  | one multiply | ~21K-32K | **20.6x worse** | 5.64x worse | 1.30x worse |
-  | `sqrt` + `ln_1p` | ~8K | 4.10x worse | 1.07x worse | 0.27x |
-  | 24 chained FMAs | ~512-1024 | 0.25x (wins) | 0.10x | 0.09x |
+  | body | crossover | evidence |
+  |---|---|---|
+  | one multiply | 4,096-8,192 | serial/parallel medians 1.532/1.954 us at 4,096 and 3.028/2.004 us at 8,192 |
+  | `sqrt` + `ln_1p` | 512-1,024 | serial/parallel medians 1.536/1.951 us at 512 and 3.047/2.096 us at 1,024 |
+  | 24 chained FMAs | below 512 | serial/parallel medians 14.287/4.924 us at the smallest retained size, 512 |
 
-  Below the threshold every weight measures par/ser ~= 1.0, so the routing
-  works; only the line's position is in question.
-- **The doc was wrong, and is fixed.** It claimed that below 1024 dispatch
-  overhead "typically exceeds the benefit of parallelism". For a cheap body
-  that holds up to roughly 21K, not 1024 — the opposite of what the constant
-  asserts above its own value. `policy.rs` now carries the measurement, the
-  body-weight assumption the value encodes, and the escape hatches
-  (`Sequential` / `Parallel` for callers who know their body).
+- **Implication.** The count-only threshold still cannot fit all bodies. At
+  1,024 a multiply-only reduction remains slower in parallel, while the
+  compute-heavy bodies already benefit. `Sequential` and `Parallel` remain the
+  explicit choices for callers with known body cost; changing the count without
+  a consumer-weight model remains rejected.
 - **Deliberately not raised.** Raising it to fit a cheap body would serialize
   heavy consumers over exactly the range where they win: apollo's
   spherical-harmonic mode loops fold an expensive body through `Adaptive` at
-  these sizes, and a heavy body measures 4x better parallel at n = 1024. One
-  count cannot serve both, and changing it blind trades a measured 20.6x loss
-  for an unmeasured regression in a consumer not instrumentable from here.
-- **Re-open trigger:** `MOI-DISPATCH-FLOOR-2026-08-31` lands, or a decision is
-  taken on which body weight `Adaptive` targets.
+  these sizes, and the retained compute-heavy rows already win at 1,024. One
+  count cannot serve both, and changing it without consumer evidence trades
+  one measured regime for an unmeasured consumer regression.
+- **Re-open trigger:** a consumer supplies a representative body-cost
+  distribution or a body-cost-aware policy is specified without adding
+  per-element dispatch.
 
-## MOI-DISPATCH-FLOOR-2026-08-31 — The data-parallel dispatch floor is ~11.9 us [minor] [perf] — todo
+## MOI-DISPATCH-FLOOR-2026-08-31 — Keep indexed CPU work on compute workers [patch] [perf] — review
 
-- **Finding.** Every `Adaptive`/`Parallel` operation pays ~11.9 us before any
-  work happens, flat across n = 1024 to 65536.
-  `map_reduce_indexed` in `schedule/runtime/scheduler/data_parallel.rs`
-  allocates `ReduceSlots` and spawns one task per worker chunk, then joins —
-  roughly 600 ns per spawn at this host's worker count.
-- **Why it matters.** It sets the crossover for every parallel operation in the
-  stack. At ~11.9 us a cheap body needs ~21K elements before parallelism pays;
-  at 2 us it would need ~3.5K, close enough to the current threshold that
-  `Adaptive` would be roughly right for every body weight instead of one. That
-  makes this the better of the two ways out of
-  `MOI-ADAPTIVE-THRESHOLD-PREMISE-2026-08-31`.
-- **Direction, not prescription.** A persistent worker barrier with
-  pre-registered chunk bounds avoids per-call task construction; static
-  distribution avoids the slot allocation. Both are executor changes needing
-  their own measurement, and any candidate must hold value parity and the
-  existing panic-propagation behaviour.
+- **Integrator:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d`.
+- **Lease:** none. Instrument `0a267f9`, source/docs candidate `d2fc4d4`, and
+  raw-sample evidence correction `1ad24e3` are published in PR #205; base
+  `eed1c54`; last update 2026-08-31.
+- **Finding.** The public `Moirai::{for_each_indexed,map_reduce_indexed}` facade
+  classified CPU-bound data-parallel work as `BlockingTask`. After ADR-021,
+  that marker uses the dedicated blocking lane, so indexed-only runtimes lazily
+  construct blocking workers and pay the wrong scheduling path. The generic
+  executor seams and `Moirai::scope` retain their existing work-class contracts.
+- **Candidate.** Route only the two CPU-bound facade methods through `SyncTask`.
+  A thread-provenance regression asserts exact reduction values, compute-worker
+  execution, and no blocking-lane execution. No persistent barrier, scheduler
+  topology, task-count, arithmetic, or benchmark change is required.
+- **Measured evidence.** Raw `map_reduce_indexed` sample medians fall from
+  2.190 to 1.765 us at 1,024 (-19.4%), 2.022 to 1.653 us at 4,096 (-18.2%),
+  3.039 to 2.173 us at 16,384 (-28.5%), and 8.113 to 4.015 us at 65,536
+  (-50.5%). The one-multiply parallel median falls 43.4% at 4,096 and 32.9%
+  at 8,192; the serial controls move +0.5% and -0.7% respectively.
 - **Acceptance.** The floor measured by the same probe drops materially, and
-  the threshold item is re-derived against it.
+  the threshold item is re-derived against it. Exact indexed coverage,
+  allocation and panic contracts, nested use, warning-denied Clippy, package
+  Nextest, Rustdoc/doctests, release tests, and same-instrument Criterion
+  baseline evidence pass on the exact candidate. Reject a candidate that
+  changes values or moves cost into an unmeasured lifecycle boundary.
+- **Verification.** Runtime all-feature Nextest passes 28/28, the release
+  routing regression and warmed allocation census pass 1/1 each, benchmark
+  contracts pass 1/1, and warning-denied all-target/all-feature Clippy,
+  Rustdoc, doctests 7/7, formatting, and diff checks are green. Independent
+  exact-Git review of `eed1c54..d2fc4d4` is GREEN; hosted collection and merge
+  remain pending.
 
 ## MOI-CHUNK-ARRAYS-2026-08-29 — Homogeneous multi-buffer chunks [minor] — done
 

@@ -3,6 +3,8 @@
 //! This benchmark isolates spawn, dispatch, execution, and join overhead for
 //! small ready tasks across Moirai's unified scheduler, Tokio, and Rayon.
 
+#[path = "thread_schedule_comparison/dispatch_floor.rs"]
+mod dispatch_floor;
 #[path = "thread_schedule_comparison/local_queue_capacity.rs"]
 mod local_queue_capacity;
 #[path = "thread_schedule_comparison/steal_batch_gate.rs"]
@@ -785,6 +787,7 @@ criterion_group!(
     bench_mixed_unified_schedule,
     bench_real_application_mixed_workload,
     bench_standalone_deque_reclaim_policy,
+    dispatch_floor::bench,
     local_queue_capacity::bench,
     steal_batch_gate::bench
 );
