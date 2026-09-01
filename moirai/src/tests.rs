@@ -145,6 +145,50 @@ fn test_indexed_map_reduce_returns_value() {
 }
 
 #[test]
+fn indexed_cpu_work_uses_compute_workers() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn observe_lane(saw_compute: &AtomicBool, saw_blocking: &AtomicBool) {
+        let current = std::thread::current();
+        let Some(name) = current.name() else {
+            return;
+        };
+        saw_compute.fetch_or(name.contains("-worker-"), Ordering::Relaxed);
+        saw_blocking.fetch_or(name.contains("-blocking-"), Ordering::Relaxed);
+    }
+
+    let moirai = Moirai::builder().worker_threads(2).build().unwrap();
+    let saw_compute = AtomicBool::new(false);
+    let saw_blocking = AtomicBool::new(false);
+
+    moirai
+        .for_each_indexed(4_096, |_| observe_lane(&saw_compute, &saw_blocking))
+        .unwrap();
+    let reduced = moirai
+        .map_reduce_indexed(
+            4_096,
+            0usize,
+            |index| {
+                observe_lane(&saw_compute, &saw_blocking);
+                index + 1
+            },
+            usize::wrapping_add,
+        )
+        .unwrap();
+
+    assert_eq!(reduced, 4_096 * 4_097 / 2);
+    assert!(
+        saw_compute.load(Ordering::Relaxed),
+        "indexed CPU work must reach the compute-worker pool"
+    );
+    assert!(
+        !saw_blocking.load(Ordering::Relaxed),
+        "indexed CPU work must not initialize or execute on the blocking lane"
+    );
+    moirai.shutdown();
+}
+
+#[test]
 fn test_join_waits_for_public_spawned_tasks() {
     let moirai = Moirai::builder().worker_threads(2).build().unwrap();
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
