@@ -50,6 +50,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Dropping the final external `ThreadScheduler` handle now drains and releases
+  its worker pool. Worker-owned scheduler state no longer makes the automatic
+  shutdown condition unreachable. Only non-worker callers enter the join
+  election; scheduler workers close the blocking lane and return before joining
+  any peer, while external callers remain synchronous. A worker-owned final
+  handle releases scheduler state as the drained worker loops return.
+  Completion is published under the waiter mutex so a concurrent external
+  caller cannot miss the condition-variable notification.
+  Compute admission now publishes pending work before its single shutdown
+  observation, preventing workers from exiting between validation and queue
+  publication. Cloned-handle and successful scheduling behavior remain
+  unchanged.
 - Re-publish each worker's idle bit before every park attempt. If a producer
   consumed the previous bit but another worker drained that task first, the
   re-parking worker remains visible to the next wake lottery instead of relying

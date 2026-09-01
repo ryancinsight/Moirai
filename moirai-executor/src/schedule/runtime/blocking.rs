@@ -4,7 +4,7 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, OnceLock,
     },
     thread::{self, JoinHandle},
 };
@@ -27,6 +27,7 @@ struct BlockingQueue {
     state: Mutex<BlockingQueueState>,
     wake: Condvar,
     capacity: usize,
+    thread: OnceLock<thread::Thread>,
 }
 
 struct BlockingQueueState {
@@ -46,6 +47,7 @@ impl BlockingQueue {
             }),
             wake: Condvar::new(),
             capacity,
+            thread: OnceLock::new(),
         }
     }
 
@@ -152,6 +154,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize> BlockingLane<BLOCKING_QUEUE_CAPACITY>
             let inner = Arc::clone(&inner);
             let thread_name = format!("{thread_name_prefix}-blocking-{lane_id}");
             let handle = match thread::Builder::new().name(thread_name).spawn(move || {
+                let _ = queue.thread.set(thread::current());
                 while let Some(job) = queue.pop() {
                     let worker_id = inner.workers.len() + lane_id;
                     execute_blocking_job(&inner, worker_id, job);
@@ -189,11 +192,29 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize> BlockingLane<BLOCKING_QUEUE_CAPACITY>
     }
 
     pub(super) fn shutdown(&self) {
+        self.close();
+        self.join();
+    }
+
+    pub(super) fn close(&self) {
         for queue in &self.queues {
             queue.close();
         }
-        let mut handles = lock_mutex(&self.handles);
+    }
+
+    pub(super) fn join(&self) {
+        let mut handles = std::mem::take(&mut *lock_mutex(&self.handles));
         join_other_threads(&mut handles);
+    }
+
+    pub(super) fn is_current_worker(&self) -> bool {
+        let current = thread::current().id();
+        self.queues.iter().any(|queue| {
+            queue
+                .thread
+                .get()
+                .is_some_and(|worker| worker.id() == current)
+        })
     }
 }
 

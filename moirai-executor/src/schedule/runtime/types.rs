@@ -6,7 +6,7 @@ use std::{
     marker::PhantomData,
     ptr::NonNull,
     sync::{
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering},
         Arc, Condvar, Mutex, OnceLock,
     },
     thread::{self, JoinHandle},
@@ -47,6 +47,10 @@ pub struct ScheduleMetrics {
 /// is independent of this value (the spin never engages while work is
 /// available), so latency-critical deployments can raise it for sub-µs wake
 /// latency at the cost of more pre-park busy-spin.
+///
+/// Clones share one worker pool. Dropping the final external handle drains the
+/// pool and releases its workers; an explicit [`shutdown`](Self::shutdown) may
+/// still stop the shared pool earlier.
 pub struct ThreadScheduler<
     const BLOCKING_QUEUE_CAPACITY: usize = 256,
     const SPIN_LIMIT: usize = 8192,
@@ -137,9 +141,12 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize> Clone
     for ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
 {
     fn clone(&self) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-        }
+        let inner = Arc::clone(&self.inner);
+        // Relaxed: the cloned `Arc` already protects the shared state; this
+        // counter only elects which external handle performs final shutdown.
+        let previous = inner.external_handles.fetch_add(1, Ordering::Relaxed);
+        debug_assert!(previous > 0, "scheduler handle count must stay positive");
+        Self { inner }
     }
 }
 
@@ -162,6 +169,12 @@ pub struct SchedulerScope<
 pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     pub(super) workers: Box<[Arc<WorkerState>]>,
     pub(super) handles: Mutex<Vec<JoinHandle<()>>>,
+    /// Counts only public scheduler handles, excluding worker-owned `Arc`s.
+    ///
+    /// Cloning and dropping handles are cold lifecycle operations. The final
+    /// decrement initiates shutdown while its `ThreadScheduler` still owns an
+    /// `Arc`, so worker joins complete before shared state can be released.
+    pub(super) external_handles: AtomicUsize,
     pub(super) pending_tasks: CacheAligned<AtomicUsize>,
     pub(super) active_workers: CacheAligned<AtomicUsize>,
     pub(super) blocking_pending_tasks: CacheAligned<AtomicUsize>,
@@ -170,6 +183,8 @@ pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     pub(super) failed_tasks: CacheAligned<AtomicU64>,
     pub(super) admission_caller_runs: CacheAligned<AtomicU64>,
     pub(super) shutdown: CacheAligned<AtomicBool>,
+    /// Coordinates the single cold-path owner that joins scheduler workers.
+    pub(super) shutdown_join_state: AtomicU8,
     pub(super) join_waiters: CacheAligned<AtomicUsize>,
     pub(super) wait_lock: Mutex<()>,
     pub(super) wait_signal: Condvar,
@@ -186,6 +201,9 @@ pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     /// Serializes only first-use initialization and shutdown, not submissions.
     pub(super) blocking_lane_init: Mutex<()>,
     pub(super) blocking_lane_prefix: Box<str>,
+    /// Test-only rendezvous immediately after shutdown publication.
+    #[cfg(test)]
+    pub(super) shutdown_started_barrier: OnceLock<Arc<std::sync::Barrier>>,
     /// Cold-path ownership anchor installed once by the executor facade.
     ///
     /// Dynamic type erasure is confined to this construction/destruction

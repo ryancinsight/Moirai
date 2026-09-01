@@ -16,6 +16,18 @@ and deadlock a saturated nested scope.
 **Revision (fourth)**: 2026-08-31 — public indexed CPU fan-out and reduction
 route through `SyncTask`; classifying them as `BlockingTask` violated ADR-021's
 dedicated-lane boundary and lazily constructed blocking workers.
+**Revision (fifth)**: 2026-08-31 — final external scheduler ownership is
+tracked independently from worker-held state so implicit teardown drains and
+joins workers without weakening their lifetime anchor.
+**Revision (sixth)**: 2026-08-31 — shutdown elects one join owner, never waits
+while retaining worker-handle locks, and linearizes compute admission against
+worker exit through the existing pending-work publication. Join completion is
+published under the waiter mutex so an external caller cannot miss the sole
+condition-variable notification.
+**Revision (seventh)**: 2026-08-31 — scheduler workers close the blocking lane
+and return before the join election. Only non-worker callers join peers; a
+worker-owned final handle instead releases scheduler state as the drained worker
+loops return, preventing worker dependency cycles.
 
 ### Decision
 
@@ -24,6 +36,27 @@ dedicated-lane boundary and lazily constructed blocking workers.
 ### Rationale
 
 - One worker set removes the prior multi-engine split between worker queues and ad hoc async polling.
+- Scheduler workers retain strong ownership of shared state through task return.
+  A separate atomic count tracks only external `ThreadScheduler` handles; its
+  final transition invokes the idempotent shutdown path. External final owners
+  join synchronously. Worker final owners close the blocking lane and return;
+  drained worker loops then release their strong ownership naturally. This
+  avoids the ownership cycle in the former `Arc::strong_count` drop guard
+  without converting workers to weak references or adding scheduling-path work.
+- Concurrent non-worker shutdown callers elect one cold-path join owner. The
+  owner moves compute and blocking handles out of their mutexes before joining,
+  while other external callers wait on the existing quiescence condition
+  variable. Scheduler workers close the blocking lane and return before the
+  election, so they never join a peer that can depend on code after shutdown
+  returns. The owner publishes the completed predicate under the condition
+  variable's mutex, closing the check-to-wait notification window. This prevents
+  same-pool and cross-lane join cycles without adding scheduling-path allocation
+  or lock traffic.
+- Compute admission increments the pending counter before its one shutdown
+  observation. The producer and no-work worker use a SeqCst StoreLoad handshake:
+  either admission observes shutdown and rolls back, or the worker observes the
+  pending publication and stays alive to drain it. Blocking admission remains
+  linearized by its bounded queue mutex and closed state.
 - ZST work-class markers keep dispatch monomorphized before heterogeneous queue storage.
 - Per-worker priority queues preserve priority ordering without cloning scheduler algorithms per task class.
 - Per-task lifecycle records remove global registry lock contention from task execution start/completion paths.
