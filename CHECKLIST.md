@@ -2,6 +2,38 @@
 
 **Target**: Unreleased
 
+## MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01 [patch] [arch] — todo
+
+- **Finding (stack audit 2026-09-01):** `moirai-scheduler/src/numa/topology.rs`
+  mirrors themis's `CpuTopology`/`NumaNode`/`CacheLevel` and answers
+  `distance()` differently: themis picks id-vs-compact-index by row length,
+  this mirror always indexes `distances[to_node]` by raw node id, so on a
+  sparse-node Linux host with real SLIT rows the two disagree. It also folds
+  `cache_levels().unwrap_or(&[])`, converting themis's typed absence into
+  "zero cache levels" — the exact fabrication themis's docs warn against.
+- **Scope:** ~90% of the mirror is dead — no call site exists for `distance`,
+  `adjacent_nodes`, `cores_in_same_node`, or `.cache_levels`. Keep only
+  `logical_cores` and `core_to_numa_node` (or hold `themis::CpuTopology`
+  directly) and delete the rest. Layering is fine: moirai already depends on
+  themis, the edge is downward.
+- **Watch:** `benchmarks/tests/benchmark_contracts/scheduler_source_contracts.rs`
+  asserts the re-export line as source text, so deletion trips that contract.
+- **Acceptance:** one authority for node distance and cache levels; absence
+  preserved rather than flattened; the source contract updated deliberately.
+
+## MOI-WORKER-CORE-PREMISE-2026-09-01 [patch] — todo
+
+- **Finding (stack audit 2026-09-01):** `moirai-executor/src/schedule/runtime/
+  scheduler/construction.rs` derives `core_id = worker_id % logical_cores` and
+  feeds it to `core_to_numa_node` to build `worker_numa_nodes`. Workers are
+  never pinned, so "worker N runs on core N" is fiction and the table is a
+  guess presented as topology.
+- **Outcome:** either bind workers so the premise becomes true, or report
+  `None` and delete the derived table. Do not keep a fabricated placement
+  answer — it is the failure mode themis's absence discipline exists to stop.
+- **Acceptance:** no placement claim survives that the runtime does not
+  actually enforce.
+
 ## MOI-ITER-ORDERED-OUTPUT-STORAGE-2026-09-01 — Compact retained ordered outputs [patch] [perf] — reviewed; merge pending
 
 - **Outcome:** replace per-position `Option<Output>` staging with output storage
