@@ -106,9 +106,9 @@ architecture definition.
   Stop with the instrument if baseline attribution or performance acceptance
   fails.
 - **Integrator:** Codex session `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-map-direct-output`; lease covers `moirai-iter` iter-ops map/tests,
-  one retained allocation/throughput instrument, CHANGELOG, and this item's PM
-  regions; status: in progress; last update 2026-09-01.
+  `perf/iter-map-direct-output`; implementation lease discharged at source
+  `924f5d9`; lease: none; status: independently reviewed, PR #222 pending;
+  last update 2026-09-01.
 - **Entry evidence:** the unchanged warmed 131,072-item public map makes 114
   allocation calls totalling 3,815,568 gross allocated bytes, 3.64× its
   1,048,576-byte final output. The retained x86-64 Windows Criterion row has a
@@ -121,7 +121,10 @@ architecture definition.
   0.3016–0.3205 ms), 75.8% below entry with disjoint intervals. Debug and
   release value/drop coverage are 226/226 green in each profile; focused Miri
   coverage is 3/3 for allocation transfer, partial initialization cleanup, and
-  zero-sized output. Independent review and merge closure remain pending.
+  zero-sized output. Public-path Miri stops at the unsupported Windows NUMA call
+  before this code. Exact-baseline SemVer passes 223 checks, and independent
+  review of `7f7b279...924f5d9` is GREEN. PR #222 and hosted merge closure
+  remain pending.
 
 ### ✅ MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
 

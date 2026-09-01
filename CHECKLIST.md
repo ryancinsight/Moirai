@@ -2,7 +2,7 @@
 
 **Target**: Unreleased
 
-## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — in progress
+## MOI-ITER-MAP-DIRECT-OUTPUT-2026-09-01 — Remove shard-local map outputs [patch] [perf] — reviewed; merge pending
 
 - **Outcome:** write chunked `ParallelIter::map` results directly into one
   ordered full-output allocation, removing shard-local output vectors and the
@@ -23,9 +23,8 @@
   Stop with the instrument if the baseline misses fan-out, lacks the duplicate
   full output, or paired intervals establish a regression.
 - **Integrator / lease:** Codex `01a0253c-6013-7552-99cc-36bbbcf77f6d` on
-  `perf/iter-map-direct-output`; lease covers `moirai-iter` iter-ops map/tests,
-  one retained allocation/throughput instrument, CHANGELOG, and this item's PM
-  regions. Last update 2026-09-01.
+  `perf/iter-map-direct-output`; implementation lease discharged at source
+  `924f5d9`; lease: none. PR #222 remains pending. Last update 2026-09-01.
 - **Entry baseline:** the unchanged warmed public map at 131,072 `u64` values
   makes 114 allocation calls totalling 3,815,568 gross allocated bytes, 3.64×
   the 1,048,576-byte final output. The retained x86-64 Windows Criterion row
@@ -39,8 +38,10 @@
   The retained median is 0.3180 ms (95% CI 0.3016–0.3205 ms), a 75.8% reduction
   with disjoint intervals. Debug and release value/drop coverage are 226/226
   green in each profile; focused Miri coverage is 3/3 for allocation transfer,
-  partial initialization cleanup, and zero-sized output. Independent review and
-  merge closure remain pending.
+  partial initialization cleanup, and zero-sized output. Public-path Miri stops
+  at the unsupported Windows NUMA call before this code. Exact-baseline SemVer
+  passes 223 checks, and independent review of `7f7b279...924f5d9` is GREEN.
+  PR #222 and hosted merge closure remain pending.
 
 ## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — done 2026-09-01
 
