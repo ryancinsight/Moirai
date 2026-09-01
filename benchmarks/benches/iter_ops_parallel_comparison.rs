@@ -1,6 +1,6 @@
 //! Scoped `iter_ops::ParallelIter` comparison against Rayon.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use moirai_iter::iter_ops::ParallelIter;
 use rayon::prelude::*;
 use std::time::Duration;
@@ -9,18 +9,20 @@ const SAMPLE_SIZE: usize = 10;
 const WARM_UP_MILLIS: u64 = 100;
 const MEASUREMENT_MILLIS: u64 = 300;
 const WORK_ITEMS: usize = 8_192;
+const DIRECT_OUTPUT_WORK_ITEMS: usize = 131_072;
 
-fn source_data() -> Vec<u64> {
-    (0..WORK_ITEMS as u64)
+fn source_data(len: usize) -> Vec<u64> {
+    (0..len as u64)
         .map(|value| value.wrapping_mul(31).wrapping_add(7))
         .collect()
 }
 
+fn moirai_parallel_map_output(data: Vec<u64>) -> Vec<u64> {
+    ParallelIter::new(data).map(|value| value.wrapping_mul(3).wrapping_add(1))
+}
+
 fn moirai_parallel_map(data: Vec<u64>) -> u64 {
-    ParallelIter::new(data)
-        .map(|value| value.wrapping_mul(3).wrapping_add(1))
-        .into_iter()
-        .sum()
+    moirai_parallel_map_output(data).into_iter().sum()
 }
 
 fn rayon_parallel_map(data: Vec<u64>) -> u64 {
@@ -39,7 +41,12 @@ fn rayon_parallel_reduce(data: Vec<u64>) -> u64 {
 }
 
 fn iter_ops_parallel_comparison(c: &mut Criterion) {
-    let data = source_data();
+    let data = source_data(WORK_ITEMS);
+    let direct_output_data = source_data(DIRECT_OUTPUT_WORK_ITEMS);
+    let direct_output_expected = direct_output_data
+        .iter()
+        .map(|value| value.wrapping_mul(3).wrapping_add(1))
+        .collect::<Vec<_>>();
 
     assert_eq!(
         moirai_parallel_map(data.clone()),
@@ -49,6 +56,27 @@ fn iter_ops_parallel_comparison(c: &mut Criterion) {
         moirai_parallel_reduce(data.clone()),
         rayon_parallel_reduce(data.clone())
     );
+    assert_eq!(
+        moirai_parallel_map_output(direct_output_data.clone()),
+        direct_output_expected
+    );
+
+    let mut direct_output_group = c.benchmark_group("iter_ops_parallel_map_output");
+    direct_output_group.sample_size(SAMPLE_SIZE);
+    direct_output_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
+    direct_output_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
+    direct_output_group.bench_with_input(
+        BenchmarkId::new("moirai", DIRECT_OUTPUT_WORK_ITEMS),
+        &direct_output_data,
+        |b, input| {
+            b.iter_batched(
+                || input.clone(),
+                |owned| black_box(moirai_parallel_map_output(owned)),
+                BatchSize::LargeInput,
+            );
+        },
+    );
+    direct_output_group.finish();
 
     let mut map_group = c.benchmark_group("iter_ops_parallel_map");
     map_group.sample_size(SAMPLE_SIZE);

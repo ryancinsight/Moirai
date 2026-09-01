@@ -26,6 +26,12 @@
   `perf/iter-map-direct-output`; lease covers `moirai-iter` iter-ops map/tests,
   one retained allocation/throughput instrument, CHANGELOG, and this item's PM
   regions. Last update 2026-09-01.
+- **Entry baseline:** the unchanged warmed public map at 131,072 `u64` values
+  makes 114 allocation calls totalling 3,815,568 gross allocated bytes, 3.64×
+  the 1,048,576-byte final output. The retained x86-64 Windows Criterion row
+  measures a 1.3115 ms median (95% CI 1.3023–1.3420 ms). Input construction is
+  outside both measured regions; source values and every ordered result are
+  checked before accepting the instrument.
 
 ## MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 — Remove redundant batch-wake allocation [patch] [perf] — done 2026-09-01
 

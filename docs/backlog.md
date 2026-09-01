@@ -109,6 +109,11 @@ architecture definition.
   `perf/iter-map-direct-output`; lease covers `moirai-iter` iter-ops map/tests,
   one retained allocation/throughput instrument, CHANGELOG, and this item's PM
   regions; status: in progress; last update 2026-09-01.
+- **Entry evidence:** the unchanged warmed 131,072-item public map makes 114
+  allocation calls totalling 3,815,568 gross allocated bytes, 3.64× its
+  1,048,576-byte final output. The retained x86-64 Windows Criterion row has a
+  1.3115 ms median (95% CI 1.3023–1.3420 ms). The instrument excludes input
+  construction from both measured regions and checks every ordered value.
 
 ### ✅ MOI-ASYNC-WAKE-BATCH-ALLOCATION-2026-09-01 [patch] [perf]: Remove redundant batch-wake allocation
 
