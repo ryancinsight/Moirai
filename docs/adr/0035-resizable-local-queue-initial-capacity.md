@@ -9,6 +9,13 @@ Status: Accepted
 - Revision: 2026-08-28 — reduce the default initial capacity from 256 to 128
   after exact retained-footprint attribution and controlled queue-kernel
   measurements.
+- Revision: 2026-09-02 — apply the configured capacity to the default-priority
+  plane only; the other three planes start at the minimum and grow. The
+  priority factor in this decision's own retention formula was never paid for:
+  a submission carries one priority, so a consumer that never sets one uses one
+  plane. Measured on Apollo's workload shape, warm-pool local storage falls
+  from 1,572,864 to 540,672 bytes (65.6%), and the cost to a plane that *is*
+  used is one owner-side growth, after which it performs identically.
 
 ## Context
 
@@ -55,7 +62,8 @@ panics.
 `BLOCKING_QUEUE_CAPACITY` and continues to bound the independent blocking
 lane. Local worker queue types lose that const parameter. Scheduler
 construction validates the runtime local initial capacity once and passes the
-result to all four priority deques of every worker. The public
+result to the default-priority deque of every worker; the remaining planes take
+`DequeCapacity::minimum()` and grow on the owner's push (2026-09-02 revision). The public
 `new_with_config` constructor is replaced by
 `new_with_local_queue_initial_capacity`; `new` retains the default policy.
 
@@ -69,8 +77,11 @@ Growth remains the Chase-Lev algorithm's existing owner-only resize. Work is
 never rejected because a local deque reaches its initial capacity.
 
 The default initial capacity is 128 slots. At 24 workers, four 128-byte
-`ScheduledJob` planes per worker retain 1,572,864 direct bytes, half the
-3,145,728 bytes retained by the former 256-slot policy. In the final
+`ScheduledJob` planes per worker retained 1,572,864 direct bytes, half the
+3,145,728 bytes retained by the former 256-slot policy. Since the 2026-09-02
+revision only the default plane carries that capacity, so the same 24 workers
+retain 540,672 bytes: `24 x 16,384` for the default planes and `72 x 2,048` for
+the rest. In the final
 20-sample same-binary run, the warmed 15-item production-deque interval at
 128 slots was 277.34–280.56 ns and overlapped the 256-slot interval of
 280.42–282.49 ns. A cold 257-item burst was 5.412–5.550 us at 128 slots
@@ -87,6 +98,42 @@ Its warm in-place FFT remains at zero global and direct allocations for
 reaches the downstream consumer without moving allocation into its warm
 transform path.
 
+## Per-plane capacity (2026-09-02 revision)
+
+Retention here is `workers x priority levels x normalized initial capacity`,
+and the middle factor was never examined. A submission carries exactly one
+priority, so the planes are not a partition of one workload's pushes: a
+consumer that never sets a priority uses the default plane and pays for four.
+
+Counting first pushes per plane, Apollo's chunked transforms touch only the
+default plane, and across this repository's own suite the default plane is
+touched by 85 test processes against 4, 4 and 7 for the other three. The
+payload is eager and exactly `capacity x size_of::<ScheduledJob>()`, verified
+by holding planes alive while varying the capacity: 16 slots allocate 2,048
+bytes, 64 allocate 8,192, 128 allocate 16,384. Three unused planes therefore
+retain 49,152 bytes per worker.
+
+The other three planes now start at `DequeCapacity::minimum()`. Measured on
+Apollo's workload shape through Mnemosyne's own accounting, with the uniform
+policy as the paired baseline in the same probe:
+
+| policy | live plane allocations | bytes |
+|---|---|---|
+| uniform 128 | 96 x 16,384 | 1,572,864 |
+| default plane only | 24 x 16,384 + 72 x 2,048 | 540,672 |
+
+The cost falls only on a plane a workload actually uses, and it is one-time.
+Fresh-deque bursts starting at 16 slots run 1.03x-1.36x the 128-slot start for
+16 to 1,024 pushes; repeating the same burst after the plane has grown gives
+ratios of 1.00, 1.00, 1.00, 0.90 and 1.01 — the grown plane is the 128-slot
+plane. This is the trade this decision already accepted going from 256 to 128
+("one additional owner-only resize on that cold burst"), now confined to planes
+a workload does not use.
+
+Capacities 16, 32 and 64 were rejected above as the *global* capacity on a warm
+regression measured on the busy plane. That rejection is unchanged: the busy
+plane keeps 128.
+
 ## Failure modes
 
 - An unrepresentable normalization or concrete element layout returns
@@ -99,6 +146,10 @@ transform path.
 - Local growth preserves the deque's generation and reclamation protocol.
   Exactly-once behavior is verified with real owner/thief execution because
   the fixed-capacity Loom model does not model resize.
+- A non-default plane must still accept work past its minimum capacity. The
+  queue algorithm, its stealers and their publication are unchanged by the
+  2026-09-02 revision — only the initial slot count differs per plane — so that
+  revision requires no new concurrency model.
 
 ## Alternatives rejected
 
@@ -114,7 +165,16 @@ transform path.
    violate the documented at-least-requested contract.
 5. Select the 16-slot minimum. Rejected because its five-step cold growth and
    non-overlapping warm regression in one controlled run do not justify the
-   additional storage reduction over the measured 128-slot policy.
+   additional storage reduction over the measured 128-slot policy. Superseded
+   in part by the 2026-09-02 revision: the rejection stands for the busy plane
+   and is exactly why the default plane keeps 128, while a plane a workload
+   never pushes to has no warm path to regress.
+6. Allocate each plane lazily on its first push (2026-09-02). Deferred rather
+   than rejected: stealers are published eagerly from each deque, so late
+   creation needs a synchronization argument and the Loom model this decision
+   requires for queue algorithm changes. Per-plane initial capacity reaches 87%
+   of the same saving with no algorithm change, so it is the increment taken
+   first. Tracked as ISSUE-226.
 
 ## Migration
 

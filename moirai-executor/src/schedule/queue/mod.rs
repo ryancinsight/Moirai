@@ -68,8 +68,6 @@ fn steal_after_contention_with<T>(
 pub(crate) struct WorkerQueues {
     local_stealers: [ChaseLevStealer<ScheduledJob>; PRIORITY_LEVELS],
     injector: moirai_utils::queue::LockFreeQueue<(Priority, ScheduledJob)>,
-    #[cfg(test)]
-    local_queue_initial_capacity: usize,
     /// Advisory fast-path count used to skip checking when the queues are visibly
     /// empty. The owner writes it on every push/pop and thieves write it on every
     /// `steal_batch`, so it is cache-line isolated to keep those cross-thread RMWs
@@ -89,18 +87,37 @@ impl WorkerQueues {
         injector_capacity: usize,
         local_queue_capacity: DequeCapacity<ScheduledJob>,
     ) -> (WorkerQueueOwner, Arc<Self>) {
-        let local_queues = [
-            ChaseLevDeque::new(local_queue_capacity),
-            ChaseLevDeque::new(local_queue_capacity),
-            ChaseLevDeque::new(local_queue_capacity),
-            ChaseLevDeque::new(local_queue_capacity),
-        ];
+        // Only the default-priority plane starts at the configured capacity.
+        //
+        // Every plane is the same size, so the retained storage is
+        // `priority levels x capacity`, but a workload's pushes are not spread
+        // over the planes: a submission carries one priority, and a consumer
+        // that never sets one uses the default plane exclusively. Measured by
+        // counting first pushes per plane, Apollo's chunked transforms touch
+        // only the default plane, and across this workspace's own suite the
+        // default plane is touched by 85 test processes against 4, 4 and 7 for
+        // the other three.
+        //
+        // The three unused planes are not free: the payload is eager and
+        // exactly `capacity x size_of::<ScheduledJob>()`, so at the 128-slot
+        // default they retain 16,384 bytes each, 49,152 bytes per worker.
+        // Starting them at the minimum keeps the busy plane's measured policy
+        // (ADR 0035) untouched while the others pay 2,048 bytes and grow on the
+        // owner's push if work does arrive -- the same resize the algorithm
+        // already performs, and the same trade ADR 0035 accepted when it took
+        // the default from 256 to 128.
+        let default_plane = Priority::default().index();
+        let local_queues = std::array::from_fn(|plane| {
+            ChaseLevDeque::new(if plane == default_plane {
+                local_queue_capacity
+            } else {
+                DequeCapacity::minimum()
+            })
+        });
         let local_stealers = std::array::from_fn(|index| local_queues[index].stealer());
         let shared = Arc::new(Self {
             local_stealers,
             injector: moirai_utils::queue::LockFreeQueue::with_capacity(injector_capacity),
-            #[cfg(test)]
-            local_queue_initial_capacity: local_queue_capacity.get(),
             len: CacheAligned::new(AtomicUsize::new(0)),
         });
         (
@@ -162,10 +179,14 @@ impl WorkerQueues {
         self.injector.capacity()
     }
 
-    /// Normalized initial slot count of each local priority queue.
+    /// Allocated slot count of each local priority plane, read from the deques.
+    ///
+    /// Reads the live arrays through the stealers rather than a recorded
+    /// intent, so a test of the per-plane policy fails when the construction
+    /// changes.
     #[cfg(test)]
-    pub(crate) fn local_queue_initial_capacity(&self) -> usize {
-        self.local_queue_initial_capacity
+    pub(crate) fn local_queue_capacities(&self) -> [usize; PRIORITY_LEVELS] {
+        std::array::from_fn(|plane| self.local_stealers[plane].capacity())
     }
 }
 
@@ -331,7 +352,68 @@ mod tests {
     fn local_queues_use_the_normalized_initial_capacity() {
         let (_owner, queues) = WorkerQueues::new(TEST_INJECTOR_CAPACITY, local_capacity(17));
 
-        assert_eq!(queues.local_queue_initial_capacity(), 32);
+        assert_eq!(
+            queues.local_queue_capacities()[Priority::default().index()],
+            32
+        );
+    }
+
+    #[test]
+    fn only_the_default_priority_plane_carries_the_configured_capacity() {
+        // Retained local storage is `priority levels x capacity`, but a
+        // consumer that never sets a priority uses one plane. The other three
+        // start at the minimum and grow on push, so an unused plane costs
+        // 2,048 bytes rather than 16,384 at the 128-slot default.
+        let (_owner, queues) = WorkerQueues::new(TEST_INJECTOR_CAPACITY, local_capacity(128));
+        let capacities = queues.local_queue_capacities();
+        let minimum = DequeCapacity::<ScheduledJob>::minimum().get();
+
+        for (plane, capacity) in capacities.iter().copied().enumerate() {
+            if plane == Priority::default().index() {
+                assert_eq!(capacity, 128, "default plane keeps the configured capacity");
+            } else {
+                assert_eq!(capacity, minimum, "plane {plane} starts at the minimum");
+            }
+        }
+        assert!(
+            minimum < 128,
+            "the minimum must actually be smaller, or this policy saves nothing"
+        );
+    }
+
+    #[test]
+    fn a_non_default_plane_grows_past_its_minimum_initial_capacity() {
+        // The saving is only sound because the deque grows on the owner's
+        // push. Drive a minimum-capacity plane well past its initial slots
+        // through the injector and require every job back.
+        let minimum = DequeCapacity::<ScheduledJob>::minimum().get();
+        let count = minimum * 4;
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let (mut owner, queues) = WorkerQueues::new(count * 2, local_capacity(128));
+
+        for value in 0..count {
+            let sink = Arc::clone(&observed);
+            let () = queues
+                .try_push_external(
+                    Priority::Critical,
+                    ScheduledJob::new(move |_| sink.lock().unwrap().push(value)),
+                )
+                .map_or((), |_| panic!("injector sized for the whole burst"));
+        }
+
+        let mut drained = 0;
+        while let Some(job) = owner.pop_local() {
+            job.execute(0);
+            drained += 1;
+        }
+
+        assert_eq!(
+            drained, count,
+            "every job queued past the minimum initial capacity ran"
+        );
+        let mut values = observed.lock().unwrap().clone();
+        values.sort_unstable();
+        assert_eq!(values, (0..count).collect::<Vec<_>>());
     }
 
     #[test]
