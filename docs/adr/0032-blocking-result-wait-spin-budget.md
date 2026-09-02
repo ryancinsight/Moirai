@@ -1,4 +1,4 @@
-# ADR-032: Blocking Result Wait Spin Budget
+# ADR 0032: Blocking Result Wait Spin Budget
 
 Status: Accepted
 

@@ -1,4 +1,4 @@
-# ADR-019: Help-while-waiting scheduler scope (nested-scope soundness)
+# ADR 0019: Help-while-waiting scheduler scope (nested-scope soundness)
 
 Status: Accepted
 

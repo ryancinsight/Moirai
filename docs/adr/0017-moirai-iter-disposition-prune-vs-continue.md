@@ -1,4 +1,4 @@
-# ADR-017: moirai-iter Disposition (prune vs continue)
+# ADR 0017: moirai-iter Disposition (prune vs continue)
 
 Status: Accepted
 

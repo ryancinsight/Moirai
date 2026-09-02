@@ -1,4 +1,4 @@
-# ADR-003: Zero-Copy Communication Primitives
+# ADR 0003: Zero-Copy Communication Primitives
 
 Status: Accepted
 

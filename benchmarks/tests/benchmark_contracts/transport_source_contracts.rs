@@ -162,7 +162,7 @@ fn scheduler_routes_bind_to_archived_transport_without_fake_remote_execution() {
     }
 
     for required in [
-        "ADR-008: Scheduler Route Consumption and Transport Ownership Boundary",
+        "ADR 0008: Scheduler Route Consumption and Transport Ownership Boundary",
         "Route values are metadata until a transport backend consumes them",
         "Mnemosyne allocator handoff is an owned-byte transfer contract",
         "TransportPayload<R>` tags archive bytes with sealed thread, process, server, and device payload regions",

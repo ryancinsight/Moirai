@@ -1,4 +1,4 @@
-# ADR-035: Resizable local-queue initial capacity
+# ADR 0035: Resizable local-queue initial capacity
 
 Status: Accepted
 

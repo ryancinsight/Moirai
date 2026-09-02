@@ -1,4 +1,4 @@
-# ADR-010: Rayon-Style Transform Adapter Expansion
+# ADR 0010: Rayon-Style Transform Adapter Expansion
 
 Status: Accepted
 

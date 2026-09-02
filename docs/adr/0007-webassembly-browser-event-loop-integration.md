@@ -1,4 +1,4 @@
-# ADR-007: WebAssembly Browser Event-Loop Integration
+# ADR 0007: WebAssembly Browser Event-Loop Integration
 
 Status: Accepted
 

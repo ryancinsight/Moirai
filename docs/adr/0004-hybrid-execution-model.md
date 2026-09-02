@@ -1,4 +1,4 @@
-# ADR-004: Hybrid Execution Model
+# ADR 0004: Hybrid Execution Model
 
 Status: Accepted
 

@@ -1,4 +1,4 @@
-# ADR-009: Parallel Iterator Vertical Split
+# ADR 0009: Parallel Iterator Vertical Split
 
 Status: Accepted
 

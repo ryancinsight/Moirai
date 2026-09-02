@@ -1,4 +1,4 @@
-# ADR-036: Natural alignment for inline scheduler jobs
+# ADR 0036: Natural alignment for inline scheduler jobs
 
 Status: Accepted
 

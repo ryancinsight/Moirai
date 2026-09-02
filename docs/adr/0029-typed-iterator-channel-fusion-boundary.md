@@ -1,4 +1,4 @@
-# ADR-029: Typed Iterator Channel Fusion Boundary
+# ADR 0029: Typed Iterator Channel Fusion Boundary
 
 Status: Accepted
 

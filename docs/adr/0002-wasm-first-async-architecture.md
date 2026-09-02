@@ -1,4 +1,4 @@
-# ADR-002: WASM-First Async Architecture
+# ADR 0002: WASM-First Async Architecture
 
 Status: Accepted
 

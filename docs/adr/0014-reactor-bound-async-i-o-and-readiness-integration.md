@@ -1,4 +1,4 @@
-# ADR-014: Reactor-Bound Async I/O and Readiness Integration
+# ADR 0014: Reactor-Bound Async I/O and Readiness Integration
 
 Status: Accepted
 

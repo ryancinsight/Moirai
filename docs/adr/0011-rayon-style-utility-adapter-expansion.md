@@ -1,4 +1,4 @@
-# ADR-011: Rayon-Style Utility Adapter Expansion
+# ADR 0011: Rayon-Style Utility Adapter Expansion
 
 Status: Accepted
 

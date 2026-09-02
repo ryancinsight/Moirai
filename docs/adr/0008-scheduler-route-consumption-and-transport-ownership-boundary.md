@@ -1,4 +1,4 @@
-# ADR-008: Scheduler Route Consumption and Transport Ownership Boundary
+# ADR 0008: Scheduler Route Consumption and Transport Ownership Boundary
 
 Status: Accepted
 

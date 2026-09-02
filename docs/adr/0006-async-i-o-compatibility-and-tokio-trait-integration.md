@@ -1,4 +1,4 @@
-# ADR-006: Async I/O Compatibility and Tokio Trait Integration
+# ADR 0006: Async I/O Compatibility and Tokio Trait Integration
 
 Status: Accepted
 

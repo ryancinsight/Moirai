@@ -1,4 +1,4 @@
-# ADR-024: SpscChannel is reached only through its halves
+# ADR 0024: SpscChannel is reached only through its halves
 
 Status: Accepted
 

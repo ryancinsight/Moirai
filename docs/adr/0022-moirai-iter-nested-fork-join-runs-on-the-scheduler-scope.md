@@ -1,4 +1,4 @@
-# ADR-022: moirai-iter nested fork-join runs on the scheduler scope
+# ADR 0022: moirai-iter nested fork-join runs on the scheduler scope
 
 Status: Accepted
 

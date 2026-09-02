@@ -1,4 +1,4 @@
-# ADR-016: One Ring-Buffer Core and One Channel Family in moirai-core
+# ADR 0016: One Ring-Buffer Core and One Channel Family in moirai-core
 
 Status: Proposed
 

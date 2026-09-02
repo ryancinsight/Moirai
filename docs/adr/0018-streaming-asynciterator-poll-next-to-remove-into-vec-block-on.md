@@ -1,4 +1,4 @@
-# ADR-018: Streaming AsyncIterator (poll_next) to remove into_vec block_on
+# ADR 0018: Streaming AsyncIterator (poll_next) to remove into_vec block_on
 
 Status: Proposed
 

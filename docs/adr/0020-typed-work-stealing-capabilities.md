@@ -1,4 +1,4 @@
-# ADR-020: Typed work-stealing capabilities
+# ADR 0020: Typed work-stealing capabilities
 
 Status: Accepted
 
