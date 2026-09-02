@@ -44,8 +44,6 @@ pub mod communication;
 #[cfg(all(any(unix, windows), feature = "std"))]
 pub mod ipc;
 
-// pub mod hybrid; // Removed: Duplicate implementation, using moirai-executor::HybridExecutor instead
-
 // Core type definitions
 pub use error::{ExecutorError, SchedulerError, TaskError};
 pub use executor::{ExecutorConfig, TaskManager, TaskSpawner, TaskStatus};
