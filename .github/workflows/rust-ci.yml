@@ -45,6 +45,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Public-surface compatibility, informational on pull requests: the
+  # detected change class is visible while the change is still in
+  # review. The blocking comparison runs on release.
+  # Atlas ATLAS-SEMVER-GATE-FLEETWIDE-2026-08-28.
+  semver:
+    name: SemVer gate
+    uses: ryancinsight/atlas/.github/workflows/semver-gate.yml@da9d549bc50dbb9c4e1d18dca8f37d17059098cb
+    with:
+      package: moirai-async-macros,moirai-async,moirai-core,moirai-crypto,moirai-executor,moirai-gpu,moirai-http,moirai-iter,moirai-metrics,moirai-pal,moirai-parallel,moirai-scheduler,moirai-sync,moirai-tls,moirai-transport,moirai-utils,moirai-runtime
+      rust-toolchain: 1.97.0
+    permissions:
+      contents: read
+
   adr-index:
     name: ADR index is current
     # atlas owns the one generator (ATLAS-ADR-FORM-NORMALIZATION-2026-09-02); strict: the ADRs carry the canonical heading form and numbering.
