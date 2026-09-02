@@ -490,7 +490,7 @@ fn configured_local_capacity_reaches_every_worker_after_normalization() {
         .inner
         .workers
         .iter()
-        .map(|worker| worker.queues.local_queue_initial_capacity())
+        .map(|worker| worker.queues.local_queue_capacities()[Priority::default().index()])
         .collect::<Vec<_>>();
 
     assert_eq!(capacities, vec![32; 3]);
@@ -504,7 +504,7 @@ fn measured_default_local_capacity_reaches_every_worker() {
         .inner
         .workers
         .iter()
-        .map(|worker| worker.queues.local_queue_initial_capacity())
+        .map(|worker| worker.queues.local_queue_capacities()[Priority::default().index()])
         .collect::<Vec<_>>();
 
     assert_eq!(capacities, vec![128; 3]);

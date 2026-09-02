@@ -1573,7 +1573,7 @@ architecture definition.
 - **Status**: Withdrawn. Superseded by ISSUE-226, which is the one lever these
   ADRs did not consider.
 
-#### ⏳ ISSUE-226 [minor] [perf] [memory]: Three of four priority planes are retained per worker and never touched
+#### 🟡 ISSUE-226 [minor] [perf] [memory]: Three of four priority planes are retained per worker and never touched — first option delivered 2026-09-02; lazy planes deferred
 - **Type**: Memory Footprint / Scheduler Allocation Policy
 - **Evidence (2026-09-02)**: `WorkerQueues::new` eagerly constructs
   `PRIORITY_LEVELS = 4` Chase-Lev deques per worker, each at the normalized
@@ -1637,9 +1637,27 @@ architecture definition.
   the measured ~1.18 MB for a single-priority consumer, no paired warm
   regression, exactly-once execution and drop preserved under real owner/thief
   execution as ADR 0035 requires.
-- **Status**: Open (filed 2026-09-02 by Claude session 03d80d33 from apollo's
-  memory sweep; lease none). Not started — it needs the ADR and Loom model
-  first.
+- **Delivered 2026-09-02 (per-plane initial capacity).** The recommended first
+  option landed: only the default-priority plane carries the configured
+  capacity; the other three take `DequeCapacity::minimum()` and grow on the
+  owner's push. ADR 0035 carries the dated revision. Measured on Apollo's
+  workload shape through Mnemosyne's accounting, against the uniform policy as
+  the paired baseline in the same probe: **1,572,864 → 540,672 bytes, a
+  1,032,192-byte (65.6%) reduction**. The cost falls only on a plane a workload
+  uses and is one-time — cold bursts at 16 slots run 1.03x-1.36x a 128-slot
+  start, and once grown the ratios are 1.00, 1.00, 1.00, 0.90, 1.01.
+  `only_the_default_priority_plane_carries_the_configured_capacity` reads the
+  live deque arrays through their stealers, not a recorded intent: an earlier
+  version of it read a bookkeeping array and passed under a deliberate
+  perturbation, which is how that was caught. It now fails with
+  `left: 128, right: 16` when the policy is reverted.
+  `a_non_default_plane_grows_past_its_minimum_initial_capacity` drives a
+  minimum plane to four times its slots and requires every job back.
+- **Status**: Deferred for the remainder. Lazy per-plane allocation would save
+  the last 13% (the default plane's own 16,384 bytes are still eager, and a
+  minimum plane still costs 2,048), and still needs the stealer-publication
+  argument and the Loom model ADR 0035 requires. Re-open when that saving is
+  worth the concurrency work; the cheap 87% is taken.
 
 #### ⏳ ISSUE-132 [minor]: Maintain bounded Rayon ecosystem expansion
 - **Type**: Compatibility / Benchmark Coverage

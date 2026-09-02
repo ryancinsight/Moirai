@@ -112,6 +112,22 @@ impl<T> DequeCapacity<T> {
     pub const fn get(self) -> usize {
         self.slots
     }
+
+    /// The smallest capacity this implementation allocates.
+    ///
+    /// A deque grows on the owner's push, so this is the right initial
+    /// capacity for a queue whose use is possible but not expected: it pays
+    /// the minimum retained storage and takes owner-only resizes if work
+    /// arrives. Callers reach it without naming the slot count or handling a
+    /// [`TryFrom`] failure that cannot occur, since the minimum is always
+    /// representable.
+    #[must_use]
+    pub const fn minimum() -> Self {
+        Self {
+            slots: MIN_DEQUE_CAPACITY,
+            element: PhantomData,
+        }
+    }
 }
 
 impl<T> TryFrom<usize> for DequeCapacity<T> {
@@ -520,6 +536,16 @@ where
         b.wrapping_sub(t).max(0) as usize
     }
 
+    /// Slot count of the currently published array.
+    fn capacity(&self) -> usize {
+        // SAFETY: `array` always points at a live `Array<T>` published by the
+        // owner. The pointer is replaced only by an owner-side grow, and the
+        // previous array is retired through the reclamation policy rather than
+        // freed immediately, so a shared read of the slot count cannot observe
+        // a dangling allocation.
+        unsafe { &*self.array.load(Ordering::Acquire) }.capacity()
+    }
+
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -708,6 +734,17 @@ where
         self.inner.is_empty()
     }
 
+    /// Returns the current allocated slot count.
+    ///
+    /// This is the initial capacity until the owner's push grows the deque,
+    /// and the grown capacity afterwards. It reports the storage actually
+    /// held, so a caller sizing retained memory reads the array rather than a
+    /// recorded intent.
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+
     #[cfg(test)]
     pub(crate) fn retired_array_count(&self) -> usize {
         self.inner
@@ -782,5 +819,11 @@ where
     /// Returns whether the deque is observably empty.
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+
+    /// Returns the current allocated slot count of the deque being stolen from.
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
     }
 }
