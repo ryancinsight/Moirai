@@ -23,6 +23,15 @@
   owner or stealer endpoint drops. Every intermediate buffer of a doubling run
   is therefore held alongside the live one, so a 16-to-2,048 growth retains
   2,032 dead slots on top of 2,048 live -- close to twice the peak.
+- **Existing instrument:** `moirai-executor/tests/indexed_allocation_contract.rs`
+  already probes this with the pointer-identity ledger. `probe_first_growth`
+  asserts `growth.direct.retained()` equals the sum over every doubling step of
+  `expected_growth_capacities`, with `block_count(...) == 1` per step ("each
+  doubling step must retain one direct queue buffer"), and asserts the buffers
+  are released only on drop ("dropping the queue must release every direct
+  buffer"). The retained-byte model and its oracle therefore already exist;
+  this item changes when the release happens, and that test is where the
+  change is measured.
 - **Candidate first increment:** `SharedEpochReclaim` already exists as a
   sibling policy with `ChaseLevDeque::try_reclaim_shared` and an
   active-access epoch counter, so releasing the dead intermediates may be a
