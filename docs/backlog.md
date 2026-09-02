@@ -1548,6 +1548,39 @@ architecture definition.
 
 ### Priority P1
 
+#### ✅ ISSUE-227 [patch] [perf] [memory]: Worker count was re-derived from a full topology probe per call
+- **Type**: Hot-path Allocation / Redundant Work
+- **Root Cause**: `for_each_chunk_mut_with_state` and `fold_reduce_with` called
+  `themis::CpuTopology::detect()` on every invocation to read one number. That
+  call materializes the whole NUMA and cache-level description — measured at
+  **9,935 ns, 77 allocations and 16,480 bytes per call** on a 24-processor host
+  — against **196 ns and zero allocations** for
+  `std::thread::available_parallelism`. The count is a process constant. This is
+  the defect ISSUE-190's fix-forward removed from `ParallelIter::new`, still
+  present in two sibling entry points and in `moirai-core`'s own `num_cpus`,
+  which `ExecutorConfig::default` calls twice.
+- **Resolution**: one cached derivation,
+  `moirai_core::executor::logical_parallelism`, behind a `OnceLock`, replacing
+  four copies of the same expression. Semantics are unchanged: the same themis
+  probe with the same `available_parallelism` fallback, evaluated once.
+- **Evidence**: paired on one probe at `for_each_chunk_mut_with_state`,
+  64Ki/1024 chunks, best of 9 blocks of 60 calls — **23.84 us/call, 77 allocs,
+  16,480 B before; 10.50 us/call, 0 allocs, 0 B after** (2.27x, and per-call
+  allocation to zero).
+- **Verification**: `warmed_chunk_state_traversal_allocates_nothing` and
+  `warmed_fold_reduce_allocates_only_its_result_slots` follow the existing
+  `chunk_buffer_allocations` census pattern. Both were proven to bite: restoring
+  the per-call probe fails them with `left: 77, right: 0` and "allocated 78
+  times". fmt; clippy `--locked --workspace --all-features --all-targets
+  -D warnings`; nextest 986/986; `moirai-core --no-default-features --features
+  std` 97/97; doctests 21/21; `cargo doc`.
+- **Noted, not changed**: `moirai-iter`'s `PROCESS_PARALLELISM` derives the same
+  quantity from `available_parallelism` alone, without the themis probe. The two
+  can disagree on an affinity-limited process. Unifying them is a semantic
+  decision, not a caching fix, so it is left for a decision that weighs which
+  answer is right.
+- **Status**: Completed 2026-09-02 (Claude session 03d80d33).
+
 #### ❌ ISSUE-225 [minor] [perf] [memory]: Per-worker retained scheduler state is sized by the inline job width — WITHDRAWN 2026-09-02, premises false
 - **Type**: Memory Footprint / Scheduler Configuration
 - **Withdrawn**: filed 2026-09-01 from apollo's retained-footprint attribution

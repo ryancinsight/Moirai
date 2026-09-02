@@ -491,11 +491,7 @@ where
         }
         return acc;
     }
-    let workers = themis::CpuTopology::detect()
-        .map(|topology| topology.logical_processors())
-        .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
-        .unwrap_or(1)
-        .max(1);
+    let workers = moirai_core::executor::logical_parallelism().max(1);
     let chunks = workers.min(len).max(1);
     let chunk = len.div_ceil(chunks);
     let mut slots: Vec<Option<A>> = (0..chunks).map(|_| None).collect();
