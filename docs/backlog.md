@@ -1548,41 +1548,74 @@ architecture definition.
 
 ### Priority P1
 
-#### ⏳ ISSUE-225 [minor] [perf] [memory]: Per-worker retained scheduler state is sized by the inline job width
+#### ❌ ISSUE-225 [minor] [perf] [memory]: Per-worker retained scheduler state is sized by the inline job width — WITHDRAWN 2026-09-02, premises false
 - **Type**: Memory Footprint / Scheduler Configuration
-- **Current Evidence**: Apollo's retained-footprint probe (`kernel/retained_footprint.rs`,
-  2026-09-01) records 1,070,816 global and 1,572,864 direct-Mnemosyne bytes live after
-  a first parallel operation on 24 workers, before any transform. A backtrace probe on
-  the exact 36,864-byte global block attributes it to
-  `WorkerQueues::new` → `LockFreeQueue::with_capacity(injector_capacity)` of
-  `Slot<(Priority, ScheduledJob)>`: `partition_global_queue(8192, 24)` yields
-  `1 << ilog2(341)` = **256 slots**, and each slot is **144 B** — 8 B sequence plus
-  `Option<(Priority, InlineJob)>` at 136 B, where `InlineJob` is
-  `INLINE_JOB_WORDS = 14` words (112 B) plus two fn pointers. The four local
-  Chase-Lev deques per worker are the same 128-byte `ScheduledJob` × 128 initial
-  slots = 16,384 B each (the direct-Mnemosyne term). Per worker: 36,864 + 65,536 =
-  **102,400 B**; × 24 workers ≈ **2.4 MB** retained for the process lifetime,
-  independent of workload, every byte of it scaled by the inline job width.
-- **Gap**: (1) `INLINE_JOB_WORDS = 14` carries no derivation — which job shape
-  needed 14 words is unrecorded, so the width cannot be reviewed against the jobs
-  the stack actually submits (`inline_job_fits` boxes anything larger, so the
-  cost of a smaller width is one allocation per oversized job, not a failure).
-  (2) The injector partition rounds *down* to a power of two, so 24 workers hold
-  6,144 aggregate injector slots against `DEFAULT_GLOBAL_QUEUE_CAPACITY = 8192`,
-  the documented burst-absorption bound — the constant and the retained storage
-  disagree by 25% in the direction of under-provisioning, silently.
-- **Next Artifact**: A measured increment, not a constant change on the memory
-  half alone: (a) record the job-size distribution the stack's providers submit
-  (apollo `for_each_chunk` closures, leto kernels) against `size_of::<F>()`, and
-  derive the smallest `INLINE_JOB_WORDS` that keeps them inline; (b) run the
-  scheduler throughput benchmark at that width and at 14 with apollo's probe as
-  the retained-bytes oracle; (c) either restate the global-queue bound as the
-  per-worker power-of-two floor it actually is, or partition so the aggregate
-  meets it — decided by the same throughput run. Acceptance: the derivation lives
-  on the constant, retained warm-up bytes fall by the measured factor, and no
-  paired Criterion regression.
-- **Status**: Open (filed 2026-09-01 by Claude session 03d80d33 from the apollo
-  memory-efficiency sweep; lease none).
+- **Withdrawn**: filed 2026-09-01 from apollo's retained-footprint attribution
+  without first reading the governing ADRs. Both of its gaps are false:
+  - "`INLINE_JOB_WORDS = 14` carries no derivation" — ADR 0036 records it. It
+    lists shrinking as rejected alternative 1 ("adds per-task allocation for
+    existing 14-word captures") and as an explicit failure mode ("the inline
+    byte capacity must remain 14 words"). **Measured 2026-09-02 and the ADR is
+    right**: instrumenting `InlineJob::new_with`, the one funnel every job
+    passes, the workspace suite reaches **13 words** with the self-referential
+    layout tests (which build `[usize; INLINE_JOB_WORDS]` by definition)
+    excluded. Fourteen leaves one word of headroom over a real capture;
+    shrinking would box it.
+  - "the constant and the retained storage disagree by 25% silently" — ADR 0036
+    records the 6,144 aggregate explicitly ("the executor-wide admission
+    capacity remains 6,144 tasks under ADR-034"). It is a stated consequence,
+    not a silent one.
+- **Also already done**: ADR 0035 (2026-08-28) cut the local-queue initial
+  capacity 256 → 128 on exact retained-footprint attribution, rejecting 16, 32
+  and 64 on controlled warm regressions, and ADR 0036 cut the injector slot
+  256 → 144 bytes. The apollo probe reading that motivated ISSUE-225 was the
+  *post-reduction* state.
+- **Status**: Withdrawn. Superseded by ISSUE-226, which is the one lever these
+  ADRs did not consider.
+
+#### ⏳ ISSUE-226 [minor] [perf] [memory]: Three of four priority planes are retained per worker and never touched
+- **Type**: Memory Footprint / Scheduler Allocation Policy
+- **Evidence (2026-09-02)**: `WorkerQueues::new` eagerly constructs
+  `PRIORITY_LEVELS = 4` Chase-Lev deques per worker, each at the normalized
+  initial capacity. Instrumenting all three local push sites with a per-plane
+  first-touch counter:
+  - Apollo's shape (`for_each_chunk_mut_with`,
+    `for_each_chunk_mut_enumerated_with`, a capture carrying plan/window/signal
+    state) pushes **only to plane 1 (Normal)**. Planes 0, 2 and 3 are allocated
+    and never touched.
+  - Across the whole workspace suite, counted by process: plane 1 is touched by
+    **85** processes, planes 0, 2 and 3 by **4, 4 and 7**. One plane is the
+    common case; the other three are exercised by the priority tests that exist
+    to cover them.
+  - Cost of the untouched three: `3 x 128 slots x 128 B` = **49,152 B per
+    worker**, ~**1.18 MB** of the 1,572,864 direct bytes apollo's probe records
+    at 24 workers — over 75% of the local-deque retention, for planes a
+    single-priority consumer never uses.
+- **Why the ADRs do not cover this**: ADR 0036 rejected lazily allocating the
+  fixed **injectors** because "pool warmup reaches every worker" — true of
+  workers, and it says nothing about priorities: warmup reaches every worker at
+  *one* priority. ADR 0035 passes the validated capacity "to all four priority
+  deques of every worker" and sizes retention as
+  `workers * priority levels * normalized initial capacity`, but never asks
+  whether the priority factor is paid for. Neither ADR considered the plane
+  dimension.
+- **Why this is not a one-line change**: `local_stealers` is built eagerly from
+  each deque (`local_queues[index].stealer()`), so a lazily created deque needs
+  a stealer that is publishable after construction, and ADR 0035's failure
+  modes require that "any queue algorithm rewrite requires a separate
+  concurrency decision and Loom model". This is an ADR-shaped increment, not a
+  constant change.
+- **Next Artifact**: (a) an ADR proposing first-push plane allocation with the
+  synchronization argument for late stealer publication; (b) a Loom model of
+  owner-push-creates / thief-steals-concurrently on a plane's first use;
+  (c) paired Criterion on the queue kernel plus apollo's exact retained probe
+  as the memory oracle. Acceptance: retained direct bytes at 24 workers fall by
+  the measured ~1.18 MB for a single-priority consumer, no paired warm
+  regression, exactly-once execution and drop preserved under real owner/thief
+  execution as ADR 0035 requires.
+- **Status**: Open (filed 2026-09-02 by Claude session 03d80d33 from apollo's
+  memory sweep; lease none). Not started — it needs the ADR and Loom model
+  first.
 
 #### ⏳ ISSUE-132 [minor]: Maintain bounded Rayon ecosystem expansion
 - **Type**: Compatibility / Benchmark Coverage
