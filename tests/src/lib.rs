@@ -30,14 +30,21 @@ mod integration_tests {
 
     #[test]
     fn test_basic_runtime_creation() {
-        let runtime = Moirai::new();
-        assert!(runtime.is_ok());
+        let runtime = Moirai::new().expect("a default runtime builds");
+        assert!(
+            runtime.worker_count() >= 1,
+            "a runtime has at least one worker"
+        );
+        assert!(!runtime.is_shutting_down());
     }
 
     #[test]
     fn test_runtime_builder() {
-        let runtime = Moirai::builder().worker_threads(4).build();
-        assert!(runtime.is_ok());
+        let runtime = Moirai::builder()
+            .worker_threads(4)
+            .build()
+            .expect("a four-worker runtime builds");
+        assert_eq!(runtime.worker_count(), 4);
     }
 
     #[test]
@@ -120,8 +127,16 @@ mod integration_tests {
         let low_result = low_handle.join();
 
         // Verify tasks completed successfully
-        assert!(high_result.is_some(), "High priority task should complete");
-        assert!(low_result.is_some(), "Low priority task should complete");
+        assert_eq!(
+            high_result,
+            Some(Ok(1)),
+            "the high-priority task returns its value"
+        );
+        assert_eq!(
+            low_result,
+            Some(Ok(2)),
+            "the low-priority task returns its value"
+        );
 
         // Verify both tasks executed
         let order = execution_order.lock().unwrap();

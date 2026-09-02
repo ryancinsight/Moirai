@@ -315,7 +315,13 @@ mod tests {
             panic!("simulated mapper panic");
         }));
 
-        assert!(panic.is_err());
+        let Err(payload) = panic else {
+            panic!("invariant: the simulated mapper panic must unwind through the writer");
+        };
+        assert_eq!(
+            crate::test_support::panic_message(payload.as_ref()),
+            "simulated mapper panic"
+        );
         assert_eq!(drops.load(Ordering::Relaxed), 1);
         drop(output);
         assert_eq!(drops.load(Ordering::Relaxed), 4);

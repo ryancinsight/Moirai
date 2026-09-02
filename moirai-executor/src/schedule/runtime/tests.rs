@@ -1728,7 +1728,14 @@ fn scheduler_scope_completes_registered_jobs_before_resuming_body_panic() {
     }));
 
     scheduler.shutdown();
-    assert!(result.is_err());
+    let Err(payload) = result else {
+        panic!("invariant: the scope body panic must resume once the registered jobs complete");
+    };
+    assert_eq!(
+        payload.downcast_ref::<&str>().copied(),
+        Some("scope body panic"),
+        "the body's own panic, not a job's, resumes after the scope drains"
+    );
     assert_eq!(completed.load(Ordering::Relaxed), 8);
 }
 

@@ -339,11 +339,7 @@ mod tests {
                 mapped.len()
             ),
         };
-        let message = payload
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| payload.downcast_ref::<&str>().copied())
-            .expect("invariant: the scheduler propagates a string panic payload");
+        let message = crate::test_support::panic_message(payload.as_ref());
         assert!(
             message.contains("indexed fan-out failed after partial execution"),
             "unexpected propagated panic: {message}"

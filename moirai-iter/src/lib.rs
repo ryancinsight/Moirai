@@ -28,6 +28,8 @@ pub mod parallel;
 pub mod prefetch;
 pub mod simd_iter;
 pub mod stream;
+#[cfg(test)]
+mod test_support;
 pub mod windows;
 
 pub use async_iter::{AsyncIterator, AsyncParallelIterator, IntoAsyncIterator};
