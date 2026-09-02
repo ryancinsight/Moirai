@@ -1591,6 +1591,28 @@ architecture definition.
     worker**, ~**1.18 MB** of the 1,572,864 direct bytes apollo's probe records
     at 24 workers — over 75% of the local-deque retention, for planes a
     single-priority consumer never uses.
+- **Payload eagerness verified 2026-09-02** (the arithmetic above rests on it,
+  so it was measured rather than assumed). Holding four planes alive and
+  varying the initial capacity, the payload is eager and exactly linear:
+  capacity 16 allocates 2,048 B per plane (`class 31`), 64 allocates 8,192 B
+  (`class 43`), 128 allocates 16,384 B (`class 47`) — always `capacity x 128 B`.
+  A first pass counting only the global allocator saw ~1,576 B per plane and
+  looked like laziness; the payload allocates through Mnemosyne, which a
+  global-allocator counter cannot see. Both instruments are needed to read this
+  structure.
+- **Cheaper first option than lazy planes.** Differentiating the *initial
+  capacity* per plane — the busy plane keeps the validated 128, the others take
+  `DequeCapacity`'s 16-slot minimum — needs no lazy construction, no late
+  stealer publication and therefore no Loom model: it is the same class of
+  change ADR 0035 itself made going 256 to 128. Saving
+  `3 x (16,384 - 2,048)` = **43,008 B per worker**, ~1.03 MB at 24 workers,
+  87% of the lazy-plane win at a fraction of the risk. Measured cost: a cold
+  burst into a 16-slot plane runs 1.10x-1.36x a 128-slot one for 16 to 257
+  pushes, and 0.67x at 8. ADR 0035 rejected 16 as the *global* capacity on a
+  warm regression measured on the busy plane; applying it only to planes a
+  workload does not use is a different proposition, and needs its own
+  controlled run on a priority-using workload plus an ADR 0035 revision note.
+  Recommended as the first increment; lazy planes remain the fallback.
 - **Why the ADRs do not cover this**: ADR 0036 rejected lazily allocating the
   fixed **injectors** because "pool warmup reaches every worker" — true of
   workers, and it says nothing about priorities: warmup reaches every worker at
@@ -1605,7 +1627,9 @@ architecture definition.
   modes require that "any queue algorithm rewrite requires a separate
   concurrency decision and Loom model". This is an ADR-shaped increment, not a
   constant change.
-- **Next Artifact**: (a) an ADR proposing first-push plane allocation with the
+- **Next Artifact**: (a) an ADR 0035 revision for per-plane initial capacity
+  (the recommended option above), or, if its measured cold cost proves
+  unacceptable, an ADR proposing first-push plane allocation with the
   synchronization argument for late stealer publication; (b) a Loom model of
   owner-push-creates / thief-steals-concurrently on a plane's first use;
   (c) paired Criterion on the queue kernel plus apollo's exact retained probe
