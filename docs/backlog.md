@@ -1544,6 +1544,42 @@ architecture definition.
 
 ### Priority P1
 
+#### ⏳ ISSUE-225 [minor] [perf] [memory]: Per-worker retained scheduler state is sized by the inline job width
+- **Type**: Memory Footprint / Scheduler Configuration
+- **Current Evidence**: Apollo's retained-footprint probe (`kernel/retained_footprint.rs`,
+  2026-09-01) records 1,070,816 global and 1,572,864 direct-Mnemosyne bytes live after
+  a first parallel operation on 24 workers, before any transform. A backtrace probe on
+  the exact 36,864-byte global block attributes it to
+  `WorkerQueues::new` → `LockFreeQueue::with_capacity(injector_capacity)` of
+  `Slot<(Priority, ScheduledJob)>`: `partition_global_queue(8192, 24)` yields
+  `1 << ilog2(341)` = **256 slots**, and each slot is **144 B** — 8 B sequence plus
+  `Option<(Priority, InlineJob)>` at 136 B, where `InlineJob` is
+  `INLINE_JOB_WORDS = 14` words (112 B) plus two fn pointers. The four local
+  Chase-Lev deques per worker are the same 128-byte `ScheduledJob` × 128 initial
+  slots = 16,384 B each (the direct-Mnemosyne term). Per worker: 36,864 + 65,536 =
+  **102,400 B**; × 24 workers ≈ **2.4 MB** retained for the process lifetime,
+  independent of workload, every byte of it scaled by the inline job width.
+- **Gap**: (1) `INLINE_JOB_WORDS = 14` carries no derivation — which job shape
+  needed 14 words is unrecorded, so the width cannot be reviewed against the jobs
+  the stack actually submits (`inline_job_fits` boxes anything larger, so the
+  cost of a smaller width is one allocation per oversized job, not a failure).
+  (2) The injector partition rounds *down* to a power of two, so 24 workers hold
+  6,144 aggregate injector slots against `DEFAULT_GLOBAL_QUEUE_CAPACITY = 8192`,
+  the documented burst-absorption bound — the constant and the retained storage
+  disagree by 25% in the direction of under-provisioning, silently.
+- **Next Artifact**: A measured increment, not a constant change on the memory
+  half alone: (a) record the job-size distribution the stack's providers submit
+  (apollo `for_each_chunk` closures, leto kernels) against `size_of::<F>()`, and
+  derive the smallest `INLINE_JOB_WORDS` that keeps them inline; (b) run the
+  scheduler throughput benchmark at that width and at 14 with apollo's probe as
+  the retained-bytes oracle; (c) either restate the global-queue bound as the
+  per-worker power-of-two floor it actually is, or partition so the aggregate
+  meets it — decided by the same throughput run. Acceptance: the derivation lives
+  on the constant, retained warm-up bytes fall by the measured factor, and no
+  paired Criterion regression.
+- **Status**: Open (filed 2026-09-01 by Claude session 03d80d33 from the apollo
+  memory-efficiency sweep; lease none).
+
 #### ⏳ ISSUE-132 [minor]: Maintain bounded Rayon ecosystem expansion
 - **Type**: Compatibility / Benchmark Coverage
 - **Current Evidence**: The audited subset covers transforms, `update`, `intersperse`, `zip_eq`, `partition_map`, `positions`, `take_any_while`, `skip_any_while`, serial-inner `flat_map_iter` and `flatten_iter`, utility adapters, terminal reducers, fallible reducers including `try_reduce_with`, predicate and position terminals, stateful and fallible side-effect terminals, borrowed reference materialization, `while_some`, `unzip`, `collect_vec_list`, bounded exact-size `IndexedParallelIterator::{len, is_empty, collect_into_vec, unzip_into_vecs, interleave, interleave_shortest, step_by, by_exponential_blocks, by_uniform_blocks}` source coverage, and `ParallelSliceMut` sorting with value tests and benchmark rows.
