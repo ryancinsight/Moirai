@@ -45,3 +45,4 @@
 | [0035](0035-resizable-local-queue-initial-capacity.md) | Resizable local-queue initial capacity | Accepted |
 | [0036](0036-natural-alignment-for-inline-scheduler-jobs.md) | Natural alignment for inline scheduler jobs | Accepted |
 | [0037](0037-themis-owns-topology.md) | Themis owns topology; the scheduler reports no worker placement | Accepted |
+| [0038](0038-bounded-injector-drain.md) | Bounded injector drain | Rejected |

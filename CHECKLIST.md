@@ -2,6 +2,57 @@
 
 **Target**: Unreleased
 
+## MOI-QUEUE-PLANE-SHRINK-2026-09-02 [patch] [perf] — todo
+
+- **Outcome:** A local plane that has drained releases storage it grew past the
+  configured initial capacity, so a one-off burst stops setting the retained
+  slot count for the life of the process.
+- **Finding:** `next_job` drains the injector to exhaustion and planes only
+  grow, so the largest burst a worker ever drains fixes its retained slots —
+  measured 256 slots for a 200-job burst and 2,048 for 2,000, from a 16-slot
+  start. At Apollo's 24 workers and the 128-byte `ScheduledJob` of ADR-036 a
+  256-slot plane retains 32,768 bytes per worker against the 16,384 the
+  128-slot default provisions.
+- **Dependency:** ADR-038 rejected bounding the drain pass: emptying the
+  injector is what lets a high-priority job preempt work already queued ahead
+  of it, since the injector is one cross-priority FIFO. Shrinking on empty
+  leaves that ordering untouched.
+- **Compounding cost:** growth retires the old buffer into
+  `ChaseLevInner::retired_arrays`, and the executor's planes take the default
+  `DeferredReclaim`, documented as retaining retired arrays until the final
+  owner or stealer endpoint drops. Every intermediate buffer of a doubling run
+  is therefore held alongside the live one, so a 16-to-2,048 growth retains
+  2,032 dead slots on top of 2,048 live -- close to twice the peak.
+- **Candidate first increment:** `SharedEpochReclaim` already exists as a
+  sibling policy with `ChaseLevDeque::try_reclaim_shared` and an
+  active-access epoch counter, so releasing the dead intermediates may be a
+  policy selection plus a reclaim call at a safe point rather than new
+  reclamation machinery. Size it by reading `deque/reclaim.rs` and the
+  `ResizeGate`/`StealAccessGuard` publication argument; a policy switch adds
+  operation-path synchronization the default explicitly avoids, so it needs a
+  paired scheduling benchmark and the executor Loom models before it ships.
+- **Acceptance oracle:** `retained_local_plane_storage_tracks_burst_size`
+  inverts — retained slots return to the configured capacity once the plane
+  drains — with priority, steal, saturation, and wake-progress coverage and the
+  executor Loom models unchanged.
+
+## MOI-QUEUE-BOUNDED-DRAIN-2026-09-02 [patch] [perf] — rejected
+
+- **Finding:** Bounding one injector drain pass to a steal batch does bound
+  retained plane storage — the same 200- and 2,000-job bursts settled at 32
+  slots instead of 256 and 2,048 — but it inverts priority. Only the local
+  planes are priority-ordered, so emptying the injector is what lets a
+  high-priority job preempt a queued burst; under a bounded pass it waits
+  behind the burst instead.
+- **Disposition:** No implementation ships. ADR-038 records the measurement and
+  the rejection; the retention it found is carried by
+  `MOI-QUEUE-PLANE-SHRINK-2026-09-02`. The measurement ships as a
+  characterization test of the current cost.
+- **Evidence:** `local_queue_growth_and_cross_worker_steal_execute_each_job_once`
+  fails against the bounded drain — the owner consumes the first batch itself
+  rather than preempting into the high-priority marker and yielding the burst
+  to a thief.
+
 ## MOI-PAR-RECURSIVE-DRIVE-2026-09-02 [patch] [perf] — rejected
 
 - **Finding:** Recursive fan-out preserves values but is not a viable general
