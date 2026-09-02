@@ -511,6 +511,77 @@ fn measured_default_local_capacity_reaches_every_worker() {
     scheduler.shutdown();
 }
 
+/// Run `burst` jobs that all land while the single worker is blocked, then
+/// report the slot count its default plane retains afterwards.
+fn local_plane_slots_after_burst(burst: usize, start: usize) -> usize {
+    let scheduler = scheduler_with_queue_config::<256>(
+        1,
+        "burst-drain",
+        ExecutorConfig::default().max_global_queue_size,
+        start,
+    )
+    .unwrap();
+
+    let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    scheduler
+        .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+            started_tx.send(()).expect("harness receiver lives");
+            release_rx.recv().expect("harness sender lives");
+        })
+        .unwrap();
+    // The only worker is now inside the blocking job, so the burst below
+    // accumulates in the injector instead of being consumed as it arrives.
+    started_rx.recv().expect("the blocking job must start");
+
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    for _ in 0..burst {
+        let done_tx = done_tx.clone();
+        scheduler
+            .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
+                done_tx.send(()).expect("harness receiver lives");
+            })
+            .unwrap();
+    }
+    drop(done_tx);
+    release_tx
+        .send(())
+        .expect("the blocking job must still wait");
+    for _ in 0..burst {
+        done_rx.recv().expect("every burst job must run");
+    }
+
+    let slots =
+        scheduler.inner.workers[0].queues.local_queue_capacities()[Priority::default().index()];
+    scheduler.shutdown();
+    slots
+}
+
+#[test]
+fn retained_local_plane_storage_tracks_burst_size() {
+    // Characterization, not an endorsement (ADR-038, MOI-QUEUE-PLANE-SHRINK):
+    // `next_job` drains the injector to exhaustion, and a plane only ever
+    // grows, so the largest burst a worker ever drains sets the slot count it
+    // retains for the life of the process -- independent of the configured
+    // initial capacity. Draining to exhaustion is load-bearing: it is what
+    // lets a high-priority job preempt work already queued behind it, since
+    // the injector is one cross-priority queue and only the local planes are
+    // priority-ordered. The retention is therefore addressed by releasing an
+    // oversized plane once it drains, not by bounding the pass.
+    const START: usize = 16;
+    let small = local_plane_slots_after_burst(200, START);
+    let large = local_plane_slots_after_burst(2_000, START);
+
+    assert!(
+        small >= 200 && large >= 2_000,
+        "a drained burst is held in one plane, so its slots cover the burst;          got {small} slots for 200 jobs and {large} for 2,000"
+    );
+    assert!(
+        large > small,
+        "retained slots track burst size rather than the {START}-slot start;          got {small} for 200 jobs and {large} for 2,000"
+    );
+}
+
 #[test]
 fn unrepresentable_local_capacity_is_rejected_before_worker_startup() {
     for requested in [isize::MAX as usize, usize::MAX] {
