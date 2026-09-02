@@ -1,4 +1,4 @@
-# ADR-028: PyO3 Python Comparison Harness Boundary
+# ADR 0028: PyO3 Python Comparison Harness Boundary
 
 Status: Accepted
 

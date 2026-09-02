@@ -1,4 +1,4 @@
-# ADR-034: Executor queue capacity reaches scheduler construction
+# ADR 0034: Executor queue capacity reaches scheduler construction
 
 Status: Accepted
 

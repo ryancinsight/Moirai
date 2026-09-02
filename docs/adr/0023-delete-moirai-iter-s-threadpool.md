@@ -1,4 +1,4 @@
-# ADR-023: Delete `moirai-iter`'s ThreadPool
+# ADR 0023: Delete `moirai-iter`'s ThreadPool
 
 Status: Accepted
 

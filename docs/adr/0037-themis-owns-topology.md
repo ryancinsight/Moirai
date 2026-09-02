@@ -1,4 +1,4 @@
-# ADR-037: Themis owns topology; the scheduler reports no worker placement
+# ADR 0037: Themis owns topology; the scheduler reports no worker placement
 
 Status: Accepted
 

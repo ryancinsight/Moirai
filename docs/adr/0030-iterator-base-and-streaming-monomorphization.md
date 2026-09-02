@@ -1,4 +1,4 @@
-# ADR-030: Iterator Base And Streaming Monomorphization
+# ADR 0030: Iterator Base And Streaming Monomorphization
 
 Status: Accepted
 

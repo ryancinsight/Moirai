@@ -1,4 +1,4 @@
-# ADR-001: Moirai as Complete Alternative to Tokio/Rayon
+# ADR 0001: Moirai as Complete Alternative to Tokio/Rayon
 
 Status: Accepted
 

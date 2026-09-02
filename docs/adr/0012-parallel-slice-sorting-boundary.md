@@ -1,4 +1,4 @@
-# ADR-012: Parallel Slice Sorting Boundary
+# ADR 0012: Parallel Slice Sorting Boundary
 
 Status: Accepted
 

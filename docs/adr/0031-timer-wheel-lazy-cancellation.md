@@ -1,4 +1,4 @@
-# ADR-031: Timer Wheel Lazy Cancellation
+# ADR 0031: Timer Wheel Lazy Cancellation
 
 Status: Accepted
 

@@ -1,4 +1,4 @@
-# ADR-027: Facade NUMA policy reaches scheduler construction
+# ADR 0027: Facade NUMA policy reaches scheduler construction
 
 Status: Accepted
 

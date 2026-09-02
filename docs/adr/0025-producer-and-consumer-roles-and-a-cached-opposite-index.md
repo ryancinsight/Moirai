@@ -1,4 +1,4 @@
-# ADR-025: Producer and Consumer roles, and a cached opposite index
+# ADR 0025: Producer and Consumer roles, and a cached opposite index
 
 Status: Accepted
 

@@ -1,4 +1,4 @@
-# ADR-026: A borrowed SPSC half pair beside the `Arc`-backed one
+# ADR 0026: A borrowed SPSC half pair beside the `Arc`-backed one
 
 Status: Accepted
 

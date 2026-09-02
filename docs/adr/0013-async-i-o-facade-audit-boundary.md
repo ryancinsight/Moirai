@@ -1,4 +1,4 @@
-# ADR-013: Async I/O Facade Audit Boundary
+# ADR 0013: Async I/O Facade Audit Boundary
 
 Status: Accepted
 

@@ -1,4 +1,4 @@
-# ADR-005: Unified Thread Scheduler for Executor Work Classes
+# ADR 0005: Unified Thread Scheduler for Executor Work Classes
 
 Status: Accepted
 
