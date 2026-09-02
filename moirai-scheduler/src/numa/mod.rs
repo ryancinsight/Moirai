@@ -1,12 +1,10 @@
 //! NUMA-aware scheduling primitives.
 //!
-//! Hardware NUMA/cache topology discovery and adaptive backoff — the inputs a
-//! scheduler uses for locality-aware victim selection. The runtime scheduler
-//! (`moirai_executor`'s `ThreadScheduler`) consumes these; this module holds no
-//! scheduler of its own.
+//! Adaptive backoff for stealing loops. Hardware topology is themis's to
+//! answer — `themis::CpuTopology` — and is not mirrored here (ADR-037). The
+//! runtime scheduler (`moirai_executor`'s `ThreadScheduler`) consumes these;
+//! this module holds no scheduler of its own.
 
 pub mod backoff;
-pub mod topology;
 
 pub use backoff::AdaptiveBackoff;
-pub use topology::{CacheLevel, CpuTopology, NumaNode};

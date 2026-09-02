@@ -17,7 +17,6 @@ description = "Work-stealing scheduler implementation for Moirai concurrency lib
 moirai-core = { workspace = true }
 moirai-utils = { workspace = true }
 num_cpus = "1.16"
-themis = { workspace = true }
 mnemosyne = { workspace = true, optional = true }
 
 [dev-dependencies]
@@ -35,7 +34,6 @@ loom = { workspace = true }
 [features]
 default = ["parallel", "mnemosyne-memory"]
 parallel = []
-numa = []
 metrics = ["moirai-core/metrics"]
 mnemosyne = ["dep:mnemosyne", "moirai-core/mnemosyne"]
 mnemosyne-memory = ["mnemosyne"]

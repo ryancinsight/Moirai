@@ -89,17 +89,7 @@ impl HybridExecutor<ThreadScheduler> {
     /// cannot normalize or form the required deque allocation layouts, or
     /// propagates scheduler construction failures.
     pub fn new(config: ExecutorConfig) -> ExecutorResult<Self> {
-        let numa_aware = {
-            #[cfg(feature = "numa")]
-            {
-                config.numa_aware
-            }
-            #[cfg(not(feature = "numa"))]
-            {
-                true
-            }
-        };
-        let scheduler = ThreadScheduler::from_executor_config(&config, numa_aware)?;
+        let scheduler = ThreadScheduler::from_executor_config(&config)?;
         let task_registry = Arc::new(TaskRegistry::new());
         let metrics = Arc::new(ExecutorMetrics::new());
         scheduler.retain_lifetime_owner((Arc::clone(&task_registry), Arc::clone(&metrics)));

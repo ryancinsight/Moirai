@@ -85,14 +85,6 @@ impl ExecutorBuilder {
         self
     }
 
-    /// Enable or disable NUMA awareness.
-    #[cfg(feature = "numa")]
-    #[must_use]
-    pub fn numa_aware(mut self, enabled: bool) -> Self {
-        self.config.numa_aware = enabled;
-        self
-    }
-
     /// Enable or disable metrics collection.
     #[cfg(feature = "metrics")]
     #[must_use]

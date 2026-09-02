@@ -227,34 +227,6 @@ mod integration_tests {
         runtime.shutdown();
     }
 
-    /// Test NUMA awareness (if available).
-    #[test]
-    fn test_numa_awareness() {
-        // NUMA-aware features not enabled; verifying runtime basic functionality
-        // NUMA features are not currently implemented, so we test basic runtime functionality
-        let runtime = Moirai::builder().worker_threads(4).build().unwrap();
-
-        // Test that the runtime works correctly regardless of NUMA topology
-        let handle = runtime.spawn_fn(|| {
-            // Simple computation that would benefit from NUMA awareness
-            let mut sum = 0u64;
-            for i in 0..100 {
-                sum += i;
-            }
-            sum
-        });
-
-        let result = handle.join().expect("Task should complete");
-
-        // Verify computation result
-        let expected = (0..100).sum::<u64>();
-        assert_eq!(
-            result,
-            Ok(expected),
-            "NUMA-aware computation should produce correct result"
-        );
-    }
-
     /// Stress test with CPU utilization.
     #[test]
     fn test_cpu_stress() {

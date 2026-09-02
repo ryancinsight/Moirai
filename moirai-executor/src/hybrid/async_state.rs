@@ -987,16 +987,13 @@ mod tests {
     /// discarded the rejection and the task stayed `QUEUED` forever.
     #[test]
     fn woken_task_completes_while_worker_injector_is_full() {
-        let scheduler = ThreadScheduler::<8>::from_executor_config(
-            &ExecutorConfig {
-                worker_threads: 1,
-                max_global_queue_size: 8,
-                local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
-                thread_name_prefix: "wake-full-injector".into(),
-                ..ExecutorConfig::default()
-            },
-            false,
-        )
+        let scheduler = ThreadScheduler::<8>::from_executor_config(&ExecutorConfig {
+            worker_threads: 1,
+            max_global_queue_size: 8,
+            local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+            thread_name_prefix: "wake-full-injector".into(),
+            ..ExecutorConfig::default()
+        })
         .expect("scheduler");
         let (
             PendingTask {

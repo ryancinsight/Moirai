@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The scheduler topology mirror and the `numa_aware` flag** (ADR-037).
+  `moirai_scheduler::numa::{CpuTopology, NumaNode, CacheLevel}` duplicated
+  themis and answered node distance differently; the only consumer derived a
+  per-worker NUMA table from `worker_id % logical_cores`, which workers, never
+  bound to processors, do not satisfy. The types, the derivation,
+  `ExecutorConfig::numa_aware`, both `numa_aware(bool)` builder methods, and
+  the `numa` cargo feature are removed. Migration: read topology from
+  `themis::CpuTopology`; drop the builder call and the feature. Default
+  behaviour is unchanged, since the table was cleared on single-node hosts
+  anyway. The same-node steal tier remains for injected assignments.
+
 ### Changed
 
 - Scheduler construction now clears per-worker NUMA assignments unless at

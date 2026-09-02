@@ -48,18 +48,14 @@ fn scheduler_with_queue_config<const BLOCKING_QUEUE_CAPACITY: usize>(
     name: &str,
     max_global_queue_size: usize,
     local_queue_initial_capacity: usize,
-    numa_aware: bool,
 ) -> Result<ThreadScheduler<BLOCKING_QUEUE_CAPACITY>, ExecutorError> {
-    ThreadScheduler::<BLOCKING_QUEUE_CAPACITY>::from_executor_config(
-        &ExecutorConfig {
-            worker_threads: worker_count,
-            max_global_queue_size,
-            local_queue_initial_capacity,
-            thread_name_prefix: name.into(),
-            ..ExecutorConfig::default()
-        },
-        numa_aware,
-    )
+    ThreadScheduler::<BLOCKING_QUEUE_CAPACITY>::from_executor_config(&ExecutorConfig {
+        worker_threads: worker_count,
+        max_global_queue_size,
+        local_queue_initial_capacity,
+        thread_name_prefix: name.into(),
+        ..ExecutorConfig::default()
+    })
 }
 
 fn scheduler_with_bounded_admission(name: &str) -> ThreadScheduler<256> {
@@ -68,7 +64,6 @@ fn scheduler_with_bounded_admission(name: &str) -> ThreadScheduler<256> {
         name,
         TEST_ADMISSION_CAPACITY,
         DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
-        false,
     )
     .unwrap()
 }
@@ -393,7 +388,6 @@ fn scheduler_numa_policy_controls_worker_assignments() {
         "numa-disabled",
         ExecutorConfig::default().max_global_queue_size,
         DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
-        false,
     )
     .unwrap();
 
@@ -467,7 +461,6 @@ fn configured_global_capacity_is_partitioned_without_exceeding_the_bound() {
         "partitioned",
         1000,
         DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
-        false,
     )
     .unwrap();
 
@@ -490,7 +483,6 @@ fn configured_local_capacity_reaches_every_worker_after_normalization() {
         "local-capacity",
         ExecutorConfig::default().max_global_queue_size,
         17,
-        false,
     )
     .unwrap();
 
@@ -527,7 +519,6 @@ fn unrepresentable_local_capacity_is_rejected_before_worker_startup() {
             "invalid-local-capacity",
             ExecutorConfig::default().max_global_queue_size,
             requested,
-            false,
         );
 
         assert!(matches!(
@@ -606,27 +597,17 @@ fn local_queue_growth_and_cross_worker_steal_execute_each_job_once() {
 
 #[test]
 fn global_capacity_below_two_slots_per_worker_is_rejected() {
-    let result = scheduler_with_queue_config::<256>(
-        4,
-        "invalid",
-        7,
-        DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
-        false,
-    );
+    let result =
+        scheduler_with_queue_config::<256>(4, "invalid", 7, DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY);
 
     assert!(matches!(result, Err(ExecutorError::InvalidConfiguration)));
 }
 
 #[test]
 fn global_capacity_supports_minimum_two_slots_per_worker() {
-    let scheduler = scheduler_with_queue_config::<256>(
-        4,
-        "minimum",
-        8,
-        DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
-        false,
-    )
-    .unwrap();
+    let scheduler =
+        scheduler_with_queue_config::<256>(4, "minimum", 8, DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY)
+            .unwrap();
 
     assert!(scheduler
         .inner

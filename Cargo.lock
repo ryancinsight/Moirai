@@ -1692,7 +1692,6 @@ dependencies = [
  "num_cpus",
  "proptest",
  "static_assertions",
- "themis-topology",
 ]
 
 [[package]]
