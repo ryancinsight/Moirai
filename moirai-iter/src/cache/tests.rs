@@ -178,11 +178,7 @@ fn zero_copy_map_drops_every_initialized_output_on_mapper_panic() {
             mapped.len()
         ),
     };
-    let message = payload
-        .downcast_ref::<String>()
-        .map(String::as_str)
-        .or_else(|| payload.downcast_ref::<&str>().copied())
-        .expect("invariant: scheduler propagates a string panic payload");
+    let message = crate::test_support::panic_message(payload.as_ref());
     assert!(
         message.contains("indexed fan-out failed after partial execution"),
         "unexpected propagated panic: {message}"

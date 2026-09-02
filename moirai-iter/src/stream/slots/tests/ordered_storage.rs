@@ -147,7 +147,13 @@ fn panicking_completed_output_drop_releases_the_remaining_outputs() {
     drop(first);
 
     let result = catch_unwind(AssertUnwindSafe(|| drop(buffered)));
-    assert!(result.is_err(), "completed output destructor must panic");
+    let Err(payload) = result else {
+        panic!("invariant: the completed output destructor must panic");
+    };
+    assert_eq!(
+        crate::test_support::panic_message(payload.as_ref()),
+        "completed output drop panic sentinel"
+    );
     assert_eq!(drops.load(Ordering::SeqCst), 3);
 }
 
@@ -166,7 +172,13 @@ fn ready_future_drop_panic_does_not_abort_stream_cleanup() {
         }
     }));
 
-    assert!(result.is_err(), "ready future destructor must panic");
+    let Err(payload) = result else {
+        panic!("invariant: the ready future destructor must panic");
+    };
+    assert_eq!(
+        crate::test_support::panic_message(payload.as_ref()),
+        "ready future drop panic sentinel"
+    );
     assert_eq!(drops.load(Ordering::SeqCst), 2);
 }
 

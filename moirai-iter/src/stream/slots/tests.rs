@@ -393,7 +393,13 @@ fn consuming_wake_releases_ownership_when_parent_panics() {
 
     let result = catch_unwind(AssertUnwindSafe(|| slot_waker.wake()));
 
-    assert!(result.is_err());
+    let Err(payload) = result else {
+        panic!("invariant: the parent's wake panic must unwind through the slot waker");
+    };
+    assert_eq!(
+        crate::test_support::panic_message(payload.as_ref()),
+        "parent wake failure sentinel"
+    );
     assert!(owner.upgrade().is_none());
 }
 
@@ -431,6 +437,12 @@ fn poll_panic_drops_all_initialized_slots_once() {
     let result = catch_unwind(AssertUnwindSafe(|| {
         futures::executor::block_on(retained_unordered(stream, 4).collect::<Vec<_>>())
     }));
-    assert!(result.is_err());
+    let Err(payload) = result else {
+        panic!("invariant: the first future's poll panic must unwind through the stream");
+    };
+    assert_eq!(
+        crate::test_support::panic_message(payload.as_ref()),
+        "poll failure sentinel"
+    );
     assert_eq!(drops.load(Ordering::SeqCst), 4);
 }
