@@ -109,10 +109,7 @@ pub fn for_each_chunk_mut_with_state<P, T, S, Init, F>(
         return;
     }
 
-    let workers = themis::CpuTopology::detect()
-        .map(|topology| topology.logical_processors())
-        .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
-        .unwrap_or(1)
+    let workers = moirai_core::executor::logical_parallelism()
         .min(num_chunks)
         .max(1);
     let chunks_per_worker = num_chunks.div_ceil(workers);

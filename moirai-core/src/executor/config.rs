@@ -58,8 +58,8 @@ pub struct ExecutorConfig {
 impl Default for ExecutorConfig {
     fn default() -> Self {
         Self {
-            worker_threads: super::num_cpus(),
-            async_threads: (super::num_cpus() / 4).max(1),
+            worker_threads: super::logical_parallelism(),
+            async_threads: (super::logical_parallelism() / 4).max(1),
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
             thread_name_prefix: "moirai-worker".into(),
