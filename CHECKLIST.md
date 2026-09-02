@@ -2,6 +2,20 @@
 
 **Target**: Unreleased
 
+## MOI-PAR-RECURSIVE-DRIVE-2026-09-02 [patch] [perf] — in progress
+
+- **Outcome:** Long vector-backed drives recursively fan out until the existing
+  threshold, keeping small shards inline and preserving ordered combination.
+- **Scope:** `moirai-iter/src/parallel/sources.rs` plus one focused regression
+  test; no adapter, scheduler, or lockfile changes.
+- **Acceptance:** a value-semantic consumer observes all `8_192` inputs and
+  exactly eight threshold-sized leaf drives; focused gates and a same-filter
+  benchmark compare the unchanged baseline against the candidate.
+- **Risk:** deeper fan-out can increase scheduler and mutex traffic; reject the
+  increment if the focused benchmark regresses beyond measurement noise.
+- **Integrator:** Codex; lease: `moirai-iter/src/parallel/sources.rs`,
+  `moirai-iter/src/parallel/tests/recursive_drive.rs`.
+
 ## MOI-SINGLE-NODE-STEAL-SCAN-2026-09-01 [patch] [perf] — complete
 
 - **Delivered:** source `9d3faaa`, evidence `6dd208c`, PR #233, merge
