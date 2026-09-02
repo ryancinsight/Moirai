@@ -105,6 +105,33 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --locked --workspace --all-features --no-deps
 
+  msrv:
+    name: Rust 1.95 floor check
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The install step sets a rustup *default*; the committed rust-toolchain.toml
+      # (1.97.0) outranks it. RUSTUP_TOOLCHAIN outranks the file, so this job
+      # really compiles at the declared rust-version floor.
+      RUSTUP_TOOLCHAIN: 1.95.0
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust 1.95.0
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: 1.95.0
+
+      - name: Prove the toolchain under test
+        run: rustc --version && cargo --version
+
+      - name: Check the workspace at the floor
+        run: cargo check --locked --workspace --all-features --all-targets
+
   loom:
     name: Loom channel models
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
