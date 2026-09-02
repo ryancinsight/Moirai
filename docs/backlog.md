@@ -1177,7 +1177,7 @@ architecture definition.
   the standing correction. Mechanising it (a CI job that runs the Rust workspace
   gate, which today's workflow does not) is filed as ISSUE-224.
 
-#### ⏳ ISSUE-224 [patch]: Run the Rust workspace gate in CI
+#### ✅ ISSUE-224 [patch]: Run the Rust workspace gate in CI
 - **Type**: Verification Infrastructure
 - **Root Cause**: `.github/workflows` builds and tests `moirai-python` only. The
   Rust workspace gate — fmt, workspace Clippy, `nextest --workspace`, doctests,
@@ -1196,8 +1196,12 @@ architecture definition.
   families locally. The first hosted run correctly rejected the overlay-derived
   lock because its Git source records and overlay-only `[[patch.unused]]`
   records were present. The lock now records the fetched Melinoe, Mnemosyne,
-  and Themis revisions explicitly and contains no overlay state. Hosted
-  workflow confirmation remains open.
+  and Themis revisions explicitly and contains no overlay state.
+- **Hosted confirmation (2026-09-02):** `rust-ci.yml` run 33597090196 on the
+  `main` push `845f380` completed `success`, and the pull-request runs
+  33594990000 and 33600896006 completed `success` on their branches; the
+  gate runs on every pull request and default-branch push as specified.
+  Closed.
 
 #### ✅ ISSUE-220 [patch]: Run a refused `join_with` branch on the caller
 - **Type**: Concurrency Correctness / API Contract
