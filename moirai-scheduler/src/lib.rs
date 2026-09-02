@@ -19,10 +19,9 @@
 //!
 //! ## NUMA primitives
 //!
-//! [`numa`] exposes [`CpuTopology`](numa::CpuTopology) for hardware NUMA/cache
-//! topology discovery and [`AdaptiveBackoff`](numa::AdaptiveBackoff) for
-//! spin/yield/sleep backoff — the inputs for NUMA-aware victim selection in the
-//! runtime.
+//! [`numa`] exposes [`AdaptiveBackoff`](numa::AdaptiveBackoff) for
+//! spin/yield/sleep backoff in stealing loops. Hardware topology is answered
+//! by `themis::CpuTopology` directly, not mirrored here (ADR-037).
 
 #![allow(clippy::redundant_closure)]
 #![allow(clippy::collapsible_if)]

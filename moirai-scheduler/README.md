@@ -15,8 +15,8 @@ provides no scheduler of its own.
   thread yields; it neither allocates nor sleeps.
 - `SplitDeque` — a private owner stack backed by a shared deque, reducing steal
   contention when the spawn rate greatly exceeds the steal rate.
-- `numa::CpuTopology` — hardware NUMA/cache topology discovery, and
-  `numa::AdaptiveBackoff` for spin/yield/sleep backoff.
+- `numa::AdaptiveBackoff` — spin/yield/sleep backoff for stealing loops.
+  Hardware topology is answered by `themis::CpuTopology`, not mirrored here.
 
 Correctness is covered by exactly-once concurrency stress tests and `loom`
 models of the Chase-Lev steal/pop ordering and its combined resize-owner/

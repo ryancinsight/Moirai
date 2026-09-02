@@ -11,7 +11,7 @@
 - **Evidence:** host/AArch64 warning-denied gates, 137/137 executor tests,
   docs, formatting, and benchmark smoke pass; no latency claim is made.
 
-## MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01 [major] [arch] — todo
+## MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01 [major] [arch] — complete
 
 - **Finding (stack audit 2026-09-01):** `moirai-scheduler/src/numa/topology.rs`
   mirrors themis's `CpuTopology`/`NumaNode`/`CacheLevel` and answers
@@ -32,7 +32,15 @@
   Because the three mirrored structs and their fields are public, removal is a
   breaking change requiring an ADR revision, migration note, and SemVer gate.
 
-## MOI-WORKER-CORE-PREMISE-2026-09-01 [patch] [arch] — todo
+- **Delivered (2026-09-01, Claude):** ADR-037; both items resolved as one
+  deletion, since the mirror had one consumer and it was the fabricated
+  table. Mirror types, derivation, `numa_aware` flag and builders, and the
+  `numa` feature removed; `moirai-scheduler` drops its `themis` edge; the
+  source-text contract asserts the struct names are absent. Gate: fmt,
+  warning-denied `clippy --all-features --all-targets`, `nextest
+  --all-features` 982/982, warning-denied Rustdoc.
+
+## MOI-WORKER-CORE-PREMISE-2026-09-01 [patch] [arch] — complete
 
 - **Finding (stack audit 2026-09-01):** `moirai-executor/src/schedule/runtime/
   scheduler/construction.rs` derives `core_id = worker_id % logical_cores` and
@@ -44,6 +52,8 @@
   answer — it is the failure mode themis's absence discipline exists to stop.
 - **Acceptance:** no placement claim survives that the runtime does not
   actually enforce.
+
+- **Delivered:** with `MOI-THEMIS-TOPOLOGY-DUPLICATION-2026-09-01` under ADR-037: the derived table is gone and construction reports `None` per worker.
 
 ## MOI-CACHE-MAP-DIRECT-OUTPUT-2026-09-01 — Harden cache-map output ownership [patch] [perf] — complete
 

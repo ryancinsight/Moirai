@@ -45,14 +45,6 @@ impl MoiraiBuilder {
         self
     }
 
-    /// Enable or disable NUMA awareness.
-    #[cfg(feature = "numa")]
-    #[must_use]
-    pub fn numa_aware(mut self, enabled: bool) -> Self {
-        self.config.numa_aware = enabled;
-        self
-    }
-
     /// Set the thread name prefix.
     #[must_use]
     pub fn thread_name_prefix(mut self, prefix: impl Into<String>) -> Self {

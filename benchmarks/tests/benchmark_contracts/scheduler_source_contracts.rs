@@ -175,19 +175,19 @@ fn public_scheduler_task_surface_uses_scheduled_task_erasure() {
     // canonical runtime scheduler is moirai-executor's ThreadScheduler. Guard
     // that the removed WorkStealingScheduler / NumaAwareScheduler do not creep
     // back in, and that numa module exposes only topology/backoff primitives.
-    for primitive in [
-        "pub use backoff::AdaptiveBackoff;",
-        "pub use topology::{CacheLevel, CpuTopology, NumaNode};",
-    ] {
-        assert!(
-            numa_source.contains(primitive),
-            "numa module must retain the {primitive} primitive"
-        );
-    }
+    assert!(
+        numa_source.contains("pub use backoff::AdaptiveBackoff;"),
+        "numa module must retain the AdaptiveBackoff primitive"
+    );
+    // The topology mirror went with them (ADR-037): themis is the one
+    // authority for node distance and cache levels.
     for removed in [
         "struct WorkStealingScheduler",
         "struct WorkStealingCoordinator",
         "struct NumaAwareScheduler",
+        "struct CpuTopology",
+        "struct NumaNode",
+        "struct CacheLevel",
     ] {
         assert!(
             !scheduler_source.contains(removed) && !numa_source.contains(removed),

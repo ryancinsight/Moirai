@@ -242,7 +242,6 @@ embedded_sources![
     "../moirai-scheduler/src/lib.rs",
     "../moirai-scheduler/src/numa/backoff.rs",
     "../moirai-scheduler/src/numa/mod.rs",
-    "../moirai-scheduler/src/numa/topology.rs",
     "../moirai-sync/Cargo.toml",
     "../moirai-transport/Cargo.toml",
     "../moirai-transport/src/lib.rs",

@@ -169,7 +169,6 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         "../moirai-scheduler/src/numa.rs",
         &[
             "../moirai-scheduler/src/numa/mod.rs",
-            "../moirai-scheduler/src/numa/topology.rs",
             "../moirai-scheduler/src/numa/backoff.rs",
         ],
     ),

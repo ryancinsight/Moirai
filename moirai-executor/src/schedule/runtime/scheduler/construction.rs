@@ -24,7 +24,6 @@ struct SchedulerConstruction<'config> {
     thread_name_prefix: &'config str,
     max_global_queue_size: usize,
     local_queue_initial_capacity: usize,
-    numa_aware: bool,
     #[cfg(test)]
     worker_numa_nodes: Option<Box<[Option<usize>]>>,
     #[cfg(test)]
@@ -87,7 +86,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             thread_name_prefix,
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity,
-            numa_aware: true,
             #[cfg(test)]
             worker_numa_nodes: None,
             #[cfg(test)]
@@ -95,16 +93,12 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         })
     }
 
-    pub(crate) fn from_executor_config(
-        config: &ExecutorConfig,
-        numa_aware: bool,
-    ) -> ExecutorResult<Self> {
+    pub(crate) fn from_executor_config(config: &ExecutorConfig) -> ExecutorResult<Self> {
         Self::from_construction(SchedulerConstruction {
             worker_count: config.worker_threads,
             thread_name_prefix: &config.thread_name_prefix,
             max_global_queue_size: config.max_global_queue_size,
             local_queue_initial_capacity: config.local_queue_initial_capacity,
-            numa_aware,
             #[cfg(test)]
             worker_numa_nodes: None,
             #[cfg(test)]
@@ -131,7 +125,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             thread_name_prefix: "test-partial-spawn",
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
-            numa_aware: false,
             worker_numa_nodes: None,
             failure_probe: Some(ConstructionFailureProbe {
                 worker_id: failing_worker_id,
@@ -155,7 +148,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             thread_name_prefix,
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
-            numa_aware: false,
             worker_numa_nodes: Some(worker_numa_nodes),
             failure_probe: None,
         })
@@ -167,7 +159,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             thread_name_prefix,
             max_global_queue_size,
             local_queue_initial_capacity,
-            numa_aware,
             #[cfg(test)]
                 worker_numa_nodes: injected_worker_numa_nodes,
             #[cfg(test)]
@@ -194,39 +185,12 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
-        // Detect NUMA topology once at construction; derive a per-worker node
-        // assignment so `steal_job` can prefer same-node victims without runtime
-        // discovery overhead. A locality tier is useful only when the worker set
-        // represents at least two nodes; otherwise the first steal pass would
-        // duplicate the full victim scan.
-        let topology: Option<moirai_scheduler::numa::CpuTopology> = if numa_aware {
-            #[cfg(miri)]
-            {
-                // Miri cannot execute the platform topology FFI. `None` is the
-                // scheduler's normal no-topology fallback and leaves queue and
-                // stealing semantics available to the interpreter.
-                None
-            }
-            #[cfg(not(miri))]
-            {
-                moirai_scheduler::numa::CpuTopology::detect()
-            }
-        } else {
-            None
-        };
-        let worker_numa_nodes: Box<[Option<usize>]> = if let Some(ref topo) = topology {
-            (0..worker_count)
-                .map(|id| {
-                    // Use CPU core ID equal to worker ID (modular wrap on many-core
-                    // systems so indices stay in-bounds regardless of worker count).
-                    let core_id = id % topo.logical_cores.max(1);
-                    topo.core_to_numa_node(core_id)
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice()
-        } else {
-            vec![None; worker_count].into_boxed_slice()
-        };
+        // Workers are not bound to processors, so the runtime has no true
+        // answer for "which node does worker `i` run on" and reports none
+        // (ADR-037). The same-node steal tier stays in place for an assignment
+        // a caller can vouch for -- tests inject one -- and activates only when
+        // at least two nodes are represented.
+        let worker_numa_nodes: Box<[Option<usize>]> = vec![None; worker_count].into_boxed_slice();
         #[cfg(test)]
         let worker_numa_nodes = injected_worker_numa_nodes.unwrap_or(worker_numa_nodes);
         let worker_numa_nodes = normalize_worker_numa_nodes(worker_numa_nodes);
