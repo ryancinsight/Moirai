@@ -2,6 +2,14 @@
 
 **Target**: Unreleased
 
+## MOI-GPU-BUDGET-IDENTITY-2026-09-03 [minor] [arch] — complete
+
+- **Delivered:** `moirai-gpu` now owns the public `KernelResourceBudget`
+  construction path; ADR 0039 and the Unreleased changelog record the seam.
+- **Evidence:** standalone lock integrity, format, check, warning-denied
+  Clippy, nextest 15/15, doctest 1/1, and warning-denied rustdoc pass; launch
+  arithmetic is unchanged. Hephaestus consumer migration remains downstream.
+
 ## MOI-QUEUE-PLANE-SHRINK-2026-09-02 [patch] [perf] — todo
 
 - **Outcome:** A local plane that has drained releases storage it grew past the

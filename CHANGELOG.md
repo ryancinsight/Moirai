@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The GPU planner budget is constructed through `moirai-gpu`.**
+  `KernelResourceBudget` is re-exported by the GPU facade and the occupancy
+  planner consumes that same public type, preventing downstream providers
+  from splitting the planner contract across Mnemosyne source revisions.
+
 ### Performance
 
 - **Worker count is derived once, not per call.**

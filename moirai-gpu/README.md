@@ -28,8 +28,7 @@ moirai-gpu = "0.5"
 ```
 
 ```rust
-use mnemosyne_core::KernelResourceBudget;
-use moirai_gpu::{plan_launch, LaunchShape};
+use moirai_gpu::{KernelResourceBudget, LaunchShape, plan_launch};
 
 // 64 registers/thread, 16 KiB shared memory, 256 threads per block.
 let budget = KernelResourceBudget::new(64, 16 * 1024, 256).unwrap();

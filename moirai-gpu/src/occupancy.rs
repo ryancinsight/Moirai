@@ -21,8 +21,8 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
+use crate::KernelResourceBudget;
 use core::num::{NonZeroU32, NonZeroUsize};
-use mnemosyne_core::KernelResourceBudget;
 
 use themis::GpuTopology;
 
