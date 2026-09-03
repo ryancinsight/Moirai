@@ -32,14 +32,31 @@
   buffer"). The retained-byte model and its oracle therefore already exist;
   this item changes when the release happens, and that test is where the
   change is measured.
-- **Candidate first increment:** `SharedEpochReclaim` already exists as a
-  sibling policy with `ChaseLevDeque::try_reclaim_shared` and an
-  active-access epoch counter, so releasing the dead intermediates may be a
-  policy selection plus a reclaim call at a safe point rather than new
-  reclamation machinery. Size it by reading `deque/reclaim.rs` and the
-  `ResizeGate`/`StealAccessGuard` publication argument; a policy switch adds
-  operation-path synchronization the default explicitly avoids, so it needs a
-  paired scheduling benchmark and the executor Loom models before it ships.
+- **Sized 2026-09-03; the policy switch is rejected.** `SharedEpochReclaim` was
+  the obvious candidate, and reading it settles the question against it.
+  `SharedEpochState::enter` is an `AcqRel` `fetch_add` on one shared
+  `AtomicUsize`, paired with a `fetch_sub` when the guard drops, and
+  `enter_steal_access` takes it in both `ChaseLevStealer::steal` and
+  `steal_batch`. Every thief working one victim would contend that single
+  counter, so the switch buys reclamation with an atomic read-modify-write on a
+  shared line in the steal path — the trade the synchronization ladder exists to
+  refuse, and the one `DeferredReclaim` documents itself as avoiding.
+- **Benefit, derived from the model `probe_first_growth` already asserts.**
+  Retained dead bytes are the sum over every doubling step below the final
+  capacity. A worker starting at the 128-slot default and growing to 2,048
+  retires 128 + 256 + 512 + 1,024 = 1,920 slots; at the 128-byte
+  `ScheduledJob` of ADR-036 that is 245,760 bytes of dead arrays per worker
+  beside 262,144 live. Across 24 workers, about 5.9 MB dead. Derived, not
+  measured: the per-step model is test-backed, the burst that reaches 2,048 is
+  the characterization test's, not a profile of a real workload.
+- **Direction instead: reclaim at quiescence.** The epoch counter exists to
+  prove no steal is in flight. The scheduler already establishes that at its
+  own quiescence boundary — `WorkerQueues` participates in it — so a
+  reclamation that runs only there needs no per-operation counter and leaves
+  `DeferredReclaim` on the hot path untouched. What must be established before
+  this is sized further: that the quiescence condition genuinely precludes an
+  in-flight `steal_batch` on a retired array, which is a Loom obligation, not a
+  reading.
 - **Acceptance oracle:** `retained_local_plane_storage_tracks_burst_size`
   inverts — retained slots return to the configured capacity once the plane
   drains — with priority, steal, saturation, and wake-progress coverage and the
