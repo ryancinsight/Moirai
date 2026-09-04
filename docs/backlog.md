@@ -5,7 +5,7 @@
 - [x] PR #256 merged at `70d201a`; Mnemosyne resolves at `7f173751` and the
   first-party source identity is canonical; ADR [`0040`](adr/0040-first-party-memory-source-identity.md), workspace, binding, Loom, Rust 1.95, no-default, documentation, and lockfile gates pass.
 
-## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — in-progress <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
+## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — review <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
 
 - **Outcome:** Route Moirai GPU work through Hephaestus' generic device seam and
   submit it to the existing work-stealing executor without a direct WGPU layer.
@@ -19,6 +19,9 @@
   and focused plus full repository gates pass. ADR [`0041`](adr/0041-hephaestus-gpu-scheduler-adapter.md).
 - **Integrator:** atlas-session; branch `arch/moirai-hephaestus-gpu-route`;
   upstream companion: Hephaestus `HEPH-WGPU-CONSUMER-2026-09-04`.
+- **Delivery:** PR [#259](https://github.com/ryancinsight/Moirai/pull/259) at
+  `191257d`; focused provider, CUDA, runtime, benchmark-contract, doctest, and
+  exact-source lint gates pass.
 
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 
