@@ -210,6 +210,7 @@ pub use moirai_core::{
 };
 
 // Re-export executor functionality
+pub use moirai_executor::schedule::{register_idle_hook, run_idle_hooks, IdleHook};
 pub use moirai_executor::{BlockingTask, HybridExecutor, SchedulerScope};
 
 /// Completion-only borrowing scope for jobs submitted to the unified scheduler.

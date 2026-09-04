@@ -11,6 +11,7 @@ use std::{
 use super::super::job::ScheduledJob;
 use super::super::queue::WorkerQueueOwner;
 
+use super::idle_hooks::run_idle_hooks;
 use super::types::{set_current_worker_id, ContendedWakePolicy, SchedulerInner, WorkerState};
 pub(super) use indexed::{
     indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
@@ -63,6 +64,11 @@ pub(super) fn worker_loop<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT
         // Run defragmentation sweeps only right before blocking in wait_for_work
         // to avoid latency overheads during active work stealing and spinning.
         run_idle_memory_maintenance();
+
+        // Consumer-registered idle hooks run at the same quiescent point: the
+        // worker found no work and is about to block, so any thread-local
+        // reclamation a hook performs costs nothing on the active path.
+        run_idle_hooks();
 
         wait_for_work(&inner, worker_id);
     }
