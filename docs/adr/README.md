@@ -48,5 +48,5 @@
 | [0038](0038-bounded-injector-drain.md) | Bounded injector drain | Rejected |
 | [0039](0039-moirai-gpu-budget-facade.md) | Moirai GPU budget facade owns the planner input | Accepted |
 | [0040](0040-first-party-memory-source-identity.md) | One First-Party Memory Source Identity During Provider Co-Evolution | Accepted |
-| [0041](0041-hephaestus-gpu-scheduler-adapter.md) | Hephaestus GPU scheduler adapter | Proposed |
+| [0041](0041-hephaestus-gpu-scheduler-adapter.md) | Hephaestus GPU scheduler adapter | Accepted |
 | [0042](0042-worker-idle-hooks.md) | Worker idle hooks for owner-thread reclamation | Accepted |

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking in 0.6.0:** GPU task and context types now use the generic
+  Hephaestus device seam; callers must migrate to provider-owned device
+  handles and the typed task contract.
 - **GPU scheduling now routes through Hephaestus.**
   `moirai-gpu` exposes a generic `ComputeDevice`/`GpuTask` adapter with
   `WgpuContext` and `CudaContext` aliases. Provider buffers, transfers,

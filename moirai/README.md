@@ -6,7 +6,7 @@ asynchronous and parallel execution behind one API. The package is published as
 
 ```toml
 [dependencies]
-moirai-runtime = "0.1"
+moirai-runtime = "0.6"
 ```
 
 ```rust

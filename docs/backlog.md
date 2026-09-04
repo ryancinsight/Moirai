@@ -19,9 +19,11 @@
   and focused plus full repository gates pass. ADR [`0041`](adr/0041-hephaestus-gpu-scheduler-adapter.md).
 - **Integrator:** atlas-session; branch `arch/moirai-hephaestus-gpu-route`;
   upstream companion: Hephaestus `HEPH-WGPU-CONSUMER-2026-09-04`.
-- **Delivery:** PR [#259](https://github.com/ryancinsight/Moirai/pull/259) at
-  `191257d`; focused provider, CUDA, runtime, benchmark-contract, doctest, and
-  exact-source lint gates pass.
+- **Delivery:** PR [#259](https://github.com/ryancinsight/Moirai/pull/259)
+  remains open; local workspace, provider, CUDA, runtime, benchmark-contract,
+  doctest, format, and exact-source lint gates pass on this increment.
+- **Residual:** cargo-deny licenses rejects `cuda-oxide 0.4.0` under the
+  Hephaestus CUDA route; no policy exception is added without authorization.
 
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 

@@ -1390,15 +1390,13 @@
       passes advisories, bans, licenses, and sources; duplicate-version and
       workspace path-dependency wildcard diagnostics remain warnings.
 - [x] Align the pinned action annotation with cargo-deny-action 2.1.1 and set
-      `unused-ignored-advisory = "deny"` with structured residual reasons;
-      cargo-deny 0.20.2 passes the locked graph with both residual advisories
-      encountered and no unused-ignore diagnostics.
+      `unused-ignored-advisory = "deny"` with a structured RSA residual reason;
+      cargo-deny 0.20.2 reports the active RSA advisory without an unused-ignore
+      diagnostic; the CUDA license decision remains open.
 - [ ] Replace or remove RSA signing and verification before exposing it to an
       attacker-observable service. `rsa 0.9.10` remains under
       `RUSTSEC-2023-0071`; no safe upstream release exists, so the advisory is
       an explicit cargo-deny residual rather than a hidden pass.
-- [ ] Replace the indirect `paste` dependency pulled by the wgpu Metal stack
-      when a safe upstream route exists (`RUSTSEC-2024-0436`).
 
 ## MOI-CI-EXACT-001 — exact-head Rust and Loom verification [patch] — complete
 

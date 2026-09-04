@@ -19,7 +19,7 @@ belongs to an unrelated project) and keeps the Rust library name `moirai`.
 
 ```toml
 [dependencies]
-moirai-runtime = "0.5"
+moirai-runtime = "0.6"
 ```
 
 The crate is imported as `moirai`:

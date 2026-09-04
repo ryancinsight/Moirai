@@ -3,15 +3,20 @@ fn gpu_tasks_use_the_hephaestus_device_seam() {
     let manifest = read_benchmark("../moirai-gpu/Cargo.toml");
     let gpu_task = read_benchmark("../moirai-gpu/src/task/mod.rs");
     let gpu_context = read_benchmark("../moirai-gpu/src/device/context.rs");
+    let gpu_source = read_benchmark("../moirai-gpu/src/lib.rs");
     let dependency_section = manifest_section(&manifest, "[dependencies]");
     let feature_section = manifest_section(&manifest, "[features]");
+    let wgpu_feature = feature_section
+        .lines()
+        .find(|line| line.trim_start().starts_with("wgpu-backend ="))
+        .unwrap_or_default();
 
     assert!(
         manifest_section_declares_dependency(dependency_section, "hephaestus-core"),
         "moirai-gpu must depend on the Hephaestus device contract"
     );
     assert!(
-        feature_section.contains("\"dep:hephaestus-wgpu\""),
+        wgpu_feature.contains("\"dep:hephaestus-wgpu\""),
         "wgpu-backend must activate the Hephaestus WGPU provider"
     );
     assert!(
@@ -33,12 +38,23 @@ fn gpu_tasks_use_the_hephaestus_device_seam() {
         "bytemuck",
     ] {
         assert!(
-            !manifest.contains(prohibited)
-                && !gpu_task.contains(prohibited)
-                && !gpu_context.contains(prohibited),
+            !contains_prohibited(&manifest, prohibited)
+                && !contains_prohibited(&gpu_task, prohibited)
+                && !contains_prohibited(&gpu_context, prohibited)
+                && !contains_prohibited(&gpu_source, prohibited),
             "moirai-gpu must not reintroduce {prohibited}"
         );
     }
+}
+
+fn contains_prohibited(source: &str, needle: &str) -> bool {
+    if needle != "wgpu::" {
+        return source.contains(needle);
+    }
+
+    source.match_indices(needle).any(|(index, _)| {
+        index == 0 || source.as_bytes().get(index - 1) != Some(&b'_')
+    })
 }
 
 #[test]

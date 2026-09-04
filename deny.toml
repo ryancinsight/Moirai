@@ -4,11 +4,10 @@ all-features = true
 [advisories]
 yanked = "deny"
 unused-ignored-advisory = "deny"
-# These advisories have no safe upstream release that removes the finding.
-# Each remains a tracked residual in CHECKLIST.md and GAP_ANALYSIS.md.
+# The RSA advisory has no safe upstream release that removes the finding and
+# remains a tracked residual in CHECKLIST.md and GAP_ANALYSIS.md.
 ignore = [
     { id = "RUSTSEC-2023-0071", reason = "RSA support remains required by moirai-crypto; replacement design is tracked in CHECKLIST.md because no safe upstream release is available." },
-    { id = "RUSTSEC-2024-0436", reason = "paste is pulled by wgpu's Metal backend; no safe upstream upgrade exists and the residual is tracked in CHECKLIST.md." },
 ]
 
 [licenses]
@@ -20,7 +19,6 @@ allow = [
     "BSD-1-Clause",
     "BSD-2-Clause",
     "BSD-3-Clause",
-    "CC0-1.0",
     "CDLA-Permissive-2.0",
     "ISC",
     "LGPL-2.1-or-later",
@@ -41,7 +39,6 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
-    "https://github.com/ryancinsight/melinoe.git",
-    "https://github.com/ryancinsight/Mnemosyne.git",
-    "https://github.com/ryancinsight/themis",
+    "https://github.com/ryancinsight/hephaestus",
+    "https://github.com/ryancinsight/Moirai.git",
 ]

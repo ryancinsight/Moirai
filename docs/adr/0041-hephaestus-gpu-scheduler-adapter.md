@@ -1,6 +1,6 @@
 # ADR 0041: Hephaestus GPU scheduler adapter
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-04
 - Board item: [`MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04`](../backlog.md#moi-gpu-hephaestus-route-2026-09-04)
 
@@ -54,3 +54,10 @@ evidence; this crate does not claim hardware execution without a device.
 
 The public GPU API changes and requires a major migration. In-repository
 callers migrate in the same delivery; no compatibility wrapper is retained.
+
+## Migration
+
+The migration is delivered as Moirai 0.6.0. Consumers replace concrete GPU
+context and task types with `GpuContext<D>` and `GpuTask` implementations,
+where `D` is supplied by Hephaestus. The old direct WGPU surface is removed;
+callers do not retain an adapter or forwarding wrapper.

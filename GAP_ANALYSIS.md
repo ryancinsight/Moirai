@@ -37,10 +37,9 @@ are current graph structure, not ignored security findings.
 
 The policy was tightened after review: the pinned action is annotated as
 cargo-deny-action 2.1.1, and `unused-ignored-advisory = "deny"` makes a stale
-exception fail the gate. Both residual advisories use structured entries with
-their replacement rationale. cargo-deny 0.20.2 passes the locked graph with
-both residual advisories encountered, so the exceptions are active rather than
-unused.
+exception fail the gate. The RSA residual uses a structured entry with its
+replacement rationale. The current locked graph contains one unresolved
+license decision for the CUDA provider and the active RSA advisory residual.
 
 The direct PyO3 `0.22.6` dependency carried `RUSTSEC-2025-0020` and
 `RUSTSEC-2026-0177`. It now resolves to `0.29.2`; the PyO3 0.29 API migration
@@ -48,9 +47,8 @@ uses `Python::detach` in the binding boundary. The unused benchmark-only
 `statistical` dependency was deleted, removing its deprecated `rand_os`
 chain. The direct RSA dependency remains at `0.9.10` under
 `RUSTSEC-2023-0071` because the advisory has no safe upstream release; RSA
-replacement/removal is an explicit open checklist residual. The indirect
-`paste` advisory (`RUSTSEC-2024-0436`) is likewise retained as an explicit
-residual through the wgpu Metal dependency path.
+replacement/removal is an explicit open checklist residual. The current WGPU
+graph contains no `paste` advisory residual.
 
 The local evidence covers Rust compilation, value-semantic tests, doctests,
 documentation, and dependency-policy evaluation. It does not establish

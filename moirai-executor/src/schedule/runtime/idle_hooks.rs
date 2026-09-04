@@ -23,7 +23,10 @@
 //! Registration is idempotent-safe but not deduplicating: registering the same
 //! function twice runs it twice per park event.
 
-use std::sync::{Mutex, OnceLock};
+use std::{
+    panic::{catch_unwind, AssertUnwindSafe},
+    sync::{Mutex, OnceLock},
+};
 
 /// A worker idle hook: a plain function pointer, called on the worker thread
 /// right before it blocks for work.
@@ -103,7 +106,17 @@ pub fn run_idle_hooks() {
         guard.hooks
     };
     for hook in snapshot.into_iter().flatten() {
-        hook();
+        invoke_idle_hook(hook);
+    }
+}
+
+/// Contains one hook panic so a reclamation integration cannot terminate a
+/// worker that still owns runnable executor capacity. The standard panic hook
+/// runs before `catch_unwind`, so the failure remains visible to the process's
+/// configured diagnostics while later hooks and work continue.
+fn invoke_idle_hook(hook: IdleHook) {
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(hook)) {
+        drop(payload);
     }
 }
 
@@ -137,6 +150,28 @@ mod tests {
         // A fresh test binary's registry may hold prior registrations; the
         // property under test is that `run_idle_hooks` never panics either way.
         run_idle_hooks();
+    }
+
+    #[test]
+    fn a_panicking_hook_does_not_abort_the_next_hook() {
+        fn panicking_hook() {
+            panic!("idle hook failure is contained");
+        }
+
+        static FOLLOWING_HOOK_RUNS: AtomicUsize = AtomicUsize::new(0);
+
+        fn following_hook() {
+            FOLLOWING_HOOK_RUNS.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let before = FOLLOWING_HOOK_RUNS.load(Ordering::Relaxed);
+        invoke_idle_hook(panicking_hook);
+        invoke_idle_hook(following_hook);
+        assert_eq!(
+            FOLLOWING_HOOK_RUNS.load(Ordering::Relaxed),
+            before + 1,
+            "a later idle hook must run after an earlier hook panics"
+        );
     }
 
     #[test]

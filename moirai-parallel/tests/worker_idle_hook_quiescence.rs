@@ -12,21 +12,24 @@ use moirai_parallel::{for_each_chunk_mut_with, Parallel};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
-static HOOK_SIGNAL: OnceLock<(Mutex<bool>, Condvar)> = OnceLock::new();
+static HOOK_SIGNAL: OnceLock<(Mutex<usize>, Condvar)> = OnceLock::new();
 
 fn quiescence_counter_hook() {
-    let (state, signal) = HOOK_SIGNAL.get_or_init(|| (Mutex::new(false), Condvar::new()));
+    let (state, signal) = HOOK_SIGNAL.get_or_init(|| (Mutex::new(0), Condvar::new()));
     let mut fired = state
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *fired = true;
+    *fired += 1;
     signal.notify_all();
 }
 
 #[test]
 fn registered_hook_runs_on_worker_threads_at_quiescence() {
-    let (state, signal) = HOOK_SIGNAL.get_or_init(|| (Mutex::new(false), Condvar::new()));
+    let (state, signal) = HOOK_SIGNAL.get_or_init(|| (Mutex::new(0), Condvar::new()));
     register_idle_hook(quiescence_counter_hook).expect("worker idle hook registry has capacity");
+    let generation = *state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     // Comfortably more chunks than any plausible pool width, so every worker
     // takes at least one and reaches its own park path afterwards.
@@ -42,10 +45,10 @@ fn registered_hook_runs_on_worker_threads_at_quiescence() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let (fired, timeout) = signal
-        .wait_timeout_while(fired, Duration::from_secs(5), |fired| !*fired)
+        .wait_timeout_while(fired, Duration::from_secs(5), |fired| *fired <= generation)
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     assert!(
-        *fired && !timeout.timed_out(),
+        *fired > generation && !timeout.timed_out(),
         "idle hook must fire on worker threads after the pool drains"
     );
 }
