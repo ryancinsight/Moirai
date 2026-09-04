@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Worker idle hooks** (`register_idle_hook`, `run_idle_hooks`). Executor
+  workers are long-lived, so thread-local state a job builds up — scratch
+  buffers, plan caches, allocator arenas — stays resident for the process
+  lifetime. Consumers can now register a plain function pointer to run on
+  every worker thread at the one point that is both on the owning thread and
+  quiescent by construction: the worker exhausted its spin budget with no work
+  found and is about to block. The registry lock is held only to snapshot the
+  pointers, never across a hook call, so hooks cannot deadlock against
+  registration. On this mechanism the apollo FFT stack will release its
+  ~7.2 MB high-water worker scratch at quiescence
+  (`ATLAS-APOLLO-WORKER-RETENTION-2026-09-03`).
+
 ### Performance
 
 - **Worker count is derived once, not per call.**
