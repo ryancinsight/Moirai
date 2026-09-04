@@ -56,8 +56,11 @@ moirai-gpu = { path = "moirai-gpu", version = "0.5.0" }
 melinoe = { git = "https://github.com/ryancinsight/melinoe.git", version = "0.9.0", default-features = false }
 themis = { package = "themis-topology", git = "https://github.com/ryancinsight/themis", version = "0.10.1", default-features = false, features = ["std"] }
 # Kernel resource budget vocabulary for the GPU occupancy planner (atlas ADR 0002).
-mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "03fe32f4ea669538402bf8fae8d9809610a101a8", version = "0.2.0", package = "mnemosyne-memory-core", default-features = false }
-mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "03fe32f4ea669538402bf8fae8d9809610a101a8", version = "0.7.0", package = "mnemosyne-memory", default-features = false }
+# Temporary co-evolution pin for Mnemosyne PR #123; remove `rev` after the
+# memory provider source-identity correction merges to main and regenerate
+# Cargo.lock.
+mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "da5c6be", version = "0.2.0", package = "mnemosyne-memory-core", default-features = false }
+mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "da5c6be", version = "0.7.0", package = "mnemosyne-memory", default-features = false }
 
 # Network stack (ADR-015): sans-I/O, runtime-agnostic, NOT tokio-coupled.
 # Pure-Rust crypto via moirai-crypto (RustCrypto backend) — no ring, no aws-lc-rs,

@@ -9,6 +9,11 @@
 - **Acceptance:** standalone lock resolves Mnemosyne `da5c6be` and Eunomia
   `fdbf122`; workspace check, Clippy, nextest, doctests, rustdoc, and diff
   checks pass; no conversion or compatibility layer is added.
+- **ADR:** [`0040`](adr/0040-first-party-memory-source-identity.md).
+- **Evidence, 2026-09-03.** Standalone lock check passes with 10 first-party
+  git sources; workspace check and warning-denied Clippy pass; Nextest passes
+  985/985 with 9 expected skips; 22 executable doctests, warning-denied
+  rustdoc, and diff checks pass.
 - **Dependency:** Mnemosyne PR #123 (`da5c6be`); **Last-update:** 2026-09-03.
 
 ## Atlas in-house replacement roadmap — moirai slice [arch]
