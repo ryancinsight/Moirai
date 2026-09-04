@@ -56,6 +56,20 @@ pub mod pipeline;
 #[cfg(feature = "wgpu-backend")]
 pub mod task;
 
+/// Kernel resource budget consumed by [`plan_launch`].
+///
+/// The facade owns the public construction path so callers use the same
+/// `KernelResourceBudget` type identity as the planner, even when the
+/// provider graph resolves Mnemosyne from a different source revision.
+///
+/// ```
+/// let budget = moirai_gpu::KernelResourceBudget::new(64, 16 * 1024, 256)
+///     .expect("positive block width");
+/// let shape = moirai_gpu::plan_launch(budget, 257);
+/// assert_eq!(shape.grid_blocks, 2);
+/// ```
+pub use mnemosyne_core::KernelResourceBudget;
+
 // Core exports
 #[cfg(feature = "wgpu-backend")]
 pub use buffer::{BufferUsage, GpuBuffer, GpuBufferPool};
