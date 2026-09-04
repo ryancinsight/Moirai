@@ -59,8 +59,8 @@ themis = { package = "themis-topology", git = "https://github.com/ryancinsight/t
 # Temporary co-evolution pin for Mnemosyne PR #123; remove `rev` after the
 # memory provider source-identity correction merges to main and regenerate
 # Cargo.lock.
-mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "a0652f89204ddb1c54c4ab0815298818480b9c2f", version = "0.2.0", package = "mnemosyne-memory-core", default-features = false }
-mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "a0652f89204ddb1c54c4ab0815298818480b9c2f", version = "0.7.0", package = "mnemosyne-memory", default-features = false }
+mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "614ff6262914a953fabff0ddfd96f177e2763be2", version = "0.2.0", package = "mnemosyne-memory-core", default-features = false }
+mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "614ff6262914a953fabff0ddfd96f177e2763be2", version = "0.7.0", package = "mnemosyne-memory", default-features = false }
 
 # Network stack (ADR-015): sans-I/O, runtime-agnostic, NOT tokio-coupled.
 # Pure-Rust crypto via moirai-crypto (RustCrypto backend) — no ring, no aws-lc-rs,
