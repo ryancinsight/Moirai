@@ -10,14 +10,14 @@ Status: Accepted
 
 The GPU planner consumes `KernelResourceBudget` from Mnemosyne. Moirai's
 planner facade and the provider graph were still selecting Mnemosyne
-`03fe32f`, while the current Atlas provider revisions use PR #123 at
-`da5c6be`. Combining those revisions creates duplicate nominal package types
+`03fe32f`, while the current Atlas provider revision is PR #123 at
+`7f173751`. Combining those revisions creates duplicate nominal package types
 and adds avoidable provider compilation to downstream consumers.
 
 ## Decision
 
 Advance both Moirai workspace edges, `mnemosyne-memory-core` and
-`mnemosyne-memory`, to `da5c6be` while Mnemosyne PR #123 is under review.
+`mnemosyne-memory`, to `7f173751` while Mnemosyne PR #123 is under review.
 Keep the exact revision as a temporary co-evolution pin with a removal
 trigger: after the provider change merges to main, remove `rev` and
 regenerate the standalone lockfile. The workspace manifest remains the
@@ -35,7 +35,8 @@ added.
 
 ## Verification
 
-The standalone lock resolves Mnemosyne `da5c6be` and Eunomia `fdbf122`.
-Workspace check and warning-denied Clippy pass; Nextest passes 985/985 with
-9 expected skips; 22 executable doctests, warning-denied rustdoc, and
-`git diff --check` pass.
+The standalone lock resolves Mnemosyne `7f173751` and Eunomia `fdbf122`.
+Workspace check and warning-denied Clippy pass; Nextest passes 987/987 with
+9 expected skips; Loom passes 19/19; the Rust 1.95 floor check and the
+no-default-features core suite pass; 22 executable doctests, warning-denied
+rustdoc, formatting, and `git diff --check` pass.
