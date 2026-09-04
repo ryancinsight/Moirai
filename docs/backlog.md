@@ -1,22 +1,9 @@
 # Moirai Development Backlog (SSOT)
 
-## MOI-MNEMOSYNE-IDENTITY-2026-09-03 — Align the GPU planner source edge with the current memory provider [patch] [arch] — in-progress <a id="moi-mnemosyne-identity-2026-09-03"></a>
+## MOI-MNEMOSYNE-IDENTITY-2026-09-03 — Align the GPU planner source edge with the current memory provider [patch] [arch] — done 2026-09-04 <a id="moi-mnemosyne-identity-2026-09-03"></a>
 
-- **Integrator:** Codex on `feat/moirai-gpu-budget-export`; **lease:** root
-  `Cargo.toml`, `Cargo.lock`, `docs/adr/0040`, and this item.
-- **Outcome:** Advance Moirai's Mnemosyne edges to the current head of PR #123 so the GPU planner
-  and its provider consumers share one first-party memory source identity.
-- **Acceptance:** standalone lock resolves Mnemosyne `7f173751` and Eunomia
-  `fdbf122`; workspace check, Clippy, nextest, doctests, rustdoc, and diff
-  checks pass; no conversion or compatibility layer is added.
-- **ADR:** [`0040`](adr/0040-first-party-memory-source-identity.md).
-- **Evidence, 2026-09-04.** Standalone lock check passes with 10 first-party
-  git sources; workspace check and warning-denied Clippy pass; Nextest passes
-  987/987 with 9 expected skips; Loom passes 19/19, the Rust 1.95 floor check
-  passes, and the no-default-features core suite passes 97/97. The Python
-  binding suite passes 1/1; 22 executable doctests, warning-denied rustdoc,
-  formatting, and diff checks pass.
-- **Dependency:** Mnemosyne PR #123 (`7f173751`); **Last-update:** 2026-09-04.
+- [x] PR #256 merged at `70d201a`; Mnemosyne resolves at `7f173751` and the
+  first-party source identity is canonical; ADR [`0040`](adr/0040-first-party-memory-source-identity.md), workspace, binding, Loom, Rust 1.95, no-default, documentation, and lockfile gates pass.
 
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 
