@@ -1,5 +1,16 @@
 # Moirai Development Backlog (SSOT)
 
+## MOI-MNEMOSYNE-IDENTITY-2026-09-03 — Align the GPU planner source edge with the current memory provider [patch] [arch] — in-progress <a id="moi-mnemosyne-identity-2026-09-03"></a>
+
+- **Integrator:** Codex on `feat/moirai-gpu-budget-export`; **lease:** root
+  `Cargo.toml`, `Cargo.lock`, and this item.
+- **Outcome:** Advance Moirai's Mnemosyne edges to PR #123 so the GPU planner
+  and its provider consumers share one first-party memory source identity.
+- **Acceptance:** standalone lock resolves Mnemosyne `da5c6be` and Eunomia
+  `fdbf122`; workspace check, Clippy, nextest, doctests, rustdoc, and diff
+  checks pass; no conversion or compatibility layer is added.
+- **Dependency:** Mnemosyne PR #123 (`da5c6be`); **Last-update:** 2026-09-03.
+
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 
 moirai is the Atlas unified scheduler/router SSOT. It replaces **both rayon
