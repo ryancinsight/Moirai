@@ -3,24 +3,25 @@
 [![crates.io](https://img.shields.io/crates/v/moirai-gpu.svg)](https://crates.io/crates/moirai-gpu)
 [![docs.rs](https://docs.rs/moirai-gpu/badge.svg)](https://docs.rs/moirai-gpu)
 
-GPU integration for the [Moirai](https://github.com/ryancinsight/Moirai)
+Hephaestus-backed GPU scheduling for the [Moirai](https://github.com/ryancinsight/Moirai)
 concurrency library.
 
-Two layers, with different maturity:
+The crate has two provider-independent layers:
 
 - **Launch planning** (`occupancy`, always available, no backend required):
   `plan_launch`, `resident_blocks`, and `plan_persistent_launch` turn a
   mnemosyne `KernelResourceBudget` and a themis `GpuTopology` into a
   `LaunchShape`. The planner never reshapes a kernel's declared block size,
   because register and shared-memory budgets are stated per that width.
-- **Compute execution** (`wgpu-backend` feature, on by default): `GpuDevice`,
-  `GpuBuffer` and buffer pooling, `ComputeShader` / `ComputeKernel`,
-  `ComputePipeline`, and `GpuTask` over wgpu. Disable default features to keep
-  only the planner and drop the wgpu dependency.
+- **Task scheduling** (`wgpu-backend`, enabled by default): `GpuContext<D>` and
+  `GpuTask` form a monomorphized adapter over the Hephaestus
+  `ComputeDevice` contract. `WgpuContext` and `CudaContext` are provider aliases;
+  device buffers, transfers, synchronization, and kernels remain owned by
+  Hephaestus. No direct `wgpu`, CUDA, or byte-casting API crosses this facade.
 
-GPU route co-scheduling through the Moirai scheduler is not implemented; the
-current scheduler-level evidence is the launch-shape planner and its
-value-semantic tests.
+Disable default features when a consumer needs only the planner and generic
+task contract. Enable `cuda-backend` for the Hephaestus CUDA provider. Device
+acquisition is fallible and does not silently fall back to another provider.
 
 ```toml
 [dependencies]

@@ -1,5 +1,23 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-09-04 Hephaestus GPU adapter
+
+### Closed alignment finding
+
+`moirai-gpu` now owns only scheduler-facing GPU context and task contracts.
+`GpuContext<D>` and `GpuTask` monomorphize over Hephaestus's generic
+`ComputeDevice` seam; WGPU and CUDA device ownership, typed buffers, transfer
+paths, synchronization, and kernels remain in the provider crates. The facade
+uses Eunomia's `Pod` contract for host/device layout and has no direct `wgpu`,
+`bytemuck`, `moirai-runtime`, or `moirai-executor` dependency.
+
+The focused adapter tests use Hephaestus's real host reference provider for
+value-semantic buffer round trips, typed task execution, scheduler-cost
+metadata, and unavailable-feature rejection. The existing WGPU stream module
+timeout is not attributed to this change: the same test timed out on the clean
+legacy provider lane and remains a separate stability item. No GPU hardware
+execution or runtime performance claim is made by this local evidence.
+
 ## 2026-08-16 Provider audit and dependency-advisory closure
 
 The isolated provider head is `a648a82` before this increment. The audit first

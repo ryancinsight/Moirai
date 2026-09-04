@@ -1,48 +1,36 @@
-//! Simple GPU acceleration example demonstrating wgpu-rs integration
+//! GPU launch planning through the Hephaestus-backed Moirai adapter.
 //!
-//! This example shows basic GPU vector addition without complex dependencies.
+//! Kernel execution stays in a selected Hephaestus provider; this example keeps
+//! the CI-safe portion provider-independent and computes a real launch shape.
 
 #[cfg(feature = "gpu")]
 fn demonstrate_gpu() {
-    println!("🚀 Moirai GPU Support Available");
-    println!("===============================");
-    println!("✅ GPU integration implemented with wgpu-rs");
-    println!("🔧 Cross-platform GPU compute support");
-    println!("⚡ Zero-copy buffer management");
-    println!("🏗️ SOLID/CUPID architecture compliance");
-    println!("💡 Run 'cargo test --package moirai-gpu' to test GPU functionality");
+    use moirai_gpu::{plan_launch, KernelResourceBudget};
+
+    let budget = KernelResourceBudget::new(64, 16 * 1024, 256)
+        .expect("example budget has a non-zero block width");
+    let shape = plan_launch(budget, 1000);
+
+    println!("Hephaestus-backed Moirai GPU route");
+    println!("provider-neutral launch: {shape:?}");
+    println!("device buffers and kernels are owned by Hephaestus providers");
+    println!("GPU execution requires an acquired WgpuContext or CudaContext");
 }
 
 #[cfg(not(feature = "gpu"))]
 fn demonstrate_fallback() {
-    println!("⚠️  GPU feature not enabled");
-    println!("=========================");
-    println!("💡 To enable GPU acceleration, rebuild with:");
+    println!("GPU feature not enabled");
+    println!("To enable the Hephaestus-backed route, rebuild with:");
     println!("   cargo run --example gpu_acceleration --features gpu");
-    println!("🔄 GPU support available via moirai-gpu crate");
+    println!("The provider-independent occupancy planner remains available in moirai-gpu");
 }
 
 fn main() {
-    println!("🌟 Moirai GPU Integration Status");
-    println!("================================\n");
-
     #[cfg(feature = "gpu")]
     demonstrate_gpu();
 
     #[cfg(not(feature = "gpu"))]
     demonstrate_fallback();
 
-    println!("\n🎯 Key GPU Features Implemented:");
-    println!("- Device management and capability detection");
-    println!("- GPU buffer pooling with zero-copy principles");
-    println!("- Compute shader pipeline builder");
-    println!("- Async GPU task integration with Moirai runtime");
-    println!("- Cross-platform support via wgpu-rs");
-    println!("- Memory-safe GPU programming");
-
-    println!("\n📚 Architecture Highlights:");
-    println!("- Follows SOLID principles with composable components");
-    println!("- Unix Philosophy: focused GPU compute responsibility");
-    println!("- Zero-cost abstractions compiling to optimal code");
-    println!("- Seamless integration with existing Moirai task system");
+    println!("Moirai schedules typed GPU tasks; Hephaestus owns provider execution.");
 }

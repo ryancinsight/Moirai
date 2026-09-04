@@ -1,84 +1,26 @@
-#![expect(
-    clippy::unwrap_used,
-    reason = "test scope: failed precondition = test failure"
-)]
-
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use moirai_gpu::prelude::*;
+use moirai_gpu::{plan_launch, KernelResourceBudget};
+use std::hint::black_box;
 
-const VECTOR_ADD_SHADER: &str = r#"
-    @group(0) @binding(0) var<storage, read> input_a: array<f32>;
-    @group(0) @binding(1) var<storage, read> input_b: array<f32>;
-    @group(0) @binding(2) var<storage, read_write> output: array<f32>;
-    
-    @compute @workgroup_size(64)
-    fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-        let index = global_id.x;
-        if (index >= arrayLength(&input_a)) {
-            return;
-        }
-        output[index] = input_a[index] + input_b[index];
-    }
-"#;
+const WORKGROUP_WIDTH: u32 = 256;
 
-fn gpu_vector_add_benchmark(c: &mut Criterion) {
-    // Try to create GPU context, skip if no GPU available
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let context = rt.block_on(async { GpuContext::new().await });
+fn gpu_launch_planning_benchmark(c: &mut Criterion) {
+    let budget = KernelResourceBudget::new(0, 0, WORKGROUP_WIDTH)
+        .expect("invariant: benchmark workgroup width is non-zero");
+    let mut group = c.benchmark_group("gpu_launch_planning");
 
-    if context.is_err() {
-        return; // Skip benchmarks if no GPU available
-    }
-    let context = context.unwrap();
-
-    let pipeline = context
-        .create_pipeline(VECTOR_ADD_SHADER)
-        .readonly_storage_buffer(0, None)
-        .readonly_storage_buffer(1, None)
-        .storage_buffer(2, None)
-        .build()
-        .unwrap();
-
-    let mut group = c.benchmark_group("gpu_vector_add");
-
-    for size in [1024, 4096, 16384, 65536].iter() {
-        group.bench_with_input(BenchmarkId::new("gpu_compute", size), size, |b, &size| {
-            let a: Vec<f32> = (0..size).map(|i| i as f32).collect();
-            let input_b_vec: Vec<f32> = (0..size).map(|i| (i * 2) as f32).collect();
-            let c: Vec<f32> = vec![0.0; size];
-
-            let buffers = pipeline
-                .create_buffers_with_data(&[&a, &input_b_vec, &c])
-                .unwrap();
-            let buffer_refs: Vec<_> = buffers.iter().collect();
-
-            let workgroups = size.div_ceil(64);
-            let dispatch = KernelDispatch::new_1d(workgroups as u32);
-
-            b.iter(|| {
-                pipeline.execute(&buffer_refs, &dispatch).unwrap();
-                // Wait for completion
-                context.device().device().poll(wgpu::Maintain::Wait);
-            });
-        });
-
-        // Compare with CPU version
-        group.bench_with_input(BenchmarkId::new("cpu_compute", size), size, |b, &size| {
-            let a: Vec<f32> = (0..size).map(|i| i as f32).collect();
-            let b_vec: Vec<f32> = (0..size).map(|i| (i * 2) as f32).collect();
-
-            b.iter(|| {
-                let mut c = vec![0.0f32; size];
-                for i in 0..size {
-                    c[i] = a[i] + b_vec[i];
-                }
-                c
-            });
-        });
+    for work_items in [1_u64, 1_024, 65_536, 1_048_576] {
+        group.bench_with_input(
+            BenchmarkId::from_parameter(work_items),
+            &work_items,
+            |benchmark, &work_items| {
+                benchmark.iter(|| black_box(plan_launch(budget, black_box(work_items))));
+            },
+        );
     }
 
     group.finish();
 }
 
-criterion_group!(benches, gpu_vector_add_benchmark);
+criterion_group!(benches, gpu_launch_planning_benchmark);
 criterion_main!(benches);
