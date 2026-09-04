@@ -30,8 +30,9 @@ pub use hybrid::HybridExecutor;
 pub use metrics::ExecutorMetrics;
 pub use registry::TaskRegistry;
 pub use schedule::{
-    AcceleratorCounts, AcceleratorId, AcceleratorKind, AcceleratorRoute, AcceleratorRoutePolicy,
-    AsyncLaneId, AsyncLanesPerProcess, AsyncTask, BlockingTask, HybridRoutePolicy, HybridRouter,
+    register_idle_hook, run_idle_hooks, AcceleratorCounts, AcceleratorId, AcceleratorKind,
+    AcceleratorRoute, AcceleratorRoutePolicy, AsyncLaneId, AsyncLanesPerProcess, AsyncTask,
+    BlockingTask, HybridRoutePolicy, HybridRouter, IdleHook, IdleHookRegistrationError,
     ProcessCount, ProcessId, ProcessRoute, RoutePolicy, RouteSummary, RouteTopology,
     ScheduleMetrics, SchedulerRoute, SchedulerScope, ServerCount, ServerId, ServerRoute,
     ServerRoutePolicy, SyncTask, ThreadId, ThreadRoute, ThreadRoutePolicy, ThreadScheduler,
