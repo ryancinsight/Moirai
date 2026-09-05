@@ -55,10 +55,10 @@ moirai-utils = { path = "moirai-utils", version = "0.6.0", features = ["std"] }
 moirai-gpu = { path = "moirai-gpu", version = "0.6.0" }
 # Temporary co-evolution pin for Hephaestus PR #272; remove `rev` after the
 # provider acquisition correction merges to main and regenerate Cargo.lock.
-hephaestus-core = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "f532b0e", default-features = false }
-hephaestus-wgpu = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "f532b0e", default-features = false }
-hephaestus-cuda = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "f532b0e", default-features = false, features = ["cuda"] }
-hephaestus-host = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "f532b0e", default-features = false }
+hephaestus-core = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "2c6ffc2", default-features = false }
+hephaestus-wgpu = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "2c6ffc2", default-features = false }
+hephaestus-cuda = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "2c6ffc2", default-features = false, features = ["cuda"] }
+hephaestus-host = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "2c6ffc2", default-features = false }
 eunomia = { version = "0.8.0", git = "https://github.com/ryancinsight/eunomia", rev = "fdbf12275d35aa1545060a4277644c497ddcda37", default-features = false }
 melinoe = { git = "https://github.com/ryancinsight/melinoe.git", version = "0.9.0", default-features = false }
 themis = { package = "themis-topology", git = "https://github.com/ryancinsight/themis", version = "0.10.1", default-features = false, features = ["std"] }
