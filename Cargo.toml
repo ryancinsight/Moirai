@@ -24,7 +24,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 authors = ["Moirai Team"]
 license = "MIT OR Apache-2.0"
@@ -37,30 +37,37 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 # Internal dependencies
-moirai-core = { path = "moirai-core", version = "0.5.0" }
-moirai-executor = { path = "moirai-executor", version = "0.5.0" }
-moirai-scheduler = { path = "moirai-scheduler", version = "0.5.0" }
-moirai-transport = { path = "moirai-transport", version = "0.5.0" }
-moirai-sync = { path = "moirai-sync", version = "0.5.0" }
-moirai-async = { path = "moirai-async", version = "0.5.0" }
-moirai-async-macros = { path = "moirai-async-macros", version = "0.5.0" }
-moirai-pal = { path = "moirai-pal", version = "0.5.0" }
-moirai-iter = { path = "moirai-iter", version = "0.5.0" }
-moirai-parallel = { path = "moirai-parallel", version = "0.5.0" }
-moirai-tls = { path = "moirai-tls", version = "0.5.0" }
-moirai-crypto = { path = "moirai-crypto", version = "0.5.0" }
-moirai-http = { path = "moirai-http", version = "0.5.0" }
-moirai-metrics = { path = "moirai-metrics", version = "0.5.0" }
-moirai-utils = { path = "moirai-utils", version = "0.5.0", features = ["std"] }
-moirai-gpu = { path = "moirai-gpu", version = "0.5.0" }
+moirai-core = { path = "moirai-core", version = "0.6.0" }
+moirai-executor = { path = "moirai-executor", version = "0.6.0" }
+moirai-scheduler = { path = "moirai-scheduler", version = "0.6.0" }
+moirai-transport = { path = "moirai-transport", version = "0.6.0" }
+moirai-sync = { path = "moirai-sync", version = "0.6.0" }
+moirai-async = { path = "moirai-async", version = "0.6.0" }
+moirai-async-macros = { path = "moirai-async-macros", version = "0.6.0" }
+moirai-pal = { path = "moirai-pal", version = "0.6.0" }
+moirai-iter = { path = "moirai-iter", version = "0.6.0" }
+moirai-parallel = { path = "moirai-parallel", version = "0.6.0" }
+moirai-tls = { path = "moirai-tls", version = "0.6.0" }
+moirai-crypto = { path = "moirai-crypto", version = "0.6.0" }
+moirai-http = { path = "moirai-http", version = "0.6.0" }
+moirai-metrics = { path = "moirai-metrics", version = "0.6.0" }
+moirai-utils = { path = "moirai-utils", version = "0.6.0", features = ["std"] }
+moirai-gpu = { path = "moirai-gpu", version = "0.6.0" }
+# Temporary co-evolution pin for Hephaestus PR #272; remove `rev` after the
+# provider acquisition correction merges to main and regenerate Cargo.lock.
+hephaestus-core = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "2c6ffc2", default-features = false }
+hephaestus-wgpu = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "2c6ffc2", default-features = false }
+hephaestus-cuda = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "2c6ffc2", default-features = false, features = ["cuda"] }
+hephaestus-host = { version = "0.19.0", git = "https://github.com/ryancinsight/hephaestus", rev = "2c6ffc2", default-features = false }
+eunomia = { version = "0.8.0", git = "https://github.com/ryancinsight/eunomia", rev = "fdbf12275d35aa1545060a4277644c497ddcda37", default-features = false }
 melinoe = { git = "https://github.com/ryancinsight/melinoe.git", version = "0.9.0", default-features = false }
 themis = { package = "themis-topology", git = "https://github.com/ryancinsight/themis", version = "0.10.1", default-features = false, features = ["std"] }
 # Kernel resource budget vocabulary for the GPU occupancy planner (atlas ADR 0002).
 # Temporary co-evolution pin for Mnemosyne PR #123; remove `rev` after the
 # memory provider source-identity correction merges to main and regenerate
 # Cargo.lock.
-mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "7f1737513c6688daf012f3439159a27253c81184", version = "0.2.0", package = "mnemosyne-memory-core", default-features = false }
-mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "7f1737513c6688daf012f3439159a27253c81184", version = "0.7.0", package = "mnemosyne-memory", default-features = false }
+mnemosyne-core = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "3a5f2a6e6426613fe821a52c5b1405dfe4742d57", version = "0.2.0", package = "mnemosyne-memory-core", default-features = false }
+mnemosyne = { git = "https://github.com/ryancinsight/Mnemosyne.git", rev = "3a5f2a6e6426613fe821a52c5b1405dfe4742d57", version = "0.7.0", package = "mnemosyne-memory", default-features = false }
 
 # Network stack (ADR-015): sans-I/O, runtime-agnostic, NOT tokio-coupled.
 # Pure-Rust crypto via moirai-crypto (RustCrypto backend) — no ring, no aws-lc-rs,

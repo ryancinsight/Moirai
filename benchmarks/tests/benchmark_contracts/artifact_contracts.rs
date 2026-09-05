@@ -241,10 +241,10 @@ fn version_artifacts_are_synchronized_for_current_target() {
     let changelog = read_benchmark("../CHANGELOG.md");
 
     for required in [
-        "version = \"0.5.0\"",
-        "moirai-core = { path = \"moirai-core\", version = \"0.5.0\" }",
-        "moirai-executor = { path = \"moirai-executor\", version = \"0.5.0\" }",
-        "moirai-iter = { path = \"moirai-iter\", version = \"0.5.0\" }",
+        "version = \"0.6.0\"",
+        "moirai-core = { path = \"moirai-core\", version = \"0.6.0\" }",
+        "moirai-executor = { path = \"moirai-executor\", version = \"0.6.0\" }",
+        "moirai-iter = { path = \"moirai-iter\", version = \"0.6.0\" }",
     ] {
         assert!(
             manifest.contains(required),
@@ -253,7 +253,7 @@ fn version_artifacts_are_synchronized_for_current_target() {
     }
 
     assert!(
-        checklist.contains("**Target Version**: 0.5.0"),
+        checklist.contains("**Target Version**: 0.6.0"),
         "checklist target version must match Cargo workspace version"
     );
     assert!(

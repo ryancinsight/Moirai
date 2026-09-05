@@ -11,8 +11,8 @@ publish = false
 description = "Integration tests for Moirai concurrency library"
 
 [dependencies]
-moirai = { package = "moirai-runtime", path = "../moirai", version = "0.5.0", features = ["full", "tokio-compat"] }
-moirai-utils = { path = "../moirai-utils", version = "0.5.0", features = ["std"] }
+moirai = { package = "moirai-runtime", path = "../moirai", version = "0.6.0", features = ["full", "tokio-compat"] }
+moirai-utils = { path = "../moirai-utils", version = "0.6.0", features = ["std"] }
 tokio = { version = "1.0", features = ["full"] }
 tempfile = "3.0"
 futures = "0.3"

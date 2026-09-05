@@ -149,7 +149,14 @@ embedded_sources![
     "../moirai-executor/src/schedule/runtime/worker/indexed.rs",
     "../moirai-executor/src/schedule/runtime/worker/wait.rs",
     "../moirai-gpu/Cargo.toml",
-    "../moirai-gpu/src/task.rs",
+    "../moirai-gpu/src/lib.rs",
+    "../moirai-gpu/src/occupancy.rs",
+    "../moirai-gpu/src/device/context.rs",
+    "../moirai-gpu/src/device/mod.rs",
+    "../moirai-gpu/src/device/preferences.rs",
+    "../moirai-gpu/src/task/configured.rs",
+    "../moirai-gpu/src/task/function.rs",
+    "../moirai-gpu/src/task/mod.rs",
     "../moirai-iter/Cargo.toml",
     "../moirai-iter/src/async_iter/adapters.rs",
     "../moirai-iter/src/async_iter/consumers.rs",
@@ -248,6 +255,10 @@ embedded_sources![
     "../moirai-transport/src/network.rs",
     "../moirai-transport/src/payload.rs",
     "../moirai-transport/src/process.rs",
+    "../moirai-transport/src/process/types.rs",
+    "../moirai-transport/src/process/portable.rs",
+    "../moirai-transport/src/process/windows/mod.rs",
+    "../moirai-transport/src/process/windows/ffi.rs",
     "../moirai-transport/src/remote_task.rs",
     "../moirai-transport/src/remote_task/capability.rs",
     "../moirai-transport/src/remote_task/server.rs",
@@ -331,9 +342,7 @@ fn embedded_source(relative: &str) -> &'static str {
         .iter()
         .find(|(path, _)| *path == relative)
         .map(|(_, content)| *content)
-        .unwrap_or_else(|| {
-            panic!("audited source {relative} must be listed in EMBEDDED_SOURCES")
-        })
+        .unwrap_or_else(|| panic!("audited source {relative} must be listed in EMBEDDED_SOURCES"))
 }
 
 fn normalize_newlines(source: &str) -> String {

@@ -1,9 +1,51 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-SOURCE-2026-09-05"></a>
+## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
+
+- Outcome: Hephaestus requirements name a revision present in the Hephaestus remote.
+- Scope: four invalid workspace Hephaestus rev fields and standalone lock regeneration; preserve Mnemosyne requirements.
+- Acceptance: fetched remote ancestry confirms the revision; Cargo metadata resolves the corrected manifest.
+- Class: [patch]; status: review; integrator: atlas-metis-ipc.
+- Evidence: commit `5d99f24` replaces Hephaestus `2c6ffc2` with absent `f532b0e`; pre-push resolution fails. Reviewed `0514f11` retains the intended revision.
+- Verification: fetched Hephaestus branch contains `2c6ffc2`; stack transport Clippy and 39/39 nextest pass; standalone `scripts/lockfile.py --regenerate` and its `--locked` metadata check pass with 45 git sources.
+- Last update: 2026-09-05; full-workspace runtime verification remains outside this four-reference correction.
+
+<a id="MOI-PROCESS-2026-09-05"></a>
+## MOI-PROCESS-2026-09-05 — Contain piped child lifecycles
+
+- Outcome: bounded process wait/termination and owned IPC pipes; atomic Windows job containment.
+- Scope: moirai-transport process provider; no filesystem/network/privilege sandbox.
+- Acceptance: real child lifecycle, pipes, argument preservation, timeout and descendant tests; focused Clippy/nextest.
+- Class: [major] [arch]; status: review; integrator: atlas-metis-ipc.
+- Driver: [Metis IPC](../../metis/backlog.md#METIS-IPC-001); ADR [0043](adr/0043-contained-process-lifecycle.md).
+- Dependencies: Windows 10 JOB_LIST attribute; unsupported targets reject requested tree containment.
+- Evidence: provider Clippy all-targets; nextest 39/39 (`43860697`), release process 9/9 (`20062f48`), source contract 1/1 (`11a1ee6f`), one compiled doctest and cargo doc; Windows MSVC. Last update: 2026-09-05.
+- Limits: no non-Windows execution or Miri coverage for OS FFI; standalone lock/publication and consumer source sweep remain coordinator-owned.
 
 ## MOI-MNEMOSYNE-IDENTITY-2026-09-03 — Align the GPU planner source edge with the current memory provider [patch] [arch] — done 2026-09-04 <a id="moi-mnemosyne-identity-2026-09-03"></a>
 
 - [x] PR #256 merged at `70d201a`; Mnemosyne resolves at `7f173751` and the
   first-party source identity is canonical; ADR [`0040`](adr/0040-first-party-memory-source-identity.md), workspace, binding, Loom, Rust 1.95, no-default, documentation, and lockfile gates pass.
+
+## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — review <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
+
+- **Outcome:** Route Moirai GPU work through Hephaestus' generic device seam and
+  submit it to the existing work-stealing executor without a direct WGPU layer.
+- **Scope / non-goals:** Moirai GPU adapter, Hephaestus WGPU dependency
+  direction, Eunomia layout bounds, scheduler admission, tests, docs, and
+  locked manifests. CUDA provider integration uses the same generic seam;
+  vendor kernels and TPU/NPU execution remain out of scope.
+- **Acceptance:** no direct `wgpu`, `bytemuck`, or boxed GPU futures remain in
+  `moirai-gpu`; a `ComputeDevice` implementation is acquired through the
+  provider, GPU tasks execute as typed Moirai tasks, device errors remain typed,
+  and focused plus full repository gates pass. ADR [`0041`](adr/0041-hephaestus-gpu-scheduler-adapter.md).
+- **Integrator:** atlas-session; branch `arch/moirai-hephaestus-gpu-route`;
+  upstream companion: Hephaestus `HEPH-WGPU-CONSUMER-2026-09-04`.
+- **Delivery:** PR [#259](https://github.com/ryancinsight/Moirai/pull/259) at
+  `6200233`; local workspace, provider, CUDA, runtime, benchmark-contract,
+  doctest, format, and exact-source lint gates pass. Hosted checks are pending.
+- **Residual:** cargo-deny licenses rejects `cuda-oxide 0.4.0` under the
+  Hephaestus CUDA route; no policy exception is added without authorization.
 
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 
@@ -37,10 +79,11 @@ architecture definition.
   metadata to the scheduler route model with sealed ZST policies, value-checked
   route-summary benchmarks, and benchmark-contract guards before any backend
   execution claim. This is metadata only; no device execution is claimed.
-- [ ] [arch] Stage E: co-schedule GPU compute (the `hephaestus` substrate — atlas ADR
+- [~] [arch] Stage E: co-schedule GPU compute (the `hephaestus` substrate — atlas ADR
   0001 — wgpu + CUDA) with the task-stealing scheduler instead of blocking joins, with
   GPU-aware placement so device work participates in the unified runtime. `moirai-gpu`
-  either folds into hephaestus or becomes a thin scheduling adapter over it. ADR.
+  becomes a thin scheduling adapter over it; tracked by
+  [`MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04`](#moi-gpu-hephaestus-route-2026-09-04) and ADR.
 - [~] [arch] Stage E2 — warp-aware execution shaping (atlas ADR 0002): warps are
   scheduled by SM hardware; moirai owns the software-ownable layer.
   (1) DELIVERED — occupancy planner (`moirai-gpu::occupancy`): `plan_launch`

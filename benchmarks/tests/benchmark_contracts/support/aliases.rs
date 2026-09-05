@@ -202,6 +202,19 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "../moirai-gpu/src/lib.rs",
+        &[
+            "../moirai-gpu/src/lib.rs",
+            "../moirai-gpu/src/occupancy.rs",
+            "../moirai-gpu/src/device/context.rs",
+            "../moirai-gpu/src/device/mod.rs",
+            "../moirai-gpu/src/device/preferences.rs",
+            "../moirai-gpu/src/task/configured.rs",
+            "../moirai-gpu/src/task/function.rs",
+            "../moirai-gpu/src/task/mod.rs",
+        ],
+    ),
+    (
         "../moirai-core/src/ipc.rs",
         &[
             "../moirai-core/src/ipc/mod.rs",

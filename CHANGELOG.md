@@ -9,10 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The GPU planner budget is constructed through `moirai-gpu`.**
-  `KernelResourceBudget` is re-exported by the GPU facade and the occupancy
-  planner consumes that same public type, preventing downstream providers
-  from splitting the planner contract across Mnemosyne source revisions.
+- **Breaking in 0.6.0:** GPU task and context types now use the generic
+  Hephaestus device seam; callers must migrate to provider-owned device
+  handles and the typed task contract.
+- **GPU scheduling now routes through Hephaestus.**
+  `moirai-gpu` exposes a generic `ComputeDevice`/`GpuTask` adapter with
+  `WgpuContext` and `CudaContext` aliases. Provider buffers, transfers,
+  synchronization, and kernels stay in Hephaestus; direct WGPU and Moirai
+  runtime dependencies were removed from the GPU facade.
+### Added
+
+- **Worker idle hooks** (`register_idle_hook`, `run_idle_hooks`). Executor
+  workers are long-lived, so thread-local state a job builds up — scratch
+  buffers, plan caches, allocator arenas — stays resident for the process
+  lifetime. Consumers can now register a plain function pointer to run on
+  every worker thread at the one point that is both on the owning thread and
+  quiescent by construction: the worker exhausted its spin budget with no work
+  found and is about to block. The registry lock is held only to snapshot the
+  bounded function-pointer table, never across a hook call, so hooks cannot
+  deadlock against registration. Registration returns a typed error when the
+  fixed table is full. On this mechanism the apollo FFT stack will release its
+  ~7.2 MB high-water worker scratch at quiescence
+  (`ATLAS-APOLLO-WORKER-RETENTION-2026-09-03`).
 
 ### Performance
 

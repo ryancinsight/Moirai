@@ -366,20 +366,17 @@ impl Moirai {
         moirai_core::channel::mpmc(capacity)
     }
 
-    /// Create a GPU context for GPU-accelerated computing
-    ///
-    /// This initializes a GPU context using wgpu-rs for cross-platform GPU support.
-    /// The context can be used to create compute pipelines and execute GPU tasks.
+    /// Acquire the default Hephaestus WGPU context.
     ///
     /// # Errors
     ///
     /// Returns an error if no suitable GPU device is found or if GPU initialization fails.
     #[cfg(feature = "gpu")]
-    pub async fn create_gpu_context(&self) -> Result<moirai_gpu::GpuContext, moirai_gpu::GpuError> {
-        moirai_gpu::GpuContext::new().await
+    pub fn create_gpu_context(&self) -> Result<moirai_gpu::WgpuContext, moirai_gpu::GpuError> {
+        moirai_gpu::WgpuContext::acquire(moirai_gpu::DevicePreferences::wgpu())
     }
 
-    /// Create a GPU context with specific device preferences
+    /// Acquire a Hephaestus WGPU context with specific device preferences.
     ///
     /// This allows fine-grained control over GPU device selection.
     ///
@@ -387,32 +384,30 @@ impl Moirai {
     ///
     /// Returns an error if no GPU device meeting the preferences is found.
     #[cfg(feature = "gpu")]
-    pub async fn create_gpu_context_with_preferences(
+    pub fn create_gpu_context_with_preferences(
         &self,
         preferences: moirai_gpu::DevicePreferences,
-    ) -> Result<moirai_gpu::GpuContext, moirai_gpu::GpuError> {
-        moirai_gpu::GpuContext::with_preferences(preferences).await
+    ) -> Result<moirai_gpu::WgpuContext, moirai_gpu::GpuError> {
+        moirai_gpu::WgpuContext::acquire(preferences)
     }
 
-    /// Spawn a GPU task for execution
+    /// Schedule a typed GPU task on the Moirai work-stealing executor.
     ///
-    /// This spawns a GPU-accelerated task that will be executed on the GPU.
-    /// The task must implement the `GpuTask` trait.
+    /// The task owns its provider operation and is executed when the scheduler
+    /// admits it. Hephaestus owns device synchronization and errors.
     ///
-    /// # Panics
-    ///
-    /// Panics if the GPU context is not available or if the task fails to spawn.
     #[cfg(feature = "gpu")]
-    pub fn spawn_gpu<T>(
+    pub fn spawn_gpu<D, T>(
         &self,
-        gpu_context: &moirai_gpu::GpuContext,
+        gpu_context: &moirai_gpu::GpuContext<D>,
         task: T,
-    ) -> moirai_gpu::GpuTaskFuture<T::Output>
+    ) -> TaskHandle<moirai_gpu::GpuResult<T::Output>>
     where
-        T: moirai_gpu::GpuTask + Send + 'static,
-        T::Output: Send + 'static,
+        D: moirai_gpu::ComputeDevice + Send + Sync + 'static,
+        T: moirai_gpu::GpuTask<Device = D>,
     {
-        gpu_context.spawn_gpu_task(task)
+        let device = gpu_context.device_handle();
+        self.spawn(TaskBuilder::new().build(move || task.execute_gpu(&device)))
     }
 }
 

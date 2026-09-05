@@ -44,12 +44,12 @@
 
 ## Current State: Unified Scheduler Sprint
 
-**Target Version**: 0.5.0
+**Target Version**: 0.6.0
 **Codebase Status**: Executor scheduler refactor complete; `HybridRouter<P>` provides sealed ZST thread/process/server/accelerator/async-lane route policies, `moirai-transport` consumes selected process/server routes through fixed-format remote task execution, the top-level `Moirai` facade exposes only fixed-capability routed process/server execution, and Mnemosyne-owned archive bytes define the current route ownership handoff across thread/process/server/device regions. Scoped scheduler batches exceed Tokio/Rayon ready-work benchmark baselines; indexed map/reduce matches normalized Rayon fixed-pool indexed CPU work and uses worker-plus-caller chunk caps; mixed sync completion, async result, and indexed reduction work has a value-checked unified-scheduler comparison against a Tokio plus Rayon two-engine reference; real-application mixed workload coverage combines async fan-out, scoped request work, indexed analytics, bounded channel transfer, and closed-form checksums against a Tokio plus Rayon reference; public per-task handles use atomic result slots with a monomorphized zero-sized wait policy, direct first CAS, load-gated pending spins, and state-machine-gated inline waiter cells; async public handles use inline future/lifecycle/result-sender storage with wake-coalesced inline repoll and direct future-state wakers; iterator and scheduler hot paths use monomorphized erased storage at heterogeneous boundaries instead of `dyn` execution dispatch; transport safe-channel payloads use rkyv-style archive views over owned bytes; explicit Rayon/Tokio gap audit tracks executable comparison coverage, same-run benchmark evidence, runtime dependency boundaries, and bounded ecosystem parity.
 **Architecture**: Unified scheduler/router for local CPU worker threads, sync/blocking/async-ready work classes, process routes, server routes, accelerator metadata routes, and per-process async lanes; device-memory regions and accelerator backend consumption remain open architecture items.
 **Quality Level**: Focused scheduler/core/PAL/benchmark clippy clean; scoped, indexed, industry, and public-handle Criterion targets pass with value assertions under bounded verification
 
-**Current verification**: Moirai 0.5.0 follows the merged Mnemosyne 0.7/Core 0.2 provider graph and requires Rust 1.95. Rust 1.95 compiles the focused GPU consumer while Rust 1.94 rejects the graph; Clippy is warning-clean, Nextest passes 10/10, doctests pass 0/0, rustdoc is warning-clean, and each provider has one resolved lock source identity.
+**Current verification**: Moirai 0.6.0 is the next unreleased major version for the Hephaestus GPU adapter. It requires Rust 1.95 and follows the merged Mnemosyne 0.7/Core 0.2 provider graph; final PR verification is tracked on PR #259.
 
 ### Consumer dependency boundary audit
 
