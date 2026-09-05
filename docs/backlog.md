@@ -1,4 +1,15 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-PROCESS-2026-09-05"></a>
+## MOI-PROCESS-2026-09-05 — Contain piped child lifecycles
+
+- Outcome: bounded process wait/termination and owned IPC pipes; atomic Windows job containment.
+- Scope: moirai-transport process provider; no filesystem/network/privilege sandbox.
+- Acceptance: real child lifecycle, pipes, argument preservation, timeout and descendant tests; focused Clippy/nextest.
+- Class: [major] [arch]; status: review; integrator: atlas-metis-ipc.
+- Driver: [Metis IPC](../../metis/backlog.md#METIS-IPC-001); ADR [0043](adr/0043-contained-process-lifecycle.md).
+- Dependencies: Windows 10 JOB_LIST attribute; unsupported targets reject requested tree containment.
+- Evidence: provider Clippy all-targets; nextest 39/39 (`43860697`), release process 9/9 (`20062f48`), source contract 1/1 (`11a1ee6f`), one compiled doctest and cargo doc; Windows MSVC. Last update: 2026-09-05.
+- Limits: no non-Windows execution or Miri coverage for OS FFI; standalone lock/publication and consumer source sweep remain coordinator-owned.
 
 ## MOI-MNEMOSYNE-IDENTITY-2026-09-03 — Align the GPU planner source edge with the current memory provider [patch] [arch] — done 2026-09-04 <a id="moi-mnemosyne-identity-2026-09-03"></a>
 

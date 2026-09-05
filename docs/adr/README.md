@@ -50,3 +50,4 @@
 | [0040](0040-first-party-memory-source-identity.md) | One First-Party Memory Source Identity During Provider Co-Evolution | Accepted |
 | [0041](0041-hephaestus-gpu-scheduler-adapter.md) | Hephaestus GPU scheduler adapter | Accepted |
 | [0042](0042-worker-idle-hooks.md) | Worker idle hooks for owner-thread reclamation | Accepted |
+| [0043](0043-contained-process-lifecycle.md) | Contained process lifecycle | Accepted |

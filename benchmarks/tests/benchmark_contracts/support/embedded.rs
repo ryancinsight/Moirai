@@ -255,6 +255,10 @@ embedded_sources![
     "../moirai-transport/src/network.rs",
     "../moirai-transport/src/payload.rs",
     "../moirai-transport/src/process.rs",
+    "../moirai-transport/src/process/types.rs",
+    "../moirai-transport/src/process/portable.rs",
+    "../moirai-transport/src/process/windows/mod.rs",
+    "../moirai-transport/src/process/windows/ffi.rs",
     "../moirai-transport/src/remote_task.rs",
     "../moirai-transport/src/remote_task/capability.rs",
     "../moirai-transport/src/remote_task/server.rs",
@@ -338,9 +342,7 @@ fn embedded_source(relative: &str) -> &'static str {
         .iter()
         .find(|(path, _)| *path == relative)
         .map(|(_, content)| *content)
-        .unwrap_or_else(|| {
-            panic!("audited source {relative} must be listed in EMBEDDED_SOURCES")
-        })
+        .unwrap_or_else(|| panic!("audited source {relative} must be listed in EMBEDDED_SOURCES"))
 }
 
 fn normalize_newlines(source: &str) -> String {

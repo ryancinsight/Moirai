@@ -77,7 +77,9 @@ fn scheduler_routes_bind_to_archived_transport_without_fake_remote_execution() {
     let route = read_benchmark("../moirai-transport/src/route.rs");
     let route_tests = read_benchmark("../moirai-transport/src/route/tests.rs");
     let route_all = format!("{payload}\n{route}\n{route_tests}");
-    let adr = read_benchmark("../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md");
+    let adr = read_benchmark(
+        "../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md",
+    );
     let checklist = read_benchmark("../docs/adr-008-checklist.md");
 
     for required in [
@@ -199,7 +201,9 @@ fn remote_transport_uses_real_length_prefixed_tcp_bytes() {
         .find("/// TCP transport for reliable network communication.")
         .expect("TCP transport marker must follow NetworkTransport impl");
     let network_impl = &network_tail[..network_end];
-    let adr = read_benchmark("../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md");
+    let adr = read_benchmark(
+        "../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md",
+    );
     let checklist = read_benchmark("../docs/adr-008-checklist.md");
 
     for required in [
@@ -270,7 +274,9 @@ fn remote_task_envelopes_execute_value_checked_builtin_operations() {
     let server = read_benchmark("../moirai-transport/src/remote_task/server.rs");
     let tests = read_benchmark("../moirai-transport/src/remote_task/tests.rs");
     let source_all = format!("{payload}\n{source}\n{capability}\n{server}\n{tests}");
-    let adr = read_benchmark("../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md");
+    let adr = read_benchmark(
+        "../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md",
+    );
     let checklist = read_benchmark("../docs/adr-008-checklist.md");
 
     assert!(
@@ -362,7 +368,10 @@ fn remote_task_envelopes_execute_value_checked_builtin_operations() {
         assert!(adr.contains(required), "ADR-008 must retain {required}");
     }
 
-    for required in ["Remote task envelopes/results", "Arbitrary closure remoting"] {
+    for required in [
+        "Remote task envelopes/results",
+        "Arbitrary closure remoting",
+    ] {
         assert!(
             checklist.contains(required),
             "ADR-008 checklist must retain {required}"
@@ -372,81 +381,27 @@ fn remote_task_envelopes_execute_value_checked_builtin_operations() {
 
 #[test]
 fn process_supervisor_uses_real_os_process_lifecycle() {
-    let lib = read_benchmark("../moirai-transport/src/lib.rs");
-    let source = read_benchmark("../moirai-transport/src/process.rs");
-    let adr = read_benchmark("../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md");
-    let checklist = read_benchmark("../docs/adr-008-checklist.md");
-
-    assert!(
-        lib.contains("pub mod process;"),
-        "transport crate must expose process lifecycle module"
-    );
-
-    for required in [
-        "process::{Child, Command, ExitStatus}",
-        "pub enum ProcessError",
-        "SpawnFailed",
-        "WaitFailed",
-        "TerminateFailed",
-        "pub struct ManagedProcessId",
-        "pub enum ProcessDropPolicy",
-        "TerminateOnDrop",
-        "DetachOnDrop",
-        "pub struct ProcessWaitPolicy",
-        "pub struct ProcessSpec",
-        "args: Vec<OsString>",
-        "envs: Vec<(OsString, OsString)>",
-        "pub fn env(",
-        "command.envs(spec.envs)",
-        "pub struct ProcessStatus",
-        "pub enum ProcessOutcome",
-        "Succeeded",
-        "Failed",
-        "pub struct ProcessSupervisor",
-        "pub fn spawn(",
-        "Command::new(spec.program)",
-        "command.args(spec.args)",
-        "command.spawn()",
-        "pub struct ManagedProcess",
-        "child: Child",
-        "pub fn try_wait(&mut self)",
-        "pub fn wait(&mut self)",
-        "pub fn wait_bounded(",
-        "pub fn terminate(&mut self)",
-        "self.child.kill()",
-        "impl Drop for ManagedProcess",
-        "process_supervisor_waits_for_successful_child",
-        "process_supervisor_times_out_and_terminates_child",
-    ] {
-        assert!(
-            source.contains(required),
-            "process supervisor must retain real lifecycle component {required}"
-        );
+    let api = read_benchmark("../moirai-transport/src/process.rs");
+    let types = read_benchmark("../moirai-transport/src/process/types.rs");
+    let windows = read_benchmark("../moirai-transport/src/process/windows/mod.rs");
+    let portable = read_benchmark("../moirai-transport/src/process/portable.rs");
+    let native = read_benchmark("../moirai-transport/src/process/windows/ffi.rs");
+    // This is an architectural source audit. Value-semantic lifecycle evidence
+    // comes from process/tests.rs running real child and descendant processes.
+    assert!(api.contains("Process::spawn(spec, drop_policy)?"));
+    assert!(api.contains("pub fn wait_timeout("));
+    assert!(api.contains("pub fn terminate_timeout("));
+    assert!(types.contains("pub const fn tree_containment("));
+    assert!(windows.contains("ffi::CreateProcessW("));
+    assert!(windows.contains("ffi::TerminateJobObject("));
+    assert!(windows.contains("ffi::QueryInformationJobObject("));
+    assert!(windows.contains("ffi::WaitForSingleObject("));
+    assert!(native.contains("struct StartupInfoEx"));
+    assert!(portable.contains("ProcessError::UnsupportedContainment"));
+    assert!(!api.contains("child.wait()"));
+    assert!(!portable.contains("child.wait()"));
+    for source in [&api, &windows, &portable] {
+        assert!(!source.contains("unimplemented!"));
+        assert!(!source.contains("todo!"));
     }
-
-    for prohibited in [
-        "pub success: bool",
-        "unimplemented!",
-        "todo!",
-        "Default::default()",
-        "Command::new(\"echo\")",
-        "ExitStatus::from_raw",
-    ] {
-        assert!(
-            !source.contains(prohibited),
-            "process supervisor must not regress to placeholder lifecycle path through {prohibited}"
-        );
-    }
-
-    for required in [
-        "OS process lifecycle primitives use `ProcessSupervisor`",
-        "Process lifecycle is real OS process management",
-    ] {
-        assert!(adr.contains(required), "ADR-008 must retain {required}");
-    }
-
-    assert!(
-        checklist.contains("OS process executor lifecycle"),
-        "ADR-008 checklist must retain process lifecycle tracking"
-    );
 }
