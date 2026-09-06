@@ -12,7 +12,7 @@
     clippy::unwrap_used,
     reason = "test scope: failed precondition = test failure"
 )]
-#![allow(dead_code)] // This example keeps chat metadata and event variants beyond the short executable scenario.
+#![expect(dead_code, reason = "This example keeps chat metadata and event variants beyond the short executable scenario")]
 
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, HashSet, VecDeque};

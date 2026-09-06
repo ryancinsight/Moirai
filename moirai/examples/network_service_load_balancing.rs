@@ -11,7 +11,7 @@
     clippy::unwrap_used,
     reason = "test scope: failed precondition = test failure"
 )]
-#![allow(dead_code)] // This example models load-balancer state variants not all used by the compact scenario.
+#![expect(dead_code, reason = "This example models load-balancer state variants not all used by the compact scenario")]
 
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, VecDeque};
