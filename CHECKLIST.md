@@ -2,6 +2,31 @@
 
 **Target**: Unreleased
 
+## MOI-MNEMOSYNE-QUARANTINE-EXPIRED-2026-09-06 [patch] — complete
+
+- **Delivered:** the `rev = "7f173751"` quarantine on `mnemosyne-core` and
+  `mnemosyne` is removed, as its own comment prescribed — "remove `rev` after
+  the memory provider source-identity correction merges to main and regenerate
+  Cargo.lock". Mnemosyne PR #128 merged that correction (`e8e825f`) two days
+  ago, so the trigger had fired and the pin was expired quarantine.
+- **Why it mattered downstream:** `Mnemosyne@7f173751` pins
+  `eunomia rev = fdbf1227`, while everything else in the stack resolves
+  Eunomia's default branch. Moirai was the single remaining path by which that
+  revision entered consumer graphs, so the stale pin put two Eunomia versions
+  in every graph containing both Moirai and Eunomia — breaking `coeus-hephaestus`
+  and `kwavers-gpu` on `eunomia::layout::marker::Pod` and holding kwavers main
+  red (filed there as `KW-EUNOMIA-DIAMOND`). Verified by inspection rather than
+  inferred: `7f173751`'s manifest carries the eunomia `rev`, `e8e825f`'s does
+  not, and moirai's regenerated lock now resolves Mnemosyne at `e8e825f`.
+- **Evidence (2026-09-06):** lock regenerated outside the overlay and resolving
+  under `--locked`; `cargo fmt --check`, `cargo clippy --locked --workspace
+  --all-features --all-targets -- -D warnings`, `cargo nextest run --locked
+  --workspace --all-features` **987/987**, `cargo test --locked --workspace
+  --all-features --doc`, `cargo doc --locked --workspace --all-features
+  --no-deps` warning-free.
+- **Downstream:** consumers pick this up on their next lock advance; the
+  kwavers and coeus diamond closes there, not here.
+
 ## MOI-GPU-BUDGET-IDENTITY-2026-09-03 [minor] [arch] — complete
 
 - **Delivered:** `moirai-gpu` now owns the public `KernelResourceBudget`
