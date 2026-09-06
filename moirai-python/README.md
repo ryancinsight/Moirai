@@ -1,37 +1,60 @@
 # moirai-python
 
-`moirai-python` provides PyO3 bindings over the Rust `moirai` crate. The
-importable package does not implement its own scheduler, chunk planner, workload
-kernels, benchmark harness, or execution backend; it exposes a native
-`moirai::Moirai` runtime lifecycle facade.
+A Python handle on the [Moirai](https://github.com/ryancinsight/Moirai) Rust
+concurrency runtime: construct it, ask what it is doing, wait for it, shut it
+down.
 
-## Releases
+## Install
 
-GitHub Releases tagged `moirai-python-v<version>` build locked Linux, Windows,
-and universal macOS wheels for CPython 3.10 through 3.13. The release workflow
-installs and exercises each wheel, validates its distribution name and version,
-generates SHA-256 checksums and build provenance, attaches those artifacts to
-the GitHub Release, and publishes the same wheels to PyPI through OIDC Trusted
-Publishing. The tag version must equal the `moirai-python` Cargo package
-version; Cargo is the sole version source.
-
-## Contracts
-
-- `MoiraiPython` wraps a native `moirai::Moirai` runtime.
-- Worker count validation occurs at construction.
-- `worker_count`, `has_work`, `join`, and `shutdown` forward to the wrapped
-  runtime.
-- Workload functions and benchmark-specific processing helpers are excluded
-  from the Python package. Comparative performance coverage belongs in
-  scheduler-level Rust benchmarks or external harnesses that do not expand the
-  public Python API.
-
-## Usage
-
-```bash
-py -3.13 -m pip install moirai-python
-
-# Source checkout verification
-py -3.13 -m pip install -e moirai-python
-py -3.13 -m unittest discover moirai-python\tests
+```sh
+pip install moirai-python
 ```
+
+Wheels are built for CPython 3.10 through 3.13 on Linux, Windows, and macOS.
+There are no runtime dependencies.
+
+## Use
+
+```python
+from moirai_python import MoiraiPython
+
+runtime = MoiraiPython(workers=4)
+
+print(runtime.worker_count())   # 4
+print(runtime.has_work())       # False
+
+runtime.join()                  # wait for queued and active work
+runtime.shutdown()
+```
+
+The worker count is validated when the runtime is constructed, so an invalid
+value fails there rather than at first use.
+
+## What this package deliberately does not do
+
+It does not submit work. There is no task-submission API, no chunk planner, no
+workload kernel, and no benchmark harness on the Python side — the facade
+covers the runtime *lifecycle* and nothing else.
+
+That is a boundary, not an omission in progress. Scheduling decisions belong
+where the scheduler is, and a Python-side planner would be a second
+implementation of policy that Rust already owns — divergent the moment either
+changed. Comparative performance work belongs in Moirai's own Rust benchmarks
+for the same reason: a harness measuring through a binding measures the
+binding.
+
+So `has_work()` reports on work submitted from the Rust side. Called on a
+runtime this package constructed and never fed, it returns `False`.
+
+## Typing
+
+The package ships `py.typed` and is fully annotated, so `mypy` and IDE
+completion see the surface without stubs.
+
+## Links
+
+- [Source and issues](https://github.com/ryancinsight/Moirai)
+
+## Licence
+
+MIT or Apache-2.0, at your option.
