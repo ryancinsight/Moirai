@@ -11,7 +11,7 @@
     clippy::unwrap_used,
     reason = "test scope: failed precondition = test failure"
 )]
-#![allow(dead_code)] // This example keeps realistic market-data and pool metadata beyond the short demo path.
+#![expect(dead_code, reason = "This example keeps realistic market-data and pool metadata beyond the short demo path")]
 
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, VecDeque};

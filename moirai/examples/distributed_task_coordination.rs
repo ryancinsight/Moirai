@@ -11,7 +11,7 @@
     clippy::unwrap_used,
     reason = "test scope: failed precondition = test failure"
 )]
-#![allow(dead_code)] // This example keeps distributed-state variants that document failure modes outside the short run.
+#![expect(dead_code, reason = "This example keeps distributed-state variants that document failure modes outside the short run")]
 
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, HashSet, VecDeque};
