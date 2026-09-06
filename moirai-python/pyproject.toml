@@ -1,19 +1,48 @@
 [build-system]
-requires = ["maturin>=1.5,<2"]
+requires = ["maturin>=1.9.4,<2.0"]
 build-backend = "maturin"
 
 [project]
 name = "moirai-python"
 dynamic = ["version"]
-description = "PyO3 bindings for the Moirai Rust concurrency runtime."
+description = "Python lifecycle handle on the Moirai Rust concurrency runtime"
 readme = "README.md"
+# Matches the wheel matrix in the release workflow. The bindings are not
+# abi3, so this floor is the lowest interpreter built rather than an abi3
+# minimum.
 requires-python = ">=3.10"
 license = { text = "MIT OR Apache-2.0" }
 authors = [{ name = "Ryan Clanton", email = "ryanclanton@outlook.com" }]
 dependencies = []
+keywords = ["concurrency", "runtime", "scheduler", "threading", "rust"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: System :: Distributed Computing",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+]
 
 [project.urls]
+Homepage = "https://github.com/ryancinsight/Moirai"
 Repository = "https://github.com/ryancinsight/Moirai"
+Issues = "https://github.com/ryancinsight/Moirai/issues"
 
 [tool.maturin]
 module-name = "moirai_python._native"
