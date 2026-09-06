@@ -13,7 +13,10 @@
     clippy::unwrap_used,
     reason = "test scope: failed precondition = test failure"
 )]
-#![expect(dead_code, reason = "This example retains crawler frontier fields and priority variants beyond the short demo")]
+#![expect(
+    dead_code,
+    reason = "This example retains crawler frontier fields and priority variants beyond the short demo"
+)]
 
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, HashSet, VecDeque};
