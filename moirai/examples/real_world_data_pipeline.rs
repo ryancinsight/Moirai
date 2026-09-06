@@ -12,7 +12,7 @@
     clippy::unwrap_used,
     reason = "test scope: failed precondition = test failure"
 )]
-#![allow(dead_code)] // This example keeps realistic record/stat fields that are not all exercised by the short demo path.
+#![expect(dead_code, reason = "This example keeps realistic record/stat fields that are not all exercised by the short demo path")]
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};

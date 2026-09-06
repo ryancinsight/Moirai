@@ -12,7 +12,7 @@
     clippy::unwrap_used,
     reason = "test scope: failed precondition = test failure"
 )]
-#![allow(dead_code)] // This example keeps device-command/event variants that document broader IoT workflows.
+#![expect(dead_code, reason = "This example keeps device-command/event variants that document broader IoT workflows")]
 
 use moirai::{Moirai, Priority};
 use std::collections::{BTreeMap, HashMap, VecDeque};
