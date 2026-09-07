@@ -21,7 +21,10 @@ use web_sys::console;
 
 use crate::{Event, Interest, RawFd, Reactor};
 
-pub use self::dom::{WebDocument, WebElement, WebEvent, WebEventListener};
+pub use self::dom::{
+    PointerMetadata, PointerModifiers, PointerType, WebDocument, WebElement, WebEvent,
+    WebEventListener,
+};
 pub use self::timer::WebTimer;
 pub use crate::local_task::LocalTaskHandle;
 pub use crate::websocket_state::{WebSocketLimits, WebSocketOpen, WebSocketReceive};

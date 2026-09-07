@@ -22,6 +22,8 @@ and `WebElement` provide bounded DOM updates, input/select values, checked
 checkbox/radio state, disabled button/input/select state, modal dialog lifecycle
 and focus control. Pointer events expose their browser identifier, and elements
 can capture, query, and release that identifier through the same owned seam.
+Pointer events also expose a value snapshot with normalized device type,
+viewport coordinates, button state, modifier keys and primary-pointer state.
 `WebEventListener` removes its callback registration when dropped. `spawn_local` uses the browser event loop for futures; applications
 do not create a second executor or retain detached JavaScript closures.
 `spawn_local_with_handle` adds
@@ -30,7 +32,7 @@ drops its child future, releasing a pending PAL receive or timer.
 
 ```toml
 [dependencies]
-moirai-pal = "0.5"
+moirai-pal = "0.6"
 ```
 
 ```rust
