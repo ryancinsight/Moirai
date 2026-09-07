@@ -3,6 +3,7 @@
 //! This module provides async I/O support for WebAssembly environments,
 //! integrating with JavaScript Promise/async-await patterns and Web APIs.
 
+mod dom;
 mod timer;
 mod websocket;
 
@@ -20,11 +21,24 @@ use web_sys::console;
 
 use crate::{Event, Interest, RawFd, Reactor};
 
+pub use self::dom::{WebDocument, WebElement, WebEvent, WebEventListener};
 pub use self::timer::WebTimer;
 pub use crate::websocket_state::{WebSocketLimits, WebSocketReceive};
 
 use self::websocket::WebSocketConnection;
 use self::websocket::EVENT_QUEUE_CAPACITY;
+
+/// Schedules a future on the browser event loop.
+///
+/// The future is owned by the JavaScript event-loop integration and is
+/// dropped when it resolves or is cancelled by the future itself. Callers
+/// must keep any application state captured by the future in an owned handle.
+pub fn spawn_local<F>(future: F)
+where
+    F: std::future::Future<Output = ()> + 'static,
+{
+    wasm_bindgen_futures::spawn_local(future);
+}
 
 /// WebAssembly-based I/O reactor using Web APIs.
 pub struct WebReactor {
