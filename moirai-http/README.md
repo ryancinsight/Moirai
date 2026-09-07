@@ -52,7 +52,9 @@ non-minimally encoded frames, handles ping/pong and close, and wraps header,
 message and frame operations in finite deadlines. A frame timeout or partial
 I/O error terminalizes the stream so callers cannot retry from an ambiguous
 wire position. The optional browser `Origin` header is returned to the
-consumer; authorization remains the consumer's responsibility.
+consumer; `accept_websocket_with_validator` additionally lets the consumer
+reject it before the `101` response, while authorization remains the
+consumer's responsibility.
 
 ```rust,no_run
 use moirai_http::{accept_websocket, WebSocketConfig};

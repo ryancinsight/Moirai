@@ -28,8 +28,11 @@ Moirai owns a small, pure-Rust service substrate in `moirai-http` over the
 existing `moirai_async::net::TcpListener`/`TcpStream` facades. The substrate is
 message-oriented because consumers such as Metis carry one complete binary IPC
 frame per WebSocket message. Its public API consists of a bounded
-`WebSocketConfig`, validated `HttpRequestHead`, `accept_websocket`, and a
-`WebSocketStream<S>` with `recv_message`, `send_binary` and `close` operations.
+`WebSocketConfig`, validated `HttpRequestHead`, `accept_websocket`,
+`accept_websocket_with_validator`, and a `WebSocketStream<S>` with
+`recv_message`, `send_binary` and `close` operations. The validator runs after
+protocol parsing and before the `101` response, so a consumer can reject a
+browser origin without acknowledging an unauthorized socket.
 The stream is generic over any Moirai `AsyncRead + AsyncWrite` connection, so a
 future `moirai_tls::TlsAcceptor` can be added without changing the Metis seam.
 
@@ -39,7 +42,9 @@ non-empty `Host`, and requires exactly one valid `Upgrade: websocket`,
 `Connection: Upgrade`, `Sec-WebSocket-Version: 13` and `Sec-WebSocket-Key`.
 The optional `Origin` value is retained for the consumer's policy check; the
 protocol layer does not invent window or session identity. A valid request
-receives the exact `101 Switching Protocols` response and no body.
+receives the exact `101 Switching Protocols` response and no body. Consumers
+that use `accept_websocket_with_validator` perform their origin check before
+that response is written.
 
 The WebSocket codec accepts masked client binary frames, rejects unmasked,
 fragmented, reserved-bit and invalid control frames, rejects non-minimal

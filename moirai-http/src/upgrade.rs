@@ -110,11 +110,33 @@ impl WebSocketUpgrade {
 /// Returns invalid-input/data, timeout, or transport errors when the request
 /// does not satisfy the WebSocket upgrade contract or I/O fails.
 pub async fn accept_websocket<S>(
-    mut stream: S,
+    stream: S,
     config: WebSocketConfig,
 ) -> io::Result<(WebSocketStream<S>, WebSocketUpgrade)>
 where
     S: moirai_async::io::AsyncRead + moirai_async::io::AsyncWrite + Unpin,
+{
+    accept_websocket_with_validator(stream, config, |_| Ok(())).await
+}
+
+/// Perform a bounded WebSocket upgrade after validating the parsed request.
+///
+/// `validator` runs after the RFC 6455 request checks and before any `101
+/// Switching Protocols` bytes are written. Consumers use this hook for
+/// trust-boundary checks such as an exact browser-origin policy; a rejected
+/// request therefore never becomes an acknowledged WebSocket session.
+///
+/// # Errors
+/// Returns the validator's error, invalid-input/data, timeout, or transport
+/// errors when the request does not satisfy the upgrade contract or I/O fails.
+pub async fn accept_websocket_with_validator<S, F>(
+    mut stream: S,
+    config: WebSocketConfig,
+    validator: F,
+) -> io::Result<(WebSocketStream<S>, WebSocketUpgrade)>
+where
+    S: moirai_async::io::AsyncRead + moirai_async::io::AsyncWrite + Unpin,
+    F: FnOnce(&HttpRequestHead) -> io::Result<()>,
 {
     config.validate()?;
     let (request, remainder) = timeout(
@@ -128,6 +150,7 @@ where
     .await
     .map_err(|_| timed_out("WebSocket handshake read"))??;
     let key = validate_upgrade(&request)?;
+    validator(&request)?;
     let accept = websocket_accept_key(key);
     let response = format!(
         "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
@@ -351,6 +374,29 @@ mod tests {
             stream.output_bytes(),
             b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
         );
+    }
+
+    #[test]
+    fn validator_rejects_before_switching_protocols_response() {
+        let called = Arc::new(AtomicBool::new(false));
+        let marker = Arc::clone(&called);
+        let result = moirai::block_on(accept_websocket_with_validator(
+            MemoryStream::new(&request("")),
+            WebSocketConfig::default(),
+            move |request| {
+                marker.store(request.origin().is_some(), Ordering::Relaxed);
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "origin denied",
+                ))
+            },
+        ));
+        let error = match result {
+            Ok(_) => panic!("validator rejection must stop before response"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(called.load(Ordering::Relaxed));
     }
 
     #[test]
