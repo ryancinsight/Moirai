@@ -103,10 +103,34 @@
 - Acceptance: input and select values return the browser value while other
   elements return `None`; WASM check, native PAL tests and warning-denied Clippy
   pass; Metis exercises the select seam through a real interaction.
-- Class: [minor]; status: in-progress; priority: P1; integrator: root;
+- Class: [minor]; status: done; priority: P1; integrator: root;
   branch: `feat/wasm-select-control`; last-update: 2026-09-07; driver:
   [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 - Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+- Evidence: PR [#273](https://github.com/ryancinsight/Moirai/pull/273) merged at
+  `9e86e1d`; `moirai-pal` passes 47/47 native tests, WASM check and
+  warning-denied Clippy, and Metis exercises the select seam through a real
+  interaction.
+
+<a id="MOI-WASM-DOM-DISABLED-2026-09-07"></a>
+## MOI-WASM-DOM-DISABLED-2026-09-07 — Expose disabled form-control state [minor]
+
+- Outcome: the Moirai-owned WASM DOM seam reads and sets disabled state for
+  button, input and select controls without exposing `web-sys` to consumers.
+- Scope: `moirai-pal` `WebElement::disabled` and `set_disabled`; lifecycle
+  policy, rendering and browser demonstrations remain Metis-owned.
+- Acceptance: supported controls round-trip their disabled state; other
+  elements return `None` and a typed invalid-input error; WASM check, native PAL
+  tests and warning-denied Clippy pass; Metis enforces the seam in its submit
+  lifecycle.
+- Class: [minor]; status: done; priority: P1; integrator: root;
+  branch: `feat/wasm-disabled-control`; last-update: 2026-09-07; driver:
+  [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+- Evidence: PR [#274](https://github.com/ryancinsight/Moirai/pull/274) merged at
+  `d879779`; `moirai-pal` passes 47/47 native tests, WASM check and
+  warning-denied Clippy. Metis's live browser trace observes disabled before
+  bridge readiness, during a delayed request, and after disconnected activation.
 
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
