@@ -50,8 +50,8 @@ leaving a timer callback or a WebSocket waiter after cancellation.
 
 Moirai also owns the narrow DOM boundary used by Atlas WASM applications.
 `WebDocument` and `WebElement` wrap the current document, trusted markup,
-text/attribute updates, input/select values, checked checkbox/radio state and
-child insertion. `WebEventListener`
+text/attribute updates, input/select values, checked checkbox/radio state,
+disabled button/input/select state, and child insertion. `WebEventListener`
 owns one callback registration and removes it in `Drop`; `WebEvent` exposes only
 the target/value/default-action operations needed by an application, so browser
 bindings do not leak into Metis domain code. `spawn_local` routes application

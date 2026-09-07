@@ -18,8 +18,8 @@ Modules: `reactor`, `net`, `fs`, `timer`, plus the per-platform `unix`,
 `windows`, and `wasm` implementations.
 
 The WASM module owns the browser boundary used by Atlas applications. `WebDocument`
-and `WebElement` provide bounded DOM updates, input/select values and checked
-checkbox/radio state, while
+and `WebElement` provide bounded DOM updates, input/select values, checked
+checkbox/radio state, and disabled button/input/select state, while
 `WebEventListener` removes its callback registration when dropped. `spawn_local`
 uses the browser event loop for futures; applications do not create a second
 executor or retain detached JavaScript closures. `spawn_local_with_handle` adds

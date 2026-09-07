@@ -4,7 +4,9 @@ use std::io;
 
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
-use web_sys::{Document, Element, Event, HtmlInputElement, HtmlSelectElement, Window};
+use web_sys::{
+    Document, Element, Event, HtmlButtonElement, HtmlInputElement, HtmlSelectElement, Window,
+};
 
 /// A browser document obtained from the current window.
 #[derive(Clone)]
@@ -109,6 +111,48 @@ impl WebElement {
         self.element
             .set_attribute(name, value)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid DOM attribute"))
+    }
+
+    /// Returns the disabled state of a button, input, or select control.
+    #[must_use]
+    pub fn disabled(&self) -> Option<bool> {
+        self.element
+            .dyn_ref::<HtmlButtonElement>()
+            .map(HtmlButtonElement::disabled)
+            .or_else(|| {
+                self.element
+                    .dyn_ref::<HtmlInputElement>()
+                    .map(HtmlInputElement::disabled)
+            })
+            .or_else(|| {
+                self.element
+                    .dyn_ref::<HtmlSelectElement>()
+                    .map(HtmlSelectElement::disabled)
+            })
+    }
+
+    /// Sets the disabled state of a button, input, or select control.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::InvalidInput`] when this element is not a
+    /// disableable form control.
+    pub fn set_disabled(&self, disabled: bool) -> io::Result<()> {
+        if let Some(button) = self.element.dyn_ref::<HtmlButtonElement>() {
+            button.set_disabled(disabled);
+            return Ok(());
+        }
+        if let Some(input) = self.element.dyn_ref::<HtmlInputElement>() {
+            input.set_disabled(disabled);
+            return Ok(());
+        }
+        if let Some(select) = self.element.dyn_ref::<HtmlSelectElement>() {
+            select.set_disabled(disabled);
+            return Ok(());
+        }
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "DOM element is not a disableable form control",
+        ))
     }
 
     /// Appends a child and returns no detached handle.
