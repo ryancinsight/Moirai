@@ -45,7 +45,7 @@
 - Outcome: bounded process wait/termination and owned IPC pipes; atomic Windows job containment.
 - Scope: moirai-transport process provider; no filesystem/network/privilege sandbox.
 - Acceptance: real child lifecycle, pipes, argument preservation, timeout and descendant tests; focused Clippy/nextest.
-- Class: [major] [arch]; status: review; integrator: atlas-metis-ipc.
+- Class: [major] [arch]; status: in-progress; integrator: root; branch: `feat/process-browser`; last-update: 2026-09-06.
 - Driver: [Metis IPC](../../metis/backlog.md#METIS-IPC-001); ADR [0043](adr/0043-contained-process-lifecycle.md).
 - Dependencies: Windows 10 JOB_LIST attribute; unsupported targets reject requested tree containment.
 - Evidence: provider Clippy all-targets; nextest 39/39 (`43860697`), release process 9/9 (`20062f48`), source contract 1/1 (`11a1ee6f`), one compiled doctest and cargo doc; Windows MSVC. Last update: 2026-09-05.
