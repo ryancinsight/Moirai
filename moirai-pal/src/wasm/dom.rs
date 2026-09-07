@@ -6,7 +6,7 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::{
     Document, Element, Event, HtmlButtonElement, HtmlDialogElement, HtmlElement, HtmlInputElement,
-    HtmlSelectElement, Window,
+    HtmlSelectElement, PointerEvent, Window,
 };
 
 /// A browser document obtained from the current window.
@@ -211,6 +211,42 @@ impl WebElement {
         })
     }
 
+    /// Captures subsequent pointer events for this element.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::InvalidInput`] when the browser rejects the
+    /// pointer identifier or capture request.
+    pub fn set_pointer_capture(&self, pointer_id: i32) -> io::Result<()> {
+        self.element.set_pointer_capture(pointer_id).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Browser rejected pointer capture",
+            )
+        })
+    }
+
+    /// Releases a pointer previously captured by this element.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::InvalidInput`] when the browser rejects the
+    /// pointer identifier or release request.
+    pub fn release_pointer_capture(&self, pointer_id: i32) -> io::Result<()> {
+        self.element
+            .release_pointer_capture(pointer_id)
+            .map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Browser rejected pointer release",
+                )
+            })
+    }
+
+    /// Returns whether this element currently captures a pointer identifier.
+    #[must_use]
+    pub fn has_pointer_capture(&self, pointer_id: i32) -> bool {
+        self.element.has_pointer_capture(pointer_id)
+    }
+
     /// Appends a child and returns no detached handle.
     ///
     /// # Errors
@@ -315,6 +351,14 @@ impl WebEvent {
     #[must_use]
     pub fn value(&self) -> Option<String> {
         self.target().and_then(|target| target.value())
+    }
+
+    /// Returns the identifier carried by a pointer event.
+    #[must_use]
+    pub fn pointer_id(&self) -> Option<i32> {
+        self.event
+            .dyn_ref::<PointerEvent>()
+            .map(PointerEvent::pointer_id)
     }
 
     /// Stops the browser's default action for this event.

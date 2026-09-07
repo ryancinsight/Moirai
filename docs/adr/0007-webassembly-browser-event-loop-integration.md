@@ -7,9 +7,9 @@ Status: Accepted
 
 Revision note: the browser host seam now includes owned DOM elements, form
 control values, checked and disabled control state, modal dialog lifecycle,
-focus and event listeners. Metis consumes these handles without importing
-`web-sys`; the listener guard removes the callback before releasing its
-JavaScript closure.
+focus, pointer capture and event listeners. Metis consumes these handles
+without importing `web-sys`; the listener guard removes the callback before
+releasing its JavaScript closure.
 
 ## Context
 
@@ -53,11 +53,14 @@ Moirai also owns the narrow DOM boundary used by Atlas WASM applications.
 `WebDocument` and `WebElement` wrap the current document, trusted markup,
 text/attribute updates, input/select values, checked checkbox/radio state,
 disabled button/input/select state, modal dialog lifecycle, focus control and
-child insertion. `WebEventListener` owns one callback registration and removes it
-in `Drop`; `WebEvent` exposes only
-the target/value/default-action operations needed by an application, so browser
-bindings do not leak into Metis domain code. `spawn_local` routes application
-futures to the browser event loop without creating a second executor.
+child insertion. Pointer events expose their `pointerId`, and elements own the
+`setPointerCapture`, `hasPointerCapture` and `releasePointerCapture` calls with
+typed invalid-input errors when the browser rejects a request.
+`WebEventListener` owns one callback registration and removes it in `Drop`;
+`WebEvent` exposes only the target/value/pointer-id/default-action operations
+needed by an application, so browser bindings do not leak into Metis domain
+code. `spawn_local` routes application futures to the browser event loop
+without creating a second executor.
 
 ## Rejected alternatives
 
@@ -78,7 +81,8 @@ Clippy for both WASM and the native library against merged Mnemosyne backend
 tests; the current configured Nextest run passes 47/47, including checked and
 disabled DOM-state coverage. The DOM surface is compile-checked on WASM and
 Metis's browser traces exercise checked controls, disabled lifecycle, modal
-dialog open/close and focus restoration.
+dialog open/close and focus restoration. Pointer capture is exercised by the
+Metis pointer-surface trace after the consumer updates to this provider seam.
 
 ## Residuals
 
