@@ -131,6 +131,18 @@ impl WebElement {
             .map(HtmlInputElement::value)
     }
 
+    /// Reads the checked state of a browser input element.
+    ///
+    /// Returns [`None`] when this element is not an input. Checkbox and radio
+    /// controls expose their current state through the same browser property;
+    /// other input kinds return their browser-defined unchecked state.
+    #[must_use]
+    pub fn checked(&self) -> Option<bool> {
+        self.element
+            .dyn_ref::<HtmlInputElement>()
+            .map(HtmlInputElement::checked)
+    }
+
     /// Replaces the value of a browser input element.
     ///
     /// # Errors
