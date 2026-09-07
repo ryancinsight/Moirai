@@ -5,10 +5,10 @@ Status: Accepted
 **Date**: 2026-05-25
 **Revision**: 2026-09-07
 
-Revision note: the browser host seam now includes owned DOM elements, checked
-control state and event listeners. Metis consumes these handles without
-importing `web-sys`; the listener guard removes the callback before releasing
-its JavaScript closure.
+Revision note: the browser host seam now includes owned DOM elements, form
+control values, checked control state and event listeners. Metis consumes these
+handles without importing `web-sys`; the listener guard removes the callback
+before releasing its JavaScript closure.
 
 ## Context
 
@@ -50,8 +50,8 @@ leaving a timer callback or a WebSocket waiter after cancellation.
 
 Moirai also owns the narrow DOM boundary used by Atlas WASM applications.
 `WebDocument` and `WebElement` wrap the current document, trusted markup,
-text/attribute updates, input values, checked checkbox/radio state and child
-insertion. `WebEventListener`
+text/attribute updates, input/select values, checked checkbox/radio state and
+child insertion. `WebEventListener`
 owns one callback registration and removes it in `Drop`; `WebEvent` exposes only
 the target/value/default-action operations needed by an application, so browser
 bindings do not leak into Metis domain code. `spawn_local` routes application
