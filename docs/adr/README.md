@@ -49,3 +49,4 @@
 | [0039](0039-moirai-gpu-budget-facade.md) | Moirai GPU budget facade owns the planner input | Accepted |
 | [0040](0040-first-party-memory-source-identity.md) | One First-Party Memory Source Identity During Provider Co-Evolution | Accepted |
 | [0043](0043-contained-process-lifecycle.md) | Contained process lifecycle | Accepted |
+| [0044](0044-standalone-cryptographic-primitives.md) | Standalone cryptographic primitives | Accepted |

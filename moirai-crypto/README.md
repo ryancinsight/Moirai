@@ -25,6 +25,29 @@ both have C/assembly dependencies:
 `moirai-crypto` uses `rustls`'s stable **`CryptoProvider` extension point** to
 supply the same functionality with zero non-Rust build steps.
 
+## Standalone protocol primitives
+
+The default `provider` feature supplies the TLS provider. Consumers that only
+need protocol authentication can disable it and use the same RustCrypto-backed
+SHA-256 and HMAC-SHA256 implementation without compiling the TLS dependency:
+
+```toml
+[dependencies]
+moirai-crypto = { version = "0.6", default-features = false }
+```
+
+```rust
+use moirai_crypto::{constant_time_eq_32, hmac_sha256, sha256};
+
+let digest = sha256(b"payload");
+let tag = hmac_sha256(b"session-key", &digest);
+assert!(constant_time_eq_32(&tag, &tag));
+```
+
+`Sha256` provides the matching streaming API for callers that receive data in
+chunks. The fixed-width comparison performs one XOR accumulation over all 32
+bytes; release timing remains a separate code-generation verification claim.
+
 ## Supported algorithms
 
 ### Cipher suites

@@ -18,36 +18,56 @@ publish = true
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[features]
+default = ["provider"]
+provider = [
+    "dep:rustls",
+    "dep:x25519-dalek",
+    "dep:p256",
+    "dep:p384",
+    "dep:aes-gcm",
+    "dep:chacha20poly1305",
+    "dep:hkdf",
+    "dep:rsa",
+    "dep:ed25519-dalek",
+    "dep:signature",
+    "dep:zeroize",
+    "dep:rand_core",
+    "dep:getrandom",
+    "dep:elliptic-curve",
+    "dep:pki-types",
+]
+
 [dependencies]
 # rustls provider interface — no built-in crypto feature; we supply our own
-rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"], optional = true }
 
 # Key exchange
-x25519-dalek    = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
-p256            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "alloc"] }
-p384            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "alloc"] }
+x25519-dalek    = { version = "2", default-features = false, features = ["static_secrets", "zeroize"], optional = true }
+p256            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "alloc"], optional = true }
+p384            = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "alloc"], optional = true }
 
 # AEAD cipher suites
-aes-gcm         = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
-chacha20poly1305= { version = "0.10", default-features = false, features = ["alloc"] }
+aes-gcm         = { version = "0.10", default-features = false, features = ["aes", "alloc"], optional = true }
+chacha20poly1305= { version = "0.10", default-features = false, features = ["alloc"], optional = true }
 
 # HMAC / HKDF / hashing
 hmac            = { version = "0.12", default-features = false }
 sha2            = { version = "0.10", default-features = false }
-hkdf            = { version = "0.12", default-features = false }
+hkdf            = { version = "0.12", default-features = false, optional = true }
 
 # Certificate signature verification
-rsa             = { version = "0.9", default-features = false, features = ["sha2"] }
-ed25519-dalek   = { version = "2", default-features = false, features = ["alloc"] }
+rsa             = { version = "0.9", default-features = false, features = ["sha2"], optional = true }
+ed25519-dalek   = { version = "2", default-features = false, features = ["alloc"], optional = true }
 
 # Generic interfaces
-signature       = { version = "2", default-features = false }
-zeroize         = { version = "1", default-features = false, features = ["alloc"] }
-rand_core       = { version = "0.6", default-features = false, features = ["getrandom"] }
-getrandom       = { version = "0.2" }
+signature       = { version = "2", default-features = false, optional = true }
+zeroize         = { version = "1", default-features = false, features = ["alloc"], optional = true }
+rand_core       = { version = "0.6", default-features = false, features = ["getrandom"], optional = true }
+getrandom       = { version = "0.2", optional = true }
 
 # Async crypto math helpers
-elliptic-curve  = { version = "0.13", default-features = false, features = ["alloc"] }
+elliptic-curve  = { version = "0.13", default-features = false, features = ["alloc"], optional = true }
 
 # pki-types re-exported by rustls; must match version in lockfile
-pki-types       = { package = "rustls-pki-types", version = "1" }
+pki-types       = { package = "rustls-pki-types", version = "1", optional = true }

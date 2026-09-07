@@ -1,38 +1,62 @@
 //! # moirai-crypto
 //!
-//! A pure-Rust [`rustls::crypto::CryptoProvider`] backed entirely by
-//! [RustCrypto](https://github.com/RustCrypto) primitives, with **zero C
-//! dependencies**. It is a drop-in replacement for the `ring`-based provider
-//! used by the Moirai TLS stack (`moirai-tls`).
+//! Pure-Rust cryptographic primitives and an optional `rustls::crypto::CryptoProvider`.
 //!
-//! The provider supports the three TLS 1.3 cipher suites, X25519 and P-256 key
-//! exchange, and the ECDSA/RSA signature verification algorithms required to
-//! validate typical web PKI certificate chains — all implemented in safe,
-//! portable Rust.
+//! The standalone SHA-256, HMAC-SHA256 and fixed-width comparison APIs are
+//! available without enabling the `provider` feature. The default feature
+//! enables the complete provider used by the Moirai TLS stack (`moirai-tls`).
+//! All implementations use [RustCrypto](https://github.com/RustCrypto) with
+//! **zero C dependencies**.
+//!
+//! With `provider` enabled, the crate supports the three TLS 1.3 cipher suites,
+//! X25519 and P-256 key exchange, and the ECDSA/RSA signature verification
+//! algorithms required to validate typical web PKI certificate chains — all
+//! implemented in safe, portable Rust.
 //!
 //! ```no_run
+//! # #[cfg(feature = "provider")]
+//! # {
 //! let provider = moirai_crypto::provider();
+//! # }
 //! ```
 
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
+mod primitives;
+
+#[cfg(feature = "provider")]
 mod aead;
+#[cfg(feature = "provider")]
 mod hash;
+#[cfg(feature = "provider")]
 mod hkdf;
+#[cfg(feature = "provider")]
 mod hmac;
+#[cfg(feature = "provider")]
 mod kx;
+#[cfg(feature = "provider")]
 mod random;
+#[cfg(feature = "provider")]
 mod sign;
+#[cfg(feature = "provider")]
 mod verify;
 
+pub use primitives::{constant_time_eq_32, hmac_sha256, sha256, Sha256};
+
+#[cfg(feature = "provider")]
 use std::sync::Arc;
 
+#[cfg(feature = "provider")]
 use rustls::crypto::{CryptoProvider, KeyProvider};
+#[cfg(feature = "provider")]
 use rustls::pki_types::PrivateKeyDer;
+#[cfg(feature = "provider")]
 use rustls::sign::SigningKey;
+#[cfg(feature = "provider")]
 use rustls::{CipherSuite, CipherSuiteCommon, Error, SupportedCipherSuite, Tls13CipherSuite};
 
+#[cfg(feature = "provider")]
 /// Construct a [`CryptoProvider`] backed by RustCrypto (no C dependencies).
 ///
 /// The returned provider offers:
@@ -56,6 +80,7 @@ pub fn provider() -> CryptoProvider {
     }
 }
 
+#[cfg(feature = "provider")]
 static TLS13_CHACHA20_POLY1305_SHA256_SUITE: Tls13CipherSuite = Tls13CipherSuite {
     common: CipherSuiteCommon {
         suite: CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
@@ -67,6 +92,7 @@ static TLS13_CHACHA20_POLY1305_SHA256_SUITE: Tls13CipherSuite = Tls13CipherSuite
     quic: None,
 };
 
+#[cfg(feature = "provider")]
 static TLS13_AES_128_GCM_SHA256_SUITE: Tls13CipherSuite = Tls13CipherSuite {
     common: CipherSuiteCommon {
         suite: CipherSuite::TLS13_AES_128_GCM_SHA256,
@@ -78,6 +104,7 @@ static TLS13_AES_128_GCM_SHA256_SUITE: Tls13CipherSuite = Tls13CipherSuite {
     quic: None,
 };
 
+#[cfg(feature = "provider")]
 static TLS13_AES_256_GCM_SHA384_SUITE: Tls13CipherSuite = Tls13CipherSuite {
     common: CipherSuiteCommon {
         suite: CipherSuite::TLS13_AES_256_GCM_SHA384,
@@ -89,6 +116,7 @@ static TLS13_AES_256_GCM_SHA384_SUITE: Tls13CipherSuite = Tls13CipherSuite {
     quic: None,
 };
 
+#[cfg(feature = "provider")]
 /// Private-key loader for the provider.
 ///
 /// Loads ECDSA (P-256/P-384) and RSA private keys from PKCS#8, SEC1, or PKCS#1
@@ -97,6 +125,7 @@ static TLS13_AES_256_GCM_SHA384_SUITE: Tls13CipherSuite = Tls13CipherSuite {
 #[derive(Debug)]
 struct RustCryptoKeyProvider;
 
+#[cfg(feature = "provider")]
 impl KeyProvider for RustCryptoKeyProvider {
     fn load_private_key(
         &self,
