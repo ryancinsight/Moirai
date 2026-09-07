@@ -1,4 +1,55 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-WASM-2026-09-06"></a>
+## MOI-WASM-2026-09-06 — Own browser WebSocket lifecycles [arch] [minor]
+
+- Outcome: browser WebSocket and FileReader callbacks, messages, wakeups, and
+  teardown have bounded Rust-owned lifetimes.
+- Scope: `moirai-pal` WASM reactor; browser executor, fetch, worker scheduling,
+  and general network APIs remain separate items.
+- Acceptance: ordered receive, replacement waker, cancellation, close/error,
+  oversize and queue-bound cases are value-tested; WASM compile and Clippy pass.
+- Class: [arch] [minor]; status: review; integrator: atlas-metis-ipc; branch:
+  `arch/moirai-hephaestus-gpu-route`; driver: [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
+- Evidence: `moirai-pal` native state tests (39/39), owned `WebTimer`, and
+  warning-denied native/WASM Clippy against merged Mnemosyne backend `2eb49c1`;
+  real browser conformance remains the re-open trigger.
+
+<a id="MOI-WASM-2026-09-06-DOM"></a>
+## MOI-WASM-2026-09-06-DOM — Own browser DOM and listener lifetimes [arch] [minor]
+
+- Outcome: Atlas WASM applications use Moirai-owned DOM and event handles
+  without importing browser binding crates into each consumer.
+- Scope: `moirai-pal` document/element/event wrappers and browser-local future
+  spawn; HTML/CSS semantics and application state remain consumer concerns.
+- Acceptance: DOM updates, input reads, child insertion and event registration
+  compile for `wasm32-unknown-unknown`; dropping a listener removes its browser
+  callback; native PAL tests and warning-denied Clippy remain green.
+- Class: [arch] [minor]; status: in-progress; integrator: metis-browser-host;
+  branch: `feat/browser-dom-host`; driver: [Metis browser](../../metis/backlog.md#METIS-BROWSER-001).
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+
+<a id="MOI-SOURCE-2026-09-05"></a>
+## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
+
+- Outcome: Hephaestus requirements name a revision present in the Hephaestus remote.
+- Scope: four invalid workspace Hephaestus rev fields and standalone lock regeneration; preserve Mnemosyne requirements.
+- Acceptance: fetched remote ancestry confirms the revision; Cargo metadata resolves the corrected manifest.
+- Class: [patch]; status: review; integrator: atlas-metis-ipc.
+- Evidence: commit `5d99f24` replaces Hephaestus `2c6ffc2` with absent `f532b0e`; pre-push resolution fails. Reviewed `0514f11` retains the intended revision.
+- Verification: fetched Hephaestus branch contains `2c6ffc2`; stack transport Clippy and 39/39 nextest pass; standalone `scripts/lockfile.py --regenerate` and its `--locked` metadata check pass with 45 git sources.
+- Last update: 2026-09-05; full-workspace runtime verification remains outside this four-reference correction.
+
+<a id="MOI-PROCESS-2026-09-05"></a>
+## MOI-PROCESS-2026-09-05 — Contain piped child lifecycles
+
+- Outcome: bounded process wait/termination and owned IPC pipes; atomic Windows job containment.
+- Scope: moirai-transport process provider; no filesystem/network/privilege sandbox.
+- Acceptance: real child lifecycle, pipes, argument preservation, timeout and descendant tests; focused Clippy/nextest.
+- Class: [major] [arch]; status: review; integrator: atlas-metis-ipc.
+- Driver: [Metis IPC](../../metis/backlog.md#METIS-IPC-001); ADR [0043](adr/0043-contained-process-lifecycle.md).
+- Dependencies: Windows 10 JOB_LIST attribute; unsupported targets reject requested tree containment.
+- Evidence: provider Clippy all-targets; nextest 39/39 (`43860697`), release process 9/9 (`20062f48`), source contract 1/1 (`11a1ee6f`), one compiled doctest and cargo doc; Windows MSVC. Last update: 2026-09-05.
+- Limits: no non-Windows execution or Miri coverage for OS FFI; standalone lock/publication and consumer source sweep remain coordinator-owned.
 
 ## MOI-MNEMOSYNE-IDENTITY-2026-09-03 — Align the GPU planner source edge with the current memory provider [patch] [arch] — done 2026-09-04 <a id="moi-mnemosyne-identity-2026-09-03"></a>
 

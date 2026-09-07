@@ -38,10 +38,36 @@ pub mod windows;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
+#[cfg(any(target_arch = "wasm32", test))]
+#[path = "websocket_state.rs"]
+mod websocket_state;
+
 use std::io;
 
 /// Platform-specific reactor interface.
+///
+/// Native reactors are `Send + Sync` because their descriptors and wake
+/// handles may be driven from a dedicated thread. Browser reactors stay on
+/// the JavaScript event-loop thread, where Web API callback handles are not
+/// transferable across workers.
+#[cfg(not(target_arch = "wasm32"))]
 pub trait Reactor: Send + Sync + 'static {
+    /// Register a file descriptor/handle for async operations.
+    fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()>;
+
+    /// Unregister a file descriptor/handle.
+    fn unregister_fd(&self, fd: RawFd) -> io::Result<()>;
+
+    /// Poll for ready events with timeout.
+    fn poll_events(&self, timeout: Option<std::time::Duration>) -> io::Result<Vec<Event>>;
+
+    /// Wake up the reactor from blocking poll.
+    fn wake(&self) -> io::Result<()>;
+}
+
+/// Browser-thread reactor interface.
+#[cfg(target_arch = "wasm32")]
+pub trait Reactor: 'static {
     /// Register a file descriptor/handle for async operations.
     fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()>;
 

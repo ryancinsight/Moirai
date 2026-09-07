@@ -2,6 +2,21 @@
 
 This document defines the concrete contracts, specifications, and checklist items required to achieve WebAssembly browser event-loop integration.
 
+## Delivered bounded WebSocket slice (2026-09-06)
+
+- [x] Browser callbacks are retained by an owning connection and detached on
+  close or drop; `FileReader` uses the same RAII lifetime rule.
+- [x] Text and binary messages pass through byte and queue bounds before being
+  copied into Rust memory; oversize and exhaustion are terminal errors.
+- [x] Readiness events are bounded and interest-filtered; one receive future
+  owns one waiter, supports executor waker replacement, and is cancellation-safe.
+- [x] `WebTimer` owns one browser deadline callback, clears it on drop, and
+  clamps the JavaScript timeout range; the merged Mnemosyne WASM backend is
+  used for standalone provider checks.
+- [x] Native state tests (39/39) and warning-denied WASM/native Clippy pass.
+- [ ] Real browser trace, cooperative executor, worker scheduling, fetch, and
+  the general browser network facade remain open; see ADR 0007 residuals.
+
 ## 1. Cooperative Browser Event-Loop Integration
 
 In single-threaded WebAssembly environments (without native threading or shared memory), the Moirai reactor must cooperate with the browser's execution thread to execute async tasks without freezing the user interface.
