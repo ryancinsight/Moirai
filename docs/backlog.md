@@ -1,4 +1,24 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-HTTP-WS-2026-09-07"></a>
+## MOI-HTTP-WS-2026-09-07 — Bounded WebSocket service substrate [arch] [minor]
+
+- Outcome: Moirai exposes a native, message-oriented RFC 6455 service seam over
+  its bounded async TCP facade, including browser OPEN readiness and protocol
+  resource limits for Atlas consumers.
+- Scope: HTTP/1.1 upgrade parsing, origin/header validation, SHA-1/Base64
+  handshake compatibility, binary WebSocket frames, control-frame handling,
+  deadlines and cancellation-safe state; TLS server acceptance remains a
+  separate provider increment.
+- Acceptance: partial I/O, valid upgrade, malformed/ambiguous headers,
+  masking, fragmentation/control rules, payload/message limits, ping/pong,
+  close, deadline/cancellation and loopback connection-drop accounting are
+  value-tested; native and WASM provider checks pass with warning-denied
+  Clippy; no third-party WebSocket runtime is introduced.
+- Class: [arch] [minor]; status: in-progress; priority: P0; integrator: root;
+  branch: `arch/http-websocket-service`; last-update: 2026-09-07; driver:
+  [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
+- Decision: [ADR 0046](adr/0046-bounded-websocket-service.md).
+
 <a id="MOI-WASM-TASK-2026-09-07"></a>
 ## MOI-WASM-TASK-2026-09-07 — Cancel browser-local tasks [arch] [minor]
 
