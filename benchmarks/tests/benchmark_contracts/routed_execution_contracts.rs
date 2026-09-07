@@ -90,9 +90,22 @@ fn process_server_routed_execution_benchmark_uses_real_routes() {
         manifest.contains("name = \"process_server_routed_execution\""),
         "benchmark manifest must register process_server_routed_execution"
     );
+    // The contract is that the benchmark compiles route consumers: a path
+    // dependency on `moirai-transport` carrying `scheduler-routes`. The
+    // version is release metadata and not part of it, so it is read out of the
+    // line rather than asserted -- pinning the literal meant the 0.5.0 -> 0.6.0
+    // release reddened a test about route features, which is what it did.
+    let transport = manifest
+        .lines()
+        .find(|line| line.trim_start().starts_with("moirai-transport"))
+        .expect("routed execution benchmark must declare moirai-transport");
     assert!(
-        manifest.contains("moirai-transport = { path = \"../moirai-transport\", version = \"0.5.0\", features = [\"scheduler-routes\"] }"),
-        "routed execution benchmark must compile route consumers"
+        transport.contains("path = \"../moirai-transport\""),
+        "routed execution benchmark must consume the local transport crate, got: {transport}"
+    );
+    assert!(
+        transport.contains("\"scheduler-routes\""),
+        "routed execution benchmark must compile route consumers, got: {transport}"
     );
 
     for required in [

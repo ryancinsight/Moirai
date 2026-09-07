@@ -240,25 +240,37 @@ fn version_artifacts_are_synchronized_for_current_target() {
     let checklist = read_benchmark("../docs/checklist.md");
     let changelog = read_benchmark("../CHANGELOG.md");
 
-    for required in [
-        "version = \"0.5.0\"",
-        "moirai-core = { path = \"moirai-core\", version = \"0.5.0\" }",
-        "moirai-executor = { path = \"moirai-executor\", version = \"0.5.0\" }",
-        "moirai-iter = { path = \"moirai-iter\", version = \"0.5.0\" }",
-    ] {
+    // The contract is that these artifacts agree, not that they say any
+    // particular number. Pinning last release's literal made the *next*
+    // release fail this test rather than the desynchronization it exists to
+    // catch: 0.5.0 -> 0.6.0 moved the manifests, and this reported "must
+    // retain ... 0.5.0" instead of naming the artifacts left behind.
+    let workspace_version = manifest
+        .split("[workspace.package]")
+        .nth(1)
+        .and_then(|section| section.lines().find(|line| line.starts_with("version = ")))
+        .and_then(|line| line.split('"').nth(1))
+        .expect("workspace manifest must declare [workspace.package] version")
+        .to_string();
+
+    for crate_name in ["moirai-core", "moirai-executor", "moirai-iter"] {
+        let expected =
+            format!("{crate_name} = {{ path = \"{crate_name}\", version = \"{workspace_version}\" }}");
         assert!(
-            manifest.contains(required),
-            "workspace manifest must retain synchronized target version entry {required}"
+            manifest.contains(&expected),
+            "workspace path dependency must carry the workspace version: expected {expected}"
         );
     }
 
+    let expected_checklist = format!("**Target Version**: {workspace_version}");
     assert!(
-        checklist.contains("**Target Version**: 0.5.0"),
-        "checklist target version must match Cargo workspace version"
+        checklist.contains(&expected_checklist),
+        "checklist target version must match the workspace version {workspace_version}"
     );
+    let expected_section = format!("## [{workspace_version}]");
     assert!(
-        changelog.contains("## [0.5.0] - 2026-08-11"),
-        "changelog must contain a synchronized 0.5.0 section"
+        changelog.contains(&expected_section),
+        "changelog must carry a {expected_section} section for the released workspace version"
     );
 }
 
