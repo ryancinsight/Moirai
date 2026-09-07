@@ -173,6 +173,21 @@
   warning-denied Clippy and the WASM check. Metis `43dd7c7` exercises pointer
   ID `1`, provider-backed capture verification and release in its browser trace.
 
+<a id="MOI-WASM-DOM-POINTER-META-2026-09-07"></a>
+## MOI-WASM-DOM-POINTER-META-2026-09-07 — Expose pointer metadata [minor]
+
+- Outcome: the Moirai-owned WASM DOM seam exposes pointer type, coordinates,
+  button state and modifier keys without exposing `web-sys` to consumers.
+- Scope: `moirai-pal` pointer-event metadata accessors; gesture policy,
+  drag/drop behavior and application rendering remain Metis-owned.
+- Acceptance: pointer metadata reads are input-sensitive and absent for other
+  event kinds; WASM check, native PAL tests and warning-denied Clippy pass;
+  Metis renders a live metadata trace from a real browser pointer event.
+- Class: [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/wasm-pointer-metadata`; last-update: 2026-09-07; driver:
+  [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
 
