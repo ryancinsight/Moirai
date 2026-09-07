@@ -1,12 +1,19 @@
-use std::collections::HashMap;
-use std::hash::Hash;
 use std::io;
 
-use crate::{Event, Interest};
+#[cfg(any(unix, windows))]
+use std::collections::HashMap;
+#[cfg(any(unix, windows))]
+use std::hash::Hash;
 
+#[cfg(any(unix, windows))]
+use crate::Event;
+use crate::Interest;
+
+#[cfg(any(unix, windows))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct RegistrationGeneration(usize);
 
+#[cfg(any(unix, windows))]
 impl RegistrationGeneration {
     #[cfg(unix)]
     pub(crate) const fn get(self) -> usize {
@@ -23,12 +30,14 @@ impl RegistrationGeneration {
     }
 }
 
+#[cfg(any(unix, windows))]
 #[derive(Clone, Copy)]
 pub(crate) struct Registration {
     pub(crate) interest: Interest,
     pub(crate) generation: RegistrationGeneration,
 }
 
+#[cfg(any(unix, windows))]
 pub(crate) struct RegistrationTable<K> {
     entries: HashMap<K, Registration>,
     #[cfg(target_os = "linux")]
@@ -36,6 +45,7 @@ pub(crate) struct RegistrationTable<K> {
     next_generation: usize,
 }
 
+#[cfg(any(unix, windows))]
 impl<K> Default for RegistrationTable<K> {
     fn default() -> Self {
         Self {
@@ -47,6 +57,7 @@ impl<K> Default for RegistrationTable<K> {
     }
 }
 
+#[cfg(any(unix, windows))]
 impl<K> RegistrationTable<K>
 where
     K: Copy + Eq + Hash,
@@ -150,11 +161,13 @@ where
     }
 }
 
+#[cfg(any(unix, windows))]
 pub(crate) struct PolledEvent {
     event: Event,
     generation: RegistrationGeneration,
 }
 
+#[cfg(any(unix, windows))]
 impl PolledEvent {
     pub(crate) const fn new(event: Event, generation: RegistrationGeneration) -> Self {
         Self { event, generation }

@@ -1,5 +1,7 @@
 //! Platform-agnostic async network I/O operations.
 
+#![cfg(any(unix, windows))]
+
 use std::io;
 use std::net::{Shutdown, SocketAddr};
 use std::net::{TcpListener as StdTcpListener, TcpStream as StdTcpStream};

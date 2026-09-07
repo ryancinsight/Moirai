@@ -14,6 +14,7 @@ melinoe::thread_cached! {
     pub(crate) mod active_reactor: *const IoReactor;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) static GLOBAL_REACTOR: std::sync::OnceLock<Option<std::sync::Arc<IoReactor>>> =
     std::sync::OnceLock::new();
 
@@ -73,19 +74,32 @@ impl IoReactor {
             return None;
         }
 
-        GLOBAL_REACTOR
-            .get_or_init(|| {
-                let reactor = std::sync::Arc::new(IoReactor::new().ok()?);
-                let driver = std::sync::Arc::clone(&reactor);
-                std::thread::Builder::new()
-                    .name("moirai-global-reactor".to_string())
-                    .spawn(move || {
-                        let _ = driver.run();
-                    })
-                    .ok()?;
-                Some(reactor)
-            })
-            .as_deref()
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Browser callbacks already run on the event-loop thread. A
+            // background Rust thread cannot own Web API handles, so callers
+            // install a reactor with `with_active` when they need readiness
+            // registration; otherwise the socket layer uses its cooperative
+            // self-wake path.
+            None
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            GLOBAL_REACTOR
+                .get_or_init(|| {
+                    let reactor = std::sync::Arc::new(IoReactor::new().ok()?);
+                    let driver = std::sync::Arc::clone(&reactor);
+                    std::thread::Builder::new()
+                        .name("moirai-global-reactor".to_string())
+                        .spawn(move || {
+                            let _ = driver.run();
+                        })
+                        .ok()?;
+                    Some(reactor)
+                })
+                .as_deref()
+        }
     }
 
     /// Test-only: run `f` with the global reactor suppressed for this thread, so

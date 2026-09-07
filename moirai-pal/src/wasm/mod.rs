@@ -3,27 +3,37 @@
 //! This module provides async I/O support for WebAssembly environments,
 //! integrating with JavaScript Promise/async-await patterns and Web APIs.
 
+mod websocket;
+
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use js_sys::Promise;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{console, CloseEvent, ErrorEvent, MessageEvent, WebSocket};
+use web_sys::console;
 
 use crate::{Event, Interest, RawFd, Reactor};
+
+pub use crate::websocket_state::{WebSocketLimits, WebSocketReceive};
+
+use self::websocket::EVENT_QUEUE_CAPACITY;
+use self::websocket::WebSocketConnection;
 
 /// WebAssembly-based I/O reactor using Web APIs.
 pub struct WebReactor {
     /// JavaScript event queue for async operations
-    pending_events: VecDeque<Event>,
+    pending_events: Arc<Mutex<VecDeque<Event>>>,
     /// WebSocket connections tracking
-    websockets: HashMap<RawFd, WebSocket>,
+    websockets: HashMap<RawFd, WebSocketConnection>,
     /// Next file descriptor ID
     next_fd: RawFd,
     /// Registered interests for file descriptors
-    fd_interests: HashMap<RawFd, Interest>,
+    fd_interests: Arc<Mutex<HashMap<RawFd, Interest>>>,
 }
 
 impl WebReactor {
@@ -32,10 +42,10 @@ impl WebReactor {
         console::log_1(&"Initializing Moirai WebAssembly reactor".into());
 
         Ok(Self {
-            pending_events: VecDeque::new(),
+            pending_events: Arc::new(Mutex::new(VecDeque::with_capacity(EVENT_QUEUE_CAPACITY))),
             websockets: HashMap::new(),
             next_fd: 1,
-            fd_interests: HashMap::new(),
+            fd_interests: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -48,48 +58,23 @@ impl WebReactor {
 
     /// Create a WebSocket connection and return its file descriptor.
     pub fn create_websocket(&mut self, url: &str) -> io::Result<RawFd> {
-        let websocket = WebSocket::new(url).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::ConnectionRefused,
-                "Failed to create WebSocket",
-            )
-        })?;
+        self.create_websocket_with_limits(url, WebSocketLimits::default())
+    }
 
+    /// Create a WebSocket with explicit message and queue bounds.
+    pub fn create_websocket_with_limits(
+        &mut self,
+        url: &str,
+        limits: WebSocketLimits,
+    ) -> io::Result<RawFd> {
         let fd = self.allocate_fd();
-
-        // Set up event handlers
-        let fd_clone = fd;
-        let onopen_callback = Closure::wrap(Box::new(move |_event: JsValue| {
-            console::log_1(&format!("WebSocket {} opened", fd_clone).into());
-        }) as Box<dyn FnMut(JsValue)>);
-        websocket.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
-        onopen_callback.forget(); // Prevent cleanup
-
-        let fd_clone = fd;
-        let onmessage_callback = Closure::wrap(Box::new(move |event: MessageEvent| {
-            console::log_1(&format!("WebSocket {} received message", fd_clone).into());
-            let _data = event.data();
-            // WASM readable-event integration is tracked as a separate target
-            // contract because browser callbacks cannot share the native PAL
-            // readiness queue shape without a wasm-specific ownership model.
-        }) as Box<dyn FnMut(MessageEvent)>);
-        websocket.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
-        onmessage_callback.forget();
-
-        let fd_clone = fd;
-        let onclose_callback = Closure::wrap(Box::new(move |event: CloseEvent| {
-            console::log_1(&format!("WebSocket {} closed: {}", fd_clone, event.code()).into());
-        }) as Box<dyn FnMut(CloseEvent)>);
-        websocket.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
-        onclose_callback.forget();
-
-        let fd_clone = fd;
-        let onerror_callback = Closure::wrap(Box::new(move |event: ErrorEvent| {
-            console::log_1(&format!("WebSocket {} error", fd_clone).into());
-        }) as Box<dyn FnMut(ErrorEvent)>);
-        websocket.set_onerror(Some(onerror_callback.as_ref().unchecked_ref()));
-        onerror_callback.forget();
-
+        let websocket = WebSocketConnection::new(
+            fd,
+            url,
+            limits,
+            Arc::clone(&self.pending_events),
+            Arc::clone(&self.fd_interests),
+        )?;
         self.websockets.insert(fd, websocket);
         Ok(fd)
     }
@@ -100,56 +85,80 @@ impl WebReactor {
             .websockets
             .get(&fd)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "WebSocket not found"))?;
+        websocket.send(data)
+    }
 
-        websocket
-            .send_with_u8_array(data)
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "Failed to send data"))
+    /// Receive one queued WebSocket message without blocking.
+    pub fn websocket_recv(&self, fd: RawFd) -> io::Result<Vec<u8>> {
+        let websocket = self
+            .websockets
+            .get(&fd)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "WebSocket not found"))?;
+        websocket.receive()
+    }
+
+    /// Return a cancellation-safe future for the next WebSocket message.
+    pub fn websocket_recv_async(&self, fd: RawFd) -> io::Result<WebSocketReceive> {
+        let websocket = self
+            .websockets
+            .get(&fd)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "WebSocket not found"))?;
+        Ok(websocket.receive_async())
     }
 
     /// Close a WebSocket connection.
     pub fn websocket_close(&mut self, fd: RawFd) -> io::Result<()> {
-        if let Some(websocket) = self.websockets.remove(&fd) {
-            websocket
-                .close()
-                .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to close WebSocket"))?;
-        }
+        let websocket = self
+            .websockets
+            .remove(&fd)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "WebSocket not found"))?;
+        self.fd_interests
+            .lock()
+            .map_err(|_| io::Error::other("WebSocket interest lock is poisoned"))?
+            .remove(&fd);
+        self.pending_events
+            .lock()
+            .map_err(|_| io::Error::other("WebSocket event lock is poisoned"))?
+            .retain(|event| event.fd != fd);
+        drop(websocket);
         Ok(())
     }
 }
 
 impl Reactor for WebReactor {
     fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()> {
-        // In WebAssembly, file descriptors are more abstract
-        // We just track the interest for now
-        console::log_1(&format!("Registering fd {} with interest {:?}", fd, interest).into());
+        if !self.websockets.contains_key(&fd) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "WebSocket not found",
+            ));
+        }
+        self.fd_interests
+            .lock()
+            .map_err(|_| io::Error::other("WebSocket interest lock is poisoned"))?
+            .insert(fd, interest);
         Ok(())
     }
 
     fn unregister_fd(&self, fd: RawFd) -> io::Result<()> {
-        console::log_1(&format!("Unregistering fd {}", fd).into());
+        self.fd_interests
+            .lock()
+            .map_err(|_| io::Error::other("WebSocket interest lock is poisoned"))?
+            .remove(&fd);
         Ok(())
     }
 
-    fn poll_events(&self, timeout: Option<Duration>) -> io::Result<Vec<Event>> {
-        // In WebAssembly, we can't do blocking polls like epoll
-        // Instead, we work with the existing event queue
-        let mut events = Vec::new();
-
-        // Browser event-loop integration is a wasm-specific contract. The
-        // native PAL audit only covers queued events already materialized for
-        // this reactor instance.
-
-        if let Some(_timeout) = timeout {
-            // Simulate timeout behavior
-            // In real implementation, this would use setTimeout/Promise integration
-        }
-
-        Ok(events)
+    fn poll_events(&self, _timeout: Option<Duration>) -> io::Result<Vec<Event>> {
+        let mut pending_events = self
+            .pending_events
+            .lock()
+            .map_err(|_| io::Error::other("WebSocket event lock is poisoned"))?;
+        Ok(pending_events.drain(..).collect())
     }
 
     fn wake(&self) -> io::Result<()> {
-        // In WebAssembly, waking is handled by the JavaScript event loop
-        console::log_1(&"Waking WebAssembly reactor".into());
+        // Browser callbacks wake the exact receive future that owns the wait;
+        // there is no blocking reactor thread to interrupt here.
         Ok(())
     }
 }
@@ -160,6 +169,26 @@ pub struct WebFile {
     file_handle: web_sys::File,
     /// Current read position
     position: u64,
+}
+
+/// Owns FileReader callbacks for one read and detaches them when the future
+/// completes or is cancelled. Keeping the closures in this guard avoids the
+/// permanent JavaScript roots created by `Closure::forget`.
+struct FileReaderCallbacks {
+    reader: web_sys::FileReader,
+    onload: Closure<dyn FnMut(JsValue)>,
+    onerror: Closure<dyn FnMut(JsValue)>,
+}
+
+impl Drop for FileReaderCallbacks {
+    fn drop(&mut self) {
+        // Reading the handles makes their ownership explicit: dropping them
+        // releases the JavaScript callbacks after the event target is cleared.
+        let _ = (&self.onload, &self.onerror);
+        self.reader.set_onload(None);
+        self.reader.set_onerror(None);
+        self.reader.abort();
+    }
 }
 
 impl WebFile {
@@ -174,7 +203,7 @@ impl WebFile {
     /// Read data from the file using FileReader API.
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let file_reader = web_sys::FileReader::new()
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to create FileReader"))?;
+            .map_err(|_| io::Error::other("Failed to create FileReader"))?;
 
         // Create a blob slice for the read operation
         let end_position = std::cmp::min(
@@ -185,39 +214,55 @@ impl WebFile {
         let blob = self
             .file_handle
             .slice_with_f64_and_f64(self.position as f64, end_position as f64)
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to create blob slice"))?;
+            .map_err(|_| io::Error::other("Failed to create blob slice"))?;
 
-        // Read the blob as array buffer
-        file_reader
-            .read_as_array_buffer(&blob)
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to start read operation"))?;
-
-        // Convert the FileReader operation to a Future
+        // Convert the FileReader operation to a Future. The callback guard is
+        // stored outside the Promise constructor so its closures remain owned
+        // until the read resolves or the async operation is cancelled.
+        let callback_slot = Rc::new(RefCell::new(None));
+        let callback_slot_for_promise = Rc::clone(&callback_slot);
+        let reader_for_promise = file_reader.clone();
         let promise = Promise::new(&mut |resolve, reject| {
             let onload = Closure::wrap(Box::new(move |_event: JsValue| {
-                resolve.call0(&JsValue::NULL).unwrap();
+                if let Err(error) = resolve.call0(&JsValue::NULL) {
+                    console::error_1(&error);
+                }
             }) as Box<dyn FnMut(JsValue)>);
 
             let onerror = Closure::wrap(Box::new(move |_event: JsValue| {
-                reject.call0(&JsValue::NULL).unwrap();
+                if let Err(error) = reject.call0(&JsValue::NULL) {
+                    console::error_1(&error);
+                }
             }) as Box<dyn FnMut(JsValue)>);
 
-            file_reader.set_onload(Some(onload.as_ref().unchecked_ref()));
-            file_reader.set_onerror(Some(onerror.as_ref().unchecked_ref()));
-
-            onload.forget();
-            onerror.forget();
+            reader_for_promise.set_onload(Some(onload.as_ref().unchecked_ref()));
+            reader_for_promise.set_onerror(Some(onerror.as_ref().unchecked_ref()));
+            *callback_slot_for_promise.borrow_mut() = Some(FileReaderCallbacks {
+                reader: reader_for_promise.clone(),
+                onload,
+                onerror,
+            });
         });
+
+        let _callbacks = callback_slot
+            .borrow_mut()
+            .take()
+            .ok_or_else(|| io::Error::other("FileReader callbacks were not installed"))?;
+
+        // Start the read only after both callbacks are attached.
+        file_reader
+            .read_as_array_buffer(&blob)
+            .map_err(|_| io::Error::other("Failed to start read operation"))?;
 
         // Wait for the read to complete
         JsFuture::from(promise)
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "File read failed"))?;
+            .map_err(|_| io::Error::other("File read failed"))?;
 
         // Get the result and copy to buffer
         let result = file_reader
             .result()
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to get read result"))?;
+            .map_err(|_| io::Error::other("Failed to get read result"))?;
 
         let array_buffer = js_sys::ArrayBuffer::from(result);
         let uint8_array = js_sys::Uint8Array::new(&array_buffer);
