@@ -192,6 +192,21 @@
   warning-denied Clippy and the WASM check. Metis `f15a6fa` renders device
   type, coordinates, buttons, modifiers and primary state in its live trace.
 
+<a id="MOI-WASM-DOM-WHEEL-2026-09-07"></a>
+## MOI-WASM-DOM-WHEEL-2026-09-07 — Expose wheel metadata [minor]
+
+- Outcome: the Moirai-owned WASM DOM seam exposes wheel deltas, delta units,
+  viewport coordinates and modifier keys without exposing `web-sys` to consumers.
+- Scope: `moirai-pal` wheel-event metadata accessors; scroll/gesture policy,
+  browser layout and application rendering remain Metis-owned.
+- Acceptance: wheel metadata reads are input-sensitive and absent for other
+  event kinds; WASM check, native PAL tests and warning-denied Clippy pass;
+  Metis renders a browser wheel metadata trace with its evidence limits.
+- Class: [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/wasm-wheel-metadata`; last-update: 2026-09-07; driver:
+  [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
 
