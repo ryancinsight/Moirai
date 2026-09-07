@@ -1,4 +1,19 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-CRYPTO-2026-09-07"></a>
+## MOI-CRYPTO-2026-09-07 — Publish standalone authentication primitives [arch] [minor]
+
+- Outcome: Atlas consumers use one Moirai-owned SHA-256, HMAC-SHA256 and
+  fixed-width constant-time comparison implementation.
+- Scope: `moirai-crypto` public primitives and independent vectors; TLS provider
+  behavior remains unchanged and CRC framing stays with its protocol owner.
+- Acceptance: documented streaming and one-shot APIs, RFC vectors, standalone
+  native/WASM checks without TLS dependencies, provider-native checks,
+  warning-denied Clippy, and a downstream Metis migration with no duplicate
+  implementation.
+- Class: [arch] [minor]; status: in-progress; integrator: root; branch:
+  `feat/crypto-primitives`; driver: [Metis crypto](../../metis/backlog.md#METIS-CRYPTO-001).
+- Decision: [ADR 0044](adr/0044-standalone-cryptographic-primitives.md).
+
 <a id="MOI-WASM-2026-09-06"></a>
 ## MOI-WASM-2026-09-06 — Own browser WebSocket lifecycles [arch] [minor]
 

@@ -1,3 +1,5 @@
+#![cfg(feature = "provider")]
+
 //! End-to-end validation of the pure-Rust provider: a full TLS 1.3 handshake
 //! and encrypted application-data round-trip driven entirely in memory, using
 //! `moirai_crypto::provider()` on **both** the client and server sides.
