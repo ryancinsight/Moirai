@@ -5,7 +5,8 @@ use std::io;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::{
-    Document, Element, Event, HtmlButtonElement, HtmlInputElement, HtmlSelectElement, Window,
+    Document, Element, Event, HtmlButtonElement, HtmlDialogElement, HtmlElement, HtmlInputElement,
+    HtmlSelectElement, Window,
 };
 
 /// A browser document obtained from the current window.
@@ -153,6 +154,61 @@ impl WebElement {
             io::ErrorKind::InvalidInput,
             "DOM element is not a disableable form control",
         ))
+    }
+
+    /// Returns whether this HTML dialog is open.
+    #[must_use]
+    pub fn dialog_open(&self) -> Option<bool> {
+        self.element
+            .dyn_ref::<HtmlDialogElement>()
+            .map(HtmlDialogElement::open)
+    }
+
+    /// Opens this HTML dialog as a modal dialog.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::InvalidInput`] when this element is not a
+    /// dialog or when the browser rejects the modal transition.
+    pub fn show_modal(&self) -> io::Result<()> {
+        let dialog = self.element.dyn_ref::<HtmlDialogElement>().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "DOM element is not a dialog")
+        })?;
+        dialog.show_modal().map(|_| ()).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "Browser rejected modal dialog")
+        })
+    }
+
+    /// Closes this HTML dialog.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::InvalidInput`] when this element is not a
+    /// dialog.
+    pub fn close_dialog(&self) -> io::Result<()> {
+        let dialog = self.element.dyn_ref::<HtmlDialogElement>().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "DOM element is not a dialog")
+        })?;
+        dialog.close();
+        Ok(())
+    }
+
+    /// Moves browser focus to this HTML element.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::InvalidInput`] when this element is not an
+    /// HTML element or when the browser rejects the focus request.
+    pub fn focus(&self) -> io::Result<()> {
+        let element = self.element.dyn_ref::<HtmlElement>().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "DOM element cannot receive focus",
+            )
+        })?;
+        element.focus().map(|_| ()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Browser rejected focus request",
+            )
+        })
     }
 
     /// Appends a child and returns no detached handle.
