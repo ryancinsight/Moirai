@@ -49,7 +49,7 @@
 **Architecture**: Unified scheduler/router for local CPU worker threads, sync/blocking/async-ready work classes, process routes, server routes, accelerator metadata routes, and per-process async lanes; device-memory regions and accelerator backend consumption remain open architecture items.
 **Quality Level**: Focused scheduler/core/PAL/benchmark clippy clean; scoped, indexed, industry, and public-handle Criterion targets pass with value assertions under bounded verification
 
-**Current verification**: Moirai 0.5.0 follows the merged Mnemosyne 0.7/Core 0.2 provider graph and requires Rust 1.95. Rust 1.95 compiles the focused GPU consumer while Rust 1.94 rejects the graph; Clippy is warning-clean, Nextest passes 10/10, doctests pass 0/0, rustdoc is warning-clean, and each provider has one resolved lock source identity.
+**Current verification**: Moirai 0.6.0 follows the merged Mnemosyne 0.7/Core 0.2 provider graph and requires Rust 1.95. Rust 1.95 compiles the focused GPU consumer while Rust 1.94 rejects the graph; Clippy is warning-clean, Nextest passes 10/10, doctests pass 0/0, rustdoc is warning-clean, and each provider has one resolved lock source identity.
 
 ### Consumer dependency boundary audit
 
