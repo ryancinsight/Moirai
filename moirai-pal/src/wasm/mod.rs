@@ -23,7 +23,7 @@ use crate::{Event, Interest, RawFd, Reactor};
 
 pub use self::dom::{
     PointerMetadata, PointerModifiers, PointerType, WebDocument, WebElement, WebEvent,
-    WebEventListener,
+    WebEventListener, WheelDeltaMode, WheelMetadata,
 };
 pub use self::timer::WebTimer;
 pub use crate::local_task::LocalTaskHandle;

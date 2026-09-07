@@ -24,6 +24,8 @@ and focus control. Pointer events expose their browser identifier, and elements
 can capture, query, and release that identifier through the same owned seam.
 Pointer events also expose a value snapshot with normalized device type,
 viewport coordinates, button state, modifier keys and primary-pointer state.
+Wheel events expose bounded deltas with their browser unit, viewport
+coordinates and the same modifier-key snapshot.
 `WebEventListener` removes its callback registration when dropped. `spawn_local` uses the browser event loop for futures; applications
 do not create a second executor or retain detached JavaScript closures.
 `spawn_local_with_handle` adds
