@@ -85,8 +85,9 @@ disabled DOM-state coverage. The DOM surface is compile-checked on WASM and
 Metis's browser traces exercise checked controls, disabled lifecycle, modal
 dialog open/close and focus restoration. Metis `43dd7c7` exercises pointer ID
 `1`, provider-backed capture verification and release on the pointer surface.
-The metadata surface is compile-checked on WASM; an input-sensitive browser
-trace is the acceptance closure for the follow-up Metis consumer increment.
+Metis `f15a6fa` consumes the metadata snapshot and its input-sensitive browser
+trace records mouse coordinates, changed and held buttons, Shift modifier
+state and primary-pointer state at the same viewport.
 
 ## Residuals
 

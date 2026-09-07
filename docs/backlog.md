@@ -183,10 +183,14 @@
 - Acceptance: pointer metadata reads are input-sensitive and absent for other
   event kinds; WASM check, native PAL tests and warning-denied Clippy pass;
   Metis renders a live metadata trace from a real browser pointer event.
-- Class: [minor]; status: in-progress; priority: P1; integrator: root;
-  branch: `feat/wasm-pointer-metadata`; last-update: 2026-09-07; driver:
+- Class: [minor]; status: done; priority: P1; integrator: root;
+  last-update: 2026-09-07; driver:
   [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 - Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+- Evidence: PR [#277](https://github.com/ryancinsight/Moirai/pull/277) merged at
+  `a3c86cd`; `moirai-pal` passes 47/47 native nextest tests, native and WASM
+  warning-denied Clippy and the WASM check. Metis `f15a6fa` renders device
+  type, coordinates, buttons, modifiers and primary state in its live trace.
 
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
