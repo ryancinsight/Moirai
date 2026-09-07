@@ -7,7 +7,7 @@ Status: Accepted
 
 Revision note: the browser host seam now includes owned DOM elements, form
 control values, checked and disabled control state, modal dialog lifecycle,
-focus, pointer capture, pointer metadata and event listeners. Metis consumes
+focus, pointer capture, pointer metadata, wheel metadata and event listeners. Metis consumes
 these handles without importing `web-sys`; the listener guard removes the
 callback before releasing its JavaScript closure.
 
@@ -58,6 +58,10 @@ the browser `pointerId`, normalized device type, viewport coordinates, button
 state, modifier keys and primary-pointer marker. Elements own the
 `setPointerCapture`, `hasPointerCapture` and `releasePointerCapture` calls with
 typed invalid-input errors when the browser rejects a request.
+Wheel events expose a `WheelMetadata` snapshot with three deltas, their
+pixel/line/page unit, viewport coordinates and modifier keys. The event seam
+returns no metadata for unrelated event kinds, so application policy can keep
+scroll and gesture handling explicit.
 `WebEventListener` owns one callback registration and removes it in `Drop`;
 `WebEvent` exposes only the target/value/pointer-metadata/default-action
 operations needed by an application, so browser bindings do not leak into
@@ -88,6 +92,8 @@ dialog open/close and focus restoration. Metis `43dd7c7` exercises pointer ID
 Metis `f15a6fa` consumes the metadata snapshot and its input-sensitive browser
 trace records mouse coordinates, changed and held buttons, Shift modifier
 state and primary-pointer state at the same viewport.
+The wheel metadata surface is compile-checked on WASM and its consumer trace
+is the acceptance closure for the linked Metis increment.
 
 ## Residuals
 

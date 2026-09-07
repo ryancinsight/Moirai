@@ -6,7 +6,7 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::{
     Document, Element, Event, HtmlButtonElement, HtmlDialogElement, HtmlElement, HtmlInputElement,
-    HtmlSelectElement, MouseEvent, PointerEvent, Window,
+    HtmlSelectElement, MouseEvent, PointerEvent, WheelEvent, Window,
 };
 
 /// A browser document obtained from the current window.
@@ -364,7 +364,34 @@ impl PointerType {
     }
 }
 
-/// Modifier-key state captured with one pointer event.
+/// The unit used for browser wheel deltas.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum WheelDeltaMode {
+    /// Deltas are expressed in CSS pixels.
+    Pixel,
+    /// Deltas are expressed in lines of content.
+    Line,
+    /// Deltas are expressed in pages of content.
+    Page,
+    /// A browser-defined delta unit.
+    Other,
+}
+
+impl WheelDeltaMode {
+    /// Returns the stable label used by the browser-facing documentation.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pixel => "pixel",
+            Self::Line => "line",
+            Self::Page => "page",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// Modifier-key state captured with one browser input event.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PointerModifiers {
     ctrl: bool,
@@ -462,6 +489,71 @@ impl PointerMetadata {
     }
 }
 
+/// Input metadata captured from one browser wheel event.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WheelMetadata {
+    delta_x: f64,
+    delta_y: f64,
+    delta_z: f64,
+    delta_mode: WheelDeltaMode,
+    client_x: i32,
+    client_y: i32,
+    modifiers: PointerModifiers,
+}
+
+impl WheelMetadata {
+    /// Returns the horizontal wheel delta in [`Self::delta_mode`] units.
+    #[must_use]
+    pub const fn delta_x(self) -> f64 {
+        self.delta_x
+    }
+
+    /// Returns the vertical wheel delta in [`Self::delta_mode`] units.
+    #[must_use]
+    pub const fn delta_y(self) -> f64 {
+        self.delta_y
+    }
+
+    /// Returns the depth wheel delta in [`Self::delta_mode`] units.
+    #[must_use]
+    pub const fn delta_z(self) -> f64 {
+        self.delta_z
+    }
+
+    /// Returns the browser unit used by the deltas.
+    #[must_use]
+    pub const fn delta_mode(self) -> WheelDeltaMode {
+        self.delta_mode
+    }
+
+    /// Returns the viewport-relative horizontal coordinate in CSS pixels.
+    #[must_use]
+    pub const fn client_x(self) -> i32 {
+        self.client_x
+    }
+
+    /// Returns the viewport-relative vertical coordinate in CSS pixels.
+    #[must_use]
+    pub const fn client_y(self) -> i32 {
+        self.client_y
+    }
+
+    /// Returns the modifier-key snapshot.
+    #[must_use]
+    pub const fn modifiers(self) -> PointerModifiers {
+        self.modifiers
+    }
+}
+
+fn modifier_state(event: &MouseEvent) -> PointerModifiers {
+    PointerModifiers {
+        ctrl: MouseEvent::ctrl_key(event),
+        shift: MouseEvent::shift_key(event),
+        alt: MouseEvent::alt_key(event),
+        meta: MouseEvent::meta_key(event),
+    }
+}
+
 impl WebEvent {
     /// Returns the event target when it is a DOM element.
     #[must_use]
@@ -508,13 +600,34 @@ impl WebEvent {
             client_y: MouseEvent::client_y(mouse),
             button: MouseEvent::button(mouse),
             buttons: MouseEvent::buttons(mouse),
-            modifiers: PointerModifiers {
-                ctrl: MouseEvent::ctrl_key(mouse),
-                shift: MouseEvent::shift_key(mouse),
-                alt: MouseEvent::alt_key(mouse),
-                meta: MouseEvent::meta_key(mouse),
-            },
+            modifiers: modifier_state(mouse),
             primary: PointerEvent::is_primary(pointer),
+        })
+    }
+
+    /// Reads wheel metadata from this event.
+    ///
+    /// The snapshot includes three browser deltas, their unit, viewport
+    /// coordinates and modifier keys. Events that are not [`WheelEvent`]
+    /// values return [`None`].
+    #[must_use]
+    pub fn wheel_metadata(&self) -> Option<WheelMetadata> {
+        let wheel = self.event.dyn_ref::<WheelEvent>()?;
+        let mouse = self.event.dyn_ref::<MouseEvent>()?;
+        let delta_mode = match WheelEvent::delta_mode(wheel) {
+            0 => WheelDeltaMode::Pixel,
+            1 => WheelDeltaMode::Line,
+            2 => WheelDeltaMode::Page,
+            _ => WheelDeltaMode::Other,
+        };
+        Some(WheelMetadata {
+            delta_x: WheelEvent::delta_x(wheel),
+            delta_y: WheelEvent::delta_y(wheel),
+            delta_z: WheelEvent::delta_z(wheel),
+            delta_mode,
+            client_x: MouseEvent::client_x(mouse),
+            client_y: MouseEvent::client_y(mouse),
+            modifiers: modifier_state(mouse),
         })
     }
 
