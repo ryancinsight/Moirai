@@ -24,7 +24,7 @@ use crate::{Event, Interest, RawFd, Reactor};
 pub use self::dom::{WebDocument, WebElement, WebEvent, WebEventListener};
 pub use self::timer::WebTimer;
 pub use crate::local_task::LocalTaskHandle;
-pub use crate::websocket_state::{WebSocketLimits, WebSocketReceive};
+pub use crate::websocket_state::{WebSocketLimits, WebSocketOpen, WebSocketReceive};
 
 use self::websocket::WebSocketConnection;
 use self::websocket::EVENT_QUEUE_CAPACITY;
@@ -136,6 +136,15 @@ impl WebReactor {
             .get(&fd)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "WebSocket not found"))?;
         Ok(websocket.receive_async())
+    }
+
+    /// Return a cancellation-safe future that resolves when the WebSocket is OPEN.
+    pub fn websocket_open_async(&self, fd: RawFd) -> io::Result<WebSocketOpen> {
+        let websocket = self
+            .websockets
+            .get(&fd)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "WebSocket not found"))?;
+        Ok(websocket.open_async())
     }
 
     /// Close a WebSocket connection.

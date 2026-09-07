@@ -664,6 +664,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The optional Mnemosyne integration now requires mnemosyne-memory 0.7.0;
   consumers must update their dependency graph to the 0.7 provider line.
 
+## [0.6.0] - 2026-09-07
+
+### Added
+
+- Bounded RFC 6455 WebSocket service support for native Moirai async streams,
+  including strict HTTP upgrade validation, bounded frames and messages,
+  protocol deadlines, and terminal close/error handling.
+- Pure-Rust SHA-1 and Base64 primitives for protocol handshakes, plus owned
+  browser DOM, timer, and cancellable local-task handles.
+
+### Changed
+
+- The workspace release line now carries the Atlas provider graph at version
+  0.6.0, with the scheduler, iterator, and GPU surfaces sharing the current
+  first-party dependency contracts.
+
 ## [0.4.0] - 2026-07-17
 
 ### Changed

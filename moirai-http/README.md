@@ -3,8 +3,8 @@
 [![crates.io](https://img.shields.io/crates/v/moirai-http.svg)](https://crates.io/crates/moirai-http)
 [![docs.rs](https://docs.rs/moirai-http/badge.svg)](https://docs.rs/moirai-http)
 
-Minimal async HTTP/1.1 client for the [Moirai](https://github.com/ryancinsight/Moirai)
-runtime. Runs over Moirai async sockets and
+Minimal async HTTP/1.1 client and bounded WebSocket service for the
+[Moirai](https://github.com/ryancinsight/Moirai) runtime. Runs over Moirai async sockets and
 [`moirai-tls`](https://crates.io/crates/moirai-tls) — **no Tokio**.
 
 Scope is the request shapes object-storage clients need: `GET` with `Range`,
@@ -16,7 +16,7 @@ built by callers on top of this — the crate knows HTTP, not S3.
 
 ```toml
 [dependencies]
-moirai-http = "0.5"
+moirai-http = "0.6"
 ```
 
 ```rust
@@ -42,6 +42,34 @@ RFC 3986, never forward credentials across origins, and preserve methods and
 bodies for 307/308 responses.
 
 Full documentation: <https://docs.rs/moirai-http>
+
+## WebSocket service
+
+The service side accepts one bounded HTTP/1.1 upgrade (including the required
+`Host` header) and exposes complete binary messages over the existing Moirai
+async stream. It rejects unmasked, fragmented, reserved, text and
+non-minimally encoded frames, handles ping/pong and close, and wraps header,
+message and frame operations in finite deadlines. A frame timeout or partial
+I/O error terminalizes the stream so callers cannot retry from an ambiguous
+wire position. The optional browser `Origin` header is returned to the
+consumer; `accept_websocket_with_validator` additionally lets the consumer
+reject it before the `101` response, while authorization remains the
+consumer's responsibility.
+
+```rust,no_run
+use moirai_http::{accept_websocket, WebSocketConfig};
+
+async fn serve<S>(stream: S) -> std::io::Result<()>
+where
+    S: moirai_async::io::AsyncRead + moirai_async::io::AsyncWrite + Unpin,
+{
+    let (mut socket, upgrade) = accept_websocket(stream, WebSocketConfig::default()).await?;
+    let _origin = upgrade.origin();
+    let message = socket.recv_message().await?;
+    socket.send_binary(&message).await?;
+    Ok(())
+}
+```
 
 ## License
 

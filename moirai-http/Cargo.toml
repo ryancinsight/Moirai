@@ -20,6 +20,7 @@ mnemosyne-memory = []
 
 [dependencies]
 moirai-async = { workspace = true }
+moirai-crypto = { workspace = true }
 moirai-tls = { workspace = true }
 http = { workspace = true }
 httparse = { workspace = true }

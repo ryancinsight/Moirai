@@ -51,3 +51,4 @@
 | [0043](0043-contained-process-lifecycle.md) | Contained process lifecycle | Accepted |
 | [0044](0044-standalone-cryptographic-primitives.md) | Standalone cryptographic primitives | Accepted |
 | [0045](0045-cancellable-browser-tasks.md) | Cancellable browser-local tasks | Accepted |
+| [0046](0046-bounded-websocket-service.md) | Bounded WebSocket service substrate | Accepted |

@@ -16,7 +16,15 @@ pub mod codec;
 pub mod conn;
 mod pool;
 mod redirect;
+pub mod request;
+pub mod upgrade;
+pub mod websocket;
 
 pub use client::HttpClient;
 pub use codec::Response;
 pub use conn::Origin;
+pub use request::HttpRequestHead;
+pub use upgrade::{
+    accept_websocket, accept_websocket_with_validator, WebSocketConfig, WebSocketUpgrade,
+};
+pub use websocket::WebSocketStream;
