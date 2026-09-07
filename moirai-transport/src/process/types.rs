@@ -35,6 +35,7 @@ pub enum ProcessError {
         code: Option<i32>,
     },
 }
+#[cfg(windows)]
 impl ProcessError {
     pub(super) const fn operation(self) -> ProcessOperation {
         match self {
