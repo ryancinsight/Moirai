@@ -3,6 +3,7 @@
 //! This module provides async I/O support for WebAssembly environments,
 //! integrating with JavaScript Promise/async-await patterns and Web APIs.
 
+mod timer;
 mod websocket;
 
 use std::cell::RefCell;
@@ -19,10 +20,11 @@ use web_sys::console;
 
 use crate::{Event, Interest, RawFd, Reactor};
 
+pub use self::timer::WebTimer;
 pub use crate::websocket_state::{WebSocketLimits, WebSocketReceive};
 
-use self::websocket::EVENT_QUEUE_CAPACITY;
 use self::websocket::WebSocketConnection;
+use self::websocket::EVENT_QUEUE_CAPACITY;
 
 /// WebAssembly-based I/O reactor using Web APIs.
 pub struct WebReactor {

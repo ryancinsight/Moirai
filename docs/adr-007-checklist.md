@@ -10,7 +10,10 @@ This document defines the concrete contracts, specifications, and checklist item
   copied into Rust memory; oversize and exhaustion are terminal errors.
 - [x] Readiness events are bounded and interest-filtered; one receive future
   owns one waiter, supports executor waker replacement, and is cancellation-safe.
-- [x] Native state tests and WASM warning-denied compile/Clippy pass.
+- [x] `WebTimer` owns one browser deadline callback, clears it on drop, and
+  clamps the JavaScript timeout range; the merged Mnemosyne WASM backend is
+  used for standalone provider checks.
+- [x] Native state tests (39/39) and warning-denied WASM/native Clippy pass.
 - [ ] Real browser trace, cooperative executor, worker scheduling, fetch, and
   the general browser network facade remain open; see ADR 0007 residuals.
 

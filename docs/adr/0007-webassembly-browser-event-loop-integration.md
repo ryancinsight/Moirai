@@ -37,6 +37,12 @@ The same ownership rule now covers `FileReader`: callback closures are held by
 an RAII guard, handlers are cleared and an in-flight read is aborted on drop,
 and no callback uses `Closure::forget`.
 
+Browser deadlines use the same ownership boundary. `WebTimer` retains the
+`setTimeout` callback and its JavaScript window handle, clears the handle on
+drop, and clamps durations to the browser's signed 32-bit millisecond range.
+Metis can therefore race a bounded receive against a bounded deadline without
+leaving a timer callback or a WebSocket waiter after cancellation.
+
 ## Rejected alternatives
 
 The prior callback implementation used `Closure::forget`, discarded message
@@ -51,8 +57,9 @@ The state machine has native value tests for zero limits, message ordering and
 close, oversize and queue-overflow terminal errors, waiter cancellation,
 single-waiter rejection, producer wakeup, and executor-waker replacement.
 `moirai-pal` compiles for `wasm32-unknown-unknown` and passes warning-denied
-Clippy for both WASM and the native library. A real browser trace is still
-required before Metis adopts this provider contract.
+Clippy for both WASM and the native library against merged Mnemosyne backend
+`2eb49c1`. The configured Nextest run passes 39/39 native PAL tests. A real
+browser trace is still required before Metis adopts this provider contract.
 
 ## Residuals
 

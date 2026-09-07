@@ -10,8 +10,9 @@
   oversize and queue-bound cases are value-tested; WASM compile and Clippy pass.
 - Class: [arch] [minor]; status: review; integrator: atlas-metis-ipc; branch:
   `arch/moirai-hephaestus-gpu-route`; driver: [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
-- Evidence: `moirai-pal` native state tests and warning-denied native/WASM
-  Clippy; real browser conformance remains the re-open trigger.
+- Evidence: `moirai-pal` native state tests (39/39), owned `WebTimer`, and
+  warning-denied native/WASM Clippy against merged Mnemosyne backend `2eb49c1`;
+  real browser conformance remains the re-open trigger.
 
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
