@@ -17,6 +17,12 @@ mechanism, so the async stack needs no external runtime:
 Modules: `reactor`, `net`, `fs`, `timer`, plus the per-platform `unix`,
 `windows`, and `wasm` implementations.
 
+The WASM module owns the browser boundary used by Atlas applications. `WebDocument`
+and `WebElement` provide bounded DOM updates and input values, while
+`WebEventListener` removes its callback registration when dropped. `spawn_local`
+uses the browser event loop for futures; applications do not create a second
+executor or retain detached JavaScript closures.
+
 ```toml
 [dependencies]
 moirai-pal = "0.5"

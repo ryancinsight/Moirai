@@ -5,6 +5,10 @@ Status: Accepted
 **Date**: 2026-05-25
 **Revision**: 2026-09-06
 
+Revision note: the browser host seam now includes owned DOM elements and event
+listeners. Metis consumes these handles without importing `web-sys`; the
+listener guard removes the callback before releasing its JavaScript closure.
+
 ## Context
 
 Moirai's WebAssembly target runs on a browser JavaScript event-loop thread.
@@ -43,6 +47,14 @@ drop, and clamps durations to the browser's signed 32-bit millisecond range.
 Metis can therefore race a bounded receive against a bounded deadline without
 leaving a timer callback or a WebSocket waiter after cancellation.
 
+Moirai also owns the narrow DOM boundary used by Atlas WASM applications.
+`WebDocument` and `WebElement` wrap the current document, trusted markup,
+text/attribute updates, input values and child insertion. `WebEventListener`
+owns one callback registration and removes it in `Drop`; `WebEvent` exposes only
+the target/value/default-action operations needed by an application, so browser
+bindings do not leak into Metis domain code. `spawn_local` routes application
+futures to the browser event loop without creating a second executor.
+
 ## Rejected alternatives
 
 The prior callback implementation used `Closure::forget`, discarded message
@@ -58,8 +70,9 @@ close, oversize and queue-overflow terminal errors, waiter cancellation,
 single-waiter rejection, producer wakeup, and executor-waker replacement.
 `moirai-pal` compiles for `wasm32-unknown-unknown` and passes warning-denied
 Clippy for both WASM and the native library against merged Mnemosyne backend
-`2eb49c1`. The configured Nextest run passes 39/39 native PAL tests. A real
-browser trace is still required before Metis adopts this provider contract.
+`2eb49c1`. The configured Nextest run passes 39/39 native PAL tests. The DOM
+surface is compile-checked on WASM; a real browser trace is still required
+before Metis claims browser target support.
 
 ## Residuals
 

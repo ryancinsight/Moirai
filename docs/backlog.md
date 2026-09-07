@@ -14,6 +14,20 @@
   warning-denied native/WASM Clippy against merged Mnemosyne backend `2eb49c1`;
   real browser conformance remains the re-open trigger.
 
+<a id="MOI-WASM-2026-09-06-DOM"></a>
+## MOI-WASM-2026-09-06-DOM — Own browser DOM and listener lifetimes [arch] [minor]
+
+- Outcome: Atlas WASM applications use Moirai-owned DOM and event handles
+  without importing browser binding crates into each consumer.
+- Scope: `moirai-pal` document/element/event wrappers and browser-local future
+  spawn; HTML/CSS semantics and application state remain consumer concerns.
+- Acceptance: DOM updates, input reads, child insertion and event registration
+  compile for `wasm32-unknown-unknown`; dropping a listener removes its browser
+  callback; native PAL tests and warning-denied Clippy remain green.
+- Class: [arch] [minor]; status: in-progress; integrator: metis-browser-host;
+  branch: `feat/browser-dom-host`; driver: [Metis browser](../../metis/backlog.md#METIS-BROWSER-001).
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
 
