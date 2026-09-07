@@ -67,6 +67,11 @@ transport must await this future before sending, and dropping it removes its
 OPEN waiter. The existing bounded message queue and callback guards remain the
 single owner of browser WebSocket resources.
 
+Revision 2026-09-07: cancellation and close callbacks extract their waiters
+while holding the state mutex, then wake them after the guard is dropped. This
+keeps a waker from re-entering the WebSocket state machine through a lock held
+by the callback or destructor.
+
 ## Alternatives
 
 Using a third-party WebSocket crate would add a second runtime/resource model

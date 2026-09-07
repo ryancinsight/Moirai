@@ -268,12 +268,15 @@ impl Drop for WebSocketConnection {
         self.socket.set_onclose(None);
         self.socket.set_onerror(None);
 
-        if let Ok(mut state) = self.state.lock() {
+        let waiters = self.state.lock().ok().map(|mut state| {
             let waiter = state.fail(
                 io::ErrorKind::Interrupted,
                 "WebSocket connection was cancelled",
             );
             let open_waiter = state.take_open_waiter();
+            (waiter, open_waiter)
+        });
+        if let Some((waiter, open_waiter)) = waiters {
             if let Some(waiter) = waiter {
                 waiter.wake();
             }
