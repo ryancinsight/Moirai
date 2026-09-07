@@ -85,10 +85,13 @@
   `None` for other elements; WASM check, native PAL tests and warning-denied
   Clippy pass; Metis exercises the seam through real checkbox and radio
   interactions.
-- Class: [minor]; status: in-progress; priority: P1; integrator: root;
+- Class: [minor]; status: done; priority: P1; integrator: root;
   branch: `feat/browser-control-state`; last-update: 2026-09-07; driver:
   [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 - Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+- Evidence: PR [#271](https://github.com/ryancinsight/Moirai/pull/271) merged at
+  `5b770860`; `moirai-pal` passes 47/47 native tests, WASM check and
+  warning-denied Clippy, and Metis exercises checked checkbox/radio reads.
 
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
