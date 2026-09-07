@@ -92,8 +92,12 @@ dialog open/close and focus restoration. Metis `43dd7c7` exercises pointer ID
 Metis `f15a6fa` consumes the metadata snapshot and its input-sensitive browser
 trace records mouse coordinates, changed and held buttons, Shift modifier
 state and primary-pointer state at the same viewport.
-The wheel metadata surface is compile-checked on WASM and its consumer trace
-is the acceptance closure for the linked Metis increment.
+Metis `ad00f9d` consumes the `WheelMetadata` snapshot from provider revision
+`f634b3a802ec0355da22f111ed01067d2435c5cb`; its WASM build and warning-denied
+Clippy pass, and the in-app browser trace records input-sensitive vertical and
+horizontal pixel deltas with viewport coordinates. The CUA scroll action is
+automation-generated and does not expose the browser `isTrusted` flag, so the
+trace does not claim physical-wheel or cross-engine parity.
 
 ## Residuals
 

@@ -202,10 +202,16 @@
 - Acceptance: wheel metadata reads are input-sensitive and absent for other
   event kinds; WASM check, native PAL tests and warning-denied Clippy pass;
   Metis renders a browser wheel metadata trace with its evidence limits.
-- Class: [minor]; status: in-progress; priority: P1; integrator: root;
-  branch: `feat/wasm-wheel-metadata`; last-update: 2026-09-07; driver:
+- Class: [minor]; status: done; priority: P1; integrator: root;
+  branch: `feat/wasm-wheel-metadata` (merged); last-update: 2026-09-07;
+  delivery: `f634b3a`; driver:
   [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 - Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+- Evidence: PR [#278](https://github.com/ryancinsight/Moirai/pull/278) merged at
+  `f634b3a`; `moirai-pal` passes 47/47 native nextest tests, native and WASM
+  warning-denied Clippy and the WASM check. Metis PR [#24](https://github.com/ryancinsight/metis/pull/24)
+  merged at `ad00f9d`; the browser trace records input-sensitive vertical and
+  horizontal pixel deltas and the manual records the automation trust limit.
 
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
