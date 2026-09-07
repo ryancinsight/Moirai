@@ -37,6 +37,7 @@ web-sys = { version = "0.3", features = [
     "File",
     "FileReader", 
     "Blob",
+    "Window",
     "ReadableStream",
     "WritableStream",
     "WebSocket",
