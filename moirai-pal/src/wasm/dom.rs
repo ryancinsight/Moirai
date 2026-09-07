@@ -6,7 +6,7 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::{
     Document, Element, Event, HtmlButtonElement, HtmlDialogElement, HtmlElement, HtmlInputElement,
-    HtmlSelectElement, PointerEvent, Window,
+    HtmlSelectElement, MouseEvent, PointerEvent, Window,
 };
 
 /// A browser document obtained from the current window.
@@ -337,6 +337,131 @@ pub struct WebEvent {
     event: Event,
 }
 
+/// The browser pointer device that produced an event.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum PointerType {
+    /// A mouse or mouse-like pointing device.
+    Mouse,
+    /// A pen or stylus device.
+    Pen,
+    /// A direct-touch device.
+    Touch,
+    /// A browser-defined pointer type not covered by the known variants.
+    Other,
+}
+
+impl PointerType {
+    /// Returns the stable label used by the browser-facing documentation.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Mouse => "mouse",
+            Self::Pen => "pen",
+            Self::Touch => "touch",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// Modifier-key state captured with one pointer event.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PointerModifiers {
+    ctrl: bool,
+    shift: bool,
+    alt: bool,
+    meta: bool,
+}
+
+impl PointerModifiers {
+    /// Returns whether Control was held for the event.
+    #[must_use]
+    pub const fn ctrl(self) -> bool {
+        self.ctrl
+    }
+
+    /// Returns whether Shift was held for the event.
+    #[must_use]
+    pub const fn shift(self) -> bool {
+        self.shift
+    }
+
+    /// Returns whether Alt was held for the event.
+    #[must_use]
+    pub const fn alt(self) -> bool {
+        self.alt
+    }
+
+    /// Returns whether Meta was held for the event.
+    #[must_use]
+    pub const fn meta(self) -> bool {
+        self.meta
+    }
+}
+
+/// Input metadata captured from one browser pointer event.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PointerMetadata {
+    pointer_id: i32,
+    pointer_type: PointerType,
+    client_x: i32,
+    client_y: i32,
+    button: i16,
+    buttons: u16,
+    modifiers: PointerModifiers,
+    primary: bool,
+}
+
+impl PointerMetadata {
+    /// Returns the browser-assigned pointer identifier.
+    #[must_use]
+    pub const fn pointer_id(self) -> i32 {
+        self.pointer_id
+    }
+
+    /// Returns the normalized pointer device type.
+    #[must_use]
+    pub const fn pointer_type(self) -> PointerType {
+        self.pointer_type
+    }
+
+    /// Returns the viewport-relative horizontal coordinate in CSS pixels.
+    #[must_use]
+    pub const fn client_x(self) -> i32 {
+        self.client_x
+    }
+
+    /// Returns the viewport-relative vertical coordinate in CSS pixels.
+    #[must_use]
+    pub const fn client_y(self) -> i32 {
+        self.client_y
+    }
+
+    /// Returns the button changed by the event (`-1` when the browser has no button).
+    #[must_use]
+    pub const fn button(self) -> i16 {
+        self.button
+    }
+
+    /// Returns the bitmask of buttons currently held down.
+    #[must_use]
+    pub const fn buttons(self) -> u16 {
+        self.buttons
+    }
+
+    /// Returns the modifier-key snapshot.
+    #[must_use]
+    pub const fn modifiers(self) -> PointerModifiers {
+        self.modifiers
+    }
+
+    /// Returns whether this is the primary pointer for its device.
+    #[must_use]
+    pub const fn is_primary(self) -> bool {
+        self.primary
+    }
+}
+
 impl WebEvent {
     /// Returns the event target when it is a DOM element.
     #[must_use]
@@ -359,6 +484,38 @@ impl WebEvent {
         self.event
             .dyn_ref::<PointerEvent>()
             .map(PointerEvent::pointer_id)
+    }
+
+    /// Reads pointer metadata from this event.
+    ///
+    /// The snapshot includes the pointer device, viewport coordinates, button
+    /// state, modifier keys and primary-pointer marker. Events that are not
+    /// [`PointerEvent`] values return [`None`].
+    #[must_use]
+    pub fn pointer_metadata(&self) -> Option<PointerMetadata> {
+        let pointer = self.event.dyn_ref::<PointerEvent>()?;
+        let mouse = self.event.dyn_ref::<MouseEvent>()?;
+        let pointer_type = match PointerEvent::pointer_type(pointer).as_str() {
+            "mouse" => PointerType::Mouse,
+            "pen" => PointerType::Pen,
+            "touch" => PointerType::Touch,
+            _ => PointerType::Other,
+        };
+        Some(PointerMetadata {
+            pointer_id: PointerEvent::pointer_id(pointer),
+            pointer_type,
+            client_x: MouseEvent::client_x(mouse),
+            client_y: MouseEvent::client_y(mouse),
+            button: MouseEvent::button(mouse),
+            buttons: MouseEvent::buttons(mouse),
+            modifiers: PointerModifiers {
+                ctrl: MouseEvent::ctrl_key(mouse),
+                shift: MouseEvent::shift_key(mouse),
+                alt: MouseEvent::alt_key(mouse),
+                meta: MouseEvent::meta_key(mouse),
+            },
+            primary: PointerEvent::is_primary(pointer),
+        })
     }
 
     /// Stops the browser's default action for this event.

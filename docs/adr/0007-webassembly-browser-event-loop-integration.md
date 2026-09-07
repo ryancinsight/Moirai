@@ -7,9 +7,9 @@ Status: Accepted
 
 Revision note: the browser host seam now includes owned DOM elements, form
 control values, checked and disabled control state, modal dialog lifecycle,
-focus, pointer capture and event listeners. Metis consumes these handles
-without importing `web-sys`; the listener guard removes the callback before
-releasing its JavaScript closure.
+focus, pointer capture, pointer metadata and event listeners. Metis consumes
+these handles without importing `web-sys`; the listener guard removes the
+callback before releasing its JavaScript closure.
 
 ## Context
 
@@ -53,14 +53,16 @@ Moirai also owns the narrow DOM boundary used by Atlas WASM applications.
 `WebDocument` and `WebElement` wrap the current document, trusted markup,
 text/attribute updates, input/select values, checked checkbox/radio state,
 disabled button/input/select state, modal dialog lifecycle, focus control and
-child insertion. Pointer events expose their `pointerId`, and elements own the
+child insertion. Pointer events expose a `PointerMetadata` snapshot containing
+the browser `pointerId`, normalized device type, viewport coordinates, button
+state, modifier keys and primary-pointer marker. Elements own the
 `setPointerCapture`, `hasPointerCapture` and `releasePointerCapture` calls with
 typed invalid-input errors when the browser rejects a request.
 `WebEventListener` owns one callback registration and removes it in `Drop`;
-`WebEvent` exposes only the target/value/pointer-id/default-action operations
-needed by an application, so browser bindings do not leak into Metis domain
-code. `spawn_local` routes application futures to the browser event loop
-without creating a second executor.
+`WebEvent` exposes only the target/value/pointer-metadata/default-action
+operations needed by an application, so browser bindings do not leak into
+Metis domain code. `spawn_local` routes application futures to the browser
+event loop without creating a second executor.
 
 ## Rejected alternatives
 
@@ -83,6 +85,8 @@ disabled DOM-state coverage. The DOM surface is compile-checked on WASM and
 Metis's browser traces exercise checked controls, disabled lifecycle, modal
 dialog open/close and focus restoration. Metis `43dd7c7` exercises pointer ID
 `1`, provider-backed capture verification and release on the pointer surface.
+The metadata surface is compile-checked on WASM; an input-sensitive browser
+trace is the acceptance closure for the follow-up Metis consumer increment.
 
 ## Residuals
 
