@@ -4,7 +4,7 @@ use std::io;
 
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
-use web_sys::{Document, Element, Event, HtmlInputElement, Window};
+use web_sys::{Document, Element, Event, HtmlInputElement, HtmlSelectElement, Window};
 
 /// A browser document obtained from the current window.
 #[derive(Clone)]
@@ -123,12 +123,17 @@ impl WebElement {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid DOM child"))
     }
 
-    /// Reads the value of a browser input element.
+    /// Reads the value of a browser input or select element.
     #[must_use]
     pub fn value(&self) -> Option<String> {
         self.element
             .dyn_ref::<HtmlInputElement>()
             .map(HtmlInputElement::value)
+            .or_else(|| {
+                self.element
+                    .dyn_ref::<HtmlSelectElement>()
+                    .map(HtmlSelectElement::value)
+            })
     }
 
     /// Reads the checked state of a browser input element.
@@ -206,7 +211,7 @@ impl WebEvent {
             .map(|element| WebElement { element })
     }
 
-    /// Reads an input value from the event target.
+    /// Reads an input or select value from the event target.
     #[must_use]
     pub fn value(&self) -> Option<String> {
         self.target().and_then(|target| target.value())

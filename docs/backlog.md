@@ -93,6 +93,21 @@
   `5b770860`; `moirai-pal` passes 47/47 native tests, WASM check and
   warning-denied Clippy, and Metis exercises checked checkbox/radio reads.
 
+<a id="MOI-WASM-DOM-SELECT-2026-09-07"></a>
+## MOI-WASM-DOM-SELECT-2026-09-07 — Read browser select values [minor]
+
+- Outcome: the Moirai-owned WASM DOM value seam reads HTML input and select
+  controls without exposing `web-sys` to Atlas consumers.
+- Scope: `moirai-pal` `WebElement::value`; application select models, rendering
+  and browser demonstrations remain Metis-owned.
+- Acceptance: input and select values return the browser value while other
+  elements return `None`; WASM check, native PAL tests and warning-denied Clippy
+  pass; Metis exercises the select seam through a real interaction.
+- Class: [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/wasm-select-control`; last-update: 2026-09-07; driver:
+  [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
 
