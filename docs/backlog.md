@@ -152,6 +152,23 @@
   warning-denied Clippy and the WASM check. Metis's live browser trace opens,
   closes and Escape-dismisses the dialog while restoring opener focus.
 
+<a id="MOI-WASM-DOM-POINTER-2026-09-07"></a>
+## MOI-WASM-DOM-POINTER-2026-09-07 — Expose pointer capture [minor]
+
+- Outcome: the Moirai-owned WASM DOM seam captures and releases pointer IDs on
+  HTML elements without exposing `web-sys` to consumers.
+- Scope: `moirai-pal` pointer-event identifiers and element capture state;
+  drag/drop policy, gesture interpretation and browser demonstrations remain
+  Metis-owned.
+- Acceptance: pointer IDs are read from pointer events; capture, state reads and
+  release dispatch to HTML elements and return typed invalid-input errors
+  otherwise; WASM check, native PAL tests and warning-denied Clippy pass; Metis
+  exercises a real capture/release sequence.
+- Class: [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/wasm-pointer-capture`; last-update: 2026-09-07; driver:
+  [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
 
