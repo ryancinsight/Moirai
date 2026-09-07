@@ -74,6 +74,22 @@
   branch: `feat/browser-dom-host`; driver: [Metis browser](../../metis/backlog.md#METIS-BROWSER-001).
 - Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
 
+<a id="MOI-WASM-DOM-CONTROLS-2026-09-07"></a>
+## MOI-WASM-DOM-CONTROLS-2026-09-07 — Expose checked browser control state [minor]
+
+- Outcome: the Moirai-owned WASM DOM seam reads checked checkbox and radio
+  state without exposing `web-sys` to Atlas consumers.
+- Scope: `moirai-pal` `WebElement` checked-state access; application control
+  models, rendering and browser demonstrations remain Metis-owned.
+- Acceptance: checked reads return the browser value for input elements and
+  `None` for other elements; WASM check, native PAL tests and warning-denied
+  Clippy pass; Metis exercises the seam through real checkbox and radio
+  interactions.
+- Class: [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/browser-control-state`; last-update: 2026-09-07; driver:
+  [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
 
