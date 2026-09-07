@@ -79,10 +79,17 @@ enum WebSocketStatus {
 pub(crate) struct WebSocketState {
     status: WebSocketStatus,
     incoming: VecDeque<Vec<u8>>,
-    waiter: Option<Waker>,
+    waiter: Option<WaiterRegistration>,
     #[cfg(any(target_arch = "wasm32", test))]
-    open_waiter: Option<Waker>,
+    open_waiter: Option<WaiterRegistration>,
+    next_waiter_id: u64,
     limits: WebSocketLimits,
+}
+
+#[derive(Debug)]
+struct WaiterRegistration {
+    id: u64,
+    waker: Waker,
 }
 
 impl WebSocketState {
@@ -96,6 +103,7 @@ impl WebSocketState {
             waiter: None,
             #[cfg(any(target_arch = "wasm32", test))]
             open_waiter: None,
+            next_waiter_id: 1,
             limits,
         }
     }
@@ -111,42 +119,55 @@ impl WebSocketState {
 
     #[cfg(any(target_arch = "wasm32", test))]
     pub(crate) fn take_open_waiter(&mut self) -> Option<Waker> {
-        self.open_waiter.take()
+        self.open_waiter
+            .take()
+            .map(|registration| registration.waker)
     }
 
     #[cfg(any(target_arch = "wasm32", test))]
-    fn poll_open(
-        &mut self,
-        cx: &Context<'_>,
-        replaces_existing_waiter: bool,
-    ) -> Poll<io::Result<()>> {
+    fn poll_open(&mut self, cx: &Context<'_>, waiter_id: &mut Option<u64>) -> Poll<io::Result<()>> {
         match self.status {
             WebSocketStatus::Connecting => {
-                if let Some(waiter) = &self.open_waiter {
-                    if !waiter.will_wake(cx.waker()) {
-                        if replaces_existing_waiter {
-                            self.open_waiter = Some(cx.waker().clone());
-                            return Poll::Pending;
-                        }
+                if let Some(waiter) = &mut self.open_waiter {
+                    if Some(waiter.id) != *waiter_id {
                         return Poll::Ready(Err(io::Error::new(
                             io::ErrorKind::AlreadyExists,
                             "only one WebSocket OPEN waiter may be pending",
                         )));
                     }
+                    waiter.waker = cx.waker().clone();
                 } else {
-                    self.open_waiter = Some(cx.waker().clone());
+                    let id = self.new_waiter_id();
+                    *waiter_id = Some(id);
+                    self.open_waiter = Some(WaiterRegistration {
+                        id,
+                        waker: cx.waker().clone(),
+                    });
                 }
                 Poll::Pending
             }
-            WebSocketStatus::Open => Poll::Ready(Ok(())),
-            WebSocketStatus::Closed { code } => Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!("WebSocket closed with code {code} before OPEN"),
-            ))),
+            WebSocketStatus::Open => {
+                *waiter_id = None;
+                Poll::Ready(Ok(()))
+            }
+            WebSocketStatus::Closed { code } => {
+                *waiter_id = None;
+                Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!("WebSocket closed with code {code} before OPEN"),
+                )))
+            }
             WebSocketStatus::Failed { kind, message } => {
+                *waiter_id = None;
                 Poll::Ready(Err(io::Error::new(kind, message)))
             }
         }
+    }
+
+    fn new_waiter_id(&mut self) -> u64 {
+        let id = self.next_waiter_id;
+        self.next_waiter_id = self.next_waiter_id.checked_add(1).unwrap_or(1);
+        id
     }
 
     pub(crate) fn enqueue_message(&mut self, message: Vec<u8>) -> MessageEnqueue {
@@ -206,7 +227,7 @@ impl WebSocketState {
         }
 
         self.incoming.push_back(message);
-        MessageEnqueue::Accepted(self.waiter.take())
+        MessageEnqueue::Accepted(self.waiter.take().map(|registration| registration.waker))
     }
 
     pub(crate) fn close(&mut self, code: u16) -> Option<Waker> {
@@ -215,7 +236,7 @@ impl WebSocketState {
             WebSocketStatus::Connecting | WebSocketStatus::Open
         ) {
             self.status = WebSocketStatus::Closed { code };
-            self.waiter.take()
+            self.waiter.take().map(|registration| registration.waker)
         } else {
             None
         }
@@ -228,7 +249,7 @@ impl WebSocketState {
         ) {
             self.incoming.clear();
             self.status = WebSocketStatus::Failed { kind, message };
-            self.waiter.take()
+            self.waiter.take().map(|registration| registration.waker)
         } else {
             None
         }
@@ -255,47 +276,54 @@ impl WebSocketState {
     fn poll_receive(
         &mut self,
         cx: &Context<'_>,
-        replaces_existing_waiter: bool,
+        waiter_id: &mut Option<u64>,
     ) -> Poll<io::Result<Vec<u8>>> {
         if let Some(message) = self.incoming.pop_front() {
             self.waiter = None;
+            *waiter_id = None;
             return Poll::Ready(Ok(message));
         }
 
         match self.status {
             WebSocketStatus::Connecting | WebSocketStatus::Open => {
-                if let Some(waiter) = &self.waiter {
-                    if !waiter.will_wake(cx.waker()) {
-                        if replaces_existing_waiter {
-                            self.waiter = Some(cx.waker().clone());
-                            return Poll::Pending;
-                        }
+                if let Some(waiter) = &mut self.waiter {
+                    if Some(waiter.id) != *waiter_id {
                         return Poll::Ready(Err(io::Error::new(
                             io::ErrorKind::AlreadyExists,
                             "only one WebSocket receive may be pending",
                         )));
                     }
+                    waiter.waker = cx.waker().clone();
                 } else {
-                    self.waiter = Some(cx.waker().clone());
+                    let id = self.new_waiter_id();
+                    *waiter_id = Some(id);
+                    self.waiter = Some(WaiterRegistration {
+                        id,
+                        waker: cx.waker().clone(),
+                    });
                 }
                 Poll::Pending
             }
-            WebSocketStatus::Closed { code } => Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!("WebSocket closed with code {code}"),
-            ))),
+            WebSocketStatus::Closed { code } => {
+                *waiter_id = None;
+                Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!("WebSocket closed with code {code}"),
+                )))
+            }
             WebSocketStatus::Failed { kind, message } => {
+                *waiter_id = None;
                 Poll::Ready(Err(io::Error::new(kind, message)))
             }
         }
     }
 
-    fn clear_waiter(&mut self, candidate: Option<&Waker>) {
+    fn clear_waiter(&mut self, candidate: Option<u64>) {
         if let Some(candidate) = candidate {
             if self
                 .waiter
                 .as_ref()
-                .is_some_and(|waiter| waiter.will_wake(candidate))
+                .is_some_and(|waiter| waiter.id == candidate)
             {
                 self.waiter = None;
             }
@@ -303,12 +331,12 @@ impl WebSocketState {
     }
 
     #[cfg(any(target_arch = "wasm32", test))]
-    fn clear_open_waiter(&mut self, candidate: Option<&Waker>) {
+    fn clear_open_waiter(&mut self, candidate: Option<u64>) {
         if let Some(candidate) = candidate {
             if self
                 .open_waiter
                 .as_ref()
-                .is_some_and(|waiter| waiter.will_wake(candidate))
+                .is_some_and(|waiter| waiter.id == candidate)
             {
                 self.open_waiter = None;
             }
@@ -336,14 +364,14 @@ fn lock_state<'a>(
 #[must_use = "poll the future to observe the next WebSocket message"]
 pub struct WebSocketReceive {
     state: Arc<Mutex<WebSocketState>>,
-    registered_waker: Option<Waker>,
+    registered_id: Option<u64>,
 }
 
 impl WebSocketReceive {
     pub(crate) fn new(state: Arc<Mutex<WebSocketState>>) -> Self {
         Self {
             state,
-            registered_waker: None,
+            registered_id: None,
         }
     }
 }
@@ -357,25 +385,14 @@ impl Future for WebSocketReceive {
             Ok(state) => state,
             Err(error) => return Poll::Ready(Err(error)),
         };
-        let replaces_existing_waiter = this.registered_waker.as_ref().is_some_and(|registered| {
-            state
-                .waiter
-                .as_ref()
-                .is_some_and(|waiter| waiter.will_wake(registered))
-        });
-        let result = state.poll_receive(cx, replaces_existing_waiter);
-        match result {
-            Poll::Pending => this.registered_waker = Some(cx.waker().clone()),
-            Poll::Ready(_) => this.registered_waker = None,
-        }
-        result
+        state.poll_receive(cx, &mut this.registered_id)
     }
 }
 
 impl Drop for WebSocketReceive {
     fn drop(&mut self) {
         if let Ok(mut state) = self.state.lock() {
-            state.clear_waiter(self.registered_waker.as_ref());
+            state.clear_waiter(self.registered_id);
         }
     }
 }
@@ -385,14 +402,14 @@ impl Drop for WebSocketReceive {
 #[must_use = "poll the future to observe WebSocket OPEN"]
 pub struct WebSocketOpen {
     state: Arc<Mutex<WebSocketState>>,
-    registered_waker: Option<Waker>,
+    registered_id: Option<u64>,
 }
 
 impl WebSocketOpen {
     pub(crate) fn new(state: Arc<Mutex<WebSocketState>>) -> Self {
         Self {
             state,
-            registered_waker: None,
+            registered_id: None,
         }
     }
 }
@@ -407,18 +424,7 @@ impl Future for WebSocketOpen {
             Ok(state) => state,
             Err(error) => return Poll::Ready(Err(error)),
         };
-        let replaces_existing_waiter = this.registered_waker.as_ref().is_some_and(|registered| {
-            state
-                .open_waiter
-                .as_ref()
-                .is_some_and(|waiter| waiter.will_wake(registered))
-        });
-        let result = state.poll_open(cx, replaces_existing_waiter);
-        match result {
-            Poll::Pending => this.registered_waker = Some(cx.waker().clone()),
-            Poll::Ready(_) => this.registered_waker = None,
-        }
-        result
+        state.poll_open(cx, &mut this.registered_id)
     }
 }
 
@@ -426,7 +432,7 @@ impl Future for WebSocketOpen {
 impl Drop for WebSocketOpen {
     fn drop(&mut self) {
         if let Ok(mut state) = self.state.lock() {
-            state.clear_open_waiter(self.registered_waker.as_ref());
+            state.clear_open_waiter(self.registered_id);
         }
     }
 }

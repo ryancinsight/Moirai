@@ -10,6 +10,8 @@ struct MemoryStream {
     output: Vec<u8>,
     read_limit: usize,
     write_limit: usize,
+    read_error: Option<io::ErrorKind>,
+    write_error: Option<io::ErrorKind>,
 }
 
 impl MemoryStream {
@@ -19,6 +21,8 @@ impl MemoryStream {
             output: Vec::new(),
             read_limit: usize::MAX,
             write_limit: usize::MAX,
+            read_error: None,
+            write_error: None,
         }
     }
 }
@@ -30,6 +34,9 @@ impl AsyncRead for MemoryStream {
         output: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         if self.read_limit == 0 {
+            if let Some(kind) = self.read_error {
+                return Poll::Ready(Err(io::Error::from(kind)));
+            }
             return Poll::Pending;
         }
         let count = output
@@ -55,6 +62,9 @@ impl AsyncWrite for MemoryStream {
         input: &[u8],
     ) -> Poll<io::Result<usize>> {
         if self.write_limit == 0 {
+            if let Some(kind) = self.write_error {
+                return Poll::Ready(Err(io::Error::from(kind)));
+            }
             return Poll::Pending;
         }
         let count = input.len().min(2);
@@ -190,6 +200,28 @@ fn receive_timeout_terminalizes_a_partially_consumed_frame() {
 }
 
 #[test]
+fn receive_error_terminalizes_a_partially_consumed_frame() {
+    let mut input = MemoryStream::new(masked_frame(BINARY, b"broken", [1, 2, 3, 4]));
+    input.read_limit = 1;
+    input.read_error = Some(io::ErrorKind::ConnectionReset);
+    let mut stream = WebSocketStream::new(
+        input,
+        WebSocketConfig::new(
+            1024,
+            8,
+            1024,
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        ),
+        Vec::new(),
+    );
+    let error = moirai::block_on(stream.recv_message()).expect_err("partial frame error");
+    assert_eq!(error.kind(), io::ErrorKind::ConnectionReset);
+    let error = moirai::block_on(stream.recv_message()).expect_err("errored stream is closed");
+    assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+}
+
+#[test]
 fn send_timeout_terminalizes_a_partially_written_frame() {
     let mut input = MemoryStream::new(Vec::new());
     input.write_limit = 1;
@@ -208,6 +240,29 @@ fn send_timeout_terminalizes_a_partially_written_frame() {
     assert_eq!(error.kind(), io::ErrorKind::TimedOut);
     let error =
         moirai::block_on(stream.send_binary(b"retry")).expect_err("timed out stream is closed");
+    assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+}
+
+#[test]
+fn send_error_terminalizes_a_partially_written_frame() {
+    let mut input = MemoryStream::new(Vec::new());
+    input.write_limit = 1;
+    input.write_error = Some(io::ErrorKind::BrokenPipe);
+    let mut stream = WebSocketStream::new(
+        input,
+        WebSocketConfig::new(
+            1024,
+            8,
+            1024,
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        ),
+        Vec::new(),
+    );
+    let error = moirai::block_on(stream.send_binary(b"broken")).expect_err("partial send error");
+    assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+    let error =
+        moirai::block_on(stream.send_binary(b"retry")).expect_err("errored stream is closed");
     assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
 }
 

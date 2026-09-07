@@ -243,6 +243,83 @@ fn open_resolves_and_rejects_second_waiter() {
     ));
 }
 
+#[test]
+fn open_waiters_with_the_same_waker_remain_distinct() {
+    let state = Arc::new(Mutex::new(state()));
+    let mut first = WebSocketOpen::new(Arc::clone(&state));
+    let mut second = WebSocketOpen::new(Arc::clone(&state));
+    let (waker, _) = counting_waker();
+    let mut context = Context::from_waker(&waker);
+    assert!(matches!(
+        Pin::new(&mut first).poll(&mut context),
+        Poll::Pending
+    ));
+    let Poll::Ready(result) = Pin::new(&mut second).poll(&mut context) else {
+        panic!("second OPEN waiter must be rejected");
+    };
+    assert_eq!(
+        result.expect_err("same-waker waiter must fail").kind(),
+        io::ErrorKind::AlreadyExists
+    );
+
+    drop(second);
+    let waiter = state
+        .lock()
+        .expect("test state lock must remain healthy")
+        .take_open_waiter()
+        .expect("first OPEN waiter must remain registered");
+    waiter.wake();
+    assert!(state.lock().expect("test state lock").open());
+    assert!(matches!(
+        Pin::new(&mut first).poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
+}
+
+#[test]
+fn receive_waiters_with_the_same_waker_remain_distinct() {
+    let state = Arc::new(Mutex::new(state()));
+    let mut first = WebSocketReceive::new(Arc::clone(&state));
+    let mut second = WebSocketReceive::new(Arc::clone(&state));
+    let (waker, _) = counting_waker();
+    let mut context = Context::from_waker(&waker);
+    assert!(matches!(
+        Pin::new(&mut first).poll(&mut context),
+        Poll::Pending
+    ));
+    let Poll::Ready(result) = Pin::new(&mut second).poll(&mut context) else {
+        panic!("second receive waiter must be rejected");
+    };
+    assert_eq!(
+        result.expect_err("same-waker waiter must fail").kind(),
+        io::ErrorKind::AlreadyExists
+    );
+
+    assert!(state
+        .lock()
+        .expect("test state lock must remain healthy")
+        .waiter
+        .is_some());
+    drop(second);
+    assert!(state
+        .lock()
+        .expect("test state lock must remain healthy")
+        .waiter
+        .is_some());
+    let enqueue = state
+        .lock()
+        .expect("test state lock must remain healthy")
+        .enqueue_message(b"ok".to_vec());
+    let MessageEnqueue::Accepted(Some(waiter)) = enqueue else {
+        panic!("first receive waiter must be woken");
+    };
+    waiter.wake();
+    let Poll::Ready(Ok(message)) = Pin::new(&mut first).poll(&mut context) else {
+        panic!("first receive waiter must resolve");
+    };
+    assert_eq!(message, b"ok");
+}
+
 fn counting_waker() -> (Waker, Arc<AtomicUsize>) {
     let wake_count = Arc::new(AtomicUsize::new(0));
     (

@@ -89,17 +89,21 @@ pub(crate) async fn read_request_head<S: AsyncReadExt + Unpin>(
             ));
         }
 
+        let available = max_header_bytes
+            .checked_sub(bytes.len())
+            .ok_or_else(|| io::Error::other("HTTP request buffer exceeded its configured bound"))?;
         let mut chunk = [0u8; 1024];
-        let count = stream.read(&mut chunk).await?;
+        let read_len = chunk.len().min(available);
+        let target = chunk
+            .get_mut(..read_len)
+            .ok_or_else(|| io::Error::other("HTTP read slice exceeded its buffer"))?;
+        let count = stream.read(target).await?;
         if count == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "connection closed before HTTP request headers completed",
             ));
         }
-        let available = max_header_bytes
-            .checked_sub(bytes.len())
-            .ok_or_else(|| io::Error::other("HTTP request buffer exceeded its configured bound"))?;
         if count > available {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -295,5 +299,26 @@ mod tests {
                 io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof
             ));
         }
+    }
+
+    #[test]
+    fn parser_accepts_near_limit_head_with_pipelined_bytes() {
+        let prefix = b"GET / HTTP/1.1\r\nX-Pad: ";
+        let suffix = b"\r\n\r\n";
+        let target_head_length: usize = 1024;
+        let padding = target_head_length
+            .checked_sub(prefix.len() + suffix.len())
+            .expect("test head target exceeds fixed prefix");
+        let mut input = Vec::with_capacity(target_head_length + 4);
+        input.extend_from_slice(prefix);
+        input.extend(std::iter::repeat_n(b'x', padding));
+        input.extend_from_slice(suffix);
+        input.extend_from_slice(b"next");
+
+        let mut reader = Input::new(&input);
+        let (head, remainder) = moirai::block_on(read_request_head(&mut reader, 1024, 8))
+            .expect("near-limit head must parse");
+        assert_eq!(head.target(), "/");
+        assert!(remainder.is_empty());
     }
 }
