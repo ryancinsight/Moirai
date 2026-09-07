@@ -50,4 +50,4 @@
 | [0040](0040-first-party-memory-source-identity.md) | One First-Party Memory Source Identity During Provider Co-Evolution | Accepted |
 | [0043](0043-contained-process-lifecycle.md) | Contained process lifecycle | Accepted |
 | [0044](0044-standalone-cryptographic-primitives.md) | Standalone cryptographic primitives | Accepted |
-| [0045](0045-cancellable-browser-tasks.md) | Cancellable browser-local tasks | Proposed |
+| [0045](0045-cancellable-browser-tasks.md) | Cancellable browser-local tasks | Accepted |
