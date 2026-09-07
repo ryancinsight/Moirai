@@ -23,7 +23,7 @@ parallel = ["moirai/parallel"]
 mnemosyne-memory = ["moirai/mnemosyne-memory"]
 
 [dependencies]
-moirai = { package = "moirai-runtime", path = "../moirai", version = "0.5.0" }
+moirai = { package = "moirai-runtime", path = "../moirai", version = "0.6.0" }
 pyo3 = { workspace = true, features = ["extension-module"] }
 
 [lints]
