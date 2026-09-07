@@ -28,7 +28,7 @@ supply the same functionality with zero non-Rust build steps.
 ## Standalone protocol primitives
 
 The default `provider` feature supplies the TLS provider. Consumers that only
-need protocol authentication can disable it and use the same RustCrypto-backed
+need protocol primitives can disable it and use the same RustCrypto-backed
 SHA-256 and HMAC-SHA256 implementation without compiling the TLS dependency:
 
 ```toml
@@ -47,6 +47,11 @@ assert!(constant_time_eq_32(&tag, &tag));
 `Sha256` provides the matching streaming API for callers that receive data in
 chunks. The fixed-width comparison performs one XOR accumulation over all 32
 bytes; release timing remains a separate code-generation verification claim.
+
+`Sha1` and the padded `base64_encode`/`base64_decode` pair are compatibility
+primitives for protocols that require them. They are used by Moirai's RFC 6455
+WebSocket handshake only; SHA-1 is not an authentication or collision
+resistance primitive.
 
 ## Supported algorithms
 
@@ -92,7 +97,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-moirai-crypto = "0.5"
+moirai-crypto = "0.6"
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
 ```
 

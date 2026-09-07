@@ -8,7 +8,7 @@ use js_sys::{ArrayBuffer, Uint8Array};
 use wasm_bindgen::prelude::*;
 use web_sys::{console, BinaryType, CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
-use crate::websocket_state::{MessageEnqueue, WebSocketReceive, WebSocketState};
+use crate::websocket_state::{MessageEnqueue, WebSocketOpen, WebSocketReceive, WebSocketState};
 use crate::{Event, Interest, RawFd};
 
 pub(crate) const EVENT_QUEUE_CAPACITY: usize = 256;
@@ -45,8 +45,12 @@ impl WebSocketConnection {
         let open_events = Arc::clone(&pending_events);
         let open_interests = Arc::clone(&fd_interests);
         let onopen = Closure::wrap(Box::new(move |_event: JsValue| {
-            let opened = match open_state.lock() {
-                Ok(mut state) => state.open(),
+            let (opened, waiter) = match open_state.lock() {
+                Ok(mut state) => {
+                    let opened = state.open();
+                    let waiter = opened.then(|| state.take_open_waiter()).flatten();
+                    (opened, waiter)
+                }
                 Err(_) => {
                     fail_connection(
                         &open_state,
@@ -59,6 +63,9 @@ impl WebSocketConnection {
                     return;
                 }
             };
+            if let Some(waiter) = waiter {
+                waiter.wake();
+            }
             if opened {
                 let queued = enqueue_event(
                     &open_events,
@@ -104,10 +111,12 @@ impl WebSocketConnection {
                 }
             };
 
-            let enqueue = message_state
-                .lock()
-                .map(|mut state| state.enqueue_message(payload));
-            let enqueue = match enqueue {
+            let enqueue = message_state.lock().map(|mut state| {
+                let opened = state.open();
+                let open_waiter = opened.then(|| state.take_open_waiter()).flatten();
+                (open_waiter, state.enqueue_message(payload))
+            });
+            let (open_waiter, enqueue) = match enqueue {
                 Ok(enqueue) => enqueue,
                 Err(_) => {
                     fail_connection(
@@ -121,6 +130,9 @@ impl WebSocketConnection {
                     return;
                 }
             };
+            if let Some(open_waiter) = open_waiter {
+                open_waiter.wake();
+            }
 
             match enqueue {
                 MessageEnqueue::Accepted(waiter) => {
@@ -176,12 +188,17 @@ impl WebSocketConnection {
         let close_events = Arc::clone(&pending_events);
         let close_interests = Arc::clone(&fd_interests);
         let onclose = Closure::wrap(Box::new(move |event: CloseEvent| {
-            let waiter = close_state
-                .lock()
-                .ok()
-                .and_then(|mut state| state.close(event.code()));
+            let waiters = close_state.lock().ok().map(|mut state| {
+                let waiter = state.close(event.code());
+                let open_waiter = state.take_open_waiter();
+                (waiter, open_waiter)
+            });
+            let (waiter, open_waiter) = waiters.unwrap_or((None, None));
             if let Some(waiter) = waiter {
                 waiter.wake();
+            }
+            if let Some(open_waiter) = open_waiter {
+                open_waiter.wake();
             }
             let queued = enqueue_event(
                 &close_events,
@@ -238,6 +255,10 @@ impl WebSocketConnection {
     pub(crate) fn receive_async(&self) -> WebSocketReceive {
         WebSocketReceive::new(Arc::clone(&self.state))
     }
+
+    pub(crate) fn open_async(&self) -> WebSocketOpen {
+        WebSocketOpen::new(Arc::clone(&self.state))
+    }
 }
 
 impl Drop for WebSocketConnection {
@@ -248,11 +269,16 @@ impl Drop for WebSocketConnection {
         self.socket.set_onerror(None);
 
         if let Ok(mut state) = self.state.lock() {
-            if let Some(waiter) = state.fail(
+            let waiter = state.fail(
                 io::ErrorKind::Interrupted,
                 "WebSocket connection was cancelled",
-            ) {
+            );
+            let open_waiter = state.take_open_waiter();
+            if let Some(waiter) = waiter {
                 waiter.wake();
+            }
+            if let Some(open_waiter) = open_waiter {
+                open_waiter.wake();
             }
         }
 
@@ -309,12 +335,17 @@ fn fail_connection(
     kind: io::ErrorKind,
     message: &'static str,
 ) {
-    let waiter = state
-        .lock()
-        .ok()
-        .and_then(|mut state| state.fail(kind, message));
+    let waiters = state.lock().ok().map(|mut state| {
+        let waiter = state.fail(kind, message);
+        let open_waiter = state.take_open_waiter();
+        (waiter, open_waiter)
+    });
+    let (waiter, open_waiter) = waiters.unwrap_or((None, None));
     if let Some(waiter) = waiter {
         waiter.wake();
+    }
+    if let Some(open_waiter) = open_waiter {
+        open_waiter.wake();
     }
     let queued = enqueue_event(
         pending_events,

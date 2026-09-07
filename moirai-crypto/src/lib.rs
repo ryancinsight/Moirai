@@ -42,7 +42,9 @@ mod sign;
 #[cfg(feature = "provider")]
 mod verify;
 
-pub use primitives::{constant_time_eq_32, hmac_sha256, sha256, Sha256};
+pub use primitives::{
+    base64_decode, base64_encode, constant_time_eq_32, hmac_sha256, sha1, sha256, Sha1, Sha256,
+};
 
 #[cfg(feature = "provider")]
 use std::sync::Arc;

@@ -190,6 +190,59 @@ fn pending_receive_accepts_a_replacement_executor_waker() {
     assert_eq!(second_wake_count.load(Ordering::Relaxed), 1);
 }
 
+#[test]
+fn dropped_open_unregisters_waiter() {
+    let state = Arc::new(Mutex::new(state()));
+    let mut open = WebSocketOpen::new(Arc::clone(&state));
+    let (waker, _) = counting_waker();
+    let mut context = Context::from_waker(&waker);
+    assert!(matches!(
+        Pin::new(&mut open).poll(&mut context),
+        Poll::Pending
+    ));
+    drop(open);
+
+    let mut replacement = WebSocketOpen::new(Arc::clone(&state));
+    assert!(matches!(
+        Pin::new(&mut replacement).poll(&mut context),
+        Poll::Pending
+    ));
+}
+
+#[test]
+fn open_resolves_and_rejects_second_waiter() {
+    let state = Arc::new(Mutex::new(state()));
+    let mut first = WebSocketOpen::new(Arc::clone(&state));
+    let mut second = WebSocketOpen::new(Arc::clone(&state));
+    let (first_waker, _) = counting_waker();
+    let (second_waker, _) = counting_waker();
+    let mut first_context = Context::from_waker(&first_waker);
+    let mut second_context = Context::from_waker(&second_waker);
+    assert!(matches!(
+        Pin::new(&mut first).poll(&mut first_context),
+        Poll::Pending
+    ));
+    let Poll::Ready(result) = Pin::new(&mut second).poll(&mut second_context) else {
+        panic!("second OPEN waiter must be rejected");
+    };
+    assert_eq!(
+        result.expect_err("second OPEN waiter must fail").kind(),
+        io::ErrorKind::AlreadyExists
+    );
+
+    let waiter = state
+        .lock()
+        .expect("test state lock must remain healthy")
+        .take_open_waiter()
+        .expect("first OPEN waiter must be registered");
+    waiter.wake();
+    assert!(state.lock().expect("test state lock").open());
+    assert!(matches!(
+        Pin::new(&mut first).poll(&mut first_context),
+        Poll::Ready(Ok(()))
+    ));
+}
+
 fn counting_waker() -> (Waker, Arc<AtomicUsize>) {
     let wake_count = Arc::new(AtomicUsize::new(0));
     (

@@ -1,9 +1,9 @@
 //! ADR-015 P2 verification against local HTTP/1.1 servers: framing, keep-alive,
 //! bounded redirects, method/body policy, and destination-aware fields.
 
-use moirai_async::io::AsyncWriteExt;
+use moirai_async::io::{AsyncReadExt, AsyncWriteExt};
 use moirai_async::net::{TcpListener, TcpStream};
-use moirai_http::HttpClient;
+use moirai_http::{accept_websocket, HttpClient, WebSocketConfig};
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener as StdTcpListener, TcpStream as StdTcpStream};
 
@@ -115,6 +115,128 @@ fn http_framing_header_passthrough_and_keepalive() {
         assert!(r.body.is_empty(), "HEAD must not read a body");
         assert_eq!(r.header("content-length"), Some("11"));
     });
+}
+
+async fn read_http_response_head(stream: &mut TcpStream) -> std::io::Result<Vec<u8>> {
+    const MAX_RESPONSE_HEAD_BYTES: usize = 16 * 1024;
+    let mut bytes = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 1024];
+    loop {
+        if let Some(end) = bytes
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .and_then(|position| position.checked_add(4))
+        {
+            return bytes
+                .get(..end)
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| std::io::Error::other("HTTP response delimiter bounds overflowed"));
+        }
+        if bytes.len() >= MAX_RESPONSE_HEAD_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "HTTP response head exceeds its configured bound",
+            ));
+        }
+        let count = stream.read(&mut chunk).await?;
+        if count == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "HTTP response ended before its head completed",
+            ));
+        }
+        let available = MAX_RESPONSE_HEAD_BYTES
+            .checked_sub(bytes.len())
+            .ok_or_else(|| std::io::Error::other("HTTP response bound arithmetic overflowed"))?;
+        let received = chunk
+            .get(..count)
+            .ok_or_else(|| std::io::Error::other("TCP read count exceeded its buffer"))?;
+        if count > available {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "HTTP response head exceeds its configured bound",
+            ));
+        }
+        bytes.extend_from_slice(received);
+    }
+}
+
+fn masked_binary_frame(payload: &[u8], mask: [u8; 4]) -> Vec<u8> {
+    let length = u8::try_from(payload.len()).expect("loopback payload fits one-byte frame length");
+    let mut frame = vec![0x82, 0x80 | length];
+    frame.extend_from_slice(&mask);
+    frame.extend(
+        payload
+            .iter()
+            .zip(mask.iter().cycle())
+            .map(|(byte, mask_byte)| byte ^ mask_byte),
+    );
+    frame
+}
+
+#[test]
+fn websocket_loopback_round_trip_releases_tracked_connection() {
+    let runtime = moirai::global();
+    let listener = runtime
+        .block_on(TcpListener::bind("127.0.0.1:0"))
+        .expect("WebSocket listener must bind");
+    let address = listener.local_addr().expect("WebSocket listener address");
+    let server = runtime.spawn_async(async move {
+        let (stream, _peer) = listener.accept().await?;
+        let stats = {
+            let (mut socket, upgrade) =
+                accept_websocket(stream, WebSocketConfig::default()).await?;
+            if upgrade.origin() != Some("http://127.0.0.1") {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "loopback origin did not survive the upgrade",
+                ));
+            }
+            let message = socket.recv_message().await?;
+            socket.send_binary(&message).await?;
+            drop(socket);
+            listener.stats()
+        };
+        Ok::<_, std::io::Error>(stats)
+    });
+
+    let mut client = runtime
+        .block_on(TcpStream::connect(&address.to_string()))
+        .expect("WebSocket client must connect");
+    runtime.block_on(async {
+        client
+            .write_all(
+                b"GET /metis HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: http://127.0.0.1\r\n\r\n",
+            )
+            .await?;
+        client.flush().await?;
+        let response = read_http_response_head(&mut client).await?;
+        assert!(response.starts_with(b"HTTP/1.1 101 Switching Protocols\r\n"));
+
+        let frame = masked_binary_frame(b"metis", [1, 2, 3, 4]);
+        client.write_all(&frame).await?;
+        client.flush().await?;
+
+        let mut header = [0u8; 2];
+        client.read_exact(&mut header).await?;
+        assert_eq!(header, [0x82, 5]);
+        let mut payload = [0u8; 5];
+        client.read_exact(&mut payload).await?;
+        assert_eq!(&payload, b"metis");
+        Ok::<_, std::io::Error>(())
+    })
+    .expect("WebSocket loopback exchange must succeed");
+    drop(client);
+
+    let stats = server
+        .join()
+        .expect("server task must return a result")
+        .expect("server task must not be cancelled")
+        .expect("WebSocket server exchange must succeed");
+    assert_eq!(stats.total_connections, 1);
+    assert_eq!(stats.active_connections, 0);
+    assert!(stats.bytes_received > 0);
+    assert!(stats.bytes_sent > 0);
 }
 
 #[derive(Debug)]

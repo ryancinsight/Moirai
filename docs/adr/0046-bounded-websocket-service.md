@@ -85,8 +85,10 @@ authentication, or inbound WASM networking.
 
 Provider tests cover RFC handshake vectors, partial reads/writes, malformed
 headers, masking, length boundaries, control frames, ping/pong, close,
-deadline and cancellation behavior, and loopback connection accounting. The
-Metis consumer adds an asynchronous server/session adapter with replay and
-authority tests. Native tests, WASM compilation and warning-denied Clippy run
-against the pinned Moirai tree; the manual records a real loopback browser
-trace only after the complete service path is connected.
+deadline and owned-stream cancellation. The Metis consumer must add an
+asynchronous server/session adapter with replay, authority and loopback
+connection-accounting tests. Native tests and warning-denied Clippy pass on the
+pinned provider; `moirai-pal` compiles and lints for `wasm32-unknown-unknown`.
+The `moirai-http` WASM check remains blocked by its existing native client
+dependency graph (`getrandom`/`socket2`), and the manual records a real
+loopback browser trace only after the complete service path is connected.
