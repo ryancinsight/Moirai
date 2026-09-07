@@ -6,9 +6,10 @@ Status: Accepted
 **Revision**: 2026-09-07
 
 Revision note: the browser host seam now includes owned DOM elements, form
-control values, checked control state and event listeners. Metis consumes these
-handles without importing `web-sys`; the listener guard removes the callback
-before releasing its JavaScript closure.
+control values, checked and disabled control state, modal dialog lifecycle,
+focus and event listeners. Metis consumes these handles without importing
+`web-sys`; the listener guard removes the callback before releasing its
+JavaScript closure.
 
 ## Context
 
@@ -74,10 +75,10 @@ single-waiter rejection, producer wakeup, and executor-waker replacement.
 `moirai-pal` compiles for `wasm32-unknown-unknown` and passes warning-denied
 Clippy for both WASM and the native library against merged Mnemosyne backend
 `2eb49c1`. The historical bounded WebSocket slice recorded 39/39 native PAL
-tests; the current configured Nextest run passes 47/47, including the checked
-DOM-state coverage. The DOM surface is compile-checked on WASM; a real browser
-trace is still required before Metis claims browser target support. Checked-state
-reads are exercised by Metis's browser controls workflow.
+tests; the current configured Nextest run passes 47/47, including checked and
+disabled DOM-state coverage. The DOM surface is compile-checked on WASM and
+Metis's browser traces exercise checked controls, disabled lifecycle, modal
+dialog open/close and focus restoration.
 
 ## Residuals
 

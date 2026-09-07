@@ -143,10 +143,14 @@
   typed invalid-input errors otherwise; focus and open-state reads are
   input-sensitive; WASM check, native PAL tests and warning-denied Clippy pass;
   Metis opens, closes and focus-restores a dialog through the seam.
-- Class: [minor]; status: in-progress; priority: P1; integrator: root;
+- Class: [minor]; status: done; priority: P1; integrator: root;
   branch: `feat/wasm-dialog-control`; last-update: 2026-09-07; driver:
   [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 - Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+- Evidence: PR [#275](https://github.com/ryancinsight/Moirai/pull/275) merged at
+  `8f02b8b`; `moirai-pal` passes 47/47 native tests, native and WASM
+  warning-denied Clippy and the WASM check. Metis's live browser trace opens,
+  closes and Escape-dismisses the dialog while restoring opener focus.
 
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
