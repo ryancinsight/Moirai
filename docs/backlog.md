@@ -1,4 +1,19 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-WASM-TASK-2026-09-07"></a>
+## MOI-WASM-TASK-2026-09-07 — Cancel browser-local tasks [arch] [minor]
+
+- Outcome: a browser task handle cancels a pending Rust future and wakes its
+  wrapper so owned WebSocket, timer and DOM callbacks are dropped promptly.
+- Scope: `moirai-pal` browser-local scheduling only; worker pools, fetch and
+  general browser networking remain separate work.
+- Acceptance: cancellation before and after first poll, handle-drop
+  cancellation, pending-waker wakeup, and completed-task behavior are
+  value-tested; WASM compile, native tests and warning-denied Clippy pass.
+- Class: [arch] [minor]; status: in-progress; integrator: root; branch:
+  `feat/wasm-task-cancellation`; last-update: 2026-09-07; driver:
+  [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
+- Decision: [ADR 0045](adr/0045-cancellable-browser-tasks.md).
+
 <a id="MOI-CRYPTO-2026-09-07"></a>
 ## MOI-CRYPTO-2026-09-07 — Publish standalone authentication primitives [arch] [minor]
 
