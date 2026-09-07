@@ -72,10 +72,11 @@ close, oversize and queue-overflow terminal errors, waiter cancellation,
 single-waiter rejection, producer wakeup, and executor-waker replacement.
 `moirai-pal` compiles for `wasm32-unknown-unknown` and passes warning-denied
 Clippy for both WASM and the native library against merged Mnemosyne backend
-`2eb49c1`. The configured Nextest run passes 39/39 native PAL tests. The DOM
-surface is compile-checked on WASM; a real browser trace is still required
-before Metis claims browser target support. Checked-state reads are exercised
-by Metis's browser controls workflow.
+`2eb49c1`. The historical bounded WebSocket slice recorded 39/39 native PAL
+tests; the current configured Nextest run passes 47/47, including the checked
+DOM-state coverage. The DOM surface is compile-checked on WASM; a real browser
+trace is still required before Metis claims browser target support. Checked-state
+reads are exercised by Metis's browser controls workflow.
 
 ## Residuals
 
