@@ -164,10 +164,14 @@
   release dispatch to HTML elements and return typed invalid-input errors
   otherwise; WASM check, native PAL tests and warning-denied Clippy pass; Metis
   exercises a real capture/release sequence.
-- Class: [minor]; status: in-progress; priority: P1; integrator: root;
+- Class: [minor]; status: done; priority: P1; integrator: root;
   branch: `feat/wasm-pointer-capture`; last-update: 2026-09-07; driver:
   [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 - Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+- Evidence: PR [#276](https://github.com/ryancinsight/Moirai/pull/276) merged at
+  `5a5e4b1`; `moirai-pal` passes 47/47 native nextest tests, native and WASM
+  warning-denied Clippy and the WASM check. Metis `43dd7c7` exercises pointer
+  ID `1`, provider-backed capture verification and release in its browser trace.
 
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions

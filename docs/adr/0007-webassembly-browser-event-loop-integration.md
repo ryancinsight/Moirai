@@ -81,8 +81,8 @@ Clippy for both WASM and the native library against merged Mnemosyne backend
 tests; the current configured Nextest run passes 47/47, including checked and
 disabled DOM-state coverage. The DOM surface is compile-checked on WASM and
 Metis's browser traces exercise checked controls, disabled lifecycle, modal
-dialog open/close and focus restoration. Pointer capture is exercised by the
-Metis pointer-surface trace after the consumer updates to this provider seam.
+dialog open/close and focus restoration. Metis `43dd7c7` exercises pointer ID
+`1`, provider-backed capture verification and release on the pointer surface.
 
 ## Residuals
 
