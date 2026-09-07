@@ -45,12 +45,14 @@ Full documentation: <https://docs.rs/moirai-http>
 
 ## WebSocket service
 
-The service side accepts one bounded HTTP/1.1 upgrade and exposes complete
-binary messages over the existing Moirai async stream. It rejects unmasked,
-fragmented, reserved and text frames, handles ping/pong and close, and wraps
-header, message and frame operations in finite deadlines. The optional browser
-`Origin` header is returned to the consumer; authorization remains the
-consumer's responsibility.
+The service side accepts one bounded HTTP/1.1 upgrade (including the required
+`Host` header) and exposes complete binary messages over the existing Moirai
+async stream. It rejects unmasked, fragmented, reserved, text and
+non-minimally encoded frames, handles ping/pong and close, and wraps header,
+message and frame operations in finite deadlines. A frame timeout or partial
+I/O error terminalizes the stream so callers cannot retry from an ambiguous
+wire position. The optional browser `Origin` header is returned to the
+consumer; authorization remains the consumer's responsibility.
 
 ```rust,no_run
 use moirai_http::{accept_websocket, WebSocketConfig};

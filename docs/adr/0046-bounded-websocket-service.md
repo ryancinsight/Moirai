@@ -34,20 +34,23 @@ The stream is generic over any Moirai `AsyncRead + AsyncWrite` connection, so a
 future `moirai_tls::TlsAcceptor` can be added without changing the Metis seam.
 
 The HTTP parser admits only `GET`/`HTTP/1.1` upgrade requests, caps the request
-head and header count, rejects request bodies and ambiguous framing, and
-requires exactly one valid `Upgrade: websocket`, `Connection: Upgrade`,
-`Sec-WebSocket-Version: 13` and `Sec-WebSocket-Key`. The optional `Origin`
-value is retained for the consumer's policy check; the protocol layer does not
-invent window or session identity. A valid request receives the exact
-`101 Switching Protocols` response and no body.
+head and header count, rejects request bodies and ambiguous framing, requires a
+non-empty `Host`, and requires exactly one valid `Upgrade: websocket`,
+`Connection: Upgrade`, `Sec-WebSocket-Version: 13` and `Sec-WebSocket-Key`.
+The optional `Origin` value is retained for the consumer's policy check; the
+protocol layer does not invent window or session identity. A valid request
+receives the exact `101 Switching Protocols` response and no body.
 
 The WebSocket codec accepts masked client binary frames, rejects unmasked,
-fragmented, reserved-bit and invalid control frames, bounds every advertised
-length before allocation, answers ping with pong, and treats close as a
-terminal state. Text and continuation data are rejected because the Metis
-consumer's contract is binary message transport. Every read, write and
-handshake is wrapped by a caller-supplied finite deadline. The codec never
-spawns a task or retains a queue; cancellation drops the stream and its socket.
+fragmented, reserved-bit and invalid control frames, rejects non-minimal
+126/127 length encodings, and bounds every advertised length before
+allocation. It answers ping with pong and treats close as a terminal state.
+Text and continuation data are rejected because the Metis consumer's contract
+is binary message transport. Every read, write and handshake is wrapped by a
+caller-supplied finite deadline. A frame timeout or partial I/O error also
+terminalizes the stream so a caller cannot resume at an ambiguous byte
+position. The codec never spawns a task or retains a queue; cancellation drops
+the stream and its socket.
 
 The RFC 6455 accept value uses SHA-1 followed by Base64 solely for protocol
 interoperability. It is explicitly not an authentication primitive. The

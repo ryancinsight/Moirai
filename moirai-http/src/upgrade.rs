@@ -154,6 +154,9 @@ fn validate_upgrade(request: &HttpRequestHead) -> io::Result<&str> {
     if request.version() != "HTTP/1.1" {
         return Err(invalid_upgrade("WebSocket upgrade requires HTTP/1.1"));
     }
+    if request.header("host").is_none_or(str::is_empty) {
+        return Err(invalid_upgrade("WebSocket upgrade requires Host"));
+    }
     if request
         .header("upgrade")
         .is_none_or(|value| !value.eq_ignore_ascii_case("websocket"))
@@ -368,6 +371,28 @@ mod tests {
             };
             assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         }
+    }
+
+    #[test]
+    fn upgrade_requires_http_host() {
+        let mut input = request("");
+        let host = b"Host: localhost\r\n";
+        let start = input
+            .windows(host.len())
+            .position(|window| window == host)
+            .expect("test request contains Host");
+        let end = start
+            .checked_add(host.len())
+            .expect("test Host range fits request");
+        input.drain(start..end);
+        let error = match moirai::block_on(accept_websocket(
+            MemoryStream::new(&input),
+            WebSocketConfig::default(),
+        )) {
+            Ok(_) => panic!("missing Host must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]
