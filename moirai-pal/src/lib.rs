@@ -39,6 +39,9 @@ pub mod windows;
 pub mod wasm;
 
 #[cfg(any(target_arch = "wasm32", test))]
+mod local_task;
+
+#[cfg(any(target_arch = "wasm32", test))]
 #[path = "websocket_state.rs"]
 mod websocket_state;
 

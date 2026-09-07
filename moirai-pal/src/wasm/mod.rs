@@ -23,6 +23,7 @@ use crate::{Event, Interest, RawFd, Reactor};
 
 pub use self::dom::{WebDocument, WebElement, WebEvent, WebEventListener};
 pub use self::timer::WebTimer;
+pub use crate::local_task::LocalTaskHandle;
 pub use crate::websocket_state::{WebSocketLimits, WebSocketReceive};
 
 use self::websocket::WebSocketConnection;
@@ -38,6 +39,21 @@ where
     F: std::future::Future<Output = ()> + 'static,
 {
     wasm_bindgen_futures::spawn_local(future);
+}
+
+/// Schedules a browser task and returns its cancellation handle.
+///
+/// Cancelling or dropping the handle wakes the task and drops its child
+/// future. This releases owned WebSocket receives, timers and other PAL
+/// resources without waiting for another browser event.
+#[must_use = "retain the handle to cancel the browser task"]
+pub fn spawn_local_with_handle<F>(future: F) -> LocalTaskHandle
+where
+    F: std::future::Future<Output = ()> + 'static,
+{
+    let (handle, future) = crate::local_task::cancellable(future);
+    wasm_bindgen_futures::spawn_local(future);
+    handle
 }
 
 /// WebAssembly-based I/O reactor using Web APIs.

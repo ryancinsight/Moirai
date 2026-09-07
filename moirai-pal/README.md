@@ -21,7 +21,9 @@ The WASM module owns the browser boundary used by Atlas applications. `WebDocume
 and `WebElement` provide bounded DOM updates and input values, while
 `WebEventListener` removes its callback registration when dropped. `spawn_local`
 uses the browser event loop for futures; applications do not create a second
-executor or retain detached JavaScript closures.
+executor or retain detached JavaScript closures. `spawn_local_with_handle` adds
+a single-owner `LocalTaskHandle`; cancelling or dropping it wakes the task and
+drops its child future, releasing a pending PAL receive or timer.
 
 ```toml
 [dependencies]
