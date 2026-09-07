@@ -129,6 +129,20 @@ mod tests {
         }
     }
 
+    struct CountingFuture {
+        polls: Rc<Cell<usize>>,
+    }
+
+    impl Future for CountingFuture {
+        type Output = ();
+
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = self.get_mut();
+            this.polls.set(this.polls.get() + 1);
+            Poll::Ready(())
+        }
+    }
+
     #[derive(Default)]
     struct WakeCounter(AtomicUsize);
 
@@ -195,12 +209,18 @@ mod tests {
 
     #[test]
     fn completed_task_can_be_cancelled_without_repolling() {
-        let (handle, mut future) = cancellable(std::future::ready(()));
+        let polls = Rc::new(Cell::new(0));
+        let (handle, mut future) = cancellable(CountingFuture {
+            polls: Rc::clone(&polls),
+        });
         let waker = Waker::noop();
         let mut context = Context::from_waker(waker);
         assert!(Pin::new(&mut future).poll(&mut context).is_ready());
+        assert_eq!(polls.get(), 1);
         assert!(!handle.is_cancelled());
         handle.cancel();
         assert!(handle.is_cancelled());
+        assert!(Pin::new(&mut future).poll(&mut context).is_ready());
+        assert_eq!(polls.get(), 1);
     }
 }

@@ -8,7 +8,7 @@ Revision: 2026-09-07 — native PAL tests and the WASM library check pass; the
 Metis consumer adds an explicit stop export and request-table cancellation.
 
 Driver: [MOI-WASM-TASK-2026-09-07](../backlog.md#MOI-WASM-TASK-2026-09-07),
-[Metis async](../../metis/backlog.md#METIS-ASYNC-001).
+[Metis async](../../../metis/backlog.md#METIS-ASYNC-001).
 
 ## Context
 
@@ -32,8 +32,9 @@ handle is single-owner so cancellation has one clear lifetime authority.
 The cancellation state uses `Rc` and browser-thread wakers because WASM PAL
 tasks are thread-affine. The wrapper remains generic and statically dispatched;
 there is no second executor, unbounded registry, or vtable on the task path.
-`spawn_local` reuses the same wrapper and intentionally detaches its handle to
-preserve fire-and-forget semantics.
+The existing `spawn_local` entry point remains direct fire-and-forget execution;
+only `spawn_local_with_handle` wraps a task in the cancellable future and returns
+its handle.
 
 ## Alternatives
 
@@ -47,7 +48,8 @@ and introduce a second scheduler.
 
 The cancellation state has native value tests for pre-poll cancellation,
 pending-task wakeup and child-drop, handle-drop cancellation, and completed
-task behavior. `moirai-pal` is checked for `wasm32-unknown-unknown`, and
+task behavior including a no-repoll assertion. `moirai-pal` is checked for
+`wasm32-unknown-unknown`, and
 warning-denied native/WASM Clippy plus the focused native test suite run against
 the exact provider revision. Metis will consume the handle in its browser host
 and add a teardown export; a real browser trace remains required for
