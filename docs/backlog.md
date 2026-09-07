@@ -132,6 +132,22 @@
   warning-denied Clippy. Metis's live browser trace observes disabled before
   bridge readiness, during a delayed request, and after disconnected activation.
 
+<a id="MOI-WASM-DOM-DIALOG-2026-09-07"></a>
+## MOI-WASM-DOM-DIALOG-2026-09-07 — Expose browser dialog lifecycle [minor]
+
+- Outcome: the Moirai-owned WASM DOM seam opens and closes native HTML dialogs
+  and restores focus without exposing `web-sys` to consumers.
+- Scope: `moirai-pal` dialog/focus operations; dialog markup, lifecycle policy,
+  rendering and browser demonstrations remain Metis-owned.
+- Acceptance: dialog operations dispatch only to supported elements and return
+  typed invalid-input errors otherwise; focus and open-state reads are
+  input-sensitive; WASM check, native PAL tests and warning-denied Clippy pass;
+  Metis opens, closes and focus-restores a dialog through the seam.
+- Class: [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/wasm-dialog-control`; last-update: 2026-09-07; driver:
+  [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
 
