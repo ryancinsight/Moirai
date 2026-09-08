@@ -10,7 +10,7 @@ use std::io;
 use std::time::Duration;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    PostMessageW, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_IME_ENDCOMPOSITION,
+    PostMessageW, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
     WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
     WM_SIZE, WM_XBUTTONDOWN,
 };
@@ -126,6 +126,7 @@ fn native_window_lifecycle_and_frame_round_trip() {
         PostMessageW(window.hwnd, WM_CHAR, WPARAM(0xd83d), LPARAM(0)).expect("high surrogate");
         PostMessageW(window.hwnd, WM_CHAR, WPARAM(0xde00), LPARAM(0)).expect("low surrogate");
         let _ = SendMessageW(window.hwnd, WM_IME_STARTCOMPOSITION, WPARAM(0), LPARAM(0));
+        let _ = SendMessageW(window.hwnd, WM_IME_COMPOSITION, WPARAM(0), LPARAM(0));
         let _ = SendMessageW(window.hwnd, WM_IME_ENDCOMPOSITION, WPARAM(0), LPARAM(0));
         PostMessageW(
             window.hwnd,
@@ -169,6 +170,19 @@ fn native_window_lifecycle_and_frame_round_trip() {
         phase: CompositionPhase::Canceled,
         text: String::new(),
     }));
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(
+                event,
+                WindowEvent::TextComposition {
+                    phase: CompositionPhase::Canceled,
+                    text,
+                } if text.is_empty()
+            ))
+            .count(),
+        1
+    );
     assert!(events.contains(&WindowEvent::DpiChanged { dpi: 144 }));
     window.close().expect("destroy");
     assert!(window.is_destroyed());
