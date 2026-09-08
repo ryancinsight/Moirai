@@ -170,16 +170,15 @@ impl VideoMemoryPool {
             .unwrap_or(size);
 
         // Try to get buffer from pool
-        if let Ok(mut pools) = self.pools.write() {
-            if let Some(pool) = pools.get_mut(&pool_size) {
-                if let Some(mut buffer) = pool.pop_front() {
-                    // Resize buffer if needed
-                    buffer.resize(size, 0);
-                    buffer.fill(0); // Clear buffer
-                    self.total_reused.fetch_add(1, Ordering::Relaxed);
-                    return buffer;
-                }
-            }
+        if let Ok(mut pools) = self.pools.write()
+            && let Some(pool) = pools.get_mut(&pool_size)
+            && let Some(mut buffer) = pool.pop_front()
+        {
+            // Resize buffer if needed
+            buffer.resize(size, 0);
+            buffer.fill(0); // Clear buffer
+            self.total_reused.fetch_add(1, Ordering::Relaxed);
+            return buffer;
         }
 
         // Allocate new buffer
@@ -907,10 +906,10 @@ impl VideoProcessingPipeline {
 
                     if success {
                         // Move to effects queue
-                        if let Ok(mut queue) = effects_queue.lock() {
-                            if queue.len() < max_queue_size {
-                                queue.push_back(frame);
-                            }
+                        if let Ok(mut queue) = effects_queue.lock()
+                            && queue.len() < max_queue_size
+                        {
+                            queue.push_back(frame);
                         }
                     }
 
@@ -991,10 +990,10 @@ impl VideoProcessingPipeline {
 
                     if success {
                         // Move to output queue (for final delivery/streaming)
-                        if let Ok(mut queue) = output_queue.lock() {
-                            if queue.len() < max_queue_size {
-                                queue.push_back(frame);
-                            }
+                        if let Ok(mut queue) = output_queue.lock()
+                            && queue.len() < max_queue_size
+                        {
+                            queue.push_back(frame);
                         }
                     }
 

@@ -347,7 +347,7 @@ impl ChatRoom {
                 .as_secs();
             typing
                 .iter()
-                .filter(|(_, &timestamp)| now - timestamp < 10) // 10 second timeout
+                .filter(|&(_, &timestamp)| now - timestamp < 10) // 10 second timeout
                 .map(|(&user_id, _)| user_id)
                 .collect()
         } else {
@@ -423,39 +423,35 @@ impl MessageQueue {
 
     fn dequeue(&self) -> Option<Message> {
         // Check high priority first
-        if let Ok(mut queue) = self.high_priority.lock() {
-            if let Some(message) = queue.pop_front() {
-                if !message.is_expired() {
-                    return Some(message);
-                }
-            }
+        if let Ok(mut queue) = self.high_priority.lock()
+            && let Some(message) = queue.pop_front()
+            && !message.is_expired()
+        {
+            return Some(message);
         }
 
         // Check retry queue
-        if let Ok(mut queue) = self.retry_queue.lock() {
-            if let Some(message) = queue.pop_front() {
-                if !message.is_expired() {
-                    return Some(message);
-                }
-            }
+        if let Ok(mut queue) = self.retry_queue.lock()
+            && let Some(message) = queue.pop_front()
+            && !message.is_expired()
+        {
+            return Some(message);
         }
 
         // Check normal priority
-        if let Ok(mut queue) = self.normal_priority.lock() {
-            if let Some(message) = queue.pop_front() {
-                if !message.is_expired() {
-                    return Some(message);
-                }
-            }
+        if let Ok(mut queue) = self.normal_priority.lock()
+            && let Some(message) = queue.pop_front()
+            && !message.is_expired()
+        {
+            return Some(message);
         }
 
         // Check low priority
-        if let Ok(mut queue) = self.low_priority.lock() {
-            if let Some(message) = queue.pop_front() {
-                if !message.is_expired() {
-                    return Some(message);
-                }
-            }
+        if let Ok(mut queue) = self.low_priority.lock()
+            && let Some(message) = queue.pop_front()
+            && !message.is_expired()
+        {
+            return Some(message);
         }
 
         None
@@ -532,14 +528,14 @@ impl PresenceTracker {
     }
 
     fn is_user_online(&self, user_id: u64) -> bool {
-        if let Ok(activities) = self.user_activities.read() {
-            if let Some(&last_activity) = activities.get(&user_id) {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-                return now - last_activity <= self.offline_threshold_seconds;
-            }
+        if let Ok(activities) = self.user_activities.read()
+            && let Some(&last_activity) = activities.get(&user_id)
+        {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            return now - last_activity <= self.offline_threshold_seconds;
         }
         false
     }
@@ -552,7 +548,9 @@ impl PresenceTracker {
                 .as_secs();
             activities
                 .iter()
-                .filter(|(_, &last_activity)| now - last_activity <= self.offline_threshold_seconds)
+                .filter(|&(_, &last_activity)| {
+                    now - last_activity <= self.offline_threshold_seconds
+                })
                 .map(|(&user_id, _)| user_id)
                 .collect()
         } else {
@@ -725,14 +723,13 @@ impl ChatServer {
         for user_id in room_users {
             if user_id != message.sender_id {
                 // Don't echo back to sender
-                if let Ok(users_guard) = users.read() {
-                    if let Some(user) = users_guard.get(&user_id) {
-                        if user.is_active() {
-                            // Simulate WebSocket delivery
-                            Self::simulate_websocket_delivery(user_id, message);
-                            delivery_count += 1;
-                        }
-                    }
+                if let Ok(users_guard) = users.read()
+                    && let Some(user) = users_guard.get(&user_id)
+                    && user.is_active()
+                {
+                    // Simulate WebSocket delivery
+                    Self::simulate_websocket_delivery(user_id, message);
+                    delivery_count += 1;
                 }
             }
         }
@@ -768,10 +765,10 @@ impl ChatServer {
             move || {
                 while is_running.load(Ordering::Relaxed) {
                     // Clean up offline users
-                    if let Ok(cleaned) = presence_tracker.cleanup_offline_users() {
-                        if cleaned > 0 {
-                            println!("Heartbeat service: Cleaned up {} offline users", cleaned);
-                        }
+                    if let Ok(cleaned) = presence_tracker.cleanup_offline_users()
+                        && cleaned > 0
+                    {
+                        println!("Heartbeat service: Cleaned up {} offline users", cleaned);
                     }
 
                     // Update user statuses
@@ -970,10 +967,10 @@ impl ChatServer {
                 .update_user_activity(message.sender_id)?;
 
             // Increment user message count
-            if let Ok(users) = self.users.read() {
-                if let Some(user) = users.get(&message.sender_id) {
-                    user.increment_message_count();
-                }
+            if let Ok(users) = self.users.read()
+                && let Some(user) = users.get(&message.sender_id)
+            {
+                user.increment_message_count();
             }
         }
 
@@ -990,30 +987,30 @@ impl ChatServer {
         is_typing: bool,
     ) -> Result<(), String> {
         // Get room and update typing indicator
-        if let Ok(rooms) = self.rooms.read() {
-            if let Some(room) = rooms.get(&room_name) {
-                room.update_typing_indicator(user_id, is_typing)?;
-            }
+        if let Ok(rooms) = self.rooms.read()
+            && let Some(room) = rooms.get(&room_name)
+        {
+            room.update_typing_indicator(user_id, is_typing)?;
         }
 
         // Send typing indicator message
-        if let Ok(users) = self.users.read() {
-            if let Some(user) = users.get(&user_id) {
-                let typing_message = Message::new(
-                    user_id,
-                    user.username.clone(),
-                    room_name,
-                    MessageType::TypingIndicator,
-                    if is_typing {
-                        "typing"
-                    } else {
-                        "stopped_typing"
-                    }
-                    .to_string(),
-                );
+        if let Ok(users) = self.users.read()
+            && let Some(user) = users.get(&user_id)
+        {
+            let typing_message = Message::new(
+                user_id,
+                user.username.clone(),
+                room_name,
+                MessageType::TypingIndicator,
+                if is_typing {
+                    "typing"
+                } else {
+                    "stopped_typing"
+                }
+                .to_string(),
+            );
 
-                self.message_queue.enqueue(typing_message)?;
-            }
+            self.message_queue.enqueue(typing_message)?;
         }
 
         Ok(())

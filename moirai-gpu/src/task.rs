@@ -1,6 +1,6 @@
 //! GPU compute tasks integration with Moirai task system
 
-use crate::{error::GpuResult, GpuDevice, GpuError};
+use crate::{GpuDevice, GpuError, error::GpuResult};
 use moirai_core::{Task, TaskContext};
 use std::future::Future;
 use std::pin::Pin;
@@ -101,12 +101,12 @@ where
 
     async fn execute_gpu(self, device: &GpuDevice) -> GpuResult<Self::Output> {
         // Check device requirements
-        if let Some(required_features) = self.device_requirements {
-            if !device.supports_features(required_features) {
-                return Err(GpuError::UnsupportedOperation(
-                    "Device does not support required features".to_string(),
-                ));
-            }
+        if let Some(required_features) = self.device_requirements
+            && !device.supports_features(required_features)
+        {
+            return Err(GpuError::UnsupportedOperation(
+                "Device does not support required features".to_string(),
+            ));
         }
 
         self.task.execute_gpu(device).await
@@ -123,10 +123,10 @@ where
     }
 
     fn can_run_on_device(&self, device: &GpuDevice) -> bool {
-        if let Some(required_features) = self.device_requirements {
-            if !device.supports_features(required_features) {
-                return false;
-            }
+        if let Some(required_features) = self.device_requirements
+            && !device.supports_features(required_features)
+        {
+            return false;
         }
         self.task.can_run_on_device(device)
     }

@@ -185,13 +185,12 @@ impl<'a, T> Future for RwLockReadFuture<'a, T> {
 
 impl<'a, T> Drop for RwLockReadFuture<'a, T> {
     fn drop(&mut self) {
-        if let Some(id) = self.id {
-            if let Ok(mut state) = self.lock.state.lock() {
-                if state.read_waiters.deregister(id).is_some() {
-                    drop(state);
-                    self.lock.release_read();
-                }
-            }
+        if let Some(id) = self.id
+            && let Ok(mut state) = self.lock.state.lock()
+            && state.read_waiters.deregister(id).is_some()
+        {
+            drop(state);
+            self.lock.release_read();
         }
     }
 }
@@ -241,13 +240,12 @@ impl<'a, T> Future for RwLockWriteFuture<'a, T> {
 
 impl<'a, T> Drop for RwLockWriteFuture<'a, T> {
     fn drop(&mut self) {
-        if let Some(id) = self.id {
-            if let Ok(mut state) = self.lock.state.lock() {
-                if state.write_waiters.deregister(id).is_some() {
-                    drop(state);
-                    self.lock.release_write();
-                }
-            }
+        if let Some(id) = self.id
+            && let Ok(mut state) = self.lock.state.lock()
+            && state.write_waiters.deregister(id).is_some()
+        {
+            drop(state);
+            self.lock.release_write();
         }
     }
 }

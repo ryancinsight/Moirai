@@ -135,16 +135,16 @@ impl<'a> Future for NotifyFuture<'a> {
 
 impl<'a> Drop for NotifyFuture<'a> {
     fn drop(&mut self) {
-        if let Some(id) = self.id {
-            if let Ok(mut state) = self.notify.state.lock() {
-                // If we were holding a single-task permit but never observed
-                // it, hand it to the next pending waiter (or store it) so it
-                // is not lost. Broadcast (`All`) grants are not restored.
-                if state.waiters.deregister(id) == Some(NotifyGrant::One) {
-                    match state.waiters.grant_oldest(NotifyGrant::One) {
-                        Some(waker) => waker.wake(),
-                        None => state.notified = true,
-                    }
+        if let Some(id) = self.id
+            && let Ok(mut state) = self.notify.state.lock()
+        {
+            // If we were holding a single-task permit but never observed
+            // it, hand it to the next pending waiter (or store it) so it
+            // is not lost. Broadcast (`All`) grants are not restored.
+            if state.waiters.deregister(id) == Some(NotifyGrant::One) {
+                match state.waiters.grant_oldest(NotifyGrant::One) {
+                    Some(waker) => waker.wake(),
+                    None => state.notified = true,
                 }
             }
         }

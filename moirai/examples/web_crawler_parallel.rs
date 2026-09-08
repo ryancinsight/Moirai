@@ -117,12 +117,11 @@ impl DomainState {
         }
 
         // Check robots.txt compliance
-        if let Ok(rules) = self.robots_txt_rules.lock() {
-            if let Some(&allowed) = rules.get(path) {
-                if !allowed {
-                    return false;
-                }
-            }
+        if let Ok(rules) = self.robots_txt_rules.lock()
+            && let Some(&allowed) = rules.get(path)
+            && !allowed
+        {
+            return false;
         }
 
         // Check rate limiting
@@ -246,27 +245,27 @@ impl UrlFrontier {
 
     fn get_next_url(&self) -> Option<CrawlTarget> {
         // Check high priority first
-        if let Ok(mut queue) = self.high_priority.lock() {
-            if let Some(target) = queue.pop_front() {
-                self.total_queued.fetch_sub(1, Ordering::Relaxed);
-                return Some(target);
-            }
+        if let Ok(mut queue) = self.high_priority.lock()
+            && let Some(target) = queue.pop_front()
+        {
+            self.total_queued.fetch_sub(1, Ordering::Relaxed);
+            return Some(target);
         }
 
         // Then normal priority
-        if let Ok(mut queue) = self.normal_priority.lock() {
-            if let Some(target) = queue.pop_front() {
-                self.total_queued.fetch_sub(1, Ordering::Relaxed);
-                return Some(target);
-            }
+        if let Ok(mut queue) = self.normal_priority.lock()
+            && let Some(target) = queue.pop_front()
+        {
+            self.total_queued.fetch_sub(1, Ordering::Relaxed);
+            return Some(target);
         }
 
         // Finally low priority
-        if let Ok(mut queue) = self.low_priority.lock() {
-            if let Some(target) = queue.pop_front() {
-                self.total_queued.fetch_sub(1, Ordering::Relaxed);
-                return Some(target);
-            }
+        if let Ok(mut queue) = self.low_priority.lock()
+            && let Some(target) = queue.pop_front()
+        {
+            self.total_queued.fetch_sub(1, Ordering::Relaxed);
+            return Some(target);
         }
 
         None
@@ -330,12 +329,12 @@ impl ContentProcessor {
 
     fn extract_title(&self, content: &str) -> Option<String> {
         // Simple title extraction (in real implementation, use proper HTML parser)
-        if let Some(start) = content.find("<title>") {
-            if let Some(end) = content[start + 7..].find("</title>") {
-                let title = content[start + 7..start + 7 + end].trim();
-                if !title.is_empty() {
-                    return Some(title.to_string());
-                }
+        if let Some(start) = content.find("<title>")
+            && let Some(end) = content[start + 7..].find("</title>")
+        {
+            let title = content[start + 7..start + 7 + end].trim();
+            if !title.is_empty() {
+                return Some(title.to_string());
             }
         }
         None

@@ -94,10 +94,10 @@ impl<T: Clone> WatchSender<T> {
 
         // Wake all receivers that are waiting for changes
         for receiver in state.receivers.values_mut() {
-            if receiver.version < current_version {
-                if let Some(waker) = receiver.waker.take() {
-                    waker.wake();
-                }
+            if receiver.version < current_version
+                && let Some(waker) = receiver.waker.take()
+            {
+                waker.wake();
             }
         }
 
@@ -253,10 +253,10 @@ impl<'a, T> Drop for WatchChanged<'a, T> {
         // `receiver_state.waker` would be called by the next `send()` on a
         // now-deallocated task allocation — a use-after-free of the waker.
         // Clear it here so the sender only wakes live futures.
-        if let Ok(mut state) = self.receiver.state.lock() {
-            if let Some(receiver_state) = state.receivers.get_mut(&self.receiver.id) {
-                receiver_state.waker = None;
-            }
+        if let Ok(mut state) = self.receiver.state.lock()
+            && let Some(receiver_state) = state.receivers.get_mut(&self.receiver.id)
+        {
+            receiver_state.waker = None;
         }
     }
 }

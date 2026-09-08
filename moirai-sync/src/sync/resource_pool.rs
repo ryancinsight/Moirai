@@ -159,29 +159,29 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
             }
 
             // 1. Search start_bin of other shard
-            if let Some(mut guard) = other_shard.bins[start_bin].try_lock() {
-                if let Some(pos) = guard.iter().rposition(|item| item.size() >= size) {
-                    let item = guard.remove(pos).expect("element exists at pos");
+            if let Some(mut guard) = other_shard.bins[start_bin].try_lock()
+                && let Some(pos) = guard.iter().rposition(|item| item.size() >= size)
+            {
+                let item = guard.remove(pos).expect("element exists at pos");
+                let item_size = item.size();
+                other_shard
+                    .retained_bytes
+                    .fetch_sub(item_size, Ordering::Release);
+                other_shard.retained_count.fetch_sub(1, Ordering::Release);
+                return Some(item);
+            }
+
+            // 2. Search larger bins of other shard
+            for b in (start_bin + 1)..64 {
+                if let Some(mut guard) = other_shard.bins[b].try_lock()
+                    && let Some(item) = guard.pop_back()
+                {
                     let item_size = item.size();
                     other_shard
                         .retained_bytes
                         .fetch_sub(item_size, Ordering::Release);
                     other_shard.retained_count.fetch_sub(1, Ordering::Release);
                     return Some(item);
-                }
-            }
-
-            // 2. Search larger bins of other shard
-            for b in (start_bin + 1)..64 {
-                if let Some(mut guard) = other_shard.bins[b].try_lock() {
-                    if let Some(item) = guard.pop_back() {
-                        let item_size = item.size();
-                        other_shard
-                            .retained_bytes
-                            .fetch_sub(item_size, Ordering::Release);
-                        other_shard.retained_count.fetch_sub(1, Ordering::Release);
-                        return Some(item);
-                    }
                 }
             }
         }
@@ -241,26 +241,21 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
                         progress = true;
                         break;
                     }
-                } else {
-                    match local_shard.bins[b].try_lock() {
-                        Some(mut guard) => {
-                            if let Some(removed) = guard.pop_front() {
-                                let removed_size = removed.size();
-                                // Decrements remove already-inserted items, never our
-                                // reservation, so the net total keeps counting our item.
-                                local_shard.retained_count.fetch_sub(1, Ordering::Release);
-                                local_shard
-                                    .retained_bytes
-                                    .fetch_sub(removed_size, Ordering::Release);
-                                current_count -= 1;
-                                current_bytes = current_bytes.saturating_sub(removed_size);
-                                evicted.push(removed);
-                                progress = true;
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
+                } else if let Some(mut guard) = local_shard.bins[b].try_lock()
+                    && let Some(removed) = guard.pop_front()
+                {
+                    let removed_size = removed.size();
+                    // Decrements remove already-inserted items, never our
+                    // reservation, so the net total keeps counting our item.
+                    local_shard.retained_count.fetch_sub(1, Ordering::Release);
+                    local_shard
+                        .retained_bytes
+                        .fetch_sub(removed_size, Ordering::Release);
+                    current_count -= 1;
+                    current_bytes = current_bytes.saturating_sub(removed_size);
+                    evicted.push(removed);
+                    progress = true;
+                    break;
                 }
             }
             if !progress {

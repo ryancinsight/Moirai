@@ -125,11 +125,11 @@ impl<G> WaitQueue<G> {
     {
         let mut wakers = Vec::with_capacity(self.pending.len());
         for id in self.pending.drain(..) {
-            if let Some(entry) = self.waiters.get_mut(&id) {
-                if entry.granted.is_none() {
-                    entry.granted = Some(payload.clone());
-                    wakers.push(entry.waker.clone());
-                }
+            if let Some(entry) = self.waiters.get_mut(&id)
+                && entry.granted.is_none()
+            {
+                entry.granted = Some(payload.clone());
+                wakers.push(entry.waker.clone());
             }
         }
         wakers

@@ -696,11 +696,11 @@ impl IoTDeviceManager {
 
     fn submit_telemetry(&self, telemetry: TelemetryData) -> Result<(), String> {
         // Update device last seen
-        if let Ok(devices) = self.devices.read() {
-            if let Some(device) = devices.get(&telemetry.device_id) {
-                device.update_last_seen();
-                device.increment_telemetry_count();
-            }
+        if let Ok(devices) = self.devices.read()
+            && let Some(device) = devices.get(&telemetry.device_id)
+        {
+            device.update_last_seen();
+            device.increment_telemetry_count();
         }
 
         // Store in time series

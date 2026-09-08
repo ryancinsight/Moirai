@@ -127,10 +127,10 @@ impl<'a> Future for CondvarNotifyFuture<'a> {
 
 impl<'a> Drop for CondvarNotifyFuture<'a> {
     fn drop(&mut self) {
-        if let Some(id) = self.id {
-            if let Ok(mut state) = self.condvar.state.lock() {
-                state.waiters.deregister(id);
-            }
+        if let Some(id) = self.id
+            && let Ok(mut state) = self.condvar.state.lock()
+        {
+            state.waiters.deregister(id);
         }
     }
 }

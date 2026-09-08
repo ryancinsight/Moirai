@@ -444,10 +444,10 @@ impl DistributedTaskScheduler {
 
                 // Update task status to running
                 {
-                    if let Ok(mut task_registry) = tasks.write() {
-                        if let Some((_, status)) = task_registry.get_mut(&task_id) {
-                            *status = TaskStatus::Running;
-                        }
+                    if let Ok(mut task_registry) = tasks.write()
+                        && let Some((_, status)) = task_registry.get_mut(&task_id)
+                    {
+                        *status = TaskStatus::Running;
                     }
                 }
 
@@ -460,20 +460,20 @@ impl DistributedTaskScheduler {
                     Ok(output) => {
                         // Mark as completed
                         {
-                            if let Ok(mut task_registry) = tasks.write() {
-                                if let Some((_, status)) = task_registry.get_mut(&task_id) {
-                                    *status = TaskStatus::Completed;
-                                }
+                            if let Ok(mut task_registry) = tasks.write()
+                                && let Some((_, status)) = task_registry.get_mut(&task_id)
+                            {
+                                *status = TaskStatus::Completed;
                             }
                         }
 
                         // Update node state
                         {
-                            if let Ok(mut node_registry) = nodes.write() {
-                                if let Some(node) = node_registry.get_mut(&node_id) {
-                                    node.current_load = node.current_load.saturating_sub(1);
-                                    node.running_tasks.remove(&task_id);
-                                }
+                            if let Ok(mut node_registry) = nodes.write()
+                                && let Some(node) = node_registry.get_mut(&node_id)
+                            {
+                                node.current_load = node.current_load.saturating_sub(1);
+                                node.running_tasks.remove(&task_id);
                             }
                         }
 
@@ -499,25 +499,25 @@ impl DistributedTaskScheduler {
                     Err(error) => {
                         // Handle task failure
                         {
-                            if let Ok(mut task_registry) = tasks.write() {
-                                if let Some((task, status)) = task_registry.get_mut(&task_id) {
-                                    task.retry_count += 1;
-                                    if task.retry_count >= task.max_retries {
-                                        *status = TaskStatus::Failed;
-                                    } else {
-                                        *status = TaskStatus::Pending; // Retry
-                                    }
+                            if let Ok(mut task_registry) = tasks.write()
+                                && let Some((task, status)) = task_registry.get_mut(&task_id)
+                            {
+                                task.retry_count += 1;
+                                if task.retry_count >= task.max_retries {
+                                    *status = TaskStatus::Failed;
+                                } else {
+                                    *status = TaskStatus::Pending; // Retry
                                 }
                             }
                         }
 
                         // Update node state
                         {
-                            if let Ok(mut node_registry) = nodes.write() {
-                                if let Some(node) = node_registry.get_mut(&node_id) {
-                                    node.current_load = node.current_load.saturating_sub(1);
-                                    node.running_tasks.remove(&task_id);
-                                }
+                            if let Ok(mut node_registry) = nodes.write()
+                                && let Some(node) = node_registry.get_mut(&node_id)
+                            {
+                                node.current_load = node.current_load.saturating_sub(1);
+                                node.running_tasks.remove(&task_id);
                             }
                         }
 
@@ -850,14 +850,13 @@ impl SchedulerRef {
             let node_id = &available_nodes[i % available_nodes.len()];
 
             // Simplified assignment (actual implementation would be more complex)
-            if let Ok(mut tasks) = self.tasks.write() {
-                if let Some((task, status)) = tasks.get_mut(task_id) {
-                    if *status == TaskStatus::Pending {
-                        task.assigned_node = Some(node_id.clone());
-                        *status = TaskStatus::Assigned;
-                        scheduled_count += 1;
-                    }
-                }
+            if let Ok(mut tasks) = self.tasks.write()
+                && let Some((task, status)) = tasks.get_mut(task_id)
+                && *status == TaskStatus::Pending
+            {
+                task.assigned_node = Some(node_id.clone());
+                *status = TaskStatus::Assigned;
+                scheduled_count += 1;
             }
         }
 
@@ -879,10 +878,10 @@ impl HeartbeatRef {
             .unwrap()
             .as_secs();
 
-        if let Ok(mut nodes) = self.nodes.write() {
-            if let Some(node) = nodes.get_mut(&self.node_id) {
-                node.last_heartbeat = now;
-            }
+        if let Ok(mut nodes) = self.nodes.write()
+            && let Some(node) = nodes.get_mut(&self.node_id)
+        {
+            node.last_heartbeat = now;
         }
 
         self.last_heartbeat_sent.store(now, Ordering::Relaxed);

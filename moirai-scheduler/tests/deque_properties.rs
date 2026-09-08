@@ -28,11 +28,9 @@ fn deque_ops() -> impl Strategy<Value = Vec<DequeOp>> {
         let mut ops = Vec::with_capacity(values.len() + flips);
         let mut next = values.iter().copied();
         for push_turn in (0..flips).map(|i| i % 2 == 0) {
-            if push_turn {
-                if let Some(v) = next.next() {
-                    ops.push(DequeOp::Push(v));
-                    continue;
-                }
+            if push_turn && let Some(v) = next.next() {
+                ops.push(DequeOp::Push(v));
+                continue;
             }
             ops.push(DequeOp::Pop);
         }
