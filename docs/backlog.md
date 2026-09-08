@@ -34,11 +34,15 @@
   preedit, commit and cancellation messages. Composition buffers are capped at
   `MAX_COMPOSITION_UNITS`, validated as UTF-16 and report retrieval failures
   through `poll_events`; the native suite now passes 61 tests.
+- Increment: an active composition is canceled when `WM_IME_COMPOSITION`
+  carries no composition-string flag, preventing stale preedit state; the
+  lifecycle test covers the empty-message path and confirms one cancellation.
 - Residual: WebView2, OS permissions, accessibility and macOS/Linux providers
   remain open under the same desktop item. Consumer editing policy and an
   installed-IME journey remain Metis host evidence. Metis consumes the provider
-  through `NativeSurface` in commit `16e996a` and must advance its pin after
-  this increment.
+  through `NativeSurface` in commit `ada7f99` with Moirai pinned at `7ad8eeee`;
+  the provider event path is delivered, while the installed-IME journey remains
+  open.
 <a id="MOI-WASM-DOM-TEXT-2026-09-07"></a>
 ## MOI-WASM-DOM-TEXT-2026-09-07 — Expose bounded browser text and composition metadata [arch] [minor]
 
