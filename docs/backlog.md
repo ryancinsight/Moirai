@@ -1,4 +1,26 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-WASM-DOM-FILE-2026-09-08"></a>
+## MOI-WASM-DOM-FILE-2026-09-08 — Provide bounded browser file access [arch] [minor]
+
+- Outcome: Moirai exposes an owned browser file entry that lets Atlas WASM
+  applications read selected bytes without importing `web-sys` or treating a
+  browser name as a filesystem path.
+- Scope: `moirai-pal` drop entries, bounded asynchronous `FileReader` access,
+  cursor validation and callback teardown; DICOM parsing, application policy,
+  native file permissions and persistence remain consumer or host concerns.
+- Acceptance: selected file handles preserve validated metadata, bounded reads
+  are input-sensitive and seekable, invalid positions and oversized requests
+  fail with typed I/O errors, cancellation releases callbacks, and native
+  provider tests, warning-denied Clippy and the WASM build pass. No third-party
+  browser or file runtime is introduced.
+- Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/wasm-file-read`; last-update: 2026-09-08; driver:
+  [Metis input controls](../../metis/backlog.md#METIS-INPUT-001),
+  [Metis files](../../metis/backlog.md#METIS-FILES-001).
+- Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md) (proposed).
+- Lease: root `moirai-pal/src/wasm/{mod.rs,dom/file_drop.rs}` and this item,
+  2026-09-08.
+
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>
 ## MOI-WINDOW-WIN32-2026-09-08 — Win32 window event and presentation provider [arch] [minor]
 
