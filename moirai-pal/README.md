@@ -11,11 +11,13 @@ mechanism, so the async stack needs no external runtime:
 |--------|-----------|
 | Linux | `epoll` |
 | macOS / BSD | `kqueue` |
-| Windows | `WSAPoll` socket readiness polling |
+| Windows | `WSAPoll` socket readiness polling and a thread-owned Win32 window |
 | WebAssembly | Web APIs via JavaScript interop |
 
 Modules: `reactor`, `net`, `fs`, `timer`, plus the per-platform `unix`,
-`windows`, and `wasm` implementations.
+`windows`, and `wasm` implementations. On Windows, `windows::window::NativeWindow`
+provides a bounded message queue and ARGB software presentation surface for a
+consumer-owned event loop.
 
 The WASM module owns the browser boundary used by Atlas applications. `WebDocument`
 and `WebElement` provide bounded DOM updates, input/select values, checked

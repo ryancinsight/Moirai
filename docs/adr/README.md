@@ -54,3 +54,4 @@
 | [0046](0046-bounded-websocket-service.md) | Bounded WebSocket service substrate | Accepted |
 | [0047](0047-bounded-browser-file-drop.md) | Bounded browser file-drop metadata | Accepted |
 | [0048](0048-browser-text-input-contract.md) | Browser text input contract | Proposed |
+| [0049](0049-win32-window-provider.md) | Win32 window provider | Accepted |
