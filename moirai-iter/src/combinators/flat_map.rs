@@ -33,10 +33,10 @@ where
     #[inline]
     fn next(&mut self) -> Option<U::Item> {
         loop {
-            if let Some(ref mut inner) = self.frontiter {
-                if let Some(item) = inner.next() {
-                    return Some(item);
-                }
+            if let Some(ref mut inner) = self.frontiter
+                && let Some(item) = inner.next()
+            {
+                return Some(item);
             }
             match self.iter.next() {
                 None => return self.backiter.as_mut()?.next(),

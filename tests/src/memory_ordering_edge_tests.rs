@@ -14,9 +14,9 @@
 )]
 
 use moirai::{Moirai, Priority};
-use std::alloc::{alloc, dealloc, Layout};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::alloc::{Layout, alloc, dealloc};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// Cache-aligned atomic for preventing false sharing
@@ -359,24 +359,24 @@ impl CacheInvalidationTest {
 
     fn read_with_cache(&self, index: usize) -> Option<u64> {
         // Try cache first
-        if let Ok(cache) = self.cache.read() {
-            if let Some(&value) = cache.get(&index) {
-                self.cache_hits.fetch_add(1, Ordering::Relaxed);
-                return Some(value);
-            }
+        if let Ok(cache) = self.cache.read()
+            && let Some(&value) = cache.get(&index)
+        {
+            self.cache_hits.fetch_add(1, Ordering::Relaxed);
+            return Some(value);
         }
 
         // Cache miss - read from shared data
         self.cache_misses.fetch_add(1, Ordering::Relaxed);
 
-        if let Ok(data) = self.shared_data.lock() {
-            if let Some(&value) = data.get(index) {
-                // Update cache
-                if let Ok(mut cache) = self.cache.write() {
-                    cache.insert(index, value);
-                }
-                return Some(value);
+        if let Ok(data) = self.shared_data.lock()
+            && let Some(&value) = data.get(index)
+        {
+            // Update cache
+            if let Ok(mut cache) = self.cache.write() {
+                cache.insert(index, value);
             }
+            return Some(value);
         }
 
         None
@@ -384,18 +384,18 @@ impl CacheInvalidationTest {
 
     fn write_and_invalidate(&self, index: usize, value: u64) -> bool {
         // Update shared data
-        if let Ok(mut data) = self.shared_data.lock() {
-            if index < data.len() {
-                data[index] = value;
+        if let Ok(mut data) = self.shared_data.lock()
+            && index < data.len()
+        {
+            data[index] = value;
 
-                // Invalidate cache entry
-                if let Ok(mut cache) = self.cache.write() {
-                    if cache.remove(&index).is_some() {
-                        self.invalidations.fetch_add(1, Ordering::Relaxed);
-                    }
-                }
-                return true;
+            // Invalidate cache entry
+            if let Ok(mut cache) = self.cache.write()
+                && cache.remove(&index).is_some()
+            {
+                self.invalidations.fetch_add(1, Ordering::Relaxed);
             }
+            return true;
         }
         false
     }
@@ -530,10 +530,10 @@ impl MemoryOrderingTestRunner {
             });
 
             let _ = writer_handle.join();
-            if let Ok(success) = reader_handle.join() {
-                if success {
-                    successful_communications += 1;
-                }
+            if let Ok(success) = reader_handle.join()
+                && success
+            {
+                successful_communications += 1;
             }
 
             // Yield between iterations

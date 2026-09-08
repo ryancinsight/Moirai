@@ -143,10 +143,10 @@ impl<'a, T: Unpin> Future for SendFuture<'a, T> {
 
 impl<'a, T> Drop for SendFuture<'a, T> {
     fn drop(&mut self) {
-        if let Some(id) = self.id {
-            if let Ok(mut shared) = self.sender.shared.lock() {
-                shared.send_waiters.remove(&id);
-            }
+        if let Some(id) = self.id
+            && let Ok(mut shared) = self.sender.shared.lock()
+        {
+            shared.send_waiters.remove(&id);
         }
     }
 }
@@ -172,10 +172,10 @@ impl<T> Receiver<T> {
     pub fn try_recv(&mut self) -> Option<T> {
         let mut shared = self.shared.lock().unwrap();
         let value = shared.buffer.pop_front();
-        if value.is_some() {
-            if let Some((_, waker)) = shared.send_waiters.pop_first() {
-                waker.wake();
-            }
+        if value.is_some()
+            && let Some((_, waker)) = shared.send_waiters.pop_first()
+        {
+            waker.wake();
         }
         value
     }
@@ -249,10 +249,10 @@ impl<'a, T> Future for RecvFuture<'a, T> {
 
 impl<'a, T> Drop for RecvFuture<'a, T> {
     fn drop(&mut self) {
-        if let Some(id) = self.id {
-            if let Ok(mut shared) = self.receiver.shared.lock() {
-                shared.recv_waiters.remove(&id);
-            }
+        if let Some(id) = self.id
+            && let Ok(mut shared) = self.receiver.shared.lock()
+        {
+            shared.recv_waiters.remove(&id);
         }
     }
 }
@@ -284,8 +284,8 @@ mod tests {
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
     use std::task::{Context, Poll, Wake, Waker};
 

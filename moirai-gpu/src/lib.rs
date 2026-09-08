@@ -79,7 +79,7 @@ pub use compute::{ComputeKernel, ComputeShader, KernelDispatch};
 pub use device::{DeviceCapabilities, GpuDevice, GpuDeviceManager};
 #[cfg(feature = "wgpu-backend")]
 pub use error::{GpuError, GpuResult};
-pub use occupancy::{plan_launch, plan_persistent_launch, resident_blocks, LaunchShape};
+pub use occupancy::{LaunchShape, plan_launch, plan_persistent_launch, resident_blocks};
 #[cfg(feature = "wgpu-backend")]
 pub use pipeline::{ComputePipeline, PipelineBuilder};
 #[cfg(feature = "wgpu-backend")]
@@ -170,11 +170,11 @@ impl Default for DevicePreferences {
 
 /// Prelude module for convenient imports
 pub mod prelude {
-    pub use crate::{plan_launch, plan_persistent_launch, resident_blocks, LaunchShape};
     #[cfg(feature = "wgpu-backend")]
     pub use crate::{
         BufferUsage, ComputeKernel, ComputePipeline, DeviceCapabilities, GpuBuffer, GpuBufferPool,
         GpuContext, GpuDevice, GpuError, GpuResult, GpuTask, GpuTaskBuilder, GpuTaskFuture,
         KernelDispatch, PipelineBuilder,
     };
+    pub use crate::{LaunchShape, plan_launch, plan_persistent_launch, resident_blocks};
 }

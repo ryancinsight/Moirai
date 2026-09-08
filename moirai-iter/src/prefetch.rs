@@ -45,12 +45,12 @@ where
         let item = self.iter.next()?;
 
         // Try to prefetch future items
-        if let Some(size_hint) = self.iter.size_hint().1 {
-            if size_hint > self.prefetch_distance {
-                // This is a best-effort prefetch - we can't actually
-                // access future items without consuming them
-                // In practice, this works best with slice iterators
-            }
+        if let Some(size_hint) = self.iter.size_hint().1
+            && size_hint > self.prefetch_distance
+        {
+            // This is a best-effort prefetch - we can't actually
+            // access future items without consuming them
+            // In practice, this works best with slice iterators
         }
 
         Some(item)

@@ -19,7 +19,7 @@
 use moirai::{Moirai, Priority};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -188,11 +188,11 @@ impl<T: Default> MemoryPool<T> {
     }
 
     fn acquire(&self) -> T {
-        if let Ok(mut pool) = self.pool.lock() {
-            if let Some(item) = pool.pop_front() {
-                self.reused_count.fetch_add(1, Ordering::Relaxed);
-                return item;
-            }
+        if let Ok(mut pool) = self.pool.lock()
+            && let Some(item) = pool.pop_front()
+        {
+            self.reused_count.fetch_add(1, Ordering::Relaxed);
+            return item;
         }
 
         self.created_count.fetch_add(1, Ordering::Relaxed);
@@ -200,10 +200,10 @@ impl<T: Default> MemoryPool<T> {
     }
 
     fn release(&self, item: T) {
-        if let Ok(mut pool) = self.pool.lock() {
-            if pool.len() < self.max_size {
-                pool.push_back(item);
-            }
+        if let Ok(mut pool) = self.pool.lock()
+            && pool.len() < self.max_size
+        {
+            pool.push_back(item);
         }
     }
 

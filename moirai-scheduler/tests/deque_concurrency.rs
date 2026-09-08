@@ -14,8 +14,8 @@
 //! `push`/`pop`; any thread may `steal`. The tests honor that — the owner lives
 //! on one thread and shares the deque with thieves through `Arc`.
 
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 use moirai_scheduler::{
     ChaseLevDeque, ChaseLevStealer, DequeCapacity, SplitDeque, StealResult, StolenBatch,
@@ -166,11 +166,11 @@ where
     // races the thieves' top path. Then drain whatever the thieves did not take.
     for i in 0..n {
         deque.w_push(i);
-        if i % 7 == 0 {
-            if let Some(item) = deque.w_pop() {
-                mark(&marks, &out_of_range, item);
-                consumed.fetch_add(1, Ordering::Release);
-            }
+        if i % 7 == 0
+            && let Some(item) = deque.w_pop()
+        {
+            mark(&marks, &out_of_range, item);
+            consumed.fetch_add(1, Ordering::Release);
         }
     }
     while consumed.load(Ordering::Acquire) < n {

@@ -124,13 +124,12 @@ impl<'a, T> Future for MutexLockFuture<'a, T> {
 
 impl<'a, T> Drop for MutexLockFuture<'a, T> {
     fn drop(&mut self) {
-        if let Some(id) = self.id {
-            if let Ok(mut state) = self.mutex.state.lock() {
-                if state.waiters.deregister(id).is_some() {
-                    drop(state);
-                    self.mutex.release();
-                }
-            }
+        if let Some(id) = self.id
+            && let Ok(mut state) = self.mutex.state.lock()
+            && state.waiters.deregister(id).is_some()
+        {
+            drop(state);
+            self.mutex.release();
         }
     }
 }

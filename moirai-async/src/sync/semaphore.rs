@@ -123,14 +123,14 @@ impl<'a> Future for SemaphoreAcquire<'a> {
 
 impl<'a> Drop for SemaphoreAcquire<'a> {
     fn drop(&mut self) {
-        if let Some(id) = self.id {
-            if let Ok(mut state) = self.semaphore.state.lock() {
-                // If we were granted a permit we never consumed, hand it back so
-                // it reaches another waiter (or the available count).
-                if state.waiters.deregister(id).is_some() {
-                    drop(state);
-                    self.semaphore.release();
-                }
+        if let Some(id) = self.id
+            && let Ok(mut state) = self.semaphore.state.lock()
+        {
+            // If we were granted a permit we never consumed, hand it back so
+            // it reaches another waiter (or the available count).
+            if state.waiters.deregister(id).is_some() {
+                drop(state);
+                self.semaphore.release();
             }
         }
     }

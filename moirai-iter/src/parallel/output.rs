@@ -214,7 +214,7 @@ impl<T> Drop for ChunkWriter<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{output_chunk_range, ChunkWriter, MapOutput};
+    use super::{ChunkWriter, MapOutput, output_chunk_range};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Tracked<'a>(&'a AtomicUsize);
@@ -315,9 +315,11 @@ mod tests {
             panic!("simulated mapper panic");
         }));
 
-        let Err(payload) = panic else {
-            panic!("invariant: the simulated mapper panic must unwind through the writer");
-        };
+        // `catch_unwind` over a closure that always panics has `!` in its `Ok`
+        // position, so `Err(payload)` is irrefutable and the `else` arm it used
+        // to carry was unreachable.
+        let payload = panic
+            .expect_err("invariant: the simulated mapper panic must unwind through the writer");
         assert_eq!(
             crate::test_support::panic_message(payload.as_ref()),
             "simulated mapper panic"

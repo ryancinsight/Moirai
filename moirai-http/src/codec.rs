@@ -64,10 +64,10 @@ pub async fn write_request<S: AsyncWrite + Unpin>(
     for (k, v) in headers {
         req.extend_from_slice(format!("{k}: {v}\r\n").as_bytes());
     }
-    if let Some(b) = body {
-        if !has("content-length") {
-            req.extend_from_slice(format!("Content-Length: {}\r\n", b.len()).as_bytes());
-        }
+    if let Some(b) = body
+        && !has("content-length")
+    {
+        req.extend_from_slice(format!("Content-Length: {}\r\n", b.len()).as_bytes());
     }
     req.extend_from_slice(b"\r\n");
     if let Some(b) = body {
@@ -269,7 +269,7 @@ pub async fn read_response<S: AsyncReadExt + Unpin>(
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("malformed response: {e}"),
-                ))
+                ));
             }
         }
     };

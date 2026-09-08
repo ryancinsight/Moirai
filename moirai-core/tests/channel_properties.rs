@@ -22,11 +22,9 @@ fn spsc_ops() -> impl Strategy<Value = Vec<SpscOp>> {
         let mut next = values.iter().copied();
         // Interleave pushes (while values remain) with pops by parity.
         for push_turn in (0..flips).map(|i| i % 2 == 0) {
-            if push_turn {
-                if let Some(v) = next.next() {
-                    ops.push(SpscOp::Push(v));
-                    continue;
-                }
+            if push_turn && let Some(v) = next.next() {
+                ops.push(SpscOp::Push(v));
+                continue;
             }
             ops.push(SpscOp::Pop);
         }

@@ -1,10 +1,10 @@
 //! GPU buffer management with zero-copy principles
 
-use crate::{error::GpuResult, lock_mutex, GpuDevice, GpuError};
+use crate::{GpuDevice, GpuError, error::GpuResult, lock_mutex};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Mutex;
-use wgpu::{util::DeviceExt, Buffer, BufferDescriptor, BufferUsages};
+use wgpu::{Buffer, BufferDescriptor, BufferUsages, util::DeviceExt};
 
 fn checked_buffer_range(
     buffer_size: u64,
@@ -208,7 +208,7 @@ impl GpuBuffer {
 
 #[cfg(test)]
 mod range_tests {
-    use super::{checked_buffer_range, GpuError};
+    use super::{GpuError, checked_buffer_range};
 
     #[test]
     fn buffer_range_accepts_empty_end_boundary() {
@@ -280,11 +280,11 @@ impl GpuBufferPool {
 
         let key = (size, usage);
 
-        if let Some(pool) = pools.get_mut(&key) {
-            if let Some(buffer) = pool.pop() {
-                stats.total_reused += 1;
-                return Ok(buffer);
-            }
+        if let Some(pool) = pools.get_mut(&key)
+            && let Some(buffer) = pool.pop()
+        {
+            stats.total_reused += 1;
+            return Ok(buffer);
         }
 
         // Create new buffer
@@ -334,7 +334,7 @@ impl Default for GpuBufferPool {
 #[cfg(test)]
 mod lock_tests {
     use super::lock_mutex;
-    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::Mutex;
 
     #[test]
