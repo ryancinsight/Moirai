@@ -15,6 +15,19 @@ pub enum MouseButton {
     X2,
 }
 
+/// Phase of a native text composition transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompositionPhase {
+    /// An IME started composing text.
+    Started,
+    /// An IME changed the uncommitted preedit text.
+    Updated,
+    /// An IME committed text into the control.
+    Committed,
+    /// An IME canceled its uncommitted preedit text.
+    Canceled,
+}
+
 /// Value event translated from one native window message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowEvent {
@@ -67,6 +80,13 @@ pub enum WindowEvent {
     TextInput {
         /// One scalar or replacement character; never an unmatched surrogate.
         character: char,
+    },
+    /// A bounded native IME composition update.
+    TextComposition {
+        /// Composition lifecycle phase.
+        phase: CompositionPhase,
+        /// Preedit or committed UTF-8 text; start and cancel carry an empty value.
+        text: String,
     },
     /// The client size changed, including a minimized zero extent.
     Resized {

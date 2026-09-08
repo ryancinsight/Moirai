@@ -30,9 +30,15 @@
   waiting on the operating-system queue, preserving constructor readiness and
   queue-overflow diagnostics; the native test covers an initial resize and
   rejects a wait beyond the 30-second bound.
-- Residual: WebView2, OS permissions, accessibility/IME and macOS/Linux
-  providers remain open under the same desktop item. Metis consumes the
-  provider through `NativeSurface` in commit `16e996a` and pins Moirai `7f5ddf80`.
+- Increment: bounded `TextComposition` events translate Windows IME start,
+  preedit, commit and cancellation messages. Composition buffers are capped at
+  `MAX_COMPOSITION_UNITS`, validated as UTF-16 and report retrieval failures
+  through `poll_events`; the native suite now passes 61 tests.
+- Residual: WebView2, OS permissions, accessibility and macOS/Linux providers
+  remain open under the same desktop item. Consumer editing policy and an
+  installed-IME journey remain Metis host evidence. Metis consumes the provider
+  through `NativeSurface` in commit `16e996a` and must advance its pin after
+  this increment.
 <a id="MOI-WASM-DOM-TEXT-2026-09-07"></a>
 ## MOI-WASM-DOM-TEXT-2026-09-07 — Expose bounded browser text and composition metadata [arch] [minor]
 

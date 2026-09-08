@@ -19,7 +19,8 @@ Modules: `reactor`, `net`, `fs`, `timer`, plus the per-platform `unix`,
 provides a bounded message queue and ARGB software presentation surface for a
 consumer-owned event loop. `NativeWindow::wait_events` adds a finite message
 queue wait for event-driven hosts; waits beyond its 30-second bound are
-rejected.
+rejected. Native IME start, preedit, commit and cancellation phases are
+returned as bounded UTF-8 snapshots.
 
 The WASM module owns the browser boundary used by Atlas applications. `WebDocument`
 and `WebElement` provide bounded DOM updates, input/select values, checked
@@ -37,8 +38,8 @@ name as a filesystem path.
 Text controls expose bounded values, UTF-16 selection ranges with direction,
 and bounded `InputEvent`/`CompositionEvent` metadata through owned snapshots.
 Unsupported targets and browser metadata failures return explicit errors or
-`None`; grapheme segmentation, editing policy, and native IME integration stay
-with the application or host layer.
+`None`; grapheme segmentation and editing policy stay with the application or
+host layer. Native IME event production stays in the Windows provider.
 `WebEventListener` removes its callback registration when dropped. `spawn_local` uses the browser event loop for futures; applications
 do not create a second executor or retain detached JavaScript closures.
 `spawn_local_with_handle` adds

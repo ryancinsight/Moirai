@@ -14,25 +14,29 @@ use windows::Win32::Graphics::Gdi::{
     PAINTSTRUCT, RGBQUAD, SRCCOPY, StretchDIBits, UpdateWindow,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Input::Ime::{
+    GCS_COMPSTR, GCS_RESULTSTR, ImmGetCompositionStringW, ImmGetContext, ImmReleaseContext,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     AdjustWindowRectEx, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow,
     DispatchMessageW, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, IsWindow,
     LoadCursorW, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW,
     QS_ALLINPUT, RegisterClassW, SW_SHOW, SetWindowLongPtrW, ShowWindow, TranslateMessage,
-    WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN,
-    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
-    WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS,
-    WM_SIZE, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
+    WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP,
+    WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE,
+    WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE,
+    WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::PCWSTR;
 
 use super::config::{
-    MAX_PUMP_MESSAGES, MAX_WAIT_MILLISECONDS, WindowConfig, WindowVisibility, allocation_error,
-    coordinate_error, validate_frame_dimensions, windows_error,
+    MAX_COMPOSITION_UNITS, MAX_PUMP_MESSAGES, MAX_WAIT_MILLISECONDS, WindowConfig,
+    WindowVisibility, allocation_error, coordinate_error, validate_frame_dimensions, windows_error,
 };
-use super::event::WindowEvent;
+use super::event::{CompositionPhase, WindowEvent};
 use super::input::{extent_from_lparam, mouse_button, point_from_lparam};
-use super::state::{PresentedFrame, WindowState};
+use super::state::{PresentedFrame, WindowState, decode_composition};
 
 const WINDOW_CLASS_NAME: &[u16] = &[
     b'M' as u16,
@@ -151,6 +155,9 @@ impl NativeWindow {
                 DispatchMessageW(&message);
             }
         }
+        if let Some(error) = self.state.error.take() {
+            return Err(error);
+        }
         if self.state.overflowed {
             self.state.overflowed = false;
             return Err(io::Error::other(
@@ -186,7 +193,7 @@ impl NativeWindow {
                 "native event wait exceeds the 30 second bound",
             ));
         }
-        if !self.state.events.is_empty() || self.state.overflowed {
+        if !self.state.events.is_empty() || self.state.overflowed || self.state.error.is_some() {
             return self.poll_events();
         }
         // SAFETY: the call observes only this thread's message queue, accepts
@@ -381,6 +388,19 @@ unsafe extern "system" fn window_proc(
                 virtual_key: wparam.0 as u32,
             }),
             WM_CHAR => state.push_text_unit(wparam.0 as u16),
+            WM_IME_STARTCOMPOSITION => {
+                state.push_composition(CompositionPhase::Started, String::new());
+            }
+            WM_IME_COMPOSITION => {
+                if let Err(error) = composition_message(hwnd, state, lparam) {
+                    state.record_error(error);
+                }
+            }
+            WM_IME_ENDCOMPOSITION => {
+                if state.composition_active {
+                    state.push_composition(CompositionPhase::Canceled, String::new());
+                }
+            }
             WM_SIZE => {
                 let (width, height) = extent_from_lparam(lparam);
                 state.push(WindowEvent::Resized { width, height });
@@ -408,6 +428,106 @@ unsafe extern "system" fn window_proc(
         }
         LRESULT(0)
     }
+}
+
+fn composition_message(hwnd: HWND, state: &mut WindowState, lparam: LPARAM) -> io::Result<()> {
+    let flags = u32::try_from(lparam.0).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "native IME composition flags are negative",
+        )
+    })?;
+    let (phase, kind) = if flags & GCS_RESULTSTR.0 != 0 {
+        (CompositionPhase::Committed, GCS_RESULTSTR)
+    } else if flags & GCS_COMPSTR.0 != 0 {
+        (CompositionPhase::Updated, GCS_COMPSTR)
+    } else {
+        return Ok(());
+    };
+    let text = read_composition_text(hwnd, kind)?;
+    state.push_composition(phase, text);
+    Ok(())
+}
+
+fn read_composition_text(
+    hwnd: HWND,
+    kind: windows::Win32::UI::Input::Ime::IME_COMPOSITION_STRING,
+) -> io::Result<String> {
+    // SAFETY: `hwnd` is the live window whose callback is executing; the IME
+    // context is acquired and released synchronously on the owning thread.
+    let context = unsafe { ImmGetContext(hwnd) };
+    if context.is_invalid() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "native IME composition context is unavailable",
+        ));
+    }
+    let result = read_composition_buffer(context, kind);
+    // SAFETY: `context` was returned for `hwnd` by ImmGetContext and is released
+    // on the same thread before this callback returns.
+    let released = unsafe { ImmReleaseContext(hwnd, context) };
+    if !released.as_bool() {
+        return Err(io::Error::last_os_error());
+    }
+    result
+}
+
+fn read_composition_buffer(
+    context: windows::Win32::UI::Input::Ime::HIMC,
+    kind: windows::Win32::UI::Input::Ime::IME_COMPOSITION_STRING,
+) -> io::Result<String> {
+    // SAFETY: the IME context is valid for this synchronous query and the null
+    // destination requests only the required byte count.
+    let byte_count = unsafe { ImmGetCompositionStringW(context, kind, None, 0) };
+    if byte_count < 0 {
+        return Err(io::Error::other(
+            "native IME composition string query failed",
+        ));
+    }
+    let byte_count = usize::try_from(byte_count).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "native IME composition length is not representable",
+        )
+    })?;
+    if byte_count % size_of::<u16>() != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "native IME composition length is not UTF-16 aligned",
+        ));
+    }
+    let units = byte_count / size_of::<u16>();
+    if units > MAX_COMPOSITION_UNITS {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "native IME composition exceeds the bounded UTF-16 limit",
+        ));
+    }
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(units)
+        .map_err(|_| allocation_error())?;
+    buffer.resize(units, 0);
+    if byte_count != 0 {
+        let length = u32::try_from(byte_count).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "native IME composition length exceeds the API bound",
+            )
+        })?;
+        // SAFETY: `buffer` has exactly `units` initialized `u16` slots, and the
+        // IME API writes exactly `length` bytes into that writable allocation.
+        let read = unsafe {
+            ImmGetCompositionStringW(context, kind, Some(buffer.as_mut_ptr().cast()), length)
+        };
+        if read < 0 || usize::try_from(read).ok() != Some(byte_count) {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "native IME composition changed during retrieval",
+            ));
+        }
+    }
+    decode_composition(&buffer)
 }
 
 unsafe fn paint(hwnd: HWND, state: &WindowState) -> LRESULT {
