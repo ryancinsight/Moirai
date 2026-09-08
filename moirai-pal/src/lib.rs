@@ -39,6 +39,10 @@ pub mod windows;
 pub mod wasm;
 
 #[cfg(any(target_arch = "wasm32", test))]
+#[path = "wasm/drop_validation.rs"]
+mod drop_validation;
+
+#[cfg(any(target_arch = "wasm32", test))]
 mod local_task;
 
 #[cfg(any(target_arch = "wasm32", test))]
