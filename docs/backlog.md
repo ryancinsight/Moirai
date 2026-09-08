@@ -32,7 +32,7 @@
   rejects a wait beyond the 30-second bound.
 - Residual: WebView2, OS permissions, accessibility/IME and macOS/Linux
   providers remain open under the same desktop item. Metis consumes the
-  provider through `NativeSurface` in commit `fe1eddd`.
+  provider through `NativeSurface` in commit `16e996a` and pins Moirai `7f5ddf80`.
 <a id="MOI-WASM-DOM-TEXT-2026-09-07"></a>
 ## MOI-WASM-DOM-TEXT-2026-09-07 — Expose bounded browser text and composition metadata [arch] [minor]
 
