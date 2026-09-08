@@ -38,7 +38,9 @@ completed destruction. Surrogate pairs are combined before text delivery.
 become `TextComposition` events carrying start, preedit, commit or cancel
 phases. IME strings are read through the existing Windows system binding,
 capped at `MAX_COMPOSITION_UNITS` and validated as UTF-16 before they enter the
-event queue.
+event queue. An active composition is canceled when a composition message has
+no string flag or when the composition ends, so an empty update cannot leave a
+stale preedit value in a consumer.
 `present_argb8888` validates
 the dimensions and exact pixel count, reuses the retained vector when possible,
 and invalidates the client area. `WM_PAINT` uses a top-down 32-bit DIB and
