@@ -4,6 +4,27 @@
 /// table row, not a new branch.
 const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
     (
+        "../moirai-executor/src/schedule/queue/mod.rs",
+        &[
+            "../moirai-executor/src/schedule/queue/mod.rs",
+            "../moirai-executor/src/schedule/queue/priority.rs",
+            "../moirai-executor/src/schedule/queue/steal.rs",
+            "../moirai-executor/src/schedule/queue/worker.rs",
+            "../moirai-executor/src/schedule/queue/tests.rs",
+        ],
+    ),
+    (
+        "../moirai-transport/src/process/windows/mod.rs",
+        &[
+            "../moirai-transport/src/process/windows/mod.rs",
+            "../moirai-transport/src/process/windows/process.rs",
+            "../moirai-transport/src/process/windows/job.rs",
+            "../moirai-transport/src/process/windows/pipe.rs",
+            "../moirai-transport/src/process/windows/attributes.rs",
+            "../moirai-transport/src/process/windows/status.rs",
+        ],
+    ),
+    (
         "tests/benchmark_contracts/support.rs",
         &[
             "tests/benchmark_contracts/support/imports.rs",

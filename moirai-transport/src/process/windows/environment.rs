@@ -1,6 +1,7 @@
 //! Windows environment blocks sorted with the OS ordinal case-insensitive order.
 use super::super::{ProcessError, ProcessResult, ProcessSpec};
-use super::{ffi, os_error};
+use super::ffi;
+use super::status::os_error;
 use std::{cmp::Ordering, ffi::OsStr, os::windows::ffi::OsStrExt};
 
 pub(super) fn encode(spec: &ProcessSpec) -> ProcessResult<Option<Vec<u16>>> {
