@@ -12,10 +12,13 @@
   metadata fails closed, input/composition events are input-sensitive, native
   provider tests and warning-denied Clippy pass, and the `wasm32-unknown-unknown`
   build verifies the binding feature surface.
-- Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
+- Class: [arch] [minor]; status: done; priority: P1; integrator: root;
   branch: `feat/wasm-text-selection`; last-update: 2026-09-07; driver:
   [Metis text](../../metis/backlog.md#METIS-TEXT-001).
 - Decision: [ADR 0048](adr/0048-browser-text-input-contract.md).
+- Evidence: commit `0add591` merged by PR [#280](https://github.com/ryancinsight/Moirai/pull/280)
+  as `0862716`; native provider tests, warning-denied Clippy and the
+  `wasm32-unknown-unknown` check pass.
 
 <a id="MOI-WASM-DOM-DROP-2026-09-07"></a>
 ## MOI-WASM-DOM-DROP-2026-09-07 — Bound browser file-drop metadata [arch] [minor]
