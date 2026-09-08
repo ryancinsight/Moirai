@@ -3,9 +3,11 @@
 use std::ffi::c_void;
 use std::io;
 use std::mem::size_of;
+use std::time::Duration;
 
 use windows::Win32::Foundation::{
-    BOOL, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
+    BOOL, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT,
+    WAIT_FAILED, WAIT_TIMEOUT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, DIB_RGB_COLORS, EndPaint, InvalidateRect,
@@ -15,17 +17,18 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     AdjustWindowRectEx, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow,
     DispatchMessageW, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, IsWindow,
-    LoadCursorW, PM_REMOVE, PeekMessageW, RegisterClassW, SW_SHOW, SetWindowLongPtrW, ShowWindow,
-    TranslateMessage, WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
-    WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    LoadCursorW, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW,
+    QS_ALLINPUT, RegisterClassW, SW_SHOW, SetWindowLongPtrW, ShowWindow, TranslateMessage,
+    WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN,
+    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
     WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS,
     WM_SIZE, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::PCWSTR;
 
 use super::config::{
-    MAX_PUMP_MESSAGES, WindowConfig, WindowVisibility, allocation_error, coordinate_error,
-    validate_frame_dimensions, windows_error,
+    MAX_PUMP_MESSAGES, MAX_WAIT_MILLISECONDS, WindowConfig, WindowVisibility, allocation_error,
+    coordinate_error, validate_frame_dimensions, windows_error,
 };
 use super::event::WindowEvent;
 use super::input::{extent_from_lparam, mouse_button, point_from_lparam};
@@ -155,6 +158,46 @@ impl NativeWindow {
             ));
         }
         Ok(self.state.events.drain(..).collect())
+    }
+
+    /// Waits for native input for a finite duration, then returns one bounded
+    /// event batch.
+    ///
+    /// A zero duration performs an immediate readiness check. The wait is
+    /// limited to [`MAX_WAIT_MILLISECONDS`] so a caller cannot turn a window
+    /// operation into an unbounded blocking point.
+    ///
+    /// # Errors
+    /// Returns an invalid-duration or native wait error, or the same queue
+    /// overflow error as [`Self::poll_events`].
+    pub fn wait_events(&mut self, timeout: Duration) -> io::Result<Vec<WindowEvent>> {
+        if self.destroyed {
+            return Ok(Vec::new());
+        }
+        let milliseconds = u32::try_from(timeout.as_millis()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "native event wait exceeds the 30 second bound",
+            )
+        })?;
+        if milliseconds > MAX_WAIT_MILLISECONDS {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "native event wait exceeds the 30 second bound",
+            ));
+        }
+        // SAFETY: the call observes only this thread's message queue, accepts
+        // no handles, and retains no pointer after returning.
+        let result = unsafe {
+            MsgWaitForMultipleObjectsEx(None, milliseconds, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
+        };
+        if result == WAIT_FAILED {
+            return Err(io::Error::last_os_error());
+        }
+        if result == WAIT_TIMEOUT {
+            return Ok(Vec::new());
+        }
+        self.poll_events()
     }
 
     /// Retains a bounded ARGB frame and schedules a repaint.
