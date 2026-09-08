@@ -27,5 +27,6 @@ pub use route::{
 pub use runtime::{
     ContendedWakeDecision, DiagnosticWakeDecision, EmptyWakeDecision, SaturatedWakeDecision,
 };
-pub use runtime::{ScheduleMetrics, SchedulerScope, ThreadScheduler};
+pub use runtime::{IdleHook, ScheduleMetrics, SchedulerScope, ThreadScheduler};
+pub use runtime::{register_idle_hook, run_idle_hooks};
 pub use seam::{DataParallel, SchedulerControl, WorkScheduler, WorkSubmit};

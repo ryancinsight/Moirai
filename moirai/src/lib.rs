@@ -202,14 +202,15 @@
 
 // Re-export core functionality (avoiding ExecutorStats conflict)
 pub use moirai_core::{
+    Priority, Task, TaskContext, TaskHandle, TaskId,
     error::*,
     executor::{Executor, ExecutorConfig, ExecutorControl, TaskSpawner},
     scheduler::*,
     task::*,
-    Priority, Task, TaskContext, TaskHandle, TaskId,
 };
 
 // Re-export executor functionality
+pub use moirai_executor::schedule::{IdleHook, register_idle_hook, run_idle_hooks};
 pub use moirai_executor::{BlockingTask, HybridExecutor, SchedulerScope};
 
 /// Completion-only borrowing scope for jobs submitted to the unified scheduler.
@@ -269,22 +270,22 @@ pub use moirai_metrics::MetricsCollector;
 // Re-export async functionality (specific imports to avoid conflicts)
 #[cfg(feature = "async")]
 pub use moirai_async::{
+    File, FileOpenOptions, TcpListener, TcpStream, Timeout,
     executor::{AsyncExecutor, AsyncHandle},
     io::{
         AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, MoiraiCompat, TokioCompat,
     },
     timer::{sleep, timeout},
-    File, FileOpenOptions, TcpListener, TcpStream, Timeout,
 };
 
 // Re-export iterator functionality
 #[cfg(feature = "iter")]
 pub use moirai_iter::{
-    async_range, moirai_iter, moirai_iter_async, moirai_iter_hybrid, moirai_iter_parallel,
-    par_range, AsyncContext, AsyncIterator, AsyncParallelIterator, ExecutionBase, ExecutionContext,
+    AsyncContext, AsyncIterator, AsyncParallelIterator, ExecutionBase, ExecutionContext,
     ExecutionStrategy, HybridConfig, HybridContext, IndexedParallelIterator, IntoAsyncIterator,
     IntoParallelIterator, IntoParallelRefIterator, MoiraiIterator, ParallelContext, ParallelExtend,
-    ParallelIterator, PerformanceHistory, RangeParIter, VecParIter, VecRefParIter,
+    ParallelIterator, PerformanceHistory, RangeParIter, VecParIter, VecRefParIter, async_range,
+    moirai_iter, moirai_iter_async, moirai_iter_hybrid, moirai_iter_parallel, par_range,
 };
 
 // Re-export GPU functionality
