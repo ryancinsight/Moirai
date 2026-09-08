@@ -6,7 +6,7 @@
 use std::{
     cell::UnsafeCell,
     ptr::NonNull,
-    sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -309,7 +309,7 @@ pub(crate) fn task_location(id: u64) -> (usize, usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{elapsed_nanos_since, TaskState};
+    use super::{TaskState, elapsed_nanos_since};
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 

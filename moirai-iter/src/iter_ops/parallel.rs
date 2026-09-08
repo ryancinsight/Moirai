@@ -40,7 +40,7 @@
 //! explicit chunk size rather than relying on the core count.
 
 use crate::base::SendPtr;
-use crate::parallel::output::{output_chunk_range, ChunkWriter, MapOutput};
+use crate::parallel::output::{ChunkWriter, MapOutput, output_chunk_range};
 /// Default ring buffer capacity (power of 2)
 const DEFAULT_RING_BUFFER_CAPACITY: usize = 1024;
 
@@ -196,11 +196,7 @@ fn chunk_size(len: usize) -> usize {
 const fn chunk_size_for_lanes(len: usize, lane_count: usize) -> usize {
     let lanes = if lane_count == 0 { 1 } else { lane_count };
     let size = len.div_ceil(lanes);
-    if size == 0 {
-        1
-    } else {
-        size
-    }
+    if size == 0 { 1 } else { size }
 }
 
 #[inline]
@@ -212,10 +208,10 @@ fn should_execute_scoped(len: usize, chunk_size: usize) -> bool {
 mod tests {
     use super::*;
     use std::{
-        panic::{catch_unwind, AssertUnwindSafe},
+        panic::{AssertUnwindSafe, catch_unwind},
         sync::{
-            atomic::{AtomicUsize, Ordering},
             Arc,
+            atomic::{AtomicUsize, Ordering},
         },
     };
 

@@ -494,7 +494,7 @@ fn test_sharded_resource_pool_concurrent_recycle_respects_total_cap() {
 
 #[test]
 fn test_sharded_resource_pool_clear_serializes_reservation_and_insertion() {
-    use std::sync::{mpsc::sync_channel, Barrier};
+    use std::sync::{Barrier, mpsc::sync_channel};
 
     let (recycle_entered_tx, recycle_entered_rx) = sync_channel(0);
     let (clear_started_tx, clear_started_rx) = sync_channel(0);

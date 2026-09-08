@@ -28,15 +28,15 @@
 use super::DisjointMutPtr;
 use crate::policy::{ExecutionPolicy, Parallel};
 use moirai_core::error::{ExecutorError, ExecutorResult};
-use moirai_executor::{global, HybridExecutor, SchedulerScope, SyncTask};
+use moirai_executor::{HybridExecutor, SchedulerScope, SyncTask, global};
 use std::sync::Mutex;
 
 mod chunks;
 pub use chunks::{
-    for_each_chunk_buffers_mut_enumerated_with, for_each_chunk_mut_enumerated_with,
-    for_each_chunk_mut_with, for_each_chunk_mut_with_state,
+    ChunkBuffersError, for_each_chunk_buffers_mut_enumerated_with,
+    for_each_chunk_mut_enumerated_with, for_each_chunk_mut_with, for_each_chunk_mut_with_state,
     for_each_chunk_pair_mut_enumerated_with, for_each_chunk_quad_mut_enumerated_with,
-    for_each_chunk_triple_mut_enumerated_with, ChunkBuffersError,
+    for_each_chunk_triple_mut_enumerated_with,
 };
 
 /// State of the scheduled branch of a join.

@@ -7,15 +7,15 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use moirai_core::{executor::config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY, Priority};
+use moirai_core::{Priority, executor::config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY};
 use moirai_scheduler::DequeCapacity;
 
 use crate::schedule::job::ScheduledJob;
 use crate::schedule::queue::WorkerQueues;
 use crate::schedule::runtime::types::DiagnosticWakeDecision;
 use crate::schedule::runtime::worker::{
-    diagnostic_publish_work_available, execute_job, is_quiescent, next_shared_job, wake_worker,
-    JOIN_FAST_SPIN_ATTEMPTS,
+    JOIN_FAST_SPIN_ATTEMPTS, diagnostic_publish_work_available, execute_job, is_quiescent,
+    next_shared_job, wake_worker,
 };
 use crate::schedule::{ThreadScheduler, WorkClass};
 

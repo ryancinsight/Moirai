@@ -2,7 +2,7 @@
 
 use super::super::DisjointMutPtr;
 use crate::policy::ExecutionPolicy;
-use moirai_executor::{global, SyncTask};
+use moirai_executor::{SyncTask, global};
 
 #[cfg(test)]
 mod tests;

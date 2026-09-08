@@ -4,11 +4,11 @@
 )]
 
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use moirai_core::Priority;
 use moirai_executor::schedule::{BlockingTask, ThreadScheduler};
 

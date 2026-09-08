@@ -22,11 +22,7 @@ impl RegistrationGeneration {
 
     #[cfg(unix)]
     pub(crate) const fn from_raw(raw: usize) -> Option<Self> {
-        if raw == 0 {
-            None
-        } else {
-            Some(Self(raw))
-        }
+        if raw == 0 { None } else { Some(Self(raw)) }
     }
 }
 

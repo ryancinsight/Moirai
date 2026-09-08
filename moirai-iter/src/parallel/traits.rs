@@ -1,10 +1,10 @@
-use super::{fallible, split, TryStreamItem};
 use super::{
     Chain, Chunks, Cloned, Copied, Enumerate, Filter, FilterMap, FlatMap, Flatten, FoldConsumer,
     Inspect, Intersperse, Map, MapInit, MapWith, NullConsumer, PanicFuse, Positions,
     ReduceConsumer, Reduction, Rev, SequentialAdapter, ShortCircuitConsumer, Skip, SkipAnyWhile,
     Take, TakeAnyWhile, Update, WhileSome, Zip, ZipEq,
 };
+use super::{TryStreamItem, fallible, split};
 use std::ops::ControlFlow;
 
 /// Core parallel iterator trait for Moirai's Rayon-style non-indexed subset.
@@ -729,11 +729,7 @@ pub trait ParallelIterator: Sized + Send {
                 Err(error) => ControlFlow::Break(Err(error)),
             },
             |left: Result<(), E>, right: Result<(), E>| {
-                if left.is_err() {
-                    left
-                } else {
-                    right
-                }
+                if left.is_err() { left } else { right }
             },
         ))
         .into_value()

@@ -3,7 +3,7 @@
 
 use moirai_async::io::{AsyncReadExt, AsyncWriteExt};
 use moirai_async::net::{TcpListener, TcpStream};
-use moirai_http::{accept_websocket, HttpClient, WebSocketConfig};
+use moirai_http::{HttpClient, WebSocketConfig, accept_websocket};
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener as StdTcpListener, TcpStream as StdTcpStream};
 

@@ -104,8 +104,8 @@ impl<F: Future<Output = ()>> Future for CancellableFuture<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::task::{Wake, Waker};
 
     struct PendingFuture {

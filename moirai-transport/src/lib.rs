@@ -49,7 +49,7 @@ pub use moirai_core::channel::{
 pub use network::NetworkTransport;
 #[cfg(feature = "network")]
 pub use network::TcpTransport;
-pub(crate) use network::{read_network_frame_from_stream, NETWORK_IO_TIMEOUT};
+pub(crate) use network::{NETWORK_IO_TIMEOUT, read_network_frame_from_stream};
 pub use router::{MessageRouter, RemoteAddress};
 // The canonical typed cross-boundary channel: rkyv-style archive serialization
 // over a transport (zero-copy borrowed views on receive).

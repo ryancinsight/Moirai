@@ -3,15 +3,15 @@
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Condvar, Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
 };
 
 use moirai_core::{
-    error::{ExecutorError, ExecutorResult},
     Priority,
+    error::{ExecutorError, ExecutorResult},
 };
 
 use super::{

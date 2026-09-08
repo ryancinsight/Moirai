@@ -1,7 +1,7 @@
 //! Parallel slice sorting implementation.
 
 use moirai_core::error::ExecutorError;
-use moirai_executor::{global, HybridExecutor, SyncTask};
+use moirai_executor::{HybridExecutor, SyncTask, global};
 use std::mem::MaybeUninit;
 
 /// Extension trait for parallel slice sorting.

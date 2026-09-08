@@ -1,10 +1,10 @@
 //! Scheduled job representation.
 
 use core::{
-    mem::{align_of, size_of, MaybeUninit},
+    mem::{MaybeUninit, align_of, size_of},
     ptr,
 };
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 const INLINE_JOB_WORDS: usize = 14;
 
@@ -259,11 +259,11 @@ mod scoped_tests;
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
-    use super::{inline_job_fits, InlineJob, InlineJobStorage, ScheduledJob, INLINE_JOB_WORDS};
+    use super::{INLINE_JOB_WORDS, InlineJob, InlineJobStorage, ScheduledJob, inline_job_fits};
 
     struct DropCounter {
         drops: Arc<AtomicUsize>,

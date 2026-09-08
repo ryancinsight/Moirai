@@ -46,8 +46,8 @@
 mod policy;
 
 pub use policy::{
-    Adaptive, AdaptiveWithThreshold, ExecutionPolicy, Parallel, Sequential,
-    ADAPTIVE_PARALLEL_THRESHOLD,
+    ADAPTIVE_PARALLEL_THRESHOLD, Adaptive, AdaptiveWithThreshold, ExecutionPolicy, Parallel,
+    Sequential,
 };
 
 use core::marker::PhantomData;
@@ -88,13 +88,13 @@ impl<T> DisjointMutPtr<T> {
 /// Synchronous data-parallel operators and free functions.
 pub mod ops;
 pub use ops::{
-    enumerate_mut_with, enumerate_with, fold_reduce_with,
+    ChunkBuffersError, Scope, enumerate_mut_with, enumerate_with, fold_reduce_with,
     for_each_chunk_buffers_mut_enumerated_with, for_each_chunk_mut_enumerated_with,
     for_each_chunk_mut_with, for_each_chunk_mut_with_state,
     for_each_chunk_pair_mut_enumerated_with, for_each_chunk_quad_mut_enumerated_with,
     for_each_chunk_triple_mut_enumerated_with, for_each_index_with, for_each_mut_with,
     for_each_with, join, join_with, map_collect_index_with, map_collect_mut_with, map_collect_with,
-    map_reduce_with, reduce_index_with, scope, ChunkBuffersError, Scope,
+    map_reduce_with, reduce_index_with, scope,
 };
 
 // ---------------------------------------------------------------------------

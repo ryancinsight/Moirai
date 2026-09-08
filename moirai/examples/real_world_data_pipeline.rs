@@ -18,8 +18,8 @@
 )]
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// Represents a data record in our processing pipeline
@@ -195,7 +195,7 @@ async fn manual_separate_pipeline(
     record_size: usize,
 ) -> (Vec<(f64, f64, f64)>, ProcessingStats) {
     use rayon::prelude::*;
-    use tokio::sync::{broadcast, Semaphore};
+    use tokio::sync::{Semaphore, broadcast};
 
     let start_time = Instant::now();
     let mut stats = ProcessingStats::default();

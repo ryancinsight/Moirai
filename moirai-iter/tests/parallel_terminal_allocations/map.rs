@@ -1,9 +1,9 @@
 use super::support::{
-    allocation_snapshot, map_source, map_values, zero_copy_parallel_map_values, MAP_LEN,
-    MAP_OUTPUT_BYTES, ZERO_COPY_MAP_LEN, ZERO_COPY_MAP_OUTPUT_BYTES, ZERO_COPY_PARALLEL_MAP_LEN,
-    ZERO_COPY_PARALLEL_MAP_OUTPUT_BYTES,
+    MAP_LEN, MAP_OUTPUT_BYTES, ZERO_COPY_MAP_LEN, ZERO_COPY_MAP_OUTPUT_BYTES,
+    ZERO_COPY_PARALLEL_MAP_LEN, ZERO_COPY_PARALLEL_MAP_OUTPUT_BYTES, allocation_snapshot,
+    map_source, map_values, zero_copy_parallel_map_values,
 };
-use moirai_iter::cache::{CacheIterExt, CACHE_CHUNK_SIZE};
+use moirai_iter::cache::{CACHE_CHUNK_SIZE, CacheIterExt};
 use std::{hint::black_box, mem::size_of};
 
 fn process_lanes() -> usize {

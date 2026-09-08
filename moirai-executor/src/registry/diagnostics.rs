@@ -4,7 +4,7 @@ use std::time::Duration;
 #[cfg(feature = "registry-diagnostics")]
 use super::registry::TaskRegistry;
 #[cfg(feature = "registry-diagnostics")]
-use super::state::{task_location, TaskState, TIMESTAMP_NOT_RECORDED};
+use super::state::{TIMESTAMP_NOT_RECORDED, TaskState, task_location};
 
 #[cfg(feature = "registry-diagnostics")]
 impl TaskRegistry {

@@ -3,13 +3,13 @@
 use super::*;
 use crate::executor::AsyncExecutor;
 use crate::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use crate::timer::{timeout, TimeoutError};
+use crate::timer::{TimeoutError, timeout};
 use std::future::Future;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream as StdTcpStream};
 use std::pin::Pin;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 

@@ -6,7 +6,7 @@
 //! workload and checks them against Moirai's indexed map/reduce result.
 
 use moirai::Moirai;
-use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
+use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 use std::time::{Duration, Instant};
 
 const ITEMS: usize = 65_536;

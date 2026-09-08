@@ -1,6 +1,6 @@
 //! GPU compute shader and kernel management
 
-use crate::{error::GpuResult, GpuBuffer, GpuDevice};
+use crate::{GpuBuffer, GpuDevice, error::GpuResult};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, ComputePipeline, ComputePipelineDescriptor, PipelineLayoutDescriptor,

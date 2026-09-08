@@ -24,8 +24,8 @@
 #![cfg(loom)]
 
 use loom::cell::UnsafeCell;
-use loom::sync::atomic::{fence, AtomicIsize, Ordering};
 use loom::sync::Arc;
+use loom::sync::atomic::{AtomicIsize, Ordering, fence};
 
 /// Fixed capacity large enough for the modelled scenario so no resize/wraparound
 /// occurs (the resize path is covered separately by the stress tests).

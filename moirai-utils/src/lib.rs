@@ -29,14 +29,14 @@ pub mod simd;
 // Re-export commonly used types for convenience
 pub use atomic::AtomicCounter;
 pub use cache::{
-    align_to_cache_line, CacheAligned, CachePad, CACHE_LINE_SIZE, DESTRUCTIVE_INTERFERENCE_SIZE,
+    CACHE_LINE_SIZE, CacheAligned, CachePad, DESTRUCTIVE_INTERFERENCE_SIZE, align_to_cache_line,
 };
 pub use memory::{prefetch_read, prefetch_write};
 pub use queue::LockFreeQueue;
 
 // SIMD optimization counter and scalar contracts for performance tracking.
 #[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
-pub use simd::{has_native_vector_path, SimdReal, SimdScalar};
+pub use simd::{SimdReal, SimdScalar, has_native_vector_path};
 
 #[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
 use std::sync::OnceLock;

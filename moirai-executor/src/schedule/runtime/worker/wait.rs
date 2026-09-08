@@ -112,7 +112,7 @@ mod tests {
         sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     };
 
-    use super::{wait_for_work_with_park, IdleBitset};
+    use super::{IdleBitset, wait_for_work_with_park};
 
     #[test]
     fn consumed_wake_republishes_worker_before_repark() {

@@ -8,7 +8,7 @@
 //! `moirai_core::executor::logical_parallelism`.
 
 use core::sync::atomic::{AtomicUsize, Ordering};
-use moirai_parallel::{fold_reduce_with, for_each_chunk_mut_with_state, Parallel};
+use moirai_parallel::{Parallel, fold_reduce_with, for_each_chunk_mut_with_state};
 use std::alloc::{GlobalAlloc, Layout, System};
 
 struct CountingAllocator;

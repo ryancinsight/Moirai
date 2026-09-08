@@ -16,8 +16,8 @@
 #![cfg(loom)]
 
 use loom::cell::UnsafeCell;
-use loom::sync::atomic::{AtomicUsize, Ordering};
 use loom::sync::Arc;
+use loom::sync::atomic::{AtomicUsize, Ordering};
 use loom::thread;
 
 const CAPACITY: usize = 2;

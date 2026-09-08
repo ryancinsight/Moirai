@@ -6,7 +6,7 @@ use core::task::{Context, Poll};
 
 use futures::stream::Stream;
 
-use super::{source_slot_plan, RetainedSlots};
+use super::{RetainedSlots, source_slot_plan};
 
 /// Completion-order bounded stream used when output order is irrelevant.
 pub(crate) struct RetainedUnordered<S>

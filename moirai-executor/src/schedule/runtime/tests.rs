@@ -2,19 +2,20 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{
+    Arc, Barrier, Condvar, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    mpsc, Arc, Barrier, Condvar, Mutex,
+    mpsc,
 };
 use std::time::Duration;
 
-use super::types::{get_current_worker_id, ThreadScheduler};
+use super::types::{ThreadScheduler, get_current_worker_id};
 use crate::schedule::{AsyncTask, BlockingTask, SyncTask};
 use moirai_core::{
-    error::{ExecutorError, TaskError},
-    executor::{config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY, ExecutorConfig},
     Priority,
+    error::{ExecutorError, TaskError},
+    executor::{ExecutorConfig, config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY},
 };
 
 const TEST_ADMISSION_CAPACITY: usize = 8;
@@ -391,11 +392,13 @@ fn scheduler_numa_policy_controls_worker_assignments() {
     )
     .unwrap();
 
-    assert!(scheduler
-        .inner
-        .worker_numa_nodes
-        .iter()
-        .all(|node| node.is_none()));
+    assert!(
+        scheduler
+            .inner
+            .worker_numa_nodes
+            .iter()
+            .all(|node| node.is_none())
+    );
 
     scheduler.shutdown();
 }
@@ -680,11 +683,13 @@ fn global_capacity_supports_minimum_two_slots_per_worker() {
         scheduler_with_queue_config::<256>(4, "minimum", 8, DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY)
             .unwrap();
 
-    assert!(scheduler
-        .inner
-        .workers
-        .iter()
-        .all(|worker| worker.queues.injector_capacity() == 2));
+    assert!(
+        scheduler
+            .inner
+            .workers
+            .iter()
+            .all(|worker| worker.queues.injector_capacity() == 2)
+    );
     scheduler.shutdown();
 }
 
@@ -1813,7 +1818,7 @@ fn scheduler_scope_completes_registered_jobs_before_resuming_body_panic() {
 #[test]
 fn test_melinoe_partition_routing() {
     use melinoe::sync::partition_map;
-    use melinoe::{brand_scope, MelinoeCell};
+    use melinoe::{MelinoeCell, brand_scope};
 
     let _exec = crate::global();
 

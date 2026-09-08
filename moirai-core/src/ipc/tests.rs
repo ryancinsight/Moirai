@@ -125,7 +125,7 @@ fn a_multi_page_segment_reads_back_across_its_whole_length() {
 /// over one representative code per outcome.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod reservation_classification {
-    use super::super::memory::{classify_reservation, Reservation};
+    use super::super::memory::{Reservation, classify_reservation};
 
     #[test]
     fn a_committed_reservation_is_the_only_success() {

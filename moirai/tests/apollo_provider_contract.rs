@@ -1,7 +1,7 @@
 //! Apollo-facing provider contracts for Moirai's public crate surface.
 
 use moirai::{
-    for_each_chunk_mut_enumerated_with, Adaptive, IndexedParallelIterator, IntoParallelIterator,
+    Adaptive, IndexedParallelIterator, IntoParallelIterator, for_each_chunk_mut_enumerated_with,
 };
 
 #[test]

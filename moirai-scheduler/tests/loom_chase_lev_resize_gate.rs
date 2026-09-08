@@ -28,7 +28,7 @@
 
 use loom::model::Builder;
 use loom::sync::atomic::{AtomicUsize, Ordering};
-use loom::sync::{mpsc, Arc};
+use loom::sync::{Arc, mpsc};
 use loom::thread;
 
 #[path = "../src/deque/chase_lev/contention.rs"]

@@ -7,7 +7,7 @@ use std::time::Duration;
 use moirai_async::timer::timeout;
 use moirai_tls::TlsConnector;
 
-use crate::codec::{read_response, write_request, DEFAULT_MAX_RESPONSE_BYTES};
+use crate::codec::{DEFAULT_MAX_RESPONSE_BYTES, read_response, write_request};
 use crate::conn::Conn;
 use crate::pool::IdlePool;
 use crate::redirect::{

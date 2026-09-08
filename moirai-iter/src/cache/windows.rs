@@ -2,7 +2,7 @@
 
 use std::mem;
 
-use super::{prefetch_read_data, CACHE_CHUNK_SIZE};
+use super::{CACHE_CHUNK_SIZE, prefetch_read_data};
 
 /// Iterator over borrowed windows.
 pub struct WindowIterator<'a, T> {

@@ -1,7 +1,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
-use crate::{router::RemoteAddress, NetworkTransport, Transport, TransportError, TransportResult};
-use moirai_core::channel::{mpmc, MpmcReceiver, MpmcSender};
+use crate::{NetworkTransport, Transport, TransportError, TransportResult, router::RemoteAddress};
+use moirai_core::channel::{MpmcReceiver, MpmcSender, mpmc};
 use std::{
     collections::HashMap,
     fmt,
@@ -263,17 +263,21 @@ mod tests {
         // Register transports with each other for routing
         // This would require a more robust mechanism for inter-transport communication
         // For now, we'll just check if they can send/recv to/from themselves
-        assert!(transport1
-            .send(&Address::Local("t1".to_string()), vec![1])
-            .is_ok());
+        assert!(
+            transport1
+                .send(&Address::Local("t1".to_string()), vec![1])
+                .is_ok()
+        );
         assert_eq!(
             transport1.recv(&Address::Local("t1".to_string())).unwrap(),
             vec![1]
         );
 
-        assert!(transport2
-            .send(&Address::Local("t2".to_string()), vec![2])
-            .is_ok());
+        assert!(
+            transport2
+                .send(&Address::Local("t2".to_string()), vec![2])
+                .is_ok()
+        );
         assert_eq!(
             transport2.recv(&Address::Local("t2".to_string())).unwrap(),
             vec![2]

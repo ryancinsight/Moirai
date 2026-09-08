@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use js_sys::{ArrayBuffer, Uint8Array};
 use wasm_bindgen::prelude::*;
-use web_sys::{console, BinaryType, CloseEvent, ErrorEvent, MessageEvent, WebSocket};
+use web_sys::{BinaryType, CloseEvent, ErrorEvent, MessageEvent, WebSocket, console};
 
 use crate::websocket_state::{MessageEnqueue, WebSocketOpen, WebSocketReceive, WebSocketState};
 use crate::{Event, Interest, RawFd};

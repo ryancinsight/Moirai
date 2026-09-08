@@ -12,7 +12,7 @@ where
     Map: Fn(usize) -> T,
     Reduce: Fn(T, T) -> T,
 {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     catch_unwind(AssertUnwindSafe(|| {
         let mut accumulator = identity;
         for index in 0..count {

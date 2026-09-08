@@ -6,16 +6,16 @@ use crate::Moirai;
 use moirai_core::Priority;
 use moirai_executor::schedule::{HybridRouter, RoutePolicy, SchedulerRoute, WorkClass};
 use moirai_transport::{
+    RemoteAddress, TransportResult,
     process::{ProcessDropPolicy, ProcessWaitPolicy},
     remote_task::{
-        build_remote_operation, IntoRemoteOperation, RemoteCapability, RemoteCapabilityToken,
-        RemoteTaskId, RemoteTaskResult,
+        IntoRemoteOperation, RemoteCapability, RemoteCapabilityToken, RemoteTaskId,
+        RemoteTaskResult, build_remote_operation,
     },
     route::{
         ProcessEndpoint, RouteAddressBook, RoutedProcessTaskClient, RoutedProcessTaskError,
         RoutedProcessTaskOutput, RoutedRemoteTaskClient,
     },
-    RemoteAddress, TransportResult,
 };
 
 /// Fixed-format routed task admitted by a sealed remote capability.
@@ -163,13 +163,13 @@ mod tests {
         RouteTopology, SchedulerRoute, ServerCount, ServerId, ServerRoutePolicy, WorkerCount,
     };
     use moirai_transport::{
+        RemoteAddress,
         process::{ProcessDropPolicy, ProcessOutcome, ProcessSpec, ProcessWaitPolicy},
         remote_task::{
             RemoteCapabilityToken, RemoteTaskId, RemoteTaskOutput, RemoteTaskServer,
             SumU64Capability,
         },
         route::{ProcessEndpoint, RouteAddressBook, RouteNamespace, RouteService, ServerEndpoint},
-        RemoteAddress,
     };
     use std::time::Duration;
 

@@ -17,7 +17,7 @@
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use moirai_core::{executor::config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY, Priority};
+use moirai_core::{Priority, executor::config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY};
 use moirai_executor::schedule::{SyncTask, ThreadScheduler};
 
 const WORKERS: usize = 8;
@@ -37,15 +37,17 @@ fn park_unpark_floor(iters: usize) -> (Duration, Duration) {
     let (woke_tx, woke_rx) = mpsc::channel::<Option<Duration>>();
     let sent_for_parker = Arc::clone(&sent);
 
-    let parker = thread::spawn(move || loop {
-        ready_tx.send(()).unwrap();
-        thread::park();
-        let woke = Instant::now();
-        match sent_for_parker.lock().unwrap().take() {
-            Some(at) => woke_tx.send(Some(woke.duration_since(at))).unwrap(),
-            None => {
-                woke_tx.send(None).unwrap();
-                break;
+    let parker = thread::spawn(move || {
+        loop {
+            ready_tx.send(()).unwrap();
+            thread::park();
+            let woke = Instant::now();
+            match sent_for_parker.lock().unwrap().take() {
+                Some(at) => woke_tx.send(Some(woke.duration_since(at))).unwrap(),
+                None => {
+                    woke_tx.send(None).unwrap();
+                    break;
+                }
             }
         }
     });
@@ -125,8 +127,8 @@ fn wake_latency<const SPIN: usize>(gap: Duration, iters: usize) -> (Duration, Du
 /// sustained load workers never run out of work, so the spin budget should not
 /// engage and throughput should be independent of `SPIN`.
 fn sustained_drain<const SPIN: usize>(tasks: usize) -> Duration {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     let sched = ThreadScheduler::<256, SPIN>::new_with_local_queue_initial_capacity(
         WORKERS,

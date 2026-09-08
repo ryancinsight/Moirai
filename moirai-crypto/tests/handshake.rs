@@ -10,7 +10,7 @@
 use std::io::{Read, Write};
 use std::sync::Arc;
 
-use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer, ServerName};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, pem::PemObject};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection};
 
 fn certificate_error(error: rustls::Error) -> rustls::CertificateError {

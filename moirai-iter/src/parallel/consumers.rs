@@ -1,8 +1,8 @@
 use super::{Consumer, ParallelIterator};
 use std::marker::PhantomData;
 use std::ops::ControlFlow;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct MapConsumer<C, F> {
     base: C,

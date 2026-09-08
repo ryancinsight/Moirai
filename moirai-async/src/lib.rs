@@ -26,8 +26,8 @@ pub use executor::{AsyncExecutor, AsyncHandle, ExecutorStats};
 
 // Re-export timer functionality
 pub use timer::{
-    interval, interval_at, sleep, timeout, Delay, Interval, RateLimiter, RatePermit, Timeout,
-    TimeoutError, TimerCommand, TimerWheel,
+    Delay, Interval, RateLimiter, RatePermit, Timeout, TimeoutError, TimerCommand, TimerWheel,
+    interval, interval_at, sleep, timeout,
 };
 
 // Re-export networking functionality
@@ -38,9 +38,9 @@ pub use net::{
 
 // Re-export file I/O functionality
 pub use fs::{
-    append, append_str, copy, create_dir, create_dir_all, metadata, read, read_to_string,
-    remove_dir, remove_dir_all, remove_file, rename, write, write_str, File, FileOpenOptions,
-    FileStats,
+    File, FileOpenOptions, FileStats, append, append_str, copy, create_dir, create_dir_all,
+    metadata, read, read_to_string, remove_dir, remove_dir_all, remove_file, rename, write,
+    write_str,
 };
 
 // Re-export sync primitives

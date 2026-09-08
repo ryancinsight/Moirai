@@ -7,7 +7,7 @@ use moirai_async::io::AsyncWriteExt;
 use moirai_async::timer::timeout;
 use moirai_crypto::{base64_decode, base64_encode, sha1};
 
-use crate::request::{read_request_head, HttpRequestHead};
+use crate::request::{HttpRequestHead, read_request_head};
 use crate::websocket::WebSocketStream;
 
 const WEBSOCKET_GUID: &[u8] = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -238,8 +238,8 @@ mod tests {
     use std::collections::VecDeque;
     use std::future::Future;
     use std::pin::Pin;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::task::Waker;
     use std::task::{Context, Poll};
     use std::time::Duration;

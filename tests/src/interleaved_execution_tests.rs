@@ -6,8 +6,9 @@
 
 use moirai::{Moirai, Priority};
 use std::sync::{
+    Arc, Barrier,
     atomic::{AtomicUsize, Ordering},
-    mpsc, Arc, Barrier,
+    mpsc,
 };
 use std::time::Duration;
 

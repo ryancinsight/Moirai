@@ -1,8 +1,8 @@
 //! Atomic counter metric handle.
 
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 /// A monotonically increasing counter metric.

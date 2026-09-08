@@ -18,8 +18,8 @@
 
 #![cfg(loom)]
 
-use loom::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use loom::sync::Arc;
+use loom::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use loom::thread;
 
 /// One raw owner count using the same `Arc` operations as the slot-waker

@@ -1,17 +1,17 @@
 //! Remote task envelopes over transport-owned bytes.
 
 use crate::{
-    payload::{archive_transport_payload, ServerPayloadRegion, TransportPayload},
-    safe_channel::{ArchiveSerialize, ArchiveView, ArchivedMessage},
     Address, NetworkTransport, RemoteAddress, Transport, TransportError, TransportResult,
+    payload::{ServerPayloadRegion, TransportPayload, archive_transport_payload},
+    safe_channel::{ArchiveSerialize, ArchiveView, ArchivedMessage},
 };
 
 mod capability;
 mod server;
 
 pub use capability::{
-    build_remote_operation, EchoBytesCapability, IntoRemoteOperation, RemoteCapability,
-    RemoteCapabilityToken, RemoteTaskOperationKind, SumU64Capability,
+    EchoBytesCapability, IntoRemoteOperation, RemoteCapability, RemoteCapabilityToken,
+    RemoteTaskOperationKind, SumU64Capability, build_remote_operation,
 };
 pub use server::{
     BoundedRemoteTaskServer, RemoteTaskQueueCapacity, RemoteTaskRequestLimit, RemoteTaskServer,

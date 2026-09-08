@@ -6,8 +6,8 @@ use super::{
     RemoteTaskQueueCapacity, RemoteTaskRequestLimit, RemoteTaskResult, RemoteTaskServer,
     RemoteTaskWorkerCount,
 };
-use crate::safe_channel::{ArchiveSerialize, ArchiveView};
 use crate::RemoteAddress;
+use crate::safe_channel::{ArchiveSerialize, ArchiveView};
 
 #[test]
 fn remote_task_envelope_view_borrows_echo_payload() {

@@ -9,10 +9,10 @@
 
 use std::mem;
 
-use super::{prefetch_read_data, CACHE_CHUNK_SIZE, CACHE_LINE_SIZE};
+use super::{CACHE_CHUNK_SIZE, CACHE_LINE_SIZE, prefetch_read_data};
 use crate::{
     base::SendPtr,
-    parallel::output::{output_chunk_range, ChunkWriter, MapOutput},
+    parallel::output::{ChunkWriter, MapOutput, output_chunk_range},
 };
 
 /// Default scheduler batch capacity used by the cache fan-out gate.
@@ -252,9 +252,5 @@ pub(super) const fn zero_copy_chunk_size_for_lanes(
     } else {
         elements_per_cache_chunk
     };
-    if chunk_size == 0 {
-        1
-    } else {
-        chunk_size
-    }
+    if chunk_size == 0 { 1 } else { chunk_size }
 }

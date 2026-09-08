@@ -209,7 +209,7 @@ fn remote_transport_uses_real_length_prefixed_tcp_bytes() {
     for required in [
         "mod network;",
         "pub use network::NetworkTransport;",
-        "pub(crate) use network::{read_network_frame_from_stream, NETWORK_IO_TIMEOUT};",
+        "pub(crate) use network::{NETWORK_IO_TIMEOUT, read_network_frame_from_stream};",
     ] {
         assert!(
             lib.contains(required),

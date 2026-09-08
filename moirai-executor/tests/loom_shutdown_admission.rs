@@ -5,7 +5,7 @@
 
 #![cfg(loom)]
 
-use loom::sync::atomic::{fence, AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use loom::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering, fence};
 use loom::sync::{Arc, Condvar, Mutex};
 use loom::thread;
 

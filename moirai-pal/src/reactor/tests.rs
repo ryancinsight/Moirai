@@ -175,11 +175,13 @@ fn readiness_delivery_consumes_only_reported_interest() {
         }
     }
     assert_eq!(read_count.0.load(Ordering::Relaxed), 1);
-    assert!(!reactor
-        .registered_fds
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .contains_key(&FdKey::from(fd)));
+    assert!(
+        !reactor
+            .registered_fds
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .contains_key(&FdKey::from(fd))
+    );
 
     let residual = reactor
         .platform_reactor
@@ -304,10 +306,12 @@ fn backend_update_failure_preserves_retained_registration_and_wakes_unlocked() {
     assert_eq!(write_wake.count.load(Ordering::Relaxed), 1);
     assert!(!read_wake.woke_while_locked.load(Ordering::Relaxed));
     assert!(!write_wake.woke_while_locked.load(Ordering::Relaxed));
-    assert!(platform_interest
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .is_some());
+    assert!(
+        platform_interest
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .is_some()
+    );
     let fds = reactor
         .registered_fds
         .lock()
@@ -370,13 +374,17 @@ fn backend_update_failure_removes_absent_registration_and_wakes_waiters() {
     );
     assert_eq!(read_count.0.load(Ordering::Relaxed), 1);
     assert_eq!(write_count.0.load(Ordering::Relaxed), 1);
-    assert!(platform_interest
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .is_none());
-    assert!(!reactor
-        .registered_fds
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .contains_key(&FdKey::from(fd)));
+    assert!(
+        platform_interest
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .is_none()
+    );
+    assert!(
+        !reactor
+            .registered_fds
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .contains_key(&FdKey::from(fd))
+    );
 }

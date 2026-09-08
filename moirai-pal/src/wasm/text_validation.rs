@@ -54,8 +54,8 @@ fn bounded(value: String, maximum: usize, message: &'static str) -> io::Result<S
 #[cfg(test)]
 mod tests {
     use super::{
-        event_data, input_type, locale, text_value, MAX_INPUT_TYPE_BYTES, MAX_LOCALE_BYTES,
-        MAX_TEXT_BYTES,
+        MAX_INPUT_TYPE_BYTES, MAX_LOCALE_BYTES, MAX_TEXT_BYTES, event_data, input_type, locale,
+        text_value,
     };
 
     #[test]

@@ -24,11 +24,11 @@ pub mod watch;
 // Re-export public types for convenience
 pub use broadcast::{Broadcast, BroadcastError, BroadcastReceiver, BroadcastRecv, BroadcastSender};
 pub use condvar::Condvar;
-pub use mpsc::{channel as mpsc_channel, Receiver as MpscReceiver, Sender as MpscSender};
+pub use mpsc::{Receiver as MpscReceiver, Sender as MpscSender, channel as mpsc_channel};
 pub use mutex::{Mutex, MutexGuard, MutexLockFuture};
 pub use notify::{Notify, NotifyFuture};
 pub use oneshot::{
-    channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender,
+    Receiver as OneshotReceiver, Sender as OneshotSender, channel as oneshot_channel,
 };
 pub use rwlock::{RwLock, RwLockReadFuture, RwLockWriteFuture};
 pub use semaphore::{Semaphore, SemaphoreAcquire, SemaphorePermit};

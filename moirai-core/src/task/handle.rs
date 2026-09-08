@@ -11,8 +11,8 @@ use core::mem::{ManuallyDrop, MaybeUninit};
 
 #[cfg(feature = "std")]
 use std::sync::{
-    atomic::{AtomicU8, Ordering},
     Arc,
+    atomic::{AtomicU8, Ordering},
 };
 #[cfg(feature = "std")]
 use std::thread;

@@ -24,8 +24,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use futures_rustls::rustls::{ClientConfig, RootCertStore};
 use futures_rustls::TlsConnector as RustlsConnector;
+use futures_rustls::rustls::{ClientConfig, RootCertStore};
 use moirai_async::io::{AsyncRead as MoiraiRead, AsyncWrite as MoiraiWrite};
 
 /// Re-export of the underlying `rustls` types (config, crypto, errors).
