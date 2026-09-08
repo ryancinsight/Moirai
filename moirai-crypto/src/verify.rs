@@ -1,11 +1,11 @@
 //! Certificate signature verification algorithms implemented with RustCrypto
 //! (`p256`, `p384`, `rsa`), exposed as [`SignatureVerificationAlgorithm`]s.
 
+use rustls::SignatureScheme;
 use rustls::crypto::WebPkiSupportedAlgorithms;
 use rustls::pki_types::{
-    alg_id, AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm,
+    AlgorithmIdentifier, InvalidSignature, SignatureVerificationAlgorithm, alg_id,
 };
-use rustls::SignatureScheme;
 
 use rsa::pkcs1::DecodeRsaPublicKey;
 use signature::Verifier;

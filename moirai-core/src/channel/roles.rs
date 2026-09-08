@@ -60,7 +60,7 @@ pub trait Consumer<T> {
 #[cfg(test)]
 mod tests {
     use super::{Consumer, Producer};
-    use crate::channel::{mpmc, spsc, MpmcChannel};
+    use crate::channel::{MpmcChannel, mpmc, spsc};
 
     /// The point of the split: a function can demand only the sending role, and
     /// an SPSC half — which is deliberately not `Sync` — satisfies it. Before the

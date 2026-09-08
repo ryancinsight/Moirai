@@ -16,7 +16,7 @@
 //! borrow handle, so it stays an inherent capability of `ThreadScheduler` rather
 //! than forcing every substitute to reproduce that machinery.
 
-use moirai_core::{error::ExecutorResult, Priority};
+use moirai_core::{Priority, error::ExecutorResult};
 
 use crate::schedule::class::WorkClass;
 use crate::schedule::runtime::{ScheduleMetrics, ThreadScheduler};

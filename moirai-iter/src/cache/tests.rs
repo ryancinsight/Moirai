@@ -1,16 +1,16 @@
 use super::{
+    CACHE_CHUNK_SIZE, CACHE_LINE_SIZE, CacheIterExt, WindowIterator, ZeroCopyParallelIter,
     parallel::{
-        reduce_owned_pairs, should_execute_scoped_cache, zero_copy_chunk_size_for_lanes,
-        DEFAULT_RING_BUFFER_CAPACITY,
+        DEFAULT_RING_BUFFER_CAPACITY, reduce_owned_pairs, should_execute_scoped_cache,
+        zero_copy_chunk_size_for_lanes,
     },
-    CacheIterExt, WindowIterator, ZeroCopyParallelIter, CACHE_CHUNK_SIZE, CACHE_LINE_SIZE,
 };
 use std::{
     mem,
-    panic::{catch_unwind, AssertUnwindSafe},
+    panic::{AssertUnwindSafe, catch_unwind},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -124,10 +124,12 @@ fn zero_copy_map_parallel_path_preserves_full_and_ragged_ranges() {
         let mapped = iter.map(|input| NonCloneOutput(input.index * 3 + 1));
 
         assert_eq!(mapped.len(), len);
-        assert!(mapped
-            .iter()
-            .enumerate()
-            .all(|(index, output)| output.0 == index * 3 + 1));
+        assert!(
+            mapped
+                .iter()
+                .enumerate()
+                .all(|(index, output)| output.0 == index * 3 + 1)
+        );
     }
 }
 
@@ -249,9 +251,11 @@ fn zero_copy_for_each_accepts_wide_elements() {
         visits[value.0[0] as usize].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     });
 
-    assert!(visits
-        .iter()
-        .all(|count| count.load(std::sync::atomic::Ordering::Relaxed) == 1));
+    assert!(
+        visits
+            .iter()
+            .all(|count| count.load(std::sync::atomic::Ordering::Relaxed) == 1)
+    );
 }
 
 #[test]

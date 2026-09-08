@@ -3,7 +3,7 @@
 use super::DisjointMutPtr;
 use melinoe::cell::MelinoeCell;
 use melinoe::region::WriterShard;
-use moirai_executor::{global, SyncTask};
+use moirai_executor::{SyncTask, global};
 
 /// Split `cells` into disjoint shards of `chunk_size` and run `f` on each in parallel.
 ///

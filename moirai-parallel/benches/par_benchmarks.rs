@@ -1,8 +1,8 @@
 //! Benchmarks for the synchronous data-parallel primitives, with sequential and
 //! rayon baselines for differential comparison.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use moirai_parallel::{join_with, Parallel, ParallelSlice, ParallelSliceMut};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use moirai_parallel::{Parallel, ParallelSlice, ParallelSliceMut, join_with};
 use rayon::prelude::*;
 
 fn closed_form_sum(n: u64) -> u64 {

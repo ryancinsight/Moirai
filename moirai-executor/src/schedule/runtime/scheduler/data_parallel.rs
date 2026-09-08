@@ -22,19 +22,19 @@
 //! state allocation.
 
 use std::{
-    panic::{catch_unwind, resume_unwind, AssertUnwindSafe},
+    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     sync::atomic::Ordering,
 };
 
 use moirai_core::{
-    error::{ExecutorError, ExecutorResult},
     Priority,
+    error::{ExecutorError, ExecutorResult},
 };
 
 use super::super::super::{class::WorkClass, reduce::ReduceSlots};
 use super::super::types::{
-    get_current_worker_id, is_in_indexed_region, IndexedRegionGuard, SchedulerScopeState,
-    ScopedTaskCompletion, ThreadScheduler,
+    IndexedRegionGuard, SchedulerScopeState, ScopedTaskCompletion, ThreadScheduler,
+    get_current_worker_id, is_in_indexed_region,
 };
 use super::super::worker::{
     indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,

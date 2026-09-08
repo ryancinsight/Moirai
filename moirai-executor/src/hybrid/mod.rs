@@ -7,19 +7,19 @@
 //! `crate::schedule`.
 
 use std::{
-    panic::{catch_unwind, AssertUnwindSafe},
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr::NonNull,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
 use moirai_core::{
+    Priority,
     error::{ExecutorResult, TaskError},
     executor::ExecutorConfig,
     task::{TaskHandle, TaskId, TaskResultSender},
-    Priority,
 };
 
 use crate::{

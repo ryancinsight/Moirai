@@ -220,9 +220,9 @@ pub(super) fn timer_driver() -> &'static Arc<TimerDriver> {
 
 #[cfg(test)]
 mod tests {
-    use super::{timer_driver, TimerDriver};
-    use crate::timer::registration::TimerRegistration;
+    use super::{TimerDriver, timer_driver};
     use crate::timer::Delay;
+    use crate::timer::registration::TimerRegistration;
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::Arc;

@@ -63,8 +63,8 @@ use std::{
     marker::PhantomData,
     mem::MaybeUninit,
     sync::{
-        atomic::{AtomicIsize, AtomicPtr, Ordering},
         Arc, Mutex,
+        atomic::{AtomicIsize, AtomicPtr, Ordering},
     },
 };
 

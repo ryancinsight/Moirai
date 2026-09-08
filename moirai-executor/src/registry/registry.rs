@@ -6,14 +6,14 @@
 use std::{
     ptr::NonNull,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc, RwLock,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use super::super::task::TaskMetadata;
-use super::state::{task_location, TaskState, TaskStateBlock};
+use super::state::{TaskState, TaskStateBlock, task_location};
 use super::token::{SchedulerStateLease, TaskLifecycleToken};
 
 /// Outcome of a cooperative cancel request against a registered task.

@@ -8,7 +8,7 @@ mod tests {
     use moirai_core::Priority;
 
     use super::super::registry::{CancelOutcome, TaskRegistry};
-    use super::super::state::{task_location, PRIORITY_FROM_INDEX, TASK_STATE_BLOCK_SIZE};
+    use super::super::state::{PRIORITY_FROM_INDEX, TASK_STATE_BLOCK_SIZE, task_location};
 
     #[test]
     fn lifecycle_token_records_started_and_completed_metadata() {
@@ -151,11 +151,13 @@ mod tests {
 
         registry.cleanup_completed(Duration::ZERO);
 
-        assert!(registry
-            .blocks
-            .read()
-            .expect("test registry lock")
-            .is_empty());
+        assert!(
+            registry
+                .blocks
+                .read()
+                .expect("test registry lock")
+                .is_empty()
+        );
         assert!(registry.get_metadata(first_id).is_none());
         assert!(registry.get_metadata(second_id).is_none());
     }

@@ -199,7 +199,7 @@ async fn manual_gpu_cpu_coordination() -> Duration {
 
 /// Example 4: Complex async coordination - Moirai
 async fn moirai_async_coordination() -> Duration {
-    use moirai_async::{timer::sleep, Broadcast, Semaphore, Watch};
+    use moirai_async::{Broadcast, Semaphore, Watch, timer::sleep};
 
     let start = Instant::now();
 
@@ -257,7 +257,7 @@ async fn moirai_async_coordination() -> Duration {
 
 /// Example 4: Complex async coordination - Pure Tokio
 async fn tokio_async_coordination() -> Duration {
-    use tokio::sync::{broadcast, watch, Semaphore};
+    use tokio::sync::{Semaphore, broadcast, watch};
     use tokio::time::sleep;
 
     let start = Instant::now();

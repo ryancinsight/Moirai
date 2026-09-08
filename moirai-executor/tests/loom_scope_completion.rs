@@ -13,8 +13,8 @@
 #![cfg(loom)]
 
 use loom::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use loom::thread;
 

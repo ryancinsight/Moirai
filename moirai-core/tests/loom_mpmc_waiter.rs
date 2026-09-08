@@ -54,7 +54,7 @@
 
 #![cfg(loom)]
 
-use loom::sync::atomic::{fence, AtomicUsize, Ordering};
+use loom::sync::atomic::{AtomicUsize, Ordering, fence};
 use loom::sync::{Arc, Mutex};
 use loom::thread;
 

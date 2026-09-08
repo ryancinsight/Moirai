@@ -215,7 +215,7 @@ impl Signer for RsaSigner {
             other => {
                 return Err(Error::General(format!(
                     "moirai-crypto: unsupported RSA scheme {other:?}"
-                )))
+                )));
             }
         };
         sig.map_err(|e| Error::General(format!("RSA signing failed: {e}")))

@@ -1,7 +1,7 @@
 //! Warm allocation contract for homogeneous multi-buffer chunk traversal.
 
 use core::sync::atomic::{AtomicUsize, Ordering};
-use moirai_parallel::{for_each_chunk_buffers_mut_enumerated_with, Parallel};
+use moirai_parallel::{Parallel, for_each_chunk_buffers_mut_enumerated_with};
 use std::alloc::{GlobalAlloc, Layout, System};
 
 struct CountingAllocator;

@@ -1,15 +1,15 @@
 //! Thread scheduler construction and worker-set initialization.
 
 use std::{
-    sync::{atomic::AtomicUsize, Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock, atomic::AtomicUsize},
     thread,
 };
 
 use moirai_core::{
     error::{ExecutorError, ExecutorResult},
     executor::{
-        config::{DEFAULT_GLOBAL_QUEUE_CAPACITY, DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY},
         ExecutorConfig,
+        config::{DEFAULT_GLOBAL_QUEUE_CAPACITY, DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY},
     },
 };
 use moirai_scheduler::DequeCapacity;
@@ -341,8 +341,9 @@ fn partition_global_queue(
 mod tests {
     use std::{
         sync::{
+            Arc,
             atomic::{AtomicBool, Ordering},
-            mpsc, Arc,
+            mpsc,
         },
         thread,
         time::Duration,
@@ -350,7 +351,7 @@ mod tests {
 
     use moirai_core::error::ExecutorError;
 
-    use super::{normalize_worker_numa_nodes, ThreadScheduler, WorkerExitGate};
+    use super::{ThreadScheduler, WorkerExitGate, normalize_worker_numa_nodes};
 
     const TEST_EVENT_DEADLINE: Duration = Duration::from_secs(5);
 

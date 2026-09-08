@@ -1,4 +1,4 @@
-use super::support::{allocations_of, source, ALLOCATION_BUDGET, LEN};
+use super::support::{ALLOCATION_BUDGET, LEN, allocations_of, source};
 use moirai_iter::parallel::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 #[test]

@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::reactor::kqueue_transition::{
-    classify_receipt_error, transition_interest, FilterChange, InterestFilter, InterestTransition,
-    ReceiptErrorDisposition,
+    FilterChange, InterestFilter, InterestTransition, ReceiptErrorDisposition,
+    classify_receipt_error, transition_interest,
 };
 use crate::reactor::registration::{
     PlatformUpdateFailure, PolledEvent, RegistrationGeneration, RegistrationTable,

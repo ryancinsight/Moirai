@@ -6,8 +6,8 @@
 use moirai_core::{Priority, TaskId};
 use moirai_pal::reactor::IoReactor;
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::task::{Context, Poll, Waker};
 use std::time::Instant;
 
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn test_ready_task_completion_wakes_registered_handle() {
-        use futures::task::{waker_ref, ArcWake};
+        use futures::task::{ArcWake, waker_ref};
         use std::sync::atomic::AtomicUsize;
         use std::task::Poll;
 

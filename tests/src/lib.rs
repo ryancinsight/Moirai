@@ -23,8 +23,8 @@ pub mod io_compat_tests;
 mod integration_tests {
     use moirai::{Moirai, Priority, TaskBuilder};
     use std::sync::{
-        atomic::{AtomicU32, Ordering},
         Arc,
+        atomic::{AtomicU32, Ordering},
     };
     use std::time::Duration;
 
@@ -308,8 +308,8 @@ mod integration_tests {
     #[test]
     fn test_basic_principle_edge_cases() {
         // Basic test to verify some principles work
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::thread;
 
         // Simple SRP test
@@ -354,8 +354,8 @@ mod integration_tests {
 #[cfg(test)]
 mod documentation_tests {
     use moirai::Moirai;
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
 
     /// Test the quick start example from the main documentation (simplified)

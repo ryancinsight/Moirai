@@ -41,11 +41,11 @@ pub use error::{Channel, ChannelError, Result};
 pub use hybrid::{HybridChannel, HybridReceiver, HybridSender};
 pub use mpmc::{MpmcChannel, MpmcReceiver, MpmcSender};
 pub use roles::{Consumer, Producer};
-pub use select::{mpmc, spsc, unbounded, Select};
+pub use select::{Select, mpmc, spsc, unbounded};
 pub use spsc::{SpscConsumer, SpscProducer, SpscReceiver, SpscRing, SpscSender};
 pub use stats::ChannelStatistics;
 pub use unified::{
-    unified_channel, unified_channel_with_config, UnifiedChannel, UnifiedReceiver, UnifiedSender,
+    UnifiedChannel, UnifiedReceiver, UnifiedSender, unified_channel, unified_channel_with_config,
 };
 
 #[cfg(test)]

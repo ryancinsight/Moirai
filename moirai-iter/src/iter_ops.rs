@@ -7,7 +7,7 @@ mod stateful;
 mod streaming;
 
 pub use self::parallel::ParallelIter;
-pub use self::stateful::{fold_ref, PartitionRef, ScanRef, UpdateInPlace};
+pub use self::stateful::{PartitionRef, ScanRef, UpdateInPlace, fold_ref};
 pub use self::streaming::StreamingIter;
 
 /// Zero-copy iterator that operates on borrowed slices
@@ -95,11 +95,7 @@ impl<T, I: Iterator<Item = T>> Iterator for ChunkedIter<T, I> {
             }
         }
 
-        if chunk.is_empty() {
-            None
-        } else {
-            Some(chunk)
-        }
+        if chunk.is_empty() { None } else { Some(chunk) }
     }
 }
 

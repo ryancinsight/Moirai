@@ -1,8 +1,8 @@
 //! Atomic gauge metric handle.
 
 use std::sync::{
-    atomic::{AtomicI64, Ordering},
     Arc,
+    atomic::{AtomicI64, Ordering},
 };
 
 /// A signed gauge metric that may increase or decrease.

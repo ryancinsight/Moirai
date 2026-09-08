@@ -2,7 +2,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
-use crate::{safe_channel::ArchiveSerialize, TransportResult};
+use crate::{TransportResult, safe_channel::ArchiveSerialize};
 use core::marker::PhantomData;
 
 mod sealed {
@@ -143,8 +143,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        archive_transport_payload, DevicePayloadRegion, PayloadBoundary, PayloadRegion,
-        ProcessPayloadRegion, ServerPayloadRegion, ThreadPayloadRegion, TransportPayload,
+        DevicePayloadRegion, PayloadBoundary, PayloadRegion, ProcessPayloadRegion,
+        ServerPayloadRegion, ThreadPayloadRegion, TransportPayload, archive_transport_payload,
     };
     use core::mem::size_of;
 

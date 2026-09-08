@@ -101,8 +101,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        build_remote_operation, EchoBytesCapability, RemoteCapabilityToken,
-        RemoteTaskOperationKind, SumU64Capability,
+        EchoBytesCapability, RemoteCapabilityToken, RemoteTaskOperationKind, SumU64Capability,
+        build_remote_operation,
     };
     use crate::remote_task::RemoteTaskOperation;
     use core::mem::size_of;

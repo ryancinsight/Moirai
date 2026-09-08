@@ -1,15 +1,15 @@
 use moirai_iter::{
-    cache::{CacheIterExt, CACHE_CHUNK_SIZE},
-    iter_ops::ParallelIter,
     AsyncContext, ExecutionContext, MoiraiIterator,
+    cache::{CACHE_CHUNK_SIZE, CacheIterExt},
+    iter_ops::ParallelIter,
 };
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     future::Future,
     mem::size_of,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     task::Poll,
 };

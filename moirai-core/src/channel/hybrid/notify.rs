@@ -1,7 +1,7 @@
 //! Producer-side wake gate shared by the send paths and both endpoint drops.
 
-use std::sync::atomic::{fence, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering, fence};
 use std::task::Waker;
 
 use crate::channel::CHANNEL_STORE_LOAD_ORDER;

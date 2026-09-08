@@ -25,6 +25,6 @@ pub use codec::Response;
 pub use conn::Origin;
 pub use request::HttpRequestHead;
 pub use upgrade::{
-    accept_websocket, accept_websocket_with_validator, WebSocketConfig, WebSocketUpgrade,
+    WebSocketConfig, WebSocketUpgrade, accept_websocket, accept_websocket_with_validator,
 };
 pub use websocket::WebSocketStream;

@@ -1,4 +1,4 @@
-use super::super::{fallible, Consumer, MapConsumer, ParallelIterator, TryStreamItem, VecParIter};
+use super::super::{Consumer, MapConsumer, ParallelIterator, TryStreamItem, VecParIter, fallible};
 use std::ops::ControlFlow;
 
 /// Map adapter for parallel iterators.

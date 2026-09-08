@@ -3,7 +3,7 @@
     reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
 )]
 
-use crate::channel::{mpmc, ChannelError, MpmcReceiver, MpmcSender};
+use crate::channel::{ChannelError, MpmcReceiver, MpmcSender, mpmc};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, RwLock};

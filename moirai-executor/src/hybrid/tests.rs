@@ -6,12 +6,12 @@ mod tests {
     use super::super::HybridExecutor;
     use crate::{AsyncTask, BlockingTask, SyncTask, WorkClass};
     use moirai_core::{
+        Priority,
         executor::{ExecutorConfig, ExecutorControl, TaskManager, TaskSpawner, TaskStatus},
         task::TaskBuilder,
-        Priority,
     };
     use std::{
-        sync::{mpsc, Arc},
+        sync::{Arc, mpsc},
         time::Duration,
     };
 
@@ -194,8 +194,8 @@ mod tests {
 
     #[test]
     fn spawn_detached_runs_every_task_and_drains_on_shutdown() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let executor = HybridExecutor::new(ExecutorConfig {
             worker_threads: 4,
@@ -223,8 +223,8 @@ mod tests {
 
     #[test]
     fn spawn_detached_isolates_panics() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let executor = HybridExecutor::new(ExecutorConfig {
             worker_threads: 1,
@@ -269,8 +269,9 @@ mod tests {
     #[test]
     fn spawn_async_requeues_after_wake_without_blocking_worker() {
         use std::sync::{
+            Arc, Mutex,
             atomic::{AtomicBool, Ordering},
-            mpsc, Arc, Mutex,
+            mpsc,
         };
         use std::task::Waker;
         use std::time::{Duration, Instant};
@@ -335,8 +336,8 @@ mod tests {
     #[test]
     fn spawn_async_completes_single_self_wake() {
         use std::sync::{
-            atomic::{AtomicUsize, Ordering},
             Arc,
+            atomic::{AtomicUsize, Ordering},
         };
 
         let executor = HybridExecutor::new(ExecutorConfig {
@@ -424,8 +425,8 @@ mod tests {
 
     #[test]
     fn cancel_queued_task_skips_body_and_completes_cancelled() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let executor = HybridExecutor::new(ExecutorConfig {
             worker_threads: 1,
@@ -467,8 +468,8 @@ mod tests {
 
     #[test]
     fn cancel_queued_async_task_skips_future_and_completes_cancelled() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         let executor = HybridExecutor::new(ExecutorConfig {
             worker_threads: 1,
@@ -562,8 +563,8 @@ mod tests {
     #[test]
     fn wait_for_task_is_woken_by_completion_not_polling() {
         use std::future::Future;
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::task::{Context, Poll, Waker};
 
         let executor = HybridExecutor::new(ExecutorConfig {
@@ -608,8 +609,8 @@ mod tests {
     #[test]
     fn wait_for_task_timeout_expires_and_unknown_task_errors() {
         use std::future::Future;
-        use std::sync::atomic::AtomicUsize;
         use std::sync::Arc;
+        use std::sync::atomic::AtomicUsize;
         use std::task::{Context, Poll, Waker};
 
         let executor = HybridExecutor::new(ExecutorConfig {

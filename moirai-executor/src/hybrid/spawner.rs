@@ -1,14 +1,14 @@
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use moirai_core::{
+    Priority,
     error::ExecutorResult,
     executor::TaskSpawner,
     task::{Task, TaskHandle},
-    Priority,
 };
 
-use super::{async_state::AsyncFutureState, HybridExecutor, MetricsRef};
+use super::{HybridExecutor, MetricsRef, async_state::AsyncFutureState};
 use crate::schedule::{BlockingTask, SyncTask, WorkScheduler};
 
 impl<S: WorkScheduler> HybridExecutor<S> {

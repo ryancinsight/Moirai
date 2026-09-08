@@ -278,8 +278,8 @@ fn test_spsc_drains_value_published_before_close() {
 
 #[test]
 fn test_hybrid_channel_parking() {
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
     use std::time::{Duration, Instant};
 

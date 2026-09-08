@@ -3,7 +3,7 @@
     reason = "test scope: failed precondition = test failure"
 )]
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use moirai_gpu::prelude::*;
 
 const VECTOR_ADD_SHADER: &str = r#"

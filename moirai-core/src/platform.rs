@@ -26,12 +26,12 @@ pub use core::time::Duration;
 // Platform-specific atomic operations
 #[cfg(feature = "std")]
 pub use std::sync::atomic::{
-    compiler_fence, fence, AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering,
+    AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering, compiler_fence, fence,
 };
 
 #[cfg(not(feature = "std"))]
 pub use core::sync::atomic::{
-    compiler_fence, fence, AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering,
+    AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering, compiler_fence, fence,
 };
 
 // Platform-specific cell types
@@ -43,17 +43,17 @@ pub use core::cell::{Cell, RefCell, UnsafeCell};
 
 // Platform-specific memory operations
 #[cfg(feature = "std")]
-pub use std::mem::{self, align_of, forget, replace, size_of, swap, MaybeUninit};
+pub use std::mem::{self, MaybeUninit, align_of, forget, replace, size_of, swap};
 
 #[cfg(not(feature = "std"))]
-pub use core::mem::{self, align_of, forget, replace, size_of, swap, MaybeUninit};
+pub use core::mem::{self, MaybeUninit, align_of, forget, replace, size_of, swap};
 
 // Platform-specific pointer operations
 #[cfg(feature = "std")]
-pub use std::ptr::{self, null, null_mut, NonNull};
+pub use std::ptr::{self, NonNull, null, null_mut};
 
 #[cfg(not(feature = "std"))]
-pub use core::ptr::{self, null, null_mut, NonNull};
+pub use core::ptr::{self, NonNull, null, null_mut};
 
 // Platform-specific marker types
 #[cfg(feature = "std")]
@@ -116,10 +116,10 @@ pub use spin::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 /// across different platforms and feature configurations.
 pub mod channel {
     #[cfg(feature = "std")]
-    pub use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
+    pub use std::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError, channel};
 
     #[cfg(not(feature = "std"))]
-    pub use alloc::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
+    pub use alloc::sync::mpsc::{Receiver, RecvError, Sender, TryRecvError, channel};
 }
 
 /// Thread abstraction for cross-platform threading support.
@@ -128,7 +128,7 @@ pub mod channel {
 /// across different platforms and feature configurations.
 pub mod thread {
     #[cfg(feature = "std")]
-    pub use std::thread::{sleep, spawn, yield_now, JoinHandle, Thread, ThreadId};
+    pub use std::thread::{JoinHandle, Thread, ThreadId, sleep, spawn, yield_now};
 
     #[cfg(not(feature = "std"))]
     compile_error!("Thread support requires std feature");

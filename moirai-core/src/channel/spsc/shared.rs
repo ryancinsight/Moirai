@@ -5,12 +5,12 @@
 //! allocation for the ring plus an atomic refcount decrement per half at
 //! drop; [`borrowed`](super::borrowed) trades that for a scope.
 
-use super::ring::{blocking, SpscChannel};
+use super::ring::{SpscChannel, blocking};
 use crate::channel::error::{Channel, Result};
 use crate::channel::roles::{Consumer, Producer};
 use std::cell::Cell;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 impl<T> SpscChannel<T> {
     /// Create a channel pair (sender, receiver) for ergonomic usage

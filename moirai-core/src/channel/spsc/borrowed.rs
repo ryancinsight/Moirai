@@ -19,7 +19,7 @@
 //! runtime flag is involved — the same guarantee `Arc`-backed halves get from
 //! being non-`Clone`, obtained here from the borrow checker.
 
-use super::ring::{blocking, SpscChannel};
+use super::ring::{SpscChannel, blocking};
 use crate::channel::error::{Channel, Result};
 use crate::channel::roles::{Consumer, Producer};
 use std::cell::Cell;
@@ -268,8 +268,8 @@ mod auto_traits {
 #[cfg(test)]
 mod tests {
     use super::SpscRing;
-    use crate::channel::roles::{Consumer, Producer};
     use crate::channel::ChannelError;
+    use crate::channel::roles::{Consumer, Producer};
 
     #[test]
     fn split_halves_transfer_values_in_order() {
@@ -381,8 +381,8 @@ mod tests {
     /// be dropped exactly once.
     #[test]
     fn dropping_a_loaded_ring_drops_each_value_once() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
         use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         struct Counted(Arc<AtomicUsize>);
         impl Drop for Counted {

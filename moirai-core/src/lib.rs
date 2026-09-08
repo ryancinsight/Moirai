@@ -56,10 +56,10 @@ pub use task::{Priority, Task, TaskBuilder, TaskContext, TaskExt, TaskFuture, Ta
 // reachable only through its fully qualified path.
 #[cfg(feature = "std")]
 pub use channel::{
-    mpmc, spsc, unified_channel, unified_channel_with_config, Channel, ChannelConfig, ChannelError,
-    ChannelStatistics, Consumer, MpmcChannel, MpmcReceiver, MpmcSender, Producer, Select,
-    SpscConsumer, SpscProducer, SpscReceiver, SpscRing, SpscSender, UnifiedReceiver, UnifiedSender,
-    DEFAULT_CHANNEL_CAPACITY,
+    Channel, ChannelConfig, ChannelError, ChannelStatistics, Consumer, DEFAULT_CHANNEL_CAPACITY,
+    MpmcChannel, MpmcReceiver, MpmcSender, Producer, Select, SpscConsumer, SpscProducer,
+    SpscReceiver, SpscRing, SpscSender, UnifiedReceiver, UnifiedSender, mpmc, spsc,
+    unified_channel, unified_channel_with_config,
 };
 
 // Re-export CacheAligned from moirai-utils for convenience
@@ -89,7 +89,7 @@ pub mod prelude {
 
     #[cfg(feature = "std")]
     pub use crate::{
-        mpmc, spsc, Channel, ChannelError, Consumer, MpmcReceiver, MpmcSender, Producer,
-        SpscConsumer, SpscProducer, SpscReceiver, SpscRing, SpscSender, DEFAULT_CHANNEL_CAPACITY,
+        Channel, ChannelError, Consumer, DEFAULT_CHANNEL_CAPACITY, MpmcReceiver, MpmcSender,
+        Producer, SpscConsumer, SpscProducer, SpscReceiver, SpscRing, SpscSender, mpmc, spsc,
     };
 }

@@ -189,8 +189,8 @@ impl Default for TimerWheel {
 mod tests {
     use super::TimerWheel;
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
     use std::task::{Wake, Waker};
     use std::time::{Duration, Instant};

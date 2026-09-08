@@ -16,6 +16,6 @@ mod tests;
 
 pub use global::GlobalPool;
 pub use slab::SlabAllocator;
-pub use stack::{CacheAligned, LockFreeStack, DEFAULT_STACK_CAPACITY};
+pub use stack::{CacheAligned, DEFAULT_STACK_CAPACITY, LockFreeStack};
 pub use thread_local::ThreadLocalPool;
 pub use wrapper::TaskWrapper;

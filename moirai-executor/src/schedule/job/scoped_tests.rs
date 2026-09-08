@@ -1,12 +1,12 @@
 use std::{
     mem::{size_of, size_of_val},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
-use super::{InlineJobStorage, ScheduledJob, INLINE_JOB_WORDS};
+use super::{INLINE_JOB_WORDS, InlineJobStorage, ScheduledJob};
 
 struct DropCounter {
     drops: Arc<AtomicUsize>,

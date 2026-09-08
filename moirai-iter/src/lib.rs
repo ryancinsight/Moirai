@@ -38,8 +38,8 @@ pub use execution::{
     ParallelContext, PerformanceHistory,
 };
 pub use facade::{
-    async_range, moirai_iter, moirai_iter_async, moirai_iter_hybrid, moirai_iter_parallel,
-    par_range, MoiraiIterator,
+    MoiraiIterator, async_range, moirai_iter, moirai_iter_async, moirai_iter_hybrid,
+    moirai_iter_parallel, par_range,
 };
 pub use parallel::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelExtend,

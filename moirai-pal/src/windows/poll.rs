@@ -18,8 +18,8 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use windows::Win32::Networking::WinSock::{
-    WSAPoll, POLLERR, POLLHUP, POLLNVAL, POLLRDNORM, POLLWRNORM, SOCKET, SOCKET_ERROR, WSAPOLLFD,
-    WSAPOLL_EVENT_FLAGS,
+    POLLERR, POLLHUP, POLLNVAL, POLLRDNORM, POLLWRNORM, SOCKET, SOCKET_ERROR, WSAPOLL_EVENT_FLAGS,
+    WSAPOLLFD, WSAPoll,
 };
 
 use crate::reactor::registration::{

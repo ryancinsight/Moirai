@@ -267,9 +267,10 @@ fn pool_retained_footprint_attribution() {
         probe_scheduler_capacity(workers, capacity, &hits, payload);
         probe_first_growth(capacity);
     }
-    assert!(hits
-        .iter()
-        .all(|h| { h.load(Ordering::Relaxed) == LOCAL_QUEUE_CAPACITIES.len() }));
+    assert!(
+        hits.iter()
+            .all(|h| { h.load(Ordering::Relaxed) == LOCAL_QUEUE_CAPACITIES.len() })
+    );
 }
 
 #[test]
@@ -307,9 +308,11 @@ fn warmed_indexed_operations_limit_allocations() {
     );
     #[cfg(miri)]
     let AllocationCount {} = fanout_allocations;
-    assert!(visits
-        .iter()
-        .all(|count| { count.load(Ordering::Relaxed) == REPETITIONS + 1 }));
+    assert!(
+        visits
+            .iter()
+            .all(|count| { count.load(Ordering::Relaxed) == REPETITIONS + 1 })
+    );
 
     let (reduced, reduction_allocations) = measure_allocations(|| {
         let mut reduced = 0;

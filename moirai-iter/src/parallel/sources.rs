@@ -2,7 +2,7 @@ use super::{
     CollectConsumer, Consumer, IndexedParallelIterator, IntoParallelIterator,
     IntoParallelRefIterator, ParallelExtend, ParallelIterator,
 };
-use moirai_executor::{global, SyncTask};
+use moirai_executor::{SyncTask, global};
 use std::ops::ControlFlow;
 use std::sync::Mutex;
 

@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 
 use futures::stream::Stream;
 
-use super::{source_slot_plan, RetainedSlots, ORDER_END};
+use super::{ORDER_END, RetainedSlots, source_slot_plan};
 
 /// Ordered bounded stream whose future slabs are retained and refilled.
 pub(crate) struct RetainedBuffered<S>

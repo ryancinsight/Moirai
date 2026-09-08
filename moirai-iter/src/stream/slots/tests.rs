@@ -3,14 +3,14 @@ use core::marker::PhantomPinned;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::task::{Context, Poll};
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use futures::task::{waker, ArcWake};
+use futures::task::{ArcWake, waker};
 use futures::{Stream, StreamExt};
 
-use super::wake::{WakeBlock, WAKE_TOKEN_BYTES};
-use super::{retained_buffered, retained_unordered, RetainedSlots, SlotKey};
+use super::wake::{WAKE_TOKEN_BYTES, WakeBlock};
+use super::{RetainedSlots, SlotKey, retained_buffered, retained_unordered};
 
 mod ordered_storage;
 

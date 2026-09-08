@@ -15,8 +15,8 @@ fn test_parallel_map() {
 fn parallel_drive_uses_multiple_lanes_and_preserves_order() {
     let data = (0..16_384usize).collect::<Vec<_>>();
     let worker_count = moirai_executor::global().total_workers(); // A single-worker configuration cannot prove cross-lane overlap; keep this
-                                                                  // value-semantic suite portable while exercising the assertion on the normal
-                                                                  // multi-worker executor.
+    // value-semantic suite portable while exercising the assertion on the normal
+    // multi-worker executor.
     if worker_count < 2 {
         return;
     }
@@ -369,8 +369,8 @@ fn test_indexed_interleave_moves_non_clone_values_without_clone_bound() {
 #[test]
 fn test_indexed_interleave_shortest_drops_truncated_tail_once() {
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
     struct DropProbe {
@@ -475,8 +475,8 @@ fn test_indexed_step_by_rejects_zero_step() {
 #[test]
 fn test_indexed_step_by_drops_skipped_values_once() {
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
 
     struct DropProbe {
@@ -1138,11 +1138,7 @@ fn test_parallel_try_for_each_with_uses_cloned_state_and_propagates_error() {
         data.into_par_iter().try_for_each_with(
             (),
             |_state, value| {
-                if value == 3 {
-                    Err(value)
-                } else {
-                    Ok(())
-                }
+                if value == 3 { Err(value) } else { Ok(()) }
             },
         );
     assert_eq!(error, Err(3));
@@ -1170,11 +1166,7 @@ fn test_parallel_try_for_each_init_uses_initialized_state_and_propagates_error()
     let error = data.into_par_iter().try_for_each_init(
         || (),
         |_state, value| {
-            if value == 6 {
-                Err(value)
-            } else {
-                Ok(())
-            }
+            if value == 6 { Err(value) } else { Ok(()) }
         },
     );
     assert_eq!(error, Err(6));

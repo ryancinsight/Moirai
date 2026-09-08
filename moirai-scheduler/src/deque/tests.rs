@@ -4,8 +4,8 @@ use super::reclaim::{
     SharedEpochState,
 };
 use super::split::SplitDeque;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 static_assertions::assert_impl_all!(ChaseLevDeque<usize>: Send);
 static_assertions::assert_not_impl_any!(ChaseLevDeque<usize>: Clone, Sync);
@@ -113,7 +113,7 @@ fn chase_lev_deque_resizes_without_per_item_heap_nodes() {
 
 #[test]
 fn chase_lev_deque_recovers_poisoned_retired_array_lock() {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     let result = catch_unwind(AssertUnwindSafe(|| {
         let mut deque: ChaseLevDeque<usize> = ChaseLevDeque::new(capacity(2));

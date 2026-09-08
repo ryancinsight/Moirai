@@ -3,7 +3,7 @@
 use crate::{
     buffer::{BufferUsage, GpuBuffer},
     compute::{
-        storage_buffer_entry, uniform_buffer_entry, ComputeKernel, ComputeShader, KernelDispatch,
+        ComputeKernel, ComputeShader, KernelDispatch, storage_buffer_entry, uniform_buffer_entry,
     },
     device::GpuDevice,
     error::{GpuError, GpuResult},

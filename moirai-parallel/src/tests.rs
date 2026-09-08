@@ -1,7 +1,7 @@
 use super::*;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Barrier,
+    atomic::{AtomicUsize, Ordering},
 };
 
 #[test]
@@ -337,9 +337,11 @@ fn for_each_chunk_mut_enumerated_passes_index() {
         }
     });
     for i in 0..lanes {
-        assert!(data[i * width..(i + 1) * width]
-            .iter()
-            .all(|&v| v == i as u64));
+        assert!(
+            data[i * width..(i + 1) * width]
+                .iter()
+                .all(|&v| v == i as u64)
+        );
     }
 }
 
@@ -421,7 +423,7 @@ fn empty_and_single_inputs_are_handled() {
 #[cfg(feature = "melinoe")]
 #[test]
 fn test_par_partition_melinoe() {
-    use melinoe::{brand_scope, MelinoeCell};
+    use melinoe::{MelinoeCell, brand_scope};
     let data = vec![0usize; 16];
     brand_scope(|token| {
         let mut cells: Vec<MelinoeCell<'_, usize>> =
@@ -441,7 +443,7 @@ fn test_par_partition_melinoe() {
 #[cfg(feature = "melinoe")]
 #[test]
 fn test_par_partition_map_preserves_partition_order() {
-    use melinoe::{brand_scope, MelinoeCell};
+    use melinoe::{MelinoeCell, brand_scope};
 
     brand_scope(|token| {
         let mut cells: Vec<MelinoeCell<'_, usize>> = (0..10).map(MelinoeCell::new).collect();

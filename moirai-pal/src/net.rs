@@ -13,8 +13,8 @@ use std::os::unix::io::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawSocket;
 
-use crate::reactor::IoReactor;
 use crate::Interest;
+use crate::reactor::IoReactor;
 
 #[cfg(unix)]
 fn socket_to_raw(s: &impl AsRawFd) -> crate::RawFd {

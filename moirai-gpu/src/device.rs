@@ -1,6 +1,6 @@
 //! GPU device management and capabilities detection
 
-use crate::{error::GpuResult, DevicePreferences, GpuError};
+use crate::{DevicePreferences, GpuError, error::GpuResult};
 use std::sync::Arc;
 use wgpu::{Adapter, Device, Features, Limits, Queue};
 

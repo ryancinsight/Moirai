@@ -57,8 +57,8 @@
 
 #![cfg(loom)]
 
-use loom::sync::atomic::{fence, AtomicU64, AtomicUsize, Ordering};
 use loom::sync::Arc;
+use loom::sync::atomic::{AtomicU64, AtomicUsize, Ordering, fence};
 use loom::thread;
 
 /// Worker id 0 occupies bit 0 of the (single-word) idle bitset.

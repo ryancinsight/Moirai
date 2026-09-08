@@ -39,8 +39,8 @@
 #![cfg(loom)]
 
 use loom::cell::UnsafeCell;
-use loom::sync::atomic::{AtomicU8, Ordering};
 use loom::sync::Arc;
+use loom::sync::atomic::{AtomicU8, Ordering};
 use loom::thread;
 
 const EMPTY: u8 = 0;

@@ -1,6 +1,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
-use crate::{lock_mutex, transport::Address, Transport, TransportResult};
+use crate::{Transport, TransportResult, lock_mutex, transport::Address};
 use std::{
     collections::HashMap,
     fmt,

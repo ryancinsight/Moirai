@@ -9,7 +9,7 @@ use std::time::Duration;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{console, Window};
+use web_sys::{Window, console};
 
 // JavaScript's setTimeout accepts a signed 32-bit millisecond delay.
 const MAX_TIMEOUT_MILLISECONDS: u128 = 2_147_483_647;

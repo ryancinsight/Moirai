@@ -1,12 +1,12 @@
 use super::support::{
-    context_for_each_allocation_budget, context_for_each_byte_budget,
+    CONTEXT_MAP_LEN, context_for_each_allocation_budget, context_for_each_byte_budget,
     context_large_limit_map_values, context_map_allocation_budget, context_map_byte_budget,
     context_map_values, context_pending_for_each, context_pending_map_values,
-    context_pending_map_values_with_limit, warmed_allocation_ledger, CONTEXT_MAP_LEN,
+    context_pending_map_values_with_limit, warmed_allocation_ledger,
 };
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 fn source() -> Vec<u64> {
@@ -91,9 +91,11 @@ fn parallel_context_pending_for_each_records_entry_allocation_ledger() {
         |(data, counts)| context_pending_for_each(data, counts),
     );
 
-    assert!(measured_visits
-        .iter()
-        .all(|count| count.load(Ordering::SeqCst) == 1));
+    assert!(
+        measured_visits
+            .iter()
+            .all(|count| count.load(Ordering::SeqCst) == 1)
+    );
     assert!(allocations <= context_for_each_allocation_budget());
     assert!(bytes <= context_for_each_byte_budget());
 }
