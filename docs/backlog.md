@@ -1,4 +1,22 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-WINDOW-WIN32-2026-09-08"></a>
+## MOI-WINDOW-WIN32-2026-09-08 — Win32 window event and presentation provider [arch] [minor]
+
+- Outcome: Moirai exposes a bounded Windows native-window primitive for Atlas
+  applications: lifecycle, pointer, keyboard/text, resize/DPI events and
+  persistent ARGB presentation through one thread-owned handle.
+- Scope: Win32 window creation, message translation, bounded event retention,
+  high-DPI notifications and software-frame presentation. WebView2 COM hosting,
+  OS permission policy, accessibility providers and cross-platform window
+  implementations remain consumer or follow-on host concerns.
+- Acceptance: the provider validates configuration and frame dimensions, creates
+  and destroys a real window without leaked state, translates input/lifecycle/
+  resize/DPI messages, repaints the last frame, rejects queue overflow and
+  passes Windows warning-denied tests. No GUI toolkit dependency is added.
+- Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/native-window-provider`; last-update: 2026-09-08; driver:
+  [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
+- Decision: [ADR 0049](adr/0049-win32-window-provider.md) (claimed).
 <a id="MOI-WASM-DOM-TEXT-2026-09-07"></a>
 ## MOI-WASM-DOM-TEXT-2026-09-07 — Expose bounded browser text and composition metadata [arch] [minor]
 
