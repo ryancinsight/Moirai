@@ -67,20 +67,20 @@ use std::{
     cell::{Cell, UnsafeCell},
     future::Future,
     mem::MaybeUninit,
-    panic::{catch_unwind, AssertUnwindSafe},
+    panic::{AssertUnwindSafe, catch_unwind},
     pin::Pin,
     ptr,
     sync::{
-        atomic::{AtomicU8, Ordering},
         Arc,
+        atomic::{AtomicU8, Ordering},
     },
     task::{Context, Poll, Wake, Waker},
 };
 
 use moirai_core::{
+    Priority,
     error::{ExecutorError, ExecutorResult, TaskError},
     task::TaskResultSender,
-    Priority,
 };
 
 use crate::{
@@ -292,12 +292,15 @@ where
         match Arc::clone(self).enqueue() {
             Ok(()) => {}
             Err(ExecutorError::ResourceExhausted(_)) => {
-                if let Some(_depth_guard) = InlinePollDepthGuard::try_enter() {
-                    // Registry diagnostics report the task as running off the
-                    // worker pool; `NO_WORKER` is display-only there.
-                    self.poll(crate::registry::state::NO_WORKER);
-                } else {
-                    self.complete_resource_exhausted();
+                match InlinePollDepthGuard::try_enter() {
+                    Some(_depth_guard) => {
+                        // Registry diagnostics report the task as running off the
+                        // worker pool; `NO_WORKER` is display-only there.
+                        self.poll(crate::registry::state::NO_WORKER);
+                    }
+                    _ => {
+                        self.complete_resource_exhausted();
+                    }
                 }
             }
             Err(_) => {
@@ -587,18 +590,19 @@ mod tests {
         future::Future,
         pin::Pin,
         sync::{
+            Arc, Mutex,
             atomic::{AtomicUsize, Ordering},
-            mpsc, Arc, Mutex,
+            mpsc,
         },
         task::{Context, Poll, Waker},
         time::Duration,
     };
 
     use moirai_core::{
-        error::{ExecutorError, ExecutorResult, TaskError},
-        executor::{config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY, ExecutorConfig},
-        task::{TaskHandle, TaskId},
         Priority,
+        error::{ExecutorError, ExecutorResult, TaskError},
+        executor::{ExecutorConfig, config::DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY},
+        task::{TaskHandle, TaskId},
     };
 
     use super::AsyncFutureState;

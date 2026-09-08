@@ -1,7 +1,7 @@
 use crate::channel::error::Result;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{fence, Ordering};
+use std::sync::atomic::{Ordering, fence};
 use std::task::{Context, Poll};
 
 use crate::channel::CHANNEL_STORE_LOAD_ORDER;
@@ -69,12 +69,15 @@ impl<T: Send> Future for RecvFuture<'_, T> {
         // store-buffer pair `moirai-sync`'s `FutexMutex` documents).
         fence(CHANNEL_STORE_LOAD_ORDER);
 
-        let ready = if let Some(value) = this.receiver.ring.try_consume() {
-            Some(Ok(value))
-        } else if this.receiver.closed.load(Ordering::Acquire) {
-            Some(Err(crate::channel::error::ChannelError::Closed))
-        } else {
-            None
+        let ready = match this.receiver.ring.try_consume() {
+            Some(value) => Some(Ok(value)),
+            _ => {
+                if this.receiver.closed.load(Ordering::Acquire) {
+                    Some(Err(crate::channel::error::ChannelError::Closed))
+                } else {
+                    None
+                }
+            }
         };
 
         if let Some(output) = ready {

@@ -38,13 +38,12 @@ impl<T> ReduceSlots<T> {
     where
         F: Fn(T, T) -> T,
     {
-        self.slots.iter().fold(identity, |accumulator, slot| {
-            if let Some(value) = slot.take() {
-                reduce(accumulator, value)
-            } else {
-                accumulator
-            }
-        })
+        self.slots
+            .iter()
+            .fold(identity, |accumulator, slot| match slot.take() {
+                Some(value) => reduce(accumulator, value),
+                _ => accumulator,
+            })
     }
 }
 

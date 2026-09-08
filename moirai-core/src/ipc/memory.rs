@@ -62,7 +62,7 @@
 //! so only the creator `shm_unlink`s the name on drop. Every handle unmaps its
 //! own view and closes its own descriptor regardless.
 
-use super::error::{last_os_error, IpcError};
+use super::error::{IpcError, last_os_error};
 use core::slice;
 
 #[cfg(unix)]
@@ -75,7 +75,7 @@ mod win {
     pub const FILE_MAP_ALL_ACCESS: u32 = 0x000F_001F;
     pub const INVALID_HANDLE_VALUE: usize = usize::MAX;
 
-    extern "system" {
+    unsafe extern "system" {
         pub fn CreateFileMappingW(
             file: usize,
             attributes: *mut core::ffi::c_void,

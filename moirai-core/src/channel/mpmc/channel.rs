@@ -6,11 +6,11 @@
 use super::queue::BoundedMpmcQueue;
 use super::recv::MpmcReceiver;
 use super::send::MpmcSender;
-use super::{MpmcState, MPMC_BLOCK_SPINS};
-use crate::channel::error::{Channel, ChannelError, Result};
+use super::{MPMC_BLOCK_SPINS, MpmcState};
 use crate::channel::CHANNEL_STORE_LOAD_ORDER;
+use crate::channel::error::{Channel, ChannelError, Result};
 use std::collections::VecDeque;
-use std::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, fence};
 use std::sync::{Arc, Condvar, Mutex};
 
 mod roles;
@@ -398,15 +398,16 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             }
         }
 
-        if let Some(value) = guard.queue.pop_front() {
-            drop(guard);
+        match guard.queue.pop_front() {
+            Some(value) => {
+                drop(guard);
 
-            if self.sender_waiter_count.load(Ordering::Acquire) > 0 {
-                not_full.notify_one();
+                if self.sender_waiter_count.load(Ordering::Acquire) > 0 {
+                    not_full.notify_one();
+                }
+                Ok(value)
             }
-            Ok(value)
-        } else {
-            Err(ChannelError::Closed)
+            _ => Err(ChannelError::Closed),
         }
     }
 
@@ -436,17 +437,22 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
         let (mutex, not_full, _) = &*self.state;
         let mut guard = mutex.lock().unwrap();
 
-        if let Some(value) = guard.queue.pop_front() {
-            drop(guard);
+        match guard.queue.pop_front() {
+            Some(value) => {
+                drop(guard);
 
-            if self.sender_waiter_count.load(Ordering::Acquire) > 0 {
-                not_full.notify_one();
+                if self.sender_waiter_count.load(Ordering::Acquire) > 0 {
+                    not_full.notify_one();
+                }
+                Ok(value)
             }
-            Ok(value)
-        } else if guard.closed {
-            Err(ChannelError::Closed)
-        } else {
-            Err(ChannelError::Empty)
+            _ => {
+                if guard.closed {
+                    Err(ChannelError::Closed)
+                } else {
+                    Err(ChannelError::Empty)
+                }
+            }
         }
     }
 

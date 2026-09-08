@@ -12,13 +12,29 @@ pub unsafe fn prefetch_read_data(ptr: *const u8, level: i32) {
     #[cfg(target_arch = "x86_64")]
     {
         use std::arch::x86_64::{
-            _mm_prefetch, _MM_HINT_NTA, _MM_HINT_T0, _MM_HINT_T1, _MM_HINT_T2,
+            _MM_HINT_NTA, _MM_HINT_T0, _MM_HINT_T1, _MM_HINT_T2, _mm_prefetch,
         };
         match level {
-            0 => _mm_prefetch(ptr.cast(), _MM_HINT_T0),
-            1 => _mm_prefetch(ptr.cast(), _MM_HINT_T1),
-            2 => _mm_prefetch(ptr.cast(), _MM_HINT_T2),
-            _ => _mm_prefetch(ptr.cast(), _MM_HINT_NTA),
+            0 => {
+                // SAFETY: the function contract requires `ptr` to refer to
+                // readable memory; this intrinsic only issues a hint.
+                unsafe { _mm_prefetch(ptr.cast(), _MM_HINT_T0) };
+            }
+            1 => {
+                // SAFETY: the function contract requires `ptr` to refer to
+                // readable memory; this intrinsic only issues a hint.
+                unsafe { _mm_prefetch(ptr.cast(), _MM_HINT_T1) };
+            }
+            2 => {
+                // SAFETY: the function contract requires `ptr` to refer to
+                // readable memory; this intrinsic only issues a hint.
+                unsafe { _mm_prefetch(ptr.cast(), _MM_HINT_T2) };
+            }
+            _ => {
+                // SAFETY: the function contract requires `ptr` to refer to
+                // readable memory; this intrinsic only issues a hint.
+                unsafe { _mm_prefetch(ptr.cast(), _MM_HINT_NTA) };
+            }
         }
     }
     #[cfg(not(target_arch = "x86_64"))]
@@ -39,13 +55,29 @@ pub unsafe fn prefetch_write_data(ptr: *mut u8, level: i32) {
     #[cfg(target_arch = "x86_64")]
     {
         use std::arch::x86_64::{
-            _mm_prefetch, _MM_HINT_NTA, _MM_HINT_T0, _MM_HINT_T1, _MM_HINT_T2,
+            _MM_HINT_NTA, _MM_HINT_T0, _MM_HINT_T1, _MM_HINT_T2, _mm_prefetch,
         };
         match level {
-            0 => _mm_prefetch(ptr.cast_const().cast(), _MM_HINT_T0),
-            1 => _mm_prefetch(ptr.cast_const().cast(), _MM_HINT_T1),
-            2 => _mm_prefetch(ptr.cast_const().cast(), _MM_HINT_T2),
-            _ => _mm_prefetch(ptr.cast_const().cast(), _MM_HINT_NTA),
+            0 => {
+                // SAFETY: the function contract requires `ptr` to refer to
+                // writable memory; this intrinsic only issues a hint.
+                unsafe { _mm_prefetch(ptr.cast_const().cast(), _MM_HINT_T0) };
+            }
+            1 => {
+                // SAFETY: the function contract requires `ptr` to refer to
+                // writable memory; this intrinsic only issues a hint.
+                unsafe { _mm_prefetch(ptr.cast_const().cast(), _MM_HINT_T1) };
+            }
+            2 => {
+                // SAFETY: the function contract requires `ptr` to refer to
+                // writable memory; this intrinsic only issues a hint.
+                unsafe { _mm_prefetch(ptr.cast_const().cast(), _MM_HINT_T2) };
+            }
+            _ => {
+                // SAFETY: the function contract requires `ptr` to refer to
+                // writable memory; this intrinsic only issues a hint.
+                unsafe { _mm_prefetch(ptr.cast_const().cast(), _MM_HINT_NTA) };
+            }
         }
     }
     #[cfg(not(target_arch = "x86_64"))]
