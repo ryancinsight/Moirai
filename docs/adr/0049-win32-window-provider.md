@@ -6,7 +6,9 @@ Date: 2026-09-08
 
 Revision 2026-09-08: add a bounded message-queue wait so native consumers can
 run an event-driven loop without busy polling or an unbounded blocking call;
-retained events are drained before the operating-system wait.
+retained events are drained before the operating-system wait. Add bounded
+Windows IME composition phases and surface retrieval failures through the
+provider result.
 
 Driver: [MOI-WINDOW-WIN32-2026-09-08](../backlog.md#MOI-WINDOW-WIN32-2026-09-08),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
@@ -32,6 +34,11 @@ returns a bounded batch. The window procedure translates `WM_CLOSE`, focus
 changes, left-button and movement messages, `WM_KEYDOWN`, `WM_CHAR`, `WM_SIZE`
 and `WM_DPICHANGED` into the provider's value events. `WM_NCDESTROY` reports
 completed destruction. Surrogate pairs are combined before text delivery.
+`WM_IME_STARTCOMPOSITION`, `WM_IME_COMPOSITION` and `WM_IME_ENDCOMPOSITION`
+become `TextComposition` events carrying start, preedit, commit or cancel
+phases. IME strings are read through the existing Windows system binding,
+capped at `MAX_COMPOSITION_UNITS` and validated as UTF-16 before they enter the
+event queue.
 `present_argb8888` validates
 the dimensions and exact pixel count, reuses the retained vector when possible,
 and invalidates the client area. `WM_PAINT` uses a top-down 32-bit DIB and
@@ -69,19 +76,21 @@ do not dereference an unproven pointer. Frame presentation retains no borrowed
 pointer after the call returns. A failed creation or repaint returns an `io::Error`
 with the native error code; no silent fallback renderer is selected.
 
-This increment is Windows-only and supplies a software frame surface. WebView2
-COM hosting, native IME composition, accessibility providers, OS permission
-enforcement and macOS/Linux implementations require separate providers and
-runtime evidence.
+This increment is Windows-only and supplies a software frame surface and native
+IME event production. WebView2 COM hosting, accessibility providers, OS
+permission enforcement and macOS/Linux implementations require separate
+providers and runtime evidence. Application editing policy still owns how a
+consumer displays or commits the composition phases.
 
 ## Verification
 
-Unit tests cover value-level decoding and queue bounds. A Windows test creates a
-real window, pumps creation and destruction messages, posts representative
-messages, verifies lifecycle/resize/DPI/text values and presents a bounded frame;
-a second native test verifies retained initial readiness, rejects an overlong
-wait, proves a posted input wakes the finite wait and observes an empty queue
-afterward.
+Unit tests cover value-level decoding, composition bounds and queue limits. A
+Windows test creates a real window, pumps creation and destruction messages,
+posts representative messages including IME start/end, verifies
+lifecycle/resize/DPI/text values and presents a bounded frame; a second native
+test verifies retained initial readiness, rejects an overlong wait, proves a
+posted input wakes the finite wait and observes an empty queue afterward. The
+tests do not claim a particular installed IME or CJK keyboard journey.
 The PAL package must pass warning-denied Clippy and native tests on Windows;
 cross-target library checks verify that non-Windows and WASM builds do not
 compile the provider. Miri cannot execute Win32 calls, so the FFI path is

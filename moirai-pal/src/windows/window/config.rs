@@ -14,6 +14,8 @@ pub const MAX_TITLE_UNITS: usize = 256;
 pub const MAX_PUMP_MESSAGES: usize = 1_024;
 /// Maximum finite wait accepted by the native event pump.
 pub const MAX_WAIT_MILLISECONDS: u32 = 30_000;
+/// Maximum UTF-16 code units retained for one native IME update.
+pub const MAX_COMPOSITION_UNITS: usize = 4_096;
 
 /// Initial visibility for a native window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

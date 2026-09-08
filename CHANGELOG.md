@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Bounded Windows IME composition events.** The thread-owned native window
+  now reports IME start, preedit, commit and cancellation phases with validated
+  UTF-8 snapshots bounded by `MAX_COMPOSITION_UNITS`.
+
 - **The GPU planner budget is constructed through `moirai-gpu`.**
   `KernelResourceBudget` is re-exported by the GPU facade and the occupancy
   planner consumes that same public type, preventing downstream providers

@@ -1,7 +1,7 @@
 //! Value and native-host tests for the window provider.
 
 use super::config::validate_frame_dimensions;
-use super::event::{MouseButton, WindowEvent};
+use super::event::{CompositionPhase, MouseButton, WindowEvent};
 use super::input::{extent_from_lparam, mouse_button, point_from_lparam};
 use super::native::NativeWindow;
 use super::state::WindowState;
@@ -10,8 +10,9 @@ use std::io;
 use std::time::Duration;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    PostMessageW, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_SIZE, WM_XBUTTONDOWN,
+    PostMessageW, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_IME_ENDCOMPOSITION,
+    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+    WM_SIZE, WM_XBUTTONDOWN,
 };
 
 #[test]
@@ -47,6 +48,28 @@ fn utf16_pairing_preserves_scalars_and_rejects_unmatched_units() {
                 character: '\u{fffd}'
             },
         ]
+    );
+}
+
+#[test]
+fn composition_decoding_is_bounded_and_preserves_unicode() {
+    let mut state = WindowState::new().expect("bounded queue");
+    state.push_composition(
+        CompositionPhase::Updated,
+        super::state::decode_composition(&[u16::from(b'A'), 0xd83d, 0xde00])
+            .expect("UTF-16 fixture"),
+    );
+    assert_eq!(
+        state.events.pop_front(),
+        Some(WindowEvent::TextComposition {
+            phase: CompositionPhase::Updated,
+            text: "A😀".to_owned(),
+        })
+    );
+    assert!(super::state::decode_composition(&[0xd800]).is_err());
+    assert!(
+        super::state::decode_composition(&vec![u16::from(b'x'); super::MAX_COMPOSITION_UNITS + 1])
+            .is_err()
     );
 }
 
@@ -102,6 +125,8 @@ fn native_window_lifecycle_and_frame_round_trip() {
         PostMessageW(window.hwnd, WM_KEYUP, WPARAM(0x41), LPARAM(0)).expect("key up");
         PostMessageW(window.hwnd, WM_CHAR, WPARAM(0xd83d), LPARAM(0)).expect("high surrogate");
         PostMessageW(window.hwnd, WM_CHAR, WPARAM(0xde00), LPARAM(0)).expect("low surrogate");
+        let _ = SendMessageW(window.hwnd, WM_IME_STARTCOMPOSITION, WPARAM(0), LPARAM(0));
+        let _ = SendMessageW(window.hwnd, WM_IME_ENDCOMPOSITION, WPARAM(0), LPARAM(0));
         PostMessageW(
             window.hwnd,
             WM_SIZE,
@@ -136,6 +161,14 @@ fn native_window_lifecycle_and_frame_round_trip() {
     }));
     assert!(events.contains(&WindowEvent::KeyUp { virtual_key: 0x41 }));
     assert!(events.contains(&WindowEvent::TextInput { character: '😀' }));
+    assert!(events.contains(&WindowEvent::TextComposition {
+        phase: CompositionPhase::Started,
+        text: String::new(),
+    }));
+    assert!(events.contains(&WindowEvent::TextComposition {
+        phase: CompositionPhase::Canceled,
+        text: String::new(),
+    }));
     assert!(events.contains(&WindowEvent::DpiChanged { dpi: 144 }));
     window.close().expect("destroy");
     assert!(window.is_destroyed());
