@@ -26,6 +26,10 @@ Pointer events also expose a value snapshot with normalized device type,
 viewport coordinates, button state, modifier keys and primary-pointer state.
 Wheel events expose bounded deltas with their browser unit, viewport
 coordinates and the same modifier-key snapshot.
+Drag events expose CSS-pixel coordinates and an owned `DropMetadata` snapshot
+with at most 64 validated files; names, media types and byte sizes are bounded
+before they reach an application. The seam does not read file bytes or treat a
+name as a filesystem path.
 `WebEventListener` removes its callback registration when dropped. `spawn_local` uses the browser event loop for futures; applications
 do not create a second executor or retain detached JavaScript closures.
 `spawn_local_with_handle` adds

@@ -7,7 +7,8 @@ Status: Accepted
 
 Revision note: the browser host seam now includes owned DOM elements, form
 control values, checked and disabled control state, modal dialog lifecycle,
-focus, pointer capture, pointer metadata, wheel metadata and event listeners. Metis consumes
+focus, pointer capture, pointer metadata, wheel metadata, bounded file-drop
+metadata and event listeners. Metis consumes
 these handles without importing `web-sys`; the listener guard removes the
 callback before releasing its JavaScript closure.
 
@@ -62,8 +63,12 @@ Wheel events expose a `WheelMetadata` snapshot with three deltas, their
 pixel/line/page unit, viewport coordinates and modifier keys. The event seam
 returns no metadata for unrelated event kinds, so application policy can keep
 scroll and gesture handling explicit.
+Drag events expose a bounded `DropMetadata` snapshot with CSS-pixel coordinates
+and validated `DroppedFile` records. File counts, names, media types and byte
+sizes are checked before allocation; file bytes and filesystem paths remain
+outside the DOM seam.
 `WebEventListener` owns one callback registration and removes it in `Drop`;
-`WebEvent` exposes only the target/value/pointer-metadata/default-action
+`WebEvent` exposes only the target/value/pointer/drop-metadata/default-action
 operations needed by an application, so browser bindings do not leak into
 Metis domain code. `spawn_local` routes application futures to the browser
 event loop without creating a second executor.
@@ -98,6 +103,9 @@ Clippy pass, and the in-app browser trace records input-sensitive vertical and
 horizontal pixel deltas with viewport coordinates. The CUA scroll action is
 automation-generated and does not expose the browser `isTrusted` flag, so the
 trace does not claim physical-wheel or cross-engine parity.
+The provider's file-drop validation helpers have native value tests for bounded
+names and media types plus finite, representable byte sizes; the DOM binding is
+compile-checked with the `DragEvent`, `DataTransfer` and `FileList` features.
 
 ## Residuals
 

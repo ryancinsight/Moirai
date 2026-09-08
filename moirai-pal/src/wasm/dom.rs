@@ -1,5 +1,9 @@
 //! Safe, owned browser DOM handles for Atlas applications.
 
+mod file_drop;
+
+pub use self::file_drop::{DropMetadata, DroppedFile};
+
 use std::io;
 
 use wasm_bindgen::closure::Closure;

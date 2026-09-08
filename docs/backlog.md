@@ -1,4 +1,20 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-WASM-DOM-DROP-2026-09-07"></a>
+## MOI-WASM-DOM-DROP-2026-09-07 — Bound browser file-drop metadata [arch] [minor]
+
+- Outcome: Moirai exposes a bounded, validated browser file-drop metadata seam
+  for Atlas WASM applications without exposing `web-sys` to consumers.
+- Scope: `moirai-pal` drag events and file metadata; file bytes, DICOM parsing,
+  application policy and native host event production remain consumer or host
+  concerns.
+- Acceptance: file count, names, media types and byte sizes are bounded and
+  input-sensitive; malformed metadata returns a typed error; WASM check, native
+  provider tests and warning-denied Clippy pass.
+- Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/wasm-drop-metadata`; last-update: 2026-09-07; driver:
+  [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
+- Decision: [ADR 0047](adr/0047-bounded-browser-file-drop.md).
+
 <a id="MOI-HTTP-WS-2026-09-07"></a>
 ## MOI-HTTP-WS-2026-09-07 — Bounded WebSocket service substrate [arch] [minor]
 

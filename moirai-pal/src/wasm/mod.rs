@@ -22,8 +22,8 @@ use web_sys::console;
 use crate::{Event, Interest, RawFd, Reactor};
 
 pub use self::dom::{
-    PointerMetadata, PointerModifiers, PointerType, WebDocument, WebElement, WebEvent,
-    WebEventListener, WheelDeltaMode, WheelMetadata,
+    DropMetadata, DroppedFile, PointerMetadata, PointerModifiers, PointerType, WebDocument,
+    WebElement, WebEvent, WebEventListener, WheelDeltaMode, WheelMetadata,
 };
 pub use self::timer::WebTimer;
 pub use crate::local_task::LocalTaskHandle;
