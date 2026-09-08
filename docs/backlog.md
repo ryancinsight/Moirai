@@ -1,4 +1,15 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-IDLE-HOOK-ADMISSION"></a>
+## MOI-IDLE-HOOK-ADMISSION — Bound worker idle-hook admission [major] [arch]
+- Outcome: every accepted hook executes in registration order; capacity exhaustion rejects without mutation.
+- Scope: idle-hook registry, exports, repository callers and lifecycle documentation; no scheduler redesign or Apollo API changes.
+- Acceptance: fixed allocation-free storage; typed overflow; unlocked snapshot execution; deterministic capacity, duplicate, ordering, reentrant, panic and worker-reclamation tests.
+- Status: in-progress; integrator: codex/api_evidence; priority: P0; last-update: 2026-09-08.
+- Branch: `codex/idle-hook-admission`; driver: [Apollo admission](../../apollo/backlog.md#apollo-worker-hook-admission).
+- Decision: ADR 0051 is claimed for bounded idle-hook admission; registration return changes require caller migration, without a version bump or release.
+- Verification: focused Nextest, Clippy, docs and API classification after the Atlas shared build slot is granted; implementation remains unverified until collection.
+- Lease: codex/api_evidence `moirai-executor/src/schedule/runtime/idle_hooks*`, hook export lines, worker hook comments, `moirai-parallel/tests/worker_idle_hook_quiescence.rs`, affected documentation; 2026-09-08.
+
 <a id="MOI-WASM-DOM-FILE-2026-09-08"></a>
 ## MOI-WASM-DOM-FILE-2026-09-08 — Provide bounded browser file access [arch] [minor]
 
