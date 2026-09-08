@@ -7,6 +7,7 @@ use super::native::NativeWindow;
 use super::state::WindowState;
 use super::{WindowConfig, WindowVisibility};
 use std::io;
+use std::time::Duration;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageW, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
@@ -138,4 +139,36 @@ fn native_window_lifecycle_and_frame_round_trip() {
     assert!(events.contains(&WindowEvent::DpiChanged { dpi: 144 }));
     window.close().expect("destroy");
     assert!(window.is_destroyed());
+}
+
+#[test]
+#[cfg(windows)]
+fn native_window_wait_returns_posted_input_without_busy_polling() {
+    let config =
+        WindowConfig::with_visibility("Moirai wait test", 320, 240, WindowVisibility::Hidden)
+            .expect("config");
+    let mut window = NativeWindow::new(&config).expect("native window");
+    let _ = window.poll_events().expect("initial messages");
+    // SAFETY: the message targets the live HWND owned by this test and carries
+    // only immediate scalar parameters.
+    unsafe {
+        PostMessageW(
+            window.hwnd,
+            WM_MOUSEMOVE,
+            WPARAM(0),
+            LPARAM(((18_u32 << 16) | 0x000c) as isize),
+        )
+        .expect("pointer move");
+    }
+    let events = window
+        .wait_events(Duration::from_secs(1))
+        .expect("wait for posted input");
+    assert!(events.contains(&WindowEvent::PointerMove { x: 12, y: 18 }));
+    assert!(
+        window
+            .wait_events(Duration::ZERO)
+            .expect("immediate wait")
+            .is_empty()
+    );
+    window.close().expect("destroy");
 }

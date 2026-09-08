@@ -12,6 +12,8 @@ pub const MAX_FRAME_DIMENSION: u32 = 16_384;
 pub const MAX_TITLE_UNITS: usize = 256;
 /// Maximum number of messages dispatched during one pump call.
 pub const MAX_PUMP_MESSAGES: usize = 1_024;
+/// Maximum finite wait accepted by the native event pump.
+pub const MAX_WAIT_MILLISECONDS: u32 = 30_000;
 
 /// Initial visibility for a native window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

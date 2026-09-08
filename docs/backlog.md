@@ -14,13 +14,18 @@
   resize/DPI messages, repaints the last frame, rejects queue overflow and
   passes Windows warning-denied tests. No GUI toolkit dependency is added.
 - Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
-  branch: `feat/native-window-provider`; last-update: 2026-09-08; driver:
+  branch: `feat/native-window-wait`; last-update: 2026-09-08; driver:
   [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
 - Decision: [ADR 0049](adr/0049-win32-window-provider.md) (claimed).
 - Increment: commits `3fe5b76` and `04b4542` add the Rust 2024 baseline and
   bounded Win32 HWND, input, lifecycle, DPI and ARGB presentation provider.
 - Evidence: `cargo check --workspace --locked`, `cargo test -p moirai-pal
-  --locked` (59 passed) and strict package Clippy pass on Windows.
+  --locked` (60 passed, including the finite wait/input wake case) and strict
+  package Clippy pass on Windows.
+- Increment: `NativeWindow::wait_events` accepts a finite timeout capped at 30
+  seconds, waits on the owning thread's message queue, and returns the same
+  bounded event batch as `poll_events`; the native test proves a posted pointer
+  message wakes the wait without a polling loop.
 - Residual: WebView2, OS permissions, accessibility/IME, macOS/Linux providers
   and the Métis adapter remain open under the same desktop item.
 <a id="MOI-WASM-DOM-TEXT-2026-09-07"></a>

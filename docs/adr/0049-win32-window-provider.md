@@ -4,6 +4,9 @@ Status: Accepted
 
 Date: 2026-09-08
 
+Revision 2026-09-08: add a bounded message-queue wait so native consumers can
+run an event-driven loop without busy polling or an unbounded blocking call.
+
 Driver: [MOI-WINDOW-WIN32-2026-09-08](../backlog.md#MOI-WINDOW-WIN32-2026-09-08),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
 
@@ -34,6 +37,11 @@ and invalidates the client area. `WM_PAINT` uses a top-down 32-bit DIB and
 `StretchDIBits` to repaint the retained frame. `Drop` calls `DestroyWindow` only
 for a live handle; callback state is cleared at `WM_NCDESTROY` and remains owned
 by the Rust handle until destruction returns.
+
+`NativeWindow::wait_events` is the event-driven companion to `poll_events`. It
+waits on the owning thread's queue for a caller-supplied finite duration, capped
+at 30 seconds, then drains one bounded batch. A timeout returns an empty batch;
+the provider never sleeps or spins on behalf of the consumer.
 
 The provider contains no process, filesystem, network, WebView or authorization
 policy. Those capabilities remain in Moirai's existing lifecycle APIs or in the
@@ -68,7 +76,9 @@ runtime evidence.
 
 Unit tests cover value-level decoding and queue bounds. A Windows test creates a
 real window, pumps creation and destruction messages, posts representative
-messages, verifies lifecycle/resize/DPI/text values and presents a bounded frame.
+messages, verifies lifecycle/resize/DPI/text values and presents a bounded frame;
+a second native test verifies a posted input wakes the finite wait and that the
+next immediate wait observes an empty queue.
 The PAL package must pass warning-denied Clippy and native tests on Windows;
 cross-target library checks verify that non-Windows and WASM builds do not
 compile the provider. Miri cannot execute Win32 calls, so the FFI path is

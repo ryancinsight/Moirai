@@ -12,8 +12,8 @@ mod native;
 mod state;
 
 pub use config::{
-    MAX_FRAME_DIMENSION, MAX_FRAME_PIXELS, MAX_PUMP_MESSAGES, MAX_TITLE_UNITS, MAX_WINDOW_EVENTS,
-    WindowConfig, WindowVisibility,
+    MAX_FRAME_DIMENSION, MAX_FRAME_PIXELS, MAX_PUMP_MESSAGES, MAX_TITLE_UNITS,
+    MAX_WAIT_MILLISECONDS, MAX_WINDOW_EVENTS, WindowConfig, WindowVisibility,
 };
 pub use event::{MouseButton, WindowEvent};
 pub use native::NativeWindow;
