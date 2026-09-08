@@ -4,8 +4,8 @@ use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -71,10 +71,10 @@ impl TimerState {
     }
 
     fn complete(&self) {
-        if !self.completed.swap(true, Ordering::AcqRel) {
-            if let Some(waker) = self.waker.lock().unwrap_or_else(|e| e.into_inner()).take() {
-                waker.wake();
-            }
+        if !self.completed.swap(true, Ordering::AcqRel)
+            && let Some(waker) = self.waker.lock().unwrap_or_else(|e| e.into_inner()).take()
+        {
+            waker.wake();
         }
     }
 

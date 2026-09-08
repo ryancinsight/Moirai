@@ -49,22 +49,24 @@ impl CacheAlignedAllocator {
     /// - No other references to the memory exist
     /// - The memory is not accessed after deallocation
     pub unsafe fn deallocate<T>(ptr: NonNull<T>, count: usize) {
-        let size = size_of::<T>() * count;
-        // Transfer granularity: this places the *start* of the array on a line
-        // boundary so element 0 does not straddle two lines. Separating two
-        // concurrently written atomics is a different problem, solved by
-        // `CacheAligned` at the field level, not by widening this alignment.
-        let align = align_of::<T>().max(CACHE_LINE_SIZE);
+        unsafe {
+            let size = size_of::<T>() * count;
+            // Transfer granularity: this places the *start* of the array on a line
+            // boundary so element 0 does not straddle two lines. Separating two
+            // concurrently written atomics is a different problem, solved by
+            // `CacheAligned` at the field level, not by widening this alignment.
+            let align = align_of::<T>().max(CACHE_LINE_SIZE);
 
-        if let Ok(layout) = Layout::from_size_align(size, align) {
-            #[cfg(feature = "mnemosyne")]
-            {
-                use core::alloc::GlobalAlloc;
-                mnemosyne::Mnemosyne.dealloc(ptr.as_ptr().cast::<u8>(), layout);
-            }
-            #[cfg(not(feature = "mnemosyne"))]
-            {
-                std::alloc::dealloc(ptr.as_ptr().cast::<u8>(), layout);
+            if let Ok(layout) = Layout::from_size_align(size, align) {
+                #[cfg(feature = "mnemosyne")]
+                {
+                    use core::alloc::GlobalAlloc;
+                    mnemosyne::Mnemosyne.dealloc(ptr.as_ptr().cast::<u8>(), layout);
+                }
+                #[cfg(not(feature = "mnemosyne"))]
+                {
+                    std::alloc::dealloc(ptr.as_ptr().cast::<u8>(), layout);
+                }
             }
         }
     }

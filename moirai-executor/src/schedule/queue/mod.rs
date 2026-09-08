@@ -3,8 +3,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use moirai_core::Priority;
@@ -245,11 +245,14 @@ impl WorkerQueueOwner {
             let mut pushed_count = 0;
             // Dequeue a batch (up to 15 more tasks to form a batch of 16)
             while pushed_count < 15 {
-                if let Some((p, job)) = target.injector.try_dequeue() {
-                    self.local_queues[p.index()].push(job);
-                    pushed_count += 1;
-                } else {
-                    break;
+                match target.injector.try_dequeue() {
+                    Some((p, job)) => {
+                        self.local_queues[p.index()].push(job);
+                        pushed_count += 1;
+                    }
+                    _ => {
+                        break;
+                    }
                 }
             }
             if pushed_count > 0 {
@@ -271,7 +274,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use super::{steal_after_contention_with, WorkerQueues, STEAL_SPINS_BEFORE_YIELD};
+    use super::{STEAL_SPINS_BEFORE_YIELD, WorkerQueues, steal_after_contention_with};
     use crate::schedule::job::ScheduledJob;
     use moirai_core::Priority;
     use moirai_scheduler::{DequeCapacity, StealResult};

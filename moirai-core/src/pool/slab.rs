@@ -82,7 +82,7 @@ impl<T> SlabAllocator<T> {
     pub fn insert(&self, value: T) -> Option<usize> {
         loop {
             let packed_free = self.next_free.load(Ordering::Acquire);
-            let (free_idx, gen) = unpack(packed_free);
+            let (free_idx, r#gen) = unpack(packed_free);
 
             if free_idx >= self.entries.len() {
                 return None; // Slab is full
@@ -91,7 +91,7 @@ impl<T> SlabAllocator<T> {
             let entry = &self.entries[free_idx];
             let next_idx = entry.next.load(Ordering::Relaxed);
 
-            let new_packed = pack(next_idx, gen.wrapping_add(1));
+            let new_packed = pack(next_idx, r#gen.wrapping_add(1));
 
             // Try to claim this slot
             if self
@@ -147,10 +147,10 @@ impl<T> SlabAllocator<T> {
         // Add to free list
         loop {
             let packed_free = self.next_free.load(Ordering::Relaxed);
-            let (free_idx, gen) = unpack(packed_free);
+            let (free_idx, r#gen) = unpack(packed_free);
             entry.next.store(free_idx, Ordering::Relaxed);
 
-            let new_packed = pack(idx, gen.wrapping_add(1));
+            let new_packed = pack(idx, r#gen.wrapping_add(1));
 
             if self
                 .next_free
@@ -178,16 +178,18 @@ impl<T> SlabAllocator<T> {
     /// while the returned reference is live. Concurrent read access to different
     /// indices is safe, but concurrent read/write to the same index requires external synchronization.
     pub unsafe fn get(&self, idx: usize) -> Option<&T> {
-        if idx >= self.entries.len() {
-            return None;
-        }
+        unsafe {
+            if idx >= self.entries.len() {
+                return None;
+            }
 
-        let entry = &self.entries[idx];
+            let entry = &self.entries[idx];
 
-        if entry.occupied.load(Ordering::Acquire) {
-            Some(&*(*entry.value.get()).as_ptr())
-        } else {
-            None
+            if entry.occupied.load(Ordering::Acquire) {
+                Some(&*(*entry.value.get()).as_ptr())
+            } else {
+                None
+            }
         }
     }
 

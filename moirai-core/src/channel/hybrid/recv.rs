@@ -1,7 +1,7 @@
 use crate::channel::error::Result;
 use crate::communication::RingBuffer;
 use std::marker::PhantomData;
-use std::sync::atomic::{fence, AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering, fence};
 use std::sync::{Arc, Mutex};
 use std::task::Waker;
 
@@ -108,12 +108,15 @@ impl<T: Send> HybridReceiver<T> {
     /// [`ChannelError::Closed`](crate::channel::error::ChannelError::Closed) when
     /// the sender is gone.
     pub fn try_recv(&self) -> Result<T> {
-        if let Some(value) = self.ring.try_consume() {
-            Ok(value)
-        } else if self.closed.load(Ordering::Acquire) {
-            Err(crate::channel::error::ChannelError::Closed)
-        } else {
-            Err(crate::channel::error::ChannelError::Empty)
+        match self.ring.try_consume() {
+            Some(value) => Ok(value),
+            _ => {
+                if self.closed.load(Ordering::Acquire) {
+                    Err(crate::channel::error::ChannelError::Closed)
+                } else {
+                    Err(crate::channel::error::ChannelError::Empty)
+                }
+            }
         }
     }
 

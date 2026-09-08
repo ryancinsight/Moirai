@@ -1,4 +1,4 @@
-use std::collections::{hash_map::DefaultHasher, VecDeque};
+use std::collections::{VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
@@ -241,20 +241,25 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
                         progress = true;
                         break;
                     }
-                } else if let Some(mut guard) = local_shard.bins[b].try_lock() {
-                    if let Some(removed) = guard.pop_front() {
-                        let removed_size = removed.size();
-                        // Decrements remove already-inserted items, never our
-                        // reservation, so the net total keeps counting our item.
-                        local_shard.retained_count.fetch_sub(1, Ordering::Release);
-                        local_shard
-                            .retained_bytes
-                            .fetch_sub(removed_size, Ordering::Release);
-                        current_count -= 1;
-                        current_bytes = current_bytes.saturating_sub(removed_size);
-                        evicted.push(removed);
-                        progress = true;
-                        break;
+                } else {
+                    match local_shard.bins[b].try_lock() {
+                        Some(mut guard) => {
+                            if let Some(removed) = guard.pop_front() {
+                                let removed_size = removed.size();
+                                // Decrements remove already-inserted items, never our
+                                // reservation, so the net total keeps counting our item.
+                                local_shard.retained_count.fetch_sub(1, Ordering::Release);
+                                local_shard
+                                    .retained_bytes
+                                    .fetch_sub(removed_size, Ordering::Release);
+                                current_count -= 1;
+                                current_bytes = current_bytes.saturating_sub(removed_size);
+                                evicted.push(removed);
+                                progress = true;
+                                break;
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -316,7 +321,7 @@ impl<T: SizeBounded> ShardedResourcePool<T> {
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    use std::sync::{mpsc::SyncSender, Arc, Barrier, Mutex};
+    use std::sync::{Arc, Barrier, Mutex, mpsc::SyncSender};
 
     struct InterleavingHook {
         recycle_entered: SyncSender<()>,

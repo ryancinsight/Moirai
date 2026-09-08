@@ -6,8 +6,8 @@
 )]
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::channel::config::ChannelConfig;
 use crate::channel::error::ChannelError;
@@ -130,10 +130,10 @@ impl<T> UnifiedChannel<T> {
         if let Some(message) = self.ring_buffer.try_pop() {
             self.stats.record_receive();
             // If overflow queue contains items, trigger lazy drain under lock
-            if self.overflow_count.load(Ordering::Acquire) > 0 {
-                if let Ok(mut overflow) = self.overflow_queue.try_lock() {
-                    self.drain_locked(&mut overflow);
-                }
+            if self.overflow_count.load(Ordering::Acquire) > 0
+                && let Ok(mut overflow) = self.overflow_queue.try_lock()
+            {
+                self.drain_locked(&mut overflow);
             }
             return Ok(message);
         }

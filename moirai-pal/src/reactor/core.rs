@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::io;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::task::Waker;
 use std::time::{Duration, Instant};
@@ -11,7 +11,7 @@ use super::metrics::ReactorMetrics;
 use super::registration::PlatformUpdateFailure;
 #[cfg(any(unix, windows))]
 use super::registration::PolledEvent;
-use crate::{create_reactor, Event, Interest, PlatformReactor, RawFd, Reactor};
+use crate::{Event, Interest, PlatformReactor, RawFd, Reactor, create_reactor};
 
 /// Send/Sync-safe internal key for platform handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -421,14 +421,14 @@ impl IoReactor {
 
     /// Remove wakers for a file descriptor.
     pub fn deregister_waker(&self, fd: RawFd, interest: Interest) {
-        if let Ok(mut fds) = self.registered_fds.lock() {
-            if let Some(fd_info) = fds.get_mut(&FdKey::from(fd)) {
-                if interest.readable {
-                    fd_info.read_waker = None;
-                }
-                if interest.writable {
-                    fd_info.write_waker = None;
-                }
+        if let Ok(mut fds) = self.registered_fds.lock()
+            && let Some(fd_info) = fds.get_mut(&FdKey::from(fd))
+        {
+            if interest.readable {
+                fd_info.read_waker = None;
+            }
+            if interest.writable {
+                fd_info.write_waker = None;
             }
         }
     }

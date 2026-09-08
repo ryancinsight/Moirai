@@ -319,27 +319,25 @@ impl WebSocketState {
     }
 
     fn clear_waiter(&mut self, candidate: Option<u64>) {
-        if let Some(candidate) = candidate {
-            if self
+        if let Some(candidate) = candidate
+            && self
                 .waiter
                 .as_ref()
                 .is_some_and(|waiter| waiter.id == candidate)
-            {
-                self.waiter = None;
-            }
+        {
+            self.waiter = None;
         }
     }
 
     #[cfg(any(target_arch = "wasm32", test))]
     fn clear_open_waiter(&mut self, candidate: Option<u64>) {
-        if let Some(candidate) = candidate {
-            if self
+        if let Some(candidate) = candidate
+            && self
                 .open_waiter
                 .as_ref()
                 .is_some_and(|waiter| waiter.id == candidate)
-            {
-                self.open_waiter = None;
-            }
+        {
+            self.open_waiter = None;
         }
     }
 }

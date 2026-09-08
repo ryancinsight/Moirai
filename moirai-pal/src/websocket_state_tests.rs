@@ -295,17 +295,21 @@ fn receive_waiters_with_the_same_waker_remain_distinct() {
         io::ErrorKind::AlreadyExists
     );
 
-    assert!(state
-        .lock()
-        .expect("test state lock must remain healthy")
-        .waiter
-        .is_some());
+    assert!(
+        state
+            .lock()
+            .expect("test state lock must remain healthy")
+            .waiter
+            .is_some()
+    );
     drop(second);
-    assert!(state
-        .lock()
-        .expect("test state lock must remain healthy")
-        .waiter
-        .is_some());
+    assert!(
+        state
+            .lock()
+            .expect("test state lock must remain healthy")
+            .waiter
+            .is_some()
+    );
     let enqueue = state
         .lock()
         .expect("test state lock must remain healthy")

@@ -1,15 +1,15 @@
 use std::{
     future::Future,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
     thread,
     time::Duration,
 };
 
-use futures::task::{waker, ArcWake};
+use futures::task::{ArcWake, waker};
 
 use super::sleep;
 
