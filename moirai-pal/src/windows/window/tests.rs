@@ -148,7 +148,18 @@ fn native_window_wait_returns_posted_input_without_busy_polling() {
         WindowConfig::with_visibility("Moirai wait test", 320, 240, WindowVisibility::Hidden)
             .expect("config");
     let mut window = NativeWindow::new(&config).expect("native window");
-    let _ = window.poll_events().expect("initial messages");
+    let error = window
+        .wait_events(Duration::from_secs(31))
+        .expect_err("bounded wait");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    let initial = window.wait_events(Duration::ZERO).expect("initial events");
+    assert!(initial.iter().any(|event| matches!(
+        event,
+        WindowEvent::Resized {
+            width: 320,
+            height: 240
+        }
+    )));
     // SAFETY: the message targets the live HWND owned by this test and carries
     // only immediate scalar parameters.
     unsafe {

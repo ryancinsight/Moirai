@@ -186,6 +186,9 @@ impl NativeWindow {
                 "native event wait exceeds the 30 second bound",
             ));
         }
+        if !self.state.events.is_empty() || self.state.overflowed {
+            return self.poll_events();
+        }
         // SAFETY: the call observes only this thread's message queue, accepts
         // no handles, and retains no pointer after returning.
         let result = unsafe {
