@@ -1,6 +1,6 @@
 # ADR 0050: Bounded browser file access
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-09-08
 
@@ -50,7 +50,9 @@ create native filesystem authority or prove a trusted operating-system drop.
 ## Verification
 
 Native value tests cover metadata preservation and read cursor policy where the
-pure validation helpers are available. The warning-denied WASM provider build
-checks the `web-sys` feature surface, and Metis adds a consumer compile/use
-check. A browser trace must identify its engine and whether the file came from a
-trusted user operation before claiming byte-read evidence.
+pure validation helpers are available. Commit
+`f51b5c2670c840e8a8302d7f5a5ebeecc57ea076` passes 63 `moirai-pal` tests,
+warning-denied native Clippy and a warning-denied
+`wasm32-unknown-unknown` provider check. Metis adds the consumer compile/use
+surface. A browser trace must identify its engine and whether the file came
+from a trusted user operation before claiming byte-read evidence.
