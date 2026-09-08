@@ -3,15 +3,15 @@
 mod file_drop;
 mod text;
 
-pub use self::file_drop::{DropMetadata, DroppedFile};
+pub use self::file_drop::{DropFiles, DropMetadata, DroppedFile, DroppedFileAccess};
 pub use self::text::{
     CompositionMetadata, TextInputMetadata, TextSelection, TextSelectionDirection,
 };
 
 use std::io;
 
-use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
 use web_sys::{
     Document, Element, Event, HtmlButtonElement, HtmlDialogElement, HtmlElement, HtmlInputElement,
     HtmlSelectElement, MouseEvent, PointerEvent, WheelEvent, Window,
