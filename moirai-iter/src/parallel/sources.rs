@@ -123,18 +123,18 @@ impl<T: Send + Sync + 'static> ParallelIterator for VecParIter<T> {
     type Item = T;
 
     fn seq_items(self) -> Vec<Self::Item> {
-        self.data
+        self.into_vec()
     }
 
     fn seq_iter(self) -> impl Iterator<Item = Self::Item> {
-        self.data.into_iter()
+        self.into_vec().into_iter()
     }
 
     fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
     where
         FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
     {
-        self.data.into_iter().try_fold(init, fold_fn)
+        self.into_vec().into_iter().try_fold(init, fold_fn)
     }
 
     fn drive<C, R>(self, consumer: C) -> R
@@ -268,6 +268,18 @@ impl<I> SequentialAdapter<I> {
     }
 }
 
+impl<I> IntoIterator for SequentialAdapter<I>
+where
+    I: ParallelIterator,
+{
+    type Item = I::Item;
+    type IntoIter = std::vec::IntoIter<I::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter.seq_items().into_iter()
+    }
+}
+
 /// Adapter that drives a sequential iterator through the parallel-consumer
 /// machinery as a single shard.
 pub struct SequentialIterAdapter<I> {
@@ -275,7 +287,8 @@ pub struct SequentialIterAdapter<I> {
 }
 
 impl<I> SequentialIterAdapter<I> {
-    pub(super) fn new(iter: I) -> Self {
+    /// Wrap a sequential iterator so the parallel consumers can drive it.
+    pub fn new(iter: I) -> Self {
         Self { iter }
     }
 }
@@ -375,18 +388,18 @@ impl<'data, T: Send + Sync + 'data> ParallelIterator for VecRefParIter<'data, T>
     type Item = &'data T;
 
     fn seq_items(self) -> Vec<Self::Item> {
-        self.data.iter().collect()
+        self.into_slice().iter().collect()
     }
 
     fn seq_iter(self) -> impl Iterator<Item = Self::Item> {
-        self.data.iter()
+        self.into_slice().iter()
     }
 
     fn seq_try_fold<Acc, B, FoldFn>(self, init: Acc, fold_fn: FoldFn) -> ControlFlow<B, Acc>
     where
         FoldFn: FnMut(Acc, Self::Item) -> ControlFlow<B, Acc>,
     {
-        self.data.iter().try_fold(init, fold_fn)
+        self.into_slice().iter().try_fold(init, fold_fn)
     }
 
     fn drive<C, R>(self, consumer: C) -> R

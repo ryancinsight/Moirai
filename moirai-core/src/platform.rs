@@ -4,8 +4,6 @@
 //! following the Dependency Inversion Principle (SOLID) and making the code more
 //! composable (CUPID).
 
-#![allow(unused_imports)]
-
 // Re-export common types based on platform
 #[cfg(feature = "std")]
 pub use std::{
