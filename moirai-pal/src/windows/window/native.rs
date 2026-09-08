@@ -442,6 +442,9 @@ fn composition_message(hwnd: HWND, state: &mut WindowState, lparam: LPARAM) -> i
     } else if flags & GCS_COMPSTR.0 != 0 {
         (CompositionPhase::Updated, GCS_COMPSTR)
     } else {
+        if state.composition_active {
+            state.push_composition(CompositionPhase::Canceled, String::new());
+        }
         return Ok(());
     };
     let text = read_composition_text(hwnd, kind)?;
