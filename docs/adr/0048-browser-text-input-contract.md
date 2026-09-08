@@ -1,6 +1,6 @@
 # ADR 0048: Browser text input contract
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-09-07
 
@@ -52,8 +52,8 @@ metrics, native IME delivery, clipboard permissions or OS accessibility.
 
 ## Verification
 
-Native tests cover text-bound validation, direction parsing and invalid UTF-16
-range ordering. The WASM check and warning-denied Clippy verify the generated
-`web-sys` feature surface and the owned DOM API. Metis adds policy tests and a
-browser editing trace; synthetic browser events are marked untrusted when the
-automation cannot provide an OS IME.
+Native tests cover the bounded text, event-data, input-type and locale
+validators. The WASM check and warning-denied Clippy verify the generated
+`web-sys` feature surface, selection ordering and the owned DOM API. Metis adds
+policy tests and a browser editing trace; synthetic browser events are marked
+untrusted when the automation cannot provide an OS IME.

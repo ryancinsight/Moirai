@@ -43,6 +43,14 @@ pub mod wasm;
 mod drop_validation;
 
 #[cfg(any(target_arch = "wasm32", test))]
+#[path = "wasm/text_validation.rs"]
+mod text_validation;
+
+#[cfg(any(target_arch = "wasm32", test))]
+#[path = "wasm/text_model.rs"]
+mod text_model;
+
+#[cfg(any(target_arch = "wasm32", test))]
 mod local_task;
 
 #[cfg(any(target_arch = "wasm32", test))]
