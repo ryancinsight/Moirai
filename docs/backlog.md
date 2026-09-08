@@ -1,4 +1,22 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-WASM-DOM-TEXT-2026-09-07"></a>
+## MOI-WASM-DOM-TEXT-2026-09-07 — Expose bounded browser text and composition metadata [arch] [minor]
+
+- Outcome: Moirai exposes browser text values, UTF-16 selection snapshots and
+  composition metadata through the owned WASM DOM seam without leaking
+  `web-sys` to Atlas consumers.
+- Scope: text and textarea value/selection access, input-event metadata and
+  composition-event metadata; grapheme segmentation, text layout, native IME
+  producers and application editing policy remain consumer or host concerns.
+- Acceptance: text controls round-trip values and selections, invalid browser
+  metadata fails closed, input/composition events are input-sensitive, native
+  provider tests and warning-denied Clippy pass, and the `wasm32-unknown-unknown`
+  build verifies the binding feature surface.
+- Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/wasm-text-selection`; last-update: 2026-09-07; driver:
+  [Metis text](../../metis/backlog.md#METIS-TEXT-001).
+- Decision: [ADR 0048](adr/0048-browser-text-input-contract.md).
+
 <a id="MOI-WASM-DOM-DROP-2026-09-07"></a>
 ## MOI-WASM-DOM-DROP-2026-09-07 — Bound browser file-drop metadata [arch] [minor]
 
@@ -10,10 +28,13 @@
 - Acceptance: file count, names, media types and byte sizes are bounded and
   input-sensitive; malformed metadata returns a typed error; WASM check, native
   provider tests and warning-denied Clippy pass.
-- Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
+- Class: [arch] [minor]; status: done; priority: P1; integrator: root;
   branch: `feat/wasm-drop-metadata`; last-update: 2026-09-07; driver:
   [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 - Decision: [ADR 0047](adr/0047-bounded-browser-file-drop.md).
+- Evidence: commit `72944f0` merged by PR [#279](https://github.com/ryancinsight/Moirai/pull/279)
+  as `630f914`; native provider checks and warning-denied Clippy pass, and the
+  `wasm32-unknown-unknown` feature surface builds.
 
 <a id="MOI-HTTP-WS-2026-09-07"></a>
 ## MOI-HTTP-WS-2026-09-07 — Bounded WebSocket service substrate [arch] [minor]
