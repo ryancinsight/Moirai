@@ -13,7 +13,7 @@
 - Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
   branch: `feat/wasm-drop-metadata`; last-update: 2026-09-07; driver:
   [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
-- Decision: [ADR 0047](adr/0047-bounded-browser-file-drop.md) (claimed).
+- Decision: [ADR 0047](adr/0047-bounded-browser-file-drop.md).
 
 <a id="MOI-HTTP-WS-2026-09-07"></a>
 ## MOI-HTTP-WS-2026-09-07 — Bounded WebSocket service substrate [arch] [minor]

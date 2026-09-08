@@ -52,3 +52,4 @@
 | [0044](0044-standalone-cryptographic-primitives.md) | Standalone cryptographic primitives | Accepted |
 | [0045](0045-cancellable-browser-tasks.md) | Cancellable browser-local tasks | Accepted |
 | [0046](0046-bounded-websocket-service.md) | Bounded WebSocket service substrate | Accepted |
+| [0047](0047-bounded-browser-file-drop.md) | Bounded browser file-drop metadata | Accepted |
