@@ -4,6 +4,32 @@
 /// table row, not a new branch.
 const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
     (
+        "../moirai-executor/src/schedule/runtime/tests.rs",
+        &[
+            "../moirai-executor/src/schedule/runtime/tests/mod.rs",
+            "../moirai-executor/src/schedule/runtime/tests/admission.rs",
+            "../moirai-executor/src/schedule/runtime/tests/capacity.rs",
+            "../moirai-executor/src/schedule/runtime/tests/indexed.rs",
+            "../moirai-executor/src/schedule/runtime/tests/lifecycle.rs",
+            "../moirai-executor/src/schedule/runtime/tests/placement.rs",
+            "../moirai-executor/src/schedule/runtime/tests/scope.rs",
+            "../moirai-executor/src/schedule/runtime/tests/shutdown.rs",
+        ],
+    ),
+    (
+        "../moirai-iter/src/parallel/tests.rs",
+        &[
+            "../moirai-iter/src/parallel/tests/mod.rs",
+            "../moirai-iter/src/parallel/tests/aggregation.rs",
+            "../moirai-iter/src/parallel/tests/conversions.rs",
+            "../moirai-iter/src/parallel/tests/indexed.rs",
+            "../moirai-iter/src/parallel/tests/reductions.rs",
+            "../moirai-iter/src/parallel/tests/search.rs",
+            "../moirai-iter/src/parallel/tests/thresholds.rs",
+            "../moirai-iter/src/parallel/tests/transforms.rs",
+        ],
+    ),
+    (
         "../moirai-executor/src/schedule/queue/mod.rs",
         &[
             "../moirai-executor/src/schedule/queue/mod.rs",
@@ -137,7 +163,14 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-executor/src/schedule/runtime/worker.rs",
             "../moirai-executor/src/schedule/runtime/worker/indexed.rs",
             "../moirai-executor/src/schedule/runtime/worker/wait.rs",
-            "../moirai-executor/src/schedule/runtime/tests.rs",
+            "../moirai-executor/src/schedule/runtime/tests/mod.rs",
+            "../moirai-executor/src/schedule/runtime/tests/admission.rs",
+            "../moirai-executor/src/schedule/runtime/tests/capacity.rs",
+            "../moirai-executor/src/schedule/runtime/tests/indexed.rs",
+            "../moirai-executor/src/schedule/runtime/tests/lifecycle.rs",
+            "../moirai-executor/src/schedule/runtime/tests/placement.rs",
+            "../moirai-executor/src/schedule/runtime/tests/scope.rs",
+            "../moirai-executor/src/schedule/runtime/tests/shutdown.rs",
             "../moirai-executor/src/schedule/runtime/scheduler/diagnostics.rs",
         ],
     ),
