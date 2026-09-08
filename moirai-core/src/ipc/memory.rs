@@ -476,10 +476,10 @@ impl Drop for SharedMemory {
         unsafe {
             libc::munmap(self.ptr as *mut libc::c_void, self.size);
             libc::close(self.fd);
-            if self.owner {
-                if let Some(ref name) = self.name {
-                    libc::shm_unlink(name.as_ptr());
-                }
+            if self.owner
+                && let Some(ref name) = self.name
+            {
+                libc::shm_unlink(name.as_ptr());
             }
         }
         // SAFETY: `&mut self` in `drop` is exclusive; `ptr` is the base this
