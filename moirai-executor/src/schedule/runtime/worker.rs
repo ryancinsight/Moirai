@@ -12,7 +12,7 @@ use super::super::job::ScheduledJob;
 use super::super::queue::WorkerQueueOwner;
 
 use super::idle_hooks::run_idle_hooks;
-use super::types::{set_current_worker_id, ContendedWakePolicy, SchedulerInner, WorkerState};
+use super::types::{ContendedWakePolicy, SchedulerInner, WorkerState, set_current_worker_id};
 pub(super) use indexed::{
     indexed_chunk_bounds, indexed_chunk_count, inline_map_reduce, map_reduce_range,
 };

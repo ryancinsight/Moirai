@@ -10,7 +10,7 @@ pub mod worker;
 #[cfg(test)]
 mod tests;
 
-pub use idle_hooks::{register_idle_hook, run_idle_hooks, IdleHook};
+pub use idle_hooks::{IdleHook, register_idle_hook, run_idle_hooks};
 pub use types::{ScheduleMetrics, SchedulerScope, ThreadScheduler};
 
 #[cfg(feature = "scheduler-diagnostics")]

@@ -10,7 +10,7 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 use moirai_executor::schedule::register_idle_hook;
-use moirai_parallel::{for_each_chunk_mut_with, Parallel};
+use moirai_parallel::{Parallel, for_each_chunk_mut_with};
 use std::time::{Duration, Instant};
 
 static HOOK_RUNS: AtomicUsize = AtomicUsize::new(0);

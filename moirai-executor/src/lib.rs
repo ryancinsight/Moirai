@@ -30,12 +30,12 @@ pub use hybrid::HybridExecutor;
 pub use metrics::ExecutorMetrics;
 pub use registry::TaskRegistry;
 pub use schedule::{
-    register_idle_hook, run_idle_hooks, AcceleratorCounts, AcceleratorId, AcceleratorKind,
-    AcceleratorRoute, AcceleratorRoutePolicy, AsyncLaneId, AsyncLanesPerProcess, AsyncTask,
-    BlockingTask, HybridRoutePolicy, HybridRouter, IdleHook, ProcessCount, ProcessId, ProcessRoute,
-    RoutePolicy, RouteSummary, RouteTopology, ScheduleMetrics, SchedulerRoute, SchedulerScope,
-    ServerCount, ServerId, ServerRoute, ServerRoutePolicy, SyncTask, ThreadId, ThreadRoute,
-    ThreadRoutePolicy, ThreadScheduler, WorkClass, WorkerCount,
+    AcceleratorCounts, AcceleratorId, AcceleratorKind, AcceleratorRoute, AcceleratorRoutePolicy,
+    AsyncLaneId, AsyncLanesPerProcess, AsyncTask, BlockingTask, HybridRoutePolicy, HybridRouter,
+    IdleHook, ProcessCount, ProcessId, ProcessRoute, RoutePolicy, RouteSummary, RouteTopology,
+    ScheduleMetrics, SchedulerRoute, SchedulerScope, ServerCount, ServerId, ServerRoute,
+    ServerRoutePolicy, SyncTask, ThreadId, ThreadRoute, ThreadRoutePolicy, ThreadScheduler,
+    WorkClass, WorkerCount, register_idle_hook, run_idle_hooks,
 };
 #[cfg(feature = "scheduler-diagnostics")]
 pub use schedule::{
