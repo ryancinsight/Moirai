@@ -30,6 +30,11 @@ Drag events expose CSS-pixel coordinates and an owned `DropMetadata` snapshot
 with at most 64 validated files; names, media types and byte sizes are bounded
 before they reach an application. The seam does not read file bytes or treat a
 name as a filesystem path.
+Text controls expose bounded values, UTF-16 selection ranges with direction,
+and bounded `InputEvent`/`CompositionEvent` metadata through owned snapshots.
+Unsupported targets and browser metadata failures return explicit errors or
+`None`; grapheme segmentation, editing policy, and native IME integration stay
+with the application or host layer.
 `WebEventListener` removes its callback registration when dropped. `spawn_local` uses the browser event loop for futures; applications
 do not create a second executor or retain detached JavaScript closures.
 `spawn_local_with_handle` adds

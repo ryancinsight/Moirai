@@ -1,8 +1,12 @@
 //! Safe, owned browser DOM handles for Atlas applications.
 
 mod file_drop;
+mod text;
 
 pub use self::file_drop::{DropMetadata, DroppedFile};
+pub use self::text::{
+    CompositionMetadata, TextInputMetadata, TextSelection, TextSelectionDirection,
+};
 
 use std::io;
 
