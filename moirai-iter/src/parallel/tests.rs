@@ -1611,3 +1611,20 @@ proptest::proptest! {
         proptest::prop_assert_eq!(par, seq);
     }
 }
+
+#[test]
+fn sequential_adapter_yields_the_parallel_items_in_order() {
+    let doubled: Vec<i32> = vec![1, 2, 3, 4, 5]
+        .into_par_iter()
+        .map(|x| x * 2)
+        .sequential()
+        .into_iter()
+        .collect();
+    assert_eq!(doubled, vec![2, 4, 6, 8, 10]);
+}
+
+#[test]
+fn sequential_iter_adapter_drives_a_sequential_source_through_the_consumers() {
+    let squares: Vec<usize> = SequentialIterAdapter::new(1..=4).map(|x| x * x).collect();
+    assert_eq!(squares, vec![1, 4, 9, 16]);
+}

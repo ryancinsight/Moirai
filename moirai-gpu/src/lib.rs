@@ -29,8 +29,6 @@
 #![allow(clippy::module_name_repetitions)]
 // GPU module development allows - per ADR GPU infrastructure is not production critical yet
 #![allow(clippy::unnecessary_cast)]
-#![allow(dead_code)]
-#![allow(unused_imports)]
 
 #[cfg(feature = "wgpu-backend")]
 use std::sync::Arc;

@@ -42,8 +42,8 @@ where
     type Item = Vec<I::Item>;
 
     fn seq_items(self) -> Vec<Self::Item> {
-        let chunk_size = self.chunk_size.get();
-        let mut items = self.base.seq_items();
+        let (base, chunk_size) = self.into_parts();
+        let mut items = base.seq_items();
         let mut chunks = Vec::with_capacity(items.len().div_ceil(chunk_size));
 
         let tail_len = items.len() % chunk_size;

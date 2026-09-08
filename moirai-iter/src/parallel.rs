@@ -6,8 +6,6 @@
 //! outside this adapter layer. Use `Moirai::for_each_indexed` and
 //! `Moirai::map_reduce_indexed` for scheduler-owned indexed execution.
 
-#![allow(dead_code)] // Development structures per ADR requirements.
-
 mod adapters;
 mod consumers;
 mod fallible;
