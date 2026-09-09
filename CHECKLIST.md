@@ -2,6 +2,16 @@
 
 **Target**: Unreleased
 
+## MOI-FS-CONFINED-2026-09-09 [minor] [arch] — in-progress
+
+- [ ] Implement one `moirai-pal::fs` root-confined native file-open contract;
+  Unix walks directory handles with `openat`, Windows uses relative
+  `NtCreateFile`, and WASM reports unsupported.
+- [ ] Add adversarial path and link tests, API docs, ADR 0053, and update the
+  RITK consumer contract.
+- [ ] Run format, warning-denied Clippy, native PAL tests, and the WASM check;
+  commit and merge the increment with `Item: MOI-FS-CONFINED-2026-09-09`.
+
 ## MOI-MNEMOSYNE-QUARANTINE-EXPIRED-2026-09-06 [patch] — complete
 
 - **Delivered:** the `rev = "7f173751"` quarantine on `mnemosyne-core` and

@@ -1,5 +1,6 @@
 //! Platform-agnostic async file-system operations.
 
+mod confined;
 mod file;
 mod path;
 
@@ -7,6 +8,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+pub use confined::open_file_within_root;
 pub use file::{AsyncFile, FileOpenOptions};
 pub use path::{
     append, copy, create_dir, create_dir_all, metadata, remove_dir, remove_dir_all, remove_file,

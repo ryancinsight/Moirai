@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Root-confined native file opening.** `moirai_pal::fs::open_file_within_root`
+  resolves native path components from a directory handle, rejects traversal
+  and link components, and returns the handle opened under the selected root.
+  WebAssembly reports unsupported so browser file entries remain on the DOM
+  provider.
+
 - **Worker idle hooks** (`register_idle_hook`, `run_idle_hooks`). Executor
   workers are long-lived, so thread-local state a job builds up — scratch
   buffers, plan caches, allocator arenas — stays resident for the process

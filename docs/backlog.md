@@ -1,4 +1,22 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-FS-CONFINED-2026-09-09"></a>
+## MOI-FS-CONFINED-2026-09-09 — Open native files beneath a directory handle [minor] [arch]
+
+- Outcome: `moirai-pal` exposes a native root-confined file-open primitive that
+  resolves every path component from an owned directory handle; browser builds
+  return an explicit unsupported error.
+- Scope: `moirai-pal` filesystem PAL, Unix `openat` and Windows relative
+  `NtCreateFile` providers, conformance tests and consumer documentation; no
+  DICOM parsing or browser path authority.
+- Acceptance: absolute and parent paths are rejected, intermediate and final
+  symlinks/reparse points cannot escape the root, returned handles are read
+  after confinement, native warning-denied tests and the WASM library check
+  pass, and the API is consumed by RITK's DICOM reader.
+- Status: in-progress; priority: P0; integrator: root; branch:
+  `fix/moirai-confined-file-open-2026-09-09`; last-update: 2026-09-09; driver:
+  [RITK resource confinement](../../ritk/backlog.md#RITK-SNAP-RESOURCES-001).
+- Decision: [ADR 0053](adr/0053-root-confined-file-opening.md).
+
 <a id="MOI-WASM-GRAPH-2026-09-09"></a>
 ## MOI-WASM-GRAPH-2026-09-09 — Keep the browser dependency graph portable [patch]
 
