@@ -392,8 +392,20 @@
 - [x] PR #256 merged at `70d201a`; Mnemosyne resolves at `7f173751` and the
   first-party source identity is canonical; ADR [`0040`](adr/0040-first-party-memory-source-identity.md), workspace, binding, Loom, Rust 1.95, no-default, documentation, and lockfile gates pass.
 
-## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — in-progress <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
+## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — todo <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
 
+- **Prior art, not a base (recorded 2026-09-09).** `arch/moirai-hephaestus-gpu-route`
+  (PR #259, last touched 2026-09-07) carries a working implementation, but main
+  has advanced 135 commits past its base and every file it touches in
+  `moirai-gpu/` conflicts. Per the mechanical-transform rule the implementation
+  is re-derived against current `moirai-gpu`, not conflict-resolved; the branch
+  stays on origin as the reference for what the seam looked like when it worked.
+  Its other 24 commits are unrelated -- a long run of `rev =` provider-pin
+  advances main has since superseded, plus wasm and process work belonging to
+  other items -- so only this decision and its ADR are carried forward here.
+- **Definition of Ready:** the ADR below is the design; what is missing is the
+  current shape of `moirai-gpu`'s device, buffer, pipeline and task surfaces,
+  which the re-derivation reads first.
 - **Outcome:** Route Moirai GPU work through Hephaestus' generic device seam and
   submit it to the existing work-stealing executor without a direct WGPU layer.
 - **Scope / non-goals:** Moirai GPU adapter, Hephaestus WGPU dependency
