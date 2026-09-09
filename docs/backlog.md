@@ -95,7 +95,7 @@
   bounded UTF-16/JSON payloads and preserve order; finite creation/navigation
   waits pump the owning queue; close and Drop remove callbacks and release COM
   handles; a Windows host test captures the loaded page and bridge result.
-- Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
+- Class: [arch] [minor]; status: review; priority: P1; integrator: root;
   branch: `arch/webview2-provider`; last-update: 2026-09-09; driver:
   [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
 - Dependency: [ADR 0052](adr/0052-bounded-webview2-host.md); no Atlas WebView2
@@ -109,9 +109,12 @@
   (67 tests); the ignored runtime smoke passes on WebView2 runtime
   `152.0.4191.66`, including packaged-page navigation, bridge delivery and
   external-navigation denial.
-- Residual: capture the visible Metis packaged bundle and prove the user-facing
-  keyboard, resize, permission and accessibility journeys on this Windows
-  host; no registry or signing key is required for that verification.
+- Evidence: the visible Metis packaged bundle capture and bridge result are
+  committed in [`metis/docs/manual/images/native-captures.json`](../../metis/docs/manual/images/native-captures.json)
+  at source revision `0c8bcc3`; the native and WebView2 initial/submit PNGs were
+  inspected on WebView2 `152.0.4191.66`. No registry or signing key is required.
+- Residual: consumer keyboard, resize, permission and accessibility journeys,
+  plus non-Windows hosts, remain Metis or separate provider work.
 <a id="MOI-WASM-DOM-TEXT-2026-09-07"></a>
 ## MOI-WASM-DOM-TEXT-2026-09-07 — Expose bounded browser text and composition metadata [arch] [minor]
 

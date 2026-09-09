@@ -84,5 +84,7 @@ overflow are value-tested without sleeps or polling loops.
 The Windows loader and browser runtime are system prerequisites; non-Windows
 and WASM builds omit this module. Miri cannot execute COM or Win32, so the
 unsafe boundary is covered by the native Windows lifecycle test and source-level
-safety review. Runtime registration and the Metis packaged-bundle capture
-remain the consumer integration increment.
+safety review. Runtime registration remains a system prerequisite. The Metis
+packaged-bundle capture is recorded at
+[`metis/docs/manual/images/native-captures.json`](../../metis/docs/manual/images/native-captures.json)
+and verifies the page-to-host bridge result on WebView2 `152.0.4191.66`.
