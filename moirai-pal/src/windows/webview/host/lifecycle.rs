@@ -11,8 +11,9 @@ use super::super::{
     event::{WebViewEvent, WebViewHostEvent},
     pump::wait_for,
 };
+use super::error::{callback_error, closed_error, windows_error};
 use super::text::encode_utf16;
-use super::{WebViewHost, callback_error, closed_error, windows_error};
+use super::view::WebViewHost;
 
 impl WebViewHost {
     pub(super) fn navigate_and_wait(&mut self, uri: String) -> io::Result<()> {

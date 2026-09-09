@@ -9,7 +9,7 @@ use windows::{
 };
 
 use super::super::config::{MAX_WEBVIEW_MESSAGE_UNITS, MAX_WEBVIEW_URI_UNITS};
-use super::callback_error;
+use super::error::callback_error;
 
 pub(super) fn read_task_mem_uri(uri: PWSTR) -> windows::core::Result<String> {
     let value = CoTaskMemPWSTR::from(uri);

@@ -17,7 +17,7 @@ use windows::{
 };
 
 use super::super::pump::wait_for;
-use super::{callback_error, windows_error};
+use super::error::{callback_error, windows_error};
 
 pub(super) struct ComApartment {
     pub(super) initialized: bool,
