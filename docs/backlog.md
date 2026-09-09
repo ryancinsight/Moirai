@@ -11,9 +11,13 @@
 - Acceptance: `socket2` is absent from normal targets, native-only executor and
   socket modules are target-gated, Mnemosyne resolves from its current default
   branch, and native format/Clippy/Nextest plus the WASM library check pass.
-- Class: [patch]; status: review; priority: P1; integrator: root;
-  branch: `build/moirai-wasm-graph`; last-update: 2026-09-09; driver:
+- Class: [patch]; status: done; priority: P1; integrator: root; delivery:
+  Moirai PR 302 (merge `661b535b`); last-update: 2026-09-09; driver:
   [Metis migration](../../metis/backlog.md#METIS-MIGRATION-001).
+- Outcome: Native executor, socket and entry-point exports are target-gated;
+  `socket2` is dev-only across the workspace; Mnemosyne follows its default
+  branch. Verification: WASM library checks, normal-graph scan, warning-denied
+  Clippy, benchmark compile, doctests, and 136/136 native tests pass.
 
 <a id="MOI-IDLE-HOOK-ADMISSION"></a>
 ## MOI-IDLE-HOOK-ADMISSION — Bound worker idle-hook admission [major] [arch]
