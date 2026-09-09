@@ -57,3 +57,4 @@
 | [0049](0049-win32-window-provider.md) | Win32 window provider | Accepted |
 | [0050](0050-bounded-browser-file-access.md) | Bounded browser file access | Accepted |
 | [0051](0051-bounded-idle-hook-admission.md) | Bounded idle-hook admission | Accepted |
+| [0052](0052-bounded-webview2-host.md) | Bounded Windows WebView2 host | Accepted |

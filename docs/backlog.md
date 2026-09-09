@@ -42,7 +42,8 @@
 - Scope: Win32 window creation, message translation, bounded event retention,
   high-DPI notifications and software-frame presentation. WebView2 COM hosting,
   OS permission policy, accessibility providers and cross-platform window
-  implementations remain consumer or follow-on host concerns.
+  implementations remain separate providers; WebView2 is tracked by
+  [MOI-WINDOW-WEBVIEW2-2026-09-09](#MOI-WINDOW-WEBVIEW2-2026-09-09).
 - Acceptance: the provider validates configuration and frame dimensions, creates
   and destroys a real window without leaked state, translates input/lifecycle/
   resize/DPI messages, repaints the last frame, rejects queue overflow and
@@ -72,11 +73,48 @@
   carries no composition-string flag, preventing stale preedit state; the
   lifecycle test covers the empty-message path and confirms one cancellation.
 - Residual: WebView2, OS permissions, accessibility and macOS/Linux providers
-  remain open under the same desktop item. Consumer editing policy and an
+  remain open under their provider items. Consumer editing policy and an
   installed-IME journey remain Metis host evidence. Metis consumes the provider
   through `NativeSurface` in commit `ada7f99` with Moirai pinned at `7ad8eeee`;
   the provider event path is delivered, while the installed-IME journey remains
   open.
+
+<a id="MOI-WINDOW-WEBVIEW2-2026-09-09"></a>
+## MOI-WINDOW-WEBVIEW2-2026-09-09 — Bounded Windows WebView2 host [arch] [minor]
+
+- Outcome: Moirai owns a thread-affine Windows WebView2 host that embeds a
+  packaged Metis HTML/CSS/WASM surface in the existing `NativeWindow` and
+  exposes bounded navigation, message and teardown values.
+- Scope: WebView2 COM initialization, environment/controller creation, local
+  packaged-origin navigation, WebMessageReceived bridge, navigation denial,
+  callback-token removal and close/reopen lifecycle. Browser UI policy,
+  application commands, DICOM decoding, OS permission brokers and non-Windows
+  hosts remain consumer or follow-on providers.
+- Acceptance: real WebView2 runtime loads a packaged local page in a real HWND;
+  `http`/`https` and new-window navigation are canceled; messages retain
+  bounded UTF-16/JSON payloads and preserve order; finite creation/navigation
+  waits pump the owning queue; close and Drop remove callbacks and release COM
+  handles; a Windows host test captures the loaded page and bridge result.
+- Class: [arch] [minor]; status: review; priority: P1; integrator: root;
+  branch: `arch/webview2-provider`; last-update: 2026-09-09; driver:
+  [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
+- Dependency: [ADR 0052](adr/0052-bounded-webview2-host.md); no Atlas WebView2
+  provider exists, so the generated WebView2 COM bindings are isolated at the
+  Windows system boundary. No Wry, Tauri, egui, GPUI or Iced runtime is added.
+- Increment: `moirai-pal::windows::webview::WebViewHost` now owns COM setup,
+  one controller, bounded packaged navigation, message callbacks, finite queue
+  pumping and synchronous callback/controller/window teardown.
+- Evidence: Windows `cargo check --locked --all-targets`, warning-denied PAL
+  Clippy and `cargo nextest run --locked -p moirai-pal --all-features` pass
+  (67 tests); the ignored runtime smoke passes on WebView2 runtime
+  `152.0.4191.66`, including packaged-page navigation, bridge delivery and
+  external-navigation denial.
+- Evidence: the visible Metis packaged bundle capture and bridge result are
+  committed in [`metis/docs/manual/images/native-captures.json`](../../metis/docs/manual/images/native-captures.json)
+  at source revision `0c8bcc3`; the native and WebView2 initial/submit PNGs were
+  inspected on WebView2 `152.0.4191.66`. No registry or signing key is required.
+- Residual: consumer keyboard, resize, permission and accessibility journeys,
+  plus non-Windows hosts, remain Metis or separate provider work.
 <a id="MOI-WASM-DOM-TEXT-2026-09-07"></a>
 ## MOI-WASM-DOM-TEXT-2026-09-07 — Expose bounded browser text and composition metadata [arch] [minor]
 

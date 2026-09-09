@@ -13,6 +13,11 @@
 //! - **Windows**: `WSAPoll`-based socket readiness polling
 //! - **WebAssembly**: Web APIs with JavaScript interop
 //!
+//! The Windows PAL also exposes a thread-affine WebView2 host for packaged
+//! HTML/CSS/WebAssembly surfaces. Its URI, message and wait bounds are owned by
+//! the Rust provider; the installed WebView2 runtime remains a system
+//! prerequisite.
+//!
 //! ## Design Principles
 //!
 //! - **Zero External Dependencies**: Only platform system libraries

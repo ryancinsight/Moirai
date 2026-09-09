@@ -22,6 +22,14 @@ queue wait for event-driven hosts; waits beyond its 30-second bound are
 rejected. Native IME start, preedit, commit and cancellation phases are
 returned as bounded UTF-8 snapshots.
 
+`windows::webview::WebViewHost` embeds the installed Windows WebView2 runtime
+inside a `NativeWindow` for packaged HTML5, CSS and WebAssembly applications.
+It admits only a validated `file:///` package prefix, bounds UTF-16 JSON
+messages, denies external and new-window navigation, and keeps creation,
+navigation and teardown waits finite. The WebView2 runtime is a Windows system
+prerequisite; this provider does not require a registry token, signing key or
+other application credential.
+
 The WASM module owns the browser boundary used by Atlas applications. `WebDocument`
 and `WebElement` provide bounded DOM updates, input/select values, checked
 checkbox/radio state, disabled button/input/select state, modal dialog lifecycle
