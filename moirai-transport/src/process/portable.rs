@@ -30,9 +30,11 @@ impl Process {
         if spec.piped {
             command.stdin(Stdio::piped()).stdout(Stdio::piped());
         }
-        let mut child = command
+        let child = command
             .spawn()
             .map_err(|error| os_error(ProcessOperation::Spawn, &error))?;
+        #[cfg(unix)]
+        let mut child = child;
         #[cfg(unix)]
         let stdin = child
             .stdin

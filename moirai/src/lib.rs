@@ -272,13 +272,18 @@ pub use moirai_metrics::MetricsCollector;
 // Re-export async functionality (specific imports to avoid conflicts)
 #[cfg(feature = "async")]
 pub use moirai_async::{
-    File, FileOpenOptions, TcpListener, TcpStream, Timeout,
-    executor::{AsyncExecutor, AsyncHandle},
+    File, FileOpenOptions, Timeout,
     io::{
         AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, MoiraiCompat, TokioCompat,
     },
     timer::{sleep, timeout},
 };
+
+#[cfg(all(feature = "async", any(unix, windows)))]
+pub use moirai_async::{TcpListener, TcpStream};
+
+#[cfg(all(feature = "async", not(target_arch = "wasm32")))]
+pub use moirai_async::executor::{AsyncExecutor, AsyncHandle};
 
 // Re-export iterator functionality
 #[cfg(feature = "iter")]
