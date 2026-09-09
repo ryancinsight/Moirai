@@ -14,8 +14,9 @@ use webview2_com::{
 use windows::core::{BOOL, PWSTR};
 
 use super::super::event::WebViewEvent;
+use super::error::{callback_error, closed_error, push_event, windows_error};
 use super::text::{read_task_mem_message, read_task_mem_uri};
-use super::{WebViewHost, callback_error, closed_error, push_event, windows_error};
+use super::view::WebViewHost;
 
 impl WebViewHost {
     pub(super) fn install_callbacks(&mut self) -> io::Result<()> {
