@@ -9,12 +9,14 @@ data-parallel domain in `moirai-parallel`.
 
 - `io` — `AsyncRead` / `AsyncWrite` (signature-identical to `futures-io`) with
   `AsyncReadExt` / `AsyncWriteExt`, plus `TokioCompat` / `MoiraiCompat` bridges.
-- `net` — `TcpStream`, `TcpListener`, `UdpSocket`, and connection pooling.
+- `net` — native `TcpStream`, `TcpListener`, `UdpSocket`, and connection
+  pooling on Unix and Windows. Browser networking uses the WebSocket handles
+  in `moirai-pal`.
 - `fs` — async file operations (`read`, `write`, `File`, `FileOpenOptions`, …),
   including exact cursor-preserving `AsyncReadAt` and `AsyncLength` access.
 - `timer` — `sleep`, `timeout`, `interval`, `RateLimiter`, `TimerWheel`.
 - `sync` — `Mutex`, `RwLock`, `Semaphore`, `Notify`, `Broadcast`, `Watch`.
-- `executor` — `AsyncExecutor` and `AsyncHandle`.
+- `executor` — native `AsyncExecutor` and `AsyncHandle`.
 
 ```toml
 [dependencies]
@@ -33,8 +35,8 @@ async fn main() {
 
 The `#[moirai_async::main]` attribute (from
 [`moirai-async-macros`](https://crates.io/crates/moirai-async-macros)) rewrites
-the function into a synchronous `main` that builds a default `AsyncExecutor` and
-blocks on the body.
+the function into a synchronous native `main` that builds a default
+`AsyncExecutor` and blocks on the body.
 
 Full documentation: <https://docs.rs/moirai-async>
 

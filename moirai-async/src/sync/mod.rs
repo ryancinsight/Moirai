@@ -34,7 +34,7 @@ pub use rwlock::{RwLock, RwLockReadFuture, RwLockWriteFuture};
 pub use semaphore::{Semaphore, SemaphoreAcquire, SemaphorePermit};
 pub use watch::{Watch, WatchChanged, WatchError, WatchReceiver, WatchSender};
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::executor::AsyncExecutor;

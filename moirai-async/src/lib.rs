@@ -7,10 +7,14 @@
 //! functionality from focused, single-responsibility modules.
 
 #![deny(missing_docs)]
-// Focused modules following SLAP principle
+// Focused modules following SLAP principle. The thread-based executor and
+// descriptor-backed networking use native synchronization and OS sockets;
+// browser callers use the PAL's event-loop handles instead.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod executor;
 pub mod fs;
 pub mod io;
+#[cfg(any(unix, windows))]
 pub mod net;
 pub mod sync;
 pub mod timer;
@@ -21,7 +25,8 @@ pub use io::{
     AsyncWriteExt, MoiraiCompat, TokioCompat,
 };
 
-// Re-export async executor functionality
+// Re-export async executor functionality on native targets.
+#[cfg(not(target_arch = "wasm32"))]
 pub use executor::{AsyncExecutor, AsyncHandle, ExecutorStats};
 
 // Re-export timer functionality
@@ -30,7 +35,8 @@ pub use timer::{
     interval, interval_at, sleep, timeout,
 };
 
-// Re-export networking functionality
+// Re-export networking functionality on native targets.
+#[cfg(any(unix, windows))]
 pub use net::{
     ConnectionInfo, ConnectionPool, ConnectionStats, TcpListener, TcpServerConfig, TcpServerStats,
     TcpStream, UdpConfig, UdpSocket, UdpSocketStats,
@@ -49,10 +55,12 @@ pub use sync::{
     Notify, RwLock, Semaphore, SemaphorePermit, Watch, WatchError, WatchReceiver, WatchSender,
 };
 
-// Re-export proc macros
+// The generated entry point constructs the native executor, so keep it out of
+// the browser-facing API where that executor is unavailable.
+#[cfg(not(target_arch = "wasm32"))]
 pub use moirai_async_macros::main;
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use std::time::Duration;
