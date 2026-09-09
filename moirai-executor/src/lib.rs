@@ -32,10 +32,10 @@ pub use registry::TaskRegistry;
 pub use schedule::{
     AcceleratorCounts, AcceleratorId, AcceleratorKind, AcceleratorRoute, AcceleratorRoutePolicy,
     AsyncLaneId, AsyncLanesPerProcess, AsyncTask, BlockingTask, HybridRoutePolicy, HybridRouter,
-    IdleHook, ProcessCount, ProcessId, ProcessRoute, RoutePolicy, RouteSummary, RouteTopology,
-    ScheduleMetrics, SchedulerRoute, SchedulerScope, ServerCount, ServerId, ServerRoute,
-    ServerRoutePolicy, SyncTask, ThreadId, ThreadRoute, ThreadRoutePolicy, ThreadScheduler,
-    WorkClass, WorkerCount, register_idle_hook, run_idle_hooks,
+    IdleHook, IdleHookRegistrationError, MAX_IDLE_HOOKS, ProcessCount, ProcessId, ProcessRoute,
+    RoutePolicy, RouteSummary, RouteTopology, ScheduleMetrics, SchedulerRoute, SchedulerScope,
+    ServerCount, ServerId, ServerRoute, ServerRoutePolicy, SyncTask, ThreadId, ThreadRoute,
+    ThreadRoutePolicy, ThreadScheduler, WorkClass, WorkerCount, register_idle_hook, run_idle_hooks,
 };
 #[cfg(feature = "scheduler-diagnostics")]
 pub use schedule::{

@@ -56,3 +56,4 @@
 | [0048](0048-browser-text-input-contract.md) | Browser text input contract | Accepted |
 | [0049](0049-win32-window-provider.md) | Win32 window provider | Accepted |
 | [0050](0050-bounded-browser-file-access.md) | Bounded browser file access | Accepted |
+| [0051](0051-bounded-idle-hook-admission.md) | Bounded idle-hook admission | Accepted |

@@ -1,8 +1,11 @@
 # Moirai Development Checklist
-## codex/api_evidence
-- [ ] [MOI-IDLE-HOOK-ADMISSION](backlog.md#MOI-IDLE-HOOK-ADMISSION): specify admission and snapshot lifecycle; migrate registry, exports and callers.
-- [ ] [MOI-IDLE-HOOK-ADMISSION](backlog.md#MOI-IDLE-HOOK-ADMISSION): add deterministic registry and owner-thread reclamation tests; synchronize documentation.
-- [ ] [MOI-IDLE-HOOK-ADMISSION](backlog.md#MOI-IDLE-HOOK-ADMISSION): collect authorized focused gates and independent review before implementation commit.
+## root
+- [x] [MOI-IDLE-HOOK-ADMISSION](backlog.md#MOI-IDLE-HOOK-ADMISSION): specify admission and snapshot lifecycle; migrate registry, exports and callers.
+- [x] [MOI-IDLE-HOOK-ADMISSION](backlog.md#MOI-IDLE-HOOK-ADMISSION): add deterministic registry and owner-thread reclamation tests; synchronize documentation.
+- [x] [MOI-IDLE-HOOK-ADMISSION](backlog.md#MOI-IDLE-HOOK-ADMISSION): collect authorized focused gates before the implementation commit.
+- Evidence: `cargo nextest run -p moirai-executor --locked` passes 144/144;
+  `cargo nextest run -p moirai-parallel --test worker_idle_hook_quiescence
+  --locked` passes 1/1; warning-denied Clippy passes for both packages.
 
 
 ## MOI-QUEUE-RETENTION-036 [patch] [arch] — Codex
