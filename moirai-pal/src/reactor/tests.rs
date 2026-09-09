@@ -82,12 +82,6 @@ fn socket_to_raw(socket: &UdpSocket) -> crate::RawFd {
 }
 
 #[test]
-fn test_reactor_creation() {
-    let reactor = IoReactor::new();
-    assert!(reactor.is_ok());
-}
-
-#[test]
 fn test_reactor_metrics() {
     let reactor = IoReactor::new().unwrap();
     let metrics = reactor.metrics();
@@ -107,7 +101,8 @@ fn with_active_restores_thread_local_on_panic() {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             inner.with_active(|| panic!("boom"));
         }));
-        assert!(result.is_err(), "inner closure must have panicked");
+        let payload = result.expect_err("inner closure must have panicked");
+        assert_eq!(payload.downcast_ref::<&str>(), Some(&"boom"));
 
         // The active reactor must be restored to `outer`, never left as `inner`.
         let active = IoReactor::get_active().expect("outer is still active");

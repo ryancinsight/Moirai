@@ -123,6 +123,7 @@ impl ExecutionBase for ParallelContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::panic_message;
 
     const CHUNK: usize = 8;
     const ITEMS: usize = CHUNK * 5;
@@ -161,9 +162,15 @@ mod tests {
         });
         std::panic::set_hook(previous_hook);
 
+        let payload = outcome
+            .expect_err("a panicking chunk must reach the caller rather than shorten the result");
+        // The chunk's own payload does not travel: the fan-out converts it to a
+        // spawn error and panics with its own invariant, which is what names
+        // the partial execution the caller must not retry.
+        let message = panic_message(&*payload);
         assert!(
-            outcome.is_err(),
-            "a panicking chunk must reach the caller rather than shorten the result"
+            message.contains("indexed fan-out failed after partial execution"),
+            "the fan-out must report partial execution, got {message:?}"
         );
     }
 }

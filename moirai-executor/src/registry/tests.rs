@@ -3,7 +3,7 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{sync::Arc, time::Duration, time::Instant};
 
     use moirai_core::Priority;
 
@@ -19,14 +19,20 @@ mod tests {
         let started = registry.get_metadata(7).unwrap();
         assert_eq!(started.id, 7);
         assert_eq!(started.worker_id, Some(3));
-        assert!(started.started_at.is_some());
+        let started_at = started.started_at.expect("start() must stamp started_at");
         assert!(started.completed_at.is_none());
 
         let execution_time = running.complete();
 
         let completed = registry.get_metadata(7).unwrap();
-        assert!(completed.completed_at.is_some());
-        assert!(completed.execution_duration().is_some());
+        let completed_at = completed
+            .completed_at
+            .expect("complete() must stamp completed_at");
+        assert!(
+            completed_at >= started_at,
+            "completion must not precede start"
+        );
+        assert_eq!(completed.started_at, Some(started_at));
         assert_eq!(completed.execution_duration(), Some(execution_time));
         assert!(registry.is_completed(7));
     }
@@ -42,8 +48,14 @@ mod tests {
         let metadata = registry.get_metadata(task_id).unwrap();
         assert_eq!(metadata.id, task_id);
         assert_eq!(metadata.worker_id, Some(2));
-        assert!(metadata.started_at.is_some());
-        assert!(metadata.completed_at.is_some());
+        let started_at = metadata.started_at.expect("start() must stamp started_at");
+        let completed_at = metadata
+            .completed_at
+            .expect("complete() must stamp completed_at");
+        assert!(
+            completed_at >= started_at,
+            "completion must not precede start"
+        );
         assert_eq!(metadata.execution_duration(), Some(execution_time));
     }
 
@@ -86,6 +98,7 @@ mod tests {
 
     #[test]
     fn unstarted_lifecycle_token_drop_publishes_rejection_completion() {
+        let before = Instant::now();
         let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
 
@@ -96,7 +109,11 @@ mod tests {
             .expect("registered task metadata must remain readable");
         assert_eq!(metadata.started_at, None);
         assert!(!metadata.cancelled);
-        assert!(metadata.completed_at.is_some());
+        // Dropping an unstarted token still closes the task out.
+        assert!(
+            metadata.completed_at >= Some(before),
+            "the drop must stamp a completion time from this test's window"
+        );
         assert_eq!(registry.active_count(), 0);
         assert_eq!(registry.completed_count(), 1);
     }
@@ -200,6 +217,7 @@ mod tests {
 
     #[test]
     fn cancel_before_start_skips_body_and_completes_as_cancelled() {
+        let before = Instant::now();
         let registry = TaskRegistry::new();
         let (task_id, lifecycle) = registry.register_next_task();
 
@@ -213,7 +231,10 @@ mod tests {
 
         let metadata = registry.get_metadata(task_id).unwrap();
         assert!(metadata.cancelled);
-        assert!(metadata.completed_at.is_some());
+        assert!(
+            metadata.completed_at >= Some(before),
+            "cancellation must stamp a completion time from this test's window"
+        );
         assert!(metadata.started_at.is_none());
         assert!(registry.is_completed(task_id));
     }

@@ -626,7 +626,11 @@ mod tests {
             });
         }));
 
-        assert!(result.is_err());
+        let payload = result.expect_err("a panicking comparator must unwind to the caller");
+        assert_eq!(
+            payload.downcast_ref::<&str>(),
+            Some(&"simulated comparator panic")
+        );
         // Verify drop count matches number of elements exactly once when vector is dropped
         drop(v);
         assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 4);

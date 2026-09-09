@@ -108,7 +108,11 @@ mod tests {
             let _guard = pool.entries.lock().expect("initial lock");
             panic!("poison pool for regression coverage");
         }));
-        assert!(panic.is_err());
+        let payload = panic.expect_err("the closure must have panicked");
+        assert_eq!(
+            payload.downcast_ref::<&str>(),
+            Some(&"poison pool for regression coverage")
+        );
 
         pool.put(&"origin", 11, 1);
         assert_eq!(pool.take(&"origin", Duration::MAX), Some(11));
