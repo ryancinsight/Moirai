@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`ATLAS-APOLLO-WORKER-RETENTION-2026-09-03`).
 ### Changed
 
+- **Worker idle-hook admission is bounded.** `register_idle_hook` now returns
+  `Result<(), IdleHookRegistrationError>` and rejects registrations beyond
+  `MAX_IDLE_HOOKS` without mutation. Snapshots copy a fixed array before
+  callbacks run, preserving registration order and the owner-thread
+  reclamation point without heap allocation.
+
 - **Bounded Windows IME composition events.** The thread-owned native window
   now reports IME start, preedit, commit and cancellation phases with validated
   UTF-8 snapshots bounded by `MAX_COMPOSITION_UNITS`.

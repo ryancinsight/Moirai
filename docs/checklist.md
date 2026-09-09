@@ -1,10 +1,4 @@
 # Moirai Development Checklist
-## codex/api_evidence
-- [ ] [MOI-IDLE-HOOK-ADMISSION](backlog.md#MOI-IDLE-HOOK-ADMISSION): specify admission and snapshot lifecycle; migrate registry, exports and callers.
-- [ ] [MOI-IDLE-HOOK-ADMISSION](backlog.md#MOI-IDLE-HOOK-ADMISSION): add deterministic registry and owner-thread reclamation tests; synchronize documentation.
-- [ ] [MOI-IDLE-HOOK-ADMISSION](backlog.md#MOI-IDLE-HOOK-ADMISSION): collect authorized focused gates and independent review before implementation commit.
-
-
 ## MOI-QUEUE-RETENTION-036 [patch] [arch] — Codex
 
 - [x] Record ADR-036 from the current queue layout, admission contract, alternatives, and bounded experiment.
