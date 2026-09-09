@@ -100,42 +100,63 @@ fn native_window_lifecycle_and_frame_round_trip() {
     // SAFETY: every message targets the live HWND owned by this test and
     // carries only immediate scalar parameters.
     unsafe {
-        PostMessageW(window.hwnd, WM_MOUSEMOVE, WPARAM(0), LPARAM(0)).expect("pointer move");
+        PostMessageW(Some(window.hwnd), WM_MOUSEMOVE, WPARAM(0), LPARAM(0)).expect("pointer move");
         PostMessageW(
-            window.hwnd,
+            Some(window.hwnd),
             WM_LBUTTONDOWN,
             WPARAM(0),
             LPARAM(((24_u32 << 16) | 16) as isize),
         )
         .expect("pointer down");
         PostMessageW(
-            window.hwnd,
+            Some(window.hwnd),
             WM_LBUTTONUP,
             WPARAM(0),
             LPARAM(((24_u32 << 16) | 16) as isize),
         )
         .expect("pointer up");
         PostMessageW(
-            window.hwnd,
+            Some(window.hwnd),
             WM_KEYDOWN,
             WPARAM(0x41),
             LPARAM(1_i32 as isize),
         )
         .expect("key down");
-        PostMessageW(window.hwnd, WM_KEYUP, WPARAM(0x41), LPARAM(0)).expect("key up");
-        PostMessageW(window.hwnd, WM_CHAR, WPARAM(0xd83d), LPARAM(0)).expect("high surrogate");
-        PostMessageW(window.hwnd, WM_CHAR, WPARAM(0xde00), LPARAM(0)).expect("low surrogate");
-        let _ = SendMessageW(window.hwnd, WM_IME_STARTCOMPOSITION, WPARAM(0), LPARAM(0));
-        let _ = SendMessageW(window.hwnd, WM_IME_COMPOSITION, WPARAM(0), LPARAM(0));
-        let _ = SendMessageW(window.hwnd, WM_IME_ENDCOMPOSITION, WPARAM(0), LPARAM(0));
-        PostMessageW(
+        PostMessageW(Some(window.hwnd), WM_KEYUP, WPARAM(0x41), LPARAM(0)).expect("key up");
+        PostMessageW(Some(window.hwnd), WM_CHAR, WPARAM(0xd83d), LPARAM(0))
+            .expect("high surrogate");
+        PostMessageW(Some(window.hwnd), WM_CHAR, WPARAM(0xde00), LPARAM(0)).expect("low surrogate");
+        let _ = SendMessageW(
             window.hwnd,
+            WM_IME_STARTCOMPOSITION,
+            Some(WPARAM(0)),
+            Some(LPARAM(0)),
+        );
+        let _ = SendMessageW(
+            window.hwnd,
+            WM_IME_COMPOSITION,
+            Some(WPARAM(0)),
+            Some(LPARAM(0)),
+        );
+        let _ = SendMessageW(
+            window.hwnd,
+            WM_IME_ENDCOMPOSITION,
+            Some(WPARAM(0)),
+            Some(LPARAM(0)),
+        );
+        PostMessageW(
+            Some(window.hwnd),
             WM_SIZE,
             WPARAM(0),
             LPARAM(((0x00f0_u32 << 16) | 0x0140) as isize),
         )
         .expect("resize");
-        let _ = SendMessageW(window.hwnd, WM_DPICHANGED, WPARAM(144), LPARAM(0));
+        let _ = SendMessageW(
+            window.hwnd,
+            WM_DPICHANGED,
+            Some(WPARAM(144)),
+            Some(LPARAM(0)),
+        );
     }
     let events = window.poll_events().expect("initial messages");
     assert!(events.iter().any(|event| matches!(
@@ -211,7 +232,7 @@ fn native_window_wait_returns_posted_input_without_busy_polling() {
     // only immediate scalar parameters.
     unsafe {
         PostMessageW(
-            window.hwnd,
+            Some(window.hwnd),
             WM_MOUSEMOVE,
             WPARAM(0),
             LPARAM(((18_u32 << 16) | 0x000c) as isize),

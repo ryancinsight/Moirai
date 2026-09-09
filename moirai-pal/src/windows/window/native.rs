@@ -6,8 +6,8 @@ use std::mem::size_of;
 use std::time::Duration;
 
 use windows::Win32::Foundation::{
-    BOOL, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT,
-    WAIT_FAILED, WAIT_TIMEOUT, WPARAM,
+    ERROR_CLASS_ALREADY_EXISTS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WAIT_FAILED,
+    WAIT_TIMEOUT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, DIB_RGB_COLORS, EndPaint, InvalidateRect,
@@ -56,7 +56,7 @@ const WINDOW_CLASS_NAME: &[u16] = &[
 
 /// A thread-owned native Win32 window and bounded software presenter.
 pub struct NativeWindow {
-    pub(super) hwnd: HWND,
+    pub(crate) hwnd: HWND,
     state: Box<WindowState>,
     destroyed: bool,
 }
@@ -86,9 +86,9 @@ impl NativeWindow {
                 0,
                 outer_width,
                 outer_height,
-                HWND(std::ptr::null_mut()),
                 None,
-                HINSTANCE::from(instance),
+                None,
+                Some(HINSTANCE::from(instance)),
                 Some(state_ptr.cast::<c_void>()),
             )
         }
@@ -144,7 +144,7 @@ impl NativeWindow {
         for _ in 0..MAX_PUMP_MESSAGES {
             // SAFETY: `message` is writable storage owned by this call; the HWND
             // filter prevents consuming another window's queue entries.
-            let present = unsafe { PeekMessageW(&mut message, self.hwnd, 0, 0, PM_REMOVE) };
+            let present = unsafe { PeekMessageW(&mut message, Some(self.hwnd), 0, 0, PM_REMOVE) };
             if !present.as_bool() {
                 break;
             }
@@ -254,7 +254,7 @@ impl NativeWindow {
         // SAFETY: `self.hwnd` is owned by this thread and the null rectangle
         // requests repaint of the complete client area without retaining a
         // pointer after the synchronous call.
-        if !unsafe { InvalidateRect(self.hwnd, None, BOOL(0)) }.as_bool() {
+        if !unsafe { InvalidateRect(Some(self.hwnd), None, false) }.as_bool() {
             return Err(io::Error::last_os_error());
         }
         Ok(())
@@ -271,7 +271,7 @@ impl NativeWindow {
         }
         // SAFETY: the handle belongs to this thread and IsWindow only observes
         // the handle before the synchronous DestroyWindow call.
-        if unsafe { IsWindow(self.hwnd) }.as_bool() {
+        if unsafe { IsWindow(Some(self.hwnd)) }.as_bool() {
             unsafe { DestroyWindow(self.hwnd) }.map_err(windows_error)?;
         }
         self.destroyed = true;
@@ -287,7 +287,7 @@ impl Drop for NativeWindow {
             // `state` is dropped only after this method returns.
             // SAFETY: the handle was created on this thread and remains owned by
             // this object until the destructor finishes.
-            if unsafe { IsWindow(self.hwnd) }.as_bool() {
+            if unsafe { IsWindow(Some(self.hwnd)) }.as_bool() {
                 let _ = unsafe { DestroyWindow(self.hwnd) };
             }
             self.destroyed = true;
