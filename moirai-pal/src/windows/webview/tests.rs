@@ -147,7 +147,11 @@ window.chrome.webview.postMessage({"ready":true});
     }
 
     fn uri(&self) -> String {
-        file_uri(&self.entry)
+        let entry = self
+            .entry
+            .canonicalize()
+            .expect("temporary package entry is canonical");
+        file_uri(&entry)
     }
 }
 
@@ -162,6 +166,7 @@ fn file_uri(path: &Path) -> String {
         .to_str()
         .expect("temporary package path is valid UTF-8")
         .replace('\\', "/");
+    let path = path.strip_prefix("//?/").unwrap_or(&path);
     let mut uri = String::from("file:///");
     for byte in path.bytes() {
         if matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':')

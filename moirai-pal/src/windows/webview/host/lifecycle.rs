@@ -1,8 +1,9 @@
 //! WebView2 navigation and event-batch lifecycle.
 
-use std::{io, sync::mpsc};
+use std::{cell::Cell, io, rc::Rc, sync::mpsc};
 
-use webview2_com::NavigationCompletedEventHandler;
+use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_WEB_ERROR_STATUS;
+use webview2_com::{NavigationCompletedEventHandler, NavigationStartingEventHandler};
 use windows::core::{BOOL, PCWSTR};
 
 use super::super::{
@@ -16,24 +17,50 @@ use super::{WebViewHost, callback_error, closed_error, windows_error};
 impl WebViewHost {
     pub(super) fn navigate_and_wait(&mut self, uri: String) -> io::Result<()> {
         let webview = self.webview.as_ref().ok_or_else(closed_error)?.clone();
+        let expected_navigation = Rc::new(Cell::new(None));
+        let starting_expected = Rc::clone(&expected_navigation);
+        let starting_handler =
+            NavigationStartingEventHandler::create(Box::new(move |_sender, args| {
+                let args = args.ok_or_else(|| {
+                    callback_error("WebView2 navigation callback omitted arguments")
+                })?;
+                let mut navigation_id = 0;
+                unsafe { args.NavigationId(&mut navigation_id)? };
+                starting_expected.set(Some(navigation_id));
+                Ok(())
+            }));
+        let mut starting_token = 0;
+        unsafe {
+            webview
+                .add_NavigationStarting(&starting_handler, &mut starting_token)
+                .map_err(windows_error)?;
+        }
         let (sender, receiver) = mpsc::sync_channel(1);
+        let completion_expected = Rc::clone(&expected_navigation);
         let handler = NavigationCompletedEventHandler::create(Box::new(move |_sender, args| {
-            let result = args
-                .ok_or_else(|| callback_error("WebView2 completion callback omitted arguments"))
-                .and_then(|args| {
-                    let mut success = BOOL(0);
-                    unsafe { args.IsSuccess(&mut success)? };
-                    Ok(success.as_bool())
-                });
+            let args = args
+                .ok_or_else(|| callback_error("WebView2 completion callback omitted arguments"))?;
+            let mut navigation_id = 0;
+            unsafe { args.NavigationId(&mut navigation_id)? };
+            if completion_expected.get() != Some(navigation_id) {
+                return Ok(());
+            }
+            let mut success = BOOL(0);
+            unsafe { args.IsSuccess(&mut success)? };
+            let mut status = COREWEBVIEW2_WEB_ERROR_STATUS(0);
+            unsafe { args.WebErrorStatus(&mut status)? };
             sender
-                .send(result)
+                .send(Ok((success.as_bool(), status.0)))
                 .map_err(|_| callback_error("WebView2 navigation waiter was dropped"))
         }));
         let mut token = 0;
-        unsafe {
+        if let Err(error) = unsafe {
             webview
                 .add_NavigationCompleted(&handler, &mut token)
-                .map_err(windows_error)?;
+                .map_err(windows_error)
+        } {
+            let _ = unsafe { webview.remove_NavigationStarting(starting_token) };
+            return Err(error);
         }
         let value = encode_utf16(&uri, MAX_WEBVIEW_URI_UNITS)?;
         let navigation_result = unsafe {
@@ -43,14 +70,27 @@ impl WebViewHost {
         };
         if let Err(error) = navigation_result {
             let _ = unsafe { webview.remove_NavigationCompleted(token) };
+            let _ = unsafe { webview.remove_NavigationStarting(starting_token) };
             return Err(error);
         }
         let result = wait_for(receiver, self.config.wait());
         let removal = unsafe { webview.remove_NavigationCompleted(token) }.map_err(windows_error);
-        removal
-            .and(result)?
-            .then_some(())
-            .ok_or_else(|| io::Error::other("WebView2 packaged entry navigation did not succeed"))
+        let starting_removal =
+            unsafe { webview.remove_NavigationStarting(starting_token) }.map_err(windows_error);
+        removal.and(starting_removal)?;
+        let (success, status) = result?;
+        if success {
+            Ok(())
+        } else {
+            let policy_allowed = self
+                .state
+                .try_borrow()
+                .map_err(|_| io::Error::other("WebView2 event state is already borrowed"))?
+                .last_navigation_allowed();
+            Err(io::Error::other(format!(
+                "WebView2 packaged entry navigation did not succeed (status={status}, policy_allowed={policy_allowed:?})"
+            )))
+        }
     }
 
     pub(super) fn navigate_unchecked(&mut self, uri: &str) -> io::Result<()> {

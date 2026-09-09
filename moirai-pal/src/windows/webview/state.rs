@@ -34,6 +34,13 @@ impl WebViewState {
         let overflowed = std::mem::take(&mut self.overflowed);
         (events, overflowed)
     }
+
+    pub(super) fn last_navigation_allowed(&self) -> Option<bool> {
+        self.events.iter().rev().find_map(|event| match event {
+            WebViewEvent::NavigationStarting { allowed, .. } => Some(*allowed),
+            _ => None,
+        })
+    }
 }
 
 fn allocation_error() -> io::Error {

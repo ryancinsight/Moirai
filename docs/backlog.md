@@ -101,17 +101,17 @@
 - Dependency: [ADR 0052](adr/0052-bounded-webview2-host.md); no Atlas WebView2
   provider exists, so the generated WebView2 COM bindings are isolated at the
   Windows system boundary. No Wry, Tauri, egui, GPUI or Iced runtime is added.
-- Lease: root `moirai-pal/src/windows/webview/`, `moirai-pal/Cargo.toml`,
-  `moirai-pal/src/windows/mod.rs`, ADR 0052 and this item; 2026-09-09.
 - Increment: `moirai-pal::windows::webview::WebViewHost` now owns COM setup,
   one controller, bounded packaged navigation, message callbacks, finite queue
   pumping and synchronous callback/controller/window teardown.
 - Evidence: Windows `cargo check --locked --all-targets`, warning-denied PAL
   Clippy and `cargo nextest run --locked -p moirai-pal --all-features` pass
-  (67 passed, one runtime smoke skipped because WebView2 is not installed).
-- Residual: execute the ignored runtime smoke and Metis packaged-bundle capture
-  on a Windows host with WebView2 installed; no registry or signing key is
-  required for that verification.
+  (67 tests); the ignored runtime smoke passes on WebView2 runtime
+  `152.0.4191.66`, including packaged-page navigation, bridge delivery and
+  external-navigation denial.
+- Residual: capture the visible Metis packaged bundle and prove the user-facing
+  keyboard, resize, permission and accessibility journeys on this Windows
+  host; no registry or signing key is required for that verification.
 <a id="MOI-WASM-DOM-TEXT-2026-09-07"></a>
 ## MOI-WASM-DOM-TEXT-2026-09-07 — Expose bounded browser text and composition metadata [arch] [minor]
 
