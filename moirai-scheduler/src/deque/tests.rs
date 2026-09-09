@@ -124,7 +124,11 @@ fn chase_lev_deque_recovers_poisoned_retired_array_lock() {
         let poison_result = catch_unwind(AssertUnwindSafe(|| {
             deque.poison_retired_array_lock_for_test();
         }));
-        assert!(poison_result.is_err());
+        let payload = poison_result.expect_err("the poison helper must panic");
+        assert_eq!(
+            payload.downcast_ref::<&str>(),
+            Some(&"poison retired-array mutex for recovery regression")
+        );
 
         // Force another owner-only resize while the retired-array mutex is
         // poisoned; the production path must recover its guarded pointer list.
@@ -140,7 +144,9 @@ fn chase_lev_deque_recovers_poisoned_retired_array_lock() {
         assert_eq!(observed, (0..80).collect::<Vec<_>>());
     }));
 
-    assert!(result.is_ok(), "poison recovery must not panic");
+    if let Err(payload) = result {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 #[test]

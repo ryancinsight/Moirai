@@ -211,7 +211,6 @@ mod tests {
 
     #[test]
     fn test_web_reactor_creation() {
-        let reactor = WebReactor::new();
-        assert!(reactor.is_ok());
+        WebReactor::new().expect("a web reactor must be creatable");
     }
 }

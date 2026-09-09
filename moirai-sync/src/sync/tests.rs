@@ -104,9 +104,10 @@ fn test_futex_mutex_try_lock() {
 
     // Uncontended try_lock should succeed
     {
-        let guard = mutex.try_lock();
-        assert!(guard.is_some());
-        assert_eq!(*guard.unwrap(), 42);
+        let guard = mutex
+            .try_lock()
+            .expect("an uncontended try_lock must succeed");
+        assert_eq!(*guard, 42);
     }
 
     // Contended try_lock should return None
@@ -220,8 +221,10 @@ fn test_spinlock_try_lock() {
     let lock = SpinLock::new(0);
 
     // Should be able to try_lock on unlocked
-    let guard1 = lock.try_lock();
-    assert!(guard1.is_some());
+    let guard1 = lock
+        .try_lock()
+        .expect("an unlocked SpinLock must yield a guard");
+    assert_eq!(*guard1, 0);
 
     // Should fail to try_lock when locked
     let guard2 = lock.try_lock();
@@ -229,8 +232,10 @@ fn test_spinlock_try_lock() {
 
     // Should succeed after first guard is dropped
     drop(guard1);
-    let guard3 = lock.try_lock();
-    assert!(guard3.is_some());
+    let guard3 = lock
+        .try_lock()
+        .expect("the lock must be reacquirable after the first guard drops");
+    assert_eq!(*guard3, 0);
 }
 
 #[test]

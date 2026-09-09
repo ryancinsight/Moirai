@@ -48,10 +48,14 @@ fn open_larger_than_the_segment_is_rejected() {
     // the zero-filled tail of the segment's own final page.
     let result = SharedMemory::open(name, 1 << 20);
 
-    assert!(
-        result.is_err(),
-        "opening a 4 KiB segment as 1 MiB must be rejected, not mapped"
-    );
+    match result {
+        // The code is the platform's errno, so only the variant is portable.
+        Err(IpcError::SystemError(_)) => {}
+        Err(other) => panic!(
+            "the oversized open must be refused by the mapping call, not by              lookup or validation: got {other:?}"
+        ),
+        Ok(_) => panic!("opening a 4 KiB segment as 1 MiB must be rejected, not mapped"),
+    }
 
     // Which error depends on who caught it: POSIX `mmap` would have accepted the
     // oversized length, so `open` checks the segment itself and reports

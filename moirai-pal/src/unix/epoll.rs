@@ -441,8 +441,7 @@ mod tests {
 
     #[test]
     fn test_epoll_reactor_creation() {
-        let reactor = EpollReactor::new();
-        assert!(reactor.is_ok());
+        EpollReactor::new().expect("an epoll reactor must be creatable");
     }
 
     #[test]

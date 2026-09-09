@@ -279,10 +279,7 @@ mod tests {
 
     #[test]
     fn test_native_async_executor_creation() {
-        let executor = AsyncExecutor::new();
-        assert!(executor.is_ok());
-
-        let executor = executor.unwrap();
+        let executor = AsyncExecutor::new().expect("a fresh AsyncExecutor must build");
         let stats = executor.stats();
         assert_eq!(stats.tasks_spawned, 0);
         assert_eq!(stats.tasks_completed, 0);
