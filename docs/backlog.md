@@ -1,4 +1,21 @@
 # Moirai Development Backlog (SSOT)
+<a id="MOI-WASM-GRAPH-2026-09-09"></a>
+## MOI-WASM-GRAPH-2026-09-09 — Keep the browser dependency graph portable [patch]
+
+- Outcome: Moirai's normal library graph compiles for `wasm32-unknown-unknown`
+  without native-only socket dependencies or stale Mnemosyne revisions.
+- Scope: `moirai-async` dependency classification, the workspace Mnemosyne
+  source edge, lock regeneration and consumer evidence; native socket tests
+  remain dev-only and browser networking policy is unchanged.
+- Acceptance: `socket2` is absent from normal targets, Mnemosyne resolves from
+  its current default branch, native format/Clippy/Nextest and the WASM library
+  check pass, and the Metis DICOM consumer builds against the graph.
+- Class: [patch]; status: in-progress; priority: P1; integrator: root;
+  branch: `build/moirai-wasm-graph`; last-update: 2026-09-09; driver:
+  [Metis DICOM](../../metis/backlog.md#METIS-DICOM-001).
+- Lease: root — `Cargo.toml`, `moirai-async/Cargo.toml`, `Cargo.lock`,
+  `docs/backlog.md` — 2026-09-09T14:00:00-04:00.
+
 <a id="MOI-IDLE-HOOK-ADMISSION"></a>
 ## MOI-IDLE-HOOK-ADMISSION — Bound worker idle-hook admission [major] [arch]
 - Outcome: every accepted hook executes in registration order; capacity exhaustion rejects without mutation.
