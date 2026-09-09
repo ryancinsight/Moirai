@@ -7,11 +7,11 @@
 ## Context
 
 RITK consumes file sets selected by a user and follows relative references in
- DICOMDIR records. Canonicalizing a candidate and opening it by path leaves a
- race: a directory component can be replaced after the check and before the
- read. RITK's accepted viewer migration decision assigns root-confined opens to
- Moirai's filesystem layer, while DICOM parsing and medical policy remain in
- RITK.
+DICOMDIR records. Canonicalizing a candidate and opening it by path leaves a
+race: a directory component can be replaced after the check and before the
+read. RITK's accepted viewer migration decision assigns root-confined opens to
+Moirai's filesystem layer, while DICOM parsing and medical policy remain in
+RITK.
 
 The contract must hold on native hosts without creating filesystem authority
  for browser paths. It must reject absolute paths, parent traversal, and link

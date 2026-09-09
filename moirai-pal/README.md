@@ -30,6 +30,12 @@ navigation and teardown waits finite. The WebView2 runtime is a Windows system
 prerequisite; this provider does not require a registry token, signing key or
 other application credential.
 
+`fs::open_file_within_root` opens a native regular file through directory
+handles, using `openat` on Unix and relative `NtCreateFile` calls on Windows.
+It rejects traversal and link components before returning the handle that the
+caller reads. WebAssembly reports an explicit unsupported error; browser file
+bytes use the DOM file provider instead.
+
 The WASM module owns the browser boundary used by Atlas applications. `WebDocument`
 and `WebElement` provide bounded DOM updates, input/select values, checked
 checkbox/radio state, disabled button/input/select state, modal dialog lifecycle
