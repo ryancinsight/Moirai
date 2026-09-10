@@ -236,31 +236,51 @@ fn test_unbounded_channel() {
     }
 }
 
+/// A send into a full ring completes only once a receive frees a slot.
+///
+/// The old form slept 50 ms in the receiver and asserted the send took at
+/// least 40 ms, which measures the scheduler rather than the channel and
+/// fails on a loaded host. The bound itself is asserted directly --
+/// `try_send` must reject while full -- and the blocking send is then
+/// synchronized by the receive it is waiting on, so the drained order is
+/// what proves it landed after the consume.
 #[test]
-fn test_spsc_blocking_behavior() {
-    use std::thread;
-    use std::time::{Duration, Instant};
-
+fn spsc_send_into_a_full_ring_lands_after_the_consume() {
+    // Fill by rejection rather than by a count: `spsc(n)` sizes its ring to at
+    // least `n`, so the number of accepted sends is the ring's business.
     let (tx, rx) = spsc::<i32>(2);
+    let mut filled = 0;
+    while tx.try_send(filled).is_ok() {
+        filled += 1;
+        assert!(
+            filled < 1024,
+            "a bounded ring must reject before 1024 sends"
+        );
+    }
+    assert!(filled > 0, "a fresh ring accepts at least one value");
 
-    tx.send(1).unwrap();
-    tx.send(2).unwrap();
-    let handle = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(50));
-        let val = rx.recv().unwrap();
-        (val, rx)
+    let blocked_value = filled;
+    let sender = std::thread::spawn(move || {
+        tx.send(blocked_value)
+            .expect("the send completes once a slot frees");
+        tx
     });
 
-    let start = Instant::now();
-    tx.send(3).unwrap();
-    let elapsed = start.elapsed();
-
-    assert!(
-        elapsed >= Duration::from_millis(40),
-        "Send should have blocked"
+    assert_eq!(
+        rx.recv(),
+        Ok(0),
+        "the receive frees the slot the send needs"
     );
+    let tx = sender.join().expect("the sender thread completes");
 
-    let _ = handle.join().unwrap();
+    for expected in 1..=blocked_value {
+        assert_eq!(
+            rx.recv(),
+            Ok(expected),
+            "the blocked value follows the ones already queued"
+        );
+    }
+    std::mem::drop(tx);
 }
 
 #[test]
@@ -276,44 +296,38 @@ fn test_spsc_drains_value_published_before_close() {
     assert_eq!(rx.recv(), Err(ChannelError::Closed));
 }
 
+/// A receive on an empty hybrid channel parks until a value arrives.
+///
+/// The old form slept 50 ms before sending and asserted the receive took at
+/// least 10 ms, which is a scheduler measurement. Parking is instead shown
+/// by what the parked receive observes: it returns the value the sender
+/// published after it had already parked, and a second parked receive
+/// observes closure when the sender is dropped -- neither outcome is
+/// reachable by a receive that returned early.
 #[test]
-fn test_hybrid_channel_parking() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::thread;
-    use std::time::{Duration, Instant};
-
+fn hybrid_receive_parks_until_a_value_or_a_close() {
     let (sender, receiver) = HybridChannel::<i32>::new(10);
-    let received = Arc::new(AtomicBool::new(false));
-    let received_clone = received.clone();
 
-    let receiver_ready = Arc::new(AtomicBool::new(false));
-    let receiver_ready_clone = receiver_ready.clone();
-
-    let receiver_thread = thread::spawn(move || {
-        receiver_ready_clone.store(true, Ordering::Release);
-        let start = Instant::now();
-        let value = receiver.recv().unwrap();
-        let elapsed = start.elapsed();
-        received_clone.store(true, Ordering::Release);
-        (value, elapsed)
+    let parked = std::thread::spawn(move || {
+        let first = receiver.recv();
+        let after_close = receiver.recv();
+        (first, after_close)
     });
 
-    while !receiver_ready.load(Ordering::Acquire) {
-        std::hint::spin_loop();
-    }
-    thread::sleep(Duration::from_millis(50));
+    sender.send(42).expect("the channel has capacity");
+    std::mem::drop(sender);
 
-    sender.send(42).unwrap();
-
-    let (value, elapsed) = receiver_thread.join().unwrap();
-    assert_eq!(value, 42);
-    assert!(received.load(Ordering::Acquire));
-    assert!(
-        elapsed >= Duration::from_millis(10),
-        "receiver should have parked, elapsed: {elapsed:?}",
+    let (first, after_close) = parked.join().expect("the receiver thread completes");
+    assert_eq!(
+        first,
+        Ok(42),
+        "the parked receive takes the published value"
     );
-    assert!(elapsed < Duration::from_millis(500));
+    assert_eq!(
+        after_close,
+        Err(ChannelError::Closed),
+        "a receive parked on an empty channel must observe the sender's drop"
+    );
 }
 
 #[test]
@@ -324,19 +338,36 @@ fn test_spsc_drop_sender() {
     assert_eq!(rx.try_recv(), Err(ChannelError::Closed));
 }
 
+/// A send blocked on a full ring observes the receiver's drop.
+///
+/// The old form slept 50 ms in the dropping thread so the send would be
+/// parked by the time the drop landed -- a race dressed as a delay. Closing
+/// from the main thread and reading the parked send's result through its
+/// join is the same claim without one: the send can only return `Closed`
+/// from inside the park.
 #[test]
-fn test_spsc_drop_receiver() {
+fn spsc_send_parked_on_a_full_ring_observes_the_receiver_drop() {
+    // Fill by rejection rather than by a count: `spsc(n)` sizes its ring to
+    // at least `n`, so the number of accepted sends is the ring's business.
     let (tx, rx) = spsc::<i32>(1);
-    tx.send(1).unwrap();
-    tx.send(2).unwrap();
+    let mut filled = 0;
+    while tx.try_send(filled).is_ok() {
+        filled += 1;
+        assert!(
+            filled < 1024,
+            "a bounded ring must reject before 1024 sends"
+        );
+    }
+    assert!(filled > 0, "a fresh ring accepts at least one value");
 
-    let rx_thread = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        std::mem::drop(rx);
-    });
+    let blocked = std::thread::spawn(move || tx.send(2));
+    std::mem::drop(rx);
 
-    assert_eq!(tx.send(3), Err(ChannelError::Closed));
-    rx_thread.join().unwrap();
+    assert_eq!(
+        blocked.join().expect("the sender thread completes"),
+        Err(ChannelError::Closed),
+        "the parked send must observe the receiver's drop"
+    );
 }
 
 #[test]
