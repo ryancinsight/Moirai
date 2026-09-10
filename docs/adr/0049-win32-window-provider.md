@@ -38,8 +38,10 @@ returns a bounded batch. The window procedure translates `WM_CLOSE`, focus
 changes, left-button and movement messages, `WM_MOUSEWHEEL`,
 `WM_MOUSEHWHEEL`, `WM_KEYDOWN`, `WM_CHAR`, `WM_SIZE` and `WM_DPICHANGED` into
 the provider's value events. Wheel deltas retain their signed Win32 detent
-count and client coordinates; modifier flags come from the wheel message's
-button-state word so an event is self-contained. `WM_NCDESTROY` reports
+count and client coordinates; Control and Shift come from the wheel message's
+button-state word, while Alt and the Windows key come from modifier key
+transitions observed by this window. Focus loss clears the tracked state, and
+the provider never samples global key state. `WM_NCDESTROY` reports
 completed destruction. Surrogate pairs are combined before text delivery.
 `WM_IME_STARTCOMPOSITION`, `WM_IME_COMPOSITION` and `WM_IME_ENDCOMPOSITION`
 become `TextComposition` events carrying start, preedit, commit or cancel

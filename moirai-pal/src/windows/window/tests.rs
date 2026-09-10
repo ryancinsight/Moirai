@@ -1,18 +1,22 @@
 //! Value and native-host tests for the window provider.
 
 use super::config::validate_frame_dimensions;
-use super::event::{CompositionPhase, MouseButton, WindowEvent};
-use super::input::{extent_from_lparam, mouse_button, point_from_lparam};
+use super::event::{CompositionPhase, ModifierState, MouseButton, WindowEvent};
+use super::input::{
+    extent_from_lparam, mouse_button, point_from_lparam, update_modifier, wheel_deltas,
+};
 use super::native::NativeWindow;
 use super::state::WindowState;
 use super::{WindowConfig, WindowVisibility};
 use std::io;
 use std::time::Duration;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
+use windows::Win32::Graphics::Gdi::ClientToScreen;
+use windows::Win32::UI::Input::KeyboardAndMouse::{VK_LCONTROL, VK_LMENU, VK_LWIN, VK_RCONTROL};
 use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageW, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
-    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-    WM_SIZE, WM_XBUTTONDOWN,
+    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEHWHEEL,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
 };
 
 #[test]
@@ -87,6 +91,40 @@ fn pointer_and_extent_decoding_uses_signed_client_coordinates() {
 }
 
 #[test]
+fn wheel_decoding_preserves_signed_axes_and_modifier_state() {
+    let encode = |delta: i16, flags: usize| {
+        WPARAM((usize::from(u16::from_ne_bytes(delta.to_ne_bytes())) << 16) | flags)
+    };
+    assert_eq!(
+        wheel_deltas(WM_MOUSEWHEEL, encode(120, 0x000c)),
+        Some((0, 120))
+    );
+    assert_eq!(
+        wheel_deltas(WM_MOUSEHWHEEL, encode(-240, 0)),
+        Some((-240, 0))
+    );
+    assert_eq!(wheel_deltas(WM_KEYDOWN, encode(120, 0)), None);
+
+    let state = update_modifier(ModifierState::NONE, u32::from(VK_LMENU.0), true);
+    let state = update_modifier(state, u32::from(VK_LWIN.0), true);
+    let state = state.with_wheel_message_flags(0x000c);
+    assert!(state.ctrl());
+    assert!(state.shift());
+    assert!(state.alt());
+    assert!(state.meta());
+    let state = update_modifier(state, u32::from(VK_LMENU.0), false);
+    assert!(!state.alt());
+    assert!(state.meta());
+
+    let state = update_modifier(ModifierState::NONE, u32::from(VK_LCONTROL.0), true);
+    let state = update_modifier(state, u32::from(VK_RCONTROL.0), true);
+    let state = update_modifier(state, u32::from(VK_LCONTROL.0), false);
+    assert!(state.ctrl());
+    let state = update_modifier(state, u32::from(VK_RCONTROL.0), false);
+    assert!(!state.ctrl());
+}
+
+#[test]
 #[cfg(windows)]
 fn native_window_lifecycle_and_frame_round_trip() {
     let config = WindowConfig::with_visibility("Moirai test", 320, 240, WindowVisibility::Hidden)
@@ -115,6 +153,43 @@ fn native_window_lifecycle_and_frame_round_trip() {
             LPARAM(((24_u32 << 16) | 16) as isize),
         )
         .expect("pointer up");
+        let mut wheel_point = windows::Win32::Foundation::POINT { x: 16, y: 24 };
+        if !ClientToScreen(window.hwnd, &mut wheel_point).as_bool() {
+            panic!("client point must convert to screen coordinates");
+        }
+        let wheel_lparam = LPARAM(
+            ((u32::try_from(wheel_point.y).expect("test point is positive") << 16)
+                | u32::try_from(wheel_point.x).expect("test point is positive"))
+                as isize,
+        );
+        PostMessageW(
+            Some(window.hwnd),
+            WM_SYSKEYDOWN,
+            WPARAM(usize::from(VK_LMENU.0)),
+            LPARAM(1),
+        )
+        .expect("Alt down");
+        PostMessageW(
+            Some(window.hwnd),
+            WM_MOUSEWHEEL,
+            WPARAM((usize::from(u16::from_ne_bytes(120_i16.to_ne_bytes())) << 16) | 0x000c),
+            wheel_lparam,
+        )
+        .expect("vertical wheel");
+        PostMessageW(
+            Some(window.hwnd),
+            WM_MOUSEHWHEEL,
+            WPARAM(usize::from(u16::from_ne_bytes((-240_i16).to_ne_bytes())) << 16),
+            wheel_lparam,
+        )
+        .expect("horizontal wheel");
+        PostMessageW(
+            Some(window.hwnd),
+            WM_SYSKEYUP,
+            WPARAM(usize::from(VK_LMENU.0)),
+            LPARAM(0),
+        )
+        .expect("Alt up");
         PostMessageW(
             Some(window.hwnd),
             WM_KEYDOWN,
@@ -177,6 +252,26 @@ fn native_window_lifecycle_and_frame_round_trip() {
         y: 24,
         button: MouseButton::Left,
     }));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        WindowEvent::PointerWheel {
+            x: 16,
+            y: 24,
+            delta_x: 0,
+            delta_y: 120,
+            modifiers,
+        } if modifiers.ctrl() && modifiers.shift() && modifiers.alt() && !modifiers.meta()
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        WindowEvent::PointerWheel {
+            x: 16,
+            y: 24,
+            delta_x: -240,
+            delta_y: 0,
+            modifiers,
+        } if !modifiers.ctrl() && !modifiers.shift() && modifiers.alt() && !modifiers.meta()
+    )));
     assert!(events.contains(&WindowEvent::KeyDown {
         virtual_key: 0x41,
         repeated: false,
