@@ -2,7 +2,29 @@ use super::ConcurrentStreamExt;
 use futures::StreamExt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+
+/// Yield to the executor `times` times, then resolve.
+///
+/// The combinators under test are driven by `block_on`, a single-threaded
+/// executor: a future whose body runs straight through completes on its first
+/// poll, so nothing else is ever in flight beside it. Sleeping did not change
+/// that -- it blocked the one thread -- which is why the peak-concurrency
+/// assertions below could not fail. A yield point is what actually lets the
+/// buffer start another item, and it makes both the overlap and the completion
+/// order deterministic instead of dependent on host timing.
+async fn yield_now_times(times: u64) {
+    let mut left = times;
+    core::future::poll_fn(move |cx| {
+        if left == 0 {
+            core::task::Poll::Ready(())
+        } else {
+            left -= 1;
+            cx.waker().wake_by_ref();
+            core::task::Poll::Pending
+        }
+    })
+    .await;
+}
 
 #[test]
 fn concurrent_map_yields_every_item_with_correct_values() {
@@ -39,7 +61,7 @@ fn concurrent_map_bounds_in_flight_concurrency_to_limit() {
                     // active one has left — `now` therefore never exceeds LIMIT.
                     let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(now, Ordering::SeqCst);
-                    std::thread::sleep(Duration::from_millis(15));
+                    yield_now_times(1).await;
                     in_flight.fetch_sub(1, Ordering::SeqCst);
                     x
                 }
@@ -53,11 +75,12 @@ fn concurrent_map_bounds_in_flight_concurrency_to_limit() {
         observed_peak <= LIMIT,
         "in-flight peak {observed_peak} exceeded the bound {LIMIT}"
     );
-    // The 15 ms hold forces overlap on the multi-worker scheduler, proving the
-    // items run concurrently across workers rather than serially.
-    assert!(
-        observed_peak >= 2,
-        "expected concurrent overlap across workers, saw peak {observed_peak}"
+    // Every item yields once after registering itself, so the buffer must have
+    // started `LIMIT` of them before any could finish: the bound is reached,
+    // not merely respected.
+    assert_eq!(
+        observed_peak, LIMIT,
+        "the buffer must fill to its bound before an item completes"
     );
 }
 
@@ -78,7 +101,7 @@ fn concurrent_map_with_limit_one_runs_inline_and_sequentially() {
                 async move {
                     let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(now, Ordering::SeqCst);
-                    std::thread::sleep(Duration::from_millis(1));
+                    yield_now_times(1).await;
                     in_flight.fetch_sub(1, Ordering::SeqCst);
                     x * 2
                 }
@@ -105,9 +128,9 @@ fn concurrent_map_ordered_preserves_input_order() {
     let results: Vec<u64> = futures::executor::block_on(
         futures::stream::iter(0..ITEMS)
             .concurrent_map_ordered(8, |x| async move {
-                // Early items take longer, so they complete after later ones.
-                let hold = 16u64.saturating_sub(x);
-                std::thread::sleep(Duration::from_millis(hold));
+                // Early items yield more often, so they complete after later
+                // ones -- an inversion in polls rather than in milliseconds.
+                yield_now_times(16u64.saturating_sub(x)).await;
                 x * 2
             })
             .collect(),
