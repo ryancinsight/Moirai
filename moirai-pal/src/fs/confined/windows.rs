@@ -1,6 +1,8 @@
 //! Windows directory-handle anchored file opening via NtCreateFile.
 
-use super::*;
+use std::fs::File;
+use std::io;
+use std::path::Path;
 use ::windows::Wdk::Foundation::OBJECT_ATTRIBUTES;
 use ::windows::Wdk::Storage::FileSystem::{
     FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_REPARSE_POINT,
