@@ -316,10 +316,8 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         match catch_unwind(AssertUnwindSafe(|| {
             // SAFETY: the job borrows `'scope` state; `drain_scope` runs before
             // the region returns, on success and on unwind alike, so no job
-            // outlives what it borrows. Tagged with the scope so its joining
-            // caller may run it itself.
-            let job = unsafe { ScheduledJob::new_scoped_with_completion(scoped_job, complete) }
-                .within_scope(core::ptr::from_ref(state) as usize);
+            // outlives what it borrows.
+            let job = unsafe { ScheduledJob::new_scoped_with_completion(scoped_job, complete) };
             self.schedule_job::<C>(priority, locality_hint, job)
         })) {
             Ok(result) => result,

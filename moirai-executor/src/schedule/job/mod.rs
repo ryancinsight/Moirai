@@ -6,10 +6,7 @@ use core::{
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// Capture words a job holds inline: sixteen words less the three-word header
-/// (execute, drop, scope), so a job with its scope tag stays one destructive
-/// interference sector and the injector payload seventeen words.
-const INLINE_JOB_WORDS: usize = 13;
+const INLINE_JOB_WORDS: usize = 14;
 
 /// Job stored inside worker queues.
 pub(crate) struct ScheduledJob {
@@ -21,9 +18,6 @@ pub(crate) struct InlineJob {
     storage: InlineJobStorage,
     execute: unsafe fn(*mut InlineJobStorage, usize) -> bool,
     drop: unsafe fn(*mut InlineJobStorage),
-    /// Identity of the scope whose join may run this job on the calling
-    /// thread: zero for every job that must run on a worker lane.
-    scope: usize,
 }
 
 #[repr(C)]
@@ -98,20 +92,6 @@ impl ScheduledJob {
         }
     }
 
-    /// Marks the job as one of `scope`'s own, so that scope's joining caller
-    /// may run it on the calling thread's lane instead of waiting for the
-    /// worker it was queued to.
-    pub(crate) fn within_scope(mut self, scope: usize) -> Self {
-        self.job.scope = scope;
-        self
-    }
-
-    /// The scope this job belongs to, or zero.
-    pub(crate) fn scope(&self) -> usize {
-        self.job.scope
-    }
-
-    /// Execute the job exactly once.
     pub(crate) fn execute(mut self, worker_id: usize) -> bool {
         self.job.execute(worker_id)
     }
@@ -160,7 +140,6 @@ impl InlineJob {
             storage: InlineJobStorage::new(),
             execute,
             drop: drop_inline::<F>,
-            scope: 0,
         };
 
         // Safety: `inline_job_fits` proves size and alignment fit the storage.
@@ -362,7 +341,7 @@ mod tests {
         );
         assert_eq!(
             core::mem::size_of::<InlineJob>(),
-            (INLINE_JOB_WORDS + 3) * word_size
+            (INLINE_JOB_WORDS + 2) * word_size
         );
         assert_eq!(
             core::mem::size_of::<ScheduledJob>(),

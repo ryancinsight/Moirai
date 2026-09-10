@@ -14,7 +14,7 @@ use moirai_core::{
 
 use super::super::super::{class::WorkClass, job::ScheduledJob};
 use super::super::types::{
-    BoundedContendedWake, IndexedRegionGuard, SchedulerScope, SchedulerScopeState, ThreadScheduler,
+    BoundedContendedWake, SchedulerScope, SchedulerScopeState, ThreadScheduler,
     get_current_worker_id,
 };
 use super::super::worker::{
@@ -135,13 +135,14 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     /// pops this worker's own deque and steals into it, so the aliasing rules of
     /// the single-owner Chase–Lev deques are preserved.
     ///
-    /// A non-worker caller helps the same way from its own lane
-    /// ([`Self::help_scope_from_caller`]): its scoped jobs sit in worker queues
-    /// behind a park-and-unpark per job, and a caller that only waits pays the
-    /// slowest wake of every fork-join it issues.
+    /// A non-worker caller parks (`SchedulerScopeState::wait`): the worker pool
+    /// drains its scoped jobs, so it never starves anything by blocking. A
+    /// caller that helped from its own lane crashed consumers (moirai-iter's
+    /// nested iteration on CI, kwavers' 3-D FFT at 32³ and above); until the
+    /// race is found the join waits as before.
     pub(super) fn drain_scope(&self, state: &SchedulerScopeState) {
         let Some(worker_id) = get_current_worker_id() else {
-            self.help_scope_from_caller(state);
+            state.wait();
             return;
         };
 
@@ -163,80 +164,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             // are executing on other workers. Spin briefly, then park on the
             // scope condvar with a timeout so `complete_task` wakes us while we
             // still periodically re-probe for freshly stealable work.
-            if idle_spins < SCOPE_HELP_SPIN_LIMIT {
-                idle_spins += 1;
-                core::hint::spin_loop();
-                continue;
-            }
-            idle_spins = 0;
-
-            let guard = lock_mutex(&state.wait_lock);
-            if state.pending_tasks.load(Ordering::Acquire) != 0 {
-                let _ = state
-                    .wait_signal
-                    .wait_timeout(guard, std::time::Duration::from_micros(50))
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-            }
-        }
-    }
-
-    /// Runs the scope's own queued jobs on the calling (non-worker) thread
-    /// until the scope has no pending tasks, waiting only while none are left
-    /// to take.
-    ///
-    /// An indexed fan-out from outside the pool queues one chunk per worker
-    /// behind an unpark; a worker that wakes late holds the whole join, and a
-    /// caller that only waits pays the slowest wake of every fork-join it
-    /// issues. The chunks sit in the workers' injectors tagged with this scope,
-    /// so the caller takes them from there — from its own lane, the one past
-    /// the last worker — and a job of another scope it happens to dequeue goes
-    /// back at its priority with its worker woken; only when the injector
-    /// refuses it does the caller run it, as admission does with a refused
-    /// job. A scan that finds none of the scope's jobs means every one is
-    /// already running, and from then on the caller waits for the completion
-    /// signal. Measured on the fork-join probe (`moirai-parallel`'s
-    /// `fork_join_latency_distribution`, 64 tasks of 10 µs on 24 workers): a
-    /// waiting caller read a median of 52 µs and a 90th percentile of 404 µs.
-    /// A taken chunk runs inside an indexed region, as on a worker, so an
-    /// indexed loop nested in it flattens onto this lane.
-    fn help_scope_from_caller(&self, state: &SchedulerScopeState) {
-        let inner = &self.inner;
-        let scope = core::ptr::from_ref(state) as usize;
-        let lane = self.caller_lane_id();
-        let mut helping = true;
-        let mut idle_spins = 0usize;
-        loop {
-            if state.pending_tasks.load(Ordering::Acquire) == 0 {
-                return;
-            }
-
-            if helping {
-                let mut ran = false;
-                for worker in inner.workers.iter() {
-                    while let Some((priority, job)) = worker.queues.steal_external() {
-                        if job.scope() == scope {
-                            let _region = IndexedRegionGuard::enter();
-                            execute_job(inner, lane, job);
-                            ran = true;
-                            continue;
-                        }
-                        match worker.queues.try_push_external(priority, job) {
-                            None => wake_worker(worker),
-                            Some(refused) => {
-                                self.record_admission_caller_run();
-                                execute_job(inner, lane, refused);
-                            }
-                        }
-                        break;
-                    }
-                }
-                if ran {
-                    idle_spins = 0;
-                    continue;
-                }
-                helping = false;
-            }
-
             if idle_spins < SCOPE_HELP_SPIN_LIMIT {
                 idle_spins += 1;
                 core::hint::spin_loop();
