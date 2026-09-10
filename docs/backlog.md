@@ -32,6 +32,13 @@
   concurrently reaching for, or a latent unsafety in the split/collect path
   that the new interleaving exposes. Script: `crash_pinned.sh` shape with
   twenty `while :` burners beside an unpinned gdb loop.
+- **Falsified: not a stack overflow (2026-09-10).** A caller that helps can be
+  handed a job that opens a scope of its own, so the natural first reading of
+  a garbage instruction pointer with a broken unwind was unbounded recursion
+  into the thread's guard page. It is not: the same binary under the same
+  loaded host crashed 0 of 150 runs at the default stack and 1 of 150 with
+  `RUST_MIN_STACK=256MiB`. The fault survives a stack two orders of magnitude
+  larger, so the corruption is in the data, not the frames.
 - **Next method.** Run the reproducer under a sanitizer (nightly
   `-Zsanitizer=address` on the MSVC target, or ThreadSanitizer on a Linux
   host) to name the first invalid access; if it lands in the injector
