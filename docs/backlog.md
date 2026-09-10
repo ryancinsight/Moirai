@@ -26,6 +26,28 @@
   on this item, and the follow-on — a hybrid-aware default (workers sized to
   the performance set, or a class-aware join) or a parking stealer — filed
   DoR-shaped with the winning configuration as its oracle.
+- **Sweep 1 (2026-09-10, count x class, criterion means of the 64³ round
+  trip, host at 9–21% load).** All 24 processors: 1 worker 2.07 ms, 2 →
+  1.84, 4 → 1.96, 8 → 2.50, 12 → 1.66, 24 → 2.16. Pinned to the eight
+  performance cores: 4 workers 1.83, 8 → 3.03. Pinned to the sixteen
+  efficiency cores: 8 workers 1.85, 16 → 2.48. Reading: the parallel path
+  buys at most 1.25x over one worker on the consumer's mean, while apollo's
+  probe puts the same round trip's best case at 0.54 ms and its serial arms
+  near 2.4 — the mean is not the kernel work and not the core class; it is
+  what the twelve fork-joins of a round trip cost typically rather than at
+  best, roughly a hundred microseconds each. Eight workers is the worst count
+  in every class, which the hypothesis below must explain or the reading is
+  wrong.
+- **Hypothesis, sharpened.** A join waits for its last task, and a task's
+  start waits for a parked worker's wake — tens of microseconds on Windows —
+  or a spinning one's steal; twelve joins a round trip at that latency is the
+  gap. The next method is a moirai microbenchmark of `for_each_chunk_mut_with`
+  over 64 near-empty tasks reading the per-call distribution (min, median,
+  p99) against worker count and against the stealer's spin-then-yield window,
+  so the join's own cost is measured without a kernel in the way; the lever
+  then is the wake path (keep a bounded set of workers spinning through a
+  fork-join sequence; hand tasks to the caller's own thread first), landed
+  here once for every consumer.
 - **Evidence budget:** one sweep per hypothesis; **risk / change class:**
   [minor] [perf]; **dependencies:** none; apollo and kwavers consume the
   runtime through their pins, so the fix lands here once.
