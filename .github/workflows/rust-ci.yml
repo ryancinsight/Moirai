@@ -3,16 +3,6 @@ name: Rust Workspace
 on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "**/build.rs"
-      - "fuzz/seeds/**"
-      - ".cargo/**"
-      - "deny.toml"
-      - "rust-toolchain.toml"
-      - ".github/workflows/rust-ci.yml"
   push:
     branches: [main]
     paths:
