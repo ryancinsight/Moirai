@@ -392,6 +392,33 @@
 - [x] PR #256 merged at `70d201a`; Mnemosyne resolves at `7f173751` and the
   first-party source identity is canonical; ADR [`0040`](adr/0040-first-party-memory-source-identity.md), workspace, binding, Loom, Rust 1.95, no-default, documentation, and lockfile gates pass.
 
+## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — todo <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
+
+- **Prior art, not a base (recorded 2026-09-09).** `arch/moirai-hephaestus-gpu-route`
+  (PR #259, last touched 2026-09-07) carries a working implementation, but main
+  has advanced 135 commits past its base and every file it touches in
+  `moirai-gpu/` conflicts. Per the mechanical-transform rule the implementation
+  is re-derived against current `moirai-gpu`, not conflict-resolved; the branch
+  stays on origin as the reference for what the seam looked like when it worked.
+  Its other 24 commits are unrelated -- a long run of `rev =` provider-pin
+  advances main has since superseded, plus wasm and process work belonging to
+  other items -- so only this decision and its ADR are carried forward here.
+- **Definition of Ready:** the ADR below is the design; what is missing is the
+  current shape of `moirai-gpu`'s device, buffer, pipeline and task surfaces,
+  which the re-derivation reads first.
+- **Outcome:** Route Moirai GPU work through Hephaestus' generic device seam and
+  submit it to the existing work-stealing executor without a direct WGPU layer.
+- **Scope / non-goals:** Moirai GPU adapter, Hephaestus WGPU dependency
+  direction, Eunomia layout bounds, scheduler admission, tests, docs, and
+  locked manifests. CUDA provider integration uses the same generic seam;
+  vendor kernels and TPU/NPU execution remain out of scope.
+- **Acceptance:** no direct `wgpu`, `bytemuck`, or boxed GPU futures remain in
+  `moirai-gpu`; a `ComputeDevice` implementation is acquired through the
+  provider, GPU tasks execute as typed Moirai tasks, device errors remain typed,
+  and focused plus full repository gates pass. ADR [`0041`](adr/0041-hephaestus-gpu-scheduler-adapter.md).
+- **Integrator:** atlas-session; branch `arch/moirai-hephaestus-gpu-route`;
+  upstream companion: Hephaestus `HEPH-WGPU-CONSUMER-2026-09-04`.
+
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 
 moirai is the Atlas unified scheduler/router SSOT. It replaces **both rayon
@@ -424,10 +451,11 @@ architecture definition.
   metadata to the scheduler route model with sealed ZST policies, value-checked
   route-summary benchmarks, and benchmark-contract guards before any backend
   execution claim. This is metadata only; no device execution is claimed.
-- [ ] [arch] Stage E: co-schedule GPU compute (the `hephaestus` substrate — atlas ADR
+- [~] [arch] Stage E: co-schedule GPU compute (the `hephaestus` substrate — atlas ADR
   0001 — wgpu + CUDA) with the task-stealing scheduler instead of blocking joins, with
   GPU-aware placement so device work participates in the unified runtime. `moirai-gpu`
-  either folds into hephaestus or becomes a thin scheduling adapter over it. ADR.
+  becomes a thin scheduling adapter over it; tracked by
+  [`MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04`](#moi-gpu-hephaestus-route-2026-09-04) and ADR.
 - [~] [arch] Stage E2 — warp-aware execution shaping (atlas ADR 0002): warps are
   scheduled by SM hardware; moirai owns the software-ownable layer.
   (1) DELIVERED — occupancy planner (`moirai-gpu::occupancy`): `plan_launch`
