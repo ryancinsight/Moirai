@@ -39,6 +39,18 @@
   loaded host crashed 0 of 150 runs at the default stack and 1 of 150 with
   `RUST_MIN_STACK=256MiB`. The fault survives a stack two orders of magnitude
   larger, so the corruption is in the data, not the frames.
+- **Null result: the helper is not implicated (2026-09-10).** Three arms — main,
+  main plus the withdrawn helper, and the helper bounded to one nesting level —
+  built from one tree so each arm is a distinct binary (an earlier run compared
+  three byte-identical copies; cargo keys its fingerprint on the package, not
+  the source tree, and silently reuses the artifact) and run interleaved on one
+  loaded host: **300 launches each, main 0 crashes, unguarded 0, guarded 1.**
+  The earlier claim that the crash needs the help path rests on a single
+  kwavers bench run and does not survive this. What stands: the fault exists,
+  it is rare (about 1 in 300 launches under load), and no arm separates from
+  another at this exposure. The next measurement is the same workload repeated
+  inside one process (`moirai-iter/examples/nested_stress.rs` in the scratch
+  tree), which buys about sixty times the exposure per minute.
 - **Next method.** Run the reproducer under a sanitizer (nightly
   `-Zsanitizer=address` on the MSVC target, or ThreadSanitizer on a Linux
   host) to name the first invalid access; if it lands in the injector
