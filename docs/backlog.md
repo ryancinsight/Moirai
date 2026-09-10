@@ -51,7 +51,25 @@
   another at this exposure. The next measurement is the same workload repeated
   inside one process (`moirai-iter/examples/nested_stress.rs` in the scratch
   tree), which buys about sixty times the exposure per minute.
-- **Next method.** Run the reproducer under a sanitizer (nightly
+- **Exposure that found nothing (2026-09-10).** Two further instruments, each
+  with all three arms built in one tree and hash-checked: the workload repeated
+  **20,000 times inside one process** (three arms, no fault in any), and a
+  process that runs the workload **once and exits, 1,200 launches per arm**
+  (again no fault in any). Only the libtest binary reproduces, at roughly one
+  launch in three hundred under load, and no arm separates there either. So the
+  fault is not in steady-state fork-join, not in executor start-up as such, and
+  not attributable to the caller help; what remains is something particular to
+  the test binary's shape — its harness thread, its other statics, its exit
+  while workers still run.
+- **Spike closed here.** The perf item stays open with the caller help
+  withdrawn, but its blocker is no longer "the helper is broken": it is "no
+  reproducer separates the arms". Re-landing the help needs either a
+  reproducer that does separate them or a diagnosis of the fault itself.
+- **Next method.** Capture a Windows crash dump of the faulting test process
+  (`procdump -e -ma`, or WER `LocalDumps`) and read the faulting thread's real
+  stack: gdb's unwind through the optimized frames gave only stale stack words,
+  which is what sent the earlier reading toward the wrong hypothesis. Failing
+  that, run the reproducer under a sanitizer (nightly
   `-Zsanitizer=address` on the MSVC target, or ThreadSanitizer on a Linux
   host) to name the first invalid access; if it lands in the injector
   handoff, model the two-consumer handoff (`steal_external` against
