@@ -24,9 +24,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     QS_ALLINPUT, RegisterClassW, SW_SHOW, SetWindowLongPtrW, ShowWindow, TranslateMessage,
     WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
     WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP,
-    WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE,
-    WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE,
-    WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW,
+    WS_OVERLAPPEDWINDOW,
 };
 use windows::core::PCWSTR;
 
@@ -35,7 +36,10 @@ use super::config::{
     WindowVisibility, allocation_error, coordinate_error, validate_frame_dimensions, windows_error,
 };
 use super::event::{CompositionPhase, WindowEvent};
-use super::input::{extent_from_lparam, mouse_button, point_from_lparam};
+use super::input::{
+    client_point_from_wheel_lparam, extent_from_lparam, mouse_button, point_from_lparam,
+    wheel_deltas,
+};
 use super::state::{PresentedFrame, WindowState, decode_composition};
 
 const WINDOW_CLASS_NAME: &[u16] = &[
@@ -363,7 +367,10 @@ unsafe extern "system" fn window_proc(
             WM_CLOSE => state.push(WindowEvent::CloseRequested),
             WM_DESTROY => {}
             WM_SETFOCUS => state.push(WindowEvent::FocusGained),
-            WM_KILLFOCUS => state.push(WindowEvent::FocusLost),
+            WM_KILLFOCUS => {
+                state.clear_modifiers();
+                state.push(WindowEvent::FocusLost);
+            }
             WM_MOUSEMOVE => {
                 let (x, y) = point_from_lparam(lparam);
                 state.push(WindowEvent::PointerMove { x, y });
@@ -380,13 +387,50 @@ unsafe extern "system" fn window_proc(
                     state.push(WindowEvent::PointerUp { x, y, button });
                 }
             }
-            WM_KEYDOWN => state.push(WindowEvent::KeyDown {
-                virtual_key: wparam.0 as u32,
-                repeated: (lparam.0 & (1 << 30)) != 0,
-            }),
-            WM_KEYUP => state.push(WindowEvent::KeyUp {
-                virtual_key: wparam.0 as u32,
-            }),
+            WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
+                if let Some((delta_x, delta_y)) = wheel_deltas(message, wparam) {
+                    match client_point_from_wheel_lparam(hwnd, lparam) {
+                        Ok((x, y)) => state.push(WindowEvent::PointerWheel {
+                            x,
+                            y,
+                            delta_x,
+                            delta_y,
+                            modifiers: state.modifiers.with_wheel_message_flags(wparam.0),
+                        }),
+                        Err(error) => state.record_error(error),
+                    }
+                }
+            }
+            WM_KEYDOWN => {
+                let virtual_key = wparam.0 as u32;
+                state.update_modifier(virtual_key, lparam, true);
+                state.push(WindowEvent::KeyDown {
+                    virtual_key,
+                    repeated: (lparam.0 & (1 << 30)) != 0,
+                });
+            }
+            WM_SYSKEYDOWN => {
+                let virtual_key = wparam.0 as u32;
+                state.update_modifier(virtual_key, lparam, true);
+                state.push(WindowEvent::KeyDown {
+                    virtual_key,
+                    repeated: (lparam.0 & (1 << 30)) != 0,
+                });
+                // System-key messages carry Alt/menu and F10/F4 behavior that
+                // DefWindowProcW must retain after the PAL records the value event.
+                return DefWindowProcW(hwnd, message, wparam, lparam);
+            }
+            WM_KEYUP => {
+                let virtual_key = wparam.0 as u32;
+                state.update_modifier(virtual_key, lparam, false);
+                state.push(WindowEvent::KeyUp { virtual_key });
+            }
+            WM_SYSKEYUP => {
+                let virtual_key = wparam.0 as u32;
+                state.update_modifier(virtual_key, lparam, false);
+                state.push(WindowEvent::KeyUp { virtual_key });
+                return DefWindowProcW(hwnd, message, wparam, lparam);
+            }
             WM_CHAR => state.push_text_unit(wparam.0 as u16),
             WM_IME_STARTCOMPOSITION => {
                 state.push_composition(CompositionPhase::Started, String::new());

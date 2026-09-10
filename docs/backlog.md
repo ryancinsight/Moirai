@@ -146,8 +146,8 @@
 ## MOI-WINDOW-WIN32-2026-09-08 — Win32 window event and presentation provider [arch] [minor]
 
 - Outcome: Moirai exposes a bounded Windows native-window primitive for Atlas
-  applications: lifecycle, pointer, keyboard/text, resize/DPI events and
-  persistent ARGB presentation through one thread-owned handle.
+  applications: lifecycle, pointer, wheel, keyboard/text, resize/DPI events
+  and persistent ARGB presentation through one thread-owned handle.
 - Scope: Win32 window creation, message translation, bounded event retention,
   high-DPI notifications and software-frame presentation. WebView2 COM hosting,
   OS permission policy, accessibility providers and cross-platform window
@@ -155,10 +155,11 @@
   [MOI-WINDOW-WEBVIEW2-2026-09-09](#MOI-WINDOW-WEBVIEW2-2026-09-09).
 - Acceptance: the provider validates configuration and frame dimensions, creates
   and destroys a real window without leaked state, translates input/lifecycle/
-  resize/DPI messages, repaints the last frame, rejects queue overflow and
-  passes Windows warning-denied tests. No GUI toolkit dependency is added.
+  wheel/modifier/resize/DPI messages, repaints the last frame, rejects queue
+  overflow and passes Windows warning-denied tests. No GUI toolkit dependency
+  is added.
 - Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
-  branch: `feat/native-window-ready-state`; last-update: 2026-09-08; driver:
+  branch: `feat/window-wheel-modifiers`; last-update: 2026-09-10; driver:
   [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
 - Decision: [ADR 0049](adr/0049-win32-window-provider.md) (claimed).
 - Increment: commits `3fe5b76` and `04b4542` add the Rust 2024 baseline and
@@ -181,6 +182,17 @@
 - Increment: an active composition is canceled when `WM_IME_COMPOSITION`
   carries no composition-string flag, preventing stale preedit state; the
   lifecycle test covers the empty-message path and confirms one cancellation.
+- Increment: the native event seam now carries bounded horizontal and vertical
+  wheel detents with a modifier snapshot. `WM_MOUSEWHEEL` and
+  `WM_MOUSEHWHEEL` preserve signed detents and client coordinates, while the
+  provider derives Control, Shift, Alt and Meta from the message state. The
+  native lifecycle test posts both axes and verifies the value events before
+  RITK translates them.
+- Increment: generic modifier transitions now decode left/right identity from
+  keyboard message fields, and system-key events are forwarded to
+  `DefWindowProcW` after recording them. A real HWND test keeps Alt active
+  while one side is released and verifies the `WM_SYSCOMMAND(SC_CLOSE)` path
+  used by Alt+F4; focused and full PAL gates pass.
 - Residual: OS permissions, accessibility and macOS/Linux providers remain open
   under their provider items. Consumer editing policy and an installed-IME
   journey remain Metis host evidence. The WebView2 provider is delivered by

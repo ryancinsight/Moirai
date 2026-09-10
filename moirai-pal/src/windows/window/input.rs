@@ -1,12 +1,22 @@
 //! Win32 input parameter decoding.
 
-use windows::Win32::Foundation::{LPARAM, WPARAM};
+use std::io;
+
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
+use windows::Win32::Graphics::Gdi::ScreenToClient;
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RMENU,
+    VK_RSHIFT, VK_RWIN, VK_SHIFT,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP,
-    WM_XBUTTONDOWN, WM_XBUTTONUP,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
+    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 
-use super::event::MouseButton;
+use super::event::{
+    ALT_LEFT, ALT_RIGHT, CONTROL_LEFT, CONTROL_RIGHT, META_LEFT, META_RIGHT, ModifierState,
+    MouseButton, SHIFT_LEFT, SHIFT_RIGHT,
+};
 
 pub(super) fn mouse_button(message: u32, wparam: WPARAM) -> Option<MouseButton> {
     match message {
@@ -20,6 +30,78 @@ pub(super) fn mouse_button(message: u32, wparam: WPARAM) -> Option<MouseButton> 
         },
         _ => None,
     }
+}
+
+pub(super) fn wheel_deltas(message: u32, wparam: WPARAM) -> Option<(i16, i16)> {
+    // The high word is a signed 16-bit value by the Win32 message contract;
+    // the mask isolates that wire field before its intentional bit-preserving
+    // conversion.
+    let raw = ((wparam.0 >> 16) & 0xffff) as u16;
+    let delta = i16::from_ne_bytes(raw.to_ne_bytes());
+    match message {
+        WM_MOUSEWHEEL => Some((0, delta)),
+        WM_MOUSEHWHEEL => Some((delta, 0)),
+        _ => None,
+    }
+}
+
+pub(super) fn client_point_from_wheel_lparam(hwnd: HWND, lparam: LPARAM) -> io::Result<(i32, i32)> {
+    let (x, y) = point_from_lparam(lparam);
+    let mut point = POINT { x, y };
+    // SAFETY: `point` is writable storage owned by this call and `hwnd` is the
+    // live window whose callback is translating the message synchronously.
+    if unsafe { ScreenToClient(hwnd, &mut point) }.as_bool() {
+        Ok((point.x, point.y))
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+pub(super) fn modifier_for_message(virtual_key: u32, lparam: LPARAM) -> u8 {
+    let raw = lparam.0 as u64;
+    let scan_code = ((raw >> 16) & 0xff) as u8;
+    let extended = raw & (1 << 24) != 0;
+    match virtual_key {
+        key if key == u32::from(VK_CONTROL.0) => {
+            if extended {
+                CONTROL_RIGHT
+            } else {
+                CONTROL_LEFT
+            }
+        }
+        key if key == u32::from(VK_LCONTROL.0) => CONTROL_LEFT,
+        key if key == u32::from(VK_RCONTROL.0) => CONTROL_RIGHT,
+        key if key == u32::from(VK_SHIFT.0) => {
+            if scan_code == 0x36 {
+                SHIFT_RIGHT
+            } else {
+                SHIFT_LEFT
+            }
+        }
+        key if key == u32::from(VK_LSHIFT.0) => SHIFT_LEFT,
+        key if key == u32::from(VK_RSHIFT.0) => SHIFT_RIGHT,
+        key if key == u32::from(VK_MENU.0) => {
+            if extended {
+                ALT_RIGHT
+            } else {
+                ALT_LEFT
+            }
+        }
+        key if key == u32::from(VK_LMENU.0) => ALT_LEFT,
+        key if key == u32::from(VK_RMENU.0) => ALT_RIGHT,
+        key if key == u32::from(VK_LWIN.0) => META_LEFT,
+        key if key == u32::from(VK_RWIN.0) => META_RIGHT,
+        _ => 0,
+    }
+}
+
+pub(super) fn update_modifier(
+    state: ModifierState,
+    virtual_key: u32,
+    lparam: LPARAM,
+    pressed: bool,
+) -> ModifierState {
+    state.set_bits(modifier_for_message(virtual_key, lparam), pressed)
 }
 
 pub(super) fn point_from_lparam(lparam: LPARAM) -> (i32, i32) {

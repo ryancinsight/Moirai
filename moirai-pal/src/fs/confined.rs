@@ -214,7 +214,12 @@ mod unix {
         where
             F: FnOnce() -> String,
         {
-            io::Error::new(self.kind(), format!("{}: {}", context(), self))
+            let message = format!("{}: {}", context(), self);
+            if self.raw_os_error().is_some() {
+                self
+            } else {
+                io::Error::new(self.kind(), message)
+            }
         }
     }
 }
@@ -465,12 +470,16 @@ mod tests {
         symlink(outside.join("slice.dcm"), root.join("final.dcm"))
             .expect("final link creation must succeed");
 
+        // `O_NOFOLLOW` refuses a link with `ELOOP`. std's kind for it
+        // (`FilesystemLoop`) is not stable, so the refusal is read from the OS
+        // code; it is the kernel's, and the same for a link in the middle of
+        // the path and one at its end.
         let intermediate = open_file_within_root(root.join("nested/slice.dcm"), &root)
             .expect_err("intermediate symlink must be rejected");
-        assert_eq!(intermediate.kind(), std::io::ErrorKind::Other);
+        assert_eq!(intermediate.raw_os_error(), Some(libc::ELOOP));
         let final_link = open_file_within_root(root.join("final.dcm"), &root)
             .expect_err("final symlink must be rejected");
-        assert_eq!(final_link.kind(), std::io::ErrorKind::Other);
+        assert_eq!(final_link.raw_os_error(), Some(libc::ELOOP));
 
         remove_tree(&root);
         remove_tree(&outside);

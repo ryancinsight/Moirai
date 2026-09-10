@@ -15,7 +15,7 @@ pub use config::{
     MAX_COMPOSITION_UNITS, MAX_FRAME_DIMENSION, MAX_FRAME_PIXELS, MAX_PUMP_MESSAGES,
     MAX_TITLE_UNITS, MAX_WAIT_MILLISECONDS, MAX_WINDOW_EVENTS, WindowConfig, WindowVisibility,
 };
-pub use event::{CompositionPhase, MouseButton, WindowEvent};
+pub use event::{CompositionPhase, ModifierState, MouseButton, WindowEvent};
 pub use native::NativeWindow;
 
 #[cfg(test)]

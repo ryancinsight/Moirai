@@ -3,8 +3,11 @@
 use std::collections::VecDeque;
 use std::io;
 
+use windows::Win32::Foundation::LPARAM;
+
 use super::config::{MAX_WINDOW_EVENTS, allocation_error};
-use super::event::{CompositionPhase, WindowEvent};
+use super::event::{CompositionPhase, ModifierState, WindowEvent};
+use super::input::update_modifier;
 
 #[derive(Debug)]
 pub(super) struct PresentedFrame {
@@ -19,6 +22,7 @@ pub(super) struct WindowState {
     pub(super) frame: Option<PresentedFrame>,
     pending_high_surrogate: Option<u16>,
     pub(super) composition_active: bool,
+    pub(super) modifiers: ModifierState,
     pub(super) overflowed: bool,
     pub(super) error: Option<io::Error>,
 }
@@ -34,6 +38,7 @@ impl WindowState {
             frame: None,
             pending_high_surrogate: None,
             composition_active: false,
+            modifiers: ModifierState::NONE,
             overflowed: false,
             error: None,
         })
@@ -57,6 +62,14 @@ impl WindowState {
         if self.error.is_none() {
             self.error = Some(error);
         }
+    }
+
+    pub(super) fn update_modifier(&mut self, virtual_key: u32, lparam: LPARAM, pressed: bool) {
+        self.modifiers = update_modifier(self.modifiers, virtual_key, lparam, pressed);
+    }
+
+    pub(super) fn clear_modifiers(&mut self) {
+        self.modifiers = ModifierState::NONE;
     }
 
     pub(super) fn push_text_unit(&mut self, unit: u16) {
