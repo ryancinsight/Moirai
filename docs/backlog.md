@@ -16,6 +16,51 @@
   iteration test on a two-core runner and kwavers' bench; the next method
   is that reproduction under a checker (loom for the scope/injector
   handshake, or the bench under a sanitizer build).
+- **Reproduction and evidence (2026-09-10, after #316).** The crash needs a
+  loaded host: 1 in 40 to 1 in 100 runs of `moirai-iter`'s
+  `nested_iteration_produces_correct_values` with twenty busy processes
+  beside it, 0 in 700 pinned to two processors or on a quiet host. Under gdb
+  (GNU target, DWARF) the caller thread faults with a garbage instruction
+  pointer and a broken unwind; its raw stack carries `scope<..>`,
+  `execute_scoped_inline<drive_split::{closure}>`,
+  `drop_inline<ScopedJob<drive_split::{closure}>>`, `reduce<VecParIter>` and
+  `RawVecInner::grow_amortized` / `process_heap_alloc` — a heap corruption
+  surfacing in an allocation during `parallel::sources::drive_split`, whose
+  fork-join is `scope()` with spawned, untagged jobs. In that join the helper
+  never executes a job; it only dequeues, re-enqueues and wakes, so the
+  corruption is either in the re-enqueue of a job another consumer is
+  concurrently reaching for, or a latent unsafety in the split/collect path
+  that the new interleaving exposes. Script: `crash_pinned.sh` shape with
+  twenty `while :` burners beside an unpinned gdb loop.
+- **Falsified: not a stack overflow (2026-09-10).** A caller that helps can be
+  handed a job that opens a scope of its own, so the natural first reading of
+  a garbage instruction pointer with a broken unwind was unbounded recursion
+  into the thread's guard page. It is not: the same binary under the same
+  loaded host crashed 0 of 150 runs at the default stack and 1 of 150 with
+  `RUST_MIN_STACK=256MiB`. The fault survives a stack two orders of magnitude
+  larger, so the corruption is in the data, not the frames.
+- **Null result: the helper is not implicated (2026-09-10).** Three arms — main,
+  main plus the withdrawn helper, and the helper bounded to one nesting level —
+  built from one tree so each arm is a distinct binary (an earlier run compared
+  three byte-identical copies; cargo keys its fingerprint on the package, not
+  the source tree, and silently reuses the artifact) and run interleaved on one
+  loaded host: **300 launches each, main 0 crashes, unguarded 0, guarded 1.**
+  The earlier claim that the crash needs the help path rests on a single
+  kwavers bench run and does not survive this. What stands: the fault exists,
+  it is rare (about 1 in 300 launches under load), and no arm separates from
+  another at this exposure. The next measurement is the same workload repeated
+  inside one process (`moirai-iter/examples/nested_stress.rs` in the scratch
+  tree), which buys about sixty times the exposure per minute.
+- **Next method.** Run the reproducer under a sanitizer (nightly
+  `-Zsanitizer=address` on the MSVC target, or ThreadSanitizer on a Linux
+  host) to name the first invalid access; if it lands in the injector
+  handoff, model the two-consumer handoff (`steal_external` against
+  `steal_batch`'s batched dequeue with its deferred `len` update) under loom.
+  A retry of the caller help lands only with that reproduction green.
+  Blocker for the sanitizer half on this host: the nightly MSVC build links
+  against `clang_rt.asan_dynamic_runtime_thunk-x86_64.lib`, which the
+  installed Build Tools lack (the C++ AddressSanitizer component, or an
+  LLVM install on the path); the loom half needs no such install.
 - **Consumer baseline, corrected.** kwavers' 64³ round trip at the landed
   apollo/leto pins (#765) and the locked executor reads 0.97 ms mean
   (0.62 min) against 2.7 ms at the previous pins: the layout chain and the
