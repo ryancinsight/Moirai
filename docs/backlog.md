@@ -188,6 +188,11 @@
   provider derives Control, Shift, Alt and Meta from the message state. The
   native lifecycle test posts both axes and verifies the value events before
   RITK translates them.
+- Increment: generic modifier transitions now decode left/right identity from
+  keyboard message fields, and system-key events are forwarded to
+  `DefWindowProcW` after recording them. A real HWND test keeps Alt active
+  while one side is released and verifies the `WM_SYSCOMMAND(SC_CLOSE)` path
+  used by Alt+F4; focused and full PAL gates pass.
 - Residual: OS permissions, accessibility and macOS/Linux providers remain open
   under their provider items. Consumer editing policy and an installed-IME
   journey remain Metis host evidence. The WebView2 provider is delivered by

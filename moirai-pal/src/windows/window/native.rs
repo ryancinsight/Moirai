@@ -401,18 +401,35 @@ unsafe extern "system" fn window_proc(
                     }
                 }
             }
-            WM_KEYDOWN | WM_SYSKEYDOWN => {
+            WM_KEYDOWN => {
                 let virtual_key = wparam.0 as u32;
-                state.update_modifier(virtual_key, true);
+                state.update_modifier(virtual_key, lparam, true);
                 state.push(WindowEvent::KeyDown {
                     virtual_key,
                     repeated: (lparam.0 & (1 << 30)) != 0,
                 });
             }
-            WM_KEYUP | WM_SYSKEYUP => {
+            WM_SYSKEYDOWN => {
                 let virtual_key = wparam.0 as u32;
-                state.update_modifier(virtual_key, false);
+                state.update_modifier(virtual_key, lparam, true);
+                state.push(WindowEvent::KeyDown {
+                    virtual_key,
+                    repeated: (lparam.0 & (1 << 30)) != 0,
+                });
+                // System-key messages carry Alt/menu and F10/F4 behavior that
+                // DefWindowProcW must retain after the PAL records the value event.
+                return DefWindowProcW(hwnd, message, wparam, lparam);
+            }
+            WM_KEYUP => {
+                let virtual_key = wparam.0 as u32;
+                state.update_modifier(virtual_key, lparam, false);
                 state.push(WindowEvent::KeyUp { virtual_key });
+            }
+            WM_SYSKEYUP => {
+                let virtual_key = wparam.0 as u32;
+                state.update_modifier(virtual_key, lparam, false);
+                state.push(WindowEvent::KeyUp { virtual_key });
+                return DefWindowProcW(hwnd, message, wparam, lparam);
             }
             WM_CHAR => state.push_text_unit(wparam.0 as u16),
             WM_IME_STARTCOMPOSITION => {

@@ -14,6 +14,12 @@ Revision 2026-09-10: add signed horizontal and vertical wheel detents with a
 modifier snapshot to the same bounded event seam. Preserve Win32 client
 coordinates and message-state modifiers without sampling global key state.
 
+Revision 2026-09-10: decode generic Control, Shift and Alt transitions from
+the keyboard message scan-code and extended-key fields so simultaneous left
+and right modifiers remain independent. Record system-key events before
+forwarding them to `DefWindowProcW`, preserving the operating system's menu
+and close-command behavior.
+
 Driver: [MOI-WINDOW-WIN32-2026-09-08](../backlog.md#MOI-WINDOW-WIN32-2026-09-08),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
 
@@ -37,11 +43,15 @@ because Win32 window procedures and message queues are thread-affine.
 returns a bounded batch. The window procedure translates `WM_CLOSE`, focus
 changes, left-button and movement messages, `WM_MOUSEWHEEL`,
 `WM_MOUSEHWHEEL`, `WM_KEYDOWN`, `WM_CHAR`, `WM_SIZE` and `WM_DPICHANGED` into
-the provider's value events. Wheel deltas retain their signed Win32 detent
-count and client coordinates; Control and Shift come from the wheel message's
+the provider's value events. `WM_SYSKEYDOWN` and `WM_SYSKEYUP` are recorded as
+keyboard events and then passed to `DefWindowProcW` so system menu and close
+commands remain available. Wheel deltas retain their signed Win32 detent count
+and client coordinates; Control and Shift come from the wheel message's
 button-state word, while Alt and the Windows key come from modifier key
-transitions observed by this window. Focus loss clears the tracked state, and
-the provider never samples global key state. `WM_NCDESTROY` reports
+transitions observed by this window. Generic modifier virtual keys use the
+scan-code and extended-key fields to preserve left/right state. Focus loss
+clears the tracked state, and the provider never samples global key state.
+`WM_NCDESTROY` reports
 completed destruction. Surrogate pairs are combined before text delivery.
 `WM_IME_STARTCOMPOSITION`, `WM_IME_COMPOSITION` and `WM_IME_ENDCOMPOSITION`
 become `TextComposition` events carrying start, preedit, commit or cancel
@@ -101,8 +111,11 @@ Windows test creates a real window, pumps creation and destruction messages,
 posts representative messages including IME start/end, verifies
 lifecycle/resize/DPI/text values and presents a bounded frame; a second native
 test verifies retained initial readiness, rejects an overlong wait, proves a
-posted input wakes the finite wait and observes an empty queue afterward. The
-tests do not claim a particular installed IME or CJK keyboard journey.
+posted input wakes the finite wait and observes an empty queue afterward; a
+third native test drives generic left/right Alt messages, verifies the tracked
+modifier remains set until both sides release, and sends the real
+`WM_SYSCOMMAND(SC_CLOSE)` close command used by Alt+F4. The tests do not claim
+a particular installed IME or CJK keyboard journey.
 The PAL package must pass warning-denied Clippy and native tests on Windows;
 cross-target library checks verify that non-Windows and WASM builds do not
 compile the provider. Miri cannot execute Win32 calls, so the FFI path is

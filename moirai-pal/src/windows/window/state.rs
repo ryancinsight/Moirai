@@ -3,6 +3,8 @@
 use std::collections::VecDeque;
 use std::io;
 
+use windows::Win32::Foundation::LPARAM;
+
 use super::config::{MAX_WINDOW_EVENTS, allocation_error};
 use super::event::{CompositionPhase, ModifierState, WindowEvent};
 use super::input::update_modifier;
@@ -62,8 +64,8 @@ impl WindowState {
         }
     }
 
-    pub(super) fn update_modifier(&mut self, virtual_key: u32, pressed: bool) {
-        self.modifiers = update_modifier(self.modifiers, virtual_key, pressed);
+    pub(super) fn update_modifier(&mut self, virtual_key: u32, lparam: LPARAM, pressed: bool) {
+        self.modifiers = update_modifier(self.modifiers, virtual_key, lparam, pressed);
     }
 
     pub(super) fn clear_modifiers(&mut self) {

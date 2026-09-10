@@ -12,11 +12,12 @@ use std::io;
 use std::time::Duration;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
-use windows::Win32::UI::Input::KeyboardAndMouse::{VK_LCONTROL, VK_LMENU, VK_LWIN, VK_RCONTROL};
+use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_LWIN, VK_MENU};
 use windows::Win32::UI::WindowsAndMessaging::{
-    PostMessageW, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
-    WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEHWHEEL,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
+    PostMessageW, SC_CLOSE, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_IME_COMPOSITION,
+    WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_SIZE, WM_SYSCOMMAND,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
 };
 
 #[test]
@@ -105,23 +106,44 @@ fn wheel_decoding_preserves_signed_axes_and_modifier_state() {
     );
     assert_eq!(wheel_deltas(WM_KEYDOWN, encode(120, 0)), None);
 
-    let state = update_modifier(ModifierState::NONE, u32::from(VK_LMENU.0), true);
-    let state = update_modifier(state, u32::from(VK_LWIN.0), true);
+    let left_alt = key_lparam(0x38, false, true);
+    let right_alt = key_lparam(0x38, true, true);
+    let state = update_modifier(ModifierState::NONE, u32::from(VK_MENU.0), left_alt, true);
+    let state = update_modifier(state, u32::from(VK_MENU.0), right_alt, true);
+    let state = update_modifier(state, u32::from(VK_LWIN.0), LPARAM(0), true);
     let state = state.with_wheel_message_flags(0x000c);
     assert!(state.ctrl());
     assert!(state.shift());
     assert!(state.alt());
     assert!(state.meta());
-    let state = update_modifier(state, u32::from(VK_LMENU.0), false);
-    assert!(!state.alt());
+    let state = update_modifier(state, u32::from(VK_MENU.0), left_alt, false);
+    assert!(state.alt());
     assert!(state.meta());
 
-    let state = update_modifier(ModifierState::NONE, u32::from(VK_LCONTROL.0), true);
-    let state = update_modifier(state, u32::from(VK_RCONTROL.0), true);
-    let state = update_modifier(state, u32::from(VK_LCONTROL.0), false);
+    let left_control = key_lparam(0x1d, false, false);
+    let right_control = key_lparam(0x1d, true, false);
+    let state = update_modifier(
+        ModifierState::NONE,
+        u32::from(VK_CONTROL.0),
+        left_control,
+        true,
+    );
+    let state = update_modifier(state, u32::from(VK_CONTROL.0), right_control, true);
+    let state = update_modifier(state, u32::from(VK_CONTROL.0), left_control, false);
     assert!(state.ctrl());
-    let state = update_modifier(state, u32::from(VK_RCONTROL.0), false);
+    let state = update_modifier(state, u32::from(VK_CONTROL.0), right_control, false);
     assert!(!state.ctrl());
+}
+
+fn key_lparam(scan_code: u8, extended: bool, context: bool) -> LPARAM {
+    let mut raw = u64::from(scan_code) << 16;
+    if extended {
+        raw |= 1 << 24;
+    }
+    if context {
+        raw |= 1 << 29;
+    }
+    LPARAM(raw as isize)
 }
 
 #[test]
@@ -165,8 +187,8 @@ fn native_window_lifecycle_and_frame_round_trip() {
         PostMessageW(
             Some(window.hwnd),
             WM_SYSKEYDOWN,
-            WPARAM(usize::from(VK_LMENU.0)),
-            LPARAM(1),
+            WPARAM(usize::from(VK_MENU.0)),
+            key_lparam(0x38, false, true),
         )
         .expect("Alt down");
         PostMessageW(
@@ -186,8 +208,8 @@ fn native_window_lifecycle_and_frame_round_trip() {
         PostMessageW(
             Some(window.hwnd),
             WM_SYSKEYUP,
-            WPARAM(usize::from(VK_LMENU.0)),
-            LPARAM(0),
+            WPARAM(usize::from(VK_MENU.0)),
+            key_lparam(0x38, false, true),
         )
         .expect("Alt up");
         PostMessageW(
@@ -302,6 +324,103 @@ fn native_window_lifecycle_and_frame_round_trip() {
     assert!(events.contains(&WindowEvent::DpiChanged { dpi: 144 }));
     window.close().expect("destroy");
     assert!(window.is_destroyed());
+}
+
+#[test]
+#[cfg(windows)]
+fn native_system_keys_preserve_modifier_sides_and_alt_f4_close() {
+    let config =
+        WindowConfig::with_visibility("Moirai system-key test", 320, 240, WindowVisibility::Hidden)
+            .expect("config");
+    let mut window = NativeWindow::new(&config).expect("native window");
+    let _ = window.poll_events().expect("initial events");
+
+    // Generic VK_MENU messages carry the side in the scan code and extended
+    // bit. Releasing the left key must leave the right Alt modifier active.
+    let left_alt = key_lparam(0x38, false, true);
+    let right_alt = key_lparam(0x38, true, true);
+    // SAFETY: every message targets the live HWND owned by this test and
+    // carries only immediate keyboard parameters.
+    unsafe {
+        let _ = SendMessageW(
+            window.hwnd,
+            WM_SYSKEYDOWN,
+            Some(WPARAM(usize::from(VK_MENU.0))),
+            Some(left_alt),
+        );
+        let _ = SendMessageW(
+            window.hwnd,
+            WM_SYSKEYDOWN,
+            Some(WPARAM(usize::from(VK_MENU.0))),
+            Some(right_alt),
+        );
+        let _ = SendMessageW(
+            window.hwnd,
+            WM_SYSKEYUP,
+            Some(WPARAM(usize::from(VK_MENU.0))),
+            Some(left_alt),
+        );
+
+        let mut wheel_point = windows::Win32::Foundation::POINT { x: 16, y: 24 };
+        if !ClientToScreen(window.hwnd, &mut wheel_point).as_bool() {
+            panic!("client point must convert to screen coordinates");
+        }
+        let wheel_lparam = LPARAM(
+            ((u32::try_from(wheel_point.y).expect("test point is positive") << 16)
+                | u32::try_from(wheel_point.x).expect("test point is positive"))
+                as isize,
+        );
+        let _ = SendMessageW(
+            window.hwnd,
+            WM_MOUSEWHEEL,
+            Some(WPARAM(
+                (usize::from(u16::from_ne_bytes(120_i16.to_ne_bytes())) << 16) | 0x000c,
+            )),
+            Some(wheel_lparam),
+        );
+
+        // Releasing the right Alt leaves no modifier for the next wheel event.
+        let _ = SendMessageW(
+            window.hwnd,
+            WM_SYSKEYUP,
+            Some(WPARAM(usize::from(VK_MENU.0))),
+            Some(right_alt),
+        );
+        let _ = SendMessageW(
+            window.hwnd,
+            WM_MOUSEWHEEL,
+            Some(WPARAM(
+                usize::from(u16::from_ne_bytes(120_i16.to_ne_bytes())) << 16,
+            )),
+            Some(wheel_lparam),
+        );
+
+        // User32 surfaces Alt+F4 as the top-level system close command. The
+        // real HWND path must retain the default WM_SYSCOMMAND -> WM_CLOSE
+        // behavior after the PAL records keyboard events.
+        let _ = SendMessageW(
+            window.hwnd,
+            WM_SYSCOMMAND,
+            Some(WPARAM(
+                usize::try_from(SC_CLOSE).expect("SC_CLOSE fits in WPARAM"),
+            )),
+            Some(LPARAM(0)),
+        );
+    }
+
+    let events = window.poll_events().expect("system-key events");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        WindowEvent::PointerWheel { modifiers, .. } if modifiers.alt()
+    )));
+    let mut wheels = events.iter().filter_map(|event| match event {
+        WindowEvent::PointerWheel { modifiers, .. } => Some(modifiers.alt()),
+        _ => None,
+    });
+    assert_eq!(wheels.next(), Some(true));
+    assert_eq!(wheels.next(), Some(false));
+    assert!(events.contains(&WindowEvent::CloseRequested));
+    window.close().expect("destroy");
 }
 
 #[test]

@@ -14,8 +14,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::event::{
-    ALT_BITS, ALT_LEFT, ALT_RIGHT, CONTROL_BITS, CONTROL_LEFT, CONTROL_RIGHT, META_LEFT,
-    META_RIGHT, ModifierState, MouseButton, SHIFT_BITS, SHIFT_LEFT, SHIFT_RIGHT,
+    ALT_LEFT, ALT_RIGHT, CONTROL_LEFT, CONTROL_RIGHT, META_LEFT, META_RIGHT, ModifierState,
+    MouseButton, SHIFT_LEFT, SHIFT_RIGHT,
 };
 
 pub(super) fn mouse_button(message: u32, wparam: WPARAM) -> Option<MouseButton> {
@@ -57,15 +57,36 @@ pub(super) fn client_point_from_wheel_lparam(hwnd: HWND, lparam: LPARAM) -> io::
     }
 }
 
-pub(super) fn modifier_for_key(virtual_key: u32) -> u8 {
+pub(super) fn modifier_for_message(virtual_key: u32, lparam: LPARAM) -> u8 {
+    let raw = lparam.0 as u64;
+    let scan_code = ((raw >> 16) & 0xff) as u8;
+    let extended = raw & (1 << 24) != 0;
     match virtual_key {
-        key if key == u32::from(VK_CONTROL.0) => CONTROL_BITS,
+        key if key == u32::from(VK_CONTROL.0) => {
+            if extended {
+                CONTROL_RIGHT
+            } else {
+                CONTROL_LEFT
+            }
+        }
         key if key == u32::from(VK_LCONTROL.0) => CONTROL_LEFT,
         key if key == u32::from(VK_RCONTROL.0) => CONTROL_RIGHT,
-        key if key == u32::from(VK_SHIFT.0) => SHIFT_BITS,
+        key if key == u32::from(VK_SHIFT.0) => {
+            if scan_code == 0x36 {
+                SHIFT_RIGHT
+            } else {
+                SHIFT_LEFT
+            }
+        }
         key if key == u32::from(VK_LSHIFT.0) => SHIFT_LEFT,
         key if key == u32::from(VK_RSHIFT.0) => SHIFT_RIGHT,
-        key if key == u32::from(VK_MENU.0) => ALT_BITS,
+        key if key == u32::from(VK_MENU.0) => {
+            if extended {
+                ALT_RIGHT
+            } else {
+                ALT_LEFT
+            }
+        }
         key if key == u32::from(VK_LMENU.0) => ALT_LEFT,
         key if key == u32::from(VK_RMENU.0) => ALT_RIGHT,
         key if key == u32::from(VK_LWIN.0) => META_LEFT,
@@ -77,9 +98,10 @@ pub(super) fn modifier_for_key(virtual_key: u32) -> u8 {
 pub(super) fn update_modifier(
     state: ModifierState,
     virtual_key: u32,
+    lparam: LPARAM,
     pressed: bool,
 ) -> ModifierState {
-    state.set_bits(modifier_for_key(virtual_key), pressed)
+    state.set_bits(modifier_for_message(virtual_key, lparam), pressed)
 }
 
 pub(super) fn point_from_lparam(lparam: LPARAM) -> (i32, i32) {
