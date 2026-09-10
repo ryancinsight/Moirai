@@ -3,7 +3,7 @@ fn scheduled_job_storage_keeps_inline_capacity_without_slot_alignment() {
     let source = read_benchmark("../moirai-executor/src/schedule/job/mod.rs");
 
     for required in [
-        "const INLINE_JOB_WORDS: usize = 13",
+        "const INLINE_JOB_WORDS: usize = 14",
         "#[repr(C)]",
         "pub(crate) struct ScheduledJob",
         "job: InlineJob",

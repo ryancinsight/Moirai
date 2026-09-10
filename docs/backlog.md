@@ -1,13 +1,26 @@
 # Moirai Development Backlog (SSOT)
 
 <a id="moirai-executor-sizing"></a>
-## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — done 2026-09-10
+## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — in-progress
 
-- **Integrator:** claude-fable-5.1; **branch:** `perf/moirai-fork-join-latency-probe`.
-- **Outcome.** The join's tail was the caller waiting on the slowest wake; a
-  non-worker caller now runs its own scope's chunks from the injectors. Probe
-  at 10 µs tasks: p90 404 → 68 µs, p99 548 → 208, median unchanged; at 50 µs
-  tasks median 420 → 255, p90 540 → 368. Consumer number in the PR.
+- **Integrator:** claude-fable-5.1; **branch:** `perf/moirai-fork-join-latency-probe` (probe, landed #312); the caller-help fix is withdrawn pending its crash.
+- **Escaped defect (2026-09-10).** #312 let a non-worker caller run its own
+  scope's chunks from the injectors. The probe read p90 404 → 68 µs at 10 µs
+  tasks and the workspace gate was green on the PR, but the merge run
+  SIGSEGV'd `moirai-iter`'s `nested_iteration_produces_correct_values` and
+  kwavers' 3-D FFT bench crashed at 32³ and 64³ under its release profile —
+  not under a thin-LTO debug build, and not with the helper disabled and the
+  job layout kept, so the race is in the help path itself. The parking join
+  is restored on main; the tag, the injector steal and the regression test
+  go with it until the race is found. The reproducer is the nested
+  iteration test on a two-core runner and kwavers' bench; the next method
+  is that reproduction under a checker (loom for the scope/injector
+  handshake, or the bench under a sanitizer build).
+- **Consumer baseline, corrected.** kwavers' 64³ round trip at the landed
+  apollo/leto pins (#765) and the locked executor reads 0.97 ms mean
+  (0.62 min) against 2.7 ms at the previous pins: the layout chain and the
+  tile rule reached the consumer after all; the executor's share is what
+  remains above the probe's 0.54 ms best case.
 
 - **Question (spike).** kwavers' `fft3d_baseline` (a 64³ `Complex64` forward and
   inverse through apollo's 3-D plan: six lane passes and six transposes, each a
