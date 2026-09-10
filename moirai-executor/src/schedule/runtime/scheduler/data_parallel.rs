@@ -31,7 +31,7 @@ use moirai_core::{
     error::{ExecutorError, ExecutorResult},
 };
 
-use super::super::super::{class::WorkClass, reduce::ReduceSlots};
+use super::super::super::{class::WorkClass, job::ScheduledJob, reduce::ReduceSlots};
 use super::super::types::{
     IndexedRegionGuard, SchedulerScopeState, ScopedTaskCompletion, ThreadScheduler,
     get_current_worker_id, is_in_indexed_region,
@@ -314,7 +314,13 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         // Scoped job storage erases `'scope`; a scheduling unwind after an
         // earlier admission must not release the borrowed stack state first.
         match catch_unwind(AssertUnwindSafe(|| {
-            self.schedule_scoped_job::<C, _, _>(priority, locality_hint, scoped_job, complete)
+            // SAFETY: the job borrows `'scope` state; `drain_scope` runs before
+            // the region returns, on success and on unwind alike, so no job
+            // outlives what it borrows. Tagged with the scope so its joining
+            // caller may run it itself.
+            let job = unsafe { ScheduledJob::new_scoped_with_completion(scoped_job, complete) }
+                .within_scope(core::ptr::from_ref(state) as usize);
+            self.schedule_job::<C>(priority, locality_hint, job)
         })) {
             Ok(result) => result,
             Err(payload) => {

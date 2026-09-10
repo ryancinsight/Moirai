@@ -1,7 +1,13 @@
 # Moirai Development Backlog (SSOT)
 
 <a id="moirai-executor-sizing"></a>
-## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — todo
+## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — done 2026-09-10
+
+- **Integrator:** claude-fable-5.1; **branch:** `perf/moirai-fork-join-latency-probe`.
+- **Outcome.** The join's tail was the caller waiting on the slowest wake; a
+  non-worker caller now runs its own scope's chunks from the injectors. Probe
+  at 10 µs tasks: p90 404 → 68 µs, p99 548 → 208, median unchanged; at 50 µs
+  tasks median 420 → 255, p90 540 → 368. Consumer number in the PR.
 
 - **Question (spike).** kwavers' `fft3d_baseline` (a 64³ `Complex64` forward and
   inverse through apollo's 3-D plan: six lane passes and six transposes, each a
@@ -48,6 +54,26 @@
   then is the wake path (keep a bounded set of workers spinning through a
   fork-join sequence; hand tasks to the caller's own thread first), landed
   here once for every consumer.
+- **Sweep 2 (2026-09-10): the join measured alone.** `moirai-parallel`'s
+  `fork_join_latency_distribution` (ignored test, release profile) times one
+  `for_each_chunk_mut_with::<Parallel>` over 64 tasks on the default
+  executor, 2,000 calls after warm-up, host at 17% load:
+
+  | task cost | parallel min | median | p90 | p99 | sequential |
+  | --- | --- | --- | --- | --- | --- |
+  | empty | 7.0 µs | 10.5 µs | 13.2 µs | 28.9 µs | 2.9 µs |
+  | 10 µs (640 µs of work) | 44.5 µs | 52.2 µs | **403.6 µs** | 548.2 µs | 640 µs |
+  | 50 µs (3.2 ms of work) | 205 µs | **420 µs** | 540 µs | 740 µs | 3,203 µs |
+
+  The best case is near ideal (3.2 ms over 24 workers is 133 µs plus the
+  join); the median is twice it at 50 µs tasks, and at 10 µs tasks one call
+  in ten costs eight times the median — the time of forty serial tasks, as
+  if most of the pool sat out that call. Twelve such joins are a round trip,
+  which is the consumer's mean. Reading, to verify next: parked workers are
+  not woken for a fork, or wake late, and the caller and the few awake
+  workers drain the queue; the executor's `for_each_indexed` and the
+  worker park/wake path are where to look, and a wake-all on fork, or the
+  caller running tasks itself, is the shape of the fix.
 - **Evidence budget:** one sweep per hypothesis; **risk / change class:**
   [minor] [perf]; **dependencies:** none; apollo and kwavers consume the
   runtime through their pins, so the fix lands here once.

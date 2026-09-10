@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`ATLAS-APOLLO-WORKER-RETENTION-2026-09-03`).
 ### Changed
 
+- **A joining caller runs its own fan-out.** An indexed fan-out issued from
+  outside the pool queued one chunk per worker behind an unpark and then
+  waited, so every join paid the slowest wake. The caller now takes the
+  chunks of its own scope from the workers' injectors and runs them on its
+  lane; a chunk of another scope goes back at its priority. On the fork-join
+  probe (64 tasks of 10 µs, 24 workers) the 90th percentile falls from 404 µs
+  to 68 µs at an unchanged median; jobs carry their scope in a header word
+  and stay sixteen words, with thirteen inline capture words instead of
+  fourteen.
+
 - **Worker idle-hook admission is bounded.** `register_idle_hook` now returns
   `Result<(), IdleHookRegistrationError>` and rejects registrations beyond
   `MAX_IDLE_HOOKS` without mutation. Snapshots copy a fixed array before
