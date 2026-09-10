@@ -38,6 +38,10 @@
   handoff, model the two-consumer handoff (`steal_external` against
   `steal_batch`'s batched dequeue with its deferred `len` update) under loom.
   A retry of the caller help lands only with that reproduction green.
+  Blocker for the sanitizer half on this host: the nightly MSVC build links
+  against `clang_rt.asan_dynamic_runtime_thunk-x86_64.lib`, which the
+  installed Build Tools lack (the C++ AddressSanitizer component, or an
+  LLVM install on the path); the loom half needs no such install.
 - **Consumer baseline, corrected.** kwavers' 64³ round trip at the landed
   apollo/leto pins (#765) and the locked executor reads 0.97 ms mean
   (0.62 min) against 2.7 ms at the previous pins: the layout chain and the
