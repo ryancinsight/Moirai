@@ -48,21 +48,20 @@ fn open_larger_than_the_segment_is_rejected() {
     // the zero-filled tail of the segment's own final page.
     let result = SharedMemory::open(name, 1 << 20);
 
+    // Which error depends on who caught it: POSIX `mmap` would have accepted the
+    // oversized length, so `open` checks the segment itself with `fstat` and
+    // reports `InvalidArgument`; on Windows the refusal comes from
+    // `MapViewOfFile` and surfaces as the OS error, whose code is the
+    // platform's, so only the variant is asserted. Either way the refusal is
+    // the size check's, not a `NotFound` from a `create` that silently failed.
     match result {
-        // The code is the platform's errno, so only the variant is portable.
-        Err(IpcError::SystemError(_)) => {}
+        Err(IpcError::InvalidArgument) if cfg!(unix) => {}
+        Err(IpcError::SystemError(_)) if cfg!(windows) => {}
         Err(other) => panic!(
-            "the oversized open must be refused by the mapping call, not by              lookup or validation: got {other:?}"
+            "the oversized open must be refused by the segment size check on unix or the mapping call on windows: got {other:?}"
         ),
         Ok(_) => panic!("opening a 4 KiB segment as 1 MiB must be rejected, not mapped"),
     }
-
-    // Which error depends on who caught it: POSIX `mmap` would have accepted the
-    // oversized length, so `open` checks the segment itself and reports
-    // `InvalidArgument`; on Windows the refusal comes from `MapViewOfFile` and
-    // surfaces as the OS error.
-    #[cfg(unix)]
-    assert!(matches!(result, Err(IpcError::InvalidArgument)));
 }
 
 #[test]
