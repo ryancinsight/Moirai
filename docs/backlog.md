@@ -16,6 +16,28 @@
   iteration test on a two-core runner and kwavers' bench; the next method
   is that reproduction under a checker (loom for the scope/injector
   handshake, or the bench under a sanitizer build).
+- **Reproduction and evidence (2026-09-10, after #316).** The crash needs a
+  loaded host: 1 in 40 to 1 in 100 runs of `moirai-iter`'s
+  `nested_iteration_produces_correct_values` with twenty busy processes
+  beside it, 0 in 700 pinned to two processors or on a quiet host. Under gdb
+  (GNU target, DWARF) the caller thread faults with a garbage instruction
+  pointer and a broken unwind; its raw stack carries `scope<..>`,
+  `execute_scoped_inline<drive_split::{closure}>`,
+  `drop_inline<ScopedJob<drive_split::{closure}>>`, `reduce<VecParIter>` and
+  `RawVecInner::grow_amortized` / `process_heap_alloc` — a heap corruption
+  surfacing in an allocation during `parallel::sources::drive_split`, whose
+  fork-join is `scope()` with spawned, untagged jobs. In that join the helper
+  never executes a job; it only dequeues, re-enqueues and wakes, so the
+  corruption is either in the re-enqueue of a job another consumer is
+  concurrently reaching for, or a latent unsafety in the split/collect path
+  that the new interleaving exposes. Script: `crash_pinned.sh` shape with
+  twenty `while :` burners beside an unpinned gdb loop.
+- **Next method.** Run the reproducer under a sanitizer (nightly
+  `-Zsanitizer=address` on the MSVC target, or ThreadSanitizer on a Linux
+  host) to name the first invalid access; if it lands in the injector
+  handoff, model the two-consumer handoff (`steal_external` against
+  `steal_batch`'s batched dequeue with its deferred `len` update) under loom.
+  A retry of the caller help lands only with that reproduction green.
 - **Consumer baseline, corrected.** kwavers' 64³ round trip at the landed
   apollo/leto pins (#765) and the locked executor reads 0.97 ms mean
   (0.62 min) against 2.7 ms at the previous pins: the layout chain and the
