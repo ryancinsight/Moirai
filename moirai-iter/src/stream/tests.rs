@@ -61,7 +61,15 @@ fn concurrent_map_bounds_in_flight_concurrency_to_limit() {
                     // active one has left — `now` therefore never exceeds LIMIT.
                     let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
                     peak.fetch_max(now, Ordering::SeqCst);
-                    yield_now_times(1).await;
+                    // With `limit > 1` the items run on the scheduler's workers,
+                    // so whether the first LIMIT overlap depends on how fast a
+                    // worker finishes one against the buffer starting the next.
+                    // Each of them holds — yielding, so no worker is blocked and
+                    // any worker count serves — until LIMIT are registered at
+                    // once; from then on the peak stands and nothing waits.
+                    while peak.load(Ordering::SeqCst) < LIMIT {
+                        yield_now_times(1).await;
+                    }
                     in_flight.fetch_sub(1, Ordering::SeqCst);
                     x
                 }
@@ -75,9 +83,8 @@ fn concurrent_map_bounds_in_flight_concurrency_to_limit() {
         observed_peak <= LIMIT,
         "in-flight peak {observed_peak} exceeded the bound {LIMIT}"
     );
-    // Every item yields once after registering itself, so the buffer must have
-    // started `LIMIT` of them before any could finish: the bound is reached,
-    // not merely respected.
+    // No item completes until LIMIT are registered together, so the buffer
+    // must have filled: the bound is reached, not merely respected.
     assert_eq!(
         observed_peak, LIMIT,
         "the buffer must fill to its bound before an item completes"
