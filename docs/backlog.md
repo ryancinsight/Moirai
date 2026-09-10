@@ -1,5 +1,35 @@
 # Moirai Development Backlog (SSOT)
 
+<a id="moirai-executor-sizing"></a>
+## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — todo
+
+- **Question (spike).** kwavers' `fft3d_baseline` (a 64³ `Complex64` forward and
+  inverse through apollo's 3-D plan: six lane passes and six transposes, each a
+  moirai fork-join over 64 KiB tasks) reads **2.7 ms** per round trip on the
+  default global executor — 24 workers, one per logical processor of the
+  Core Ultra 9 285K (8 P + 16 E) — against **1.57 ms with 4 or 16 workers**
+  (per-iteration means; 8 workers read 2.3 on a busier host). apollo's own
+  probe reads the same round trip at 0.54 ms at the fastest sample, so the
+  consumer's mean is three to five times the kernel's best case, and the
+  executor's size moves it more than any kernel change of the day. Pinned to
+  one core the same binary reads 30 ms: 24 workers time-slicing one core,
+  which says idle workers are not parked. Hypotheses, not findings: joins
+  wait on tasks scheduled to E-cores; stealers spin and yield instead of
+  parking; both.
+- **Method.** An experiment knob — the executor sized from an environment
+  variable in a scratch export, the instrument kwavers' bench with
+  criterion's raw samples read for per-iteration min/median/mean — swept
+  worker count {4, 8, 12, 16, 24} on a quiet host, then the same with the
+  workers pinned by class (P-set mask `0xc03c03` from apollo's processor
+  census) so count and class separate; one run each with the stealers'
+  yield replaced by a park to attribute the spin. Deliverable: the numbers
+  on this item, and the follow-on — a hybrid-aware default (workers sized to
+  the performance set, or a class-aware join) or a parking stealer — filed
+  DoR-shaped with the winning configuration as its oracle.
+- **Evidence budget:** one sweep per hypothesis; **risk / change class:**
+  [minor] [perf]; **dependencies:** none; apollo and kwavers consume the
+  runtime through their pins, so the fix lands here once.
+
 <a id="MOI-SLEEP-SYNCED-TESTS-2026-09-09"></a>
 ## MOI-SLEEP-SYNCED-TESTS-2026-09-09 — Retire the remaining sleep-synchronized tests [patch] — todo
 
