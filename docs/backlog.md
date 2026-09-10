@@ -1,4 +1,34 @@
 # Moirai Development Backlog (SSOT)
+
+<a id="MOI-SLEEP-SYNCED-TESTS-2026-09-09"></a>
+## MOI-SLEEP-SYNCED-TESTS-2026-09-09 — Retire the remaining sleep-synchronized tests [patch] — todo
+
+- Status: todo; priority: correctness; last-update: 2026-09-09.
+- Outcome: no test in this workspace synchronizes on a duration. Sleeping to
+  order two threads is a race written down, and an elapsed-time assertion
+  measures the scheduler rather than the component.
+- Delivered so far: [PR #306](https://github.com/ryancinsight/Moirai/pull/306)
+  closed the six clearest -- three channel cases that asserted elapsed time and
+  three stream cases whose sleeps blocked `block_on`'s single thread, which is
+  why their peak-concurrency assertion could not fail.
+- Remaining, grep-measured 2026-09-09 across `*/src/**`: `moirai-transport`
+  4 (`transport.rs` 2, `network.rs`, `process/portable.rs`), `moirai-executor`
+  2 (`hybrid/tests.rs`), `moirai-iter` 3 (`execution/tests.rs` 2,
+  `async_iter_tests.rs`), `moirai-pal` 2 (`timer/tests.rs`, `net.rs`),
+  `moirai-core` 2 (`channel/tests.rs`, `task/mod.rs`), `moirai-sync` 1,
+  `moirai-scheduler` 1, `moirai` 1, `tests/` 1.
+- Not every site is the defect. A backoff loop and a timer implementation sleep
+  because sleeping is what they do; the scan counts the token, so each site is
+  read before it is changed and a legitimate one is recorded here rather than
+  rewritten. The transport pair is the clearest remaining defect: both sleep
+  10 ms hoping a receiver has bound its socket, which needs a readiness signal
+  the transport does not currently expose -- that seam is the item's first
+  increment.
+- Non-goals: the `examples/` sleeps, which model workload latency for a reader
+  and are not synchronization.
+- Acceptance: each remaining site is either event-synchronized or recorded here
+  as a legitimate sleep with its reason, and no test asserts on elapsed time.
+
 <a id="MOI-FS-CONFINED-2026-09-09"></a>
 ## MOI-FS-CONFINED-2026-09-09 — Open native files beneath a directory handle [minor] [arch]
 
