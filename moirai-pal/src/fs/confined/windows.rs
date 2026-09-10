@@ -1,8 +1,5 @@
 //! Windows directory-handle anchored file opening via NtCreateFile.
 
-use std::fs::File;
-use std::io;
-use std::path::Path;
 use ::windows::Wdk::Foundation::OBJECT_ATTRIBUTES;
 use ::windows::Wdk::Storage::FileSystem::{
     FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_REPARSE_POINT,
@@ -16,10 +13,13 @@ use ::windows::Win32::Storage::FileSystem::{
 };
 use ::windows::Win32::System::IO::IO_STATUS_BLOCK;
 use std::ffi::OsStr;
+use std::fs::File;
+use std::io;
 use std::mem::size_of;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
+use std::path::Path;
 
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
 const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
