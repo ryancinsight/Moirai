@@ -327,3 +327,53 @@ fn indexed_operations_use_every_available_lane_above_cap() {
         2 * u64::try_from(WORKERS).expect("worker count must fit scheduler metrics")
     );
 }
+
+#[test]
+fn caller_runs_its_indexed_jobs_while_the_pool_is_held() {
+    // One worker, held on a barrier by a plain job: every scoped chunk the
+    // fan-out schedules lands in that worker's queue behind a wake it cannot
+    // answer. The joining caller steals and runs them from its own lane, so
+    // the fan-out completes before the worker is released and every item
+    // observes no worker id. Before the caller helped, this join waited on the
+    // held worker and the release below was never reached.
+    let scheduler = ThreadScheduler::new(1, "test-caller-helps").unwrap();
+    let entered = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let hold = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let (worker_entered, worker_hold) = (
+        std::sync::Arc::clone(&entered),
+        std::sync::Arc::clone(&hold),
+    );
+    scheduler
+        .schedule_job::<SyncTask>(
+            Priority::Normal,
+            None,
+            crate::schedule::job::ScheduledJob::new(move |_| {
+                worker_entered.wait();
+                worker_hold.wait();
+            }),
+        )
+        .unwrap();
+    // Only once the worker is inside the job is the pool held.
+    entered.wait();
+
+    const ITEMS: usize = 8;
+    let on_worker = AtomicUsize::new(0);
+    let visited = AtomicUsize::new(0);
+    scheduler
+        .for_each_indexed::<SyncTask, _>(Priority::Normal, None, ITEMS, |index| {
+            visited.fetch_add(index + 1, Ordering::Relaxed);
+            if get_current_worker_id().is_some() {
+                on_worker.fetch_add(1, Ordering::Relaxed);
+            }
+        })
+        .unwrap();
+
+    hold.wait();
+    scheduler.shutdown();
+    assert_eq!(visited.load(Ordering::Relaxed), ITEMS * (ITEMS + 1) / 2);
+    assert_eq!(
+        on_worker.load(Ordering::Relaxed),
+        0,
+        "every item must have run on the caller's lane while the worker was held"
+    );
+}

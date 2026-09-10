@@ -1,7 +1,13 @@
 # Moirai Development Backlog (SSOT)
 
 <a id="moirai-executor-sizing"></a>
-## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — todo
+## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — done 2026-09-10
+
+- **Integrator:** claude-fable-5.1; **branch:** `perf/moirai-fork-join-latency-probe`.
+- **Outcome.** The join's tail was the caller waiting on the slowest wake; a
+  non-worker caller now runs its own scope's chunks from the injectors. Probe
+  at 10 µs tasks: p90 404 → 68 µs, p99 548 → 208, median unchanged; at 50 µs
+  tasks median 420 → 255, p90 540 → 368. Consumer number in the PR.
 
 - **Question (spike).** kwavers' `fft3d_baseline` (a 64³ `Complex64` forward and
   inverse through apollo's 3-D plan: six lane passes and six transposes, each a

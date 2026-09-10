@@ -118,6 +118,22 @@ impl WorkerQueues {
         None
     }
 
+    /// Steal one externally pushed job with the priority it was pushed at,
+    /// leaving the owner's local deques alone.
+    ///
+    /// A joining caller helps its own fan-out through this: the jobs it
+    /// scheduled from outside the pool sit in these injectors, never in the
+    /// local deques, and the priority lets a job of another scope go back
+    /// where it was.
+    pub(crate) fn steal_external(&self) -> Option<(Priority, ScheduledJob)> {
+        if self.len.load(Ordering::Relaxed) == 0 {
+            return None;
+        }
+        let entry = self.injector.try_dequeue()?;
+        self.len.fetch_sub(1, Ordering::Relaxed);
+        Some(entry)
+    }
+
     /// Returns true when the queue has no visible jobs.
     pub(crate) fn is_empty(&self) -> bool {
         self.len.load(Ordering::Relaxed) == 0
