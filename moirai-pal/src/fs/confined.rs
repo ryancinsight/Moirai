@@ -214,7 +214,12 @@ mod unix {
         where
             F: FnOnce() -> String,
         {
-            io::Error::new(self.kind(), format!("{}: {}", context(), self))
+            let message = format!("{}: {}", context(), self);
+            if self.raw_os_error().is_some() {
+                self
+            } else {
+                io::Error::new(self.kind(), message)
+            }
         }
     }
 }
