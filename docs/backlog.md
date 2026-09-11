@@ -1,7 +1,7 @@
 # Moirai Development Backlog (SSOT)
 
 <a id="MOI-HTTP-SERVER-2026-09-11"></a>
-## MOI-HTTP-SERVER-2026-09-11 — Provide a bounded HTTP/1.1 server transport [arch] [minor] — review
+## MOI-HTTP-SERVER-2026-09-11 — Provide a bounded HTTP/1.1 server transport [arch] [minor] — done
 
 - **Outcome:** `moirai-http` provides a Rust-owned, one-request-per-connection
   HTTP/1.1 server transport over `moirai-async` sockets. Consumers receive a
@@ -12,9 +12,9 @@
   deadlines, and real loopback tests. Routing, authorization, HTML/fragment
   policy, and DICOM remain consumer-owned; Metis owns its route boundary and
   RITK owns DICOM.
-- **Class:** [arch] [minor]; **priority:** P1; **status:** review;
-  **integrator:** root; **branch:** `arch/http-server-boundary`;
-  **last-update:** 2026-09-11; **driver:**
+- **Class:** [arch] [minor]; **priority:** P1; **status:** done;
+  **integrator:** root; **PR:** [Moirai #320](https://github.com/ryancinsight/Moirai/pull/320);
+  **commit:** `dfcbb30c`; **last-update:** 2026-09-11; **driver:**
   [Metis Axum boundary](../../metis/backlog.md#METIS-AXUM-001).
 - **Acceptance:** finite non-zero limits reject invalid configuration; request
   headers and `Content-Length` bodies are bounded and malformed or transfer
