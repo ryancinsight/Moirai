@@ -55,12 +55,14 @@ Moirai also owns the narrow DOM boundary used by Atlas WASM applications.
 text/attribute updates, input/select values, checked checkbox/radio state,
 disabled button/input/select state, modal dialog lifecycle, focus control and
 child insertion. Pointer events expose a `PointerMetadata` snapshot containing
-the browser `pointerId`, normalized device type, viewport coordinates, button
-state, modifier keys and primary-pointer marker. Elements own the
+the browser `pointerId`, normalized device type, viewport and target-relative
+CSS-pixel coordinates, button state, modifier keys and primary-pointer marker.
+Elements own the
 `setPointerCapture`, `hasPointerCapture` and `releasePointerCapture` calls with
 typed invalid-input errors when the browser rejects a request.
 Wheel events expose a `WheelMetadata` snapshot with three deltas, their
-pixel/line/page unit, viewport coordinates and modifier keys. The event seam
+pixel/line/page unit, viewport and target-relative CSS-pixel coordinates and
+modifier keys. The event seam
 returns no metadata for unrelated event kinds, so application policy can keep
 scroll and gesture handling explicit.
 Drag events expose a bounded `DropMetadata` snapshot with CSS-pixel coordinates

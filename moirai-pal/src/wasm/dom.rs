@@ -443,6 +443,8 @@ pub struct PointerMetadata {
     pointer_type: PointerType,
     client_x: i32,
     client_y: i32,
+    offset_x: i32,
+    offset_y: i32,
     button: i16,
     buttons: u16,
     modifiers: PointerModifiers,
@@ -472,6 +474,18 @@ impl PointerMetadata {
     #[must_use]
     pub const fn client_y(self) -> i32 {
         self.client_y
+    }
+
+    /// Returns the target-relative horizontal coordinate in CSS pixels.
+    #[must_use]
+    pub const fn offset_x(self) -> i32 {
+        self.offset_x
+    }
+
+    /// Returns the target-relative vertical coordinate in CSS pixels.
+    #[must_use]
+    pub const fn offset_y(self) -> i32 {
+        self.offset_y
     }
 
     /// Returns the button changed by the event (`-1` when the browser has no button).
@@ -508,6 +522,8 @@ pub struct WheelMetadata {
     delta_mode: WheelDeltaMode,
     client_x: i32,
     client_y: i32,
+    offset_x: i32,
+    offset_y: i32,
     modifiers: PointerModifiers,
 }
 
@@ -546,6 +562,18 @@ impl WheelMetadata {
     #[must_use]
     pub const fn client_y(self) -> i32 {
         self.client_y
+    }
+
+    /// Returns the target-relative horizontal coordinate in CSS pixels.
+    #[must_use]
+    pub const fn offset_x(self) -> i32 {
+        self.offset_x
+    }
+
+    /// Returns the target-relative vertical coordinate in CSS pixels.
+    #[must_use]
+    pub const fn offset_y(self) -> i32 {
+        self.offset_y
     }
 
     /// Returns the modifier-key snapshot.
@@ -590,9 +618,9 @@ impl WebEvent {
 
     /// Reads pointer metadata from this event.
     ///
-    /// The snapshot includes the pointer device, viewport coordinates, button
-    /// state, modifier keys and primary-pointer marker. Events that are not
-    /// [`PointerEvent`] values return [`None`].
+    /// The snapshot includes the pointer device, viewport and target-relative
+    /// coordinates, button state, modifier keys and primary-pointer marker.
+    /// Events that are not [`PointerEvent`] values return [`None`].
     #[must_use]
     pub fn pointer_metadata(&self) -> Option<PointerMetadata> {
         let pointer = self.event.dyn_ref::<PointerEvent>()?;
@@ -608,6 +636,8 @@ impl WebEvent {
             pointer_type,
             client_x: MouseEvent::client_x(mouse),
             client_y: MouseEvent::client_y(mouse),
+            offset_x: MouseEvent::offset_x(mouse),
+            offset_y: MouseEvent::offset_y(mouse),
             button: MouseEvent::button(mouse),
             buttons: MouseEvent::buttons(mouse),
             modifiers: modifier_state(mouse),
@@ -617,9 +647,9 @@ impl WebEvent {
 
     /// Reads wheel metadata from this event.
     ///
-    /// The snapshot includes three browser deltas, their unit, viewport
-    /// coordinates and modifier keys. Events that are not [`WheelEvent`]
-    /// values return [`None`].
+    /// The snapshot includes three browser deltas, their unit, viewport and
+    /// target-relative coordinates, and modifier keys. Events that are not
+    /// [`WheelEvent`] values return [`None`].
     #[must_use]
     pub fn wheel_metadata(&self) -> Option<WheelMetadata> {
         let wheel = self.event.dyn_ref::<WheelEvent>()?;
@@ -637,6 +667,8 @@ impl WebEvent {
             delta_mode,
             client_x: MouseEvent::client_x(mouse),
             client_y: MouseEvent::client_y(mouse),
+            offset_x: MouseEvent::offset_x(mouse),
+            offset_y: MouseEvent::offset_y(mouse),
             modifiers: modifier_state(mouse),
         })
     }

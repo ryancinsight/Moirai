@@ -1,5 +1,23 @@
 # Moirai Development Backlog (SSOT)
 
+<a id="MOI-WASM-CANVAS-INPUT-2026-09-11"></a>
+## MOI-WASM-CANVAS-INPUT-2026-09-11 — Expose target-local browser canvas coordinates [arch] [minor]
+
+- Outcome: `moirai-pal` exposes target-relative CSS-pixel pointer and wheel
+  coordinates beside its existing viewport snapshots, so format-neutral canvas
+  consumers can route input without a second browser binding.
+- Scope: metadata accessors and provider documentation; bounded event queues,
+  gesture interpretation, rendering, DICOM parsing and viewer state remain
+  consumer-owned.
+- Acceptance: pointer and wheel snapshots carry input-sensitive target-local
+  coordinates; non-DOM consumers remain unaffected; native checks, WASM check,
+  warning-denied Clippy and docs pass.
+- Class: [arch] [minor]; status: in-progress; priority: P0; integrator: root;
+  branch: `feat/wasm-canvas-input-001`; last-update: 2026-09-11; drivers:
+  [Metis browser](../../metis/backlog.md#METIS-BROWSER-001),
+  [RITK Metis migration](../../ritk/backlog.md#RITK-SNAP-METIS-001).
+- Decision: [ADR 0056](adr/0056-bounded-browser-canvas-input.md).
+
 <a id="MOI-WASM-CANVAS-2026-09-11"></a>
 ## MOI-WASM-CANVAS-2026-09-11 — Present bounded RGBA frames through the browser PAL [arch] [minor]
 

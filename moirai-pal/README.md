@@ -42,9 +42,12 @@ checkbox/radio state, disabled button/input/select state, modal dialog lifecycle
 and focus control. Pointer events expose their browser identifier, and elements
 can capture, query, and release that identifier through the same owned seam.
 Pointer events also expose a value snapshot with normalized device type,
-viewport coordinates, button state, modifier keys and primary-pointer state.
-Wheel events expose bounded deltas with their browser unit, viewport
-coordinates and the same modifier-key snapshot.
+viewport and target-relative CSS-pixel coordinates, button state, modifier
+keys and primary-pointer state. Wheel events expose bounded deltas with their
+browser unit, viewport and target-relative coordinates and the same
+modifier-key snapshot. Target-relative coordinates let a consumer route one
+event stream to a specific canvas without re-reading layout through a second
+browser binding.
 Drag events expose CSS-pixel coordinates and an owned `DropMetadata` snapshot
 with at most 64 validated files; names, media types and byte sizes are bounded
 before they reach an application. The seam does not read file bytes or treat a
