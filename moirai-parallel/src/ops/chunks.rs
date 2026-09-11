@@ -55,7 +55,7 @@ where
         return;
     }
     let num_chunks = n.div_ceil(chunk_size);
-    if !P::parallelize(n) || num_chunks <= 1 {
+    if !P::parallelize_chunks(n, num_chunks) || num_chunks <= 1 {
         data.chunks_mut(chunk_size).for_each(&f);
         return;
     }
@@ -101,7 +101,7 @@ pub fn for_each_chunk_mut_with_state<P, T, S, Init, F>(
         return;
     }
     let num_chunks = n.div_ceil(chunk_size);
-    if !P::parallelize(n) || num_chunks <= 1 {
+    if !P::parallelize_chunks(n, num_chunks) || num_chunks <= 1 {
         let mut state = init();
         for chunk in data.chunks_mut(chunk_size) {
             f(&mut state, chunk);
@@ -211,7 +211,7 @@ where
     }
 
     let num_chunks = length.div_ceil(chunk_size);
-    if !P::parallelize(length) || num_chunks <= 1 {
+    if !P::parallelize_chunks(length, num_chunks) || num_chunks <= 1 {
         for chunk_index in 0..num_chunks {
             let start = chunk_index * chunk_size;
             let end = (start + chunk_size).min(length);
@@ -273,7 +273,7 @@ pub fn for_each_chunk_pair_mut_enumerated_with<P, A, B, F>(
         return;
     }
     let num_chunks = na.div_ceil(chunk_size);
-    if !P::parallelize(na) || num_chunks <= 1 {
+    if !P::parallelize_chunks(na, num_chunks) || num_chunks <= 1 {
         a.chunks_mut(chunk_size)
             .zip(b.chunks_mut(chunk_size))
             .enumerate()
@@ -338,7 +338,7 @@ pub fn for_each_chunk_quad_mut_enumerated_with<P, A, B, C, D, F>(
         return;
     }
     let num_chunks = na.div_ceil(chunk_size);
-    if !P::parallelize(na) || num_chunks <= 1 {
+    if !P::parallelize_chunks(na, num_chunks) || num_chunks <= 1 {
         a.chunks_mut(chunk_size)
             .zip(b.chunks_mut(chunk_size))
             .zip(c.chunks_mut(chunk_size))
@@ -413,7 +413,7 @@ pub fn for_each_chunk_triple_mut_enumerated_with<P, A, B, C, F>(
         return;
     }
     let num_chunks = na.div_ceil(chunk_size);
-    if !P::parallelize(na) || num_chunks <= 1 {
+    if !P::parallelize_chunks(na, num_chunks) || num_chunks <= 1 {
         a.chunks_mut(chunk_size)
             .zip(b.chunks_mut(chunk_size))
             .zip(c.chunks_mut(chunk_size))
@@ -468,7 +468,7 @@ where
         return;
     }
     let num_chunks = n.div_ceil(chunk_size);
-    if !P::parallelize(n) || num_chunks <= 1 {
+    if !P::parallelize_chunks(n, num_chunks) || num_chunks <= 1 {
         data.chunks_mut(chunk_size)
             .enumerate()
             .for_each(|(i, c)| f(i, c));
