@@ -48,5 +48,8 @@ This seam does not claim cross-browser rendering or `isTrusted` parity.
 
 The native crate gate remains applicable to the non-WASM surface; the WASM
 check and warning-denied Clippy compile the new accessors against `web-sys`.
+Moirai PR #323 merged at `476787e354ee8658723559077170985911ae5fc6`.
 Metis and RITK consume the accessors through their bounded, format-neutral
-canvas event contracts and add browser evidence for target-local routing.
+canvas event contracts. Trusted physical and cross-engine browser evidence
+remains an open consumer-level requirement; it does not move DICOM or viewer
+state into Moirai.
