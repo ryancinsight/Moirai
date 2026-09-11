@@ -27,6 +27,17 @@
 - **Downstream:** consumers pick this up on their next lock advance; the
   kwavers and coeus diamond closes there, not here.
 
+## MOI-PROVIDER-SOURCE-2026-09-11 [patch] — complete
+
+- **Delivered:** the Hephaestus GPU adapter now pins provider commit
+  `ff370517` (the native CUDA driver boundary) and resolves Eunomia from its
+  default `c4f49bc1` source identity. The lockfile was regenerated outside
+  the Atlas overlay; `cuda-oxide` is absent from the activated graph.
+- **Supply-chain:** the deny source allowlist covers the first-party provider
+  graph, the stale `paste` advisory exception is removed, and the shared Atlas
+  SemVer workflow is pinned to `744acdf8`, which reports informational PR
+  findings green while retaining the release gate.
+
 ## MOI-GPU-BUDGET-IDENTITY-2026-09-03 [minor] [arch] — complete
 
 - **Delivered:** `moirai-gpu` now owns the public `KernelResourceBudget`
@@ -1422,8 +1433,9 @@
       attacker-observable service. `rsa 0.9.10` remains under
       `RUSTSEC-2023-0071`; no safe upstream release exists, so the advisory is
       an explicit cargo-deny residual rather than a hidden pass.
-- [ ] Replace the indirect `paste` dependency pulled by the wgpu Metal stack
-      when a safe upstream route exists (`RUSTSEC-2024-0436`).
+- [x] Remove the obsolete `paste` advisory exception. The current locked WGPU
+      graph contains no `paste` advisory after the provider source refresh;
+      `RUSTSEC-2023-0071` remains the only active RSA residual.
 
 ## MOI-CI-EXACT-001 — exact-head Rust and Loom verification [patch] — complete
 

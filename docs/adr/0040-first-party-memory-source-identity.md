@@ -40,3 +40,10 @@ Workspace check and warning-denied Clippy pass; Nextest passes 987/987 with
 9 expected skips; Loom passes 19/19; the Rust 1.95 floor check and the
 no-default-features core suite pass; 22 executable doctests, warning-denied
 rustdoc, formatting, and `git diff --check` pass.
+
+## Revision 2026-09-11
+
+The provider correction has merged. The standalone lock now resolves Mnemosyne
+from its current default source and Eunomia `c4f49bc1` without a `rev` pin, so
+the source-identity quarantine is removed. Hephaestus consumers use the same
+default Eunomia source and no duplicate nominal layout package remains.

@@ -80,7 +80,7 @@ fn zero_copy_for_each_visits_every_value() {
     });
     assert_eq!(
         sum.load(std::sync::atomic::Ordering::Relaxed),
-        (0_i64..10_000).sum()
+        (0_i64..10_000).sum::<i64>()
     );
 }
 

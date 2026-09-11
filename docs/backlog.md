@@ -633,13 +633,17 @@
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
 
-- Outcome: Hephaestus requirements name a revision present in the Hephaestus remote.
-- Scope: four invalid workspace Hephaestus rev fields and standalone lock regeneration; preserve Mnemosyne requirements.
-- Acceptance: fetched remote ancestry confirms the revision; Cargo metadata resolves the corrected manifest.
-- Class: [patch]; status: review; integrator: atlas-metis-ipc.
-- Evidence: commit `5d99f24` replaces Hephaestus `2c6ffc2` with absent `f532b0e`; pre-push resolution fails. Reviewed `0514f11` retains the intended revision.
-- Verification: fetched Hephaestus branch contains `2c6ffc2`; stack transport Clippy and 39/39 nextest pass; standalone `scripts/lockfile.py --regenerate` and its `--locked` metadata check pass with 45 git sources.
-- Last update: 2026-09-05; full-workspace runtime verification remains outside this four-reference correction.
+- Outcome: Hephaestus requirements name the reviewed `ff370517` provider
+  revision and the standalone lock resolves the current first-party graph.
+- Scope: four Hephaestus edges, the expired Eunomia source pin, source policy,
+  and standalone lock regeneration; preserve the generic GPU adapter contract.
+- Acceptance: fetched provider ancestry resolves; the locked graph has one
+  Eunomia source and no `cuda-oxide` or stale advisory exception.
+- Class: [patch]; status: done; integrator: root; last-update: 2026-09-11;
+  delivery: Moirai PR #325.
+- Verification: the lock resolves Hephaestus `ff370517`, Eunomia `c4f49bc1`,
+  and no `cuda-oxide`; the supply-chain and workspace gates are rerun on the
+  resulting revision.
 
 <a id="MOI-PROCESS-2026-09-05"></a>
 ## MOI-PROCESS-2026-09-05 — Contain piped child lifecycles

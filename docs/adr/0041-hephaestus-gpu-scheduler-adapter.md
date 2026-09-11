@@ -70,3 +70,8 @@ cover input-sensitive upload/download, feature rejection, runtime task
 completion and typed `LengthMismatch` propagation. WGPU and CUDA compilation use
 the same generic seam; hardware and device-specific kernel evidence remain
 provider-owned.
+
+The consumer lock pins Hephaestus `ff370517`, whose CUDA implementation owns
+the dynamically loaded driver boundary. The activated graph therefore contains
+no `cuda-oxide` or CUDA import-library link; a hosted runner without a CUDA
+driver can compile the provider graph without attempting `-lcuda`.

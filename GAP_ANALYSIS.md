@@ -1,5 +1,17 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
+## 2026-09-11 Hephaestus provider source refresh
+
+The GPU adapter now pins Hephaestus `ff370517`, whose CUDA backend owns the
+native driver boundary and carries no `cuda-oxide` dependency. Eunomia is
+resolved once from its default `c4f49bc1` source identity, so the lockfile no
+longer carries the expired `fdbf122` quarantine. The deny allowlist names each
+first-party git source in the provider graph, and the stale `paste` advisory
+exception is removed because the locked WGPU graph does not encounter it.
+
+This closes source and license failures observed on the GPU adapter PR. It does
+not claim CUDA hardware execution; provider-owned hardware suites remain the+evidence for that path.
+
 ## 2026-08-16 Provider audit and dependency-advisory closure
 
 The isolated provider head is `a648a82` before this increment. The audit first
