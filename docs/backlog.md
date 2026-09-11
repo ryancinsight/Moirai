@@ -658,7 +658,7 @@
 - [x] PR #256 merged at `70d201a`; Mnemosyne resolves at `7f173751` and the
   first-party source identity is canonical; ADR [`0040`](adr/0040-first-party-memory-source-identity.md), workspace, binding, Loom, Rust 1.95, no-default, documentation, and lockfile gates pass.
 
-## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — in-progress <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
+## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — review <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
 
 - **Prior art, not a base (recorded 2026-09-09).** `arch/moirai-hephaestus-gpu-route`
   (PR #259, last touched 2026-09-07) carries a working implementation, but main
@@ -669,9 +669,9 @@
   Its other 24 commits are unrelated -- a long run of `rev =` provider-pin
   advances main has since superseded, plus wasm and process work belonging to
   other items -- so only this decision and its ADR are carried forward here.
-- **Definition of Ready:** the ADR below is the design; what is missing is the
-  current shape of `moirai-gpu`'s device, buffer, pipeline and task surfaces,
-  which the re-derivation reads first.
+- **Definition of Ready:** ADR [`0041`](adr/0041-hephaestus-gpu-scheduler-adapter.md)
+  defines the provider boundary; the current `moirai-gpu` device, buffer,
+  pipeline, and task surfaces were read before re-deriving the implementation.
 - **Outcome:** Route Moirai GPU work through Hephaestus' generic device seam and
   submit it to the existing work-stealing executor without a direct WGPU layer.
 - **Scope / non-goals:** Moirai GPU adapter, Hephaestus WGPU dependency
@@ -683,7 +683,7 @@
   provider, GPU tasks execute as typed Moirai tasks, device errors remain typed,
   and focused plus full repository gates pass. ADR [`0041`](adr/0041-hephaestus-gpu-scheduler-adapter.md).
 - **Integrator:** root; branch `arch/moirai-hephaestus-gpu-route-2026-09-11`;
-  last-update: 2026-09-11; upstream companion: Hephaestus
+  PR #325; last-update: 2026-09-11; upstream companion: Hephaestus
   `HEPH-WGPU-CONSUMER-2026-09-04`.
 - **Current increment:** provider-neutral context/task seam is implemented;
   the direct WGPU layer is removed, `Moirai::spawn_gpu` is covered by the
@@ -692,7 +692,7 @@
   workspace Clippy, Nextest (1077/1077, 10 skipped), doctest, and
   warning-denied rustdoc suites pass. Physical WGPU/CUDA hardware evidence is
   provider-owned and is not claimed here. No Metis or DICOM code belongs in
-  this item.
+  this item; PR #325 carries the review state.
 
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 
