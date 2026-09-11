@@ -2,6 +2,39 @@
 
 **Target**: Unreleased
 
+## MOI-MELINOE-EXT-POLICY-2026-09-11 [arch] [minor] — complete
+
+- **Delivered:** `moirai-parallel`'s Melinoe bridge no longer hard-codes the
+  parallel decision. `melinoe_ext` gains
+  `par_partition_for_each_with_policy` and `par_partition_map_with_policy`,
+  generic over `P: ExecutionPolicy`; the existing `par_partition_for_each` and
+  `par_partition_map` become `Parallel` instantiations, so every current caller
+  keeps byte-identical behaviour.
+- **Why it mattered:** the bridge previously dispatched every region to the
+  pool regardless of size. At the measured dispatch floor (~11.9 µs) a region
+  below `ADAPTIVE_PARALLEL_THRESHOLD` loses to inline tiling — the policy table
+  already in `policy.rs` says so. The decision belonged to the policy type, not
+  to a second threshold invented at the bridge, so the fix routes through the
+  mechanism Moirai already owns.
+- **Sequential branch:** tiles the slice in-process with the same
+  `chunk_size`/`num_chunks` arithmetic the pool path uses, so shard count, shard
+  order and per-shard contents are identical whichever branch runs. Policy
+  changes *where* work runs, never *what* it computes — which is the property
+  downstream consumers depend on.
+- **Evidence (2026-09-11):** `cargo test -p moirai-parallel --features melinoe
+  --lib` **40/40** (3 new:
+  `test_policy_does_not_change_partition_result` — the same 10-element region
+  under `Parallel` and `Adaptive` must produce identical layout and contents;
+  `test_sequential_policy_tiles_ragged_region_exactly_once` — 7 cells at chunk
+  3 gives shards 3/3/1; `test_policy_short_circuits_empty_region`). The live
+  consumer `cfd-core` compiles and its `fluid_dynamics` suite passes **10/10**
+  against the changed bridge.
+- **Class:** [arch] [minor]; status: done; priority: P0; integrator: root;
+  last-update: 2026-09-11; local commit `8b55264f`.
+- **Consumer follow-up:** CFDrs still calls the always-`Parallel`
+  `par_partition_for_each`; adopting `Adaptive` there is a separate change with
+  its own performance evidence.
+
 ## MOI-MNEMOSYNE-QUARANTINE-EXPIRED-2026-09-06 [patch] — complete
 
 - **Delivered:** the `rev = "7f173751"` quarantine on `mnemosyne-core` and
