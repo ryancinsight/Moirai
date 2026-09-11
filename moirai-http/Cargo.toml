@@ -9,9 +9,9 @@ readme = "README.md"
 homepage.workspace = true
 documentation = "https://docs.rs/moirai-http"
 rust-version.workspace = true
-description = "Minimal async HTTP/1.1 client over Moirai sockets + moirai-tls, no Tokio"
+description = "Minimal async HTTP/1.1 client and bounded server over Moirai sockets, no Tokio"
 keywords = ["http", "client", "async", "moirai", "network"]
-categories = ["network-programming", "web-programming::http-client"]
+categories = ["network-programming", "web-programming::http-client", "web-programming::http-server"]
 
 [features]
 default = ["parallel", "mnemosyne-memory"]

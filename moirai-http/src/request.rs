@@ -163,9 +163,7 @@ fn parse_request_head(
         .ok_or_else(|| invalid_request("HTTP request has no version"))?;
     let version = format!("HTTP/1.{version}");
     if !target.starts_with('/') {
-        return Err(invalid_request(
-            "WebSocket request target must be origin-form",
-        ));
+        return Err(invalid_request("HTTP request target must be origin-form"));
     }
     validate_token(method, "HTTP method")?;
     validate_target(target)?;
