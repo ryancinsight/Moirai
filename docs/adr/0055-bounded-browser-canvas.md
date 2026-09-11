@@ -1,6 +1,6 @@
 # ADR 0055: Bounded browser canvas
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-09-11
 
@@ -31,11 +31,13 @@ that the borrowed byte slice is exactly four bytes per pixel and stays below
 the provider byte bound.
 
 `WebCanvas::present` resizes the canvas to the frame dimensions and submits one
-`ImageData` object through the browser's 2-D context. The Rust API borrows the
-frame and owns no pixel or callback storage after the call; the browser copy at
-the Web API boundary is documented as an unavoidable platform transfer. The
-provider contains the only `web-sys` canvas bindings. Metis consumes this seam
-for generic presentation, and RITK supplies frames after its DICOM pipeline has
+`ImageData` object through the browser's 2-D context. The extent shares the
+native presenter bound of 16,384 pixels per side and 16 MiB pixels, so one
+RGBA8 upload is capped at 64 MiB. The Rust API borrows the frame and owns no
+pixel or callback storage after the call; the browser copy at the Web API
+boundary is documented as an unavoidable platform transfer. The provider
+contains the only `web-sys` canvas bindings. Metis consumes this seam for
+generic presentation, and RITK supplies frames after its DICOM pipeline has
 finished; no DICOM type or medical policy crosses the boundary.
 
 ## Alternatives rejected
@@ -62,8 +64,9 @@ correctness is established by a browser capture in the consumer integration.
 
 ## Verification
 
-Pure validation tests cover zero dimensions, pixel-count overflow, exact RGBA
-length, oversized frames and boundary acceptance. The PAL package must pass
-warning-denied native Clippy and the `wasm32-unknown-unknown` check. Metis and
-RITK add consumer tests and an engine-labelled visual capture after adopting
-the published provider revision.
+Pure validation tests cover zero dimensions, dimension and pixel-count bounds,
+exact RGBA length, oversized frames and boundary acceptance. The PAL package
+passes warning-denied native and WASM Clippy plus the `wasm32-unknown-unknown`
+check in the provider increment. Metis and RITK add consumer tests and an
+engine-labelled visual capture after adopting the published provider revision;
+that browser runtime evidence remains the item's re-open trigger.

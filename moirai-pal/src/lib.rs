@@ -34,6 +34,8 @@ pub mod net;
 pub mod reactor;
 pub mod timer;
 
+mod frame;
+
 #[cfg(unix)]
 pub mod unix;
 
@@ -58,6 +60,10 @@ mod text_validation;
 #[cfg(any(target_arch = "wasm32", test))]
 #[path = "wasm/text_model.rs"]
 mod text_model;
+
+#[cfg(any(target_arch = "wasm32", test))]
+#[path = "wasm/canvas_validation.rs"]
+mod canvas_validation;
 
 #[cfg(any(target_arch = "wasm32", test))]
 mod local_task;

@@ -34,10 +34,10 @@ where
     #[cfg(target_arch = "wasm32")]
     {
         let _ = (path, root);
-        return Err(io::Error::new(
+        Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "root-confined native file opening is unsupported on WebAssembly",
-        ));
+        ))
     }
 
     #[cfg(not(target_arch = "wasm32"))]

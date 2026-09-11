@@ -2,12 +2,11 @@
 
 use std::io;
 
+pub(super) use crate::frame::validate_frame_dimensions;
+pub use crate::frame::{MAX_FRAME_DIMENSION, MAX_FRAME_PIXELS};
+
 /// Maximum pending events retained for one native window.
 pub const MAX_WINDOW_EVENTS: usize = 1_024;
-/// Maximum pixels retained by the software presenter.
-pub const MAX_FRAME_PIXELS: usize = 16 * 1024 * 1024;
-/// Maximum width or height accepted by the software presenter.
-pub const MAX_FRAME_DIMENSION: u32 = 16_384;
 /// Maximum UTF-16 code units accepted for a window title.
 pub const MAX_TITLE_UNITS: usize = 256;
 /// Maximum number of messages dispatched during one pump call.
@@ -112,22 +111,6 @@ impl WindowConfig {
     pub const fn visibility(&self) -> WindowVisibility {
         self.visibility
     }
-}
-
-pub(super) fn validate_frame_dimensions(width: u32, height: u32) -> io::Result<()> {
-    let pixels = u64::from(width) * u64::from(height);
-    if width == 0
-        || height == 0
-        || width > MAX_FRAME_DIMENSION
-        || height > MAX_FRAME_DIMENSION
-        || pixels > MAX_FRAME_PIXELS as u64
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "frame dimensions exceed the native presentation bound",
-        ));
-    }
-    Ok(())
 }
 
 pub(super) fn coordinate_error() -> io::Error {
