@@ -12,10 +12,15 @@
 - Acceptance: pointer and wheel snapshots carry input-sensitive target-local
   coordinates; non-DOM consumers remain unaffected; native checks, WASM check,
   warning-denied Clippy and docs pass.
-- Class: [arch] [minor]; status: in-progress; priority: P0; integrator: root;
-  branch: `feat/wasm-canvas-input-001`; last-update: 2026-09-11; drivers:
+- Class: [arch] [minor]; status: done; priority: P0; integrator: root;
+  delivery: [Moirai PR #323](https://github.com/ryancinsight/Moirai/pull/323),
+  merge `476787e354ee8658723559077170985911ae5fc6`; last-update: 2026-09-11;
+  drivers:
   [Metis browser](../../metis/backlog.md#METIS-BROWSER-001),
   [RITK Metis migration](../../ritk/backlog.md#RITK-SNAP-METIS-001).
+- Verification: Metis and RITK consume the target-local snapshots through their
+  bounded, format-neutral canvas contracts; DICOM parsing and viewer state
+  remain RITK-owned.
 - Decision: [ADR 0056](adr/0056-bounded-browser-canvas-input.md).
 
 <a id="MOI-WASM-CANVAS-2026-09-11"></a>
