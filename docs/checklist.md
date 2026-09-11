@@ -1,5 +1,25 @@
 # Moirai Development Checklist
 
+## MOI-MELINOE-EXT-POLICY-2026-09-11 — root
+
+- [x] Give `melinoe_ext`'s partition drivers a policy-parameterized form
+      (`par_partition_for_each_with_policy`, `par_partition_map_with_policy`)
+      generic over `P: ExecutionPolicy`.
+- [x] Re-express the existing `par_partition_for_each` / `par_partition_map`
+      as `Parallel` instantiations so no current caller changes behaviour.
+- [x] Tile the slice in-process on the non-parallel branch with the same
+      `chunk_size` / `num_chunks` arithmetic the pool path uses, so shard count,
+      shard order and per-shard contents are branch-independent.
+- [x] Prove branch independence by value rather than by inspection: the same
+      region under `Parallel` and `Adaptive` must produce identical results;
+      a ragged region must tile exactly once; an empty region must short-circuit.
+- Evidence: `moirai-parallel` locked suite 40/40 under `--features melinoe`
+  (3 new tests), and the live consumer `cfd-core` compiles with its
+  `fluid_dynamics` suite at 10/10. Local commit `8b55264f`.
+- Follow-up boarded: `MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11` (registration
+  reachability), and CFDrs adopting `Adaptive` at its `operations.rs:47` call
+  site.
+
 ## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 — root
 
 - [x] Replace the direct `moirai-gpu` WGPU device, buffer, pipeline and future
