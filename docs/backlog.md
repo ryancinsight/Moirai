@@ -211,8 +211,8 @@
   | 10 µs (640 µs of work) | 44.5 µs | 52.2 µs | **403.6 µs** | 548.2 µs | 640 µs |
   | 50 µs (3.2 ms of work) | 205 µs | **420 µs** | 540 µs | 740 µs | 3,203 µs |
 
-  The best case is near ideal (3.2 ms over 24 workers is 133 µs plus the
-  join); the median is twice it at 50 µs tasks, and at 10 µs tasks one call
+  The best case is near ideal (64 tasks over 24 workers put three on one
+  worker, 150 µs before the join); the median is twice it at 50 µs tasks, and at 10 µs tasks one call
   in ten costs eight times the median — the time of forty serial tasks, as
   if most of the pool sat out that call. Twelve such joins are a round trip,
   which is the consumer's mean. Reading, to verify next: parked workers are

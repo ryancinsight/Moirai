@@ -93,6 +93,9 @@ fn chunk_buffers_treat_empty_shapes_as_no_ops() {
 /// Busy-waits `nanos` on the calling thread so a task has a known cost
 /// without touching memory the other tasks share.
 fn spin_for(nanos: u64) {
+    if nanos == 0 {
+        return;
+    }
     let start = std::time::Instant::now();
     while start.elapsed().as_nanos() < u128::from(nanos) {
         core::hint::spin_loop();
