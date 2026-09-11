@@ -32,5 +32,5 @@ fn async_context_runs_parallel_compute_on_same_runtime() {
         let data: Vec<u64> = (0..100_000).collect();
         data.par().map_reduce(0u64, |&x| x, |a, b| a + b)
     });
-    assert_eq!(total, (0..100_000u64).sum());
+    assert_eq!(total, (0..100_000u64).sum::<u64>());
 }

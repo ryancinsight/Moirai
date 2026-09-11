@@ -1,33 +1,68 @@
 #[test]
-fn gpu_task_adapter_uses_moirai_block_on_not_pollster() {
+fn gpu_task_adapter_uses_typed_hephaestus_provider_seam() {
     let manifest = read_benchmark("../moirai-gpu/Cargo.toml");
-    let gpu_task = read_benchmark("../moirai-gpu/src/task.rs");
-    let executor = read_benchmark("../moirai-executor/src/lib.rs");
+    let library = read_benchmark("../moirai-gpu/src/lib.rs");
+    let context = read_benchmark("../moirai-gpu/src/device/context.rs");
+    let preferences = read_benchmark("../moirai-gpu/src/device/preferences.rs");
+    let task = read_benchmark("../moirai-gpu/src/task/mod.rs");
+    let configured_task = read_benchmark("../moirai-gpu/src/task/configured.rs");
     let dependency_section = manifest_section(&manifest, "[dependencies]");
     let feature_section = manifest_section(&manifest, "[features]");
 
     assert!(
-        manifest_section_declares_dependency(dependency_section, "moirai-executor"),
-        "moirai-gpu must depend on the Moirai-owned executor boundary"
+        manifest_section_declares_dependency(dependency_section, "hephaestus-core"),
+        "moirai-gpu must depend on the Hephaestus device contract"
+    );
+    for prohibited_dependency in ["wgpu", "bytemuck", "futures", "moirai-executor"] {
+        assert!(
+            !manifest_section_declares_dependency(dependency_section, prohibited_dependency),
+            "moirai-gpu must not directly depend on {prohibited_dependency}"
+        );
+    }
+    assert!(
+        feature_section.contains("\"dep:hephaestus-wgpu\"")
+            && feature_section.contains("\"dep:hephaestus-cuda\""),
+        "provider features must activate complete Hephaestus implementations"
     );
     assert!(
-        feature_section.contains("\"dep:moirai-executor\""),
-        "wgpu-backend must activate moirai-executor for sync GPU task waits"
+        context.contains("pub struct GpuContext")
+            && task.contains("pub trait GpuTask")
+            && library.contains("ComputeDevice"),
+        "moirai-gpu must expose the provider-neutral context and task seams"
     );
     assert!(
-        executor.contains("pub fn block_on<F>(future: F) -> F::Output")
-            && executor.contains("schedule::wake::block_on_current_thread(future)"),
-        "moirai-executor must expose the current-thread parking block_on boundary"
+        context.contains("try_acquire_device")
+            && context.contains("device_handle")
+            && context.contains("upload")
+            && context.contains("download"),
+        "the context must acquire and route typed provider operations"
     );
     assert!(
-        gpu_task.contains("moirai_executor::block_on(self.gpu_task.execute_gpu(&self.device))"),
-        "GPU task adapter must run synchronous waits through Moirai"
+        preferences.contains("DevicePreference") && preferences.contains("DeviceLimits"),
+        "device acquisition preferences must stay provider-neutral"
+    );
+    assert!(
+        task.contains("type Device")
+            && task.contains("type Output")
+            && task.contains("execute_gpu")
+            && configured_task.contains("estimated_cost"),
+        "GPU tasks must retain typed device, output, and scheduler metadata"
     );
 
-    for prohibited in ["pollster", "pollster::block_on", "\"dep:pollster\""] {
+    for prohibited in [
+        "pollster",
+        "use wgpu",
+        "Box<dyn Future",
+        "GpuTaskFuture",
+    ] {
         assert!(
-            !manifest.contains(prohibited) && !gpu_task.contains(prohibited),
-            "moirai-gpu must not reintroduce {prohibited}"
+            !manifest.contains(prohibited)
+                && !library.contains(prohibited)
+                && !context.contains(prohibited)
+                && !preferences.contains(prohibited)
+                && !task.contains(prohibited)
+                && !configured_task.contains(prohibited),
+            "moirai-gpu must not reintroduce direct or dynamic GPU plumbing: {prohibited}"
         );
     }
 }

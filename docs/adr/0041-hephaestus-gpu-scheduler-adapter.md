@@ -1,6 +1,6 @@
 # ADR 0041: Hephaestus GPU scheduler adapter
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-04
 - Board item: [`MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04`](../backlog.md#moi-gpu-hephaestus-route-2026-09-04)
 
@@ -27,8 +27,10 @@ Moirai runtime wraps it in its existing `Task` implementation. The returned
 handle is therefore scheduled by the work-stealing executor, while a task's
 device operation remains statically dispatched and typed.
 
-The adapter exposes no WGPU or vendor types, no direct host/device byte-cast
-API, and no silent CPU fallback. A missing or failed device is a typed error.
+The adapter exposes no direct WGPU or vendor device, buffer, pipeline, or
+byte-casting API. The provider aliases are explicit acquisition conveniences;
+task and transfer operations remain on the generic Hephaestus contract, and
+there is no silent CPU fallback. A missing or failed device is a typed error.
 The provider dependency direction is corrected first: Hephaestus WGPU may
 retain the independent `moirai-sync` substrate, but it cannot import
 `moirai-runtime` or `moirai-gpu`.
@@ -54,3 +56,14 @@ evidence; this crate does not claim hardware execution without a device.
 
 The public GPU API changes and requires a major migration. In-repository
 callers migrate in the same delivery; no compatibility wrapper is retained.
+
+## Revision 2026-09-11
+
+The decision is implemented against the current provider graph. `moirai-gpu`
+now contains only the generic `ComputeDevice` context, acquisition preferences,
+and synchronous typed task seam; its direct WGPU device, buffer, pipeline,
+bytemuck and boxed-future modules were removed. `Moirai::spawn_gpu` submits the
+typed operation to the existing work-stealing executor. The host provider tests
+cover input-sensitive upload/download, feature rejection and runtime task
+completion. WGPU and CUDA compilation use the same generic seam; hardware and
+device-specific kernel evidence remain provider-owned.

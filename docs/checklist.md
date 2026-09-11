@@ -2,14 +2,20 @@
 
 ## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 — root
 
-- [ ] Replace the direct `moirai-gpu` WGPU device, buffer, pipeline and future
+- [x] Replace the direct `moirai-gpu` WGPU device, buffer, pipeline and future
       surfaces with the generic Hephaestus device/task seam.
-- [ ] Migrate the runtime facade and examples without a compatibility wrapper;
+- [x] Migrate the runtime facade and examples without a compatibility wrapper;
       keep provider acquisition and typed errors at the provider boundary.
-- [ ] Add host-provider value tests for upload/download, feature rejection,
+- [x] Add host-provider value tests for upload/download, feature rejection,
       scheduler completion and error propagation.
-- [ ] Run focused and full locked gates, then update ADR 0041, the README and
-      the release-facing capability matrix with exact evidence.
+- [x] Run the focused and full locked gates and update ADR 0041, the README
+      and the release-facing capability matrix with exact evidence.
+      `moirai-gpu` Nextest 9/9, strict Clippy, no-default and CUDA checks,
+      `moirai-runtime` GPU Nextest 26/26, runtime doctests 7/7, the full
+      workspace Clippy gate, Nextest 1077/1077 (10 skipped), workspace
+      doctests, and warning-denied workspace rustdoc pass on
+      `arch/moirai-hephaestus-gpu-route-2026-09-11`. Physical WGPU/CUDA
+      hardware evidence remains provider-owned and is not claimed here.
 ## MOI-QUEUE-RETENTION-036 [patch] [arch] — Codex
 
 - [x] Record ADR-036 from the current queue layout, admission contract, alternatives, and bounded experiment.

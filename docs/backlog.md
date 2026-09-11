@@ -685,9 +685,14 @@
 - **Integrator:** root; branch `arch/moirai-hephaestus-gpu-route-2026-09-11`;
   last-update: 2026-09-11; upstream companion: Hephaestus
   `HEPH-WGPU-CONSUMER-2026-09-04`.
-- **Current increment:** re-derive the provider-neutral context/task seam from
-  the current `moirai-gpu` and Hephaestus APIs before deleting the direct WGPU
-  layer; no Metis or DICOM code belongs in this item.
+- **Current increment:** provider-neutral context/task seam is implemented;
+  the direct WGPU layer is removed, `Moirai::spawn_gpu` is covered by the
+  host-provider runtime test, and the benchmark source contract now follows
+  the split context/task modules. Focused gates and the full lane-resolved
+  workspace Clippy, Nextest (1077/1077, 10 skipped), doctest, and
+  warning-denied rustdoc suites pass. Physical WGPU/CUDA hardware evidence is
+  provider-owned and is not claimed here. No Metis or DICOM code belongs in
+  this item.
 
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 

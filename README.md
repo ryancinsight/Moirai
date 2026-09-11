@@ -86,7 +86,7 @@ Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 | [`moirai-parallel`](https://docs.rs/moirai-parallel) | Synchronous data-parallel slice primitives (rayon-style surface) |
 | [`moirai-pal`](https://docs.rs/moirai-pal) | Platform abstraction: epoll / kqueue / `WSAPoll` readiness |
 | [`moirai-metrics`](https://docs.rs/moirai-metrics) | Cloneable metric handles and value-copy snapshots |
-| [`moirai-gpu`](https://docs.rs/moirai-gpu) | GPU launch-shape planning; optional `wgpu` compute backend |
+| [`moirai-gpu`](https://docs.rs/moirai-gpu) | GPU launch-shape planning and Hephaestus provider scheduling |
 | [`moirai-utils`](https://docs.rs/moirai-utils) | Cache alignment, atomics, lock-free queues, prefetch |
 | [`moirai-crypto`](https://docs.rs/moirai-crypto) | Pure-Rust rustls `CryptoProvider` (RustCrypto, no C toolchain) |
 | [`moirai-tls`](https://docs.rs/moirai-tls) | Async TLS client over Moirai sockets, no Tokio |
@@ -119,9 +119,9 @@ Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 - **Transport layer**: `moirai-transport` consumes route metadata, archives
   payload bytes, and executes admitted fixed-format process/server tasks.
 - **Accelerator layer**: `moirai-gpu::occupancy` plans topology-aware launch
-  shapes and is available without the optional `wgpu-backend` feature. GPU/TPU/NPU
-  backend execution remains an open architecture item tracked in `GAP_ANALYSIS.md`
-  and `docs/backlog.md`.
+  shapes and its `GpuContext<D>`/`GpuTask` seam schedules typed work through
+  Hephaestus providers. WGPU and CUDA acquisition remain explicit provider
+  choices; TPU/NPU providers and device-specific kernel evidence remain open.
 - **Memory boundary**: archive payloads move as owned bytes across
   thread/process/server/device regions; cross-process and cross-device pointer
   transfer is rejected.
@@ -190,9 +190,9 @@ value-semantic tests. The active evidence surfaces are:
   `async_io_compat_comparison` compare Moirai-owned facade behavior against
   Tokio references where the semantics match.
 
-GPU route co-scheduling, TPU placement, and NPU placement are not claimed as
-implemented scheduler execution. The current GPU evidence is the
-`moirai-gpu::occupancy` launch-shape planner and its value-semantic tests.
+GPU route co-scheduling now has a typed Hephaestus adapter and a host-provider
+runtime test. Hardware execution evidence is still provider-owned; TPU/NPU
+placement and device-specific rendering remain open.
 
 ## Testing
 
