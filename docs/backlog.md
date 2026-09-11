@@ -658,7 +658,7 @@
 - [x] PR #256 merged at `70d201a`; Mnemosyne resolves at `7f173751` and the
   first-party source identity is canonical; ADR [`0040`](adr/0040-first-party-memory-source-identity.md), workspace, binding, Loom, Rust 1.95, no-default, documentation, and lockfile gates pass.
 
-## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — todo <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
+## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — in-progress <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
 
 - **Prior art, not a base (recorded 2026-09-09).** `arch/moirai-hephaestus-gpu-route`
   (PR #259, last touched 2026-09-07) carries a working implementation, but main
@@ -682,8 +682,12 @@
   `moirai-gpu`; a `ComputeDevice` implementation is acquired through the
   provider, GPU tasks execute as typed Moirai tasks, device errors remain typed,
   and focused plus full repository gates pass. ADR [`0041`](adr/0041-hephaestus-gpu-scheduler-adapter.md).
-- **Integrator:** atlas-session; branch `arch/moirai-hephaestus-gpu-route`;
-  upstream companion: Hephaestus `HEPH-WGPU-CONSUMER-2026-09-04`.
+- **Integrator:** root; branch `arch/moirai-hephaestus-gpu-route-2026-09-11`;
+  last-update: 2026-09-11; upstream companion: Hephaestus
+  `HEPH-WGPU-CONSUMER-2026-09-04`.
+- **Current increment:** re-derive the provider-neutral context/task seam from
+  the current `moirai-gpu` and Hephaestus APIs before deleting the direct WGPU
+  layer; no Metis or DICOM code belongs in this item.
 
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 
