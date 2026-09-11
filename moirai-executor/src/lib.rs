@@ -104,39 +104,121 @@ impl Default for ExecutorBuilder {
     }
 }
 
-/// Address-carrying wrapper that lets the melinoe bridge move a raw data
-/// pointer into `Send` task closures; safety is owed by the bridge caller.
+/// A task entry point re-typed so it carries no raw pointer in its signature.
+///
+/// Melinoe hands the bridge `unsafe fn(usize, *mut ())`. A bare function
+/// pointer is `Send + Sync`, but *that* signature mentions `*mut ()`, which is
+/// neither — so a closure capturing the original binding fails the pool's
+/// `Send + Sync` bound even though the pointer it names is only ever supplied
+/// at the call site. Erasing the parameter type here keeps the pool bound
+/// satisfiable while preserving the ABI: the value is called only after being
+/// cast back to the original signature.
 #[derive(Copy, Clone)]
-struct SendPtr(usize);
+struct TaskFn(unsafe fn(usize, *mut ()));
 
-unsafe fn melinoe_executor_bridge(
-    num_tasks: usize,
-    task_fn: unsafe fn(usize, *mut ()),
-    data: *mut (),
-) {
-    let data_ptr = SendPtr(data as usize);
-    let res = global().for_each_indexed::<SyncTask, _>(num_tasks, move |index| {
-        let p = data_ptr;
-        // SAFETY: task_fn is called concurrently on separate indices.
-        unsafe {
-            task_fn(index, p.0 as *mut ());
-        }
-    });
-    if let Err(e) = res {
-        panic!(
-            "Moirai executor failure in Melinoe parallel driver: {:?}",
-            e
-        );
+// SAFETY: a function pointer is `Send + Sync`; the only thing that made the
+// original type fail those bounds was the *mention* of `*mut ()` in its
+// parameter list, not any pointer value this wrapper holds. Nothing is
+// dereferenced through `TaskFn`; it is transmuted back before use.
+unsafe impl Send for TaskFn {}
+unsafe impl Sync for TaskFn {}
+
+/// Address-carrying wrapper that lets the bridge move a type-erased context
+/// pointer into `Send` task closures.
+///
+/// The pointee is opaque here — Melinoe owns its type and guarantees it stays
+/// live and unaliased for the whole call — so the only thing this wrapper
+/// asserts is that *moving the address* to another worker is sound. That is
+/// Melinoe's own obligation, discharged in `TaskContext`'s documentation.
+#[derive(Copy, Clone)]
+struct SendContext(*mut ());
+
+// SAFETY: the pointed-to `TaskContext` is documented by Melinoe as valid for
+// the whole executor call and as permitting concurrent field access from
+// distinct tasks. Reading the address on another thread is therefore sound;
+// this wrapper is moved and copied, never dereferenced by this crate.
+unsafe impl Send for SendContext {}
+
+// SAFETY: `Sync` is required because the closure that captures this wrapper is
+// shared across the pool. Sharing the *address* is sound for the same reason as
+// `Send` — the pointee is never accessed through this wrapper, and Melinoe
+// guarantees concurrent access to distinct fields of its context is disjoint.
+unsafe impl Sync for SendContext {}
+
+impl SendContext {
+    /// Recover the erased context pointer.
+    ///
+    /// Reading the field through a method rather than at the field keeps the
+    /// `*mut ()` out of any closure's capture analysis: the closure moves a
+    /// `SendContext` and calls a method, so the raw type never appears in its
+    /// environment.
+    #[inline]
+    fn get(self) -> *mut () {
+        self.0
     }
 }
 
-// SAFETY: on success, `for_each_indexed` owns the complete `0..num_tasks`
-// domain and invokes its closure once per index. On scheduler failure, the
-// bridge panics after `for_each_indexed` has joined every scheduled invocation;
-// Melinoe's unwind guard handles omitted slots. The unchanged context pointer
-// never outlives the blocking scheduler call.
-const MELINOE_EXECUTOR: melinoe::ParallelExecutor =
-    unsafe { melinoe::ParallelExecutor::new(melinoe_executor_bridge) };
+impl TaskFn {
+    /// Invoke the wrapped entry point.
+    ///
+    /// # Safety
+    ///
+    /// The caller must uphold whatever contract the original function required:
+    /// `index` must be one of the indices the executor promised, and `context`
+    /// must point at a live value of the type the original task expected.
+    #[inline]
+    unsafe fn call(self, index: usize, context: *mut ()) {
+        // SAFETY: `self.0` was created from a value of exactly this type, so the
+        // cast is the identity on the ABI; the caller supplies the contract.
+        let task: unsafe fn(usize, *mut ()) = self.0;
+        unsafe { task(index, context) }
+    }
+}
+
+/// Moirai's implementation of Melinoe's parallel-executor contract.
+///
+/// Drives a partition's tasks on the shared work-stealing pool, so a branded
+/// partition pays no OS-thread spawn. See [`melinoe::sync::ParallelExecutor`]
+/// for the contract this discharges.
+struct MoiraiExecutor;
+
+// SAFETY: `global().for_each_indexed` owns the complete `0..num_tasks` domain
+// and invokes its closure exactly once per index; it blocks until every
+// scheduled invocation has completed, so the method satisfies both the
+// "every index exactly once" and "no invocation outliving the return"
+// obligations. On scheduler failure it panics *after* joining the scheduled
+// invocations, which is the unwind path the contract permits — Melinoe's
+// `ExecutorDropGuard` contains the omitted slots. The context pointer is
+// forwarded unchanged and never outlives the blocking call.
+unsafe impl melinoe::ParallelExecutor for MoiraiExecutor {
+    unsafe fn run_indexed(
+        &self,
+        num_tasks: usize,
+        task: unsafe fn(usize, *mut ()),
+        context: *mut (),
+    ) {
+        // Bind the type-erased pieces into `Send + Sync` wrappers *before* the
+        // closure exists, so no raw pointer is ever in its capture set. The
+        // pool's closure bound is `Fn + Send + Sync`, and a closure that names a
+        // `*mut ()` in scope fails it even when the pointer is only forwarded.
+        let task = TaskFn(task);
+        let context = SendContext(context);
+        let res = global().for_each_indexed::<SyncTask, _>(num_tasks, move |index| {
+            // SAFETY: forwarded from the caller. `for_each_indexed` invokes this
+            // closure exactly once per index and never concurrently for the same
+            // index, so each call addresses a distinct slot of Melinoe's context.
+            unsafe {
+                task.call(index, context.get());
+            }
+        });
+        if let Err(e) = res {
+            panic!(
+                "Moirai executor failure in Melinoe parallel driver: {:?}",
+                e
+            );
+        }
+    }
+}
 
 fn global_arc() -> &'static std::sync::Arc<HybridExecutor> {
     static GLOBAL_EXECUTOR: std::sync::OnceLock<std::sync::Arc<HybridExecutor>> =
@@ -148,7 +230,7 @@ fn global_arc() -> &'static std::sync::Arc<HybridExecutor> {
                 .expect("initialize global Moirai executor"),
         );
         // Register the global parallel executor in melinoe.
-        melinoe::register_parallel_executor(MELINOE_EXECUTOR);
+        melinoe::register_parallel_executor::<MoiraiExecutor>();
         exec
     })
 }
