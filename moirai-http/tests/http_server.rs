@@ -191,6 +191,33 @@ fn server_rejects_absolute_form_targets() {
 }
 
 #[test]
+fn server_rejects_non_http_one_one_requests() {
+    let runtime = moirai::global();
+    let server = runtime
+        .block_on(HttpServer::bind("127.0.0.1:0", test_config()))
+        .expect("server bind");
+    let address = server.local_addr().expect("server address");
+    let task = runtime.spawn_async(async move {
+        let connection = server.accept().await?;
+        connection.read_request().await.map(|_| ())
+    });
+    runtime
+        .block_on(async move {
+            let mut client = TcpStream::connect(&address.to_string()).await?;
+            client
+                .write_all(b"GET /fragment HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+                .await
+        })
+        .expect("request write");
+    let error = task
+        .join()
+        .expect("version task join")
+        .expect("version server task result")
+        .expect_err("HTTP/1.0 request must be rejected");
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+}
+
+#[test]
 fn server_request_deadline_terminalizes_an_idle_peer() {
     let runtime = moirai::global();
     let config = ServerConfig::new(8, 4096, 16, 64, 256, std::time::Duration::from_millis(50))
@@ -243,5 +270,34 @@ fn server_rejects_an_oversized_response_before_writing() {
         .expect("response-limit task join")
         .expect("response-limit server task result")
         .expect_err("oversized response must be rejected");
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn server_rejects_body_on_no_content_status() {
+    let runtime = moirai::global();
+    let server = runtime
+        .block_on(HttpServer::bind("127.0.0.1:0", test_config()))
+        .expect("server bind");
+    let address = server.local_addr().expect("server address");
+    let task = runtime.spawn_async(async move {
+        let connection = server.accept().await?;
+        let (_, connection) = connection.read_request().await?;
+        let response = HttpResponse::new(204, b"unexpected".to_vec())?;
+        connection.write_response(response).await
+    });
+    runtime
+        .block_on(async move {
+            let mut client = TcpStream::connect(&address.to_string()).await?;
+            client
+                .write_all(b"GET /fragment HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+                .await
+        })
+        .expect("request write");
+    let error = task
+        .join()
+        .expect("status task join")
+        .expect("status server task result")
+        .expect_err("204 response body must be rejected");
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
 }

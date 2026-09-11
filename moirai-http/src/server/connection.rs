@@ -64,6 +64,9 @@ impl HttpConnection<AwaitingRequest> {
             self.config.max_header_count,
         )
         .await?;
+        if head.version() != "HTTP/1.1" {
+            return Err(invalid_data("HTTP server requires HTTP/1.1"));
+        }
         self.prefix = prefix;
         let body_length = request_body_length(&head, self.config.max_body_bytes)?;
         let mut body = Vec::new();
@@ -133,6 +136,12 @@ impl HttpConnection<AwaitingResponse> {
             state,
             prefix: _,
         } = self;
+        if !state.suppress_body
+            && matches!(response.status, 204 | 205 | 304)
+            && !response.body.is_empty()
+        {
+            return Err(invalid_data("HTTP status does not permit a response body"));
+        }
         if response.headers.len() > config.max_header_count.saturating_sub(2) {
             return Err(invalid_data(
                 "HTTP response header count exceeds configured bound",
