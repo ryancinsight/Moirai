@@ -4,6 +4,10 @@ Status: Accepted
 
 Date: 2026-09-08
 
+Revision: 2026-09-11 — the shared browser drop bound is 512 entries so a
+committed 409-slice DICOM study fits in one bounded batch; the consumer-owned
+256 MiB byte limit and per-read chunk bound remain unchanged.
+
 Driver: [MOI-WASM-DOM-FILE-2026-09-08](../backlog.md#MOI-WASM-DOM-FILE-2026-09-08),
 [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 
@@ -42,7 +46,7 @@ Moirai PAL and add another runtime dependency.
 ## Threat model and limits
 
 The drop event, metadata and file contents are untrusted. Provider bounds cap
-entry count, metadata strings, one read chunk and cursor arithmetic. Content
+entry count at 512, metadata strings, one read chunk and cursor arithmetic. Content
 validation and DICOM parsing belong to the consumer decoder. Browser-selected
 files remain subject to browser origin and user-grant rules; this seam does not
 create native filesystem authority or prove a trusted operating-system drop.

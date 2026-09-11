@@ -4,6 +4,10 @@ Status: Accepted
 
 Date: 2026-09-07
 
+Revision: 2026-09-11 — the provider admits at most 512 files so the committed
+409-slice MRI-DIR DICOM study (216,156,416 bytes) can pass as one bounded browser
+drop; the consumer-owned 256 MiB byte batch limit remains unchanged.
+
 Driver: [MOI-WASM-DOM-DROP-2026-09-07](../backlog.md#MOI-WASM-DOM-DROP-2026-09-07),
 [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 
@@ -23,7 +27,7 @@ Moirai's WASM DOM seam owns `WebEvent::drop_metadata`. A non-drag event returns
 `Ok(None)`. A drag event returns a `DropMetadata` value containing CSS-pixel
 coordinates and an owned, bounded slice of `DroppedFile` records. Each record
 contains a validated name, media type and byte size. The provider accepts at
-most 64 files, names up to 4,096 UTF-8 bytes and media types up to 256 bytes;
+most 512 files, names up to 4,096 UTF-8 bytes and media types up to 256 bytes;
 names reject NUL and empty values, media types may be empty, and file sizes
 must be finite, non-negative integers representable by `u64`. These bounds cap
 provider-owned metadata before allocation and match the browser `FileList`
@@ -47,8 +51,8 @@ wrapper would duplicate the existing Moirai callback and cancellation model.
 
 ## Threat model and limits
 
-Drop events and all file metadata are attacker-controlled. Count and string
-bounds prevent metadata-driven allocation growth; finite integer validation
+Drop events and all file metadata are attacker-controlled. The 512-entry count
+bound and string bounds prevent metadata-driven allocation growth; finite integer validation
 prevents invalid JavaScript numbers from entering Rust; names are display
 metadata and are not trusted paths. The seam does not read file bytes, validate
 DICOM content, enforce filesystem permissions or produce native-host events.

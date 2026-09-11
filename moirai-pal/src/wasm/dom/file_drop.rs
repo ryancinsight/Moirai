@@ -2,7 +2,7 @@
 
 use super::super::WebFile;
 use super::WebEvent;
-use crate::drop_validation::{MAX_FILE_COUNT, file_name, media_type, parse_size};
+use crate::drop_validation::{file_name, media_type, parse_size, validate_file_count};
 use std::io;
 use wasm_bindgen::JsCast;
 use web_sys::{DragEvent, File, FileList, MouseEvent};
@@ -278,11 +278,6 @@ fn collect_file_access(files: &FileList) -> io::Result<Box<[DroppedFileAccess]>>
 
 fn bounded_file_count(files: &FileList) -> io::Result<u32> {
     let length = files.length();
-    if length > MAX_FILE_COUNT {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Browser file drop exceeds the bounded file count",
-        ));
-    }
+    validate_file_count(length)?;
     Ok(length)
 }

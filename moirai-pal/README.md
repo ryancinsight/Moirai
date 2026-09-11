@@ -49,9 +49,10 @@ modifier-key snapshot. Target-relative coordinates let a consumer route one
 event stream to a specific canvas without re-reading layout through a second
 browser binding.
 Drag events expose CSS-pixel coordinates and an owned `DropMetadata` snapshot
-with at most 64 validated files; names, media types and byte sizes are bounded
-before they reach an application. The seam does not read file bytes or treat a
-name as a filesystem path.
+with at most 512 validated files; names, media types and byte sizes are bounded
+before they reach an application. The provider bounds file metadata separately
+from the consumer's 256 MiB byte batch limit. The seam does not read file bytes
+or treat a name as a filesystem path.
 Text controls expose bounded values, UTF-16 selection ranges with direction,
 and bounded `InputEvent`/`CompositionEvent` metadata through owned snapshots.
 `WebDocument::canvas_by_id` resolves an HTML5 canvas and `WebCanvas::present`

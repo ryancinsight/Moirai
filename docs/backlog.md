@@ -252,8 +252,8 @@
   | 10 µs (640 µs of work) | 44.5 µs | 52.2 µs | **403.6 µs** | 548.2 µs | 640 µs |
   | 50 µs (3.2 ms of work) | 205 µs | **420 µs** | 540 µs | 740 µs | 3,203 µs |
 
-  The best case is near ideal (3.2 ms over 24 workers is 133 µs plus the
-  join); the median is twice it at 50 µs tasks, and at 10 µs tasks one call
+  The best case is near ideal (64 tasks over 24 workers put three on one
+  worker, 150 µs before the join); the median is twice it at 50 µs tasks, and at 10 µs tasks one call
   in ten costs eight times the median — the time of forty serial tasks, as
   if most of the pool sat out that call. Twelve such joins are a round trip,
   which is the consumer's mean. Reading, to verify next: parked workers are
@@ -456,6 +456,10 @@
 - Evidence: commit `72944f0` merged by PR [#279](https://github.com/ryancinsight/Moirai/pull/279)
   as `630f914`; native provider checks and warning-denied Clippy pass, and the
   `wasm32-unknown-unknown` feature surface builds.
+- Increment 2026-09-11: raised the provider file-count bound to 512 and added a
+  boundary test so the committed 409-slice, 216,156,416-byte DICOM study can
+  pass in one browser batch; the consumer-owned 256 MiB byte limit remains the
+  memory bound and DICOM policy remains in RITK.
 
 <a id="MOI-HTTP-WS-2026-09-07"></a>
 ## MOI-HTTP-WS-2026-09-07 — Bounded WebSocket service substrate [arch] [minor]
