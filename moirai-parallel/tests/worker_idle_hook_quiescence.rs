@@ -3,19 +3,23 @@
 //! A hook registered through the public API must run on executor worker
 //! threads when they reach quiescence. This drives a parallel operation over
 //! enough chunks to engage the shared pool's workers, then polls the hook
-//! counter: shortly after the operation completes the workers exhaust their
-//! spin budget, find no further work, and run their idle hooks right before
-//! blocking — so the counter must advance without the test thread doing
-//! anything besides waiting.
+//! counter. A worker may reach quiescence while another chunk is still
+//! running, so the callback can execute before the public operation returns;
+//! the test records its baseline before submission and waits only for a
+//! post-work callback.
 
 use moirai_executor::schedule::register_idle_hook;
 use moirai_parallel::{Parallel, for_each_chunk_mut_with};
-use std::sync::{Condvar, Mutex, OnceLock};
+use std::sync::{
+    Condvar, Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::{Duration, Instant};
 
 struct HookSignal {
     runs: Mutex<usize>,
     wake: Condvar,
+    work_seen: AtomicBool,
 }
 
 impl HookSignal {
@@ -23,6 +27,7 @@ impl HookSignal {
         Self {
             runs: Mutex::new(0),
             wake: Condvar::new(),
+            work_seen: AtomicBool::new(false),
         }
     }
 }
@@ -35,6 +40,9 @@ fn hook_signal() -> &'static HookSignal {
 
 fn quiescence_counter_hook() {
     let signal = hook_signal();
+    if !signal.work_seen.load(Ordering::Acquire) {
+        return;
+    }
     let mut runs = signal
         .runs
         .lock()
@@ -57,15 +65,13 @@ fn registered_hook_runs_on_worker_threads_at_quiescence() {
     const CHUNK_LEN: usize = 256;
     const CHUNKS: usize = 128;
     let mut data: Vec<u64> = vec![0; CHUNK_LEN * CHUNKS];
+    signal.work_seen.store(false, Ordering::Release);
     for_each_chunk_mut_with::<Parallel, _, _>(&mut data, CHUNK_LEN, |chunk| {
+        signal.work_seen.store(true, Ordering::Release);
         for value in chunk.iter_mut() {
             *value += 1;
         }
     });
-    let after_operation = *signal
-        .runs
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     // Workers park on their own schedule; wait on the hook's condition
     // variable so the test does not poll or sleep while the pool drains.
@@ -74,7 +80,7 @@ fn registered_hook_runs_on_worker_threads_at_quiescence() {
         .runs
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    while *runs == after_operation {
+    while *runs == baseline {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             break;
@@ -88,9 +94,9 @@ fn registered_hook_runs_on_worker_threads_at_quiescence() {
 
     let observed = *runs;
     assert!(
-        observed > after_operation,
-        "idle hook must fire on worker threads after the pool drains \
-         (baseline {baseline}, after operation {after_operation}, final {observed})"
+        observed > baseline,
+        "idle hook must fire on worker threads after work reaches quiescence \
+         (baseline {baseline}, final {observed})"
     );
     assert!(observed > baseline);
 }

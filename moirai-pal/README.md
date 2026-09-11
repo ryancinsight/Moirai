@@ -51,6 +51,9 @@ before they reach an application. The seam does not read file bytes or treat a
 name as a filesystem path.
 Text controls expose bounded values, UTF-16 selection ranges with direction,
 and bounded `InputEvent`/`CompositionEvent` metadata through owned snapshots.
+`WebDocument::canvas_by_id` resolves an HTML5 canvas and `WebCanvas::present`
+uploads a borrowed, validated RGBA8 frame under the shared platform size and
+byte bounds; the provider retains no frame bytes after the call.
 Unsupported targets and browser metadata failures return explicit errors or
 `None`; grapheme segmentation and editing policy stay with the application or
 host layer. Native IME event production stays in the Windows provider.

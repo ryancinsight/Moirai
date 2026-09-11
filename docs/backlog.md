@@ -1,5 +1,23 @@
 # Moirai Development Backlog (SSOT)
 
+<a id="MOI-WASM-CANVAS-2026-09-11"></a>
+## MOI-WASM-CANVAS-2026-09-11 — Present bounded RGBA frames through the browser PAL [arch] [minor]
+
+- Outcome: `moirai-pal` exposes one owned WASM canvas surface for validated,
+  format-neutral RGBA presentation without leaking `web-sys` into consumers.
+- Scope: canvas lookup, size validation, bounded borrowed frame upload and
+  provider documentation; DICOM parsing, viewer state, DOM application policy,
+  and native presentation remain RITK or Metis concerns.
+- Acceptance: missing and non-canvas elements fail with typed I/O errors;
+  dimensions, byte length and pixel count are checked before browser calls;
+  browser presentation preserves the frame dimensions and releases no retained
+  callback; native validation tests, warning-denied Clippy and the WASM check pass.
+- Class: [arch] [minor]; status: in-progress; priority: P0; integrator: root;
+  branch: `feat/wasm-canvas-surface`; last-update: 2026-09-11; drivers:
+  [Metis browser](../../metis/backlog.md#METIS-BROWSER-001),
+  [RITK Metis migration](../../ritk/backlog.md#RITK-SNAP-METIS-001).
+- Decision: [ADR 0054](adr/0055-bounded-browser-canvas.md).
+
 <a id="MOI-HTTP-SERVER-2026-09-11"></a>
 ## MOI-HTTP-SERVER-2026-09-11 — Provide a bounded HTTP/1.1 server transport [arch] [minor] — done
 

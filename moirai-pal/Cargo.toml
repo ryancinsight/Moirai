@@ -54,11 +54,13 @@ web-sys = { version = "0.3", features = [
     "Element",
     "EventTarget",
     "HtmlButtonElement",
+    "HtmlCanvasElement",
     "HtmlDialogElement",
     "HtmlElement",
     "HtmlInputElement",
     "HtmlTextAreaElement",
     "HtmlSelectElement",
+    "CanvasRenderingContext2d",
     "Node",
     "File",
     "FileReader", 
@@ -80,6 +82,7 @@ web-sys = { version = "0.3", features = [
     "DragEvent",
     "DataTransfer",
     "FileList",
+    "ImageData",
 ] }
 
 [dev-dependencies]

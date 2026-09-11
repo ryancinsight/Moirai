@@ -1,8 +1,10 @@
 //! Safe, owned browser DOM handles for Atlas applications.
 
+mod canvas;
 mod file_drop;
 mod text;
 
+pub use self::canvas::{CanvasSize, RgbaFrame, WebCanvas};
 pub use self::file_drop::{DropFiles, DropMetadata, DroppedFile, DroppedFileAccess};
 pub use self::text::{
     CompositionMetadata, TextInputMetadata, TextSelection, TextSelectionDirection,
