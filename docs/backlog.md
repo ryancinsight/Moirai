@@ -11,13 +11,14 @@
 - Acceptance: every chunk operator supplies its derived geometry; a policy that
   rejects legacy dispatch proves the new method and ragged-tail output through
   native tests; standalone lock, Clippy, docs, and semver checks pass.
-- Status: review; priority: P0; integrator: Codex; branch:
+- Status: done; priority: P0; integrator: Codex; branch:
   `feat/moirai-chunk-policy-geometry`; driver: Apollo
   `APOLLO-LANE-PARALLEL-THRESHOLD-2026-09-11`; last-update: 2026-09-11.
 - Evidence: standalone lock resolution (37 first-party sources), 42 native tests,
   warning-denied Clippy and Rustdoc, three doctests, and 196 semver checks pass;
   Apollo's 20-case counterbalanced probe retains no supported regression and
-  improves the real `f64` 32³ pair in all four comparisons by about 12–20%.
+  improves the real `f64` 32³ pair in all four comparisons by about 12–20%;
+  delivery: [PR #328](https://github.com/ryancinsight/Moirai/pull/328).
 
 <a id="MOI-WASM-CANVAS-INPUT-2026-09-11"></a>
 ## MOI-WASM-CANVAS-INPUT-2026-09-11 — Expose target-local browser canvas coordinates [arch] [minor]
