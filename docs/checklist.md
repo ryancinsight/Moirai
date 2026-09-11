@@ -7,7 +7,8 @@
 - [x] Migrate the runtime facade and examples without a compatibility wrapper;
       keep provider acquisition and typed errors at the provider boundary.
 - [x] Add host-provider value tests for upload/download, feature rejection,
-      scheduler completion and error propagation.
+      scheduler completion and error propagation
+      (`gpu_task_propagates_host_provider_error_through_runtime`).
 - [x] Run the focused and full locked gates and update ADR 0041, the README
       and the release-facing capability matrix with exact evidence.
       `moirai-gpu` Nextest 9/9, strict Clippy, no-default and CUDA checks,

@@ -6,6 +6,7 @@ fn gpu_task_adapter_uses_typed_hephaestus_provider_seam() {
     let preferences = read_benchmark("../moirai-gpu/src/device/preferences.rs");
     let task = read_benchmark("../moirai-gpu/src/task/mod.rs");
     let configured_task = read_benchmark("../moirai-gpu/src/task/configured.rs");
+    let function_task = read_benchmark("../moirai-gpu/src/task/function.rs");
     let dependency_section = manifest_section(&manifest, "[dependencies]");
     let feature_section = manifest_section(&manifest, "[features]");
 
@@ -45,7 +46,10 @@ fn gpu_task_adapter_uses_typed_hephaestus_provider_seam() {
         task.contains("type Device")
             && task.contains("type Output")
             && task.contains("execute_gpu")
-            && configured_task.contains("estimated_cost"),
+            && configured_task.contains("estimated_cost")
+            && function_task.contains("pub struct FunctionGpuTask")
+            && function_task.contains("FnOnce(&D) -> Result<T>")
+            && function_task.contains("fn execute_gpu(self, device: &D)"),
         "GPU tasks must retain typed device, output, and scheduler metadata"
     );
 
@@ -61,7 +65,8 @@ fn gpu_task_adapter_uses_typed_hephaestus_provider_seam() {
                 && !context.contains(prohibited)
                 && !preferences.contains(prohibited)
                 && !task.contains(prohibited)
-                && !configured_task.contains(prohibited),
+                && !configured_task.contains(prohibited)
+                && !function_task.contains(prohibited),
             "moirai-gpu must not reintroduce direct or dynamic GPU plumbing: {prohibited}"
         );
     }

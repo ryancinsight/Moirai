@@ -50,9 +50,11 @@ retain the independent `moirai-sync` substrate, but it cannot import
 Provider acquisition, allocation, dispatch, synchronization, and transfer
 errors remain typed through the Hephaestus result. The adapter tests execute a
 host reference `ComputeDevice` with a value-sensitive task, verify executor
-completion and error propagation, and compile the generic task against the
-provider seam. WGPU and CUDA provider suites remain the provider-owned device
-evidence; this crate does not claim hardware execution without a device.
+completion, and `gpu_task_propagates_host_provider_error_through_runtime`
+asserts the provider's `LengthMismatch` fields through the scheduler. The
+generic task compiles against the provider seam. WGPU and CUDA provider suites
+remain the provider-owned device evidence; this crate does not claim hardware
+execution without a device.
 
 The public GPU API changes and requires a major migration. In-repository
 callers migrate in the same delivery; no compatibility wrapper is retained.
@@ -64,6 +66,7 @@ now contains only the generic `ComputeDevice` context, acquisition preferences,
 and synchronous typed task seam; its direct WGPU device, buffer, pipeline,
 bytemuck and boxed-future modules were removed. `Moirai::spawn_gpu` submits the
 typed operation to the existing work-stealing executor. The host provider tests
-cover input-sensitive upload/download, feature rejection and runtime task
-completion. WGPU and CUDA compilation use the same generic seam; hardware and
-device-specific kernel evidence remain provider-owned.
+cover input-sensitive upload/download, feature rejection, runtime task
+completion and typed `LengthMismatch` propagation. WGPU and CUDA compilation use
+the same generic seam; hardware and device-specific kernel evidence remain
+provider-owned.

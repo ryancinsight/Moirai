@@ -687,8 +687,9 @@
   `HEPH-WGPU-CONSUMER-2026-09-04`.
 - **Current increment:** provider-neutral context/task seam is implemented;
   the direct WGPU layer is removed, `Moirai::spawn_gpu` is covered by the
-  host-provider runtime test, and the benchmark source contract now follows
-  the split context/task modules. Focused gates and the full lane-resolved
+  host-provider runtime and typed `LengthMismatch` propagation tests, and the
+  benchmark source contract now follows the split context/task modules.
+  Focused gates and the full lane-resolved
   workspace Clippy, Nextest (1077/1077, 10 skipped), doctest, and
   warning-denied rustdoc suites pass. Physical WGPU/CUDA hardware evidence is
   provider-owned and is not claimed here. No Metis or DICOM code belongs in
