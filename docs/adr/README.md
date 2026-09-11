@@ -60,3 +60,4 @@
 | [0051](0051-bounded-idle-hook-admission.md) | Bounded idle-hook admission | Accepted |
 | [0052](0052-bounded-webview2-host.md) | Bounded Windows WebView2 host | Accepted |
 | [0053](0053-root-confined-file-opening.md) | Root-confined file opening | Accepted |
+| [0054](0054-bounded-http-server-transport.md) | Bounded HTTP server transport | Accepted |
