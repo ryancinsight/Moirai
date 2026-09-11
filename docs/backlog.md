@@ -415,6 +415,10 @@
 - Evidence: commit `72944f0` merged by PR [#279](https://github.com/ryancinsight/Moirai/pull/279)
   as `630f914`; native provider checks and warning-denied Clippy pass, and the
   `wasm32-unknown-unknown` feature surface builds.
+- Increment 2026-09-11: raised the provider file-count bound to 512 and added a
+  boundary test so the committed 409-slice, 216,156,416-byte DICOM study can
+  pass in one browser batch; the consumer-owned 256 MiB byte limit remains the
+  memory bound and DICOM policy remains in RITK.
 
 <a id="MOI-HTTP-WS-2026-09-07"></a>
 ## MOI-HTTP-WS-2026-09-07 — Bounded WebSocket service substrate [arch] [minor]
