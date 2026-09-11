@@ -2,10 +2,12 @@
 
 use std::io;
 
-// A FileList reports a u32 length; 64 entries cap metadata allocation before
-// an application can apply its own format policy.
-#[cfg(target_arch = "wasm32")]
-pub(crate) const MAX_FILE_COUNT: u32 = 64;
+// A FileList reports a u32 length; 512 entries cover the largest committed
+// Atlas DICOM study while keeping provider-owned metadata and browser handles
+// bounded before an application applies its own format policy. Byte storage
+// remains governed independently by the 256 MiB consumer batch limit.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) const MAX_FILE_COUNT: u32 = 512;
 // Names and media types are copied into owned Rust strings at the trust
 // boundary; these limits bound one event's metadata footprint.
 const MAX_FILE_NAME_BYTES: usize = 4_096;
@@ -34,6 +36,16 @@ pub(crate) fn parse_size(value: f64) -> io::Result<u64> {
     })
 }
 
+pub(crate) fn validate_file_count(length: u32) -> io::Result<()> {
+    if length > MAX_FILE_COUNT {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Browser file drop exceeds the 512-file bound",
+        ));
+    }
+    Ok(())
+}
+
 fn bounded_text(
     value: String,
     maximum: usize,
@@ -51,7 +63,7 @@ fn bounded_text(
 
 #[cfg(test)]
 mod tests {
-    use super::{file_name, media_type, parse_size};
+    use super::{MAX_FILE_COUNT, file_name, media_type, parse_size, validate_file_count};
     use std::io::ErrorKind;
 
     #[test]
@@ -112,5 +124,14 @@ mod tests {
                 ErrorKind::InvalidInput
             );
         }
+    }
+
+    #[test]
+    fn file_count_accepts_bound_and_rejects_growth() {
+        validate_file_count(MAX_FILE_COUNT).expect("the admitted file-count bound is valid");
+        let error = validate_file_count(MAX_FILE_COUNT + 1)
+            .expect_err("file metadata growth must remain bounded");
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("512-file bound"));
     }
 }
