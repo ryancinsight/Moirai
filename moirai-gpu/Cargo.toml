@@ -11,37 +11,28 @@ documentation = "https://docs.rs/moirai-gpu"
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-description = "GPU launch planning and optional wgpu compute integration for the Moirai concurrency library"
+description = "GPU launch planning and Hephaestus scheduling integration for the Moirai concurrency library"
 
 [dependencies]
 themis = { workspace = true }
 mnemosyne-core = { workspace = true }
-moirai-core = { workspace = true }
-moirai-executor = { workspace = true, optional = true }
-moirai-utils = { workspace = true, features = ["std"] }
+hephaestus-core = { workspace = true }
+eunomia = { workspace = true }
 
-# GPU compute dependencies
-wgpu = { version = "0.19", optional = true }
-bytemuck = { workspace = true, features = ["derive"], optional = true }
-
-# Async runtime support
-futures = { version = "0.3", optional = true }
-
-# Serialization
-serde = { version = "1.0", features = ["derive"], optional = true }
+# Provider implementations are optional; the generic device/task seam remains
+# available for planner-only and downstream provider integrations.
+hephaestus-wgpu = { workspace = true, optional = true }
+hephaestus-cuda = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+hephaestus-host = { workspace = true }
 proptest = { workspace = true }
-tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 
 [features]
-default = ["std", "parallel", "mnemosyne-memory", "wgpu-backend"]
-std = []
-parallel = []
-mnemosyne-memory = []
-wgpu-backend = ["dep:bytemuck", "dep:futures", "dep:moirai-executor", "dep:wgpu"]
-serde = ["dep:serde"]
+default = ["wgpu-backend"]
+wgpu-backend = ["dep:hephaestus-wgpu"]
+cuda-backend = ["dep:hephaestus-cuda"]
 
 [[bench]]
 name = "gpu_compute"

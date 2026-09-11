@@ -75,6 +75,67 @@ fn test_spawn_async() {
     moirai.shutdown();
 }
 
+#[cfg(feature = "gpu")]
+#[test]
+fn gpu_task_runs_on_host_provider_through_runtime() {
+    use hephaestus_host::HostDevice;
+    use moirai_gpu::ComputeDevice;
+
+    let moirai = Moirai::builder().worker_threads(1).build().unwrap();
+    let context = moirai_gpu::GpuContext::from_device(HostDevice::new());
+    let task = moirai_gpu::FunctionGpuTask::new(|device: &HostDevice| {
+        let input = device.upload(&[3_u32, 5])?;
+        let mut output = [0_u32; 2];
+        device.download(&input, &mut output)?;
+        Ok(output.into_iter().sum::<u32>())
+    });
+
+    let handle = moirai.spawn_gpu(&context, task);
+    moirai.join().unwrap();
+    assert_eq!(
+        handle
+            .join()
+            .expect("GPU task must retain a result")
+            .expect("GPU task execution must complete")
+            .expect("host provider task must succeed"),
+        8
+    );
+    moirai.shutdown();
+}
+
+#[cfg(feature = "gpu")]
+#[test]
+fn gpu_task_propagates_host_provider_error_through_runtime() {
+    use hephaestus_host::HostDevice;
+    use moirai_gpu::ComputeDevice;
+
+    let moirai = Moirai::builder().worker_threads(1).build().unwrap();
+    let context = moirai_gpu::GpuContext::from_device(HostDevice::new());
+    let task = moirai_gpu::FunctionGpuTask::new(|device: &HostDevice| {
+        let input = device.upload(&[3_u32, 5])?;
+        let mut output = [0_u32; 1];
+        device.download(&input, &mut output)?;
+        Ok(())
+    });
+
+    let handle = moirai.spawn_gpu(&context, task);
+    moirai.join().unwrap();
+    let error = handle
+        .join()
+        .expect("GPU task must retain a result")
+        .expect("GPU task execution must complete")
+        .expect_err("host provider length mismatch must propagate");
+
+    assert!(matches!(
+        error,
+        moirai_gpu::GpuError::LengthMismatch {
+            host_len: 1,
+            device_len: 2
+        }
+    ));
+    moirai.shutdown();
+}
+
 #[test]
 fn test_scope_completes_borrowed_jobs() {
     let moirai = Moirai::builder().worker_threads(2).build().unwrap();

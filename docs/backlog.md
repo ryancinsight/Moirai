@@ -633,13 +633,17 @@
 <a id="MOI-SOURCE-2026-09-05"></a>
 ## MOI-SOURCE-2026-09-05 — Restore valid GPU provider revisions
 
-- Outcome: Hephaestus requirements name a revision present in the Hephaestus remote.
-- Scope: four invalid workspace Hephaestus rev fields and standalone lock regeneration; preserve Mnemosyne requirements.
-- Acceptance: fetched remote ancestry confirms the revision; Cargo metadata resolves the corrected manifest.
-- Class: [patch]; status: review; integrator: atlas-metis-ipc.
-- Evidence: commit `5d99f24` replaces Hephaestus `2c6ffc2` with absent `f532b0e`; pre-push resolution fails. Reviewed `0514f11` retains the intended revision.
-- Verification: fetched Hephaestus branch contains `2c6ffc2`; stack transport Clippy and 39/39 nextest pass; standalone `scripts/lockfile.py --regenerate` and its `--locked` metadata check pass with 45 git sources.
-- Last update: 2026-09-05; full-workspace runtime verification remains outside this four-reference correction.
+- Outcome: Hephaestus requirements name the reviewed `ff370517` provider
+  revision and the standalone lock resolves the current first-party graph.
+- Scope: four Hephaestus edges, the expired Eunomia source pin, source policy,
+  and standalone lock regeneration; preserve the generic GPU adapter contract.
+- Acceptance: fetched provider ancestry resolves; the locked graph has one
+  Eunomia source and no `cuda-oxide` or stale advisory exception.
+- Class: [patch]; status: done; integrator: root; last-update: 2026-09-11;
+  delivery: Moirai PR #325.
+- Verification: the lock resolves Hephaestus `ff370517`, Eunomia `c4f49bc1`,
+  and no `cuda-oxide`; the supply-chain and workspace gates are rerun on the
+  resulting revision.
 
 <a id="MOI-PROCESS-2026-09-05"></a>
 ## MOI-PROCESS-2026-09-05 — Contain piped child lifecycles
@@ -658,7 +662,7 @@
 - [x] PR #256 merged at `70d201a`; Mnemosyne resolves at `7f173751` and the
   first-party source identity is canonical; ADR [`0040`](adr/0040-first-party-memory-source-identity.md), workspace, binding, Loom, Rust 1.95, no-default, documentation, and lockfile gates pass.
 
-## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — todo <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
+## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — review <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
 
 - **Prior art, not a base (recorded 2026-09-09).** `arch/moirai-hephaestus-gpu-route`
   (PR #259, last touched 2026-09-07) carries a working implementation, but main
@@ -669,9 +673,9 @@
   Its other 24 commits are unrelated -- a long run of `rev =` provider-pin
   advances main has since superseded, plus wasm and process work belonging to
   other items -- so only this decision and its ADR are carried forward here.
-- **Definition of Ready:** the ADR below is the design; what is missing is the
-  current shape of `moirai-gpu`'s device, buffer, pipeline and task surfaces,
-  which the re-derivation reads first.
+- **Definition of Ready:** ADR [`0041`](adr/0041-hephaestus-gpu-scheduler-adapter.md)
+  defines the provider boundary; the current `moirai-gpu` device, buffer,
+  pipeline, and task surfaces were read before re-deriving the implementation.
 - **Outcome:** Route Moirai GPU work through Hephaestus' generic device seam and
   submit it to the existing work-stealing executor without a direct WGPU layer.
 - **Scope / non-goals:** Moirai GPU adapter, Hephaestus WGPU dependency
@@ -682,8 +686,18 @@
   `moirai-gpu`; a `ComputeDevice` implementation is acquired through the
   provider, GPU tasks execute as typed Moirai tasks, device errors remain typed,
   and focused plus full repository gates pass. ADR [`0041`](adr/0041-hephaestus-gpu-scheduler-adapter.md).
-- **Integrator:** atlas-session; branch `arch/moirai-hephaestus-gpu-route`;
-  upstream companion: Hephaestus `HEPH-WGPU-CONSUMER-2026-09-04`.
+- **Integrator:** root; branch `arch/moirai-hephaestus-gpu-route-2026-09-11`;
+  PR #325; last-update: 2026-09-11; upstream companion: Hephaestus
+  `HEPH-WGPU-CONSUMER-2026-09-04`.
+- **Current increment:** provider-neutral context/task seam is implemented;
+  the direct WGPU layer is removed, `Moirai::spawn_gpu` is covered by the
+  host-provider runtime and typed `LengthMismatch` propagation tests, and the
+  benchmark source contract now follows the split context/task modules.
+  Focused gates and the full lane-resolved
+  workspace Clippy, Nextest (1077/1077, 10 skipped), doctest, and
+  warning-denied rustdoc suites pass. Physical WGPU/CUDA hardware evidence is
+  provider-owned and is not claimed here. No Metis or DICOM code belongs in
+  this item; PR #325 carries the review state.
 
 ## Atlas in-house replacement roadmap — moirai slice [arch]
 

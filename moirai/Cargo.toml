@@ -34,6 +34,7 @@ melinoe = { workspace = true, optional = true }
 [dev-dependencies]
 criterion = { workspace = true }
 fastrand = { workspace = true }
+hephaestus-host = { workspace = true }
 proptest = { workspace = true }
 futures = "0.3"
 rayon = "1.8"

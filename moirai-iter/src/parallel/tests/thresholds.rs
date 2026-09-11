@@ -100,7 +100,10 @@ fn test_parallel_value_terminals_match_sequential_above_drive_threshold() {
             .into_par_iter()
             .filter(|value| value % 3 == 0)
             .sum::<u64>(),
-        data.iter().copied().filter(|value| value % 3 == 0).sum()
+        data.iter()
+            .copied()
+            .filter(|value| value % 3 == 0)
+            .sum::<u64>()
     );
 
     // Mostly ones so an 8192-term product stays inside u64: overflow-checked

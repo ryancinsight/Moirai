@@ -1,48 +1,31 @@
-//! Simple GPU acceleration example demonstrating wgpu-rs integration
+//! Show the provider-neutral GPU planning surface.
 //!
-//! This example shows basic GPU vector addition without complex dependencies.
+//! Hardware acquisition is fallible and remains an explicit application
+//! decision. This example stays CI-safe by exercising only the deterministic
+//! launch planner; Hephaestus owns device and kernel execution.
 
 #[cfg(feature = "gpu")]
 fn demonstrate_gpu() {
-    println!("🚀 Moirai GPU Support Available");
-    println!("===============================");
-    println!("✅ GPU integration implemented with wgpu-rs");
-    println!("🔧 Cross-platform GPU compute support");
-    println!("⚡ Zero-copy buffer management");
-    println!("🏗️ SOLID/CUPID architecture compliance");
-    println!("💡 Run 'cargo test --package moirai-gpu' to test GPU functionality");
+    let budget = moirai_gpu::KernelResourceBudget::new(64, 16 * 1024, 256)
+        .expect("invariant: example workgroup width is non-zero");
+    let shape = moirai_gpu::plan_launch(budget, 1_000);
+
+    println!("Hephaestus GPU adapter available");
+    println!("planned grid blocks: {}", shape.grid_blocks);
+    println!("threads per block: {}", shape.threads_per_block);
+    println!("device acquisition is explicit and fallible");
 }
 
 #[cfg(not(feature = "gpu"))]
 fn demonstrate_fallback() {
-    println!("⚠️  GPU feature not enabled");
-    println!("=========================");
-    println!("💡 To enable GPU acceleration, rebuild with:");
-    println!("   cargo run --example gpu_acceleration --features gpu");
-    println!("🔄 GPU support available via moirai-gpu crate");
+    println!("GPU feature not enabled");
+    println!("enable it with: cargo run --example gpu_acceleration --features gpu");
 }
 
 fn main() {
-    println!("🌟 Moirai GPU Integration Status");
-    println!("================================\n");
-
     #[cfg(feature = "gpu")]
     demonstrate_gpu();
 
     #[cfg(not(feature = "gpu"))]
     demonstrate_fallback();
-
-    println!("\n🎯 Key GPU Features Implemented:");
-    println!("- Device management and capability detection");
-    println!("- GPU buffer pooling with zero-copy principles");
-    println!("- Compute shader pipeline builder");
-    println!("- Async GPU task integration with Moirai runtime");
-    println!("- Cross-platform support via wgpu-rs");
-    println!("- Memory-safe GPU programming");
-
-    println!("\n📚 Architecture Highlights:");
-    println!("- Follows SOLID principles with composable components");
-    println!("- Unix Philosophy: focused GPU compute responsibility");
-    println!("- Zero-cost abstractions compiling to optimal code");
-    println!("- Seamless integration with existing Moirai task system");
 }
