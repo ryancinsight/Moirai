@@ -12,11 +12,16 @@
   dimensions, byte length and pixel count are checked before browser calls;
   browser presentation preserves the frame dimensions and releases no retained
   callback; native validation tests, warning-denied Clippy and the WASM check pass.
-- Class: [arch] [minor]; status: in-progress; priority: P0; integrator: root;
-  branch: `feat/wasm-canvas-surface`; last-update: 2026-09-11; drivers:
-  [Metis browser](../../metis/backlog.md#METIS-BROWSER-001),
+- Class: [arch] [minor]; status: done; priority: P0; integrator: root;
+  delivery: [Moirai PR #321](https://github.com/ryancinsight/Moirai/pull/321),
+  merge `ccdc878dad21d9daeedc966f1cb97364e2558593`; last-update: 2026-09-11;
+  drivers: [Metis browser](../../metis/backlog.md#METIS-BROWSER-001),
   [RITK Metis migration](../../ritk/backlog.md#RITK-SNAP-METIS-001).
-- Decision: [ADR 0054](adr/0055-bounded-browser-canvas.md).
+- Verification: Metis consumes `WebCanvas` through its format-neutral
+  `CanvasSurface`, and RITK PR #284 records the synthetic browser canvas smoke
+  in the DICOM manual. The provider remains independent of DICOM and viewer
+  state.
+- Decision: [ADR 0055](adr/0055-bounded-browser-canvas.md).
 
 <a id="MOI-HTTP-SERVER-2026-09-11"></a>
 ## MOI-HTTP-SERVER-2026-09-11 — Provide a bounded HTTP/1.1 server transport [arch] [minor] — done
