@@ -62,6 +62,19 @@ pub trait ExecutionPolicy: Send + Sync + 'static {
     /// Return `true` if an operation over `len` elements should run in parallel.
     fn parallelize(len: usize) -> bool;
 
+    /// Return `true` if an operation over `len` elements, partitioned into
+    /// `chunks` logical chunks, should run in parallel.
+    ///
+    /// The default preserves policies expressed only in terms of element
+    /// count. Policies for chunked operations may override this method when
+    /// chunk geometry also determines whether scheduling is worthwhile. An
+    /// operator may coalesce logical chunks into fewer scheduled worker tasks.
+    #[inline(always)]
+    fn parallelize_chunks(len: usize, chunks: usize) -> bool {
+        let _ = chunks;
+        Self::parallelize(len)
+    }
+
     /// Return `true` if a fixed two-branch operation should run in parallel.
     #[inline(always)]
     fn parallelize_pair() -> bool {
