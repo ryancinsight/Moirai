@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/v/moirai-http.svg)](https://crates.io/crates/moirai-http)
 [![docs.rs](https://docs.rs/moirai-http/badge.svg)](https://docs.rs/moirai-http)
 
-Minimal async HTTP/1.1 client and bounded WebSocket service for the
+Minimal async HTTP/1.1 client, bounded one-shot server transport, and bounded WebSocket service for the
 [Moirai](https://github.com/ryancinsight/Moirai) runtime. Runs over Moirai async sockets and
 [`moirai-tls`](https://crates.io/crates/moirai-tls) — **no Tokio**.
 
@@ -42,6 +42,33 @@ RFC 3986, never forward credentials across origins, and preserve methods and
 bodies for 307/308 responses.
 
 Full documentation: <https://docs.rs/moirai-http>
+
+## HTTP server transport
+
+`HttpServer` binds a Moirai TCP listener and accepts one request per
+connection. `ServerConfig` bounds headers, request bodies, responses,
+connections, and each read/write deadline. The typestate flow makes the
+request-then-response lifecycle explicit:
+
+```rust,no_run
+use moirai_http::{HttpResponse, HttpServer, ServerConfig};
+
+async fn example() -> std::io::Result<()> {
+    let server = HttpServer::bind("127.0.0.1:8080", ServerConfig::default()).await?;
+    serve_once(&server).await
+}
+
+async fn serve_once(server: &HttpServer) -> std::io::Result<()> {
+    let connection = server.accept().await?;
+    let (request, connection) = connection.read_request().await?;
+    let response = HttpResponse::new(200, request.body().to_vec())?;
+    connection.write_response(response).await
+}
+```
+
+The transport owns framing and closes after the response. It does not select
+routes, authorize origins or sessions, generate markup, or parse DICOM; those
+policies remain in Metis and RITK respectively.
 
 ## WebSocket service
 
