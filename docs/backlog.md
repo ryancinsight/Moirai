@@ -385,6 +385,11 @@
   `DefWindowProcW` after recording them. A real HWND test keeps Alt active
   while one side is released and verifies the `WM_SYSCOMMAND(SC_CLOSE)` path
   used by Alt+F4; focused and full PAL gates pass.
+- Increment: `WM_PRINT` and `WM_PRINTCLIENT` now render the retained ARGB frame
+  through the supplied GDI device context. This keeps the standard Windows
+  `PrintWindow` path input-sensitive for full native application captures;
+  custom clients no longer appear black when a capture requests the client
+  render.
 - Residual: OS permissions, accessibility and macOS/Linux providers remain open
   under their provider items. Consumer editing policy and an installed-IME
   journey remain Metis host evidence. The WebView2 provider is delivered by
