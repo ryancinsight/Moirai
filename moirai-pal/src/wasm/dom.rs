@@ -5,7 +5,7 @@ mod file_drop;
 mod text;
 
 pub use self::canvas::{CanvasSize, RgbaFrame, WebCanvas};
-pub use self::file_drop::{DropFiles, DropMetadata, DroppedFile, DroppedFileAccess};
+pub use self::file_drop::{BrowserFiles, DropFiles, DropMetadata, DroppedFile, DroppedFileAccess};
 pub use self::text::{
     CompositionMetadata, TextInputMetadata, TextSelection, TextSelectionDirection,
 };

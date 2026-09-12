@@ -18,10 +18,10 @@ use web_sys::console;
 use crate::{Event, Interest, RawFd, Reactor};
 
 pub use self::dom::{
-    CanvasSize, CompositionMetadata, DropFiles, DropMetadata, DroppedFile, DroppedFileAccess,
-    PointerMetadata, PointerModifiers, PointerType, RgbaFrame, TextInputMetadata, TextSelection,
-    TextSelectionDirection, WebCanvas, WebDocument, WebElement, WebEvent, WebEventListener,
-    WheelDeltaMode, WheelMetadata,
+    BrowserFiles, CanvasSize, CompositionMetadata, DropFiles, DropMetadata, DroppedFile,
+    DroppedFileAccess, PointerMetadata, PointerModifiers, PointerType, RgbaFrame,
+    TextInputMetadata, TextSelection, TextSelectionDirection, WebCanvas, WebDocument, WebElement,
+    WebEvent, WebEventListener, WheelDeltaMode, WheelMetadata,
 };
 pub use self::file::{MAX_READ_BYTES, WebFile};
 pub use self::timer::WebTimer;
