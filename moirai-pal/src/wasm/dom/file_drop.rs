@@ -5,7 +5,7 @@ use super::WebEvent;
 use crate::drop_validation::{file_name, media_type, parse_size, validate_file_count};
 use std::io;
 use wasm_bindgen::JsCast;
-use web_sys::{DragEvent, File, FileList, MouseEvent};
+use web_sys::{DragEvent, File, FileList, HtmlInputElement, MouseEvent};
 
 /// Metadata for one file supplied by a browser drop event.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +99,32 @@ impl DroppedFileAccess {
     /// selected file.
     pub fn seek(&mut self, position: u64) -> io::Result<()> {
         self.reader.seek(position)
+    }
+}
+
+/// Owns a bounded set of browser-selected files without a filesystem path.
+///
+/// A selection can come from a drag/drop transfer or a user-activated file
+/// input. The browser `File` handles stay private to Moirai while consumers
+/// read through the same bounded metadata and asynchronous byte surface.
+pub struct BrowserFiles {
+    files: Box<[DroppedFileAccess]>,
+}
+
+impl BrowserFiles {
+    fn from_files(files: Box<[DroppedFileAccess]>) -> Self {
+        Self { files }
+    }
+
+    /// Returns the selected files in browser-provided order.
+    #[must_use]
+    pub fn files(&self) -> &[DroppedFileAccess] {
+        &self.files
+    }
+
+    /// Returns mutable access for bounded asynchronous reads.
+    pub fn files_mut(&mut self) -> &mut [DroppedFileAccess] {
+        &mut self.files
     }
 }
 
@@ -205,6 +231,37 @@ impl WebEvent {
             client_y,
             files: entries,
         }))
+    }
+
+    /// Captures bounded files from a user-activated `<input type="file">`.
+    ///
+    /// Non-file events return `Ok(None)`. The returned selection owns the
+    /// browser `File` handles and exposes only validated metadata plus bounded
+    /// asynchronous reads. It never exposes a browser path or native
+    /// filesystem authority.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::InvalidInput`] when the event target is a file
+    /// input whose file list is unavailable, an indexed file is absent, or
+    /// metadata violates the provider bounds.
+    pub fn selected_files(&self) -> io::Result<Option<BrowserFiles>> {
+        let Some(input) = self
+            .event
+            .target()
+            .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
+        else {
+            return Ok(None);
+        };
+        if input.type_() != "file" {
+            return Ok(None);
+        }
+        let files = input.files().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "File input has no selected file list",
+            )
+        })?;
+        Ok(Some(BrowserFiles::from_files(collect_file_access(&files)?)))
     }
 }
 

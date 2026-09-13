@@ -10,8 +10,8 @@ use windows::Win32::Foundation::{
     WAIT_TIMEOUT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, DIB_RGB_COLORS, EndPaint, InvalidateRect,
-    PAINTSTRUCT, RGBQUAD, SRCCOPY, StretchDIBits, UpdateWindow,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, DIB_RGB_COLORS, EndPaint, HDC,
+    InvalidateRect, PAINTSTRUCT, RGBQUAD, SRCCOPY, StretchDIBits, UpdateWindow,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::Ime::{
@@ -25,9 +25,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
     WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP,
     WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP,
-    WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW,
-    WS_OVERLAPPEDWINDOW,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_PRINT, WM_PRINTCLIENT,
+    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
+    WM_XBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::PCWSTR;
 
@@ -456,6 +456,22 @@ unsafe extern "system" fn window_proc(
                 }
             }
             WM_ERASEBKGND => return LRESULT(1),
+            WM_PRINT => {
+                let result = DefWindowProcW(hwnd, message, wparam, lparam);
+                let hdc = HDC(wparam.0 as *mut c_void);
+                // SAFETY: WM_PRINT supplies a live destination HDC for the
+                // synchronous full-window render; the retained frame is
+                // borrowed only for the duration of the GDI calls.
+                paint_frame(hwnd, state, hdc);
+                return result;
+            }
+            WM_PRINTCLIENT => {
+                let hdc = HDC(wparam.0 as *mut c_void);
+                // SAFETY: WM_PRINTCLIENT supplies a live destination HDC for
+                // the synchronous client-area render; the retained frame is
+                // borrowed only for the duration of the GDI calls.
+                paint_frame(hwnd, state, hdc);
+            }
             WM_PAINT => {
                 // SAFETY: the callback owns the live HWND and its state for the
                 // duration of the synchronous paint operation.
@@ -582,52 +598,61 @@ unsafe fn paint(hwnd: HWND, state: &WindowState) -> LRESULT {
         let mut paint = PAINTSTRUCT::default();
         // SAFETY: `paint` is writable storage and hwnd is the callback's live handle.
         let hdc = BeginPaint(hwnd, &mut paint);
-        if !hdc.is_invalid()
-            && let Some(frame) = state.frame.as_ref()
-        {
-            let mut client = RECT::default();
-            // SAFETY: `client` is writable storage for this live hwnd.
-            if GetClientRect(hwnd, &mut client).is_ok() {
-                let dest_width = client.right.saturating_sub(client.left);
-                let dest_height = client.bottom.saturating_sub(client.top);
-                if dest_width > 0 && dest_height > 0 {
-                    let info = BITMAPINFO {
-                        bmiHeader: BITMAPINFOHEADER {
-                            biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                            biWidth: frame.width as i32,
-                            biHeight: -(frame.height as i32),
-                            biPlanes: 1,
-                            biBitCount: 32,
-                            biCompression: BI_RGB.0,
-                            ..Default::default()
-                        },
-                        bmiColors: [RGBQUAD::default()],
-                    };
-                    // SAFETY: the retained frame remains borrowed for this
-                    // synchronous GDI call; BITMAPINFO matches the 32-bit
-                    // row-major ARGB storage and the destination is bounded by
-                    // GetClientRect.
-                    let _ = StretchDIBits(
-                        hdc,
-                        0,
-                        0,
-                        dest_width,
-                        dest_height,
-                        0,
-                        0,
-                        frame.width as i32,
-                        frame.height as i32,
-                        Some(frame.pixels.as_ptr().cast::<c_void>()),
-                        &info,
-                        DIB_RGB_COLORS,
-                        SRCCOPY,
-                    );
-                }
-            }
-        }
+        paint_frame(hwnd, state, hdc);
         // SAFETY: paint was initialized by BeginPaint and belongs to hwnd.
         let _ = EndPaint(hwnd, &paint);
         LRESULT(0)
+    }
+}
+
+unsafe fn paint_frame(hwnd: HWND, state: &WindowState, hdc: HDC) {
+    unsafe {
+        if hdc.is_invalid() {
+            return;
+        }
+        let Some(frame) = state.frame.as_ref() else {
+            return;
+        };
+        let mut client = RECT::default();
+        // SAFETY: `client` is writable storage for this live hwnd.
+        if GetClientRect(hwnd, &mut client).is_err() {
+            return;
+        }
+        let dest_width = client.right.saturating_sub(client.left);
+        let dest_height = client.bottom.saturating_sub(client.top);
+        if dest_width <= 0 || dest_height <= 0 {
+            return;
+        }
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: frame.width as i32,
+                biHeight: -(frame.height as i32),
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            bmiColors: [RGBQUAD::default()],
+        };
+        // SAFETY: the retained frame remains borrowed for this synchronous
+        // GDI call; BITMAPINFO matches the 32-bit row-major ARGB storage and
+        // the destination is bounded by GetClientRect.
+        let _ = StretchDIBits(
+            hdc,
+            0,
+            0,
+            dest_width,
+            dest_height,
+            0,
+            0,
+            frame.width as i32,
+            frame.height as i32,
+            Some(frame.pixels.as_ptr().cast::<c_void>()),
+            &info,
+            DIB_RGB_COLORS,
+            SRCCOPY,
+        );
     }
 }
 

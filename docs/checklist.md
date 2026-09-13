@@ -13,12 +13,27 @@
 - [x] Prove branch independence by value rather than by inspection: the same
       region under `Parallel` and `Adaptive` must produce identical results;
       a ragged region must tile exactly once; an empty region must short-circuit.
-- Evidence: `moirai-parallel` locked suite 40/40 under `--features melinoe`
-  (3 new tests), and the live consumer `cfd-core` compiles with its
-  `fluid_dynamics` suite at 10/10. Local commit `8b55264f`.
+- Evidence: `moirai-parallel` nextest suite 42/42 under `--all-features`
+  (the three policy tests plus the existing Melinoe path), and the live
+  consumer `cfd-core` compiles with its `fluid_dynamics` suite at 10/10.
+  Local source revision includes `8b55264f`.
 - Follow-up boarded: `MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11` (registration
   reachability), and CFDrs adopting `Adaptive` at its `operations.rs:47` call
   site.
+
+## MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11 — root
+
+- [x] Expose `moirai_executor::initialize` and the facade's
+      `moirai::initialize` as an idempotent startup boundary.
+- [x] Refresh the Melinoe registration from Moirai's policy-backed partition
+      helpers before entering the shared pool.
+- [x] Prove a cleared Melinoe slot is restored before a direct partition in the
+      standalone `moirai-executor::melinoe_registration` integration binary.
+- [x] Record the dependency-cycle and WebAssembly constraints in ADR 0057 and
+      document the startup call for raw Melinoe users.
+- Evidence: `cargo nextest run -p moirai-executor -p moirai-parallel
+  --all-features` **190/190** (3 skipped), warning-denied Clippy, formatting,
+  and the direct-registration test all pass on the overlay source revision.
 
 ## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 — root
 

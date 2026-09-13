@@ -4,6 +4,11 @@ Status: Accepted
 
 Date: 2026-09-08
 
+Revision: 2026-09-12 — the same bounded file reader accepts a user-activated
+`<input type="file">` selection through `WebEvent::selected_files`; no path or
+browser handle leaves Moirai. The drag/drop surface remains unchanged, and
+the consumer receives one source-neutral file batch.
+
 Revision: 2026-09-11 — the shared browser drop bound is 512 entries so a
 committed 409-slice DICOM study fits in one bounded batch; the consumer-owned
 256 MiB byte limit and per-read chunk bound remain unchanged.
@@ -21,7 +26,8 @@ name is display metadata and cannot become a filesystem path or authority.
 
 ## Decision
 
-Extend Moirai's owned WASM DOM seam with `WebEvent::drop_files`. It returns a
+Extend Moirai's owned WASM DOM seam with `WebEvent::drop_files` and
+`WebEvent::selected_files`. The former returns a
 bounded `DropFiles` snapshot whose entries pair the existing validated metadata
 with an owned browser file reader. The entry exposes metadata accessors and an
 asynchronous read/seek surface; the JavaScript `File` object remains private to
@@ -33,7 +39,9 @@ detaches and aborts its `FileReader` callbacks.
 The existing `drop_metadata` API and value semantics remain unchanged. The new
 surface does not parse DICOM, infer a path, grant native permissions, or retain
 an unbounded file in memory. Consumers must pass bounded chunks to their own
-format decoder and apply their own content and authority policy.
+format decoder and apply their own content and authority policy. The chooser
+method returns the same reader entries in a source-neutral `BrowserFiles`
+batch, so a user file selection does not need to synthesize a drag event.
 
 ## Alternatives
 

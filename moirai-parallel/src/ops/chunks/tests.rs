@@ -2,6 +2,110 @@ use super::*;
 use crate::{Parallel, Sequential};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+#[derive(Debug)]
+struct AssertChunkGeometry<const LEN: usize, const CHUNKS: usize>;
+
+impl<const LEN: usize, const CHUNKS: usize> ExecutionPolicy for AssertChunkGeometry<LEN, CHUNKS> {
+    fn parallelize(_len: usize) -> bool {
+        panic!("chunk operators must dispatch through parallelize_chunks")
+    }
+
+    fn parallelize_chunks(len: usize, chunks: usize) -> bool {
+        assert_eq!(len, LEN);
+        assert_eq!(chunks, CHUNKS);
+        false
+    }
+}
+
+#[test]
+fn chunk_operators_report_element_and_task_geometry() {
+    type Ragged = AssertChunkGeometry<7, 3>;
+
+    let mut values = [0_u8; 7];
+    for_each_chunk_mut_with::<Ragged, _, _>(&mut values, 3, |chunk| chunk.fill(1));
+    assert_eq!(values, [1; 7]);
+
+    let mut stateful = [0_u8; 7];
+    for_each_chunk_mut_with_state::<Ragged, _, _, _, _>(
+        &mut stateful,
+        3,
+        || 2_u8,
+        |state, chunk| chunk.fill(*state),
+    );
+    assert_eq!(stateful, [2; 7]);
+
+    let mut enumerated = [0_usize; 7];
+    for_each_chunk_mut_enumerated_with::<Ragged, _, _>(&mut enumerated, 3, |chunk_index, chunk| {
+        chunk.fill(chunk_index)
+    });
+    assert_eq!(enumerated, [0, 0, 0, 1, 1, 1, 2]);
+
+    let mut pair_left = [0_usize; 7];
+    let mut pair_right = [0_usize; 7];
+    for_each_chunk_pair_mut_enumerated_with::<Ragged, _, _, _>(
+        &mut pair_left,
+        &mut pair_right,
+        3,
+        |chunk_index, left, right| {
+            left.fill(chunk_index + 1);
+            right.fill(chunk_index + 4);
+        },
+    );
+    assert_eq!(pair_left, [1, 1, 1, 2, 2, 2, 3]);
+    assert_eq!(pair_right, [4, 4, 4, 5, 5, 5, 6]);
+
+    let mut triple = [[0_usize; 7]; 3];
+    let [first, second, third] = &mut triple;
+    for_each_chunk_triple_mut_enumerated_with::<Ragged, _, _, _, _>(
+        first,
+        second,
+        third,
+        3,
+        |chunk_index, first, second, third| {
+            first.fill(chunk_index);
+            second.fill(chunk_index + 3);
+            third.fill(chunk_index + 6);
+        },
+    );
+    assert_eq!(triple[0], [0, 0, 0, 1, 1, 1, 2]);
+    assert_eq!(triple[1], [3, 3, 3, 4, 4, 4, 5]);
+    assert_eq!(triple[2], [6, 6, 6, 7, 7, 7, 8]);
+
+    let mut quad = [[0_usize; 7]; 4];
+    let [first, second, third, fourth] = &mut quad;
+    for_each_chunk_quad_mut_enumerated_with::<Ragged, _, _, _, _, _>(
+        first,
+        second,
+        third,
+        fourth,
+        3,
+        |chunk_index, first, second, third, fourth| {
+            first.fill(chunk_index);
+            second.fill(chunk_index + 3);
+            third.fill(chunk_index + 6);
+            fourth.fill(chunk_index + 9);
+        },
+    );
+    assert_eq!(quad[0], [0, 0, 0, 1, 1, 1, 2]);
+    assert_eq!(quad[1], [3, 3, 3, 4, 4, 4, 5]);
+    assert_eq!(quad[2], [6, 6, 6, 7, 7, 7, 8]);
+    assert_eq!(quad[3], [9, 9, 9, 10, 10, 10, 11]);
+
+    let mut buffers = [[0_usize; 7]; 2];
+    let [left, right] = &mut buffers;
+    for_each_chunk_buffers_mut_enumerated_with::<Ragged, _, _, 2>(
+        [left, right],
+        3,
+        |chunk_index, [left, right]| {
+            left.fill(chunk_index);
+            right.fill(chunk_index + 3);
+        },
+    )
+    .expect("equal test buffers must validate");
+    assert_eq!(buffers[0], [0, 0, 0, 1, 1, 1, 2]);
+    assert_eq!(buffers[1], [3, 3, 3, 4, 4, 4, 5]);
+}
+
 fn assert_six_buffer_chunks<P>()
 where
     P: ExecutionPolicy,

@@ -67,6 +67,15 @@ Default features: `async`, `iter`, `parallel`, `local`, `mnemosyne-memory`,
 `melinoe`. Optional: `distributed`, `network`, `metrics`, `numa`, `gpu`,
 `encryption`, `compression`, `tokio-compat`, `no-std`, and `full`.
 
+When an application calls Melinoe's partition functions directly, initialize
+the shared provider before the first call:
+
+```rust
+moirai::initialize();
+```
+
+Moirai's own partition helpers perform this initialization automatically.
+
 Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 (`rust-toolchain.toml`).
 

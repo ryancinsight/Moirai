@@ -322,5 +322,5 @@ mod tests;
 
 // Facade re-exports
 pub use builder::MoiraiBuilder;
-pub use global::{block_on, global, spawn_async, spawn_fn};
+pub use global::{block_on, global, initialize, spawn_async, spawn_fn};
 pub use runtime::Moirai;

@@ -463,29 +463,27 @@ fn test_par_partition_map_preserves_partition_order() {
     });
 }
 
-/// The policy must change *where* the work runs, never *what* it computes.
-///
 /// `Adaptive` with a 10-element region resolves below
-/// `ADAPTIVE_PARALLEL_THRESHOLD`, so this exercises the sequential branch. The
-/// result must be byte-identical to the `Parallel` run over the same input —
-/// if tiling differed between branches, the policy would be observable and
-/// callers could not switch it without changing output.
+/// `ADAPTIVE_PARALLEL_THRESHOLD`, so this compares sequential and parallel
+/// execution of the same independent per-shard mapping. Both paths must retain
+/// the same shard boundaries, result-slot order, and transformed values.
 #[cfg(feature = "melinoe")]
 #[test]
-fn test_policy_does_not_change_partition_result() {
+fn test_policy_preserves_shard_geometry_and_results() {
     use super::policy::{Adaptive, Parallel};
     use melinoe::{MelinoeCell, brand_scope};
 
     fn run<P: super::policy::ExecutionPolicy>() -> (Vec<(usize, usize)>, Vec<usize>) {
         brand_scope(|token| {
-            let mut cells: Vec<MelinoeCell<'_, usize>> = (0..10).map(MelinoeCell::new).collect();
+            let mut cells: Vec<MelinoeCell<'_, usize>> =
+                (10_000..10_010).map(MelinoeCell::new).collect();
             let shards = super::melinoe_ext::par_partition_map_with_policy::<P, _, _, _>(
                 &mut cells,
                 3,
                 |start, mut shard| {
                     let len = shard.len();
                     for (j, slot) in shard.iter_mut().enumerate() {
-                        *slot = start + j;
+                        *slot = 100 + start + j;
                     }
                     (start, len)
                 },
@@ -498,20 +496,17 @@ fn test_policy_does_not_change_partition_result() {
 
     let parallel = run::<Parallel>();
     let adaptive = run::<Adaptive>();
+    let expected_shards = vec![(0, 3), (3, 3), (6, 3), (9, 1)];
+    let expected_content = (100..110).collect::<Vec<_>>();
 
     // 10 elements is below the 1024 threshold, so these took different paths.
-    assert_eq!(
-        parallel.0, adaptive.0,
-        "shard layout must be policy-independent"
-    );
-    assert_eq!(
-        parallel.1, adaptive.1,
-        "contents must be policy-independent"
-    );
-    assert_eq!(parallel.1, (0..10).collect::<Vec<_>>());
+    assert_eq!(parallel.0, expected_shards);
+    assert_eq!(adaptive.0, expected_shards);
+    assert_eq!(parallel.1, expected_content);
+    assert_eq!(adaptive.1, expected_content);
 }
 
-/// `Sequential` is the one policy whose Tiling must still cover the region
+/// `Sequential` is the one policy whose tiling must still cover the region
 /// exactly once, including when the region does not divide evenly.
 #[cfg(feature = "melinoe")]
 #[test]
@@ -522,22 +517,22 @@ fn test_sequential_policy_tiles_ragged_region_exactly_once() {
 
     brand_scope(|token| {
         // 7 cells, chunk 3 -> shards of 3, 3, 1.
-        let mut cells: Vec<MelinoeCell<'_, usize>> = (0..7).map(MelinoeCell::new).collect();
+        let mut cells: Vec<MelinoeCell<'_, usize>> = (0..7).map(|_| MelinoeCell::new(0)).collect();
         let visited = AtomicUsize::new(0);
         super::melinoe_ext::par_partition_for_each_with_policy::<Sequential, _, _>(
             &mut cells,
             3,
-            |start, mut shard| {
-                for (j, slot) in shard.iter_mut().enumerate() {
-                    *slot = start + j;
+            |_start, mut shard| {
+                for slot in shard.iter_mut() {
+                    *slot += 1;
                 }
                 visited.fetch_add(shard.len(), Ordering::Relaxed);
             },
         );
         assert_eq!(visited.load(Ordering::Relaxed), 7);
         let snap = token.share();
-        for (i, cell) in cells.iter().enumerate() {
-            assert_eq!(*cell.borrow(snap), i);
+        for cell in &cells {
+            assert_eq!(*cell.borrow(snap), 1);
         }
     });
 }

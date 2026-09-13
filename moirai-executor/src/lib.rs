@@ -104,25 +104,6 @@ impl Default for ExecutorBuilder {
     }
 }
 
-/// A task entry point re-typed so it carries no raw pointer in its signature.
-///
-/// Melinoe hands the bridge `unsafe fn(usize, *mut ())`. A bare function
-/// pointer is `Send + Sync`, but *that* signature mentions `*mut ()`, which is
-/// neither — so a closure capturing the original binding fails the pool's
-/// `Send + Sync` bound even though the pointer it names is only ever supplied
-/// at the call site. Erasing the parameter type here keeps the pool bound
-/// satisfiable while preserving the ABI: the value is called only after being
-/// cast back to the original signature.
-#[derive(Copy, Clone)]
-struct TaskFn(unsafe fn(usize, *mut ()));
-
-// SAFETY: a function pointer is `Send + Sync`; the only thing that made the
-// original type fail those bounds was the *mention* of `*mut ()` in its
-// parameter list, not any pointer value this wrapper holds. Nothing is
-// dereferenced through `TaskFn`; it is transmuted back before use.
-unsafe impl Send for TaskFn {}
-unsafe impl Sync for TaskFn {}
-
 /// Address-carrying wrapper that lets the bridge move a type-erased context
 /// pointer into `Send` task closures.
 ///
@@ -158,23 +139,6 @@ impl SendContext {
     }
 }
 
-impl TaskFn {
-    /// Invoke the wrapped entry point.
-    ///
-    /// # Safety
-    ///
-    /// The caller must uphold whatever contract the original function required:
-    /// `index` must be one of the indices the executor promised, and `context`
-    /// must point at a live value of the type the original task expected.
-    #[inline]
-    unsafe fn call(self, index: usize, context: *mut ()) {
-        // SAFETY: `self.0` was created from a value of exactly this type, so the
-        // cast is the identity on the ABI; the caller supplies the contract.
-        let task: unsafe fn(usize, *mut ()) = self.0;
-        unsafe { task(index, context) }
-    }
-}
-
 /// Moirai's implementation of Melinoe's parallel-executor contract.
 ///
 /// Drives a partition's tasks on the shared work-stealing pool, so a branded
@@ -191,24 +155,17 @@ struct MoiraiExecutor;
 // `ExecutorDropGuard` contains the omitted slots. The context pointer is
 // forwarded unchanged and never outlives the blocking call.
 unsafe impl melinoe::ParallelExecutor for MoiraiExecutor {
-    unsafe fn run_indexed(
-        &self,
-        num_tasks: usize,
-        task: unsafe fn(usize, *mut ()),
-        context: *mut (),
-    ) {
-        // Bind the type-erased pieces into `Send + Sync` wrappers *before* the
-        // closure exists, so no raw pointer is ever in its capture set. The
-        // pool's closure bound is `Fn + Send + Sync`, and a closure that names a
-        // `*mut ()` in scope fails it even when the pointer is only forwarded.
-        let task = TaskFn(task);
+    unsafe fn run_indexed(num_tasks: usize, task: unsafe fn(usize, *mut ()), context: *mut ()) {
+        // Bind the type-erased context into a `Send + Sync` wrapper before the
+        // closure exists, so the raw pointer is absent from its capture set.
+        // Function pointers already satisfy the pool's `Send + Sync` bound.
         let context = SendContext(context);
         let res = global().for_each_indexed::<SyncTask, _>(num_tasks, move |index| {
             // SAFETY: forwarded from the caller. `for_each_indexed` invokes this
             // closure exactly once per index and never concurrently for the same
             // index, so each call addresses a distinct slot of Melinoe's context.
             unsafe {
-                task.call(index, context.get());
+                task(index, context.get());
             }
         });
         if let Err(e) = res {
@@ -224,15 +181,31 @@ fn global_arc() -> &'static std::sync::Arc<HybridExecutor> {
     static GLOBAL_EXECUTOR: std::sync::OnceLock<std::sync::Arc<HybridExecutor>> =
         std::sync::OnceLock::new();
     GLOBAL_EXECUTOR.get_or_init(|| {
-        let exec = std::sync::Arc::new(
+        let executor = std::sync::Arc::new(
             ExecutorBuilder::new()
                 .build()
                 .expect("initialize global Moirai executor"),
         );
-        // Register the global parallel executor in melinoe.
+        // Register after the pool exists so a re-entrant callback can never
+        // observe a partially initialized scheduler.
         melinoe::register_parallel_executor::<MoiraiExecutor>();
-        exec
+        executor
     })
+}
+
+/// Initialize the shared executor and install its Melinoe partition bridge.
+///
+/// Call this during application startup when code may invoke
+/// `melinoe::sync::partition_*` directly. The function is idempotent: the
+/// scheduler is built once, and the process-global Melinoe slot is refreshed on
+/// each call. Higher-level Moirai partition helpers initialize the same bridge
+/// automatically when they enter the pool path.
+pub fn initialize() {
+    let _ = global_arc();
+    // `clear_parallel_executor` is a supported lifecycle hook for tests and
+    // integrations. Refresh the slot after such a reset without adding an
+    // atomic store to every ordinary `global()` access.
+    melinoe::register_parallel_executor::<MoiraiExecutor>();
 }
 
 /// Borrow the shared, lazily-initialized process-wide executor.

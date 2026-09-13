@@ -20,6 +20,10 @@ and right modifiers remain independent. Record system-key events before
 forwarding them to `DefWindowProcW`, preserving the operating system's menu
 and close-command behavior.
 
+Revision 2026-09-12: render the retained client frame for both `WM_PRINT` and
+`WM_PRINTCLIENT`, so the standard `PrintWindow` capture path observes the same
+input-sensitive pixels as `WM_PAINT` without a consumer-specific renderer.
+
 Driver: [MOI-WINDOW-WIN32-2026-09-08](../backlog.md#MOI-WINDOW-WIN32-2026-09-08),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
 
@@ -62,8 +66,9 @@ no string flag or when the composition ends, so an empty update cannot leave a
 stale preedit value in a consumer.
 `present_argb8888` validates
 the dimensions and exact pixel count, reuses the retained vector when possible,
-and invalidates the client area. `WM_PAINT` uses a top-down 32-bit DIB and
-`StretchDIBits` to repaint the retained frame. `Drop` calls `DestroyWindow` only
+and invalidates the client area. `WM_PAINT`, `WM_PRINT` and `WM_PRINTCLIENT` use
+a top-down 32-bit DIB and `StretchDIBits` to repaint the retained frame.
+`Drop` calls `DestroyWindow` only
 for a live handle; callback state is cleared at `WM_NCDESTROY` and remains owned
 by the Rust handle until destruction returns.
 

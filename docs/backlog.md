@@ -1,5 +1,43 @@
 # Moirai Development Backlog (SSOT)
 
+<a id="MOI-CHUNK-POLICY-GEOMETRY-2026-09-11"></a>
+## MOI-CHUNK-POLICY-GEOMETRY-2026-09-11 — Expose chunk geometry to execution policies [minor]
+
+- Outcome: chunk operators report both element count and logical chunk count
+  through `ExecutionPolicy`, while existing policies retain their element-based
+  behavior.
+- Scope: `moirai-parallel` policy and chunk operators only; no default-policy,
+  threshold, dependency, or version change.
+- Acceptance: every chunk operator supplies its derived geometry; a policy that
+  rejects legacy dispatch proves the new method and ragged-tail output through
+  native tests; standalone lock, Clippy, docs, and semver checks pass.
+- Status: done; priority: P0; integrator: Codex; branch:
+  `feat/moirai-chunk-policy-geometry`; driver: Apollo
+  `APOLLO-LANE-PARALLEL-THRESHOLD-2026-09-11`; last-update: 2026-09-11.
+- Evidence: standalone lock resolution (37 first-party sources), 42 native tests,
+  warning-denied Clippy and Rustdoc, three doctests, and 196 semver checks pass;
+  Apollo's 20-case counterbalanced probe retains no supported regression and
+  improves the real `f64` 32³ pair in all four comparisons by about 12–20%;
+  delivery: [PR #328](https://github.com/ryancinsight/Moirai/pull/328).
+
+<a id="MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11"></a>
+## MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11 — Make Melinoe bridge initialization explicit [arch] [minor]
+
+- Outcome: applications can initialize Moirai before their first direct
+  `melinoe::sync::partition_*` call, and Moirai-owned wrappers refresh the
+  process-global bridge automatically.
+- Scope: executor initialization and Melinoe integration; no bridge-local
+  size threshold or change to Melinoe's foundation fallback.
+- Acceptance: an empty Melinoe slot followed by `moirai_executor::initialize`
+  routes a direct partition through the installed bridge; wrappers refresh a
+  cleared slot; docs state the startup requirement for raw Melinoe callers.
+- Decision: [ADR 0057](adr/0057-melinoe-executor-initialization.md).
+- Status: done; priority: P1; integrator: root; last-update: 2026-09-13.
+- Constraint: Melinoe cannot discover an optional Moirai dependency at load
+  time without a constructor or dependency cycle, so raw direct calls remain
+  required to initialize the chosen provider first.
+- Delivery: `moirai_executor::initialize`, `moirai::initialize`, and the
+  `melinoe_registration` integration test; focused nextest 190/190 (3 skipped).
 <a id="MOI-WASM-CANVAS-INPUT-2026-09-11"></a>
 ## MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11 — Make Melinoe's executor registration order-insensitive [arch] [minor]
 
@@ -406,6 +444,11 @@
   `DefWindowProcW` after recording them. A real HWND test keeps Alt active
   while one side is released and verifies the `WM_SYSCOMMAND(SC_CLOSE)` path
   used by Alt+F4; focused and full PAL gates pass.
+- Increment: `WM_PRINT` and `WM_PRINTCLIENT` now render the retained ARGB frame
+  through the supplied GDI device context. This keeps the standard Windows
+  `PrintWindow` path input-sensitive for full native application captures;
+  custom clients no longer appear black when a capture requests the client
+  render.
 - Residual: OS permissions, accessibility and macOS/Linux providers remain open
   under their provider items. Consumer editing policy and an installed-IME
   journey remain Metis host evidence. The WebView2 provider is delivered by

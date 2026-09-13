@@ -2,19 +2,23 @@
 //!
 //! Each driver dispatches through an [`ExecutionPolicy`] rather than assuming
 //! parallel is always right. The policy is a zero-sized type parameter, so the
-//! decision is made once at compile time for [`Sequential`]/[`Parallel`], and
-//! costs one inlined comparison for [`Adaptive`].
+//! decision is made once at compile time for [`crate::Sequential`]/[`Parallel`],
+//! and costs one inlined comparison for [`crate::Adaptive`].
 //!
 //! The unprefixed `par_partition_*` functions keep the historical
 //! always-parallel behaviour ([`Parallel`]) so existing callers are unaffected;
 //! the `*_with_policy` variants let a caller state its body weight, and
-//! [`Adaptive`] is the right choice for a caller that knows neither.
+//! [`crate::Adaptive`] is the right choice for a caller that knows neither.
+//!
+//! A pool-backed call refreshes Moirai's Melinoe registration before dispatch.
+//! Applications that call Melinoe's `partition_*` functions directly should
+//! call [`moirai_executor::initialize`] during startup first.
 
 use super::DisjointMutPtr;
 use super::policy::{ExecutionPolicy, Parallel};
 use melinoe::cell::MelinoeCell;
 use melinoe::region::WriterShard;
-use moirai_executor::{SyncTask, global};
+use moirai_executor::{SyncTask, global, initialize};
 
 /// Split `cells` into disjoint shards of `chunk_size` and run `f` on each in parallel.
 ///
@@ -40,10 +44,9 @@ pub fn par_partition_for_each<'brand, T, F>(
 /// parallelizing only when `P` permits it for this region size.
 ///
 /// `P` is a zero-sized [`ExecutionPolicy`] marker. Select [`Parallel`] to always
-/// use the pool, [`Sequential`] to never use it, or [`Adaptive`] to let the
-/// element count decide. The shard *tiling* is identical in every case, so the
-/// closure observes the same `(start, shard)` sequence whether or not the work
-/// is distributed across workers.
+/// use the pool, [`crate::Sequential`] to never use it, or [`crate::Adaptive`] to let the
+/// element count decide. The shard boundaries are identical in every case;
+/// callback execution order differs when work is distributed across workers.
 pub fn par_partition_for_each_with_policy<'brand, P, T, F>(
     cells: &mut [MelinoeCell<'brand, T>],
     chunk_size: usize,
@@ -61,8 +64,8 @@ pub fn par_partition_for_each_with_policy<'brand, P, T, F>(
 
     // The policy decides on the *work size*, not the shard count: a caller
     // weighing "is this worth a pool dispatch" is really asking about total
-    // elements, which is what the policy sees. Running the shards inline here
-    // preserves tiling exactly, so the observable result is policy-independent.
+    // elements, which is what the policy sees. Running the shards inline
+    // preserves the parallel path's shard boundaries.
     if !P::parallelize(n) {
         let base = cells.as_mut_ptr();
         for c in 0..num_chunks {
@@ -80,6 +83,9 @@ pub fn par_partition_for_each_with_policy<'brand, P, T, F>(
         return;
     }
 
+    // Refresh the bridge before entering Melinoe. This keeps the wrapper safe
+    // after a test or integration has cleared Melinoe's process-global slot.
+    initialize();
     let base = DisjointMutPtr(cells.as_mut_ptr());
     let f = &f;
     global()
@@ -122,8 +128,8 @@ where
 /// collect the per-shard results in partition order — parallelizing only when
 /// `P` permits it for this region size.
 ///
-/// Results are always in shard order regardless of whether the pool ran them,
-/// so the policy is not observable in the returned `Vec<R>`.
+/// Result slots are always in shard order regardless of whether the pool ran
+/// them. Callback execution order may differ between policies.
 pub fn par_partition_map_with_policy<'brand, P, T, R, F>(
     cells: &mut [MelinoeCell<'brand, T>],
     chunk_size: usize,
@@ -141,8 +147,7 @@ where
     }
     let num_chunks = n.div_ceil(chunk_size);
 
-    // Sequential path: build the results in the same shard order the pool path
-    // produces, so callers cannot tell the two apart from the output.
+    // Sequential path: build results in the same shard-slot order as the pool.
     if !P::parallelize(n) {
         let base = cells.as_mut_ptr();
         let mut results = Vec::with_capacity(num_chunks);
@@ -160,6 +165,9 @@ where
         return results;
     }
 
+    // Refresh the bridge before entering Melinoe. This keeps the wrapper safe
+    // after a test or integration has cleared Melinoe's process-global slot.
+    initialize();
     let mut out: Vec<core::mem::MaybeUninit<R>> = Vec::with_capacity(num_chunks);
     // SAFETY: capacity is `num_chunks`; every slot is written exactly once below.
     unsafe {
