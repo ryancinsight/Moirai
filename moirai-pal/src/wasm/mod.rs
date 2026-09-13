@@ -3,6 +3,7 @@
 //! This module provides async I/O support for WebAssembly environments,
 //! integrating with JavaScript Promise/async-await patterns and Web APIs.
 
+mod animation;
 mod dom;
 mod file;
 mod timer;
@@ -17,6 +18,7 @@ use web_sys::console;
 
 use crate::{Event, Interest, RawFd, Reactor};
 
+pub use self::animation::WebAnimationFrame;
 pub use self::dom::{
     BrowserFiles, CanvasSize, CompositionMetadata, DropFiles, DropMetadata, DroppedFile,
     DroppedFileAccess, PointerMetadata, PointerModifiers, PointerType, RgbaFrame,

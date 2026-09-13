@@ -3,14 +3,15 @@
 Status: Accepted
 
 **Date**: 2026-05-25
-**Revision**: 2026-09-07
+**Revision**: 2026-09-13
 
 Revision note: the browser host seam now includes owned DOM elements, form
 control values, checked and disabled control state, modal dialog lifecycle,
 focus, pointer capture, pointer metadata, wheel metadata, bounded file-drop
-metadata and event listeners. Metis consumes
-these handles without importing `web-sys`; the listener guard removes the
-callback before releasing its JavaScript closure.
+metadata, event listeners and cancellation-safe animation-frame scheduling.
+Metis consumes these handles without importing `web-sys`; listener and
+animation-frame guards remove browser registrations before releasing their
+JavaScript closures.
 
 ## Context
 
@@ -49,6 +50,13 @@ Browser deadlines use the same ownership boundary. `WebTimer` retains the
 drop, and clamps durations to the browser's signed 32-bit millisecond range.
 Metis can therefore race a bounded receive against a bounded deadline without
 leaving a timer callback or a WebSocket waiter after cancellation.
+
+Rendering-dependent work uses the same boundary through `WebAnimationFrame`.
+It owns one `requestAnimationFrame` registration, resolves with the browser's
+finite high-resolution timestamp, and calls `cancelAnimationFrame` when the
+future is dropped. A consumer can therefore schedule a presentation tick at a
+browser rendering opportunity without a second executor or a fixed timer that
+drifts relative to the compositor.
 
 Moirai also owns the narrow DOM boundary used by Atlas WASM applications.
 `WebDocument` and `WebElement` wrap the current document, trusted markup,
