@@ -568,22 +568,10 @@
 <a id="MOI-WASM-2026-09-06-DOM"></a>
 ## MOI-WASM-2026-09-06-DOM — Own browser DOM and listener lifetimes [arch] [minor]
 
-- Outcome: Atlas WASM applications use Moirai-owned DOM and event handles
-  without importing browser binding crates into each consumer.
-- Scope: `moirai-pal` document/element/event wrappers and browser-local future
-  spawn; HTML/CSS semantics and application state remain consumer concerns.
-- Acceptance: DOM updates, input reads, child insertion and event registration
-  compile for `wasm32-unknown-unknown`; dropping a listener removes its browser
-  callback; native PAL tests and warning-denied Clippy remain green.
-- Class: [arch] [minor]; status: in-progress; integrator: root;
-  branch: `codex/wasm-animation-frame`; regions: `moirai-pal/src/wasm`,
-  `moirai-pal/README.md`, `docs/adr/0007-webassembly-browser-event-loop-integration.md`,
-  `docs/checklist.md`; last-update: 2026-09-13; driver: [Metis browser](../../metis/backlog.md#METIS-BROWSER-001).
-- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
-- Current increment: add a cancellation-safe `requestAnimationFrame` future and
-  consume it in the RITK browser viewer so canvas presentation follows the
-  browser frame boundary rather than a fixed timer. The API stays format-neutral;
-  DICOM parsing and viewer state remain in RITK.
+- Status: done; priority: P1; delivery: [Moirai PR #332](https://github.com/ryancinsight/Moirai/pull/332), merge `fd3ec288`; last-update: 2026-09-13; driver: [Metis browser](../../metis/backlog.md#METIS-BROWSER-001).
+- Outcome: Atlas WASM applications use Moirai-owned DOM, event and browser-frame handles without importing browser binding crates into each consumer; HTML/CSS semantics and application state remain consumer concerns.
+- Acceptance: DOM updates, input reads, child insertion, listener Drop cleanup, and `requestAnimationFrame` scheduling compile for `wasm32-unknown-unknown`; native PAL tests and warning-denied Clippy pass. `WebAnimationFrame` validates its finite timestamp and cancels the registration on Drop; RITK consumes it in [PR #354](https://github.com/ryancinsight/ritk/pull/354).
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md). Residual cooperative executor, worker scheduling, fetch/network facade, and headless multi-engine traces remain separate work.
 
 <a id="MOI-WASM-DOM-CONTROLS-2026-09-07"></a>
 ## MOI-WASM-DOM-CONTROLS-2026-09-07 — Expose checked browser control state [minor]
