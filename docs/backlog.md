@@ -575,9 +575,15 @@
 - Acceptance: DOM updates, input reads, child insertion and event registration
   compile for `wasm32-unknown-unknown`; dropping a listener removes its browser
   callback; native PAL tests and warning-denied Clippy remain green.
-- Class: [arch] [minor]; status: in-progress; integrator: metis-browser-host;
-  branch: `feat/browser-dom-host`; driver: [Metis browser](../../metis/backlog.md#METIS-BROWSER-001).
+- Class: [arch] [minor]; status: in-progress; integrator: root;
+  branch: `codex/wasm-animation-frame`; regions: `moirai-pal/src/wasm`,
+  `moirai-pal/README.md`, `docs/adr/0007-webassembly-browser-event-loop-integration.md`,
+  `docs/checklist.md`; last-update: 2026-09-13; driver: [Metis browser](../../metis/backlog.md#METIS-BROWSER-001).
 - Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
+- Current increment: add a cancellation-safe `requestAnimationFrame` future and
+  consume it in the RITK browser viewer so canvas presentation follows the
+  browser frame boundary rather than a fixed timer. The API stays format-neutral;
+  DICOM parsing and viewer state remain in RITK.
 
 <a id="MOI-WASM-DOM-CONTROLS-2026-09-07"></a>
 ## MOI-WASM-DOM-CONTROLS-2026-09-07 — Expose checked browser control state [minor]
