@@ -21,19 +21,32 @@
   order and per-shard contents are identical whichever branch runs. Policy
   changes *where* work runs, never *what* it computes — which is the property
   downstream consumers depend on.
-- **Evidence (2026-09-11):** `cargo test -p moirai-parallel --features melinoe
-  --lib` **40/40** (3 new:
-  `test_policy_does_not_change_partition_result` — the same 10-element region
+- **Evidence (2026-09-11):** `cargo nextest run -p moirai-parallel
+  --all-features` covers the policy tests (3 new:
+  `test_policy_preserves_shard_geometry_and_results` — the same 10-element region
   under `Parallel` and `Adaptive` must produce identical layout and contents;
   `test_sequential_policy_tiles_ragged_region_exactly_once` — 7 cells at chunk
   3 gives shards 3/3/1; `test_policy_short_circuits_empty_region`). The live
   consumer `cfd-core` compiles and its `fluid_dynamics` suite passes **10/10**
   against the changed bridge.
 - **Class:** [arch] [minor]; status: done; priority: P0; integrator: root;
-  last-update: 2026-09-11; local commit `8b55264f`.
+  last-update: 2026-09-11; local source revision includes `8b55264f`.
 - **Consumer follow-up:** CFDrs still calls the always-`Parallel`
   `par_partition_for_each`; adopting `Adaptive` there is a separate change with
   its own performance evidence.
+
+## MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11 [arch] [minor] — complete
+
+- **Delivered:** `moirai_executor::initialize` and `moirai::initialize` build
+  the shared pool and install the Melinoe bridge before direct partition calls;
+  Moirai's Melinoe wrappers refresh the slot before pool dispatch.
+- **Evidence:** the standalone `melinoe_registration` integration binary clears
+  the slot, initializes Moirai, and verifies a direct four-shard partition;
+  focused nextest covers `moirai-executor` and `moirai-parallel` **190/190**
+  (3 skipped), with warning-denied Clippy and formatting passing.
+- **Decision:** [ADR 0057](docs/adr/0057-melinoe-executor-initialization.md).
+  Raw direct Melinoe callers still initialize their provider first because the
+  dependency-free foundation cannot discover an optional scheduler at load time.
 
 ## MOI-MNEMOSYNE-QUARANTINE-EXPIRED-2026-09-06 [patch] — complete
 

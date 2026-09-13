@@ -25,6 +25,16 @@ let value = moirai_executor::block_on(async { 21 * 2 });
 assert_eq!(value, 42);
 ```
 
+Applications that call `melinoe::sync::partition_*` directly should initialize
+the bridge during startup so the first partition uses the Moirai pool:
+
+```rust
+moirai_executor::initialize();
+```
+
+The operation is idempotent and refreshes the process-global registration after
+Melinoe's test or lifecycle reset hook.
+
 Most users depend on the [`moirai-runtime`](https://crates.io/crates/moirai-runtime)
 facade instead.
 

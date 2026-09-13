@@ -20,48 +20,25 @@
   improves the real `f64` 32³ pair in all four comparisons by about 12–20%;
   delivery: [PR #328](https://github.com/ryancinsight/Moirai/pull/328).
 
+<a id="MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11"></a>
+## MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11 — Make Melinoe bridge initialization explicit [arch] [minor]
+
+- Outcome: applications can initialize Moirai before their first direct
+  `melinoe::sync::partition_*` call, and Moirai-owned wrappers refresh the
+  process-global bridge automatically.
+- Scope: executor initialization and Melinoe integration; no bridge-local
+  size threshold or change to Melinoe's foundation fallback.
+- Acceptance: an empty Melinoe slot followed by `moirai_executor::initialize`
+  routes a direct partition through the installed bridge; wrappers refresh a
+  cleared slot; docs state the startup requirement for raw Melinoe callers.
+- Decision: [ADR 0057](adr/0057-melinoe-executor-initialization.md).
+- Status: done; priority: P1; integrator: root; last-update: 2026-09-13.
+- Constraint: Melinoe cannot discover an optional Moirai dependency at load
+  time without a constructor or dependency cycle, so raw direct calls remain
+  required to initialize the chosen provider first.
+- Delivery: `moirai_executor::initialize`, `moirai::initialize`, and the
+  `melinoe_registration` integration test; focused nextest 190/190 (3 skipped).
 <a id="MOI-WASM-CANVAS-INPUT-2026-09-11"></a>
-## MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11 — Make Melinoe's executor registration order-insensitive [arch] [minor]
-
-- Outcome: a Melinoe scoped-root partition whose *first* call happens before any
-  Moirai scheduler access should not silently take the OS-thread fallback path.
-  Either `global_arc()`'s `OnceLock` initializer is reached eagerly at process
-  start, or Melinoe's `registered_parallel_executor()` is made to consult the
-  bridge rather than a separate slot.
-- Evidence: `moirai-executor/src/lib.rs` defines `MELINOE_EXECUTOR` and calls
-  `melinoe::sync::register_parallel_executor` from inside the `OnceLock`
-  initializer of `global_arc()`. Registration is therefore *lazy* and *order-
-  sensitive*: Melinoe's `driver_core::drive()` checks
-  `registered_parallel_executor()` before anything else, so a program that
-  partitions before touching the Moirai global takes the fallback for that call.
-  The fallback spawns and joins `min(parts, n) − 1` OS threads at a measured
-  ~30 µs per shard with no affinity applied, against a pool dispatch that spawns
-  nothing.
-- Measured on 24-core x86_64, release: one scoped thread spawn+join is 54.3 µs;
-  partition cost is linear in shard count at ~30 µs/shard and essentially
-  independent of element count (`cells=8` and `cells=65536` cost the same at
-  equal shard count); `parts=1` is 40 ns against 93 µs at `parts=2` — a 2300×
-  cliff at the first spawn. Break-even is roughly 130 µs of total work.
-- Scope: registration reachability only. Do not add a size threshold at the
-  bridge — `ExecutionPolicy` already owns that decision (see
-  `MOI-MELINOE-EXT-POLICY-2026-09-11`).
-- Status: open (2026-09-11); priority: P1; integrator: root. Documented
-  consumer-side in Melinoe `src/sync/scoped/partition/executor.rs` (commit
-  `072d5d7`) with a compiling doctest; the ordering itself is still
-  caller-visible.
-
-<a id="MOI-MELINOE-EXT-POLICY-2026-09-11"></a>
-## MOI-MELINOE-EXT-POLICY-2026-09-11 — Route Melinoe partitioning through `ExecutionPolicy` [arch] [minor]
-
-- Outcome: `melinoe_ext`'s partition drivers accept the Moirai policy type
-  instead of always taking the pool path.
-- Scope: type-level only; no new threshold, no runtime branch beyond the one
-  `P::parallelize` already expresses.
-- Status: done (2026-09-11, local commit `8b55264f`). `melinoe_ext` gains
-  `par_partition_for_each_with_policy` / `par_partition_map_with_policy`; the
-  existing functions are `Parallel` instantiations and keep their exact
-  behaviour. See `CHECKLIST.md` for the full evidence line.
-
 ## MOI-WASM-CANVAS-INPUT-2026-09-11 — Expose target-local browser canvas coordinates [arch] [minor]
 
 - Outcome: `moirai-pal` exposes target-relative CSS-pixel pointer and wheel

@@ -36,6 +36,10 @@ sequential or forced parallel execution.
 These operations run on the same unified hybrid scheduler as async work
 (`moirai_executor::global`), not a separate pool.
 
+Melinoe-backed partition helpers refresh the Moirai bridge before pool
+dispatch. A direct `melinoe::sync::partition_*` caller should invoke
+`moirai_executor::initialize()` (or `moirai::initialize()`) during startup.
+
 Full documentation: <https://docs.rs/moirai-parallel>
 
 ## License
