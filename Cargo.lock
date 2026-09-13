@@ -1282,6 +1282,11 @@ dependencies = [
 [[package]]
 name = "melinoe"
 version = "0.9.0"
+source = "git+https://github.com/ryancinsight/melinoe.git?rev=059e5891584918938c739e4885f861b7753d45b6#059e5891584918938c739e4885f861b7753d45b6"
+
+[[package]]
+name = "melinoe"
+version = "0.9.0"
 source = "git+https://github.com/ryancinsight/melinoe.git#61f3dee802ea5a5aa88ff296bf77e0ea868c8145"
 
 [[package]]
@@ -1352,7 +1357,7 @@ version = "0.4.0"
 source = "git+https://github.com/ryancinsight/Mnemosyne.git#be6efcb877c41494d965ea7ec8bfcd4233912c98"
 dependencies = [
  "libc",
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git)",
  "mnemosyne-arena",
  "mnemosyne-backend",
  "mnemosyne-local",
@@ -1366,7 +1371,7 @@ name = "mnemosyne-local"
 version = "0.4.0"
 source = "git+https://github.com/ryancinsight/Mnemosyne.git#be6efcb877c41494d965ea7ec8bfcd4233912c98"
 dependencies = [
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git)",
  "mnemosyne-arena",
  "mnemosyne-backend",
  "mnemosyne-build-util",
@@ -1545,7 +1550,7 @@ version = "0.6.0"
 dependencies = [
  "criterion",
  "loom",
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git?rev=059e5891584918938c739e4885f861b7753d45b6)",
  "mnemosyne-memory",
  "moirai-core 0.6.0",
  "moirai-pal 0.6.0",
@@ -1560,7 +1565,7 @@ name = "moirai-executor"
 version = "0.6.0"
 source = "git+https://github.com/ryancinsight/Moirai.git#e577c17843a47504df79271c64a7b1018286958d"
 dependencies = [
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git)",
  "mnemosyne-memory",
  "moirai-core 0.6.0 (git+https://github.com/ryancinsight/Moirai.git)",
  "moirai-pal 0.6.0 (git+https://github.com/ryancinsight/Moirai.git)",
@@ -1650,7 +1655,7 @@ dependencies = [
  "futures",
  "js-sys",
  "libc",
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git?rev=059e5891584918938c739e4885f861b7753d45b6)",
  "moirai-core 0.6.0",
  "proptest",
  "wasm-bindgen",
@@ -1667,7 +1672,7 @@ source = "git+https://github.com/ryancinsight/Moirai.git#e577c17843a47504df79271
 dependencies = [
  "js-sys",
  "libc",
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git)",
  "moirai-core 0.6.0 (git+https://github.com/ryancinsight/Moirai.git)",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -1681,7 +1686,7 @@ name = "moirai-parallel"
 version = "0.6.0"
 dependencies = [
  "criterion",
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git?rev=059e5891584918938c739e4885f861b7753d45b6)",
  "moirai-core 0.6.0",
  "moirai-executor 0.6.0",
  "proptest",
@@ -1694,7 +1699,7 @@ name = "moirai-parallel"
 version = "0.6.0"
 source = "git+https://github.com/ryancinsight/Moirai.git#e577c17843a47504df79271c64a7b1018286958d"
 dependencies = [
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git)",
  "moirai-core 0.6.0 (git+https://github.com/ryancinsight/Moirai.git)",
  "moirai-executor 0.6.0 (git+https://github.com/ryancinsight/Moirai.git)",
  "themis-topology",
@@ -1716,7 +1721,7 @@ dependencies = [
  "fastrand",
  "futures",
  "hephaestus-host",
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git?rev=059e5891584918938c739e4885f861b7753d45b6)",
  "mnemosyne-memory",
  "moirai-async 0.6.0",
  "moirai-core 0.6.0",
@@ -1739,7 +1744,7 @@ name = "moirai-runtime"
 version = "0.6.0"
 source = "git+https://github.com/ryancinsight/Moirai.git#e577c17843a47504df79271c64a7b1018286958d"
 dependencies = [
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git)",
  "moirai-async 0.6.0 (git+https://github.com/ryancinsight/Moirai.git)",
  "moirai-core 0.6.0 (git+https://github.com/ryancinsight/Moirai.git)",
  "moirai-executor 0.6.0 (git+https://github.com/ryancinsight/Moirai.git)",
@@ -2987,7 +2992,7 @@ name = "themis-topology"
 version = "0.10.1"
 source = "git+https://github.com/ryancinsight/themis#a42a5ca2410c0163e672e7ac8d28f582c7f6da58"
 dependencies = [
- "melinoe",
+ "melinoe 0.9.0 (git+https://github.com/ryancinsight/melinoe.git)",
 ]
 
 [[package]]
