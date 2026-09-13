@@ -27,8 +27,10 @@ In single-threaded WebAssembly environments (without native threading or shared 
 - [ ] **Macro-task Yielding**:
   - [ ] Yield execution back to the browser's event loop when the task budget is exceeded.
   - [ ] Use `setTimeout(callback, 0)` or `requestIdleCallback` to schedule the next batch of background tasks, allowing the browser to render frames and handle user inputs.
-- [ ] **UI-Bound Frame Scheduling**:
-  - [ ] Integrate with `requestAnimationFrame` for rendering-dependent tasks, synchronizing execution with the browser's refresh rate.
+- [x] **UI-Bound Frame Scheduling**:
+  - [x] Integrate with `requestAnimationFrame` through the cancellation-safe
+    `WebAnimationFrame` future, synchronizing execution with the browser's
+    refresh rate.
 
 ## 2. Multi-threaded Web Worker Scheduling
 
@@ -46,9 +48,9 @@ On browser platforms supporting WebAssembly threads (with `SharedArrayBuffer` an
 
 Interoperating with JS APIs (timers, event listeners, fetch) requires strict callback lifecycle management to prevent memory leaks in WASM.
 
-- [ ] **Callback Lifetime Tracking**:
-  - [ ] Wrap `wasm_bindgen::prelude::Closure` callbacks in Rust wrapper structs that implement `Drop`.
-  - [ ] Automatically unregister JS event listeners and drop closures when the corresponding Rust handle or future is dropped.
+- [x] **Callback Lifetime Tracking**:
+  - [x] Wrap `wasm_bindgen::prelude::Closure` callbacks in Rust wrapper structs that implement `Drop`.
+  - [x] Automatically unregister JS event listeners and drop closures when the corresponding Rust handle or future is dropped.
 - [ ] **Promise-to-Future Conversion**:
   - [ ] Map JS Promises to Rust Futures cleanly using thread-safe event queues.
   - [ ] Wake the waiting Rust task when the JS promise resolves or rejects.

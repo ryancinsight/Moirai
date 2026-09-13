@@ -61,8 +61,11 @@ byte bounds; the provider retains no frame bytes after the call.
 Unsupported targets and browser metadata failures return explicit errors or
 `None`; grapheme segmentation and editing policy stay with the application or
 host layer. Native IME event production stays in the Windows provider.
-`WebEventListener` removes its callback registration when dropped. `spawn_local` uses the browser event loop for futures; applications
-do not create a second executor or retain detached JavaScript closures.
+`WebEventListener` removes its callback registration when dropped. `WebAnimationFrame`
+binds one `requestAnimationFrame` callback to a cancellation-safe future and
+cancels it when the future is dropped. `spawn_local` uses the browser event loop
+for futures; applications do not create a second executor or retain detached
+JavaScript closures.
 `spawn_local_with_handle` adds
 a single-owner `LocalTaskHandle`; cancelling or dropping it wakes the task and
 drops its child future, releasing a pending PAL receive or timer.
