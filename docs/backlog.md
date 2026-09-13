@@ -20,6 +20,24 @@
   improves the real `f64` 32³ pair in all four comparisons by about 12–20%;
   delivery: [PR #328](https://github.com/ryancinsight/Moirai/pull/328).
 
+<a id="MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11"></a>
+## MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11 — Make Melinoe bridge initialization explicit [arch] [minor]
+
+- Outcome: applications can initialize Moirai before their first direct
+  `melinoe::sync::partition_*` call, and Moirai-owned wrappers refresh the
+  process-global bridge automatically.
+- Scope: executor initialization and Melinoe integration; no bridge-local
+  size threshold or change to Melinoe's foundation fallback.
+- Acceptance: an empty Melinoe slot followed by `moirai_executor::initialize`
+  routes a direct partition through the installed bridge; wrappers refresh a
+  cleared slot; docs state the startup requirement for raw Melinoe callers.
+- Decision: [ADR 0057](adr/0057-melinoe-executor-initialization.md).
+- Status: done; priority: P1; integrator: root; last-update: 2026-09-13.
+- Constraint: Melinoe cannot discover an optional Moirai dependency at load
+  time without a constructor or dependency cycle, so raw direct calls remain
+  required to initialize the chosen provider first.
+- Delivery: `moirai_executor::initialize`, `moirai::initialize`, and the
+  `melinoe_registration` integration test; focused nextest 190/190 (3 skipped).
 <a id="MOI-WASM-CANVAS-INPUT-2026-09-11"></a>
 ## MOI-WASM-CANVAS-INPUT-2026-09-11 — Expose target-local browser canvas coordinates [arch] [minor]
 

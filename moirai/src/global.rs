@@ -5,6 +5,15 @@ use std::future::Future;
 /// Global runtime instance for convenience.
 static GLOBAL_RUNTIME: std::sync::OnceLock<Moirai> = std::sync::OnceLock::new();
 
+/// Initialize the global runtime and its Melinoe partition bridge.
+///
+/// Call this during application startup before code invokes
+/// `melinoe::sync::partition_*` directly. The operation is idempotent and
+/// refreshes the process-global bridge if a test or integration cleared it.
+pub fn initialize() {
+    moirai_executor::initialize();
+}
+
 /// Get or initialize the global Moirai runtime.
 ///
 /// This provides a convenient way to access a shared runtime instance

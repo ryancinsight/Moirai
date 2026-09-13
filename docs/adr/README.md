@@ -63,3 +63,4 @@
 | [0054](0054-bounded-http-server-transport.md) | Bounded HTTP server transport | Accepted |
 | [0055](0055-bounded-browser-canvas.md) | Bounded browser canvas | Accepted |
 | [0056](0056-bounded-browser-canvas-input.md) | Bounded browser canvas input | Accepted |
+| [0057](0057-melinoe-executor-initialization.md) | Melinoe executor initialization | Accepted |
