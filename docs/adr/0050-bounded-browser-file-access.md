@@ -26,7 +26,9 @@ reader and a scratch view no larger than the caller request; the reader lock is
 released on every completion or error. The provider continues to advance its
 cursor only by copied bytes and surfaces stream failures as typed I/O errors;
 it does not fall back to a whole-file allocation or expose the browser handle.
-The hosted chooser matrix remains the acceptance oracle for this change.
+Moirai PR #338 (`f128a1a0`) delivers the reader and PR #339 (`918a49cf`)
+repairs the locked rustls advisory. The hosted chooser matrix remains the
+acceptance oracle for this change.
 
 Driver: [MOI-WASM-DOM-FILE-2026-09-08](../backlog.md#MOI-WASM-DOM-FILE-2026-09-08),
 [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
