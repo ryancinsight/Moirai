@@ -2,10 +2,12 @@
 
 mod canvas;
 mod file_drop;
+mod keyboard;
 mod text;
 
 pub use self::canvas::{CanvasSize, RgbaFrame, WebCanvas};
 pub use self::file_drop::{BrowserFiles, DropFiles, DropMetadata, DroppedFile, DroppedFileAccess};
+pub use self::keyboard::KeyboardMetadata;
 pub use self::text::{
     CompositionMetadata, TextInputMetadata, TextSelection, TextSelectionDirection,
 };
