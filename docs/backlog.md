@@ -432,6 +432,23 @@
   journey remain Metis host evidence. The WebView2 provider is delivered by
   [MOI-WINDOW-WEBVIEW2-2026-09-09](#MOI-WINDOW-WEBVIEW2-2026-09-09).
 
+<a id="MOI-WINDOW-DIALOG-2026-09-14"></a>
+## MOI-WINDOW-DIALOG-2026-09-14 — Provide bounded native file selection [arch] [minor]
+
+- Outcome: `moirai-pal` exposes the Windows common file/folder picker while
+  keeping selection paths outside the browser and format-neutral.
+- Scope: COM common-dialog lifetime, cancellation and bounded UTF-16 path
+  conversion; Metis adapts the provider and RITK applies DICOM policy.
+- Acceptance: file and folder modes return validated user selections or a typed
+  cancellation result; COM and task-memory resources release on every path;
+  native warning-denied tests and Clippy pass. Browser selection remains the
+  existing bounded DOM file provider.
+- Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
+  branch: `feat/native-file-dialog`; last-update: 2026-09-14; driver:
+  [Metis files](../../metis/backlog.md#METIS-FILES-001),
+  [RITK Metis shell](../../ritk/backlog.md#RITK-SNAP-METIS-001).
+- Decision: [ADR 0058](adr/0058-bounded-native-file-selection.md).
+
 <a id="MOI-WINDOW-WEBVIEW2-2026-09-09"></a>
 ## MOI-WINDOW-WEBVIEW2-2026-09-09 — Bounded Windows WebView2 host [arch] [minor] — done
 
