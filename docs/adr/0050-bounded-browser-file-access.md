@@ -13,13 +13,20 @@ Revision: 2026-09-11 — the shared browser drop bound is 512 entries so a
 committed 409-slice DICOM study fits in one bounded batch; the consumer-owned
 256 MiB byte limit and per-read chunk bound remain unchanged.
 
+Revision: 2026-09-14 — the saved-study chooser matrix showed Safari accepting
+file metadata but rejecting `FileReader.readAsArrayBuffer` for a bounded
+`Blob` slice. Reads now await the slice's `Blob.arrayBuffer()` promise; the
+slice and the 64 KiB caller buffer keep the allocation bound while the source
+remains the browser-owned `File`. Chromium and Firefox retain the same byte
+contract, and the WebKit run is the regression oracle for this provider path.
+
 Driver: [MOI-WASM-DOM-FILE-2026-09-08](../backlog.md#MOI-WASM-DOM-FILE-2026-09-08),
 [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 
 ## Context
 
 Metis needs to pass selected DICOM bytes to the owning RITK decoder from its
-browser host. Moirai already owns the WASM `FileReader` callback lifecycle, but
+browser host. Moirai already owns the WASM browser-file lifecycle, but
 the public drop seam currently stops at metadata. Requiring every consumer to
 import `web-sys` would duplicate browser bindings and callback teardown. A file
 name is display metadata and cannot become a filesystem path or authority.
@@ -33,8 +40,9 @@ with an owned browser file reader. The entry exposes metadata accessors and an
 asynchronous read/seek surface; the JavaScript `File` object remains private to
 Moirai. Reads use caller-provided buffers, reject a buffer above the provider's
 fixed chunk bound, validate the browser-reported size and cursor arithmetic, and
-advance the cursor only by bytes copied. Dropping or cancelling the future
-detaches and aborts its `FileReader` callbacks.
+advance the cursor only by bytes copied. Each bounded `Blob` slice is read
+through its browser promise; dropping the Rust future stops consuming the
+result, while the browser owns completion of that already-started promise.
 
 The existing `drop_metadata` API and value semantics remain unchanged. The new
 surface does not parse DICOM, infer a path, grant native permissions, or retain
@@ -66,5 +74,6 @@ pure validation helpers are available. Commit
 `f51b5c2670c840e8a8302d7f5a5ebeecc57ea076` passes 63 `moirai-pal` tests,
 warning-denied native Clippy and a warning-denied
 `wasm32-unknown-unknown` provider check. Metis adds the consumer compile/use
-surface. A browser trace must identify its engine and whether the file came
-from a trusted user operation before claiming byte-read evidence.
+surface. The cross-engine RITK chooser run is the browser regression check; a
+browser trace must identify its engine and whether the file came from a trusted
+user operation before claiming byte-read evidence.

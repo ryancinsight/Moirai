@@ -5,7 +5,7 @@ This document defines the concrete contracts, specifications, and checklist item
 ## Delivered bounded WebSocket slice (2026-09-06)
 
 - [x] Browser callbacks are retained by an owning connection and detached on
-  close or drop; `FileReader` uses the same RAII lifetime rule.
+  close or drop; bounded browser-file reads use an owned promise surface.
 - [x] Text and binary messages pass through byte and queue bounds before being
   copied into Rust memory; oversize and exhaustion are terminal errors.
 - [x] Readiness events are bounded and interest-filtered; one receive future

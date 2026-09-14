@@ -352,7 +352,7 @@
 - Outcome: Moirai exposes an owned browser file entry that lets Atlas WASM
   applications read selected bytes without importing `web-sys` or treating a
   browser name as a filesystem path.
-- Scope: `moirai-pal` drop entries, bounded asynchronous `FileReader` access,
+- Scope: `moirai-pal` drop entries, bounded asynchronous browser-file access,
   cursor validation and callback teardown; DICOM parsing, application policy,
   native file permissions and persistence remain consumer or host concerns.
 - Acceptance: selected file handles preserve validated metadata, bounded reads
@@ -367,9 +367,11 @@
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 - Evidence: commit `f51b5c2670c840e8a8302d7f5a5ebeecc57ea076`; 63 native
   `moirai-pal` tests, warning-denied native Clippy and warning-denied
-  `wasm32-unknown-unknown` check pass. The reader owns FileReader callbacks,
-  caps one read at 1 MiB and validates cursor movement; DICOM parsing and
-  trusted file-drop evidence remain consumer/host work.
+  `wasm32-unknown-unknown` check pass. The reader owns the browser `File`,
+  reads bounded `Blob` slices through promises, caps one read at 1 MiB and
+  validates cursor movement; DICOM parsing and trusted file-drop evidence
+  remain consumer/host work. The 2026-09-14 WebKit chooser run is the
+  regression driver for the promise-based read path.
 
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>
 ## MOI-WINDOW-WIN32-2026-09-08 — Win32 window event and presentation provider [arch] [minor]
