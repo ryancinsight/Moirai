@@ -35,7 +35,7 @@ impl WebFile {
     /// # Errors
     /// Returns an I/O error when the buffer is over the provider bound, the
     /// browser reports an invalid size, cursor arithmetic overflows, or the
-    /// browser rejects the bounded `Blob.stream` operation.
+    /// browser rejects the bounded object-URL response stream.
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let requested = validate_buffer_length(buf.len())?;
         if buf.is_empty() {
@@ -64,7 +64,7 @@ impl WebFile {
                 "browser file read length cannot be represented",
             )
         })?;
-        let copied = read_blob_stream(blob, &mut buf[..target_len]).await?;
+        let copied = read_blob_via_object_url(blob, &mut buf[..target_len]).await?;
         let copied = u64::try_from(copied).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -138,8 +138,81 @@ impl Drop for StreamReader {
     }
 }
 
-async fn read_blob_stream(blob: web_sys::Blob, buffer: &mut [u8]) -> io::Result<usize> {
-    let stream = blob.stream();
+async fn read_blob_via_object_url(blob: web_sys::Blob, buffer: &mut [u8]) -> io::Result<usize> {
+    let mut object_url = ObjectUrl::from_blob(&blob)?;
+    let result = read_object_url_stream(object_url.as_str(), buffer).await;
+    let cleanup = object_url.revoke();
+    match (result, cleanup) {
+        (Ok(copied), Ok(())) => Ok(copied),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Err(read_error), Err(cleanup_error)) => Err(io::Error::new(
+            read_error.kind(),
+            format!("{read_error}; browser object URL cleanup failed: {cleanup_error}"),
+        )),
+    }
+}
+
+struct ObjectUrl {
+    value: String,
+    revoked: bool,
+}
+
+impl ObjectUrl {
+    fn from_blob(blob: &web_sys::Blob) -> io::Result<Self> {
+        let value = web_sys::Url::create_object_url_with_blob(blob)
+            .map_err(|_| io::Error::other("browser rejected the file object URL"))?;
+        Ok(Self {
+            value,
+            revoked: false,
+        })
+    }
+
+    fn as_str(&self) -> &str {
+        &self.value
+    }
+
+    fn revoke(&mut self) -> io::Result<()> {
+        if self.revoked {
+            return Ok(());
+        }
+        web_sys::Url::revoke_object_url(&self.value)
+            .map_err(|_| io::Error::other("browser rejected object URL revocation"))?;
+        self.revoked = true;
+        Ok(())
+    }
+}
+
+impl Drop for ObjectUrl {
+    fn drop(&mut self) {
+        if !self.revoked
+            && let Err(error) = web_sys::Url::revoke_object_url(&self.value)
+        {
+            web_sys::console::error_1(&error);
+        }
+    }
+}
+
+async fn read_object_url_stream(url: &str, buffer: &mut [u8]) -> io::Result<usize> {
+    let window = web_sys::window()
+        .ok_or_else(|| io::Error::other("browser window is unavailable for file access"))?;
+    let response = JsFuture::from(window.fetch_with_str(url))
+        .await
+        .map_err(|_| io::Error::other("browser rejected the file object URL request"))?
+        .dyn_into::<web_sys::Response>()
+        .map_err(|_| io::Error::other("browser returned an invalid file object URL response"))?;
+    if !response.ok() {
+        return Err(io::Error::other(
+            "browser file object URL response was not successful",
+        ));
+    }
+    let stream = response
+        .body()
+        .ok_or_else(|| io::Error::other("browser file object URL response has no body"))?;
+    read_stream(stream, buffer).await
+}
+
+async fn read_stream(stream: web_sys::ReadableStream, buffer: &mut [u8]) -> io::Result<usize> {
     let reader = stream
         .get_reader()
         .dyn_into::<web_sys::ReadableStreamDefaultReader>()
