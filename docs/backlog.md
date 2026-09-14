@@ -386,21 +386,19 @@
   study or return a typed provider error; every read stays within the 1 MiB
   chunk bound, releases its stream reader on completion/error, and native/WASM
   checks remain warning-clean.
-- Status: in-progress; priority: P1; integrator: root; branch:
+- Status: review; priority: P1; integrator: root; branch:
   `fix/wasm-file-stream-portability`; last-update: 2026-09-14;
-  lease: root `moirai-pal/src/wasm/file.rs`, `moirai-pal/Cargo.toml`,
-  `docs/adr/0050-bounded-browser-file-access.md` and this item;
   dependencies:
   MOI-WASM-DOM-FILE-2026-09-08; driver:
-  [RITK workflow 34895454734](https://github.com/ryancinsight/ritk/actions/runs/34895454734).
+  [RITK workflow 34902810268](https://github.com/ryancinsight/ritk/actions/runs/34902810268).
 - Delivery: [Moirai PR #338](https://github.com/ryancinsight/Moirai/pull/338),
   merge `f128a1a0`; [Moirai PR #339](https://github.com/ryancinsight/Moirai/pull/339),
   merge `918a49cf`.
 - Evidence: the initial bounded `Blob.stream()` BYOB path compiled and linted
   for `wasm32-unknown-unknown`, and native `moirai-pal` nextest passed 77/77;
-  hosted run 34902810268 then showed Chromium rejecting its first BYOB read
-  after accepting all 94 files. The provider is being corrected to use the
-  stream's default reader before the hosted acceptance rerun.
+  hosted run 34902810268 showed Chromium, Firefox and WebKit each rejecting
+  the first BYOB read after accepting all 94 files. The provider correction
+  uses the stream's default reader; a hosted acceptance rerun is required.
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>

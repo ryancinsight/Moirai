@@ -20,14 +20,14 @@ slice and the 1 MiB caller buffer keep the allocation bound while the source
 remains the browser-owned `File`. Chromium and Firefox retain the same byte
 contract, and the WebKit run is the regression oracle for this provider path.
 
-Follow-on revision 2026-09-14 — hosted Chromium also rejected the first BYOB
-read after accepting the saved study, so the stream reader is now the standard
-default reader. Each bounded `Blob` slice is consumed as browser-owned byte
-chunks; the reader lock is released on every completion or error. The provider
-continues to advance its cursor only by copied bytes and surfaces stream
-failures as typed I/O errors; it does not fall back to a whole-file allocation
-or expose the browser handle. The hosted chooser matrix remains the acceptance
-oracle for this provider path.
+Follow-on revision 2026-09-14 — hosted Chromium, Firefox and WebKit each
+rejected the first BYOB read after accepting the saved study, so the stream
+reader is now the standard default reader. Each bounded `Blob` slice is
+consumed as browser-owned byte chunks; the reader lock is released on every
+completion or error. The provider continues to advance its cursor only by
+copied bytes and surfaces stream failures as typed I/O errors; it does not fall
+back to a whole-file allocation or expose the browser handle. The hosted
+chooser matrix remains the acceptance oracle for this provider path.
 
 Driver: [MOI-WASM-DOM-FILE-2026-09-08](../backlog.md#MOI-WASM-DOM-FILE-2026-09-08),
 [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
