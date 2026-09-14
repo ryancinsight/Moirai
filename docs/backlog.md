@@ -386,10 +386,13 @@
   study or return a typed provider error; every read stays within the 1 MiB
   chunk bound, releases its stream reader on completion/error, and native/WASM
   checks remain warning-clean.
-- Status: review; priority: P1; integrator: root; branch:
-  `feat/wasm-file-stream`; last-update: 2026-09-14; dependencies:
+- Status: review; priority: P1; integrator: root; last-update: 2026-09-14;
+  dependencies:
   MOI-WASM-DOM-FILE-2026-09-08; driver:
   [RITK workflow 34895454734](https://github.com/ryancinsight/ritk/actions/runs/34895454734).
+- Delivery: [Moirai PR #338](https://github.com/ryancinsight/Moirai/pull/338),
+  merge `f128a1a0`; [Moirai PR #339](https://github.com/ryancinsight/Moirai/pull/339),
+  merge `918a49cf`.
 - Evidence: bounded `Blob.stream()` BYOB reads compile and lint for
   `wasm32-unknown-unknown`; native `moirai-pal` nextest passes 77/77. Hosted
   Chromium, Firefox and WebKit chooser acceptance remains pending this
