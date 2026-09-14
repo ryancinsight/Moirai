@@ -386,7 +386,10 @@
   study or return a typed provider error; every read stays within the 1 MiB
   chunk bound, releases its stream reader on completion/error, and native/WASM
   checks remain warning-clean.
-- Status: review; priority: P1; integrator: root; last-update: 2026-09-14;
+- Status: in-progress; priority: P1; integrator: root; branch:
+  `fix/wasm-file-stream-portability`; last-update: 2026-09-14;
+  lease: root `moirai-pal/src/wasm/file.rs`, `moirai-pal/Cargo.toml`,
+  `docs/adr/0050-bounded-browser-file-access.md` and this item;
   dependencies:
   MOI-WASM-DOM-FILE-2026-09-08; driver:
   [RITK workflow 34895454734](https://github.com/ryancinsight/ritk/actions/runs/34895454734).
