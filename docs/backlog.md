@@ -373,6 +373,29 @@
   remain consumer/host work. The 2026-09-14 WebKit chooser run is the
   regression driver for the promise-based read path.
 
+<a id="MOI-WASM-DOM-FILE-SAFARI-2026-09-14"></a>
+## MOI-WASM-DOM-FILE-SAFARI-2026-09-14 — Recover bounded WebKit file reads [patch]
+
+- Outcome: the bounded browser-file reader uses a stream path that can read the
+  selected `File` in Safari while preserving the caller buffer and one-read
+  memory limits.
+- Scope: `moirai-pal` WASM file reader, required `web-sys` stream bindings and
+  the existing browser-file decision record; no consumer API, DICOM logic,
+  native permissions or unbounded fallback.
+- Acceptance: Chromium, Firefox and WebKit hosted chooser runs read the saved
+  study or return a typed provider error; every read stays within the 1 MiB
+  chunk bound, releases its stream reader on completion/error, and native/WASM
+  checks remain warning-clean.
+- Status: review; priority: P1; integrator: root; branch:
+  `feat/wasm-file-stream`; last-update: 2026-09-14; dependencies:
+  MOI-WASM-DOM-FILE-2026-09-08; driver:
+  [RITK workflow 34895454734](https://github.com/ryancinsight/ritk/actions/runs/34895454734).
+- Evidence: bounded `Blob.stream()` BYOB reads compile and lint for
+  `wasm32-unknown-unknown`; native `moirai-pal` nextest passes 77/77. Hosted
+  Chromium, Firefox and WebKit chooser acceptance remains pending this
+  provider revision.
+- Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
+
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>
 ## MOI-WINDOW-WIN32-2026-09-08 — Win32 window event and presentation provider [arch] [minor]
 

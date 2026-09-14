@@ -2,6 +2,7 @@
 
 use std::io;
 
+use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::drop_validation::parse_size;
@@ -28,13 +29,13 @@ impl WebFile {
     /// Reads the next bounded chunk into the caller-provided buffer.
     ///
     /// The browser file remains outside Rust-owned storage. A read larger than
-    /// [`MAX_READ_BYTES`] is rejected before a `Blob` or `ArrayBuffer` is
+    /// [`MAX_READ_BYTES`] is rejected before a `Blob` or stream scratch buffer is
     /// created, so an untrusted file cannot force a large provider allocation.
     ///
     /// # Errors
     /// Returns an I/O error when the buffer is over the provider bound, the
     /// browser reports an invalid size, cursor arithmetic overflows, or the
-    /// browser rejects the bounded `Blob.arrayBuffer` operation.
+    /// browser rejects the bounded `Blob.stream` operation.
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let requested = validate_buffer_length(buf.len())?;
         if buf.is_empty() {
@@ -57,19 +58,13 @@ impl WebFile {
             .file_handle
             .slice_with_f64_and_f64(self.position as f64, end_position as f64)
             .map_err(|_| io::Error::other("browser rejected the file slice"))?;
-        let array_buffer = JsFuture::from(blob.array_buffer())
-            .await
-            .map_err(|_| io::Error::other("browser rejected the bounded file read"))?;
-        let array_buffer = js_sys::ArrayBuffer::from(array_buffer);
-        let uint8_array = js_sys::Uint8Array::new(&array_buffer);
-        let available = usize::try_from(uint8_array.length()).map_err(|_| {
+        let target_len = usize::try_from(length).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "browser file result length cannot be represented",
+                "browser file read length cannot be represented",
             )
         })?;
-        let copied = available.min(buf.len());
-        uint8_array.copy_to(&mut buf[..copied]);
+        let copied = read_blob_stream(blob, &mut buf[..target_len]).await?;
         let copied = u64::try_from(copied).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -77,7 +72,12 @@ impl WebFile {
             )
         })?;
         self.position = advance_cursor(self.position, copied)?;
-        Ok(usize::try_from(copied).expect("invariant: copied length came from a Rust slice"))
+        usize::try_from(copied).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "browser file result length cannot be represented",
+            )
+        })
     }
 
     /// Returns the validated browser-reported file size in bytes.
@@ -116,4 +116,104 @@ impl WebFile {
 
 fn checked_size(file: &web_sys::File) -> io::Result<u64> {
     parse_size(file.size())
+}
+
+struct StreamReader {
+    reader: web_sys::ReadableStreamByobReader,
+    released: bool,
+}
+
+impl StreamReader {
+    fn release(&mut self) {
+        if !self.released {
+            self.reader.release_lock();
+            self.released = true;
+        }
+    }
+}
+
+impl Drop for StreamReader {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+async fn read_blob_stream(blob: web_sys::Blob, buffer: &mut [u8]) -> io::Result<usize> {
+    let stream = blob.stream();
+    let options = web_sys::ReadableStreamGetReaderOptions::new();
+    options.set_mode(web_sys::ReadableStreamReaderMode::Byob);
+    let reader = stream
+        .get_reader_with_options(&options)
+        .dyn_into::<web_sys::ReadableStreamByobReader>()
+        .map_err(|_| io::Error::other("browser rejected the bounded file stream"))?;
+    let mut reader = StreamReader {
+        reader,
+        released: false,
+    };
+    let mut copied = 0usize;
+
+    while copied < buffer.len() {
+        let remaining = buffer.len() - copied;
+        let scratch_length = u32::try_from(remaining).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "browser file read length cannot be represented",
+            )
+        })?;
+        let scratch = js_sys::Uint8Array::new_with_length(scratch_length);
+        let result = JsFuture::from(
+            reader
+                .reader
+                .read_with_array_buffer_view(scratch.unchecked_ref::<js_sys::Object>()),
+        )
+        .await
+        .map_err(|_| io::Error::other("browser rejected the bounded file stream read"))?
+        .dyn_into::<web_sys::ReadableStreamReadResult>()
+        .map_err(|_| io::Error::other("browser returned an invalid file stream result"))?;
+        let done = result
+            .get_done()
+            .ok_or_else(|| io::Error::other("browser file stream omitted its completion flag"))?;
+        let value = result.get_value();
+        let chunk =
+            if value.is_undefined() || value.is_null() {
+                if done {
+                    None
+                } else {
+                    return Err(io::Error::other(
+                        "browser file stream omitted a chunk before completion",
+                    ));
+                }
+            } else {
+                Some(value.dyn_into::<js_sys::Uint8Array>().map_err(|_| {
+                    io::Error::other("browser file stream returned a non-byte chunk")
+                })?)
+            };
+        let chunk_length = chunk.as_ref().map_or(0, js_sys::Uint8Array::length);
+        let chunk_length = usize::try_from(chunk_length).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "browser file chunk length cannot be represented",
+            )
+        })?;
+        if chunk_length > remaining {
+            return Err(io::Error::other(
+                "browser file stream exceeded the bounded read request",
+            ));
+        }
+        if chunk_length == 0 && !done {
+            return Err(io::Error::other(
+                "browser file stream returned an empty incomplete chunk",
+            ));
+        }
+        if let Some(chunk) = chunk {
+            chunk.copy_to(&mut buffer[copied..copied + chunk_length]);
+            copied += chunk_length;
+        }
+        if done {
+            break;
+        }
+    }
+
+    reader.release();
+    Ok(copied)
 }
