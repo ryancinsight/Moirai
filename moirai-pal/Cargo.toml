@@ -75,6 +75,7 @@ web-sys = { version = "0.3", features = [
     "ErrorEvent",
     "Event",
     "MouseEvent",
+    "KeyboardEvent",
     "PointerEvent",
     "WheelEvent",
     "InputEvent",
