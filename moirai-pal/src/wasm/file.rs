@@ -1,13 +1,8 @@
 //! Bounded asynchronous access to a browser-selected file.
 
-use std::cell::RefCell;
 use std::io;
-use std::rc::Rc;
 
-use js_sys::Promise;
-use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::console;
 
 use crate::drop_validation::parse_size;
 use crate::file_policy::{advance_cursor, validate_buffer_length};
@@ -19,23 +14,6 @@ pub const MAX_READ_BYTES: usize = crate::file_policy::MAX_READ_BYTES;
 pub struct WebFile {
     file_handle: web_sys::File,
     position: u64,
-}
-
-/// Owns `FileReader` callbacks for one read and detaches them when the future
-/// completes or is cancelled.
-struct FileReaderCallbacks {
-    reader: web_sys::FileReader,
-    onload: Closure<dyn FnMut(JsValue)>,
-    onerror: Closure<dyn FnMut(JsValue)>,
-}
-
-impl Drop for FileReaderCallbacks {
-    fn drop(&mut self) {
-        self.reader.set_onload(None);
-        self.reader.set_onerror(None);
-        self.reader.abort();
-        let _ = (&self.onload, &self.onerror);
-    }
 }
 
 impl WebFile {
@@ -56,7 +34,7 @@ impl WebFile {
     /// # Errors
     /// Returns an I/O error when the buffer is over the provider bound, the
     /// browser reports an invalid size, cursor arithmetic overflows, or the
-    /// browser rejects the `FileReader` operation.
+    /// browser rejects the bounded `Blob.arrayBuffer` operation.
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let requested = validate_buffer_length(buf.len())?;
         if buf.is_empty() {
@@ -79,44 +57,10 @@ impl WebFile {
             .file_handle
             .slice_with_f64_and_f64(self.position as f64, end_position as f64)
             .map_err(|_| io::Error::other("browser rejected the file slice"))?;
-        let file_reader = web_sys::FileReader::new()
-            .map_err(|_| io::Error::other("browser rejected FileReader creation"))?;
-        let callback_slot = Rc::new(RefCell::new(None));
-        let callback_slot_for_promise = Rc::clone(&callback_slot);
-        let reader_for_promise = file_reader.clone();
-        let promise = Promise::new(&mut |resolve, reject| {
-            let onload = Closure::wrap(Box::new(move |_event: JsValue| {
-                if let Err(error) = resolve.call0(&JsValue::NULL) {
-                    console::error_1(&error);
-                }
-            }) as Box<dyn FnMut(JsValue)>);
-            let onerror = Closure::wrap(Box::new(move |_event: JsValue| {
-                if let Err(error) = reject.call0(&JsValue::NULL) {
-                    console::error_1(&error);
-                }
-            }) as Box<dyn FnMut(JsValue)>);
-            reader_for_promise.set_onload(Some(onload.as_ref().unchecked_ref()));
-            reader_for_promise.set_onerror(Some(onerror.as_ref().unchecked_ref()));
-            *callback_slot_for_promise.borrow_mut() = Some(FileReaderCallbacks {
-                reader: reader_for_promise.clone(),
-                onload,
-                onerror,
-            });
-        });
-        let _callbacks = callback_slot
-            .borrow_mut()
-            .take()
-            .ok_or_else(|| io::Error::other("FileReader callbacks were not installed"))?;
-        file_reader
-            .read_as_array_buffer(&blob)
-            .map_err(|_| io::Error::other("browser rejected the file read"))?;
-        JsFuture::from(promise)
+        let array_buffer = JsFuture::from(blob.array_buffer())
             .await
-            .map_err(|_| io::Error::other("browser file read failed"))?;
-        let result = file_reader
-            .result()
-            .map_err(|_| io::Error::other("browser returned no file read result"))?;
-        let array_buffer = js_sys::ArrayBuffer::from(result);
+            .map_err(|_| io::Error::other("browser rejected the bounded file read"))?;
+        let array_buffer = js_sys::ArrayBuffer::from(array_buffer);
         let uint8_array = js_sys::Uint8Array::new(&array_buffer);
         let available = usize::try_from(uint8_array.length()).map_err(|_| {
             io::Error::new(

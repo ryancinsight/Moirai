@@ -80,8 +80,8 @@ impl DroppedFileAccess {
     /// Reads the next bounded chunk into a caller-provided buffer.
     ///
     /// The browser `File` remains owned by this entry and is never converted
-    /// into a filesystem path. Dropping the returned future cancels the
-    /// provider's `FileReader` callbacks.
+    /// into a filesystem path. Dropping the returned future stops consuming
+    /// the result; the browser owns completion of its bounded promise.
     pub async fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         self.reader.read(buffer).await
     }
