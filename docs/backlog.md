@@ -396,14 +396,14 @@
   [RITK workflow 34902810268](https://github.com/ryancinsight/ritk/actions/runs/34902810268).
 - Delivery: [Moirai PR #338](https://github.com/ryancinsight/Moirai/pull/338),
   merge `f128a1a0`; [Moirai PR #339](https://github.com/ryancinsight/Moirai/pull/339),
-  merge `918a49cf`.
+  merge `918a49cf`; [Moirai PR #341](https://github.com/ryancinsight/Moirai/pull/341),
+  merge `3213b24b`.
 - Evidence: the initial bounded `Blob.stream()` BYOB path and its default-reader
   correction compile and lint for `wasm32-unknown-unknown`, and native
   `moirai-pal` nextest passes 77/77. Hosted run 34905504112 passes Chromium and
   Firefox with the default reader but WebKit still rejects the first read after
-  accepting all 94 files. WebKit bug reports describe blob-URL fetch as a
-  distinct file-backed path; the object-URL response stream is the bounded
-  provider experiment, with a hosted acceptance rerun required.
+  accepting all 94 files. The object-URL response stream now compiles and passes
+  strict native and WASM checks; a hosted acceptance rerun is required.
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>
