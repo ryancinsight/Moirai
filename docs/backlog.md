@@ -570,6 +570,14 @@
 - Acceptance: DOM updates, input reads, child insertion, listener Drop cleanup, and `requestAnimationFrame` scheduling compile for `wasm32-unknown-unknown`; native PAL tests and warning-denied Clippy pass. `WebAnimationFrame` validates its finite timestamp and cancels the registration on Drop; RITK consumes it in [PR #354](https://github.com/ryancinsight/ritk/pull/354).
 - Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md). Residual cooperative executor, worker scheduling, fetch/network facade, and headless multi-engine traces remain separate work.
 
+<a id="MOI-WASM-DOM-KEYS-2026-09-14"></a>
+## MOI-WASM-DOM-KEYS-2026-09-14 — Expose bounded browser keyboard metadata [minor]
+
+- Status: in-progress; priority: P1; owner: Moirai WASM DOM; integrator: root; branch: `feat/wasm-keyboard-metadata`; regions: `moirai-pal/Cargo.toml`, `moirai-pal/src/wasm/dom`, `moirai-pal/src/wasm/mod.rs`, `docs/backlog.md`; dependencies: MOI-WASM-2026-09-06-DOM; risk: unbounded browser strings or dropped repeat/modifier state.
+- Scope: expose bounded `KeyboardEvent` key/code, repeat and modifier snapshots through Moirai's owned listener seam; application shortcuts and domain actions remain consumer-owned.
+- Acceptance: keydown/keyup consumers receive bounded value-semantic metadata, repeated keydowns and modifiers are preserved, over-budget names fail with typed I/O errors, listener Drop still removes callbacks, and locked native/WASM checks plus focused tests pass.
+- Demonstration: Metis consumes the seam for its format-neutral browser canvas controls; RITK maps the resulting keyboard values to cine actions while retaining DICOM ownership.
+
 <a id="MOI-WASM-DOM-CONTROLS-2026-09-07"></a>
 ## MOI-WASM-DOM-CONTROLS-2026-09-07 — Expose checked browser control state [minor]
 
