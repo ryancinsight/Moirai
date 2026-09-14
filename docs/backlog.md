@@ -376,9 +376,9 @@
 <a id="MOI-WASM-DOM-FILE-SAFARI-2026-09-14"></a>
 ## MOI-WASM-DOM-FILE-SAFARI-2026-09-14 — Recover bounded WebKit file reads [patch]
 
-- Outcome: the bounded browser-file reader uses a stream path that can read the
-  selected `File` in Safari while preserving the caller buffer and one-read
-  memory limits.
+- Outcome: the bounded browser-file reader uses a portable default-reader
+  stream path that can read the selected `File` across the hosted engines while
+  preserving the caller buffer and one-read memory limits.
 - Scope: `moirai-pal` WASM file reader, required `web-sys` stream bindings and
   the existing browser-file decision record; no consumer API, DICOM logic,
   native permissions or unbounded fallback.
@@ -396,10 +396,11 @@
 - Delivery: [Moirai PR #338](https://github.com/ryancinsight/Moirai/pull/338),
   merge `f128a1a0`; [Moirai PR #339](https://github.com/ryancinsight/Moirai/pull/339),
   merge `918a49cf`.
-- Evidence: bounded `Blob.stream()` BYOB reads compile and lint for
-  `wasm32-unknown-unknown`; native `moirai-pal` nextest passes 77/77. Hosted
-  Chromium, Firefox and WebKit chooser acceptance remains pending this
-  provider revision.
+- Evidence: the initial bounded `Blob.stream()` BYOB path compiled and linted
+  for `wasm32-unknown-unknown`, and native `moirai-pal` nextest passed 77/77;
+  hosted run 34902810268 then showed Chromium rejecting its first BYOB read
+  after accepting all 94 files. The provider is being corrected to use the
+  stream's default reader before the hosted acceptance rerun.
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>
