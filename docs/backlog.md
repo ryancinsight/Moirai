@@ -387,9 +387,7 @@
   chunk bound, releases its stream reader on completion/error, and native/WASM
   checks remain warning-clean.
 - Status: in-progress; priority: P1; integrator: root; branch:
-  `fix/wasm-file-object-url-reader`; regions:
-  `moirai-pal/src/wasm/file.rs`, `moirai-pal/Cargo.toml`,
-  `docs/adr/0050-bounded-browser-file-access.md`, `docs/backlog.md`;
+  `docs/moirai-safari-evidence`; regions: `docs/backlog.md`;
   last-update: 2026-09-14;
   dependencies:
   MOI-WASM-DOM-FILE-2026-09-08; driver:
@@ -397,13 +395,15 @@
 - Delivery: [Moirai PR #338](https://github.com/ryancinsight/Moirai/pull/338),
   merge `f128a1a0`; [Moirai PR #339](https://github.com/ryancinsight/Moirai/pull/339),
   merge `918a49cf`; [Moirai PR #341](https://github.com/ryancinsight/Moirai/pull/341),
-  merge `3213b24b`.
+  merge `3213b24b`; [Moirai PR #342](https://github.com/ryancinsight/Moirai/pull/342),
+  merge `27d9b061`.
 - Evidence: the initial bounded `Blob.stream()` BYOB path and its default-reader
   correction compile and lint for `wasm32-unknown-unknown`, and native
   `moirai-pal` nextest passes 77/77. Hosted run 34905504112 passes Chromium and
   Firefox with the default reader but WebKit still rejects the first read after
-  accepting all 94 files. The object-URL response stream now compiles and passes
-  strict native and WASM checks; a hosted acceptance rerun is required.
+  accepting all 94 files. The merged object-URL response stream passes strict
+  native and WASM checks and the Moirai hosted gates; a hosted RITK acceptance
+  rerun against `27d9b061` is required.
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>
