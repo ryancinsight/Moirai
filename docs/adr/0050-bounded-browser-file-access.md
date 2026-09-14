@@ -20,15 +20,14 @@ slice and the 1 MiB caller buffer keep the allocation bound while the source
 remains the browser-owned `File`. Chromium and Firefox retain the same byte
 contract, and the WebKit run is the regression oracle for this provider path.
 
-Follow-on revision 2026-09-14 — the WebKit regression drives a stream-based
-read for each bounded `Blob` slice. `Blob.stream()` is consumed with a bounded
-reader and a scratch view no larger than the caller request; the reader lock is
-released on every completion or error. The provider continues to advance its
-cursor only by copied bytes and surfaces stream failures as typed I/O errors;
-it does not fall back to a whole-file allocation or expose the browser handle.
-Moirai PR #338 (`f128a1a0`) delivers the reader and PR #339 (`918a49cf`)
-repairs the locked rustls advisory. The hosted chooser matrix remains the
-acceptance oracle for this change.
+Follow-on revision 2026-09-14 — hosted Chromium, Firefox and WebKit each
+rejected the first BYOB read after accepting the saved study, so the stream
+reader is now the standard default reader. Each bounded `Blob` slice is
+consumed as browser-owned byte chunks; the reader lock is released on every
+completion or error. The provider continues to advance its cursor only by
+copied bytes and surfaces stream failures as typed I/O errors; it does not fall
+back to a whole-file allocation or expose the browser handle. The hosted
+chooser matrix remains the acceptance oracle for this provider path.
 
 Driver: [MOI-WASM-DOM-FILE-2026-09-08](../backlog.md#MOI-WASM-DOM-FILE-2026-09-08),
 [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
@@ -51,9 +50,10 @@ asynchronous read/seek surface; the JavaScript `File` object remains private to
 Moirai. Reads use caller-provided buffers, reject a buffer above the provider's
 fixed chunk bound, validate the browser-reported size and cursor arithmetic, and
 advance the cursor only by bytes copied. Each bounded `Blob` slice is read
-through its browser stream; dropping the Rust future stops consuming the
-result, while the browser owns completion of that already-started read. The
-stream reader is released before the future returns or reports an error.
+through its browser stream's default reader; dropping the Rust future stops
+consuming the result, while the browser owns completion of that already-started
+read. The stream reader is released before the future returns or reports an
+error.
 
 The existing `drop_metadata` API and value semantics remain unchanged. The new
 surface does not parse DICOM, infer a path, grant native permissions, or retain

@@ -119,7 +119,7 @@ fn checked_size(file: &web_sys::File) -> io::Result<u64> {
 }
 
 struct StreamReader {
-    reader: web_sys::ReadableStreamByobReader,
+    reader: web_sys::ReadableStreamDefaultReader,
     released: bool,
 }
 
@@ -140,12 +140,10 @@ impl Drop for StreamReader {
 
 async fn read_blob_stream(blob: web_sys::Blob, buffer: &mut [u8]) -> io::Result<usize> {
     let stream = blob.stream();
-    let options = web_sys::ReadableStreamGetReaderOptions::new();
-    options.set_mode(web_sys::ReadableStreamReaderMode::Byob);
     let reader = stream
-        .get_reader_with_options(&options)
-        .dyn_into::<web_sys::ReadableStreamByobReader>()
-        .map_err(|_| io::Error::other("browser rejected the bounded file stream"))?;
+        .get_reader()
+        .dyn_into::<web_sys::ReadableStreamDefaultReader>()
+        .map_err(|_| io::Error::other("browser rejected the bounded file stream reader"))?;
     let mut reader = StreamReader {
         reader,
         released: false,
@@ -153,23 +151,10 @@ async fn read_blob_stream(blob: web_sys::Blob, buffer: &mut [u8]) -> io::Result<
     let mut copied = 0usize;
 
     while copied < buffer.len() {
-        let remaining = buffer.len() - copied;
-        let scratch_length = u32::try_from(remaining).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "browser file read length cannot be represented",
-            )
-        })?;
-        let scratch = js_sys::Uint8Array::new_with_length(scratch_length);
-        let result = JsFuture::from(
-            reader
-                .reader
-                .read_with_array_buffer_view(scratch.unchecked_ref::<js_sys::Object>()),
-        )
-        .await
-        .map_err(|_| io::Error::other("browser rejected the bounded file stream read"))?
-        .dyn_into::<web_sys::ReadableStreamReadResult>()
-        .map_err(|_| io::Error::other("browser returned an invalid file stream result"))?;
+        let result = JsFuture::from(reader.reader.read())
+            .await
+            .map_err(|_| io::Error::other("browser rejected the bounded file stream read"))?
+            .unchecked_into::<web_sys::ReadableStreamReadResult>();
         let done = result
             .get_done()
             .ok_or_else(|| io::Error::other("browser file stream omitted its completion flag"))?;
@@ -195,6 +180,7 @@ async fn read_blob_stream(blob: web_sys::Blob, buffer: &mut [u8]) -> io::Result<
                 "browser file chunk length cannot be represented",
             )
         })?;
+        let remaining = buffer.len() - copied;
         if chunk_length > remaining {
             return Err(io::Error::other(
                 "browser file stream exceeded the bounded read request",

@@ -376,9 +376,9 @@
 <a id="MOI-WASM-DOM-FILE-SAFARI-2026-09-14"></a>
 ## MOI-WASM-DOM-FILE-SAFARI-2026-09-14 — Recover bounded WebKit file reads [patch]
 
-- Outcome: the bounded browser-file reader uses a stream path that can read the
-  selected `File` in Safari while preserving the caller buffer and one-read
-  memory limits.
+- Outcome: the bounded browser-file reader uses a portable default-reader
+  stream path that can read the selected `File` across the hosted engines while
+  preserving the caller buffer and one-read memory limits.
 - Scope: `moirai-pal` WASM file reader, required `web-sys` stream bindings and
   the existing browser-file decision record; no consumer API, DICOM logic,
   native permissions or unbounded fallback.
@@ -386,17 +386,19 @@
   study or return a typed provider error; every read stays within the 1 MiB
   chunk bound, releases its stream reader on completion/error, and native/WASM
   checks remain warning-clean.
-- Status: review; priority: P1; integrator: root; last-update: 2026-09-14;
+- Status: review; priority: P1; integrator: root; branch:
+  `fix/wasm-file-stream-portability`; last-update: 2026-09-14;
   dependencies:
   MOI-WASM-DOM-FILE-2026-09-08; driver:
-  [RITK workflow 34895454734](https://github.com/ryancinsight/ritk/actions/runs/34895454734).
+  [RITK workflow 34902810268](https://github.com/ryancinsight/ritk/actions/runs/34902810268).
 - Delivery: [Moirai PR #338](https://github.com/ryancinsight/Moirai/pull/338),
   merge `f128a1a0`; [Moirai PR #339](https://github.com/ryancinsight/Moirai/pull/339),
   merge `918a49cf`.
-- Evidence: bounded `Blob.stream()` BYOB reads compile and lint for
-  `wasm32-unknown-unknown`; native `moirai-pal` nextest passes 77/77. Hosted
-  Chromium, Firefox and WebKit chooser acceptance remains pending this
-  provider revision.
+- Evidence: the initial bounded `Blob.stream()` BYOB path compiled and linted
+  for `wasm32-unknown-unknown`, and native `moirai-pal` nextest passed 77/77;
+  hosted run 34902810268 showed Chromium, Firefox and WebKit each rejecting
+  the first BYOB read after accepting all 94 files. The provider correction
+  uses the stream's default reader; a hosted acceptance rerun is required.
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>
