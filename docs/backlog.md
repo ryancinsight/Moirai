@@ -386,13 +386,14 @@
   study or return a typed provider error; every read stays within the 1 MiB
   chunk bound, releases its stream reader on completion/error, and native/WASM
   checks remain warning-clean.
-- Status: in-progress; priority: P1; integrator: root; branch:
+- Status: review; priority: P1; integrator: root; branch:
   `feat/wasm-file-stream`; last-update: 2026-09-14; dependencies:
   MOI-WASM-DOM-FILE-2026-09-08; driver:
   [RITK workflow 34895454734](https://github.com/ryancinsight/ritk/actions/runs/34895454734).
-- lease: root `moirai-pal/src/wasm/file.rs`, `moirai-pal/Cargo.toml`,
-  `docs/adr/0050-bounded-browser-file-access.md`, `docs/backlog.md`; expires
-  2026-09-14T23:30:00-04:00
+- Evidence: bounded `Blob.stream()` BYOB reads compile and lint for
+  `wasm32-unknown-unknown`; native `moirai-pal` nextest passes 77/77. Hosted
+  Chromium, Firefox and WebKit chooser acceptance remains pending this
+  provider revision.
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>

@@ -16,7 +16,7 @@ committed 409-slice DICOM study fits in one bounded batch; the consumer-owned
 Revision: 2026-09-14 — the saved-study chooser matrix showed Safari accepting
 file metadata but rejecting `FileReader.readAsArrayBuffer` for a bounded
 `Blob` slice. Reads now await the slice's `Blob.arrayBuffer()` promise; the
-slice and the 64 KiB caller buffer keep the allocation bound while the source
+slice and the 1 MiB caller buffer keep the allocation bound while the source
 remains the browser-owned `File`. Chromium and Firefox retain the same byte
 contract, and the WebKit run is the regression oracle for this provider path.
 
