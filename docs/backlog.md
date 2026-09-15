@@ -387,7 +387,7 @@
   chunk bound, releases its stream reader on completion/error, and native/WASM
   checks remain warning-clean.
 - Status: in-progress; priority: P1; integrator: root; branch:
-  `docs/moirai-safari-evidence`; regions: `docs/backlog.md`;
+  `fix/moirai-safari-file-read`; regions: `docs/backlog.md`;
   last-update: 2026-09-14;
   dependencies:
   MOI-WASM-DOM-FILE-2026-09-08; driver:
