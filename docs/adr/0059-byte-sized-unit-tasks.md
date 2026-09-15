@@ -77,9 +77,15 @@ Recommended option, adopted:
 
 ## Consequences
 
-- apollo `lanes::paired` and `lanes::each`, leto-ops' transpose tasking and the
-  kwavers PSTD kernels migrate to the operator, each deleting its constants
+- apollo `lanes::paired` and `lanes::each` and the kwavers PSTD kernels, whose
+  units are whole lanes, migrate to the operator, each deleting its constants
   and hand branch in the same change.
+- leto-ops' batched transpose does not fit as it stands: its tasks keep at
+  least one cache line of source columns together (four rows per task
+  measured 31–33 µs against 42–44 µs for one at 64³), and a batch's
+  destination rows need not divide into whole groups of those columns. The
+  operator has no per-task unit floor and no ragged final unit; whether to add
+  a floor is decided, and measured, when leto-ops migrates.
 - `TASK_BYTES` becomes one measured constant owned by moirai; a consumer whose
   unit exceeds it runs one unit per task, as today.
 
