@@ -3,15 +3,17 @@
 Status: Accepted
 
 **Date**: 2026-05-25
-**Revision**: 2026-09-13
+**Revision**: 2026-09-15
 
 Revision note: the browser host seam now includes owned DOM elements, form
 control values, checked and disabled control state, modal dialog lifecycle,
 focus, pointer capture, pointer metadata, wheel metadata, bounded file-drop
-metadata, event listeners and cancellation-safe animation-frame scheduling.
+metadata, bounded keyboard metadata, event listeners and cancellation-safe
+animation-frame scheduling.
 Metis consumes these handles without importing `web-sys`; listener and
 animation-frame guards remove browser registrations before releasing their
-JavaScript closures.
+JavaScript closures. Keyboard consumers receive bounded key/code values,
+repeat state and modifier snapshots; shortcut policy stays in the consumer.
 
 ## Context
 
@@ -73,6 +75,11 @@ pixel/line/page unit, viewport and target-relative CSS-pixel coordinates and
 modifier keys. The event seam
 returns no metadata for unrelated event kinds, so application policy can keep
 scroll and gesture handling explicit.
+Keyboard events expose bounded key and code values, repeat state and the
+Control, Shift, Alt and Meta modifier snapshot through the same listener seam.
+The provider rejects over-budget names before allocation, and keydown/keyup
+delivery preserves repeated events; applications decide which values become
+shortcuts or domain actions.
 Drag events expose a bounded `DropMetadata` snapshot with CSS-pixel coordinates
 and validated `DroppedFile` records. File counts, names, media types and byte
 sizes are checked before allocation; file bytes and filesystem paths remain
@@ -116,6 +123,11 @@ trace does not claim physical-wheel or cross-engine parity.
 The provider's file-drop validation helpers have native value tests for bounded
 names and media types plus finite, representable byte sizes; the DOM binding is
 compile-checked with the `DragEvent`, `DataTransfer` and `FileList` features.
+Moirai PR #337 (`c110452ec8a8057a98deab330f9047b1c7efd522`) adds the keyboard
+metadata contract; Metis PR #142 and RITK PR #380 consume it. Hosted RITK
+workflow 34973438029 verifies repeat-suppressed cine-rate controls in Chromium
+and Firefox while retaining the Safari bounded-file-read residual in the file
+access decision record.
 
 ## Residuals
 

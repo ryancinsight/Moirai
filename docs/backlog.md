@@ -416,30 +416,21 @@
   typed provider error; every read stays within the 1 MiB chunk bound,
   releases its stream reader on completion/error, and native/WASM checks
   remain warning-clean.
-- Status: in-progress; priority: P1; integrator: root; branch:
-  `fix/wasm-file-size-validation`; regions:
-  `moirai-pal/src/wasm/file.rs`, `moirai-pal/src/wasm/dom/file_drop.rs`,
-  `docs/adr/0050-bounded-browser-file-access.md`, `docs/backlog.md`;
-  last-update: 2026-09-15;
-  dependencies:
-  MOI-WASM-DOM-FILE-2026-09-08; driver:
-  [RITK workflow 34902810268](https://github.com/ryancinsight/ritk/actions/runs/34902810268).
-- Delivery: [Moirai PR #338](https://github.com/ryancinsight/Moirai/pull/338),
-  merge `f128a1a0`; [Moirai PR #339](https://github.com/ryancinsight/Moirai/pull/339),
-  merge `918a49cf`; [Moirai PR #341](https://github.com/ryancinsight/Moirai/pull/341),
-  merge `3213b24b`; [Moirai PR #342](https://github.com/ryancinsight/Moirai/pull/342),
-  merge `27d9b061`.
-- Evidence: the initial bounded `Blob.stream()` BYOB path and its default-reader
-  correction compile and lint for `wasm32-unknown-unknown`, and native
-  `moirai-pal` nextest passes 77/77. Hosted run 34905504112 passes Chromium and
-  Firefox with the default reader but WebKit still rejects the first read after
-  accepting all 94 files. The merged object-URL response stream passes strict
-  native and WASM checks and the Moirai hosted gates; RITK run 34918193668 still
-  rejects Safari's first sliced read, so the bounded whole-file path is the
-  current fix under verification. The follow-on constructor boundary rejects
-  malformed JavaScript sizes before `WebFile` state exists; native
-  `moirai-pal` nextest passes 77/77, native strict Clippy, WASM library strict
-  Clippy and the locked WASM check pass for this increment.
+- Status: in-progress; priority: P1; integrator: root; branch: `main`;
+  last-update: 2026-09-15; dependencies: MOI-WASM-DOM-FILE-2026-09-08;
+  driver: [RITK workflow 34973438029](https://github.com/ryancinsight/ritk/actions/runs/34973438029).
+- Delivery: [Moirai PR #353](https://github.com/ryancinsight/Moirai/pull/353),
+  merge `2451a3155c44dcf76d5577e4eb8c08badde51a0a`.
+- Evidence: the merged constructor boundary rejects non-finite, negative,
+  fractional and overflowing JavaScript sizes before `WebFile` state exists;
+  native `moirai-pal` nextest passes 77/77, native strict Clippy, WASM library
+  strict Clippy and the locked WASM check pass. RITK workflow 34973438029
+  reads all 94 real MRI-DIR files in Chromium and Firefox with the bounded
+  reader. Safari 26.6.2 accepts the chooser but rejects the first bounded read
+  (`File.arrayBuffer`, sliced `Blob.arrayBuffer`, `FileReader` and object-URL
+  stream) with `NotReadableError`/`TypeError`; the captured WebKit sandbox
+  denials are the external re-open trigger. No DICOM parser, native permission
+  or unbounded fallback belongs in this item.
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 
 <a id="MOI-WINDOW-KEY-MODIFIERS-2026-09-15"></a>
@@ -650,10 +641,10 @@
 <a id="MOI-WASM-DOM-KEYS-2026-09-14"></a>
 ## MOI-WASM-DOM-KEYS-2026-09-14 — Expose bounded browser keyboard metadata [minor]
 
-- Status: in-progress; priority: P1; owner: Moirai WASM DOM; integrator: root; branch: `feat/wasm-keyboard-metadata`; regions: `moirai-pal/Cargo.toml`, `moirai-pal/src/wasm/dom`, `moirai-pal/src/wasm/mod.rs`, `docs/backlog.md`; dependencies: MOI-WASM-2026-09-06-DOM; risk: unbounded browser strings or dropped repeat/modifier state.
-- Scope: expose bounded `KeyboardEvent` key/code, repeat and modifier snapshots through Moirai's owned listener seam; application shortcuts and domain actions remain consumer-owned.
-- Acceptance: keydown/keyup consumers receive bounded value-semantic metadata, repeated keydowns and modifiers are preserved, over-budget names fail with typed I/O errors, listener Drop still removes callbacks, and locked native/WASM checks plus focused tests pass.
-- Demonstration: Metis consumes the seam for its format-neutral browser canvas controls; RITK maps the resulting keyboard values to cine actions while retaining DICOM ownership.
+- Status: done; priority: P1; integrator: root; delivery: [Moirai PR #337](https://github.com/ryancinsight/Moirai/pull/337), merge `c110452ec8a8057a98deab330f9047b1c7efd522`; last-update: 2026-09-15.
+- Outcome: the owned listener seam exposes bounded key/code values, repeat and modifier snapshots for keydown/keyup; application shortcuts and domain actions remain consumer-owned.
+- Evidence: native and WASM checks, strict Clippy and focused PAL tests pass. Metis PR #142 and RITK PR #380 consume the seam; RITK workflow 34973438029 records trusted `=`/`-` cine-rate controls and repeat suppression in Chromium and Firefox. WebKit remains the bounded file-read residual recorded above; DICOM ownership remains in RITK.
+- Decision: [ADR 0007](adr/0007-webassembly-browser-event-loop-integration.md).
 
 <a id="MOI-WASM-DOM-CONTROLS-2026-09-07"></a>
 ## MOI-WASM-DOM-CONTROLS-2026-09-07 — Expose checked browser control state [minor]
