@@ -1,5 +1,14 @@
 # Moirai Development Backlog (SSOT)
 
+<a id="MOI-PAL-WEBVIEW2-OPTIONAL-2026-09-15"></a>
+## MOI-PAL-WEBVIEW2-OPTIONAL-2026-09-15 — Every Windows consumer builds a WebView2 host [minor] [build] — todo
+
+- **Finding.** `moirai-pal` declares `webview2-com = "0.38.2"` and `windows` 0.61 in its `cfg(windows)` target dependency table with no feature gate (added by `9e045f73 feat(pal): Add bounded WebView2 host`). `moirai-runtime` reaches `moirai-pal` through `moirai-async` and `moirai-executor`, so every Windows build of a moirai consumer compiles a WebView2 COM binding. leto-ops, a numerics crate, carries it in its normal build graph (`cargo tree -p leto-ops -e normal -i webview2-com`), and kwavers main already locks it.
+- **Change.** Move the WebView2 host out of the platform layer the executor depends on, into its own crate or behind a feature no executor path enables, so consumers that never open a web view do not build it.
+- **Acceptance:** `cargo tree -e normal -i webview2-com` from `moirai-runtime` with default features is empty on Windows; the WebView2 host keeps its tests behind its crate or feature; leto and kwavers locks drop `webview2-com` on their next moirai advance.
+- **Consumer evidence:** leto `LETO-LEAPFROG-UNIT-TASKS-2026-09-15` advanced moirai `00fb0aec..f963d76e`, which brought in webview2-com and windows 0.61.
+- **Status:** todo, not claimed; filed 2026-09-15 by claude-opus-5.
+
 <a id="MOI-UNIT-TASK-TRIPLE-2026-09-15"></a>
 ## MOI-UNIT-TASK-TRIPLE-2026-09-15 — Unit tasks over three aligned mutable buffers [minor] [perf] — done
 
