@@ -53,8 +53,8 @@ Recommended option, adopted:
    - `data.len()` is a whole number of units of `unit_len` elements;
    - `unit_bytes` is what one unit moves in total, including any input the
      closure reads beside it, so a pass over a wide input counts that input;
-   - a task carries `max(1, TASK_BYTES / unit_bytes)` whole units, with
-     `TASK_BYTES = 64 KiB` from the measurements above;
+   - a task carries `max(1, UNIT_TASK_BYTES / unit_bytes)` whole units, with
+     `UNIT_TASK_BYTES = 64 KiB` from the measurements above;
    - the decision is `P::parallelize_work(data.len(), tasks, units *
      unit_bytes)`;
    - `f(&mut state, first_unit, units)` receives the index of its first unit
@@ -86,7 +86,8 @@ Recommended option, adopted:
   destination rows need not divide into whole groups of those columns. The
   operator has no per-task unit floor and no ragged final unit; whether to add
   a floor is decided, and measured, when leto-ops migrates.
-- `TASK_BYTES` becomes one measured constant owned by moirai; a consumer whose
+- `UNIT_TASK_BYTES` becomes one measured constant owned by moirai, replacing
+  apollo's `TASK_BYTES` and leto-ops' `PARALLEL_TRANSPOSE_TASK_BYTES`; a consumer whose
   unit exceeds it runs one unit per task, as today.
 
 ## Verification
