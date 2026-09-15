@@ -9,13 +9,10 @@
 - Status: in-progress; integrator: claude-opus-5; branch: `feat/moirai-unit-task-pair`; last-update: 2026-09-15.
 
 <a id="MOI-BYTE-SIZED-TASKS-2026-09-15"></a>
-## MOI-BYTE-SIZED-TASKS-2026-09-15 — Chunk operators decide parallelism and task width by bytes moved [minor] [perf]
+## MOI-BYTE-SIZED-TASKS-2026-09-15 — Chunk operators decide parallelism and task width by bytes moved [minor] [perf] — done
 
-- Outcome: a chunk operator sizes its tasks and chooses parallel execution from the bytes each unit moves, so consumers state their unit geometry instead of hand-deriving thresholds and task widths.
-- Driver: three hand-made copies of that decision — apollo `lanes.rs` (`PARALLEL_BYTES`, `TASK_BYTES`, a manual `Parallel`/`Sequential` branch in `paired`), leto-ops `layout/complex/batch.rs` (a private 1 MiB floor and 64 KiB tasks), and kwavers' PSTD kernels, which dispatch per element through `enumerate_mut_with::<Adaptive>`.
-- Scope: `moirai-parallel` policy and chunk operators; an ADR (0059) records the design. Non-goals: changing `Adaptive`'s element threshold or any existing operator's behaviour.
-- Acceptance: operators that take a unit length and per-unit byte weight derive task width and the parallel decision; native tests prove whole-unit task boundaries, ragged tails and both decisions; apollo's paired pass reproduces its measured 32³ and 64³ timings through the operator.
-- Status: in-progress; integrator: claude-opus-5; branch: `feat/moirai-byte-sized-tasks`; last-update: 2026-09-15.
+- #346: `parallelize_work`, `WorkBytes`, `for_each_unit_task_mut_with` ([ADR 0059](adr/0059-byte-sized-unit-tasks.md), Accepted). Consumers: kwavers #774 (PSTD split-field kernels, bitwise-identical), apollo #460 (`lanes::each`/`paired`, scheduling unchanged, apollo's task width and hand branch deleted).
+- leto-ops' batched transpose keeps its own tasking: it needs a per-task floor of source columns the operator does not model (ADR 0059, Consequences).
 
 <a id="MOI-CHUNK-POLICY-GEOMETRY-2026-09-11"></a>
 ## MOI-CHUNK-POLICY-GEOMETRY-2026-09-11 — Expose chunk geometry to execution policies [minor]
