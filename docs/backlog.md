@@ -376,9 +376,10 @@
 <a id="MOI-WASM-DOM-FILE-SAFARI-2026-09-14"></a>
 ## MOI-WASM-DOM-FILE-SAFARI-2026-09-14 — Recover bounded WebKit file reads [patch]
 
-- Outcome: the bounded browser-file reader uses a portable object-URL response
-  stream that can read the selected `File` across the hosted engines while
-  preserving the caller buffer and one-read memory limits.
+- Outcome: the bounded browser-file reader uses `File.arrayBuffer()` for a
+  first read that covers files within the 1 MiB provider bound and a portable
+  object-URL response stream for larger or positioned reads, preserving the
+  caller buffer and one-read memory limits.
 - Scope: `moirai-pal` WASM file reader, required `web-sys` object-URL/fetch
   bindings and the existing browser-file decision record; no consumer API,
   DICOM logic, native permissions or unbounded fallback.
@@ -387,7 +388,8 @@
   chunk bound, releases its stream reader on completion/error, and native/WASM
   checks remain warning-clean.
 - Status: in-progress; priority: P1; integrator: root; branch:
-  `docs/moirai-safari-evidence`; regions: `docs/backlog.md`;
+  `fix/moirai-safari-file-read`; regions: `moirai-pal/src/wasm/file.rs`,
+  `docs/backlog.md`;
   last-update: 2026-09-14;
   dependencies:
   MOI-WASM-DOM-FILE-2026-09-08; driver:
@@ -402,8 +404,9 @@
   `moirai-pal` nextest passes 77/77. Hosted run 34905504112 passes Chromium and
   Firefox with the default reader but WebKit still rejects the first read after
   accepting all 94 files. The merged object-URL response stream passes strict
-  native and WASM checks and the Moirai hosted gates; a hosted RITK acceptance
-  rerun against `27d9b061` is required.
+  native and WASM checks and the Moirai hosted gates; RITK run 34918193668 still
+  rejects Safari's first sliced read, so the bounded whole-file path is the
+  current fix under verification.
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>

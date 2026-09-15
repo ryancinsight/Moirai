@@ -31,6 +31,9 @@ impl WebFile {
     /// The browser file remains outside Rust-owned storage. A read larger than
     /// [`MAX_READ_BYTES`] is rejected before a `Blob` or stream scratch buffer is
     /// created, so an untrusted file cannot force a large provider allocation.
+    /// A first read that covers a file no larger than the same bound uses the
+    /// browser `File.arrayBuffer()` operation; later or larger reads use the
+    /// bounded object-URL response stream.
     ///
     /// # Errors
     /// Returns an I/O error when the buffer is over the provider bound, the
@@ -53,18 +56,22 @@ impl WebFile {
         if length == 0 {
             return Ok(0);
         }
-        let end_position = advance_cursor(self.position, length)?;
-        let blob = self
-            .file_handle
-            .slice_with_f64_and_f64(self.position as f64, end_position as f64)
-            .map_err(|_| io::Error::other("browser rejected the file slice"))?;
         let target_len = usize::try_from(length).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "browser file read length cannot be represented",
             )
         })?;
-        let copied = read_blob_via_object_url(blob, &mut buf[..target_len]).await?;
+        let copied = if self.position == 0 && length == size && target_len <= MAX_READ_BYTES {
+            read_small_file_array_buffer(&self.file_handle, &mut buf[..target_len]).await?
+        } else {
+            let end_position = advance_cursor(self.position, length)?;
+            let blob = self
+                .file_handle
+                .slice_with_f64_and_f64(self.position as f64, end_position as f64)
+                .map_err(|_| io::Error::other("browser rejected the file slice"))?;
+            read_blob_via_object_url(blob, &mut buf[..target_len]).await?
+        };
         let copied = u64::try_from(copied).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -112,6 +119,31 @@ impl WebFile {
         self.position = pos;
         Ok(())
     }
+}
+
+async fn read_small_file_array_buffer(
+    file: &web_sys::File,
+    buffer: &mut [u8],
+) -> io::Result<usize> {
+    let value = JsFuture::from(file.array_buffer())
+        .await
+        .map_err(|_| io::Error::other("browser rejected the bounded whole-file read"))?;
+    let array_buffer = js_sys::ArrayBuffer::from(value);
+    let bytes = js_sys::Uint8Array::new(&array_buffer);
+    let available = usize::try_from(bytes.length()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "browser whole-file result length cannot be represented",
+        )
+    })?;
+    if available != buffer.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "browser whole-file result length disagrees with its declared size",
+        ));
+    }
+    bytes.copy_to(buffer);
+    Ok(available)
 }
 
 fn checked_size(file: &web_sys::File) -> io::Result<u64> {
