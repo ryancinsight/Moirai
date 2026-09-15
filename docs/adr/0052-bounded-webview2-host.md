@@ -4,6 +4,12 @@ Status: Accepted
 
 Date: 2026-09-09
 
+Revision: 2026-09-15
+
+Revision note: the WebView2 provider is now an opt-in `moirai-pal/webview2`
+feature so executor-facing Windows consumers do not compile the COM binding;
+the host contract and bounded runtime behavior are unchanged.
+
 Driver: [MOI-WINDOW-WEBVIEW2-2026-09-09](../backlog.md#MOI-WINDOW-WEBVIEW2-2026-09-09),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
 
@@ -18,7 +24,8 @@ would keep the Tauri, Wry, egui, GPUI or Iced runtime choice in every consumer.
 
 ## Decision
 
-Add a Windows-only WebView2 provider below `moirai-pal::windows`. The provider
+Add a Windows-only WebView2 provider below `moirai-pal::windows`, gated behind
+the opt-in `moirai-pal/webview2` feature. The provider
 consumes and owns one `NativeWindow`, initializes COM on its creating thread,
 creates one WebView2 environment and controller, and exposes only Rust-owned
 configuration and value events. The owner thread pumps its message queue with a
@@ -81,10 +88,13 @@ that host and verifies the packaged page, bridge message and denied navigation
 when the runtime is present. The provider's finite pump bound and queue
 overflow are value-tested without sleeps or polling loops.
 
-The Windows loader and browser runtime are system prerequisites; non-Windows
-and WASM builds omit this module. Miri cannot execute COM or Win32, so the
-unsafe boundary is covered by the native Windows lifecycle test and source-level
-safety review. Runtime registration remains a system prerequisite. The Metis
+The Windows loader and browser runtime are system prerequisites; non-Windows,
+WASM and default-feature Windows builds omit this module. Miri cannot execute
+COM or Win32, so the unsafe boundary is covered by the native Windows lifecycle
+test and source-level safety review. Runtime registration remains a system
+prerequisite. The default `moirai-pal` dependency graph contains no
+`webview2-com`; enabling `webview2` restores the provider and its ignored
+runtime smoke. The Metis
 packaged-bundle capture is recorded at
 [`metis/docs/manual/images/native-captures.json`](../../metis/docs/manual/images/native-captures.json)
 and verifies the page-to-host bridge result on WebView2 `152.0.4191.66`.
