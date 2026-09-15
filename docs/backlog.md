@@ -412,11 +412,10 @@
 <a id="MOI-WINDOW-KEY-MODIFIERS-2026-09-15"></a>
 ## MOI-WINDOW-KEY-MODIFIERS-2026-09-15 — Preserve native keyboard modifiers [minor]
 
-- Status: in-progress; priority: P1; owner: Moirai Win32 window provider; integrator: root; branch: `feat/native-key-modifiers`; regions: `moirai-pal/src/windows/window/event.rs`, `moirai-pal/src/windows/window/native.rs`, `moirai-pal/src/windows/window/tests.rs`, `docs/adr/0049-win32-window-provider.md`; dependencies: MOI-WINDOW-WIN32-2026-09-08; risk: shortcut state loss at the native host boundary.
-- Scope: attach the provider's tracked modifier snapshot to bounded keydown/keyup values. Consumer shortcuts remain application-owned; no global key-state sampling or path/DICOM data crosses the provider.
-- Acceptance: left/right modifier transitions and ordinary key events retain value-semantic Control/Shift/Alt/Meta snapshots, repeated keys remain explicit, queue bounds and teardown stay unchanged, and locked native/WASM checks pass.
-- Demonstration: RITK consumes the snapshot for a native `Ctrl+O` saved-study reopen action while DICOM scanning and decoding remain RITK-owned.
-- Decision: [ADR 0049](adr/0049-win32-window-provider.md).
+- Outcome: native keydown/keyup values carry the tracked Control, Shift, Alt and Meta snapshot; keydown is sampled after press and keyup after release, with repeated keys explicit.
+- Status: done; priority: P1; integrator: root; delivery: `43d6850`; last-update: 2026-09-15.
+- Evidence: `cargo fmt --check`; locked `moirai-pal` nextest 77/77; native strict Clippy; wasm check and strict Clippy; Windows lifecycle assertions cover simultaneous Control+Shift and modifier release. [ADR 0049](adr/0049-win32-window-provider.md).
+- Consumer: RITK owns the native `Ctrl+O` saved-study reopen action; DICOM scanning and decoding remain RITK-owned.
 
 <a id="MOI-WINDOW-WIN32-2026-09-08"></a>
 ## MOI-WINDOW-WIN32-2026-09-08 — Win32 window event and presentation provider [arch] [minor]
