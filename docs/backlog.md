@@ -1,5 +1,13 @@
 # Moirai Development Backlog (SSOT)
 
+<a id="MOI-UNIT-TASK-PAIR-2026-09-15"></a>
+## MOI-UNIT-TASK-PAIR-2026-09-15 — Unit tasks over two aligned mutable buffers [minor] [perf]
+
+- Outcome: `for_each_unit_task_pair_mut_with` hands each byte-sized task aligned runs of whole units from two mutable buffers, for kernels that write two fields per element in one pass.
+- Driver: kwavers' linear EOS writes `div_u` and `p` per element in one fused traversal and is the last PSTD step kernel on a hand-sized chunk (`PRESSURE_UPDATE_CHUNK = 4096`); ADR 0059 rejected pair forms for want of such a consumer.
+- Acceptance: native tests prove aligned whole-unit runs with a ragged tail under `Parallel` and `Sequential`, one state per task, and a length mismatch rejected; the kwavers EOS migrates bitwise-identically.
+- Status: in-progress; integrator: claude-opus-5; branch: `feat/moirai-unit-task-pair`; last-update: 2026-09-15.
+
 <a id="MOI-BYTE-SIZED-TASKS-2026-09-15"></a>
 ## MOI-BYTE-SIZED-TASKS-2026-09-15 — Chunk operators decide parallelism and task width by bytes moved [minor] [perf]
 
