@@ -399,23 +399,28 @@
   regression driver for the promise-based read path.
 
 <a id="MOI-WASM-DOM-FILE-SAFARI-2026-09-14"></a>
-## MOI-WASM-DOM-FILE-SAFARI-2026-09-14 — Recover bounded WebKit file reads [patch]
+## MOI-WASM-DOM-FILE-SAFARI-2026-09-14 — Recover bounded WebKit file reads [minor]
 
-- Outcome: the bounded browser-file reader uses `File.arrayBuffer()` for a
+- Outcome: the bounded browser-file reader rejects malformed JavaScript size
+  metadata at construction, then uses `File.arrayBuffer()` for a
   first read that covers files within the 1 MiB provider bound and a portable
   object-URL response stream for larger or positioned reads, preserving the
   caller buffer and one-read memory limits.
-- Scope: `moirai-pal` WASM file reader, required `web-sys` object-URL/fetch
-  bindings and the existing browser-file decision record; no consumer API,
-  DICOM logic, native permissions or unbounded fallback.
-- Acceptance: Chromium, Firefox and WebKit hosted chooser runs read the saved
-  study or return a typed provider error; every read stays within the 1 MiB
-  chunk bound, releases its stream reader on completion/error, and native/WASM
-  checks remain warning-clean.
+- Scope: `moirai-pal` WASM file reader, validated browser-size boundary,
+  required `web-sys` object-URL/fetch bindings and the existing browser-file
+  decision record; no consumer API, DICOM logic, native permissions or
+  unbounded fallback.
+- Acceptance: non-finite, negative, fractional and overflowing JavaScript
+  sizes fail with typed `InvalidInput` before reader construction; Chromium,
+  Firefox and WebKit hosted chooser runs read the saved study or return a
+  typed provider error; every read stays within the 1 MiB chunk bound,
+  releases its stream reader on completion/error, and native/WASM checks
+  remain warning-clean.
 - Status: in-progress; priority: P1; integrator: root; branch:
-  `fix/moirai-safari-file-read`; regions: `moirai-pal/src/wasm/file.rs`,
-  `docs/backlog.md`;
-  last-update: 2026-09-14;
+  `fix/wasm-file-size-validation`; regions:
+  `moirai-pal/src/wasm/file.rs`, `moirai-pal/src/wasm/dom/file_drop.rs`,
+  `docs/adr/0050-bounded-browser-file-access.md`, `docs/backlog.md`;
+  last-update: 2026-09-15;
   dependencies:
   MOI-WASM-DOM-FILE-2026-09-08; driver:
   [RITK workflow 34902810268](https://github.com/ryancinsight/ritk/actions/runs/34902810268).
@@ -431,7 +436,10 @@
   accepting all 94 files. The merged object-URL response stream passes strict
   native and WASM checks and the Moirai hosted gates; RITK run 34918193668 still
   rejects Safari's first sliced read, so the bounded whole-file path is the
-  current fix under verification.
+  current fix under verification. The follow-on constructor boundary rejects
+  malformed JavaScript sizes before `WebFile` state exists; native
+  `moirai-pal` nextest passes 77/77, native strict Clippy, WASM library strict
+  Clippy and the locked WASM check pass for this increment.
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 
 <a id="MOI-WINDOW-KEY-MODIFIERS-2026-09-15"></a>

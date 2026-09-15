@@ -14,16 +14,23 @@ pub const MAX_READ_BYTES: usize = crate::file_policy::MAX_READ_BYTES;
 /// Owns a browser `File` and a validated sequential read cursor.
 pub struct WebFile {
     file_handle: web_sys::File,
+    size_bytes: u64,
     position: u64,
 }
 
 impl WebFile {
     /// Creates a reader from a browser `File` object.
-    pub fn from_js_file(file: web_sys::File) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::InvalidInput`] when the browser-reported size
+    /// is not a finite, non-negative integer representable by `u64`.
+    pub fn from_js_file(file: web_sys::File) -> io::Result<Self> {
+        let size_bytes = parse_size(file.size())?;
+        Ok(Self {
             file_handle: file,
+            size_bytes,
             position: 0,
-        }
+        })
     }
 
     /// Reads the next bounded chunk into the caller-provided buffer.
@@ -36,16 +43,16 @@ impl WebFile {
     /// bounded object-URL response stream.
     ///
     /// # Errors
-    /// Returns an I/O error when the buffer is over the provider bound, the
-    /// browser reports an invalid size, cursor arithmetic overflows, or the
-    /// browser rejects the bounded object-URL response stream.
+    /// Returns an I/O error when the buffer is over the provider bound, cursor
+    /// arithmetic overflows, or the browser rejects the bounded object-URL
+    /// response stream.
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let requested = validate_buffer_length(buf.len())?;
         if buf.is_empty() {
             return Ok(0);
         }
 
-        let size = checked_size(&self.file_handle)?;
+        let size = self.size_bytes;
         if self.position > size {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -87,15 +94,10 @@ impl WebFile {
         })
     }
 
-    /// Returns the validated browser-reported file size in bytes.
+    /// Returns the validated browser file size in bytes.
     #[must_use]
     pub fn size(&self) -> u64 {
-        let size = self.file_handle.size();
-        debug_assert!(
-            size.is_finite() && !size.is_sign_negative() && size.fract() == 0.0,
-            "invariant: browser File.size is a finite non-negative integer"
-        );
-        size as u64
+        self.size_bytes
     }
 
     /// Returns the current sequential read cursor.
@@ -104,12 +106,12 @@ impl WebFile {
         self.position
     }
 
-    /// Moves the read cursor within the browser-reported file size.
+    /// Moves the read cursor within the validated browser file size.
     ///
     /// # Errors
     /// Returns [`io::ErrorKind::InvalidInput`] when `pos` is beyond the file.
     pub fn seek(&mut self, pos: u64) -> io::Result<()> {
-        let size = checked_size(&self.file_handle)?;
+        let size = self.size_bytes;
         if pos > size {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -144,10 +146,6 @@ async fn read_small_file_array_buffer(
     }
     bytes.copy_to(buffer);
     Ok(available)
-}
-
-fn checked_size(file: &web_sys::File) -> io::Result<u64> {
-    parse_size(file.size())
 }
 
 struct StreamReader {
