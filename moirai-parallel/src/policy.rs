@@ -75,6 +75,19 @@ pub trait ExecutionPolicy: Send + Sync + 'static {
         Self::parallelize(len)
     }
 
+    /// Return `true` if an operation over `len` elements, scheduled as `chunks`
+    /// tasks and moving `bytes` in total, should run in parallel.
+    ///
+    /// The default keeps policies expressed in element and chunk counts. A
+    /// policy whose crossover is a quantity of data rather than a count of
+    /// elements overrides this: a pass over wide elements, or over an output
+    /// beside a wider input, moves more than its element count says (ADR 0059).
+    #[inline(always)]
+    fn parallelize_work(len: usize, chunks: usize, bytes: usize) -> bool {
+        let _ = bytes;
+        Self::parallelize_chunks(len, chunks)
+    }
+
     /// Return `true` if a fixed two-branch operation should run in parallel.
     #[inline(always)]
     fn parallelize_pair() -> bool {
@@ -128,5 +141,27 @@ impl<const N: usize> ExecutionPolicy for AdaptiveWithThreshold<N> {
     #[inline(always)]
     fn parallelize(len: usize) -> bool {
         len >= N
+    }
+}
+
+/// Run in parallel only for an operation that moves at least `N` bytes.
+///
+/// Byte-reporting operators such as
+/// [`for_each_unit_task_mut_with`](crate::for_each_unit_task_mut_with) decide
+/// through [`ExecutionPolicy::parallelize_work`]. Entry points that report only
+/// an element count are treated as moving one byte per element, a lower bound
+/// for any element type, so they lean serial rather than over-schedule.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WorkBytes<const N: usize>;
+
+impl<const N: usize> ExecutionPolicy for WorkBytes<N> {
+    #[inline(always)]
+    fn parallelize(len: usize) -> bool {
+        len >= N
+    }
+
+    #[inline(always)]
+    fn parallelize_work(_len: usize, _chunks: usize, bytes: usize) -> bool {
+        bytes >= N
     }
 }

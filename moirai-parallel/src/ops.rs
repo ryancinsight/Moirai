@@ -32,12 +32,14 @@ use moirai_executor::{HybridExecutor, SchedulerScope, SyncTask, global};
 use std::sync::Mutex;
 
 mod chunks;
+mod unit_tasks;
 pub use chunks::{
     ChunkBuffersError, for_each_chunk_buffers_mut_enumerated_with,
     for_each_chunk_mut_enumerated_with, for_each_chunk_mut_with, for_each_chunk_mut_with_state,
     for_each_chunk_pair_mut_enumerated_with, for_each_chunk_quad_mut_enumerated_with,
     for_each_chunk_triple_mut_enumerated_with,
 };
+pub use unit_tasks::{UNIT_TASK_BYTES, for_each_unit_task_mut_with, units_per_task};
 
 /// State of the scheduled branch of a join.
 ///

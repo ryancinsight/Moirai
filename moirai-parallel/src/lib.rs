@@ -47,7 +47,7 @@ mod policy;
 
 pub use policy::{
     ADAPTIVE_PARALLEL_THRESHOLD, Adaptive, AdaptiveWithThreshold, ExecutionPolicy, Parallel,
-    Sequential,
+    Sequential, WorkBytes,
 };
 
 use core::marker::PhantomData;
@@ -88,13 +88,14 @@ impl<T> DisjointMutPtr<T> {
 /// Synchronous data-parallel operators and free functions.
 pub mod ops;
 pub use ops::{
-    ChunkBuffersError, Scope, enumerate_mut_with, enumerate_with, fold_reduce_with,
-    for_each_chunk_buffers_mut_enumerated_with, for_each_chunk_mut_enumerated_with,
-    for_each_chunk_mut_with, for_each_chunk_mut_with_state,
+    ChunkBuffersError, Scope, UNIT_TASK_BYTES, enumerate_mut_with, enumerate_with,
+    fold_reduce_with, for_each_chunk_buffers_mut_enumerated_with,
+    for_each_chunk_mut_enumerated_with, for_each_chunk_mut_with, for_each_chunk_mut_with_state,
     for_each_chunk_pair_mut_enumerated_with, for_each_chunk_quad_mut_enumerated_with,
     for_each_chunk_triple_mut_enumerated_with, for_each_index_with, for_each_mut_with,
-    for_each_with, join, join_with, map_collect_index_with, map_collect_mut_with, map_collect_with,
-    map_reduce_with, reduce_index_with, scope,
+    for_each_unit_task_mut_with, for_each_with, join, join_with, map_collect_index_with,
+    map_collect_mut_with, map_collect_with, map_reduce_with, reduce_index_with, scope,
+    units_per_task,
 };
 
 // ---------------------------------------------------------------------------
