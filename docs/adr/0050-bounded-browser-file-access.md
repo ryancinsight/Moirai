@@ -28,9 +28,17 @@ disk-backed-file stream path while keeping byte chunks browser-owned. The
 reader lock is released on every completion or error, and the object URL is
 revoked on success, failure or cancellation. The provider continues to advance
 its cursor only by copied bytes and surfaces response/stream failures as typed
-I/O errors; it does not fall back to a whole-file allocation or expose the
+I/O errors; it does not allocate beyond the provider bound or expose the
 browser handle. The hosted chooser matrix remains the acceptance oracle for
 this provider path.
+
+Revision: 2026-09-15 — the hosted run still rejected Safari's first sliced
+object-URL read. A first read that covers a file no larger than the provider's
+1 MiB bound now uses `File.arrayBuffer()` directly; larger, later and positioned
+reads retain the bounded object-URL response stream. Metis requests the full
+bounded file on its first read when that is safe, so the saved 529,864-byte
+DICOM instances use the Safari-compatible path without allowing an unbounded
+allocation. The cross-engine chooser run remains the acceptance oracle.
 
 Driver: [MOI-WASM-DOM-FILE-2026-09-08](../backlog.md#MOI-WASM-DOM-FILE-2026-09-08),
 [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
@@ -52,10 +60,12 @@ with an owned browser file reader. The entry exposes metadata accessors and an
 asynchronous read/seek surface; the JavaScript `File` object remains private to
 Moirai. Reads use caller-provided buffers, reject a buffer above the provider's
 fixed chunk bound, validate the browser-reported size and cursor arithmetic, and
-advance the cursor only by bytes copied. Each bounded `Blob` slice is read
-through a local object URL's response stream; dropping the Rust future revokes
-the URL, while the browser owns completion of that already-started read. The
-response reader is released before the future returns or reports an error.
+advance the cursor only by bytes copied. A first whole-file read within the
+bound uses the browser `File.arrayBuffer()` promise; each other bounded `Blob`
+slice is read through a local object URL's response stream. Dropping the Rust
+future revokes the URL, while the browser owns completion of that already-started
+read. The response reader is released before the future returns or reports an
+error.
 
 The existing `drop_metadata` API and value semantics remain unchanged. The new
 surface does not parse DICOM, infer a path, grant native permissions, or retain
