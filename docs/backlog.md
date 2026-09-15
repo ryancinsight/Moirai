@@ -7,7 +7,11 @@
 - **Change.** Move the WebView2 host out of the platform layer the executor depends on, into its own crate or behind a feature no executor path enables, so consumers that never open a web view do not build it.
 - **Acceptance:** `cargo tree -e normal -i webview2-com` from `moirai-runtime` with default features is empty on Windows; the WebView2 host keeps its tests behind its crate or feature; leto and kwavers locks drop `webview2-com` on their next moirai advance.
 - **Consumer evidence:** leto `LETO-LEAPFROG-UNIT-TASKS-2026-09-15` advanced moirai `00fb0aec..f963d76e`, which brought in webview2-com and windows 0.61.
-- **Status:** todo, not claimed; filed 2026-09-15 by claude-opus-5.
+- **Status:** in-progress; **integrator:** root; **branch:**
+  `arch/pal-webview2-optional`; **regions:** `moirai-pal/Cargo.toml`,
+  `moirai-pal/src/lib.rs`, `moirai-pal/src/windows/mod.rs`,
+  `moirai-pal/README.md`, `docs/adr/0052-bounded-webview2-host.md`,
+  `docs/backlog.md`; **last-update:** 2026-09-15.
 
 <a id="MOI-UNIT-TASK-TRIPLE-2026-09-15"></a>
 ## MOI-UNIT-TASK-TRIPLE-2026-09-15 — Unit tasks over three aligned mutable buffers [minor] [perf] — done
