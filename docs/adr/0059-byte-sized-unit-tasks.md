@@ -68,10 +68,11 @@ Recommended option, adopted:
 
 - **A byte-aware policy with no new operator.** Rejected: task width would
   still be derived per consumer, which is the copy this removes.
-- **Pair, triple and quad unit operators.** Rejected: the inputs of every
-  current consumer are shared, not mutable, so indexing them by unit index
-  serves all of them with one operator; the mutable multi-buffer forms stay
-  as they are.
+- **Pair, triple and quad unit operators.** Rejected while every consumer
+  wrote one buffer: shared inputs are indexed by unit, so one operator served
+  them all. A pair form was admitted once a consumer wrote two fields per
+  element in one pass (revision 2026-09-15, below); triple and quad forms
+  remain unadopted until a consumer writes three.
 - **Leto-ops as the home.** Rejected: the decision needs no layout knowledge,
   and apollo would still reach it through leto only for scheduling.
 
@@ -106,3 +107,16 @@ against the per-element formulas. apollo #460 routes `lanes::each` and
 `lanes::paired` through it: the policy decision and task width are the
 ones they replace by construction, and `lane_threshold`'s per-run minima
 agree within 1% (medians were invalid under host load).
+
+## Revision 2026-09-15 — Paired unit tasks
+
+kwavers' linear equation of state writes `div_u` and `p` per element in one
+fused traversal, which the single-buffer operator cannot hand out, and it was
+the last PSTD step kernel on a hand-sized chunk. moirai #348 adds
+`for_each_unit_task_pair_mut_with(a, b, unit_len, unit_bytes, init, f)`: two
+buffers of one length, each task receiving the same run of whole units from
+both, with the task width and `parallelize_work` decision of the single-buffer
+operator and `unit_bytes` counting one unit of each buffer plus the inputs read
+beside them. Native tests cover aligned runs with a ragged tail under both
+policies, one state per task, and mismatched lengths rejected.
+
