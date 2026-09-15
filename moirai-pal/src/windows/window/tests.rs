@@ -12,7 +12,7 @@ use std::io;
 use std::time::Duration;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
-use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_LWIN, VK_MENU};
+use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_LWIN, VK_MENU, VK_SHIFT};
 use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageW, SC_CLOSE, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_IME_COMPOSITION,
     WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN,
@@ -215,11 +215,39 @@ fn native_window_lifecycle_and_frame_round_trip() {
         PostMessageW(
             Some(window.hwnd),
             WM_KEYDOWN,
+            WPARAM(usize::from(VK_CONTROL.0)),
+            key_lparam(0x1d, false, false),
+        )
+        .expect("Control down");
+        PostMessageW(
+            Some(window.hwnd),
+            WM_KEYDOWN,
+            WPARAM(usize::from(VK_SHIFT.0)),
+            key_lparam(0x2a, false, false),
+        )
+        .expect("Shift down");
+        PostMessageW(
+            Some(window.hwnd),
+            WM_KEYDOWN,
             WPARAM(0x41),
             LPARAM(1_i32 as isize),
         )
         .expect("key down");
         PostMessageW(Some(window.hwnd), WM_KEYUP, WPARAM(0x41), LPARAM(0)).expect("key up");
+        PostMessageW(
+            Some(window.hwnd),
+            WM_KEYUP,
+            WPARAM(usize::from(VK_SHIFT.0)),
+            key_lparam(0x2a, false, false),
+        )
+        .expect("Shift up");
+        PostMessageW(
+            Some(window.hwnd),
+            WM_KEYUP,
+            WPARAM(usize::from(VK_CONTROL.0)),
+            key_lparam(0x1d, false, false),
+        )
+        .expect("Control up");
         PostMessageW(Some(window.hwnd), WM_CHAR, WPARAM(0xd83d), LPARAM(0))
             .expect("high surrogate");
         PostMessageW(Some(window.hwnd), WM_CHAR, WPARAM(0xde00), LPARAM(0)).expect("low surrogate");
@@ -294,11 +322,36 @@ fn native_window_lifecycle_and_frame_round_trip() {
             modifiers,
         } if !modifiers.ctrl() && !modifiers.shift() && modifiers.alt() && !modifiers.meta()
     )));
-    assert!(events.contains(&WindowEvent::KeyDown {
-        virtual_key: 0x41,
-        repeated: false,
-    }));
-    assert!(events.contains(&WindowEvent::KeyUp { virtual_key: 0x41 }));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        WindowEvent::KeyDown {
+            virtual_key: 0x41,
+            repeated: false,
+            modifiers,
+        } if modifiers.ctrl() && modifiers.shift() && !modifiers.alt() && !modifiers.meta()
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        WindowEvent::KeyUp {
+            virtual_key: 0x41,
+            modifiers,
+        } if modifiers.ctrl() && modifiers.shift() && !modifiers.alt() && !modifiers.meta()
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        WindowEvent::KeyDown {
+            virtual_key,
+            modifiers,
+            ..
+        } if *virtual_key == u32::from(VK_CONTROL.0) && modifiers.ctrl()
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        WindowEvent::KeyUp {
+            virtual_key,
+            modifiers,
+        } if *virtual_key == u32::from(VK_CONTROL.0) && !modifiers.ctrl()
+    )));
     assert!(events.contains(&WindowEvent::TextInput { character: '😀' }));
     assert!(events.contains(&WindowEvent::TextComposition {
         phase: CompositionPhase::Started,

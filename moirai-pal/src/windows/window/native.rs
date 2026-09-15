@@ -407,6 +407,7 @@ unsafe extern "system" fn window_proc(
                 state.push(WindowEvent::KeyDown {
                     virtual_key,
                     repeated: (lparam.0 & (1 << 30)) != 0,
+                    modifiers: state.modifiers,
                 });
             }
             WM_SYSKEYDOWN => {
@@ -415,6 +416,7 @@ unsafe extern "system" fn window_proc(
                 state.push(WindowEvent::KeyDown {
                     virtual_key,
                     repeated: (lparam.0 & (1 << 30)) != 0,
+                    modifiers: state.modifiers,
                 });
                 // System-key messages carry Alt/menu and F10/F4 behavior that
                 // DefWindowProcW must retain after the PAL records the value event.
@@ -423,12 +425,18 @@ unsafe extern "system" fn window_proc(
             WM_KEYUP => {
                 let virtual_key = wparam.0 as u32;
                 state.update_modifier(virtual_key, lparam, false);
-                state.push(WindowEvent::KeyUp { virtual_key });
+                state.push(WindowEvent::KeyUp {
+                    virtual_key,
+                    modifiers: state.modifiers,
+                });
             }
             WM_SYSKEYUP => {
                 let virtual_key = wparam.0 as u32;
                 state.update_modifier(virtual_key, lparam, false);
-                state.push(WindowEvent::KeyUp { virtual_key });
+                state.push(WindowEvent::KeyUp {
+                    virtual_key,
+                    modifiers: state.modifiers,
+                });
                 return DefWindowProcW(hwnd, message, wparam, lparam);
             }
             WM_CHAR => state.push_text_unit(wparam.0 as u16),

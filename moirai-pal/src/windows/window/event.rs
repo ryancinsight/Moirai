@@ -159,11 +159,15 @@ pub enum WindowEvent {
         virtual_key: u32,
         /// The message is an auto-repeat.
         repeated: bool,
+        /// Modifier keys held when the key message was received.
+        modifiers: ModifierState,
     },
     /// A virtual key was released.
     KeyUp {
         /// Windows virtual-key value.
         virtual_key: u32,
+        /// Modifier keys still held after this key was released.
+        modifiers: ModifierState,
     },
     /// Unicode text produced by the native message queue.
     TextInput {
