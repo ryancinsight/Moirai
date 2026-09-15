@@ -1,6 +1,6 @@
 # ADR 0059: Byte-sized unit tasks
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-15
 - Item: [MOI-BYTE-SIZED-TASKS-2026-09-15](../backlog.md#MOI-BYTE-SIZED-TASKS-2026-09-15)
 
@@ -97,3 +97,12 @@ Recommended option, adopted:
   method's parity with `parallelize_chunks` for existing policies.
 - apollo's `lane_threshold_crossover` probe reproduces its 32³ and 64³ pair
   timings with `paired` routed through the operator.
+
+## Revision 2026-09-15 — Accepted
+
+Implemented in moirai #346 (52 native tests, 4 doctests). kwavers #774 runs
+the PSTD split-field kernels on the operator with bitwise differentials
+against the per-element formulas. apollo #460 routes `lanes::each` and
+`lanes::paired` through it: the policy decision and task width are the
+ones they replace by construction, and `lane_threshold`'s per-run minima
+agree within 1% (medians were invalid under host load).
