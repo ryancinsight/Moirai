@@ -21,7 +21,7 @@ melinoe = { workspace = true, features = ["std"] }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-webview2-com = "0.38.2"
+webview2-com = { version = "0.38.2", optional = true }
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
@@ -100,6 +100,7 @@ default = ["parallel", "mnemosyne-memory"]
 parallel = []
 mnemosyne-memory = []
 metrics = ["moirai-core/metrics"]
+webview2 = ["dep:webview2-com"]
 
 [lints]
 workspace = true

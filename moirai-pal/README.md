@@ -24,6 +24,9 @@ returned as bounded UTF-8 snapshots.
 
 `windows::webview::WebViewHost` embeds the installed Windows WebView2 runtime
 inside a `NativeWindow` for packaged HTML5, CSS and WebAssembly applications.
+The module is opt-in: enable the `webview2` feature on `moirai-pal`; default
+Windows consumers compile the native window and file providers without the
+WebView2 COM binding.
 It admits only a validated `file:///` package prefix, bounds UTF-16 JSON
 messages, denies external and new-window navigation, and keeps creation,
 navigation and teardown waits finite. The WebView2 runtime is a Windows system

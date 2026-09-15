@@ -2,5 +2,6 @@
 
 pub mod dialog;
 pub mod poll;
+#[cfg(feature = "webview2")]
 pub mod webview;
 pub mod window;
