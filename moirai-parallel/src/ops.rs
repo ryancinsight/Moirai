@@ -40,7 +40,8 @@ pub use chunks::{
     for_each_chunk_triple_mut_enumerated_with,
 };
 pub use unit_tasks::{
-    UNIT_TASK_BYTES, for_each_unit_task_mut_with, for_each_unit_task_pair_mut_with, units_per_task,
+    UNIT_TASK_BYTES, for_each_unit_task_mut_with, for_each_unit_task_pair_mut_with,
+    for_each_unit_task_triple_mut_with, units_per_task,
 };
 
 /// State of the scheduled branch of a join.

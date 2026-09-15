@@ -71,8 +71,9 @@ Recommended option, adopted:
 - **Pair, triple and quad unit operators.** Rejected while every consumer
   wrote one buffer: shared inputs are indexed by unit, so one operator served
   them all. A pair form was admitted once a consumer wrote two fields per
-  element in one pass (revision 2026-09-15, below); triple and quad forms
-  remain unadopted until a consumer writes three.
+  element in one pass (revision 2026-09-15, below), and a triple form once a
+  consumer wrote three (revision 2026-09-15, triple, below). A quad form
+  remains unadopted until a consumer writes four.
 - **Leto-ops as the home.** Rejected: the decision needs no layout knowledge,
   and apollo would still reach it through leto only for scheduling.
 
@@ -120,3 +121,17 @@ operator and `unit_bytes` counting one unit of each buffer plus the inputs read
 beside them. Native tests cover aligned runs with a ragged tail under both
 policies, one state per task, and mismatched lengths rejected.
 
+## Revision 2026-09-15 — Triple unit tasks
+
+kwavers adds its PSTD density source to the three split densities `rhox`,
+`rhoy` and `rhoz` per element in one fused traversal, and that kernel was the
+last PSTD step kernel on a hand-sized chunk (`DENSE_SOURCE_CHUNK`, scheduled
+through `for_each_chunk_triple_mut_enumerated_with`).
+`for_each_unit_task_triple_mut_with(a, b, c, unit_len, unit_bytes, init, f)`
+extends the pair form to three buffers of one length. With three operators,
+the whole-unit check, task width, task count and `parallelize_work` decision
+move into one private planner that all three call. Every operator thereby
+makes the same decision for the same `(len, unit_len, unit_bytes)`, and the
+existing single and pair tests pin that the planner changed neither. Native
+tests cover aligned triple runs with a ragged tail under both policies, one
+state per task, and a mismatched second or third buffer rejected.
