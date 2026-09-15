@@ -17,9 +17,13 @@ pub struct DroppedFile {
 
 impl DroppedFile {
     fn from_browser_file(file: &File) -> io::Result<Self> {
+        let size_bytes = parse_size(file.size())?;
+        Self::from_browser_file_with_size(file, size_bytes)
+    }
+
+    fn from_browser_file_with_size(file: &File, size_bytes: u64) -> io::Result<Self> {
         let name = file_name(file.name())?;
         let media_type = media_type(file.type_())?;
-        let size_bytes = parse_size(file.size())?;
         Ok(Self {
             name,
             media_type,
@@ -324,11 +328,9 @@ fn collect_file_access(files: &FileList) -> io::Result<Box<[DroppedFileAccess]>>
                 "Browser file list changed during access capture",
             )
         })?;
-        let metadata = DroppedFile::from_browser_file(&file)?;
-        entries.push(DroppedFileAccess {
-            metadata,
-            reader: WebFile::from_js_file(file),
-        });
+        let reader = WebFile::from_js_file(file.clone())?;
+        let metadata = DroppedFile::from_browser_file_with_size(&file, reader.size())?;
+        entries.push(DroppedFileAccess { metadata, reader });
     }
     Ok(entries.into_boxed_slice())
 }

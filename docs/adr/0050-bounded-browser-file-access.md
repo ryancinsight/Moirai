@@ -40,6 +40,12 @@ bounded file on its first read when that is safe, so the saved 529,864-byte
 DICOM instances use the Safari-compatible path without allowing an unbounded
 allocation. The cross-engine chooser run remains the acceptance oracle.
 
+Follow-on revision 2026-09-15 — `WebFile::from_js_file` now validates the
+browser `File.size()` value before constructing a reader and caches the checked
+`u64`. `size()`, `seek()` and `read()` therefore share one boundary proof, and
+malformed JavaScript metadata returns `InvalidInput` instead of reaching a
+release build's narrowing cast.
+
 Driver: [MOI-WASM-DOM-FILE-2026-09-08](../backlog.md#MOI-WASM-DOM-FILE-2026-09-08),
 [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 
@@ -59,7 +65,8 @@ bounded `DropFiles` snapshot whose entries pair the existing validated metadata
 with an owned browser file reader. The entry exposes metadata accessors and an
 asynchronous read/seek surface; the JavaScript `File` object remains private to
 Moirai. Reads use caller-provided buffers, reject a buffer above the provider's
-fixed chunk bound, validate the browser-reported size and cursor arithmetic, and
+fixed chunk bound, validate the browser-reported size at the fallible reader
+constructor and cursor arithmetic, and
 advance the cursor only by bytes copied. A first whole-file read within the
 bound uses the browser `File.arrayBuffer()` promise; each other bounded `Blob`
 slice is read through a local object URL's response stream. Dropping the Rust
@@ -85,18 +92,20 @@ Moirai PAL and add another runtime dependency.
 ## Threat model and limits
 
 The drop event, metadata and file contents are untrusted. Provider bounds cap
-entry count at 512, metadata strings, one read chunk and cursor arithmetic. Content
-validation and DICOM parsing belong to the consumer decoder. Browser-selected
+entry count at 512, metadata strings, one read chunk and cursor arithmetic. The
+reader constructor rejects non-finite, negative, fractional and overflowing
+JavaScript sizes before any cursor operation. Content validation and DICOM
+parsing belong to the consumer decoder. Browser-selected
 files remain subject to browser origin and user-grant rules; this seam does not
 create native filesystem authority or prove a trusted operating-system drop.
 
 ## Verification
 
-Native value tests cover metadata preservation and read cursor policy where the
-pure validation helpers are available. Commit
-`f51b5c2670c840e8a8302d7f5a5ebeecc57ea076` passes 63 `moirai-pal` tests,
-warning-denied native Clippy and a warning-denied
-`wasm32-unknown-unknown` provider check. Metis adds the consumer compile/use
-surface. The cross-engine RITK chooser run is the browser regression check; a
-browser trace must identify its engine and whether the file came from a trusted
-user operation before claiming byte-read evidence.
+Native value tests cover metadata preservation, malformed JavaScript size
+rejection and read cursor policy where the pure validation helpers are
+available. The provider change passes 77 `moirai-pal` nextest cases,
+warning-denied native Clippy and warning-denied native-library and
+`wasm32-unknown-unknown` checks. Metis adds the consumer compile/use surface.
+The cross-engine RITK chooser run is the browser regression check; a browser
+trace must identify its engine and whether the file came from a trusted user
+operation before claiming byte-read evidence.
