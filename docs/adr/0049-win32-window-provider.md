@@ -24,6 +24,12 @@ Revision 2026-09-12: render the retained client frame for both `WM_PRINT` and
 `WM_PRINTCLIENT`, so the standard `PrintWindow` capture path observes the same
 input-sensitive pixels as `WM_PAINT` without a consumer-specific renderer.
 
+Revision 2026-09-15: attach the provider's tracked modifier snapshot to every
+`KeyDown` and `KeyUp` event. The keydown snapshot is taken after the pressed
+transition, while the keyup snapshot is taken after the released transition,
+so a consumer can distinguish `Ctrl+O` from an unmodified `O` without sampling
+global keyboard state. Repeated-key status remains a separate value.
+
 Driver: [MOI-WINDOW-WIN32-2026-09-08](../backlog.md#MOI-WINDOW-WIN32-2026-09-08),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
 
@@ -49,8 +55,10 @@ changes, left-button and movement messages, `WM_MOUSEWHEEL`,
 `WM_MOUSEHWHEEL`, `WM_KEYDOWN`, `WM_CHAR`, `WM_SIZE` and `WM_DPICHANGED` into
 the provider's value events. `WM_SYSKEYDOWN` and `WM_SYSKEYUP` are recorded as
 keyboard events and then passed to `DefWindowProcW` so system menu and close
-commands remain available. Wheel deltas retain their signed Win32 detent count
-and client coordinates; Control and Shift come from the wheel message's
+commands remain available. Key events retain the modifier snapshot captured
+from this window: keydown includes the newly pressed modifier and keyup
+excludes the released modifier. Wheel deltas retain their signed Win32 detent
+count and client coordinates; Control and Shift come from the wheel message's
 button-state word, while Alt and the Windows key come from modifier key
 transitions observed by this window. Generic modifier virtual keys use the
 scan-code and extended-key fields to preserve left/right state. Focus loss
@@ -120,7 +128,9 @@ posted input wakes the finite wait and observes an empty queue afterward; a
 third native test drives generic left/right Alt messages, verifies the tracked
 modifier remains set until both sides release, and sends the real
 `WM_SYSCOMMAND(SC_CLOSE)` close command used by Alt+F4. The tests do not claim
-a particular installed IME or CJK keyboard journey.
+a particular installed IME or CJK keyboard journey. The lifecycle test also
+asserts that an ordinary key retains simultaneous Control and Shift state and
+that releasing a modifier clears it from the corresponding keyup snapshot.
 The PAL package must pass warning-denied Clippy and native tests on Windows;
 cross-target library checks verify that non-Windows and WASM builds do not
 compile the provider. Miri cannot execute Win32 calls, so the FFI path is
