@@ -1,17 +1,14 @@
 # Moirai Development Backlog (SSOT)
 
 <a id="MOI-UNIT-TASK-TRIPLE-2026-09-15"></a>
-## MOI-UNIT-TASK-TRIPLE-2026-09-15 — Unit tasks over three aligned mutable buffers [minor] [perf] — in-progress
+## MOI-UNIT-TASK-TRIPLE-2026-09-15 — Unit tasks over three aligned mutable buffers [minor] [perf] — done
 
-- **Finding.** kwavers adds a PSTD density source to `rhox`, `rhoy` and `rhoz` per element in one fused pass, the consumer ADR 0059 names as the trigger for a triple form; it still schedules through `for_each_chunk_triple_mut_enumerated_with` with a hand-sized 4096-element chunk. The single and pair operators each carry their own copy of the task-width and `parallelize_work` decision.
-- **Change.** `for_each_unit_task_triple_mut_with` beside the pair form; one private planner derives task width, task count and the policy decision for all three arities. ADR 0059 revision.
-- **Acceptance:** aligned whole-unit runs with a ragged tail under both policies, one state per task, mismatched lengths rejected, doctest; existing unit-task tests unchanged; clippy and docs clean.
-- **Integrator:** claude-opus-5; **branch:** `perf/moirai-unit-task-triple`; **last-update:** 2026-09-15.
+- #350: `for_each_unit_task_triple_mut_with` (59 native tests, 6 doctests) and one private planner shared by the single, pair and triple operators; ADR 0059 revision records the triple form and its consumer, the kwavers PSTD density source; the quad form stays unadopted.
 
 <a id="MOI-UNIT-TASK-PAIR-2026-09-15"></a>
 ## MOI-UNIT-TASK-PAIR-2026-09-15 — Unit tasks over two aligned mutable buffers [minor] [perf] — done
 
-- #348: `for_each_unit_task_pair_mut_with` (55 native tests, 5 doctests); ADR 0059 revision records the pair form and its consumer, kwavers' linear equation of state; triple and quad forms stay unadopted.
+- #348: `for_each_unit_task_pair_mut_with` (55 native tests, 5 doctests); ADR 0059 revision records the pair form and its consumer, kwavers' linear equation of state; a triple form followed in #350.
 
 <a id="MOI-BYTE-SIZED-TASKS-2026-09-15"></a>
 ## MOI-BYTE-SIZED-TASKS-2026-09-15 — Chunk operators decide parallelism and task width by bytes moved [minor] [perf] — done
