@@ -23,17 +23,21 @@ shims). Always `--release` (loom state-space search is slow in debug).
 | `loom_wake_handshake` | moirai-executor | park/wake Dekker handshake (`pending_tasks` ↔ idle bitset) never loses a wakeup — all four accesses SeqCst (audit R19) |
 | `loom_join_quiescence` | moirai-executor | `join()` quiescence Dekker handshake (`active_workers` ↔ `join_waiters`) never loses a wakeup — SeqCst; guards the R23 fix |
 | `loom_lifo_slot` | moirai-executor | per-worker `LifoSlot` hands a job to exactly one taker (pop/steal/replace-push) — no double-`ptr::read` (audit R22) |
+| `loom_queue_handoff` | moirai-executor | single and batched injector thieves conserve claims while the batch defers its target-length decrement |
 | `loom_chase_lev` | moirai-scheduler | Chase–Lev deque push/pop/steal protocol |
 
 Run the whole loom suite:
 
 ```sh
+set -e
 # moirai-executor models
-for t in loom_wake_handshake loom_join_quiescence loom_lifo_slot; do
-  RUSTFLAGS="--cfg loom" cargo test -p moirai-executor --test "$t" --release || exit 1
+for t in loom_wake_handshake loom_join_quiescence loom_scope_completion loom_lifo_slot loom_queue_handoff loom_shutdown_admission; do
+  RUSTFLAGS="--cfg loom" cargo test -p moirai-executor --test "$t" --release
 done
 # moirai-scheduler models
-RUSTFLAGS="--cfg loom" cargo test -p moirai-scheduler --test loom_chase_lev --release
+for t in loom_chase_lev loom_chase_lev_resize_gate; do
+  RUSTFLAGS="--cfg loom" cargo test -p moirai-scheduler --test "$t" --release
+done
 ```
 
 When a lock-free protocol's memory orderings change, update the mirroring model
@@ -62,7 +66,7 @@ cargo nextest run --workspace          # committed 30 s slow / 60 s kill timeout
 cargo test --doc                       # doctests (nextest does not run these)
 ```
 
-CI note: no `.github/workflows` runs Tier 1 today. Until one exists, run the
-loom suite locally whenever a `#[cfg(loom)]`-modelled protocol changes (the
-memory orderings in `schedule/runtime/{types,worker,scheduler/core}.rs` and
-`moirai-scheduler/src/deque/chase_lev.rs`).
+CI note: `.github/workflows/rust-ci.yml` runs the Tier 1 matrix in its Loom job.
+Run the focused model locally whenever a `#[cfg(loom)]`-modelled protocol
+changes; the queue handoff model mirrors the injector claim/deferred-length
+ordering in `moirai-executor/src/schedule/queue/worker.rs`.

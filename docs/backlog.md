@@ -190,7 +190,7 @@
 <a id="moirai-executor-sizing"></a>
 ## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — in-progress
 
-- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-takeover`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
+- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-loom`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
 - **Escaped defect (2026-09-10).** #312 let a non-worker caller run its own
   scope's chunks from the injectors. The probe read p90 404 → 68 µs at 10 µs
   tasks and the workspace gate was green on the PR, but the merge run
@@ -257,6 +257,11 @@
   nextest passed 10/10, every job ran once, and the target length returned to
   zero. This bounds out loss or duplication in the queue handoff; the rare
   libtest crash remains unlocalized and caller help stays withdrawn.
+- **Loom handoff model (2026-09-16).** A release `loom_queue_handoff` model
+  explored the single-thief versus deferred batched-decrement interleavings
+  over three published jobs; locked nextest passed 1/1, with exact-once claims
+  and zero final advisory length. The model abstracts only the injector's
+  linearization point; the unsafe storage and crash remain unproven.
 - **Next method.** Capture a Windows crash dump of the faulting test process
   (`procdump -e -ma`, or WER `LocalDumps`) and read the faulting thread's real
   stack: gdb's unwind through the optimized frames gave only stale stack words,
@@ -264,9 +269,9 @@
   that, run the reproducer under a sanitizer (nightly
   `-Zsanitizer=address` on the MSVC target, or ThreadSanitizer on a Linux
   host) to name the first invalid access; if it lands in the injector
-  handoff, model the two-consumer handoff (`steal_external` against
-  `steal_batch`'s batched dequeue with its deferred `len` update) under loom.
-  A retry of the caller help lands only with that reproduction green.
+  handoff, the two-consumer handoff model now covers the single thief against
+  `steal_batch`'s deferred `len` update; it passes, so a retry of caller help
+  still waits for a crash-specific reproduction or diagnosis.
   Blocker for the sanitizer half on this host: the nightly MSVC build links
   against `clang_rt.asan_dynamic_runtime_thunk-x86_64.lib`, which the
   installed Build Tools lack (the C++ AddressSanitizer component, or an

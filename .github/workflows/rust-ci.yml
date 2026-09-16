@@ -181,6 +181,7 @@ jobs:
           --test loom_join_quiescence
           --test loom_scope_completion
           --test loom_lifo_slot
+          --test loom_queue_handoff
           --test loom_shutdown_admission
           --release
 
