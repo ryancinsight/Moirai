@@ -451,8 +451,8 @@
   typed provider error; every read stays within the 1 MiB chunk bound,
   releases its stream reader on completion/error, and native/WASM checks
   remain warning-clean.
-- Status: in-progress; priority: P1; integrator: root; branch: `main`;
-  last-update: 2026-09-15; dependencies: MOI-WASM-DOM-FILE-2026-09-08;
+- Status: blocked; priority: P1; integrator: root; branch: `docs/moirai-file-read-state`;
+  last-update: 2026-09-16; dependencies: MOI-WASM-DOM-FILE-2026-09-08;
   driver: [RITK workflow 34973438029](https://github.com/ryancinsight/ritk/actions/runs/34973438029).
 - Delivery: [Moirai PR #353](https://github.com/ryancinsight/Moirai/pull/353),
   merge `2451a3155c44dcf76d5577e4eb8c08badde51a0a`.
