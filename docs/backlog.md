@@ -503,7 +503,7 @@
   overflow and passes Windows warning-denied tests. No GUI toolkit dependency
   is added.
 - Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
-  branch: `feat/window-wheel-modifiers`; last-update: 2026-09-10; driver:
+  branch: `docs/close-win32-window-delivery`; last-update: 2026-09-16; driver:
   [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
 - Decision: [ADR 0049](adr/0049-win32-window-provider.md) (claimed).
 - Increment: commits `3fe5b76` and `04b4542` add the Rust 2024 baseline and
