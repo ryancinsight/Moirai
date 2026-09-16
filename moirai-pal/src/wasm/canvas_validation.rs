@@ -56,6 +56,10 @@ impl CanvasSize {
     pub const fn rgba_bytes(self) -> u64 {
         self.pixels * RGBA_CHANNELS
     }
+
+    pub(crate) const fn matches_dimensions(self, width: u32, height: u32) -> bool {
+        self.width == width && self.height == height
+    }
 }
 
 /// A borrowed, validated RGBA8 frame for one browser canvas upload.
@@ -113,6 +117,8 @@ mod tests {
         assert_eq!(size.height(), 1_024);
         assert_eq!(size.pixel_count(), 16_777_216);
         assert_eq!(size.rgba_bytes(), 67_108_864);
+        assert!(size.matches_dimensions(16_384, 1_024));
+        assert!(!size.matches_dimensions(1_024, 16_384));
         for (width, height) in [(0, 1), (1, 0), (16_385, 1), (16_384, 1_025)] {
             assert_eq!(
                 CanvasSize::new(width, height)
