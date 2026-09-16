@@ -1,6 +1,6 @@
 # ADR 0061: Explicit browser WebGPU canvas surface
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-09-16
 
@@ -31,7 +31,10 @@ surface retains only the context, queue, device and validated canvas extent.
 `present` accepts the existing borrowed `RgbaFrame`, resizes and reconfigures
 only when the validated extent changes, then calls
 `GPUQueue.copyExternalImageToTexture` with one `ImageData` source and the
-current swap-chain texture. The queue operation is the only GPU upload; the PAL
+current swap-chain texture. The canvas configuration requests the
+`COPY_DST | RENDER_ATTACHMENT` usage bits (`0x02 | 0x10`) required by the
+WebGPU copy contract, and the destination declares the source's straight,
+sRGB alpha semantics. The queue operation is the only GPU upload; the PAL
 retains no frame bytes after the call. Context/device/copy failures become
 `io::Error` values with their browser operation named.
 
@@ -44,7 +47,9 @@ inside the PAL.
 The binding uses `js_sys::Reflect` for the descriptor dictionaries and method
 calls because `web-sys`'s WebGPU bindings are unstable-gated; the browser
 objects remain JavaScript-owned and no unsafe Rust is introduced. The helper
-validates every required property and operation at the boundary.
+validates every required property and operation at the boundary. The upload
+contract follows the [WebGPU specification](https://www.w3.org/TR/webgpu/#dom-gpuqueue-copyexternalimagetotexture)
+and its [`copyExternalImageToTexture` source and usage requirements](https://developer.mozilla.org/en-US/docs/Web/API/GPUQueue/copyExternalImageToTexture).
 
 ## Alternatives rejected
 
@@ -74,3 +79,10 @@ WASM target compiles the WebGPU bindings and the strict Clippy gate checks the
 new module. Browser integration will exercise a real WebGPU adapter, frame
 dimensions, non-black RGBA output and device-loss diagnostics in the RITK
 consumer; a browser without WebGPU is an explicit unsupported result.
+
+Revision 2026-09-16: the implementation uses `js_sys::Reflect` around the
+stable browser object boundary, requests `COPY_DST | RENDER_ATTACHMENT` usage
+for the canvas texture, and explicitly marks copied RITK RGBA as straight-alpha
+sRGB. Native nextest and the standalone `wasm32-unknown-unknown` check/Clippy
+pass; RITK consumer integration and real-browser GPU evidence remain the next
+delivery item.

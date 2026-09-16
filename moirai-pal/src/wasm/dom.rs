@@ -3,11 +3,13 @@
 mod canvas;
 mod content_box;
 mod file_drop;
+mod gpu_canvas;
 mod keyboard;
 mod text;
 
 pub use self::canvas::{CanvasSize, RgbaFrame, WebCanvas};
 pub use self::file_drop::{BrowserFiles, DropFiles, DropMetadata, DroppedFile, DroppedFileAccess};
+pub use self::gpu_canvas::WebGpuCanvas;
 pub use self::keyboard::KeyboardMetadata;
 pub use self::text::{
     CompositionMetadata, TextInputMetadata, TextSelection, TextSelectionDirection,
