@@ -651,10 +651,16 @@
 - Acceptance: cancellation before and after first poll, handle-drop
   cancellation, pending-waker wakeup, and completed-task behavior are
   value-tested; WASM compile, native tests and warning-denied Clippy pass.
-- Class: [arch] [minor]; status: in-progress; integrator: root; branch:
-  `docs/close-wasm-task-delivery`; last-update: 2026-09-16; driver:
+- Class: [arch] [minor]; status: done; integrator: root; last-update:
+  2026-09-16; driver:
   [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
 - Decision: [ADR 0045](adr/0045-cancellable-browser-tasks.md).
+- Evidence: PR [#268](https://github.com/ryancinsight/Moirai/pull/268) merged at
+  `16a1b881`; its exact package checks recorded 43/43 native tests, the
+  `wasm32-unknown-unknown` check and warning-denied Clippy, and rustdoc. The
+  escaped Linux dead-code failure was corrected by `86918c61`; PR [#366](https://github.com/ryancinsight/Moirai/pull/366)
+  merged at `7908d7c5` with the hosted Workspace gate and all required checks
+  green.
 
 <a id="MOI-CRYPTO-2026-09-07"></a>
 ## MOI-CRYPTO-2026-09-07 — Publish standalone authentication primitives [arch] [minor]
