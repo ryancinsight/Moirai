@@ -21,9 +21,9 @@ use crate::{Event, Interest, RawFd, Reactor};
 pub use self::animation::WebAnimationFrame;
 pub use self::dom::{
     BrowserFiles, CanvasSize, CompositionMetadata, DropFiles, DropMetadata, DroppedFile,
-    DroppedFileAccess, KeyboardMetadata, PointerMetadata, PointerModifiers, PointerType, RgbaFrame,
-    TextInputMetadata, TextSelection, TextSelectionDirection, WebCanvas, WebDocument, WebElement,
-    WebEvent, WebEventListener, WheelDeltaMode, WheelMetadata,
+    DroppedFileAccess, ElementSize, KeyboardMetadata, PointerMetadata, PointerModifiers,
+    PointerType, RgbaFrame, TextInputMetadata, TextSelection, TextSelectionDirection, WebCanvas,
+    WebDocument, WebElement, WebEvent, WebEventListener, WheelDeltaMode, WheelMetadata,
 };
 pub use self::file::{MAX_READ_BYTES, WebFile};
 pub use self::timer::WebTimer;

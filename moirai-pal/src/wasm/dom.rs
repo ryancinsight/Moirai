@@ -95,6 +95,27 @@ pub struct WebElement {
     element: Element,
 }
 
+/// An element's rendered border-box extent in CSS pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ElementSize {
+    width: f64,
+    height: f64,
+}
+
+impl ElementSize {
+    /// Returns the rendered width in CSS pixels.
+    #[must_use]
+    pub const fn width(self) -> f64 {
+        self.width
+    }
+
+    /// Returns the rendered height in CSS pixels.
+    #[must_use]
+    pub const fn height(self) -> f64 {
+        self.height
+    }
+}
+
 impl WebElement {
     /// Returns the element's identifier, or an empty string when it has none.
     #[must_use]
@@ -124,6 +145,40 @@ impl WebElement {
         self.element
             .set_attribute(name, value)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid DOM attribute"))
+    }
+
+    /// Sets one inline CSS property through the browser's CSS object model.
+    ///
+    /// Property-by-property mutation avoids replacing the element's complete
+    /// `style` attribute and remains usable when a content security policy
+    /// rejects application-authored inline style declarations.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::InvalidInput`] when this is not an HTML
+    /// element or setting the property throws a browser exception.
+    pub fn set_style_property(&self, name: &str, value: &str) -> io::Result<()> {
+        let element = self.element.dyn_ref::<HtmlElement>().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "DOM element has no CSS style")
+        })?;
+        element.style().set_property(name, value).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Browser rejected CSS style property",
+            )
+        })
+    }
+
+    /// Returns the element's rendered border-box extent in fractional CSS pixels.
+    ///
+    /// The dimensions include padding and borders and reflect CSS transforms,
+    /// matching the browser's `getBoundingClientRect` semantics.
+    #[must_use]
+    pub fn bounding_size(&self) -> ElementSize {
+        let bounds = self.element.get_bounding_client_rect();
+        ElementSize {
+            width: bounds.width(),
+            height: bounds.height(),
+        }
     }
 
     /// Returns the disabled state of a button, input, or select control.
