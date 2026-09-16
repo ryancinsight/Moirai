@@ -17,20 +17,9 @@
 <a id="MOI-PAL-WEBVIEW2-OPTIONAL-2026-09-15"></a>
 ## MOI-PAL-WEBVIEW2-OPTIONAL-2026-09-15 — Every Windows consumer builds a WebView2 host [minor] [build]
 
-- **Finding.** `moirai-pal` declares `webview2-com = "0.38.2"` and `windows` 0.61 in its `cfg(windows)` target dependency table with no feature gate (added by `9e045f73 feat(pal): Add bounded WebView2 host`). `moirai-runtime` reaches `moirai-pal` through `moirai-async` and `moirai-executor`, so every Windows build of a moirai consumer compiles a WebView2 COM binding. leto-ops, a numerics crate, carries it in its normal build graph (`cargo tree -p leto-ops -e normal -i webview2-com`), and kwavers main already locks it.
-- **Change.** Move the WebView2 host out of the platform layer the executor depends on, into its own crate or behind a feature no executor path enables, so consumers that never open a web view do not build it.
-- **Acceptance:** `cargo tree -e normal -i webview2-com` from `moirai-runtime` with default features is empty on Windows; the WebView2 host keeps its tests behind its crate or feature; leto and kwavers locks drop `webview2-com` on their next moirai advance.
-- **Consumer evidence:** leto `LETO-LEAPFROG-UNIT-TASKS-2026-09-15` advanced moirai `00fb0aec..f963d76e`, which brought in webview2-com and windows 0.61.
-- **Status:** done; **integrator:** root; **delivery:** pending PR merge;
-  **branch:** `arch/pal-webview2-optional`; **last-update:** 2026-09-15.
-- **Delivery:** `moirai-pal` makes `webview2-com` optional and gates
-  `windows::webview` behind the non-default `webview2` feature; default Windows
-  consumers retain the native window and file providers without the COM binding.
-- **Verification:** standalone default `cargo tree --locked -e normal -p
-  moirai-pal` contains no `webview2-com`; `--all-features` native PAL checks
-  compile the provider. ADR 0052 and the crate README document the opt-in
-  contract. Metis remains the explicit WebView2 consumer and will advance its
-  dependency feature with the provider lock sweep.
+- Status: done; priority: P1; integrator: root; delivery: [PR #355](https://github.com/ryancinsight/Moirai/pull/355), merge `d95a2cd61b1f133a507d2735f5f72948a4ca5ec9`; last-update: 2026-09-16.
+- Outcome: `moirai-pal` gates `webview2-com` behind the opt-in `webview2` feature, so default Windows consumers avoid the COM binding while Metis opts in.
+- Verification: default locked `moirai-pal` has no `webview2-com`; the all-features native PAL checks compile the provider; [ADR 0052](adr/0052-bounded-webview2-host.md) records the contract.
 
 <a id="MOI-UNIT-TASK-TRIPLE-2026-09-15"></a>
 ## MOI-UNIT-TASK-TRIPLE-2026-09-15 — Unit tasks over three aligned mutable buffers [minor] [perf] — done
