@@ -1,5 +1,24 @@
 # Moirai Development Backlog (SSOT)
 
+<a id="MOI-WASM-DOM-TRUST-2026-09-15"></a>
+## MOI-WASM-DOM-TRUST-2026-09-15 — Preserve browser event trust provenance [arch] [minor] [security]
+
+- **Outcome:** Moirai carries the browser `Event.isTrusted` snapshot with
+  pointer, wheel and keyboard metadata without exposing `web-sys` to
+  consumers.
+- **Scope:** `WebEvent` and its three metadata snapshots, provider tests and
+  documentation; consumer event policy, DICOM parsing, rendering and native
+  input remain outside Moirai.
+- **Acceptance:** each metadata value exposes an input-sensitive trust
+  accessor; the WASM build, native tests, warning-denied Clippy and docs pass;
+  Metis and RITK can reject synthetic browser events at their own boundaries.
+- **Class:** [arch] [minor] [security]; **status:** in-progress;
+  **priority:** P1; **integrator:** root; **branch:** `feat/wasm-event-trust`;
+  **last-update:** 2026-09-15; **dependencies:** none; **drivers:**
+  [Metis browser](../../metis/backlog.md#METIS-BROWSER-001),
+  [RITK Metis migration](../../ritk/backlog.md#RITK-SNAP-METIS-001).
+- **Decision:** [ADR 0060](adr/0060-browser-event-trust.md).
+
 <a id="MOI-PAL-WEBVIEW2-OPTIONAL-2026-09-15"></a>
 ## MOI-PAL-WEBVIEW2-OPTIONAL-2026-09-15 — Every Windows consumer builds a WebView2 host [minor] [build]
 

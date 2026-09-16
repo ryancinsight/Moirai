@@ -66,3 +66,4 @@
 | [0057](0057-melinoe-executor-initialization.md) | Melinoe executor initialization | Accepted |
 | [0058](0058-bounded-native-file-selection.md) | Bounded native file selection | Accepted |
 | [0059](0059-byte-sized-unit-tasks.md) | Byte-sized unit tasks | Accepted |
+| [0060](0060-browser-event-trust.md) | Browser event trust provenance | Accepted |
