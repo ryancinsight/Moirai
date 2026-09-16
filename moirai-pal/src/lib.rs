@@ -66,6 +66,10 @@ mod text_model;
 mod canvas_validation;
 
 #[cfg(any(target_arch = "wasm32", test))]
+#[path = "wasm/content_box.rs"]
+mod content_box;
+
+#[cfg(any(target_arch = "wasm32", test))]
 #[path = "wasm/key_validation.rs"]
 mod key_validation;
 

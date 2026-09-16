@@ -1,6 +1,7 @@
 //! Safe, owned browser DOM handles for Atlas applications.
 
 mod canvas;
+mod content_box;
 mod file_drop;
 mod keyboard;
 mod text;
@@ -14,7 +15,9 @@ pub use self::text::{
 
 use std::io;
 
+pub use crate::content_box::ContentBoxPoint;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
 use wasm_bindgen::closure::Closure;
 use web_sys::{
     Document, Element, Event, HtmlButtonElement, HtmlDialogElement, HtmlElement, HtmlInputElement,
@@ -95,7 +98,7 @@ pub struct WebElement {
     element: Element,
 }
 
-/// An element's rendered border-box extent in CSS pixels.
+/// An element extent measured in CSS pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ElementSize {
     width: f64,
@@ -179,6 +182,39 @@ impl WebElement {
             width: bounds.width(),
             height: bounds.height(),
         }
+    }
+
+    /// Returns the untransformed local content-box extent in CSS pixels.
+    ///
+    /// The measurement uses resolved CSS width, box sizing, padding and border
+    /// values. It excludes padding and borders and is independent of CSS
+    /// transforms applied to this element or its ancestors.
+    ///
+    /// # Errors
+    /// Returns a typed error when resolved CSS geometry is unavailable,
+    /// unsupported, non-finite or empty.
+    pub fn local_content_size(&self) -> io::Result<ElementSize> {
+        let (width, height) = content_box::measure_size(&self.element)?;
+        Ok(ElementSize { width, height })
+    }
+
+    /// Maps a viewport client point into the untransformed local content box.
+    ///
+    /// The returned point carries the content extent measured in the same
+    /// layout read as the coordinate. Borders and padding are excluded. The
+    /// mapping composes this element's and its ancestors' two-dimensional
+    /// affine CSS transforms. The bounding rectangle supplies only the
+    /// transformed box translation; its transformed extent is never treated as
+    /// a local content size.
+    ///
+    /// # Errors
+    /// Returns a typed error for unavailable or invalid CSS geometry,
+    /// three-dimensional or singular transforms, motion paths, or CSS zoom.
+    /// Closed shadow roots cannot expose their composed transform ancestry;
+    /// callers embedding a canvas there must keep transforming wrappers inside
+    /// the inspectable root.
+    pub fn content_box_point(&self, client_x: f64, client_y: f64) -> io::Result<ContentBoxPoint> {
+        content_box::measure_point(&self.element, client_x, client_y)
     }
 
     /// Returns the disabled state of a button, input, or select control.
@@ -507,12 +543,12 @@ impl PointerModifiers {
 }
 
 /// Input metadata captured from one browser pointer event.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PointerMetadata {
     pointer_id: i32,
     pointer_type: PointerType,
-    client_x: i32,
-    client_y: i32,
+    client_x: f64,
+    client_y: f64,
     offset_x: i32,
     offset_y: i32,
     button: i16,
@@ -537,13 +573,13 @@ impl PointerMetadata {
 
     /// Returns the viewport-relative horizontal coordinate in CSS pixels.
     #[must_use]
-    pub const fn client_x(self) -> i32 {
+    pub const fn client_x(self) -> f64 {
         self.client_x
     }
 
     /// Returns the viewport-relative vertical coordinate in CSS pixels.
     #[must_use]
-    pub const fn client_y(self) -> i32 {
+    pub const fn client_y(self) -> f64 {
         self.client_y
     }
 
@@ -597,8 +633,8 @@ pub struct WheelMetadata {
     delta_y: f64,
     delta_z: f64,
     delta_mode: WheelDeltaMode,
-    client_x: i32,
-    client_y: i32,
+    client_x: f64,
+    client_y: f64,
     offset_x: i32,
     offset_y: i32,
     modifiers: PointerModifiers,
@@ -632,13 +668,13 @@ impl WheelMetadata {
 
     /// Returns the viewport-relative horizontal coordinate in CSS pixels.
     #[must_use]
-    pub const fn client_x(self) -> i32 {
+    pub const fn client_x(self) -> f64 {
         self.client_x
     }
 
     /// Returns the viewport-relative vertical coordinate in CSS pixels.
     #[must_use]
-    pub const fn client_y(self) -> i32 {
+    pub const fn client_y(self) -> f64 {
         self.client_y
     }
 
@@ -719,8 +755,8 @@ impl WebEvent {
         Some(PointerMetadata {
             pointer_id: PointerEvent::pointer_id(pointer),
             pointer_type,
-            client_x: MouseEvent::client_x(mouse),
-            client_y: MouseEvent::client_y(mouse),
+            client_x: event_coordinate(mouse, "clientX")?,
+            client_y: event_coordinate(mouse, "clientY")?,
             offset_x: MouseEvent::offset_x(mouse),
             offset_y: MouseEvent::offset_y(mouse),
             button: MouseEvent::button(mouse),
@@ -751,8 +787,8 @@ impl WebEvent {
             delta_y: WheelEvent::delta_y(wheel),
             delta_z: WheelEvent::delta_z(wheel),
             delta_mode,
-            client_x: MouseEvent::client_x(mouse),
-            client_y: MouseEvent::client_y(mouse),
+            client_x: event_coordinate(mouse, "clientX")?,
+            client_y: event_coordinate(mouse, "clientY")?,
             offset_x: MouseEvent::offset_x(mouse),
             offset_y: MouseEvent::offset_y(mouse),
             modifiers: modifier_state(mouse),
@@ -764,6 +800,12 @@ impl WebEvent {
     pub fn prevent_default(&self) {
         self.event.prevent_default();
     }
+}
+
+fn event_coordinate(event: &MouseEvent, property: &str) -> Option<f64> {
+    let value = js_sys::Reflect::get(event.as_ref(), &JsValue::from_str(property)).ok()?;
+    let coordinate = value.as_f64()?;
+    coordinate.is_finite().then_some(coordinate)
 }
 
 /// An event listener with explicit browser callback teardown.

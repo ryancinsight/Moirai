@@ -20,10 +20,11 @@ use crate::{Event, Interest, RawFd, Reactor};
 
 pub use self::animation::WebAnimationFrame;
 pub use self::dom::{
-    BrowserFiles, CanvasSize, CompositionMetadata, DropFiles, DropMetadata, DroppedFile,
-    DroppedFileAccess, ElementSize, KeyboardMetadata, PointerMetadata, PointerModifiers,
-    PointerType, RgbaFrame, TextInputMetadata, TextSelection, TextSelectionDirection, WebCanvas,
-    WebDocument, WebElement, WebEvent, WebEventListener, WheelDeltaMode, WheelMetadata,
+    BrowserFiles, CanvasSize, CompositionMetadata, ContentBoxPoint, DropFiles, DropMetadata,
+    DroppedFile, DroppedFileAccess, ElementSize, KeyboardMetadata, PointerMetadata,
+    PointerModifiers, PointerType, RgbaFrame, TextInputMetadata, TextSelection,
+    TextSelectionDirection, WebCanvas, WebDocument, WebElement, WebEvent, WebEventListener,
+    WheelDeltaMode, WheelMetadata,
 };
 pub use self::file::{MAX_READ_BYTES, WebFile};
 pub use self::timer::WebTimer;
