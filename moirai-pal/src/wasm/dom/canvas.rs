@@ -1,6 +1,6 @@
 //! Owned HTML5 canvas presentation through the browser PAL.
 
-use super::{ElementSize, WebDocument, WebElement};
+use super::{WebDocument, WebElement};
 use std::io;
 use wasm_bindgen::{Clamped, JsCast};
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
@@ -46,18 +46,6 @@ impl WebCanvas {
     #[must_use]
     pub fn id(&self) -> String {
         self.canvas.id()
-    }
-
-    /// Returns the canvas's untransformed local content-box extent in CSS pixels.
-    ///
-    /// # Errors
-    /// Returns a typed error when the browser cannot supply finite, positive
-    /// resolved content-box geometry.
-    pub fn local_content_size(&self) -> io::Result<ElementSize> {
-        WebElement {
-            element: self.canvas.clone().unchecked_into(),
-        }
-        .local_content_size()
     }
 
     /// Presents one validated RGBA8 frame at the canvas origin.

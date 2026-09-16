@@ -15,12 +15,6 @@ struct BoxDimensions {
     border_height: f64,
 }
 
-pub(super) fn measure_size(element: &Element) -> io::Result<(f64, f64)> {
-    let window = browser_window()?;
-    let dimensions = content_box_dimensions(&computed_style(&window, element)?)?;
-    Ok((dimensions.content_width, dimensions.content_height))
-}
-
 pub(super) fn measure_point(
     element: &Element,
     client_x: f64,

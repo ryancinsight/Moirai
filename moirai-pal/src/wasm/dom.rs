@@ -184,20 +184,6 @@ impl WebElement {
         }
     }
 
-    /// Returns the untransformed local content-box extent in CSS pixels.
-    ///
-    /// The measurement uses resolved CSS width, box sizing, padding and border
-    /// values. It excludes padding and borders and is independent of CSS
-    /// transforms applied to this element or its ancestors.
-    ///
-    /// # Errors
-    /// Returns a typed error when resolved CSS geometry is unavailable,
-    /// unsupported, non-finite or empty.
-    pub fn local_content_size(&self) -> io::Result<ElementSize> {
-        let (width, height) = content_box::measure_size(&self.element)?;
-        Ok(ElementSize { width, height })
-    }
-
     /// Maps a viewport client point into the untransformed local content box.
     ///
     /// The returned point carries the content extent measured in the same
