@@ -344,7 +344,7 @@
 <a id="MOI-SLEEP-SYNCED-TESTS-2026-09-09"></a>
 ## MOI-SLEEP-SYNCED-TESTS-2026-09-09 — Retire the remaining sleep-synchronized tests [patch]
 
-- Status: in-progress; priority: correctness; integrator: root; branch: `feat/transport-readiness`; regions: `moirai-transport/src/network.rs`, `moirai-transport/src/transport.rs`, `docs/adr/`; last-update: 2026-09-16.
+- Status: in-progress; priority: correctness; integrator: root; branch: `fix/transport-sleep-sync`; regions: test synchronization sites in `moirai-core`, `moirai-executor`, `moirai-iter`, `moirai-pal`, `moirai-sync`, `tests/`, and `docs/adr/`; last-update: 2026-09-16.
 - Outcome: no test in this workspace synchronizes on a duration. Sleeping to
   order two threads is a race written down, and an elapsed-time assertion
   measures the scheduler rather than the component.
