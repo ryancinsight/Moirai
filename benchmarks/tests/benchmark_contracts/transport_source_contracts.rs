@@ -208,7 +208,7 @@ fn remote_transport_uses_real_length_prefixed_tcp_bytes() {
 
     for required in [
         "mod network;",
-        "pub use network::NetworkTransport;",
+        "pub use network::{NetworkListener, NetworkTransport};",
         "pub(crate) use network::{NETWORK_IO_TIMEOUT, read_network_frame_from_stream};",
     ] {
         assert!(
@@ -222,7 +222,9 @@ fn remote_transport_uses_real_length_prefixed_tcp_bytes() {
         "const MAX_NETWORK_MESSAGE_BYTES: u64 = 16 * 1024 * 1024;",
         "pub struct NetworkTransport {}",
         "fn write_network_frame(address: &RemoteAddress, data: &[u8]) -> TransportResult<()>",
-        "fn read_network_frame(address: &RemoteAddress) -> TransportResult<Vec<u8>>",
+        "pub struct NetworkListener",
+        "pub fn listen(&self, address: &RemoteAddress) -> TransportResult<NetworkListener>",
+        "pub(crate) fn read_network_frame_from_listener(listener: TcpListener) -> TransportResult<Vec<u8>>",
         "pub(crate) fn read_network_frame_from_stream(stream: &mut impl Read) -> TransportResult<Vec<u8>>",
         "fn connect_network_stream(address: &RemoteAddress) -> TransportResult<TcpStream>",
         "const NETWORK_CONNECT_ATTEMPTS: usize = 64;",
