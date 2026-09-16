@@ -349,6 +349,19 @@ pub struct WebEvent {
     event: Event,
 }
 
+impl WebEvent {
+    /// Returns the browser's trust snapshot for this event.
+    ///
+    /// `true` means the browser marked the event as trusted. This is a
+    /// browser provenance signal, not proof of a physical user or of an
+    /// authenticated automation session; consumers apply their own input
+    /// policy.
+    #[must_use]
+    pub fn is_trusted(&self) -> bool {
+        self.event.is_trusted()
+    }
+}
+
 /// The browser pointer device that produced an event.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -451,6 +464,7 @@ pub struct PointerMetadata {
     buttons: u16,
     modifiers: PointerModifiers,
     primary: bool,
+    trusted: bool,
 }
 
 impl PointerMetadata {
@@ -513,6 +527,12 @@ impl PointerMetadata {
     pub const fn is_primary(self) -> bool {
         self.primary
     }
+
+    /// Returns the browser trust snapshot captured with this event.
+    #[must_use]
+    pub const fn is_trusted(self) -> bool {
+        self.trusted
+    }
 }
 
 /// Input metadata captured from one browser wheel event.
@@ -527,6 +547,7 @@ pub struct WheelMetadata {
     offset_x: i32,
     offset_y: i32,
     modifiers: PointerModifiers,
+    trusted: bool,
 }
 
 impl WheelMetadata {
@@ -583,6 +604,12 @@ impl WheelMetadata {
     pub const fn modifiers(self) -> PointerModifiers {
         self.modifiers
     }
+
+    /// Returns the browser trust snapshot captured with this event.
+    #[must_use]
+    pub const fn is_trusted(self) -> bool {
+        self.trusted
+    }
 }
 
 fn modifier_state(event: &MouseEvent) -> PointerModifiers {
@@ -621,7 +648,8 @@ impl WebEvent {
     /// Reads pointer metadata from this event.
     ///
     /// The snapshot includes the pointer device, viewport and target-relative
-    /// coordinates, button state, modifier keys and primary-pointer marker.
+    /// coordinates, button state, modifier keys, primary-pointer marker and
+    /// browser trust provenance.
     /// Events that are not [`PointerEvent`] values return [`None`].
     #[must_use]
     pub fn pointer_metadata(&self) -> Option<PointerMetadata> {
@@ -644,14 +672,15 @@ impl WebEvent {
             buttons: MouseEvent::buttons(mouse),
             modifiers: modifier_state(mouse),
             primary: PointerEvent::is_primary(pointer),
+            trusted: self.is_trusted(),
         })
     }
 
     /// Reads wheel metadata from this event.
     ///
     /// The snapshot includes three browser deltas, their unit, viewport and
-    /// target-relative coordinates, and modifier keys. Events that are not
-    /// [`WheelEvent`] values return [`None`].
+    /// target-relative coordinates, modifier keys and browser trust
+    /// provenance. Events that are not [`WheelEvent`] values return [`None`].
     #[must_use]
     pub fn wheel_metadata(&self) -> Option<WheelMetadata> {
         let wheel = self.event.dyn_ref::<WheelEvent>()?;
@@ -672,6 +701,7 @@ impl WebEvent {
             offset_x: MouseEvent::offset_x(mouse),
             offset_y: MouseEvent::offset_y(mouse),
             modifiers: modifier_state(mouse),
+            trusted: self.is_trusted(),
         })
     }
 

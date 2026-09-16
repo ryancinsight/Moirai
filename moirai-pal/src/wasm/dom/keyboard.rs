@@ -13,6 +13,7 @@ pub struct KeyboardMetadata {
     code: String,
     repeat: bool,
     modifiers: PointerModifiers,
+    trusted: bool,
 }
 
 impl KeyboardMetadata {
@@ -39,6 +40,12 @@ impl KeyboardMetadata {
     pub const fn modifiers(&self) -> PointerModifiers {
         self.modifiers
     }
+
+    /// Returns the browser trust snapshot captured with this event.
+    #[must_use]
+    pub const fn is_trusted(&self) -> bool {
+        self.trusted
+    }
 }
 
 impl WebEvent {
@@ -59,6 +66,7 @@ impl WebEvent {
             code: bounded_name(keyboard.code())?,
             repeat: keyboard.repeat(),
             modifiers: keyboard_modifiers(keyboard),
+            trusted: self.is_trusted(),
         }))
     }
 }
