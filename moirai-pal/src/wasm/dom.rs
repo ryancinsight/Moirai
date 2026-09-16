@@ -126,6 +126,27 @@ impl WebElement {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid DOM attribute"))
     }
 
+    /// Sets one inline CSS property through the browser's CSS object model.
+    ///
+    /// Property-by-property mutation avoids replacing the element's complete
+    /// `style` attribute and remains usable when a content security policy
+    /// rejects application-authored inline style declarations.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::InvalidInput`] when this is not an HTML
+    /// element or setting the property throws a browser exception.
+    pub fn set_style_property(&self, name: &str, value: &str) -> io::Result<()> {
+        let element = self.element.dyn_ref::<HtmlElement>().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "DOM element has no CSS style")
+        })?;
+        element.style().set_property(name, value).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Browser rejected CSS style property",
+            )
+        })
+    }
+
     /// Returns the disabled state of a button, input, or select control.
     #[must_use]
     pub fn disabled(&self) -> Option<bool> {
