@@ -466,6 +466,9 @@
   stream) with `NotReadableError`/`TypeError`; the captured WebKit sandbox
   denials are the external re-open trigger. No DICOM parser, native permission
   or unbounded fallback belongs in this item.
+- Blocker: SafariDriver/WebKit selected-file authorization denies the first
+  bounded read; re-open when the same real selected file is readable under a
+  corrected browser/runner authorization path.
 - Decision: [ADR 0050](adr/0050-bounded-browser-file-access.md).
 
 <a id="MOI-WINDOW-KEY-MODIFIERS-2026-09-15"></a>
