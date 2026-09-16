@@ -215,14 +215,15 @@ fn full_injector_returns_and_drops_rejected_job_once() {
 /// its deferred target-length decrement, then moves all but one into the
 /// thief's private queues. A concurrent `steal_one` therefore exercises both
 /// consumers against the same target and the target's advisory `len` update.
-/// The queue is populated before the barrier, so every job is live before any
-/// thief starts; the only synchronization under test is the steal handoff.
+/// The producer starts with the thieves and publishes the remainder while they
+/// are stealing, so the test also covers the MPMC injector admission path.
 #[test]
 fn mixed_batch_and_single_steals_execute_every_job_once() {
     const ITEMS: usize = 128;
     const THIEVES: usize = 4;
     const ROUNDS: usize = 16;
     const MAX_IDLE_ROUNDS: usize = ITEMS * 64;
+    const INITIAL_ITEMS: usize = ITEMS / 4;
 
     for _ in 0..ROUNDS {
         let marks = Arc::new((0..ITEMS).map(|_| AtomicU8::new(0)).collect::<Vec<_>>());
@@ -230,7 +231,7 @@ fn mixed_batch_and_single_steals_execute_every_job_once() {
         let duplicates = Arc::new(AtomicUsize::new(0));
         let (_target_owner, target) = WorkerQueues::new(ITEMS * 2, local_capacity(16));
 
-        for id in 0..ITEMS {
+        for id in 0..INITIAL_ITEMS {
             let marks = Arc::clone(&marks);
             let completed = Arc::clone(&completed);
             let duplicates = Arc::clone(&duplicates);
@@ -250,12 +251,46 @@ fn mixed_batch_and_single_steals_execute_every_job_once() {
                 });
         }
 
-        let start = Arc::new(Barrier::new(THIEVES));
+        let start = Arc::new(Barrier::new(THIEVES + 1));
+        let producer_done = Arc::new(AtomicU8::new(0));
         let mut handles = Vec::with_capacity(THIEVES);
+
+        let producer_target = Arc::clone(&target);
+        let producer_start = Arc::clone(&start);
+        let producer_marks = Arc::clone(&marks);
+        let producer_completed = Arc::clone(&completed);
+        let producer_duplicates = Arc::clone(&duplicates);
+        let producer_done_flag = Arc::clone(&producer_done);
+        let producer = thread::spawn(move || {
+            producer_start.wait();
+            for id in INITIAL_ITEMS..ITEMS {
+                let marks = Arc::clone(&producer_marks);
+                let completed = Arc::clone(&producer_completed);
+                let duplicates = Arc::clone(&producer_duplicates);
+                let () = producer_target
+                    .try_push_external(
+                        Priority::Normal,
+                        ScheduledJob::new(move |_| {
+                            let previous = marks[id].fetch_add(1, Ordering::Relaxed);
+                            if previous != 0 {
+                                duplicates.fetch_add(1, Ordering::Relaxed);
+                            }
+                            completed.fetch_add(1, Ordering::Relaxed);
+                        }),
+                    )
+                    .map_or((), |_| {
+                        panic!("test injector must admit the producer workload")
+                    });
+                thread::yield_now();
+            }
+            producer_done_flag.store(1, Ordering::Release);
+        });
+
         for thief_id in 0..THIEVES {
             let target = Arc::clone(&target);
             let start = Arc::clone(&start);
             let completed = Arc::clone(&completed);
+            let producer_done = Arc::clone(&producer_done);
             handles.push(thread::spawn(move || {
                 let (mut owner, _) = WorkerQueues::new(ITEMS * 2, local_capacity(16));
                 start.wait();
@@ -269,7 +304,9 @@ fn mixed_batch_and_single_steals_execute_every_job_once() {
                         progressed = true;
                     }
 
-                    if completed.load(Ordering::Relaxed) >= ITEMS {
+                    if completed.load(Ordering::Relaxed) >= ITEMS
+                        && producer_done.load(Ordering::Acquire) != 0
+                    {
                         break;
                     }
 
@@ -287,7 +324,9 @@ fn mixed_batch_and_single_steals_execute_every_job_once() {
                         idle_rounds = 0;
                     } else {
                         idle_rounds += 1;
-                        if idle_rounds >= MAX_IDLE_ROUNDS {
+                        if producer_done.load(Ordering::Acquire) != 0
+                            && idle_rounds >= MAX_IDLE_ROUNDS
+                        {
                             break;
                         }
                         thread::yield_now();
@@ -296,6 +335,7 @@ fn mixed_batch_and_single_steals_execute_every_job_once() {
             }));
         }
 
+        producer.join().expect("queue producer must terminate");
         for handle in handles {
             handle.join().expect("queue thief must terminate");
         }
