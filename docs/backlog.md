@@ -3,8 +3,7 @@
 <a id="MOI-WASM-GPU-CANVAS-2026-09-16"></a>
 ## MOI-WASM-GPU-CANVAS-2026-09-16 — Present validated frames through browser WebGPU [arch] [minor]
 
-- **Status:** in-progress; priority: P1; integrator: root; branch:
-  `feat/moirai-webgpu-canvas`; last-update: 2026-09-16.
+- **Status:** done; priority: P1; integrator: root; delivery: [PR #364](https://github.com/ryancinsight/Moirai/pull/364), merge `21b66ba424ad8f50d8574d6e9714be696f807e82`; last-update: 2026-09-16.
 - **Outcome:** `moirai-pal` exposes an explicit WebGPU canvas surface that
   uploads the borrowed RGBA frame to a configured browser swap chain while the
   existing 2-D surface remains available; no consumer or format semantics move
@@ -18,9 +17,11 @@
   browser errors; native checks, WASM check/Clippy, docs and the RITK consumer
   integration pass.
 - **Dependencies:** [ADR 0061](adr/0061-browser-webgpu-canvas.md); consumer
-  wiring follows after this provider merge.
-- **Lease:** root — `moirai-pal/src/wasm/dom/gpu_canvas.rs`, PAL exports and
-  docs — 2026-09-16.
+  wiring is delivered in RITK PR #426.
+- **Evidence:** the provider's native suite (76/76), standalone WASM check and
+  strict library Clippy pass; RITK PR #426 (merge `18d55f18d8a26d7672e51d1ae6c60a4778306808`)
+  consumes the explicit GPU entrypoints with Metis `070af58f`. Real browser GPU
+  visual evidence remains an RITK acceptance residual.
 
 <a id="MOI-UNIT-TASK-RANGES-2026-09-15"></a>
 ## MOI-UNIT-TASK-RANGES-2026-09-15 — Index-walking passes cannot size tasks by bytes [minor] [perf] — done

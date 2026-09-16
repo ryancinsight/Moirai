@@ -84,5 +84,5 @@ Revision 2026-09-16: the implementation uses `js_sys::Reflect` around the
 stable browser object boundary, requests `COPY_DST | RENDER_ATTACHMENT` usage
 for the canvas texture, and explicitly marks copied RITK RGBA as straight-alpha
 sRGB. Native nextest and the standalone `wasm32-unknown-unknown` check/Clippy
-pass; RITK consumer integration and real-browser GPU evidence remain the next
-delivery item.
+pass; RITK PR #426 now consumes the explicit entrypoints. Real-browser GPU
+visual evidence remains a consumer residual.
