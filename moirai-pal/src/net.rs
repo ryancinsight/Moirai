@@ -388,19 +388,24 @@ mod tests {
                 let noop_waker = futures::task::noop_waker();
                 let mut context = Context::from_waker(&noop_waker);
                 let mut buf = [0_u8; 16];
-                let sender = std::thread::spawn(move || {
-                    let socket =
-                        std::net::UdpSocket::bind("127.0.0.1:0").expect("sender bind must succeed");
-                    let sent = socket
-                        .send_to(b"datagram", target)
-                        .expect("datagram send must succeed");
-                    assert_eq!(sent, 8);
-                });
-
-                let result = {
+                let (result, sender) = {
                     let mut receive = std::pin::pin!(receiver.recv_from(&mut buf));
                     assert!(matches!(receive.as_mut().poll(&mut context), Poll::Pending));
-                    poll_until_ready(receive.as_mut(), &mut context)
+
+                    // Publish the sender only after the first poll observes
+                    // WouldBlock. Otherwise a fast localhost datagram can arrive
+                    // before that poll and turn the assertion into a race.
+                    let sender = std::thread::spawn(move || {
+                        let socket = std::net::UdpSocket::bind("127.0.0.1:0")
+                            .expect("sender bind must succeed");
+                        let sent = socket
+                            .send_to(b"datagram", target)
+                            .expect("datagram send must succeed");
+                        assert_eq!(sent, 8);
+                    });
+
+                    let result = poll_until_ready(receive.as_mut(), &mut context);
+                    (result, sender)
                 };
                 let (received, _peer) = result.expect("recv_from must complete");
                 assert_eq!(received, 8);

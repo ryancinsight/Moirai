@@ -262,6 +262,11 @@
   over three published jobs; locked nextest passed 1/1, with exact-once claims
   and zero final advisory length. The model abstracts only the injector's
   linearization point; the unsafe storage and crash remain unproven.
+- **Gate race correction (2026-09-17).** Hosted workspace run `35164024633`
+  caught `udp_recv_self_wakes_without_active_reactor` observing a ready datagram
+  before its asserted initial `Pending` poll. The sender now starts only after
+  that poll, and the pinned future is scoped before buffer inspection; the
+  package gate passes 80/80 plus 100 stress iterations.
 - **Next method.** Capture a Windows crash dump of the faulting test process
   (`procdump -e -ma`, or WER `LocalDumps`) and read the faulting thread's real
   stack: gdb's unwind through the optimized frames gave only stale stack words,
