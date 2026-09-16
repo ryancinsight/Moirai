@@ -563,11 +563,17 @@
   cancellation result; COM and task-memory resources release on every path;
   native warning-denied tests and Clippy pass. Browser selection remains the
   existing bounded DOM file provider.
-- Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
-  branch: `docs/close-window-dialog-delivery`; last-update: 2026-09-16; driver:
+- Class: [arch] [minor]; status: done; priority: P1; integrator: root;
+  last-update: 2026-09-16; driver:
   [Metis files](../../metis/backlog.md#METIS-FILES-001),
   [RITK Metis shell](../../ritk/backlog.md#RITK-SNAP-METIS-001).
 - Decision: [ADR 0058](adr/0058-bounded-native-file-selection.md).
+- Evidence: PR [#335](https://github.com/ryancinsight/Moirai/pull/335) merged at
+  `4a581e8`; the exact PAL checks recorded 76/76 native tests, warning-denied
+  Clippy and the ADR index. RITK's [native picker evidence](../../ritk/docs/adr/0026-viewer-presentation-migration.md)
+  selects the saved public MRI-DIR T2 folder through the real dialog, renders
+  all three planes, matches the pathless and explicit captures byte-for-byte,
+  and verifies cancellation before viewer creation.
 
 <a id="MOI-WINDOW-WEBVIEW2-2026-09-09"></a>
 ## MOI-WINDOW-WEBVIEW2-2026-09-09 — Bounded Windows WebView2 host [arch] [minor] — done
