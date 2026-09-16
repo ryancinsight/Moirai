@@ -95,6 +95,27 @@ pub struct WebElement {
     element: Element,
 }
 
+/// An element's rendered border-box extent in CSS pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ElementSize {
+    width: f64,
+    height: f64,
+}
+
+impl ElementSize {
+    /// Returns the rendered width in CSS pixels.
+    #[must_use]
+    pub const fn width(self) -> f64 {
+        self.width
+    }
+
+    /// Returns the rendered height in CSS pixels.
+    #[must_use]
+    pub const fn height(self) -> f64 {
+        self.height
+    }
+}
+
 impl WebElement {
     /// Returns the element's identifier, or an empty string when it has none.
     #[must_use]
@@ -145,6 +166,19 @@ impl WebElement {
                 "Browser rejected CSS style property",
             )
         })
+    }
+
+    /// Returns the element's rendered border-box extent in fractional CSS pixels.
+    ///
+    /// The dimensions include padding and borders and reflect CSS transforms,
+    /// matching the browser's `getBoundingClientRect` semantics.
+    #[must_use]
+    pub fn bounding_size(&self) -> ElementSize {
+        let bounds = self.element.get_bounding_client_rect();
+        ElementSize {
+            width: bounds.width(),
+            height: bounds.height(),
+        }
     }
 
     /// Returns the disabled state of a button, input, or select control.
