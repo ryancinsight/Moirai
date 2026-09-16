@@ -564,7 +564,7 @@
   native warning-denied tests and Clippy pass. Browser selection remains the
   existing bounded DOM file provider.
 - Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
-  branch: `feat/native-file-dialog`; last-update: 2026-09-14; driver:
+  branch: `docs/close-window-dialog-delivery`; last-update: 2026-09-16; driver:
   [Metis files](../../metis/backlog.md#METIS-FILES-001),
   [RITK Metis shell](../../ritk/backlog.md#RITK-SNAP-METIS-001).
 - Decision: [ADR 0058](adr/0058-bounded-native-file-selection.md).
