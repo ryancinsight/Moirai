@@ -4753,26 +4753,6 @@ Part IV chapter map (grounded in moirai-transport):
 
 <a id="MOI-WASM-CANVAS-RESIZE-2026-09-16"></a>
 ## MOI-WASM-CANVAS-RESIZE-2026-09-16 — Reuse stable browser canvas extents [perf] [patch]
-
-- Outcome: repeated RGBA presentation at an unchanged validated extent avoids
-  resetting the HTML canvas bitmap, reducing per-frame browser allocation churn.
-- Scope: `moirai-pal` WebCanvas extent check and its provider tests/docs; frame
-  validation, upload ownership, DICOM/viewer semantics and native presentation
-  remain unchanged.
-- Acceptance: equal extents issue no width/height reset; changed extents still
-  resize before upload; dimensions and byte bounds retain the existing
-  contract; focused validation, WASM check, strict Clippy, formatting and docs
-  gates pass. No browser fallback or retained pixel buffer is introduced.
-- Class: [perf] [patch]; status: in-progress; priority: P1; integrator: root;
-  branch: `perf/wasm-canvas-resize`; last-update: 2026-09-16; driver:
-  [Metis performance](../../metis/backlog.md#METIS-PERF-001).
-- Dependencies: [MOI-WASM-CANVAS-2026-09-11](#MOI-WASM-CANVAS-2026-09-11).
-- Verification: a pure extent predicate test plus the locked WASM provider
-  check prove the resize decision; the RITK browser canvas trace remains the
-  visual consumer oracle.
-- Increment (2026-09-16): `WebCanvas::present` now compares the validated
-  extent with the element before assigning width or height, so stable animation
-  frames avoid redundant bitmap resets while changed extents retain the same
-  bounds and upload path. The predicate is covered by provider tests; native
-  nextest 73/73, rustdoc tests, native and WASM warning-denied Clippy, WASM
-  check and format checks pass.
+- Status: done; priority: P1; delivery: [PR #360](https://github.com/ryancinsight/Moirai/pull/360), merge `5cf572f734a3a50cf57eafe67dd3723e7e303116`.
+- Outcome: `WebCanvas::present` retains a validated canvas extent across same-size RGBA frames and resizes only when the extent changes; provider tests, native nextest 73/73, rustdoc, native/WASM Clippy, WASM check and format gates pass.
+- Driver: [Metis performance](../../metis/backlog.md#METIS-PERF-001); DICOM/viewer semantics remain in RITK and V12 memory/latency measurements remain open.
