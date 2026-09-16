@@ -365,6 +365,13 @@
   10 ms hoping a receiver has bound its socket, which needs a readiness signal
   the transport does not currently expose -- that seam is the item's first
   increment.
+- Increment (2026-09-16): `NetworkTransport::listen` now returns a bound,
+  one-frame `NetworkListener`; the transport tests publish readiness through a
+  zero-capacity channel before sending. `NetworkTransport::recv` consumes the
+  same listener path, and the focused suite passes 39/39 without timing sleeps.
+- Remaining after this increment: `moirai-transport` has two legitimate polling
+  sleeps (`network.rs` bounded connect retry and `process/portable.rs` bounded
+  child wait); the remaining test sites are unchanged and stay on this item.
 - Non-goals: the `examples/` sleeps, which model workload latency for a reader
   and are not synchronization.
 - Acceptance: each remaining site is either event-synchronized or recorded here

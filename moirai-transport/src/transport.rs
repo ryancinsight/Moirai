@@ -286,19 +286,23 @@ mod tests {
 
     #[test]
     fn network_transport_transfers_length_prefixed_remote_bytes() {
-        let transport = NetworkTransport {};
         let address = loopback_remote_address();
         let payload = b"server route payload".to_vec();
         let expected = payload.clone();
-        let receiver_address = Address::Remote(address.clone());
-        let receiver = std::thread::spawn(move || transport.recv(&receiver_address).unwrap());
+        let (ready_sender, ready_receiver) = std::sync::mpsc::sync_channel(0);
+        let receiver_address = address.clone();
+        let receiver = std::thread::spawn(move || {
+            let listener = NetworkTransport {}.listen(&receiver_address).unwrap();
+            ready_sender.send(()).unwrap();
+            listener.recv()
+        });
 
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        ready_receiver.recv().unwrap();
         NetworkTransport {}
             .send(&Address::Remote(address), payload)
             .unwrap();
 
-        assert_eq!(receiver.join().unwrap(), expected);
+        assert_eq!(receiver.join().unwrap().unwrap(), expected);
     }
 
     #[test]
@@ -307,14 +311,18 @@ mod tests {
         let address = loopback_remote_address();
         let payload = b"transport manager remote payload".to_vec();
         let expected = payload.clone();
-        let receiver_address = Address::Remote(address.clone());
-        let receiver =
-            std::thread::spawn(move || TransportManager::new().recv(&receiver_address).unwrap());
+        let (ready_sender, ready_receiver) = std::sync::mpsc::sync_channel(0);
+        let receiver_address = address.clone();
+        let receiver = std::thread::spawn(move || {
+            let listener = NetworkTransport {}.listen(&receiver_address).unwrap();
+            ready_sender.send(()).unwrap();
+            listener.recv()
+        });
 
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        ready_receiver.recv().unwrap();
         manager.send(&Address::Remote(address), payload).unwrap();
 
-        assert_eq!(receiver.join().unwrap(), expected);
+        assert_eq!(receiver.join().unwrap().unwrap(), expected);
     }
 
     #[test]

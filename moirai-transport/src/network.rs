@@ -19,6 +19,43 @@ pub(crate) const NETWORK_IO_TIMEOUT: Duration = Duration::from_secs(30);
 /// Network transport for distributed communication.
 pub struct NetworkTransport {}
 
+/// A bound endpoint for receiving one length-prefixed network frame.
+pub struct NetworkListener {
+    listener: TcpListener,
+}
+
+impl NetworkListener {
+    /// Receive one frame from the bound endpoint.
+    ///
+    /// The listener accepts one connection and then consumes itself. The
+    /// accepted frame remains bounded by the transport's 16 MiB message
+    /// limit.
+    ///
+    /// # Errors
+    /// Returns [`TransportError::Closed`] when accepting or reading the frame
+    /// fails, or [`TransportError::Full`] when the peer declares an oversized
+    /// frame.
+    pub fn recv(self) -> TransportResult<Vec<u8>> {
+        read_network_frame_from_listener(self.listener)
+    }
+}
+
+impl NetworkTransport {
+    /// Bind a receiver before starting a producer or advertising readiness.
+    ///
+    /// Binding is separated from [`Transport::recv`] so callers can publish a
+    /// readiness event after the operating-system listener exists, avoiding
+    /// timing guesses between communicating threads.
+    ///
+    /// # Errors
+    /// Returns [`TransportError::Closed`] when the address cannot be bound.
+    pub fn listen(&self, address: &RemoteAddress) -> TransportResult<NetworkListener> {
+        Ok(NetworkListener {
+            listener: bind_network_listener(address)?,
+        })
+    }
+}
+
 impl Transport for NetworkTransport {
     fn send(&self, target: &Address, data: Vec<u8>) -> TransportResult<()> {
         match target {
@@ -29,7 +66,7 @@ impl Transport for NetworkTransport {
 
     fn recv(&self, source: &Address) -> TransportResult<Vec<u8>> {
         match source {
-            Address::Remote(address) => read_network_frame(address),
+            Address::Remote(address) => self.listen(address)?.recv(),
             Address::Local(_) => Err(TransportError::Closed),
         }
     }
@@ -80,9 +117,11 @@ fn write_network_frame(address: &RemoteAddress, data: &[u8]) -> TransportResult<
     write_network_frame_to_stream(&mut stream, data)
 }
 
-fn read_network_frame(address: &RemoteAddress) -> TransportResult<Vec<u8>> {
-    let listener =
-        TcpListener::bind(socket_address(address)).map_err(|_| TransportError::Closed)?;
+pub(crate) fn bind_network_listener(address: &RemoteAddress) -> TransportResult<TcpListener> {
+    TcpListener::bind(socket_address(address)).map_err(|_| TransportError::Closed)
+}
+
+pub(crate) fn read_network_frame_from_listener(listener: TcpListener) -> TransportResult<Vec<u8>> {
     let (mut stream, _) = listener.accept().map_err(|_| TransportError::Closed)?;
     // Bound the frame read: a peer that connects then stalls must not hang the
     // thread forever in `read_exact`.

@@ -9,7 +9,9 @@ boundaries, so the same addressing works for local and remote communication.
 
 - `InMemoryTransport` — same-process messaging over the core channels.
 - `IpcTransport` — shared-memory same-machine IPC (Unix and Windows).
-- `TcpTransport` / `NetworkTransport` — machine-to-machine (`network` feature).
+- `TcpTransport` / `NetworkTransport` — machine-to-machine (`network` feature);
+  `NetworkTransport::listen` returns a bound `NetworkListener` when a caller
+  must publish readiness before receiving.
 - `ArchivedUniversalSender<T: ArchiveSerialize>` /
   `ArchivedUniversalReceiver<T: ArchiveView>` — the canonical typed
   cross-boundary channel, using rkyv-style archive serialization with

@@ -46,10 +46,10 @@ pub use ipc::IpcTransport;
 pub use moirai_core::channel::{
     ChannelError as TransportError, MpmcReceiver as Receiver, MpmcSender as Sender,
 };
-pub use network::NetworkTransport;
 #[cfg(feature = "network")]
 pub use network::TcpTransport;
 pub(crate) use network::{NETWORK_IO_TIMEOUT, read_network_frame_from_stream};
+pub use network::{NetworkListener, NetworkTransport};
 pub use router::{MessageRouter, RemoteAddress};
 // The canonical typed cross-boundary channel: rkyv-style archive serialization
 // over a transport (zero-copy borrowed views on receive).
