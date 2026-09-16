@@ -274,15 +274,35 @@ impl AsyncUdpSocket {
 mod tests {
     use super::*;
     use futures::executor::block_on;
+    use std::future::Future;
     use std::io::{Read, Write};
     use std::time::Duration;
+
+    const MAX_SELF_WAKE_POLLS: usize = 100_000;
+
+    fn poll_until_ready<F>(
+        mut future: std::pin::Pin<&mut F>,
+        context: &mut Context<'_>,
+    ) -> F::Output
+    where
+        F: Future,
+    {
+        for _ in 0..MAX_SELF_WAKE_POLLS {
+            if let Poll::Ready(output) = future.as_mut().poll(context) {
+                return output;
+            }
+            std::thread::yield_now();
+        }
+        panic!("self-wake operation did not resolve within the poll bound");
+    }
 
     #[test]
     fn tcp_accept_read_write_self_wakes_without_active_reactor() {
         // Suppress the global reactor for this thread, so `accept`/`read`/
         // `write` make progress only via the `wake_without_active_reactor`
-        // self-wake fallback (busy-poll). The 10 ms client delay guarantees the
-        // first poll observes `WouldBlock` and takes that path.
+        // self-wake fallback (busy-poll). Polling before the client exists
+        // deterministically exercises the initial `WouldBlock` path; the
+        // client is started only after that pending event is observed.
         IoReactor::with_reactor_disabled(|| {
             assert!(
                 IoReactor::get_active().is_none(),
@@ -296,28 +316,36 @@ mod tests {
                 .expect("listener bind must succeed");
                 let addr = listener.local_addr().expect("listener address must exist");
 
-                let client = std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(10));
-                    let mut stream =
-                        StdTcpStream::connect(addr).expect("client connection must succeed");
-                    stream
-                        .set_read_timeout(Some(Duration::from_secs(2)))
-                        .expect("client read timeout must be set");
-                    stream
-                        .set_write_timeout(Some(Duration::from_secs(2)))
-                        .expect("client write timeout must be set");
-                    stream
-                        .write_all(b"ping")
-                        .expect("client write must succeed");
+                let (mut stream, peer, client) = {
+                    let noop_waker = futures::task::noop_waker();
+                    let mut context = Context::from_waker(&noop_waker);
+                    let mut accept = std::pin::pin!(listener.accept());
+                    assert!(matches!(accept.as_mut().poll(&mut context), Poll::Pending));
 
-                    let mut echo = [0_u8; 4];
-                    stream
-                        .read_exact(&mut echo)
-                        .expect("client echo must be readable");
-                    assert_eq!(&echo, b"pong");
-                });
+                    let client = std::thread::spawn(move || {
+                        let mut stream =
+                            StdTcpStream::connect(addr).expect("client connection must succeed");
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(2)))
+                            .expect("client read timeout must be set");
+                        stream
+                            .set_write_timeout(Some(Duration::from_secs(2)))
+                            .expect("client write timeout must be set");
+                        stream
+                            .write_all(b"ping")
+                            .expect("client write must succeed");
 
-                let (mut stream, peer) = listener.accept().await.expect("accept must complete");
+                        let mut echo = [0_u8; 4];
+                        stream
+                            .read_exact(&mut echo)
+                            .expect("client echo must be readable");
+                        assert_eq!(&echo, b"pong");
+                    });
+
+                    let (stream, peer) = poll_until_ready(accept.as_mut(), &mut context)
+                        .expect("accept must complete");
+                    (stream, peer, client)
+                };
                 assert_eq!(peer.ip(), addr.ip());
 
                 let mut inbound = [0_u8; 4];
@@ -357,8 +385,10 @@ mod tests {
                 .expect("receiver bind must succeed");
                 let target = receiver.local_addr().expect("receiver address must exist");
 
+                let noop_waker = futures::task::noop_waker();
+                let mut context = Context::from_waker(&noop_waker);
+                let mut buf = [0_u8; 16];
                 let sender = std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(10));
                     let socket =
                         std::net::UdpSocket::bind("127.0.0.1:0").expect("sender bind must succeed");
                     let sent = socket
@@ -367,11 +397,12 @@ mod tests {
                     assert_eq!(sent, 8);
                 });
 
-                let mut buf = [0_u8; 16];
-                let (received, _peer) = receiver
-                    .recv_from(&mut buf)
-                    .await
-                    .expect("recv_from must complete");
+                let result = {
+                    let mut receive = std::pin::pin!(receiver.recv_from(&mut buf));
+                    assert!(matches!(receive.as_mut().poll(&mut context), Poll::Pending));
+                    poll_until_ready(receive.as_mut(), &mut context)
+                };
+                let (received, _peer) = result.expect("recv_from must complete");
                 assert_eq!(received, 8);
                 assert_eq!(&buf[..received], b"datagram");
 

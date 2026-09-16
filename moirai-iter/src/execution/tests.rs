@@ -5,7 +5,6 @@ use super::base::ExecutionContext;
 use super::hybrid::owned_chunks;
 use super::parallel::ParallelContext;
 use std::sync::Arc;
-use std::time::Duration;
 
 #[derive(Debug, PartialEq)]
 struct NonClone(u64);
@@ -72,7 +71,9 @@ async fn async_context_map_runs_bounded_concurrently_and_preserves_order() {
                         Err(actual) => current = actual,
                     }
                 }
-                tokio::time::sleep(Duration::from_millis(25)).await;
+                // Yield after admission so another bounded slot can run. The
+                // overlap assertion observes scheduler progress, not a timer.
+                tokio::task::yield_now().await;
                 active_count.fetch_sub(1, Ordering::SeqCst);
                 value * 2
             }
@@ -95,7 +96,7 @@ async fn async_context_filter_runs_bounded_concurrently_and_preserves_order() {
         .execute_async_filter((0..8).collect::<Vec<_>>(), |value| {
             let value = *value;
             async move {
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                tokio::task::yield_now().await;
                 value % 2 == 0
             }
         })

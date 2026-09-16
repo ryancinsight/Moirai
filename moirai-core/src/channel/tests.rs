@@ -373,9 +373,18 @@ fn spsc_send_parked_on_a_full_ring_observes_the_receiver_drop() {
 #[test]
 fn test_hybrid_drop_sender() {
     let (tx, rx) = HybridChannel::<i32>::new(2);
-    let rx_thread = std::thread::spawn(move || rx.recv());
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(0);
+    let rx_thread = std::thread::spawn(move || {
+        // Publish the empty-state observation before entering the blocking
+        // receive. The close below is the event that must release it.
+        assert!(matches!(rx.try_recv(), Err(ChannelError::Empty)));
+        ready_tx.send(()).expect("receiver publishes readiness");
+        rx.recv()
+    });
 
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    ready_rx
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .expect("receiver observes the empty channel");
     std::mem::drop(tx);
 
     assert_eq!(rx_thread.join().unwrap(), Err(ChannelError::Closed));

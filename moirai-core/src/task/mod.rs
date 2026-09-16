@@ -237,12 +237,19 @@ mod tests {
     #[test]
     fn task_handle_parks_until_delayed_completion() {
         let (handle, sender) = TaskHandle::new_pending(TaskId::new(14));
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
 
         let worker = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            ready_tx.send(()).expect("worker publishes readiness");
+            release_rx.recv().expect("worker receives release");
             sender.send(Ok(336usize));
         });
 
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("worker reaches the delayed-completion gate");
+        release_tx.send(()).expect("release delayed completion");
         assert_eq!(handle.join(), Some(Ok(336)));
         worker.join().unwrap();
     }
