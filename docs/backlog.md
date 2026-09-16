@@ -20,7 +20,7 @@
   accessor; the WASM build, native tests, warning-denied Clippy and docs pass;
   Metis and RITK can reject synthetic browser events at their own boundaries.
 - **Class:** [arch] [minor] [security]; **status:** in-progress;
-  **priority:** P1; **integrator:** root; **branch:** `feat/wasm-event-trust`;
+  **priority:** P1; **integrator:** root; **branch:** `docs/moirai-event-trust-state`;
   **last-update:** 2026-09-15; **dependencies:** none; **drivers:**
   [Metis browser](../../metis/backlog.md#METIS-BROWSER-001),
   [RITK Metis migration](../../ritk/backlog.md#RITK-SNAP-METIS-001).
