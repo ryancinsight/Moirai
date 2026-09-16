@@ -651,8 +651,8 @@
 - Acceptance: cancellation before and after first poll, handle-drop
   cancellation, pending-waker wakeup, and completed-task behavior are
   value-tested; WASM compile, native tests and warning-denied Clippy pass.
-- Class: [arch] [minor]; status: review; integrator: root; branch:
-  `feat/wasm-task-cancellation`; last-update: 2026-09-07; driver:
+- Class: [arch] [minor]; status: in-progress; integrator: root; branch:
+  `docs/close-wasm-task-delivery`; last-update: 2026-09-16; driver:
   [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
 - Decision: [ADR 0045](adr/0045-cancellable-browser-tasks.md).
 
