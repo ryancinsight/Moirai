@@ -190,7 +190,7 @@
 <a id="moirai-executor-sizing"></a>
 ## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — in-progress
 
-- **Integrator:** claude-fable-5.1; **branch:** `perf/moirai-fork-join-latency-probe` (probe, landed #312); the caller-help fix is withdrawn pending its crash.
+- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-takeover`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
 - **Escaped defect (2026-09-10).** #312 let a non-worker caller run its own
   scope's chunks from the injectors. The probe read p90 404 → 68 µs at 10 µs
   tasks and the workspace gate was green on the PR, but the merge run
