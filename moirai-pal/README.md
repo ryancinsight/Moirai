@@ -61,6 +61,13 @@ and bounded `InputEvent`/`CompositionEvent` metadata through owned snapshots.
 `WebDocument::canvas_by_id` resolves an HTML5 canvas and `WebCanvas::present`
 uploads a borrowed, validated RGBA8 frame under the shared platform size and
 byte bounds; the provider retains no frame bytes after the call.
+`WebGpuCanvas::from_current_document` is the explicit GPU counterpart: it
+asynchronously acquires the browser's WebGPU adapter and device, configures a
+`webgpu` canvas, and presents the same borrowed frame through
+`copyExternalImageToTexture`. WebGPU absence, device loss, and upload errors
+are returned to the consumer; the PAL never changes a requested GPU surface to
+the 2-D path implicitly. Browser WebGPU remains an optional secure-context
+capability and consumers own their presentation-policy choice.
 Unsupported targets and browser metadata failures return explicit errors or
 `None`; grapheme segmentation and editing policy stay with the application or
 host layer. Native IME event production stays in the Windows provider.

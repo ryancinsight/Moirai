@@ -24,7 +24,7 @@ pub use self::dom::{
     DroppedFile, DroppedFileAccess, ElementSize, KeyboardMetadata, PointerMetadata,
     PointerModifiers, PointerType, RgbaFrame, TextInputMetadata, TextSelection,
     TextSelectionDirection, WebCanvas, WebDocument, WebElement, WebEvent, WebEventListener,
-    WheelDeltaMode, WheelMetadata,
+    WebGpuCanvas, WheelDeltaMode, WheelMetadata,
 };
 pub use self::file::{MAX_READ_BYTES, WebFile};
 pub use self::timer::WebTimer;
