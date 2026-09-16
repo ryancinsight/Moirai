@@ -689,12 +689,17 @@
   and general network APIs remain separate items.
 - Acceptance: ordered receive, replacement waker, cancellation, close/error,
   oversize and queue-bound cases are value-tested; WASM compile and Clippy pass.
-- Class: [arch] [minor]; status: in-progress; integrator: root; branch:
-  `docs/close-wasm-websocket-delivery`; last-update: 2026-09-16; driver:
+- Class: [arch] [minor]; status: done; integrator: root; last-update: 2026-09-16;
+  driver:
   [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
-- Evidence: `moirai-pal` native state tests (39/39), owned `WebTimer`, and
-  warning-denied native/WASM Clippy against merged Mnemosyne backend `2eb49c1`;
-  real browser conformance remains the re-open trigger.
+- Evidence: PR [#264](https://github.com/ryancinsight/Moirai/pull/264) merged at
+  `cc4771e`; its exact package checks recorded 39/39 native tests, the
+  `wasm32-unknown-unknown` check and warning-denied Clippy, and formatting.
+  PR [#269](https://github.com/ryancinsight/Moirai/pull/269) merged at
+  `fcbfbbc` with 92 focused tests, bounded loopback exchange and hosted
+  Workspace/WASM checks; PR [#270](https://github.com/ryancinsight/Moirai/pull/270)
+  merged at `be87d009` with waiter wakeups outside the receive-state lock.
+  Direct browser-driver WebSocket conformance remains the re-open trigger.
 
 <a id="MOI-WASM-2026-09-06-DOM"></a>
 ## MOI-WASM-2026-09-06-DOM — Own browser DOM and listener lifetimes [arch] [minor]
