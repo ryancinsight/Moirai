@@ -629,14 +629,17 @@
   close, deadline/cancellation and loopback connection-drop accounting are
   value-tested; native and WASM provider checks pass with warning-denied
   Clippy; no third-party WebSocket runtime is introduced.
-- Class: [arch] [minor]; status: review; priority: P0; integrator: root;
-  branch: `fix/http-websocket-drop-wake`; last-update: 2026-09-07; driver:
+- Class: [arch] [minor]; status: done; priority: P0; integrator: root;
+  last-update: 2026-09-16; driver:
   [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
 - Decision: [ADR 0046](adr/0046-bounded-websocket-service.md).
 - Evidence: PR #269 merged at `fcbfbbc`; the follow-up keeps WebSocket waiter
   wakeups outside the receive-state mutex during cancellation. Native
   `moirai-pal` Nextest passes 47/47, warning-denied Clippy passes, and the
   WASM check passes.
+- Delivery: follow-up [PR #270](https://github.com/ryancinsight/Moirai/pull/270)
+  merged at `be87d009cd0e877beef719b47bdcbadc45659069`; hosted workspace,
+  lockfile, SemVer, Loom, fuzz and Rust 1.95 checks passed.
 
 <a id="MOI-WASM-TASK-2026-09-07"></a>
 ## MOI-WASM-TASK-2026-09-07 — Cancel browser-local tasks [arch] [minor]
