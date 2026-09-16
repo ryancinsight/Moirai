@@ -190,7 +190,7 @@
 <a id="moirai-executor-sizing"></a>
 ## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — in-progress
 
-- **Integrator:** claude-fable-5.1; **branch:** `perf/moirai-fork-join-latency-probe` (probe, landed #312); the caller-help fix is withdrawn pending its crash.
+- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-takeover`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
 - **Escaped defect (2026-09-10).** #312 let a non-worker caller run its own
   scope's chunks from the injectors. The probe read p90 404 → 68 µs at 10 µs
   tasks and the workspace gate was green on the PR, but the merge run
@@ -252,6 +252,11 @@
   withdrawn, but its blocker is no longer "the helper is broken": it is "no
   reproducer separates the arms". Re-landing the help needs either a
   reproducer that does separate them or a diagnosis of the fault itself.
+- **Queue handoff check (2026-09-16).** A mixed injector workload ran for 16
+  rounds (128 jobs; two batched and two single-item thieves); locked release
+  nextest passed 10/10, every job ran once, and the target length returned to
+  zero. This bounds out loss or duplication in the queue handoff; the rare
+  libtest crash remains unlocalized and caller help stays withdrawn.
 - **Next method.** Capture a Windows crash dump of the faulting test process
   (`procdump -e -ma`, or WER `LocalDumps`) and read the faulting thread's real
   stack: gdb's unwind through the optimized frames gave only stale stack words,

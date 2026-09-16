@@ -5,7 +5,11 @@
 use core::mem::size_of;
 use std::{
     cell::Cell,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Barrier, Mutex,
+        atomic::{AtomicU8, AtomicUsize, Ordering},
+    },
+    thread,
 };
 
 use super::steal::{STEAL_SPINS_BEFORE_YIELD, steal_after_contention_with};
@@ -203,4 +207,104 @@ fn full_injector_returns_and_drops_rejected_job_once() {
     assert_eq!(Arc::strong_count(&capture), 2);
     drop(rejected);
     assert_eq!(Arc::strong_count(&capture), 1);
+}
+
+/// Mixed single-item and batched thieves must consume the injector exactly once.
+///
+/// `WorkerQueues::steal_batch` removes several target items before publishing
+/// its deferred target-length decrement, then moves all but one into the
+/// thief's private queues. A concurrent `steal_one` therefore exercises both
+/// consumers against the same target and the target's advisory `len` update.
+/// The queue is populated before the barrier, so every job is live before any
+/// thief starts; the only synchronization under test is the steal handoff.
+#[test]
+fn mixed_batch_and_single_steals_execute_every_job_once() {
+    const ITEMS: usize = 128;
+    const THIEVES: usize = 4;
+    const ROUNDS: usize = 16;
+    const MAX_IDLE_ROUNDS: usize = ITEMS * 64;
+
+    for _ in 0..ROUNDS {
+        let marks = Arc::new((0..ITEMS).map(|_| AtomicU8::new(0)).collect::<Vec<_>>());
+        let completed = Arc::new(AtomicUsize::new(0));
+        let duplicates = Arc::new(AtomicUsize::new(0));
+        let (_target_owner, target) = WorkerQueues::new(ITEMS * 2, local_capacity(16));
+
+        for id in 0..ITEMS {
+            let marks = Arc::clone(&marks);
+            let completed = Arc::clone(&completed);
+            let duplicates = Arc::clone(&duplicates);
+            let () = target
+                .try_push_external(
+                    Priority::Normal,
+                    ScheduledJob::new(move |_| {
+                        let previous = marks[id].fetch_add(1, Ordering::Relaxed);
+                        if previous != 0 {
+                            duplicates.fetch_add(1, Ordering::Relaxed);
+                        }
+                        completed.fetch_add(1, Ordering::Relaxed);
+                    }),
+                )
+                .map_or((), |_| {
+                    panic!("test injector must admit the prepared workload")
+                });
+        }
+
+        let start = Arc::new(Barrier::new(THIEVES));
+        let mut handles = Vec::with_capacity(THIEVES);
+        for thief_id in 0..THIEVES {
+            let target = Arc::clone(&target);
+            let start = Arc::clone(&start);
+            let completed = Arc::clone(&completed);
+            handles.push(thread::spawn(move || {
+                let (mut owner, _) = WorkerQueues::new(ITEMS * 2, local_capacity(16));
+                start.wait();
+                let mut idle_rounds = 0;
+
+                loop {
+                    let mut progressed = false;
+
+                    while let Some(job) = owner.pop_local() {
+                        assert!(job.execute(thief_id));
+                        progressed = true;
+                    }
+
+                    if completed.load(Ordering::Relaxed) >= ITEMS {
+                        break;
+                    }
+
+                    if thief_id < 2 {
+                        if let Some(job) = owner.steal_batch(&target) {
+                            assert!(job.execute(thief_id));
+                            progressed = true;
+                        }
+                    } else if let Some(job) = target.steal_one() {
+                        assert!(job.execute(thief_id));
+                        progressed = true;
+                    }
+
+                    if progressed {
+                        idle_rounds = 0;
+                    } else {
+                        idle_rounds += 1;
+                        if idle_rounds >= MAX_IDLE_ROUNDS {
+                            break;
+                        }
+                        thread::yield_now();
+                    }
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("queue thief must terminate");
+        }
+
+        assert_eq!(completed.load(Ordering::Relaxed), ITEMS);
+        assert_eq!(duplicates.load(Ordering::Relaxed), 0);
+        for mark in marks.iter() {
+            assert_eq!(mark.load(Ordering::Relaxed), 1);
+        }
+        assert_eq!(target.len(), 0);
+    }
 }
