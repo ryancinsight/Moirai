@@ -502,10 +502,10 @@
   wheel/modifier/resize/DPI messages, repaints the last frame, rejects queue
   overflow and passes Windows warning-denied tests. No GUI toolkit dependency
   is added.
-- Class: [arch] [minor]; status: in-progress; priority: P1; integrator: root;
-  branch: `feat/window-wheel-modifiers`; last-update: 2026-09-10; driver:
+- Class: [arch] [minor]; status: done; priority: P1; integrator: root;
+  last-update: 2026-09-16; driver:
   [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
-- Decision: [ADR 0049](adr/0049-win32-window-provider.md) (claimed).
+- Decision: [ADR 0049](adr/0049-win32-window-provider.md).
 - Increment: commits `3fe5b76` and `04b4542` add the Rust 2024 baseline and
   bounded Win32 HWND, input, lifecycle, DPI and ARGB presentation provider.
 - Evidence: `cargo check --workspace --locked`, `cargo test -p moirai-pal
@@ -546,6 +546,11 @@
   under their provider items. Consumer editing policy and an installed-IME
   journey remain Metis host evidence. The WebView2 provider is delivered by
   [MOI-WINDOW-WEBVIEW2-2026-09-09](#MOI-WINDOW-WEBVIEW2-2026-09-09).
+- Evidence: PR [#313](https://github.com/ryancinsight/Moirai/pull/313) merged at
+  `8955652`; its hosted Workspace gate and required checks passed, with the
+  focused PAL suite reporting 70 passed and one platform skip. The complete
+  provider increments above retain strict native Clippy and Windows lifecycle,
+  input, IME and presentation coverage.
 
 <a id="MOI-WINDOW-DIALOG-2026-09-14"></a>
 ## MOI-WINDOW-DIALOG-2026-09-14 — Provide bounded native file selection [arch] [minor]
