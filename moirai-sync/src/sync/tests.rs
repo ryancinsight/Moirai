@@ -14,26 +14,36 @@ use super::wait_group::WaitGroup;
 const TEST_THREAD_COUNT: usize = 10;
 const OPERATIONS_PER_THREAD: usize = 100;
 const TEST_ELEMENT_COUNT: usize = 1000;
-const TEST_SLEEP_MULTIPLIER_MS: u64 = 10;
 
 #[test]
 fn test_wait_group() {
+    use std::sync::Barrier;
+
     let wg = Arc::new(WaitGroup::new());
     let mut handles = vec![];
+    let start = Arc::new(Barrier::new(4));
+    let release = Arc::new(Barrier::new(4));
 
     wg.add(3);
 
-    for i in 0..3 {
+    for _ in 0..3 {
         let wg = wg.clone();
+        let start = Arc::clone(&start);
+        let release = Arc::clone(&release);
         handles.push(thread::spawn(move || {
-            thread::sleep(std::time::Duration::from_millis(
-                i * TEST_SLEEP_MULTIPLIER_MS,
-            ));
+            start.wait();
+            release.wait();
             wg.done();
         }));
     }
 
-    wg.wait();
+    start.wait();
+    let waiter = {
+        let wg = Arc::clone(&wg);
+        thread::spawn(move || wg.wait())
+    };
+    release.wait();
+    waiter.join().unwrap();
 
     for handle in handles {
         handle.join().unwrap();

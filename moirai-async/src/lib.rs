@@ -63,18 +63,12 @@ pub use moirai_async_macros::main;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
     #[test]
     fn test_integration_async_executor() {
         let executor = AsyncExecutor::new().expect("Failed to create executor");
 
-        let _handle = executor.spawn(async {
-            moirai_pal::timer::sleep(Duration::from_millis(10))
-                .await
-                .ok();
-            "async task completed"
-        });
+        let _handle = executor.spawn(async { "async task completed" });
 
         // Run one iteration manually for testing
         // In production, executor.run() would be called

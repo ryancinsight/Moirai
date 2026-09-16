@@ -274,7 +274,7 @@ mod tests {
             mpsc,
         };
         use std::task::Waker;
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
 
         let executor = HybridExecutor::new(ExecutorConfig {
             worker_threads: 1,
@@ -284,15 +284,20 @@ mod tests {
 
         let ready = Arc::new(AtomicBool::new(false));
         let waker_slot = Arc::new(Mutex::new(None::<Waker>));
+        let (waker_published_tx, waker_published_rx) = mpsc::sync_channel(1);
         let ready_for_future = Arc::clone(&ready);
         let waker_for_future = Arc::clone(&waker_slot);
         let handle = executor
-            .spawn_async(async {
+            .spawn_async(async move {
+                let mut publish = Some(waker_published_tx);
                 std::future::poll_fn(move |cx| {
                     if ready_for_future.load(Ordering::Acquire) {
                         std::task::Poll::Ready(21usize)
                     } else {
                         *waker_for_future.lock().unwrap() = Some(cx.waker().clone());
+                        if let Some(publish) = publish.take() {
+                            publish.send(()).expect("waker observer is alive");
+                        }
                         std::task::Poll::Pending
                     }
                 })
@@ -300,18 +305,14 @@ mod tests {
             })
             .unwrap();
 
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let waker = loop {
-            if let Some(waker) = waker_slot.lock().unwrap().take() {
-                break waker;
-            }
-
-            assert!(
-                Instant::now() < deadline,
-                "async future must publish a waker before timeout"
-            );
-            std::thread::sleep(Duration::from_millis(1));
-        };
+        waker_published_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("async future must publish a waker before timeout");
+        let waker = waker_slot
+            .lock()
+            .unwrap()
+            .take()
+            .expect("waker publication stores the waker");
 
         let (ran_sender, ran_receiver) = mpsc::channel();
         let independent = executor
@@ -631,15 +632,13 @@ mod tests {
             )))
         );
 
-        // A never-completing task expires with the typed timeout once the
-        // deadline passes (deadline is checked on every poll).
+        // A never-completing task with an already-expired deadline returns the
+        // typed timeout on its first poll. This exercises the deadline branch
+        // without sleeping the test thread to cross a wall-clock boundary.
         let (release, gate_handle) = gate_single_worker::<BlockingTask>(&executor);
         let handle = executor.spawn_blocking(|| 1usize).unwrap();
-        let mut wait = std::pin::pin!(
-            executor.wait_for_task(handle.id(), Some(std::time::Duration::from_millis(40)))
-        );
-        assert!(wait.as_mut().poll(&mut context).is_pending());
-        std::thread::sleep(std::time::Duration::from_millis(80));
+        let mut wait =
+            std::pin::pin!(executor.wait_for_task(handle.id(), Some(std::time::Duration::ZERO)));
         assert_eq!(
             wait.as_mut().poll(&mut context),
             Poll::Ready(Err(moirai_core::error::ExecutorError::SpawnFailed(
@@ -703,11 +702,13 @@ mod tests {
 
     #[test]
     fn shutdown_timeout_bounds_the_callers_wait() {
-        let executor = HybridExecutor::new(ExecutorConfig {
-            worker_threads: 1,
-            ..ExecutorConfig::default()
-        })
-        .unwrap();
+        let executor = Arc::new(
+            HybridExecutor::new(ExecutorConfig {
+                worker_threads: 1,
+                ..ExecutorConfig::default()
+            })
+            .unwrap(),
+        );
 
         let (release_sender, release_receiver) = std::sync::mpsc::channel::<()>();
         let (started_sender, started_receiver) = std::sync::mpsc::channel::<()>();
@@ -724,17 +725,26 @@ mod tests {
             .unwrap();
 
         // The worker is blocked, so a full drain cannot finish; the call must
-        // return once the bound elapses while the drain continues behind it.
-        let start = std::time::Instant::now();
-        executor.shutdown_timeout(std::time::Duration::from_millis(50));
+        // return after its bound while the drain continues behind it. Observe
+        // the return as an event instead of comparing wall-clock elapsed time.
+        let (returned_sender, returned_receiver) = std::sync::mpsc::sync_channel(0);
+        let shutdown_executor = Arc::clone(&executor);
+        let shutdown_thread = std::thread::spawn(move || {
+            shutdown_executor.shutdown_timeout(std::time::Duration::from_millis(50));
+            returned_sender
+                .send(shutdown_executor.is_shutting_down())
+                .expect("shutdown observer must remain connected");
+        });
         assert!(
-            start.elapsed() < std::time::Duration::from_secs(5),
-            "shutdown_timeout must bound the caller's wait"
+            returned_receiver
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("shutdown_timeout must return within the test bound")
         );
-        assert!(executor.is_shutting_down());
 
         // Release the worker so the background drain and drop complete.
         release_sender.send(()).unwrap();
+        shutdown_thread.join().unwrap();
+        drop(executor);
     }
 
     #[test]

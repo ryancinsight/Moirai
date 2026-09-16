@@ -5,7 +5,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
-    thread,
     time::Duration,
 };
 
@@ -15,12 +14,14 @@ use super::sleep;
 
 struct WakeFlag {
     woke: AtomicBool,
+    wake_tx: std::sync::mpsc::SyncSender<()>,
 }
 
 impl WakeFlag {
-    fn new() -> Self {
+    fn new(wake_tx: std::sync::mpsc::SyncSender<()>) -> Self {
         Self {
             woke: AtomicBool::new(false),
+            wake_tx,
         }
     }
 }
@@ -28,12 +29,19 @@ impl WakeFlag {
 impl ArcWake for WakeFlag {
     fn wake_by_ref(arc_self: &Arc<Self>) {
         arc_self.woke.store(true, Ordering::Release);
+        if let Err(error) = arc_self.wake_tx.try_send(()) {
+            assert!(
+                matches!(error, std::sync::mpsc::TrySendError::Full(())),
+                "timer wake observer must remain connected"
+            );
+        }
     }
 }
 
 #[test]
 fn pal_timer_is_pending_before_deadline_and_wakes() {
-    let wake_flag = Arc::new(WakeFlag::new());
+    let (wake_tx, wake_rx) = std::sync::mpsc::sync_channel(1);
+    let wake_flag = Arc::new(WakeFlag::new(wake_tx));
     let waker = waker(Arc::clone(&wake_flag));
     let mut context = Context::from_waker(&waker);
     let mut timer = Box::pin(sleep(Duration::from_millis(20)));
@@ -41,7 +49,9 @@ fn pal_timer_is_pending_before_deadline_and_wakes() {
     assert!(matches!(timer.as_mut().poll(&mut context), Poll::Pending));
     assert!(!wake_flag.woke.load(Ordering::Acquire));
 
-    thread::sleep(Duration::from_millis(40));
+    wake_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("timer must publish its wake event");
 
     assert!(wake_flag.woke.load(Ordering::Acquire));
     assert!(matches!(
@@ -52,7 +62,8 @@ fn pal_timer_is_pending_before_deadline_and_wakes() {
 
 #[test]
 fn pal_timer_zero_duration_completes_immediately() {
-    let wake_flag = Arc::new(WakeFlag::new());
+    let (wake_tx, _wake_rx) = std::sync::mpsc::sync_channel(1);
+    let wake_flag = Arc::new(WakeFlag::new(wake_tx));
     let waker = waker(wake_flag);
     let mut context = Context::from_waker(&waker);
     let mut timer = Box::pin(sleep(Duration::ZERO));
