@@ -51,15 +51,19 @@ impl WebCanvas {
     /// Presents one validated RGBA8 frame at the canvas origin.
     ///
     /// The frame remains borrowed for the duration of this call. The browser
-    /// owns any transfer needed by `ImageData` after the Web API boundary.
+    /// owns any transfer needed by `ImageData` after the Web API boundary. A
+    /// matching canvas extent is retained so repeated animation frames do not
+    /// reset the bitmap before each upload.
     ///
     /// # Errors
     /// Returns [`io::ErrorKind::InvalidInput`] when the browser rejects the
     /// canvas resize or image upload.
     pub fn present(&self, frame: RgbaFrame<'_>) -> io::Result<()> {
         let size = frame.size();
-        self.canvas.set_width(size.width());
-        self.canvas.set_height(size.height());
+        if !size.matches_dimensions(self.canvas.width(), self.canvas.height()) {
+            self.canvas.set_width(size.width());
+            self.canvas.set_height(size.height());
+        }
         let image = ImageData::new_with_u8_clamped_array_and_sh(
             Clamped(frame.pixels()),
             size.width(),

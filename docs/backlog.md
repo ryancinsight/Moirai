@@ -4770,3 +4770,9 @@ Part IV chapter map (grounded in moirai-transport):
 - Verification: a pure extent predicate test plus the locked WASM provider
   check prove the resize decision; the RITK browser canvas trace remains the
   visual consumer oracle.
+- Increment (2026-09-16): `WebCanvas::present` now compares the validated
+  extent with the element before assigning width or height, so stable animation
+  frames avoid redundant bitmap resets while changed extents retain the same
+  bounds and upload path. The predicate is covered by provider tests; native
+  nextest 73/73, rustdoc tests, native and WASM warning-denied Clippy, WASM
+  check and format checks pass.

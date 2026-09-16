@@ -30,15 +30,22 @@ the maximum pixel count and multiplication overflow. `RgbaFrame::new` checks
 that the borrowed byte slice is exactly four bytes per pixel and stays below
 the provider byte bound.
 
-`WebCanvas::present` resizes the canvas to the frame dimensions and submits one
-`ImageData` object through the browser's 2-D context. The extent shares the
-native presenter bound of 16,384 pixels per side and 16 MiB pixels, so one
-RGBA8 upload is capped at 64 MiB. The Rust API borrows the frame and owns no
-pixel or callback storage after the call; the browser copy at the Web API
-boundary is documented as an unavoidable platform transfer. The provider
-contains the only `web-sys` canvas bindings. Metis consumes this seam for
-generic presentation, and RITK supplies frames after its DICOM pipeline has
-finished; no DICOM type or medical policy crosses the boundary.
+`WebCanvas::present` resizes the canvas to the frame dimensions when the
+validated extent differs from the current element and submits one `ImageData`
+object through the browser's 2-D context. Matching extents are retained across
+uploads so animation frames do not reset the bitmap and backing browser storage
+on every presentation. The extent shares the native presenter bound of 16,384
+pixels per side and 16 MiB pixels, so one RGBA8 upload is capped at 64 MiB. The
+Rust API borrows the frame and owns no pixel or callback storage after the call;
+the browser copy at the Web API boundary is documented as an unavoidable
+platform transfer. The provider contains the only `web-sys` canvas bindings.
+Metis consumes this seam for generic presentation, and RITK supplies frames
+after its DICOM pipeline has finished; no DICOM type or medical policy crosses
+the boundary.
+
+Revision 2026-09-16: the presentation path compares the validated extent with
+the element before assigning `width` or `height`, preserving the same upload and
+ownership contract while avoiding redundant bitmap resets for stable frames.
 
 ## Alternatives rejected
 
@@ -65,7 +72,8 @@ correctness is established by a browser capture in the consumer integration.
 ## Verification
 
 Pure validation tests cover zero dimensions, dimension and pixel-count bounds,
-exact RGBA length, oversized frames and boundary acceptance. The PAL package
+exact RGBA length, oversized frames, boundary acceptance and the stable-extent
+predicate. The PAL package
 passes warning-denied native and WASM Clippy plus the `wasm32-unknown-unknown`
 check in the provider increment. Metis and RITK add consumer tests and an
 engine-labelled visual capture after adopting the published provider revision;
