@@ -689,8 +689,9 @@
   and general network APIs remain separate items.
 - Acceptance: ordered receive, replacement waker, cancellation, close/error,
   oversize and queue-bound cases are value-tested; WASM compile and Clippy pass.
-- Class: [arch] [minor]; status: review; integrator: atlas-metis-ipc; branch:
-  `arch/moirai-hephaestus-gpu-route`; driver: [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
+- Class: [arch] [minor]; status: in-progress; integrator: root; branch:
+  `docs/close-wasm-websocket-delivery`; last-update: 2026-09-16; driver:
+  [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
 - Evidence: `moirai-pal` native state tests (39/39), owned `WebTimer`, and
   warning-denied native/WASM Clippy against merged Mnemosyne backend `2eb49c1`;
   real browser conformance remains the re-open trigger.
