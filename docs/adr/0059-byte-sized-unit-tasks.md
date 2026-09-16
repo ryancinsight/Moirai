@@ -135,3 +135,21 @@ makes the same decision for the same `(len, unit_len, unit_bytes)`, and the
 existing single and pair tests pin that the planner changed neither. Native
 tests cover aligned triple runs with a ragged tail under both policies, one
 state per task, and a mismatched second or third buffer rejected.
+
+## Revision 2026-09-15 — Unit-task ranges
+
+The three operators so far hand out runs of a dense slice, so a pass whose
+units are not one contiguous buffer cannot use them. leto-ops' strided
+elementwise maps, its tiled block pass and its axis reduction each walk logical
+indices and address their own offsets, so they kept sizing chunks by hand — a
+4096-element target behind a fixed 16384-element threshold — which is the
+decision this ADR moved into one place.
+
+`for_each_unit_task_range_with(units, unit_bytes, init, f)` runs `f(state,
+first_unit, count)` over consecutive runs of unit indices, taking task width
+and the `parallelize_work` decision from the same private planner the slice
+operators call. It owns no data and therefore no disjointness proof: the caller
+still owns whatever its indices address, which is why the operator carries no
+`unsafe` at all. Native tests cover runs with a ragged tail under both
+policies, a unit at and past the task width, an empty range, one state per
+task, and the values the policy is asked about.

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Unit-task ranges** (`for_each_unit_task_range_with`). The unit-task
+  operators (ADR 0059) all hand out runs of a dense slice, so a pass whose
+  units are not one contiguous buffer — a strided row walk, a tiled block
+  pass, a reduction writing one output per axis index — had no way to ask for
+  a task sized by the bytes a unit moves, and kept picking chunk sizes by
+  hand. This runs a closure over consecutive runs of unit *indices* through
+  the same planner the slice operators use, so both make the same decision for
+  the same bytes. It owns no data and therefore carries no `unsafe`: the
+  caller keeps the disjointness proof for what its indices address.
+
 - **Root-confined native file opening.** `moirai_pal::fs::open_file_within_root`
   resolves native path components from a directory handle, rejects traversal
   and link components, and returns the handle opened under the selected root.

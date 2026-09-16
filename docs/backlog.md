@@ -1,5 +1,14 @@
 # Moirai Development Backlog (SSOT)
 
+<a id="MOI-UNIT-TASK-RANGES-2026-09-15"></a>
+## MOI-UNIT-TASK-RANGES-2026-09-15 — Index-walking passes cannot size tasks by bytes [minor] [perf] — review
+
+- **Finding.** The unit-task operators (ADR 0059) all hand out runs of a dense slice. A pass whose units are not one contiguous buffer — leto-ops' strided elementwise maps, its tiled block pass, its axis reduction — has no way to ask for a byte-sized task, so those five sites still pick a 4096-element chunk by hand behind a fixed 16384-element threshold, which is exactly the decision ADR 0059 centralised.
+- **Change.** `for_each_unit_task_range_with(units, unit_bytes, init, f)` runs `f(state, first_unit, count)` over consecutive runs of unit indices through the same planner, so it makes the same decision for the same `(units, unit_bytes)` as the slice operators. It owns no data, so it carries no `unsafe`; the caller keeps the disjointness proof for what its indices address.
+- **Acceptance:** runs with a ragged tail under both policies, a unit at and past the task width, an empty range, one state per task, and the policy arguments — all covered by native tests; clippy, doctests and the moirai-parallel suite clean.
+- **Consumer:** leto-ops' five index-walking sites, the second increment of `leto backlog.md#LETO-ELEMENTWISE-UNIT-TASKS-2026-09-15`.
+- **Integrator:** claude-opus-5; **branch:** `feat/moirai-unit-task-ranges`; **last-update:** 2026-09-15.
+
 <a id="MOI-WASM-DOM-TRUST-2026-09-15"></a>
 ## MOI-WASM-DOM-TRUST-2026-09-15 — Preserve browser event trust provenance [arch] [minor] [security]
 

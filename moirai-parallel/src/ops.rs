@@ -41,7 +41,7 @@ pub use chunks::{
 };
 pub use unit_tasks::{
     UNIT_TASK_BYTES, for_each_unit_task_mut_with, for_each_unit_task_pair_mut_with,
-    for_each_unit_task_triple_mut_with, units_per_task,
+    for_each_unit_task_range_with, for_each_unit_task_triple_mut_with, units_per_task,
 };
 
 /// State of the scheduled branch of a join.
