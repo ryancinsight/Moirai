@@ -252,6 +252,11 @@
   withdrawn, but its blocker is no longer "the helper is broken": it is "no
   reproducer separates the arms". Re-landing the help needs either a
   reproducer that does separate them or a diagnosis of the fault itself.
+- **Queue handoff check (2026-09-16).** A mixed injector workload ran for 16
+  rounds (128 jobs; two batched and two single-item thieves); locked release
+  nextest passed 10/10, every job ran once, and the target length returned to
+  zero. This bounds out loss or duplication in the queue handoff; the rare
+  libtest crash remains unlocalized and caller help stays withdrawn.
 - **Next method.** Capture a Windows crash dump of the faulting test process
   (`procdump -e -ma`, or WER `LocalDumps`) and read the faulting thread's real
   stack: gdb's unwind through the optimized frames gave only stale stack words,
