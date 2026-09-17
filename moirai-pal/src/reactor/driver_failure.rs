@@ -12,7 +12,7 @@ struct RetainedDriverFailure(Arc<io::Error>);
 
 impl fmt::Display for RetainedDriverFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "readiness driver terminated: {}", self.0)
+        formatter.write_str("readiness driver terminated")
     }
 }
 
