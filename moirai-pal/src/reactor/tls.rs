@@ -92,9 +92,7 @@ impl IoReactor {
                     let driver = std::sync::Arc::clone(&reactor);
                     std::thread::Builder::new()
                         .name("moirai-global-reactor".to_string())
-                        .spawn(move || {
-                            let _ = driver.run();
-                        })
+                        .spawn(move || driver.run())
                         .ok()?;
                     Some(reactor)
                 })

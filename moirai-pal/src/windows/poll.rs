@@ -175,19 +175,51 @@ impl WsaPollReactor {
         &self,
         timeout: Option<Duration>,
     ) -> io::Result<Vec<PolledEvent>> {
-        self.poll_events_with(timeout, |event, generation, invalidated| {
-            if invalidated {
-                PolledEvent::invalidated(event, generation)
-            } else {
-                PolledEvent::new(event, generation)
-            }
-        })
+        self.poll_events_after_snapshot(
+            timeout,
+            |event, generation, invalidated| {
+                if invalidated {
+                    PolledEvent::invalidated(event, generation)
+                } else {
+                    PolledEvent::new(event, generation)
+                }
+            },
+            || {},
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn poll_registered_events_after_snapshot(
+        &self,
+        timeout: Option<Duration>,
+        after_snapshot: impl FnOnce(),
+    ) -> io::Result<Vec<PolledEvent>> {
+        self.poll_events_after_snapshot(
+            timeout,
+            |event, generation, invalidated| {
+                if invalidated {
+                    PolledEvent::invalidated(event, generation)
+                } else {
+                    PolledEvent::new(event, generation)
+                }
+            },
+            after_snapshot,
+        )
     }
 
     fn poll_events_with<T>(
         &self,
         timeout: Option<Duration>,
+        make_event: impl FnMut(Event, RegistrationGeneration, bool) -> T,
+    ) -> io::Result<Vec<T>> {
+        self.poll_events_after_snapshot(timeout, make_event, || {})
+    }
+
+    fn poll_events_after_snapshot<T>(
+        &self,
+        timeout: Option<Duration>,
         mut make_event: impl FnMut(Event, RegistrationGeneration, bool) -> T,
+        after_snapshot: impl FnOnce(),
     ) -> io::Result<Vec<T>> {
         // Reuse the persistent fd array; the mutex serializes concurrent
         // pollers. The generation sidecar remains paired with each returned
@@ -221,6 +253,11 @@ impl WsaPollReactor {
                 poll_buffer.generations.push(registration.generation);
             }
         }
+        // Test synchronization can close a socket only after its exact
+        // registration generation has entered this snapshot. This point is
+        // immediately before `WSAPoll`, but does not claim that the kernel call
+        // has already begun.
+        after_snapshot();
 
         let timeout_ms = timeout.map_or(-1, |d| d.as_millis().min(i32::MAX as u128) as i32);
 

@@ -4857,3 +4857,13 @@ Part IV chapter map (grounded in moirai-transport):
 - Outcome: a closed Windows socket wakes its readiness waiter and leaves neither central nor `WSAPoll` registration; generation identity prevents a delayed invalidation from consuming a reused socket's newer central registration.
 - Scope: `moirai-pal` Windows poll/reactor/tests and this item; do not attribute the unproduced Metis 60-second hang to this defect. Acceptance: real sockets reproduce the stale registration before the fix, then focused Windows tests and the committed PAL gates pass without retries or budget changes. Residual: if Windows closes and reuses a raw socket value before `WSAPoll` observes `POLLNVAL`, the raw registration API cannot distinguish those lifetimes and may retain the old opposite-interest waker; resolving that requires an owner token carried from the socket operation through cancellation and registration.
 - Evidence: pre-fix nextest run `84d8c404-45f3-4288-bc82-7c118f4a38b7` failed because the closed waiter was not woken; exact-revision debug run `308b4b7b-cf08-4bef-87ee-673f4b82fc71` and release run `8ec7adbf-8c08-485f-88c8-015a89b1426e` pass all 82 PAL tests, and the Windows API semver gate passes 223/223 checks under patch.
+
+<a id="MOI-WINDOWS-REACTOR-DRIVER-2026-09-16"></a>
+## MOI-WINDOWS-REACTOR-DRIVER-2026-09-16 — Preserve readiness after a snapshotted socket closes [patch]
+- Status: done; commit: `0c85f9da`; last-update: 2026-09-16.
+- Outcome: synchronized real sockets prove that closing a snapshotted socket before the `WSAPoll` call does not terminate dispatch; the next readable socket wakes once and yields its exact payload. The probe does not establish a close after kernel entry or explain the Metis timeout.
+
+<a id="MOI-REACTOR-DRIVER-FAILURE-2026-09-16"></a>
+## MOI-REACTOR-DRIVER-FAILURE-2026-09-16 — Publish terminal readiness-driver failures [patch]
+- Status: done; implementation: `aa65267f`; PR: [#387](https://github.com/ryancinsight/Moirai/pull/387); last-update: 2026-09-16.
+- Outcome: the first driven reactor failure is retained, current waiters wake outside locks, and later registrations receive its typed source; all-feature debug/release tests pass 87/87 with one existing display-dependent skip, Linux/doc gates pass, and semver passes 223/223 applicable checks. Metis timeout causality remains unproved.
