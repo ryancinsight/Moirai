@@ -40,6 +40,18 @@ Also exports the Rayon-style `ParallelIterator` / `IndexedParallelIterator`
 surface, `par_range` / `async_range`, and the `ExecutionContext` /
 `ExecutionStrategy` types.
 
+## Standalone nested workload
+
+The bounded `nested_stress` example runs the nested parallel workload outside
+the libtest harness, which keeps the process shape available for diagnostics:
+
+```text
+cargo run --locked --release -p moirai-iter --example nested_stress -- 300
+```
+
+The argument is the pass count (default 300, maximum 20,000). Each pass checks
+all 1,025 outer results against the 1,025-element inner reduction.
+
 Full documentation: <https://docs.rs/moirai-iter>
 
 ## License
