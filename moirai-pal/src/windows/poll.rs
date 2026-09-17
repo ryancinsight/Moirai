@@ -7,28 +7,31 @@
 //! `poll(2)` — to report which registered sockets are readable/writable, which is
 //! exactly the readiness signal those futures need.
 //!
-//! Self-cleaning: a socket closed by its owner (without an explicit
-//! `unregister_fd`) surfaces as `POLLNVAL`. The backend removes the matching
-//! registration generation and reports its invalidation to [`crate::reactor::IoReactor`],
-//! which wakes and removes the matching central waiters. After invalidation,
-//! a delayed event for the retired generation cannot consume a newer
-//! registration for the same raw socket value.
+//! PAL socket registrations retain a weak OS-socket owner. Each poll snapshot
+//! upgrades that owner and holds the strong lease through `WSAPoll`, excluding
+//! concurrent `closesocket`; an owner retired before snapshot acquisition is
+//! invalidated without entering the kernel call. Raw registrations remain
+//! caller-owned and a closed raw socket surfaces as `POLLNVAL`. Every
+//! invalidation carries its registration generation, so a delayed event cannot
+//! consume a newer registration for a reused raw socket value.
 
 use std::io;
 use std::net::UdpSocket;
+use std::ops::{Deref, DerefMut};
 use std::os::windows::io::AsRawSocket;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use windows::Win32::Networking::WinSock::{
-    POLLERR, POLLHUP, POLLNVAL, POLLRDNORM, POLLWRNORM, SOCKET, SOCKET_ERROR, WSAPOLL_EVENT_FLAGS,
-    WSAPOLLFD, WSAPoll,
+    POLLERR, POLLHUP, POLLNVAL, POLLRDNORM, POLLWRNORM, SOCKET, SOCKET_ERROR, WSAGetLastError,
+    WSAPOLL_EVENT_FLAGS, WSAPOLLFD, WSAPoll,
 };
 
 use crate::reactor::registration::{
     PlatformUpdateFailure, PolledEvent, RegistrationGeneration, RegistrationTable,
     WaiterRegistration,
 };
+use crate::reactor::socket_owner::{SocketLease, WeakSocketOwner};
 use crate::{Event, Interest, RawFd, Reactor};
 
 /// `WSAPoll`-based readiness reactor.
@@ -45,12 +48,64 @@ pub struct WsaPollReactor {
     /// generation arrays per iteration. Lock order: `poll_buffer` before
     /// `registrations`; every other path takes at most `registrations`.
     poll_buffer: Mutex<PollBuffer>,
+    /// Reused strong-owner storage, kept separate so final owner release never
+    /// occurs while the poll snapshot lock is held.
+    lease_buffer: Mutex<Vec<SocketLease>>,
 }
 
 #[derive(Default)]
 struct PollBuffer {
     fds: Vec<WSAPOLLFD>,
     generations: Vec<RegistrationGeneration>,
+}
+
+struct PollSnapshot<'a> {
+    lease_source: &'a Mutex<Vec<SocketLease>>,
+    buffer: Option<MutexGuard<'a, PollBuffer>>,
+    leases: Vec<SocketLease>,
+}
+
+impl<'a> PollSnapshot<'a> {
+    fn acquire(source: &'a Mutex<PollBuffer>, lease_source: &'a Mutex<Vec<SocketLease>>) -> Self {
+        let buffer = lock_mutex(source);
+        let leases = std::mem::take(&mut *lock_mutex(lease_source));
+        Self {
+            lease_source,
+            buffer: Some(buffer),
+            leases,
+        }
+    }
+
+    fn finish(mut self) {
+        drop(self.buffer.take());
+        self.leases.clear();
+        std::mem::swap(&mut *lock_mutex(self.lease_source), &mut self.leases);
+    }
+}
+
+impl Deref for PollSnapshot<'_> {
+    type Target = PollBuffer;
+
+    fn deref(&self) -> &Self::Target {
+        self.buffer
+            .as_deref()
+            .expect("poll snapshot owns its buffer until release")
+    }
+}
+
+impl DerefMut for PollSnapshot<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.buffer
+            .as_deref_mut()
+            .expect("poll snapshot owns its buffer until release")
+    }
+}
+
+impl Drop for PollSnapshot<'_> {
+    fn drop(&mut self) {
+        drop(self.buffer.take());
+        self.leases.clear();
+    }
 }
 
 // SAFETY: all shared state is behind the `registrations` and `poll_buffer` `Mutex`es;
@@ -70,6 +125,7 @@ impl WsaPollReactor {
             wake,
             wake_addr,
             poll_buffer: Mutex::new(PollBuffer::default()),
+            lease_buffer: Mutex::new(Vec::new()),
         })
     }
 
@@ -134,11 +190,46 @@ impl WsaPollReactor {
             .map(|registration| registration.generation)
     }
 
+    pub(crate) fn register_owned_waiter(
+        &self,
+        fd: RawFd,
+        interest: Interest,
+        owner: WeakSocketOwner,
+    ) -> Result<RegistrationGeneration, PlatformUpdateFailure> {
+        self.replace_waiter_registration_with_owner(fd, interest, interest, Some(owner))
+            .map(|registration| registration.generation)
+    }
+
     pub(crate) fn replace_waiter_registration(
         &self,
         fd: RawFd,
         retained_interest: Interest,
         fresh_interest: Interest,
+    ) -> Result<WaiterRegistration, PlatformUpdateFailure> {
+        self.replace_waiter_registration_with_owner(fd, retained_interest, fresh_interest, None)
+    }
+
+    pub(crate) fn replace_owned_waiter_registration(
+        &self,
+        fd: RawFd,
+        retained_interest: Interest,
+        fresh_interest: Interest,
+        owner: WeakSocketOwner,
+    ) -> Result<WaiterRegistration, PlatformUpdateFailure> {
+        self.replace_waiter_registration_with_owner(
+            fd,
+            retained_interest,
+            fresh_interest,
+            Some(owner),
+        )
+    }
+
+    fn replace_waiter_registration_with_owner(
+        &self,
+        fd: RawFd,
+        retained_interest: Interest,
+        fresh_interest: Interest,
+        owner: Option<WeakSocketOwner>,
     ) -> Result<WaiterRegistration, PlatformUpdateFailure> {
         let socket = fd as usize;
         let mut registrations = lock_mutex(&self.registrations);
@@ -149,12 +240,25 @@ impl WsaPollReactor {
             fresh_interest
         };
         let generation = registrations.issue_generation().map_err(|error| {
-            PlatformUpdateFailure::new(error, previous.map(|entry| entry.interest))
+            PlatformUpdateFailure::new(error, previous.as_ref().map(|entry| entry.interest))
         })?;
-        registrations.commit(socket, interest, generation);
+        if let Some(owner) = owner {
+            registrations.commit_owned(socket, interest, generation, owner);
+        } else {
+            registrations.commit(socket, interest, generation);
+        }
         if let Err(error) = self.wake() {
             let armed_interest = if let Some(previous) = previous {
-                registrations.commit(socket, previous.interest, previous.generation);
+                if let Some(owner) = previous.owner {
+                    registrations.commit_owned(
+                        socket,
+                        previous.interest,
+                        previous.generation,
+                        owner,
+                    );
+                } else {
+                    registrations.commit(socket, previous.interest, previous.generation);
+                }
                 Some(previous.interest)
             } else {
                 let removed = registrations.remove_if_current(socket, generation);
@@ -207,6 +311,33 @@ impl WsaPollReactor {
         )
     }
 
+    #[cfg(test)]
+    pub(crate) fn poll_registered_events_after_snapshot_error(
+        &self,
+        after_snapshot: impl FnOnce(),
+    ) -> io::Result<Vec<PolledEvent>> {
+        self.poll_events_after_snapshot_with(
+            Some(Duration::ZERO),
+            |event, generation, invalidated| {
+                if invalidated {
+                    PolledEvent::invalidated(event, generation)
+                } else {
+                    PolledEvent::new(event, generation)
+                }
+            },
+            after_snapshot,
+            |fds, timeout| {
+                let registered = fds
+                    .get_mut(1)
+                    .expect("test poll includes one owned registration");
+                registered.events |= WSAPOLL_EVENT_FLAGS(0x4000);
+                // SAFETY: the test passes a valid array and deliberately asks
+                // Winsock to reject an unsupported event flag.
+                unsafe { WSAPoll(fds.as_mut_ptr(), fds.len() as u32, timeout) }
+            },
+        )
+    }
+
     fn poll_events_with<T>(
         &self,
         timeout: Option<Duration>,
@@ -218,13 +349,27 @@ impl WsaPollReactor {
     fn poll_events_after_snapshot<T>(
         &self,
         timeout: Option<Duration>,
+        make_event: impl FnMut(Event, RegistrationGeneration, bool) -> T,
+        after_snapshot: impl FnOnce(),
+    ) -> io::Result<Vec<T>> {
+        self.poll_events_after_snapshot_with(timeout, make_event, after_snapshot, |fds, timeout| {
+            // SAFETY: `fds` is a valid, correctly-sized array of `WSAPOLLFD`
+            // that outlives the call; `WSAPoll` writes only `revents`.
+            unsafe { WSAPoll(fds.as_mut_ptr(), fds.len() as u32, timeout) }
+        })
+    }
+
+    fn poll_events_after_snapshot_with<T>(
+        &self,
+        timeout: Option<Duration>,
         mut make_event: impl FnMut(Event, RegistrationGeneration, bool) -> T,
         after_snapshot: impl FnOnce(),
+        poll: impl FnOnce(&mut [WSAPOLLFD], i32) -> i32,
     ) -> io::Result<Vec<T>> {
         // Reuse the persistent fd array; the mutex serializes concurrent
         // pollers. The generation sidecar remains paired with each returned
         // event even after this buffer is reused by a later poll.
-        let mut poll_buffer = lock_mutex(&self.poll_buffer);
+        let mut poll_buffer = PollSnapshot::acquire(&self.poll_buffer, &self.lease_buffer);
         poll_buffer.fds.clear();
         poll_buffer.generations.clear();
         // Slot 0 is always the wake socket, so `nfds >= 1` (WSAPoll rejects 0).
@@ -233,11 +378,35 @@ impl WsaPollReactor {
             events: POLLRDNORM,
             revents: WSAPOLL_EVENT_FLAGS(0),
         });
+        let mut events_out = Vec::new();
         {
-            let registrations = lock_mutex(&self.registrations);
+            let mut registrations = lock_mutex(&self.registrations);
             poll_buffer.fds.reserve(registrations.len());
             poll_buffer.generations.reserve(registrations.len());
-            for (socket, registration) in registrations.iter() {
+            poll_buffer.leases.reserve(registrations.len());
+            registrations.retain(|socket, registration| {
+                let polled_socket = if let Some(owner) = registration.owner.as_ref() {
+                    let Some(lease) = owner.upgrade() else {
+                        events_out.push(make_event(
+                            Event {
+                                fd: socket as RawFd,
+                                readable: false,
+                                writable: false,
+                                error: true,
+                                hangup: true,
+                            },
+                            registration.generation,
+                            true,
+                        ));
+                        return false;
+                    };
+                    let raw_socket = lease.raw_socket() as usize;
+                    debug_assert_eq!(raw_socket, socket, "socket owner matches registration key");
+                    poll_buffer.leases.push(lease);
+                    raw_socket
+                } else {
+                    socket
+                };
                 let mut events = WSAPOLL_EVENT_FLAGS(0);
                 if registration.interest.readable {
                     events |= POLLRDNORM;
@@ -246,12 +415,13 @@ impl WsaPollReactor {
                     events |= POLLWRNORM;
                 }
                 poll_buffer.fds.push(WSAPOLLFD {
-                    fd: SOCKET(*socket),
+                    fd: SOCKET(polled_socket),
                     events,
                     revents: WSAPOLL_EVENT_FLAGS(0),
                 });
                 poll_buffer.generations.push(registration.generation);
-            }
+                true
+            });
         }
         // Test synchronization can close a socket only after its exact
         // registration generation has entered this snapshot. This point is
@@ -261,27 +431,24 @@ impl WsaPollReactor {
 
         let timeout_ms = timeout.map_or(-1, |d| d.as_millis().min(i32::MAX as u128) as i32);
 
-        // SAFETY: `fds` is a valid, correctly-sized array of `WSAPOLLFD` that
-        // outlives the call; `WSAPoll` writes only into the `revents` fields.
-        let n = unsafe {
-            WSAPoll(
-                poll_buffer.fds.as_mut_ptr(),
-                poll_buffer.fds.len() as u32,
-                timeout_ms,
-            )
-        };
+        let n = poll(&mut poll_buffer.fds, timeout_ms);
         if n == SOCKET_ERROR {
-            return Err(io::Error::last_os_error());
+            // Winsock requires its thread-local error to be read immediately
+            // after the failed call. Release snapshot leases only afterward.
+            // SAFETY: `WSAGetLastError` has no preconditions.
+            let error = io::Error::from_raw_os_error(unsafe { WSAGetLastError() }.0);
+            poll_buffer.finish();
+            return Err(error);
         }
         if n == 0 {
-            return Ok(Vec::new());
+            poll_buffer.finish();
+            return Ok(events_out);
         }
 
         if poll_buffer.fds[0].revents.0 != 0 {
             self.drain_wake();
         }
 
-        let mut events_out = Vec::new();
         let mut registrations = lock_mutex(&self.registrations);
         for (pfd, generation) in poll_buffer.fds[1..].iter().zip(&poll_buffer.generations) {
             let r = pfd.revents.0;
@@ -322,6 +489,8 @@ impl WsaPollReactor {
             ));
         }
 
+        drop(registrations);
+        poll_buffer.finish();
         Ok(events_out)
     }
 }
@@ -355,6 +524,9 @@ fn lock_mutex<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reactor::socket_owner::SocketLease;
+    use std::io::Read;
+    use std::net::{TcpListener, TcpStream};
     use std::sync::Arc;
 
     #[test]
@@ -463,5 +635,174 @@ mod tests {
         assert!(!registrations.is_current(socket, stale_generation));
         assert!(!registrations.remove_if_current(socket, stale_generation));
         assert!(registrations.is_current(socket, current_generation));
+    }
+
+    #[test]
+    fn owned_snapshot_defers_close_until_kernel_return() {
+        let reactor = WsaPollReactor::new().expect("reactor");
+        let mut socket = Some(Arc::new(
+            UdpSocket::bind("127.0.0.1:0").expect("owned socket bind"),
+        ));
+        socket
+            .as_ref()
+            .expect("owned socket")
+            .set_nonblocking(true)
+            .expect("owned socket nonblocking");
+        let weak = Arc::downgrade(socket.as_ref().expect("owned socket"));
+        let owner = SocketLease::from(socket.as_ref().expect("owned socket"));
+        let fd = owner.raw_socket() as RawFd;
+        reactor
+            .register_owned_waiter(fd, Interest::READABLE, owner.downgrade())
+            .map_err(PlatformUpdateFailure::into_error)
+            .expect("owned waiter registration");
+        drop(owner);
+
+        let events = reactor
+            .poll_registered_events_after_snapshot(Some(Duration::ZERO), || {
+                drop(socket.take());
+                assert!(
+                    weak.upgrade().is_some(),
+                    "snapshot lease must retain the real socket during WSAPoll"
+                );
+            })
+            .expect("owned snapshot poll");
+        assert!(events.iter().all(|event| event.descriptor() != fd));
+        assert!(
+            weak.upgrade().is_none(),
+            "last snapshot lease must release after WSAPoll"
+        );
+
+        let invalidated = reactor
+            .poll_registered_events(Some(Duration::ZERO))
+            .expect("expired owner cleanup");
+        assert!(
+            invalidated
+                .iter()
+                .any(|event| { event.descriptor() == fd && event.was_invalidated() })
+        );
+        assert!(!reactor.has_registration(fd));
+    }
+
+    #[test]
+    fn tcp_snapshot_defers_peer_eof_until_kernel_return() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener bind");
+        let mut peer = TcpStream::connect(listener.local_addr().expect("listener address"))
+            .expect("peer connect");
+        peer.set_nonblocking(true).expect("peer nonblocking");
+        let (owned, _) = listener.accept().expect("owned accept");
+        owned.set_nonblocking(true).expect("owned nonblocking");
+        let mut owned = Some(Arc::new(owned));
+        let weak = Arc::downgrade(owned.as_ref().expect("owned stream"));
+        let owner = SocketLease::from(owned.as_ref().expect("owned stream"));
+        let fd = owner.raw_socket() as RawFd;
+        let reactor = WsaPollReactor::new().expect("reactor");
+        reactor
+            .register_owned_waiter(fd, Interest::READABLE, owner.downgrade())
+            .map_err(PlatformUpdateFailure::into_error)
+            .expect("owned stream registration");
+        drop(owner);
+
+        reactor
+            .poll_registered_events_after_snapshot(Some(Duration::ZERO), || {
+                drop(owned.take());
+                assert!(weak.upgrade().is_some());
+                let mut byte = [0_u8; 1];
+                assert_eq!(
+                    peer.read(&mut byte)
+                        .expect_err("snapshot lease must defer peer EOF")
+                        .kind(),
+                    io::ErrorKind::WouldBlock
+                );
+            })
+            .expect("owned stream snapshot");
+        assert!(weak.upgrade().is_none());
+
+        peer.set_nonblocking(false).expect("peer blocking mode");
+        peer.set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("peer EOF deadline");
+        let mut byte = [0_u8; 1];
+        assert_eq!(
+            peer.read(&mut byte)
+                .expect("peer EOF after snapshot release"),
+            0
+        );
+    }
+
+    #[test]
+    fn retired_owner_does_not_hide_live_socket_readiness() {
+        let reactor = WsaPollReactor::new().expect("reactor");
+        let mut retired = Some(Arc::new(
+            UdpSocket::bind("127.0.0.1:0").expect("retired socket bind"),
+        ));
+        let live = Arc::new(UdpSocket::bind("127.0.0.1:0").expect("live socket bind"));
+        live.set_nonblocking(true).expect("live socket nonblocking");
+        let retired_owner = SocketLease::from(retired.as_ref().expect("retired socket"));
+        let retired_fd = retired_owner.raw_socket() as RawFd;
+        let retired_weak = Arc::downgrade(retired.as_ref().expect("retired socket"));
+        let live_owner = SocketLease::from(&live);
+        let live_fd = live_owner.raw_socket() as RawFd;
+        reactor
+            .register_owned_waiter(retired_fd, Interest::READABLE, retired_owner.downgrade())
+            .map_err(PlatformUpdateFailure::into_error)
+            .expect("retired registration");
+        reactor
+            .register_owned_waiter(live_fd, Interest::READABLE, live_owner.downgrade())
+            .map_err(PlatformUpdateFailure::into_error)
+            .expect("live registration");
+        drop(retired_owner);
+        drop(live_owner);
+        let sender = UdpSocket::bind("127.0.0.1:0").expect("sender bind");
+        assert_eq!(
+            sender
+                .send_to(b"ready", live.local_addr().expect("live address"))
+                .expect("readiness datagram"),
+            5
+        );
+
+        let events = reactor
+            .poll_registered_events_after_snapshot(Some(Duration::from_secs(1)), || {
+                drop(retired.take());
+                assert!(retired_weak.upgrade().is_some());
+            })
+            .expect("mixed snapshot poll");
+        assert!(
+            events
+                .iter()
+                .any(|event| { event.descriptor() == live_fd && event.event().readable })
+        );
+        assert!(retired_weak.upgrade().is_none());
+        let mut payload = [0_u8; 5];
+        assert_eq!(live.recv(&mut payload).expect("live payload"), 5);
+        assert_eq!(&payload, b"ready");
+    }
+
+    #[test]
+    fn snapshot_error_releases_owner_after_unlock() {
+        let reactor = WsaPollReactor::new().expect("reactor");
+        let mut socket = Some(Arc::new(
+            UdpSocket::bind("127.0.0.1:0").expect("owned socket bind"),
+        ));
+        let weak = Arc::downgrade(socket.as_ref().expect("owned socket"));
+        let owner = SocketLease::from(socket.as_ref().expect("owned socket"));
+        let fd = owner.raw_socket() as RawFd;
+        reactor
+            .register_owned_waiter(fd, Interest::READABLE, owner.downgrade())
+            .map_err(PlatformUpdateFailure::into_error)
+            .expect("owned waiter registration");
+        drop(owner);
+
+        let result = reactor.poll_registered_events_after_snapshot_error(|| {
+            drop(socket.take());
+            assert!(weak.upgrade().is_some());
+        });
+        let Err(error) = result else {
+            panic!("unsupported WSAPoll event flags must fail");
+        };
+        assert_eq!(error.raw_os_error(), Some(10022));
+        assert!(
+            weak.upgrade().is_none(),
+            "error path releases the final snapshot owner"
+        );
+        assert!(reactor.poll_buffer.try_lock().is_ok());
     }
 }

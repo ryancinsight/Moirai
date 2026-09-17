@@ -1861,14 +1861,14 @@
   -p moirai-benchmarks gpu_task_adapter_uses_moirai_block_on_not_pollster
   --status-level fail --no-fail-fast` passed 1/1.
 
-## Phase 26: Socket stale-wake regression ✅
-- [x] [patch] Added a real loopback TCP regression for the July 2 stale-wake
-  async bug: `timeout(stream.read(...))` completes through the timer while the
-  socket read waker remains registered, then peer readability wakes the stale
-  reactor slot after the async task has completed.
-- Evidence: `rustup run nightly cargo nextest run -p moirai-async
-  timeout_read_stale_socket_wake_does_not_repoll_completed_task
-  --status-level fail --no-fail-fast`.
+## Phase 26: Socket read-cancellation regression
+- [x] On Windows, timed-out reads retire their waiter and preserve the stream
+  for the peer's exact later payload. A separate executor regression fires the
+  completed task's captured waker and asserts one poll and completion.
+- Evidence: `rustup run 1.97.0 cargo nextest run --locked --workspace
+  --all-features`; run `f6b594a2-3375-466b-a623-1f93c94984aa` passes 1,129
+  tests with ten skips. PAL all-feature release run
+  `31439d71-363b-4069-a306-cedf7a7d3b36` passes 99 tests with one skip.
 
 ## Phase 25: Transport stale export cleanup
 - [x] [patch] Removed `moirai_transport::core_zero_copy`, a stale re-export of

@@ -14,7 +14,16 @@ use super::registration::PlatformUpdateFailure;
 use super::registration::PolledEvent;
 #[cfg(windows)]
 use super::registration::RegistrationGeneration;
+#[cfg(windows)]
+use super::socket_owner::SocketLease;
+#[cfg(windows)]
+use super::waiter_cancellation::{WaiterCancellation, WaiterCancellationState};
 use crate::{Event, Interest, PlatformReactor, RawFd, Reactor, create_reactor};
+
+#[cfg(windows)]
+type WakerRegistration = Option<WaiterCancellation>;
+#[cfg(not(windows))]
+type WakerRegistration = ();
 
 /// Send/Sync-safe internal key for platform handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,7 +55,7 @@ pub struct FdInfo {
 /// Central async I/O reactor managing all platform-specific operations.
 pub struct IoReactor {
     /// Platform-specific reactor implementation
-    pub(crate) platform_reactor: PlatformReactor,
+    pub(crate) platform_reactor: Arc<PlatformReactor>,
     /// Event loop control
     pub(crate) running: Arc<AtomicBool>,
     /// Registered file descriptor tracking
@@ -55,7 +64,10 @@ pub struct IoReactor {
     pub(super) driver_failure: DriverFailureState,
     /// Windows platform generation paired with each central registration.
     #[cfg(windows)]
-    pub(super) platform_generations: Mutex<HashMap<FdKey, RegistrationGeneration>>,
+    pub(super) platform_generations: Arc<Mutex<HashMap<FdKey, RegistrationGeneration>>>,
+    /// Reactor-bound identity for owned Windows waiter cancellation.
+    #[cfg(windows)]
+    pub(super) waiter_cancellations: Arc<WaiterCancellationState>,
     /// Performance metrics
     pub(crate) metrics: Arc<ReactorMetrics>,
 }
@@ -65,13 +77,30 @@ impl IoReactor {
     pub fn new() -> io::Result<Self> {
         let platform_reactor = create_reactor()?;
 
+        let platform_reactor = Arc::new(platform_reactor);
+        let running = Arc::new(AtomicBool::new(false));
+        let registered_fds = Arc::new(Mutex::new(HashMap::new()));
+        let driver_failure = DriverFailureState::default();
+        #[cfg(windows)]
+        let platform_generations = Arc::new(Mutex::new(HashMap::new()));
+        #[cfg(windows)]
+        let waiter_cancellations = WaiterCancellationState::new(
+            Arc::clone(&platform_reactor),
+            Arc::clone(&running),
+            Arc::clone(&registered_fds),
+            Arc::clone(&platform_generations),
+            driver_failure.clone(),
+        );
+
         Ok(Self {
             platform_reactor,
-            running: Arc::new(AtomicBool::new(false)),
-            registered_fds: Arc::new(Mutex::new(HashMap::new())),
-            driver_failure: DriverFailureState::default(),
+            running,
+            registered_fds,
+            driver_failure,
             #[cfg(windows)]
-            platform_generations: Mutex::new(HashMap::new()),
+            platform_generations,
+            #[cfg(windows)]
+            waiter_cancellations,
             metrics: Arc::new(ReactorMetrics::default()),
         })
     }
@@ -90,6 +119,11 @@ impl IoReactor {
     ///
     /// Returns a platform registration error or the retained terminal driver
     /// failure after a driven event loop has stopped on an error.
+    ///
+    /// On Windows this raw-descriptor API requires the caller to keep the
+    /// socket open until it unregisters or consumes the readiness interest.
+    /// PAL network sockets use the private owner-aware registration path that
+    /// retains snapshot ownership through `WSAPoll`.
     pub fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()> {
         let mut fds = self
             .registered_fds
@@ -115,7 +149,9 @@ impl IoReactor {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .insert(key, platform_generation);
-        fds.insert(
+        #[cfg(windows)]
+        self.waiter_cancellations.clear_interest(key, true, true);
+        let displaced = fds.insert(
             key,
             FdInfo {
                 interest,
@@ -132,6 +168,8 @@ impl IoReactor {
             .peak_fd_count
             .fetch_max(current_count, Ordering::Relaxed);
 
+        drop(fds);
+        drop(displaced);
         Ok(())
     }
 
@@ -148,7 +186,11 @@ impl IoReactor {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .remove(&key);
-        fds.remove(&key);
+        #[cfg(windows)]
+        self.waiter_cancellations.clear_interest(key, true, true);
+        let displaced = fds.remove(&key);
+        drop(fds);
+        drop(displaced);
         Ok(())
     }
 
@@ -271,6 +313,7 @@ impl IoReactor {
             return Ok(());
         }
         platform_generations.remove(&key);
+        self.waiter_cancellations.clear_interest(key, true, true);
         let Some(mut fd_info) = fds.remove(&key) else {
             return Ok(());
         };
@@ -372,11 +415,15 @@ impl IoReactor {
             .get_mut(&key)
             .expect("fd registration remained locked during readiness update");
         let read_waker = if consume_read {
+            #[cfg(windows)]
+            self.waiter_cancellations.clear_interest(key, true, false);
             fd_info.read_waker.take()
         } else {
             None
         };
         let write_waker = if consume_write {
+            #[cfg(windows)]
+            self.waiter_cancellations.clear_interest(key, false, true);
             fd_info.write_waker.take()
         } else {
             None
@@ -414,6 +461,8 @@ impl IoReactor {
                 .unwrap_or_else(|poison| poison.into_inner())
                 .remove(&key);
             fds.remove(&key);
+            #[cfg(windows)]
+            self.waiter_cancellations.clear_interest(key, true, true);
         }
         drop(fds);
 
@@ -439,6 +488,41 @@ impl IoReactor {
     /// Returns a platform registration error or the retained terminal driver
     /// failure after a driven event loop has stopped on an error.
     pub fn register_waker(&self, fd: RawFd, interest: Interest, waker: Waker) -> io::Result<()> {
+        #[cfg(windows)]
+        {
+            self.register_waker_with_owner(fd, interest, waker, None)
+                .map(drop)
+        }
+        #[cfg(not(windows))]
+        {
+            self.register_waker_with_owner(fd, interest, waker)
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn register_owned_waker(
+        &self,
+        fd: RawFd,
+        interest: Interest,
+        waker: Waker,
+        owner: SocketLease,
+    ) -> io::Result<WaiterCancellation> {
+        self.register_waker_with_owner(fd, interest, waker, Some(owner.downgrade()))?
+            .ok_or_else(|| io::Error::other("owned waiter cancellation was not published"))
+    }
+
+    fn register_waker_with_owner(
+        &self,
+        fd: RawFd,
+        interest: Interest,
+        waker: Waker,
+        #[cfg(windows)] owner: Option<super::socket_owner::WeakSocketOwner>,
+    ) -> io::Result<WakerRegistration> {
+        #[cfg(windows)]
+        let cancellation = owner
+            .as_ref()
+            .map(|_| self.waiter_cancellations.reserve(fd, interest))
+            .transpose()?;
         let mut fds = self
             .registered_fds
             .lock()
@@ -455,9 +539,17 @@ impl IoReactor {
                 new_interest.writable = true;
             }
             #[cfg(windows)]
-            let replacement =
+            let replacement = if let Some(owner) = owner.clone() {
+                self.platform_reactor.replace_owned_waiter_registration(
+                    fd,
+                    new_interest,
+                    interest,
+                    owner,
+                )
+            } else {
                 self.platform_reactor
-                    .replace_waiter_registration(fd, new_interest, interest);
+                    .replace_waiter_registration(fd, new_interest, interest)
+            };
             #[cfg(unix)]
             let replacement = self
                 .platform_reactor
@@ -507,10 +599,10 @@ impl IoReactor {
                     return Err(error);
                 }
             };
-            let displaced_read_waker = (!replaced_existing)
+            let displaced_read_waker = (!replaced_existing || interest.readable)
                 .then(|| fd_info.read_waker.take())
                 .flatten();
-            let displaced_write_waker = (!replaced_existing)
+            let displaced_write_waker = (!replaced_existing || interest.writable)
                 .then(|| fd_info.write_waker.take())
                 .flatten();
             fd_info.interest = if replaced_existing {
@@ -525,13 +617,39 @@ impl IoReactor {
             if interest.writable {
                 fd_info.write_waker = Some(waker);
             }
+            #[cfg(windows)]
+            let registration = if let Some(cancellation) = cancellation {
+                if !replaced_existing {
+                    self.waiter_cancellations
+                        .clear_interest(FdKey::from(fd), true, true);
+                }
+                self.waiter_cancellations.publish(&cancellation);
+                Some(cancellation)
+            } else {
+                self.waiter_cancellations.clear_interest(
+                    FdKey::from(fd),
+                    !replaced_existing || interest.readable,
+                    !replaced_existing || interest.writable,
+                );
+                None
+            };
             drop(fds);
-            if let Some(waker) = displaced_read_waker {
-                waker.wake();
+            if replaced_existing {
+                drop(displaced_read_waker);
+                drop(displaced_write_waker);
+            } else {
+                if let Some(waker) = displaced_read_waker {
+                    waker.wake();
+                }
+                if let Some(waker) = displaced_write_waker {
+                    waker.wake();
+                }
             }
-            if let Some(waker) = displaced_write_waker {
-                waker.wake();
+            #[cfg(windows)]
+            {
+                Ok(registration)
             }
+            #[cfg(not(windows))]
             Ok(())
         } else {
             // Publish the waker in the same state-lock transaction as the
@@ -539,10 +657,13 @@ impl IoReactor {
             // soon as registration wakes it, but it cannot consume a
             // temporarily wakerless entry before insertion completes.
             #[cfg(windows)]
-            let platform_generation = self
-                .platform_reactor
-                .register_waiter(fd, interest)
-                .map_err(PlatformUpdateFailure::into_error)?;
+            let platform_generation = if let Some(owner) = owner.clone() {
+                self.platform_reactor
+                    .register_owned_waiter(fd, interest, owner)
+            } else {
+                self.platform_reactor.register_waiter(fd, interest)
+            }
+            .map_err(PlatformUpdateFailure::into_error)?;
             #[cfg(not(windows))]
             self.platform_reactor.register_fd(fd, interest)?;
             let mut fd_info = FdInfo {
@@ -570,22 +691,47 @@ impl IoReactor {
             self.metrics
                 .peak_fd_count
                 .fetch_max(current_count, Ordering::Relaxed);
+            #[cfg(windows)]
+            {
+                if let Some(cancellation) = cancellation {
+                    self.waiter_cancellations.publish(&cancellation);
+                    Ok(Some(cancellation))
+                } else {
+                    self.waiter_cancellations.clear_interest(
+                        key,
+                        interest.readable,
+                        interest.writable,
+                    );
+                    Ok(None)
+                }
+            }
+            #[cfg(not(windows))]
             Ok(())
         }
     }
 
     /// Remove wakers for a file descriptor.
     pub fn deregister_waker(&self, fd: RawFd, interest: Interest) {
+        let mut read_waker = None;
+        let mut write_waker = None;
         if let Ok(mut fds) = self.registered_fds.lock()
             && let Some(fd_info) = fds.get_mut(&FdKey::from(fd))
         {
             if interest.readable {
-                fd_info.read_waker = None;
+                read_waker = fd_info.read_waker.take();
             }
             if interest.writable {
-                fd_info.write_waker = None;
+                write_waker = fd_info.write_waker.take();
             }
+            #[cfg(windows)]
+            self.waiter_cancellations.clear_interest(
+                FdKey::from(fd),
+                interest.readable,
+                interest.writable,
+            );
         }
+        drop(read_waker);
+        drop(write_waker);
     }
 
     /// Wake up the reactor from blocking poll.

@@ -357,34 +357,49 @@ mod tests {
 
     #[test]
     fn stale_waker_after_completion_does_not_repoll() {
-        // Regression: a completed task whose waker is fired again (as a live
-        // reactor waker would after a timeout race) must not be re-enqueued or
-        // re-polled — re-polling a finished `async` block panics with
-        // "resumed after completion".
-        let executor = AsyncExecutor::new().unwrap();
-        // Hold the handle so the result slot (and task) stay alive across passes.
-        let _handle = executor.spawn(async { 5usize });
+        use std::sync::Mutex;
+        use std::sync::atomic::AtomicUsize;
 
-        // Drain the spawn: the task runs to completion.
+        // Regression: a completed task whose real executor waker is fired
+        // again must not be re-enqueued or re-polled — re-polling a finished
+        // future violates the Future contract.
+        let executor = AsyncExecutor::new().unwrap();
+        let polls = Arc::new(AtomicUsize::new(0));
+        let captured_waker = Arc::new(Mutex::new(None::<Waker>));
+        let future_polls = Arc::clone(&polls);
+        let future_waker = Arc::clone(&captured_waker);
+        let mut handle = Box::pin(executor.spawn(futures::future::poll_fn(move |context| {
+            future_polls.fetch_add(1, Ordering::SeqCst);
+            *future_waker
+                .lock()
+                .expect("captured-waker mutex must remain available") =
+                Some(context.waker().clone());
+            Poll::Ready(5usize)
+        })));
+
         executor.process_pending_tasks();
         assert_eq!(executor.stats().tasks_completed, 1);
+        assert_eq!(polls.load(Ordering::SeqCst), 1);
+        assert!(executor.run_queue.is_empty());
 
-        // Simulate a stale wake arriving after completion: fabricate the same
-        // executor waker the task carried and fire it. It must be a no-op.
-        let task = executor.run_queue.try_dequeue();
+        captured_waker
+            .lock()
+            .expect("captured-waker mutex must remain available")
+            .take()
+            .expect("the completed future must capture its executor waker")
+            .wake();
         assert!(
-            task.is_none(),
-            "completed task must not be on the run queue"
+            executor.run_queue.is_empty(),
+            "a stale wake must not requeue a completed task"
         );
 
-        // A second processing pass (a stale wake would have re-enqueued the
-        // finished task before this pass) must poll nothing and not panic.
         executor.process_pending_tasks();
-        assert_eq!(
-            executor.stats().tasks_completed,
-            1,
-            "no re-poll of the completed task"
-        );
+        assert_eq!(polls.load(Ordering::SeqCst), 1);
+        assert_eq!(executor.stats().tasks_completed, 1);
+
+        let handle_waker = futures::task::noop_waker();
+        let mut context = Context::from_waker(&handle_waker);
+        assert!(matches!(handle.as_mut().poll(&mut context), Poll::Ready(5)));
     }
 
     #[test]

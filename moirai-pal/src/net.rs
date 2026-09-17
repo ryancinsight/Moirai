@@ -5,25 +5,24 @@
 use std::io;
 use std::net::{Shutdown, SocketAddr};
 use std::net::{TcpListener as StdTcpListener, TcpStream as StdTcpStream};
+#[cfg(windows)]
+use std::sync::Arc;
 use std::task::Poll;
 use std::{future::poll_fn, task::Context};
 
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
-#[cfg(windows)]
-use std::os::windows::io::AsRawSocket;
 
 use crate::Interest;
 use crate::reactor::IoReactor;
+#[cfg(windows)]
+use crate::reactor::socket_owner::SocketLease;
+#[cfg(windows)]
+use crate::reactor::waiter_cancellation::WaiterCancellation;
 
 #[cfg(unix)]
 fn socket_to_raw(s: &impl AsRawFd) -> crate::RawFd {
     s.as_raw_fd()
-}
-
-#[cfg(windows)]
-fn socket_to_raw(s: &impl AsRawSocket) -> crate::RawFd {
-    s.as_raw_socket() as crate::RawFd
 }
 
 fn wake_without_active_reactor(cx: &Context<'_>) {
@@ -36,6 +35,7 @@ fn wake_without_active_reactor(cx: &Context<'_>) {
 /// register the task's waker with the active reactor for (`fd`, `interest`) —
 /// or self-wake (cooperative busy-poll) when no reactor is active — and stay
 /// pending.
+#[cfg(unix)]
 fn poll_ready_op<T>(
     cx: &mut Context<'_>,
     fd: crate::RawFd,
@@ -59,8 +59,54 @@ fn poll_ready_op<T>(
     }
 }
 
+#[cfg(windows)]
+fn poll_ready_op<T>(
+    cx: &mut Context<'_>,
+    owner: SocketLease,
+    interest: Interest,
+    waiter: &mut Option<WaiterCancellation>,
+    op: impl FnOnce() -> io::Result<T>,
+) -> Poll<io::Result<T>> {
+    match op() {
+        Ok(value) => {
+            waiter.take();
+            Poll::Ready(Ok(value))
+        }
+        Err(ref error) if error.kind() == io::ErrorKind::WouldBlock => {
+            if let Some(reactor) = IoReactor::get_active() {
+                let fd = owner.raw_socket() as crate::RawFd;
+                match reactor.register_owned_waker(fd, interest, cx.waker().clone(), owner) {
+                    Ok(registration) => {
+                        *waiter = Some(registration);
+                        Poll::Pending
+                    }
+                    Err(error) => {
+                        waiter.take();
+                        Poll::Ready(Err(error))
+                    }
+                }
+            } else {
+                waiter.take();
+                wake_without_active_reactor(cx);
+                Poll::Pending
+            }
+        }
+        Err(error) => {
+            waiter.take();
+            Poll::Ready(Err(error))
+        }
+    }
+}
+
 /// Non-blocking TCP stream driven by the fd-readiness reactor.
 pub struct AsyncTcpStream {
+    #[cfg(windows)]
+    read_waiter: Option<WaiterCancellation>,
+    #[cfg(windows)]
+    write_waiter: Option<WaiterCancellation>,
+    #[cfg(windows)]
+    inner: Arc<StdTcpStream>,
+    #[cfg(unix)]
     inner: StdTcpStream,
 }
 
@@ -95,7 +141,7 @@ impl AsyncTcpStream {
     /// Propagates the non-blocking-mode error.
     pub fn from_std(inner: StdTcpStream) -> io::Result<Self> {
         inner.set_nonblocking(true)?;
-        Ok(Self { inner })
+        Ok(Self::from_nonblocking(inner))
     }
 
     /// Shut down the write half of the connection.
@@ -116,27 +162,80 @@ impl AsyncTcpStream {
     }
 
     /// Poll a non-blocking read into `buf`.
+    ///
+    /// On Windows the stream owns the armed read registration. Dropping a
+    /// borrowing future does not retire that registration until another read
+    /// replaces it or the stream is dropped; the socket remains owned for
+    /// every platform poll in either case. [`Self::read`] owns cancellation at
+    /// the individual future boundary.
     pub fn poll_read(&mut self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        let fd = socket_to_raw(&self.inner);
-        poll_ready_op(cx, fd, Interest::READABLE, || {
-            io::Read::read(&mut &self.inner, buf)
-        })
+        #[cfg(unix)]
+        {
+            let fd = socket_to_raw(&self.inner);
+            poll_ready_op(cx, fd, Interest::READABLE, || {
+                io::Read::read(&mut &self.inner, buf)
+            })
+        }
+        #[cfg(windows)]
+        {
+            let owner = SocketLease::from(&self.inner);
+            poll_ready_op(cx, owner, Interest::READABLE, &mut self.read_waiter, || {
+                io::Read::read(&mut &*self.inner, buf)
+            })
+        }
     }
 
     /// Poll a non-blocking write of `buf`.
+    ///
+    /// On Windows the stream owns the armed write registration. Dropping a
+    /// borrowing future leaves that registration reusable until another write
+    /// replaces it or the stream is dropped. [`Self::write`] owns cancellation
+    /// at the individual future boundary.
     pub fn poll_write(&mut self, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
-        let fd = socket_to_raw(&self.inner);
-        poll_ready_op(cx, fd, Interest::WRITABLE, || {
-            io::Write::write(&mut &self.inner, buf)
-        })
+        #[cfg(unix)]
+        {
+            let fd = socket_to_raw(&self.inner);
+            poll_ready_op(cx, fd, Interest::WRITABLE, || {
+                io::Write::write(&mut &self.inner, buf)
+            })
+        }
+        #[cfg(windows)]
+        {
+            let owner = SocketLease::from(&self.inner);
+            poll_ready_op(
+                cx,
+                owner,
+                Interest::WRITABLE,
+                &mut self.write_waiter,
+                || io::Write::write(&mut &*self.inner, buf),
+            )
+        }
     }
 
     /// Poll a non-blocking flush.
+    ///
+    /// This shares the stream-owned Windows write registration described by
+    /// [`Self::poll_write`]. [`Self::flush`] owns cancellation at the individual
+    /// future boundary.
     pub fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let fd = socket_to_raw(&self.inner);
-        poll_ready_op(cx, fd, Interest::WRITABLE, || {
-            io::Write::flush(&mut &self.inner)
-        })
+        #[cfg(unix)]
+        {
+            let fd = socket_to_raw(&self.inner);
+            poll_ready_op(cx, fd, Interest::WRITABLE, || {
+                io::Write::flush(&mut &self.inner)
+            })
+        }
+        #[cfg(windows)]
+        {
+            let owner = SocketLease::from(&self.inner);
+            poll_ready_op(
+                cx,
+                owner,
+                Interest::WRITABLE,
+                &mut self.write_waiter,
+                || io::Write::flush(&mut &*self.inner),
+            )
+        }
     }
 
     /// Read into `buf`, awaiting readiness.
@@ -144,7 +243,21 @@ impl AsyncTcpStream {
     /// # Errors
     /// Propagates socket read errors.
     pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        poll_fn(|cx| self.poll_read(cx, buf)).await
+        #[cfg(unix)]
+        {
+            poll_fn(|cx| self.poll_read(cx, buf)).await
+        }
+        #[cfg(windows)]
+        {
+            let owner = SocketLease::from(&self.inner);
+            let mut waiter = None;
+            poll_fn(|cx| {
+                poll_ready_op(cx, owner.clone(), Interest::READABLE, &mut waiter, || {
+                    io::Read::read(&mut &*self.inner, buf)
+                })
+            })
+            .await
+        }
     }
 
     /// Write `buf`, awaiting readiness.
@@ -152,7 +265,21 @@ impl AsyncTcpStream {
     /// # Errors
     /// Propagates socket write errors.
     pub async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        poll_fn(|cx| self.poll_write(cx, buf)).await
+        #[cfg(unix)]
+        {
+            poll_fn(|cx| self.poll_write(cx, buf)).await
+        }
+        #[cfg(windows)]
+        {
+            let owner = SocketLease::from(&self.inner);
+            let mut waiter = None;
+            poll_fn(|cx| {
+                poll_ready_op(cx, owner.clone(), Interest::WRITABLE, &mut waiter, || {
+                    io::Write::write(&mut &*self.inner, buf)
+                })
+            })
+            .await
+        }
     }
 
     /// Flush the stream, awaiting readiness.
@@ -160,12 +287,42 @@ impl AsyncTcpStream {
     /// # Errors
     /// Propagates socket flush errors.
     pub async fn flush(&mut self) -> io::Result<()> {
-        poll_fn(|cx| self.poll_flush(cx)).await
+        #[cfg(unix)]
+        {
+            poll_fn(|cx| self.poll_flush(cx)).await
+        }
+        #[cfg(windows)]
+        {
+            let owner = SocketLease::from(&self.inner);
+            let mut waiter = None;
+            poll_fn(|cx| {
+                poll_ready_op(cx, owner.clone(), Interest::WRITABLE, &mut waiter, || {
+                    io::Write::flush(&mut &*self.inner)
+                })
+            })
+            .await
+        }
+    }
+
+    fn from_nonblocking(inner: StdTcpStream) -> Self {
+        Self {
+            #[cfg(windows)]
+            read_waiter: None,
+            #[cfg(windows)]
+            write_waiter: None,
+            #[cfg(windows)]
+            inner: Arc::new(inner),
+            #[cfg(unix)]
+            inner,
+        }
     }
 }
 
 /// Non-blocking TCP listener driven by the fd-readiness reactor.
 pub struct AsyncTcpListener {
+    #[cfg(windows)]
+    inner: Arc<StdTcpListener>,
+    #[cfg(unix)]
     inner: StdTcpListener,
 }
 
@@ -177,7 +334,12 @@ impl AsyncTcpListener {
     pub async fn bind(addr: SocketAddr) -> io::Result<Self> {
         let inner = StdTcpListener::bind(addr)?;
         inner.set_nonblocking(true)?;
-        Ok(Self { inner })
+        Ok(Self {
+            #[cfg(windows)]
+            inner: Arc::new(inner),
+            #[cfg(unix)]
+            inner,
+        })
     }
 
     /// Accept one inbound connection, awaiting readiness.
@@ -188,12 +350,27 @@ impl AsyncTcpListener {
         // `socket_to_raw` is evaluated inside the poll closure: on Windows a
         // `RawFd` is a raw pointer (`!Send`), so holding it across an await
         // would make this future `!Send`.
+        #[cfg(windows)]
+        let owner = SocketLease::from(&self.inner);
+        #[cfg(windows)]
+        let mut waiter = None;
         poll_fn(|cx| {
-            poll_ready_op(cx, socket_to_raw(&self.inner), Interest::READABLE, || {
-                let (stream, addr) = self.inner.accept()?;
-                stream.set_nonblocking(true)?;
-                Ok((AsyncTcpStream { inner: stream }, addr))
-            })
+            #[cfg(unix)]
+            {
+                poll_ready_op(cx, socket_to_raw(&self.inner), Interest::READABLE, || {
+                    let (stream, addr) = self.inner.accept()?;
+                    stream.set_nonblocking(true)?;
+                    Ok((AsyncTcpStream::from_nonblocking(stream), addr))
+                })
+            }
+            #[cfg(windows)]
+            {
+                poll_ready_op(cx, owner.clone(), Interest::READABLE, &mut waiter, || {
+                    let (stream, addr) = self.inner.accept()?;
+                    stream.set_nonblocking(true)?;
+                    Ok((AsyncTcpStream::from_nonblocking(stream), addr))
+                })
+            }
         })
         .await
     }
@@ -209,6 +386,9 @@ impl AsyncTcpListener {
 
 /// Non-blocking UDP socket driven by the fd-readiness reactor.
 pub struct AsyncUdpSocket {
+    #[cfg(windows)]
+    inner: Arc<std::net::UdpSocket>,
+    #[cfg(unix)]
     inner: std::net::UdpSocket,
 }
 
@@ -220,7 +400,12 @@ impl AsyncUdpSocket {
     pub async fn bind(addr: SocketAddr) -> io::Result<Self> {
         let inner = std::net::UdpSocket::bind(addr)?;
         inner.set_nonblocking(true)?;
-        Ok(Self { inner })
+        Ok(Self {
+            #[cfg(windows)]
+            inner: Arc::new(inner),
+            #[cfg(unix)]
+            inner,
+        })
     }
 
     /// Send one datagram to `target`, awaiting readiness.
@@ -230,10 +415,23 @@ impl AsyncUdpSocket {
     pub async fn send_to(&self, buf: &[u8], target: SocketAddr) -> io::Result<usize> {
         // `socket_to_raw` stays inside the poll closure (`RawFd` is `!Send` on
         // Windows; see `AsyncTcpListener::accept`).
+        #[cfg(windows)]
+        let owner = SocketLease::from(&self.inner);
+        #[cfg(windows)]
+        let mut waiter = None;
         poll_fn(|cx| {
-            poll_ready_op(cx, socket_to_raw(&self.inner), Interest::WRITABLE, || {
-                self.inner.send_to(buf, target)
-            })
+            #[cfg(unix)]
+            {
+                poll_ready_op(cx, socket_to_raw(&self.inner), Interest::WRITABLE, || {
+                    self.inner.send_to(buf, target)
+                })
+            }
+            #[cfg(windows)]
+            {
+                poll_ready_op(cx, owner.clone(), Interest::WRITABLE, &mut waiter, || {
+                    self.inner.send_to(buf, target)
+                })
+            }
         })
         .await
     }
@@ -245,10 +443,23 @@ impl AsyncUdpSocket {
     pub async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         // `socket_to_raw` stays inside the poll closure (`RawFd` is `!Send` on
         // Windows; see `AsyncTcpListener::accept`).
+        #[cfg(windows)]
+        let owner = SocketLease::from(&self.inner);
+        #[cfg(windows)]
+        let mut waiter = None;
         poll_fn(|cx| {
-            poll_ready_op(cx, socket_to_raw(&self.inner), Interest::READABLE, || {
-                self.inner.recv_from(buf)
-            })
+            #[cfg(unix)]
+            {
+                poll_ready_op(cx, socket_to_raw(&self.inner), Interest::READABLE, || {
+                    self.inner.recv_from(buf)
+                })
+            }
+            #[cfg(windows)]
+            {
+                poll_ready_op(cx, owner.clone(), Interest::READABLE, &mut waiter, || {
+                    self.inner.recv_from(buf)
+                })
+            }
         })
         .await
     }
@@ -271,148 +482,5 @@ impl AsyncUdpSocket {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use futures::executor::block_on;
-    use std::future::Future;
-    use std::io::{Read, Write};
-    use std::time::Duration;
-
-    const MAX_SELF_WAKE_POLLS: usize = 100_000;
-
-    fn poll_until_ready<F>(
-        mut future: std::pin::Pin<&mut F>,
-        context: &mut Context<'_>,
-    ) -> F::Output
-    where
-        F: Future,
-    {
-        for _ in 0..MAX_SELF_WAKE_POLLS {
-            if let Poll::Ready(output) = future.as_mut().poll(context) {
-                return output;
-            }
-            std::thread::yield_now();
-        }
-        panic!("self-wake operation did not resolve within the poll bound");
-    }
-
-    #[test]
-    fn tcp_accept_read_write_self_wakes_without_active_reactor() {
-        // Suppress the global reactor for this thread, so `accept`/`read`/
-        // `write` make progress only via the `wake_without_active_reactor`
-        // self-wake fallback (busy-poll). Polling before the client exists
-        // deterministically exercises the initial `WouldBlock` path; the
-        // client is started only after that pending event is observed.
-        IoReactor::with_reactor_disabled(|| {
-            assert!(
-                IoReactor::get_active().is_none(),
-                "self-wake path requires no active reactor"
-            );
-            block_on(async {
-                let listener = AsyncTcpListener::bind(
-                    "127.0.0.1:0".parse().expect("loopback address must parse"),
-                )
-                .await
-                .expect("listener bind must succeed");
-                let addr = listener.local_addr().expect("listener address must exist");
-
-                let (mut stream, peer, client) = {
-                    let noop_waker = futures::task::noop_waker();
-                    let mut context = Context::from_waker(&noop_waker);
-                    let mut accept = std::pin::pin!(listener.accept());
-                    assert!(matches!(accept.as_mut().poll(&mut context), Poll::Pending));
-
-                    let client = std::thread::spawn(move || {
-                        let mut stream =
-                            StdTcpStream::connect(addr).expect("client connection must succeed");
-                        stream
-                            .set_read_timeout(Some(Duration::from_secs(2)))
-                            .expect("client read timeout must be set");
-                        stream
-                            .set_write_timeout(Some(Duration::from_secs(2)))
-                            .expect("client write timeout must be set");
-                        stream
-                            .write_all(b"ping")
-                            .expect("client write must succeed");
-
-                        let mut echo = [0_u8; 4];
-                        stream
-                            .read_exact(&mut echo)
-                            .expect("client echo must be readable");
-                        assert_eq!(&echo, b"pong");
-                    });
-
-                    let (stream, peer) = poll_until_ready(accept.as_mut(), &mut context)
-                        .expect("accept must complete");
-                    (stream, peer, client)
-                };
-                assert_eq!(peer.ip(), addr.ip());
-
-                let mut inbound = [0_u8; 4];
-                let read = stream.read(&mut inbound).await.expect("read must complete");
-                assert_eq!(read, 4);
-                assert_eq!(&inbound, b"ping");
-
-                let mut written = 0;
-                while written < 4 {
-                    let n = stream
-                        .write(&b"pong"[written..])
-                        .await
-                        .expect("write must complete");
-                    assert_ne!(n, 0);
-                    written += n;
-                }
-
-                client.join().expect("client thread must complete");
-            });
-        });
-    }
-
-    #[test]
-    fn udp_recv_self_wakes_without_active_reactor() {
-        // As above: with the global reactor suppressed, `recv_from` completes
-        // only through the self-wake busy-poll fallback.
-        IoReactor::with_reactor_disabled(|| {
-            assert!(
-                IoReactor::get_active().is_none(),
-                "self-wake path requires no active reactor"
-            );
-            block_on(async {
-                let receiver = AsyncUdpSocket::bind(
-                    "127.0.0.1:0".parse().expect("loopback address must parse"),
-                )
-                .await
-                .expect("receiver bind must succeed");
-                let target = receiver.local_addr().expect("receiver address must exist");
-
-                let noop_waker = futures::task::noop_waker();
-                let mut context = Context::from_waker(&noop_waker);
-                let mut buf = [0_u8; 16];
-                let (result, sender) = {
-                    let mut receive = std::pin::pin!(receiver.recv_from(&mut buf));
-                    assert!(matches!(receive.as_mut().poll(&mut context), Poll::Pending));
-
-                    // Publish the sender only after the first poll observes
-                    // WouldBlock. Otherwise a fast localhost datagram can arrive
-                    // before that poll and turn the assertion into a race.
-                    let sender = std::thread::spawn(move || {
-                        let socket = std::net::UdpSocket::bind("127.0.0.1:0")
-                            .expect("sender bind must succeed");
-                        let sent = socket
-                            .send_to(b"datagram", target)
-                            .expect("datagram send must succeed");
-                        assert_eq!(sent, 8);
-                    });
-
-                    let result = poll_until_ready(receive.as_mut(), &mut context);
-                    (result, sender)
-                };
-                let (received, _peer) = result.expect("recv_from must complete");
-                assert_eq!(received, 8);
-                assert_eq!(&buf[..received], b"datagram");
-
-                sender.join().expect("sender thread must complete");
-            });
-        });
-    }
-}
+#[path = "net/tests.rs"]
+mod tests;
