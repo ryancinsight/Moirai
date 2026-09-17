@@ -3,12 +3,13 @@
 <a id="MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17"></a>
 ## MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17 — Deny WebView2 permission prompts [arch] [minor] [security]
 
-- **Status:** review; priority: P1; owner: Moirai Windows PAL; integrator: root; branch: `feat/pal-webview2-permissions`; last-update: 2026-09-17.
+- **Status:** review; priority: P1; owner: Moirai Windows PAL; integrator: root; branch: `feat/pal-webview2-permission-labels`; last-update: 2026-09-17.
 - **Scope:** intercept WebView2 permission requests, deny them before an OS prompt, and emit a bounded format-neutral event; no application-specific allowlist, DICOM behavior or browser-page policy.
 - **Acceptance:** every permission request is set to `DENY`, its URI/kind/user-initiated snapshot is observable, callback teardown removes the handler, unknown kinds remain representable, and native tests/Rustdoc/WASM unaffected checks pass. Metis consumes the event and records the host denial.
 - **Dependencies:** [ADR 0052](adr/0052-bounded-webview2-host.md), [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
 - **Risk:** a provider API that silently leaves WebView2's default state could surface an OS prompt or retain a profile grant; the callback must set `DENY` synchronously for every kind.
-- **Delivery:** provider implementation, typed event, ADR and regression coverage are ready for review; Metis consumer integration remains the cross-repo dependency.
+- **Delivery:** provider implementation, typed event, ADR and regression coverage are merged in [PR #392](https://github.com/ryancinsight/Moirai/pull/392), merge `64d5cdc1465542748d2261663284c9c357850541`; stable permission labels are the follow-up in this branch, and Metis consumer integration remains the cross-repo dependency.
+- **lease:** root `moirai-pal/src/windows/webview/event.rs`, `moirai-pal/src/windows/webview/tests.rs`, `docs/backlog.md` 2026-09-17T22:55:00Z
 
 <a id="MOI-WASM-GPU-CANVAS-2026-09-16"></a>
 ## MOI-WASM-GPU-CANVAS-2026-09-16 — Present validated frames through browser WebGPU [arch] [minor]

@@ -58,6 +58,8 @@ fn permission_kind_mapping_preserves_known_and_unknown_values() {
         WebViewPermission::from_raw(99),
         WebViewPermission::Unknown(99)
     );
+    assert_eq!(WebViewPermission::Geolocation.to_string(), "geolocation");
+    assert_eq!(WebViewPermission::Unknown(99).to_string(), "unknown (99)");
 }
 
 #[test]
