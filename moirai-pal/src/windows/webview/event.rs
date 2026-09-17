@@ -1,5 +1,7 @@
 //! Rust-owned WebView2 events.
 
+use std::fmt;
+
 /// A WebView2 capability request observed by the host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -49,6 +51,27 @@ impl WebViewPermission {
             12 => Self::WindowManagement,
             value => Self::Unknown(value),
         }
+    }
+}
+
+impl fmt::Display for WebViewPermission {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Self::Microphone => "microphone",
+            Self::Camera => "camera",
+            Self::Geolocation => "geolocation",
+            Self::Notifications => "notifications",
+            Self::OtherSensors => "other sensors",
+            Self::ClipboardRead => "clipboard read",
+            Self::MultipleAutomaticDownloads => "multiple automatic downloads",
+            Self::FileReadWrite => "file read/write",
+            Self::Autoplay => "autoplay",
+            Self::LocalFonts => "local fonts",
+            Self::MidiSystemExclusiveMessages => "MIDI system-exclusive messages",
+            Self::WindowManagement => "window management",
+            Self::Unknown(kind) => return write!(formatter, "unknown ({kind})"),
+        };
+        formatter.write_str(label)
     }
 }
 
