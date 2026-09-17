@@ -3,6 +3,13 @@
 Status: Accepted
 
 **Date**: 2026-05-25
+
+**Revision 2026-09-16**: Windows `POLLNVAL` cleanup now crosses both ownership
+stores. `WSAPoll` reports the removed registration generation to `IoReactor`,
+which wakes and removes its central waiters. Re-registration after platform
+removal starts a fresh interest set and wakes the retired waiters; central
+generation identity prevents an older delayed invalidation from consuming a
+newer invalidated generation for the same reused socket value.
 **Context**: We needed to complete the transition from a cooperative/blocking async I/O simulation to a true event-driven, reactor-backed asynchronous I/O and execution architecture. The busy-polling loop in the async executor consumed excessive CPU, and file/socket operations lacked real readiness integration.
 
 ### Decision
@@ -12,6 +19,7 @@ Status: Accepted
 3. **Cooperative File Operations**: Build a clean `AsyncFile` abstraction in `moirai-pal::fs` that executes non-blocking read, write, seek, and flush operations, relying on a cooperative waker-yielding mechanism for safety.
 4. **Executor Run-Queue Scheduling**: Replace the task-queue busy-polling loop in `moirai-async::executor::AsyncExecutor` with a thread-safe run-queue and block-on notification powered by a platform-specific `ExecutorWaker`.
 5. **Clean Modular Delegation**: Decouple `moirai-async::net` and `moirai-async::fs` facades by delegating entirely to their `moirai-pal` counterparts, adhering to the 500-line structural limit.
+6. **Generation-Bound Windows Cleanup**: Treat `POLLNVAL` as a generation-tagged invalidation. Remove its platform registration, then wake and remove the corresponding central waiters only while no replacement generation exists.
 
 ### Rationale
 
