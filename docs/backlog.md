@@ -190,7 +190,7 @@
 <a id="moirai-executor-sizing"></a>
 ## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — in-progress
 
-- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-miri-evidence`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
+- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-diagnostic-harness`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
 - **Escaped defect (2026-09-10).** #312 let a non-worker caller run its own
   scope's chunks from the injectors. The probe read p90 404 → 68 µs at 10 µs
   tasks and the workspace gate was green on the PR, but the merge run
@@ -283,6 +283,11 @@
   `moirai-utils` queue slot test **1/1**; this covers initialization, reuse,
   and destruction in one thread only. Miri cannot exercise the threaded
   executor, so the loaded-host race remains unlocalized.
+- **Standalone harness (2026-09-17).** The bounded
+  `moirai-iter/examples/nested_stress.rs` workload now runs outside libtest
+  with a 300-pass default and a 20,000-pass ceiling; quiet and twenty-burner
+  release runs each completed **300/300** passes with exact-value checks. The
+  non-libtest shape still did not reproduce the crash.
 - **Next method.** Capture a Windows crash dump of the faulting test process
   (`procdump -e -ma`, or WER `LocalDumps`) and read the faulting thread's real
   stack: gdb's unwind through the optimized frames gave only stale stack words,
