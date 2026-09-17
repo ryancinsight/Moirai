@@ -190,7 +190,7 @@
 <a id="moirai-executor-sizing"></a>
 ## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — in-progress
 
-- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-miri-recursive`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
+- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-allocator-contrast`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
 - **Escaped defect (2026-09-10).** #312 let a non-worker caller run its own
   scope's chunks from the injectors. The probe read p90 404 → 68 µs at 10 µs
   tasks and the workspace gate was green on the PR, but the merge run
@@ -312,6 +312,16 @@
   arithmetic-series oracle completed for worker counts 1, 2, and 4 (**1/1**
   test, 123.70 s). No invalid access was reported in the drive-shaped
   recursion; the libtest-only crash remains unlocalized.
+- **Deque allocator contrast (2026-09-17).** The real threaded
+  `moirai-scheduler` deque-concurrency suite passed **8/8** with the default
+  Mnemosyne-backed slot storage and **8/8** with `--no-default-features
+  --features parallel`, which routes `Array<T>` storage through
+  `std::alloc`. Both runs exercised resize, single and batched thieves,
+  split-deque handoff, and non-`Copy` drops; there was no allocator-dependent
+  loss, duplication, or drop-count failure. This narrows the residual away
+  from the deque allocator path but does not cover the libtest-only
+  `moirai-iter` crash, whose executor dependency still enables its default
+  allocator features.
 - **Next method.** Capture a Windows crash dump of the faulting test process
   (`procdump -e -ma`, or WER `LocalDumps`) and read the faulting thread's real
   stack: gdb's unwind through the optimized frames gave only stale stack words,
