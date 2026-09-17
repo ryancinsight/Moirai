@@ -4871,7 +4871,7 @@ Part IV chapter map (grounded in moirai-transport):
 
 <a id="MOI-WINDOWS-SOCKET-LIFETIME-2026-09-17"></a>
 ## MOI-WINDOWS-SOCKET-LIFETIME-2026-09-17 — Retain polled socket owners [patch]
-- Status: in-progress; priority: P0; integrator: Codex `/root/reactor_cancellation`; last-update: 2026-09-17.
+- Status: in-progress; priority: P0; integrator: Codex `/root/reactor_cancellation`; last-update: 2026-09-17T01:18:00-04:00.
 - Outcome: Windows poll snapshots retain each registered TCP stream, listener, or UDP socket through `WSAPoll`; cancellation retires only its exact reactor registration generation, and genuine driver failures remain terminal.
 - Scope: `moirai-pal` network owners, Windows poll/reactor registration, tests, ADR 0014, and this item. Acceptance: deterministic real-socket single-retirement and mixed-valid/retired snapshots pass; replacement generations survive stale cancellation; the configured workspace, Windows feature, documentation, and SemVer gates pass without retries or budget changes. The Metis release failure is evidence of surfaced `WSAENOTSOCK`, not proof of an older run's cause.
-- Lease: Codex `/root/reactor_cancellation` owns `moirai-pal/src/net.rs`, `moirai-pal/src/windows/poll.rs`, `moirai-pal/src/reactor/{core,registration,tests}.rs`, `docs/adr/0014-reactor-bound-async-i-o-and-readiness-integration.md`, and this item from 2026-09-17T00:18:50-04:00.
+- Lease: Codex `/root/reactor_cancellation` owns `moirai-pal/src/net{.rs,/tests.rs}`, `moirai-pal/src/windows/poll.rs`, `moirai-pal/src/reactor/{core,driver_failure,mod,registration,socket_owner,tests,waiter_cancellation}.rs`, `moirai-async/src/net/tests.rs`, `benchmarks/tests/benchmark_contracts/{async_source_contracts,support/embedded}.rs`, `docs/adr/0014-reactor-bound-async-i-o-and-readiness-integration.md`, and this item from 2026-09-17T01:18:00-04:00.
