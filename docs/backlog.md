@@ -4860,5 +4860,14 @@ Part IV chapter map (grounded in moirai-transport):
 
 <a id="MOI-WINDOWS-REACTOR-DRIVER-2026-09-16"></a>
 ## MOI-WINDOWS-REACTOR-DRIVER-2026-09-16 — Preserve readiness after a snapshotted socket closes [patch]
-- Status: review; priority: P0; integrator: Codex `/root/reactor_cancellation`; last-update: 2026-09-16.
-- Outcome: synchronized real sockets prove that closing a snapshotted socket before the `WSAPoll` call does not terminate dispatch; the next readable socket wakes once and yields its exact payload. Focused run `b581d75f-2cf0-44fd-857b-8986f9215f1d` and locked PAL run `ce3475c4-453d-4c67-93a6-97b8226a61d1` pass. The hook does not prove a close after kernel entry or explain the Metis timeout.
+- Status: done; commit: `0c85f9da`; last-update: 2026-09-16.
+- Outcome: synchronized real sockets prove that closing a snapshotted socket before the `WSAPoll` call does not terminate dispatch; the next readable socket wakes once and yields its exact payload. The probe does not establish a close after kernel entry or explain the Metis timeout.
+
+<a id="MOI-REACTOR-DRIVER-FAILURE-2026-09-16"></a>
+## MOI-REACTOR-DRIVER-FAILURE-2026-09-16 — Publish terminal readiness-driver failures [patch]
+- Status: in-progress; priority: P0; integrator: Codex `/root/reactor_cancellation`; last-update: 2026-09-16.
+- Outcome: retain any process-global readiness-driver failure, wake all registered waiters outside locks, and reject future waiter registration with the preserved source error.
+- Scope: private reactor lifecycle state in `core.rs` and `tls.rs`, reactor tests, ADR 0014, and this item. No driver restart, retry, fallback, public test API, or claim that this caused the Metis timeout.
+- Acceptance: typed injected driver failure wakes every existing waiter exactly once; registration concurrent with terminal publication is either rejected with the retained source or committed then woken; every later registration returns the retained source error.
+- Risk: patch; public `FdInfo` and public API remain unchanged. Dependency: `0c85f9da` records the distinct socket-close discriminator.
+- Lease: Codex `/root/reactor_cancellation` owns `moirai-pal/src/reactor/{core.rs,tls.rs,tests.rs}`, `docs/adr/0014-reactor-bound-async-i-o-and-readiness-integration.md`, and this item for the next increment.
