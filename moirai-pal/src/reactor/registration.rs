@@ -26,6 +26,13 @@ impl RegistrationGeneration {
     }
 }
 
+#[cfg(windows)]
+#[derive(Clone, Copy)]
+pub(crate) struct WaiterRegistration {
+    pub(crate) generation: RegistrationGeneration,
+    pub(crate) replaced_existing: bool,
+}
+
 #[cfg(any(unix, windows))]
 #[derive(Clone, Copy)]
 pub(crate) struct Registration {
@@ -161,12 +168,28 @@ where
 pub(crate) struct PolledEvent {
     event: Event,
     generation: RegistrationGeneration,
+    #[cfg(windows)]
+    invalidated: bool,
 }
 
 #[cfg(any(unix, windows))]
 impl PolledEvent {
     pub(crate) const fn new(event: Event, generation: RegistrationGeneration) -> Self {
-        Self { event, generation }
+        Self {
+            event,
+            generation,
+            #[cfg(windows)]
+            invalidated: false,
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) const fn invalidated(event: Event, generation: RegistrationGeneration) -> Self {
+        Self {
+            event,
+            generation,
+            invalidated: true,
+        }
     }
 
     pub(crate) const fn event(&self) -> &Event {
@@ -175,6 +198,11 @@ impl PolledEvent {
 
     pub(crate) const fn generation(&self) -> RegistrationGeneration {
         self.generation
+    }
+
+    #[cfg(windows)]
+    pub(crate) const fn was_invalidated(&self) -> bool {
+        self.invalidated
     }
 
     #[cfg(test)]

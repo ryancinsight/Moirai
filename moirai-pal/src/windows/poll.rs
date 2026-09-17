@@ -8,8 +8,11 @@
 //! exactly the readiness signal those futures need.
 //!
 //! Self-cleaning: a socket closed by its owner (without an explicit
-//! `unregister_fd`) surfaces as `POLLNVAL` and is dropped from the interest map,
-//! so a stale entry cannot wedge the poll loop.
+//! `unregister_fd`) surfaces as `POLLNVAL`. The backend removes the matching
+//! registration generation and reports its invalidation to [`crate::reactor::IoReactor`],
+//! which wakes and removes the matching central waiters. After invalidation,
+//! a delayed event for the retired generation cannot consume a newer
+//! registration for the same raw socket value.
 
 use std::io;
 use std::net::UdpSocket;
@@ -24,6 +27,7 @@ use windows::Win32::Networking::WinSock::{
 
 use crate::reactor::registration::{
     PlatformUpdateFailure, PolledEvent, RegistrationGeneration, RegistrationTable,
+    WaiterRegistration,
 };
 use crate::{Event, Interest, RawFd, Reactor};
 
@@ -85,6 +89,11 @@ impl WsaPollReactor {
         lock_mutex(&self.registrations).is_current(event.event().fd as usize, event.generation())
     }
 
+    #[cfg(test)]
+    pub(crate) fn has_registration(&self, fd: RawFd) -> bool {
+        lock_mutex(&self.registrations).get(fd as usize).is_some()
+    }
+
     pub(crate) fn update_registration(
         &self,
         fd: RawFd,
@@ -112,9 +121,33 @@ impl WsaPollReactor {
         fd: RawFd,
         interest: Interest,
     ) -> Result<(), PlatformUpdateFailure> {
+        self.replace_waiter_registration(fd, interest, interest)
+            .map(drop)
+    }
+
+    pub(crate) fn register_waiter(
+        &self,
+        fd: RawFd,
+        interest: Interest,
+    ) -> Result<RegistrationGeneration, PlatformUpdateFailure> {
+        self.replace_waiter_registration(fd, interest, interest)
+            .map(|registration| registration.generation)
+    }
+
+    pub(crate) fn replace_waiter_registration(
+        &self,
+        fd: RawFd,
+        retained_interest: Interest,
+        fresh_interest: Interest,
+    ) -> Result<WaiterRegistration, PlatformUpdateFailure> {
         let socket = fd as usize;
         let mut registrations = lock_mutex(&self.registrations);
         let previous = registrations.get(socket);
+        let interest = if previous.is_some() {
+            retained_interest
+        } else {
+            fresh_interest
+        };
         let generation = registrations.issue_generation().map_err(|error| {
             PlatformUpdateFailure::new(error, previous.map(|entry| entry.interest))
         })?;
@@ -130,7 +163,10 @@ impl WsaPollReactor {
             };
             return Err(PlatformUpdateFailure::new(error, armed_interest));
         }
-        Ok(())
+        Ok(WaiterRegistration {
+            generation,
+            replaced_existing: previous.is_some(),
+        })
     }
 
     /// Poll readiness while preserving each snapshot registration generation
@@ -139,13 +175,19 @@ impl WsaPollReactor {
         &self,
         timeout: Option<Duration>,
     ) -> io::Result<Vec<PolledEvent>> {
-        self.poll_events_with(timeout, PolledEvent::new)
+        self.poll_events_with(timeout, |event, generation, invalidated| {
+            if invalidated {
+                PolledEvent::invalidated(event, generation)
+            } else {
+                PolledEvent::new(event, generation)
+            }
+        })
     }
 
     fn poll_events_with<T>(
         &self,
         timeout: Option<Duration>,
-        mut make_event: impl FnMut(Event, RegistrationGeneration) -> T,
+        mut make_event: impl FnMut(Event, RegistrationGeneration, bool) -> T,
     ) -> io::Result<Vec<T>> {
         // Reuse the persistent fd array; the mutex serializes concurrent
         // pollers. The generation sidecar remains paired with each returned
@@ -217,6 +259,17 @@ impl WsaPollReactor {
                 // Remove only the registration represented by this snapshot;
                 // the raw SOCKET value may already belong to a newer socket.
                 registrations.remove_if_current(socket, *generation);
+                events_out.push(make_event(
+                    Event {
+                        fd: socket as RawFd,
+                        readable: false,
+                        writable: false,
+                        error: true,
+                        hangup: true,
+                    },
+                    *generation,
+                    true,
+                ));
                 continue;
             }
             events_out.push(make_event(
@@ -228,6 +281,7 @@ impl WsaPollReactor {
                     hangup: r & POLLHUP.0 != 0,
                 },
                 *generation,
+                false,
             ));
         }
 
@@ -247,7 +301,7 @@ impl Reactor for WsaPollReactor {
     }
 
     fn poll_events(&self, timeout: Option<Duration>) -> io::Result<Vec<Event>> {
-        self.poll_events_with(timeout, |event, _generation| event)
+        self.poll_events_with(timeout, |event, _generation, _invalidated| event)
     }
 
     fn wake(&self) -> io::Result<()> {

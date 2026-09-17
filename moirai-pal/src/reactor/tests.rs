@@ -81,6 +81,20 @@ fn socket_to_raw(socket: &UdpSocket) -> crate::RawFd {
     socket.as_raw_socket() as crate::RawFd
 }
 
+#[cfg(windows)]
+fn bind_reusing_socket(fd: crate::RawFd) -> UdpSocket {
+    const REUSE_ATTEMPTS: usize = 256;
+    let mut held = Vec::with_capacity(REUSE_ATTEMPTS);
+    for _ in 0..REUSE_ATTEMPTS {
+        let socket = UdpSocket::bind("127.0.0.1:0").expect("replacement socket bind");
+        if socket_to_raw(&socket) == fd {
+            return socket;
+        }
+        held.push(socket);
+    }
+    panic!("Winsock did not reuse the retired socket value within {REUSE_ATTEMPTS} allocations");
+}
+
 #[test]
 fn test_reactor_metrics() {
     let reactor = IoReactor::new().unwrap();
@@ -188,6 +202,139 @@ fn readiness_delivery_consumes_only_reported_interest() {
             .all(|event| FdKey::from(event.fd) != FdKey::from(fd)),
         "consumed descriptor must be absent from the platform poll set"
     );
+}
+
+#[test]
+#[cfg(windows)]
+fn closed_socket_retires_central_and_platform_waiters() {
+    let reactor = IoReactor::new().expect("reactor");
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("socket bind");
+    socket.set_nonblocking(true).expect("socket nonblocking");
+    let fd = socket_to_raw(&socket);
+    let wake_count = Arc::new(WakeCount::default());
+
+    reactor
+        .register_waker(fd, Interest::READABLE, Waker::from(Arc::clone(&wake_count)))
+        .expect("register read interest");
+    drop(socket);
+
+    reactor
+        .run_iteration(Some(Duration::from_millis(50)))
+        .expect("retire closed socket");
+
+    assert_eq!(
+        wake_count.0.load(Ordering::Relaxed),
+        1,
+        "closed socket must wake its waiter to observe the socket failure"
+    );
+    assert!(
+        !reactor
+            .registered_fds
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .contains_key(&FdKey::from(fd)),
+        "closed socket must leave no central registration"
+    );
+    assert!(
+        !reactor.platform_reactor.has_registration(fd),
+        "closed socket must leave no platform registration"
+    );
+    assert!(
+        !reactor.has_platform_generation(fd),
+        "closed socket must leave no central platform generation"
+    );
+}
+
+#[test]
+#[cfg(windows)]
+fn successive_reused_socket_invalidations_preserve_generation_order() {
+    let reactor = IoReactor::new().expect("reactor");
+    let retired_socket = UdpSocket::bind("127.0.0.1:0").expect("retired socket bind");
+    retired_socket
+        .set_nonblocking(true)
+        .expect("retired socket nonblocking");
+    let fd = socket_to_raw(&retired_socket);
+    let retired_wake_count = Arc::new(WakeCount::default());
+    let current_wake_count = Arc::new(WakeCount::default());
+    reactor
+        .register_waker(
+            fd,
+            Interest::READABLE,
+            Waker::from(Arc::clone(&retired_wake_count)),
+        )
+        .expect("register retired read interest");
+    drop(retired_socket);
+
+    let retired_event = reactor
+        .platform_reactor
+        .poll_registered_events(Some(Duration::from_millis(50)))
+        .expect("poll retired socket")
+        .into_iter()
+        .find(|event| FdKey::from(event.descriptor()) == FdKey::from(fd))
+        .expect("closed socket invalidation");
+    assert!(retired_event.was_invalidated());
+    assert!(!reactor.platform_reactor.has_registration(fd));
+    assert_eq!(retired_wake_count.0.load(Ordering::Relaxed), 0);
+
+    let current_socket = bind_reusing_socket(fd);
+    current_socket
+        .set_nonblocking(true)
+        .expect("current socket nonblocking");
+    reactor
+        .register_waker(
+            fd,
+            Interest::WRITABLE,
+            Waker::from(Arc::clone(&current_wake_count)),
+        )
+        .expect("register current write interest");
+    assert_eq!(
+        retired_wake_count.0.load(Ordering::Relaxed),
+        1,
+        "replacing an invalidated registration must wake its retired waiter"
+    );
+    drop(current_socket);
+    let current_event = reactor
+        .platform_reactor
+        .poll_registered_events(Some(Duration::from_millis(50)))
+        .expect("poll current socket")
+        .into_iter()
+        .find(|event| FdKey::from(event.descriptor()) == FdKey::from(fd))
+        .expect("current socket invalidation");
+    assert!(current_event.was_invalidated());
+
+    reactor
+        .handle_polled_event(retired_event)
+        .expect("discard retired generation");
+
+    assert_eq!(retired_wake_count.0.load(Ordering::Relaxed), 1);
+    assert_eq!(current_wake_count.0.load(Ordering::Relaxed), 0);
+    {
+        let fds = reactor
+            .registered_fds
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let current = fds
+            .get(&FdKey::from(fd))
+            .expect("current registration remains");
+        assert!(!current.interest.readable);
+        assert!(current.interest.writable);
+        assert!(current.read_waker.is_none());
+        assert!(current.write_waker.is_some());
+    }
+    assert!(!reactor.platform_reactor.has_registration(fd));
+    reactor
+        .handle_polled_event(current_event)
+        .expect("retire current generation");
+    assert_eq!(retired_wake_count.0.load(Ordering::Relaxed), 1);
+    assert_eq!(current_wake_count.0.load(Ordering::Relaxed), 1);
+    assert!(
+        !reactor
+            .registered_fds
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .contains_key(&FdKey::from(fd))
+    );
+    assert!(!reactor.has_platform_generation(fd));
 }
 
 #[test]

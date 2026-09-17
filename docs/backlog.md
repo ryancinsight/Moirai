@@ -4850,3 +4850,10 @@ Part IV chapter map (grounded in moirai-transport):
 - Status: done; priority: P1; delivery: [PR #360](https://github.com/ryancinsight/Moirai/pull/360), merge `5cf572f734a3a50cf57eafe67dd3723e7e303116`.
 - Outcome: `WebCanvas::present` retains a validated canvas extent across same-size RGBA frames and resizes only when the extent changes; provider tests, native nextest 73/73, rustdoc, native/WASM Clippy, WASM check and format gates pass.
 - Driver: [Metis performance](../../metis/backlog.md#METIS-PERF-001); DICOM/viewer semantics remain in RITK and V12 memory/latency measurements remain open.
+
+<a id="MOI-WINDOWS-REACTOR-CLEANUP-2026-09-16"></a>
+## MOI-WINDOWS-REACTOR-CLEANUP-2026-09-16 — Retire invalid Windows readiness registrations [patch]
+- Status: done; priority: P0; delivery: [PR #386](https://github.com/ryancinsight/Moirai/pull/386), commit `9d48ded8475d1d3697945a3bd2ba984d4169f8d5`.
+- Outcome: a closed Windows socket wakes its readiness waiter and leaves neither central nor `WSAPoll` registration; generation identity prevents a delayed invalidation from consuming a reused socket's newer central registration.
+- Scope: `moirai-pal` Windows poll/reactor/tests and this item; do not attribute the unproduced Metis 60-second hang to this defect. Acceptance: real sockets reproduce the stale registration before the fix, then focused Windows tests and the committed PAL gates pass without retries or budget changes. Residual: if Windows closes and reuses a raw socket value before `WSAPoll` observes `POLLNVAL`, the raw registration API cannot distinguish those lifetimes and may retain the old opposite-interest waker; resolving that requires an owner token carried from the socket operation through cancellation and registration.
+- Evidence: pre-fix nextest run `84d8c404-45f3-4288-bc82-7c118f4a38b7` failed because the closed waiter was not woken; exact-revision debug run `308b4b7b-cf08-4bef-87ee-673f4b82fc71` and release run `8ec7adbf-8c08-485f-88c8-015a89b1426e` pass all 82 PAL tests, and the Windows API semver gate passes 223/223 checks under patch.
