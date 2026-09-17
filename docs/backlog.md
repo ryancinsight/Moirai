@@ -190,7 +190,7 @@
 <a id="moirai-executor-sizing"></a>
 ## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — in-progress
 
-- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-miri-nested`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
+- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-miri-recursive`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
 - **Escaped defect (2026-09-10).** #312 let a non-worker caller run its own
   scope's chunks from the injectors. The probe read p90 404 → 68 µs at 10 µs
   tasks and the workspace gate was green on the PR, but the merge run
@@ -307,6 +307,11 @@
   cases completed with the exact `32 × 16` increment oracle (**1/1** test).
   Miri found no race or invalid access in this nested scope shape; the rare
   libtest-only crash still has no reproducing execution under a checker.
+- **Miri recursive-scope check (2026-09-16).** Nightly Miri ran
+  `scheduler_scope_recursive_fork_join_is_sound`; the `200,000`-element
+  arithmetic-series oracle completed for worker counts 1, 2, and 4 (**1/1**
+  test, 123.70 s). No invalid access was reported in the drive-shaped
+  recursion; the libtest-only crash remains unlocalized.
 - **Next method.** Capture a Windows crash dump of the faulting test process
   (`procdump -e -ma`, or WER `LocalDumps`) and read the faulting thread's real
   stack: gdb's unwind through the optimized frames gave only stale stack words,
