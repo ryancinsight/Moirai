@@ -190,7 +190,7 @@
 <a id="moirai-executor-sizing"></a>
 ## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — in-progress
 
-- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-miri-jobs`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
+- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-sanitizer-target`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
 - **Escaped defect (2026-09-10).** #312 let a non-worker caller run its own
   scope's chunks from the injectors. The probe read p90 404 → 68 µs at 10 µs
   tasks and the workspace gate was green on the PR, but the merge run
@@ -279,6 +279,12 @@
 - **Host tooling residual (2026-09-17).** `procdump`, cdb/WinDbg, and
   `dumpchk` are absent, and the installed Ubuntu WSL distribution cannot mount
   its VHDX. A future dump therefore still needs a debugger-capable host.
+- **Sanitizer target check (2026-09-16).** After clearing the host `RUSTC`
+  override, nightly-2026-08-01 with `-Zsanitizer=address` targeting
+  `x86_64-pc-windows-gnu` rejects the target itself (`address sanitizer is not
+  supported for this target`). No sanitizer execution or crash evidence was
+  produced; the MSVC runtime/tooling gap remains the actionable environment
+  blocker.
 - **Miri queue check (2026-09-17).** Nightly Miri passed the sequential
   `moirai-utils` queue slot test **1/1**; this covers initialization, reuse,
   and destruction in one thread only. Miri cannot exercise the threaded
