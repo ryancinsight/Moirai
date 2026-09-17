@@ -3,12 +3,8 @@
 <a id="MOI-WINDOW-WEBVIEW2-CAPTURE-2026-09-17"></a>
 ## MOI-WINDOW-WEBVIEW2-CAPTURE-2026-09-17 — Capture rendered WebView2 previews [minor] [verification]
 
-- **Status:** in-progress; priority: P1; integrator: root; branch: `feat/pal-webview2-capture-preview`; last-update: 2026-09-17.
-- **Scope:** expose a bounded owner-thread PNG capture from WebView2's `CapturePreview` stream; no GDI dependence, renderer fallback, permission policy or DICOM behavior.
-- **Acceptance:** closed hosts and oversized/short streams fail with typed errors before unbounded allocation; the finite wait and ignored installed-runtime test pass; README, ADR and Metis consumer evidence describe the exact contract.
-- **Dependencies:** [ADR 0052](adr/0052-bounded-webview2-host.md), [WebView2 permission boundary](#MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17), [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
-- **Risk:** runtime preview completion and stream metadata are COM-owned; a callback or size error must surface instead of producing a partial image.
-- **lease:** root `moirai-pal/src/windows/webview/config.rs`, `moirai-pal/src/windows/webview/host/view.rs`, `moirai-pal/src/windows/webview/mod.rs`, `moirai-pal/src/windows/webview/tests.rs`, `moirai-pal/README.md`, `docs/adr/0052-bounded-webview2-host.md`, `docs/backlog.md` 2026-09-17T23:15:00Z
+- **Status:** done; priority: P1; delivery: [PR #395](https://github.com/ryancinsight/Moirai/pull/395), merge `c7b49a7623aed533f377aec77f656a16d2b9d68b`; last-update: 2026-09-17.
+- **Outcome:** WebView2 `CapturePreview` now returns a bounded owner-thread PNG with typed stream/size errors and an ignored installed-runtime smoke; Metis consumes the merged revision and records the visual denial capture.
 
 <a id="MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17"></a>
 ## MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17 — Deny WebView2 permission prompts [arch] [minor] [security]
