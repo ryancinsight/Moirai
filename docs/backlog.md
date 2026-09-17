@@ -190,7 +190,7 @@
 <a id="moirai-executor-sizing"></a>
 ## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — in-progress
 
-- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-loom`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
+- **Integrator:** root (takeover 2026-09-16); **branch:** `perf/executor-sizing-followup`; **regions:** `moirai-executor` queue/runtime and Loom regression models; the caller-help fix is withdrawn pending its crash.
 - **Escaped defect (2026-09-10).** #312 let a non-worker caller run its own
   scope's chunks from the injectors. The probe read p90 404 → 68 µs at 10 µs
   tasks and the workspace gate was green on the PR, but the merge run
@@ -267,6 +267,9 @@
   before its asserted initial `Pending` poll. The sender now starts only after
   that poll, and the pinned future is scoped before buffer inspection; the
   package gate passes 80/80 plus 100 stress iterations.
+- **Delivery (2026-09-17).** PR [#375](https://github.com/ryancinsight/Moirai/pull/375)
+  merged at `c2e1e8c7`; hosted workspace, Loom, MSRV, supply-chain, fuzz,
+  lockfile, ADR and SemVer checks passed. The crash residual is unchanged.
 - **Next method.** Capture a Windows crash dump of the faulting test process
   (`procdump -e -ma`, or WER `LocalDumps`) and read the faulting thread's real
   stack: gdb's unwind through the optimized frames gave only stale stack words,
