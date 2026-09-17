@@ -1,24 +1,32 @@
 //! The host handle: its WebView2 interfaces, the operations over them,
 //! and the teardown that keeps COM alive until the last one is gone.
 
-use std::{cell::RefCell, io, rc::Rc, time::Duration};
+use std::{cell::RefCell, io, rc::Rc, sync::mpsc, time::Duration};
 
+use webview2_com::CapturePreviewCompletedHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2, ICoreWebView2Controller, ICoreWebView2Environment,
-    ICoreWebView2NavigationCompletedEventHandler, ICoreWebView2NavigationStartingEventHandler,
-    ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2PermissionRequestedEventHandler,
-    ICoreWebView2WebMessageReceivedEventHandler,
+    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, ICoreWebView2, ICoreWebView2Controller,
+    ICoreWebView2Environment, ICoreWebView2NavigationCompletedEventHandler,
+    ICoreWebView2NavigationStartingEventHandler, ICoreWebView2NewWindowRequestedEventHandler,
+    ICoreWebView2PermissionRequestedEventHandler, ICoreWebView2WebMessageReceivedEventHandler,
 };
 use windows::{
-    Win32::{Foundation::RECT, UI::WindowsAndMessaging::MSG},
+    Win32::{
+        Foundation::RECT,
+        System::Com::{STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET},
+        UI::{Shell::SHCreateMemStream, WindowsAndMessaging::MSG},
+    },
     core::PCWSTR,
 };
 
 use super::super::super::window::NativeWindow;
 use super::super::{
-    config::{MAX_WEBVIEW_MESSAGE_UNITS, MAX_WEBVIEW_URI_UNITS, WebViewConfig, validate_message},
+    config::{
+        MAX_WEBVIEW_CAPTURE_BYTES, MAX_WEBVIEW_MESSAGE_UNITS, MAX_WEBVIEW_URI_UNITS, WebViewConfig,
+        validate_message,
+    },
     event::WebViewHostEvent,
-    pump::{dispatch_pending, wait_for_messages},
+    pump::{dispatch_pending, wait_for, wait_for_messages},
     state::WebViewState,
 };
 
@@ -198,6 +206,110 @@ impl WebViewHost {
                 .PostWebMessageAsJson(PCWSTR(value.as_ptr()))
                 .map_err(windows_error)
         }
+    }
+
+    /// Captures the rendered page as a bounded PNG from WebView2 itself.
+    ///
+    /// The preview is read from a COM memory stream after WebView2 completes
+    /// the asynchronous capture. It does not depend on the parent window's
+    /// compositor or a GDI screenshot API, which keeps evidence valid for
+    /// occluded and hardware-composed surfaces.
+    ///
+    /// # Errors
+    /// Returns `NotConnected` for a closed host, `OutOfMemory` when the encoded
+    /// preview exceeds [`MAX_WEBVIEW_CAPTURE_BYTES`], a finite-wait error when
+    /// WebView2 does not complete, or a native COM/WebView2/stream error.
+    pub fn capture_preview_png(&self) -> io::Result<Vec<u8>> {
+        let webview = self.webview.as_ref().ok_or_else(closed_error)?;
+        // SAFETY: COM is initialized on this owner thread and the returned
+        // stream is retained until WebView2 invokes the completion callback.
+        let stream = unsafe { SHCreateMemStream(None) }.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "WebView2 preview stream allocation failed",
+            )
+        })?;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let handler = CapturePreviewCompletedHandler::create(Box::new(move |error_code| {
+            sender
+                .send(error_code)
+                .map_err(|_| super::error::callback_error("WebView2 preview waiter was dropped"))
+        }));
+        // SAFETY: `webview`, `stream` and `handler` are valid COM interfaces
+        // owned by this thread; WebView2 retains the stream until completion.
+        unsafe {
+            webview
+                .CapturePreview(
+                    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+                    &stream,
+                    &handler,
+                )
+                .map_err(windows_error)?;
+        }
+        wait_for(receiver, self.config.wait())?;
+
+        let mut stat = STATSTG::default();
+        // SAFETY: `stat` is writable storage and `stream` is a live COM
+        // `IStream` returned by the platform memory-stream factory.
+        unsafe {
+            stream
+                .Stat(&mut stat, STATFLAG_NONAME)
+                .map_err(windows_error)?;
+            stream
+                .Seek(0, STREAM_SEEK_SET, None)
+                .map_err(windows_error)?;
+        }
+        let size = usize::try_from(stat.cbSize).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "WebView2 preview length is not representable",
+            )
+        })?;
+        if size > MAX_WEBVIEW_CAPTURE_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::OutOfMemory,
+                "WebView2 preview exceeds the bounded capture budget",
+            ));
+        }
+        let mut bytes = vec![0; size];
+        let mut offset = 0;
+        while offset < size {
+            let count = u32::try_from((size - offset).min(u32::MAX as usize)).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "WebView2 preview read length is not representable",
+                )
+            })?;
+            let mut read = 0;
+            // SAFETY: the destination is the remaining initialized slice, and
+            // the COM stream writes at most the requested byte count.
+            unsafe {
+                stream
+                    .Read(bytes[offset..].as_mut_ptr().cast(), count, Some(&mut read))
+                    .ok()
+                    .map_err(windows_error)?;
+            }
+            if read == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "WebView2 preview stream ended before its reported length",
+                ));
+            }
+            offset = offset
+                .checked_add(usize::try_from(read).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "WebView2 preview read count is not representable",
+                    )
+                })?)
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "WebView2 preview read offset overflowed",
+                    )
+                })?;
+        }
+        Ok(bytes)
     }
 
     /// Pumps pending owner-thread messages and returns native and WebView2

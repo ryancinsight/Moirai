@@ -12,6 +12,12 @@ pub const MAX_WEBVIEW_MESSAGE_UNITS: usize = 64 * 1024;
 pub const MAX_WEBVIEW_URI_UNITS: usize = 2 * 1024;
 /// Maximum finite wait for WebView2 creation or navigation.
 pub const MAX_WEBVIEW_WAIT_MILLISECONDS: u32 = 30_000;
+/// Maximum PNG bytes retained by one WebView2 preview capture.
+///
+/// The bound matches the maximum RGBA8 presentation payload for one surface
+/// (`16,777,216` pixels × four channels). A compressed preview is rejected
+/// before allocation when it exceeds the same memory budget.
+pub const MAX_WEBVIEW_CAPTURE_BYTES: usize = 16 * 1024 * 1024 * 4;
 
 /// Validated WebView2 host configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]

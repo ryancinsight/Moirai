@@ -9,7 +9,8 @@ Revision: 2026-09-17
 Revision note: the WebView2 provider is now an opt-in `moirai-pal/webview2`
 feature so executor-facing Windows consumers do not compile the COM binding;
 the host synchronously denies WebView2 permission requests and emits typed
-denial snapshots. The bounded runtime behavior remains unchanged.
+denial snapshots. It also exposes a bounded `CapturePreview` PNG read from a
+COM memory stream so consumer evidence does not depend on GDI composition.
 
 Driver: [MOI-WINDOW-WEBVIEW2-2026-09-09](../backlog.md#MOI-WINDOW-WEBVIEW2-2026-09-09),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
@@ -47,6 +48,13 @@ kind. It sets `COREWEBVIEW2_PERMISSION_STATE_DENY` before enqueuing a
 known kinds and preserves an unknown numeric kind for forward compatibility;
 there is no implicit consumer allowlist.
 
+The owner thread may request `capture_preview_png`. The provider invokes
+WebView2's `CapturePreview` into a COM memory stream, waits under the same
+finite host bound, validates the reported length against the maximum RGBA8
+presentation budget before allocation, and returns the PNG bytes. Capture is
+observational: it does not change navigation, permissions or the retained
+event queue.
+
 The provider stores every callback token and removes it before closing the
 controller. `Drop` performs only synchronous COM release and controller close;
 fallible shutdown is available through `close` and never blocks or awaits.
@@ -78,10 +86,11 @@ All WebView2 and COM calls stay inside the Windows provider. Each unsafe block
 states the COM apartment, thread, pointer and callback lifetime assumptions.
 Callback errors are converted to HRESULTs and never unwind through the COM
 ABI. UTF-16 extraction is bounded and rejects malformed input; queue and
-message limits fail with typed I/O errors. A failed callback removal or close is
-reported by `close`; the Drop fallback still releases the controller and owned
-callbacks. No navigation, message or runtime failure silently falls back to a
-network page or software-only substitute.
+message limits fail with typed I/O errors. Preview streams are bounded before
+allocation and short reads are reported as errors. A failed callback removal
+or close is reported by `close`; the Drop fallback still releases the
+controller and owned callbacks. No navigation, message or runtime failure
+silently falls back to a network page or software-only substitute.
 
 ## Verification
 
@@ -92,8 +101,9 @@ native window lifecycle plus policy boundary; a runtime capture against an
 installed WebView2 runtime and the Metis packaged HTML/CSS/WASM bundle is the
 consumer integration increment. An ignored integration smoke is checked in for
 that host and verifies the packaged page, bridge message and denied navigation
-when the runtime is present. The provider's finite pump bound and queue
-overflow are value-tested without sleeps or polling loops.
+when the runtime is present. The ignored provider capture test verifies a PNG
+signature from a rendered page, while the finite pump bound and queue overflow
+are value-tested without sleeps or polling loops.
 
 The Windows loader and browser runtime are system prerequisites; non-Windows,
 WASM and default-feature Windows builds omit this module. Miri cannot execute

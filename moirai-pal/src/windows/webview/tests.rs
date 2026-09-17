@@ -195,6 +195,29 @@ navigator.geolocation.getCurrentPosition(() => {}, () => {});
     host.close().expect("close WebView2 host");
 }
 
+#[test]
+#[ignore = "requires an installed WebView2 runtime"]
+fn installed_runtime_captures_rendered_preview() {
+    let package = TestPackage::create_with_script(
+        br#"<!doctype html><meta charset="utf-8"><style>body{background:#123456}</style><body>preview</body>"#,
+    );
+    let config = WebViewConfig::new(package.uri()).expect("packaged URI");
+    let window_config = WindowConfig::with_visibility(
+        "Moirai WebView2 preview test",
+        320,
+        240,
+        WindowVisibility::Hidden,
+    )
+    .expect("window configuration");
+    let window = NativeWindow::new(&window_config).expect("native window");
+    let host = WebViewHost::new(window, config).expect("installed WebView2 host");
+    let png = host
+        .capture_preview_png()
+        .expect("WebView2 preview capture");
+    assert!(png.len() > 32);
+    assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+}
+
 struct TestPackage {
     directory: PathBuf,
     entry: PathBuf,
