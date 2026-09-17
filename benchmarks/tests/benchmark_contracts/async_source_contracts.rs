@@ -648,7 +648,13 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "fd_info.write_waker.take()",
         "poll_registered_events",
         "is_current_polled_event",
-        "replace_platform_registration",
+        // Windows replacement carries the new interest separately so a reused
+        // socket can displace stale waiters while Unix rotates its registration.
+        ".replace_waiter_registration(fd, new_interest, interest)",
+        ".replace_registration(fd, new_interest)",
+        "replacement.replaced_existing",
+        "replacement.generation",
+        "let displaced_read_waker = (!replaced_existing)",
         "let platform_result = update_platform",
         "PlatformUpdateFailure",
         "armed_interest",
