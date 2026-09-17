@@ -2,6 +2,28 @@
 
 **Target**: Unreleased
 
+## MOI-PARKED-POOL-FIRST-REGION-2026-09-17 — Bring a parked pool to full width faster [patch] [perf] — todo
+
+- **Outcome:** a data-parallel region submitted after the workers parked (idle
+  past `SPIN_LIMIT`, about 60 µs) runs close to its hot-pool time.
+- **Consumer driver:** apollo `APOLLO-REAL-3D-PASS-COUNT`
+  (`../apollo/backlog.md#apollo-real-3d-pass-count`). Its 64³ forward z sweep,
+  about 66 tasks of 64 KB through `for_each_unit_task_mut_with` on the
+  machine-wide pool, takes 21.6-22.4 µs directly after another region and
+  53.4-56.6 µs as the first region after about a millisecond of serial work:
+  same code and buffers, so about 31-35 µs is waking the pool, above the
+  documented ~8 µs per parked worker. Any entry whose caller does serial work
+  between calls pays it.
+- **Spike:** a bench timing one fixed region hot and after idle gaps of 0.1, 1
+  and 10 ms, attributing the after-idle time to unpark order (one wake per
+  submitted task vs a batch), per-worker wake cost, and the submitter's own
+  share of the tasks.
+- **Acceptance:** the wake share recorded per gap; a change (batched or early
+  unpark, submitter-side prewake, spin policy) lands only if it cuts the
+  after-idle time with idle CPU inside a stated budget, else the finding is
+  recorded as falsified.
+- **Class:** [patch] [perf]; status: todo; priority: P2; last-update: 2026-09-17.
+
 ## MOI-MELINOE-EXT-POLICY-2026-09-11 [arch] [minor] — complete
 
 - **Delivered:** `moirai-parallel`'s Melinoe bridge no longer hard-codes the
