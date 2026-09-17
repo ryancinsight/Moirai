@@ -32,6 +32,9 @@ messages, denies external and new-window navigation, and keeps creation,
 navigation and teardown waits finite. The WebView2 runtime is a Windows system
 prerequisite; this provider does not require a registry token, signing key or
 other application credential.
+All WebView2 permission requests are denied synchronously before a profile or
+OS prompt can grant access, and the host emits a bounded
+`WebViewEvent::PermissionDenied` snapshot for the consumer's audit surface.
 
 `fs::open_file_within_root` opens a native regular file through directory
 handles, using `openat` on Unix and relative `NtCreateFile` calls on Windows.

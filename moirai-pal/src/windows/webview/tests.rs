@@ -12,6 +12,7 @@ use super::{
     config::{MAX_WEBVIEW_MESSAGE_BYTES, WebViewConfig, validate_message},
     event::WebViewEvent,
     event::WebViewHostEvent,
+    event::WebViewPermission,
     state::WebViewState,
 };
 
@@ -37,6 +38,26 @@ fn configuration_and_messages_are_bounded() {
     assert!(validate_message(&vec![b'x'; MAX_WEBVIEW_MESSAGE_BYTES]).is_ok());
     assert!(validate_message(&vec![b'x'; MAX_WEBVIEW_MESSAGE_BYTES + 1]).is_err());
     assert!(validate_message(b"{\0}").is_err());
+}
+
+#[test]
+fn permission_kind_mapping_preserves_known_and_unknown_values() {
+    assert_eq!(
+        WebViewPermission::from_raw(1),
+        WebViewPermission::Microphone
+    );
+    assert_eq!(
+        WebViewPermission::from_raw(3),
+        WebViewPermission::Geolocation
+    );
+    assert_eq!(
+        WebViewPermission::from_raw(12),
+        WebViewPermission::WindowManagement
+    );
+    assert_eq!(
+        WebViewPermission::from_raw(99),
+        WebViewPermission::Unknown(99)
+    );
 }
 
 #[test]
@@ -125,6 +146,53 @@ fn installed_runtime_loads_packaged_page_and_bridge() {
     assert!(host.is_closed());
 }
 
+#[test]
+#[ignore = "requires an installed WebView2 runtime"]
+fn installed_runtime_denies_geolocation_permission() {
+    let package = TestPackage::create_with_script(
+        br#"<!doctype html><meta charset="utf-8"><script>
+window.chrome.webview.postMessage({"ready":true});
+navigator.geolocation.getCurrentPosition(() => {}, () => {});
+</script>"#,
+    );
+    let config = WebViewConfig::new(package.uri()).expect("packaged URI");
+    let window_config = WindowConfig::with_visibility(
+        "Moirai WebView2 permission test",
+        320,
+        240,
+        WindowVisibility::Hidden,
+    )
+    .expect("window configuration");
+    let window = NativeWindow::new(&window_config).expect("native window");
+    let mut host = WebViewHost::new(window, config).expect("installed WebView2 runtime");
+    let mut events = host.poll_events().expect("initial WebView2 events");
+    if !events.iter().any(|event| {
+        matches!(
+            event,
+            WebViewHostEvent::WebView(WebViewEvent::PermissionDenied {
+                permission: WebViewPermission::Geolocation,
+                ..
+            })
+        )
+    }) {
+        events.extend(
+            host.wait_events(Duration::from_secs(1))
+                .expect("permission event"),
+        );
+    }
+    assert!(events.iter().any(|event| {
+        matches!(
+            event,
+            WebViewHostEvent::WebView(WebViewEvent::PermissionDenied {
+                permission: WebViewPermission::Geolocation,
+                user_initiated: false,
+                ..
+            })
+        )
+    }));
+    host.close().expect("close WebView2 host");
+}
+
 struct TestPackage {
     directory: PathBuf,
     entry: PathBuf,
@@ -132,17 +200,19 @@ struct TestPackage {
 
 impl TestPackage {
     fn create() -> Self {
-        let directory =
-            std::env::temp_dir().join(format!("moirai-webview2-{}", std::process::id()));
-        std::fs::create_dir(&directory).expect("create unique package directory");
-        let entry = directory.join("index.html");
-        std::fs::write(
-            &entry,
+        Self::create_with_script(
             br#"<!doctype html><meta charset="utf-8"><script>
 window.chrome.webview.postMessage({"ready":true});
 </script>"#,
         )
-        .expect("write package entry");
+    }
+
+    fn create_with_script(script: &[u8]) -> Self {
+        let directory =
+            std::env::temp_dir().join(format!("moirai-webview2-{}", std::process::id()));
+        std::fs::create_dir(&directory).expect("create unique package directory");
+        let entry = directory.join("index.html");
+        std::fs::write(&entry, script).expect("write package entry");
         Self { directory, entry }
     }
 

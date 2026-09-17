@@ -4,11 +4,12 @@ Status: Accepted
 
 Date: 2026-09-09
 
-Revision: 2026-09-15
+Revision: 2026-09-17
 
 Revision note: the WebView2 provider is now an opt-in `moirai-pal/webview2`
 feature so executor-facing Windows consumers do not compile the COM binding;
-the host contract and bounded runtime behavior are unchanged.
+the host synchronously denies WebView2 permission requests and emits typed
+denial snapshots. The bounded runtime behavior remains unchanged.
 
 Driver: [MOI-WINDOW-WEBVIEW2-2026-09-09](../backlog.md#MOI-WINDOW-WEBVIEW2-2026-09-09),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
@@ -39,6 +40,12 @@ requests are always handled and denied. Web messages are capped before they
 enter the retained queue, retain their source URL, and are delivered in
 arrival order. The queue has a fixed capacity and reports overflow on the next
 poll. Outbound JSON is bounded and NUL-free before WebView2 receives it.
+
+The host also handles `PermissionRequested` for every WebView2 permission
+kind. It sets `COREWEBVIEW2_PERMISSION_STATE_DENY` before enqueuing a
+`WebViewEvent::PermissionDenied` snapshot. The event maps the pinned runtime's
+known kinds and preserves an unknown numeric kind for forward compatibility;
+there is no implicit consumer allowlist.
 
 The provider stores every callback token and removes it before closing the
 controller. `Drop` performs only synchronous COM release and controller close;

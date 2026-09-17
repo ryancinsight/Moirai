@@ -6,7 +6,8 @@ use std::{cell::RefCell, io, rc::Rc, time::Duration};
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2, ICoreWebView2Controller, ICoreWebView2Environment,
     ICoreWebView2NavigationCompletedEventHandler, ICoreWebView2NavigationStartingEventHandler,
-    ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2WebMessageReceivedEventHandler,
+    ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2PermissionRequestedEventHandler,
+    ICoreWebView2WebMessageReceivedEventHandler,
 };
 use windows::{
     Win32::{Foundation::RECT, UI::WindowsAndMessaging::MSG},
@@ -25,6 +26,7 @@ use super::error::{closed_error, coordinate_error, windows_error};
 use super::{
     callbacks::{
         remove_message, remove_navigation_completed, remove_navigation_starting, remove_new_window,
+        remove_permission_requested,
     },
     com::{ComApartment, create_controller, create_environment},
     text::encode_utf16,
@@ -48,6 +50,7 @@ pub(super) struct Callbacks {
     pub(super) navigation_starting: Option<(i64, ICoreWebView2NavigationStartingEventHandler)>,
     pub(super) navigation_completed: Option<(i64, ICoreWebView2NavigationCompletedEventHandler)>,
     pub(super) new_window: Option<(i64, ICoreWebView2NewWindowRequestedEventHandler)>,
+    pub(super) permission_requested: Option<(i64, ICoreWebView2PermissionRequestedEventHandler)>,
     pub(super) message: Option<(i64, ICoreWebView2WebMessageReceivedEventHandler)>,
 }
 
@@ -57,6 +60,7 @@ impl Callbacks {
             navigation_starting: None,
             navigation_completed: None,
             new_window: None,
+            permission_requested: None,
             message: None,
         }
     }
@@ -255,6 +259,11 @@ impl WebViewHost {
                 &mut first_error,
             );
             remove_new_window(webview, &mut self.callbacks.new_window, &mut first_error);
+            remove_permission_requested(
+                webview,
+                &mut self.callbacks.permission_requested,
+                &mut first_error,
+            );
             remove_message(webview, &mut self.callbacks.message, &mut first_error);
         }
         if let Some(controller) = self.controller.take()
