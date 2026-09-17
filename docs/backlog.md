@@ -1,5 +1,15 @@
 # Moirai Development Backlog (SSOT)
 
+<a id="MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17"></a>
+## MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17 — Deny WebView2 permission prompts [arch] [minor] [security]
+
+- **Status:** in-progress; priority: P1; owner: Moirai Windows PAL; integrator: root; branch: `feat/pal-webview2-permissions`; last-update: 2026-09-17.
+- **Scope:** intercept WebView2 permission requests, deny them before an OS prompt, and emit a bounded format-neutral event; no application-specific allowlist, DICOM behavior or browser-page policy.
+- **Acceptance:** every permission request is set to `DENY`, its URI/kind/user-initiated snapshot is observable, callback teardown removes the handler, unknown kinds remain representable, and native tests/Rustdoc/WASM unaffected checks pass. Metis consumes the event and records the host denial.
+- **Dependencies:** [ADR 0052](adr/0052-bounded-webview2-host.md), [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
+- **Risk:** a provider API that silently leaves WebView2's default state could surface an OS prompt or retain a profile grant; the callback must set `DENY` synchronously for every kind.
+- **lease:** root `moirai-pal/src/windows/webview/{event.rs,host/view.rs,host/callbacks.rs,host/mod.rs,tests.rs}`, `docs/adr/0062-webview2-permission-denial.md`, `docs/adr/README.md`, `docs/backlog.md` 2026-09-17T21:40:00Z
+
 <a id="MOI-WASM-GPU-CANVAS-2026-09-16"></a>
 ## MOI-WASM-GPU-CANVAS-2026-09-16 — Present validated frames through browser WebGPU [arch] [minor]
 
