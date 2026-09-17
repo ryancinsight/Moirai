@@ -338,6 +338,104 @@ fn successive_reused_socket_invalidations_preserve_generation_order() {
 }
 
 #[test]
+#[cfg(windows)]
+fn socket_closed_after_poll_snapshot_preserves_subsequent_readiness() {
+    let reactor = Arc::new(IoReactor::new().expect("reactor"));
+    let retired = UdpSocket::bind("127.0.0.1:0").expect("retired socket bind");
+    retired
+        .set_nonblocking(true)
+        .expect("retired socket nonblocking");
+    let retired_fd = socket_to_raw(&retired);
+    reactor
+        .register_waker(
+            retired_fd,
+            Interest::READABLE,
+            Waker::from(Arc::new(WakeCount::default())),
+        )
+        .expect("register retired socket");
+    reactor
+        .run_iteration(Some(Duration::ZERO))
+        .expect("drain retired registration wake");
+
+    let (snapshot_sender, snapshot_receiver) = std::sync::mpsc::sync_channel(1);
+    let (continue_sender, continue_receiver) = std::sync::mpsc::sync_channel(1);
+    let (first_poll_sender, first_poll_receiver) = std::sync::mpsc::sync_channel(1);
+    let (driver_sender, driver_receiver) = std::sync::mpsc::sync_channel(1);
+    let driver_reactor = Arc::clone(&reactor);
+    let driver = std::thread::spawn(move || {
+        let result = (|| -> std::io::Result<()> {
+            let first_poll = driver_reactor
+                .platform_reactor
+                .poll_registered_events_after_snapshot(Some(Duration::from_secs(2)), || {
+                    snapshot_sender.send(()).expect("publish poll snapshot");
+                    continue_receiver.recv().expect("release snapshotted poll");
+                });
+            first_poll_sender
+                .send(
+                    first_poll
+                        .as_ref()
+                        .map(Vec::len)
+                        .map_err(|error| (error.kind(), error.raw_os_error(), error.to_string())),
+                )
+                .expect("publish first poll result");
+            let events = first_poll?;
+            for event in events {
+                driver_reactor.handle_polled_event(event)?;
+            }
+            driver_reactor.run_iteration(Some(Duration::from_secs(2)))
+        })();
+        driver_sender.send(result).expect("publish driver result");
+    });
+
+    snapshot_receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("poll snapshot must complete");
+    drop(retired);
+
+    let current = UdpSocket::bind("127.0.0.1:0").expect("current socket bind");
+    current
+        .set_nonblocking(true)
+        .expect("current socket nonblocking");
+    let current_fd = socket_to_raw(&current);
+    let current_address = current.local_addr().expect("current socket address");
+    let current_wake_count = Arc::new(WakeCount::default());
+    reactor
+        .register_waker(
+            current_fd,
+            Interest::READABLE,
+            Waker::from(Arc::clone(&current_wake_count)),
+        )
+        .expect("register current socket");
+    let sender = UdpSocket::bind("127.0.0.1:0").expect("sender bind");
+    assert_eq!(
+        sender
+            .send_to(b"ready", current_address)
+            .expect("send current readiness"),
+        5
+    );
+    continue_sender.send(()).expect("release poll driver");
+
+    first_poll_receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("first poll must report its result")
+        .expect("snapshotted close must not fail WSAPoll");
+    driver_receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("driver must report its result")
+        .expect("snapshotted close must not terminate readiness dispatch");
+    driver.join().expect("driver thread");
+    assert_eq!(current_wake_count.0.load(Ordering::Relaxed), 1);
+    let mut payload = [0_u8; 5];
+    assert_eq!(
+        current
+            .recv(&mut payload)
+            .expect("receive readiness payload"),
+        5
+    );
+    assert_eq!(&payload, b"ready");
+}
+
+#[test]
 #[cfg(any(unix, windows))]
 fn stale_polled_generation_cannot_consume_replacement_registration() {
     let reactor = IoReactor::new().expect("reactor");

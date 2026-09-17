@@ -4860,7 +4860,5 @@ Part IV chapter map (grounded in moirai-transport):
 
 <a id="MOI-WINDOWS-REACTOR-DRIVER-2026-09-16"></a>
 ## MOI-WINDOWS-REACTOR-DRIVER-2026-09-16 — Preserve readiness after a snapshotted socket closes [patch]
-- Status: in-progress; priority: P0; integrator: Codex `/root/reactor_cancellation`; last-update: 2026-09-16.
-- Outcome: determine whether closing a real Windows socket after `WSAPoll` snapshots it terminates readiness dispatch, then preserve a subsequent real socket wake if the regression fails.
-- Scope: `moirai-pal/src/windows/poll.rs`, reactor tests, and this item; no fault-lifecycle production rewrite before the real-socket regression proves the failure. Acceptance: synchronized without sleeps or retries, captures the first poll result, and asserts a second real readable socket wakes under committed nextest budgets.
-- Lease: Codex `/root/reactor_cancellation` owns `moirai-pal/src/windows/poll.rs`, `moirai-pal/src/reactor/tests.rs`, and this item for the next test increment.
+- Status: review; priority: P0; integrator: Codex `/root/reactor_cancellation`; last-update: 2026-09-16.
+- Outcome: synchronized real sockets prove that closing a snapshotted socket before the `WSAPoll` call does not terminate dispatch; the next readable socket wakes once and yields its exact payload. Focused run `b581d75f-2cf0-44fd-857b-8986f9215f1d` and locked PAL run `ce3475c4-453d-4c67-93a6-97b8226a61d1` pass. The hook does not prove a close after kernel entry or explain the Metis timeout.
