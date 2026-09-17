@@ -7,6 +7,7 @@ use std::sync::{
 use std::task::Waker;
 use std::time::{Duration, Instant};
 
+use super::driver_failure::DriverFailureState;
 use super::metrics::ReactorMetrics;
 use super::registration::PlatformUpdateFailure;
 #[cfg(any(unix, windows))]
@@ -50,9 +51,11 @@ pub struct IoReactor {
     pub(crate) running: Arc<AtomicBool>,
     /// Registered file descriptor tracking
     pub(crate) registered_fds: Arc<Mutex<HashMap<FdKey, FdInfo>>>,
+    /// First terminal failure from a driven event loop.
+    pub(super) driver_failure: DriverFailureState,
     /// Windows platform generation paired with each central registration.
     #[cfg(windows)]
-    platform_generations: Mutex<HashMap<FdKey, RegistrationGeneration>>,
+    pub(super) platform_generations: Mutex<HashMap<FdKey, RegistrationGeneration>>,
     /// Performance metrics
     pub(crate) metrics: Arc<ReactorMetrics>,
 }
@@ -66,6 +69,7 @@ impl IoReactor {
             platform_reactor,
             running: Arc::new(AtomicBool::new(false)),
             registered_fds: Arc::new(Mutex::new(HashMap::new())),
+            driver_failure: DriverFailureState::default(),
             #[cfg(windows)]
             platform_generations: Mutex::new(HashMap::new()),
             metrics: Arc::new(ReactorMetrics::default()),
@@ -81,11 +85,19 @@ impl IoReactor {
     }
 
     /// Register a file descriptor for async I/O operations.
+    ///
+    /// # Errors
+    ///
+    /// Returns a platform registration error or the retained terminal driver
+    /// failure after a driven event loop has stopped on an error.
     pub fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()> {
         let mut fds = self
             .registered_fds
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
+        if let Some(error) = self.driver_failure.registration_error() {
+            return Err(error);
+        }
 
         // Hold central state across platform publication so readiness cannot be
         // dispatched before its matching central registration exists.
@@ -141,18 +153,29 @@ impl IoReactor {
     }
 
     /// Run the event loop until stopped.
+    ///
+    /// A platform iteration failure is terminal for this reactor. The first
+    /// failure is retained before every registered waiter is woken; later
+    /// registrations return an error whose source is that original failure.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the reactor was already started or a platform
+    /// iteration fails.
     pub fn run(&self) -> io::Result<()> {
         // Relaxed: `running` is a single-location loop-control flag. It does
         // not publish reactor state; `stop` separately wakes the platform poll
         // so this loop observes the flag at its next iteration boundary.
-        self.running.store(true, Ordering::Relaxed);
         self.metrics
             .start_time
             .set(Instant::now())
             .map_err(|_| io::Error::other("Reactor already started"))?;
+        self.running.store(true, Ordering::Relaxed);
 
         while self.running.load(Ordering::Relaxed) {
-            self.run_iteration(Some(Duration::from_millis(10)))?;
+            if let Err(error) = self.run_iteration(Some(Duration::from_millis(10))) {
+                return Err(self.publish_driver_failure(error));
+            }
         }
 
         Ok(())
@@ -160,6 +183,10 @@ impl IoReactor {
 
     /// Run a single iteration of the event loop.
     pub fn run_iteration(&self, timeout: Option<Duration>) -> io::Result<()> {
+        #[cfg(test)]
+        if let Some(error) = self.driver_failure.take_iteration_failure() {
+            return Err(error);
+        }
         let iteration_start = Instant::now();
 
         #[cfg(any(unix, windows))]
@@ -406,11 +433,19 @@ impl IoReactor {
     }
 
     /// Register a task's waker for a file descriptor and interest.
+    ///
+    /// # Errors
+    ///
+    /// Returns a platform registration error or the retained terminal driver
+    /// failure after a driven event loop has stopped on an error.
     pub fn register_waker(&self, fd: RawFd, interest: Interest, waker: Waker) -> io::Result<()> {
         let mut fds = self
             .registered_fds
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
+        if let Some(error) = self.driver_failure.registration_error() {
+            return Err(error);
+        }
         if let Some(fd_info) = fds.get_mut(&FdKey::from(fd)) {
             let mut new_interest = fd_info.interest;
             if interest.readable {

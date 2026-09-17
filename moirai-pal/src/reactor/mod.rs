@@ -6,6 +6,7 @@
 
 /// The [`IoReactor`] driving waker registration and event dispatch.
 pub mod core;
+mod driver_failure;
 #[cfg(any(
     test,
     target_os = "macos",

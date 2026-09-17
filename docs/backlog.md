@@ -4865,9 +4865,9 @@ Part IV chapter map (grounded in moirai-transport):
 
 <a id="MOI-REACTOR-DRIVER-FAILURE-2026-09-16"></a>
 ## MOI-REACTOR-DRIVER-FAILURE-2026-09-16 — Publish terminal readiness-driver failures [patch]
-- Status: in-progress; priority: P0; integrator: Codex `/root/reactor_cancellation`; last-update: 2026-09-16.
+- Status: review; priority: P0; integrator: Codex `/root/reactor_cancellation`; last-update: 2026-09-16.
 - Outcome: retain any process-global readiness-driver failure, wake all registered waiters outside locks, and reject future waiter registration with the preserved source error.
 - Scope: private reactor lifecycle state in `core.rs` and `tls.rs`, reactor tests, ADR 0014, and this item. No driver restart, retry, fallback, public test API, or claim that this caused the Metis timeout.
 - Acceptance: typed injected driver failure wakes every existing waiter exactly once; registration concurrent with terminal publication is either rejected with the retained source or committed then woken; every later registration returns the retained source error.
 - Risk: patch; public `FdInfo` and public API remain unchanged. Dependency: `0c85f9da` records the distinct socket-close discriminator.
-- Lease: Codex `/root/reactor_cancellation` owns `moirai-pal/src/reactor/{core.rs,tls.rs,tests.rs}`, `docs/adr/0014-reactor-bound-async-i-o-and-readiness-integration.md`, and this item for the next increment.
+- Evidence: all-feature debug and release nextest runs pass 87/87 tests with one existing display-dependent skip; Linux all-feature check, rustdoc, doctests, and format/clippy gates pass; cargo-semver-checks passes 223/223 applicable checks under patch. Independent cumulative review passes artifact `daeb6678af5afc80abaac1a7d396b60e1ffcdbc9ae9e72f253f391397b2c99f3` from `34533a07`.
