@@ -35,6 +35,9 @@ other application credential.
 All WebView2 permission requests are denied synchronously before a profile or
 OS prompt can grant access, and the host emits a bounded
 `WebViewEvent::PermissionDenied` snapshot for the consumer's audit surface.
+`WebViewHost::capture_preview_png` obtains a bounded PNG from WebView2's own
+preview stream, so an occluded or hardware-composed surface can be inspected
+without a GDI screenshot.
 
 `fs::open_file_within_root` opens a native regular file through directory
 handles, using `openat` on Unix and relative `NtCreateFile` calls on Windows.
