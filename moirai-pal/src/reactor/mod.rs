@@ -18,8 +18,12 @@ pub(crate) mod kqueue_transition;
 /// Reactor performance counters.
 pub mod metrics;
 pub(crate) mod registration;
+#[cfg(windows)]
+pub(crate) mod socket_owner;
 /// Thread-local / process-global active-reactor installation.
 pub mod tls;
+#[cfg(windows)]
+pub(crate) mod waiter_cancellation;
 
 /// Reactor unit tests.
 #[cfg(test)]

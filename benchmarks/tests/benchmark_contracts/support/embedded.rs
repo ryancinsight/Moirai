@@ -241,6 +241,7 @@ embedded_sources![
     "../moirai-pal/src/fs/tests.rs",
     "../moirai-pal/src/lib.rs",
     "../moirai-pal/src/net.rs",
+    "../moirai-pal/src/net/tests.rs",
     "../moirai-pal/src/reactor/core.rs",
     "../moirai-pal/src/reactor/kqueue_transition.rs",
     "../moirai-pal/src/reactor/metrics.rs",

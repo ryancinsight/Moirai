@@ -5,6 +5,8 @@ use std::collections::HashMap;
 #[cfg(any(unix, windows))]
 use std::hash::Hash;
 
+#[cfg(windows)]
+use super::socket_owner::WeakSocketOwner;
 #[cfg(any(unix, windows))]
 use crate::Event;
 use crate::Interest;
@@ -34,10 +36,13 @@ pub(crate) struct WaiterRegistration {
 }
 
 #[cfg(any(unix, windows))]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
+#[cfg_attr(unix, derive(Copy))]
 pub(crate) struct Registration {
     pub(crate) interest: Interest,
     pub(crate) generation: RegistrationGeneration,
+    #[cfg(windows)]
+    pub(crate) owner: Option<WeakSocketOwner>,
 }
 
 #[cfg(any(unix, windows))]
@@ -80,40 +85,61 @@ where
         interest: Interest,
         generation: RegistrationGeneration,
     ) {
-        #[cfg(target_os = "linux")]
-        if let Some(previous) = self.entries.insert(
+        self.commit_registration(
             key,
             Registration {
                 interest,
                 generation,
+                #[cfg(windows)]
+                owner: None,
             },
-        ) {
+        );
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn commit_owned(
+        &mut self,
+        key: K,
+        interest: Interest,
+        generation: RegistrationGeneration,
+        owner: WeakSocketOwner,
+    ) {
+        self.commit_registration(
+            key,
+            Registration {
+                interest,
+                generation,
+                owner: Some(owner),
+            },
+        );
+    }
+
+    fn commit_registration(&mut self, key: K, registration: Registration) {
+        #[cfg(target_os = "linux")]
+        let generation = registration.generation;
+        #[cfg(target_os = "linux")]
+        if let Some(previous) = self.entries.insert(key, registration) {
             self.generations.remove(&previous.generation);
         }
         #[cfg(not(target_os = "linux"))]
-        let _ = self.entries.insert(
-            key,
-            Registration {
-                interest,
-                generation,
-            },
-        );
+        let _ = self.entries.insert(key, registration);
         #[cfg(target_os = "linux")]
         self.generations.insert(generation, key);
     }
 
     pub(crate) fn get(&self, key: K) -> Option<Registration> {
-        self.entries.get(&key).copied()
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (&K, &Registration)> {
-        self.entries.iter()
+        self.entries.get(&key).cloned()
     }
 
     #[cfg(windows)]
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn retain(&mut self, mut keep: impl FnMut(K, &Registration) -> bool) {
+        self.entries
+            .retain(|key, registration| keep(*key, registration));
     }
 
     #[cfg(target_os = "linux")]

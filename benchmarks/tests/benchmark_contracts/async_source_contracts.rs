@@ -544,7 +544,11 @@ fn async_network_facade_has_loopback_value_tests_and_audited_boundary() {
 fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
     let pal_lib = read_benchmark("../moirai-pal/src/lib.rs");
     let pal_fs = read_benchmark("../moirai-pal/src/fs.rs");
-    let pal_net = read_benchmark("../moirai-pal/src/net.rs");
+    let pal_net = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-pal/src/net.rs"),
+        read_benchmark("../moirai-pal/src/net/tests.rs")
+    );
     let pal_reactor = [
         "../moirai-pal/src/reactor/core.rs",
         "../moirai-pal/src/reactor/kqueue_transition.rs",
@@ -654,12 +658,17 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         ".replace_registration(fd, new_interest)",
         "replacement.replaced_existing",
         "replacement.generation",
-        "let displaced_read_waker = (!replaced_existing)",
+        "let displaced_read_waker = (!replaced_existing || interest.readable)",
+        "self.waiter_cancellations.publish(&cancellation);",
+        "self.waiter_cancellations.clear_interest(key, true, true);",
         "let platform_result = update_platform",
         "PlatformUpdateFailure",
         "armed_interest",
         "readiness_delivery_consumes_only_reported_interest",
         "stale_polled_generation_cannot_consume_replacement_registration",
+        "replacing_owned_waiter_destroys_displaced_waker_unlocked",
+        "raw_registration_replaces_owned_waiter_atomically",
+        "unregister_destroys_owned_waiter_after_reactor_unlock",
         "backend_update_failure_preserves_retained_registration_and_wakes_unlocked",
         "backend_update_failure_removes_absent_registration_and_wakes_waiters",
         "collapse_generation",

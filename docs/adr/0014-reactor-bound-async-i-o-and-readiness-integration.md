@@ -20,6 +20,32 @@ retained failure. The driver does not retry, restart, or switch to cooperative
 polling after terminal failure. This failure contract does not establish the
 cause of a downstream HTTP timeout.
 
+**Revision 2026-09-17**: Windows PAL sockets now store their OS socket in an
+`Arc`. The platform registration keeps only a weak owner and each `WSAPoll`
+snapshot upgrades it to a strong lease held until the kernel call returns.
+Socket retirement removes its exact per-interest waiter and wakes the poll;
+the last socket owner can therefore close only before snapshot acquisition or
+after the active Winsock call. TCP streams, TCP listeners, and UDP sockets use
+this path. Waiter identities are published in the same central-state
+transaction as their wakers; replaced wakers and cancellation owners are
+destroyed only after that state lock is released. Raw descriptor registration
+retains its caller-owned lifetime contract. The `poll_read`/`poll_write`
+surface stores cancellation with the TCP stream because a borrowing `Future`
+is external to that API; the named async read/write/flush, accept, and UDP
+operations own cancellation for their future lifetime. A surfaced
+`WSAENOTSOCK` in a downstream release test motivates this correction but does
+not prove the cause of earlier timeouts.
+
+The driving item is
+[MOI-WINDOWS-SOCKET-LIFETIME-2026-09-17](../backlog.md#MOI-WINDOWS-SOCKET-LIFETIME-2026-09-17).
+Winsock's [closesocket remarks](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-closesocket#remarks)
+prohibit concurrent Winsock calls on the socket being closed.
+The [WSAPoll return contract](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsapoll#return-value)
+requires `WSAGetLastError` after `SOCKET_ERROR`. Real-socket tests retire owners
+before and after snapshot acquisition, preserve replacement waiters, and
+exercise failed-poll lease release. These selected interleavings are behavioral
+evidence, not an exhaustive proof of every OS scheduling order.
+
 **Context**: We needed to complete the transition from a cooperative/blocking async I/O simulation to a true event-driven, reactor-backed asynchronous I/O and execution architecture. The busy-polling loop in the async executor consumed excessive CPU, and file/socket operations lacked real readiness integration.
 
 ### Decision
@@ -31,6 +57,8 @@ cause of a downstream HTTP timeout.
 5. **Clean Modular Delegation**: Decouple `moirai-async::net` and `moirai-async::fs` facades by delegating entirely to their `moirai-pal` counterparts, adhering to the 500-line structural limit.
 6. **Generation-Bound Windows Cleanup**: Treat `POLLNVAL` as a generation-tagged invalidation. Remove its platform registration, then wake and remove the corresponding central waiters only while no replacement generation exists.
 7. **Terminal Driver Failure**: Retain the first error returned by a driven platform iteration. Serialize failure publication with descriptor and waiter registration, remove all central waiters and Windows generations, wake those waiters outside locks, and reject later registrations with the retained error as their source. A direct `run_iteration` call remains caller-owned; normal `stop` and an attempted second `run` do not publish terminal platform failure.
+8. **Owned Windows Poll Snapshots**: Register weak owners for PAL network sockets and upgrade them while constructing a `WSAPoll` snapshot. Keep the strong leases through the call, release them after all poll and registration locks, and cancel waiters by originating reactor plus per-interest identity. Never recover from a genuine `WSAPoll` error by retrying or changing drivers.
+9. **Atomic Waiter Replacement**: Publish or clear per-interest cancellation identities while holding the same central-state lock that replaces the waker and platform generation. Release that lock before destroying or waking displaced values so reentrant destructors cannot cancel a replacement or deadlock.
 
 ### Rationale
 
