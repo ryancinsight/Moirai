@@ -3,17 +3,19 @@
 use std::{io, rc::Rc};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2, ICoreWebView2NavigationCompletedEventHandler,
-    ICoreWebView2NavigationStartingEventHandler, ICoreWebView2NewWindowRequestedEventHandler,
+    COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_STATE_DENY, ICoreWebView2,
+    ICoreWebView2NavigationCompletedEventHandler, ICoreWebView2NavigationStartingEventHandler,
+    ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2PermissionRequestedEventHandler,
     ICoreWebView2WebMessageReceivedEventHandler,
 };
 use webview2_com::{
     NavigationCompletedEventHandler, NavigationStartingEventHandler,
-    NewWindowRequestedEventHandler, WebMessageReceivedEventHandler,
+    NewWindowRequestedEventHandler, PermissionRequestedEventHandler,
+    WebMessageReceivedEventHandler,
 };
 use windows::core::{BOOL, PWSTR};
 
-use super::super::event::WebViewEvent;
+use super::super::event::{WebViewEvent, WebViewPermission};
 use super::error::{callback_error, closed_error, push_event, windows_error};
 use super::text::{read_task_mem_message, read_task_mem_uri};
 use super::view::WebViewHost;
@@ -111,6 +113,40 @@ impl WebViewHost {
         self.callbacks.new_window = Some((new_window_token, new_window));
 
         let state = Rc::clone(&self.state);
+        let permission = PermissionRequestedEventHandler::create(Box::new(move |_sender, args| {
+            let Some(args) = args else {
+                return Err(callback_error(
+                    "WebView2 permission callback omitted arguments",
+                ));
+            };
+            let mut raw_uri = PWSTR::null();
+            unsafe { args.Uri(&mut raw_uri)? };
+            let uri = read_task_mem_uri(raw_uri).map_err(|_| {
+                callback_error("WebView2 permission callback returned an invalid URI")
+            })?;
+            let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+            unsafe { args.PermissionKind(&mut kind)? };
+            let mut user_initiated = BOOL(0);
+            unsafe { args.IsUserInitiated(&mut user_initiated)? };
+            unsafe { args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY)? };
+            push_event(
+                &state,
+                WebViewEvent::PermissionDenied {
+                    uri,
+                    permission: WebViewPermission::from_raw(kind.0),
+                    user_initiated: user_initiated.as_bool(),
+                },
+            )
+        }));
+        let mut permission_token = 0;
+        unsafe {
+            webview
+                .add_PermissionRequested(&permission, &mut permission_token)
+                .map_err(windows_error)?;
+        }
+        self.callbacks.permission_requested = Some((permission_token, permission));
+
+        let state = Rc::clone(&self.state);
         let policy = self.config.clone();
         let message = WebMessageReceivedEventHandler::create(Box::new(move |_sender, args| {
             let Some(args) = args else {
@@ -177,6 +213,19 @@ pub(super) fn remove_new_window(
     if let Some((token, _handler)) = callback.take()
         && let Err(error) =
             unsafe { webview.remove_NewWindowRequested(token) }.map_err(windows_error)
+    {
+        first_error.get_or_insert(error);
+    }
+}
+
+pub(super) fn remove_permission_requested(
+    webview: &ICoreWebView2,
+    callback: &mut Option<(i64, ICoreWebView2PermissionRequestedEventHandler)>,
+    first_error: &mut Option<io::Error>,
+) {
+    if let Some((token, _handler)) = callback.take()
+        && let Err(error) =
+            unsafe { webview.remove_PermissionRequested(token) }.map_err(windows_error)
     {
         first_error.get_or_insert(error);
     }

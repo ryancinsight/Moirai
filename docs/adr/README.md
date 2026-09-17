@@ -68,3 +68,4 @@
 | [0059](0059-byte-sized-unit-tasks.md) | Byte-sized unit tasks | Accepted |
 | [0060](0060-browser-event-trust.md) | Browser event trust provenance | Accepted |
 | [0061](0061-browser-webgpu-canvas.md) | Explicit browser WebGPU canvas surface | Accepted |
+| [0062](0062-webview2-permission-denial.md) | Deny WebView2 permission requests at the host boundary | Accepted |
