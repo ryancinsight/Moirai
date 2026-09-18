@@ -55,8 +55,9 @@ claim device isolation, driver correctness or physical GPU execution.
 
 The provider's native tests continue to cover the shared frame and extent
 contract. The standalone `wasm32-unknown-unknown` check and strict library
-Clippy compile the recovery path. Metis's consumer check exercises the public
-adapter method and verifies that input listener ownership remains unchanged.
-Real browser device-loss and recovered non-black pixels remain RITK consumer
-evidence and require a browser with an adapter that can be deliberately
-revoked.
+Clippy compile the recovery path, and the Metis consumer gate compiles the
+public adapter method. `CanvasInput` remains a separate retained field in the
+consumer surface, but no browser runtime test yet observes listener counts
+across an actual device loss. Real browser device-loss and recovered non-black
+pixels remain RITK consumer evidence and require a browser with an adapter that
+can be deliberately revoked.
