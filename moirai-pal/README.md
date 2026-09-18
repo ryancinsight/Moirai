@@ -72,8 +72,10 @@ asynchronously acquires the browser's WebGPU adapter and device, configures a
 `webgpu` canvas, and presents the same borrowed frame through
 `copyExternalImageToTexture`. WebGPU absence, device loss, and upload errors
 are returned to the consumer; the PAL never changes a requested GPU surface to
-the 2-D path implicitly. Browser WebGPU remains an optional secure-context
-capability and consumers own their presentation-policy choice.
+the 2-D path implicitly. `WebGpuCanvas::recreate` explicitly replaces a lost
+device and clears the configured extent; failed recovery leaves the prior state
+unchanged. Browser WebGPU remains an optional secure-context capability and
+consumers own their presentation-policy choice.
 Unsupported targets and browser metadata failures return explicit errors or
 `None`; grapheme segmentation and editing policy stay with the application or
 host layer. Native IME event production stays in the Windows provider.
