@@ -426,12 +426,9 @@ fn successive_reused_socket_invalidations_preserve_generation_order() {
     current_socket
         .set_nonblocking(true)
         .expect("current socket nonblocking");
+    let write_waker = Waker::from(Arc::clone(&current_wake_count));
     reactor
-        .register_waker(
-            fd,
-            Interest::WRITABLE,
-            Waker::from(Arc::clone(&current_wake_count)),
-        )
+        .register_waker(fd, Interest::WRITABLE, write_waker.clone())
         .expect("register current write interest");
     assert_eq!(
         retired_wake_count.0.load(Ordering::Relaxed),
@@ -465,7 +462,11 @@ fn successive_reused_socket_invalidations_preserve_generation_order() {
         assert!(!current.interest.readable);
         assert!(current.interest.writable);
         assert!(current.read_waker.is_none());
-        assert!(current.write_waker.is_some());
+        let retained = current
+            .write_waker
+            .as_ref()
+            .expect("write waker retained");
+        assert!(retained.will_wake(&write_waker));
     }
     assert!(!reactor.platform_reactor.has_registration(fd));
     reactor
@@ -914,11 +915,12 @@ fn cancellation_is_interest_specific_and_reactor_bound() {
             )
             .expect("read registration")
     });
+    let write_waker = Waker::from(Arc::clone(&write_wake));
     let write = reactor_a
         .register_owned_waker(
             fd,
             Interest::WRITABLE,
-            Waker::from(Arc::clone(&write_wake)),
+            write_waker.clone(),
             SocketLease::from(&socket),
         )
         .expect("write registration");
@@ -938,7 +940,11 @@ fn cancellation_is_interest_specific_and_reactor_bound() {
     assert!(!current.interest.readable);
     assert!(current.interest.writable);
     assert!(current.read_waker.is_none());
-    assert!(current.write_waker.is_some());
+    let retained = current
+        .write_waker
+        .as_ref()
+        .expect("write waker retained");
+    assert!(retained.will_wake(&write_waker));
     drop(central);
     assert_eq!(read_wake.0.load(Ordering::Relaxed), 0);
 
