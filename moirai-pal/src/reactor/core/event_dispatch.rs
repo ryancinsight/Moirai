@@ -15,7 +15,7 @@ use crate::{Event, Interest, PlatformReactor, RawFd};
 impl IoReactor {
     /// Handle a single I/O event.
     #[cfg(not(any(unix, windows)))]
-    fn handle_event(&self, event: Event) -> io::Result<()> {
+    pub(super) fn handle_event(&self, event: Event) -> io::Result<()> {
         // Update metrics
         self.metrics
             .events_processed

@@ -11,7 +11,6 @@ use std::task::Waker;
 use std::time::Duration;
 
 #[test]
-#[cfg(windows)]
 fn closed_socket_retires_central_and_platform_waiters() {
     let reactor = IoReactor::new().expect("reactor");
     let socket = UdpSocket::bind("127.0.0.1:0").expect("socket bind");
@@ -52,7 +51,6 @@ fn closed_socket_retires_central_and_platform_waiters() {
 }
 
 #[test]
-#[cfg(windows)]
 fn successive_reused_socket_invalidations_preserve_generation_order() {
     let reactor = IoReactor::new().expect("reactor");
     let retired_socket = UdpSocket::bind("127.0.0.1:0").expect("retired socket bind");
@@ -142,7 +140,6 @@ fn successive_reused_socket_invalidations_preserve_generation_order() {
 }
 
 #[test]
-#[cfg(windows)]
 fn socket_closed_after_poll_snapshot_preserves_subsequent_readiness() {
     let reactor = Arc::new(IoReactor::new().expect("reactor"));
     let retired = UdpSocket::bind("127.0.0.1:0").expect("retired socket bind");

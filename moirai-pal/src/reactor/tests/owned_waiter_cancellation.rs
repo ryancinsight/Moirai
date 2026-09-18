@@ -13,7 +13,6 @@ use std::task::Waker;
 use std::time::Duration;
 
 #[test]
-#[cfg(windows)]
 fn cancellation_is_interest_specific_and_reactor_bound() {
     let reactor_a = Arc::new(IoReactor::new().expect("reactor A"));
     let reactor_b = Arc::new(IoReactor::new().expect("reactor B"));
@@ -107,7 +106,6 @@ fn cancellation_is_interest_specific_and_reactor_bound() {
 }
 
 #[test]
-#[cfg(windows)]
 fn stale_same_interest_cancellation_preserves_replacement() {
     let reactor = IoReactor::new().expect("reactor");
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").expect("receiver bind"));
@@ -160,7 +158,6 @@ fn stale_same_interest_cancellation_preserves_replacement() {
 }
 
 #[test]
-#[cfg(windows)]
 fn replacing_owned_waiter_destroys_displaced_waker_unlocked() {
     let reactor = IoReactor::new().expect("reactor");
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").expect("socket bind"));
@@ -225,7 +222,6 @@ fn replacing_owned_waiter_destroys_displaced_waker_unlocked() {
 }
 
 #[test]
-#[cfg(windows)]
 fn raw_registration_replaces_owned_waiter_atomically() {
     let reactor = IoReactor::new().expect("reactor");
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").expect("socket bind"));
@@ -299,7 +295,6 @@ fn raw_registration_replaces_owned_waiter_atomically() {
 }
 
 #[test]
-#[cfg(windows)]
 fn unregister_destroys_owned_waiter_after_reactor_unlock() {
     let reactor = IoReactor::new().expect("reactor");
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").expect("socket bind"));
@@ -346,7 +341,6 @@ fn unregister_destroys_owned_waiter_after_reactor_unlock() {
 }
 
 #[test]
-#[cfg(windows)]
 fn cancellation_after_scoped_reactor_teardown_is_inert() {
     let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").expect("socket bind"));
     let fd = socket.as_raw_socket() as crate::RawFd;
