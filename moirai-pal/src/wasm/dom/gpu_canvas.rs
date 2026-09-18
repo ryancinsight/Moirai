@@ -29,6 +29,12 @@ pub struct WebGpuCanvas {
     configured_size: Cell<Option<CanvasSize>>,
 }
 
+struct GpuState {
+    device: JsValue,
+    queue: JsValue,
+    format: String,
+}
+
 impl WebGpuCanvas {
     /// Resolves a canvas element and asynchronously acquires a WebGPU device.
     ///
@@ -55,40 +61,13 @@ impl WebGpuCanvas {
                 )
             })?;
 
-        let window = web_sys::window().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::Unsupported,
-                "WebGPU setup requires a browser Window",
-            )
-        })?;
-        let window_value: JsValue = window.into();
-        let navigator = property(&window_value, "navigator")?;
-        let gpu = property_or_unsupported(&navigator, "gpu", "browser exposes no WebGPU")?;
-        let adapter_request = call_method(&gpu, "requestAdapter", &[])?;
-        let adapter = await_promise(adapter_request, "request WebGPU adapter").await?;
-        if adapter.is_null() || adapter.is_undefined() {
-            return Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "browser returned no WebGPU adapter",
-            ));
-        }
-        let device_request = call_method(&adapter, "requestDevice", &[])?;
-        let device = await_promise(device_request, "request WebGPU device").await?;
-        let queue = property(&device, "queue")?;
-        let format = call_method(&gpu, "getPreferredCanvasFormat", &[])?
-            .as_string()
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "WebGPU preferred canvas format is not a string",
-                )
-            })?;
+        let state = acquire_gpu_state().await?;
         Ok(Self {
             canvas,
             context,
-            queue,
-            device,
-            format,
+            queue: state.queue,
+            device: state.device,
+            format: state.format,
             configured_size: Cell::new(None),
         })
     }
@@ -113,6 +92,24 @@ impl WebGpuCanvas {
     #[must_use]
     pub fn id(&self) -> String {
         self.canvas.id()
+    }
+
+    /// Replaces a lost browser device and clears the configured extent.
+    ///
+    /// Recovery is explicit and never changes this surface to the two-dimensional
+    /// presenter. The old device state remains in place when adapter or device
+    /// setup fails, so a caller can surface the typed error and decide whether
+    /// to retry or close the surface.
+    ///
+    /// # Errors
+    /// Returns the same typed browser setup errors as [`Self::from_element`].
+    pub async fn recreate(&mut self) -> io::Result<()> {
+        let state = acquire_gpu_state().await?;
+        self.device = state.device;
+        self.queue = state.queue;
+        self.format = state.format;
+        self.configured_size.set(None);
+        Ok(())
     }
 
     /// Presents one validated RGBA8 frame through the WebGPU canvas texture.
@@ -180,6 +177,42 @@ impl WebGpuCanvas {
         call_method(&self.context, "configure", &[configuration.into()])?;
         Ok(())
     }
+}
+
+async fn acquire_gpu_state() -> io::Result<GpuState> {
+    let window = web_sys::window().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            "WebGPU setup requires a browser Window",
+        )
+    })?;
+    let window_value: JsValue = window.into();
+    let navigator = property(&window_value, "navigator")?;
+    let gpu = property_or_unsupported(&navigator, "gpu", "browser exposes no WebGPU")?;
+    let adapter_request = call_method(&gpu, "requestAdapter", &[])?;
+    let adapter = await_promise(adapter_request, "request WebGPU adapter").await?;
+    if adapter.is_null() || adapter.is_undefined() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "browser returned no WebGPU adapter",
+        ));
+    }
+    let device_request = call_method(&adapter, "requestDevice", &[])?;
+    let device = await_promise(device_request, "request WebGPU device").await?;
+    let queue = property(&device, "queue")?;
+    let format = call_method(&gpu, "getPreferredCanvasFormat", &[])?
+        .as_string()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "WebGPU preferred canvas format is not a string",
+            )
+        })?;
+    Ok(GpuState {
+        device,
+        queue,
+        format,
+    })
 }
 
 impl WebDocument {
