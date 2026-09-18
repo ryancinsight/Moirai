@@ -3,11 +3,8 @@
 <a id="MOI-WASM-GPU-RECOVERY-2026-09-18"></a>
 ## MOI-WASM-GPU-RECOVERY-2026-09-18 — Recover explicit browser WebGPU surfaces [arch] [minor]
 
-- **Status:** in-progress; priority: P1; owner: Moirai browser PAL; integrator: root; last-update: 2026-09-18.
-- **Scope:** expose an explicit async device/context recovery operation for `WebGpuCanvas` and the Metis canvas adapter after a browser WebGPU device or swap-chain loss. Preserve borrowed RGBA frames, bounded reconfiguration and the explicit no-fallback policy; no DICOM, viewer or shader semantics.
-- **Acceptance:** recovery requests a fresh adapter/device, clears the configured extent, surfaces missing support and browser errors as typed I/O failures, and leaves the existing surface unusable until recovery succeeds; native/WASM checks, docs and a Metis consumer compile/test gate pass.
-- **Risk:** stale device handles or an implicit 2-D fallback could present frames to a revoked surface or hide a capability loss.
-- **ADR:** [0063](adr/0063-browser-webgpu-recovery.md).
+- **Status:** done; priority: P1; delivery: [PR #400](https://github.com/ryancinsight/Moirai/pull/400), merge `7aa9d4e27fe8d12c0129accddccbf70bbc796e08`; compacted 2026-09-18.
+- **Outcome:** `WebGpuCanvas::recreate` reacquires adapter/device state, clears the configured extent only after successful setup, preserves the canvas and Metis input listeners, and rejects raster recovery without fallback. Native/WASM/provider docs and the Metis consumer gate pass; real device-loss and recovered-pixel browser evidence remain an RITK host residual.
 
 <a id="MOI-WINDOW-WEBVIEW2-CAPTURE-2026-09-17"></a>
 ## MOI-WINDOW-WEBVIEW2-CAPTURE-2026-09-17 — Capture rendered WebView2 previews [minor] [verification]
