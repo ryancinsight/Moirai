@@ -64,6 +64,11 @@ from the consumer's 256 MiB byte batch limit. The seam does not read file bytes
 or treat a name as a filesystem path.
 Text controls expose bounded values, UTF-16 selection ranges with direction,
 and bounded `InputEvent`/`CompositionEvent` metadata through owned snapshots.
+`WebDocument::clipboard` resolves the secure-context browser text clipboard;
+`WebClipboard::read_text` and `write_text` are asynchronous and enforce the
+same 1 MiB UTF-8 bound as text controls. Browser permission and transient
+user-activation failures remain explicit errors, and no native clipboard
+handle crosses the provider boundary.
 `WebDocument::canvas_by_id` resolves an HTML5 canvas and `WebCanvas::present`
 uploads a borrowed, validated RGBA8 frame under the shared platform size and
 byte bounds; the provider retains no frame bytes after the call.

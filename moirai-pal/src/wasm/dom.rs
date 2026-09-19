@@ -1,6 +1,7 @@
 //! Safe, owned browser DOM handles for Atlas applications.
 
 mod canvas;
+mod clipboard;
 mod content_box;
 mod file_drop;
 mod gpu_canvas;
@@ -8,6 +9,7 @@ mod keyboard;
 mod text;
 
 pub use self::canvas::{CanvasSize, RgbaFrame, WebCanvas};
+pub use self::clipboard::WebClipboard;
 pub use self::file_drop::{BrowserFiles, DropFiles, DropMetadata, DroppedFile, DroppedFileAccess};
 pub use self::gpu_canvas::WebGpuCanvas;
 pub use self::keyboard::KeyboardMetadata;
@@ -23,7 +25,7 @@ use wasm_bindgen::JsValue;
 use wasm_bindgen::closure::Closure;
 use web_sys::{
     Document, Element, Event, HtmlButtonElement, HtmlDialogElement, HtmlElement, HtmlInputElement,
-    HtmlSelectElement, MouseEvent, PointerEvent, WheelEvent, Window,
+    HtmlSelectElement, HtmlTextAreaElement, MouseEvent, PointerEvent, WheelEvent, Window,
 };
 
 /// A browser document obtained from the current window.
@@ -91,6 +93,20 @@ impl WebDocument {
             .create_element(tag)
             .map(|element| WebElement { element })
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid DOM element name"))
+    }
+
+    /// Returns the browser's text clipboard provider.
+    ///
+    /// Clipboard access is available only in a secure browser context and
+    /// remains subject to the browser's permission and user-activation
+    /// policy. The provider never exposes a filesystem or native clipboard
+    /// handle to the application.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::Unsupported`] when the current document has no
+    /// navigator clipboard API, including an insecure browser context.
+    pub fn clipboard(&self) -> io::Result<WebClipboard> {
+        clipboard::from_document(self)
     }
 }
 
@@ -375,16 +391,23 @@ impl WebElement {
             .map(HtmlInputElement::checked)
     }
 
-    /// Replaces the value of a browser input element.
+    /// Replaces the value of a browser input or textarea element.
     ///
     /// # Errors
     /// Returns [`io::ErrorKind::InvalidInput`] when the element is not an input.
     pub fn set_value(&self, value: &str) -> io::Result<()> {
-        let input = self.element.dyn_ref::<HtmlInputElement>().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "DOM element is not an input")
-        })?;
-        input.set_value(value);
-        Ok(())
+        if let Some(input) = self.element.dyn_ref::<HtmlInputElement>() {
+            input.set_value(value);
+            return Ok(());
+        }
+        if let Some(textarea) = self.element.dyn_ref::<HtmlTextAreaElement>() {
+            textarea.set_value(value);
+            return Ok(());
+        }
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "DOM element is not an input or textarea",
+        ))
     }
 
     /// Registers a callback whose lifetime is tied to the returned listener.
