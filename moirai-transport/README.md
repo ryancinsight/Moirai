@@ -39,12 +39,14 @@ Full documentation: <https://docs.rs/moirai-transport>
 
 ## Process lifecycle
 
-`process::ProcessSupervisor` owns process spawning, optional stdin/stdout
+`process::ProcessSupervisor` owns process spawning, optional stdin/stdout/stderr
 pipes, finite waits, and deadline-aware termination. `ProcessSpec` can clear
 the child environment and require process-tree containment. Windows 10 or
 later assigns jobs atomically at process creation with explicit inherited
 handles; terminate-on-drop jobs kill descendants on their last handle close.
-`terminate_timeout` confirms zero active processes in the Windows job before
+`piped_stderr` opts into an owned stderr reader; without it stderr remains
+inherited, preserving the existing behavior. `terminate_timeout` confirms zero
+active processes in the Windows job before
 reporting cleanup complete. Other platforms reject requested tree containment
 and retain direct-child supervision only. Portable Drop is a best-effort,
 nonblocking termination request; explicit termination reports OS failures.

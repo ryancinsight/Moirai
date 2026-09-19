@@ -1,3 +1,10 @@
+<a id="MOI-PROCESS-STDERR-2026-09-19"></a>
+## MOI-PROCESS-STDERR-2026-09-19 — Bound child stderr for host consumers [minor] [security]
+
+- **Status:** in-progress; priority: P1; owner: Moirai transport; integrator: root; branch: `feat/transport-process-stderr-001`; last-update: 2026-09-19.
+- **Scope:** expose an explicit bounded stderr pipe beside the existing stdin/stdout process contract; preserve inherited stderr when callers do not opt in; no shell execution, privilege sandbox, or application policy.
+- **Acceptance:** callers can opt into owned stderr, native tests capture it from a real child, existing callers keep inherited behavior, Windows handle inheritance and portable pipes remain bounded and warning-clean, and docs/ADR state that pipe readers own their byte/deadline policy.
+- **Dependency:** Metis scoped process provider [METIS-SERVICES-001](../../metis/backlog.md#METIS-SERVICES-001).
 # Moirai Development Backlog (SSOT)
 
 <a id="MOI-WASM-CLIPBOARD-2026-09-19"></a>

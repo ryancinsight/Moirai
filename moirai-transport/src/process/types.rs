@@ -106,6 +106,7 @@ pub struct ProcessSpec {
     pub(super) envs: Vec<(OsString, OsString)>,
     pub(super) clear_environment: bool,
     pub(super) piped: bool,
+    pub(super) piped_stderr: bool,
     pub(super) require_tree: bool,
 }
 impl ProcessSpec {
@@ -118,6 +119,7 @@ impl ProcessSpec {
             envs: Vec::new(),
             clear_environment: false,
             piped: false,
+            piped_stderr: false,
             require_tree: false,
         }
     }
@@ -153,6 +155,12 @@ impl ProcessSpec {
     #[must_use]
     pub const fn piped_stdio(mut self) -> Self {
         self.piped = true;
+        self
+    }
+    /// Creates an owned parent-side stderr reader while leaving stdin/stdout unchanged.
+    #[must_use]
+    pub const fn piped_stderr(mut self) -> Self {
+        self.piped_stderr = true;
         self
     }
     /// Requires containment of normally created descendants; rejects unsupported targets.

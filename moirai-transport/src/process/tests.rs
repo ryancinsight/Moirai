@@ -30,6 +30,11 @@ fn child_entry() {
                 .write_all(format!("ECHO:{input}").as_bytes())
                 .expect("fixture output");
         }
+        "stderr" => {
+            std::io::stderr()
+                .write_all(b"bounded-stderr\n")
+                .expect("fixture stderr");
+        }
         "wait" => {
             std::io::stdout()
                 .write_all(b"READY\n")
@@ -58,6 +63,24 @@ fn child_entry() {
         "exit" => std::process::exit(7),
         _ => panic!("Unknown child fixture mode"),
     }
+}
+#[test]
+fn process_supervisor_captures_opt_in_stderr() {
+    let mut process = ProcessSupervisor::new()
+        .spawn(
+            fixture("stderr").piped_stderr(),
+            ProcessDropPolicy::TerminateOnDrop,
+        )
+        .expect("spawn");
+    let mut reader = process.take_stderr().expect("stderr pipe");
+    let status = process
+        .wait_timeout(Duration::from_secs(5))
+        .expect("wait")
+        .expect("child exit");
+    let mut output = String::new();
+    reader.read_to_string(&mut output).expect("stderr output");
+    assert_eq!(output, "bounded-stderr\n");
+    assert_eq!(status.outcome, ProcessOutcome::Succeeded);
 }
 fn line_until(reader: &mut BufReader<std::fs::File>, prefix: &str) -> String {
     loop {
