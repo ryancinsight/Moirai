@@ -14,6 +14,9 @@ use windows::Win32::Graphics::Gdi::{
     InvalidateRect, PAINTSTRUCT, RGBQUAD, SRCCOPY, StretchDIBits, UpdateWindow,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext,
+};
 use windows::Win32::UI::Input::Ime::{
     GCS_COMPSTR, GCS_RESULTSTR, ImmGetCompositionStringW, ImmGetContext, ImmReleaseContext,
 };
@@ -61,8 +64,41 @@ const WINDOW_CLASS_NAME: &[u16] = &[
 /// A thread-owned native Win32 window and bounded software presenter.
 pub struct NativeWindow {
     pub(crate) hwnd: HWND,
+    #[expect(dead_code, reason = "the guard's Drop restores the thread context")]
+    dpi_context: ThreadDpiAwarenessContext,
     state: Box<WindowState>,
     destroyed: bool,
+}
+
+/// Restores the creating thread's DPI context when the native window leaves it.
+struct ThreadDpiAwarenessContext {
+    previous: DPI_AWARENESS_CONTEXT,
+}
+
+impl ThreadDpiAwarenessContext {
+    fn enter() -> io::Result<Self> {
+        // SAFETY: the requested context is an operating-system constant and the
+        // call affects only the current thread, which owns the NativeWindow.
+        let previous =
+            unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+        if previous.is_invalid() {
+            let error = unsafe { GetLastError() };
+            return Err(io::Error::from_raw_os_error(error.0 as i32));
+        }
+        Ok(Self { previous })
+    }
+}
+
+impl Drop for ThreadDpiAwarenessContext {
+    fn drop(&mut self) {
+        if !self.previous.is_invalid() {
+            // SAFETY: the guard is dropped with its thread-owned NativeWindow;
+            // the retained opaque context came from this same thread.
+            unsafe {
+                SetThreadDpiAwarenessContext(self.previous);
+            }
+        }
+    }
 }
 
 impl NativeWindow {
@@ -72,6 +108,7 @@ impl NativeWindow {
     /// Returns the native error when class registration or window creation
     /// fails, or `InvalidInput` for invalid configuration.
     pub fn new(config: &WindowConfig) -> io::Result<Self> {
+        let dpi_context = ThreadDpiAwarenessContext::enter()?;
         let instance = register_class()?;
         let (outer_width, outer_height) = outer_dimensions(config.width(), config.height())?;
         let mut state = Box::new(WindowState::new()?);
@@ -99,6 +136,7 @@ impl NativeWindow {
         .map_err(windows_error)?;
         let mut window = Self {
             hwnd,
+            dpi_context,
             state,
             destroyed: false,
         };
