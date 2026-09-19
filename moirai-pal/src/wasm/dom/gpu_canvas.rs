@@ -9,6 +9,9 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{HtmlCanvasElement, ImageData};
 
 use crate::canvas_validation::{CanvasSize, RgbaFrame};
+use crate::gpu_device_loss::DeviceLossStatus;
+use crate::local_task::LocalTaskHandle;
+use crate::wasm::spawn_local_with_handle;
 
 const GPU_TEXTURE_USAGE_COPY_DST: f64 = 2.0;
 const GPU_TEXTURE_USAGE_RENDER_ATTACHMENT: f64 = 16.0;
@@ -23,16 +26,32 @@ const GPU_TEXTURE_USAGE_CANVAS: f64 =
 pub struct WebGpuCanvas {
     canvas: HtmlCanvasElement,
     context: JsValue,
-    queue: JsValue,
-    device: JsValue,
-    format: String,
+    state: GpuState,
     configured_size: Cell<Option<CanvasSize>>,
 }
 
 struct GpuState {
+    loss: DeviceLossObserver,
     device: JsValue,
     queue: JsValue,
     format: String,
+}
+
+struct DeviceLossObserver {
+    status: DeviceLossStatus,
+    task: LocalTaskHandle,
+}
+
+impl DeviceLossObserver {
+    fn is_observed(&self) -> bool {
+        self.status.is_observed()
+    }
+}
+
+impl Drop for DeviceLossObserver {
+    fn drop(&mut self) {
+        self.task.cancel();
+    }
 }
 
 impl WebGpuCanvas {
@@ -65,9 +84,7 @@ impl WebGpuCanvas {
         Ok(Self {
             canvas,
             context,
-            queue: state.queue,
-            device: state.device,
-            format: state.format,
+            state,
             configured_size: Cell::new(None),
         })
     }
@@ -99,15 +116,14 @@ impl WebGpuCanvas {
     /// Recovery is explicit and never changes this surface to the two-dimensional
     /// presenter. The old device state remains in place when adapter or device
     /// setup fails, so a caller can surface the typed error and decide whether
-    /// to retry or close the surface.
+    /// to retry or close the surface. A successful replacement cancels the old
+    /// device-loss observer before releasing its state.
     ///
     /// # Errors
     /// Returns the same typed browser setup errors as [`Self::from_element`].
     pub async fn recreate(&mut self) -> io::Result<()> {
         let state = acquire_gpu_state().await?;
-        self.device = state.device;
-        self.queue = state.queue;
-        self.format = state.format;
+        self.state = state;
         self.configured_size.set(None);
         Ok(())
     }
@@ -121,8 +137,13 @@ impl WebGpuCanvas {
     /// # Errors
     /// Returns [`io::ErrorKind::InvalidInput`] for an invalid frame or when a
     /// browser operation rejects the upload, and [`io::ErrorKind::Other`] for
-    /// a lost or incomplete WebGPU surface.
+    /// a lost or incomplete WebGPU surface. Device loss becomes observable
+    /// after the browser settles `GPUDevice.lost` and its event-loop task runs.
     pub fn present(&self, frame: RgbaFrame<'_>) -> io::Result<()> {
+        if self.state.loss.is_observed() {
+            return Err(io::Error::other("WebGPU device is lost"));
+        }
+
         let size = frame.size();
         if self.configured_size.get() != Some(size) {
             self.canvas.set_width(size.width());
@@ -157,7 +178,7 @@ impl WebGpuCanvas {
         )?;
         set_property(&copy_size, "depthOrArrayLayers", &JsValue::from_f64(1.0))?;
         call_method(
-            &self.queue,
+            &self.state.queue,
             "copyExternalImageToTexture",
             &[source.into(), destination.into(), copy_size.into()],
         )?;
@@ -166,8 +187,12 @@ impl WebGpuCanvas {
 
     fn configure(&self) -> io::Result<()> {
         let configuration = Object::new();
-        set_property(&configuration, "device", &self.device)?;
-        set_property(&configuration, "format", &JsValue::from_str(&self.format))?;
+        set_property(&configuration, "device", &self.state.device)?;
+        set_property(
+            &configuration,
+            "format",
+            &JsValue::from_str(&self.state.format),
+        )?;
         set_property(
             &configuration,
             "usage",
@@ -200,6 +225,7 @@ async fn acquire_gpu_state() -> io::Result<GpuState> {
     let device_request = call_method(&adapter, "requestDevice", &[])?;
     let device = await_promise(device_request, "request WebGPU device").await?;
     let queue = property(&device, "queue")?;
+    let loss = observe_device_loss(&device)?;
     let format = call_method(&gpu, "getPreferredCanvasFormat", &[])?
         .as_string()
         .ok_or_else(|| {
@@ -212,7 +238,26 @@ async fn acquire_gpu_state() -> io::Result<GpuState> {
         device,
         queue,
         format,
+        loss,
     })
+}
+
+fn observe_device_loss(device: &JsValue) -> io::Result<DeviceLossObserver> {
+    let promise = property(device, "lost")?
+        .dyn_into::<Promise>()
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "WebGPU device lost property is not a Promise",
+            )
+        })?;
+    let (status, notification) = DeviceLossStatus::channel();
+    let task = spawn_local_with_handle(async move {
+        match JsFuture::from(promise).await {
+            Ok(_) | Err(_) => notification.observe(),
+        }
+    });
+    Ok(DeviceLossObserver { status, task })
 }
 
 impl WebDocument {
