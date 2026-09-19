@@ -25,7 +25,7 @@ use wasm_bindgen::JsValue;
 use wasm_bindgen::closure::Closure;
 use web_sys::{
     Document, Element, Event, HtmlButtonElement, HtmlDialogElement, HtmlElement, HtmlInputElement,
-    HtmlSelectElement, MouseEvent, PointerEvent, WheelEvent, Window,
+    HtmlSelectElement, HtmlTextAreaElement, MouseEvent, PointerEvent, WheelEvent, Window,
 };
 
 /// A browser document obtained from the current window.
@@ -391,16 +391,23 @@ impl WebElement {
             .map(HtmlInputElement::checked)
     }
 
-    /// Replaces the value of a browser input element.
+    /// Replaces the value of a browser input or textarea element.
     ///
     /// # Errors
     /// Returns [`io::ErrorKind::InvalidInput`] when the element is not an input.
     pub fn set_value(&self, value: &str) -> io::Result<()> {
-        let input = self.element.dyn_ref::<HtmlInputElement>().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "DOM element is not an input")
-        })?;
-        input.set_value(value);
-        Ok(())
+        if let Some(input) = self.element.dyn_ref::<HtmlInputElement>() {
+            input.set_value(value);
+            return Ok(());
+        }
+        if let Some(textarea) = self.element.dyn_ref::<HtmlTextAreaElement>() {
+            textarea.set_value(value);
+            return Ok(());
+        }
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "DOM element is not an input or textarea",
+        ))
     }
 
     /// Registers a callback whose lifetime is tied to the returned listener.
