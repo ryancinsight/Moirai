@@ -2,7 +2,7 @@
 
 Status: Accepted
 
-Date: 2026-09-05
+Date: 2026-09-05 (revised 2026-09-19)
 
 Driver: [MOI-PROCESS-2026-09-05](../backlog.md#MOI-PROCESS-2026-09-05).
 
@@ -25,6 +25,11 @@ Windows handles without waiting. Portable process waits use bounded polling;
 non-Windows implementations reject requested tree containment until they own
 an equivalent primitive. A deadline failure is surfaced, never treated as
 successful cleanup. Pipes remain caller-owned and need their own I/O policy.
+`piped_stderr` is an explicit opt-in that transfers a parent-side stderr
+reader; the default keeps stderr inherited so existing callers retain their
+behavior. A consumer that handles child output must bound all three pipe
+readers and redact application secrets before exposing bytes to another trust
+boundary.
 
 Explicit Windows termination confirms that the job has zero active processes,
 including when its original process has already exited. Portable Drop retains
@@ -51,7 +56,8 @@ boundaries; no synchronous Rust handler can be forcibly preempted safely.
 ## Verification
 
 Native tests exercise actual processes, argument quoting, inherited pipe
-communication, successful exit, deadline expiration, and job termination.
+communication, opt-in stderr capture, successful exit, deadline expiration, and
+job termination.
 ABI layouts are const-checked on the Windows host. Windows FFI is not Miri
 coverage; operating-system integration tests provide behavioral evidence.
 

@@ -92,6 +92,10 @@ impl ManagedProcess {
     pub fn take_stdout(&mut self) -> Option<File> {
         self.process.stdout.take()
     }
+    /// Transfers the parent-side stderr reader once, when stderr was piped.
+    pub fn take_stderr(&mut self) -> Option<File> {
+        self.process.stderr.take()
+    }
     /// Checks for process completion without blocking.
     /// # Errors
     /// Returns an OS wait failure.

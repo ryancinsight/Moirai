@@ -11,6 +11,7 @@ pub(super) struct Process {
     drop_policy: ProcessDropPolicy,
     pub stdin: Option<File>,
     pub stdout: Option<File>,
+    pub stderr: Option<File>,
 }
 impl Process {
     pub fn spawn(spec: ProcessSpec, drop_policy: ProcessDropPolicy) -> ProcessResult<Self> {
@@ -18,7 +19,7 @@ impl Process {
             return Err(ProcessError::UnsupportedContainment);
         }
         #[cfg(not(unix))]
-        if spec.piped {
+        if spec.piped || spec.piped_stderr {
             return Err(ProcessError::InvalidSpecification);
         }
         let mut command = Command::new(spec.program);
@@ -29,6 +30,9 @@ impl Process {
         command.envs(spec.envs);
         if spec.piped {
             command.stdin(Stdio::piped()).stdout(Stdio::piped());
+        }
+        if spec.piped_stderr {
+            command.stderr(Stdio::piped());
         }
         let child = command
             .spawn()
@@ -45,13 +49,19 @@ impl Process {
             .stdout
             .take()
             .map(|pipe| File::from(std::os::fd::OwnedFd::from(pipe)));
+        #[cfg(unix)]
+        let stderr = child
+            .stderr
+            .take()
+            .map(|pipe| File::from(std::os::fd::OwnedFd::from(pipe)));
         #[cfg(not(unix))]
-        let (stdin, stdout) = (None, None);
+        let (stdin, stdout, stderr) = (None, None, None);
         Ok(Self {
             child,
             drop_policy,
             stdin,
             stdout,
+            stderr,
         })
     }
     pub fn id(&self) -> u32 {

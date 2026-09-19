@@ -27,6 +27,7 @@ pub(crate) struct Process {
     id: u32,
     pub stdin: Option<File>,
     pub stdout: Option<File>,
+    pub stderr: Option<File>,
 }
 impl Process {
     pub fn spawn(spec: ProcessSpec, drop_policy: ProcessDropPolicy) -> ProcessResult<Self> {
@@ -52,7 +53,13 @@ impl Process {
                 None,
             )
         };
-        let child_error = duplicate(std::io::stderr().as_raw_handle())?;
+        let (child_error, stderr) = if spec.piped_stderr {
+            let (read_error, write_error) = pipe()?;
+            remove_inheritance(&read_error)?;
+            (write_error, Some(File::from(read_error)))
+        } else {
+            (duplicate(std::io::stderr().as_raw_handle())?, None)
+        };
         let jobs = [job.as_raw_handle()];
         let inherited = [
             child_input.as_raw_handle(),
@@ -102,6 +109,7 @@ impl Process {
             id: information.process_id,
             stdin,
             stdout,
+            stderr,
         })
     }
     pub fn id(&self) -> u32 {
