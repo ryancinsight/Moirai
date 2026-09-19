@@ -1,5 +1,14 @@
 # Moirai Development Backlog (SSOT)
 
+<a id="MOI-WASM-CLIPBOARD-2026-09-19"></a>
+## MOI-WASM-CLIPBOARD-2026-09-19 — Expose bounded browser text clipboard [minor]
+
+- **Status:** review; priority: P1; owner: Moirai WASM PAL; integrator: root; branch: `feat/wasm-clipboard-20260919`; last-update: 2026-09-19.
+- **Scope:** resolve the browser Clipboard API through the document's secure-context navigator and expose bounded asynchronous text read/write operations; no native clipboard handles, page-origin policy, or application-specific clipboard semantics.
+- **Acceptance:** unavailable or insecure contexts return `Unsupported`; browser-rejected promises return typed I/O errors; reads and writes enforce the existing 1 MiB UTF-8 text bound; the public provider compiles for WASM and the native PAL suite remains unchanged. Metis consumes the provider in its own integration item.
+- **Decision:** [ADR 0064](adr/0064-bounded-browser-text-clipboard.md).
+- **Delivery:** implementation and provider docs are on the branch; consumer integration remains [Metis integration](../../metis/backlog.md#METIS-INTEGRATION-001).
+
 <a id="MOI-WASM-GPU-RECOVERY-2026-09-18"></a>
 ## MOI-WASM-GPU-RECOVERY-2026-09-18 — Recover explicit browser WebGPU surfaces [arch] [minor]
 

@@ -70,3 +70,4 @@
 | [0061](0061-browser-webgpu-canvas.md) | Explicit browser WebGPU canvas surface | Accepted |
 | [0062](0062-webview2-permission-denial.md) | Deny WebView2 permission requests at the host boundary | Accepted |
 | [0063](0063-browser-webgpu-recovery.md) | Recover explicit browser WebGPU surfaces | Accepted |
+| [0064](0064-bounded-browser-text-clipboard.md) | Bounded browser text clipboard | Accepted |

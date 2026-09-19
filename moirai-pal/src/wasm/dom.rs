@@ -1,6 +1,7 @@
 //! Safe, owned browser DOM handles for Atlas applications.
 
 mod canvas;
+mod clipboard;
 mod content_box;
 mod file_drop;
 mod gpu_canvas;
@@ -8,6 +9,7 @@ mod keyboard;
 mod text;
 
 pub use self::canvas::{CanvasSize, RgbaFrame, WebCanvas};
+pub use self::clipboard::WebClipboard;
 pub use self::file_drop::{BrowserFiles, DropFiles, DropMetadata, DroppedFile, DroppedFileAccess};
 pub use self::gpu_canvas::WebGpuCanvas;
 pub use self::keyboard::KeyboardMetadata;
@@ -91,6 +93,20 @@ impl WebDocument {
             .create_element(tag)
             .map(|element| WebElement { element })
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid DOM element name"))
+    }
+
+    /// Returns the browser's text clipboard provider.
+    ///
+    /// Clipboard access is available only in a secure browser context and
+    /// remains subject to the browser's permission and user-activation
+    /// policy. The provider never exposes a filesystem or native clipboard
+    /// handle to the application.
+    ///
+    /// # Errors
+    /// Returns [`io::ErrorKind::Unsupported`] when the current document has no
+    /// navigator clipboard API, including an insecure browser context.
+    pub fn clipboard(&self) -> io::Result<WebClipboard> {
+        clipboard::from_document(self)
     }
 }
 
