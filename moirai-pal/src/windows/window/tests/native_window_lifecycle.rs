@@ -7,6 +7,10 @@ use super::super::{WindowConfig, WindowVisibility};
 use super::key_message_encoding::key_lparam;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
+use windows::Win32::UI::HiDpi::{
+    AreDpiAwarenessContextsEqual, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    GetThreadDpiAwarenessContext, GetWindowDpiAwarenessContext,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_MENU, VK_SHIFT};
 use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageW, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
@@ -245,4 +249,34 @@ fn native_window_lifecycle_and_frame_round_trip() {
     assert!(events.contains(&WindowEvent::DpiChanged { dpi: 144 }));
     window.close().expect("destroy");
     assert!(window.is_destroyed());
+}
+
+#[test]
+#[cfg(windows)]
+fn native_window_holds_per_monitor_dpi_context_until_drop() {
+    let prior = unsafe { GetThreadDpiAwarenessContext() };
+    let config =
+        WindowConfig::with_visibility("Moirai DPI test", 320, 240, WindowVisibility::Hidden)
+            .expect("config");
+    let mut window = NativeWindow::new(&config).expect("native window");
+    let window_context = unsafe { GetWindowDpiAwarenessContext(window.hwnd) };
+    assert!(
+        unsafe {
+            AreDpiAwarenessContextsEqual(window_context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+        }
+        .as_bool()
+    );
+    let nested = NativeWindow::new(&config).expect("nested native window");
+    drop(nested);
+    let nested_context = unsafe { GetThreadDpiAwarenessContext() };
+    assert!(
+        unsafe {
+            AreDpiAwarenessContextsEqual(nested_context, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+        }
+        .as_bool()
+    );
+    window.close().expect("destroy");
+    drop(window);
+    let restored = unsafe { GetThreadDpiAwarenessContext() };
+    assert!(unsafe { AreDpiAwarenessContextsEqual(restored, prior) }.as_bool());
 }

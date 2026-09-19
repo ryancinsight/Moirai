@@ -4916,3 +4916,11 @@ Part IV chapter map (grounded in moirai-transport):
 - SemVer: Windows PAL all-feature comparison against `6bd279dfa04ff741164b4cb92116503234985b3e` passes 196 checks (58 skipped); command/log: downstream `output/moirai-socket-final/semver-baseline-root.json` and `.log`. The first neutral-drive Git-baseline invocation fails before comparison; exporting that exact baseline corrects the invocation.
 - Independent review: `/root/fragment_judge` passes that fingerprint after atomic identity publication, raw-replacement identity clearing, and unlocked waker destruction fixes.
 - Evidence limit: selected native interleavings do not prove historical Metis stall causality. Final Origin-authorized consumer replay belongs to [METIS-FRAGMENT-001](../../metis/backlog.md#METIS-FRAGMENT-001).
+
+<a id="MOI-WINDOW-DPI-2026-09-19"></a>
+## MOI-WINDOW-DPI-2026-09-19 — Create per-monitor-aware native windows [arch] [minor]
+- Status: in-progress; priority: P1; owner: Moirai Windows PAL; integrator: root; branch: `feat/moirai-per-monitor-dpi-001`; last-update: 2026-09-19.
+- Outcome: every `NativeWindow` creates its HWND under `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` and restores the creating thread's prior context after the window is destroyed, so a real move between monitors can deliver a truthful `WM_DPICHANGED` transition to the owning event queue.
+- Scope: `moirai-pal` Windows native-window creation, lifecycle tests, ADR and provider documentation. Do not synthesize DPI events, change Metis geometry policy, or add a second platform implementation.
+- Acceptance: the context is held for the window lifetime, nested windows restore contexts in LIFO order, failure restores the prior context, the live HWND reports per-monitor-v2 awareness, strict Windows PAL tests and documentation gates pass, and unsupported host transitions remain an explicit evidence limit.
+- Demonstration: Metis V05 physical-monitor probe; DICOM parsing and viewer presentation remain RITK-owned.

@@ -19,8 +19,11 @@ Modules: `reactor`, `net`, `fs`, `timer`, plus the per-platform `unix`,
 provides a bounded message queue and ARGB software presentation surface for a
 consumer-owned event loop. `NativeWindow::wait_events` adds a finite message
 queue wait for event-driven hosts; waits beyond its 30-second bound are
-rejected. Native IME start, preedit, commit and cancellation phases are
-returned as bounded UTF-8 snapshots.
+rejected. Each native window enters per-monitor-v2 DPI awareness for its
+thread-owned lifetime and restores the prior thread context on drop, so
+`WM_DPICHANGED` reports real monitor transitions when the host supplies them.
+Native IME start, preedit, commit and cancellation phases are returned as
+bounded UTF-8 snapshots.
 
 `windows::webview::WebViewHost` embeds the installed Windows WebView2 runtime
 inside a `NativeWindow` for packaged HTML5, CSS and WebAssembly applications.

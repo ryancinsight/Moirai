@@ -71,3 +71,4 @@
 | [0062](0062-webview2-permission-denial.md) | Deny WebView2 permission requests at the host boundary | Accepted |
 | [0063](0063-browser-webgpu-recovery.md) | Recover explicit browser WebGPU surfaces | Accepted |
 | [0064](0064-bounded-browser-text-clipboard.md) | Bounded browser text clipboard | Accepted |
+| [0065](0065-per-monitor-dpi-awareness.md) | Per-monitor DPI awareness for native windows | Accepted |
