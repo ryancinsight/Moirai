@@ -3,7 +3,7 @@
 use super::WebDocument;
 use crate::text_validation::text_value;
 use js_sys::Reflect;
-use std::io;
+use std::{future::Future, io};
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Clipboard, Navigator};
@@ -33,25 +33,35 @@ pub(super) fn from_document(document: &WebDocument) -> io::Result<WebClipboard> 
 }
 
 impl WebClipboard {
-    /// Reads UTF-8 text from the browser clipboard.
+    /// Starts a read of UTF-8 text from the browser clipboard.
+    ///
+    /// The browser promise is created before this method returns so callers
+    /// can invoke it directly from a trusted user-activation callback and
+    /// await the returned future in their task.
     ///
     /// # Errors
     /// Returns [`io::ErrorKind::Unsupported`] when the browser does not expose
     /// clipboard text, [`io::ErrorKind::InvalidInput`] when the returned text
     /// exceeds the provider bound, or [`io::ErrorKind::Other`] when the
     /// browser rejects the asynchronous read.
-    pub async fn read_text(&self) -> io::Result<String> {
-        let value = JsFuture::from(self.clipboard.read_text())
-            .await
-            .map_err(|_| clipboard_error("Browser clipboard read was rejected"))?;
-        let text = value
-            .as_string()
-            .ok_or_else(|| clipboard_error("Browser clipboard returned non-text data"))?;
-        text_value(text)
+    pub fn read_text(&self) -> impl Future<Output = io::Result<String>> + 'static {
+        let read = JsFuture::from(self.clipboard.read_text());
+        async move {
+            let value = read
+                .await
+                .map_err(|_| clipboard_error("Browser clipboard read was rejected"))?;
+            let text = value
+                .as_string()
+                .ok_or_else(|| clipboard_error("Browser clipboard returned non-text data"))?;
+            text_value(text)
+        }
     }
 
-    /// Writes bounded UTF-8 text to the browser clipboard.
+    /// Starts a write of bounded UTF-8 text to the browser clipboard.
     ///
+    /// The browser promise is created before this method returns so callers
+    /// can invoke it directly from a trusted user-activation callback and
+    /// await the returned future in their task.
     /// The browser may require a transient user activation and may reject the
     /// operation under its permission policy.
     ///
@@ -59,12 +69,18 @@ impl WebClipboard {
     /// Returns [`io::ErrorKind::InvalidInput`] when `text` exceeds the
     /// provider bound, or [`io::ErrorKind::Other`] when the browser rejects
     /// the asynchronous write.
-    pub async fn write_text(&self, text: &str) -> io::Result<()> {
+    pub fn write_text(
+        &self,
+        text: &str,
+    ) -> io::Result<impl Future<Output = io::Result<()>> + 'static> {
         let text = text_value(text.to_owned())?;
-        JsFuture::from(self.clipboard.write_text(&text))
-            .await
-            .map(|_| ())
-            .map_err(|_| clipboard_error("Browser clipboard write was rejected"))
+        let write = JsFuture::from(self.clipboard.write_text(&text));
+        Ok(async move {
+            write
+                .await
+                .map(|_| ())
+                .map_err(|_| clipboard_error("Browser clipboard write was rejected"))
+        })
     }
 }
 
