@@ -4919,8 +4919,8 @@ Part IV chapter map (grounded in moirai-transport):
 
 <a id="MOI-WINDOW-DPI-2026-09-19"></a>
 ## MOI-WINDOW-DPI-2026-09-19 — Create per-monitor-aware native windows [arch] [minor]
-- Status: in-progress; priority: P1; owner: Moirai Windows PAL; integrator: root; branch: `feat/moirai-per-monitor-dpi-001`; last-update: 2026-09-19.
+- Status: done; priority: P1; owner: Moirai Windows PAL; integrator: root; delivery: [PR #406](https://github.com/ryancinsight/Moirai/pull/406), merge `f038622d24907884ce5f386da4e04d05bdb60d62`; last-update: 2026-09-19.
 - Outcome: every `NativeWindow` creates its HWND under `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` and restores the creating thread's prior context after the window is destroyed, so a real move between monitors can deliver a truthful `WM_DPICHANGED` transition to the owning event queue.
 - Scope: `moirai-pal` Windows native-window creation, lifecycle tests, ADR and provider documentation. Do not synthesize DPI events, change Metis geometry policy, or add a second platform implementation.
 - Acceptance: the context is held for the window lifetime, nested windows restore contexts in LIFO order, failure restores the prior context, the live HWND reports per-monitor-v2 awareness, strict Windows PAL tests and documentation gates pass, and unsupported host transitions remain an explicit evidence limit.
-- Demonstration: Metis V05 physical-monitor probe; DICOM parsing and viewer presentation remain RITK-owned.
+- Evidence: merged implementation and ADR 0065; locked workspace nextest 1,132 passed/12 skipped, strict workspace Clippy, formatting and rustdoc passed. Metis V05 physical-monitor probe on the available single 3072x1728/96-DPI monitor captured a visible native frame and correctly reported `dpi_changed=false`; a fail-closed `--require-dpi-change` probe exited 1. DICOM parsing and viewer presentation remain RITK-owned.
