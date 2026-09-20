@@ -4,6 +4,9 @@ Status: Accepted
 
 Date: 2026-09-18
 
+Revision: 2026-09-19 — each acquired device now owns a cancellable observer
+for `GPUDevice.lost`; observed loss fails presentation until explicit recovery.
+
 Driver: [MOI-WASM-GPU-RECOVERY-2026-09-18](../backlog.md#MOI-WASM-GPU-RECOVERY-2026-09-18)
 
 ## Context
@@ -25,6 +28,15 @@ steps succeed. The configured extent is cleared after a successful replacement
 so the next borrowed frame performs one bounded canvas resize and configure.
 When setup fails, the old state remains unchanged and the typed browser error
 is returned. The operation never selects the two-dimensional presenter.
+
+Each acquired device also owns a browser-local observer for its
+`GPUDevice.lost` promise. Once that promise settles, `present` returns
+`io::ErrorKind::Other` before configuring or uploading another frame. Recovery
+installs a fresh loss state and observer as one device-state replacement, so a
+late notification from the prior device cannot mark the replacement as lost.
+Dropping the surface or replacing its device cancels the corresponding
+observer through `LocalTaskHandle`; a failed acquisition never mutates or
+cancels the active state.
 
 `metis-web::CanvasSurface` exposes the same recovery operation for its explicit
 GPU variant. It retains the existing DOM input listeners and consumer-owned
@@ -48,16 +60,18 @@ until recovery succeeds.
 The page, browser and GPU driver are outside the Rust trust boundary. A page
 may replace the canvas, deny adapter/device setup or revoke the device between
 recovery and the next frame. Every setup operation remains checked and bounded;
-the consumer must surface a later `present` error again. Recovery does not
-claim device isolation, driver correctness or physical GPU execution.
+the consumer must surface a later `present` error again. Device loss is
+asynchronous: a `present` call made before the browser settles `GPUDevice.lost`
+and runs the observer microtask can still reach the browser queue. Recovery does
+not claim device isolation, driver correctness or physical GPU execution.
 
 ## Verification
 
 The provider's native tests continue to cover the shared frame and extent
-contract. The standalone `wasm32-unknown-unknown` check and strict library
+contract. Native loss-channel tests prove notification visibility and generation
+isolation. The standalone `wasm32-unknown-unknown` check and strict library
 Clippy compile the recovery path, and the Metis consumer gate compiles the
 public adapter method. `CanvasInput` remains a separate retained field in the
-consumer surface, but no browser runtime test yet observes listener counts
-across an actual device loss. Real browser device-loss and recovered non-black
-pixels remain RITK consumer evidence and require a browser with an adapter that
-can be deliberately revoked.
+consumer surface. Actual device-loss detection and recovered non-black pixels
+require consumer evidence from a browser with an adapter that can be
+deliberately revoked.
