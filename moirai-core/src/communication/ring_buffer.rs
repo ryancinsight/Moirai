@@ -32,6 +32,23 @@ pub struct RingBuffer<T> {
 // race the same end, so it is intentionally withheld.
 unsafe impl<T: Send> Send for RingBuffer<T> {}
 
+/// Outcome of a successful [`RingBuffer::try_produce`].
+///
+/// A consumer parks only after observing an empty ring, so only the
+/// empty→non-empty transition can race its registration: a produce into an
+/// already-occupied ring finds the next consumer consuming instead of parking.
+/// A producer-side wake gate can therefore take its fence and its wake on
+/// [`Self::BecameNonEmpty`] alone — the same shape as the bounded MPMC
+/// channel's notifier.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProduceOutcome {
+    /// The ring held nothing: this produce took it from empty to non-empty.
+    BecameNonEmpty,
+    /// The ring already held items, so no consumer can have parked against this
+    /// produce.
+    AlreadyOccupied,
+}
+
 impl<T> RingBuffer<T> {
     /// Create a new ring buffer with given capacity
     pub fn new(capacity: usize) -> Self {
@@ -49,8 +66,13 @@ impl<T> RingBuffer<T> {
         }
     }
 
-    /// Try to produce a value
-    pub fn try_produce(&self, value: T) -> Result<(), T> {
+    /// Try to produce a value, reporting whether it took the ring from empty to
+    /// non-empty.
+    ///
+    /// See [`ProduceOutcome`]: a consumer parks only after observing an empty
+    /// ring, so only that transition can race its registration, and a producer
+    /// wake gate can gate its fence and its wake on it.
+    pub fn try_produce(&self, value: T) -> Result<ProduceOutcome, T> {
         let current = self.producer_seq.0.load(Ordering::Relaxed);
         let consumer = self.consumer_seq.0.load(Ordering::Acquire);
 
@@ -58,6 +80,16 @@ impl<T> RingBuffer<T> {
         if current.wrapping_sub(consumer) >= self.buffer.len() {
             return Err(value);
         }
+
+        // `producer_seq == consumer_seq` is exactly "the ring holds nothing":
+        // only the consumer advances `consumer_seq`, and this thread is the sole
+        // producer, so neither cursor can move between the loads above and this
+        // decision.
+        let outcome = if current == consumer {
+            ProduceOutcome::BecameNonEmpty
+        } else {
+            ProduceOutcome::AlreadyOccupied
+        };
 
         // SAFETY: SPSC capacity check keeps this slot outside the consumer
         // window; the write lock-free protocol makes this thread the sole
@@ -70,7 +102,7 @@ impl<T> RingBuffer<T> {
         self.producer_seq
             .0
             .store(current.wrapping_add(1), Ordering::Release);
-        Ok(())
+        Ok(outcome)
     }
 
     /// Try to consume a value
@@ -142,6 +174,29 @@ impl<T> Drop for RingBuffer<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The classification the producer wake gate hangs on: a produce reports
+    /// whether it took the ring from empty to non-empty.
+    ///
+    /// Misclassifying an empty→non-empty produce as occupied would strand a
+    /// parked consumer (its fence and wake would be skipped); the reverse only
+    /// costs an unnecessary fence. So the empty case, the occupied case, and the
+    /// return to empty are all pinned.
+    #[test]
+    fn reports_the_empty_to_non_empty_transition() {
+        let rb = RingBuffer::<u8>::new(4);
+
+        assert_eq!(rb.try_produce(1), Ok(ProduceOutcome::BecameNonEmpty));
+        assert_eq!(rb.try_produce(2), Ok(ProduceOutcome::AlreadyOccupied));
+
+        assert_eq!(rb.try_consume(), Some(1));
+        assert_eq!(rb.try_produce(3), Ok(ProduceOutcome::AlreadyOccupied));
+
+        assert_eq!(rb.try_consume(), Some(2));
+        assert_eq!(rb.try_consume(), Some(3));
+        // Drained: the next produce is the empty→non-empty transition again.
+        assert_eq!(rb.try_produce(4), Ok(ProduceOutcome::BecameNonEmpty));
+    }
 
     #[test]
     fn test_wrapping_drop_correctness() {
