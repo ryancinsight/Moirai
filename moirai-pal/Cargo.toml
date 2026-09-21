@@ -23,7 +23,7 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 accesskit = "0.25"
 accesskit_windows = "0.35"
-webview2-com = { version = "0.38.2", optional = true }
+webview2-com = { version = "0.39.1", optional = true }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Security",
