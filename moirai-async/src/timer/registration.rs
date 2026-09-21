@@ -63,7 +63,13 @@ impl TimerRegistration {
     }
 
     pub(super) fn wake(&self) {
-        if let Some(waker) = self.waker.lock().unwrap().take() {
+        // The guard is released before the waker runs. `if let Some(waker) =
+        // self.waker.lock().unwrap().take()` would satisfy that only through
+        // edition 2024's scrutinee rescoping (RFC 3606); binding the waker out
+        // first keeps the rule visible at the site and independent of the
+        // edition. Same discipline as `sync`'s primitives and `hybrid::notify`.
+        let waker = self.waker.lock().unwrap().take();
+        if let Some(waker) = waker {
             waker.wake();
         }
     }

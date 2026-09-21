@@ -165,7 +165,13 @@ impl TaskState {
         self.completed_after_ns
             .store(completed_after_ns, Ordering::Release);
 
-        if let Some(waker) = self.waker.lock().unwrap().take() {
+        // The guard is released before the waker runs. `if let Some(waker) =
+        // self.waker.lock().unwrap().take()` would satisfy that only through
+        // edition 2024's scrutinee rescoping (RFC 3606); binding the waker out
+        // first keeps the rule visible at the site and independent of the
+        // edition. Same discipline as `moirai-async`'s sync primitives.
+        let waker = self.waker.lock().unwrap().take();
+        if let Some(waker) = waker {
             waker.wake();
         }
 
