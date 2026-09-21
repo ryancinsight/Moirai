@@ -8,11 +8,12 @@
     reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
 )]
 
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
+
+use super::subscribers::{SubscriberRegistry, wake_drained};
 
 /// Watch channel for state monitoring with change notifications
 pub struct Watch<T> {
@@ -23,18 +24,10 @@ struct WatchState<T> {
     value: T,
     version: u64,
     closed: bool,
-    /// Receiver state keyed by receiver id. Keyed (rather than a linear `Vec`)
-    /// so the per-`poll`/`has_changed`/drop lookup of a receiver's slot is
-    /// O(log n) instead of O(n), shortening lock-hold when many receivers
-    /// subscribe to one channel. The send fan-out iterates all receivers
-    /// regardless, which is inherently O(n). Mirrors `Broadcast`'s structure.
-    receivers: BTreeMap<u64, WatchReceiverState>,
-    next_receiver_id: u64,
-}
-
-struct WatchReceiverState {
-    version: u64,
-    waker: Option<Waker>,
+    /// One slot per receiver, shared with `Broadcast` (see `subscribers`). The
+    /// cursor is the version that receiver last observed; the slot's waker is
+    /// registered while it waits for a newer one.
+    subscribers: SubscriberRegistry<u64>,
 }
 
 impl<T: Clone + Send + 'static> Watch<T> {
@@ -46,8 +39,7 @@ impl<T: Clone + Send + 'static> Watch<T> {
             value: initial,
             version: 0,
             closed: false,
-            receivers: BTreeMap::new(),
-            next_receiver_id: 1,
+            subscribers: SubscriberRegistry::with_initial(0),
         }));
 
         let sender = WatchSender {
@@ -59,18 +51,6 @@ impl<T: Clone + Send + 'static> Watch<T> {
             id: 0,
             version: 0,
         };
-
-        // Register first receiver
-        {
-            let mut state_guard = state.lock().unwrap();
-            state_guard.receivers.insert(
-                0,
-                WatchReceiverState {
-                    version: 0,
-                    waker: None,
-                },
-            );
-        }
 
         (sender, receiver)
     }
@@ -84,23 +64,16 @@ pub struct WatchSender<T> {
 impl<T: Clone> WatchSender<T> {
     /// Send a new value, notifying all receivers
     pub fn send(&self, value: T) -> Result<(), WatchError> {
-        let mut state = self.state.lock().unwrap();
-        if state.closed {
-            return Err(WatchError::Closed);
-        }
-        state.value = value;
-        state.version += 1;
-        let current_version = state.version;
-
-        // Wake all receivers that are waiting for changes
-        for receiver in state.receivers.values_mut() {
-            if receiver.version < current_version
-                && let Some(waker) = receiver.waker.take()
-            {
-                waker.wake();
+        let wakers = {
+            let mut state = self.state.lock().unwrap();
+            if state.closed {
+                return Err(WatchError::Closed);
             }
-        }
-
+            state.value = value;
+            state.version += 1;
+            state.subscribers.drain_wakers()
+        };
+        wake_drained(wakers);
         Ok(())
     }
 
@@ -114,38 +87,33 @@ impl<T: Clone> WatchSender<T> {
     where
         F: FnOnce(&mut T),
     {
-        let mut state = self.state.lock().unwrap();
-        if state.closed {
-            return Err(WatchError::Closed);
-        }
-        modify(&mut state.value);
-        state.version += 1;
-
-        // Wake all receivers
-        for receiver in state.receivers.values_mut() {
-            if let Some(waker) = receiver.waker.take() {
-                waker.wake();
+        let wakers = {
+            let mut state = self.state.lock().unwrap();
+            if state.closed {
+                return Err(WatchError::Closed);
             }
-        }
-
+            modify(&mut state.value);
+            state.version += 1;
+            state.subscribers.drain_wakers()
+        };
+        wake_drained(wakers);
         Ok(())
     }
 
     /// Get the number of active receivers
     pub fn receiver_count(&self) -> usize {
-        self.state.lock().unwrap().receivers.len()
+        self.state.lock().unwrap().subscribers.len()
     }
 }
 
 impl<T> Drop for WatchSender<T> {
     fn drop(&mut self) {
-        let mut state = self.state.lock().unwrap();
-        state.closed = true;
-        for receiver in state.receivers.values_mut() {
-            if let Some(waker) = receiver.waker.take() {
-                waker.wake();
-            }
-        }
+        let wakers = {
+            let mut state = self.state.lock().unwrap();
+            state.closed = true;
+            state.subscribers.drain_wakers()
+        };
+        wake_drained(wakers);
     }
 }
 
@@ -175,8 +143,8 @@ impl<T: Clone> WatchReceiver<T> {
         if changed {
             let current_version = state.version;
             self.version = current_version;
-            if let Some(receiver_state) = state.receivers.get_mut(&self.id) {
-                receiver_state.version = current_version;
+            if let Some(subscriber) = state.subscribers.get_mut(self.id) {
+                subscriber.cursor = current_version;
             }
         }
         changed
@@ -186,21 +154,12 @@ impl<T: Clone> WatchReceiver<T> {
 impl<T> Clone for WatchReceiver<T> {
     fn clone(&self) -> Self {
         let mut state = self.state.lock().unwrap();
-        let new_id = state.next_receiver_id;
-        state.next_receiver_id += 1;
         let current_version = state.version;
-
-        state.receivers.insert(
-            new_id,
-            WatchReceiverState {
-                version: current_version,
-                waker: None,
-            },
-        );
+        let id = state.subscribers.register(current_version);
 
         WatchReceiver {
             state: self.state.clone(),
-            id: new_id,
+            id,
             version: current_version,
         }
     }
@@ -209,7 +168,7 @@ impl<T> Clone for WatchReceiver<T> {
 impl<T> Drop for WatchReceiver<T> {
     fn drop(&mut self) {
         if let Ok(mut state) = self.state.lock() {
-            state.receivers.remove(&self.id);
+            state.subscribers.remove(self.id);
         }
     }
 }
@@ -233,14 +192,14 @@ impl<'a, T: Clone> Future for WatchChanged<'a, T> {
         let current_version = state.version;
         if current_version > receiver.version {
             receiver.version = current_version;
-            if let Some(receiver_state) = state.receivers.get_mut(&receiver.id) {
-                receiver_state.version = current_version;
+            if let Some(subscriber) = state.subscribers.get_mut(receiver.id) {
+                subscriber.cursor = current_version;
             }
             return Poll::Ready(Ok(()));
         }
 
-        if let Some(receiver_state) = state.receivers.get_mut(&receiver.id) {
-            receiver_state.waker = Some(cx.waker().clone());
+        if let Some(subscriber) = state.subscribers.get_mut(receiver.id) {
+            subscriber.waker = Some(cx.waker().clone());
         }
 
         Poll::Pending
@@ -249,14 +208,14 @@ impl<'a, T: Clone> Future for WatchChanged<'a, T> {
 
 impl<'a, T> Drop for WatchChanged<'a, T> {
     fn drop(&mut self) {
-        // If this future is dropped while pending, the waker stored in
-        // `receiver_state.waker` would be called by the next `send()` on a
+        // If this future is dropped while pending, the waker left in the
+        // subscriber slot would be called by the next `send()` on a
         // now-deallocated task allocation — a use-after-free of the waker.
         // Clear it here so the sender only wakes live futures.
         if let Ok(mut state) = self.receiver.state.lock()
-            && let Some(receiver_state) = state.receivers.get_mut(&self.receiver.id)
+            && let Some(subscriber) = state.subscribers.get_mut(self.receiver.id)
         {
-            receiver_state.waker = None;
+            subscriber.waker = None;
         }
     }
 }
