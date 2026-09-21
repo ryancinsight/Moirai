@@ -82,7 +82,7 @@ impl<T> UnifiedChannel<T> {
         // Fast path: check if overflow queue is empty and push to ring buffer
         if self.overflow_count.load(Ordering::Acquire) == 0 {
             match self.ring_buffer.try_push(message) {
-                Ok(()) => {
+                Ok(_) => {
                     self.stats.record_send();
                     return Ok(());
                 }
@@ -98,7 +98,7 @@ impl<T> UnifiedChannel<T> {
 
         if overflow.is_empty() {
             match self.ring_buffer.try_push(message) {
-                Ok(()) => {
+                Ok(_) => {
                     self.stats.record_send();
                     return Ok(());
                 }
@@ -236,7 +236,7 @@ impl<T> UnifiedChannel<T> {
         while !overflow.is_empty() {
             let item = overflow.pop_front().unwrap();
             match self.ring_buffer.try_push(item) {
-                Ok(()) => {}
+                Ok(_) => {}
                 Err(item) => {
                     overflow.push_front(item);
                     break;

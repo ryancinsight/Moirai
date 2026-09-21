@@ -3,7 +3,7 @@
     reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
 )]
 
-use super::queue::BoundedMpmcQueue;
+use super::queue::{BoundedMpmcQueue, PushOutcome};
 use super::recv::MpmcReceiver;
 use super::send::MpmcSender;
 use super::{MPMC_BLOCK_SPINS, MpmcState};
@@ -16,13 +16,20 @@ use std::sync::{Arc, Condvar, Mutex};
 mod roles;
 
 /// Multi-Producer Multi-Consumer channel with bounded capacity
-/// Uses mutex-based implementation for simplicity and correctness
+/// Uses mutex-based implementation for simplicity and correctness.
+///
+/// The shared state lives *directly* in this struct rather than behind a field
+/// per `Arc`: [`MpmcSender`]/[`MpmcReceiver`] already share one handle through
+/// `Arc<MpmcChannel<T>>`, so a channel costs one allocation plus the bounded
+/// ring's slot array. Every operation reaches the mutex, condvars, both waiter
+/// counters and the ring through that single handle, with no second
+/// indirection on the send/receive paths.
 pub struct MpmcChannel<T> {
-    pub(super) state: Arc<(Mutex<MpmcState<T>>, Condvar, Condvar)>,
-    pub(super) bounded: Option<Arc<BoundedMpmcQueue<T>>>,
-    pub(super) closed: Arc<AtomicBool>,
-    pub(super) sender_waiter_count: Arc<AtomicUsize>,
-    pub(super) receiver_waiter_count: Arc<AtomicUsize>,
+    pub(super) state: (Mutex<MpmcState<T>>, Condvar, Condvar),
+    pub(super) bounded: Option<BoundedMpmcQueue<T>>,
+    pub(super) closed: AtomicBool,
+    pub(super) sender_waiter_count: AtomicUsize,
+    pub(super) receiver_waiter_count: AtomicUsize,
 }
 
 /// Slots preallocated for an unbounded channel's mutex-guarded deque.
@@ -57,14 +64,14 @@ impl<T> MpmcChannel<T> {
             receiver_count: 0,
         };
 
-        let bounded = capacity.map(BoundedMpmcQueue::new).map(Arc::new);
+        let bounded = capacity.map(BoundedMpmcQueue::new);
 
         Self {
-            state: Arc::new((Mutex::new(state), Condvar::new(), Condvar::new())),
+            state: (Mutex::new(state), Condvar::new(), Condvar::new()),
             bounded,
-            closed: Arc::new(AtomicBool::new(false)),
-            sender_waiter_count: Arc::new(AtomicUsize::new(0)),
-            receiver_waiter_count: Arc::new(AtomicUsize::new(0)),
+            closed: AtomicBool::new(false),
+            sender_waiter_count: AtomicUsize::new(0),
+            receiver_waiter_count: AtomicUsize::new(0),
         }
     }
 
@@ -81,7 +88,7 @@ impl<T> MpmcChannel<T> {
     /// Create a channel pair for ergonomic usage
     pub fn channel(capacity: Option<usize>) -> (MpmcSender<T>, MpmcReceiver<T>) {
         let channel = Arc::new(Self::new(capacity));
-        let (mutex, _, _) = &*channel.state;
+        let (mutex, _, _) = &channel.state;
 
         {
             let mut state = mutex.lock().unwrap();
@@ -109,40 +116,11 @@ impl<T> MpmcChannel<T> {
             }
 
             match queue.try_push(value) {
-                Ok(()) => {
-                    // SeqCst, load-bearing: this is the notifier half of a
-                    // store-buffer (Dekker) pair with `recv_bounded`'s
-                    // registration. Here the queue write precedes the counter
-                    // read; there the counter write precedes the queue read.
-                    // If either side could reorder Store→Load, this side reads
-                    // "no waiters" while that side reads "still empty", and a
-                    // receiver parks forever on an item that is already
-                    // queued. Acquire is insufficient — it orders Load→Load
-                    // and Load→Store, never Store→Load. The queue is
-                    // lock-free, so the channel mutex orders neither side.
-                    //
-                    // The waiter half gets that barrier free from its `SeqCst`
-                    // RMW; this half does not — `try_push` ends in a plain
-                    // release store and a `SeqCst` load is an ordinary `mov`
-                    // on x86-64 — so the fence is explicit and load-bearing.
-                    // `tests/loom_mpmc_waiter.rs`
-                    // (`notifier_without_the_store_load_barrier_loses_the_wakeup`)
-                    // enumerates the interleaving it rules out.
-                    //
-                    // Cost, measured: `bounded_channel_matrix/moirai_mpmc`
-                    // regresses 13–64% at 4 and 8 producers relative to the
-                    // unfenced (and unsound) code it replaces. The way out is
-                    // not to drop the barrier but to need it less often — a
-                    // receiver only parks after observing the ring empty, so
-                    // only a push that takes the ring from empty to non-empty
-                    // can race a registration. Threading that transition out
-                    // of `try_push` and fencing only then is the follow-up.
-                    fence(CHANNEL_STORE_LOAD_ORDER);
-                    if self.receiver_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
-                        let (mutex, _, not_empty) = &*self.state;
-                        let _guard = mutex.lock().unwrap();
-                        not_empty.notify_one();
-                    }
+                Ok(outcome) => {
+                    // Whether the fence and the counter read are needed at all
+                    // is decided by the transition; the reasoning lives on the
+                    // helper.
+                    self.wake_receiver_on_transition(outcome);
                     return Ok(());
                 }
                 Err(returned) => {
@@ -159,7 +137,7 @@ impl<T> MpmcChannel<T> {
             }
 
             // Fallback to condvar wait to prevent CPU contention and busy-looping
-            let (mutex, not_full, _) = &*self.state;
+            let (mutex, not_full, _) = &self.state;
             let mut guard = mutex.lock().unwrap();
 
             if self.closed.load(Ordering::Acquire) || guard.closed {
@@ -176,7 +154,12 @@ impl<T> MpmcChannel<T> {
                 .fetch_add(1, CHANNEL_STORE_LOAD_ORDER);
 
             match queue.try_push(value) {
-                Ok(()) => {
+                Ok(_) => {
+                    // The transition is not consulted here: this push holds the
+                    // channel mutex, and a receiver registers (and re-checks the
+                    // queue) under that same mutex, so the mutex — not the ring
+                    // transition — orders the two sides. Nothing to fence.
+                    //
                     // Relaxed: deregistration. No happens-before edge is
                     // needed — the counter only ever gates a `notify_one`, so
                     // a receiver still reading the pre-decrement value takes
@@ -194,7 +177,7 @@ impl<T> MpmcChannel<T> {
                     // the lock afterwards, and its own re-check finds the item
                     // this thread just pushed. Neither branch parks.
                     if self.receiver_waiter_count.load(Ordering::Relaxed) > 0 {
-                        let (_, _, not_empty) = &*self.state;
+                        let (_, _, not_empty) = &self.state;
                         not_empty.notify_one();
                     }
                     return Ok(());
@@ -210,6 +193,63 @@ impl<T> MpmcChannel<T> {
         }
     }
 
+    /// Wake one parked receiver after a push, on the transition alone.
+    ///
+    /// Only a push that takes the ring from empty to non-empty can race a
+    /// receiver's park decision — a blocked receiver parks only after observing
+    /// an empty ring, so a push into an already-occupied ring finds that
+    /// receiver popping an item instead. The fence and the counter read are
+    /// therefore taken on the transition alone, which is where the measured
+    /// 4/8-producer cost lived; [`PushOutcome`] reports it from the ring, the
+    /// only place that knows which it was.
+    ///
+    /// SeqCst, load-bearing when taken: this is the notifier half of a
+    /// store-buffer (Dekker) pair with `recv_bounded`'s registration. Here the
+    /// queue write precedes the counter read; there the counter write precedes
+    /// the queue read. If either side could reorder Store→Load, this side reads
+    /// "no waiters" while that side reads "still empty", and a receiver parks
+    /// forever on an item that is already queued. Acquire is insufficient — it
+    /// orders Load→Load and Load→Store, never Store→Load. The queue is
+    /// lock-free, so the channel mutex orders neither side.
+    ///
+    /// The waiter half gets that barrier free from its `SeqCst` RMW; this half
+    /// does not — `try_push` ends in a plain release store and a `SeqCst` load is
+    /// an ordinary `mov` on x86-64 — so the fence is explicit and load-bearing.
+    /// `tests/loom_mpmc_waiter.rs`
+    /// (`notifier_without_the_store_load_barrier_loses_the_wakeup`) enumerates
+    /// the interleaving this fence rules out, and
+    /// `queue::tests::reports_the_empty_to_non_empty_transition` pins the
+    /// classification the elision rests on.
+    fn wake_receiver_on_transition(&self, outcome: PushOutcome) {
+        if outcome != PushOutcome::BecameNonEmpty {
+            return;
+        }
+        fence(CHANNEL_STORE_LOAD_ORDER);
+        if self.receiver_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
+            let (mutex, _, not_empty) = &self.state;
+            let _guard = mutex.lock().unwrap();
+            not_empty.notify_one();
+        }
+    }
+
+    /// Wake one parked sender after a successful pop.
+    ///
+    /// The mirror of [`Self::wake_receiver_on_transition`], and the notifier half
+    /// of the Dekker pair with `send_bounded`'s registration. The pop side cannot
+    /// test a transition the way the push side can: a woken sender pushes one
+    /// item and returns, so successive popped slots may belong to different
+    /// parked senders and every pop must offer a wake. The fence is
+    /// unconditional for the same reason — a parked sender registered only after
+    /// observing the ring full, so any pop it could race needs the barrier.
+    fn wake_sender_after_pop(&self) {
+        fence(CHANNEL_STORE_LOAD_ORDER);
+        if self.sender_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
+            let (mutex, not_full, _) = &self.state;
+            let _guard = mutex.lock().unwrap();
+            not_full.notify_one();
+        }
+    }
+
     fn recv_bounded(&self, queue: &BoundedMpmcQueue<T>) -> Result<T>
     where
         T: Send,
@@ -218,15 +258,7 @@ impl<T> MpmcChannel<T> {
 
         loop {
             if let Some(value) = queue.try_pop() {
-                // Notifier half of the Dekker pair, mirroring `send_bounded`:
-                // lock-free queue write, barrier, then the waiter count. Full
-                // reasoning at that site.
-                fence(CHANNEL_STORE_LOAD_ORDER);
-                if self.sender_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
-                    let (mutex, not_full, _) = &*self.state;
-                    let _guard = mutex.lock().unwrap();
-                    not_full.notify_one();
-                }
+                self.wake_sender_after_pop();
                 return Ok(value);
             }
 
@@ -247,7 +279,7 @@ impl<T> MpmcChannel<T> {
             }
 
             // Fallback to condvar wait to prevent CPU contention and busy-looping
-            let (mutex, _, not_empty) = &*self.state;
+            let (mutex, _, not_empty) = &self.state;
             let mut guard = mutex.lock().unwrap();
 
             // Register *before* the re-check below. Previously the order was
@@ -274,7 +306,7 @@ impl<T> MpmcChannel<T> {
                 // lock, and one that registers later re-checks the queue slot
                 // this pop just freed.
                 if self.sender_waiter_count.load(Ordering::Relaxed) > 0 {
-                    let (_, not_full, _) = &*self.state;
+                    let (_, not_full, _) = &self.state;
                     not_full.notify_one();
                 }
                 drop(guard);
@@ -300,7 +332,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return self.send_bounded(queue, value);
         }
 
-        let (mutex, not_full, not_empty) = &*self.state;
+        let (mutex, not_full, not_empty) = &self.state;
         let mut guard = mutex.lock().unwrap();
         let mut spin_count = 0;
 
@@ -337,24 +369,15 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ChannelError::Closed);
             }
-            queue.try_push(value).map_err(|_| ChannelError::Full)?;
-            // SeqCst, load-bearing: lock-free push followed by the waiter
-            // read — the notifier half of the Dekker pair (see
-            // `send_bounded`). The mutex is not held here, so nothing else
-            // orders this Store→Load.
-            // Notifier half of the Dekker pair: the lock-free queue op
-            // above needs a StoreLoad barrier before the waiter count is
-            // read. Full reasoning in `send_bounded`.
-            fence(CHANNEL_STORE_LOAD_ORDER);
-            if self.receiver_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
-                let (mutex, _, not_empty) = &*self.state;
-                let _guard = mutex.lock().unwrap();
-                not_empty.notify_one();
-            }
+            let outcome = queue.try_push(value).map_err(|_| ChannelError::Full)?;
+            // The mutex is not held here, so nothing else orders this
+            // Store→Load; the helper's fence supplies it. See
+            // `wake_receiver_on_transition`.
+            self.wake_receiver_on_transition(outcome);
             return Ok(());
         }
 
-        let (mutex, _, not_empty) = &*self.state;
+        let (mutex, _, not_empty) = &self.state;
         let mut guard = mutex.lock().unwrap();
 
         if guard.closed {
@@ -379,7 +402,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return self.recv_bounded(queue);
         }
 
-        let (mutex, not_full, not_empty) = &*self.state;
+        let (mutex, not_full, not_empty) = &self.state;
         let mut guard = mutex.lock().unwrap();
         let mut spin_count = 0;
 
@@ -414,18 +437,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
     fn try_recv(&self) -> Result<T> {
         if let Some(queue) = &self.bounded {
             if let Some(value) = queue.try_pop() {
-                // SeqCst, load-bearing: lock-free pop followed by the waiter
-                // read — notifier half of the Dekker pair (see
-                // `send_bounded`).
-                // Notifier half of the Dekker pair: the lock-free queue op
-                // above needs a StoreLoad barrier before the waiter count is
-                // read. Full reasoning in `send_bounded`.
-                fence(CHANNEL_STORE_LOAD_ORDER);
-                if self.sender_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
-                    let (mutex, not_full, _) = &*self.state;
-                    let _guard = mutex.lock().unwrap();
-                    not_full.notify_one();
-                }
+                self.wake_sender_after_pop();
                 return Ok(value);
             }
             if self.closed.load(Ordering::Acquire) {
@@ -434,7 +446,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return Err(ChannelError::Empty);
         }
 
-        let (mutex, not_full, _) = &*self.state;
+        let (mutex, not_full, _) = &self.state;
         let mut guard = mutex.lock().unwrap();
 
         match guard.queue.pop_front() {
@@ -461,7 +473,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return queue.is_empty();
         }
 
-        let (mutex, _, _) = &*self.state;
+        let (mutex, _, _) = &self.state;
         let guard = mutex.lock().unwrap();
         guard.queue.is_empty()
     }
@@ -471,7 +483,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return queue.is_full();
         }
 
-        let (mutex, _, _) = &*self.state;
+        let (mutex, _, _) = &self.state;
         let guard = mutex.lock().unwrap();
         guard.capacity.is_some_and(|cap| guard.queue.len() >= cap)
     }
@@ -481,7 +493,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return Some(queue.logical_capacity());
         }
 
-        let (mutex, _, _) = &*self.state;
+        let (mutex, _, _) = &self.state;
         let guard = mutex.lock().unwrap();
         guard.capacity
     }

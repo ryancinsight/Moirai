@@ -34,6 +34,15 @@ use crate::channel::CHANNEL_STORE_LOAD_ORDER;
 /// re-enter this channel's registration lock — waking under the lock would
 /// self-deadlock. Unparking follows the same shape so both critical sections
 /// stay minimal.
+///
+/// The produce paths take this gate only on
+/// [`ProduceOutcome::BecameNonEmpty`](crate::communication::ProduceOutcome):
+/// a consumer parks only after observing an empty ring, so a produce into an
+/// already-occupied ring cannot race a registration and has nothing to wake —
+/// the barrier in this gate is the expensive half of the pair and need not be
+/// paid there. The two drop paths take it unconditionally: the `closed` flag is
+/// not the ring, and a consumer registering against a closing channel must
+/// still be woken.
 pub(super) fn notify_consumers(
     parker: &Mutex<Vec<std::thread::Thread>>,
     parked_count: &AtomicUsize,

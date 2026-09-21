@@ -1,5 +1,5 @@
 use crate::channel::error::Result;
-use crate::communication::RingBuffer;
+use crate::communication::{ProduceOutcome, RingBuffer};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -31,14 +31,21 @@ impl<T: Send> HybridSender<T> {
             return Err(crate::channel::error::ChannelError::Closed);
         }
 
-        self.ring
+        let outcome = self
+            .ring
             .try_produce(value)
             .map_err(|_| crate::channel::error::ChannelError::Full)?;
 
         // Fenced Dekker gate between the produce above and the counter loads
-        // (see `notify_consumers`): skipping it lets this thread miss a
-        // concurrent registration while the registrant misses the produce.
-        self.notify_consumers();
+        // (see `notify_consumers`), taken only when this produce took the ring
+        // from empty to non-empty. A blocked consumer parks only after observing
+        // an empty ring, so a produce into an already-occupied ring finds that
+        // consumer consuming instead of parking: neither the barrier nor the
+        // all-draining wake can have anything to do there, and taking them would
+        // pay a `SeqCst` fence on every send into a non-empty ring.
+        if outcome == ProduceOutcome::BecameNonEmpty {
+            self.notify_consumers();
+        }
         Ok(())
     }
 
@@ -66,9 +73,11 @@ impl<T: Send> HybridSender<T> {
             }
 
             match self.ring.try_produce(value) {
-                Ok(()) => {
-                    // Same fenced gate as `send`.
-                    self.notify_consumers();
+                Ok(outcome) => {
+                    // Same transition-gated fence as `send`.
+                    if outcome == ProduceOutcome::BecameNonEmpty {
+                        self.notify_consumers();
+                    }
                     return Ok(());
                 }
                 Err(v) => {
