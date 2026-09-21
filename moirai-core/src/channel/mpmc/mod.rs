@@ -5,6 +5,7 @@
 
 use std::collections::VecDeque;
 
+mod block;
 mod channel;
 mod recv;
 mod send;
