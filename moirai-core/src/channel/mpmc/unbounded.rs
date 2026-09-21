@@ -11,7 +11,6 @@
     reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
 )]
 
-use super::MPMC_BLOCK_SPINS;
 use super::channel::MpmcChannel;
 use crate::channel::error::{ChannelError, Result};
 use std::sync::atomic::Ordering;
@@ -21,23 +20,13 @@ impl<T: Send> MpmcChannel<T> {
     /// channel is at capacity.
     pub(super) fn send_unbounded(&self, value: T) -> Result<()> {
         let (mutex, not_full, not_empty) = &self.state;
-        let mut guard = mutex.lock().unwrap();
-        let mut spin_count = 0;
+        let guard = mutex.lock().unwrap();
 
-        while !guard.closed && guard.capacity.is_some_and(|cap| guard.queue.len() >= cap) {
-            if spin_count < MPMC_BLOCK_SPINS {
-                drop(guard);
-                for _ in 0..(1 << spin_count) {
-                    std::hint::spin_loop();
-                }
-                spin_count += 1;
-                guard = mutex.lock().unwrap();
-            } else {
-                self.sender_waiter_count.fetch_add(1, Ordering::AcqRel);
-                guard = not_full.wait(guard).unwrap();
-                self.sender_waiter_count.fetch_sub(1, Ordering::AcqRel);
-            }
-        }
+        // A closed channel releases this wait as well; the check below reports
+        // it, so the predicate only has to name the full-queue case.
+        let mut guard = self.wait_while(guard, not_full, &self.sender_waiter_count, |state| {
+            !state.closed && state.capacity.is_some_and(|cap| state.queue.len() >= cap)
+        });
 
         if guard.closed {
             return Err(ChannelError::Closed);
@@ -78,23 +67,12 @@ impl<T: Send> MpmcChannel<T> {
     /// queue is empty.
     pub(super) fn recv_unbounded(&self) -> Result<T> {
         let (mutex, not_full, not_empty) = &self.state;
-        let mut guard = mutex.lock().unwrap();
-        let mut spin_count = 0;
+        let guard = mutex.lock().unwrap();
 
-        while guard.queue.is_empty() && !guard.closed {
-            if spin_count < MPMC_BLOCK_SPINS {
-                drop(guard);
-                for _ in 0..(1 << spin_count) {
-                    std::hint::spin_loop();
-                }
-                spin_count += 1;
-                guard = mutex.lock().unwrap();
-            } else {
-                self.receiver_waiter_count.fetch_add(1, Ordering::AcqRel);
-                guard = not_empty.wait(guard).unwrap();
-                self.receiver_waiter_count.fetch_sub(1, Ordering::AcqRel);
-            }
-        }
+        // A close releases this wait as well; the `pop_front` below reports it.
+        let mut guard = self.wait_while(guard, not_empty, &self.receiver_waiter_count, |state| {
+            state.queue.is_empty() && !state.closed
+        });
 
         match guard.queue.pop_front() {
             Some(value) => {
