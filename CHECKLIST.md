@@ -10,6 +10,8 @@
 - **Acceptance:** standalone `cargo metadata --locked` parses the fuzz manifest;
   the hosted `Fuzz parsers` job builds both targets and completes its bounded
   campaign; no production source changes are required.
+- **Guard:** `scripts/lockfile.py` checks both tracked lockfiles so a stale fuzz
+  graph is caught by the same local lock gate as the workspace graph.
 - **Integrator / lease:** root on `fix/moirai-fuzz-lock`; `fuzz/Cargo.lock` and
   this checklist entry; last-update: 2026-09-21.
 
