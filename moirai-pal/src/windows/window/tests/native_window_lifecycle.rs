@@ -3,7 +3,10 @@
 
 use super::super::event::{CompositionPhase, MouseButton, WindowEvent};
 use super::super::native::NativeWindow;
-use super::super::{WindowConfig, WindowVisibility};
+use super::super::{
+    AccessibilityAction, AccessibilityNode, AccessibilityRole, AccessibilityTree, WindowConfig,
+    WindowVisibility,
+};
 use super::key_message_encoding::key_lparam;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
@@ -249,6 +252,40 @@ fn native_window_lifecycle_and_frame_round_trip() {
     assert!(events.contains(&WindowEvent::DpiChanged { dpi: 144 }));
     window.close().expect("destroy");
     assert!(window.is_destroyed());
+}
+
+#[test]
+#[cfg(windows)]
+fn native_window_installs_and_updates_accessibility_before_showing() {
+    let config = WindowConfig::with_visibility(
+        "Moirai accessibility test",
+        320,
+        240,
+        WindowVisibility::Hidden,
+    )
+    .expect("config");
+    let mut root =
+        AccessibilityNode::new(1, AccessibilityRole::Application, "Moirai").expect("root node");
+    root.set_children(vec![2]).expect("button identity");
+    let mut button =
+        AccessibilityNode::new(2, AccessibilityRole::Button, "Calculate").expect("button node");
+    button.set_focusable(true);
+    button.add_action(AccessibilityAction::Activate);
+    let tree = AccessibilityTree::from_nodes(1, 2, vec![root, button]).expect("tree");
+
+    let mut window = NativeWindow::new(&config).expect("native window");
+    window
+        .install_accessibility(tree.clone())
+        .expect("adapter installs while hidden");
+    window
+        .update_accessibility(tree.clone())
+        .expect("initial tree update");
+    window.show().expect("window shows after adapter install");
+    assert!(window.install_accessibility(tree.clone()).is_err());
+    window
+        .update_accessibility(tree)
+        .expect("visible tree update");
+    window.close().expect("destroy");
 }
 
 #[test]

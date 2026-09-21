@@ -5,12 +5,18 @@
 //! paints the last validated ARGB frame. Application state, widget policy,
 //! authority and WebView hosting stay above this PAL boundary.
 
+mod accessibility;
 mod config;
 mod event;
 mod input;
 mod native;
 mod state;
 
+pub use accessibility::{
+    AccessibilityAction, AccessibilityActionRequest, AccessibilityNode, AccessibilityRole,
+    AccessibilityTree, MAX_ACCESSIBILITY_ACTIONS, MAX_ACCESSIBILITY_NODES,
+    MAX_ACCESSIBILITY_TEXT_BYTES,
+};
 pub use config::{
     MAX_COMPOSITION_UNITS, MAX_FRAME_DIMENSION, MAX_FRAME_PIXELS, MAX_PUMP_MESSAGES,
     MAX_TITLE_UNITS, MAX_WAIT_MILLISECONDS, MAX_WINDOW_EVENTS, WindowConfig, WindowVisibility,

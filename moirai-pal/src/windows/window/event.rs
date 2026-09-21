@@ -1,5 +1,7 @@
 //! Native input and lifecycle values.
 
+use super::accessibility::AccessibilityActionRequest;
+
 pub(super) const CONTROL_BITS: u8 = 0b0000_0011;
 pub(super) const CONTROL_LEFT: u8 = 0b0000_0001;
 pub(super) const CONTROL_RIGHT: u8 = 0b0000_0010;
@@ -192,5 +194,10 @@ pub enum WindowEvent {
     DpiChanged {
         /// Effective horizontal DPI reported by Windows.
         dpi: u32,
+    },
+    /// A screen reader or UI Automation client requested a typed action.
+    AccessibilityAction {
+        /// The bounded action request for the application to interpret.
+        request: AccessibilityActionRequest,
     },
 }
