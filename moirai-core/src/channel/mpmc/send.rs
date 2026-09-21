@@ -59,7 +59,7 @@ impl<T> MpmcSender<T> {
 
 impl<T> Clone for MpmcSender<T> {
     fn clone(&self) -> Self {
-        let (mutex, _, _) = &*self.channel.state;
+        let (mutex, _, _) = &self.channel.state;
         let mut guard = mutex.lock().unwrap();
         guard.sender_count += 1;
         Self {
@@ -70,7 +70,7 @@ impl<T> Clone for MpmcSender<T> {
 
 impl<T> Drop for MpmcSender<T> {
     fn drop(&mut self) {
-        let (mutex, _, not_empty) = &*self.channel.state;
+        let (mutex, _, not_empty) = &self.channel.state;
         let mut guard = mutex.lock().unwrap();
         guard.sender_count -= 1;
         if guard.sender_count == 0 {

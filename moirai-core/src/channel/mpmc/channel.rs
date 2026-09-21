@@ -16,13 +16,20 @@ use std::sync::{Arc, Condvar, Mutex};
 mod roles;
 
 /// Multi-Producer Multi-Consumer channel with bounded capacity
-/// Uses mutex-based implementation for simplicity and correctness
+/// Uses mutex-based implementation for simplicity and correctness.
+///
+/// The shared state lives *directly* in this struct rather than behind a field
+/// per `Arc`: [`MpmcSender`]/[`MpmcReceiver`] already share one handle through
+/// `Arc<MpmcChannel<T>>`, so a channel costs one allocation plus the bounded
+/// ring's slot array. Every operation reaches the mutex, condvars, both waiter
+/// counters and the ring through that single handle, with no second
+/// indirection on the send/receive paths.
 pub struct MpmcChannel<T> {
-    pub(super) state: Arc<(Mutex<MpmcState<T>>, Condvar, Condvar)>,
-    pub(super) bounded: Option<Arc<BoundedMpmcQueue<T>>>,
-    pub(super) closed: Arc<AtomicBool>,
-    pub(super) sender_waiter_count: Arc<AtomicUsize>,
-    pub(super) receiver_waiter_count: Arc<AtomicUsize>,
+    pub(super) state: (Mutex<MpmcState<T>>, Condvar, Condvar),
+    pub(super) bounded: Option<BoundedMpmcQueue<T>>,
+    pub(super) closed: AtomicBool,
+    pub(super) sender_waiter_count: AtomicUsize,
+    pub(super) receiver_waiter_count: AtomicUsize,
 }
 
 /// Slots preallocated for an unbounded channel's mutex-guarded deque.
@@ -57,14 +64,14 @@ impl<T> MpmcChannel<T> {
             receiver_count: 0,
         };
 
-        let bounded = capacity.map(BoundedMpmcQueue::new).map(Arc::new);
+        let bounded = capacity.map(BoundedMpmcQueue::new);
 
         Self {
-            state: Arc::new((Mutex::new(state), Condvar::new(), Condvar::new())),
+            state: (Mutex::new(state), Condvar::new(), Condvar::new()),
             bounded,
-            closed: Arc::new(AtomicBool::new(false)),
-            sender_waiter_count: Arc::new(AtomicUsize::new(0)),
-            receiver_waiter_count: Arc::new(AtomicUsize::new(0)),
+            closed: AtomicBool::new(false),
+            sender_waiter_count: AtomicUsize::new(0),
+            receiver_waiter_count: AtomicUsize::new(0),
         }
     }
 
@@ -81,7 +88,7 @@ impl<T> MpmcChannel<T> {
     /// Create a channel pair for ergonomic usage
     pub fn channel(capacity: Option<usize>) -> (MpmcSender<T>, MpmcReceiver<T>) {
         let channel = Arc::new(Self::new(capacity));
-        let (mutex, _, _) = &*channel.state;
+        let (mutex, _, _) = &channel.state;
 
         {
             let mut state = mutex.lock().unwrap();
@@ -142,7 +149,7 @@ impl<T> MpmcChannel<T> {
                     if outcome == PushOutcome::BecameNonEmpty {
                         fence(CHANNEL_STORE_LOAD_ORDER);
                         if self.receiver_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
-                            let (mutex, _, not_empty) = &*self.state;
+                            let (mutex, _, not_empty) = &self.state;
                             let _guard = mutex.lock().unwrap();
                             not_empty.notify_one();
                         }
@@ -163,7 +170,7 @@ impl<T> MpmcChannel<T> {
             }
 
             // Fallback to condvar wait to prevent CPU contention and busy-looping
-            let (mutex, not_full, _) = &*self.state;
+            let (mutex, not_full, _) = &self.state;
             let mut guard = mutex.lock().unwrap();
 
             if self.closed.load(Ordering::Acquire) || guard.closed {
@@ -203,7 +210,7 @@ impl<T> MpmcChannel<T> {
                     // the lock afterwards, and its own re-check finds the item
                     // this thread just pushed. Neither branch parks.
                     if self.receiver_waiter_count.load(Ordering::Relaxed) > 0 {
-                        let (_, _, not_empty) = &*self.state;
+                        let (_, _, not_empty) = &self.state;
                         not_empty.notify_one();
                     }
                     return Ok(());
@@ -232,7 +239,7 @@ impl<T> MpmcChannel<T> {
                 // reasoning at that site.
                 fence(CHANNEL_STORE_LOAD_ORDER);
                 if self.sender_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
-                    let (mutex, not_full, _) = &*self.state;
+                    let (mutex, not_full, _) = &self.state;
                     let _guard = mutex.lock().unwrap();
                     not_full.notify_one();
                 }
@@ -256,7 +263,7 @@ impl<T> MpmcChannel<T> {
             }
 
             // Fallback to condvar wait to prevent CPU contention and busy-looping
-            let (mutex, _, not_empty) = &*self.state;
+            let (mutex, _, not_empty) = &self.state;
             let mut guard = mutex.lock().unwrap();
 
             // Register *before* the re-check below. Previously the order was
@@ -283,7 +290,7 @@ impl<T> MpmcChannel<T> {
                 // lock, and one that registers later re-checks the queue slot
                 // this pop just freed.
                 if self.sender_waiter_count.load(Ordering::Relaxed) > 0 {
-                    let (_, not_full, _) = &*self.state;
+                    let (_, not_full, _) = &self.state;
                     not_full.notify_one();
                 }
                 drop(guard);
@@ -309,7 +316,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return self.send_bounded(queue, value);
         }
 
-        let (mutex, not_full, not_empty) = &*self.state;
+        let (mutex, not_full, not_empty) = &self.state;
         let mut guard = mutex.lock().unwrap();
         let mut spin_count = 0;
 
@@ -356,7 +363,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             if outcome == PushOutcome::BecameNonEmpty {
                 fence(CHANNEL_STORE_LOAD_ORDER);
                 if self.receiver_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
-                    let (mutex, _, not_empty) = &*self.state;
+                    let (mutex, _, not_empty) = &self.state;
                     let _guard = mutex.lock().unwrap();
                     not_empty.notify_one();
                 }
@@ -364,7 +371,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return Ok(());
         }
 
-        let (mutex, _, not_empty) = &*self.state;
+        let (mutex, _, not_empty) = &self.state;
         let mut guard = mutex.lock().unwrap();
 
         if guard.closed {
@@ -389,7 +396,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return self.recv_bounded(queue);
         }
 
-        let (mutex, not_full, not_empty) = &*self.state;
+        let (mutex, not_full, not_empty) = &self.state;
         let mut guard = mutex.lock().unwrap();
         let mut spin_count = 0;
 
@@ -432,7 +439,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
                 // read. Full reasoning in `send_bounded`.
                 fence(CHANNEL_STORE_LOAD_ORDER);
                 if self.sender_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
-                    let (mutex, not_full, _) = &*self.state;
+                    let (mutex, not_full, _) = &self.state;
                     let _guard = mutex.lock().unwrap();
                     not_full.notify_one();
                 }
@@ -444,7 +451,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return Err(ChannelError::Empty);
         }
 
-        let (mutex, not_full, _) = &*self.state;
+        let (mutex, not_full, _) = &self.state;
         let mut guard = mutex.lock().unwrap();
 
         match guard.queue.pop_front() {
@@ -471,7 +478,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return queue.is_empty();
         }
 
-        let (mutex, _, _) = &*self.state;
+        let (mutex, _, _) = &self.state;
         let guard = mutex.lock().unwrap();
         guard.queue.is_empty()
     }
@@ -481,7 +488,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return queue.is_full();
         }
 
-        let (mutex, _, _) = &*self.state;
+        let (mutex, _, _) = &self.state;
         let guard = mutex.lock().unwrap();
         guard.capacity.is_some_and(|cap| guard.queue.len() >= cap)
     }
@@ -491,7 +498,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             return Some(queue.logical_capacity());
         }
 
-        let (mutex, _, _) = &*self.state;
+        let (mutex, _, _) = &self.state;
         let guard = mutex.lock().unwrap();
         guard.capacity
     }

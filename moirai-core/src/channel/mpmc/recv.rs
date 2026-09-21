@@ -43,7 +43,7 @@ impl<T: Send> crate::channel::roles::Consumer<T> for MpmcReceiver<T> {
 
 impl<T> Clone for MpmcReceiver<T> {
     fn clone(&self) -> Self {
-        let (mutex, _, _) = &*self.channel.state;
+        let (mutex, _, _) = &self.channel.state;
         let mut guard = mutex.lock().unwrap();
         guard.receiver_count += 1;
         Self {
@@ -54,7 +54,7 @@ impl<T> Clone for MpmcReceiver<T> {
 
 impl<T> Drop for MpmcReceiver<T> {
     fn drop(&mut self) {
-        let (mutex, not_full, _) = &*self.channel.state;
+        let (mutex, not_full, _) = &self.channel.state;
         let mut guard = mutex.lock().unwrap();
         guard.receiver_count -= 1;
         if guard.receiver_count == 0 {
