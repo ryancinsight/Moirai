@@ -7,6 +7,15 @@
 - **Dependency:** Metis scoped process provider [METIS-SERVICES-001](../../metis/backlog.md#METIS-SERVICES-001).
 # Moirai Development Backlog (SSOT)
 
+<a id="MOI-WINDOW-ACCESSIBILITY-2026-09-21"></a>
+## MOI-WINDOW-ACCESSIBILITY-2026-09-21 — Expose a bounded Windows accessibility bridge [arch] [minor] [security]
+
+- **Status:** in-progress; priority: P1; owner: Moirai Windows PAL; integrator: root; branch: `feat/pal-native-accessibility-001`; last-update: 2026-09-21.
+- **Scope:** add a format-neutral, thread-owned Windows accessibility adapter at the native window boundary; install it before the HWND becomes visible, translate bounded semantic trees and typed actions through the AccessKit UIA provider, and retain a bounded action queue for the owning thread. No application semantics, browser DOM, DICOM policy or screen-reader automation belongs in Moirai.
+- **Acceptance:** the provider compiles with the workspace Windows bindings, rejects malformed or over-bounded trees before they reach UIA, preserves stable node identity/focus/action state across updates, reports action-queue overflow as a typed error, and has native regression coverage plus Rustdoc/lockfile verification. Metis consumes the contract in `METIS-A11Y-001`.
+- **Decision:** [ADR 0066](adr/0066-windows-accessibility-bridge.md).
+- **Lease:** root `moirai-pal/src/windows/window/` `moirai-pal/Cargo.toml` `docs/adr/0066-windows-accessibility-bridge.md` `docs/adr/README.md` `docs/backlog.md` 2026-09-21T00:55:00-04:00.
+
 <a id="MOI-WASM-CLIPBOARD-2026-09-19"></a>
 ## MOI-WASM-CLIPBOARD-2026-09-19 — Expose bounded browser text clipboard [minor]
 
