@@ -52,39 +52,6 @@ pub use policy::{
 
 use core::marker::PhantomData;
 
-/// Pointer wrapper used to hand disjoint `&mut` sub-slices to worker tasks.
-///
-/// The `Send`/`Sync` impls are sound only because the `*_mut` operations assign
-/// each task a non-overlapping index range, so the pointer is never used to form
-/// aliasing references.
-pub(crate) struct DisjointMutPtr<T>(pub(crate) *mut T);
-
-// SAFETY: callers dereference pairwise-disjoint ranges only, so the pointer
-// never forms aliasing `&mut` references; `T: Send` permits moving element
-// access across worker threads.
-unsafe impl<T: Send> Send for DisjointMutPtr<T> {}
-unsafe impl<T: Send> Sync for DisjointMutPtr<T> {}
-
-impl<T> DisjointMutPtr<T> {
-    /// Return a `&mut` to element `i`.
-    ///
-    /// # Safety
-    /// `i` must be in bounds and visited at most once across all concurrent
-    /// tasks, so the returned reference never aliases another.
-    #[inline]
-    pub(crate) unsafe fn get_mut<'a>(&self, i: usize) -> &'a mut T {
-        // SAFETY: guaranteed by the caller's per-index-once contract.
-        unsafe { &mut *self.0.add(i) }
-    }
-
-    /// Return the wrapped base pointer. Taking `&self` forces a closure to
-    /// capture the whole (`Send`/`Sync`) wrapper rather than the bare `*mut T`
-    /// field under 2021 disjoint capture.
-    #[inline]
-    pub(crate) fn base(&self) -> *mut T {
-        self.0
-    }
-}
 /// Synchronous data-parallel operators and free functions.
 pub mod ops;
 pub use ops::{

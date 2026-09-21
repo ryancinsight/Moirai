@@ -14,7 +14,6 @@
 //! Applications that call Melinoe's `partition_*` functions directly should
 //! call [`moirai_executor::initialize`] during startup first.
 
-use super::DisjointMutPtr;
 use super::policy::{ExecutionPolicy, Parallel};
 use melinoe::cell::MelinoeCell;
 use melinoe::region::WriterShard;
@@ -67,18 +66,9 @@ pub fn par_partition_for_each_with_policy<'brand, P, T, F>(
     // elements, which is what the policy sees. Running the shards inline
     // preserves the parallel path's shard boundaries.
     if !P::parallelize(n) {
-        let base = cells.as_mut_ptr();
-        for c in 0..num_chunks {
-            let start = c * chunk_size;
-            if start >= n {
-                break;
-            }
-            let end = (start + chunk_size).min(n);
-            // SAFETY: shards for distinct `c` are pairwise disjoint within the
-            // slice; sequential iteration visits each exactly once.
-            let chunk_ref =
-                unsafe { core::slice::from_raw_parts_mut(base.add(start), end - start) };
-            f(start, WriterShard::new(chunk_ref));
+        // `chunks_mut` yields the same disjoint `chunk_size` windows, safely.
+        for (c, chunk) in cells.chunks_mut(chunk_size).enumerate() {
+            f(c * chunk_size, WriterShard::new(chunk));
         }
         return;
     }
@@ -86,21 +76,16 @@ pub fn par_partition_for_each_with_policy<'brand, P, T, F>(
     // Refresh the bridge before entering Melinoe. This keeps the wrapper safe
     // after a test or integration has cleared Melinoe's process-global slot.
     initialize();
-    let base = DisjointMutPtr(cells.as_mut_ptr());
+    let partitions = WriterShard::new(cells).par_chunks(chunk_size);
     let f = &f;
     global()
         .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
-            let start = c * chunk_size;
-            if start >= n {
-                return;
-            }
-            let end = (start + chunk_size).min(n);
-            // SAFETY: chunks [start, end) for distinct c are pairwise disjoint
-            // within the slice, and each is visited exactly once.
-            let chunk_ref =
-                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
-            let shard = WriterShard::new(chunk_ref);
-            f(start, shard);
+            // SAFETY: `for_each_indexed(num_chunks, _)` visits each chunk index
+            // exactly once — the contract `get_unchecked_chunk` documents — and
+            // distinct indices name disjoint element ranges, so no two tasks
+            // alias.
+            let shard = unsafe { partitions.get_unchecked_chunk(c) };
+            f(c * chunk_size, shard);
         })
         .expect("moirai global executor: par_partition_for_each");
 }
@@ -149,18 +134,9 @@ where
 
     // Sequential path: build results in the same shard-slot order as the pool.
     if !P::parallelize(n) {
-        let base = cells.as_mut_ptr();
         let mut results = Vec::with_capacity(num_chunks);
-        for c in 0..num_chunks {
-            let start = c * chunk_size;
-            if start >= n {
-                break;
-            }
-            let end = (start + chunk_size).min(n);
-            // SAFETY: shards for distinct `c` are pairwise disjoint; visited once.
-            let chunk_ref =
-                unsafe { core::slice::from_raw_parts_mut(base.add(start), end - start) };
-            results.push(f(start, WriterShard::new(chunk_ref)));
+        for (c, chunk) in cells.chunks_mut(chunk_size).enumerate() {
+            results.push(f(c * chunk_size, WriterShard::new(chunk)));
         }
         return results;
     }
@@ -173,26 +149,22 @@ where
     unsafe {
         out.set_len(num_chunks);
     }
-    let cells_ptr = DisjointMutPtr(cells.as_mut_ptr());
-    let out_ptr = DisjointMutPtr(out.as_mut_ptr());
+    let cells_partitions = WriterShard::new(cells).par_chunks(chunk_size);
+    // `out` holds one slot per chunk, so it is partitioned one slot per index.
+    let out_partitions =
+        WriterShard::new(MelinoeCell::from_mut_slice(out.as_mut_slice())).par_chunks(1);
     let f = &f;
     global()
         .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
-            let start = c * chunk_size;
-            if start >= n {
-                return;
-            }
-            let end = (start + chunk_size).min(n);
-            // SAFETY: chunks [start, end) for distinct c are pairwise disjoint.
-            let chunk_ref = unsafe {
-                core::slice::from_raw_parts_mut(cells_ptr.base().add(start), end - start)
-            };
-            let shard = WriterShard::new(chunk_ref);
-            let result = f(start, shard);
-            // SAFETY: chunk index c is visited exactly once by the indexed
-            // schedule, writing an uninitialized-but-reserved slot once.
-            unsafe {
-                out_ptr.get_mut(c).write(result);
+            // SAFETY: each chunk index is visited exactly once, for both the cells
+            // chunk and the output slot at `c`. The two regions are distinct, and
+            // distinct indices name disjoint ranges in each, so no two tasks
+            // alias.
+            let shard = unsafe { cells_partitions.get_unchecked_chunk(c) };
+            let mut out_shard = unsafe { out_partitions.get_unchecked_chunk(c) };
+            let result = f(c * chunk_size, shard);
+            if let Some(slot) = out_shard.get_mut(0) {
+                slot.write(result);
             }
         })
         .expect("moirai global executor: par_partition_map");
