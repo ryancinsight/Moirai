@@ -6,6 +6,11 @@
 //! which is why [`SpscChannel`] stays crate-private: its methods take `&self`
 //! and its `Sync` impl lets `&SpscChannel` cross threads, so exposing it would
 //! let safe code drive two producers into one slot (ADR-024).
+//!
+//! [`communication::RingBuffer`](crate::communication::RingBuffer) is the
+//! crate's other SPSC ring and runs this same protocol. The two are deliberately
+//! separate — see that type's docs for the `Sync`/`!Sync` split that makes them
+//! non-mergeable, and do not unify them without answering it.
 
 use crate::channel::error::{CacheAligned, Channel, ChannelError, Result};
 use std::cell::{Cell, UnsafeCell};
@@ -252,119 +257,34 @@ impl<T: Send> SpscChannel<T> {
 }
 
 impl<T: Send> Channel<T> for SpscChannel<T> {
+    /// Blocking send.
+    ///
+    /// The uncached `Channel` surface drives the *same* cached primitives the
+    /// halves do, with the cache seeded from a fresh peer-cursor load. Seeding is
+    /// what makes this exact: the value is the one the uncached path would have
+    /// read anyway, so the first check is the check it always was, and
+    /// [`has_room`](Self::has_room)'s one-sided staleness covers the rest of a
+    /// blocking call exactly as it covers `SpscSender::send`. The slot write and
+    /// the spin-then-yield schedule therefore exist once each, not per entry
+    /// point, and no caller can reach a weaker variant of either.
     fn send(&self, value: T) -> Result<()> {
-        // Implement blocking send with exponential backoff spin-wait
-        let mut spin_count = 0;
-        loop {
-            // Check if channel is closed first
-            if self.closed.load(Ordering::Acquire) {
-                return Err(ChannelError::Closed);
-            }
-
-            let head = self.head.0.load(Ordering::Relaxed);
-            let tail = self.tail.0.load(Ordering::Acquire);
-
-            // Check if there's space
-            if head.wrapping_sub(tail) < self.buffer.len() {
-                // SAFETY: sole-producer role of this blocking sender plus
-                // the space check keep the masked slot outside the consumer
-                // window and uninitialized before this write.
-                unsafe {
-                    let slot = &mut *self.buffer[head & self.mask].get();
-                    slot.write(value);
-                }
-                self.head.0.store(head.wrapping_add(1), Ordering::Release);
-                return Ok(());
-            }
-
-            // Channel is full, spin-wait with exponential backoff
-            if spin_count < SPSC_BLOCK_SPINS {
-                // Active spinning for low latency (up to ~64 iterations)
-                for _ in 0..(1 << spin_count) {
-                    std::hint::spin_loop();
-                }
-                spin_count += 1;
-            } else {
-                // After initial spinning, yield to OS scheduler
-                std::thread::yield_now();
-            }
-        }
+        let cached_tail = Cell::new(self.tail.0.load(Ordering::Acquire));
+        self.send_cached(value, &cached_tail)
     }
 
     fn try_send(&self, value: T) -> Result<()> {
-        if self.closed.load(Ordering::Acquire) {
-            return Err(ChannelError::Closed);
-        }
-
-        let head = self.head.0.load(Ordering::Relaxed);
-        let tail = self.tail.0.load(Ordering::Acquire);
-
-        // Check if full
-        if head.wrapping_sub(tail) >= self.buffer.len() {
-            return Err(ChannelError::Full);
-        }
-
-        // SAFETY: sole-producer role plus the fullness check guarantee an
-        // uninitialized, unconsumed masked slot for this write.
-        unsafe {
-            let slot = &mut *self.buffer[head & self.mask].get();
-            slot.write(value);
-        }
-
-        self.head.0.store(head.wrapping_add(1), Ordering::Release);
-        Ok(())
+        let cached_tail = Cell::new(self.tail.0.load(Ordering::Acquire));
+        self.try_send_cached(value, &cached_tail)
     }
 
     fn recv(&self) -> Result<T> {
-        // Implement blocking recv with exponential backoff spin-wait
-        let mut spin_count = 0;
-        loop {
-            match self.try_recv() {
-                Ok(value) => return Ok(value),
-                Err(ChannelError::Empty) => {
-                    // Channel is empty, spin-wait with exponential backoff
-                    if spin_count < SPSC_BLOCK_SPINS {
-                        // Active spinning for low latency (up to ~64 iterations)
-                        for _ in 0..(1 << spin_count) {
-                            std::hint::spin_loop();
-                        }
-                        spin_count += 1;
-                    } else {
-                        // After initial spinning, yield to OS scheduler
-                        std::thread::yield_now();
-                    }
-                }
-                Err(e) => return Err(e), // Closed or other error
-            }
-        }
+        let cached_head = Cell::new(self.head.0.load(Ordering::Acquire));
+        blocking(|| self.try_recv_cached(&cached_head))
     }
 
     fn try_recv(&self) -> Result<T> {
-        let tail = self.tail.0.load(Ordering::Relaxed);
-        let head = self.head.0.load(Ordering::Acquire);
-
-        if tail == head {
-            if self.closed.load(Ordering::Acquire) {
-                // The sender publishes the element before it publishes closure.
-                // Re-read `head` after acquiring `closed`: the first `head` load
-                // may have preceded both releases and observed the empty state.
-                let published_head = self.head.0.load(Ordering::Acquire);
-                if tail == published_head {
-                    return Err(ChannelError::Closed);
-                }
-            } else {
-                return Err(ChannelError::Empty);
-            }
-        }
-
-        let value = unsafe {
-            let slot = &*self.buffer[tail & self.mask].get();
-            // SAFETY: head > tail check ensures initialized data
-            slot.assume_init_read()
-        };
-
-        self.tail.0.store(tail.wrapping_add(1), Ordering::Release);
-        Ok(value)
+        let cached_head = Cell::new(self.head.0.load(Ordering::Acquire));
+        self.try_recv_cached(&cached_head)
     }
 
     fn is_empty(&self) -> bool {
