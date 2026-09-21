@@ -2,6 +2,19 @@
 
 **Target**: Unreleased
 
+## MOI-FUZZ-LOCK-2026-09-21 — Align parser fuzz lock with Melinoe main [patch] — in-progress
+
+- **Outcome:** the scheduled parser-fuzz job resolves one Melinoe source whose
+  `ParallelExecutor` contract is the unsafe trait implemented by
+  `moirai-executor`; stale duplicate revisions are removed from `fuzz/Cargo.lock`.
+- **Acceptance:** standalone `cargo metadata --locked` parses the fuzz manifest;
+  the hosted `Fuzz parsers` job builds both targets and completes its bounded
+  campaign; no production source changes are required.
+- **Guard:** `scripts/lockfile.py` checks both tracked lockfiles so a stale fuzz
+  graph is caught by the same local lock gate as the workspace graph.
+- **Integrator / lease:** root on `fix/moirai-fuzz-lock`; `fuzz/Cargo.lock` and
+  this checklist entry; last-update: 2026-09-21.
+
 ## MOI-PARKED-POOL-FIRST-REGION-2026-09-17 — Bring a parked pool to full width faster [patch] [perf] — todo
 
 - **Outcome:** a data-parallel region submitted after the workers parked (idle
