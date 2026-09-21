@@ -164,7 +164,7 @@ pub(crate) fn action_request(
     let (action, delta) = match request.action {
         Action::Click => (AccessibilityAction::Activate, None),
         Action::Focus => (AccessibilityAction::Focus, None),
-        Action::ReplaceSelectedText => (AccessibilityAction::SetValue, None),
+        Action::ReplaceSelectedText | Action::SetValue => (AccessibilityAction::SetValue, None),
         Action::Increment => (AccessibilityAction::AdjustValue, Some(1)),
         Action::Decrement => (AccessibilityAction::AdjustValue, Some(-1)),
         Action::Expand | Action::Collapse => (AccessibilityAction::Open, None),
