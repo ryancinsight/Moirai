@@ -2,19 +2,23 @@
 //!
 //! # Safety
 //!
-//! The mutable operators split a buffer across worker tasks through
-//! `DisjointMutPtr`, which hands out `&mut` by raw pointer with no
-//! borrow-checker aliasing proof. Two executor contracts make
-//! every such access sound; each per-site `SAFETY` comment appeals to one of
-//! them:
+//! The mutable operators split a buffer across worker tasks through Melinoe's
+//! [`WriterShard`](melinoe::region::WriterShard) /
+//! [`ParChunks`](melinoe::region::ParChunks), which own the disjoint-partition
+//! contract and the range math once; each operator brands the caller's slice in
+//! place ([`MelinoeCell::from_mut_slice`](melinoe::MelinoeCell::from_mut_slice))
+//! and vends one partition per task. One
+//! executor contract makes every such access sound, and each per-site `SAFETY`
+//! comment appeals to it:
 //!
 //! - **Disjoint partition.** `global().for_each_indexed(count, f)` invokes `f`
-//!   with each index in `0..count` exactly once. The operators map that index
-//!   (or a `chunk_size`-strided range derived from it) to a *disjoint* slice of
-//!   the buffer, so no two concurrent tasks ever form `&mut` to the same
-//!   element. Multi-buffer operators additionally rely on the caller's distinct
-//!   `&mut [_]` arguments being non-aliasing (guaranteed by the borrow checker
-//!   at the call site).
+//!   with each index in `0..count` exactly once — the same guarantee
+//!   `ParChunks::get_unchecked_chunk` requires of its caller. The operators map
+//!   that index (or a `chunk_size`-strided range derived from it) to a
+//!   *disjoint* slice of the buffer, so no two concurrent tasks ever form
+//!   `&mut` to the same element. Multi-buffer operators additionally rely on the
+//!   caller's distinct `&mut [_]` arguments being non-aliasing (guaranteed by
+//!   the borrow checker at the call site).
 //! - **All-or-error collect.** The `map_collect_*` helpers build a
 //!   `Vec<MaybeUninit<R>>`, `set_len` it (sound — `MaybeUninit` needs no
 //!   initialization), fill every slot through the disjoint-partition contract,
@@ -25,8 +29,9 @@
 //!   `MaybeUninit<R>` (its contents are not dropped — a leak of the written
 //!   values on panic, never a use of uninitialized memory).
 
-use super::DisjointMutPtr;
 use crate::policy::{ExecutionPolicy, Parallel};
+use melinoe::MelinoeCell;
+use melinoe::region::WriterShard;
 use moirai_core::error::{ExecutorError, ExecutorResult};
 use moirai_executor::{HybridExecutor, SchedulerScope, SyncTask, global};
 use std::sync::Mutex;
@@ -316,6 +321,18 @@ where
         .expect("moirai global executor: for_each_with");
 }
 
+/// Partition width for an indexed region: about one worker-sized chunk per task.
+///
+/// `for_each_indexed` already splits its domain into contiguous worker-sized
+/// ranges, so matching the partition to that width keeps the same element
+/// distribution while constructing one `WriterShard` per range instead of one
+/// per element. A width of `1` would put a shard build (and its range math) on
+/// every element's path for no benefit.
+fn worker_chunk_size(len: usize) -> usize {
+    let workers = moirai_core::executor::logical_parallelism().max(1);
+    len.div_ceil(workers).max(1)
+}
+
 /// Apply `f` to every element of `data` in place, scheduled by policy `P`.
 pub fn for_each_mut_with<P, T, F>(data: &mut [T], f: F)
 where
@@ -331,14 +348,21 @@ where
         data.iter_mut().for_each(f);
         return;
     }
-    let base = DisjointMutPtr(data.as_mut_ptr());
+    let partitions =
+        WriterShard::new(MelinoeCell::from_mut_slice(data)).par_chunks(worker_chunk_size(n));
+    let tasks = partitions.len();
     let f = &f;
     global()
-        .for_each_indexed::<SyncTask, _>(n, move |i| {
-            // SAFETY: the scheduler visits each index in `0..n` exactly once
-            // across disjoint chunks, so no two tasks alias element `i`; `data`
-            // is borrowed mutably for the whole joined call.
-            f(unsafe { base.get_mut(i) });
+        .for_each_indexed::<SyncTask, _>(tasks, move |c| {
+            // SAFETY: the scheduler visits each index in `0..tasks` exactly once,
+            // which is the contract `get_unchecked_chunk` documents; distinct
+            // partitions name disjoint element ranges, so no two tasks form a
+            // `&mut` to the same element. `data` is branded for the whole
+            // joined call, so the view cannot outlive it.
+            let mut shard = unsafe { partitions.get_unchecked_chunk(c) };
+            for element in shard.iter_mut() {
+                f(element);
+            }
         })
         .expect("moirai global executor: for_each_mut_with");
 }
@@ -380,13 +404,22 @@ where
         data.iter_mut().enumerate().for_each(|(i, x)| f(i, x));
         return;
     }
-    let base = DisjointMutPtr(data.as_mut_ptr());
+    let chunk_size = worker_chunk_size(n);
+    let partitions = WriterShard::new(MelinoeCell::from_mut_slice(data)).par_chunks(chunk_size);
+    let tasks = partitions.len();
     let f = &f;
     global()
-        .for_each_indexed::<SyncTask, _>(n, move |i| {
-            // SAFETY: each index in `0..n` is visited exactly once; see
+        .for_each_indexed::<SyncTask, _>(tasks, move |c| {
+            // Partition `c` covers the elements `[c * chunk_size, …)`.
+            let start = c * chunk_size;
+            // SAFETY: each index in `0..tasks` is visited exactly once; distinct
+            // partitions are disjoint element ranges, so the element at absolute
+            // index `start + offset` is touched by exactly one task. See
             // `for_each_mut_with`.
-            f(i, unsafe { base.get_mut(i) });
+            let mut shard = unsafe { partitions.get_unchecked_chunk(c) };
+            for (offset, element) in shard.iter_mut().enumerate() {
+                f(start + offset, element);
+            }
         })
         .expect("moirai global executor: enumerate_mut_with");
 }
@@ -500,7 +533,8 @@ where
     let chunks = workers.min(len).max(1);
     let chunk = len.div_ceil(chunks);
     let mut slots: Vec<Option<A>> = (0..chunks).map(|_| None).collect();
-    let base = DisjointMutPtr(slots.as_mut_ptr());
+    let partitions =
+        WriterShard::new(MelinoeCell::from_mut_slice(slots.as_mut_slice())).par_chunks(1);
     let init_ref = &init;
     let fold_ref = &fold;
     global()
@@ -514,10 +548,12 @@ where
             for i in start..end {
                 acc = fold_ref(acc, i);
             }
-            // SAFETY: each `ci` writes its own slot exactly once; slots are
-            // disjoint and `slots` outlives the joined call.
-            unsafe {
-                *base.get_mut(ci) = Some(acc);
+            // SAFETY: each `ci` in `0..chunks` is visited exactly once, and
+            // partition `ci` is exactly slot `ci` (one cell per partition), so
+            // every slot is written exactly once and no two tasks alias.
+            let mut shard = unsafe { partitions.get_unchecked_chunk(ci) };
+            if let Some(slot) = shard.get_mut(0) {
+                *slot = Some(acc);
             }
         })
         .expect("moirai global executor: fold_reduce_with");
@@ -578,20 +614,31 @@ where
     unsafe {
         out.set_len(n);
     }
-    let data_ptr = DisjointMutPtr(data.as_mut_ptr());
-    let out_ptr = DisjointMutPtr(out.as_mut_ptr());
+    let chunk_size = worker_chunk_size(n);
+    let data_partitions =
+        WriterShard::new(MelinoeCell::from_mut_slice(data)).par_chunks(chunk_size);
+    let out_partitions =
+        WriterShard::new(MelinoeCell::from_mut_slice(out.as_mut_slice())).par_chunks(chunk_size);
+    let tasks = data_partitions.len();
     let f = &f;
     global()
-        .for_each_indexed::<SyncTask, _>(n, move |i| {
-            // SAFETY: each index in `0..n` is visited exactly once, so neither the
-            // input element nor the output slot at `i` aliases another task's.
-            // SAFETY: unique visit of index i under the indexed scheduler,
-            // so this mutable view aliases nothing.
-            let elem = unsafe { data_ptr.get_mut(i) };
-            let result = f(i, elem);
-            // SAFETY: slot i was lengthened into place above and is written
-            // exactly once by this unique visit.
-            unsafe { out_ptr.get_mut(i).write(result) };
+        .for_each_indexed::<SyncTask, _>(tasks, move |c| {
+            // Partition `c` covers the elements `[c * chunk_size, …)` in both
+            // regions; the two regions have equal length, so their partition
+            // counts agree.
+            let start = c * chunk_size;
+            // SAFETY: each index in `0..tasks` is visited exactly once, for both
+            // the input element and the output slot at `start + offset`. The two
+            // regions are distinct borrows, and distinct partitions are disjoint
+            // ranges in each, so neither the element nor the slot at an absolute
+            // index aliases another task's.
+            let mut data_shard = unsafe { data_partitions.get_unchecked_chunk(c) };
+            let mut out_shard = unsafe { out_partitions.get_unchecked_chunk(c) };
+            for (offset, (element, slot)) in
+                data_shard.iter_mut().zip(out_shard.iter_mut()).enumerate()
+            {
+                slot.write(f(start + offset, element));
+            }
         })
         .expect("moirai global executor: map_collect_mut_with");
     // SAFETY: every slot initialized; `MaybeUninit<R>` shares `R`'s layout.

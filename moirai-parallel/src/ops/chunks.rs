@@ -1,7 +1,8 @@
 //! Mutable chunk operators over one or more disjoint buffers.
 
-use super::super::DisjointMutPtr;
 use crate::policy::ExecutionPolicy;
+use melinoe::MelinoeCell;
+use melinoe::region::WriterShard;
 use moirai_executor::{SyncTask, global};
 
 #[cfg(test)]
@@ -59,19 +60,15 @@ where
         data.chunks_mut(chunk_size).for_each(&f);
         return;
     }
-    let base = DisjointMutPtr(data.as_mut_ptr());
+    let partitions = WriterShard::new(MelinoeCell::from_mut_slice(data)).par_chunks(chunk_size);
     let f = &f;
     global()
         .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
-            let start = c * chunk_size;
-            if start >= n {
-                return;
-            }
-            let end = (start + chunk_size).min(n);
-            // SAFETY: the chunks `[start, end)` for distinct `c` are pairwise
-            // disjoint and each is visited exactly once, so no two tasks alias.
-            let chunk =
-                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
+            // SAFETY: `for_each_indexed(num_chunks, _)` visits each chunk index
+            // exactly once — the contract `get_unchecked_chunk` documents — and
+            // distinct chunk indices name disjoint element ranges, so no two
+            // tasks alias.
+            let chunk = unsafe { partitions.get_unchecked_chunk(c) }.into_mut_slice();
             f(chunk);
         })
         .expect("moirai global executor: for_each_chunk_mut_with");
@@ -113,7 +110,7 @@ pub fn for_each_chunk_mut_with_state<P, T, S, Init, F>(
         .min(num_chunks)
         .max(1);
     let chunks_per_worker = num_chunks.div_ceil(workers);
-    let base = DisjointMutPtr(data.as_mut_ptr());
+    let partitions = WriterShard::new(MelinoeCell::from_mut_slice(data)).par_chunks(chunk_size);
     let init = &init;
     let f = &f;
     global()
@@ -125,12 +122,10 @@ pub fn for_each_chunk_mut_with_state<P, T, S, Init, F>(
             }
             let mut state = init();
             for chunk_index in first_chunk..last_chunk {
-                let start = chunk_index * chunk_size;
-                let end = (start + chunk_size).min(n);
-                // SAFETY: logical chunks are assigned to exactly one worker and
-                // are pairwise disjoint, so each mutable slice is exclusive.
-                let chunk =
-                    unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
+                // SAFETY: the worker ranges `first_chunk..last_chunk` partition
+                // `0..num_chunks`, so each chunk index is visited by exactly one
+                // worker and distinct indices name disjoint element ranges.
+                let chunk = unsafe { partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
                 f(&mut state, chunk);
             }
         })
@@ -225,22 +220,19 @@ where
         return Ok(());
     }
 
-    let bases = buffers
-        .each_mut()
-        .map(|buffer| DisjointMutPtr(buffer.as_mut_ptr()));
+    let partitions = buffers
+        .map(|buffer| WriterShard::new(MelinoeCell::from_mut_slice(buffer)).par_chunks(chunk_size));
     let f = &f;
     global()
         .for_each_indexed::<SyncTask, _>(num_chunks, move |chunk_index| {
-            let start = chunk_index * chunk_size;
-            let end = (start + chunk_size).min(length);
             let chunks = core::array::from_fn(|buffer_index| {
-                let base = bases
-                    .get(buffer_index)
-                    .expect("invariant: array-generated buffer index is in bounds");
                 // SAFETY: safe construction of `buffers` proves the N mutable
-                // slices do not alias. Equal lengths were validated above, and
-                // distinct tasks own pairwise-disjoint `[start, end)` ranges.
-                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) }
+                // slices do not alias; equal lengths were validated above, so
+                // every partition view holds `num_chunks` entries and
+                // `chunk_index` is in bounds for each. Distinct chunk indices
+                // own pairwise-disjoint element ranges, so no two tasks alias.
+                unsafe { partitions[buffer_index].get_unchecked_chunk(chunk_index) }
+                    .into_mut_slice()
             });
             f(chunk_index, chunks);
         })
@@ -268,7 +260,6 @@ pub fn for_each_chunk_pair_mut_enumerated_with<P, A, B, F>(
     F: Fn(usize, &mut [A], &mut [B]) + Send + Sync,
 {
     let na = a.len();
-    let nb = b.len();
     if chunk_size == 0 || na == 0 {
         return;
     }
@@ -280,26 +271,22 @@ pub fn for_each_chunk_pair_mut_enumerated_with<P, A, B, F>(
             .for_each(|(i, (ca, cb))| f(i, ca, cb));
         return;
     }
-    let abase = DisjointMutPtr(a.as_mut_ptr());
-    let bbase = DisjointMutPtr(b.as_mut_ptr());
+    let a_partitions = WriterShard::new(MelinoeCell::from_mut_slice(a)).par_chunks(chunk_size);
+    let b_partitions = WriterShard::new(MelinoeCell::from_mut_slice(b)).par_chunks(chunk_size);
+    // The paired pass stops at the shorter buffer, matching the sequential
+    // `zip` path, so a `b` shorter than `a` is processed up to `b`'s extent
+    // rather than reading out of bounds.
+    let tasks = num_chunks.min(b_partitions.len());
     let f = &f;
     global()
-        .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
-            let start = c * chunk_size;
-            if start >= na || start >= nb {
-                return;
-            }
-            let ea = (start + chunk_size).min(na);
-            let eb = (start + chunk_size).min(nb);
-            // SAFETY: chunks `[start, e*)` for distinct `c` are pairwise disjoint
-            // within each buffer and each is visited once; `a` and `b` are
-            // distinct, non-aliasing buffers, so the two references never alias.
-            let ca =
-                unsafe { core::slice::from_raw_parts_mut(abase.base().add(start), ea - start) };
-            // SAFETY: same disjointness argument as `ca`, within `b`'s own
-            // non-aliasing buffer.
-            let cb =
-                unsafe { core::slice::from_raw_parts_mut(bbase.base().add(start), eb - start) };
+        .for_each_indexed::<SyncTask, _>(tasks, move |c| {
+            // SAFETY: `c < tasks <= a_partitions.len()` and `c <
+            // b_partitions.len()`, so both indices are in bounds; distinct chunk
+            // indices name disjoint element ranges in each buffer, and `a`/`b`
+            // are distinct non-aliasing slices, so no two tasks alias within or
+            // across the buffers.
+            let ca = unsafe { a_partitions.get_unchecked_chunk(c) }.into_mut_slice();
+            let cb = unsafe { b_partitions.get_unchecked_chunk(c) }.into_mut_slice();
             f(c, ca, cb);
         })
         .expect("moirai global executor: for_each_chunk_pair_mut_enumerated_with");
@@ -347,40 +334,21 @@ pub fn for_each_chunk_quad_mut_enumerated_with<P, A, B, C, D, F>(
             .for_each(|(i, (((ca, cb), cc), cd))| f(i, ca, cb, cc, cd));
         return;
     }
-    let abase = DisjointMutPtr(a.as_mut_ptr());
-    let bbase = DisjointMutPtr(b.as_mut_ptr());
-    let cbase = DisjointMutPtr(c.as_mut_ptr());
-    let dbase = DisjointMutPtr(d.as_mut_ptr());
+    let a_partitions = WriterShard::new(MelinoeCell::from_mut_slice(a)).par_chunks(chunk_size);
+    let b_partitions = WriterShard::new(MelinoeCell::from_mut_slice(b)).par_chunks(chunk_size);
+    let c_partitions = WriterShard::new(MelinoeCell::from_mut_slice(c)).par_chunks(chunk_size);
+    let d_partitions = WriterShard::new(MelinoeCell::from_mut_slice(d)).par_chunks(chunk_size);
     let f = &f;
     global()
         .for_each_indexed::<SyncTask, _>(num_chunks, move |chunk_index| {
-            let start = chunk_index * chunk_size;
-            if start >= na || start >= nb || start >= nc || start >= nd {
-                return;
-            }
-            let ea = (start + chunk_size).min(na);
-            let eb = (start + chunk_size).min(nb);
-            let ec = (start + chunk_size).min(nc);
-            let ed = (start + chunk_size).min(nd);
-            // SAFETY: chunks `[start, e*)` for distinct `chunk_index` values
-            // are pairwise disjoint within each buffer and each is visited at
-            // most once. The four input buffers are distinct non-aliasing
-            // `&mut` slices, so the returned mutable chunk references cannot
-            // alias each other.
-            let ca =
-                unsafe { core::slice::from_raw_parts_mut(abase.base().add(start), ea - start) };
-            // SAFETY: same disjointness argument as `ca`, within `b`'s own
-            // non-aliasing buffer.
-            let cb =
-                unsafe { core::slice::from_raw_parts_mut(bbase.base().add(start), eb - start) };
-            // SAFETY: same disjointness argument as `ca`, within `c`'s own
-            // non-aliasing buffer.
-            let cc =
-                unsafe { core::slice::from_raw_parts_mut(cbase.base().add(start), ec - start) };
-            // SAFETY: same disjointness argument as `ca`, within `d`'s own
-            // non-aliasing buffer.
-            let cd =
-                unsafe { core::slice::from_raw_parts_mut(dbase.base().add(start), ed - start) };
+            // SAFETY: the four buffers are distinct non-aliasing slices of equal
+            // length (asserted above), so every partition view holds
+            // `num_chunks` entries; distinct chunk indices own pairwise-disjoint
+            // element ranges, so no two tasks alias.
+            let ca = unsafe { a_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
+            let cb = unsafe { b_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
+            let cc = unsafe { c_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
+            let cd = unsafe { d_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
             f(chunk_index, ca, cb, cc, cd);
         })
         .expect("moirai global executor: for_each_chunk_quad_mut_enumerated_with");
@@ -421,34 +389,19 @@ pub fn for_each_chunk_triple_mut_enumerated_with<P, A, B, C, F>(
             .for_each(|(i, ((ca, cb), cc))| f(i, ca, cb, cc));
         return;
     }
-    let abase = DisjointMutPtr(a.as_mut_ptr());
-    let bbase = DisjointMutPtr(b.as_mut_ptr());
-    let cbase = DisjointMutPtr(c.as_mut_ptr());
+    let a_partitions = WriterShard::new(MelinoeCell::from_mut_slice(a)).par_chunks(chunk_size);
+    let b_partitions = WriterShard::new(MelinoeCell::from_mut_slice(b)).par_chunks(chunk_size);
+    let c_partitions = WriterShard::new(MelinoeCell::from_mut_slice(c)).par_chunks(chunk_size);
     let f = &f;
     global()
         .for_each_indexed::<SyncTask, _>(num_chunks, move |chunk_index| {
-            let start = chunk_index * chunk_size;
-            if start >= na || start >= nb || start >= nc {
-                return;
-            }
-            let ea = (start + chunk_size).min(na);
-            let eb = (start + chunk_size).min(nb);
-            let ec = (start + chunk_size).min(nc);
-            // SAFETY: chunks `[start, e*)` for distinct `chunk_index` values
-            // are pairwise disjoint within each buffer and each is visited at
-            // most once. The three input buffers are distinct non-aliasing
-            // `&mut` slices, so the returned mutable chunk references cannot
-            // alias each other.
-            let ca =
-                unsafe { core::slice::from_raw_parts_mut(abase.base().add(start), ea - start) };
-            // SAFETY: same disjointness argument as `ca`, within `b`'s own
-            // non-aliasing buffer.
-            let cb =
-                unsafe { core::slice::from_raw_parts_mut(bbase.base().add(start), eb - start) };
-            // SAFETY: same disjointness argument as `ca`, within `c`'s own
-            // non-aliasing buffer.
-            let cc =
-                unsafe { core::slice::from_raw_parts_mut(cbase.base().add(start), ec - start) };
+            // SAFETY: the three buffers are distinct non-aliasing slices of equal
+            // length (asserted above), so every partition view holds
+            // `num_chunks` entries; distinct chunk indices own pairwise-disjoint
+            // element ranges, so no two tasks alias.
+            let ca = unsafe { a_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
+            let cb = unsafe { b_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
+            let cc = unsafe { c_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
             f(chunk_index, ca, cb, cc);
         })
         .expect("moirai global executor: for_each_chunk_triple_mut_enumerated_with");
@@ -474,19 +427,13 @@ where
             .for_each(|(i, c)| f(i, c));
         return;
     }
-    let base = DisjointMutPtr(data.as_mut_ptr());
+    let partitions = WriterShard::new(MelinoeCell::from_mut_slice(data)).par_chunks(chunk_size);
     let f = &f;
     global()
         .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
-            let start = c * chunk_size;
-            if start >= n {
-                return;
-            }
-            let end = (start + chunk_size).min(n);
-            // SAFETY: chunks `[start, end)` for distinct `c` are pairwise disjoint
-            // and each visited exactly once, so no two tasks alias.
-            let chunk =
-                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
+            // SAFETY: each chunk index is visited exactly once and names a
+            // disjoint element range, so no two tasks alias.
+            let chunk = unsafe { partitions.get_unchecked_chunk(c) }.into_mut_slice();
             f(c, chunk);
         })
         .expect("moirai global executor: for_each_chunk_mut_enumerated_with");

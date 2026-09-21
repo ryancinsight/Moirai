@@ -5,8 +5,9 @@
 //! pass runs in parallel at all, depend on the bytes a unit moves — including
 //! any input read beside it — not on its element count.
 
-use super::super::DisjointMutPtr;
 use crate::policy::ExecutionPolicy;
+use melinoe::MelinoeCell;
+use melinoe::region::WriterShard;
 use moirai_executor::{SyncTask, global};
 
 #[cfg(test)]
@@ -228,18 +229,15 @@ pub fn for_each_unit_task_mut_with<P, T, S, Init, F>(
         }
         return;
     }
-    let n = data.len();
-    let base = DisjointMutPtr(data.as_mut_ptr());
+    let partitions = WriterShard::new(MelinoeCell::from_mut_slice(data)).par_chunks(task_len);
     let (init, f) = (&init, &f);
     global()
         .for_each_indexed::<SyncTask, _>(tasks, move |task| {
-            let start = task * task_len;
-            let end = (start + task_len).min(n);
-            // SAFETY: the runs `[task * task_len, end)` for distinct `task` are
-            // pairwise disjoint and each is visited exactly once, so no two
+            // SAFETY: `for_each_indexed(tasks, _)` visits each task index exactly
+            // once, and `partitions` holds exactly `tasks` runs, so `task` is in
+            // bounds; distinct indices name disjoint element ranges, so no two
             // tasks form `&mut` to one element.
-            let run =
-                unsafe { core::slice::from_raw_parts_mut(base.base().add(start), end - start) };
+            let run = unsafe { partitions.get_unchecked_chunk(task) }.into_mut_slice();
             let mut state = init();
             f(&mut state, task * per_task, run);
         })
@@ -325,22 +323,17 @@ pub fn for_each_unit_task_pair_mut_with<P, A, B, S, Init, F>(
         }
         return;
     }
-    let n = a.len();
-    let base_a = DisjointMutPtr(a.as_mut_ptr());
-    let base_b = DisjointMutPtr(b.as_mut_ptr());
+    let a_partitions = WriterShard::new(MelinoeCell::from_mut_slice(a)).par_chunks(task_len);
+    let b_partitions = WriterShard::new(MelinoeCell::from_mut_slice(b)).par_chunks(task_len);
     let (init, f) = (&init, &f);
     global()
         .for_each_indexed::<SyncTask, _>(tasks, move |task| {
-            let start = task * task_len;
-            let end = (start + task_len).min(n);
-            // SAFETY: the runs `[task * task_len, end)` for distinct `task` are
-            // pairwise disjoint within `a` and each is visited exactly once.
-            let run_a =
-                unsafe { core::slice::from_raw_parts_mut(base_a.base().add(start), end - start) };
-            // SAFETY: the same disjoint runs within `b`, a distinct buffer of
-            // the same length that the caller holds exclusively.
-            let run_b =
-                unsafe { core::slice::from_raw_parts_mut(base_b.base().add(start), end - start) };
+            // SAFETY: each task index is visited exactly once and is in bounds for
+            // both partition views (they hold the same number of runs, since `a`
+            // and `b` have equal length); distinct indices name disjoint element
+            // ranges in each buffer, so no two tasks alias.
+            let run_a = unsafe { a_partitions.get_unchecked_chunk(task) }.into_mut_slice();
+            let run_b = unsafe { b_partitions.get_unchecked_chunk(task) }.into_mut_slice();
             let mut state = init();
             f(&mut state, task * per_task, run_a, run_b);
         })
@@ -437,27 +430,19 @@ pub fn for_each_unit_task_triple_mut_with<P, A, B, C, S, Init, F>(
         }
         return;
     }
-    let n = a.len();
-    let base_a = DisjointMutPtr(a.as_mut_ptr());
-    let base_b = DisjointMutPtr(b.as_mut_ptr());
-    let base_c = DisjointMutPtr(c.as_mut_ptr());
+    let a_partitions = WriterShard::new(MelinoeCell::from_mut_slice(a)).par_chunks(task_len);
+    let b_partitions = WriterShard::new(MelinoeCell::from_mut_slice(b)).par_chunks(task_len);
+    let c_partitions = WriterShard::new(MelinoeCell::from_mut_slice(c)).par_chunks(task_len);
     let (init, f) = (&init, &f);
     global()
         .for_each_indexed::<SyncTask, _>(tasks, move |task| {
-            let start = task * task_len;
-            let end = (start + task_len).min(n);
-            // SAFETY: the runs `[task * task_len, end)` for distinct `task` are
-            // pairwise disjoint within `a` and each is visited exactly once.
-            let run_a =
-                unsafe { core::slice::from_raw_parts_mut(base_a.base().add(start), end - start) };
-            // SAFETY: the same disjoint runs within `b`, a distinct buffer of
-            // the same length that the caller holds exclusively.
-            let run_b =
-                unsafe { core::slice::from_raw_parts_mut(base_b.base().add(start), end - start) };
-            // SAFETY: the same disjoint runs within `c`, a third distinct buffer
-            // of the same length that the caller holds exclusively.
-            let run_c =
-                unsafe { core::slice::from_raw_parts_mut(base_c.base().add(start), end - start) };
+            // SAFETY: each task index is visited exactly once and is in bounds for
+            // every partition view (they hold the same number of runs, since all
+            // three buffers have equal length); distinct indices name disjoint
+            // element ranges in each buffer, so no two tasks alias.
+            let run_a = unsafe { a_partitions.get_unchecked_chunk(task) }.into_mut_slice();
+            let run_b = unsafe { b_partitions.get_unchecked_chunk(task) }.into_mut_slice();
+            let run_c = unsafe { c_partitions.get_unchecked_chunk(task) }.into_mut_slice();
             let mut state = init();
             f(&mut state, task * per_task, run_a, run_b, run_c);
         })
