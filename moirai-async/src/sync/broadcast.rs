@@ -8,11 +8,13 @@
     reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
 )]
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
+
+use super::subscribers::{SubscriberRegistry, wake_drained};
 
 /// Broadcast channel for one-to-many communication
 pub struct Broadcast<T> {
@@ -23,21 +25,11 @@ struct BroadcastState<T> {
     messages: VecDeque<(u64, T)>,
     sequence: u64,
     closed: bool,
-    /// Receiver state keyed by receiver id. Keyed (rather than a linear `Vec`)
-    /// so the per-`poll_recv` and per-drop lookup of a receiver's waker slot is
-    /// O(log n) instead of O(n), shortening lock-hold when many receivers
-    /// subscribe to one channel. The send/sender-drop fan-out iterates all
-    /// receivers regardless, which is inherently O(n).
-    receivers: BTreeMap<u64, BroadcastReceiverState>,
+    /// One slot per receiver, shared with `Watch` (see `subscribers`). The
+    /// cursor is the last sequence that receiver consumed, which doubles as the
+    /// input to the retention boundary in `send`.
+    subscribers: SubscriberRegistry<u64>,
     capacity: usize,
-    next_receiver_id: u64,
-}
-
-struct BroadcastReceiverState {
-    waker: Option<Waker>,
-    /// Last sequence consumed by this receiver.  Used to compute the retention
-    /// boundary so messages read by every receiver can be reclaimed.
-    position: u64,
 }
 
 impl<T: Clone + Send + 'static> Broadcast<T> {
@@ -49,9 +41,8 @@ impl<T: Clone + Send + 'static> Broadcast<T> {
             messages: VecDeque::new(),
             sequence: 0,
             closed: false,
-            receivers: BTreeMap::new(),
+            subscribers: SubscriberRegistry::with_initial(0),
             capacity,
-            next_receiver_id: 1,
         }));
 
         let sender = BroadcastSender {
@@ -63,18 +54,6 @@ impl<T: Clone + Send + 'static> Broadcast<T> {
             id: 0,
             position: 0,
         };
-
-        // Register the first receiver
-        {
-            let mut state_guard = state.lock().unwrap();
-            state_guard.receivers.insert(
-                0,
-                BroadcastReceiverState {
-                    waker: None,
-                    position: 0,
-                },
-            );
-        }
 
         (sender, receiver)
     }
@@ -88,64 +67,65 @@ pub struct BroadcastSender<T> {
 impl<T: Clone> BroadcastSender<T> {
     /// Send a message to all receivers
     pub fn send(&self, message: T) -> Result<usize, BroadcastError> {
-        let mut state = self.state.lock().unwrap();
-        if state.closed {
-            return Err(BroadcastError::Closed);
-        }
-
-        // Add new message first, then reclaim messages already read by every
-        // receiver.  The retention boundary is the minimum position across all
-        // live receivers; messages with sequence <= that boundary have been
-        // consumed by everyone and can be dropped.
-        state.sequence += 1;
-        let sequence = state.sequence;
-        state.messages.push_back((sequence, message));
-
-        // Wake registered receivers after publication. They observe either the
-        // appended message or the explicit lag state retained by the capacity
-        // contract.
-        let receiver_count = state.receivers.len();
-        for receiver in state.receivers.values_mut() {
-            if let Some(waker) = receiver.waker.take() {
-                waker.wake();
+        let (receiver_count, wakers) = {
+            let mut state = self.state.lock().unwrap();
+            if state.closed {
+                return Err(BroadcastError::Closed);
             }
-        }
 
-        // Reclaim memory from messages read by every receiver, while respecting
-        // the configured capacity window.
-        let min_position = state
-            .receivers
-            .values()
-            .map(|r| r.position)
-            .min()
-            .unwrap_or(sequence);
-        while state.messages.len() > state.capacity
-            || state
-                .messages
-                .front()
-                .is_some_and(|(seq, _)| *seq <= min_position)
-        {
-            state.messages.pop_front();
-        }
+            // Add new message first, then reclaim messages already read by every
+            // receiver.  The retention boundary is the minimum position across
+            // all live receivers; messages with sequence <= that boundary have
+            // been consumed by everyone and can be dropped.
+            state.sequence += 1;
+            let sequence = state.sequence;
+            state.messages.push_back((sequence, message));
+
+            // Publication is done; take the registered wakers. They observe
+            // either the appended message or the explicit lag state retained by
+            // the capacity contract. Woken only after the lock is released —
+            // see `drain_wakers`.
+            let receiver_count = state.subscribers.len();
+            let wakers = state.subscribers.drain_wakers();
+
+            // `min` over the cursors, copied out before the mutation below so
+            // the immutable borrow of the registry ends here.
+            let min_position = state
+                .subscribers
+                .cursors()
+                .copied()
+                .min()
+                .unwrap_or(sequence);
+            while state.messages.len() > state.capacity
+                || state
+                    .messages
+                    .front()
+                    .is_some_and(|(seq, _)| *seq <= min_position)
+            {
+                state.messages.pop_front();
+            }
+
+            (receiver_count, wakers)
+        };
+        wake_drained(wakers);
 
         Ok(receiver_count)
     }
 
     /// Get the number of active receivers
     pub fn receiver_count(&self) -> usize {
-        self.state.lock().unwrap().receivers.len()
+        self.state.lock().unwrap().subscribers.len()
     }
 }
 
 impl<T> Drop for BroadcastSender<T> {
     fn drop(&mut self) {
-        let mut state = self.state.lock().unwrap();
-        state.closed = true;
-        for receiver in state.receivers.values_mut() {
-            if let Some(waker) = receiver.waker.take() {
-                waker.wake();
-            }
-        }
+        let wakers = {
+            let mut state = self.state.lock().unwrap();
+            state.closed = true;
+            state.subscribers.drain_wakers()
+        };
+        wake_drained(wakers);
     }
 }
 
@@ -177,8 +157,8 @@ impl<T: Clone> BroadcastReceiver<T> {
         let oldest_seq = state.messages.front().unwrap().0;
         if self.position + 1 < oldest_seq {
             self.position = oldest_seq - 1;
-            if let Some(rx_state) = state.receivers.get_mut(&self.id) {
-                rx_state.position = self.position;
+            if let Some(subscriber) = state.subscribers.get_mut(self.id) {
+                subscriber.cursor = self.position;
             }
             return Err(BroadcastError::Lagged);
         }
@@ -196,8 +176,8 @@ impl<T: Clone> BroadcastReceiver<T> {
             message.clone()
         });
         if let Some(message) = found {
-            if let Some(rx_state) = state.receivers.get_mut(&self.id) {
-                rx_state.position = self.position;
+            if let Some(subscriber) = state.subscribers.get_mut(self.id) {
+                subscriber.cursor = self.position;
             }
             return Ok(message);
         }
@@ -212,21 +192,12 @@ impl<T: Clone> BroadcastReceiver<T> {
     /// Clone this receiver to create a new independent receiver
     pub fn resubscribe(&self) -> BroadcastReceiver<T> {
         let mut state = self.state.lock().unwrap();
-        let new_id = state.next_receiver_id;
-        state.next_receiver_id += 1;
         let current_sequence = state.sequence;
-
-        state.receivers.insert(
-            new_id,
-            BroadcastReceiverState {
-                waker: None,
-                position: current_sequence,
-            },
-        );
+        let id = state.subscribers.register(current_sequence);
 
         BroadcastReceiver {
             state: self.state.clone(),
-            id: new_id,
+            id,
             position: current_sequence,
         }
     }
@@ -239,8 +210,8 @@ impl<T: Clone> BroadcastReceiver<T> {
             if state.closed {
                 return Poll::Ready(Err(BroadcastError::Closed));
             }
-            if let Some(receiver_state) = state.receivers.get_mut(&self.id) {
-                receiver_state.waker = Some(cx.waker().clone());
+            if let Some(subscriber) = state.subscribers.get_mut(self.id) {
+                subscriber.waker = Some(cx.waker().clone());
             }
             return Poll::Pending;
         }
@@ -249,8 +220,8 @@ impl<T: Clone> BroadcastReceiver<T> {
         let oldest_seq = state.messages.front().unwrap().0;
         if self.position + 1 < oldest_seq {
             self.position = oldest_seq - 1;
-            if let Some(rx_state) = state.receivers.get_mut(&self.id) {
-                rx_state.position = self.position;
+            if let Some(subscriber) = state.subscribers.get_mut(self.id) {
+                subscriber.cursor = self.position;
             }
             return Poll::Ready(Err(BroadcastError::Lagged));
         }
@@ -265,15 +236,15 @@ impl<T: Clone> BroadcastReceiver<T> {
         });
 
         if let Some((_, message)) = found_msg {
-            if let Some(rx_state) = state.receivers.get_mut(&self.id) {
-                rx_state.position = self.position;
+            if let Some(subscriber) = state.subscribers.get_mut(self.id) {
+                subscriber.cursor = self.position;
             }
             Poll::Ready(Ok(message))
         } else if state.closed {
             Poll::Ready(Err(BroadcastError::Closed))
         } else {
-            if let Some(receiver_state) = state.receivers.get_mut(&self.id) {
-                receiver_state.waker = Some(cx.waker().clone());
+            if let Some(subscriber) = state.subscribers.get_mut(self.id) {
+                subscriber.waker = Some(cx.waker().clone());
             }
             Poll::Pending
         }
@@ -289,7 +260,7 @@ impl<T: Clone> Clone for BroadcastReceiver<T> {
 impl<T> Drop for BroadcastReceiver<T> {
     fn drop(&mut self) {
         if let Ok(mut state) = self.state.lock() {
-            state.receivers.remove(&self.id);
+            state.subscribers.remove(self.id);
         }
     }
 }
@@ -316,8 +287,8 @@ impl<'a, T> Drop for BroadcastRecv<'a, T> {
         // for this receiver id — clearing here cannot drop another future's waker.
         if let Ok(mut state) = self.receiver.state.lock() {
             let id = self.receiver.id;
-            if let Some(receiver_state) = state.receivers.get_mut(&id) {
-                receiver_state.waker = None;
+            if let Some(subscriber) = state.subscribers.get_mut(id) {
+                subscriber.waker = None;
             }
         }
     }
@@ -350,7 +321,7 @@ impl std::error::Error for BroadcastError {}
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::task::Wake;
+    use std::task::{Wake, Waker};
 
     struct CountingWake(Arc<AtomicUsize>);
     impl Wake for CountingWake {

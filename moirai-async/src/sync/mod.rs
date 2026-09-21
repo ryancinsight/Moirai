@@ -18,6 +18,7 @@ pub mod notify;
 pub mod oneshot;
 pub mod rwlock;
 pub mod semaphore;
+pub(crate) mod subscribers;
 pub(crate) mod wait_queue;
 pub mod watch;
 
