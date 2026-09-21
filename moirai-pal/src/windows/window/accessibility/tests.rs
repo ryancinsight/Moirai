@@ -131,6 +131,15 @@ fn maps_platform_actions_to_bounded_requests() {
             delta: None,
         }
     );
+    let set_value = action_request(accesskit::ActionRequest {
+        action: Action::SetValue,
+        target_tree: TreeId::ROOT,
+        target_node: NodeId::from(9),
+        data: Some(ActionData::Value(Box::<str>::from("replacement"))),
+    })
+    .expect("set value is supported");
+    assert_eq!(set_value.action, AccessibilityAction::SetValue);
+    assert_eq!(set_value.value.as_deref(), Some("replacement"));
     let increment = action_request(accesskit::ActionRequest {
         action: Action::Increment,
         target_tree: TreeId::ROOT,

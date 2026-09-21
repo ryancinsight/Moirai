@@ -73,7 +73,8 @@ the contract and apply requests through their existing state transitions.
 ## Verification
 
 Native Windows lifecycle tests cover hidden construction, adapter installation
-before `show`, tree validation, stable updates and typed action translation.
+before `show`, tree validation, stable updates and typed action translation,
+including both UI Automation text replacement and `ValuePattern.SetValue`.
 The locked Windows build, strict Clippy, Rustdoc and lockfile gates compile
 the AccessKit provider. Metis owns the consumer conversion and records
 host-level screen-reader evidence under `METIS-A11Y-001`.
