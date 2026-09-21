@@ -331,37 +331,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
         if let Some(queue) = &self.bounded {
             return self.send_bounded(queue, value);
         }
-
-        let (mutex, not_full, not_empty) = &self.state;
-        let mut guard = mutex.lock().unwrap();
-        let mut spin_count = 0;
-
-        while !guard.closed && guard.capacity.is_some_and(|cap| guard.queue.len() >= cap) {
-            if spin_count < MPMC_BLOCK_SPINS {
-                drop(guard);
-                for _ in 0..(1 << spin_count) {
-                    std::hint::spin_loop();
-                }
-                spin_count += 1;
-                guard = mutex.lock().unwrap();
-            } else {
-                self.sender_waiter_count.fetch_add(1, Ordering::AcqRel);
-                guard = not_full.wait(guard).unwrap();
-                self.sender_waiter_count.fetch_sub(1, Ordering::AcqRel);
-            }
-        }
-
-        if guard.closed {
-            return Err(ChannelError::Closed);
-        }
-
-        guard.queue.push_back(value);
-        drop(guard);
-
-        if self.receiver_waiter_count.load(Ordering::Acquire) > 0 {
-            not_empty.notify_one();
-        }
-        Ok(())
+        self.send_unbounded(value)
     }
 
     fn try_send(&self, value: T) -> Result<()> {
@@ -371,67 +341,19 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             }
             let outcome = queue.try_push(value).map_err(|_| ChannelError::Full)?;
             // The mutex is not held here, so nothing else orders this
-            // Store→Load; the helper's fence supplies it. See
+            // Store->Load; the helper's fence supplies it. See
             // `wake_receiver_on_transition`.
             self.wake_receiver_on_transition(outcome);
             return Ok(());
         }
-
-        let (mutex, _, not_empty) = &self.state;
-        let mut guard = mutex.lock().unwrap();
-
-        if guard.closed {
-            return Err(ChannelError::Closed);
-        }
-
-        if guard.capacity.is_some_and(|cap| guard.queue.len() >= cap) {
-            return Err(ChannelError::Full);
-        }
-
-        guard.queue.push_back(value);
-        drop(guard);
-
-        if self.receiver_waiter_count.load(Ordering::Acquire) > 0 {
-            not_empty.notify_one();
-        }
-        Ok(())
+        self.try_send_unbounded(value)
     }
 
     fn recv(&self) -> Result<T> {
         if let Some(queue) = &self.bounded {
             return self.recv_bounded(queue);
         }
-
-        let (mutex, not_full, not_empty) = &self.state;
-        let mut guard = mutex.lock().unwrap();
-        let mut spin_count = 0;
-
-        while guard.queue.is_empty() && !guard.closed {
-            if spin_count < MPMC_BLOCK_SPINS {
-                drop(guard);
-                for _ in 0..(1 << spin_count) {
-                    std::hint::spin_loop();
-                }
-                spin_count += 1;
-                guard = mutex.lock().unwrap();
-            } else {
-                self.receiver_waiter_count.fetch_add(1, Ordering::AcqRel);
-                guard = not_empty.wait(guard).unwrap();
-                self.receiver_waiter_count.fetch_sub(1, Ordering::AcqRel);
-            }
-        }
-
-        match guard.queue.pop_front() {
-            Some(value) => {
-                drop(guard);
-
-                if self.sender_waiter_count.load(Ordering::Acquire) > 0 {
-                    not_full.notify_one();
-                }
-                Ok(value)
-            }
-            _ => Err(ChannelError::Closed),
-        }
+        self.recv_unbounded()
     }
 
     fn try_recv(&self) -> Result<T> {
@@ -445,56 +367,27 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             }
             return Err(ChannelError::Empty);
         }
-
-        let (mutex, not_full, _) = &self.state;
-        let mut guard = mutex.lock().unwrap();
-
-        match guard.queue.pop_front() {
-            Some(value) => {
-                drop(guard);
-
-                if self.sender_waiter_count.load(Ordering::Acquire) > 0 {
-                    not_full.notify_one();
-                }
-                Ok(value)
-            }
-            _ => {
-                if guard.closed {
-                    Err(ChannelError::Closed)
-                } else {
-                    Err(ChannelError::Empty)
-                }
-            }
-        }
+        self.try_recv_unbounded()
     }
 
     fn is_empty(&self) -> bool {
         if let Some(queue) = &self.bounded {
             return queue.is_empty();
         }
-
-        let (mutex, _, _) = &self.state;
-        let guard = mutex.lock().unwrap();
-        guard.queue.is_empty()
+        self.is_empty_unbounded()
     }
 
     fn is_full(&self) -> bool {
         if let Some(queue) = &self.bounded {
             return queue.is_full();
         }
-
-        let (mutex, _, _) = &self.state;
-        let guard = mutex.lock().unwrap();
-        guard.capacity.is_some_and(|cap| guard.queue.len() >= cap)
+        self.is_full_unbounded()
     }
 
     fn capacity(&self) -> Option<usize> {
         if let Some(queue) = &self.bounded {
             return Some(queue.logical_capacity());
         }
-
-        let (mutex, _, _) = &self.state;
-        let guard = mutex.lock().unwrap();
-        guard.capacity
+        self.capacity_unbounded()
     }
 }

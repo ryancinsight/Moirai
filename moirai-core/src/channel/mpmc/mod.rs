@@ -9,6 +9,7 @@ mod channel;
 mod queue;
 mod recv;
 mod send;
+mod unbounded;
 
 pub use self::channel::MpmcChannel;
 pub use self::recv::MpmcReceiver;
