@@ -161,13 +161,21 @@ fn registry_lifecycle_keeps_qpc_out_of_production_path() {
 
 #[test]
 fn task_result_wait_uses_zero_sized_policy_and_load_gated_take() {
-    let source = read_benchmark("../moirai-core/src/task.rs");
+    let source = format!(
+        "{}\n{}",
+        read_benchmark("../moirai-core/src/task.rs"),
+        // The machine itself, shared with the async side: the load gate this
+        // test pins is one of its transitions.
+        read_benchmark("../moirai-utils/src/result_cell.rs")
+    );
 
     for required in [
         "trait ResultWaitPolicy",
         "struct BlockingResultWait",
         "impl ResultWaitPolicy for BlockingResultWait",
         "slot.wait::<BlockingResultWait>()",
+        // The blocking side keeps the state word in its own interference sector.
+        "cell: ResultCell<Result<T, TaskError>, thread::Thread, CacheAligned<AtomicU8>>",
         "for _ in 0..P::SPIN_ATTEMPTS",
         "try_take_observed_ready",
         "self.state.load(Ordering::Relaxed) == RESULT_READY",

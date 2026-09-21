@@ -5,32 +5,15 @@ use super::id_and_context::TaskId;
 // ── std-only block ────────────────────────────────────────────────────────────
 
 #[cfg(feature = "std")]
-use core::cell::UnsafeCell;
-#[cfg(feature = "std")]
-use core::mem::{ManuallyDrop, MaybeUninit};
+use core::mem::ManuallyDrop;
 
 #[cfg(feature = "std")]
-use std::sync::{
-    Arc,
-    atomic::{AtomicU8, Ordering},
-};
+use std::sync::{Arc, atomic::AtomicU8};
 #[cfg(feature = "std")]
 use std::thread;
 
 #[cfg(feature = "std")]
-use moirai_utils::CacheAligned;
-
-// State constants for TaskResultSlot
-#[cfg(feature = "std")]
-const RESULT_PENDING: u8 = 0;
-#[cfg(feature = "std")]
-const RESULT_WRITING: u8 = 1;
-#[cfg(feature = "std")]
-const RESULT_READY: u8 = 2;
-#[cfg(feature = "std")]
-const RESULT_TAKEN: u8 = 3;
-#[cfg(feature = "std")]
-const RESULT_WAITING: u8 = 4;
+use moirai_utils::{CacheAligned, ResultCell};
 
 // ── ResultWaitPolicy sealed module ────────────────────────────────────────────
 
@@ -78,64 +61,34 @@ pub use result_wait::{BlockingResultWait, ResultWaitPolicy};
 /// consumer accesses `result`/`waiter` beyond it.
 ///
 /// [`CacheAligned`] supplies both halves of that layout — it aligns the slot
-/// (and therefore `state`, the first field) to
+/// (and therefore the cell's `state` word) to
 /// `moirai_utils::DESTRUCTIVE_INTERFERENCE_SIZE`, and its own size pushes
 /// `result`/`waiter` past that boundary. The separation is 128 bytes on
 /// x86-64/aarch64, where the adjacent-line prefetcher makes 64 too narrow;
 /// the per-target value lives in `moirai-utils`, not in a literal here.
 #[cfg(feature = "std")]
 struct TaskResultSlot<T> {
-    /// Synchronisation state — written by the producer, read by consumer.
-    /// Wrapped so it occupies a full interference sector of its own.
-    state: CacheAligned<AtomicU8>,
-    result: UnsafeCell<MaybeUninit<Result<T, TaskError>>>,
-    waiter: UnsafeCell<MaybeUninit<thread::Thread>>,
+    cell: ResultCell<Result<T, TaskError>, thread::Thread, CacheAligned<AtomicU8>>,
 }
 
-// Safety: the slot is a single-producer/single-consumer one-shot cell.
-// `complete` wins the PENDING/WAITING -> WRITING transition before writing.
-// WAITING is entered only after the waiter thread is stored in the waiter cell,
-// and `wait` takes the value only after an acquire READY -> TAKEN transition.
-#[cfg(feature = "std")]
-unsafe impl<T: Send> Send for TaskResultSlot<T> {}
-
-// SAFETY: shared access still routes every read/write through the
-// state-machine transitions described above; two threads never touch a
-// cell outside PENDING/WAITING/WRITING/READY/TAKEN ordering, so `T: Send`
-// suffices for concurrent `&self` use.
-#[cfg(feature = "std")]
-unsafe impl<T: Send> Sync for TaskResultSlot<T> {}
-
+/// The blocking side of the completion path.
+///
+/// The protocol — the state machine, its cell-access invariants and its ordering
+/// argument — lives with [`ResultCell`] in `moirai-utils`, and the async handle
+/// runs it too. This type adds only what blocking needs: a parked
+/// [`thread::Thread`] as the waiter, the cache-aligned state word its layout note
+/// above describes, and [`wait`](Self::wait)'s spin-then-park loop, which needs
+/// `thread::park` and so does not belong in the shared cell.
 #[cfg(feature = "std")]
 impl<T> TaskResultSlot<T> {
     fn new() -> Self {
         Self {
-            state: CacheAligned::new(AtomicU8::new(RESULT_PENDING)),
-            result: UnsafeCell::new(MaybeUninit::uninit()),
-            waiter: UnsafeCell::new(MaybeUninit::uninit()),
+            cell: ResultCell::new(),
         }
     }
 
     fn complete(&self, result: Result<T, TaskError>) {
-        let Some(waiting) = self.begin_completion() else {
-            return;
-        };
-
-        // Safety: the WRITING state is reachable only through
-        // `begin_completion`, so no other thread can read, write, or drop the
-        // result cell until READY publishes.
-        unsafe {
-            (*self.result.get()).write(result);
-        }
-
-        self.state.store(RESULT_READY, Ordering::Release);
-
-        if waiting {
-            // Safety: WAITING is reachable only after `register_waiter` writes
-            // the thread handle and publishes it with a release CAS.
-            let thread = unsafe { (*self.waiter.get()).assume_init_read() };
-            thread.unpark();
-        }
+        self.cell.complete(result);
     }
 
     fn wait<P>(&self) -> Result<T, TaskError>
@@ -165,123 +118,21 @@ impl<T> TaskResultSlot<T> {
     }
 
     fn is_completed(&self) -> bool {
-        self.state.load(Ordering::Acquire) == RESULT_READY
+        self.cell.is_completed()
     }
 
     fn try_take_ready(&self) -> Option<Result<T, TaskError>> {
-        if self
-            .state
-            .compare_exchange(
-                RESULT_READY,
-                RESULT_TAKEN,
-                Ordering::Acquire,
-                Ordering::Relaxed,
-            )
-            .is_ok()
-        {
-            // Safety: READY is published only after `complete` initializes the
-            // cell. The READY -> TAKEN transition is unique, so this read moves
-            // the result exactly once.
-            Some(unsafe { (*self.result.get()).assume_init_read() })
-        } else {
-            None
-        }
+        self.cell.try_take_ready()
     }
 
     fn try_take_observed_ready(&self) -> Option<Result<T, TaskError>> {
-        if self.state.load(Ordering::Relaxed) == RESULT_READY {
-            self.try_take_ready()
-        } else {
-            None
-        }
+        self.cell.try_take_observed_ready()
     }
 
     fn register_waiter(&self) {
-        loop {
-            match self.state.load(Ordering::Acquire) {
-                RESULT_PENDING => {
-                    // Safety: there is only one consumer. If the publish CAS
-                    // fails, this local thread handle is dropped before retry.
-                    unsafe {
-                        (*self.waiter.get()).write(thread::current());
-                    }
-
-                    if self
-                        .state
-                        .compare_exchange(
-                            RESULT_PENDING,
-                            RESULT_WAITING,
-                            Ordering::Release,
-                            Ordering::Acquire,
-                        )
-                        .is_ok()
-                    {
-                        return;
-                    }
-
-                    // Safety: the CAS failed, so no producer can observe this
-                    // waiter cell as initialized through the WAITING state.
-                    unsafe {
-                        (*self.waiter.get()).assume_init_drop();
-                    }
-                }
-                RESULT_WRITING => core::hint::spin_loop(),
-                _ => return,
-            }
-        }
-    }
-
-    fn begin_completion(&self) -> Option<bool> {
-        match self.state.compare_exchange(
-            RESULT_PENDING,
-            RESULT_WRITING,
-            Ordering::Relaxed,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => Some(false),
-            Err(RESULT_WAITING) => {
-                if self
-                    .state
-                    .compare_exchange(
-                        RESULT_WAITING,
-                        RESULT_WRITING,
-                        Ordering::Acquire,
-                        Ordering::Acquire,
-                    )
-                    .is_ok()
-                {
-                    Some(true)
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        }
+        self.cell.register(&thread::current());
     }
 }
-
-#[cfg(feature = "std")]
-impl<T> Drop for TaskResultSlot<T> {
-    fn drop(&mut self) {
-        // `.0` disambiguates: `CacheAligned::get_mut` would yield the atomic
-        // itself, not its value.
-        let state = *self.state.0.get_mut();
-        if state == RESULT_READY {
-            // Safety: READY means the cell is initialized and no consuming join
-            // took it because `drop` has exclusive access to the slot.
-            unsafe {
-                self.result.get_mut().assume_init_drop();
-            }
-        } else if state == RESULT_WAITING {
-            // Safety: WAITING means the waiter thread handle is initialized and
-            // no producer unparked it because `drop` has exclusive access.
-            unsafe {
-                self.waiter.get_mut().assume_init_drop();
-            }
-        }
-    }
-}
-
 // ── Diagnostic helpers (feature = "result-diagnostics") ──────────────────────
 
 #[cfg(all(feature = "std", feature = "result-diagnostics"))]

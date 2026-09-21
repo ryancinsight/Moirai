@@ -1,5 +1,6 @@
 //! loom exhaustive-interleaving model of `AsyncResultSlot`'s producer/consumer
-//! protocol (`moirai-async/src/executor/result_slot.rs`).
+//! protocol (`moirai-utils/src/result_cell.rs`, run on the async side through
+//! the thin `AsyncResultSlot` adapter).
 //!
 //! The production slot backs its `result`/`waiter` payload with
 //! `UnsafeCell<MaybeUninit<_>>`; this file models the *state protocol* — the

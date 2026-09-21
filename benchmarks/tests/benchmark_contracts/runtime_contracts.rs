@@ -58,18 +58,22 @@ fn async_executor_uses_monomorphized_erased_future_queue() {
 #[test]
 fn async_executor_handle_uses_inline_result_slot() {
     let source = format!(
-        "{}\n{}",
+        "{}\n{}\n{}",
         read_benchmark("../moirai-async/src/executor.rs"),
-        read_benchmark("../moirai-async/src/executor/result_slot.rs")
+        read_benchmark("../moirai-async/src/executor/result_slot.rs"),
+        // The machine itself, now shared with the blocking side: the adapter is
+        // `ResultCell` with a `Waker`, so the inline-cell shape this test guards
+        // lives there.
+        read_benchmark("../moirai-utils/src/result_cell.rs")
     );
 
     for required in [
         "struct AsyncResultSlot<T>",
+        "cell: ResultCell<T, Waker>",
         "result: UnsafeCell<MaybeUninit<T>>",
-        "state: AtomicU8",
-        "waiter: UnsafeCell<MaybeUninit<Waker>>",
-        "const ASYNC_RESULT_WAITING",
-        "const ASYNC_RESULT_UPDATING_WAKER",
+        "S: StateWord = AtomicU8",
+        "const RESULT_WAITING",
+        "const RESULT_UPDATING_WAITER",
         "fn complete(&self, result: T)",
         "fn register_waker(&self, waker: &Waker)",
         "fn begin_completion(&self) -> Option<bool>",
