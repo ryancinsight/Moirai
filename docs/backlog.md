@@ -14,7 +14,7 @@
 - **Scope:** add a format-neutral, thread-owned Windows accessibility adapter at the native window boundary; install it before the HWND becomes visible, translate bounded semantic trees and typed actions through the AccessKit UIA provider, and retain a bounded action queue for the owning thread. No application semantics, browser DOM, DICOM policy or screen-reader automation belongs in Moirai.
 - **Acceptance:** the provider compiles with the workspace Windows bindings, rejects malformed or over-bounded trees before they reach UIA, preserves stable node identity/focus/action state across updates, reports action-queue overflow as a typed error, and has native regression coverage plus Rustdoc/lockfile verification. Metis consumes the contract in `METIS-A11Y-001`.
 - **Decision:** [ADR 0066](adr/0066-windows-accessibility-bridge.md).
-- **Lease:** root `moirai-pal/src/windows/window/` `moirai-pal/Cargo.toml` `docs/adr/0066-windows-accessibility-bridge.md` `docs/adr/README.md` `docs/backlog.md` 2026-09-21T00:55:00-04:00.
+- **Lease:** root `moirai-pal/src/windows/window/accessibility/adapter.rs` `moirai-pal/src/windows/window/accessibility/tests.rs` `docs/adr/0066-windows-accessibility-bridge.md` `docs/backlog.md` 2026-09-21T08:42:00-04:00.
 
 <a id="MOI-WASM-CLIPBOARD-2026-09-19"></a>
 ## MOI-WASM-CLIPBOARD-2026-09-19 — Expose bounded browser text clipboard [minor]
