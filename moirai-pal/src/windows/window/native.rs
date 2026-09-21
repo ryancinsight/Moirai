@@ -34,6 +34,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
+use super::accessibility::{
+    ACCESSIBILITY_WAKE_MESSAGE, AccessibilityTree, WindowsAccessibilityAdapter,
+};
 use super::config::{
     MAX_COMPOSITION_UNITS, MAX_PUMP_MESSAGES, MAX_WAIT_MILLISECONDS, WindowConfig,
     WindowVisibility, allocation_error, coordinate_error, validate_frame_dimensions, windows_error,
@@ -67,6 +70,8 @@ pub struct NativeWindow {
     #[expect(dead_code, reason = "the guard's Drop restores the thread context")]
     dpi_context: ThreadDpiAwarenessContext,
     state: Box<WindowState>,
+    accessibility: Option<WindowsAccessibilityAdapter>,
+    visible: bool,
     destroyed: bool,
 }
 
@@ -108,6 +113,14 @@ impl NativeWindow {
     /// Returns the native error when class registration or window creation
     /// fails, or `InvalidInput` for invalid configuration.
     pub fn new(config: &WindowConfig) -> io::Result<Self> {
+        let mut window = Self::new_hidden(config)?;
+        if config.visibility() == WindowVisibility::Visible {
+            window.show()?;
+        }
+        Ok(window)
+    }
+
+    fn new_hidden(config: &WindowConfig) -> io::Result<Self> {
         let dpi_context = ThreadDpiAwarenessContext::enter()?;
         let instance = register_class()?;
         let (outer_width, outer_height) = outer_dimensions(config.width(), config.height())?;
@@ -138,6 +151,8 @@ impl NativeWindow {
             hwnd,
             dpi_context,
             state,
+            accessibility: None,
+            visible: false,
             destroyed: false,
         };
         if !window
@@ -149,19 +164,75 @@ impl NativeWindow {
             let (width, height) = client_dimensions(hwnd)?;
             window.state.push(WindowEvent::Resized { width, height });
         }
-        if config.visibility() == WindowVisibility::Visible {
-            // SAFETY: `hwnd` is the live handle returned by CreateWindowExW and
-            // both calls are synchronous operations on the creating thread.
-            unsafe {
-                let _ = ShowWindow(hwnd, SW_SHOW);
-                if !UpdateWindow(hwnd).as_bool() {
-                    let error = io::Error::last_os_error();
-                    window.close()?;
-                    return Err(error);
-                }
-            }
-        }
         Ok(window)
+    }
+
+    /// Shows a hidden window after host adapters have been installed.
+    ///
+    /// # Errors
+    /// Returns the native repaint error or an invalid-state error for a closed
+    /// window.
+    pub fn show(&mut self) -> io::Result<()> {
+        if self.destroyed {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cannot show a destroyed native window",
+            ));
+        }
+        if self.visible {
+            return Ok(());
+        }
+        // SAFETY: `self.hwnd` is the live handle created on this thread and the
+        // calls are synchronous; no pointer is retained by either operation.
+        let updated = unsafe {
+            let _ = ShowWindow(self.hwnd, SW_SHOW);
+            UpdateWindow(self.hwnd).as_bool()
+        };
+        if !updated {
+            let error = io::Error::last_os_error();
+            let _ = self.close();
+            return Err(error);
+        }
+        self.visible = true;
+        Ok(())
+    }
+
+    /// Installs the Windows accessibility adapter while the HWND is hidden.
+    ///
+    /// # Errors
+    /// Returns an invalid-state error when the window is visible or already has
+    /// an adapter, or a validation error for the supplied tree.
+    pub fn install_accessibility(&mut self, tree: AccessibilityTree) -> io::Result<()> {
+        if self.visible {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "native accessibility must be installed before the window is shown",
+            ));
+        }
+        if self.accessibility.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "native accessibility is already installed",
+            ));
+        }
+        self.accessibility = Some(WindowsAccessibilityAdapter::new(self.hwnd, tree)?);
+        Ok(())
+    }
+
+    /// Replaces the current native accessibility tree and raises its events.
+    ///
+    /// # Errors
+    /// Returns a validation, queue or native accessibility error.
+    pub fn update_accessibility(&mut self, tree: AccessibilityTree) -> io::Result<()> {
+        self.accessibility
+            .as_mut()
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "native accessibility is not installed",
+                )
+            })?
+            .update(tree)
     }
 
     /// Returns whether the HWND has completed destruction.
@@ -206,7 +277,16 @@ impl NativeWindow {
                 "native window event queue capacity exceeded",
             ));
         }
-        Ok(self.state.events.drain(..).collect())
+        let mut events: Vec<WindowEvent> = self.state.events.drain(..).collect();
+        if let Some(accessibility) = self.accessibility.as_mut() {
+            events.extend(
+                accessibility
+                    .take_actions()?
+                    .into_iter()
+                    .map(|request| WindowEvent::AccessibilityAction { request }),
+            );
+        }
+        Ok(events)
     }
 
     /// Waits for native input for a finite duration, then returns one bounded
@@ -235,7 +315,14 @@ impl NativeWindow {
                 "native event wait exceeds the 30 second bound",
             ));
         }
-        if !self.state.events.is_empty() || self.state.overflowed || self.state.error.is_some() {
+        if !self.state.events.is_empty()
+            || self.state.overflowed
+            || self.state.error.is_some()
+            || self
+                .accessibility
+                .as_ref()
+                .is_some_and(WindowsAccessibilityAdapter::has_pending_actions)
+        {
             return self.poll_events();
         }
         // SAFETY: the call observes only this thread's message queue, accepts
@@ -311,6 +398,9 @@ impl NativeWindow {
         if self.destroyed {
             return Ok(());
         }
+        // Remove the subclass while the HWND is still valid. The adapter's
+        // destructor is thread-affine and restores the original window proc.
+        self.accessibility.take();
         // SAFETY: the handle belongs to this thread and IsWindow only observes
         // the handle before the synchronous DestroyWindow call.
         if unsafe { IsWindow(Some(self.hwnd)) }.as_bool() {
@@ -324,6 +414,7 @@ impl NativeWindow {
 impl Drop for NativeWindow {
     fn drop(&mut self) {
         if !self.destroyed {
+            self.accessibility.take();
             // Drop cannot report errors. DestroyWindow is the synchronous RAII
             // fallback; the callback remains valid through the call because
             // `state` is dropped only after this method returns.
@@ -530,6 +621,7 @@ unsafe extern "system" fn window_proc(
                 // WM_NCDESTROY prevents later messages from observing stale state.
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             }
+            ACCESSIBILITY_WAKE_MESSAGE => {}
             _ => return DefWindowProcW(hwnd, message, wparam, lparam),
         }
         LRESULT(0)
