@@ -75,8 +75,11 @@ fn test_unified_channel_close() {
 
 #[test]
 fn test_unified_channel_adaptive_overflow_fifo() {
-    // Capacity 2 rounded to power of two is 2. The max stored in ring buffer is 1.
-    // Overflow queue capacity is 4.
+    // The ring is now the canonical bounded queue, whose capacity is the
+    // configured one exactly (ADR-0016). The channel it replaced sized its own
+    // copy, which wasted a slot and made a capacity of 2 hold only 1, so the
+    // counts below are one higher than before the swap: 2 in the ring plus the
+    // pool's 4.
     let config = ChannelConfig {
         capacity: 2,
         enable_pooling: true,
@@ -86,16 +89,16 @@ fn test_unified_channel_adaptive_overflow_fifo() {
 
     let (sender, receiver) = unified_channel_with_config::<i32>(config).unwrap();
 
-    // Push 5 items (1 goes to ring buffer, 4 go to overflow queue)
-    for i in 1..=5 {
+    // Push 6 items (2 go to ring buffer, 4 go to overflow queue)
+    for i in 1..=6 {
         sender.send(i).unwrap();
     }
 
-    // Attempting to push 6th item should fail (both full)
-    assert!(sender.send(6).is_err());
+    // Attempting to push 7th item should fail (both full)
+    assert!(sender.send(7).is_err());
 
-    // Verify FIFO ordering of all 5 items
-    for expected in 1..=5 {
+    // Verify FIFO ordering of all 6 items
+    for expected in 1..=6 {
         assert_eq!(receiver.recv().unwrap(), expected);
     }
 

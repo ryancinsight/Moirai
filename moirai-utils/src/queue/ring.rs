@@ -338,6 +338,18 @@ impl<T> LockFreeQueue<T> {
     pub const fn capacity(&self) -> usize {
         self.capacity
     }
+
+    /// Number of items currently queued.
+    ///
+    /// Best-effort in the same sense as [`is_empty`](LockFreeQueue::is_empty):
+    /// it is the cursor difference, so a push that has reserved its position but
+    /// not yet published its slot is already counted, and the value can change
+    /// under the caller immediately after the read.
+    pub fn len(&self) -> usize {
+        self.tail
+            .load(Ordering::Acquire)
+            .wrapping_sub(self.head.load(Ordering::Acquire))
+    }
 }
 
 impl<T> Default for LockFreeQueue<T> {

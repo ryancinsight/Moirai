@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`LockFreeQueue::len`.** The bounded MPMC queue reports its current depth as
+  the difference of its `head` and `tail` cursors, best-effort in the same sense
+  as `is_empty`/`is_full`. `UnifiedChannel::len` and its `current_length`
+  statistic needed it once the channel moved onto this core, and the cursors
+  already carried the value.
+
 - **Unit-task ranges** (`for_each_unit_task_range_with`). The unit-task
   operators (ADR 0059) all hand out runs of a dense slice, so a pass whose
   units are not one contiguous buffer — a strided row walk, a tiled block
@@ -36,7 +42,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   registration. On this mechanism the apollo FFT stack will release its
   ~7.2 MB high-water worker scratch at quiescence
   (`ATLAS-APOLLO-WORKER-RETENTION-2026-09-03`).
+
 ### Changed
+
+- **The unified channel reports its configured capacity.** `UnifiedChannel` now
+  runs on the workspace's one bounded MPMC queue core (ADR-0016) instead of a
+  per-channel copy of the same ring that serialized each side behind its own
+  mutex. The copy it replaced rounded the requested capacity up to a power of two
+  and then wasted a slot, so a configured capacity of 2 held a single item and
+  `capacity()` reported the padded value; the canonical core holds exactly the
+  request and reports it back, so a channel configured for `n >= 2` now holds one
+  more item than before. The send and receive fast paths are lock-free rather
+  than two-mutex, and the channel's public API, FIFO order, and full-at-both-full
+  contract are unchanged.
 
 - **Worker idle-hook admission is bounded.** `register_idle_hook` now returns
   `Result<(), IdleHookRegistrationError>` and rejects registrations beyond
@@ -80,6 +98,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are new. ADR 0035 carries the dated revision.
 
 ### Removed
+
+- **`moirai_core::memory::UnifiedRingBuffer`** (ADR-0016). It was a third copy of
+  the bounded ring in the crate, serialized per side by a mutex, and
+  `UnifiedChannel` was its only consumer — so the type is deleted rather than
+  kept beside the canonical cores. Migration: use
+  `moirai_utils::queue::LockFreeQueue`, which is the core `UnifiedChannel` now
+  holds, or reach the channel itself through `moirai_core::channel::unified`.
 
 - **The scheduler topology mirror and the `numa_aware` flag** (ADR-037).
   `moirai_scheduler::numa::{CpuTopology, NumaNode, CacheLevel}` duplicated

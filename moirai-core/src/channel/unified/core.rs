@@ -12,12 +12,15 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use crate::channel::config::ChannelConfig;
 use crate::channel::error::ChannelError;
 use crate::channel::stats::{ChannelStatistics, ChannelStats};
-use crate::memory::UnifiedRingBuffer;
+use moirai_utils::queue::LockFreeQueue;
 
 /// Unified channel that adapts to different usage patterns
 pub struct UnifiedChannel<T> {
-    /// Primary ring buffer for fast path operations
-    pub(crate) ring_buffer: UnifiedRingBuffer<T>,
+    /// Primary ring: the workspace's one bounded MPMC queue core (ADR-0016),
+    /// shared with the scheduler injector, both executors' run queues, and
+    /// `moirai-core`'s bounded MPMC channel. It replaced a per-channel copy of
+    /// the same ring that serialized each side behind its own mutex.
+    pub(crate) ring_buffer: LockFreeQueue<T>,
     /// Unbounded/pooled lock-free fallback overflow queue
     pub(crate) overflow_queue: Mutex<VecDeque<T>>,
     /// Advisory count of elements in the overflow queue, mutated under
@@ -38,8 +41,10 @@ pub struct UnifiedChannel<T> {
 impl<T> UnifiedChannel<T> {
     /// Create a new unified channel with given configuration
     pub fn new(config: ChannelConfig) -> Result<Self, ChannelError> {
-        let ring_buffer =
-            UnifiedRingBuffer::new(config.capacity).ok_or(ChannelError::InvalidConfig)?;
+        // The queue sizes its ring for any request of one slot or more and
+        // reports the request itself through `capacity`, so the config's
+        // capacity is exactly what the channel bounds itself at.
+        let ring_buffer = LockFreeQueue::with_capacity(config.capacity);
 
         Ok(Self {
             ring_buffer,
@@ -81,7 +86,7 @@ impl<T> UnifiedChannel<T> {
 
         // Fast path: check if overflow queue is empty and push to ring buffer
         if self.overflow_count.load(Ordering::Acquire) == 0 {
-            match self.ring_buffer.try_push(message) {
+            match self.ring_buffer.try_enqueue(message) {
                 Ok(_) => {
                     self.stats.record_send();
                     return Ok(());
@@ -97,7 +102,7 @@ impl<T> UnifiedChannel<T> {
         self.drain_locked(&mut overflow);
 
         if overflow.is_empty() {
-            match self.ring_buffer.try_push(message) {
+            match self.ring_buffer.try_enqueue(message) {
                 Ok(_) => {
                     self.stats.record_send();
                     return Ok(());
@@ -127,7 +132,7 @@ impl<T> UnifiedChannel<T> {
     /// no blocking receive path.
     pub fn recv(&self) -> Result<T, ChannelError> {
         // Try fast path first: pop from ring buffer
-        if let Some(message) = self.ring_buffer.try_pop() {
+        if let Some(message) = self.ring_buffer.try_dequeue() {
             self.stats.record_receive();
             // If overflow queue contains items, trigger lazy drain under lock
             if self.overflow_count.load(Ordering::Acquire) > 0
@@ -235,7 +240,7 @@ impl<T> UnifiedChannel<T> {
     fn drain_locked(&self, overflow: &mut VecDeque<T>) {
         while !overflow.is_empty() {
             let item = overflow.pop_front().unwrap();
-            match self.ring_buffer.try_push(item) {
+            match self.ring_buffer.try_enqueue(item) {
                 Ok(_) => {}
                 Err(item) => {
                     overflow.push_front(item);
