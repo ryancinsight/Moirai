@@ -142,7 +142,13 @@ impl<G> WaitQueue<G> {
             return WaiterPoll::NotRegistered;
         };
         if entry.granted.is_none() {
-            entry.waker = waker.clone();
+            // A task repolled for an unrelated reason arrives with its own
+            // waker again; replacing it would clone (and, for a task waker,
+            // allocate) on every poll for no change. `will_wake` skips the
+            // store when the stored waker already wakes the same task.
+            if !entry.waker.will_wake(waker) {
+                entry.waker = waker.clone();
+            }
             return WaiterPoll::Pending;
         }
         let entry = self

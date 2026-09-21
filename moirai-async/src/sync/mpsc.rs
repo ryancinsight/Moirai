@@ -3,27 +3,35 @@
     reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
 )]
 
-use std::collections::{BTreeMap, VecDeque};
+//! Bounded async multi-producer single-consumer channel.
+//!
+//! Waiter bookkeeping is delegated to the shared `WaitQueue`: the same
+//! FIFO-by-monotonic-id registration, grant hand-off, and O(log n)
+//! cancellation that `Notify`, `Semaphore`, and `RwLock` use. This module
+//! keeps only the channel's own admission predicate (buffer capacity) and
+//! its two grants — a send frees a receive slot, a receive frees a send slot.
+
+use std::collections::VecDeque;
 use std::future::Future;
 use std::marker::Unpin;
 use std::pin::Pin;
-use std::sync::Mutex;
-use std::task::{Context, Poll, Waker};
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
+
+use super::wait_queue::{WaitQueue, WaiterPoll};
 
 struct SharedState<T> {
     buffer: VecDeque<T>,
     capacity: usize,
     sender_count: usize,
     closed: bool,
-    send_waiters: BTreeMap<u64, Waker>,
-    recv_waiters: BTreeMap<u64, Waker>,
-    next_send_id: u64,
-    next_recv_id: u64,
+    send_waiters: WaitQueue<()>,
+    recv_waiters: WaitQueue<()>,
 }
 
 /// Sending half of the bounded channel; clone to add producers.
 pub struct Sender<T> {
-    shared: std::sync::Arc<Mutex<SharedState<T>>>,
+    shared: Arc<Mutex<SharedState<T>>>,
 }
 
 impl<T> Clone for Sender<T> {
@@ -60,15 +68,19 @@ impl<T> Sender<T> {
         if shared.closed {
             return Err(value);
         }
-        if shared.buffer.len() < shared.capacity {
-            shared.buffer.push_back(value);
-            if let Some((_, waker)) = shared.recv_waiters.pop_first() {
-                waker.wake();
-            }
-            Ok(())
-        } else {
-            Err(value)
+        if shared.buffer.len() >= shared.capacity {
+            return Err(value);
         }
+        shared.buffer.push_back(value);
+        // Grant the oldest parked receiver a slot and wake it outside the
+        // lock: a task waker may re-enter the channel, so holding the mutex
+        // across `wake` risks a self-deadlock.
+        let waker = shared.recv_waiters.grant_oldest(());
+        drop(shared);
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+        Ok(())
     }
 
     /// Return whether the channel is closed.
@@ -86,15 +98,14 @@ impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
         let mut shared = self.shared.lock().unwrap();
         shared.sender_count -= 1;
-        if shared.sender_count == 0 {
-            shared.closed = true;
-            let recv_wakers: Vec<_> = std::mem::take(&mut shared.recv_waiters)
-                .into_iter()
-                .collect();
-            drop(shared);
-            for (_, waker) in recv_wakers {
-                waker.wake();
-            }
+        if shared.sender_count != 0 {
+            return;
+        }
+        shared.closed = true;
+        let wakers = shared.recv_waiters.grant_all(());
+        drop(shared);
+        for waker in wakers {
+            waker.wake();
         }
     }
 }
@@ -114,30 +125,39 @@ impl<'a, T: Unpin> Future for SendFuture<'a, T> {
         let mut shared = this.sender.shared.lock().unwrap();
 
         if shared.closed {
+            if let Some(id) = this.id.take() {
+                shared.send_waiters.deregister(id);
+            }
             let value = this.value.take().unwrap();
-            this.id = None;
             return Poll::Ready(Err(value));
         }
 
         if shared.buffer.len() < shared.capacity {
+            if let Some(id) = this.id.take() {
+                shared.send_waiters.deregister(id);
+            }
             shared.buffer.push_back(this.value.take().unwrap());
-            if let Some((_, waker)) = shared.recv_waiters.pop_first() {
+            let waker = shared.recv_waiters.grant_oldest(());
+            drop(shared);
+            if let Some(waker) = waker {
                 waker.wake();
             }
-            this.id = None;
-            Poll::Ready(Ok(()))
-        } else if let Some(id) = this.id {
-            if let Some(waker) = shared.send_waiters.get_mut(&id) {
-                *waker = cx.waker().clone();
-            }
-            Poll::Pending
-        } else {
-            let id = shared.next_send_id;
-            shared.next_send_id += 1;
-            this.id = Some(id);
-            shared.send_waiters.insert(id, cx.waker().clone());
-            Poll::Pending
+            return Poll::Ready(Ok(()));
         }
+
+        // Still full: refresh the existing registration, or join the queue.
+        // A stale grant (the slot was taken by another sender) re-registers
+        // behind the current waiters rather than losing its place.
+        this.id = Some(match this.id {
+            Some(id) => match shared.send_waiters.poll_waiter(id, cx.waker()) {
+                WaiterPoll::Pending => id,
+                WaiterPoll::Granted(()) | WaiterPoll::NotRegistered => {
+                    shared.send_waiters.register(cx.waker().clone())
+                }
+            },
+            None => shared.send_waiters.register(cx.waker().clone()),
+        });
+        Poll::Pending
     }
 }
 
@@ -146,14 +166,14 @@ impl<'a, T> Drop for SendFuture<'a, T> {
         if let Some(id) = self.id
             && let Ok(mut shared) = self.sender.shared.lock()
         {
-            shared.send_waiters.remove(&id);
+            shared.send_waiters.deregister(id);
         }
     }
 }
 
 /// Receiving half of the bounded channel.
 pub struct Receiver<T> {
-    shared: std::sync::Arc<Mutex<SharedState<T>>>,
+    shared: Arc<Mutex<SharedState<T>>>,
 }
 
 impl<T> Receiver<T> {
@@ -172,9 +192,13 @@ impl<T> Receiver<T> {
     pub fn try_recv(&mut self) -> Option<T> {
         let mut shared = self.shared.lock().unwrap();
         let value = shared.buffer.pop_front();
-        if value.is_some()
-            && let Some((_, waker)) = shared.send_waiters.pop_first()
-        {
+        let waker = if value.is_some() {
+            shared.send_waiters.grant_oldest(())
+        } else {
+            None
+        };
+        drop(shared);
+        if let Some(waker) = waker {
             waker.wake();
         }
         value
@@ -184,14 +208,10 @@ impl<T> Receiver<T> {
     pub fn close(&mut self) {
         let mut shared = self.shared.lock().unwrap();
         shared.closed = true;
-        let send_wakers: Vec<_> = std::mem::take(&mut shared.send_waiters)
-            .into_iter()
-            .collect();
-        let recv_wakers: Vec<_> = std::mem::take(&mut shared.recv_waiters)
-            .into_iter()
-            .collect();
+        let mut wakers = shared.send_waiters.grant_all(());
+        wakers.extend(shared.recv_waiters.grant_all(()));
         drop(shared);
-        for (_, waker) in send_wakers.into_iter().chain(recv_wakers) {
+        for waker in wakers {
             waker.wake();
         }
     }
@@ -201,11 +221,9 @@ impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         let mut shared = self.shared.lock().unwrap();
         shared.closed = true;
-        let send_wakers: Vec<_> = std::mem::take(&mut shared.send_waiters)
-            .into_iter()
-            .collect();
+        let wakers = shared.send_waiters.grant_all(());
         drop(shared);
-        for (_, waker) in send_wakers {
+        for waker in wakers {
             waker.wake();
         }
     }
@@ -224,26 +242,33 @@ impl<'a, T> Future for RecvFuture<'a, T> {
         let this = self.get_mut();
         let mut shared = this.receiver.shared.lock().unwrap();
         if let Some(value) = shared.buffer.pop_front() {
-            if let Some((_, waker)) = shared.send_waiters.pop_first() {
+            if let Some(id) = this.id.take() {
+                shared.recv_waiters.deregister(id);
+            }
+            let waker = shared.send_waiters.grant_oldest(());
+            drop(shared);
+            if let Some(waker) = waker {
                 waker.wake();
             }
-            this.id = None;
-            Poll::Ready(Ok(value))
-        } else if shared.closed && shared.buffer.is_empty() {
-            this.id = None;
-            Poll::Ready(Err(()))
-        } else if let Some(id) = this.id {
-            if let Some(waker) = shared.recv_waiters.get_mut(&id) {
-                *waker = cx.waker().clone();
-            }
-            Poll::Pending
-        } else {
-            let id = shared.next_recv_id;
-            shared.next_recv_id += 1;
-            this.id = Some(id);
-            shared.recv_waiters.insert(id, cx.waker().clone());
-            Poll::Pending
+            return Poll::Ready(Ok(value));
         }
+        if shared.closed {
+            if let Some(id) = this.id.take() {
+                shared.recv_waiters.deregister(id);
+            }
+            return Poll::Ready(Err(()));
+        }
+
+        this.id = Some(match this.id {
+            Some(id) => match shared.recv_waiters.poll_waiter(id, cx.waker()) {
+                WaiterPoll::Pending => id,
+                WaiterPoll::Granted(()) | WaiterPoll::NotRegistered => {
+                    shared.recv_waiters.register(cx.waker().clone())
+                }
+            },
+            None => shared.recv_waiters.register(cx.waker().clone()),
+        });
+        Poll::Pending
     }
 }
 
@@ -252,7 +277,7 @@ impl<'a, T> Drop for RecvFuture<'a, T> {
         if let Some(id) = self.id
             && let Ok(mut shared) = self.receiver.shared.lock()
         {
-            shared.recv_waiters.remove(&id);
+            shared.recv_waiters.deregister(id);
         }
     }
 }
@@ -260,15 +285,13 @@ impl<'a, T> Drop for RecvFuture<'a, T> {
 /// Create a bounded channel with the given buffer capacity.
 #[must_use]
 pub fn channel<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
-    let shared = std::sync::Arc::new(Mutex::new(SharedState {
+    let shared = Arc::new(Mutex::new(SharedState {
         buffer: VecDeque::with_capacity(capacity),
         capacity,
         sender_count: 1,
         closed: false,
-        send_waiters: BTreeMap::new(),
-        recv_waiters: BTreeMap::new(),
-        next_send_id: 0,
-        next_recv_id: 0,
+        send_waiters: WaitQueue::new(),
+        recv_waiters: WaitQueue::new(),
     }));
     (
         Sender {
