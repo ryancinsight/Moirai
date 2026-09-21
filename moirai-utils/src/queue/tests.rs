@@ -1,8 +1,13 @@
 //! The ring's contract: the transition classification the notifier's fence
 //! hangs on, the capacity bound, drop safety, and a concurrent MPMC run.
 
+use super::ring::Slot;
 use super::*;
-use core::{mem::size_of, num::NonZeroUsize, sync::atomic::AtomicUsize};
+use core::{
+    mem::size_of,
+    num::NonZeroUsize,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 #[cfg(feature = "std")]
 use std::sync::Arc;
