@@ -11,6 +11,26 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// - Values are written with `write()` before incrementing `producer_seq`
 /// - The `assume_init_read()` in `try_consume()` is safe because we check
 ///   that `producer_seq` > current, ensuring data was written
+///
+/// # Why this is not the SPSC channel's ring
+///
+/// [`SpscRing`](crate::channel::SpscRing) is backed by this crate's other
+/// single-producer/single-consumer ring, and that one runs the same protocol: a masked
+/// slot array, a `Relaxed` load of the owner's own cursor, an `Acquire` load of the
+/// peer's, a `Release` store back, and the element written in between. The two are
+/// deliberately not merged, and the obstacle is the trait bound rather than the code:
+///
+/// - This type is public and stays `!Sync` (see the `Send` impl below). Its `&self`
+///   methods mutate through `UnsafeCell`, so a shared `&RingBuffer` would let two safe
+///   threads race one end of the ring.
+/// - The channel's ring is crate-private and *is* `Sync`, because its `Arc` must be
+///   `Send` to back `'static` halves. Its safety argument is the non-`Clone` halves plus
+///   crate-private reach (ADR-024), which a public type cannot invoke.
+///
+/// One type cannot carry both bounds, and the `Sync` one is load-bearing, so a merge means
+/// either granting this one `Sync` (unsound for downstream users) or parking the channel's
+/// cached-index and `closed` machinery on a public streaming type. If you are here to unify
+/// them, that is the tradeoff you are deciding.
 pub struct RingBuffer<T> {
     /// Buffer storage
     buffer: Box<[UnsafeCell<MaybeUninit<T>>]>,
