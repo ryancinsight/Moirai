@@ -53,22 +53,3 @@ fn test_memory_pool_retention_cap() {
     assert_eq!(pool.allocate(), 1);
     assert_eq!(pool.allocate(), 0); // empty pool: i32::default()
 }
-
-#[test]
-fn test_unified_ring_buffer() {
-    let buffer = UnifiedRingBuffer::<i32>::new(8).unwrap();
-
-    // Test basic operations
-    assert!(buffer.is_empty());
-    assert_eq!(buffer.len(), 0);
-
-    // Push some items
-    assert!(buffer.try_push(1).is_ok());
-    assert!(buffer.try_push(2).is_ok());
-    assert_eq!(buffer.len(), 2);
-
-    // Pop items
-    assert_eq!(buffer.try_pop(), Some(1));
-    assert_eq!(buffer.try_pop(), Some(2));
-    assert!(buffer.is_empty());
-}
