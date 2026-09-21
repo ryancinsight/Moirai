@@ -3,12 +3,12 @@
     reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
 )]
 
-use super::queue::{BoundedMpmcQueue, PushOutcome};
 use super::recv::MpmcReceiver;
 use super::send::MpmcSender;
 use super::{MPMC_BLOCK_SPINS, MpmcState};
 use crate::channel::CHANNEL_STORE_LOAD_ORDER;
 use crate::channel::error::{Channel, ChannelError, Result};
+use moirai_utils::queue::{EnqueueOutcome, LockFreeQueue};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, fence};
 use std::sync::{Arc, Condvar, Mutex};
@@ -26,7 +26,7 @@ mod roles;
 /// indirection on the send/receive paths.
 pub struct MpmcChannel<T> {
     pub(super) state: (Mutex<MpmcState<T>>, Condvar, Condvar),
-    pub(super) bounded: Option<BoundedMpmcQueue<T>>,
+    pub(super) bounded: Option<LockFreeQueue<T>>,
     pub(super) closed: AtomicBool,
     pub(super) sender_waiter_count: AtomicUsize,
     pub(super) receiver_waiter_count: AtomicUsize,
@@ -51,8 +51,8 @@ impl<T> MpmcChannel<T> {
             // exactly when `capacity` is, so for a bounded channel this deque
             // stays empty for life and preallocating `capacity` slots for it
             // would reserve a second copy of the ring that is never written.
-            // Items live in the lock-free `BoundedMpmcQueue`, which allocates
-            // its ring in `BoundedMpmcQueue::new` below.
+            // Items live in the lock-free `LockFreeQueue`, which allocates
+            // its ring in `LockFreeQueue::with_capacity` below.
             queue: if capacity.is_some() {
                 VecDeque::new()
             } else {
@@ -64,7 +64,7 @@ impl<T> MpmcChannel<T> {
             receiver_count: 0,
         };
 
-        let bounded = capacity.map(BoundedMpmcQueue::new);
+        let bounded = capacity.map(LockFreeQueue::with_capacity);
 
         Self {
             state: (Mutex::new(state), Condvar::new(), Condvar::new()),
@@ -104,7 +104,7 @@ impl<T> MpmcChannel<T> {
         )
     }
 
-    fn send_bounded(&self, queue: &BoundedMpmcQueue<T>, mut value: T) -> Result<()>
+    fn send_bounded(&self, queue: &LockFreeQueue<T>, mut value: T) -> Result<()>
     where
         T: Send,
     {
@@ -115,7 +115,7 @@ impl<T> MpmcChannel<T> {
                 return Err(ChannelError::Closed);
             }
 
-            match queue.try_push(value) {
+            match queue.try_enqueue_outcome(value) {
                 Ok(outcome) => {
                     // Whether the fence and the counter read are needed at all
                     // is decided by the transition; the reasoning lives on the
@@ -149,16 +149,17 @@ impl<T> MpmcChannel<T> {
             // receiver reads zero and skips the notify while this thread goes
             // on to park. SeqCst, load-bearing: this is the waiter half of the
             // Dekker pair described above, and the `fetch_add` is also the
-            // Store→Load barrier separating it from the `try_push` below.
+            // Store→Load barrier separating it from the `try_enqueue` below.
             self.sender_waiter_count
                 .fetch_add(1, CHANNEL_STORE_LOAD_ORDER);
 
-            match queue.try_push(value) {
-                Ok(_) => {
-                    // The transition is not consulted here: this push holds the
-                    // channel mutex, and a receiver registers (and re-checks the
-                    // queue) under that same mutex, so the mutex — not the ring
-                    // transition — orders the two sides. Nothing to fence.
+            match queue.try_enqueue(value) {
+                Ok(()) => {
+                    // The transition is not consulted here — and is not even
+                    // computed: this push holds the channel mutex, and a
+                    // receiver registers (and re-checks the queue) under that
+                    // same mutex, so the mutex — not the ring transition —
+                    // orders the two sides. Nothing to fence.
                     //
                     // Relaxed: deregistration. No happens-before edge is
                     // needed — the counter only ever gates a `notify_one`, so
@@ -200,7 +201,7 @@ impl<T> MpmcChannel<T> {
     /// an empty ring, so a push into an already-occupied ring finds that
     /// receiver popping an item instead. The fence and the counter read are
     /// therefore taken on the transition alone, which is where the measured
-    /// 4/8-producer cost lived; [`PushOutcome`] reports it from the ring, the
+    /// 4/8-producer cost lived; [`EnqueueOutcome`] reports it from the ring, the
     /// only place that knows which it was.
     ///
     /// SeqCst, load-bearing when taken: this is the notifier half of a
@@ -213,15 +214,16 @@ impl<T> MpmcChannel<T> {
     /// lock-free, so the channel mutex orders neither side.
     ///
     /// The waiter half gets that barrier free from its `SeqCst` RMW; this half
-    /// does not — `try_push` ends in a plain release store and a `SeqCst` load is
-    /// an ordinary `mov` on x86-64 — so the fence is explicit and load-bearing.
+    /// does not — `try_enqueue_outcome` ends in a plain release store and a
+    /// `SeqCst` load is an ordinary `mov` on x86-64 — so the fence is explicit
+    /// and load-bearing.
     /// `tests/loom_mpmc_waiter.rs`
     /// (`notifier_without_the_store_load_barrier_loses_the_wakeup`) enumerates
     /// the interleaving this fence rules out, and
-    /// `queue::tests::reports_the_empty_to_non_empty_transition` pins the
-    /// classification the elision rests on.
-    fn wake_receiver_on_transition(&self, outcome: PushOutcome) {
-        if outcome != PushOutcome::BecameNonEmpty {
+    /// `moirai_utils::queue::tests::reports_the_empty_to_non_empty_transition`
+    /// pins the classification the elision rests on.
+    fn wake_receiver_on_transition(&self, outcome: EnqueueOutcome) {
+        if outcome != EnqueueOutcome::BecameNonEmpty {
             return;
         }
         fence(CHANNEL_STORE_LOAD_ORDER);
@@ -250,14 +252,14 @@ impl<T> MpmcChannel<T> {
         }
     }
 
-    fn recv_bounded(&self, queue: &BoundedMpmcQueue<T>) -> Result<T>
+    fn recv_bounded(&self, queue: &LockFreeQueue<T>) -> Result<T>
     where
         T: Send,
     {
         let mut spin_count = 0;
 
         loop {
-            if let Some(value) = queue.try_pop() {
+            if let Some(value) = queue.try_dequeue() {
                 self.wake_sender_after_pop();
                 return Ok(value);
             }
@@ -286,18 +288,18 @@ impl<T> MpmcChannel<T> {
             // inverted here (re-check, then register) while `send_bounded`
             // registered first, and the asymmetry was a lost wakeup: a
             // producer could push and read `receiver_waiter_count == 0`
-            // between this thread's failed `try_pop` and its `fetch_add`,
+            // between this thread's failed `try_dequeue` and its `fetch_add`,
             // skip the notify, and leave this thread parked on a queue that
             // already holds its item. Registering first makes the producer's
             // counter read and this thread's queue read a Dekker pair that
             // `SeqCst` closes.
             //
             // SeqCst, load-bearing: waiter half of the pair, and the
-            // Store→Load barrier before the `try_pop` that follows.
+            // Store→Load barrier before the `try_dequeue` that follows.
             self.receiver_waiter_count
                 .fetch_add(1, CHANNEL_STORE_LOAD_ORDER);
 
-            if let Some(value) = queue.try_pop() {
+            if let Some(value) = queue.try_dequeue() {
                 // Relaxed: deregistration (see `send_bounded`).
                 self.receiver_waiter_count.fetch_sub(1, Ordering::Relaxed);
                 // Relaxed: this pop and the matching sender registration both
@@ -339,7 +341,9 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ChannelError::Closed);
             }
-            let outcome = queue.try_push(value).map_err(|_| ChannelError::Full)?;
+            let outcome = queue
+                .try_enqueue_outcome(value)
+                .map_err(|_| ChannelError::Full)?;
             // The mutex is not held here, so nothing else orders this
             // Store->Load; the helper's fence supplies it. See
             // `wake_receiver_on_transition`.
@@ -358,7 +362,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
 
     fn try_recv(&self) -> Result<T> {
         if let Some(queue) = &self.bounded {
-            if let Some(value) = queue.try_pop() {
+            if let Some(value) = queue.try_dequeue() {
                 self.wake_sender_after_pop();
                 return Ok(value);
             }
@@ -386,7 +390,7 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
 
     fn capacity(&self) -> Option<usize> {
         if let Some(queue) = &self.bounded {
-            return Some(queue.logical_capacity());
+            return Some(queue.capacity());
         }
         self.capacity_unbounded()
     }

@@ -4,7 +4,7 @@
 //! # The protocol
 //!
 //! `MpmcChannel`'s bounded path keeps items in a lock-free ring
-//! (`BoundedMpmcQueue`) but parks blocked threads on a `Condvar` guarded by the
+//! (`LockFreeQueue`) but parks blocked threads on a `Condvar` guarded by the
 //! channel `Mutex`. Signalling that condvar means taking the mutex, so the hot
 //! path elides it with a counter: `sender_waiter_count` /
 //! `receiver_waiter_count` record how many threads are parked, and a thread
@@ -58,7 +58,7 @@ use loom::sync::atomic::{AtomicUsize, Ordering, fence};
 use loom::sync::{Arc, Mutex};
 use loom::thread;
 
-/// Ring-slot occupancy, standing in for `BoundedMpmcQueue`'s slot sequence.
+/// Ring-slot occupancy, standing in for `LockFreeQueue`'s slot sequence.
 ///
 /// The real queue publishes a pushed value with `sequence.store(_, Release)`
 /// and reads it with `sequence.load(Acquire)`; the model keeps those exact
