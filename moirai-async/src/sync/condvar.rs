@@ -71,9 +71,17 @@ impl Condvar {
     }
 
     /// Wake the oldest waiter, if any.
+    ///
+    /// The waker is taken under the state lock and woken after it is released:
+    /// `Waker::wake` may poll the task inline on this thread, and that poll
+    /// re-locks this state — waking under the lock would self-deadlock. Same
+    /// discipline as `notify_all` below and `hybrid::notify`.
     pub fn notify_one(&self) {
-        let mut state = self.state.lock().unwrap();
-        if let Some(waker) = state.waiters.grant_oldest(()) {
+        let waker = {
+            let mut state = self.state.lock().unwrap();
+            state.waiters.grant_oldest(())
+        };
+        if let Some(waker) = waker {
             waker.wake();
         }
     }
