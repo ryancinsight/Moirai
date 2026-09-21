@@ -1,14 +1,14 @@
 //! Multi-Producer Multi-Consumer channel with bounded capacity.
 //!
 //! Uses mutex-based implementation for simplicity and correctness,
-//! with a lock-free `BoundedMpmcQueue` fast-path for bounded cases.
+//! with a lock-free `LockFreeQueue` fast-path for bounded cases.
 
 use std::collections::VecDeque;
 
 mod channel;
-mod queue;
 mod recv;
 mod send;
+mod unbounded;
 
 pub use self::channel::MpmcChannel;
 pub use self::recv::MpmcReceiver;

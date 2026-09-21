@@ -32,7 +32,7 @@ pub use cache::{
     CACHE_LINE_SIZE, CacheAligned, CachePad, DESTRUCTIVE_INTERFERENCE_SIZE, align_to_cache_line,
 };
 pub use memory::{prefetch_read, prefetch_write};
-pub use queue::LockFreeQueue;
+pub use queue::{EnqueueOutcome, LockFreeQueue};
 
 // SIMD optimization counter and scalar contracts for performance tracking.
 #[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
