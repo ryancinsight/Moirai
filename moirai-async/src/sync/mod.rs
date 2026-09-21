@@ -3,6 +3,17 @@
 //! This module provides async-aware synchronization that integrates with
 //! Moirai's unified runtime. Following SLAP principle, each synchronization
 //! primitive is implemented in its own focused module.
+//!
+//! # Wake discipline
+//!
+//! Every primitive here takes the waker — or the wakers — out from under its
+//! state lock and wakes only after the guard is released. `Waker::wake` may poll
+//! the task inline on the calling thread, and that poll re-locks the same state,
+//! so waking under the lock is a self-deadlock. `hybrid::notify` states the rule
+//! for its registries, and `timer`'s driver follows it by dropping its guard
+//! before waking. A new release/notify path belongs to this rule rather than to
+//! a local judgement — the sites that got it wrong were the ones that decided
+//! per-site.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
