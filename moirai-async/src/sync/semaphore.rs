@@ -66,10 +66,20 @@ impl Semaphore {
     }
 
     fn release(&self) {
-        let mut state = self.state.lock().unwrap();
-        match state.waiters.grant_oldest(()) {
-            Some(waker) => waker.wake(),
-            None => state.available += 1,
+        // The waker leaves the state lock before it is woken: `Waker::wake` may
+        // poll the task inline on this thread, and that poll re-locks this
+        // state — waking under the lock would self-deadlock. Same discipline as
+        // `rwlock`'s release paths and `hybrid::notify`.
+        let waker = {
+            let mut state = self.state.lock().unwrap();
+            let waker = state.waiters.grant_oldest(());
+            if waker.is_none() {
+                state.available += 1;
+            }
+            waker
+        };
+        if let Some(waker) = waker {
+            waker.wake();
         }
     }
 }

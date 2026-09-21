@@ -59,11 +59,22 @@ impl Notify {
     }
 
     /// Notify one waiting task
+    ///
+    /// The waker is taken under the state lock and woken after it is released:
+    /// `Waker::wake` may poll the task inline on this thread, and that poll
+    /// re-locks this state — waking under the lock would self-deadlock. Same
+    /// discipline as `notify_waiters` below and `hybrid::notify`.
     pub fn notify_one(&self) {
-        let mut state = self.state.lock().unwrap();
-        match state.waiters.grant_oldest(NotifyGrant::One) {
-            Some(waker) => waker.wake(),
-            None => state.notified = true,
+        let waker = {
+            let mut state = self.state.lock().unwrap();
+            let waker = state.waiters.grant_oldest(NotifyGrant::One);
+            if waker.is_none() {
+                state.notified = true;
+            }
+            waker
+        };
+        if let Some(waker) = waker {
+            waker.wake();
         }
     }
 
@@ -135,18 +146,31 @@ impl<'a> Future for NotifyFuture<'a> {
 
 impl<'a> Drop for NotifyFuture<'a> {
     fn drop(&mut self) {
-        if let Some(id) = self.id
-            && let Ok(mut state) = self.notify.state.lock()
-        {
+        // The restored permit's waker leaves the state lock before it is woken;
+        // `Waker::wake` may poll the task inline on this thread, and that poll
+        // re-locks this state. Same discipline as `notify_one`.
+        let waker = if let Some(id) = self.id {
+            let mut state = match self.notify.state.lock() {
+                Ok(state) => state,
+                Err(_) => return,
+            };
             // If we were holding a single-task permit but never observed
             // it, hand it to the next pending waiter (or store it) so it
             // is not lost. Broadcast (`All`) grants are not restored.
             if state.waiters.deregister(id) == Some(NotifyGrant::One) {
-                match state.waiters.grant_oldest(NotifyGrant::One) {
-                    Some(waker) => waker.wake(),
-                    None => state.notified = true,
+                let waker = state.waiters.grant_oldest(NotifyGrant::One);
+                if waker.is_none() {
+                    state.notified = true;
                 }
+                waker
+            } else {
+                None
             }
+        } else {
+            None
+        };
+        if let Some(waker) = waker {
+            waker.wake();
         }
     }
 }

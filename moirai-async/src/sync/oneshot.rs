@@ -32,18 +32,24 @@ impl<T> Sender<T> {
     ///
     /// Returns `Err(value)` when the receiver already closed.
     pub fn send(self, value: T) -> Result<(), T> {
-        let mut shared = self.shared.lock().unwrap();
-        match shared.state {
-            OneshotState::Empty => {
-                shared.state = OneshotState::Value(value);
-                if let Some(waker) = shared.rx_waker.take() {
-                    waker.wake();
+        // The waker leaves the state lock before it is woken: `Waker::wake` may
+        // poll the task inline on this thread, and that poll re-locks this
+        // state. Same discipline as `mpsc`, `rwlock` and `hybrid::notify`.
+        let waker = {
+            let mut shared = self.shared.lock().unwrap();
+            match shared.state {
+                OneshotState::Empty => {
+                    shared.state = OneshotState::Value(value);
+                    shared.rx_waker.take()
                 }
-                Ok(())
+                OneshotState::Closed => return Err(value),
+                OneshotState::Value(_) => unreachable!(),
             }
-            OneshotState::Closed => Err(value),
-            OneshotState::Value(_) => unreachable!(),
+        };
+        if let Some(waker) = waker {
+            waker.wake();
         }
+        Ok(())
     }
 
     /// Return whether the receiver closed the channel.
@@ -55,12 +61,17 @@ impl<T> Sender<T> {
 
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
-        let mut shared = self.shared.lock().unwrap();
-        if matches!(shared.state, OneshotState::Empty) {
-            shared.state = OneshotState::Closed;
-            if let Some(waker) = shared.rx_waker.take() {
-                waker.wake();
+        let waker = {
+            let mut shared = self.shared.lock().unwrap();
+            if matches!(shared.state, OneshotState::Empty) {
+                shared.state = OneshotState::Closed;
+                shared.rx_waker.take()
+            } else {
+                None
             }
+        };
+        if let Some(waker) = waker {
+            waker.wake();
         }
     }
 }
@@ -94,9 +105,12 @@ impl<T> Receiver<T> {
 
     /// Close the channel, waking a parked sender.
     pub fn close(&mut self) {
-        let mut shared = self.shared.lock().unwrap();
-        shared.state = OneshotState::Closed;
-        if let Some(waker) = shared.tx_waker.take() {
+        let waker = {
+            let mut shared = self.shared.lock().unwrap();
+            shared.state = OneshotState::Closed;
+            shared.tx_waker.take()
+        };
+        if let Some(waker) = waker {
             waker.wake();
         }
     }
@@ -104,9 +118,12 @@ impl<T> Receiver<T> {
 
 impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
-        let mut shared = self.shared.lock().unwrap();
-        shared.state = OneshotState::Closed;
-        if let Some(waker) = shared.tx_waker.take() {
+        let waker = {
+            let mut shared = self.shared.lock().unwrap();
+            shared.state = OneshotState::Closed;
+            shared.tx_waker.take()
+        };
+        if let Some(waker) = waker {
             waker.wake();
         }
     }
