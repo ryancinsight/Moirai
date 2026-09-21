@@ -18,6 +18,25 @@ pub(super) struct BoundedMpmcQueue<T> {
     dequeue_pos: CacheAligned<AtomicUsize>,
 }
 
+/// Outcome of a successful [`BoundedMpmcQueue::try_push`].
+///
+/// A blocked receiver parks only after observing the ring empty, so only a push
+/// that takes the ring from empty to non-empty can race that decision, and only
+/// that push needs the notifier's Store→Load barrier before the waiter-counter
+/// read. A push into an already-occupied ring cannot: whichever receiver next
+/// calls [`try_pop`](BoundedMpmcQueue::try_pop) finds an item instead of
+/// parking. Reporting the transition lets the notifier fence the former and
+/// skip both the fence and the counter read on the latter.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PushOutcome {
+    /// The ring held no items when the slot was claimed: this push took it from
+    /// empty to non-empty.
+    BecameNonEmpty,
+    /// The ring already held items, so no receiver can have parked on this
+    /// push's account.
+    AlreadyNonEmpty,
+}
+
 impl<T> BoundedMpmcQueue<T> {
     pub(super) fn new(requested_capacity: usize) -> Self {
         let logical_capacity = requested_capacity.max(1);
@@ -40,7 +59,7 @@ impl<T> BoundedMpmcQueue<T> {
         }
     }
 
-    pub(super) fn try_push(&self, value: T) -> std::result::Result<(), T> {
+    pub(super) fn try_push(&self, value: T) -> std::result::Result<PushOutcome, T> {
         let mut position = self.enqueue_pos.0.load(Ordering::Relaxed);
 
         loop {
@@ -64,6 +83,18 @@ impl<T> BoundedMpmcQueue<T> {
                         Ordering::Relaxed,
                     ) {
                         Ok(_) => {
+                            // Read the consumer cursor *before* publishing this
+                            // slot: a consumer can only advance `dequeue_pos`
+                            // through already-published slots, so it cannot pass
+                            // `position` while this one is unpublished, and
+                            // `dequeue_pos == position` is then exactly "the ring
+                            // held no items".
+                            let outcome = if self.dequeue_pos.0.load(Ordering::Acquire) == position
+                            {
+                                PushOutcome::BecameNonEmpty
+                            } else {
+                                PushOutcome::AlreadyNonEmpty
+                            };
                             // SAFETY: winning the enqueue-position CAS grants
                             // exclusive right to fill this sequence slot; its
                             // value cell is uninit (fresh or drained) until
@@ -73,7 +104,7 @@ impl<T> BoundedMpmcQueue<T> {
                             }
                             slot.sequence
                                 .store(position.wrapping_add(1), Ordering::Release);
-                            return Ok(());
+                            return Ok(outcome);
                         }
                         Err(observed) => position = observed,
                     }
@@ -166,3 +197,44 @@ unsafe impl<T: Send> Send for BoundedMpmcQueue<T> {}
 // atomics; stored values are touched only by the thread that owns their
 // sequence claim, so `T: Send` suffices.
 unsafe impl<T: Send> Sync for BoundedMpmcQueue<T> {}
+
+#[cfg(test)]
+mod tests {
+    use super::{BoundedMpmcQueue, PushOutcome};
+
+    /// The classification the notifier's fence hangs on: a push reports whether
+    /// it took the ring from empty to non-empty.
+    ///
+    /// Misclassifying an empty→non-empty push as occupied would strand a parked
+    /// receiver (its fence and counter read would be skipped), and the reverse
+    /// misclassification would only cost an unnecessary fence — so the empty
+    /// case, the occupied case, and the return to empty are all pinned.
+    #[test]
+    fn reports_the_empty_to_non_empty_transition() {
+        let queue: BoundedMpmcQueue<u32> = BoundedMpmcQueue::new(4);
+
+        assert_eq!(queue.try_push(1), Ok(PushOutcome::BecameNonEmpty));
+        assert_eq!(queue.try_push(2), Ok(PushOutcome::AlreadyNonEmpty));
+        assert_eq!(queue.try_push(3), Ok(PushOutcome::AlreadyNonEmpty));
+
+        assert_eq!(queue.try_pop(), Some(1));
+        assert_eq!(queue.try_pop(), Some(2));
+        assert_eq!(queue.try_push(4), Ok(PushOutcome::AlreadyNonEmpty));
+
+        assert_eq!(queue.try_pop(), Some(3));
+        assert_eq!(queue.try_pop(), Some(4));
+        // Drained: the next push is the empty→non-empty transition again.
+        assert_eq!(queue.try_push(5), Ok(PushOutcome::BecameNonEmpty));
+    }
+
+    /// A full ring reports no transition and hands the value back.
+    ///
+    /// The notifier must not treat a rejected push as a transition: nothing was
+    /// published, so there is nothing to wake a receiver for.
+    #[test]
+    fn a_rejected_push_reports_no_transition() {
+        let queue: BoundedMpmcQueue<u32> = BoundedMpmcQueue::new(1);
+        assert_eq!(queue.try_push(1), Ok(PushOutcome::BecameNonEmpty));
+        assert_eq!(queue.try_push(2), Err(2));
+    }
+}

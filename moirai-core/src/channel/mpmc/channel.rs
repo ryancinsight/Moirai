@@ -3,7 +3,7 @@
     reason = "ratchet MOIRAI-UNWRAP-1: pre-existing debt"
 )]
 
-use super::queue::BoundedMpmcQueue;
+use super::queue::{BoundedMpmcQueue, PushOutcome};
 use super::recv::MpmcReceiver;
 use super::send::MpmcSender;
 use super::{MPMC_BLOCK_SPINS, MpmcState};
@@ -109,39 +109,43 @@ impl<T> MpmcChannel<T> {
             }
 
             match queue.try_push(value) {
-                Ok(()) => {
-                    // SeqCst, load-bearing: this is the notifier half of a
-                    // store-buffer (Dekker) pair with `recv_bounded`'s
+                Ok(outcome) => {
+                    // Only an empty→non-empty push can race a receiver's park
+                    // decision: a blocked receiver parks only after observing an
+                    // empty ring, so a push into an already-occupied ring finds
+                    // that receiver popping an item instead of parking. The
+                    // fence and the counter read are therefore taken on the
+                    // transition alone — which is where the measured 4/8
+                    // producer cost lived. `PushOutcome` reports it from the
+                    // ring, the only place that knows which it was.
+                    //
+                    // SeqCst, load-bearing when taken: this is the notifier half
+                    // of a store-buffer (Dekker) pair with `recv_bounded`'s
                     // registration. Here the queue write precedes the counter
-                    // read; there the counter write precedes the queue read.
-                    // If either side could reorder Store→Load, this side reads
-                    // "no waiters" while that side reads "still empty", and a
-                    // receiver parks forever on an item that is already
-                    // queued. Acquire is insufficient — it orders Load→Load
-                    // and Load→Store, never Store→Load. The queue is
-                    // lock-free, so the channel mutex orders neither side.
+                    // read; there the counter write precedes the queue read. If
+                    // either side could reorder Store→Load, this side reads "no
+                    // waiters" while that side reads "still empty", and a
+                    // receiver parks forever on an item that is already queued.
+                    // Acquire is insufficient — it orders Load→Load and
+                    // Load→Store, never Store→Load. The queue is lock-free, so
+                    // the channel mutex orders neither side.
                     //
                     // The waiter half gets that barrier free from its `SeqCst`
                     // RMW; this half does not — `try_push` ends in a plain
-                    // release store and a `SeqCst` load is an ordinary `mov`
-                    // on x86-64 — so the fence is explicit and load-bearing.
+                    // release store and a `SeqCst` load is an ordinary `mov` on
+                    // x86-64 — so the fence is explicit and load-bearing.
                     // `tests/loom_mpmc_waiter.rs`
                     // (`notifier_without_the_store_load_barrier_loses_the_wakeup`)
-                    // enumerates the interleaving it rules out.
-                    //
-                    // Cost, measured: `bounded_channel_matrix/moirai_mpmc`
-                    // regresses 13–64% at 4 and 8 producers relative to the
-                    // unfenced (and unsound) code it replaces. The way out is
-                    // not to drop the barrier but to need it less often — a
-                    // receiver only parks after observing the ring empty, so
-                    // only a push that takes the ring from empty to non-empty
-                    // can race a registration. Threading that transition out
-                    // of `try_push` and fencing only then is the follow-up.
-                    fence(CHANNEL_STORE_LOAD_ORDER);
-                    if self.receiver_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
-                        let (mutex, _, not_empty) = &*self.state;
-                        let _guard = mutex.lock().unwrap();
-                        not_empty.notify_one();
+                    // enumerates the interleaving this fence rules out, and
+                    // `queue::tests::reports_the_empty_to_non_empty_transition`
+                    // pins the classification the elision rests on.
+                    if outcome == PushOutcome::BecameNonEmpty {
+                        fence(CHANNEL_STORE_LOAD_ORDER);
+                        if self.receiver_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
+                            let (mutex, _, not_empty) = &*self.state;
+                            let _guard = mutex.lock().unwrap();
+                            not_empty.notify_one();
+                        }
                     }
                     return Ok(());
                 }
@@ -176,7 +180,12 @@ impl<T> MpmcChannel<T> {
                 .fetch_add(1, CHANNEL_STORE_LOAD_ORDER);
 
             match queue.try_push(value) {
-                Ok(()) => {
+                Ok(_) => {
+                    // The transition is not consulted here: this push holds the
+                    // channel mutex, and a receiver registers (and re-checks the
+                    // queue) under that same mutex, so the mutex — not the ring
+                    // transition — orders the two sides. Nothing to fence.
+                    //
                     // Relaxed: deregistration. No happens-before edge is
                     // needed — the counter only ever gates a `notify_one`, so
                     // a receiver still reading the pre-decrement value takes
@@ -337,19 +346,20 @@ impl<T: Send> Channel<T> for MpmcChannel<T> {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ChannelError::Closed);
             }
-            queue.try_push(value).map_err(|_| ChannelError::Full)?;
-            // SeqCst, load-bearing: lock-free push followed by the waiter
-            // read — the notifier half of the Dekker pair (see
-            // `send_bounded`). The mutex is not held here, so nothing else
-            // orders this Store→Load.
-            // Notifier half of the Dekker pair: the lock-free queue op
-            // above needs a StoreLoad barrier before the waiter count is
-            // read. Full reasoning in `send_bounded`.
-            fence(CHANNEL_STORE_LOAD_ORDER);
-            if self.receiver_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
-                let (mutex, _, not_empty) = &*self.state;
-                let _guard = mutex.lock().unwrap();
-                not_empty.notify_one();
+            let outcome = queue.try_push(value).map_err(|_| ChannelError::Full)?;
+            // Notifier half of the Dekker pair, as on `send_bounded`'s fast
+            // path: the lock-free push needs a Store→Load barrier before the
+            // waiter count is read, and only the empty→non-empty transition can
+            // race a receiver's park decision. The mutex is not held here, so
+            // nothing else orders this Store→Load. Full reasoning in
+            // `send_bounded`.
+            if outcome == PushOutcome::BecameNonEmpty {
+                fence(CHANNEL_STORE_LOAD_ORDER);
+                if self.receiver_waiter_count.load(CHANNEL_STORE_LOAD_ORDER) > 0 {
+                    let (mutex, _, not_empty) = &*self.state;
+                    let _guard = mutex.lock().unwrap();
+                    not_empty.notify_one();
+                }
             }
             return Ok(());
         }
