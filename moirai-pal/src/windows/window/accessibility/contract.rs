@@ -19,8 +19,18 @@ pub enum AccessibilityRole {
     Application,
     /// A primary document region.
     Main,
+    /// A navigation landmark containing links or commands.
+    Navigation,
+    /// A complementary region such as a sidebar.
+    Complementary,
     /// A generic grouping container.
     Group,
+    /// A command toolbar or title bar.
+    Toolbar,
+    /// A popup command menu.
+    Menu,
+    /// An actionable command inside a menu.
+    MenuItem,
     /// An actionable button.
     Button,
     /// Static text.
@@ -326,7 +336,12 @@ fn accesskit_role(role: AccessibilityRole) -> Role {
     match role {
         AccessibilityRole::Application => Role::Application,
         AccessibilityRole::Main => Role::Main,
+        AccessibilityRole::Navigation => Role::Navigation,
+        AccessibilityRole::Complementary => Role::Complementary,
         AccessibilityRole::Group => Role::Group,
+        AccessibilityRole::Toolbar => Role::Toolbar,
+        AccessibilityRole::Menu => Role::Menu,
+        AccessibilityRole::MenuItem => Role::MenuItem,
         AccessibilityRole::Button => Role::Button,
         AccessibilityRole::Text => Role::Label,
         AccessibilityRole::TextInput => Role::TextInput,
