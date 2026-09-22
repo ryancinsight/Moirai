@@ -591,9 +591,32 @@ Check with `python scripts/atlas-stack-overlay.py check` at the stack root.
 MESSAGE
 }
 
+# Name each package by its own path rather than by its bare name. A bare
+# name is ambiguous whenever the same package also reaches the graph from
+# git -- here through leto-ops, which depends back on moirai-runtime -- and
+# cargo then refuses the whole invocation with "specification `<name>` is
+# ambiguous". That refusal carries no file diagnostics, so the classifier
+# blames the push (as it should by default) and the gate reports a clippy
+# failure for a change that has none. A `path+file://` spec resolves to the
+# workspace member by construction, so the question never arises. The name
+# is appended because a bare path matches only when the directory is named
+# for its package, which `moirai/` (package `moirai-runtime`) is not.
 gate_specs="$gate_manifest"
 for package_name in $gate_packages; do
-  gate_specs="$gate_specs -p $package_name"
+  package_manifest="$(printf '%s
+' "$workspace_members"     | awk -F '	' -v name="$package_name" '$2 == name { print $1; exit }')"
+  package_spec="$package_name"
+  if [ -n "$package_manifest" ]; then
+    package_dir="$repo_root/$(dirname "$package_manifest")"
+    if command -v cygpath >/dev/null 2>&1; then
+      package_dir="$(cygpath -m "$package_dir" 2>/dev/null || printf '%s' "$package_dir")"
+    fi
+    case "$package_dir" in
+      /*) package_spec="path+file://$package_dir#$package_name" ;;
+      *) package_spec="path+file:///$package_dir#$package_name" ;;
+    esac
+  fi
+  gate_specs="$gate_specs -p $package_spec"
 done
 
 echo "pre-push: gating${gate_packages}" >&2
