@@ -1,8 +1,6 @@
-//! Error types, cache-alignment helper, unified `Channel` trait, and `Result` alias.
+//! Error types, the unified `Channel` trait, and the `Result` alias.
 
 use std::fmt;
-
-pub(super) use moirai_utils::cache::CacheAligned;
 
 use super::stats::ChannelStatistics;
 
