@@ -72,8 +72,10 @@ Recommended option, adopted:
   wrote one buffer: shared inputs are indexed by unit, so one operator served
   them all. A pair form was admitted once a consumer wrote two fields per
   element in one pass (revision 2026-09-15, below), and a triple form once a
-  consumer wrote three (revision 2026-09-15, triple, below). A quad form
-  remains unadopted until a consumer writes four.
+  consumer wrote three (revision 2026-09-15, triple, below). Past three the
+  arity family stops paying: a consumer writing six took a const-generic form
+  over one element type instead of a quad, a quint and a sext
+  (revision 2026-09-22, below).
 - **Leto-ops as the home.** Rejected: the decision needs no layout knowledge,
   and apollo would still reach it through leto only for scheduling.
 
@@ -153,3 +155,46 @@ still owns whatever its indices address, which is why the operator carries no
 `unsafe` at all. Native tests cover runs with a ragged tail under both
 policies, a unit at and past the task width, an empty range, one state per
 task, and the values the policy is asked about.
+
+## Revision 2026-09-22 - Many unit tasks
+
+The pair and triple forms take their buffers by separate type, which is what a
+consumer writing two or three fields of different types needs. kwavers' elastic
+velocity-Verlet writes six fields of one type per element -- three velocity
+components and three positions -- and the arity family cannot serve it: a quad,
+a quint and a sext form repeat one body four more times to reach it, and until
+they exist the consumer splits into three calls.
+
+The split is what costs. Three calls are three parallel regions, and the region
+wake is not free at the sizes these kernels run: measured through the elastic
+probe's paired arms at 64 cubed, the fused step read 1008-1021 us against
+950-991 us for the two-region back-to-back route it was meant to beat. The
+fusion halved the traffic and still lost, because it bought a third region --
+the falsification recorded against that increment, and the requirement this
+form answers.
+
+`for_each_unit_task_many_mut_with::<P, T, S, Init, F, K>(outputs, unit_len,
+unit_bytes, init, f)` takes `[&mut [T]; K]` and hands `f` each task's `K` runs
+as `[&mut [T]; K]`, in the order the buffers were given. It asks the shared
+planner for task width, task count and the `parallelize_work` decision exactly
+as the slice operators do, so a pass gains nothing and loses nothing by
+changing arity. Disjointness holds for the reason the triple form's does: the
+buffers are asserted equal in length, so every partition holds the same number
+of runs, and a task indexes each partition at its own chunk.
+
+It does not replace the pair and triple forms, whose buffers differ in type;
+it serves the case they cannot, where the outputs share a type and their count
+is a property of the problem.
+
+Native tests cover aligned runs with a ragged tail under both policies, one
+state per task, a mismatched length rejected, an empty `K`, and six buffers
+each seeing its own unit index in every element -- which fails on any overlap.
+Miri cannot execute the parallel path on this host: themis' topology detection
+calls `GetNumaHighestNodeNumber`, which miri does not support, so the two
+serial tests run under it and the parallel ones do not. That limit is the
+existing pair and triple forms' as well, not new here.
+
+Adoption is the consumer's measurement: kwavers fuses its six-field kick and
+drift onto this form and compares it with the back-to-back route through the
+same paired arms. If one region does not beat two, the form has no consumer and
+is deleted.
