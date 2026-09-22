@@ -132,6 +132,11 @@ impl<T> TaskResultSlot<T> {
     fn register_waiter(&self) {
         self.cell.register(&thread::current());
     }
+
+    #[cfg(feature = "result-diagnostics")]
+    fn has_registered_waiter(&self) -> bool {
+        self.cell.has_registered_waiter()
+    }
 }
 // ── Diagnostic helpers (feature = "result-diagnostics") ──────────────────────
 
@@ -171,7 +176,7 @@ pub fn diagnostic_result_slot_spin_miss() -> usize {
 pub fn diagnostic_result_slot_register_waiter() -> usize {
     let slot = TaskResultSlot::<usize>::new();
     slot.register_waiter();
-    usize::from(slot.state.load(Ordering::Acquire) == RESULT_WAITING)
+    usize::from(slot.has_registered_waiter())
 }
 
 /// Diagnostic-only waiting-result completion path for benchmark attribution.

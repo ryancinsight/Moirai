@@ -328,6 +328,17 @@ impl<T, W: Waiter, S: StateWord> ResultCell<T, W, S> {
         self.state.load(Ordering::Acquire) == RESULT_READY
     }
 
+    /// Whether a waiter is parked and no result has been published yet.
+    ///
+    /// The complement of [`is_completed`](ResultCell::is_completed) would also
+    /// answer true before any registration, so this reports the waiting state
+    /// itself: it is what distinguishes a registration that took effect from
+    /// one that never ran.
+    #[must_use]
+    pub fn has_registered_waiter(&self) -> bool {
+        self.state.load(Ordering::Acquire) == RESULT_WAITING
+    }
+
     /// Park a clone of `waiter`, or replace the parked one when
     /// [`REPLACE_ON_REPEAT`](Waiter::REPLACE_ON_REPEAT) is set.
     ///
