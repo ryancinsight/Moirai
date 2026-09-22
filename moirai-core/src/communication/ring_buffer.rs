@@ -98,8 +98,8 @@ impl<T> RingBuffer<T> {
     /// ring, so only that transition can race its registration, and a producer
     /// wake gate can gate its fence and its wake on it.
     pub fn try_produce(&self, value: T) -> Result<ProduceOutcome, T> {
-        let current = self.producer_seq.0.load(Ordering::Relaxed);
-        let consumer = self.consumer_seq.0.load(Ordering::Acquire);
+        let current = self.producer_relaxed();
+        let consumer = self.consumer_acquire();
 
         // Check if full
         if current.wrapping_sub(consumer) >= self.buffer.len() {
@@ -116,39 +116,25 @@ impl<T> RingBuffer<T> {
             ProduceOutcome::AlreadyOccupied
         };
 
-        // SAFETY: SPSC capacity check keeps this slot outside the consumer
-        // window; the write lock-free protocol makes this thread the sole
-        // producer, and the slot is uninitialized until this write.
-        unsafe {
-            let slot = &mut *self.buffer[current & self.mask].get();
-            slot.write(value);
-        }
-
-        self.producer_seq
-            .0
-            .store(current.wrapping_add(1), Ordering::Release);
+        // SAFETY: the capacity check above keeps `current` outside the consumer
+        // window, and the withheld `Sync` makes this thread the ring's sole
+        // producer.
+        unsafe { self.produce_at(current, value) };
         Ok(outcome)
     }
 
     /// Try to consume a value
     pub fn try_consume(&self) -> Option<T> {
-        let current = self.consumer_seq.0.load(Ordering::Relaxed);
-        let producer = self.producer_seq.0.load(Ordering::Acquire);
+        let current = self.consumer_relaxed();
+        let producer = self.producer_acquire();
 
         if current == producer {
             return None;
         }
 
-        let value = unsafe {
-            let slot = &*self.buffer[current & self.mask].get();
-            // SAFETY: producer > current check ensures this slot has data
-            slot.assume_init_read()
-        };
-
-        self.consumer_seq
-            .0
-            .store(current.wrapping_add(1), Ordering::Release);
-        Some(value)
+        // SAFETY: the acquire load above proves the producer published this slot,
+        // and the withheld `Sync` makes this thread the ring's sole consumer.
+        Some(unsafe { self.consume_at(current) })
     }
 
     /// Get the capacity of the ring buffer
@@ -158,23 +144,20 @@ impl<T> RingBuffer<T> {
 
     /// Check if the ring buffer is empty
     pub fn is_empty(&self) -> bool {
-        let consumer = self.consumer_seq.0.load(Ordering::Acquire);
-        let producer = self.producer_seq.0.load(Ordering::Acquire);
-        consumer == producer
+        self.consumer_acquire() == self.producer_acquire()
     }
 
     /// Check if the ring buffer is full
     pub fn is_full(&self) -> bool {
-        let consumer = self.consumer_seq.0.load(Ordering::Acquire);
-        let producer = self.producer_seq.0.load(Ordering::Acquire);
-        producer.wrapping_sub(consumer) >= self.buffer.len()
+        self.producer_acquire()
+            .wrapping_sub(self.consumer_acquire())
+            >= self.buffer.len()
     }
 
     /// Get the number of items currently in the buffer
     pub fn len(&self) -> usize {
-        let consumer = self.consumer_seq.0.load(Ordering::Acquire);
-        let producer = self.producer_seq.0.load(Ordering::Acquire);
-        producer.wrapping_sub(consumer)
+        self.producer_acquire()
+            .wrapping_sub(self.consumer_acquire())
     }
 }
 
@@ -263,10 +246,10 @@ impl<T> RingBuffer<T> {
     ///
     /// # Safety
     ///
-    /// The caller must have established, through [`Self::has_room`], that
-    /// `producer` is at or beyond the consumer's cursor, and must be the sole
-    /// producer: this writes a slot the consumer may reach as soon as the release
-    /// store below lands.
+    /// The caller must have established room for `producer` — through
+    /// [`Self::has_room`], or the uncached full check [`Self::try_produce`]
+    /// performs — and must be the sole producer: this writes a slot the consumer
+    /// may reach as soon as the release store below lands.
     pub(crate) unsafe fn produce_at(&self, producer: usize, value: T) {
         // SAFETY: `producer` is past the consumer's cursor, so this slot is not
         // one the consumer may read until the release store publishes it, and
@@ -284,9 +267,10 @@ impl<T> RingBuffer<T> {
     ///
     /// # Safety
     ///
-    /// The caller must have established, through [`Self::has_value`], that
-    /// `consumer` is behind the published producer cursor, and must be the sole
-    /// consumer: the slot is read once here and never again.
+    /// The caller must have established that `consumer` is behind the published
+    /// producer cursor — through [`Self::has_value`], or the uncached emptiness
+    /// check [`Self::try_consume`] performs — and must be the sole consumer: the
+    /// slot is read once here and never again.
     pub(crate) unsafe fn consume_at(&self, consumer: usize) -> T {
         // SAFETY: `consumer` is behind the published producer cursor, so this
         // slot was written and released by the producer. It has not been read
