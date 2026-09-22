@@ -125,6 +125,13 @@ fn native_window_lifecycle_and_frame_round_trip() {
         .expect("Control up");
         PostMessageW(Some(window.hwnd), WM_CHAR, WPARAM(0xd83d), LPARAM(0))
             .expect("high surrogate");
+        PostMessageW(
+            Some(window.hwnd),
+            WM_KEYUP,
+            WPARAM(0x41),
+            key_lparam(0x1e, false, false),
+        )
+        .expect("surrogate-interleaving key up");
         PostMessageW(Some(window.hwnd), WM_CHAR, WPARAM(0xde00), LPARAM(0)).expect("low surrogate");
         let _ = SendMessageW(
             window.hwnd,

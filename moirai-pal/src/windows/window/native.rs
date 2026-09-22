@@ -489,7 +489,11 @@ unsafe extern "system" fn window_proc(
         // SAFETY: NativeWindow keeps the Box alive until DestroyWindow returns; the
         // callback is invoked synchronously on the owning window thread.
         let state = &mut *state_ptr;
-        if message != WM_CHAR {
+        // SendInput delivers a UTF-16 surrogate pair as two WM_CHAR messages
+        // with a key-up message between them. Keep the high surrogate pending
+        // across those key-up notifications so native emoji input remains one
+        // scalar instead of being replaced before its low surrogate arrives.
+        if !matches!(message, WM_CHAR | WM_KEYUP | WM_SYSKEYUP) {
             state.finish_text();
         }
         match message {
