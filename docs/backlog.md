@@ -15,7 +15,7 @@
 - **Acceptance:** the provider compiles with the workspace Windows bindings, rejects malformed or over-bounded trees before they reach UIA, preserves stable node identity/focus/action state across updates, reports action-queue overflow as a typed error, and has native regression coverage plus Rustdoc/lockfile verification. Metis consumes the contract in `METIS-A11Y-001`.
 - **Decision:** [ADR 0066](adr/0066-windows-accessibility-bridge.md).
 - **Lease:** root `moirai-pal/src/windows/window/accessibility/adapter.rs` `moirai-pal/src/windows/window/accessibility/tests.rs` `docs/adr/0066-windows-accessibility-bridge.md` `docs/backlog.md` 2026-09-21T08:42:00-04:00.
-- **Current increment (2026-09-21):** map the Windows UI Automation `ValuePattern.SetValue` action to the same bounded `AccessibilityAction::SetValue` queue as `ReplaceSelectedText`; the PAL remains application-agnostic and rejects unsupported actions.
+- **Current increment (2026-09-22):** extend the format-neutral role contract with navigation, complementary, toolbar, menu and menu-item roles, mapping each directly to AccessKit while retaining bounded validation and application-owned action policy. Native contract tests cover every new mapping.
 
 <a id="MOI-WASM-CLIPBOARD-2026-09-19"></a>
 ## MOI-WASM-CLIPBOARD-2026-09-19 — Expose bounded browser text clipboard [minor]

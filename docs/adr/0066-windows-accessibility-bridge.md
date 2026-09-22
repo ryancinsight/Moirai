@@ -44,6 +44,11 @@ The PAL contract carries no application action policy, browser DOM, DICOM
 semantics or screen-reader automation. Consumers map their own semantic tree to
 the contract and apply requests through their existing state transitions.
 
+The role vocabulary includes navigation and complementary landmarks, toolbars,
+menus and menu items. These roles stay format-neutral and map directly to the
+corresponding AccessKit roles so consumers can preserve command-surface
+semantics without importing AccessKit into their own crates.
+
 ## Alternatives
 
 - Implement UI Automation directly with Windows COM interfaces. Rejected because
