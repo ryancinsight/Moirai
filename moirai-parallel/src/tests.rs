@@ -420,7 +420,6 @@ fn empty_and_single_inputs_are_handled() {
     assert_eq!(one, vec![8]);
 }
 
-#[cfg(feature = "melinoe")]
 #[test]
 fn test_par_partition_melinoe() {
     use melinoe::{MelinoeCell, brand_scope};
@@ -440,7 +439,6 @@ fn test_par_partition_melinoe() {
     });
 }
 
-#[cfg(feature = "melinoe")]
 #[test]
 fn test_par_partition_map_preserves_partition_order() {
     use melinoe::{MelinoeCell, brand_scope};
@@ -467,7 +465,6 @@ fn test_par_partition_map_preserves_partition_order() {
 /// `ADAPTIVE_PARALLEL_THRESHOLD`, so this compares sequential and parallel
 /// execution of the same independent per-shard mapping. Both paths must retain
 /// the same shard boundaries, result-slot order, and transformed values.
-#[cfg(feature = "melinoe")]
 #[test]
 fn test_policy_preserves_shard_geometry_and_results() {
     use super::policy::{Adaptive, Parallel};
@@ -508,7 +505,6 @@ fn test_policy_preserves_shard_geometry_and_results() {
 
 /// `Sequential` is the one policy whose tiling must still cover the region
 /// exactly once, including when the region does not divide evenly.
-#[cfg(feature = "melinoe")]
 #[test]
 fn test_sequential_policy_tiles_ragged_region_exactly_once() {
     use super::policy::Sequential;
@@ -538,7 +534,6 @@ fn test_sequential_policy_tiles_ragged_region_exactly_once() {
 }
 
 /// An empty region must not enter the pool or the sequential loop.
-#[cfg(feature = "melinoe")]
 #[test]
 fn test_policy_short_circuits_empty_region() {
     use super::policy::Parallel;
