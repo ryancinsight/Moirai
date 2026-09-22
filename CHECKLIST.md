@@ -2,6 +2,38 @@
 
 **Target**: Unreleased
 
+## MOI-MPMC-BOUNDED-ROUNDTRIP-HANG-2026-09-22 - Bounded mpmc round-trip hangs [patch] - todo
+
+- **Outcome:** `channel_properties::mpmc_roundtrip_preserves_multiset` completes
+  within the committed nextest budget every run; today it reaches `TIMEOUT
+  [60.035s]`, the terminate bound, and takes the workspace gate with it
+  (exit 100).
+- **Reproduction:** the single test, run repeatedly, hangs on roughly one run in
+  five to eight on a 24-core Windows host:
+  `for i in $(seq 1 40); do cargo nextest run -p moirai-core -E
+  'test(mpmc_roundtrip_preserves_multiset)'; done` - observed at iterations 5
+  and 8 of two independent loops. One run in isolation passes in 0.065s, so a
+  single green run is not evidence.
+- **First seen:** CI run 35681612137 on main. Attribution to #430 is *not*
+  established: that change touched `channel/spsc/ring.rs` and
+  `communication/ring_buffer.rs`, while this test exercises `MpmcChannel`,
+  whose queue is `moirai_utils::queue::LockFreeQueue` - a crate #430 does not
+  touch, and mpmc names neither `RingBuffer` nor `ring_buffer`. Treat the
+  correlation as a starting point, not a cause.
+- **First place to look:** `send_bounded`/`recv_bounded` in
+  `moirai-core/src/channel/mpmc/channel.rs` pair a waiter count against the
+  queue as a Dekker protocol, and the code states its own failure mode - "a
+  spurious notify is free; a missed one is a hang, and only the increment above
+  can be missed". A lost wakeup fits the observed shape (both threads live, no
+  panic, no progress).
+- **Acceptance:** the mechanism is named, the fix carries a `loom` interleaving
+  test over the send/recv waiter protocol (bounded, with the bound stated), and
+  1,000 consecutive runs of this test pass. Raising or removing the budget is
+  not a fix.
+- **Atlas impact:** atlas pins moirai at `02ae76ec5`, the last green revision,
+  rather than the head carrying this - see atlas #222. The pin advances once
+  this closes.
+
 ## MOI-PARKED-POOL-FIRST-REGION-2026-09-17 — Bring a parked pool to full width faster [patch] [perf] — todo
 
 - **Outcome:** a data-parallel region submitted after the workers parked (idle
