@@ -5,7 +5,7 @@
 
 use super::recv::MpmcReceiver;
 use super::send::MpmcSender;
-use super::{MPMC_BLOCK_SPINS, MpmcState};
+use super::{MPMC_BLOCK_SPINS, MpmcState, block::backoff_step};
 use crate::channel::CHANNEL_STORE_LOAD_ORDER;
 use crate::channel::error::{Channel, ChannelError, Result};
 use moirai_utils::queue::{EnqueueOutcome, LockFreeQueue};
@@ -129,10 +129,10 @@ impl<T> MpmcChannel<T> {
             }
 
             if spin_count < MPMC_BLOCK_SPINS {
-                for _ in 0..(1 << spin_count) {
-                    std::hint::spin_loop();
-                }
-                spin_count += 1;
+                // The ring paths spend a round without releasing anything: they
+                // hold no lock, so unlike the mutex paths there is nothing to
+                // re-acquire afterwards.
+                backoff_step(&mut spin_count);
                 continue;
             }
 
@@ -273,10 +273,10 @@ impl<T> MpmcChannel<T> {
             }
 
             if spin_count < MPMC_BLOCK_SPINS {
-                for _ in 0..(1 << spin_count) {
-                    std::hint::spin_loop();
-                }
-                spin_count += 1;
+                // The ring paths spend a round without releasing anything: they
+                // hold no lock, so unlike the mutex paths there is nothing to
+                // re-acquire afterwards.
+                backoff_step(&mut spin_count);
                 continue;
             }
 

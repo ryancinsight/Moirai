@@ -41,6 +41,26 @@ fn validates_connected_tree_and_preserves_accesskit_semantics() {
 }
 
 #[test]
+fn maps_command_surface_roles_to_accesskit() {
+    let roles = [
+        (AccessibilityRole::Navigation, accesskit::Role::Navigation),
+        (
+            AccessibilityRole::Complementary,
+            accesskit::Role::Complementary,
+        ),
+        (AccessibilityRole::Toolbar, accesskit::Role::Toolbar),
+        (AccessibilityRole::Menu, accesskit::Role::Menu),
+        (AccessibilityRole::MenuItem, accesskit::Role::MenuItem),
+    ];
+    for (source, expected) in roles {
+        let node = node(1, source, "command surface");
+        let tree = AccessibilityTree::from_nodes(1, 1, vec![node]).expect("tree is valid");
+        let update = tree.to_accesskit();
+        assert_eq!(update.nodes.first().expect("one node").1.role(), expected);
+    }
+}
+
+#[test]
 fn rejects_duplicate_unreachable_cyclic_and_hidden_action_nodes() {
     let duplicate = AccessibilityTree::from_nodes(
         1,

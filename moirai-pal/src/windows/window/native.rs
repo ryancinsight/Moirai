@@ -489,7 +489,20 @@ unsafe extern "system" fn window_proc(
         // SAFETY: NativeWindow keeps the Box alive until DestroyWindow returns; the
         // callback is invoked synchronously on the owning window thread.
         let state = &mut *state_ptr;
-        if message != WM_CHAR {
+        // SendInput delivers a UTF-16 surrogate pair as two WM_CHAR messages
+        // with keyboard and repaint messages between them. Keep the high
+        // surrogate pending across that interleave so native emoji input
+        // remains one scalar instead of being replaced before its low
+        // surrogate arrives. Focus and IME transitions are the boundaries
+        // that terminate an incomplete text unit.
+        if matches!(
+            message,
+            WM_KILLFOCUS
+                | WM_IME_STARTCOMPOSITION
+                | WM_IME_COMPOSITION
+                | WM_IME_ENDCOMPOSITION
+                | WM_NCDESTROY
+        ) {
             state.finish_text();
         }
         match message {

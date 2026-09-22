@@ -97,7 +97,6 @@ embedded_sources![
     "../moirai-core/src/ipc/tests.rs",
     "../moirai-core/src/lib.rs",
     "../moirai-core/src/memory/allocator.rs",
-    "../moirai-core/src/memory/buffer.rs",
     "../moirai-core/src/memory/mod.rs",
     "../moirai-core/src/memory/pool.rs",
     "../moirai-core/src/memory/tests.rs",
