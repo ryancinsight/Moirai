@@ -490,10 +490,19 @@ unsafe extern "system" fn window_proc(
         // callback is invoked synchronously on the owning window thread.
         let state = &mut *state_ptr;
         // SendInput delivers a UTF-16 surrogate pair as two WM_CHAR messages
-        // with a key-up message between them. Keep the high surrogate pending
-        // across those key-up notifications so native emoji input remains one
-        // scalar instead of being replaced before its low surrogate arrives.
-        if !matches!(message, WM_CHAR | WM_KEYUP | WM_SYSKEYUP) {
+        // with keyboard and repaint messages between them. Keep the high
+        // surrogate pending across that interleave so native emoji input
+        // remains one scalar instead of being replaced before its low
+        // surrogate arrives. Focus and IME transitions are the boundaries
+        // that terminate an incomplete text unit.
+        if matches!(
+            message,
+            WM_KILLFOCUS
+                | WM_IME_STARTCOMPOSITION
+                | WM_IME_COMPOSITION
+                | WM_IME_ENDCOMPOSITION
+                | WM_NCDESTROY
+        ) {
             state.finish_text();
         }
         match message {

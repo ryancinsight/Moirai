@@ -18,7 +18,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_MENU, VK_SHIFT}
 use windows::Win32::UI::WindowsAndMessaging::{
     PostMessageW, SendMessageW, WM_CHAR, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
     WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEHWHEEL,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 #[test]
@@ -125,6 +125,15 @@ fn native_window_lifecycle_and_frame_round_trip() {
         .expect("Control up");
         PostMessageW(Some(window.hwnd), WM_CHAR, WPARAM(0xd83d), LPARAM(0))
             .expect("high surrogate");
+        PostMessageW(Some(window.hwnd), WM_PAINT, WPARAM(0), LPARAM(0))
+            .expect("surrogate-interleaving repaint");
+        PostMessageW(
+            Some(window.hwnd),
+            WM_KEYDOWN,
+            WPARAM(0x41),
+            key_lparam(0x1e, false, false),
+        )
+        .expect("surrogate-interleaving key down");
         PostMessageW(
             Some(window.hwnd),
             WM_KEYUP,
