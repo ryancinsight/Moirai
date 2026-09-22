@@ -309,6 +309,7 @@ embedded_sources![
     "../moirai-transport/src/transport.rs",
     "../moirai-utils/Cargo.toml",
     "../moirai-utils/src/lib.rs",
+    "../moirai-utils/src/result_cell.rs",
     "../moirai-utils/src/simd/arch/mod.rs",
     "../moirai-utils/src/simd/mod.rs",
     "../moirai-utils/src/simd/scalar.rs",

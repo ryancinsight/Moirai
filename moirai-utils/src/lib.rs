@@ -5,6 +5,7 @@
 //! - [`cache`] - Cache alignment utilities for performance optimization
 //! - [`atomic`] - Atomic operations and counters for lock-free programming
 //! - [`queue`] - Lock-free queues for high-performance data structures
+//! - [`result_cell`] - One-shot completion cell shared by the task and async handles
 //! - [`memory`] - Memory utilities for cache prefetching
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -21,6 +22,7 @@ pub mod atomic;
 pub mod cache;
 pub mod memory;
 pub mod queue;
+pub mod result_cell;
 
 // SIMD optimizations for high-performance computing
 #[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
@@ -33,6 +35,7 @@ pub use cache::{
 };
 pub use memory::{prefetch_read, prefetch_write};
 pub use queue::{EnqueueOutcome, LockFreeQueue};
+pub use result_cell::{ResultCell, Waiter};
 
 // SIMD optimization counter and scalar contracts for performance tracking.
 #[cfg(all(feature = "std", any(target_arch = "x86_64", target_arch = "aarch64")))]
