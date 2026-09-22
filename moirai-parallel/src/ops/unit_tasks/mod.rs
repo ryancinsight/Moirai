@@ -2,80 +2,21 @@
 //!
 //! A unit is a lane, row or matrix: a fixed run of elements that one closure
 //! call transforms together. How many units a task carries, and whether the
-//! pass runs in parallel at all, depend on the bytes a unit moves — including
-//! any input read beside it — not on its element count.
+//! pass runs in parallel at all, depend on the bytes a unit moves â€” including
+//! any input read beside it â€” not on its element count.
 
 use crate::policy::ExecutionPolicy;
 use melinoe::MelinoeCell;
 use melinoe::region::WriterShard;
 use moirai_executor::{SyncTask, global};
 
+mod layout;
+
 #[cfg(test)]
 mod tests;
 
-/// Bytes of work one scheduled task carries.
-///
-/// One length-64 lane per task made apollo's 64³ transform pass 3.3x slower
-/// than serial: moirai's per-task dispatch measures about 180 ns against a
-/// 55–130 ns lane. Tasks of 64 KiB made the same pass faster than serial and
-/// than quarter-megabyte tasks (apollo `dimension_3d::pass_attribution`,
-/// 2026-09-09), and leto-ops' batched transpose settled on the same width. It
-/// stays inside one core's L2.
-pub const UNIT_TASK_BYTES: usize = 64 * 1024;
-
-/// Units one task carries when each unit moves `unit_bytes`, never fewer than
-/// one: a unit at or above [`UNIT_TASK_BYTES`] is a task on its own.
-#[must_use]
-pub const fn units_per_task(unit_bytes: usize) -> usize {
-    let per_task = UNIT_TASK_BYTES / if unit_bytes == 0 { 1 } else { unit_bytes };
-    if per_task == 0 { 1 } else { per_task }
-}
-
-/// Task layout of a unit-task pass over `len` elements.
-#[derive(Clone, Copy)]
-struct UnitTaskPlan {
-    /// Units one task carries.
-    per_task: usize,
-    /// Elements one task carries: `per_task` whole units.
-    task_len: usize,
-    /// Tasks the pass splits into; the last may be shorter.
-    tasks: usize,
-    /// Whether the policy spreads the tasks over workers.
-    parallel: bool,
-}
-
-/// Rejects data that does not divide into whole `unit_len`-element units.
-#[track_caller]
-fn assert_whole_units(len: usize, unit_len: usize) {
-    assert!(
-        unit_len > 0 && len.is_multiple_of(unit_len),
-        "unit tasks need whole units: data length {len} is not a multiple of unit length {unit_len}",
-    );
-}
-
-/// The task layout and policy decision for `len` elements of whole
-/// `unit_len`-element units that each move `unit_bytes`, or `None` when there
-/// is no unit to run. `P::parallelize_work` is consulted only when the pass
-/// spans more than one task.
-fn plan_unit_tasks<P: ExecutionPolicy>(
-    len: usize,
-    unit_len: usize,
-    unit_bytes: usize,
-) -> Option<UnitTaskPlan> {
-    let units = len / unit_len;
-    if units == 0 {
-        return None;
-    }
-    let per_task = units_per_task(unit_bytes);
-    let tasks = units.div_ceil(per_task);
-    Some(UnitTaskPlan {
-        per_task,
-        task_len: per_task * unit_len,
-        tasks,
-        parallel: tasks > 1 && P::parallelize_work(len, tasks, units.saturating_mul(unit_bytes)),
-    })
-}
-
+pub use layout::{UNIT_TASK_BYTES, units_per_task};
+use layout::{UnitTaskPlan, assert_whole_units, plan_unit_tasks};
 /// Apply `f(state, first_unit, units)` to consecutive runs of whole units of a
 /// pass that addresses its own data, each run sized to about
 /// [`UNIT_TASK_BYTES`] of work.
@@ -84,7 +25,7 @@ fn plan_unit_tasks<P: ExecutionPolicy>(
 /// dense slice the runtime can split: a strided row walk, a tiled block pass,
 /// a reduction that writes one output per axis index. The caller owns the
 /// disjointness proof for whatever those indices address, exactly as it does
-/// today; this owns the one decision the slice operators own — how many units
+/// today; this owns the one decision the slice operators own â€” how many units
 /// a task carries, from the bytes a unit moves, and whether the pass spreads
 /// over workers at all.
 ///
