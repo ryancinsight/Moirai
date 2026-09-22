@@ -1,3 +1,20 @@
+<a id="MOI-UNIT-TASK-MANY-2026-09-22"></a>
+## MOI-UNIT-TASK-MANY-2026-09-22 - A pass writing over three buffers of one type costs a parallel region per buffer [minor] [perf] - in-progress
+
+- **Integrator:** claude-opus-5 (`perf/many-output-unit-tasks`).
+- **Driver:** kwavers' elastic velocity-Verlet writes six fields per element.
+  Through the pair and triple forms that is three calls and three regions, and
+  measured so the fused step read 1008-1021 us against 950-991 us back to back
+  (`phase_split`, 64 cubed, 2026-09-21): the regions cost more than the fusion
+  saved. `for_each_unit_task_many_mut_with([&mut [T]; K], ...)` keeps it one.
+- **Acceptance:** task width and the `parallelize_work` decision come from the
+  planner the slice operators share; tests pin a ragged tail under both
+  policies, one state per task, disjointness across six buffers, empty `K`, and
+  a length mismatch rejected. The kwavers consumer then measures fused against
+  back-to-back on the probe's paired arms - adopted on that measurement, and
+  deleted if the consumer does not take it.
+- **Limit:** miri cannot reach the parallel path here (themis' topology calls `GetNumaHighestNodeNumber`), as for the pair and triple forms.
+
 <a id="MOI-PROCESS-STDERR-2026-09-19"></a>
 ## MOI-PROCESS-STDERR-2026-09-19 — Bound child stderr for host consumers [minor] [security]
 
@@ -70,13 +87,6 @@
   consumes the explicit GPU entrypoints with Metis `070af58f`. Real browser GPU
   visual evidence remains an RITK acceptance residual.
 
-<a id="MOI-UNIT-TASK-RANGES-2026-09-15"></a>
-## MOI-UNIT-TASK-RANGES-2026-09-15 — Index-walking passes cannot size tasks by bytes [minor] [perf] — done
-
-- Delivered: PR [#357](https://github.com/ryancinsight/Moirai/pull/357), commit `8f7e2cd3`. `for_each_unit_task_range_with(units, unit_bytes, init, f)` runs consecutive runs of unit indices through the same planner the slice operators use, so a strided row walk, a tiled block pass or an axis reduction takes its task width from the bytes a unit moves. It owns no data and carries no `unsafe`.
-- Evidence: 5 new tests (ragged runs under both policies, a unit at and past the task width, an empty range, one state per task, the policy arguments); 1106 workspace tests, doctests, clippy and docs clean. ADR 0059 carries the revision.
-- Consumer: leto-ops' five index-walking sites, the second increment of `leto backlog.md#LETO-ELEMENTWISE-UNIT-TASKS-2026-09-15`.
-
 <a id="MOI-WASM-DOM-TRUST-2026-09-15"></a>
 ## MOI-WASM-DOM-TRUST-2026-09-15 — Preserve browser event trust provenance [arch] [minor] [security]
 
@@ -90,16 +100,6 @@
 - Status: done; priority: P1; integrator: root; delivery: [PR #355](https://github.com/ryancinsight/Moirai/pull/355), merge `d95a2cd61b1f133a507d2735f5f72948a4ca5ec9`; last-update: 2026-09-16.
 - Outcome: `moirai-pal` gates `webview2-com` behind the opt-in `webview2` feature, so default Windows consumers avoid the COM binding while Metis opts in.
 - Verification: default locked `moirai-pal` has no `webview2-com`; the all-features native PAL checks compile the provider; [ADR 0052](adr/0052-bounded-webview2-host.md) records the contract.
-
-<a id="MOI-UNIT-TASK-TRIPLE-2026-09-15"></a>
-## MOI-UNIT-TASK-TRIPLE-2026-09-15 — Unit tasks over three aligned mutable buffers [minor] [perf] — done
-
-- #350: `for_each_unit_task_triple_mut_with` (59 native tests, 6 doctests) and one private planner shared by the single, pair and triple operators; ADR 0059 revision records the triple form and its consumer, the kwavers PSTD density source; the quad form stays unadopted.
-
-<a id="MOI-UNIT-TASK-PAIR-2026-09-15"></a>
-## MOI-UNIT-TASK-PAIR-2026-09-15 — Unit tasks over two aligned mutable buffers [minor] [perf] — done
-
-- #348: `for_each_unit_task_pair_mut_with` (55 native tests, 5 doctests); ADR 0059 revision records the pair form and its consumer, kwavers' linear equation of state; a triple form followed in #350.
 
 <a id="MOI-BYTE-SIZED-TASKS-2026-09-15"></a>
 ## MOI-BYTE-SIZED-TASKS-2026-09-15 — Chunk operators decide parallelism and task width by bytes moved [minor] [perf] — done
