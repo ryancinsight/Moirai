@@ -183,7 +183,6 @@ impl<T> ParallelSliceMut<T> for [T] {
     }
 }
 
-#[cfg(feature = "melinoe")]
 pub mod melinoe_ext;
 
 #[cfg(test)]
