@@ -127,6 +127,13 @@ fn native_window_lifecycle_and_frame_round_trip() {
             .expect("high surrogate");
         PostMessageW(
             Some(window.hwnd),
+            WM_KEYDOWN,
+            WPARAM(0x41),
+            key_lparam(0x1e, false, false),
+        )
+        .expect("surrogate-interleaving key down");
+        PostMessageW(
+            Some(window.hwnd),
             WM_KEYUP,
             WPARAM(0x41),
             key_lparam(0x1e, false, false),
