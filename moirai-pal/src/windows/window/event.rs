@@ -26,6 +26,15 @@ pub struct ModifierState {
 impl ModifierState {
     /// No modifier keys are pressed.
     pub const NONE: Self = Self { bits: 0 };
+    /// Control held. Recorded as the left key; the accessors do not report
+    /// which side was pressed.
+    pub const CONTROL: Self = Self { bits: CONTROL_LEFT };
+    /// Shift held, recorded as the left key.
+    pub const SHIFT: Self = Self { bits: SHIFT_LEFT };
+    /// Alt held, recorded as the left key.
+    pub const ALT: Self = Self { bits: ALT_LEFT };
+    /// The Windows key held, recorded as the left key.
+    pub const META: Self = Self { bits: META_LEFT };
 
     /// Returns whether Control was held for the event.
     #[must_use]
@@ -70,6 +79,24 @@ impl ModifierState {
             state = state.set_bits(SHIFT_BITS, true);
         }
         state
+    }
+}
+
+impl core::ops::BitOr for ModifierState {
+    type Output = Self;
+
+    /// The keys held in either state, so a host can describe a chord such as
+    /// `ModifierState::CONTROL | ModifierState::SHIFT`.
+    fn bitor(self, other: Self) -> Self {
+        Self {
+            bits: self.bits | other.bits,
+        }
+    }
+}
+
+impl core::ops::BitOrAssign for ModifierState {
+    fn bitor_assign(&mut self, other: Self) {
+        self.bits |= other.bits;
     }
 }
 
