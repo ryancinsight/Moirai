@@ -17,6 +17,11 @@ description = "Platform Abstraction Layer for Moirai async I/O operations"
 moirai-core = { workspace = true }
 melinoe = { workspace = true, features = ["std"] }
 
+[target.'cfg(any(unix, windows))'.dependencies]
+# Non-blocking socket creation for `AsyncTcpStream::connect`: std offers only
+# the blocking `TcpStream::connect`.
+socket2 = "0.6"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

@@ -22,10 +22,7 @@ impl TcpListener {
 
     /// Bind to an address with custom configuration
     pub async fn bind_with_config(addr: &str, config: TcpServerConfig) -> io::Result<Self> {
-        use std::net::ToSocketAddrs;
-        let addr_parsed = addr.to_socket_addrs()?.next().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "Could not resolve address")
-        })?;
+        let addr_parsed = crate::net::resolve::resolve(addr).await?.first();
         let inner = AsyncTcpListener::bind(addr_parsed).await?;
         let stats = Arc::new(ServerStats::default());
         let connection_pool = Arc::new(ConnectionPool::new(config.max_connections));

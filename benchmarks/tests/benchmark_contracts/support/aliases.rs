@@ -363,6 +363,14 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-async/src/net/stream.rs",
             "../moirai-async/src/net/socket.rs",
             "../moirai-async/src/net/types.rs",
+            "../moirai-async/src/net/resolve.rs",
+        ],
+    ),
+    (
+        "../moirai-async/src/net/tests.rs",
+        &[
+            "../moirai-async/src/net/tests/mod.rs",
+            "../moirai-async/src/net/tests/connect.rs",
         ],
     ),
     (

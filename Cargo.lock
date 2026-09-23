@@ -1688,6 +1688,7 @@ dependencies = [
  "melinoe",
  "moirai-core 0.6.0",
  "proptest",
+ "socket2 0.6.5",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

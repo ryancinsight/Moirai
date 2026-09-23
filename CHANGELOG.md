@@ -435,6 +435,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`TcpStream::connect` no longer blocks the polling thread.**
+  `moirai_pal::net::AsyncTcpStream::connect` ran std's blocking connect inside
+  `poll`, so an unanswered SYN held the executor thread for the OS connect
+  timeout (about 21 s on Windows, 127 s on Linux) and an outer `timeout` or a
+  dropped future could not interrupt it. It now creates a non-blocking socket,
+  starts the connect, and waits for writable readiness from the reactor,
+  deciding the outcome from `SO_ERROR` and `getpeername`; dropping the future
+  closes the half-open socket. `moirai_async`'s `TcpStream::connect`,
+  `TcpListener::bind`, and `UdpSocket::bind` resolve hostnames on a dedicated
+  lookup thread instead of calling `getaddrinfo` in `poll` (literal addresses
+  still parse in place), and `connect` now tries every resolved address in
+  order rather than only the first.
 - Shut down and join compute workers already started when a later worker thread
   fails to spawn. Failed `ThreadScheduler` construction no longer leaves a
   partial worker set parked with retained scheduler state.
