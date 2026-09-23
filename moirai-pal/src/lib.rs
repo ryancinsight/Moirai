@@ -32,6 +32,7 @@
 pub mod fs;
 pub mod net;
 pub mod reactor;
+pub mod thread;
 pub mod timer;
 
 mod frame;
