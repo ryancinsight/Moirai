@@ -4,23 +4,21 @@
 use crate::executor::AsyncExecutor;
 use crate::net::TcpStream;
 use crate::net::resolve::{RESOLVER_QUEUE_DEPTH, RESOLVER_WORKERS, test_hooks};
+
+mod cancellation;
 use std::future::{Future, poll_fn};
 use std::net::TcpListener as StdTcpListener;
 use std::pin::pin;
 use std::sync::{Arc, mpsc};
 use std::task::Poll;
-use std::time::Duration;
 
 /// Three lookups per worker: enough to fill every worker and the queue and
 /// leave callers waiting on admission.
 const CONCURRENT_LOOKUPS: usize = 3 * RESOLVER_WORKERS;
 
-/// Upper wait for workers to enter their gated lookups. `localhost` resolves
-/// from the hosts file in microseconds; the bound only catches a hang.
-const SATURATION_LIMIT: Duration = Duration::from_secs(10);
-
 #[test]
 fn concurrent_hostname_connects_never_exceed_the_worker_bound() {
+    let _exclusive = test_hooks::exclusive();
     let listener = StdTcpListener::bind("127.0.0.1:0").expect("listener bind must succeed");
     let port = listener
         .local_addr()
@@ -63,10 +61,10 @@ fn concurrent_hostname_connects_never_exceed_the_worker_bound() {
 
     for _ in 0..CONCURRENT_LOOKUPS {
         submissions
-            .recv_timeout(SATURATION_LIMIT)
+            .recv_timeout(test_hooks::STAGE_LIMIT)
             .expect("every connect must reach resolver admission");
     }
-    let running = test_hooks::wait_for_live(RESOLVER_WORKERS, SATURATION_LIMIT);
+    let running = test_hooks::wait_until(|progress| progress.live == RESOLVER_WORKERS).live;
     let free_admissions = test_hooks::free_admissions();
     test_hooks::set_gate_closed(false);
 

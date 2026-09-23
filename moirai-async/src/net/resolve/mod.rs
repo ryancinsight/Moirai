@@ -10,6 +10,10 @@
 //! resolver threads exist for the life of the process, whatever the caller
 //! does.
 //!
+//! Worker threads start on the first hostname lookup. A spawn failure is
+//! reported as the lookup's error only when no worker runs at all, and the
+//! next lookup retries the spawn.
+//!
 //! Dropping the awaiting future closes the reply channel. A lookup that is
 //! still queued is then skipped without calling `getaddrinfo`. A lookup that is
 //! already running cannot be interrupted and occupies its worker until
@@ -42,6 +46,9 @@ pub(super) const RESOLVER_WORKERS: usize = 4;
 /// the async admission wait, which costs no thread, into the channel.
 pub(super) const RESOLVER_QUEUE_DEPTH: usize = RESOLVER_WORKERS;
 
+/// Lookups admitted at once, running or queued.
+pub(super) const RESOLVER_ADMISSIONS: usize = RESOLVER_WORKERS + RESOLVER_QUEUE_DEPTH;
+
 type LookupResult = io::Result<Vec<SocketAddr>>;
 
 /// One admitted lookup. The permit returns to the pool when the lookup
@@ -49,38 +56,88 @@ type LookupResult = io::Result<Vec<SocketAddr>>;
 struct Lookup {
     query: String,
     reply: oneshot::Sender<LookupResult>,
-    _admission: SemaphorePermit<'static>,
+    admission: SemaphorePermit<'static>,
 }
 
 struct Resolver {
     admission: Semaphore,
     jobs: SyncSender<Lookup>,
-    workers: usize,
+    queue: Arc<Mutex<Receiver<Lookup>>>,
+    /// Workers started so far. A failed spawn is retried by the next lookup,
+    /// so one failure never disables resolution for the process.
+    workers: Mutex<usize>,
 }
 
 fn resolver() -> &'static Resolver {
     static RESOLVER: OnceLock<Resolver> = OnceLock::new();
     RESOLVER.get_or_init(|| {
-        // Sized for every admission permit: an admitted lookup sits in the
+        // One slot per admission permit: an admitted lookup sits in the
         // channel until a worker dequeues it, so all of them may be there at
         // once before any worker wakes.
-        let (jobs, queue) = mpsc::sync_channel(RESOLVER_WORKERS + RESOLVER_QUEUE_DEPTH);
-        let queue = Arc::new(Mutex::new(queue));
-        let workers = (0..RESOLVER_WORKERS)
-            .filter(|index| {
-                let queue = Arc::clone(&queue);
-                std::thread::Builder::new()
-                    .name(format!("moirai-resolve-{index}"))
-                    .spawn(move || run_worker(&queue))
-                    .is_ok()
-            })
-            .count();
+        let (jobs, queue) = mpsc::sync_channel(RESOLVER_ADMISSIONS);
         Resolver {
-            admission: Semaphore::new(RESOLVER_QUEUE_DEPTH + workers),
+            admission: Semaphore::new(RESOLVER_ADMISSIONS),
             jobs,
-            workers,
+            queue: Arc::new(Mutex::new(queue)),
+            workers: Mutex::new(0),
         }
     })
+}
+
+impl Resolver {
+    /// Start any of the [`RESOLVER_WORKERS`] threads not yet running.
+    ///
+    /// # Errors
+    /// Returns the spawn error only when no worker is running at all. With at
+    /// least one worker, lookups still progress, and the missing workers are
+    /// retried on the next call.
+    fn ensure_workers(&self) -> io::Result<()> {
+        let mut workers = self.workers.lock().unwrap_or_else(PoisonError::into_inner);
+        while *workers < RESOLVER_WORKERS {
+            let queue = Arc::clone(&self.queue);
+            let spawned = std::thread::Builder::new()
+                .name(format!("moirai-resolve-{}", *workers))
+                .spawn(move || run_worker(&queue));
+            match spawned {
+                Ok(_) => *workers += 1,
+                Err(source) if *workers == 0 => {
+                    return Err(ThreadStartError {
+                        thread: "resolver worker",
+                        source,
+                    }
+                    .into());
+                }
+                Err(_) => break,
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A runtime thread failed to start; `source` is the spawn error.
+#[derive(Debug)]
+struct ThreadStartError {
+    thread: &'static str,
+    source: io::Error,
+}
+
+impl std::fmt::Display for ThreadStartError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "could not start a {} thread", self.thread)
+    }
+}
+
+impl std::error::Error for ThreadStartError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+impl From<ThreadStartError> for io::Error {
+    fn from(error: ThreadStartError) -> Self {
+        let kind = error.source.kind();
+        Self::new(kind, error)
+    }
 }
 
 fn run_worker(queue: &Mutex<Receiver<Lookup>>) {
@@ -88,24 +145,32 @@ fn run_worker(queue: &Mutex<Receiver<Lookup>>) {
         // Holding the lock across `recv` makes idle workers queue on the
         // mutex; exactly one waits in the channel at a time.
         let next = queue.lock().unwrap_or_else(PoisonError::into_inner).recv();
-        let Ok(lookup) = next else {
+        let Ok(Lookup {
+            query,
+            reply,
+            admission,
+        }) = next
+        else {
             // The static sender is never dropped; a closed channel means the
             // process is tearing down.
             return;
         };
-        if lookup.reply.is_closed() {
-            // The caller dropped its future while this lookup was queued.
-            continue;
+        // A caller that dropped its future while the lookup was queued gets
+        // no `getaddrinfo` call.
+        if !reply.is_closed() {
+            #[cfg(test)]
+            let _running = test_hooks::Running::enter();
+            let result = query
+                .to_socket_addrs()
+                .map(Iterator::collect::<Vec<SocketAddr>>);
+            // `send` returns the result only when the awaiting future was
+            // dropped after the lookup started; that cancelled caller was its
+            // sole consumer.
+            drop(reply.send(result));
         }
+        drop(admission);
         #[cfg(test)]
-        let _running = test_hooks::Running::enter();
-        let result = lookup
-            .query
-            .to_socket_addrs()
-            .map(Iterator::collect::<Vec<SocketAddr>>);
-        // `send` returns the result only when the awaiting future was dropped
-        // after the lookup started; that cancelled caller was its sole consumer.
-        drop(lookup.reply.send(result));
+        test_hooks::disposed();
     }
 }
 
@@ -141,17 +206,13 @@ pub(super) async fn resolve(addr: &str) -> io::Result<ResolvedAddrs> {
     }
 
     let resolver = resolver();
-    if resolver.workers == 0 {
-        return Err(io::Error::other(format!(
-            "no resolver worker thread could be started to resolve {addr:?}"
-        )));
-    }
+    resolver.ensure_workers()?;
     let admission = resolver.admission.acquire().await;
     let (reply, mut receiver) = oneshot::channel();
     let lookup = Lookup {
         query: addr.to_owned(),
         reply,
-        _admission: admission,
+        admission,
     };
     match resolver.jobs.try_send(lookup) {
         Ok(()) => {}
@@ -187,77 +248,5 @@ pub(super) async fn resolve(addr: &str) -> io::Result<ResolvedAddrs> {
     })
 }
 
-/// Test-only instrumentation: live and peak concurrent lookups, and a gate
-/// that holds workers inside a lookup so a test can observe saturation.
 #[cfg(test)]
-pub(super) mod test_hooks {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Condvar, Mutex, PoisonError};
-    use std::time::Duration;
-
-    static PEAK: AtomicUsize = AtomicUsize::new(0);
-    static GATE: Mutex<GateState> = Mutex::new(GateState {
-        closed: false,
-        live: 0,
-    });
-    static CHANGED: Condvar = Condvar::new();
-
-    struct GateState {
-        closed: bool,
-        live: usize,
-    }
-
-    /// Marks one worker as inside a lookup for its lifetime.
-    pub(in crate::net) struct Running;
-
-    impl Running {
-        pub(in crate::net) fn enter() -> Self {
-            let mut gate = GATE.lock().unwrap_or_else(PoisonError::into_inner);
-            gate.live += 1;
-            PEAK.fetch_max(gate.live, Ordering::SeqCst);
-            CHANGED.notify_all();
-            while gate.closed {
-                gate = CHANGED.wait(gate).unwrap_or_else(PoisonError::into_inner);
-            }
-            Self
-        }
-    }
-
-    impl Drop for Running {
-        fn drop(&mut self) {
-            GATE.lock().unwrap_or_else(PoisonError::into_inner).live -= 1;
-            CHANGED.notify_all();
-        }
-    }
-
-    /// Highest number of lookups observed running at once.
-    pub(in crate::net) fn peak() -> usize {
-        PEAK.load(Ordering::SeqCst)
-    }
-
-    /// Hold (`true`) or release (`false`) workers once they enter a lookup.
-    pub(in crate::net) fn set_gate_closed(closed: bool) {
-        GATE.lock().unwrap_or_else(PoisonError::into_inner).closed = closed;
-        CHANGED.notify_all();
-    }
-
-    /// Wait until exactly `target` lookups are running, or `limit` passes;
-    /// returns the running count observed last.
-    pub(in crate::net) fn wait_for_live(target: usize, limit: Duration) -> usize {
-        let gate = GATE.lock().unwrap_or_else(PoisonError::into_inner);
-        let (gate, _) = CHANGED
-            .wait_timeout_while(gate, limit, |gate| gate.live != target)
-            .unwrap_or_else(PoisonError::into_inner);
-        gate.live
-    }
-
-    /// Resolver threads started in this process.
-    pub(in crate::net) fn workers() -> usize {
-        super::resolver().workers
-    }
-
-    /// Admission permits currently free.
-    pub(in crate::net) fn free_admissions() -> usize {
-        super::resolver().admission.available_permits()
-    }
-}
+pub(super) mod test_hooks;

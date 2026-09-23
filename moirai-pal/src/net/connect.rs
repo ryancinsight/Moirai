@@ -57,13 +57,16 @@ impl AsyncTcpStream {
             // Declared after `stream`, so a dropped future retires this
             // registration before the socket closes.
             let mut waiter = None;
+            // Dropped when the connect settles or the future is dropped, which
+            // ends its re-probe wakes.
+            let mut reprobe = reprobe::Registration::new();
             poll_fn(|cx| {
                 let polled =
                     poll_ready_op(cx, owner.clone(), Interest::WRITABLE, &mut waiter, || {
                         connect_outcome(&stream.inner, Duration::ZERO)
                     });
                 if polled.is_pending()
-                    && let Err(error) = reprobe::schedule(cx.waker())
+                    && let Err(error) = reprobe.arm(cx.waker())
                 {
                     return Poll::Ready(Err(error));
                 }

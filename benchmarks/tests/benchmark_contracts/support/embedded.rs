@@ -56,7 +56,7 @@ embedded_sources![
     "../moirai-async/src/io/traits.rs",
     "../moirai-async/src/net/listener.rs",
     "../moirai-async/src/net/mod.rs",
-    "../moirai-async/src/net/resolve.rs",
+    "../moirai-async/src/net/resolve/mod.rs",
     "../moirai-async/src/net/socket.rs",
     "../moirai-async/src/net/stream.rs",
     "../moirai-async/src/net/tests/connect.rs",

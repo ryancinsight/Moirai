@@ -449,8 +449,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   place). `connect` now tries every resolved address in order rather than
   only the first. On Windows, connect completion is decided with `select`,
   which reports a failed connect on every Winsock version, and a pending
-  connect re-polls every 100 ms because `WSAPoll` before Windows 10 version
-  2004 never signals the failure.
+  connect re-polls every 100 ms, because `WSAPoll` before Windows 10 version
+  2004 never signals the failure. The re-poll registration ends when the
+  connect settles or is dropped. A resolver or re-probe thread that fails to
+  start surfaces the spawn error and is retried on the next call.
 - Shut down and join compute workers already started when a later worker thread
   fails to spawn. Failed `ThreadScheduler` construction no longer leaves a
   partial worker set parked with retained scheduler state.
