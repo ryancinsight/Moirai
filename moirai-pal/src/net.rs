@@ -21,7 +21,6 @@ use crate::reactor::socket_owner::SocketLease;
 use crate::reactor::waiter_cancellation::WaiterCancellation;
 
 mod connect;
-use connect::{connect_outcome, start_connect};
 
 #[cfg(unix)]
 fn socket_to_raw(s: &impl AsRawFd) -> crate::RawFd {
@@ -153,49 +152,6 @@ impl AsyncTcpStream {
     /// Propagates the underlying socket error.
     pub fn shutdown_write(&self) -> io::Result<()> {
         self.inner.shutdown(Shutdown::Write)
-    }
-
-    /// Connect to `addr` without blocking the polling thread.
-    ///
-    /// The socket is created non-blocking and the connect is started
-    /// immediately; while the handshake is in progress the future registers
-    /// writable interest with the active reactor and returns `Pending`.
-    /// Completion is decided by `SO_ERROR` and `getpeername` once the socket
-    /// reports writable, error, or hangup readiness. Dropping the future closes
-    /// the half-open socket, which aborts the handshake, so an outer timeout or
-    /// cancellation takes effect at its own deadline rather than the OS
-    /// connect timeout.
-    ///
-    /// # Errors
-    /// Propagates socket creation and non-blocking-mode errors, and the
-    /// connect failure reported by the OS (for example `ConnectionRefused` or
-    /// `TimedOut`).
-    pub async fn connect(addr: SocketAddr) -> io::Result<Self> {
-        let stream = Self::from_nonblocking(start_connect(addr)?);
-        #[cfg(unix)]
-        {
-            let fd = socket_to_raw(&stream.inner);
-            poll_fn(|cx| {
-                poll_ready_op(cx, fd, Interest::WRITABLE, || {
-                    connect_outcome(&stream.inner)
-                })
-            })
-            .await?;
-        }
-        #[cfg(windows)]
-        {
-            let owner = SocketLease::from(&stream.inner);
-            // Declared after `stream`, so a dropped future retires this
-            // registration before the socket closes.
-            let mut waiter = None;
-            poll_fn(|cx| {
-                poll_ready_op(cx, owner.clone(), Interest::WRITABLE, &mut waiter, || {
-                    connect_outcome(&stream.inner)
-                })
-            })
-            .await?;
-        }
-        Ok(stream)
     }
 
     /// Poll a non-blocking read into `buf`.

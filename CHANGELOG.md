@@ -443,10 +443,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   starts the connect, and waits for writable readiness from the reactor,
   deciding the outcome from `SO_ERROR` and `getpeername`; dropping the future
   closes the half-open socket. `moirai_async`'s `TcpStream::connect`,
-  `TcpListener::bind`, and `UdpSocket::bind` resolve hostnames on a dedicated
-  lookup thread instead of calling `getaddrinfo` in `poll` (literal addresses
-  still parse in place), and `connect` now tries every resolved address in
-  order rather than only the first.
+  `TcpListener::bind`, and `UdpSocket::bind` resolve hostnames on a fixed pool
+  of four resolver threads behind a bounded queue and an async admission wait,
+  instead of calling `getaddrinfo` in `poll` (literal addresses still parse in
+  place). `connect` now tries every resolved address in order rather than
+  only the first. On Windows, connect completion is decided with `select`,
+  which reports a failed connect on every Winsock version, and a pending
+  connect re-polls every 100 ms because `WSAPoll` before Windows 10 version
+  2004 never signals the failure.
 - Shut down and join compute workers already started when a later worker thread
   fails to spawn. Failed `ThreadScheduler` construction no longer leaves a
   partial worker set parked with retained scheduler state.

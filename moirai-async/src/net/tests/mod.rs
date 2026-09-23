@@ -1,6 +1,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, reason = "test scope"))]
 
 mod connect;
+mod resolve;
 
 use super::*;
 use crate::executor::AsyncExecutor;
