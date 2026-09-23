@@ -143,4 +143,148 @@ mod windows_reprobe {
         drop(connect);
         assert_eq!(reprobe::registered(), 0);
     }
+
+    /// A waker whose drop runs another registration's drop, which takes the
+    /// registry lock.
+    struct HoldsRegistration(
+        #[expect(dead_code, reason = "held only for its drop")] reprobe::Registration,
+    );
+
+    #[expect(
+        clippy::manual_noop_waker,
+        reason = "the waker exists to own a registration; its drop is under test"
+    )]
+    impl Wake for HoldsRegistration {
+        fn wake(self: Arc<Self>) {}
+    }
+
+    /// Run `release` on a helper thread; a deadlock fails the test instead of
+    /// hanging it.
+    fn completes(release: impl FnOnce() + Send + 'static) {
+        let (sender, done) = mpsc::channel();
+        std::thread::spawn(move || {
+            release();
+            sender.send(()).expect("the test awaits completion");
+        });
+        done.recv_timeout(SCHEDULING_MARGIN)
+            .expect("releasing a registration must not deadlock on the registry lock");
+    }
+
+    fn registration_holding_waker() -> Waker {
+        let mut inner = reprobe::Registration::new();
+        inner
+            .arm(&futures::task::noop_waker())
+            .expect("re-probe thread must start");
+        Waker::from(Arc::new(HoldsRegistration(inner)))
+    }
+
+    #[test]
+    fn removed_waker_drops_outside_the_registry_lock() {
+        let _exclusive = exclusive();
+        let mut outer = reprobe::Registration::new();
+        outer
+            .arm(&registration_holding_waker())
+            .expect("re-probe thread must start");
+        assert_eq!(reprobe::registered(), 2);
+        completes(move || drop(outer));
+        assert_eq!(reprobe::registered(), 0);
+    }
+
+    #[test]
+    fn replaced_waker_drops_outside_the_registry_lock() {
+        let _exclusive = exclusive();
+        let mut outer = reprobe::Registration::new();
+        outer
+            .arm(&registration_holding_waker())
+            .expect("re-probe thread must start");
+        completes(move || {
+            outer
+                .arm(&futures::task::noop_waker())
+                .expect("re-probe thread is running");
+            assert_eq!(reprobe::registered(), 1);
+        });
+    }
+
+    /// A waker that panics when woken, as a buggy executor's might.
+    struct PanicsOnWake;
+
+    impl Wake for PanicsOnWake {
+        fn wake(self: Arc<Self>) {
+            panic!("injected re-probe wake panic");
+        }
+    }
+
+    /// Makes [`panics_on_clone`] wakers panic when cloned.
+    static CLONE_PANICS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    static PANICS_ON_CLONE: std::task::RawWakerVTable =
+        std::task::RawWakerVTable::new(clone_or_panic, noop_raw, noop_raw, noop_raw);
+
+    fn clone_or_panic(data: *const ()) -> std::task::RawWaker {
+        assert!(
+            !CLONE_PANICS.load(std::sync::atomic::Ordering::SeqCst),
+            "injected re-probe clone panic"
+        );
+        std::task::RawWaker::new(data, &PANICS_ON_CLONE)
+    }
+
+    fn noop_raw(_: *const ()) {}
+
+    /// A waker whose clone panics once [`CLONE_PANICS`] is set.
+    fn panics_on_clone() -> Waker {
+        // SAFETY: every vtable function ignores the data pointer, which is
+        // never dereferenced, so a null pointer satisfies the `RawWaker`
+        // contract; clone returns a waker with the same vtable.
+        unsafe { Waker::from_raw(std::task::RawWaker::new(std::ptr::null(), &PANICS_ON_CLONE)) }
+    }
+
+    /// Arm `faulty` beside a signalling registration and require the
+    /// signalling one to be woken on each of two full ticks after both are
+    /// registered, which the tick count shows the thread survived.
+    fn faulty_registration_leaves_reprobe_running(faulty: &Waker, arm_fault: impl FnOnce()) {
+        let (sender, woken) = mpsc::channel();
+        let signal = Waker::from(Arc::new(Signal(Mutex::new(sender))));
+        let mut faulty_registration = reprobe::Registration::new();
+        faulty_registration
+            .arm(faulty)
+            .expect("re-probe thread must start");
+        let mut signal_registration = reprobe::Registration::new();
+        signal_registration
+            .arm(&signal)
+            .expect("re-probe thread must start");
+        arm_fault();
+
+        // A tick already in flight may have cloned the registry before both
+        // entries were present, so require three completions past this one.
+        let start = reprobe::ticks::count();
+        let limit = 3 * reprobe::CONNECT_REPROBE_INTERVAL + SCHEDULING_MARGIN;
+        let reached = reprobe::ticks::wait_for(start + 3, limit);
+        drop(faulty_registration);
+        drop(signal_registration);
+
+        assert!(
+            reached >= start + 3,
+            "the re-probe thread stopped ticking after {} of 3 ticks",
+            reached - start
+        );
+        assert!(
+            woken.try_iter().count() >= 2,
+            "the healthy registration must be woken on every tick"
+        );
+    }
+
+    #[test]
+    fn panicking_wake_leaves_other_registrations_reprobed() {
+        let _exclusive = exclusive();
+        faulty_registration_leaves_reprobe_running(&Waker::from(Arc::new(PanicsOnWake)), || {});
+    }
+
+    #[test]
+    fn panicking_clone_leaves_other_registrations_reprobed() {
+        let _exclusive = exclusive();
+        faulty_registration_leaves_reprobe_running(&panics_on_clone(), || {
+            CLONE_PANICS.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        CLONE_PANICS.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
 }

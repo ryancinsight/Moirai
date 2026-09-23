@@ -452,7 +452,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connect re-polls every 100 ms, because `WSAPoll` before Windows 10 version
   2004 never signals the failure. The re-poll registration ends when the
   connect settles or is dropped. A resolver or re-probe thread that fails to
-  start surfaces the spawn error and is retried on the next call.
+  start surfaces the spawn error as `moirai_pal::thread::ThreadStartError` and
+  is retried on the next call. The re-probe drops released wakers outside its
+  registry lock. In unwind builds, a panic inside a resolver job (in
+  `getaddrinfo` or in a caller's waker) fails only that lookup and leaves its
+  worker serving. A re-probe waker that panics in its clone or wake is
+  likewise contained. The containment does not apply under `panic = "abort"`,
+  which the workspace release profile sets: there any such panic ends the
+  process.
 - Shut down and join compute workers already started when a later worker thread
   fails to spawn. Failed `ThreadScheduler` construction no longer leaves a
   partial worker set parked with retained scheduler state.

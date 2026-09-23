@@ -22,8 +22,11 @@
 
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+
+use moirai_pal::thread::ThreadStartError;
 
 use crate::sync::{Semaphore, SemaphorePermit, oneshot};
 
@@ -101,11 +104,7 @@ impl Resolver {
             match spawned {
                 Ok(_) => *workers += 1,
                 Err(source) if *workers == 0 => {
-                    return Err(ThreadStartError {
-                        thread: "resolver worker",
-                        source,
-                    }
-                    .into());
+                    return Err(ThreadStartError::new("resolver worker", source).into());
                 }
                 Err(_) => break,
             }
@@ -114,64 +113,49 @@ impl Resolver {
     }
 }
 
-/// A runtime thread failed to start; `source` is the spawn error.
-#[derive(Debug)]
-struct ThreadStartError {
-    thread: &'static str,
-    source: io::Error,
-}
-
-impl std::fmt::Display for ThreadStartError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "could not start a {} thread", self.thread)
-    }
-}
-
-impl std::error::Error for ThreadStartError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
-    }
-}
-
-impl From<ThreadStartError> for io::Error {
-    fn from(error: ThreadStartError) -> Self {
-        let kind = error.source.kind();
-        Self::new(kind, error)
-    }
-}
-
 fn run_worker(queue: &Mutex<Receiver<Lookup>>) {
     loop {
         // Holding the lock across `recv` makes idle workers queue on the
         // mutex; exactly one waits in the channel at a time.
         let next = queue.lock().unwrap_or_else(PoisonError::into_inner).recv();
-        let Ok(Lookup {
-            query,
-            reply,
-            admission,
-        }) = next
-        else {
+        let Ok(lookup) = next else {
             // The static sender is never dropped; a closed channel means the
             // process is tearing down.
             return;
         };
-        // A caller that dropped its future while the lookup was queued gets
-        // no `getaddrinfo` call.
-        if !reply.is_closed() {
-            #[cfg(test)]
-            let _running = test_hooks::Running::enter();
-            let result = query
-                .to_socket_addrs()
-                .map(Iterator::collect::<Vec<SocketAddr>>);
-            // `send` returns the result only when the awaiting future was
-            // dropped after the lookup started; that cancelled caller was its
-            // sole consumer.
-            drop(reply.send(result));
-        }
-        drop(admission);
+        // A panic in one job is contained here, so a worker never exits and
+        // the pool never shrinks below the workers started. The panic can come
+        // from `getaddrinfo` or from a caller's waker, which `send` runs
+        // inline. The unwind drops the job's reply sender, which fails that
+        // lookup, and its admission permit, which returns to the pool. The
+        // panic hook has already reported the panic.
+        let _contained = catch_unwind(AssertUnwindSafe(|| run_lookup(lookup)));
         #[cfg(test)]
         test_hooks::disposed();
     }
+}
+
+fn run_lookup(
+    Lookup {
+        query,
+        reply,
+        admission,
+    }: Lookup,
+) {
+    // A caller that dropped its future while the lookup was queued gets no
+    // `getaddrinfo` call.
+    if !reply.is_closed() {
+        #[cfg(test)]
+        let _running = test_hooks::Running::enter();
+        let result = query
+            .to_socket_addrs()
+            .map(Iterator::collect::<Vec<SocketAddr>>);
+        // `send` returns the result only when the awaiting future was dropped
+        // after the lookup started; that cancelled caller was its sole
+        // consumer.
+        drop(reply.send(result));
+    }
+    drop(admission);
 }
 
 /// A non-empty resolution result, in resolver order.
@@ -232,7 +216,7 @@ pub(super) async fn resolve(addr: &str) -> io::Result<ResolvedAddrs> {
         .await
         .map_err(|()| {
             io::Error::other(format!(
-                "resolver worker for {addr:?} exited without a result"
+                "the resolver job for {addr:?} panicked before replying"
             ))
         })??
         .into_iter();

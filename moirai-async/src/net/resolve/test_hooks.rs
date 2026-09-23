@@ -8,6 +8,7 @@ use std::time::Duration;
 
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 static STATE: Mutex<HookState> = Mutex::new(HookState {
+    panics: 0,
     closed: false,
     live: 0,
     started: 0,
@@ -32,6 +33,8 @@ pub(in crate::net) struct Progress {
 }
 
 struct HookState {
+    /// Lookups still to fail with an injected panic.
+    panics: usize,
     closed: bool,
     live: usize,
     started: usize,
@@ -58,6 +61,11 @@ pub(super) struct Running;
 impl Running {
     pub(super) fn enter() -> Self {
         let mut state = state();
+        if state.panics > 0 {
+            state.panics -= 1;
+            drop(state);
+            panic!("injected resolver lookup panic");
+        }
         state.live += 1;
         state.started += 1;
         PEAK.fetch_max(state.live, Ordering::SeqCst);
@@ -80,6 +88,11 @@ impl Drop for Running {
 pub(super) fn disposed() {
     state().disposed += 1;
     CHANGED.notify_all();
+}
+
+/// Make the next `count` lookups panic inside the worker.
+pub(in crate::net) fn inject_panics(count: usize) {
+    state().panics = count;
 }
 
 /// Highest number of lookups observed running at once.

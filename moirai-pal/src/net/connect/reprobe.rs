@@ -9,20 +9,31 @@
 //! removed when its connect completes or its future is dropped, so a settled
 //! connect receives no further wakes.
 //!
-//! The re-probe runs on every Windows build, not only below 2004. Telling
-//! builds apart needs `RtlGetVersion`, from a WDK feature this crate does not
-//! enable. On fixed builds the thread starts at the first connect that stays
-//! pending past its first poll. It sleeps on a condition variable while no
-//! connect is registered, and each pending connect costs ten zero-timeout
-//! `select` calls per second.
+//! The re-probe runs on every Windows build, not only below 2004. A path gated
+//! on the build number would ship code that no CI host runs: every hosted
+//! runner is on 2004 or later. The ungated path is the one the tests exercise.
+//! On fixed builds it is also cheap. The thread starts at the first connect
+//! that stays pending past its first poll, and it sleeps on a condition
+//! variable while no connect is registered. Each pending connect costs ten
+//! zero-timeout `select` calls per second.
+//!
+//! A registration lives exactly as long as its connect future. An executor
+//! that leaks a pending task instead of dropping it therefore keeps that
+//! task's registration, and the task is woken every interval for the life of
+//! the process. `Waker` gives no signal that a task is gone, so the re-probe
+//! cannot detect this; dropping tasks on executor shutdown avoids it.
 //!
 //! Unix needs no counterpart: epoll and kqueue report a failed connect as
 //! error or hangup readiness, and the reactor consumes those as writable.
 
+use std::io;
+use std::mem;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::task::Waker;
 use std::time::{Duration, Instant};
-use std::{fmt, io};
+
+use crate::thread::ThreadStartError;
 
 /// Re-poll period for a pending connect.
 ///
@@ -75,14 +86,17 @@ impl Registration {
             std::thread::Builder::new()
                 .name("moirai-connect-reprobe".to_owned())
                 .spawn(run)
-                .map_err(|source| ThreadStartError { source })?;
+                .map_err(|source| ThreadStartError::new("connect re-probe", source))?;
             registry.started = true;
         }
         if let Some(key) = self.key
             && let Some((_, current)) = registry.wakers.iter_mut().find(|(k, _)| *k == key)
         {
             if !current.will_wake(waker) {
-                current.clone_from(waker);
+                let replaced = mem::replace(current, waker.clone());
+                // Dropped after the lock is released; see `Drop`.
+                drop(registry);
+                drop(replaced);
             }
             return Ok(());
         }
@@ -97,9 +111,18 @@ impl Registration {
 
 impl Drop for Registration {
     fn drop(&mut self) {
-        if let Some(key) = self.key {
-            registry().wakers.retain(|(k, _)| *k != key);
-        }
+        let Some(key) = self.key else {
+            return;
+        };
+        let removed = {
+            let mut registry = registry();
+            let position = registry.wakers.iter().position(|(k, _)| *k == key);
+            position.map(|index| registry.wakers.swap_remove(index))
+        };
+        // A waker's drop can run arbitrary code, including another
+        // registration's drop; running it under the registry lock would
+        // deadlock that re-entry.
+        drop(removed);
     }
 }
 
@@ -118,37 +141,25 @@ fn run() {
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
         }
-        let wakers: Vec<Waker> = registry.wakers.iter().map(|(_, w)| w.clone()).collect();
+        // One panicking waker, in its clone or its wake, must not end
+        // re-probing for every other pending connect. A registration whose
+        // clone panics is skipped this tick; the panic hook has already
+        // reported it. The unwind stops inside the lock scope, so the guard is
+        // not dropped while panicking and the registry is not poisoned.
+        let wakers: Vec<Waker> = registry
+            .wakers
+            .iter()
+            .filter_map(|(_, waker)| catch_unwind(AssertUnwindSafe(|| waker.clone())).ok())
+            .collect();
         // Wake outside the lock: a wake may poll the connect inline, and that
         // poll re-arms its registration.
         drop(registry);
-        wakers.into_iter().for_each(Waker::wake);
+        for waker in wakers {
+            let _contained = catch_unwind(AssertUnwindSafe(|| waker.wake()));
+        }
+        #[cfg(test)]
+        ticks::completed();
         registry = self::registry();
-    }
-}
-
-/// The re-probe thread failed to start; `source` is the spawn error.
-#[derive(Debug)]
-pub(super) struct ThreadStartError {
-    source: io::Error,
-}
-
-impl fmt::Display for ThreadStartError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("could not start the connect re-probe thread")
-    }
-}
-
-impl std::error::Error for ThreadStartError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
-    }
-}
-
-impl From<ThreadStartError> for io::Error {
-    fn from(error: ThreadStartError) -> Self {
-        let kind = error.source.kind();
-        Self::new(kind, error)
     }
 }
 
@@ -156,4 +167,34 @@ impl From<ThreadStartError> for io::Error {
 #[cfg(test)]
 pub(super) fn registered() -> usize {
     registry().wakers.len()
+}
+
+/// Test-only count of completed re-probe ticks.
+#[cfg(test)]
+pub(super) mod ticks {
+    use std::sync::{Condvar, Mutex, PoisonError};
+    use std::time::Duration;
+
+    static COMPLETED: Mutex<u64> = Mutex::new(0);
+    static ADVANCED: Condvar = Condvar::new();
+
+    pub(in crate::net::connect) fn completed() {
+        *COMPLETED.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        ADVANCED.notify_all();
+    }
+
+    /// Ticks completed so far.
+    pub(in crate::net::connect) fn count() -> u64 {
+        *COMPLETED.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Wait until at least `target` ticks have completed, or `limit` passes;
+    /// returns the count observed last.
+    pub(in crate::net::connect) fn wait_for(target: u64, limit: Duration) -> u64 {
+        let completed = COMPLETED.lock().unwrap_or_else(PoisonError::into_inner);
+        *ADVANCED
+            .wait_timeout_while(completed, limit, |completed| *completed < target)
+            .unwrap_or_else(PoisonError::into_inner)
+            .0
+    }
 }

@@ -6,6 +6,7 @@ use crate::net::TcpStream;
 use crate::net::resolve::{RESOLVER_QUEUE_DEPTH, RESOLVER_WORKERS, test_hooks};
 
 mod cancellation;
+mod worker_panic;
 use std::future::{Future, poll_fn};
 use std::net::TcpListener as StdTcpListener;
 use std::pin::pin;
