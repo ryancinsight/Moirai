@@ -12,7 +12,7 @@ the host synchronously denies WebView2 permission requests and emits typed
 denial snapshots. It also exposes a bounded `CapturePreview` PNG read from a
 COM memory stream so consumer evidence does not depend on GDI composition.
 
-Driver: [MOI-WINDOW-WEBVIEW2-2026-09-09](../backlog.md#MOI-WINDOW-WEBVIEW2-2026-09-09),
+Driver: MOI-WINDOW-WEBVIEW2-2026-09-09 (delivered by [Moirai #299](https://github.com/ryancinsight/Moirai/pull/299)),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
 
 ## Context

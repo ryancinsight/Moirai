@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-19
 
-Driver: [MOI-WASM-CLIPBOARD-2026-09-19](../backlog.md#MOI-WASM-CLIPBOARD-2026-09-19),
+Driver: MOI-WASM-CLIPBOARD-2026-09-19 (delivered by [Moirai #404](https://github.com/ryancinsight/Moirai/pull/404)),
 [Metis integration](../../metis/backlog.md#METIS-INTEGRATION-001)
 
 ## Context

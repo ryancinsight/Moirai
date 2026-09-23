@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-15
-- Item: [MOI-BYTE-SIZED-TASKS-2026-09-15](../backlog.md#MOI-BYTE-SIZED-TASKS-2026-09-15)
+- Item: MOI-BYTE-SIZED-TASKS-2026-09-15
 
 ## Context
 
