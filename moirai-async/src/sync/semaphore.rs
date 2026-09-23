@@ -156,3 +156,6 @@ impl<'a> Drop for SemaphorePermit<'a> {
         self.semaphore.release();
     }
 }
+
+#[cfg(test)]
+mod tests;

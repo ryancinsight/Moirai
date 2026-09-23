@@ -5,6 +5,7 @@
 
 /// Async TCP listener facade.
 pub mod listener;
+mod resolve;
 /// Async UDP socket facade.
 pub mod socket;
 /// Async TCP stream facade.

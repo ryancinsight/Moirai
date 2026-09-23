@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crate::io::{AsyncRead, AsyncWrite};
+use crate::net::resolve::resolve;
 use crate::net::types::{ConnectionId, ConnectionPool, ServerStats};
 
 /// Native async TCP stream with statistics tracking
@@ -35,13 +36,27 @@ impl TcpStream {
         }
     }
 
-    /// Connect to a remote address asynchronously
+    /// Connect to a remote address asynchronously.
+    ///
+    /// `addr` is a literal socket address or `host:port`; hostnames resolve off
+    /// the polling thread (see `resolve`). Each resolved address is tried in
+    /// order and the first successful connection is returned. Neither
+    /// resolution nor the TCP handshake blocks the polling thread, so wrapping
+    /// this future in [`crate::timeout()`] or dropping it bounds the wait.
+    ///
+    /// # Errors
+    /// Returns the resolution error, or the connect error of the last address
+    /// tried when none accepts.
     pub async fn connect(addr: &str) -> io::Result<Self> {
-        use std::net::ToSocketAddrs;
-        let addr_parsed = addr.to_socket_addrs()?.next().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "Could not resolve address")
-        })?;
-        let inner = AsyncTcpStream::connect(addr_parsed).await?;
+        let (first, fallbacks) = resolve(addr).await?.into_parts();
+        let mut connected = AsyncTcpStream::connect(first).await;
+        for candidate in fallbacks {
+            if connected.is_ok() {
+                break;
+            }
+            connected = AsyncTcpStream::connect(candidate).await;
+        }
+        let inner = connected?;
         let stats = Arc::new(ServerStats::default());
         let connection_pool = Arc::new(ConnectionPool::new(None));
 

@@ -20,10 +20,7 @@ impl UdpSocket {
 
     /// Bind UDP socket with custom configuration
     pub async fn bind_with_config(addr: &str, config: UdpConfig) -> io::Result<Self> {
-        use std::net::ToSocketAddrs;
-        let addr_parsed = addr.to_socket_addrs()?.next().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "Could not resolve address")
-        })?;
+        let addr_parsed = crate::net::resolve::resolve(addr).await?.first();
         let inner = AsyncUdpSocket::bind(addr_parsed).await?;
         if config.broadcast {
             inner.set_broadcast(true)?;

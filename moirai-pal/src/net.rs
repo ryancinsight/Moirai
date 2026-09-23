@@ -20,6 +20,8 @@ use crate::reactor::socket_owner::SocketLease;
 #[cfg(windows)]
 use crate::reactor::waiter_cancellation::WaiterCancellation;
 
+mod connect;
+
 #[cfg(unix)]
 fn socket_to_raw(s: &impl AsRawFd) -> crate::RawFd {
     s.as_raw_fd()
@@ -150,15 +152,6 @@ impl AsyncTcpStream {
     /// Propagates the underlying socket error.
     pub fn shutdown_write(&self) -> io::Result<()> {
         self.inner.shutdown(Shutdown::Write)
-    }
-
-    /// Connect to `addr` and switch the stream to non-blocking mode.
-    ///
-    /// # Errors
-    /// Propagates connection and non-blocking-mode errors.
-    pub async fn connect(addr: SocketAddr) -> io::Result<Self> {
-        let inner = StdTcpStream::connect(addr)?;
-        Self::from_std(inner)
     }
 
     /// Poll a non-blocking read into `buf`.
