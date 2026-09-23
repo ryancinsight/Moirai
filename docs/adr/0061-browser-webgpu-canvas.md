@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-16
 
-Driver: [MOI-WASM-GPU-CANVAS-2026-09-16](../backlog.md#MOI-WASM-GPU-CANVAS-2026-09-16),
+Driver: MOI-WASM-GPU-CANVAS-2026-09-16 (delivered by [Moirai #364](https://github.com/ryancinsight/Moirai/pull/364)),
 [RITK-SNAP-METIS-001](../../ritk/backlog.md#RITK-SNAP-METIS-001)
 
 ## Context

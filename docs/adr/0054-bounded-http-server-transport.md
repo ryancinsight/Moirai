@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-11
-- Item: [MOI-HTTP-SERVER-2026-09-11](../backlog.md#MOI-HTTP-SERVER-2026-09-11)
+- Item: MOI-HTTP-SERVER-2026-09-11 (delivered by [Moirai #320](https://github.com/ryancinsight/Moirai/pull/320))
 
 ## Context
 

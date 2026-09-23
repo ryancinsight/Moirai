@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-15
 
-Driver: [MOI-WASM-DOM-TRUST-2026-09-15](../backlog.md#MOI-WASM-DOM-TRUST-2026-09-15),
+Driver: MOI-WASM-DOM-TRUST-2026-09-15 (delivered by [Moirai #356](https://github.com/ryancinsight/Moirai/pull/356)),
 [Metis browser](../../metis/backlog.md#METIS-BROWSER-001),
 [RITK Metis migration](../../ritk/backlog.md#RITK-SNAP-METIS-001)
 

@@ -7,7 +7,7 @@ Date: 2026-09-18
 Revision: 2026-09-19 — each acquired device now owns a cancellable observer
 for `GPUDevice.lost`; observed loss fails presentation until explicit recovery.
 
-Driver: [MOI-WASM-GPU-RECOVERY-2026-09-18](../backlog.md#MOI-WASM-GPU-RECOVERY-2026-09-18)
+Driver: MOI-WASM-GPU-RECOVERY-2026-09-18 (delivered by [Moirai #400](https://github.com/ryancinsight/Moirai/pull/400))
 
 ## Context
 

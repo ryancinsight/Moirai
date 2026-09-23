@@ -1,3 +1,9 @@
+<a id="MOI-ASYNC-FS-BLOCKING-2026-09-23"></a>
+## MOI-ASYNC-FS-BLOCKING-2026-09-23 — Async file operations block inside their futures [patch] — todo
+
+- **Found:** while fixing the blocking TCP connect (Moirai #446), the survey of async I/O found `moirai-pal/src/fs/file.rs` performing blocking file syscalls inside `poll`, which stalls the executor thread and makes a dropped future uncancellable, the same defect class #446 fixed for connect and DNS.
+- **Acceptance:** no async fs future performs a blocking syscall in `poll`; work that is blocking by nature runs on a bounded blocking facility; a test shows an executor task still runs promptly while a slow file operation is in flight, and a dropped fs future leaks nothing.
+
 <a id="MOI-UNIT-TASK-MANY-2026-09-22"></a>
 ## MOI-UNIT-TASK-MANY-2026-09-22 - A pass writing over three buffers of one type costs a parallel region per buffer [minor] [perf] - in-progress
 
@@ -34,27 +40,6 @@
 - **Lease:** root `moirai-pal/src/windows/window/accessibility/adapter.rs` `moirai-pal/src/windows/window/accessibility/tests.rs` `docs/adr/0066-windows-accessibility-bridge.md` `docs/backlog.md` 2026-09-21T08:42:00-04:00.
 - **Current increment (2026-09-22):** extend the format-neutral role contract with navigation, complementary, toolbar, menu and menu-item roles, mapping each directly to AccessKit while retaining bounded validation and application-owned action policy. Native contract tests cover every new mapping.
 
-<a id="MOI-WASM-CLIPBOARD-2026-09-19"></a>
-## MOI-WASM-CLIPBOARD-2026-09-19 — Expose bounded browser text clipboard [minor]
-
-- **Status:** done; priority: P1; owner: Moirai WASM PAL; integrator: root; delivery: [PR #404](https://github.com/ryancinsight/Moirai/pull/404), merge `b179b89fd2521034d2fc9c97663649811982e9fa`; last-update: 2026-09-19.
-- **Scope:** resolve the browser Clipboard API through the document's secure-context navigator and expose bounded asynchronous text read/write operations; no native clipboard handles, page-origin policy, or application-specific clipboard semantics.
-- **Acceptance:** unavailable or insecure contexts return `Unsupported`; browser-rejected promises return typed I/O errors; reads and writes enforce the existing 1 MiB UTF-8 text bound; the public provider compiles for WASM and the native PAL suite remains unchanged. Metis consumes the provider in its own integration item.
-- **Decision:** [ADR 0064](adr/0064-bounded-browser-text-clipboard.md).
-- **Evidence:** merged provider implementation exports `WebClipboard` through `WebDocument::clipboard`, preserves user-activation boundaries, rejects unavailable contexts and malformed/rejected promises with typed I/O errors, and enforces the 1 MiB text bound. The consumer integration remains [Metis integration](../../metis/backlog.md#METIS-INTEGRATION-001).
-
-<a id="MOI-WASM-GPU-RECOVERY-2026-09-18"></a>
-## MOI-WASM-GPU-RECOVERY-2026-09-18 — Recover explicit browser WebGPU surfaces [arch] [minor]
-
-- **Status:** done; priority: P1; delivery: [PR #400](https://github.com/ryancinsight/Moirai/pull/400), merge `7aa9d4e27fe8d12c0129accddccbf70bbc796e08`; compacted 2026-09-18.
-- **Outcome:** `WebGpuCanvas::recreate` reacquires adapter/device state, clears the configured extent only after successful setup, preserves the canvas and Metis input listeners, and rejects raster recovery without fallback. Native/WASM/provider docs and the Metis consumer gate pass; real device-loss and recovered-pixel browser evidence remain an RITK host residual.
-
-<a id="MOI-WINDOW-WEBVIEW2-CAPTURE-2026-09-17"></a>
-## MOI-WINDOW-WEBVIEW2-CAPTURE-2026-09-17 — Capture rendered WebView2 previews [minor] [verification]
-
-- **Status:** done; priority: P1; delivery: [PR #395](https://github.com/ryancinsight/Moirai/pull/395), merge `c7b49a7623aed533f377aec77f656a16d2b9d68b`; last-update: 2026-09-17.
-- **Outcome:** WebView2 `CapturePreview` now returns a bounded owner-thread PNG with typed stream/size errors and an ignored installed-runtime smoke; Metis consumes the merged revision and records the visual denial capture.
-
 <a id="MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17"></a>
 ## MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17 — Deny WebView2 permission prompts [arch] [minor] [security]
 
@@ -64,35 +49,6 @@
 - **Dependencies:** [ADR 0052](adr/0052-bounded-webview2-host.md), [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
 - **Risk:** a provider API that silently leaves WebView2's default state could surface an OS prompt or retain a profile grant; the callback must set `DENY` synchronously for every kind.
 - **Delivery:** provider implementation, typed event, ADR and regression coverage are merged in [PR #392](https://github.com/ryancinsight/Moirai/pull/392), merge `64d5cdc1465542748d2261663284c9c357850541`; stable permission labels are merged in [PR #394](https://github.com/ryancinsight/Moirai/pull/394), merge `b94f3ed7`; Metis consumer integration remains the cross-repo dependency.
-<a id="MOI-WASM-GPU-CANVAS-2026-09-16"></a>
-## MOI-WASM-GPU-CANVAS-2026-09-16 — Present validated frames through browser WebGPU [arch] [minor]
-
-- **Status:** done; priority: P1; integrator: root; delivery: [PR #364](https://github.com/ryancinsight/Moirai/pull/364), merge `21b66ba424ad8f50d8574d6e9714be696f807e82`; last-update: 2026-09-16.
-- **Outcome:** `moirai-pal` exposes an explicit WebGPU canvas surface that
-  uploads the borrowed RGBA frame to a configured browser swap chain while the
-  existing 2-D surface remains available; no consumer or format semantics move
-  into the provider.
-- **Scope / non-goals:** WebGPU device/context setup, bounded frame upload,
-  surface-loss errors, compile coverage and provider docs; no automatic
-  fallback, shader-based image processing, or DICOM behavior.
-- **Acceptance:** a typed async constructor rejects missing WebGPU support and
-  malformed canvas elements; `present` validates the shared extent/byte bound,
-  resizes only on change, submits one frame through the GPU queue, and surfaces
-  browser errors; native checks, WASM check/Clippy, docs and the RITK consumer
-  integration pass.
-- **Dependencies:** [ADR 0061](adr/0061-browser-webgpu-canvas.md); consumer
-  wiring is delivered in RITK PR #426.
-- **Evidence:** the provider's native suite (76/76), standalone WASM check and
-  strict library Clippy pass; RITK PR #426 (merge `18d55f18d8a26d7672e51d1ae6c60a4778306808`)
-  consumes the explicit GPU entrypoints with Metis `070af58f`. Real browser GPU
-  visual evidence remains an RITK acceptance residual.
-
-<a id="MOI-WASM-DOM-TRUST-2026-09-15"></a>
-## MOI-WASM-DOM-TRUST-2026-09-15 — Preserve browser event trust provenance [arch] [minor] [security]
-
-- **Status:** done; priority: P1; delivery: [PR #356](https://github.com/ryancinsight/Moirai/pull/356), merge `651197c`; last-update: 2026-09-16.
-- **Outcome:** `WebEvent` preserves trusted and synthetic pointer, wheel and keyboard provenance; [ADR 0060](adr/0060-browser-event-trust.md) records the provider boundary and consumer policy.
-- **Verification:** hosted run [35047815488](https://github.com/ryancinsight/Moirai/actions/runs/35047815488) passed workspace, WASM, Clippy, lockfile, fuzz and docs gates; Metis PR #173 and RITK PR #407 consume the typed snapshot.
 
 <a id="MOI-PAL-WEBVIEW2-OPTIONAL-2026-09-15"></a>
 ## MOI-PAL-WEBVIEW2-OPTIONAL-2026-09-15 — Every Windows consumer builds a WebView2 host [minor] [build]
@@ -100,12 +56,6 @@
 - Status: done; priority: P1; integrator: root; delivery: [PR #355](https://github.com/ryancinsight/Moirai/pull/355), merge `d95a2cd61b1f133a507d2735f5f72948a4ca5ec9`; last-update: 2026-09-16.
 - Outcome: `moirai-pal` gates `webview2-com` behind the opt-in `webview2` feature, so default Windows consumers avoid the COM binding while Metis opts in.
 - Verification: default locked `moirai-pal` has no `webview2-com`; the all-features native PAL checks compile the provider; [ADR 0052](adr/0052-bounded-webview2-host.md) records the contract.
-
-<a id="MOI-BYTE-SIZED-TASKS-2026-09-15"></a>
-## MOI-BYTE-SIZED-TASKS-2026-09-15 — Chunk operators decide parallelism and task width by bytes moved [minor] [perf] — done
-
-- #346: `parallelize_work`, `WorkBytes`, `for_each_unit_task_mut_with` ([ADR 0059](adr/0059-byte-sized-unit-tasks.md), Accepted). Consumers: kwavers #774 (PSTD split-field kernels, bitwise-identical), apollo #460 (`lanes::each`/`paired`, scheduling unchanged, apollo's task width and hand branch deleted).
-- leto-ops' batched transpose keeps its own tasking: it needs a per-task floor of source columns the operator does not model (ADR 0059, Consequences).
 
 <a id="MOI-CHUNK-POLICY-GEOMETRY-2026-09-11"></a>
 ## MOI-CHUNK-POLICY-GEOMETRY-2026-09-11 — Expose chunk geometry to execution policies [minor]
@@ -209,30 +159,6 @@
   in the DICOM manual. The provider remains independent of DICOM and viewer
   state.
 - Decision: [ADR 0055](adr/0055-bounded-browser-canvas.md).
-
-<a id="MOI-HTTP-SERVER-2026-09-11"></a>
-## MOI-HTTP-SERVER-2026-09-11 — Provide a bounded HTTP/1.1 server transport [arch] [minor] — done
-
-- **Outcome:** `moirai-http` provides a Rust-owned, one-request-per-connection
-  HTTP/1.1 server transport over `moirai-async` sockets. Consumers receive a
-  typed request and write a bounded response without Tokio, Axum, arbitrary
-  markup, or domain policy.
-- **Scope:** `moirai-http` server configuration, listener/connection
-  typestates, bounded `Content-Length` request bodies, response framing,
-  deadlines, and real loopback tests. Routing, authorization, HTML/fragment
-  policy, and DICOM remain consumer-owned; Metis owns its route boundary and
-  RITK owns DICOM.
-- **Class:** [arch] [minor]; **priority:** P1; **status:** done;
-  **integrator:** root; **PR:** [Moirai #320](https://github.com/ryancinsight/Moirai/pull/320);
-  **commit:** `dfcbb30c`; **last-update:** 2026-09-11; **driver:**
-  [Metis Axum boundary](../../metis/backlog.md#METIS-AXUM-001).
-- **Acceptance:** finite non-zero limits reject invalid configuration; request
-  headers and `Content-Length` bodies are bounded and malformed or transfer
-  encoded requests fail; responses validate status, headers, and total bytes;
-  one deadline covers read/write and terminalizes a partial connection; real
-  loopback tests cover success, malformed input, body/response limits, and
-  connection closure; native nextest, Clippy, docs, and crate metadata pass.
-- **Decision:** [ADR 0054](adr/0054-bounded-http-server-transport.md).
 
 <a id="moirai-executor-sizing"></a>
 ## MOI-EXECUTOR-SIZING-2026-09-10 — The default executor is the slowest size for a fork-join pass [minor] [perf] — in-progress
@@ -671,12 +597,6 @@
   all three planes, matches the pathless and explicit captures byte-for-byte,
   and verifies cancellation before viewer creation.
 
-<a id="MOI-WINDOW-WEBVIEW2-2026-09-09"></a>
-## MOI-WINDOW-WEBVIEW2-2026-09-09 — Bounded Windows WebView2 host [arch] [minor] — done
-
-- **Status:** done; **Commit:** [`f4eb4f2b`](https://github.com/ryancinsight/Moirai/commit/f4eb4f2b); **PR:** [Moirai #299](https://github.com/ryancinsight/Moirai/pull/299).
-- **Outcome:** `moirai-pal::windows::webview::WebViewHost` provides bounded COM setup, packaged navigation, bridge callbacks, denial handling, finite queue pumping and teardown; 67 PAL tests, the WebView2 runtime smoke, and the visible Metis initial/submit capture pass on runtime `152.0.4191.66`.
-- **Follow-on:** consumer keyboard, resize, permissions and accessibility journeys plus non-Windows hosts remain tracked by [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001).
 <a id="MOI-WASM-DOM-TEXT-2026-09-07"></a>
 ## MOI-WASM-DOM-TEXT-2026-09-07 — Expose bounded browser text and composition metadata [arch] [minor]
 
@@ -979,11 +899,6 @@
 - Evidence: commit `140d505` merged by PR #265 as `48dc2db`; provider Clippy all-targets and Nextest 39/39 (`b7799fab`) pass on Windows MSVC, with process source-contract and documentation checks.
 - Limits: no non-Windows execution or Miri coverage for OS FFI; standalone lock/publication and consumer source sweep remain coordinator-owned.
 
-## MOI-MNEMOSYNE-IDENTITY-2026-09-03 — Align the GPU planner source edge with the current memory provider [patch] [arch] — done 2026-09-04 <a id="moi-mnemosyne-identity-2026-09-03"></a>
-
-- [x] PR #256 merged at `70d201a`; Mnemosyne resolves at `7f173751` and the
-  first-party source identity is canonical; ADR [`0040`](adr/0040-first-party-memory-source-identity.md), workspace, binding, Loom, Rust 1.95, no-default, documentation, and lockfile gates pass.
-
 ## MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 [major] [arch] — review <a id="moi-gpu-hephaestus-route-2026-09-04"></a>
 
 - **Prior art, not a base (recorded 2026-09-09).** `arch/moirai-hephaestus-gpu-route`
@@ -1093,7 +1008,6 @@ architecture definition.
   `8e04022`; hosted workspace, binding, platform-wheel, Loom, and CodeRabbit
   checks were green, while the report-only `recurseml/analysis` job errored.
 
-
 **Project**: Moirai Concurrency Library
 **Version**: 0.5.0
 **Last Updated**: 2026-07-15
@@ -1102,7 +1016,6 @@ architecture definition.
 - [x] [patch] Remove revision-qualified Themis and Mnemosyne dependencies and
   the root-only Themis path patch. The lockfile resolves one default-branch
   Themis source across direct Moirai and transitive Mnemosyne consumers.
-
 
 ---
 
@@ -4743,7 +4656,6 @@ Safety:   100%  → 100%  → 100% ✅
 **Owner**: Senior Rust Engineer  
 **Stakeholders**: Moirai Team, Community Contributors
 
-
 ## Reclaimed from the archived dead-checkout board (2026-08-21)
 
 The primary checkout taken over at `ff56d60` carried an untracked 462 KB
@@ -4839,7 +4751,6 @@ Part IV chapter map (grounded in moirai-transport):
   duplicating it here would fork derived state. Evidence: full-stack gate
   exit 0 covering repos/moirai; kwavers drift caught-and-repaired by the
   same gate the same day, demonstrating the enforcement path works.
-
 
 ### MOI-SEC-001-A - IPC metadata fuzz target behind a pure validation seam [security] [patch] [S]
 
