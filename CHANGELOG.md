@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Keyboard shortcuts in the Windows accessibility tree**
+  (`AccessibilityNode::set_keyboard_shortcut`). A node's bounded
+  `aria-keyshortcuts`-style value reaches AccessKit's `keyboard_shortcut`
+  property, so UI Automation clients announce the accelerator that activates
+  a command.
+
 - **Process-tree containment on Linux, Android and Apple targets**
   (`ProcessSpec::tree_containment`). The child leads a new process group, so
   termination and terminate-on-drop signal every normally created
