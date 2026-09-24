@@ -3,7 +3,7 @@
 use std::{
     io,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use super::super::window::{NativeWindow, WindowConfig, WindowVisibility};
@@ -153,45 +153,68 @@ fn installed_runtime_loads_packaged_page_and_bridge() {
 fn installed_runtime_denies_geolocation_permission() {
     let package = TestPackage::create_with_script(
         br#"<!doctype html><meta charset="utf-8"><script>
-window.chrome.webview.postMessage({"ready":true});
-navigator.geolocation.getCurrentPosition(() => {}, () => {});
+window.chrome.webview.postMessage({"visibility": document.visibilityState});
+navigator.geolocation.getCurrentPosition(
+  () => window.chrome.webview.postMessage({"geolocation": "granted"}),
+  (error) => window.chrome.webview.postMessage({
+    "geolocation": error.code === error.PERMISSION_DENIED ? "denied" : error.code,
+  }),
+);
 </script>"#,
     );
     let config = WebViewConfig::new(package.uri()).expect("packaged URI");
+    // The runtime holds a hidden document's permission request pending,
+    // raising neither `PermissionRequested` nor the page's error callback
+    // until the document becomes visible, so this window is shown.
     let window_config = WindowConfig::with_visibility(
         "Moirai WebView2 permission test",
         320,
         240,
-        WindowVisibility::Hidden,
+        WindowVisibility::Visible,
     )
     .expect("window configuration");
     let window = NativeWindow::new(&window_config).expect("native window");
     let mut host = WebViewHost::new(window, config).expect("installed WebView2 runtime");
+    let host_denied = |events: &[WebViewHostEvent]| {
+        events.iter().any(|event| {
+            matches!(
+                event,
+                WebViewHostEvent::WebView(WebViewEvent::PermissionDenied {
+                    permission: WebViewPermission::Geolocation,
+                    user_initiated: false,
+                    ..
+                })
+            )
+        })
+    };
+    let page_denied = |events: &[WebViewHostEvent]| {
+        events.iter().any(|event| {
+            matches!(
+                event,
+                WebViewHostEvent::WebView(WebViewEvent::Message { json, .. })
+                    if json == r#"{"geolocation":"denied"}"#
+            )
+        })
+    };
+    // `wait_events` returns the first non-empty batch; the denial may arrive
+    // after the navigation batch, so waiting repeats until the deadline.
+    let deadline = Instant::now() + Duration::from_secs(1);
     let mut events = host.poll_events().expect("initial WebView2 events");
-    if !events.iter().any(|event| {
-        matches!(
-            event,
-            WebViewHostEvent::WebView(WebViewEvent::PermissionDenied {
-                permission: WebViewPermission::Geolocation,
-                ..
-            })
-        )
-    }) {
-        events.extend(
-            host.wait_events(Duration::from_secs(1))
-                .expect("permission event"),
-        );
+    while !(host_denied(&events) && page_denied(&events)) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        events.extend(host.wait_events(remaining).expect("permission event"));
     }
-    assert!(events.iter().any(|event| {
-        matches!(
-            event,
-            WebViewHostEvent::WebView(WebViewEvent::PermissionDenied {
-                permission: WebViewPermission::Geolocation,
-                user_initiated: false,
-                ..
-            })
-        )
-    }));
+    assert!(
+        host_denied(&events),
+        "no geolocation denial event: {events:?}"
+    );
+    assert!(
+        page_denied(&events),
+        "page did not observe the denial: {events:?}"
+    );
     host.close().expect("close WebView2 host");
 }
 
