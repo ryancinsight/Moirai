@@ -342,6 +342,8 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-async/src/fs/stats.rs",
             "../moirai-async/src/fs/file.rs",
             "../moirai-async/src/fs/file/request.rs",
+            "../moirai-async/src/fs/file/fence.rs",
+            "../moirai-async/src/fs/file/traits.rs",
             "../moirai-async/src/fs/ops.rs",
         ],
     ),

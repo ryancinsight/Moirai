@@ -1,9 +1,9 @@
 //! Async file handle over the file-system blocking pool.
 //!
-//! Every syscall runs on the file-system blocking pool, never inside `poll`. A handle has
-//! at most one stream operation in flight, and every operation first settles
-//! the one before it, so stream operations take effect in call order even when
-//! a caller drops a future mid-flight.
+//! Every syscall runs on the file-system blocking pool, never inside `poll`.
+//! A handle has at most one stream operation in flight, and every operation
+//! first settles the one before it, so stream operations take effect in call
+//! order even when a caller drops a future mid-flight.
 //!
 //! Cancellation keeps stream semantics:
 //! - A read whose future is dropped still consumes its bytes. They are kept
@@ -15,7 +15,13 @@
 //!
 //! `AsyncWrite::poll_write` queues the write and reports it complete. Its
 //! failure, if any, is returned by the next operation, as for a dropped write.
-//! [`File::write`] and [`File::write_all`] wait for the write itself.
+//! [`File::write`] and [`File::write_all`] wait for the write itself. A handle
+//! dropped after queued writes, without a flush, still writes the bytes, but
+//! the error of a failed write is lost with the handle. Flush to observe it.
+//!
+//! [`File::metadata`] and positioned reads (`read_at`) take `&self` and run as
+//! separate jobs. Each first waits for every stream operation already queued
+//! on the handle, including a queued write, so it observes those writes.
 
 use std::future::{Future, poll_fn};
 use std::io::{self, SeekFrom};
@@ -30,10 +36,12 @@ use moirai_pal::fs::{File as Handle, FileOpenOptions};
 use crate::blocking::{Abandoned, Admission, Completion};
 use crate::fs::pool;
 use crate::fs::stats::FileStats;
-use crate::io::{AsyncLength, AsyncRead, AsyncReadAt, AsyncWrite};
 
+mod fence;
 mod request;
+mod traits;
 
+use fence::Fence;
 use request::{Outcome, Request};
 
 /// A pending admission, stored so repeated polls continue the same wait.
@@ -59,6 +67,9 @@ enum Settled {
 pub struct File {
     handle: Arc<Handle>,
     state: State,
+    /// Orders `&self` observers after every stream operation queued before
+    /// them.
+    fence: Arc<Fence>,
     /// Bytes read from the file that no caller has taken yet. The OS cursor is
     /// past them, so cursor-relative operations rewind over them first.
     unread: Vec<u8>,
@@ -92,6 +103,7 @@ impl File {
         Ok(Self {
             handle: Arc::new(handle),
             state: State::Idle,
+            fence: Arc::default(),
             unread: Vec::new(),
             deferred: None,
             path,
@@ -149,19 +161,26 @@ impl File {
         Ok(bytes_written)
     }
 
-    /// Write all data from a buffer
+    /// Write all data from a buffer.
+    ///
+    /// The whole buffer is one pool job: once submitted, it is written in full
+    /// even if this future is dropped.
     pub async fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        let mut written = 0;
-        while written < buf.len() {
-            let n = self.write(&buf[written..]).await?;
-            if n == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "failed to write whole buffer",
-                ));
-            }
-            written += n;
+        if buf.is_empty() {
+            return Ok(());
         }
+        let Outcome::Done(done) = self
+            .perform(Request::WriteAll {
+                data: buf.to_vec(),
+                rewind: 0,
+            })
+            .await?
+        else {
+            unreachable!("invariant: a write-all request yields a done outcome");
+        };
+        done?;
+        self.stats.bytes_written += buf.len() as u64;
+        self.stats.write_operations += 1;
         Ok(())
     }
 
@@ -211,8 +230,10 @@ impl File {
         position
     }
 
-    /// Get file metadata
+    /// Get file metadata, after every stream operation already queued on this
+    /// handle has finished.
     pub async fn metadata(&self) -> io::Result<std::fs::Metadata> {
+        self.fence.settled().await;
         let handle = Arc::clone(&self.handle);
         pool()
             .run(Abandoned::Skip, move || handle.metadata())
@@ -296,7 +317,14 @@ impl File {
         };
         let handle = Arc::clone(&self.handle);
         let abandoned = request.abandoned();
-        let completion = admission.submit(abandoned, move || request.run(&handle))?;
+        // Moved into the job, so it completes when the job runs, is skipped,
+        // or unwinds: each of those drops the job.
+        let ticket = self.fence.issue();
+        let completion = admission.submit(abandoned, move || {
+            let outcome = request.run(&handle);
+            drop(ticket);
+            outcome
+        })?;
         self.state = State::Busy(completion);
         Ok(())
     }
@@ -397,103 +425,5 @@ impl File {
             },
         )?;
         Poll::Ready(Ok(buf.len()))
-    }
-}
-
-impl AsyncReadAt for File {
-    async fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
-        if buf.is_empty() {
-            return Ok(());
-        }
-
-        let requested = u64::try_from(buf.len()).map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidInput, "read length does not fit u64")
-        })?;
-        offset.checked_add(requested).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "read range overflows u64")
-        })?;
-
-        let handle = Arc::clone(&self.handle);
-        let len = buf.len();
-        let (data, filled) = pool()
-            .run(Abandoned::Skip, move || read_exact_at(&handle, len, offset))
-            .await?;
-        // Bytes read before a failure still reach the caller, as with a
-        // positioned read loop run in place.
-        buf[..data.len()].copy_from_slice(&data);
-        filled
-    }
-}
-
-/// Fill `len` bytes from `offset` with positioned reads, which leave the
-/// stream cursor alone. Returns the bytes read, and whether all `len` were.
-fn read_exact_at(handle: &Handle, len: usize, offset: u64) -> (Vec<u8>, io::Result<()>) {
-    let mut data = vec![0; len];
-    let mut filled = 0;
-    let result = loop {
-        if filled == len {
-            break Ok(());
-        }
-        let Some(position) = u64::try_from(filled)
-            .ok()
-            .and_then(|filled| offset.checked_add(filled))
-        else {
-            break Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "read range overflows u64",
-            ));
-        };
-        match handle.read_at(&mut data[filled..], position) {
-            Ok(0) => {
-                break Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "positioned read reached end of file before filling buffer",
-                ));
-            }
-            Ok(count) => filled += count,
-            Err(error) => break Err(error),
-        }
-    };
-    data.truncate(filled);
-    (data, result)
-}
-
-impl AsyncLength for File {
-    async fn len(&self) -> io::Result<u64> {
-        Ok(self.metadata().await?.len())
-    }
-}
-
-impl AsyncRead for File {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        let n = ready!(self.poll_read_into(cx, buf))?;
-        self.stats.bytes_read += n as u64;
-        self.stats.read_operations += 1;
-        Poll::Ready(Ok(n))
-    }
-}
-
-impl AsyncWrite for File {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        let n = ready!(self.poll_write_behind(cx, buf))?;
-        self.stats.bytes_written += n as u64;
-        self.stats.write_operations += 1;
-        Poll::Ready(Ok(n))
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.poll_settled(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.poll_settled(cx)
     }
 }

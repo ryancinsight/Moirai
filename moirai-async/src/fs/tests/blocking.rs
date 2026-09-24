@@ -91,7 +91,7 @@ fn panicking_waker_leaves_the_file_system_pool_serving() {
 }
 
 /// Poll `future` once while the gate holds its job, then drop it mid-flight.
-fn abandon_in_flight<F: Future>(future: F, started: usize) {
+pub(super) fn abandon_in_flight<F: Future>(future: F, started: usize) {
     let mut future = Box::pin(future);
     let waker = futures::task::noop_waker();
     assert!(
