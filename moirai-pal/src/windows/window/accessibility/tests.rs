@@ -22,6 +22,9 @@ fn validates_connected_tree_and_preserves_accesskit_semantics() {
     button
         .set_description(Some(String::from("Run the calculation")))
         .expect("description is bounded");
+    button
+        .set_keyboard_shortcut(Some(String::from("Control+Enter")))
+        .expect("shortcut is bounded");
     let tree = AccessibilityTree::from_nodes(1, 2, vec![root, button]).expect("tree is connected");
     let update = tree.to_accesskit();
     assert_eq!(update.focus, NodeId::from(2));
@@ -32,6 +35,7 @@ fn validates_connected_tree_and_preserves_accesskit_semantics() {
         .find(|(id, _)| *id == NodeId::from(2))
         .expect("button is present");
     assert_eq!(button.label(), Some("Calculate"));
+    assert_eq!(button.keyboard_shortcut(), Some("Control+Enter"));
     assert_eq!(button.is_expanded(), Some(false));
     assert_eq!(button.is_selected(), Some(false));
     assert_eq!(

@@ -79,6 +79,7 @@ pub struct AccessibilityNode {
     name: String,
     description: Option<String>,
     value: Option<String>,
+    keyboard_shortcut: Option<String>,
     children: Vec<u64>,
     hidden: bool,
     disabled: bool,
@@ -101,6 +102,7 @@ impl AccessibilityNode {
             name,
             description: None,
             value: None,
+            keyboard_shortcut: None,
             children: Vec::new(),
             hidden: false,
             disabled: false,
@@ -127,6 +129,17 @@ impl AccessibilityNode {
             validate_text(value)?;
         }
         self.value = value;
+        Ok(())
+    }
+
+    /// Replaces the keyboard shortcuts that activate this node, in the
+    /// WAI-ARIA `aria-keyshortcuts` spelling (`Control+Shift+S`), separated
+    /// by spaces when there are several.
+    pub fn set_keyboard_shortcut(&mut self, shortcut: Option<String>) -> io::Result<()> {
+        if let Some(value) = &shortcut {
+            validate_text(value)?;
+        }
+        self.keyboard_shortcut = shortcut;
         Ok(())
     }
 
@@ -288,6 +301,9 @@ impl AccessibilityTree {
                 }
                 if let Some(value) = &source.value {
                     node.set_value(value.clone());
+                }
+                if let Some(shortcut) = &source.keyboard_shortcut {
+                    node.set_keyboard_shortcut(shortcut.clone());
                 }
                 if !source.children.is_empty() {
                     node.set_children(
