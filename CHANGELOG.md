@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Single-instance coordination** (`moirai_pal::instance::claim`,
+  `InstanceName`, `PrimaryInstance`, `SecondaryInstance`). The first
+  process to claim a name becomes primary; a later one forwards one
+  length-framed message of at most `MAX_INSTANCE_MESSAGE_BYTES`, such as
+  its arguments or deep link, and exits. On Unix the primary holds an
+  advisory lock and listens on a socket in an owner-only directory under
+  `XDG_RUNTIME_DIR` or `/tmp`; on Windows it owns the first instance of a
+  session-scoped named pipe that rejects remote clients, and clients connect
+  at identification level so the pipe cannot impersonate them. Either claim
+  is released by the operating system when the primary exits.
+
 - **Tray icon and notifications** (`NativeWindow::show_tray_icon`,
   `show_notification`, `remove_tray_icon`, `take_tray_events`,
   `TrayIconImage`, `TrayEvent`, and the same methods on `WebViewHost`). A

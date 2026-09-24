@@ -30,6 +30,8 @@
 #![deny(missing_docs)]
 
 pub mod fs;
+#[cfg(any(unix, windows))]
+pub mod instance;
 pub mod net;
 pub mod reactor;
 pub mod thread;
