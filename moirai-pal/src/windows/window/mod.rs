@@ -12,8 +12,10 @@ mod hotkey;
 mod input;
 mod native;
 mod placement;
+mod popup_menu;
 mod present;
 mod state;
+mod tray;
 
 pub use accessibility::{
     AccessibilityAction, AccessibilityActionRequest, AccessibilityNode, AccessibilityRole,
@@ -30,7 +32,12 @@ pub use hotkey::{
 };
 pub use native::NativeWindow;
 pub use placement::{MAX_PLACEMENT_COORDINATE, WindowPlacement};
+pub use popup_menu::{MAX_POPUP_MENU_ITEMS, MAX_POPUP_MENU_LABEL_UNITS, PopupMenu, PopupMenuItem};
 pub use present::FrameRegion;
+pub use tray::{
+    MAX_NOTIFICATION_BODY_UNITS, MAX_NOTIFICATION_TITLE_UNITS, MAX_PENDING_TRAY_EVENTS,
+    MAX_TRAY_TOOLTIP_UNITS, TRAY_ICON_SIZES, TrayEvent, TrayIconImage,
+};
 
 #[cfg(test)]
 mod tests;

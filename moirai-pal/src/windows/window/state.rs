@@ -9,6 +9,7 @@ use super::config::{MAX_WINDOW_EVENTS, allocation_error};
 use super::event::{CompositionPhase, ModifierState, WindowEvent};
 use super::hotkey::MAX_PENDING_HOTKEY_PRESSES;
 use super::input::update_modifier;
+use super::tray::{MAX_PENDING_TRAY_EVENTS, TrayEvent, decode_tray_event};
 
 #[derive(Debug)]
 pub(super) struct PresentedFrame {
@@ -21,6 +22,7 @@ pub(super) struct PresentedFrame {
 pub(super) struct WindowState {
     pub(super) events: VecDeque<WindowEvent>,
     pub(super) hotkey_presses: VecDeque<u16>,
+    pub(super) tray_events: VecDeque<TrayEvent>,
     pub(super) frame: Option<PresentedFrame>,
     pending_high_surrogate: Option<u16>,
     pub(super) composition_active: bool,
@@ -39,9 +41,14 @@ impl WindowState {
         hotkey_presses
             .try_reserve(MAX_PENDING_HOTKEY_PRESSES)
             .map_err(|_| allocation_error())?;
+        let mut tray_events = VecDeque::new();
+        tray_events
+            .try_reserve(MAX_PENDING_TRAY_EVENTS)
+            .map_err(|_| allocation_error())?;
         Ok(Self {
             events,
             hotkey_presses,
+            tray_events,
             frame: None,
             pending_high_surrogate: None,
             composition_active: false,
@@ -64,6 +71,14 @@ impl WindowState {
             && self.hotkey_presses.len() < MAX_PENDING_HOTKEY_PRESSES
         {
             self.hotkey_presses.push_back(id);
+        }
+    }
+
+    pub(super) fn push_tray(&mut self, wparam: usize, lparam: isize) {
+        if let Some(event) = decode_tray_event(wparam, lparam)
+            && self.tray_events.len() < MAX_PENDING_TRAY_EVENTS
+        {
+            self.tray_events.push_back(event);
         }
     }
 
