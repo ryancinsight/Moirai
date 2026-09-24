@@ -80,6 +80,10 @@ impl fmt::Display for WebViewPermission {
 #[non_exhaustive]
 pub enum WebViewEvent {
     /// A capability request was synchronously denied by the host policy.
+    ///
+    /// The runtime raises no request while the document is hidden: a page
+    /// in a hidden host keeps its request pending, with neither this event
+    /// nor the page's failure callback delivered.
     PermissionDenied {
         /// URI that requested the capability.
         uri: String,
