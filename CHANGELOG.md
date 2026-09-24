@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Region presents** (`NativeWindow::present_argb8888_region`, `FrameRegion`).
+  A frame that differs from the retained one only inside a rectangle copies
+  that rectangle's rows and invalidates only it, so a damage-limited software
+  repaint no longer pays for the whole window: a 300×40 present with its
+  paint measured 0.025 ms against 0.53 ms whole at 640×480, and 0.05 ms against
+  1.32 ms at 1280×960. New dimensions or a stretched client area present whole.
+
 - **WebView2 folder hosting** (`WebViewConfig::folder`). A local folder is
   served as `https://{host}/` through WebView2's virtual host mapping, so a
   page built for a web server (ES modules, `fetch`, WebAssembly streaming
