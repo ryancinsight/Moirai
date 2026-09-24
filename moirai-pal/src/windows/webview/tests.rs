@@ -310,7 +310,10 @@ fn folder_policy_confines_navigation_to_the_mapped_host() {
 fn installed_runtime_loads_module_page_from_mapped_folder() {
     let folder =
         std::env::temp_dir().join(format!("moirai-webview2-folder-{}", std::process::id()));
-    std::fs::create_dir(&folder).expect("create unique folder");
+    std::fs::create_dir_all(folder.join("lib")).expect("create unique folder");
+    // Canonicalization yields the verbatim `\\?\` form, which WebView2 does
+    // not normalize when it appends a request path.
+    let folder = folder.canonicalize().expect("canonical folder");
     std::fs::write(
         folder.join("index.html"),
         br#"<!doctype html><meta charset="utf-8"><script type="module" src="main.js"></script>"#,
@@ -318,12 +321,12 @@ fn installed_runtime_loads_module_page_from_mapped_folder() {
     .expect("write entry");
     std::fs::write(
         folder.join("main.js"),
-        br#"import { origin } from "./origin.js";
+        br#"import { origin } from "./lib/origin.js";
 window.chrome.webview.postMessage({"module": origin});"#,
     )
     .expect("write module");
     std::fs::write(
-        folder.join("origin.js"),
+        folder.join("lib").join("origin.js"),
         b"export const origin = location.origin;",
     )
     .expect("write imported module");

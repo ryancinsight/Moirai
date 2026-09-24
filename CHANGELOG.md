@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lie under `.example`, `.invalid`, `.localhost` or `.test` so it cannot
   shadow a real site, navigation is confined to it, and other origins are
   denied its resources.
+  A canonicalized (verbatim `\\?\`) folder is mapped by its plain spelling,
+  since WebView2 does not normalize a verbatim path when it appends a request
+  path, which left files below the folder's top level unreachable.
 
 - **`LockFreeQueue::len`.** The bounded MPMC queue reports its current depth as
   the difference of its `head` and `tail` cursors, best-effort in the same sense
