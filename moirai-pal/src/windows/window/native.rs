@@ -21,8 +21,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     AdjustWindowRectEx, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow,
     DispatchMessageW, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, IsWindow,
     LoadCursorW, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW,
-    QS_ALLINPUT, RegisterClassW, SW_SHOW, SetWindowLongPtrW, ShowWindow, TranslateMessage,
-    WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
+    QS_ALLINPUT, RegisterClassW, SW_SHOW, SW_SHOWMAXIMIZED, SetWindowLongPtrW, ShowWindow,
+    TranslateMessage, WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
     WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP,
     WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL,
     WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_PRINT, WM_PRINTCLIENT,
@@ -69,7 +69,8 @@ pub struct NativeWindow {
     dpi_context: ThreadDpiAwarenessContext,
     pub(super) state: Box<WindowState>,
     accessibility: Option<WindowsAccessibilityAdapter>,
-    visible: bool,
+    pub(super) visible: bool,
+    pub(super) show_maximized: bool,
     destroyed: bool,
 }
 
@@ -112,6 +113,9 @@ impl NativeWindow {
     /// fails, or `InvalidInput` for invalid configuration.
     pub fn new(config: &WindowConfig) -> io::Result<Self> {
         let mut window = Self::new_hidden(config)?;
+        if let Some(placement) = config.placement() {
+            window.set_placement(placement)?;
+        }
         if config.visibility() == WindowVisibility::Visible {
             window.show()?;
         }
@@ -151,6 +155,7 @@ impl NativeWindow {
             state,
             accessibility: None,
             visible: false,
+            show_maximized: false,
             destroyed: false,
         };
         if !window
@@ -183,7 +188,12 @@ impl NativeWindow {
         // SAFETY: `self.hwnd` is the live handle created on this thread and the
         // calls are synchronous; no pointer is retained by either operation.
         let updated = unsafe {
-            let _ = ShowWindow(self.hwnd, SW_SHOW);
+            let command = if self.show_maximized {
+                SW_SHOWMAXIMIZED
+            } else {
+                SW_SHOW
+            };
+            let _ = ShowWindow(self.hwnd, command);
             UpdateWindow(self.hwnd).as_bool()
         };
         if !updated {

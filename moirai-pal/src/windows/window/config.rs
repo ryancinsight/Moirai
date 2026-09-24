@@ -2,6 +2,8 @@
 
 use std::io;
 
+use super::placement::WindowPlacement;
+
 pub(super) use crate::frame::validate_frame_dimensions;
 pub use crate::frame::{MAX_FRAME_DIMENSION, MAX_FRAME_PIXELS};
 
@@ -32,6 +34,7 @@ pub struct WindowConfig {
     width: u32,
     height: u32,
     visibility: WindowVisibility,
+    placement: Option<WindowPlacement>,
 }
 
 impl WindowConfig {
@@ -81,6 +84,7 @@ impl WindowConfig {
             width,
             height,
             visibility,
+            placement: None,
         })
     }
 
@@ -110,6 +114,22 @@ impl WindowConfig {
     #[must_use]
     pub const fn visibility(&self) -> WindowVisibility {
         self.visibility
+    }
+
+    /// Restores a saved placement when the window is created.
+    ///
+    /// The placement is applied while the window is still hidden, so a
+    /// visible window first appears at its restored rectangle and state.
+    #[must_use]
+    pub const fn with_placement(mut self, placement: WindowPlacement) -> Self {
+        self.placement = Some(placement);
+        self
+    }
+
+    /// Placement applied at creation, if one was requested.
+    #[must_use]
+    pub const fn placement(&self) -> Option<WindowPlacement> {
+        self.placement
     }
 }
 

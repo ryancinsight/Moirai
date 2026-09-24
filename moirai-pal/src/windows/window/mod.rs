@@ -10,6 +10,7 @@ mod config;
 mod event;
 mod input;
 mod native;
+mod placement;
 mod present;
 mod state;
 
@@ -24,6 +25,7 @@ pub use config::{
 };
 pub use event::{CompositionPhase, ModifierState, MouseButton, WindowEvent};
 pub use native::NativeWindow;
+pub use placement::{MAX_PLACEMENT_COORDINATE, WindowPlacement};
 pub use present::FrameRegion;
 
 #[cfg(test)]
