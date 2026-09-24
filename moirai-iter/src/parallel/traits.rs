@@ -7,6 +7,39 @@ use super::{
 use super::{TryStreamItem, fallible, split};
 use std::ops::ControlFlow;
 
+#[inline]
+fn seq_mutate_state<I, Init, T, F>(iter: I, init: Init, mut op: F) -> T
+where
+    I: ParallelIterator,
+    Init: FnOnce() -> T,
+    F: FnMut(&mut T, I::Item),
+{
+    iter.seq_fold(init(), |mut state, item| {
+        op(&mut state, item);
+        state
+    })
+}
+
+#[inline]
+fn seq_try_mutate_state<I, Init, T, F, E>(iter: I, init: Init, mut op: F) -> Result<(), E>
+where
+    I: ParallelIterator,
+    Init: FnOnce() -> T,
+    F: FnMut(&mut T, I::Item) -> Result<(), E>,
+{
+    let folded = iter.seq_try_fold((init(), Ok(())), |(mut state, _), item| {
+        match op(&mut state, item) {
+            Ok(()) => ControlFlow::Continue((state, Ok(()))),
+            Err(error) => ControlFlow::Break((state, Err(error))),
+        }
+    });
+    let (_, outcome) = match folded {
+        ControlFlow::Continue(state) | ControlFlow::Break(state) => state,
+    };
+
+    outcome
+}
+
 /// Core parallel iterator trait for Moirai's Rayon-style non-indexed subset.
 pub trait ParallelIterator: Sized + Send {
     /// The type of items yielded by this parallel iterator.
@@ -690,10 +723,7 @@ pub trait ParallelIterator: Sized + Send {
         T: Send + Clone,
         F: Fn(&mut T, Self::Item) + Send + Sync + Clone,
     {
-        self.seq_fold(init, |mut state, item| {
-            op(&mut state, item);
-            state
-        });
+        seq_mutate_state(self, move || init, op);
     }
 
     /// Apply a function to each element with lazily initialized state.
@@ -706,10 +736,7 @@ pub trait ParallelIterator: Sized + Send {
         T: Send,
         F: Fn(&mut T, Self::Item) + Send + Sync + Clone,
     {
-        self.seq_fold(init(), |mut state, item| {
-            op(&mut state, item);
-            state
-        });
+        seq_mutate_state(self, init, op);
     }
 
     /// Apply a fallible function to each element and stop on the first error.
@@ -745,17 +772,7 @@ pub trait ParallelIterator: Sized + Send {
         F: Fn(&mut T, Self::Item) -> Result<(), E> + Send + Sync + Clone,
         E: Send,
     {
-        let folded = self.seq_try_fold((init, Ok(())), |(mut state, _), item| {
-            match op(&mut state, item) {
-                Ok(()) => ControlFlow::Continue((state, Ok(()))),
-                Err(error) => ControlFlow::Break((state, Err(error))),
-            }
-        });
-        let (_, outcome) = match folded {
-            ControlFlow::Continue(state) | ControlFlow::Break(state) => state,
-        };
-
-        outcome
+        seq_try_mutate_state(self, move || init, op)
     }
 
     /// Apply a fallible function to each element with lazily initialized state.
@@ -769,17 +786,7 @@ pub trait ParallelIterator: Sized + Send {
         F: Fn(&mut T, Self::Item) -> Result<(), E> + Send + Sync + Clone,
         E: Send,
     {
-        let folded = self.seq_try_fold((init(), Ok(())), |(mut state, _), item| {
-            match op(&mut state, item) {
-                Ok(()) => ControlFlow::Continue((state, Ok(()))),
-                Err(error) => ControlFlow::Break((state, Err(error))),
-            }
-        });
-        let (_, outcome) = match folded {
-            ControlFlow::Continue(state) | ControlFlow::Break(state) => state,
-        };
-
-        outcome
+        seq_try_mutate_state(self, init, op)
     }
 
     /// Reduce with an associative operation.
