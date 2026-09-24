@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Tray icon and notifications** (`NativeWindow::show_tray_icon`,
+  `show_notification`, `remove_tray_icon`, `take_tray_events`,
+  `TrayIconImage`, `TrayEvent`, and the same methods on `WebViewHost`). A
+  window shows one notification-area icon from a 16 or 32 pixel ARGB image
+  with a bounded tooltip. Clicks, keyboard selection, context-menu
+  requests (with their screen anchor) and notification clicks queue apart
+  from `WindowEvent`. Notifications are shell balloons, which Windows 10
+  and later present as toasts without a packaged application identity.
+  Closing the window removes the icon and destroys its handle.
+
 - **System-wide hotkeys** (`NativeWindow::register_hotkey`,
   `unregister_hotkey`, `take_hotkey_presses`, `GlobalHotkey`, `HotkeyId`,
   and the same methods on `WebViewHost`). A chord registered through

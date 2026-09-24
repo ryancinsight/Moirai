@@ -46,6 +46,7 @@ use super::input::{
 };
 use super::present::{paint, paint_frame};
 use super::state::{WindowState, decode_composition};
+use super::tray::{OwnedIcon, TRAY_CALLBACK_MESSAGE};
 
 const WINDOW_CLASS_NAME: &[u16] = &[
     b'M' as u16,
@@ -73,6 +74,7 @@ pub struct NativeWindow {
     pub(super) visible: bool,
     pub(super) show_maximized: bool,
     pub(super) hotkeys: Vec<HotkeyId>,
+    pub(super) tray_icon: Option<OwnedIcon>,
     destroyed: bool,
 }
 
@@ -159,6 +161,7 @@ impl NativeWindow {
             visible: false,
             show_maximized: false,
             hotkeys: Vec::new(),
+            tray_icon: None,
             destroyed: false,
         };
         if !window
@@ -360,6 +363,7 @@ impl NativeWindow {
             return Ok(());
         }
         self.release_hotkeys();
+        self.release_tray_icon();
         // Remove the subclass while the HWND is still valid. The adapter's
         // destructor is thread-affine and restores the original window proc.
         self.accessibility.take();
@@ -377,6 +381,7 @@ impl Drop for NativeWindow {
     fn drop(&mut self) {
         if !self.destroyed {
             self.release_hotkeys();
+            self.release_tray_icon();
             self.accessibility.take();
             // Drop cannot report errors. DestroyWindow is the synchronous RAII
             // fallback; the callback remains valid through the call because
@@ -471,6 +476,7 @@ unsafe extern "system" fn window_proc(
         match message {
             WM_CLOSE => state.push(WindowEvent::CloseRequested),
             WM_HOTKEY => state.push_hotkey(wparam.0),
+            TRAY_CALLBACK_MESSAGE => state.push_tray(wparam.0, lparam.0),
             WM_DESTROY => {}
             WM_SETFOCUS => state.push(WindowEvent::FocusGained),
             WM_KILLFOCUS => {

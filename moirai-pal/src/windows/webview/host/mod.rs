@@ -6,6 +6,7 @@ mod error;
 mod hotkey;
 mod lifecycle;
 mod text;
+mod tray;
 mod view;
 
 pub use view::WebViewHost;
