@@ -9,10 +9,7 @@ use windows::Win32::Foundation::{
     ERROR_CLASS_ALREADY_EXISTS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WAIT_FAILED,
     WAIT_TIMEOUT, WPARAM,
 };
-use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BeginPaint, DIB_RGB_COLORS, EndPaint, HDC,
-    InvalidateRect, PAINTSTRUCT, RGBQUAD, SRCCOPY, StretchDIBits, UpdateWindow,
-};
+use windows::Win32::Graphics::Gdi::{HDC, UpdateWindow};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext,
@@ -46,7 +43,8 @@ use super::input::{
     client_point_from_wheel_lparam, extent_from_lparam, mouse_button, point_from_lparam,
     wheel_deltas,
 };
-use super::state::{PresentedFrame, WindowState, decode_composition};
+use super::present::{paint, paint_frame};
+use super::state::{WindowState, decode_composition};
 
 const WINDOW_CLASS_NAME: &[u16] = &[
     b'M' as u16,
@@ -69,7 +67,7 @@ pub struct NativeWindow {
     pub(crate) hwnd: HWND,
     #[expect(dead_code, reason = "the guard's Drop restores the thread context")]
     dpi_context: ThreadDpiAwarenessContext,
-    state: Box<WindowState>,
+    pub(super) state: Box<WindowState>,
     accessibility: Option<WindowsAccessibilityAdapter>,
     visible: bool,
     destroyed: bool,
@@ -337,56 +335,6 @@ impl NativeWindow {
             return Ok(Vec::new());
         }
         self.poll_events()
-    }
-
-    /// Retains a bounded ARGB frame and schedules a repaint.
-    ///
-    /// The input uses the same row-major `0xAARRGGBB` representation as Atlas
-    /// software framebuffers. The slice is copied because Windows may repaint
-    /// after this method returns.
-    ///
-    /// # Errors
-    /// Rejects mismatched lengths, zero or oversized dimensions, allocation
-    /// failure and an invalid native window handle.
-    pub fn present_argb8888(&mut self, width: u32, height: u32, pixels: &[u32]) -> io::Result<()> {
-        validate_frame_dimensions(width, height)?;
-        let count = usize::try_from(u64::from(width) * u64::from(height))
-            .map_err(|_| allocation_error())?;
-        if pixels.len() != count {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "ARGB frame length does not match dimensions",
-            ));
-        }
-        let frame = self.state.frame.get_or_insert_with(|| PresentedFrame {
-            width,
-            height,
-            pixels: Vec::new(),
-        });
-        if frame.width != width || frame.height != height {
-            frame.pixels.clear();
-            frame
-                .pixels
-                .try_reserve_exact(count)
-                .map_err(|_| allocation_error())?;
-            frame.width = width;
-            frame.height = height;
-            frame.pixels.resize(count, 0);
-        } else if frame.pixels.len() != count {
-            frame
-                .pixels
-                .try_reserve_exact(count)
-                .map_err(|_| allocation_error())?;
-            frame.pixels.resize(count, 0);
-        }
-        frame.pixels.copy_from_slice(pixels);
-        // SAFETY: `self.hwnd` is owned by this thread and the null rectangle
-        // requests repaint of the complete client area without retaining a
-        // pointer after the synchronous call.
-        if !unsafe { InvalidateRect(Some(self.hwnd), None, false) }.as_bool() {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(())
     }
 
     /// Destroys the window synchronously and drains its callback state.
@@ -742,69 +690,6 @@ fn read_composition_buffer(
         }
     }
     decode_composition(&buffer)
-}
-
-unsafe fn paint(hwnd: HWND, state: &WindowState) -> LRESULT {
-    unsafe {
-        let mut paint = PAINTSTRUCT::default();
-        // SAFETY: `paint` is writable storage and hwnd is the callback's live handle.
-        let hdc = BeginPaint(hwnd, &mut paint);
-        paint_frame(hwnd, state, hdc);
-        // SAFETY: paint was initialized by BeginPaint and belongs to hwnd.
-        let _ = EndPaint(hwnd, &paint);
-        LRESULT(0)
-    }
-}
-
-unsafe fn paint_frame(hwnd: HWND, state: &WindowState, hdc: HDC) {
-    unsafe {
-        if hdc.is_invalid() {
-            return;
-        }
-        let Some(frame) = state.frame.as_ref() else {
-            return;
-        };
-        let mut client = RECT::default();
-        // SAFETY: `client` is writable storage for this live hwnd.
-        if GetClientRect(hwnd, &mut client).is_err() {
-            return;
-        }
-        let dest_width = client.right.saturating_sub(client.left);
-        let dest_height = client.bottom.saturating_sub(client.top);
-        if dest_width <= 0 || dest_height <= 0 {
-            return;
-        }
-        let info = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: frame.width as i32,
-                biHeight: -(frame.height as i32),
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0,
-                ..Default::default()
-            },
-            bmiColors: [RGBQUAD::default()],
-        };
-        // SAFETY: the retained frame remains borrowed for this synchronous
-        // GDI call; BITMAPINFO matches the 32-bit row-major ARGB storage and
-        // the destination is bounded by GetClientRect.
-        let _ = StretchDIBits(
-            hdc,
-            0,
-            0,
-            dest_width,
-            dest_height,
-            0,
-            0,
-            frame.width as i32,
-            frame.height as i32,
-            Some(frame.pixels.as_ptr().cast::<c_void>()),
-            &info,
-            DIB_RGB_COLORS,
-            SRCCOPY,
-        );
-    }
 }
 
 pub(super) fn outer_dimensions(width: u32, height: u32) -> io::Result<(i32, i32)> {

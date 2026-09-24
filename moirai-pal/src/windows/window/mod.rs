@@ -10,6 +10,7 @@ mod config;
 mod event;
 mod input;
 mod native;
+mod present;
 mod state;
 
 pub use accessibility::{
@@ -23,6 +24,7 @@ pub use config::{
 };
 pub use event::{CompositionPhase, ModifierState, MouseButton, WindowEvent};
 pub use native::NativeWindow;
+pub use present::FrameRegion;
 
 #[cfg(test)]
 mod tests;
