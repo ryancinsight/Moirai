@@ -17,7 +17,7 @@ pub use broadcast::{BroadcastChannel, BroadcastReceiver};
 pub use collective::{ChunkedVec, CollectiveOps};
 pub use message::Message;
 pub use pubsub::PubSub;
-pub use ring_buffer::{ProduceOutcome, RingBuffer};
+pub use ring_buffer::RingBuffer;
 pub use router::MessageRouter;
 
 #[cfg(test)]

@@ -78,60 +78,6 @@ fn a_non_power_of_two_request_bounds_the_queue_exactly() {
     assert_eq!(queue.try_enqueue(3), Ok(()));
 }
 
-/// The classification `moirai-core`'s notifier fence hangs on: a push
-/// reports whether it took the ring from empty to non-empty.
-///
-/// Misclassifying an empty→non-empty push as occupied would strand a parked
-/// receiver (its fence and counter read would be skipped), and the reverse
-/// misclassification would only cost an unnecessary fence — so the empty
-/// case, the occupied case, and the return to empty are all pinned.
-#[test]
-fn reports_the_empty_to_non_empty_transition() {
-    let queue: LockFreeQueue<u32> = LockFreeQueue::with_capacity(4);
-
-    assert_eq!(
-        queue.try_enqueue_outcome(1),
-        Ok(EnqueueOutcome::BecameNonEmpty)
-    );
-    assert_eq!(
-        queue.try_enqueue_outcome(2),
-        Ok(EnqueueOutcome::AlreadyNonEmpty)
-    );
-    assert_eq!(
-        queue.try_enqueue_outcome(3),
-        Ok(EnqueueOutcome::AlreadyNonEmpty)
-    );
-
-    assert_eq!(queue.try_dequeue(), Some(1));
-    assert_eq!(queue.try_dequeue(), Some(2));
-    assert_eq!(
-        queue.try_enqueue_outcome(4),
-        Ok(EnqueueOutcome::AlreadyNonEmpty)
-    );
-
-    assert_eq!(queue.try_dequeue(), Some(3));
-    assert_eq!(queue.try_dequeue(), Some(4));
-    // Drained: the next push is the empty→non-empty transition again.
-    assert_eq!(
-        queue.try_enqueue_outcome(5),
-        Ok(EnqueueOutcome::BecameNonEmpty)
-    );
-}
-
-/// A full ring reports no transition and hands the value back.
-///
-/// The notifier must not treat a rejected push as a transition: nothing was
-/// published, so there is nothing to wake a receiver for.
-#[test]
-fn a_rejected_push_reports_no_transition() {
-    let queue: LockFreeQueue<u32> = LockFreeQueue::with_capacity(1);
-    assert_eq!(
-        queue.try_enqueue_outcome(1),
-        Ok(EnqueueOutcome::BecameNonEmpty)
-    );
-    assert_eq!(queue.try_enqueue_outcome(2), Err(2));
-}
-
 #[test]
 fn test_lock_free_queue_wrap_around() {
     // Fill and drain multiple times to exercise slot reuse.

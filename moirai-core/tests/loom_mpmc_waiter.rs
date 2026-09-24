@@ -34,6 +34,17 @@
 //! reproduces that as a reachable failure so the regression cannot return
 //! silently.
 //!
+//! The one-slot ring cannot express the second regression: a notifier that
+//! skips the fence and the counter read when the ring was occupied before the
+//! push. [`DrainRing`] queues one item ahead of the push so the receiver can
+//! drain it and park on the still-unpublished slot;
+//! [`occupancy_read_before_publish_loses_the_wakeup`] keeps that elision
+//! reachable as a failure and
+//! [`notifier_on_every_push_survives_a_drain_before_publish`] pins the shipped
+//! every-push notifier. Bound: one producer and one receiver over one push,
+//! every interleaving explored (`loom::model` sets no preemption bound unless
+//! `LOOM_MAX_PREEMPTIONS` is exported, and CI exports none).
+//!
 //! # Why the model carries an explicit `SeqCst` fence
 //!
 //! Same modeling device, and same caveat, as `moirai-executor`'s
@@ -278,5 +289,155 @@ fn waiter_without_the_store_load_barrier_loses_the_wakeup() {
     assert!(
         model(true, false, true),
         "an unfenced waiter must be reachable as a lost wakeup"
+    );
+}
+
+/// Two-slot ring for the drain-before-publish interleaving.
+///
+/// The one-slot [`Ring`] cannot express it: the failure needs an item already
+/// queued ahead of the push, so that the push sees the ring occupied while the
+/// receiver drains that item and then finds the push's slot still unpublished.
+/// The fields keep `LockFreeQueue`'s orderings: a slot publishes with a release
+/// store of its sequence and is read with an acquire load, and the consumer
+/// cursor is read by the producer with an acquire load.
+struct DrainRing {
+    /// Slot 0 starts published, standing in for an item queued before the push.
+    first_published: AtomicUsize,
+    /// Slot 1 is the pushed slot; 1 once published.
+    pushed_published: AtomicUsize,
+    /// The consumer cursor: 0 while slot 0 is unconsumed, then 1.
+    head: AtomicUsize,
+    receiver_waiters: AtomicUsize,
+    notified: AtomicUsize,
+    parked: AtomicUsize,
+    lock: Mutex<()>,
+}
+
+/// Which gate the modeled producer applies before its fenced counter read.
+#[derive(Clone, Copy)]
+enum NotifierGate {
+    /// Fence and read the waiter count after every push: the shipped shape.
+    EveryPush,
+    /// Fence and read the waiter count only when the consumer cursor, read
+    /// before publishing, equalled the claimed position: the removed
+    /// empty-to-non-empty elision.
+    ObservedEmptyBeforePublish,
+}
+
+impl DrainRing {
+    fn new() -> Self {
+        Self {
+            first_published: AtomicUsize::new(1),
+            pushed_published: AtomicUsize::new(0),
+            head: AtomicUsize::new(0),
+            receiver_waiters: AtomicUsize::new(0),
+            notified: AtomicUsize::new(0),
+            parked: AtomicUsize::new(0),
+            lock: Mutex::new(()),
+        }
+    }
+
+    /// The producer claims position 1 and publishes it.
+    fn producer(&self, gate: NotifierGate) {
+        const PUSHED_POSITION: usize = 1;
+        let take_gate = match gate {
+            NotifierGate::EveryPush => true,
+            NotifierGate::ObservedEmptyBeforePublish => {
+                self.head.load(Ordering::Acquire) == PUSHED_POSITION
+            }
+        };
+        self.pushed_published.store(1, Ordering::Release);
+        if take_gate {
+            fence(Ordering::SeqCst);
+            if self.receiver_waiters.load(Ordering::SeqCst) > 0 {
+                let _guard = self.lock.lock().unwrap();
+                self.notified.store(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// The receiver drains the queued item, then blocks for the next one in
+    /// `recv_bounded`'s shipped order: register, re-check, park.
+    fn receiver(&self) {
+        assert_eq!(
+            self.first_published.load(Ordering::Acquire),
+            1,
+            "slot 0 is published before either thread starts"
+        );
+        self.head.store(1, Ordering::Relaxed);
+
+        if self.pushed_published.load(Ordering::Acquire) == 1 {
+            return;
+        }
+
+        let guard = self.lock.lock().unwrap();
+        self.receiver_waiters.fetch_add(1, Ordering::SeqCst);
+        // Modeling device for the RMW's StoreLoad barrier; see
+        // `waiter_registers_first`.
+        fence(Ordering::SeqCst);
+        if self.pushed_published.load(Ordering::Acquire) == 1 {
+            self.receiver_waiters.fetch_sub(1, Ordering::Relaxed);
+            return;
+        }
+        self.parked.store(1, Ordering::Relaxed);
+        drop(guard);
+    }
+
+    fn lost_wakeup(&self) -> bool {
+        self.parked.load(Ordering::Relaxed) == 1
+            && self.pushed_published.load(Ordering::Relaxed) == 1
+            && self.notified.load(Ordering::Relaxed) == 0
+    }
+}
+
+fn drain_model(gate: NotifierGate) -> bool {
+    let lost = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = std::sync::Arc::clone(&lost);
+
+    loom::model(move || {
+        let ring = Arc::new(DrainRing::new());
+
+        let producer_side = Arc::clone(&ring);
+        let producer = thread::spawn(move || producer_side.producer(gate));
+
+        let receiver_side = Arc::clone(&ring);
+        let receiver = thread::spawn(move || receiver_side.receiver());
+
+        producer.join().unwrap();
+        receiver.join().unwrap();
+
+        if ring.lost_wakeup() {
+            observed.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    });
+
+    lost.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The shipped notifier fences and reads the waiter count after every push, so
+/// draining the queued item ahead of the push cannot strand the receiver.
+#[test]
+fn notifier_on_every_push_survives_a_drain_before_publish() {
+    assert!(
+        !drain_model(NotifierGate::EveryPush),
+        "a notifier fenced on every push must admit no lost wakeup"
+    );
+}
+
+/// The removed elision, kept as an executable counter-example.
+///
+/// The producer reads the consumer cursor before publishing, sees the queued
+/// item, and classifies its push as into an occupied ring. The receiver then
+/// drains that item, finds the pushed slot still unpublished, registers,
+/// re-checks, and parks; the producer publishes and skips the notify. This is
+/// the hang `channel_properties::mpmc_roundtrip_preserves_multiset` hit: the
+/// sender goes on to fill the ring and parks on `not_full`, leaving both sides
+/// parked. The interleaving needs no weak-memory reordering, so no ordering on
+/// the cursor read can repair it.
+#[test]
+fn occupancy_read_before_publish_loses_the_wakeup() {
+    assert!(
+        drain_model(NotifierGate::ObservedEmptyBeforePublish),
+        "gating the notify on occupancy observed before publishing must remain          reachable as a lost wakeup, or this model no longer covers the regression"
     );
 }

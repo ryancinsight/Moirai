@@ -12,4 +12,4 @@ mod ring;
 #[cfg(test)]
 mod tests;
 
-pub use self::ring::{EnqueueOutcome, LockFreeQueue};
+pub use self::ring::LockFreeQueue;

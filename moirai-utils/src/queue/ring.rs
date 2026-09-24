@@ -19,25 +19,6 @@ use alloc::boxed::Box;
 /// producer rates per the bounded-resource policy.
 const DEFAULT_QUEUE_CAPACITY: usize = 65536;
 
-/// Outcome of a successful [`LockFreeQueue::try_enqueue_outcome`].
-///
-/// A blocked receiver parks only after observing the ring empty, so only a push
-/// that takes the ring from empty to non-empty can race that decision, and only
-/// that push needs the notifier's Store→Load barrier before the waiter-counter
-/// read. A push into an already-occupied ring cannot: whichever receiver next
-/// calls [`try_dequeue`](LockFreeQueue::try_dequeue) finds an item instead of
-/// parking. Reporting the transition lets the notifier fence the former and
-/// skip both the fence and the counter read on the latter.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum EnqueueOutcome {
-    /// The ring held no items when the slot was claimed: this push took it from
-    /// empty to non-empty.
-    BecameNonEmpty,
-    /// The ring already held items, so no receiver can have parked on this
-    /// push's account.
-    AlreadyNonEmpty,
-}
-
 /// A single slot in the bounded MPMC queue.
 pub(super) struct Slot<T> {
     /// Monotonic sequence number that distinguishes empty, full, and stale
@@ -159,29 +140,6 @@ impl<T> LockFreeQueue<T> {
     /// mutex, no retry loop.
     #[inline]
     pub fn try_enqueue(&self, item: T) -> Result<(), T> {
-        self.try_enqueue_inner::<false>(item).map(|_| ())
-    }
-
-    /// Try to enqueue an item, reporting whether this push took the queue from
-    /// empty to non-empty.
-    ///
-    /// Callers that gate a notification on the transition need this; see
-    /// [`EnqueueOutcome`]. It costs one extra consumer-cursor read per push, so
-    /// it is a separate entry point rather than the default.
-    #[inline]
-    pub fn try_enqueue_outcome(&self, item: T) -> Result<EnqueueOutcome, T> {
-        self.try_enqueue_inner::<true>(item)
-    }
-
-    /// `REPORT_TRANSITION` is a const generic, so the consumer-cursor read the
-    /// outcome needs is monomorphized away entirely for the callers that ignore
-    /// it: the injector and run-queue pushes compile to the same code as a ring
-    /// that never tracked the transition.
-    #[inline]
-    fn try_enqueue_inner<const REPORT_TRANSITION: bool>(
-        &self,
-        item: T,
-    ) -> Result<EnqueueOutcome, T> {
         let mut pos = self.tail.load(Ordering::Relaxed);
         loop {
             let slot = &self.buffer[pos & self.mask];
@@ -204,18 +162,6 @@ impl<T> LockFreeQueue<T> {
                         Ordering::Relaxed,
                     ) {
                         Ok(_) => {
-                            // Read the consumer cursor *before* publishing this
-                            // slot: a consumer can only advance `head` through
-                            // already-published slots, so it cannot pass `pos`
-                            // while this one is unpublished, and
-                            // `head == pos` is then exactly "the queue held no
-                            // items".
-                            let outcome =
-                                if REPORT_TRANSITION && self.head.load(Ordering::Acquire) == pos {
-                                    EnqueueOutcome::BecameNonEmpty
-                                } else {
-                                    EnqueueOutcome::AlreadyNonEmpty
-                                };
                             // SAFETY: winning the tail CAS grants exclusive
                             // right to fill this slot's sequence generation; its
                             // payload cell is uninitialized (fresh or drained)
@@ -224,7 +170,7 @@ impl<T> LockFreeQueue<T> {
                                 (*slot.data.get()).write(item);
                             }
                             slot.sequence.store(pos.wrapping_add(1), Ordering::Release);
-                            return Ok(outcome);
+                            return Ok(());
                         }
                         Err(actual) => pos = actual,
                     }

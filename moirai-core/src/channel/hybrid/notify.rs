@@ -35,14 +35,14 @@ use crate::channel::CHANNEL_STORE_LOAD_ORDER;
 /// self-deadlock. Unparking follows the same shape so both critical sections
 /// stay minimal.
 ///
-/// The produce paths take this gate only on
-/// [`ProduceOutcome::BecameNonEmpty`](crate::communication::ProduceOutcome):
-/// a consumer parks only after observing an empty ring, so a produce into an
-/// already-occupied ring cannot race a registration and has nothing to wake —
-/// the barrier in this gate is the expensive half of the pair and need not be
-/// paid there. The two drop paths take it unconditionally: the `closed` flag is
-/// not the ring, and a consumer registering against a closing channel must
-/// still be woken.
+/// Every produce takes this gate, never only the one that found the ring
+/// empty: the producer reads the consumer cursor before it publishes, and the
+/// consumer can drain the items ahead of the produce in that window, find the
+/// new slot unpublished, register, and park. Occupancy observed before the
+/// publication therefore cannot excuse the barrier or the wake — the same
+/// interleaving `tests/loom_mpmc_waiter.rs`
+/// (`occupancy_read_before_publish_loses_the_wakeup`) enumerates for the
+/// bounded MPMC notifier.
 pub(super) fn notify_consumers(
     parker: &Mutex<Vec<std::thread::Thread>>,
     parked_count: &AtomicUsize,

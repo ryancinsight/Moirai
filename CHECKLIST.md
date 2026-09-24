@@ -2,37 +2,29 @@
 
 **Target**: Unreleased
 
-## MOI-MPMC-BOUNDED-ROUNDTRIP-HANG-2026-09-22 - Bounded mpmc round-trip hangs [patch] - todo
+## MOI-MPMC-NOTIFY-FENCE-COST-2026-09-24 - Recover the per-push notifier fence [patch] [perf] - todo
 
-- **Outcome:** `channel_properties::mpmc_roundtrip_preserves_multiset` completes
-  within the committed nextest budget every run; today it reaches `TIMEOUT
-  [60.035s]`, the terminate bound, and takes the workspace gate with it
-  (exit 100).
-- **Reproduction:** the single test, run repeatedly, hangs on roughly one run in
-  five to eight on a 24-core Windows host:
-  `for i in $(seq 1 40); do cargo nextest run -p moirai-core -E
-  'test(mpmc_roundtrip_preserves_multiset)'; done` - observed at iterations 5
-  and 8 of two independent loops. One run in isolation passes in 0.065s, so a
-  single green run is not evidence.
-- **First seen:** CI run 35681612137 on main. Attribution to #430 is *not*
-  established: that change touched `channel/spsc/ring.rs` and
-  `communication/ring_buffer.rs`, while this test exercises `MpmcChannel`,
-  whose queue is `moirai_utils::queue::LockFreeQueue` - a crate #430 does not
-  touch, and mpmc names neither `RingBuffer` nor `ring_buffer`. Treat the
-  correlation as a starting point, not a cause.
-- **First place to look:** `send_bounded`/`recv_bounded` in
-  `moirai-core/src/channel/mpmc/channel.rs` pair a waiter count against the
-  queue as a Dekker protocol, and the code states its own failure mode - "a
-  spurious notify is free; a missed one is a hang, and only the increment above
-  can be missed". A lost wakeup fits the observed shape (both threads live, no
-  panic, no progress).
-- **Acceptance:** the mechanism is named, the fix carries a `loom` interleaving
-  test over the send/recv waiter protocol (bounded, with the bound stated), and
-  1,000 consecutive runs of this test pass. Raising or removing the budget is
-  not a fix.
-- **Atlas impact:** atlas pins moirai at `02ae76ec5`, the last green revision,
-  rather than the head carrying this - see atlas #222. The pin advances once
-  this closes.
+- **Outcome:** the bounded `MpmcChannel` and `HybridSender` notifiers stop
+  paying a `SeqCst` fence on pushes that no parked receiver can depend on,
+  without a reachable lost wakeup.
+- **Context:** the fix for the bounded round-trip hang (PR #451) restored the
+  fence on every push: the removed elision read the consumer cursor before
+  publishing, and a receiver can drain the items ahead of the push in that
+  window and park. The elision's commit (`ae5bcedc`) recorded the fence as a
+  13-64% `bounded_channel_matrix/moirai_mpmc` cost at 4 and 8 producers; that
+  figure is unreverified against current main.
+- **Candidate:** a receiver parks only after seeing `tail == head` post
+  registration, spinning while a claimed slot is unpublished; with `SeqCst` on
+  the tail claim, the cursor read, and the receiver's tail read, only the push
+  that claims the receiver's head position needs the fence. Loom model first,
+  extending `DrainRing` in `moirai-core/tests/loom_mpmc_waiter.rs` with a
+  second producer.
+- **Acceptance:** the extended loom models admit no lost wakeup; the
+  4/8-producer bench cells beat the fenced baseline on pinned cores;
+  `mpmc_roundtrip_preserves_multiset` passes 1,000 consecutive runs.
+- **Scope:** `moirai-utils/src/queue/ring.rs`,
+  `moirai-core/src/channel/{mpmc,hybrid}`,
+  `moirai-core/src/communication/ring_buffer.rs`.
 
 ## MOI-PARKED-POOL-FIRST-REGION-2026-09-17 — Bring a parked pool to full width faster [patch] [perf] — todo
 
