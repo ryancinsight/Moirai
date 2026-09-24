@@ -4,13 +4,11 @@ Status: Accepted
 
 Date: 2026-09-09
 
-Revision: 2026-09-17
+Revision: 2026-09-24
 
-Revision note: the WebView2 provider is now an opt-in `moirai-pal/webview2`
-feature so executor-facing Windows consumers do not compile the COM binding;
-the host synchronously denies WebView2 permission requests and emits typed
-denial snapshots. It also exposes a bounded `CapturePreview` PNG read from a
-COM memory stream so consumer evidence does not depend on GDI composition.
+Revision note: the host now sizes the controller to its window's client area
+and shows it at creation, and refuses capture of a hidden controller, because
+WebView2 withholds a hidden controller's capture completion (Moirai #454).
 
 Driver: MOI-WINDOW-WEBVIEW2-2026-09-09 (delivered by [Moirai #299](https://github.com/ryancinsight/Moirai/pull/299)),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
@@ -55,18 +53,29 @@ presentation budget before allocation, and returns the PNG bytes. Capture is
 observational: it does not change navigation, permissions or the retained
 event queue.
 
+The host sizes the controller to the parent window's client area and makes it
+visible before the first navigation, whether or not the parent window is
+shown. A controller WebView2 creates under a hidden parent has empty bounds
+and is not visible. WebView2 then withholds its capture completion until the
+controller is shown
+([WebView2Feedback #579](https://github.com/MicrosoftEdge/WebView2Feedback/issues/579)),
+so a capture finishes only when a frame was already pending, and the page's
+permission requests never arrive. A capture requested while the consumer has
+hidden the controller through `set_visible(false)` therefore fails at once
+with `InvalidInput` rather than at the finite wait.
+
 The provider stores every callback token and removes it before closing the
 controller. `Drop` performs only synchronous COM release and controller close;
 fallible shutdown is available through `close` and never blocks or awaits.
 `WebViewHost` owns its `NativeWindow`, so the parent HWND cannot outlive the
 controller and no raw window handle crosses the public PAL boundary.
 
-The implementation uses `webview2-com` 0.38.2 and its generated
+The implementation uses `webview2-com` 0.39.1 and its generated
 `webview2-com-sys` bindings only at this Windows ABI boundary. This is a
 justified external dependency: the Atlas stack has no WebView2 implementation,
 and the generated bindings preserve the operating-system COM contract without
 adding a GUI runtime. The existing `windows` dependency is advanced to the
-same 0.61 line required by those bindings. The provider does not import Wry,
+same 0.62 line required by those bindings. The provider does not import Wry,
 Tauri, egui, GPUI or Iced.
 
 ## Alternatives
@@ -101,8 +110,9 @@ native window lifecycle plus policy boundary; a runtime capture against an
 installed WebView2 runtime and the Metis packaged HTML/CSS/WASM bundle is the
 consumer integration increment. An ignored integration smoke is checked in for
 that host and verifies the packaged page, bridge message and denied navigation
-when the runtime is present. The ignored provider capture test verifies a PNG
-signature from a rendered page, while the finite pump bound and queue overflow
+when the runtime is present. The ignored provider capture tests read the PNG header
+and require the window's 320x240 client area, and require a hidden controller's
+capture to be refused, while the finite pump bound and queue overflow
 are value-tested without sleeps or polling loops.
 
 The Windows loader and browser runtime are system prerequisites; non-Windows,

@@ -13,11 +13,14 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 };
 use windows::{
     Win32::{
-        Foundation::RECT,
+        Foundation::{HWND, RECT},
         System::Com::{STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET},
-        UI::{Shell::SHCreateMemStream, WindowsAndMessaging::MSG},
+        UI::{
+            Shell::SHCreateMemStream,
+            WindowsAndMessaging::{GetClientRect, MSG},
+        },
     },
-    core::{HSTRING, Interface, PCWSTR},
+    core::{BOOL, HSTRING, Interface, PCWSTR},
 };
 
 use super::super::super::window::NativeWindow;
@@ -79,8 +82,10 @@ impl Callbacks {
 impl WebViewHost {
     /// Creates a WebView2 host and loads the configured packaged entry page.
     ///
-    /// The caller's thread owns the returned host and must continue pumping it
-    /// through [`Self::wait_events`] or [`Self::poll_events`].
+    /// The controller fills the window's client area and is visible, so the
+    /// page renders even while the parent window is hidden. The caller's
+    /// thread owns the returned host and must continue pumping it through
+    /// [`Self::wait_events`] or [`Self::poll_events`].
     ///
     /// # Errors
     /// Returns a bounded configuration, COM, WebView2, callback, navigation or
@@ -95,6 +100,7 @@ impl WebViewHost {
         let apartment = ComApartment::initialize()?;
         let environment = create_environment(config.wait())?;
         let controller = create_controller(&environment, window.hwnd, config.wait())?;
+        present_in_client_area(&controller, window.hwnd)?;
         let webview = unsafe { controller.CoreWebView2() }.map_err(windows_error)?;
         let settings = unsafe { webview.Settings() }.map_err(windows_error)?;
         unsafe {
@@ -166,6 +172,9 @@ impl WebViewHost {
 
     /// Sets WebView2 visibility without changing the parent window state.
     ///
+    /// WebView2 withholds a hidden controller's preview capture, so
+    /// [`Self::capture_preview_png`] is refused until it is shown again.
+    ///
     /// # Errors
     /// Returns an error when the controller is closed or the native call fails.
     pub fn set_visible(&mut self, visible: bool) -> io::Result<()> {
@@ -221,11 +230,27 @@ impl WebViewHost {
     /// occluded and hardware-composed surfaces.
     ///
     /// # Errors
-    /// Returns `NotConnected` for a closed host, `OutOfMemory` when the encoded
-    /// preview exceeds [`MAX_WEBVIEW_CAPTURE_BYTES`], a finite-wait error when
-    /// WebView2 does not complete, or a native COM/WebView2/stream error.
+    /// Returns `NotConnected` for a closed host, `InvalidInput` while the
+    /// controller is hidden through [`Self::set_visible`], `OutOfMemory` when
+    /// the encoded preview exceeds [`MAX_WEBVIEW_CAPTURE_BYTES`], a
+    /// finite-wait error when WebView2 does not complete, or a native
+    /// COM/WebView2/stream error.
     pub fn capture_preview_png(&self) -> io::Result<Vec<u8>> {
         let webview = self.webview.as_ref().ok_or_else(closed_error)?;
+        let controller = self.controller.as_ref().ok_or_else(closed_error)?;
+        let mut visible = BOOL(0);
+        // SAFETY: `visible` is writable storage for the duration of the call
+        // and `controller` is a live interface owned by this thread.
+        unsafe { controller.IsVisible(&mut visible) }.map_err(windows_error)?;
+        // WebView2 does not invoke a hidden controller's capture handler
+        // until the controller is shown again (WebView2Feedback #579), so
+        // the request is refused rather than left to the finite wait.
+        if !visible.as_bool() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "WebView2 preview requires a visible controller",
+            ));
+        }
         // SAFETY: COM is initialized on this owner thread and the returned
         // stream is retained until WebView2 invokes the completion callback.
         let stream = unsafe { SHCreateMemStream(None) }.ok_or_else(|| {
@@ -409,6 +434,26 @@ impl Drop for WebViewHost {
         match self.close() {
             Ok(()) | Err(_) => {}
         }
+    }
+}
+
+/// Sizes the controller to `parent`'s client area and shows it.
+///
+/// A controller created under a hidden parent reports empty bounds and is not
+/// visible. Navigation still completes, but the page's permission requests
+/// never arrive, and a preview capture completes only if a frame was already
+/// pending, since WebView2 otherwise holds its completion until the controller
+/// is shown (WebView2Feedback #579).
+fn present_in_client_area(controller: &ICoreWebView2Controller, parent: HWND) -> io::Result<()> {
+    let mut client = RECT::default();
+    // SAFETY: `parent` is the live window this host owns and `client` is
+    // writable storage for the duration of the call.
+    unsafe { GetClientRect(parent, &mut client) }.map_err(windows_error)?;
+    // SAFETY: `controller` is a live interface created on this thread; both
+    // calls take their arguments by value.
+    unsafe {
+        controller.SetBounds(client).map_err(windows_error)?;
+        controller.SetIsVisible(true).map_err(windows_error)
     }
 }
 

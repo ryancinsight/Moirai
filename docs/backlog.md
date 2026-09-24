@@ -44,12 +44,12 @@
 - **Risk:** a provider API that silently leaves WebView2's default state could surface an OS prompt or retain a profile grant; the callback must set `DENY` synchronously for every kind.
 - **Delivery:** provider implementation, typed event, ADR and regression coverage are merged in [PR #392](https://github.com/ryancinsight/Moirai/pull/392), merge `64d5cdc1465542748d2261663284c9c357850541`; stable permission labels are merged in [PR #394](https://github.com/ryancinsight/Moirai/pull/394), merge `b94f3ed7`; Metis consumer integration remains the cross-repo dependency.
 
-<a id="MOI-PAL-WEBVIEW2-OPTIONAL-2026-09-15"></a>
-## MOI-PAL-WEBVIEW2-OPTIONAL-2026-09-15 — Every Windows consumer builds a WebView2 host [minor] [build]
+<a id="MOI-WEBVIEW-RESHOW-CAPTURE-001"></a>
+## MOI-WEBVIEW-RESHOW-CAPTURE-001 — A capture right after re-showing a WebView2 controller can miss its completion [patch]
 
-- Status: done; priority: P1; integrator: root; delivery: [PR #355](https://github.com/ryancinsight/Moirai/pull/355), merge `d95a2cd61b1f133a507d2735f5f72948a4ca5ec9`; last-update: 2026-09-16.
-- Outcome: `moirai-pal` gates `webview2-com` behind the opt-in `webview2` feature, so default Windows consumers avoid the COM binding while Metis opts in.
-- Verification: default locked `moirai-pal` has no `webview2-com`; the all-features native PAL checks compile the provider; [ADR 0052](adr/0052-bounded-webview2-host.md) records the contract.
+- Status: todo; priority: correctness; scope: `moirai-pal/src/windows/webview/{host/view.rs,tests.rs}`.
+- Evidence: `set_visible(false)`, `set_visible(true)`, then `capture_preview_png` timed out at 30 s in 3 of 115 concurrent runs (WebView2 153, 2026-09-24, Moirai #454); a fresh host's capture did not fail in over 100 runs. A `document.visibilityState` round trip before capture read `"visible"` every time, so it does not detect the state.
+- Acceptance: a re-show-then-capture runtime test passes 100 concurrent runs, with the readiness signal cited, never a wider wait. Next: bisect the renderer's post-show state with `ICoreWebView2Controller` events and frame timing.
 
 <a id="MOI-CHUNK-POLICY-GEOMETRY-2026-09-11"></a>
 ## MOI-CHUNK-POLICY-GEOMETRY-2026-09-11 — Expose chunk geometry to execution policies [minor]

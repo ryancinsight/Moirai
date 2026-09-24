@@ -40,7 +40,10 @@ OS prompt can grant access, and the host emits a bounded
 `WebViewEvent::PermissionDenied` snapshot for the consumer's audit surface.
 `WebViewHost::capture_preview_png` obtains a bounded PNG from WebView2's own
 preview stream, so an occluded or hardware-composed surface can be inspected
-without a GDI screenshot.
+without a GDI screenshot. The controller fills its window's client area and is
+visible from creation, so a hidden window still renders and captures; a
+controller hidden through `set_visible(false)` refuses capture, because
+WebView2 withholds a hidden controller's capture until it is shown.
 
 `fs::open_file_within_root` opens a native regular file through directory
 handles, using `openat` on Unix and relative `NtCreateFile` calls on Windows.
