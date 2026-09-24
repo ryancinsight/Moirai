@@ -10,6 +10,7 @@ mod config;
 mod event;
 mod hotkey;
 mod input;
+mod menu_bar;
 mod native;
 mod placement;
 mod popup_menu;
@@ -30,6 +31,7 @@ pub use event::{CompositionPhase, ModifierState, MouseButton, WindowEvent};
 pub use hotkey::{
     GlobalHotkey, HotkeyId, MAX_GLOBAL_HOTKEYS, MAX_HOTKEY_ID, MAX_PENDING_HOTKEY_PRESSES,
 };
+pub use menu_bar::{MAX_MENU_BAR_MENUS, MAX_PENDING_MENU_COMMANDS, MenuBar, MenuCommand};
 pub use native::NativeWindow;
 pub use placement::{MAX_PLACEMENT_COORDINATE, WindowPlacement};
 pub use popup_menu::{MAX_POPUP_MENU_ITEMS, MAX_POPUP_MENU_LABEL_UNITS, PopupMenu, PopupMenuItem};

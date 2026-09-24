@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Browser history** (`moirai_pal::wasm::WebHistory`, `HistoryListener`).
+  A client-side router reads the current path, pushes or replaces history
+  entries and hears back/forward navigation. Only printable same-origin
+  paths up to `MAX_HISTORY_PATH_BYTES` are accepted: a leading `//`, a `\`
+  or a scheme is refused, so an entry can never leave the page's origin,
+  and dropping the listener removes it before its closure is released.
+
+- **Native menu bars** (`NativeWindow::set_menu_bar`, `take_menu_commands`,
+  `MenuBar`, `MenuCommand`, and the same methods on `WebViewHost`). A
+  window attaches, replaces or removes a bar of up to `MAX_MENU_BAR_MENUS`
+  titled `PopupMenu`s. Chosen items queue as menu and item indexes apart
+  from `WindowEvent`; accelerator and control notifications, and commands
+  from a replaced bar, are dropped. The window owns the attached menus and
+  destroys them with itself.
+
 - **Launch-at-login entries** (`moirai_pal::windows::startup`:
   `set_startup_command`, `remove_startup_command`, `startup_command`). One
   application's command line is written, read or removed as a named value

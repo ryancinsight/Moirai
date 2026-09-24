@@ -2,6 +2,7 @@
 
 mod global_hotkey;
 mod key_message_encoding;
+mod menu_bar;
 mod native_window_input;
 mod native_window_lifecycle;
 mod popup_menu;

@@ -19,12 +19,12 @@ use windows::Win32::UI::Input::Ime::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AdjustWindowRectEx, CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow,
-    DispatchMessageW, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, IsWindow,
+    DispatchMessageW, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW, HMENU, IDC_ARROW, IsWindow,
     LoadCursorW, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW,
     QS_ALLINPUT, RegisterClassW, SW_SHOW, SW_SHOWMAXIMIZED, SetWindowLongPtrW, ShowWindow,
-    TranslateMessage, WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
-    WM_HOTKEY, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
-    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    TranslateMessage, WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_DPICHANGED,
+    WM_ERASEBKGND, WM_HOTKEY, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION,
+    WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
     WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_PRINT,
     WM_PRINTCLIENT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP,
     WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
@@ -75,6 +75,9 @@ pub struct NativeWindow {
     pub(super) show_maximized: bool,
     pub(super) hotkeys: Vec<HotkeyId>,
     pub(super) tray_icon: Option<OwnedIcon>,
+    /// Owned by the window once attached; destroyed with it.
+    pub(super) menu_bar: Option<HMENU>,
+    pub(super) menu_shape: Vec<usize>,
     destroyed: bool,
 }
 
@@ -162,6 +165,8 @@ impl NativeWindow {
             show_maximized: false,
             hotkeys: Vec::new(),
             tray_icon: None,
+            menu_bar: None,
+            menu_shape: Vec::new(),
             destroyed: false,
         };
         if !window
@@ -476,6 +481,7 @@ unsafe extern "system" fn window_proc(
         match message {
             WM_CLOSE => state.push(WindowEvent::CloseRequested),
             WM_HOTKEY => state.push_hotkey(wparam.0),
+            WM_COMMAND => state.push_menu_command(wparam.0, lparam.0),
             TRAY_CALLBACK_MESSAGE => state.push_tray(wparam.0, lparam.0),
             WM_DESTROY => {}
             WM_SETFOCUS => state.push(WindowEvent::FocusGained),

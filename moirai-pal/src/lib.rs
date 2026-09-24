@@ -77,6 +77,9 @@ mod gpu_device_loss;
 mod content_box;
 
 #[cfg(any(target_arch = "wasm32", test))]
+#[path = "wasm/history_path.rs"]
+mod history_path;
+#[cfg(any(target_arch = "wasm32", test))]
 #[path = "wasm/key_validation.rs"]
 mod key_validation;
 

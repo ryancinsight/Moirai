@@ -6,6 +6,7 @@
 mod animation;
 mod dom;
 mod file;
+mod history;
 mod timer;
 mod websocket;
 
@@ -27,6 +28,7 @@ pub use self::dom::{
     WebEventListener, WebGpuCanvas, WheelDeltaMode, WheelMetadata,
 };
 pub use self::file::{MAX_READ_BYTES, WebFile};
+pub use self::history::{HistoryListener, MAX_HISTORY_PATH_BYTES, WebHistory};
 pub use self::timer::WebTimer;
 pub use crate::local_task::LocalTaskHandle;
 pub use crate::websocket_state::{WebSocketLimits, WebSocketOpen, WebSocketReceive};
