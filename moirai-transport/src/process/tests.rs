@@ -47,7 +47,7 @@ fn child_entry() {
         "descendant" => {
             #[expect(
                 clippy::zombie_processes,
-                reason = "Windows test intentionally exits the root; its owning job terminates the descendant"
+                reason = "the test intentionally exits the root; its job or process group terminates the descendant"
             )]
             let child = std::process::Command::new(std::env::current_exe().expect("fixture path"))
                 .args(["--exact", "process::tests::child_entry", "--nocapture"])
@@ -160,7 +160,12 @@ fn process_creation_rejects_embedded_zero_and_overlong_arguments() {
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(
+    windows,
+    target_os = "linux",
+    target_os = "android",
+    target_vendor = "apple"
+))]
 #[test]
 fn job_termination_closes_descendant_pipes_after_root_exit() {
     let mut process = ProcessSupervisor::new()
@@ -203,7 +208,12 @@ fn job_termination_closes_descendant_pipes_after_root_exit() {
     assert_eq!(reader.read(&mut [0]).expect("confirmed pipe EOF"), 0);
 }
 
-#[cfg(windows)]
+#[cfg(any(
+    windows,
+    target_os = "linux",
+    target_os = "android",
+    target_vendor = "apple"
+))]
 #[test]
 fn dropping_job_closes_a_waiting_child_pipe() {
     let mut process = ProcessSupervisor::new()
@@ -219,4 +229,21 @@ fn dropping_job_closes_a_waiting_child_pipe() {
     let mut tail = Vec::new();
     assert_eq!(reader.read_to_end(&mut tail).expect("job closes writer"), 0);
     drop(writer);
+}
+
+#[cfg(not(any(
+    windows,
+    target_os = "linux",
+    target_os = "android",
+    target_vendor = "apple"
+)))]
+#[test]
+fn unsupported_targets_reject_tree_containment() {
+    let error = ProcessSupervisor::new()
+        .spawn(
+            fixture("exit").tree_containment(),
+            ProcessDropPolicy::TerminateOnDrop,
+        )
+        .expect_err("containment is unavailable");
+    assert_eq!(error, ProcessError::UnsupportedContainment);
 }

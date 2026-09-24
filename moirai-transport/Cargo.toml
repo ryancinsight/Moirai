@@ -24,6 +24,10 @@ bytemuck = { workspace = true }
 # Cross-boundary typed messaging uses rkyv-style archive views in `safe_channel`.
 # Do not add deserialize-to-owned formats on transport hot paths.
 
+[target.'cfg(unix)'.dependencies]
+# POSIX process-group containment: waitid(WNOWAIT) and killpg.
+libc = "0.2"
+
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true }

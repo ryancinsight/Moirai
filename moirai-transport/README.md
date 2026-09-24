@@ -47,8 +47,14 @@ handles; terminate-on-drop jobs kill descendants on their last handle close.
 `piped_stderr` opts into an owned stderr reader; without it stderr remains
 inherited, preserving the existing behavior. `terminate_timeout` confirms zero
 active processes in the Windows job before
-reporting cleanup complete. Other platforms reject requested tree containment
-and retain direct-child supervision only. Portable Drop is a best-effort,
+reporting cleanup complete. Linux, Android and Apple targets contain the tree
+in a new POSIX process group: termination signals the whole group, including
+descendants left behind after the root exits, and the exited root stays
+unreaped (observed with `waitid(WNOWAIT)`) until then so its group ID cannot be
+reused. Descendants that leave the group with `setsid`/`setpgid` escape, and
+the group is not signalled if the supervising process dies without dropping
+its handle. Other platforms reject requested tree containment and retain
+direct-child supervision only. Portable Drop is a best-effort,
 nonblocking termination request; explicit termination reports OS failures.
 
 `ManagedProcess::wait()` now has a finite 30-second default and

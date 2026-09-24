@@ -391,10 +391,15 @@ impl WebElement {
             .map(HtmlInputElement::checked)
     }
 
-    /// Replaces the value of a browser input or textarea element.
+    /// Replaces the value of a browser input, textarea or select element.
+    ///
+    /// A select element selects the option whose value matches. Browsers
+    /// clear the selection for a value no option carries; that value is
+    /// rejected instead and the previous selection is kept.
     ///
     /// # Errors
-    /// Returns [`io::ErrorKind::InvalidInput`] when the element is not an input.
+    /// Returns [`io::ErrorKind::InvalidInput`] when the element is not a
+    /// value-bearing control or a select has no option with `value`.
     pub fn set_value(&self, value: &str) -> io::Result<()> {
         if let Some(input) = self.element.dyn_ref::<HtmlInputElement>() {
             input.set_value(value);
@@ -404,9 +409,21 @@ impl WebElement {
             textarea.set_value(value);
             return Ok(());
         }
+        if let Some(select) = self.element.dyn_ref::<HtmlSelectElement>() {
+            let previous = select.value();
+            select.set_value(value);
+            if select.value() == value {
+                return Ok(());
+            }
+            select.set_value(&previous);
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Select element has no option with the requested value",
+            ));
+        }
         Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "DOM element is not an input or textarea",
+            "DOM element is not an input, textarea or select",
         ))
     }
 

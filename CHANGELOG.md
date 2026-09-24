@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Process-tree containment on Linux, Android and Apple targets**
+  (`ProcessSpec::tree_containment`). The child leads a new process group, so
+  termination and terminate-on-drop signal every normally created
+  descendant, including those left after the root exits. The root's exit is
+  observed with `waitid(WNOWAIT)` and it is reaped only after the group is
+  signalled, so the group ID cannot be reused in between. The Windows job
+  regressions for descendant cleanup now run on these targets too.
+
+- **Select values** (`WebElement::set_value`). A `<select>` now takes the
+  value of one of its options; a value no option carries is rejected and the
+  previous selection kept, rather than silently clearing the selection.
+
 - **Region presents** (`NativeWindow::present_argb8888_region`, `FrameRegion`).
   A frame that differs from the retained one only inside a rectangle copies
   that rectangle's rows and invalidates only it, so a damage-limited software

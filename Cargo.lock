@@ -1867,6 +1867,7 @@ version = "0.6.0"
 dependencies = [
  "bytemuck",
  "criterion",
+ "libc",
  "moirai-core 0.6.0",
  "moirai-executor 0.6.0",
  "moirai-scheduler 0.6.0",
