@@ -16,8 +16,9 @@ quiescence integration test pass on the pinned Windows toolchain.
 Moirai 0.6 at `3eb9f3ce` accepts an unbounded number of idle hooks but copies
 only the first 16 into its execution snapshot. The seventeenth registration
 succeeds without ever running. This can silently retain a consumer's worker
-scratch. The bounded registry in the older `83aa411` provider rejects overflow;
-its scheduler architecture is not needed to correct current admission.
+scratch. An earlier, unmerged idle-hook design already had a bounded
+registry that rejects overflow; its scheduler architecture is not needed to
+correct current admission.
 
 ## Decision
 
