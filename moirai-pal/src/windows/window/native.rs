@@ -23,11 +23,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     LoadCursorW, MWMO_INPUTAVAILABLE, MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW,
     QS_ALLINPUT, RegisterClassW, SW_SHOW, SW_SHOWMAXIMIZED, SetWindowLongPtrW, ShowWindow,
     TranslateMessage, WINDOW_EX_STYLE, WM_CHAR, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND,
-    WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN, WM_KEYUP,
-    WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL,
-    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_PRINT, WM_PRINTCLIENT,
-    WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN,
-    WM_XBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    WM_HOTKEY, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_STARTCOMPOSITION, WM_KEYDOWN,
+    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_PRINT,
+    WM_PRINTCLIENT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::PCWSTR;
 
@@ -39,6 +39,7 @@ use super::config::{
     WindowVisibility, allocation_error, coordinate_error, validate_frame_dimensions, windows_error,
 };
 use super::event::{CompositionPhase, WindowEvent};
+use super::hotkey::HotkeyId;
 use super::input::{
     client_point_from_wheel_lparam, extent_from_lparam, mouse_button, point_from_lparam,
     wheel_deltas,
@@ -71,6 +72,7 @@ pub struct NativeWindow {
     accessibility: Option<WindowsAccessibilityAdapter>,
     pub(super) visible: bool,
     pub(super) show_maximized: bool,
+    pub(super) hotkeys: Vec<HotkeyId>,
     destroyed: bool,
 }
 
@@ -156,6 +158,7 @@ impl NativeWindow {
             accessibility: None,
             visible: false,
             show_maximized: false,
+            hotkeys: Vec::new(),
             destroyed: false,
         };
         if !window
@@ -356,6 +359,7 @@ impl NativeWindow {
         if self.destroyed {
             return Ok(());
         }
+        self.release_hotkeys();
         // Remove the subclass while the HWND is still valid. The adapter's
         // destructor is thread-affine and restores the original window proc.
         self.accessibility.take();
@@ -372,6 +376,7 @@ impl NativeWindow {
 impl Drop for NativeWindow {
     fn drop(&mut self) {
         if !self.destroyed {
+            self.release_hotkeys();
             self.accessibility.take();
             // Drop cannot report errors. DestroyWindow is the synchronous RAII
             // fallback; the callback remains valid through the call because
@@ -465,6 +470,7 @@ unsafe extern "system" fn window_proc(
         }
         match message {
             WM_CLOSE => state.push(WindowEvent::CloseRequested),
+            WM_HOTKEY => state.push_hotkey(wparam.0),
             WM_DESTROY => {}
             WM_SETFOCUS => state.push(WindowEvent::FocusGained),
             WM_KILLFOCUS => {
