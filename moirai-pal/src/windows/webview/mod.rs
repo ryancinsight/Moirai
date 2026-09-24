@@ -2,6 +2,7 @@
 
 mod config;
 mod event;
+mod folder;
 mod host;
 mod pump;
 mod state;

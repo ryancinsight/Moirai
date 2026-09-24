@@ -1,6 +1,8 @@
 //! Validated WebView2 URL and resource bounds.
 
-use std::{io, time::Duration};
+use std::{io, path::Path, time::Duration};
+
+use super::folder::FolderMapping;
 
 /// Maximum retained WebView2 events for one host.
 pub const MAX_WEBVIEW_EVENTS: usize = 256;
@@ -25,6 +27,8 @@ pub struct WebViewConfig {
     start_uri: String,
     allowed_prefix: String,
     wait: Duration,
+    /// `None` serves a packaged `file:///` directory.
+    folder: Option<FolderMapping>,
 }
 
 impl WebViewConfig {
@@ -75,6 +79,46 @@ impl WebViewConfig {
             start_uri: owned_uri,
             allowed_prefix: owned_prefix,
             wait,
+            folder: None,
+        })
+    }
+
+    /// Serves `folder` as `https://{host}/` and opens `entry` within it.
+    ///
+    /// A `file:///` page cannot load ES modules or stream-compile
+    /// WebAssembly; a mapped host is a secure origin, so a page built for a
+    /// web server runs unchanged. `host` must be a lowercase name under
+    /// `.example`, `.invalid`, `.localhost` or `.test` (RFC 2606, RFC 6761),
+    /// so the mapping cannot shadow a real site; navigation is confined to
+    /// it, and other origins cannot read its resources.
+    ///
+    /// # Errors
+    /// Returns `InvalidInput` for a host outside the reserved domains, a
+    /// relative or non-directory folder, an entry with traversal, query or
+    /// fragment syntax, or a wait beyond the provider bound, and the
+    /// filesystem error when `folder` cannot be inspected.
+    pub fn folder(
+        host: &str,
+        folder: impl AsRef<Path>,
+        entry: &str,
+        wait: Duration,
+    ) -> io::Result<Self> {
+        validate_wait(wait)?;
+        let folder = FolderMapping::new(host, folder.as_ref())?;
+        validate_mapped_path(entry)?;
+        let allowed_prefix = format!("https://{host}/");
+        let start_uri = format!("{allowed_prefix}{entry}");
+        if start_uri.encode_utf16().count() > MAX_WEBVIEW_URI_UNITS {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "WebView2 URI exceeds the bounded UTF-16 limit",
+            ));
+        }
+        Ok(Self {
+            start_uri,
+            allowed_prefix,
+            wait,
+            folder: Some(folder),
         })
     }
 
@@ -91,7 +135,17 @@ impl WebViewConfig {
     }
 
     pub(super) fn allows(&self, uri: &str) -> bool {
-        validate_file_uri(uri).is_ok() && uri.starts_with(&self.allowed_prefix)
+        match &self.folder {
+            None => validate_file_uri(uri).is_ok() && uri.starts_with(&self.allowed_prefix),
+            Some(_) => uri
+                .strip_prefix(&self.allowed_prefix)
+                .is_some_and(|path| validate_mapped_path(path).is_ok()),
+        }
+    }
+
+    /// The host-to-folder mapping the host installs before navigating.
+    pub(super) const fn folder_mapping(&self) -> Option<&FolderMapping> {
+        self.folder.as_ref()
     }
 }
 
@@ -169,6 +223,25 @@ fn validate_file_uri(uri: &str) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// A path below a mapped host: non-empty segments, no traversal, and no
+/// query, fragment, backslash or NUL.
+fn validate_mapped_path(path: &str) -> io::Result<()> {
+    if path.is_empty()
+        || path
+            .chars()
+            .any(|character| matches!(character, '\0' | '\\' | '?' | '#'))
+        || path
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "WebView2 mapped path must be relative segments without traversal or query",
+        ));
+    }
+    validate_percent_escapes(path)
 }
 
 fn validate_percent_escapes(uri: &str) -> io::Result<()> {
