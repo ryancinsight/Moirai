@@ -18,6 +18,22 @@ fn poll_write(file: &mut File, bytes: &[u8]) -> usize {
         .expect("a queued write reports its length")
 }
 
+/// Opens `path` for a test that counts free admission slots, returning only
+/// after the open job has given its slot back. A job replies before it
+/// releases its slot, so without this wait a count taken right after the
+/// open can still include the open's slot on a loaded host.
+fn open_settled(path: &std::path::Path) -> File {
+    let hooks = pool().hooks();
+    let baseline = hooks.progress();
+    let file = block_on(File::open_with_options(
+        path,
+        FileOpenOptions::read_write_truncate(),
+    ))
+    .expect("open must succeed");
+    hooks.wait_until(|progress| progress.disposed > baseline.disposed);
+    file
+}
+
 fn poll_flush(file: &mut File) -> std::io::Result<()> {
     block_on(poll_fn(|cx| Pin::new(&mut *file).poll_flush(cx)))
 }
@@ -31,11 +47,7 @@ const ROUNDS: usize = 2_000;
 fn positioned_read_waits_for_a_queued_write() {
     let _exclusive = test_hooks::exclusive();
     let path = test_path("observe-gated.bin");
-    let mut file = block_on(File::open_with_options(
-        &path,
-        FileOpenOptions::read_write_truncate(),
-    ))
-    .expect("open must succeed");
+    let mut file = open_settled(&path);
     let hooks = pool().hooks();
     let baseline = hooks.progress();
 
@@ -250,11 +262,7 @@ fn write_all_lands_in_full_when_single_writes_return_short() {
 fn observer_waits_until_the_write_job_has_finished() {
     let _exclusive = test_hooks::exclusive();
     let path = test_path("ticket-timing.bin");
-    let mut file = block_on(File::open_with_options(
-        &path,
-        FileOpenOptions::read_write_truncate(),
-    ))
-    .expect("open must succeed");
+    let mut file = open_settled(&path);
     let reached = stream_hooks::reached();
 
     // Hold the write after its syscall and before it releases its ticket.
