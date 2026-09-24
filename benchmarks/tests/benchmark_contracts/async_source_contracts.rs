@@ -147,16 +147,15 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
         "pub async fn create_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()>",
         "pub async fn remove_dir<P: AsRef<Path>>(path: P) -> io::Result<()>",
         "pub async fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()>",
-        "moirai_pal::fs::write(path, contents).await",
-        "moirai_pal::fs::append(path, contents).await",
-        "moirai_pal::fs::copy(from, to).await",
-        "moirai_pal::fs::metadata(path).await",
-        "moirai_pal::fs::rename(from, to).await",
-        "moirai_pal::fs::remove_file(path).await",
-        "moirai_pal::fs::create_dir(path).await",
-        "moirai_pal::fs::create_dir_all(path).await",
-        "moirai_pal::fs::remove_dir(path).await",
-        "moirai_pal::fs::remove_dir_all(path).await",
+        "on_pool(move || std::fs::write(path, contents)).await",
+        "on_pool(move || std::fs::copy(from, to)).await",
+        "on_pool(move || std::fs::metadata(path)).await",
+        "on_pool(move || std::fs::rename(from, to)).await",
+        "on_path(path, std::fs::remove_file).await",
+        "on_path(path, std::fs::create_dir).await",
+        "on_path(path, std::fs::create_dir_all).await",
+        "on_path(path, std::fs::remove_dir).await",
+        "on_path(path, std::fs::remove_dir_all).await",
         "test_file_write_read_append_and_stats_values",
         "test_file_copy_and_directory_values",
         "test_recursive_directory_values",
@@ -172,38 +171,16 @@ fn async_file_facade_is_value_semantic_and_benchmarked_against_tokio() {
     }
 
     for required in [
-        "pub async fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()>",
-        "std::fs::write(path, contents)",
-        "pub async fn append<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()>",
-        "StdOpenOptions::new().create(true).append(true).open(path)?",
-        "pub async fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<u64>",
-        "std::fs::copy(from, to)",
-        "pub async fn metadata<P: AsRef<Path>>(path: P) -> io::Result<std::fs::Metadata>",
-        "std::fs::metadata(path)",
-        "pub async fn rename<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<()>",
-        "std::fs::rename(from, to)",
-        "pub async fn remove_file<P: AsRef<Path>>(path: P) -> io::Result<()>",
-        "std::fs::remove_file(path)",
-        "pub async fn create_dir<P: AsRef<Path>>(path: P) -> io::Result<()>",
-        "std::fs::create_dir(path)",
-        "pub async fn create_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()>",
-        "std::fs::create_dir_all(path)",
-        "pub async fn remove_dir<P: AsRef<Path>>(path: P) -> io::Result<()>",
-        "std::fs::remove_dir(path)",
-        "pub async fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()>",
-        "std::fs::remove_dir_all(path)",
-        "async_file_write_preserves_source_bytes",
-        "async_file_append_preserves_prefix_and_appended_bytes",
-        "async_file_copy_preserves_source_bytes",
-        "async_file_metadata_preserves_file_type_and_length",
-        "async_file_rename_preserves_source_bytes_at_destination",
-        "async_file_remove_file_deletes_expected_path",
-        "async_dir_create_and_remove_preserves_directory_state",
-        "async_dir_all_create_and_remove_deletes_nested_tree",
+        "pub fn open_with<P: AsRef<Path>>(path: P, options: FileOpenOptions) -> io::Result<Self>",
+        "pub fn read(&self, buf: &mut [u8]) -> io::Result<usize>",
+        "pub fn write_all(&self, buf: &[u8]) -> io::Result<()>",
+        "pub fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize>",
+        "file_roundtrip_seek_and_metadata_are_value_semantic",
+        "concurrent_positioned_reads_never_move_the_stream_cursor",
     ] {
         assert!(
             pal_fs_source.contains(required),
-            "PAL async file facade source must retain marker {required}"
+            "PAL file source must retain marker {required}"
         );
     }
 
@@ -581,25 +558,17 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
     );
 
     for required in [
-        "pub struct YieldFuture",
-        "cx.waker().wake_by_ref();",
-        "pub struct AsyncFile",
-        "pub async fn open_with_options<P: AsRef<Path>>",
-        "async_file_roundtrip_seek_and_metadata_are_value_semantic",
-        "async_file_read_to_end_preserves_source_bytes",
-        "async_file_write_preserves_source_bytes",
-        "async_file_append_preserves_prefix_and_appended_bytes",
-        "async_file_metadata_preserves_file_type_and_length",
-        "async_file_rename_preserves_source_bytes_at_destination",
-        "async_file_remove_file_deletes_expected_path",
-        "async_dir_create_and_remove_preserves_directory_state",
-        "async_dir_all_create_and_remove_deletes_nested_tree",
+        "pub struct File",
+        "cursor_lock: Mutex<()>",
+        "file_roundtrip_seek_and_metadata_are_value_semantic",
+        "file_read_to_end_preserves_source_bytes",
+        "file_positioned_read_preserves_stream_cursor",
         "assert_eq!(&suffix, b\"beta\")",
         "assert_eq!(actual, expected)",
     ] {
         assert!(
             pal_fs.contains(required),
-            "PAL async file source must retain marker {required}"
+            "PAL file source must retain marker {required}"
         );
     }
 
@@ -726,7 +695,7 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
     }
 
     for required in [
-        "PAL async file facade",
+        "PAL file primitives",
         "PAL async socket self-wake fallback",
         "PAL reactor task-handle completion",
         "PAL reactor task queue avoids dynamic future dispatch",

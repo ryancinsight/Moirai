@@ -10,6 +10,7 @@
 // Focused modules following SLAP principle. The thread-based executor and
 // descriptor-backed networking use native synchronization and OS sockets;
 // browser callers use the PAL's event-loop handles instead.
+mod blocking;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod executor;
 pub mod fs;

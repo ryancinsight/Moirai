@@ -4,6 +4,16 @@ Status: Accepted
 
 **Date**: 2026-05-25
 
+**Revision 2026-09-23**: Decision 3 is replaced. File syscalls have no
+readiness model, and the cooperative `AsyncFile` ran them inside `poll`.
+Yielding once before a syscall does not make the syscall non-blocking, so a
+slow disk stalled the executor thread and a dropped future could not be
+cancelled (MOI-ASYNC-FS-BLOCKING-2026-09-23). `moirai-pal::fs` now exposes
+blocking primitives, and `moirai-async::fs` runs them on a bounded blocking
+pool. That pool is the facility hostname resolution already used (Moirai
+#446, #448), now one implementation in `moirai-async::blocking`. Decision 5
+is revised to match.
+
 **Revision 2026-09-16**: Windows `POLLNVAL` cleanup now crosses both ownership
 stores. `WSAPoll` reports the removed registration generation to `IoReactor`,
 which wakes and removes its central waiters. Re-registration after platform
@@ -52,9 +62,9 @@ evidence, not an exhaustive proof of every OS scheduling order.
 
 1. **Reactor-Bound Event Loop**: Integrate a thread-safe `IoReactor` that manages OS-level handles (using `epoll` on Linux, `kqueue` on macOS, and readiness structures on Windows). Establish thread-local `ACTIVE_REACTOR` bindings.
 2. **Readiness-Driven Sockets**: Implement non-blocking `AsyncTcpStream` and `AsyncTcpListener` in `moirai-pal::net` that register wakers with the `IoReactor` on `WouldBlock` errors and self-wake when no active reactor is present.
-3. **Cooperative File Operations**: Build a clean `AsyncFile` abstraction in `moirai-pal::fs` that executes non-blocking read, write, seek, and flush operations, relying on a cooperative waker-yielding mechanism for safety.
+3. **Pooled File Operations**: File syscalls block on every platform. `moirai-pal::fs::File` exposes them as blocking `&self` primitives, and `moirai-async::fs` runs each on a bounded blocking pool: fixed workers, a bounded queue, and async admission. No file syscall runs inside `poll`. A handle keeps one stream operation in flight and settles it before the next, so stream order survives cancellation.
 4. **Executor Run-Queue Scheduling**: Replace the task-queue busy-polling loop in `moirai-async::executor::AsyncExecutor` with a thread-safe run-queue and block-on notification powered by a platform-specific `ExecutorWaker`.
-5. **Clean Modular Delegation**: Decouple `moirai-async::net` and `moirai-async::fs` facades by delegating entirely to their `moirai-pal` counterparts, adhering to the 500-line structural limit.
+5. **Clean Modular Delegation**: `moirai-async::net` delegates to the readiness-driven `moirai-pal::net` sockets. `moirai-async::fs` owns the async boundary for files and delegates only the blocking syscalls to `moirai-pal::fs`. Both stay within the 500-line structural limit.
 6. **Generation-Bound Windows Cleanup**: Treat `POLLNVAL` as a generation-tagged invalidation. Remove its platform registration, then wake and remove the corresponding central waiters only while no replacement generation exists.
 7. **Terminal Driver Failure**: Retain the first error returned by a driven platform iteration. Serialize failure publication with descriptor and waiter registration, remove all central waiters and Windows generations, wake those waiters outside locks, and reject later registrations with the retained error as their source. A direct `run_iteration` call remains caller-owned; normal `stop` and an attempted second `run` do not publish terminal platform failure.
 8. **Owned Windows Poll Snapshots**: Register weak owners for PAL network sockets and upgrade them while constructing a `WSAPoll` snapshot. Keep the strong leases through the call, release them after all poll and registration locks, and cancel waiters by originating reactor plus per-interest identity. Never recover from a genuine `WSAPoll` error by retrying or changing drivers.
