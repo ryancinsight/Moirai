@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **System-wide hotkeys** (`NativeWindow::register_hotkey`,
+  `unregister_hotkey`, `take_hotkey_presses`, `GlobalHotkey`, `HotkeyId`,
+  and the same methods on `WebViewHost`). A chord registered through
+  `RegisterHotKey` fires while other applications have focus. It must hold
+  at least one modifier, auto-repeat is suppressed, and a window holds at
+  most `MAX_GLOBAL_HOTKEYS`. Presses queue apart from `WindowEvent`, so
+  existing exhaustive event matches are unaffected; at most
+  `MAX_PENDING_HOTKEY_PRESSES` wait unread, and closing the window
+  releases every registration.
+
 - **Restorable window placement** (`NativeWindow::placement`,
   `NativeWindow::set_placement`, `WindowPlacement`). A window reports and
   accepts its restored outer rectangle and maximized state, the value

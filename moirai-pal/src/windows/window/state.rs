@@ -7,6 +7,7 @@ use windows::Win32::Foundation::LPARAM;
 
 use super::config::{MAX_WINDOW_EVENTS, allocation_error};
 use super::event::{CompositionPhase, ModifierState, WindowEvent};
+use super::hotkey::MAX_PENDING_HOTKEY_PRESSES;
 use super::input::update_modifier;
 
 #[derive(Debug)]
@@ -19,6 +20,7 @@ pub(super) struct PresentedFrame {
 #[derive(Debug)]
 pub(super) struct WindowState {
     pub(super) events: VecDeque<WindowEvent>,
+    pub(super) hotkey_presses: VecDeque<u16>,
     pub(super) frame: Option<PresentedFrame>,
     pending_high_surrogate: Option<u16>,
     pub(super) composition_active: bool,
@@ -33,8 +35,13 @@ impl WindowState {
         events
             .try_reserve(MAX_WINDOW_EVENTS)
             .map_err(|_| allocation_error())?;
+        let mut hotkey_presses = VecDeque::new();
+        hotkey_presses
+            .try_reserve(MAX_PENDING_HOTKEY_PRESSES)
+            .map_err(|_| allocation_error())?;
         Ok(Self {
             events,
+            hotkey_presses,
             frame: None,
             pending_high_surrogate: None,
             composition_active: false,
@@ -49,6 +56,14 @@ impl WindowState {
             self.overflowed = true;
         } else {
             self.events.push_back(event);
+        }
+    }
+
+    pub(super) fn push_hotkey(&mut self, id: usize) {
+        if let Ok(id) = u16::try_from(id)
+            && self.hotkey_presses.len() < MAX_PENDING_HOTKEY_PRESSES
+        {
+            self.hotkey_presses.push_back(id);
         }
     }
 

@@ -3,6 +3,7 @@
 mod callbacks;
 mod com;
 mod error;
+mod hotkey;
 mod lifecycle;
 mod text;
 mod view;

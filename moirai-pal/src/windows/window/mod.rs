@@ -8,6 +8,7 @@
 mod accessibility;
 mod config;
 mod event;
+mod hotkey;
 mod input;
 mod native;
 mod placement;
@@ -24,6 +25,9 @@ pub use config::{
     MAX_TITLE_UNITS, MAX_WAIT_MILLISECONDS, MAX_WINDOW_EVENTS, WindowConfig, WindowVisibility,
 };
 pub use event::{CompositionPhase, ModifierState, MouseButton, WindowEvent};
+pub use hotkey::{
+    GlobalHotkey, HotkeyId, MAX_GLOBAL_HOTKEYS, MAX_HOTKEY_ID, MAX_PENDING_HOTKEY_PRESSES,
+};
 pub use native::NativeWindow;
 pub use placement::{MAX_PLACEMENT_COORDINATE, WindowPlacement};
 pub use present::FrameRegion;
