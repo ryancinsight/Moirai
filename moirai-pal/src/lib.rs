@@ -86,6 +86,22 @@ mod websocket_state;
 
 use std::io;
 
+macro_rules! reactor_trait_items {
+    () => {
+        /// Register a file descriptor/handle for async operations.
+        fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()>;
+
+        /// Unregister a file descriptor/handle.
+        fn unregister_fd(&self, fd: RawFd) -> io::Result<()>;
+
+        /// Poll for ready events with timeout.
+        fn poll_events(&self, timeout: Option<std::time::Duration>) -> io::Result<Vec<Event>>;
+
+        /// Wake up the reactor from blocking poll.
+        fn wake(&self) -> io::Result<()>;
+    };
+}
+
 /// Platform-specific reactor interface.
 ///
 /// Native reactors are `Send + Sync` because their descriptors and wake
@@ -94,33 +110,13 @@ use std::io;
 /// transferable across workers.
 #[cfg(not(target_arch = "wasm32"))]
 pub trait Reactor: Send + Sync + 'static {
-    /// Register a file descriptor/handle for async operations.
-    fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()>;
-
-    /// Unregister a file descriptor/handle.
-    fn unregister_fd(&self, fd: RawFd) -> io::Result<()>;
-
-    /// Poll for ready events with timeout.
-    fn poll_events(&self, timeout: Option<std::time::Duration>) -> io::Result<Vec<Event>>;
-
-    /// Wake up the reactor from blocking poll.
-    fn wake(&self) -> io::Result<()>;
+    reactor_trait_items!();
 }
 
 /// Browser-thread reactor interface.
 #[cfg(target_arch = "wasm32")]
 pub trait Reactor: 'static {
-    /// Register a file descriptor/handle for async operations.
-    fn register_fd(&self, fd: RawFd, interest: Interest) -> io::Result<()>;
-
-    /// Unregister a file descriptor/handle.
-    fn unregister_fd(&self, fd: RawFd) -> io::Result<()>;
-
-    /// Poll for ready events with timeout.
-    fn poll_events(&self, timeout: Option<std::time::Duration>) -> io::Result<Vec<Event>>;
-
-    /// Wake up the reactor from blocking poll.
-    fn wake(&self) -> io::Result<()>;
+    reactor_trait_items!();
 }
 
 /// Platform-agnostic file descriptor/handle type.

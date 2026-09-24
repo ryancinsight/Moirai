@@ -319,25 +319,21 @@ impl WebSocketState {
     }
 
     fn clear_waiter(&mut self, candidate: Option<u64>) {
-        if let Some(candidate) = candidate
-            && self
-                .waiter
-                .as_ref()
-                .is_some_and(|waiter| waiter.id == candidate)
-        {
-            self.waiter = None;
-        }
+        Self::clear_waiter_registration(&mut self.waiter, candidate);
     }
 
     #[cfg(any(target_arch = "wasm32", test))]
     fn clear_open_waiter(&mut self, candidate: Option<u64>) {
+        Self::clear_waiter_registration(&mut self.open_waiter, candidate);
+    }
+
+    fn clear_waiter_registration(waiter: &mut Option<WaiterRegistration>, candidate: Option<u64>) {
         if let Some(candidate) = candidate
-            && self
-                .open_waiter
+            && waiter
                 .as_ref()
-                .is_some_and(|waiter| waiter.id == candidate)
+                .is_some_and(|registration| registration.id == candidate)
         {
-            self.open_waiter = None;
+            *waiter = None;
         }
     }
 }
@@ -356,6 +352,29 @@ fn lock_state<'a>(
     state
         .lock()
         .map_err(|_| io::Error::other("WebSocket receive state lock is poisoned"))
+}
+
+fn poll_state_future<T>(
+    state: &Arc<Mutex<WebSocketState>>,
+    registered_id: &mut Option<u64>,
+    cx: &mut Context<'_>,
+    poll: impl FnOnce(&mut WebSocketState, &Context<'_>, &mut Option<u64>) -> Poll<io::Result<T>>,
+) -> Poll<io::Result<T>> {
+    let mut state = match lock_state(state) {
+        Ok(state) => state,
+        Err(error) => return Poll::Ready(Err(error)),
+    };
+    poll(&mut state, cx, registered_id)
+}
+
+fn clear_registered_waiter(
+    state: &Arc<Mutex<WebSocketState>>,
+    registered_id: Option<u64>,
+    clear: impl FnOnce(&mut WebSocketState, Option<u64>),
+) {
+    if let Ok(mut state) = state.lock() {
+        clear(&mut state, registered_id);
+    }
 }
 
 /// A cancellation-safe future for the next browser WebSocket message.
@@ -379,19 +398,22 @@ impl Future for WebSocketReceive {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
-        let mut state = match lock_state(&this.state) {
-            Ok(state) => state,
-            Err(error) => return Poll::Ready(Err(error)),
-        };
-        state.poll_receive(cx, &mut this.registered_id)
+        poll_state_future(
+            &this.state,
+            &mut this.registered_id,
+            cx,
+            WebSocketState::poll_receive,
+        )
     }
 }
 
 impl Drop for WebSocketReceive {
     fn drop(&mut self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.clear_waiter(self.registered_id);
-        }
+        clear_registered_waiter(
+            &self.state,
+            self.registered_id,
+            WebSocketState::clear_waiter,
+        );
     }
 }
 
@@ -418,20 +440,23 @@ impl Future for WebSocketOpen {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
-        let mut state = match lock_state(&this.state) {
-            Ok(state) => state,
-            Err(error) => return Poll::Ready(Err(error)),
-        };
-        state.poll_open(cx, &mut this.registered_id)
+        poll_state_future(
+            &this.state,
+            &mut this.registered_id,
+            cx,
+            WebSocketState::poll_open,
+        )
     }
 }
 
 #[cfg(any(target_arch = "wasm32", test))]
 impl Drop for WebSocketOpen {
     fn drop(&mut self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.clear_open_waiter(self.registered_id);
-        }
+        clear_registered_waiter(
+            &self.state,
+            self.registered_id,
+            WebSocketState::clear_open_waiter,
+        );
     }
 }
 

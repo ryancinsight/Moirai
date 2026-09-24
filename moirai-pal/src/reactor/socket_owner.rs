@@ -48,20 +48,20 @@ impl WeakSocketOwner {
     }
 }
 
-impl From<&Arc<TcpStream>> for SocketLease {
-    fn from(socket: &Arc<TcpStream>) -> Self {
-        Self::TcpStream(Arc::clone(socket))
-    }
+macro_rules! impl_socket_lease_from_arc {
+    ($($socket:ty => $variant:ident),+ $(,)?) => {
+        $(
+            impl From<&Arc<$socket>> for SocketLease {
+                fn from(socket: &Arc<$socket>) -> Self {
+                    Self::$variant(Arc::clone(socket))
+                }
+            }
+        )+
+    };
 }
 
-impl From<&Arc<TcpListener>> for SocketLease {
-    fn from(socket: &Arc<TcpListener>) -> Self {
-        Self::TcpListener(Arc::clone(socket))
-    }
-}
-
-impl From<&Arc<UdpSocket>> for SocketLease {
-    fn from(socket: &Arc<UdpSocket>) -> Self {
-        Self::Udp(Arc::clone(socket))
-    }
-}
+impl_socket_lease_from_arc!(
+    TcpStream => TcpStream,
+    TcpListener => TcpListener,
+    UdpSocket => Udp,
+);
