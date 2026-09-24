@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Launch-at-login entries** (`moirai_pal::windows::startup`:
+  `set_startup_command`, `remove_startup_command`, `startup_command`). One
+  application's command line is written, read or removed as a named value
+  under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, the Windows
+  half of an autostart service; no other registry location is reachable.
+  Names are at most 64 UTF-16 units without `\`, commands at most 2048, and
+  neither may contain control characters.
+
 - **Single-instance coordination** (`moirai_pal::instance::claim`,
   `InstanceName`, `PrimaryInstance`, `SecondaryInstance`). The first
   process to claim a name becomes primary; a later one forwards one
