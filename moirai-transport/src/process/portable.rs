@@ -1,5 +1,15 @@
-//! Direct-child lifecycle for targets without Windows job objects.
+//! Child lifecycle for targets without Windows job objects.
+//!
+//! Linux, Android and Apple targets contain a requested process tree in a
+//! POSIX process group (see [`group`]); other targets reject containment.
 use super::{ProcessDropPolicy, ProcessError, ProcessOperation, ProcessResult, ProcessSpec};
+
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+#[expect(
+    unsafe_code,
+    reason = "Reviewed POSIX boundary: waitid(WNOWAIT) observation and killpg"
+)]
+mod group;
 use std::{
     fs::File,
     process::{Child, Command, ExitStatus, Stdio},
@@ -9,13 +19,24 @@ use std::{
 pub(super) struct Process {
     child: Child,
     drop_policy: ProcessDropPolicy,
+    /// Whether the child leads a contained process group.
+    contained: bool,
+    /// The contained leader's exit, observed but not yet reaped.
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "android", target_vendor = "apple")),
+        expect(
+            dead_code,
+            reason = "only group-containment targets observe without reaping"
+        )
+    )]
+    exited: Option<ExitStatus>,
     pub stdin: Option<File>,
     pub stdout: Option<File>,
     pub stderr: Option<File>,
 }
 impl Process {
     pub fn spawn(spec: ProcessSpec, drop_policy: ProcessDropPolicy) -> ProcessResult<Self> {
-        if spec.require_tree {
+        if spec.require_tree && !CONTAINMENT {
             return Err(ProcessError::UnsupportedContainment);
         }
         #[cfg(not(unix))]
@@ -33,6 +54,13 @@ impl Process {
         }
         if spec.piped_stderr {
             command.stderr(Stdio::piped());
+        }
+        #[cfg(unix)]
+        if spec.require_tree {
+            use std::os::unix::process::CommandExt;
+            // The child becomes the leader of a new group that its normally
+            // created descendants join.
+            command.process_group(0);
         }
         let child = command
             .spawn()
@@ -59,6 +87,8 @@ impl Process {
         Ok(Self {
             child,
             drop_policy,
+            contained: spec.require_tree,
+            exited: None,
             stdin,
             stdout,
             stderr,
@@ -68,6 +98,15 @@ impl Process {
         self.child.id()
     }
     pub fn try_wait(&mut self) -> ProcessResult<Option<ExitStatus>> {
+        #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+        if self.contained {
+            // The leader stays unreaped so its group ID stays reserved.
+            if self.exited.is_none() {
+                self.exited = group::observe_exit(self.child.id())
+                    .map_err(|error| os_error(ProcessOperation::Wait, &error))?;
+            }
+            return Ok(self.exited);
+        }
         self.child
             .try_wait()
             .map_err(|error| os_error(ProcessOperation::Wait, &error))
@@ -89,6 +128,13 @@ impl Process {
         }
     }
     pub fn terminate(&mut self) -> ProcessResult<()> {
+        #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+        if self.contained {
+            // Signal the group even after the leader exits: descendants it
+            // left behind are still members.
+            return group::kill_group(self.child.id())
+                .map_err(|error| os_error(ProcessOperation::Terminate, &error));
+        }
         if self.try_wait()?.is_some() {
             return Ok(());
         }
@@ -107,12 +153,28 @@ impl Drop for Process {
         if self.drop_policy == ProcessDropPolicy::TerminateOnDrop {
             // Portable Drop cannot report OS failure and must not block. This
             // is explicitly best effort; callers requiring a confirmed outcome
-            // use terminate_timeout, which retains all errors. No reaping wait
-            // follows this last-resort request.
-            drop(self.child.kill());
+            // use terminate_timeout, which retains all errors.
+            if self.contained {
+                let _ = self.terminate();
+            } else {
+                drop(self.child.kill());
+            }
+        }
+        if self.contained {
+            // Reap a leader that has already exited, releasing the group ID
+            // only after the group was signalled; a leader still dying is
+            // reaped by the OS when this process exits, as before.
+            drop(self.child.try_wait());
         }
     }
 }
+/// Whether this target implements [`ProcessSpec::tree_containment`].
+const CONTAINMENT: bool = cfg!(any(
+    target_os = "linux",
+    target_os = "android",
+    target_vendor = "apple"
+));
+
 fn os_error(operation: ProcessOperation, error: &std::io::Error) -> ProcessError {
     ProcessError::OperatingSystem {
         operation,

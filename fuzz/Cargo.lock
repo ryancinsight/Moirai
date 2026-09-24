@@ -948,6 +948,7 @@ name = "moirai-transport"
 version = "0.6.0"
 dependencies = [
  "bytemuck",
+ "libc",
  "moirai-core",
  "moirai-scheduler",
  "moirai-utils",

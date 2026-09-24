@@ -54,8 +54,10 @@ impl ProcessSupervisor {
     }
     /// Spawns a process with the requested environment and pipe ownership.
     ///
-    /// Windows uses atomic job assignment; other targets reject explicitly
-    /// requested process-tree containment rather than silently weakening it.
+    /// Windows uses atomic job assignment; Linux, Android and Apple targets
+    /// use a new process group whose leader stays unreaped until it is
+    /// signalled; other targets reject explicitly requested process-tree
+    /// containment rather than silently weakening it.
     /// # Errors
     /// Returns invalid specification, unsupported containment, or OS failures.
     pub fn spawn(
