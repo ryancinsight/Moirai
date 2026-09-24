@@ -2,6 +2,23 @@
 
 **Target**: Unreleased
 
+## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 - Complete a preview capture under parallel hosts [patch] [verification] - todo
+
+- **Outcome:** `installed_runtime_captures_rendered_preview` passes in every
+  `--run-ignored all` run of `moirai-pal --features webview2`.
+- **Evidence:** on origin/main `aeb2fb0c` (WebView2 155) it times out in 6 of
+  15 full parallel runs with `TimedOut: WebView2 callback did not complete
+  before the finite deadline` from `capture_preview_png`. It passes run alone.
+  The capture starts right after host creation without waiting for
+  `NavigationCompleted`, in a hidden window.
+- **Next step:** find out whether the `CapturePreview` completion is held back
+  (for example while the navigation is pending, or for a hidden document
+  while sibling hosts share the user-data folder) or dropped, then fix it in
+  the host or in the test's synchronization.
+- **Acceptance:** 30 consecutive full ignored-test runs have zero capture
+  timeouts, and the 30 s wait is unchanged.
+- **Scope:** `moirai-pal/src/windows/webview/{host/view.rs,tests.rs}`.
+
 ## MOI-MPMC-NOTIFY-FENCE-COST-2026-09-24 - Recover the per-push notifier fence [patch] [perf] - todo
 
 - **Outcome:** the bounded `MpmcChannel` and `HybridSender` notifiers stop
