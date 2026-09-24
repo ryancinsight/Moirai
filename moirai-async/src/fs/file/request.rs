@@ -71,7 +71,10 @@ impl Request {
                 Outcome::Read(handle.read_to_end(&mut prefix).map(|_| prefix))
             }
             Self::Write { data, rewind } => {
-                Outcome::Wrote(rewind_by(handle, rewind).and_then(|()| handle.write(&data)))
+                let data: &[u8] = &data;
+                #[cfg(test)]
+                let data = &data[..test_hooks::capped(data.len())];
+                Outcome::Wrote(rewind_by(handle, rewind).and_then(|()| handle.write(data)))
             }
             Self::WriteAll { data, rewind } => {
                 Outcome::Done(rewind_by(handle, rewind).and_then(|()| handle.write_all(&data)))
@@ -104,4 +107,73 @@ fn rewind_by(handle: &Handle, rewind: u64) -> io::Result<()> {
         )
     })?;
     handle.seek(SeekFrom::Current(-offset)).map(drop)
+}
+
+/// Test-only controls over a stream job: a cap that makes a single
+/// [`Request::Write`] return short, as a pipe or a full disk can, and a hold
+/// point after the syscall but before the job releases its fence ticket.
+#[cfg(test)]
+pub(in crate::fs) mod test_hooks {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Condvar, Mutex, PoisonError};
+
+    use crate::blocking::test_hooks::STAGE_LIMIT;
+
+    /// Largest byte count one single write reports; zero means no cap.
+    static WRITE_CAP: AtomicUsize = AtomicUsize::new(0);
+
+    struct Hold {
+        closed: bool,
+        reached: usize,
+    }
+
+    static HOLD: Mutex<Hold> = Mutex::new(Hold {
+        closed: false,
+        reached: 0,
+    });
+    static CHANGED: Condvar = Condvar::new();
+
+    /// Cap every later single write at `bytes`; zero lifts the cap.
+    pub(in crate::fs) fn cap_single_writes(bytes: usize) {
+        WRITE_CAP.store(bytes, Ordering::SeqCst);
+    }
+
+    pub(super) fn capped(len: usize) -> usize {
+        match WRITE_CAP.load(Ordering::SeqCst) {
+            0 => len,
+            cap => len.min(cap),
+        }
+    }
+
+    /// Hold (`true`) or release (`false`) jobs after their syscall returns.
+    pub(in crate::fs) fn set_hold_after_run(closed: bool) {
+        HOLD.lock().unwrap_or_else(PoisonError::into_inner).closed = closed;
+        CHANGED.notify_all();
+    }
+
+    /// Jobs that reached the hold point so far.
+    pub(in crate::fs) fn reached() -> usize {
+        HOLD.lock().unwrap_or_else(PoisonError::into_inner).reached
+    }
+
+    /// Wait until `count` jobs have reached the hold point, or the stage
+    /// limit passes; returns the count observed last.
+    pub(in crate::fs) fn wait_reached(count: usize) -> usize {
+        let hold = HOLD.lock().unwrap_or_else(PoisonError::into_inner);
+        CHANGED
+            .wait_timeout_while(hold, STAGE_LIMIT, |hold| hold.reached < count)
+            .unwrap_or_else(PoisonError::into_inner)
+            .0
+            .reached
+    }
+
+    /// The hold point itself: count the arrival, then wait while held.
+    pub(in crate::fs) fn after_run() {
+        let mut hold = HOLD.lock().unwrap_or_else(PoisonError::into_inner);
+        hold.reached += 1;
+        CHANGED.notify_all();
+        while hold.closed {
+            hold = CHANGED.wait(hold).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
 }

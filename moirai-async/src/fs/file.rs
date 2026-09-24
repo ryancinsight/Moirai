@@ -38,7 +38,7 @@ use crate::fs::pool;
 use crate::fs::stats::FileStats;
 
 mod fence;
-mod request;
+pub(in crate::fs) mod request;
 mod traits;
 
 use fence::Fence;
@@ -322,6 +322,8 @@ impl File {
         let ticket = self.fence.issue();
         let completion = admission.submit(abandoned, move || {
             let outcome = request.run(&handle);
+            #[cfg(test)]
+            request::test_hooks::after_run();
             drop(ticket);
             outcome
         })?;

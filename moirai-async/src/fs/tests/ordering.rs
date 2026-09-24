@@ -4,6 +4,7 @@
 use super::blocking::abandon_in_flight;
 use super::test_path;
 use crate::blocking::test_hooks;
+use crate::fs::file::request::test_hooks as stream_hooks;
 use crate::fs::{File, FileOpenOptions, pool};
 use crate::io::{AsyncReadAt, AsyncWrite};
 use futures::executor::block_on;
@@ -215,5 +216,66 @@ fn dropped_write_all_is_one_job_written_in_full() {
         std::fs::read(&path).expect("read back must succeed"),
         payload
     );
+    std::fs::remove_file(&path).expect("test file cleanup must succeed");
+}
+
+#[test]
+fn write_all_lands_in_full_when_single_writes_return_short() {
+    let _exclusive = test_hooks::exclusive();
+    let path = test_path("write-all-short.bin");
+    let mut file = block_on(File::create(&path)).expect("create must succeed");
+    let hooks = pool().hooks();
+    let baseline = hooks.progress();
+
+    // Three bytes per single write: a per-write loop needs four jobs for ten
+    // bytes, and dropping its future after the first leaves "abc".
+    stream_hooks::cap_single_writes(3);
+    hooks.set_gate_closed(true);
+    abandon_in_flight(file.write_all(b"abcdefghij"), baseline.started);
+    hooks.set_gate_closed(false);
+    let flushed = block_on(file.flush());
+    stream_hooks::cap_single_writes(0);
+    flushed.expect("the abandoned write_all must succeed");
+
+    drop(file);
+    assert_eq!(
+        std::fs::read(&path).expect("read back must succeed"),
+        b"abcdefghij",
+        "a submitted write_all must land in full"
+    );
+    std::fs::remove_file(&path).expect("test file cleanup must succeed");
+}
+
+#[test]
+fn observer_waits_until_the_write_job_has_finished() {
+    let _exclusive = test_hooks::exclusive();
+    let path = test_path("ticket-timing.bin");
+    let mut file = block_on(File::open_with_options(
+        &path,
+        FileOpenOptions::read_write_truncate(),
+    ))
+    .expect("open must succeed");
+    let reached = stream_hooks::reached();
+
+    // Hold the write after its syscall and before it releases its ticket.
+    stream_hooks::set_hold_after_run(true);
+    assert_eq!(poll_write(&mut file, b"fresh"), 5);
+    stream_hooks::wait_reached(reached + 1);
+    let mut observed = [0_u8; 5];
+    let mut read_at = Box::pin(file.read_at(0, &mut observed));
+    let waker = futures::task::noop_waker();
+    let first_poll = read_at.as_mut().poll(&mut Context::from_waker(&waker));
+    let free = pool().free_admissions();
+    stream_hooks::set_hold_after_run(false);
+
+    assert!(first_poll.is_pending());
+    assert_eq!(
+        free,
+        pool().admissions() - 1,
+        "the positioned read was submitted before the write job released its ticket"
+    );
+    block_on(read_at).expect("positioned read must succeed");
+    assert_eq!(&observed, b"fresh");
+    drop(file);
     std::fs::remove_file(&path).expect("test file cleanup must succeed");
 }
