@@ -1,9 +1,9 @@
-//! Tray icon, notifications and popup menus for the WebView2 host's parent
-//! window.
+//! Tray icon, notifications, popup menus and the menu bar for the WebView2
+//! host's parent window.
 
 use std::io;
 
-use super::super::super::window::{PopupMenu, TrayEvent, TrayIconImage};
+use super::super::super::window::{MenuBar, MenuCommand, PopupMenu, TrayEvent, TrayIconImage};
 use super::error::closed_error;
 use super::view::WebViewHost;
 
@@ -60,5 +60,22 @@ impl WebViewHost {
     /// Drains the tray icon's queued activity, oldest first.
     pub fn take_tray_events(&mut self) -> Vec<TrayEvent> {
         self.window.take_tray_events()
+    }
+
+    /// Attaches, replaces or removes the parent window's menu bar.
+    ///
+    /// # Errors
+    /// Returns an error when the host is closed or the menu cannot be built;
+    /// see [`crate::windows::window::NativeWindow::set_menu_bar`].
+    pub fn set_menu_bar(&mut self, bar: Option<&MenuBar>) -> io::Result<()> {
+        if self.closed {
+            return Err(closed_error());
+        }
+        self.window.set_menu_bar(bar)
+    }
+
+    /// Drains the chosen menu-bar items, oldest first.
+    pub fn take_menu_commands(&mut self) -> Vec<MenuCommand> {
+        self.window.take_menu_commands()
     }
 }

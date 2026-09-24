@@ -9,6 +9,7 @@ use super::config::{MAX_WINDOW_EVENTS, allocation_error};
 use super::event::{CompositionPhase, ModifierState, WindowEvent};
 use super::hotkey::MAX_PENDING_HOTKEY_PRESSES;
 use super::input::update_modifier;
+use super::menu_bar::MAX_PENDING_MENU_COMMANDS;
 use super::tray::{MAX_PENDING_TRAY_EVENTS, TrayEvent, decode_tray_event};
 
 #[derive(Debug)]
@@ -22,6 +23,7 @@ pub(super) struct PresentedFrame {
 pub(super) struct WindowState {
     pub(super) events: VecDeque<WindowEvent>,
     pub(super) hotkey_presses: VecDeque<u16>,
+    pub(super) menu_commands: VecDeque<u16>,
     pub(super) tray_events: VecDeque<TrayEvent>,
     pub(super) frame: Option<PresentedFrame>,
     pending_high_surrogate: Option<u16>,
@@ -41,6 +43,10 @@ impl WindowState {
         hotkey_presses
             .try_reserve(MAX_PENDING_HOTKEY_PRESSES)
             .map_err(|_| allocation_error())?;
+        let mut menu_commands = VecDeque::new();
+        menu_commands
+            .try_reserve(MAX_PENDING_MENU_COMMANDS)
+            .map_err(|_| allocation_error())?;
         let mut tray_events = VecDeque::new();
         tray_events
             .try_reserve(MAX_PENDING_TRAY_EVENTS)
@@ -48,6 +54,7 @@ impl WindowState {
         Ok(Self {
             events,
             hotkey_presses,
+            menu_commands,
             tray_events,
             frame: None,
             pending_high_surrogate: None,
@@ -71,6 +78,15 @@ impl WindowState {
             && self.hotkey_presses.len() < MAX_PENDING_HOTKEY_PRESSES
         {
             self.hotkey_presses.push_back(id);
+        }
+    }
+
+    /// Queues a menu-bar command; accelerator and control notifications
+    /// carry a non-zero code or a control handle and are ignored.
+    pub(super) fn push_menu_command(&mut self, wparam: usize, lparam: isize) {
+        let code = (wparam >> 16) & 0xffff;
+        if code == 0 && lparam == 0 && self.menu_commands.len() < MAX_PENDING_MENU_COMMANDS {
+            self.menu_commands.push_back((wparam & 0xffff) as u16);
         }
     }
 

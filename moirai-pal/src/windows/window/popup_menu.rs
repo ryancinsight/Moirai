@@ -36,18 +36,8 @@ impl PopupMenuItem {
     /// # Errors
     /// Returns `InvalidInput` for an empty, NUL-containing or over-long label.
     pub fn action(label: &str, enabled: bool) -> io::Result<Self> {
-        let units = label.encode_utf16().count();
-        if label.is_empty() || label.contains('\0') || units > MAX_POPUP_MENU_LABEL_UNITS {
-            return Err(invalid("popup menu label must be 1 to 64 NUL-free units"));
-        }
-        let mut encoded = Vec::new();
-        encoded
-            .try_reserve_exact(units + 1)
-            .map_err(|_| allocation_error())?;
-        encoded.extend(label.encode_utf16());
-        encoded.push(0);
         Ok(Self {
-            label: Some(encoded),
+            label: Some(encode_label(label)?),
             enabled,
         })
     }
@@ -96,7 +86,8 @@ impl PopupMenu {
         self.items.is_empty()
     }
 
-    fn build(&self) -> io::Result<OwnedMenu> {
+    /// Builds the native menu; item `i` reports command `first_id + i`.
+    pub(super) fn build(&self, first_id: usize) -> io::Result<OwnedMenu> {
         // SAFETY: CreatePopupMenu has no inputs; the handle is owned below.
         let menu = OwnedMenu(unsafe { CreatePopupMenu() }.map_err(windows_error)?);
         for (index, item) in self.items.iter().enumerate() {
@@ -110,7 +101,7 @@ impl PopupMenu {
                         } else {
                             MF_STRING | MF_GRAYED
                         };
-                        AppendMenuW(menu.0, flags, index + 1, PCWSTR(label.as_ptr()))
+                        AppendMenuW(menu.0, flags, first_id + index, PCWSTR(label.as_ptr()))
                     }
                     None => AppendMenuW(menu.0, MF_SEPARATOR, 0, PCWSTR::null()),
                 }
@@ -121,8 +112,33 @@ impl PopupMenu {
     }
 }
 
-/// A menu handle destroyed when dropped.
-struct OwnedMenu(HMENU);
+/// A NUL-terminated label of 1 to [`MAX_POPUP_MENU_LABEL_UNITS`] units.
+pub(super) fn encode_label(label: &str) -> io::Result<Vec<u16>> {
+    let units = label.encode_utf16().count();
+    if label.is_empty() || label.contains('\0') || units > MAX_POPUP_MENU_LABEL_UNITS {
+        return Err(invalid("menu label must be 1 to 64 NUL-free units"));
+    }
+    let mut encoded = Vec::new();
+    encoded
+        .try_reserve_exact(units + 1)
+        .map_err(|_| allocation_error())?;
+    encoded.extend(label.encode_utf16());
+    encoded.push(0);
+    Ok(encoded)
+}
+
+/// A menu handle destroyed when dropped, unless ownership passes to a
+/// parent menu or window through [`OwnedMenu::into_raw`].
+pub(super) struct OwnedMenu(pub(super) HMENU);
+
+impl OwnedMenu {
+    /// Releases ownership; the caller's new owner destroys the handle.
+    pub(super) fn into_raw(self) -> HMENU {
+        let handle = self.0;
+        std::mem::forget(self);
+        handle
+    }
+}
 
 impl Drop for OwnedMenu {
     fn drop(&mut self) {
@@ -149,7 +165,7 @@ impl NativeWindow {
         if self.is_destroyed() {
             return Err(invalid("cannot show a menu for a destroyed native window"));
         }
-        let native = menu.build()?;
+        let native = menu.build(1)?;
         // SAFETY: the window and menu handles are live on this thread. The
         // foreground call lets the menu close when the user clicks elsewhere,
         // and the posted null message completes the tray-menu handshake.
@@ -174,6 +190,6 @@ impl NativeWindow {
     }
 }
 
-fn invalid(message: &'static str) -> io::Error {
+pub(super) fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
