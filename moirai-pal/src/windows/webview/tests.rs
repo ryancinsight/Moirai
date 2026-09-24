@@ -218,6 +218,161 @@ fn installed_runtime_captures_rendered_preview() {
     assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
 }
 
+#[test]
+fn folder_host_must_lie_under_a_reserved_domain() {
+    let folder = std::env::temp_dir();
+    let wait = Duration::from_secs(1);
+    for host in ["app.metis.example", "a.test", "ui.localhost", "x-1.invalid"] {
+        let config = WebViewConfig::folder(host, &folder, "index.html", wait)
+            .unwrap_or_else(|error| panic!("{host} rejected: {error}"));
+        assert_eq!(config.start_uri(), format!("https://{host}/index.html"));
+    }
+    for host in [
+        "example",
+        "app.com",
+        "App.example",
+        "-a.test",
+        "a-.test",
+        "a..test",
+        "a.test.",
+        "a_b.test",
+        &format!("{}.test", "a".repeat(64)),
+    ] {
+        assert_eq!(
+            WebViewConfig::folder(host, &folder, "index.html", wait)
+                .expect_err("host outside the reserved domains")
+                .kind(),
+            io::ErrorKind::InvalidInput,
+            "{host}"
+        );
+    }
+}
+
+#[test]
+fn folder_source_requires_an_absolute_directory_and_clean_entry() {
+    let wait = Duration::from_secs(1);
+    let folder = std::env::temp_dir();
+    assert!(WebViewConfig::folder("a.test", "relative/dir", "index.html", wait).is_err());
+    let file = folder.join(format!("moirai-webview-file-{}", std::process::id()));
+    std::fs::write(&file, b"not a directory").expect("write probe file");
+    assert!(WebViewConfig::folder("a.test", &file, "index.html", wait).is_err());
+    std::fs::remove_file(&file).expect("remove probe file");
+    for entry in [
+        "",
+        "../index.html",
+        "a//b.html",
+        "./index.html",
+        "i.html?x",
+        "i.html#x",
+        "a\\b.html",
+        "%2e%2e/x.html",
+    ] {
+        assert!(
+            WebViewConfig::folder("a.test", &folder, entry, wait).is_err(),
+            "accepted entry {entry:?}"
+        );
+    }
+    assert!(
+        WebViewConfig::folder("a.test", &folder, "index.html", Duration::from_secs(31)).is_err()
+    );
+    let nested =
+        WebViewConfig::folder("a.test", &folder, "app/index.html", wait).expect("nested entry");
+    assert_eq!(nested.start_uri(), "https://a.test/app/index.html");
+}
+
+#[test]
+fn folder_policy_confines_navigation_to_the_mapped_host() {
+    let config = WebViewConfig::folder(
+        "app.metis.example",
+        std::env::temp_dir(),
+        "index.html",
+        Duration::from_secs(1),
+    )
+    .expect("valid mapping");
+    assert!(config.allows("https://app.metis.example/index.html"));
+    assert!(config.allows("https://app.metis.example/assets/logo.svg"));
+    for uri in [
+        "https://app.metis.example/",
+        "https://app.metis.example/../secret",
+        "https://app.metis.example.evil.test/index.html",
+        "https://evil.test/index.html",
+        "http://app.metis.example/index.html",
+        "file:///C:/metis/index.html",
+    ] {
+        assert!(!config.allows(uri), "allowed {uri}");
+    }
+    let file = WebViewConfig::new("file:///C:/metis/index.html").expect("file entry");
+    assert!(!file.allows("https://app.metis.example/index.html"));
+}
+
+#[test]
+#[ignore = "requires an installed WebView2 runtime"]
+fn installed_runtime_loads_module_page_from_mapped_folder() {
+    let folder =
+        std::env::temp_dir().join(format!("moirai-webview2-folder-{}", std::process::id()));
+    std::fs::create_dir(&folder).expect("create unique folder");
+    std::fs::write(
+        folder.join("index.html"),
+        br#"<!doctype html><meta charset="utf-8"><script type="module" src="main.js"></script>"#,
+    )
+    .expect("write entry");
+    std::fs::write(
+        folder.join("main.js"),
+        br#"import { origin } from "./origin.js";
+window.chrome.webview.postMessage({"module": origin});"#,
+    )
+    .expect("write module");
+    std::fs::write(
+        folder.join("origin.js"),
+        b"export const origin = location.origin;",
+    )
+    .expect("write imported module");
+    let config = WebViewConfig::folder(
+        "moirai.test",
+        &folder,
+        "index.html",
+        Duration::from_secs(10),
+    )
+    .expect("mapped folder");
+    let window_config = WindowConfig::with_visibility(
+        "Moirai WebView2 folder test",
+        320,
+        240,
+        WindowVisibility::Hidden,
+    )
+    .expect("window configuration");
+    let window = NativeWindow::new(&window_config).expect("native window");
+    let mut host = WebViewHost::new(window, config).expect("installed WebView2 runtime");
+    let mut events = host.poll_events().expect("initial WebView2 events");
+    let loaded = |events: &[WebViewHostEvent]| {
+        events.iter().any(|event| {
+            matches!(
+                event,
+                WebViewHostEvent::WebView(WebViewEvent::Message { json, .. })
+                    if json.contains("\"module\":\"https://moirai.test\"")
+            )
+        })
+    };
+    if !loaded(&events) {
+        events.extend(
+            host.wait_events(Duration::from_secs(2))
+                .expect("module event"),
+        );
+    }
+    assert!(
+        loaded(&events),
+        "module import did not report the mapped origin: {events:?}"
+    );
+    assert_eq!(
+        host.navigate("https://example.test/elsewhere")
+            .expect_err("navigation outside the mapped host")
+            .kind(),
+        io::ErrorKind::PermissionDenied
+    );
+    host.close().expect("close WebView2 host");
+    std::fs::remove_dir_all(&folder).expect("remove mapped folder");
+}
+
 struct TestPackage {
     directory: PathBuf,
     entry: PathBuf,

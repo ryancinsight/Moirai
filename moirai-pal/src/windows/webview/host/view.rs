@@ -5,10 +5,11 @@ use std::{cell::RefCell, io, rc::Rc, sync::mpsc, time::Duration};
 
 use webview2_com::CapturePreviewCompletedHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, ICoreWebView2, ICoreWebView2Controller,
-    ICoreWebView2Environment, ICoreWebView2NavigationCompletedEventHandler,
-    ICoreWebView2NavigationStartingEventHandler, ICoreWebView2NewWindowRequestedEventHandler,
-    ICoreWebView2PermissionRequestedEventHandler, ICoreWebView2WebMessageReceivedEventHandler,
+    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY,
+    ICoreWebView2, ICoreWebView2_3, ICoreWebView2Controller, ICoreWebView2Environment,
+    ICoreWebView2NavigationCompletedEventHandler, ICoreWebView2NavigationStartingEventHandler,
+    ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2PermissionRequestedEventHandler,
+    ICoreWebView2WebMessageReceivedEventHandler,
 };
 use windows::{
     Win32::{
@@ -16,7 +17,7 @@ use windows::{
         System::Com::{STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET},
         UI::{Shell::SHCreateMemStream, WindowsAndMessaging::MSG},
     },
-    core::PCWSTR,
+    core::{HSTRING, Interface, PCWSTR},
 };
 
 use super::super::super::window::NativeWindow;
@@ -26,6 +27,7 @@ use super::super::{
         validate_message,
     },
     event::WebViewHostEvent,
+    folder::FolderMapping,
     pump::{dispatch_pending, wait_for, wait_for_messages},
     state::WebViewState,
 };
@@ -102,6 +104,9 @@ impl WebViewHost {
             settings
                 .SetAreDevToolsEnabled(false)
                 .map_err(windows_error)?;
+        }
+        if let Some(mapping) = config.folder_mapping() {
+            map_folder(&webview, mapping)?;
         }
         let state = Rc::new(RefCell::new(WebViewState::new()?));
         let current_uri = Rc::new(RefCell::new(String::new()));
@@ -405,4 +410,21 @@ impl Drop for WebViewHost {
             Ok(()) | Err(_) => {}
         }
     }
+}
+
+/// Serves `mapping`'s folder under its host; other origins are denied access.
+fn map_folder(webview: &ICoreWebView2, mapping: &FolderMapping) -> io::Result<()> {
+    let webview: ICoreWebView2_3 = webview.cast().map_err(windows_error)?;
+    let host = HSTRING::from(mapping.host());
+    let folder = HSTRING::from(mapping.folder().as_os_str());
+    // SAFETY: both HSTRINGs are NUL-terminated UTF-16 that outlive the call,
+    // and WebView2 copies them before returning.
+    unsafe {
+        webview.SetVirtualHostNameToFolderMapping(
+            &host,
+            &folder,
+            COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY,
+        )
+    }
+    .map_err(windows_error)
 }

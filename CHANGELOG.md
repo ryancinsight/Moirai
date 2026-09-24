@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **WebView2 folder hosting** (`WebViewConfig::folder`). A local folder is
+  served as `https://{host}/` through WebView2's virtual host mapping, so a
+  page built for a web server (ES modules, `fetch`, WebAssembly streaming
+  compilation) runs unchanged, which a `file:///` page cannot. The host must
+  lie under `.example`, `.invalid`, `.localhost` or `.test` so it cannot
+  shadow a real site, navigation is confined to it, and other origins are
+  denied its resources.
+
 - **`LockFreeQueue::len`.** The bounded MPMC queue reports its current depth as
   the difference of its `head` and `tail` cursors, best-effort in the same sense
   as `is_empty`/`is_full`. `UnifiedChannel::len` and its `current_length`
