@@ -34,7 +34,7 @@ pub use cache::{
     CACHE_LINE_SIZE, CacheAligned, CachePad, DESTRUCTIVE_INTERFERENCE_SIZE, align_to_cache_line,
 };
 pub use memory::{prefetch_read, prefetch_write};
-pub use queue::{EnqueueOutcome, LockFreeQueue};
+pub use queue::LockFreeQueue;
 pub use result_cell::{ResultCell, Waiter};
 
 // SIMD optimization counter and scalar contracts for performance tracking.
