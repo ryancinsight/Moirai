@@ -23,7 +23,7 @@ use windows::{
     core::{BOOL, HSTRING, Interface, PCWSTR},
 };
 
-use super::super::super::window::NativeWindow;
+use super::super::super::window::{NativeWindow, WindowPlacement};
 use super::super::{
     config::{
         MAX_WEBVIEW_CAPTURE_BYTES, MAX_WEBVIEW_MESSAGE_UNITS, MAX_WEBVIEW_URI_UNITS, WebViewConfig,
@@ -180,6 +180,17 @@ impl WebViewHost {
     pub fn set_visible(&mut self, visible: bool) -> io::Result<()> {
         let controller = self.controller.as_ref().ok_or_else(closed_error)?;
         unsafe { controller.SetIsVisible(visible).map_err(windows_error) }
+    }
+
+    /// Reads the parent window's restored rectangle and maximized state.
+    ///
+    /// # Errors
+    /// Returns an error when the host is closed or the native call fails.
+    pub fn window_placement(&self) -> io::Result<WindowPlacement> {
+        if self.closed {
+            return Err(closed_error());
+        }
+        self.window.placement()
     }
 
     /// Navigates to an allowlisted packaged resource without waiting for its

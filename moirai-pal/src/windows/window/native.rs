@@ -113,6 +113,9 @@ impl NativeWindow {
     /// fails, or `InvalidInput` for invalid configuration.
     pub fn new(config: &WindowConfig) -> io::Result<Self> {
         let mut window = Self::new_hidden(config)?;
+        if let Some(placement) = config.placement() {
+            window.set_placement(placement)?;
+        }
         if config.visibility() == WindowVisibility::Visible {
             window.show()?;
         }

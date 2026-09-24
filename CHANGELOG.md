@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   desktop applications persist between sessions. A hidden window stays
   hidden and shows maximized when its placement asks for it; corners are
   bounded by `MAX_PLACEMENT_COORDINATE` and sizes by the frame limits.
+  `WindowConfig::with_placement` restores a saved placement before the
+  window first appears, and `WebViewHost::window_placement` reads the
+  parent window's placement for saving.
 
 - **Keyboard shortcuts in the Windows accessibility tree**
   (`AccessibilityNode::set_keyboard_shortcut`). A node's bounded

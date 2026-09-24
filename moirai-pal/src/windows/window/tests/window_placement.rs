@@ -38,3 +38,16 @@ fn hidden_window_placement_round_trips_without_showing() {
     assert!(window.placement().is_err());
     assert!(window.set_placement(restored).is_err());
 }
+
+#[test]
+fn configured_placement_applies_before_the_window_is_shown() {
+    let restored = WindowPlacement::new(80, 90, 460, 340, true).expect("placement");
+    let config =
+        WindowConfig::with_visibility("Moirai restore", 320, 240, WindowVisibility::Hidden)
+            .expect("config")
+            .with_placement(restored);
+    assert_eq!(config.placement(), Some(restored));
+    let mut window = NativeWindow::new(&config).expect("native window");
+    assert_eq!(window.placement().expect("placement"), restored);
+    window.close().expect("close");
+}
