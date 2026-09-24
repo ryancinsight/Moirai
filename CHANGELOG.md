@@ -446,6 +446,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A WebView2 host renders the page it hosts.** `WebViewHost::new` left the
+  controller at empty bounds and, under a hidden window, not visible, so
+  WebView2 held `capture_preview_png`'s completion until the finite wait
+  expired unless a frame happened to be pending (4 of 55 runs alone, 30 of 60
+  with three captures running at once), and a capture that did complete was
+  1924x2100 rather than the window's client area. The controller now fills
+  the client area and is visible, and a capture of a controller hidden
+  through `set_visible(false)` fails at once with `InvalidInput` instead of
+  waiting out the deadline.
 - **Async file operations no longer block the polling thread.** Every
   `moirai_async::fs` operation ran its file syscall inside `poll`, so a slow
   disk or network mount stalled the executor thread and a dropped future could
