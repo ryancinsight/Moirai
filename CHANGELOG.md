@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from `WindowEvent`. Notifications are shell balloons, which Windows 10
   and later present as toasts without a packaged application identity.
   Closing the window removes the icon and destroys its handle.
+  `NativeWindow::show_popup_menu` (and `WebViewHost::show_popup_menu`)
+  opens a bounded `PopupMenu` of labelled, separator and disabled items at a
+  screen position, such as a tray context request's anchor, and returns the
+  chosen item's index.
 
 - **System-wide hotkeys** (`NativeWindow::register_hotkey`,
   `unregister_hotkey`, `take_hotkey_presses`, `GlobalHotkey`, `HotkeyId`,

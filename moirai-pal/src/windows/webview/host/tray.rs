@@ -1,8 +1,9 @@
-//! Tray icon and notifications for the WebView2 host's parent window.
+//! Tray icon, notifications and popup menus for the WebView2 host's parent
+//! window.
 
 use std::io;
 
-use super::super::super::window::{TrayEvent, TrayIconImage};
+use super::super::super::window::{PopupMenu, TrayEvent, TrayIconImage};
 use super::error::closed_error;
 use super::view::WebViewHost;
 
@@ -37,6 +38,23 @@ impl WebViewHost {
     /// Returns the shell error.
     pub fn remove_tray_icon(&mut self) -> io::Result<bool> {
         self.window.remove_tray_icon()
+    }
+
+    /// Shows a context menu at a screen position and waits for the choice.
+    ///
+    /// # Errors
+    /// Returns an error when the host is closed or the menu cannot be built;
+    /// see [`crate::windows::window::NativeWindow::show_popup_menu`].
+    pub fn show_popup_menu(
+        &mut self,
+        menu: &PopupMenu,
+        x: i32,
+        y: i32,
+    ) -> io::Result<Option<usize>> {
+        if self.closed {
+            return Err(closed_error());
+        }
+        self.window.show_popup_menu(menu, x, y)
     }
 
     /// Drains the tray icon's queued activity, oldest first.
