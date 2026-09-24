@@ -288,7 +288,6 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         &[
             "../moirai-pal/src/fs/mod.rs",
             "../moirai-pal/src/fs/file.rs",
-            "../moirai-pal/src/fs/path.rs",
             "../moirai-pal/src/fs/tests.rs",
         ],
     ),
@@ -340,9 +339,9 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         "../moirai-async/src/fs.rs",
         &[
             "../moirai-async/src/fs/mod.rs",
-            "../moirai-async/src/fs/options.rs",
             "../moirai-async/src/fs/stats.rs",
             "../moirai-async/src/fs/file.rs",
+            "../moirai-async/src/fs/file/request.rs",
             "../moirai-async/src/fs/ops.rs",
         ],
     ),
@@ -363,7 +362,7 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-async/src/net/stream.rs",
             "../moirai-async/src/net/socket.rs",
             "../moirai-async/src/net/types.rs",
-            "../moirai-async/src/net/resolve/mod.rs",
+            "../moirai-async/src/net/resolve.rs",
         ],
     ),
     (

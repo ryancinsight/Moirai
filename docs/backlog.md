@@ -1,9 +1,3 @@
-<a id="MOI-ASYNC-FS-BLOCKING-2026-09-23"></a>
-## MOI-ASYNC-FS-BLOCKING-2026-09-23 — Async file operations block inside their futures [patch] — todo
-
-- **Found:** while fixing the blocking TCP connect (Moirai #446), the survey of async I/O found `moirai-pal/src/fs/file.rs` performing blocking file syscalls inside `poll`, which stalls the executor thread and makes a dropped future uncancellable, the same defect class #446 fixed for connect and DNS.
-- **Acceptance:** no async fs future performs a blocking syscall in `poll`; work that is blocking by nature runs on a bounded blocking facility; a test shows an executor task still runs promptly while a slow file operation is in flight, and a dropped fs future leaks nothing.
-
 <a id="MOI-UNIT-TASK-MANY-2026-09-22"></a>
 ## MOI-UNIT-TASK-MANY-2026-09-22 - A pass writing over three buffers of one type costs a parallel region per buffer [minor] [perf] - in-progress
 

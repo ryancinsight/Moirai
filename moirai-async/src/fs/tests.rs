@@ -1,4 +1,6 @@
 use super::*;
+
+mod blocking;
 use crate::io::{AsyncLength, AsyncReadAt};
 use std::io::SeekFrom;
 use std::path::PathBuf;

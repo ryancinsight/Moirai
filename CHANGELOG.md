@@ -435,6 +435,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Async file operations no longer block the polling thread.** Every
+  `moirai_async::fs` operation ran its file syscall inside `poll`, so a slow
+  disk or network mount stalled the executor thread and a dropped future could
+  not be cancelled. They now run on a bounded file-system pool: four workers
+  behind a bounded queue and an async admission wait. It is the blocking
+  facility the resolver already used, now one shared implementation. A handle
+  keeps one stream operation in flight and settles it before the next, so
+  stream order holds under cancellation. A dropped read's bytes go to the next
+  read, and a write, seek, or sync submitted before its future dropped still
+  takes effect. `AsyncWrite::poll_write` queues the write and reports its
+  failure through the next operation. Panic containment is the pool's and
+  holds only in unwind builds.
 - **`TcpStream::connect` no longer blocks the polling thread.**
   `moirai_pal::net::AsyncTcpStream::connect` ran std's blocking connect inside
   `poll`, so an unanswered SYN held the executor thread for the OS connect
@@ -578,6 +590,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mnemosyne-memory` and `mnemosyne-memory-core` while preserving Rust imports.
 
 ### Breaking
+
+- `moirai_pal::fs` now exposes synchronous platform primitives. `AsyncFile`
+  becomes `File`, whose methods are blocking calls taking `&self`. The async
+  path functions (`write`, `append`, `copy`, `metadata`, `rename`,
+  `remove_file`, `create_dir`, `create_dir_all`, `remove_dir`,
+  `remove_dir_all`), `AsyncFile::open_with_options`, and `yield_now` are
+  removed. Migrate async callers to `moirai_async::fs`, which runs these
+  operations on its blocking pool. The `moirai_async::fs::options` module is
+  removed as well: `FileOpenOptions` is now `moirai_pal::fs::FileOpenOptions`,
+  still reachable as `moirai_async::fs::FileOpenOptions`.
 
 - Remove `moirai_iter::ThreadPool` and its `moirai::ThreadPool` re-export. The
   crate's own FIFO thread pool was a second runtime beside the unified

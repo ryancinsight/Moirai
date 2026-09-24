@@ -1,12 +1,11 @@
 //! The hostname resolver runs on a fixed worker pool: more concurrent lookups
 //! than workers queue and wait asynchronously, and never add threads.
 
+use crate::blocking::job_lifecycle::{self, Operation, Subject};
+use crate::blocking::test_hooks::{self, STAGE_LIMIT};
 use crate::executor::AsyncExecutor;
 use crate::net::TcpStream;
-use crate::net::resolve::{RESOLVER_QUEUE_DEPTH, RESOLVER_WORKERS, test_hooks};
-
-mod cancellation;
-mod worker_panic;
+use crate::net::resolve::{RESOLVER_QUEUE_DEPTH, RESOLVER_WORKERS, pool, resolve};
 use std::future::{Future, poll_fn};
 use std::net::TcpListener as StdTcpListener;
 use std::pin::pin;
@@ -37,7 +36,7 @@ fn concurrent_hostname_connects_never_exceed_the_worker_bound() {
     let runner_executor = Arc::clone(&executor);
     let runner = std::thread::spawn(move || runner_executor.run());
 
-    test_hooks::set_gate_closed(true);
+    pool().hooks().set_gate_closed(true);
     let (submitted, submissions) = mpsc::channel();
     let handles: Vec<_> = (0..CONCURRENT_LOOKUPS)
         .map(|_| {
@@ -62,12 +61,15 @@ fn concurrent_hostname_connects_never_exceed_the_worker_bound() {
 
     for _ in 0..CONCURRENT_LOOKUPS {
         submissions
-            .recv_timeout(test_hooks::STAGE_LIMIT)
+            .recv_timeout(STAGE_LIMIT)
             .expect("every connect must reach resolver admission");
     }
-    let running = test_hooks::wait_until(|progress| progress.live == RESOLVER_WORKERS).live;
-    let free_admissions = test_hooks::free_admissions();
-    test_hooks::set_gate_closed(false);
+    let running = pool()
+        .hooks()
+        .wait_until(|progress| progress.live == RESOLVER_WORKERS)
+        .live;
+    let free_admissions = pool().free_admissions();
+    pool().hooks().set_gate_closed(false);
 
     let connected = handles
         .into_iter()
@@ -83,11 +85,11 @@ fn concurrent_hostname_connects_never_exceed_the_worker_bound() {
         free_admissions, 0,
         "{CONCURRENT_LOOKUPS} lookups must exhaust {RESOLVER_WORKERS} running + {RESOLVER_QUEUE_DEPTH} queued admissions"
     );
-    assert_eq!(test_hooks::workers(), RESOLVER_WORKERS);
+    assert_eq!(pool().workers(), RESOLVER_WORKERS);
     assert!(
-        test_hooks::peak() <= RESOLVER_WORKERS,
+        pool().hooks().peak() <= RESOLVER_WORKERS,
         "{} lookups ran at once, past the {RESOLVER_WORKERS}-worker bound",
-        test_hooks::peak()
+        pool().hooks().peak()
     );
     let mut accepted = server.join().expect("server thread must join");
     let mut connected = connected;
@@ -101,4 +103,40 @@ fn concurrent_hostname_connects_never_exceed_the_worker_bound() {
         .join()
         .expect("executor thread must not panic")
         .expect("executor run must stop cleanly");
+}
+
+/// One hostname lookup: `localhost` needs the system resolver, and the port is
+/// never dialled.
+fn lookup() -> Operation {
+    Box::pin(async { resolve("localhost:9").await.map(drop) })
+}
+
+const RESOLVER: Subject = Subject {
+    pool,
+    operation: lookup,
+};
+
+#[test]
+fn dropped_admission_waiter_returns_no_slot() {
+    job_lifecycle::dropped_admission_waiter_returns_no_slot(RESOLVER);
+}
+
+#[test]
+fn dropped_queued_lookup_is_skipped() {
+    job_lifecycle::dropped_queued_job_is_skipped(RESOLVER);
+}
+
+#[test]
+fn dropped_running_lookup_releases_its_slot_on_return() {
+    job_lifecycle::dropped_running_job_releases_its_slot_on_return(RESOLVER);
+}
+
+#[test]
+fn panicking_lookups_fail_alone() {
+    job_lifecycle::panicking_jobs_fail_alone(RESOLVER);
+}
+
+#[test]
+fn panicking_waker_leaves_the_resolver_serving() {
+    job_lifecycle::panicking_waker_leaves_the_worker_serving(RESOLVER);
 }

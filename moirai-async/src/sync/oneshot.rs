@@ -90,6 +90,21 @@ impl<T> Receiver<T> {
         RecvFuture { receiver: self }
     }
 
+    /// Poll for the value, registering `cx`'s waker while it is not yet
+    /// sent. Resolves `Err(())` when the sender dropped without sending.
+    pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<T, ()>> {
+        let mut shared = self.shared.lock().unwrap();
+        match std::mem::replace(&mut shared.state, OneshotState::Closed) {
+            OneshotState::Value(v) => Poll::Ready(Ok(v)),
+            OneshotState::Closed => Poll::Ready(Err(())),
+            OneshotState::Empty => {
+                shared.state = OneshotState::Empty;
+                shared.rx_waker = Some(cx.waker().clone());
+                Poll::Pending
+            }
+        }
+    }
+
     /// Take the value without waiting; `None` when not yet sent.
     pub fn try_recv(&mut self) -> Option<T> {
         let mut shared = self.shared.lock().unwrap();
@@ -145,17 +160,8 @@ impl<T> Drop for RecvFuture<'_, T> {
 impl<'a, T> Future for RecvFuture<'a, T> {
     type Output = Result<T, ()>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut shared = self.receiver.shared.lock().unwrap();
-        match std::mem::replace(&mut shared.state, OneshotState::Closed) {
-            OneshotState::Value(v) => Poll::Ready(Ok(v)),
-            OneshotState::Closed => Poll::Ready(Err(())),
-            OneshotState::Empty => {
-                shared.state = OneshotState::Empty;
-                shared.rx_waker = Some(cx.waker().clone());
-                Poll::Pending
-            }
-        }
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.receiver.poll_recv(cx)
     }
 }
 

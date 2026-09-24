@@ -176,7 +176,7 @@ fn connect_to_closed_port_reports_refusal() {
 
 #[test]
 fn hostname_connect_resolves_off_thread_and_connects() {
-    let _exclusive = crate::net::resolve::test_hooks::exclusive();
+    let _exclusive = crate::blocking::test_hooks::exclusive();
     let listener = StdTcpListener::bind("127.0.0.1:0").expect("listener bind must succeed");
     let port = listener
         .local_addr()
