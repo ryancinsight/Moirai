@@ -150,25 +150,31 @@ impl Primary {
         let handle = HANDLE(self.pipe.as_raw_handle());
         // SAFETY: the handle is this primary's live, non-blocking pipe.
         match unsafe { ConnectNamedPipe(handle, None) } {
-            Ok(()) => {}
             Err(error) if error.code() == ERROR_PIPE_LISTENING.to_hresult() => return Ok(None),
-            Err(error) if error.code() == ERROR_PIPE_CONNECTED.to_hresult() => {}
-            Err(error) if error.code() == ERROR_NO_DATA.to_hresult() => {
-                // A client connected and left without data; reset for the next.
-                // SAFETY: as above.
-                unsafe { DisconnectNamedPipe(handle) }.map_err(os_error)?;
-                return Ok(None);
-            }
+            // A sender that already wrote and closed reports "no data" here,
+            // but its message stays buffered until read.
+            Ok(()) => {}
+            Err(error)
+                if error.code() == ERROR_PIPE_CONNECTED.to_hresult()
+                    || error.code() == ERROR_NO_DATA.to_hresult() => {}
             Err(error) => return Err(os_error(error)),
         }
         let mut reader = PipeReader {
             handle,
             deadline: Instant::now() + INSTANCE_IO_TIMEOUT,
+            received: 0,
         };
         let message = read_frame(&mut reader);
         // SAFETY: as above; the pipe returns to listening for the next client.
         unsafe { DisconnectNamedPipe(handle) }.map_err(os_error)?;
-        message.map(Some)
+        match message {
+            Ok(message) => Ok(Some(message)),
+            // A client that connected and left without writing sent nothing.
+            Err(error) if error.kind() == ErrorKind::UnexpectedEof && reader.received == 0 => {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -182,6 +188,7 @@ impl Secondary {
 struct PipeReader {
     handle: HANDLE,
     deadline: Instant,
+    received: usize,
 }
 
 impl Read for PipeReader {
@@ -191,7 +198,10 @@ impl Read for PipeReader {
             // SAFETY: `buffer` and `read` are writable for the synchronous
             // call on the primary's live pipe handle.
             match unsafe { ReadFile(self.handle, Some(buffer), Some(&mut read), None) } {
-                Ok(()) if read > 0 => return Ok(read as usize),
+                Ok(()) if read > 0 => {
+                    self.received += read as usize;
+                    return Ok(read as usize);
+                }
                 Ok(()) => {}
                 Err(error) if error.code() == ERROR_BROKEN_PIPE.to_hresult() => return Ok(0),
                 Err(error) if error.code() == ERROR_NO_DATA.to_hresult() => {}
