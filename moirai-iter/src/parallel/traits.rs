@@ -40,6 +40,32 @@ where
     outcome
 }
 
+#[inline]
+fn reassociated_fold<I, O, Empty, Single, Combine>(
+    iter: I,
+    empty: Empty,
+    single: Single,
+    combine: Combine,
+) -> O
+where
+    I: ParallelIterator,
+    O: Send,
+    Empty: Fn() -> O + Send + Sync + Clone,
+    Single: Fn(I::Item) -> O + Send + Sync + Clone,
+    Combine: Fn(O, O) -> O + Send + Sync + Clone,
+{
+    iter.drive(FoldConsumer::new(
+        empty,
+        {
+            let single = single.clone();
+            let combine_step = combine.clone();
+            move |accumulator: O, item: I::Item| combine_step(accumulator, single(item))
+        },
+        combine,
+    ))
+    .into_value()
+}
+
 /// Core parallel iterator trait for Moirai's Rayon-style non-indexed subset.
 pub trait ParallelIterator: Sized + Send {
     /// The type of items yielded by this parallel iterator.
@@ -877,16 +903,12 @@ pub trait ParallelIterator: Sized + Send {
     where
         S: std::iter::Sum<Self::Item> + std::iter::Sum<S> + Send,
     {
-        self.drive(FoldConsumer::new(
+        reassociated_fold(
+            self,
             || std::iter::empty::<Self::Item>().sum::<S>(),
-            |accumulator: S, item: Self::Item| {
-                [accumulator, std::iter::once(item).sum::<S>()]
-                    .into_iter()
-                    .sum::<S>()
-            },
+            |item: Self::Item| std::iter::once(item).sum::<S>(),
             |left: S, right: S| [left, right].into_iter().sum::<S>(),
-        ))
-        .into_value()
+        )
     }
 
     /// Multiply the complete logical stream through one standard
@@ -914,16 +936,12 @@ pub trait ParallelIterator: Sized + Send {
     where
         P: std::iter::Product<Self::Item> + std::iter::Product<P> + Send,
     {
-        self.drive(FoldConsumer::new(
+        reassociated_fold(
+            self,
             || std::iter::empty::<Self::Item>().product::<P>(),
-            |accumulator: P, item: Self::Item| {
-                [accumulator, std::iter::once(item).product::<P>()]
-                    .into_iter()
-                    .product::<P>()
-            },
+            |item: Self::Item| std::iter::once(item).product::<P>(),
             |left: P, right: P| [left, right].into_iter().product::<P>(),
-        ))
-        .into_value()
+        )
     }
 
     /// Return the minimum item in the logical stream.
