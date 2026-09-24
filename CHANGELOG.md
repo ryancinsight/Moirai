@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Restorable window placement** (`NativeWindow::placement`,
+  `NativeWindow::set_placement`, `WindowPlacement`). A window reports and
+  accepts its restored outer rectangle and maximized state, the value
+  desktop applications persist between sessions. A hidden window stays
+  hidden and shows maximized when its placement asks for it; corners are
+  bounded by `MAX_PLACEMENT_COORDINATE` and sizes by the frame limits.
+
 - **Keyboard shortcuts in the Windows accessibility tree**
   (`AccessibilityNode::set_keyboard_shortcut`). A node's bounded
   `aria-keyshortcuts`-style value reaches AccessKit's `keyboard_shortcut`
