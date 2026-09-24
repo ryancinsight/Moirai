@@ -1,8 +1,9 @@
 //! A local folder served to WebView2 under a reserved `https` host name.
 
 use std::{
+    ffi::OsString,
     io,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf, Prefix},
 };
 
 /// Top-level domains reserved from the public DNS (RFC 2606 §2, RFC 6761 §6),
@@ -32,7 +33,7 @@ impl FolderMapping {
         }
         Ok(Self {
             host: host.to_owned(),
-            folder: folder.to_owned(),
+            folder: plain(folder)?,
         })
     }
 
@@ -43,6 +44,53 @@ impl FolderMapping {
     pub(super) fn folder(&self) -> &Path {
         &self.folder
     }
+}
+
+/// The non-verbatim spelling of an absolute folder.
+///
+/// WebView2 appends each request path to the mapped folder with `/`
+/// separators, and a verbatim (`\\?\`) path is passed through without
+/// normalization, so only files at the top of a canonicalized folder would
+/// resolve. A verbatim disk or UNC path becomes its plain equivalent; a
+/// verbatim path with no plain form (a volume GUID or device namespace) is
+/// refused, as is a `.` or `..` segment, which the verbatim form does not
+/// interpret but the plain form would.
+fn plain(folder: &Path) -> io::Result<PathBuf> {
+    let mut components = folder.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return Err(invalid(
+            "WebView2 folder mapping requires a drive or UNC folder",
+        ));
+    };
+    let mut plain = match prefix.kind() {
+        Prefix::Disk(_) | Prefix::UNC(..) => return Ok(folder.to_owned()),
+        Prefix::VerbatimDisk(letter) => PathBuf::from(format!("{}:\\", char::from(letter))),
+        Prefix::VerbatimUNC(server, share) => {
+            let mut root = OsString::from(r"\\");
+            root.push(server);
+            root.push(r"\");
+            root.push(share);
+            root.push(r"\");
+            PathBuf::from(root)
+        }
+        Prefix::Verbatim(_) | Prefix::DeviceNS(_) => {
+            return Err(invalid(
+                "WebView2 folder mapping requires a drive or UNC folder",
+            ));
+        }
+    };
+    for component in components {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(part) if part != "." && part != ".." => plain.push(part),
+            _ => {
+                return Err(invalid(
+                    "WebView2 folder mapping path contains a relative segment",
+                ));
+            }
+        }
+    }
+    Ok(plain)
 }
 
 /// Lowercase LDH labels (RFC 1123 §2.1) ending in a reserved TLD.
@@ -75,4 +123,35 @@ fn validate_host(host: &str) -> io::Result<()> {
 
 fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plain;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn verbatim_folders_map_to_their_plain_spelling() {
+        for (verbatim, expected) in [
+            (r"\\?\C:\apps\dist\app", r"C:\apps\dist\app"),
+            (r"\\?\d:\x", r"d:\x"),
+            (r"\\?\UNC\server\share\dist", r"\\server\share\dist"),
+            (r"C:\already\plain", r"C:\already\plain"),
+            (r"\\server\share\plain", r"\\server\share\plain"),
+        ] {
+            assert_eq!(
+                plain(Path::new(verbatim)).expect("representable folder"),
+                PathBuf::from(expected),
+                "{verbatim}"
+            );
+        }
+        for refused in [
+            r"\\?\Volume{0b1f5c3e-0000-0000-0000-100000000000}\dist",
+            r"\\.\PhysicalDrive0",
+            r"\\?\C:\apps\..\secret",
+            r"relative\dist",
+        ] {
+            assert!(plain(Path::new(refused)).is_err(), "accepted {refused}");
+        }
+    }
 }
