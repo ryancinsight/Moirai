@@ -6,7 +6,7 @@ use super::*;
 use core::{
     mem::size_of,
     num::NonZeroUsize,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 #[cfg(feature = "std")]
@@ -108,6 +108,65 @@ fn test_lock_free_queue_full_try_enqueue() {
     assert_eq!(queue.try_dequeue(), Some(0));
     // One slot freed.
     queue.try_enqueue(99).unwrap();
+}
+
+/// A producer's tail position goes stale while others fill and drain it; the
+/// head then passes it, and a wrapped difference read that as an overfull
+/// queue, rejecting pushes to a nearly empty one.
+#[test]
+fn a_stale_tail_position_is_not_a_full_queue() {
+    let queue = LockFreeQueue::<u32>::with_capacity(2);
+    for item in 0..4 {
+        queue.try_enqueue(item).expect("room");
+        assert_eq!(queue.try_dequeue(), Some(item));
+    }
+    // The head is at 4: position 1 is stale, 4 is empty, 6 is full.
+    assert!(!queue.holds_capacity(1));
+    assert!(!queue.holds_capacity(4));
+    queue.try_enqueue(4).expect("room");
+    queue.try_enqueue(5).expect("room");
+    assert!(queue.holds_capacity(6));
+}
+
+/// A dequeue moves its item out before reopening the slot. A producer that
+/// reaches that slot in between must wait for it: the queue is below capacity,
+/// and reporting it full made the scheduler drop tasks as resource-exhausted.
+#[cfg(feature = "std")]
+#[test]
+fn a_producer_waits_for_a_claimed_slot_instead_of_reporting_full() {
+    // Capacity two fills the two-slot ring; claiming the front leaves one item
+    // queued, so there is room, but the next item's slot stays closed.
+    let queue = Arc::new(LockFreeQueue::<u32>::with_capacity(2));
+    queue.try_enqueue(1).expect("room for the first item");
+    queue.try_enqueue(2).expect("room for the second item");
+    let (pos, item) = queue.claim_front().expect("a queued item");
+    assert_eq!(item, 1);
+
+    let waits_before = super::ring::REOPEN_WAITS.load(Ordering::Relaxed);
+    let returned = Arc::new(AtomicBool::new(false));
+    let producer = {
+        let queue = Arc::clone(&queue);
+        let returned = Arc::clone(&returned);
+        std::thread::spawn(move || {
+            let result = queue.try_enqueue(3);
+            returned.store(true, Ordering::Release);
+            result
+        })
+    };
+    // Reopen once the producer is seen waiting on the closed slot, or once it
+    // has returned; returning before the reopening is the defect.
+    while !returned.load(Ordering::Acquire)
+        && super::ring::REOPEN_WAITS.load(Ordering::Relaxed) == waits_before
+    {
+        std::thread::yield_now();
+    }
+    // SAFETY: `pos` came from `claim_front` above and is reopened once.
+    unsafe { queue.reopen(pos) };
+
+    assert_eq!(producer.join().expect("producer thread"), Ok(()));
+    assert_eq!(queue.try_dequeue(), Some(2));
+    assert_eq!(queue.try_dequeue(), Some(3));
+    assert_eq!(queue.try_dequeue(), None);
 }
 
 #[test]
