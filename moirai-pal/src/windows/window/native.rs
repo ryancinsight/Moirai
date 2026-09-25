@@ -544,7 +544,7 @@ unsafe extern "system" fn window_proc(
                 }
             }
             message @ (WM_KEYDOWN | WM_SYSKEYDOWN) => {
-                push_keydown_event(state, wparam, lparam);
+                push_key_event(state, wparam, lparam, true);
                 // System-key messages carry Alt/menu and F10/F4 behavior that
                 // DefWindowProcW must retain after the PAL records the value event.
                 if message == WM_SYSKEYDOWN {
@@ -552,7 +552,7 @@ unsafe extern "system" fn window_proc(
                 }
             }
             message @ (WM_KEYUP | WM_SYSKEYUP) => {
-                push_keyup_event(state, wparam, lparam);
+                push_key_event(state, wparam, lparam, false);
                 if message == WM_SYSKEYUP {
                     return DefWindowProcW(hwnd, message, wparam, lparam);
                 }
@@ -618,24 +618,22 @@ unsafe extern "system" fn window_proc(
 }
 
 #[inline(always)]
-fn push_keydown_event(state: &mut WindowState, wparam: WPARAM, lparam: LPARAM) {
+fn push_key_event(state: &mut WindowState, wparam: WPARAM, lparam: LPARAM, pressed: bool) {
     let virtual_key = wparam.0 as u32;
-    state.update_modifier(virtual_key, lparam, true);
-    state.push(WindowEvent::KeyDown {
-        virtual_key,
-        repeated: (lparam.0 & (1 << 30)) != 0,
-        modifiers: state.modifiers,
-    });
-}
-
-#[inline(always)]
-fn push_keyup_event(state: &mut WindowState, wparam: WPARAM, lparam: LPARAM) {
-    let virtual_key = wparam.0 as u32;
-    state.update_modifier(virtual_key, lparam, false);
-    state.push(WindowEvent::KeyUp {
-        virtual_key,
-        modifiers: state.modifiers,
-    });
+    state.update_modifier(virtual_key, lparam, pressed);
+    let modifiers = state.modifiers;
+    if pressed {
+        state.push(WindowEvent::KeyDown {
+            virtual_key,
+            repeated: (lparam.0 & (1 << 30)) != 0,
+            modifiers,
+        });
+    } else {
+        state.push(WindowEvent::KeyUp {
+            virtual_key,
+            modifiers,
+        });
+    }
 }
 
 fn composition_message(hwnd: HWND, state: &mut WindowState, lparam: LPARAM) -> io::Result<()> {

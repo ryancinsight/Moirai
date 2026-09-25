@@ -339,15 +339,12 @@ where
             // Cooperative cancellation observed before the first poll: the
             // future body never runs. Mirrors the sync-path cancel handling in
             // `TaskLifecycleToken::start_unless_cancelled`.
-            self.drop_future();
-            self.state.store(ASYNC_COMPLETED, Ordering::Release);
+            self.store_completed();
             self.cancel_lifecycle();
             // Record before publishing the result so a joiner observes the
             // cancelled counter as soon as the handle resolves.
             self.metrics.record_task_cancelled();
-            if let Some(sender) = self.take_result_sender() {
-                sender.send(Err(TaskError::Cancelled));
-            }
+            self.publish_result(Err(TaskError::Cancelled));
             return;
         }
 
@@ -368,12 +365,7 @@ where
 
             match poll_result {
                 Ok(Poll::Ready(output)) => {
-                    self.drop_future();
-                    self.state.store(ASYNC_COMPLETED, Ordering::Release);
-                    let execution_time = self.complete_lifecycle();
-                    if let Some(sender) = self.take_result_sender() {
-                        sender.send(Ok(output));
-                    }
+                    let execution_time = self.complete_with_result(Ok(output));
                     self.metrics.record_task_completed(execution_time);
                     return;
                 }
@@ -465,6 +457,27 @@ where
     }
 
     #[inline]
+    fn store_completed(&self) {
+        self.drop_future();
+        self.state.store(ASYNC_COMPLETED, Ordering::Release);
+    }
+
+    #[inline]
+    fn publish_result(&self, result: Result<F::Output, TaskError>) {
+        if let Some(sender) = self.take_result_sender() {
+            sender.send(result);
+        }
+    }
+
+    #[inline]
+    fn complete_with_result(&self, result: Result<F::Output, TaskError>) -> core::time::Duration {
+        self.store_completed();
+        let execution_time = self.complete_lifecycle();
+        self.publish_result(result);
+        execution_time
+    }
+
+    #[inline]
     fn finish_pending_poll(&self, inline_repolls: &mut usize) -> PendingPoll {
         match self.state.compare_exchange(
             ASYNC_POLLING,
@@ -533,12 +546,7 @@ where
 
     #[inline]
     fn complete_failed(&self, error: TaskError) {
-        self.drop_future();
-        self.state.store(ASYNC_COMPLETED, Ordering::Release);
-        self.complete_lifecycle();
-        if let Some(sender) = self.take_result_sender() {
-            sender.send(Err(error));
-        }
+        self.complete_with_result(Err(error));
         self.metrics.record_task_failed();
     }
 
