@@ -279,7 +279,7 @@ pub trait ParallelIterator: Sized + Send {
         U: IntoIterator,
         U::Item: Send + Sync + 'static,
     {
-        FlatMap::new(self, flat_map_fn)
+        self.flat_map(flat_map_fn)
     }
 
     /// Flatten nested item streams with standard left-to-right semantics.
@@ -297,7 +297,7 @@ pub trait ParallelIterator: Sized + Send {
         Self::Item: IntoIterator,
         <Self::Item as IntoIterator>::Item: Send + Sync + 'static,
     {
-        Flatten::new(self)
+        self.flatten()
     }
 
     /// Pair each element with its zero-based position in the logical sequence.
@@ -341,7 +341,7 @@ pub trait ParallelIterator: Sized + Send {
     where
         Self::Item: Sync + 'static,
     {
-        Take::new(self, count)
+        self.take(count)
     }
 
     /// Discard `count` elements from the logical sequence prefix.
@@ -357,7 +357,7 @@ pub trait ParallelIterator: Sized + Send {
     where
         Self::Item: Sync + 'static,
     {
-        Skip::new(self, count)
+        self.skip(count)
     }
 
     /// Retain this deterministic stream prefix while `predicate` returns `true`.
