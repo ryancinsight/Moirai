@@ -76,3 +76,34 @@ fn the_second_claim_forwards_to_the_first() {
         panic!("a released name is claimed again");
     };
 }
+
+#[test]
+fn secondaries_connected_together_all_deliver() {
+    let name = unique("together");
+    let InstanceRole::Primary(mut primary) = claim(&name).expect("first claim") else {
+        panic!("the first claim must be primary");
+    };
+    let messages: [&[u8]; 3] = [b"org.example://a", b"org.example://b", b"org.example://c"];
+    // Every secondary connects before the primary serves any of them.
+    let secondaries: Vec<_> = messages
+        .iter()
+        .map(|_| match claim(&name).expect("secondary claim") {
+            InstanceRole::Secondary(secondary) => secondary,
+            InstanceRole::Primary(_) => panic!("a held name makes secondaries"),
+        })
+        .collect();
+    for (secondary, message) in secondaries.into_iter().zip(messages) {
+        secondary.send(message).expect("send");
+    }
+    let mut received = Vec::new();
+    for _ in 0..2_000 {
+        if let Some(message) = primary.try_receive().expect("receive") {
+            received.push(message);
+        }
+        if received.len() == messages.len() {
+            break;
+        }
+    }
+    received.sort();
+    assert_eq!(received, messages.map(<[u8]>::to_vec));
+}

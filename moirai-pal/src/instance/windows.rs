@@ -28,6 +28,11 @@ use super::{
 /// Pause between polls of a non-blocking pipe or a pipe being recreated.
 const POLL_INTERVAL: Duration = Duration::from_millis(1);
 
+/// Pipe instances a primary holds, so this many secondaries can be connected
+/// at once, as a Unix listener queues connections. One more secondary waits
+/// up to [`INSTANCE_IO_TIMEOUT`] for the primary to serve one of them.
+const PIPE_INSTANCES: u32 = 8;
+
 pub(super) enum Role {
     Primary(Primary),
     Secondary(Secondary),
@@ -35,7 +40,11 @@ pub(super) enum Role {
 
 #[derive(Debug)]
 pub(super) struct Primary {
-    pipe: OwnedHandle,
+    /// Every instance of the pipe, each listening or holding one secondary.
+    pipes: Vec<OwnedHandle>,
+    /// The instance the next receive examines first, so connected
+    /// secondaries are served in turn.
+    next: usize,
 }
 
 #[derive(Debug)]
@@ -47,8 +56,19 @@ pub(super) fn claim(name: &InstanceName) -> io::Result<Role> {
     let path = pipe_path(name)?;
     let deadline = Instant::now() + INSTANCE_IO_TIMEOUT;
     loop {
-        if let Some(pipe) = create_first_instance(&path)? {
-            return Ok(Role::Primary(Primary { pipe }));
+        if let Some(first) =
+            create_instance(&path, PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE)?
+        {
+            let mut pipes = vec![first];
+            for _ in 1..PIPE_INSTANCES {
+                // This process owns the name, so fewer than the maximum
+                // instances exist and each further one is created.
+                let pipe = create_instance(&path, PIPE_ACCESS_INBOUND)?.ok_or_else(|| {
+                    io::Error::other("an owned instance pipe refused another instance")
+                })?;
+                pipes.push(pipe);
+            }
+            return Ok(Role::Primary(Primary { pipes, next: 0 }));
         }
         match open_client(&path, deadline)? {
             Some(file) => return Ok(Role::Secondary(Secondary { file })),
@@ -73,16 +93,20 @@ fn pipe_path(name: &InstanceName) -> io::Result<Vec<u16>> {
     Ok(path.encode_utf16().chain(std::iter::once(0)).collect())
 }
 
-/// Creates the first pipe instance, or returns `None` when it already exists.
-fn create_first_instance(path: &[u16]) -> io::Result<Option<OwnedHandle>> {
+/// Creates one pipe instance, or returns `None` when the first instance
+/// already exists or every instance is taken.
+fn create_instance(
+    path: &[u16],
+    open_mode: FILE_FLAGS_AND_ATTRIBUTES,
+) -> io::Result<Option<OwnedHandle>> {
     let buffer = u32::try_from(MAX_INSTANCE_MESSAGE_BYTES * 4).unwrap_or(u32::MAX);
     // SAFETY: `path` is a NUL-terminated UTF-16 buffer that outlives the call.
     let handle = unsafe {
         CreateNamedPipeW(
             PCWSTR(path.as_ptr()),
-            PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
+            open_mode,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_NOWAIT | PIPE_REJECT_REMOTE_CLIENTS,
-            1,
+            PIPE_INSTANCES,
             0,
             buffer,
             0,
@@ -147,34 +171,46 @@ fn open_client(path: &[u16], deadline: Instant) -> io::Result<Option<File>> {
 
 impl Primary {
     pub(super) fn try_receive(&mut self) -> io::Result<Option<Vec<u8>>> {
-        let handle = HANDLE(self.pipe.as_raw_handle());
-        // SAFETY: the handle is this primary's live, non-blocking pipe.
-        match unsafe { ConnectNamedPipe(handle, None) } {
-            Err(error) if error.code() == ERROR_PIPE_LISTENING.to_hresult() => return Ok(None),
-            // A sender that already wrote and closed reports "no data" here,
-            // but its message stays buffered until read.
-            Ok(()) => {}
-            Err(error)
-                if error.code() == ERROR_PIPE_CONNECTED.to_hresult()
-                    || error.code() == ERROR_NO_DATA.to_hresult() => {}
-            Err(error) => return Err(os_error(error)),
-        }
-        let mut reader = PipeReader {
-            handle,
-            deadline: Instant::now() + INSTANCE_IO_TIMEOUT,
-            received: 0,
-        };
-        let message = read_frame(&mut reader);
-        // SAFETY: as above; the pipe returns to listening for the next client.
-        unsafe { DisconnectNamedPipe(handle) }.map_err(os_error)?;
-        match message {
-            Ok(message) => Ok(Some(message)),
-            // A client that connected and left without writing sent nothing.
-            Err(error) if error.kind() == ErrorKind::UnexpectedEof && reader.received == 0 => {
-                Ok(None)
+        for _ in 0..self.pipes.len() {
+            let pipe = &self.pipes[self.next];
+            // Advance first: a secondary that fails is not served again first.
+            self.next = (self.next + 1) % self.pipes.len();
+            if let Some(message) = receive(HANDLE(pipe.as_raw_handle()))? {
+                return Ok(Some(message));
             }
-            Err(error) => Err(error),
         }
+        Ok(None)
+    }
+}
+
+/// Reads the message of the secondary connected to one pipe instance and
+/// returns the instance to listening; `None` when no secondary is connected
+/// or the connected one left without writing.
+fn receive(handle: HANDLE) -> io::Result<Option<Vec<u8>>> {
+    // SAFETY: the handle is this primary's live, non-blocking pipe.
+    match unsafe { ConnectNamedPipe(handle, None) } {
+        Err(error) if error.code() == ERROR_PIPE_LISTENING.to_hresult() => return Ok(None),
+        // A sender that already wrote and closed reports "no data" here,
+        // but its message stays buffered until read.
+        Ok(()) => {}
+        Err(error)
+            if error.code() == ERROR_PIPE_CONNECTED.to_hresult()
+                || error.code() == ERROR_NO_DATA.to_hresult() => {}
+        Err(error) => return Err(os_error(error)),
+    }
+    let mut reader = PipeReader {
+        handle,
+        deadline: Instant::now() + INSTANCE_IO_TIMEOUT,
+        received: 0,
+    };
+    let message = read_frame(&mut reader);
+    // SAFETY: as above; the pipe returns to listening for the next client.
+    unsafe { DisconnectNamedPipe(handle) }.map_err(os_error)?;
+    match message {
+        Ok(message) => Ok(Some(message)),
+        // A client that connected and left without writing sent nothing.
+        Err(error) if error.kind() == ErrorKind::UnexpectedEof && reader.received == 0 => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
