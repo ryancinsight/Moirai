@@ -44,7 +44,8 @@ doctests, warning-denied rustdoc, formatting, and `git diff --check` pass.
 
 ## Revision 2026-09-11
 
-The provider correction has merged. The standalone lock now resolves Mnemosyne
+The provider correction merged as eunomia#87; mnemosyne#123 closed unmerged, since
+Mnemosyne's default Eunomia source already carries it. The standalone lock now resolves Mnemosyne
 from its current default source and Eunomia `c4f49bc1` without a `rev` pin, so
 the source-identity quarantine is removed. Hephaestus consumers use the same
 default Eunomia source and no duplicate nominal layout package remains.
