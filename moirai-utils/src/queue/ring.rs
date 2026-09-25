@@ -19,6 +19,16 @@ use alloc::boxed::Box;
 /// producer rates per the bounded-resource policy.
 const DEFAULT_QUEUE_CAPACITY: usize = 65536;
 
+/// Spins a producer makes while a dequeue reopens a slot, before it yields its
+/// time slice. Reopening is one store after the item is moved out, so a spin or
+/// two covers it; only a consumer preempted in between needs the yield.
+const SPINS_BEFORE_YIELD: u32 = 64;
+
+/// Times a producer found a claimed slot not yet reopened, so a test can
+/// reopen the slot once a producer is observed waiting on it.
+#[cfg(test)]
+pub(super) static REOPEN_WAITS: AtomicUsize = AtomicUsize::new(0);
+
 /// A single slot in the bounded MPMC queue.
 pub(super) struct Slot<T> {
     /// Monotonic sequence number that distinguishes empty, full, and stale
@@ -49,8 +59,9 @@ pub(super) struct Slot<T> {
 /// exactly and only the ring's unused tail is wasted. When the queue is full,
 /// [`enqueue`] retries with exponential backoff (preserving the
 /// unblocked-sender contract of the previous API), while [`try_enqueue`]
-/// returns `Err(item)` immediately for callers that prefer explicit
-/// backpressure.
+/// returns `Err(item)` for callers that prefer explicit backpressure. Full
+/// means `capacity` items queued: a slot a dequeue has emptied but not yet
+/// reopened is waited for, never reported as fullness.
 ///
 /// # Memory safety
 ///
@@ -133,14 +144,18 @@ impl<T> LockFreeQueue<T> {
         }
     }
 
-    /// Try to enqueue an item without blocking.
+    /// Try to enqueue an item without waiting for space.
     ///
-    /// Returns `Ok(())` if the item was enqueued, or `Err(item)` if the
-    /// queue is full. This is the lock-free fast path: no spinlock, no
-    /// mutex, no retry loop.
+    /// Returns `Ok(())` if the item was enqueued, or `Err(item)` if the queue
+    /// holds [`capacity`](LockFreeQueue::capacity) items. It takes no lock.
+    /// When the queue has room but the item's slot still belongs to a dequeue
+    /// that has moved its item out and not yet reopened the slot, it waits for
+    /// that reopening instead of reporting a full queue; the wait is one store
+    /// unless the dequeuing thread was preempted.
     #[inline]
     pub fn try_enqueue(&self, item: T) -> Result<(), T> {
         let mut pos = self.tail.load(Ordering::Relaxed);
+        let mut waits = 0;
         loop {
             let slot = &self.buffer[pos & self.mask];
             let seq = slot.sequence.load(Ordering::Acquire);
@@ -151,7 +166,7 @@ impl<T> LockFreeQueue<T> {
                 CmpOrdering::Equal => {
                     // The ring can be larger than the requested capacity, so
                     // fullness is the request, not the ring size.
-                    if pos.wrapping_sub(self.head.load(Ordering::Acquire)) >= self.capacity {
+                    if self.holds_capacity(pos) {
                         return Err(item);
                     }
 
@@ -175,13 +190,33 @@ impl<T> LockFreeQueue<T> {
                         Err(actual) => pos = actual,
                     }
                 }
-                // Queue is full: sequence lags behind tail, meaning all slots
-                // between head and tail are occupied.
-                CmpOrdering::Less => return Err(item),
+                // The slot still holds the generation written one lap ago.
+                // Below capacity, a dequeue has claimed that item and not yet
+                // reopened the slot: wait for it rather than report a fullness
+                // that does not exist, as crossbeam's `ArrayQueue::push` does.
+                CmpOrdering::Less => {
+                    if self.holds_capacity(pos) {
+                        return Err(item);
+                    }
+                    wait_for_reopen(&mut waits);
+                    pos = self.tail.load(Ordering::Relaxed);
+                }
                 // Another producer advanced tail before us: reload and retry.
                 CmpOrdering::Greater => pos = self.tail.load(Ordering::Relaxed),
             }
         }
+    }
+
+    /// Whether the queue holds `capacity` items once the tail reaches `pos`.
+    ///
+    /// `pos` may be stale: once other producers fill that position and
+    /// consumers drain it, the head passes `pos` and the wrapped difference is
+    /// huge. No real occupancy exceeds the ring, so a difference past
+    /// `ring_len` is a stale position the caller retries, not a full queue.
+    #[inline]
+    pub(super) fn holds_capacity(&self, pos: usize) -> bool {
+        let queued = pos.wrapping_sub(self.head.load(Ordering::Acquire));
+        (self.capacity..=self.ring_len).contains(&queued)
     }
 
     /// Enqueue an item, retrying with exponential backoff if the queue is full.
@@ -223,6 +258,16 @@ impl<T> LockFreeQueue<T> {
     /// This is the lock-free fast path: no spinlock, no mutex.
     #[inline]
     pub fn try_dequeue(&self) -> Option<T> {
+        let (pos, item) = self.claim_front()?;
+        // SAFETY: `pos` was claimed just above and is reopened once.
+        unsafe { self.reopen(pos) };
+        Some(item)
+    }
+
+    /// Claims the front item: advances the head past it and moves it out,
+    /// leaving its slot closed to producers until [`Self::reopen`].
+    #[inline]
+    pub(super) fn claim_front(&self) -> Option<(usize, T)> {
         let mut pos = self.head.load(Ordering::Relaxed);
         loop {
             let slot = &self.buffer[pos & self.mask];
@@ -243,12 +288,10 @@ impl<T> LockFreeQueue<T> {
                             // SAFETY: winning the head CAS means no other
                             // consumer can claim this slot, and the sequence
                             // == pos+1 invariant means the producer finished
-                            // writing; that producer cannot write again until
-                            // the store below opens the next generation.
+                            // writing; no producer writes it again until
+                            // `reopen` opens the next generation.
                             let item = unsafe { (*slot.data.get()).assume_init_read() };
-                            slot.sequence
-                                .store(pos.wrapping_add(self.ring_len), Ordering::Release);
-                            return Some(item);
+                            return Some((pos, item));
                         }
                         Err(actual) => pos = actual,
                     }
@@ -259,6 +302,20 @@ impl<T> LockFreeQueue<T> {
                 CmpOrdering::Greater => pos = self.head.load(Ordering::Relaxed),
             }
         }
+    }
+
+    /// Reopens the slot of the item claimed at `pos` for the next lap's
+    /// producer.
+    ///
+    /// # Safety
+    /// `pos` must come from [`Self::claim_front`] on this queue and be
+    /// reopened exactly once: reopening any other slot lets a producer write
+    /// a payload a consumer may still be reading.
+    #[inline]
+    pub(super) unsafe fn reopen(&self, pos: usize) {
+        self.buffer[pos & self.mask]
+            .sequence
+            .store(pos.wrapping_add(self.ring_len), Ordering::Release);
     }
 
     /// Check if the queue is empty.
@@ -295,6 +352,23 @@ impl<T> LockFreeQueue<T> {
         self.tail
             .load(Ordering::Acquire)
             .wrapping_sub(self.head.load(Ordering::Acquire))
+    }
+}
+
+/// Pauses a producer waiting for a dequeue to reopen a slot: spin briefly, then
+/// yield where the platform can, so a preempted consumer gets to run.
+#[inline]
+fn wait_for_reopen(waits: &mut u32) {
+    #[cfg(test)]
+    REOPEN_WAITS.fetch_add(1, Ordering::Relaxed);
+    if *waits < SPINS_BEFORE_YIELD {
+        *waits += 1;
+        core::hint::spin_loop();
+    } else {
+        #[cfg(feature = "std")]
+        std::thread::yield_now();
+        #[cfg(not(feature = "std"))]
+        core::hint::spin_loop();
     }
 }
 
