@@ -1,11 +1,9 @@
 //! Whole-unit tasks over `K` same-type buffers, split in lockstep: the fused
 //! alternative to one pass per output.
 
-use super::layout::{UnitTaskPlan, assert_whole_units, plan_unit_tasks};
+use super::driver::drive_unit_tasks;
+use crate::ops::shards::BufferArray;
 use crate::policy::ExecutionPolicy;
-use melinoe::MelinoeCell;
-use melinoe::region::WriterShard;
-use moirai_executor::{SyncTask, global};
 
 /// [`crate::for_each_unit_task_mut_with`] over `K` buffers of one type, split in
 /// lockstep.
@@ -58,7 +56,6 @@ pub fn for_each_unit_task_many_mut_with<P, T, S, Init, F, const K: usize>(
         return;
     };
     let len = first.len();
-    assert_whole_units(len, unit_len);
     for buffer in &outputs {
         assert_eq!(
             buffer.len(),
@@ -66,44 +63,12 @@ pub fn for_each_unit_task_many_mut_with<P, T, S, Init, F, const K: usize>(
             "many unit tasks need buffers of one length",
         );
     }
-    let Some(UnitTaskPlan {
-        per_task,
-        task_len,
-        tasks,
-        parallel,
-    }) = plan_unit_tasks::<P>(len, unit_len, unit_bytes)
-    else {
-        return;
-    };
-    if !parallel {
-        let mut state = init();
-        let mut runs = outputs.map(|buffer| buffer.chunks_mut(task_len));
-        for task in 0..tasks {
-            let chunk: [&mut [T]; K] = core::array::from_fn(|index| {
-                runs[index]
-                    .next()
-                    .expect("invariant: every buffer holds the planned run count")
-            });
-            f(&mut state, task * per_task, chunk);
-        }
-        return;
-    }
-    let partitions = outputs
-        .map(|buffer| WriterShard::new(MelinoeCell::from_mut_slice(buffer)).par_chunks(task_len));
-    let (init, f) = (&init, &f);
-    global()
-        .for_each_indexed::<SyncTask, _>(tasks, move |task| {
-            // SAFETY: each task index is visited exactly once and is in bounds
-            // for every partition view -- they hold the same number of runs,
-            // since the buffers are asserted equal in length. Distinct indices
-            // name disjoint element ranges in each buffer, so no two tasks
-            // alias, and within a task the `K` runs come from `K` distinct
-            // buffers.
-            let chunk: [&mut [T]; K] = core::array::from_fn(|index| unsafe {
-                partitions[index].get_unchecked_chunk(task).into_mut_slice()
-            });
-            let mut state = init();
-            f(&mut state, task * per_task, chunk);
-        })
-        .expect("moirai global executor: for_each_unit_task_many_mut_with");
+    drive_unit_tasks::<P, _, _, _, _>(
+        BufferArray { buffers: outputs },
+        unit_len,
+        unit_bytes,
+        "moirai global executor: for_each_unit_task_many_mut_with",
+        init,
+        f,
+    );
 }

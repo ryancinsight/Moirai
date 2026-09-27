@@ -1,20 +1,3 @@
-<a id="MOI-UNIT-TASK-MANY-2026-09-22"></a>
-## MOI-UNIT-TASK-MANY-2026-09-22 - A pass writing over three buffers of one type costs a parallel region per buffer [minor] [perf] - in-progress
-
-- **Integrator:** claude-opus-5 (`perf/many-output-unit-tasks`).
-- **Driver:** kwavers' elastic velocity-Verlet writes six fields per element.
-  Through the pair and triple forms that is three calls and three regions, and
-  measured so the fused step read 1008-1021 us against 950-991 us back to back
-  (`phase_split`, 64 cubed, 2026-09-21): the regions cost more than the fusion
-  saved. `for_each_unit_task_many_mut_with([&mut [T]; K], ...)` keeps it one.
-- **Acceptance:** task width and the `parallelize_work` decision come from the
-  planner the slice operators share; tests pin a ragged tail under both
-  policies, one state per task, disjointness across six buffers, empty `K`, and
-  a length mismatch rejected. The kwavers consumer then measures fused against
-  back-to-back on the probe's paired arms - adopted on that measurement, and
-  deleted if the consumer does not take it.
-- **Limit:** miri cannot reach the parallel path here (themis' topology calls `GetNumaHighestNodeNumber`), as for the pair and triple forms.
-
 <a id="MOI-PROCESS-STDERR-2026-09-19"></a>
 ## MOI-PROCESS-STDERR-2026-09-19 — Bound child stderr for host consumers [minor] [security]
 

@@ -1,5 +1,12 @@
 //! Mutable chunk operators over one or more disjoint buffers.
+//!
+//! Each operator plans the pass, consults the policy, runs a sequential
+//! fallback, and otherwise dispatches the disjoint partitions through the global
+//! executor. That skeleton — and its single `SAFETY` argument — lives once in
+//! [`crate::ops::shards::drive_chunks`]; the operators below are thin wrappers
+//! that name their buffer set and adapt their closure.
 
+use crate::ops::shards::{BufferArray, chunk_shards, drive_chunks};
 use crate::policy::ExecutionPolicy;
 use melinoe::MelinoeCell;
 use melinoe::region::WriterShard;
@@ -7,6 +14,26 @@ use moirai_executor::{SyncTask, global};
 
 #[cfg(test)]
 mod tests;
+
+chunk_shards! {
+    /// The single-buffer chunk operator's buffer set.
+    struct SingleShards { data: T }
+}
+
+chunk_shards! {
+    /// The paired chunk operator's buffer set.
+    struct PairShards { a: A, b: B }
+}
+
+chunk_shards! {
+    /// The triple chunk operator's buffer set.
+    struct TripleShards { a: A, b: B, c: C }
+}
+
+chunk_shards! {
+    /// The quad chunk operator's buffer set.
+    struct QuadShards { a: A, b: B, c: C, d: D }
+}
 
 /// Failure to partition a fixed set of mutable buffers into matching chunks.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,27 +78,12 @@ where
     T: Send,
     F: Fn(&mut [T]) + Send + Sync,
 {
-    let n = data.len();
-    if n == 0 || chunk_size == 0 {
-        return;
-    }
-    let num_chunks = n.div_ceil(chunk_size);
-    if !P::parallelize_chunks(n, num_chunks) || num_chunks <= 1 {
-        data.chunks_mut(chunk_size).for_each(&f);
-        return;
-    }
-    let partitions = WriterShard::new(MelinoeCell::from_mut_slice(data)).par_chunks(chunk_size);
-    let f = &f;
-    global()
-        .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
-            // SAFETY: `for_each_indexed(num_chunks, _)` visits each chunk index
-            // exactly once — the contract `get_unchecked_chunk` documents — and
-            // distinct chunk indices name disjoint element ranges, so no two
-            // tasks alias.
-            let chunk = unsafe { partitions.get_unchecked_chunk(c) }.into_mut_slice();
-            f(chunk);
-        })
-        .expect("moirai global executor: for_each_chunk_mut_with");
+    drive_chunks::<P, _, _>(
+        SingleShards { data },
+        chunk_size,
+        "moirai global executor: for_each_chunk_mut_with",
+        |_chunk_index, (chunk,)| f(chunk),
+    );
 }
 
 /// Apply `f(state, chunk)` to each consecutive mutable chunk, creating one
@@ -173,7 +185,7 @@ pub fn for_each_chunk_mut_with_state<P, T, S, Init, F>(
 /// Returns [`ChunkBuffersError::LengthMismatch`] when a buffer length differs
 /// from the first buffer's length.
 pub fn for_each_chunk_buffers_mut_enumerated_with<P, T, F, const N: usize>(
-    mut buffers: [&mut [T]; N],
+    buffers: [&mut [T]; N],
     chunk_size: usize,
     f: F,
 ) -> Result<(), ChunkBuffersError>
@@ -182,10 +194,7 @@ where
     T: Send,
     F: for<'chunk> Fn(usize, [&'chunk mut [T]; N]) + Send + Sync,
 {
-    let Some(first) = buffers.first() else {
-        return Ok(());
-    };
-    let length = first.len();
+    let length = buffers.first().map_or(0, |first| first.len());
     if let Some((buffer_index, actual)) =
         buffers
             .iter()
@@ -201,42 +210,12 @@ where
             actual,
         });
     }
-    if length == 0 || chunk_size == 0 {
-        return Ok(());
-    }
-
-    let num_chunks = length.div_ceil(chunk_size);
-    if !P::parallelize_chunks(length, num_chunks) || num_chunks <= 1 {
-        for chunk_index in 0..num_chunks {
-            let start = chunk_index * chunk_size;
-            let end = (start + chunk_size).min(length);
-            let chunks = buffers.each_mut().map(|buffer| {
-                buffer
-                    .get_mut(start..end)
-                    .expect("invariant: equal buffer lengths were validated before mutation")
-            });
-            f(chunk_index, chunks);
-        }
-        return Ok(());
-    }
-
-    let partitions = buffers
-        .map(|buffer| WriterShard::new(MelinoeCell::from_mut_slice(buffer)).par_chunks(chunk_size));
-    let f = &f;
-    global()
-        .for_each_indexed::<SyncTask, _>(num_chunks, move |chunk_index| {
-            let chunks = core::array::from_fn(|buffer_index| {
-                // SAFETY: safe construction of `buffers` proves the N mutable
-                // slices do not alias; equal lengths were validated above, so
-                // every partition view holds `num_chunks` entries and
-                // `chunk_index` is in bounds for each. Distinct chunk indices
-                // own pairwise-disjoint element ranges, so no two tasks alias.
-                unsafe { partitions[buffer_index].get_unchecked_chunk(chunk_index) }
-                    .into_mut_slice()
-            });
-            f(chunk_index, chunks);
-        })
-        .expect("moirai global executor: for_each_chunk_buffers_mut_enumerated_with");
+    drive_chunks::<P, _, _>(
+        BufferArray { buffers },
+        chunk_size,
+        "moirai global executor: for_each_chunk_buffers_mut_enumerated_with",
+        f,
+    );
     Ok(())
 }
 
@@ -259,37 +238,16 @@ pub fn for_each_chunk_pair_mut_enumerated_with<P, A, B, F>(
     B: Send,
     F: Fn(usize, &mut [A], &mut [B]) + Send + Sync,
 {
-    let na = a.len();
-    if chunk_size == 0 || na == 0 {
-        return;
-    }
-    let num_chunks = na.div_ceil(chunk_size);
-    if !P::parallelize_chunks(na, num_chunks) || num_chunks <= 1 {
-        a.chunks_mut(chunk_size)
-            .zip(b.chunks_mut(chunk_size))
-            .enumerate()
-            .for_each(|(i, (ca, cb))| f(i, ca, cb));
-        return;
-    }
-    let a_partitions = WriterShard::new(MelinoeCell::from_mut_slice(a)).par_chunks(chunk_size);
-    let b_partitions = WriterShard::new(MelinoeCell::from_mut_slice(b)).par_chunks(chunk_size);
     // The paired pass stops at the shorter buffer, matching the sequential
     // `zip` path, so a `b` shorter than `a` is processed up to `b`'s extent
-    // rather than reading out of bounds.
-    let tasks = num_chunks.min(b_partitions.len());
-    let f = &f;
-    global()
-        .for_each_indexed::<SyncTask, _>(tasks, move |c| {
-            // SAFETY: `c < tasks <= a_partitions.len()` and `c <
-            // b_partitions.len()`, so both indices are in bounds; distinct chunk
-            // indices name disjoint element ranges in each buffer, and `a`/`b`
-            // are distinct non-aliasing slices, so no two tasks alias within or
-            // across the buffers.
-            let ca = unsafe { a_partitions.get_unchecked_chunk(c) }.into_mut_slice();
-            let cb = unsafe { b_partitions.get_unchecked_chunk(c) }.into_mut_slice();
-            f(c, ca, cb);
-        })
-        .expect("moirai global executor: for_each_chunk_pair_mut_enumerated_with");
+    // rather than reading out of bounds; `drive_chunks` takes the minimum
+    // partition count for exactly that reason.
+    drive_chunks::<P, _, _>(
+        PairShards { a, b },
+        chunk_size,
+        "moirai global executor: for_each_chunk_pair_mut_enumerated_with",
+        |chunk_index, (run_a, run_b)| f(chunk_index, run_a, run_b),
+    );
 }
 
 /// Apply `f(index, a_chunk, b_chunk, c_chunk, d_chunk)` to four **distinct**
@@ -314,44 +272,27 @@ pub fn for_each_chunk_quad_mut_enumerated_with<P, A, B, C, D, F>(
     D: Send,
     F: Fn(usize, &mut [A], &mut [B], &mut [C], &mut [D]) + Send + Sync,
 {
-    let na = a.len();
-    let nb = b.len();
-    let nc = c.len();
-    let nd = d.len();
-    assert_eq!(na, nb, "quad chunk buffers must have equal lengths");
-    assert_eq!(na, nc, "quad chunk buffers must have equal lengths");
-    assert_eq!(na, nd, "quad chunk buffers must have equal lengths");
-    if chunk_size == 0 || na == 0 {
-        return;
-    }
-    let num_chunks = na.div_ceil(chunk_size);
-    if !P::parallelize_chunks(na, num_chunks) || num_chunks <= 1 {
-        a.chunks_mut(chunk_size)
-            .zip(b.chunks_mut(chunk_size))
-            .zip(c.chunks_mut(chunk_size))
-            .zip(d.chunks_mut(chunk_size))
-            .enumerate()
-            .for_each(|(i, (((ca, cb), cc), cd))| f(i, ca, cb, cc, cd));
-        return;
-    }
-    let a_partitions = WriterShard::new(MelinoeCell::from_mut_slice(a)).par_chunks(chunk_size);
-    let b_partitions = WriterShard::new(MelinoeCell::from_mut_slice(b)).par_chunks(chunk_size);
-    let c_partitions = WriterShard::new(MelinoeCell::from_mut_slice(c)).par_chunks(chunk_size);
-    let d_partitions = WriterShard::new(MelinoeCell::from_mut_slice(d)).par_chunks(chunk_size);
-    let f = &f;
-    global()
-        .for_each_indexed::<SyncTask, _>(num_chunks, move |chunk_index| {
-            // SAFETY: the four buffers are distinct non-aliasing slices of equal
-            // length (asserted above), so every partition view holds
-            // `num_chunks` entries; distinct chunk indices own pairwise-disjoint
-            // element ranges, so no two tasks alias.
-            let ca = unsafe { a_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
-            let cb = unsafe { b_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
-            let cc = unsafe { c_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
-            let cd = unsafe { d_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
-            f(chunk_index, ca, cb, cc, cd);
-        })
-        .expect("moirai global executor: for_each_chunk_quad_mut_enumerated_with");
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "quad chunk buffers must have equal lengths"
+    );
+    assert_eq!(
+        a.len(),
+        c.len(),
+        "quad chunk buffers must have equal lengths"
+    );
+    assert_eq!(
+        a.len(),
+        d.len(),
+        "quad chunk buffers must have equal lengths"
+    );
+    drive_chunks::<P, _, _>(
+        QuadShards { a, b, c, d },
+        chunk_size,
+        "moirai global executor: for_each_chunk_quad_mut_enumerated_with",
+        |chunk_index, (run_a, run_b, run_c, run_d)| f(chunk_index, run_a, run_b, run_c, run_d),
+    );
 }
 
 /// Apply `f(index, a_chunk, b_chunk, c_chunk)` to three **distinct** mutable
@@ -372,39 +313,22 @@ pub fn for_each_chunk_triple_mut_enumerated_with<P, A, B, C, F>(
     C: Send,
     F: Fn(usize, &mut [A], &mut [B], &mut [C]) + Send + Sync,
 {
-    let na = a.len();
-    let nb = b.len();
-    let nc = c.len();
-    assert_eq!(na, nb, "triple chunk buffers must have equal lengths");
-    assert_eq!(na, nc, "triple chunk buffers must have equal lengths");
-    if chunk_size == 0 || na == 0 {
-        return;
-    }
-    let num_chunks = na.div_ceil(chunk_size);
-    if !P::parallelize_chunks(na, num_chunks) || num_chunks <= 1 {
-        a.chunks_mut(chunk_size)
-            .zip(b.chunks_mut(chunk_size))
-            .zip(c.chunks_mut(chunk_size))
-            .enumerate()
-            .for_each(|(i, ((ca, cb), cc))| f(i, ca, cb, cc));
-        return;
-    }
-    let a_partitions = WriterShard::new(MelinoeCell::from_mut_slice(a)).par_chunks(chunk_size);
-    let b_partitions = WriterShard::new(MelinoeCell::from_mut_slice(b)).par_chunks(chunk_size);
-    let c_partitions = WriterShard::new(MelinoeCell::from_mut_slice(c)).par_chunks(chunk_size);
-    let f = &f;
-    global()
-        .for_each_indexed::<SyncTask, _>(num_chunks, move |chunk_index| {
-            // SAFETY: the three buffers are distinct non-aliasing slices of equal
-            // length (asserted above), so every partition view holds
-            // `num_chunks` entries; distinct chunk indices own pairwise-disjoint
-            // element ranges, so no two tasks alias.
-            let ca = unsafe { a_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
-            let cb = unsafe { b_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
-            let cc = unsafe { c_partitions.get_unchecked_chunk(chunk_index) }.into_mut_slice();
-            f(chunk_index, ca, cb, cc);
-        })
-        .expect("moirai global executor: for_each_chunk_triple_mut_enumerated_with");
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "triple chunk buffers must have equal lengths"
+    );
+    assert_eq!(
+        a.len(),
+        c.len(),
+        "triple chunk buffers must have equal lengths"
+    );
+    drive_chunks::<P, _, _>(
+        TripleShards { a, b, c },
+        chunk_size,
+        "moirai global executor: for_each_chunk_triple_mut_enumerated_with",
+        |chunk_index, (run_a, run_b, run_c)| f(chunk_index, run_a, run_b, run_c),
+    );
 }
 
 /// Like [`for_each_chunk_mut_with`] but also passes the zero-based chunk index to
@@ -416,25 +340,10 @@ where
     T: Send,
     F: Fn(usize, &mut [T]) + Send + Sync,
 {
-    let n = data.len();
-    if n == 0 || chunk_size == 0 {
-        return;
-    }
-    let num_chunks = n.div_ceil(chunk_size);
-    if !P::parallelize_chunks(n, num_chunks) || num_chunks <= 1 {
-        data.chunks_mut(chunk_size)
-            .enumerate()
-            .for_each(|(i, c)| f(i, c));
-        return;
-    }
-    let partitions = WriterShard::new(MelinoeCell::from_mut_slice(data)).par_chunks(chunk_size);
-    let f = &f;
-    global()
-        .for_each_indexed::<SyncTask, _>(num_chunks, move |c| {
-            // SAFETY: each chunk index is visited exactly once and names a
-            // disjoint element range, so no two tasks alias.
-            let chunk = unsafe { partitions.get_unchecked_chunk(c) }.into_mut_slice();
-            f(c, chunk);
-        })
-        .expect("moirai global executor: for_each_chunk_mut_enumerated_with");
+    drive_chunks::<P, _, _>(
+        SingleShards { data },
+        chunk_size,
+        "moirai global executor: for_each_chunk_mut_enumerated_with",
+        |chunk_index, (chunk,)| f(chunk_index, chunk),
+    );
 }

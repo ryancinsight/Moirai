@@ -37,6 +37,7 @@ use moirai_executor::{HybridExecutor, SchedulerScope, SyncTask, global};
 use std::sync::Mutex;
 
 mod chunks;
+mod shards;
 mod unit_tasks;
 pub use chunks::{
     ChunkBuffersError, for_each_chunk_buffers_mut_enumerated_with,
