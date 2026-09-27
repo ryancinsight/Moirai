@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-11
 
-Driver: [MOI-WASM-CANVAS-2026-09-11](../backlog.md#MOI-WASM-CANVAS-2026-09-11),
+Driver: MOI-WASM-CANVAS-2026-09-11 (delivered; see repository history),
 [Metis browser](../../metis/backlog.md#METIS-BROWSER-001),
 [RITK Metis migration](../../ritk/backlog.md#RITK-SNAP-METIS-001)
 

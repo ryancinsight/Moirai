@@ -46,7 +46,7 @@ browser `File.size()` value before constructing a reader and caches the checked
 malformed JavaScript metadata returns `InvalidInput` instead of reaching a
 release build's narrowing cast.
 
-Driver: [MOI-WASM-DOM-FILE-2026-09-08](../backlog.md#MOI-WASM-DOM-FILE-2026-09-08),
+Driver: [MOI-WASM-DOM-FILE-SAFARI-2026-09-14](../../backlog.md#MOI-WASM-DOM-FILE-SAFARI-2026-09-14),
 [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 
 ## Context

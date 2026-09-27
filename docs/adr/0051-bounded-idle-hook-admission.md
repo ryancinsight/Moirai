@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-09
 
-Driver: [MOI-IDLE-HOOK-ADMISSION](../backlog.md#MOI-IDLE-HOOK-ADMISSION),
+Driver: MOI-IDLE-HOOK-ADMISSION (delivered; see repository history),
 [Apollo worker admission](../../../apollo/backlog.md#apollo-worker-hook-admission).
 
 Revision 2026-09-09: the fixed registry, public error and caller migration are

@@ -8,7 +8,7 @@ Revision: 2026-09-11 — the provider admits at most 512 files so the committed
 409-slice MRI-DIR DICOM study (216,156,416 bytes) can pass as one bounded browser
 drop; the consumer-owned 256 MiB byte batch limit remains unchanged.
 
-Driver: [MOI-WASM-DOM-DROP-2026-09-07](../backlog.md#MOI-WASM-DOM-DROP-2026-09-07),
+Driver: MOI-WASM-DOM-DROP-2026-09-07 (delivered; see repository history),
 [Metis input controls](../../metis/backlog.md#METIS-INPUT-001).
 
 ## Context

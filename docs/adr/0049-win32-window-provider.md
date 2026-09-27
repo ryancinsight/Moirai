@@ -30,7 +30,7 @@ transition, while the keyup snapshot is taken after the released transition,
 so a consumer can distinguish `Ctrl+O` from an unmodified `O` without sampling
 global keyboard state. Repeated-key status remains a separate value.
 
-Driver: [MOI-WINDOW-WIN32-2026-09-08](../backlog.md#MOI-WINDOW-WIN32-2026-09-08),
+Driver: MOI-WINDOW-WIN32-2026-09-08 (delivered; see repository history),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
 
 ## Context

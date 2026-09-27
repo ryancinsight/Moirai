@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-07
 
-Driver: [MOI-HTTP-WS-2026-09-07](../backlog.md#MOI-HTTP-WS-2026-09-07),
+Driver: MOI-HTTP-WS-2026-09-07 (delivered; see repository history),
 [Metis async](../../metis/backlog.md#METIS-ASYNC-001).
 
 ## Context

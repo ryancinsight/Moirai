@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-19
 
-Driver: [MOI-WINDOW-DPI-2026-09-19](../backlog.md#MOI-WINDOW-DPI-2026-09-19),
+Driver: MOI-WINDOW-DPI-2026-09-19 (delivered by Moirai PR 406),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
 
 ## Context

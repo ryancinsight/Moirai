@@ -47,7 +47,7 @@ operations own cancellation for their future lifetime. A surfaced
 not prove the cause of earlier timeouts.
 
 The driving item is
-[MOI-WINDOWS-SOCKET-LIFETIME-2026-09-17](../backlog.md#MOI-WINDOWS-SOCKET-LIFETIME-2026-09-17).
+MOI-WINDOWS-SOCKET-LIFETIME-2026-09-17 (delivered by Moirai PR 390).
 Winsock's [closesocket remarks](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-closesocket#remarks)
 prohibit concurrent Winsock calls on the socket being closed.
 The [WSAPoll return contract](https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsapoll#return-value)

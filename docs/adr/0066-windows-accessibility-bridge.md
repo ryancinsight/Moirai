@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-21
 
-Driver: [MOI-WINDOW-ACCESSIBILITY-2026-09-21](../backlog.md#MOI-WINDOW-ACCESSIBILITY-2026-09-21),
+Driver: MOI-WINDOW-ACCESSIBILITY-2026-09-21 (delivered by Moirai PR 410),
 [Metis accessibility](../../metis/backlog.md#METIS-A11Y-001)
 
 ## Context
