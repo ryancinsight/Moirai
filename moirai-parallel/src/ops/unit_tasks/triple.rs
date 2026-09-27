@@ -1,10 +1,13 @@
 //! Whole-unit tasks over three equally-long mutable buffers, split in lockstep.
 
-use super::layout::{UnitTaskPlan, assert_whole_units, plan_unit_tasks};
+use super::driver::drive_unit_tasks;
+use crate::ops::shards::chunk_shards;
 use crate::policy::ExecutionPolicy;
-use melinoe::MelinoeCell;
-use melinoe::region::WriterShard;
-use moirai_executor::{SyncTask, global};
+
+chunk_shards! {
+    /// The triple unit-task operator's buffer set.
+    struct UnitTripleShards { a: A, b: B, c: C }
+}
 
 /// Apply `f(state, first_unit, a_units, b_units, c_units)` to aligned runs of
 /// whole units of three mutable buffers, each run sized to about
@@ -65,7 +68,6 @@ pub fn for_each_unit_task_triple_mut_with<P, A, B, C, S, Init, F>(
     Init: Fn() -> S + Send + Sync,
     F: Fn(&mut S, usize, &mut [A], &mut [B], &mut [C]) + Send + Sync,
 {
-    assert_whole_units(a.len(), unit_len);
     assert_eq!(
         a.len(),
         b.len(),
@@ -76,41 +78,12 @@ pub fn for_each_unit_task_triple_mut_with<P, A, B, C, S, Init, F>(
         c.len(),
         "triple unit tasks need buffers of one length",
     );
-    let Some(UnitTaskPlan {
-        per_task,
-        task_len,
-        tasks,
-        parallel,
-    }) = plan_unit_tasks::<P>(a.len(), unit_len, unit_bytes)
-    else {
-        return;
-    };
-    if !parallel {
-        let mut state = init();
-        let runs = a
-            .chunks_mut(task_len)
-            .zip(b.chunks_mut(task_len))
-            .zip(c.chunks_mut(task_len));
-        for (task, ((run_a, run_b), run_c)) in runs.enumerate() {
-            f(&mut state, task * per_task, run_a, run_b, run_c);
-        }
-        return;
-    }
-    let a_partitions = WriterShard::new(MelinoeCell::from_mut_slice(a)).par_chunks(task_len);
-    let b_partitions = WriterShard::new(MelinoeCell::from_mut_slice(b)).par_chunks(task_len);
-    let c_partitions = WriterShard::new(MelinoeCell::from_mut_slice(c)).par_chunks(task_len);
-    let (init, f) = (&init, &f);
-    global()
-        .for_each_indexed::<SyncTask, _>(tasks, move |task| {
-            // SAFETY: each task index is visited exactly once and is in bounds for
-            // every partition view (they hold the same number of runs, since all
-            // three buffers have equal length); distinct indices name disjoint
-            // element ranges in each buffer, so no two tasks alias.
-            let run_a = unsafe { a_partitions.get_unchecked_chunk(task) }.into_mut_slice();
-            let run_b = unsafe { b_partitions.get_unchecked_chunk(task) }.into_mut_slice();
-            let run_c = unsafe { c_partitions.get_unchecked_chunk(task) }.into_mut_slice();
-            let mut state = init();
-            f(&mut state, task * per_task, run_a, run_b, run_c);
-        })
-        .expect("moirai global executor: for_each_unit_task_triple_mut_with");
+    drive_unit_tasks::<P, _, _, _, _>(
+        UnitTripleShards { a, b, c },
+        unit_len,
+        unit_bytes,
+        "moirai global executor: for_each_unit_task_triple_mut_with",
+        init,
+        |state, first_unit, (run_a, run_b, run_c)| f(state, first_unit, run_a, run_b, run_c),
+    );
 }
