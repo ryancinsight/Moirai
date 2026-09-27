@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-13
-- Driver: [MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11](../backlog.md#MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11)
+- Driver: MOI-EXECUTOR-REGISTRATION-ORDER-2026-09-11 (delivered; see repository history)
 
 ## Context
 

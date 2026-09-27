@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-07
 
-Driver: [MOI-CRYPTO-2026-09-07](../backlog.md#MOI-CRYPTO-2026-09-07),
+Driver: MOI-CRYPTO-2026-09-07 (delivered; see repository history),
 [Metis crypto](../../metis/backlog.md#METIS-CRYPTO-001).
 
 ## Context

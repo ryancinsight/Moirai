@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-05 (revised 2026-09-19)
 
-Driver: [MOI-PROCESS-2026-09-05](../backlog.md#MOI-PROCESS-2026-09-05).
+Driver: MOI-PROCESS-2026-09-05 (delivered; see repository history).
 
 ## Contract and ownership
 

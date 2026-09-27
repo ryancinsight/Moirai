@@ -20,5 +20,5 @@ This section is a pointer, not a second current record. Do not re-expand it;
 edit atlas ADR-0045 instead. In-tree comments still citing "ADR-015" refer to
 that record.
 
-Implementation checklist: `docs/adr-015-checklist.md` (self-reported; its header
-contradicts its own unchecked boxes - see the meta-repo record).
+Open Moirai work is tracked in [`../backlog.md`](../backlog.md); consumer-owned
+object-storage adoption remains in [`../gap_audit.md`](../gap_audit.md).

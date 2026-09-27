@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-14
-- Item: [MOI-WINDOW-DIALOG-2026-09-14](../backlog.md#MOI-WINDOW-DIALOG-2026-09-14)
+- Item: MOI-WINDOW-DIALOG-2026-09-14 (delivered; see repository history)
 
 ## Context
 

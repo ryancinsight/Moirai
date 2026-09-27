@@ -135,7 +135,7 @@ Based on the implementation review:
 - **Scalability**: Linear scaling design up to 128 cores
 - **Work Stealing**: O(1) average case with intelligent load balancing
 
-## Next Steps from CHECKLIST.md
+## Historical next steps
 
 ### Phase 2: Unified Transport Layer (In Progress)
 The foundation is now solid for continuing with:

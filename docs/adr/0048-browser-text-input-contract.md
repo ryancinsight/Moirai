@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-07
 
-Driver: [MOI-WASM-DOM-TEXT-2026-09-07](../backlog.md#MOI-WASM-DOM-TEXT-2026-09-07),
+Driver: MOI-WASM-DOM-TEXT-2026-09-07 (delivered; see repository history),
 [Metis text](../../metis/backlog.md#METIS-TEXT-001).
 
 ## Context

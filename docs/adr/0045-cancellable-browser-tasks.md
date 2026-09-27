@@ -7,7 +7,7 @@ Date: 2026-09-07
 Revision: 2026-09-07 — native PAL tests and the WASM library check pass; the
 Metis consumer adds an explicit stop export and request-table cancellation.
 
-Driver: [MOI-WASM-TASK-2026-09-07](../backlog.md#MOI-WASM-TASK-2026-09-07),
+Driver: MOI-WASM-TASK-2026-09-07 (delivered; see repository history),
 [Metis async](../../../metis/backlog.md#METIS-ASYNC-001).
 
 ## Context

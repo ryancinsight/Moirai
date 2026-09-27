@@ -22,8 +22,8 @@ is `moirai/` (package `moirai-runtime`, library name `moirai`), and
   `cargo run -p moirai-runtime --example <name>`.
 - `docs/book/` is an mdBook deployed to GitHub Pages.
 - `docs/adr/` carries one architecture decision per file, indexed by the
-  generated `docs/adr/README.md`; `docs/*-checklist.md` carries their execution
-  state; `docs/backlog.md` is the work board.
+  generated `docs/adr/README.md`; `backlog.md` is the work board and
+  `gap_audit.md` records unowned risk.
 
 ## Branching and pull requests
 

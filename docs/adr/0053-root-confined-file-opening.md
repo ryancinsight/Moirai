@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-09
-- Item: [MOI-FS-CONFINED-2026-09-09](../backlog.md#MOI-FS-CONFINED-2026-09-09)
+- Item: MOI-FS-CONFINED-2026-09-09 (delivered; see repository history)
 
 ## Context
 

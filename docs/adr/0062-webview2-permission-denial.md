@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-17
 
-Driver: [MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17](../backlog.md#MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17),
+Driver: MOI-WINDOW-WEBVIEW2-PERMISSIONS-2026-09-17 (delivered by Moirai PR 394),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
 
 ## Context

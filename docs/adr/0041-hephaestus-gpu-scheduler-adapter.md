@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-09-04
-- Board item: [`MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04`](../backlog.md#moi-gpu-hephaestus-route-2026-09-04)
+- Board item: MOI-GPU-HEPHAESTUS-ROUTE-2026-09-04 (delivered by Moirai PR 325)
 
 ## Context
 

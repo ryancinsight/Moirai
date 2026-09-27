@@ -4,7 +4,7 @@ Status: Accepted
 
 Date: 2026-09-11
 
-Driver: [MOI-WASM-CANVAS-INPUT-2026-09-11](../backlog.md#MOI-WASM-CANVAS-INPUT-2026-09-11),
+Driver: MOI-WASM-CANVAS-INPUT-2026-09-11 (delivered; see repository history),
 [RITK Metis migration](../../ritk/backlog.md#RITK-SNAP-METIS-001)
 
 ## Context
