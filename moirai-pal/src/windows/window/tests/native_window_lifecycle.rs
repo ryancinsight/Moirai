@@ -333,3 +333,45 @@ fn native_window_holds_per_monitor_dpi_context_until_drop() {
     let restored = unsafe { GetThreadDpiAwarenessContext() };
     assert!(unsafe { AreDpiAwarenessContextsEqual(restored, prior) }.as_bool());
 }
+
+#[test]
+#[cfg(windows)]
+fn native_window_captions_survive_visibility_and_sibling_destruction() {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+
+    let assert_caption = |window: &NativeWindow, title: &str| {
+        let expected: Vec<u16> = title.encode_utf16().collect();
+        let mut caption = vec![u16::MAX; super::super::MAX_TITLE_UNITS + 1];
+        // SAFETY: the HWND belongs to this test's thread, and the output slice
+        // remains writable for the synchronous Win32 text retrieval.
+        let length = unsafe { GetWindowTextW(window.hwnd, &mut caption) };
+        assert_eq!(
+            usize::try_from(length).expect("nonnegative text length"),
+            expected.len()
+        );
+        assert_eq!(&caption[..expected.len()], expected.as_slice());
+        assert_eq!(caption[expected.len()], 0);
+    };
+    let first_title = "Moirai \u{2014} M\u{e9}tis \u{1d6fc}";
+    let second_title = "Moirai \u{533b}\u{7528} \u{1d6fd}";
+    let first_config =
+        WindowConfig::with_visibility(first_title, 320, 240, WindowVisibility::Hidden)
+            .expect("valid first title");
+    let second_config =
+        WindowConfig::with_visibility(second_title, 320, 240, WindowVisibility::Hidden)
+            .expect("valid second title");
+    let mut first = NativeWindow::new(&first_config).expect("first native window");
+    let mut second = NativeWindow::new(&second_config).expect("second native window");
+    for (window, title) in [(&first, first_title), (&second, second_title)] {
+        assert_caption(window, title);
+    }
+    first.show().expect("first window shows");
+    second.show().expect("second window shows");
+    for (window, title) in [(&first, first_title), (&second, second_title)] {
+        assert_caption(window, title);
+    }
+    second.close().expect("second window closes");
+    drop(second);
+    assert_caption(&first, first_title);
+    first.close().expect("first window closes");
+}
