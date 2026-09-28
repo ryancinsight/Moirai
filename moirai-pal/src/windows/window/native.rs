@@ -115,6 +115,8 @@ impl Drop for ThreadDpiAwarenessContext {
 impl NativeWindow {
     /// Creates a native window using the current thread's message queue.
     ///
+    /// The configured Unicode title is available even while the window is hidden.
+    ///
     /// # Errors
     /// Returns the native error when class registration or window creation
     /// fails, or `InvalidInput` for invalid configuration.
@@ -450,7 +452,8 @@ unsafe extern "system" fn window_proc(
             // SAFETY: the state pointer came from NativeWindow's live Box and the
             // HWND is being initialized synchronously by CreateWindowExW.
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, state as isize);
-            return LRESULT(1);
+            // Default creation stores the caption supplied to CreateWindowExW.
+            return DefWindowProcW(hwnd, message, wparam, lparam);
         }
 
         // SAFETY: GWLP_USERDATA is written only by WM_NCCREATE above for this HWND;
@@ -585,6 +588,8 @@ unsafe extern "system" fn window_proc(
                 // SAFETY: clearing the module-owned userdata before returning from
                 // WM_NCDESTROY prevents later messages from observing stale state.
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                // Release the caption and other default nonclient resources.
+                return DefWindowProcW(hwnd, message, wparam, lparam);
             }
             ACCESSIBILITY_WAKE_MESSAGE => {}
             _ => return DefWindowProcW(hwnd, message, wparam, lparam),
