@@ -217,14 +217,14 @@ impl ArchiveView for RemoteTaskEnvelope {
 
     fn view_archive(bytes: &[u8]) -> TransportResult<Self::Archived<'_>> {
         let mut cursor = ByteCursor::new(bytes);
-        let task_id = RemoteTaskId::new(cursor.read_u64()?);
+        let task_id = RemoteTaskId::new(u64::from_le_bytes(cursor.read_array()?));
         let reply_to = cursor.read_remote_address()?;
-        let op = cursor.read_u8()?;
+        let op = cursor.read_array::<1>()?[0];
         let operation = match op {
             OP_ECHO_BYTES => RemoteTaskOperationView::EchoBytes(cursor.read_len_prefixed_bytes()?),
             OP_SUM_U64 => {
-                let len =
-                    usize::try_from(cursor.read_u32()?).map_err(|_| TransportError::Closed)?;
+                let len = usize::try_from(u32::from_le_bytes(cursor.read_array()?))
+                    .map_err(|_| TransportError::Closed)?;
                 let byte_len = len
                     .checked_mul(core::mem::size_of::<u64>())
                     .ok_or(TransportError::Closed)?;
@@ -277,11 +277,11 @@ impl ArchiveView for RemoteTaskResult {
 
     fn view_archive(bytes: &[u8]) -> TransportResult<Self::Archived<'_>> {
         let mut cursor = ByteCursor::new(bytes);
-        let task_id = RemoteTaskId::new(cursor.read_u64()?);
-        let tag = cursor.read_u8()?;
+        let task_id = RemoteTaskId::new(u64::from_le_bytes(cursor.read_array()?));
+        let tag = cursor.read_array::<1>()?[0];
         let output = match tag {
             RESULT_BYTES => RemoteTaskOutputView::Bytes(cursor.read_len_prefixed_bytes()?),
-            RESULT_U64 => RemoteTaskOutputView::U64(cursor.read_u64()?),
+            RESULT_U64 => RemoteTaskOutputView::U64(u64::from_le_bytes(cursor.read_array()?)),
             _ => return Err(TransportError::Closed),
         };
         cursor.finish()?;
@@ -359,38 +359,23 @@ impl<'a> ByteCursor<'a> {
         Self { bytes, offset: 0 }
     }
 
-    fn read_u8(&mut self) -> TransportResult<u8> {
-        let value = *self.bytes.get(self.offset).ok_or(TransportError::Closed)?;
-        self.offset += 1;
-        Ok(value)
-    }
-
-    fn read_u16(&mut self) -> TransportResult<u16> {
-        let bytes: [u8; 2] = self
-            .read_exact(core::mem::size_of::<u16>())?
+    /// Read exactly `N` bytes and return them as a fixed-size array.
+    ///
+    /// One generic reader replaces the per-width `read_u16`/`read_u32`/
+    /// `read_u64` clones that previously differed only in the array length and
+    /// the `from_le_bytes` call. `N` is inferred at the call site from the
+    /// integer type it is converted into, so callers stay width-explicit
+    /// (`u32::from_le_bytes(cursor.read_array()?)`) without a per-width
+    /// method.
+    fn read_array<const N: usize>(&mut self) -> TransportResult<[u8; N]> {
+        self.read_exact(N)?
             .try_into()
-            .map_err(|_| TransportError::Closed)?;
-        Ok(u16::from_le_bytes(bytes))
-    }
-
-    fn read_u32(&mut self) -> TransportResult<u32> {
-        let bytes: [u8; 4] = self
-            .read_exact(core::mem::size_of::<u32>())?
-            .try_into()
-            .map_err(|_| TransportError::Closed)?;
-        Ok(u32::from_le_bytes(bytes))
-    }
-
-    fn read_u64(&mut self) -> TransportResult<u64> {
-        let bytes: [u8; 8] = self
-            .read_exact(core::mem::size_of::<u64>())?
-            .try_into()
-            .map_err(|_| TransportError::Closed)?;
-        Ok(u64::from_le_bytes(bytes))
+            .map_err(|_| TransportError::Closed)
     }
 
     fn read_len_prefixed_bytes(&mut self) -> TransportResult<&'a [u8]> {
-        let len = usize::try_from(self.read_u32()?).map_err(|_| TransportError::Closed)?;
+        let len = usize::try_from(u32::from_le_bytes(self.read_array()?))
+            .map_err(|_| TransportError::Closed)?;
         self.read_exact(len)
     }
 
@@ -402,7 +387,7 @@ impl<'a> ByteCursor<'a> {
 
     fn read_remote_address(&mut self) -> TransportResult<RemoteAddress> {
         let host = self.read_len_prefixed_string()?;
-        let port = self.read_u16()?;
+        let port = u16::from_le_bytes(self.read_array()?);
         let service = self.read_len_prefixed_string()?;
         Ok(RemoteAddress {
             host,

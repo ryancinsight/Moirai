@@ -7,6 +7,65 @@ use super::{
 use super::{TryStreamItem, fallible, split};
 use std::ops::ControlFlow;
 
+#[inline]
+fn seq_mutate_state<I, Init, T, F>(iter: I, init: Init, mut op: F) -> T
+where
+    I: ParallelIterator,
+    Init: FnOnce() -> T,
+    F: FnMut(&mut T, I::Item),
+{
+    iter.seq_fold(init(), |mut state, item| {
+        op(&mut state, item);
+        state
+    })
+}
+
+#[inline]
+fn seq_try_mutate_state<I, Init, T, F, E>(iter: I, init: Init, mut op: F) -> Result<(), E>
+where
+    I: ParallelIterator,
+    Init: FnOnce() -> T,
+    F: FnMut(&mut T, I::Item) -> Result<(), E>,
+{
+    let folded = iter.seq_try_fold((init(), Ok(())), |(mut state, _), item| {
+        match op(&mut state, item) {
+            Ok(()) => ControlFlow::Continue((state, Ok(()))),
+            Err(error) => ControlFlow::Break((state, Err(error))),
+        }
+    });
+    let (_, outcome) = match folded {
+        ControlFlow::Continue(state) | ControlFlow::Break(state) => state,
+    };
+
+    outcome
+}
+
+#[inline]
+fn reassociated_fold<I, O, Empty, Single, Combine>(
+    iter: I,
+    empty: Empty,
+    single: Single,
+    combine: Combine,
+) -> O
+where
+    I: ParallelIterator,
+    O: Send,
+    Empty: Fn() -> O + Send + Sync + Clone,
+    Single: Fn(I::Item) -> O + Send + Sync + Clone,
+    Combine: Fn(O, O) -> O + Send + Sync + Clone,
+{
+    iter.drive(FoldConsumer::new(
+        empty,
+        {
+            let single = single.clone();
+            let combine_step = combine.clone();
+            move |accumulator: O, item: I::Item| combine_step(accumulator, single(item))
+        },
+        combine,
+    ))
+    .into_value()
+}
+
 /// Core parallel iterator trait for Moirai's Rayon-style non-indexed subset.
 pub trait ParallelIterator: Sized + Send {
     /// The type of items yielded by this parallel iterator.
@@ -220,7 +279,7 @@ pub trait ParallelIterator: Sized + Send {
         U: IntoIterator,
         U::Item: Send + Sync + 'static,
     {
-        FlatMap::new(self, flat_map_fn)
+        self.flat_map(flat_map_fn)
     }
 
     /// Flatten nested item streams with standard left-to-right semantics.
@@ -238,7 +297,7 @@ pub trait ParallelIterator: Sized + Send {
         Self::Item: IntoIterator,
         <Self::Item as IntoIterator>::Item: Send + Sync + 'static,
     {
-        Flatten::new(self)
+        self.flatten()
     }
 
     /// Pair each element with its zero-based position in the logical sequence.
@@ -282,7 +341,7 @@ pub trait ParallelIterator: Sized + Send {
     where
         Self::Item: Sync + 'static,
     {
-        Take::new(self, count)
+        self.take(count)
     }
 
     /// Discard `count` elements from the logical sequence prefix.
@@ -298,7 +357,7 @@ pub trait ParallelIterator: Sized + Send {
     where
         Self::Item: Sync + 'static,
     {
-        Skip::new(self, count)
+        self.skip(count)
     }
 
     /// Retain this deterministic stream prefix while `predicate` returns `true`.
@@ -690,10 +749,7 @@ pub trait ParallelIterator: Sized + Send {
         T: Send + Clone,
         F: Fn(&mut T, Self::Item) + Send + Sync + Clone,
     {
-        self.seq_fold(init, |mut state, item| {
-            op(&mut state, item);
-            state
-        });
+        seq_mutate_state(self, move || init, op);
     }
 
     /// Apply a function to each element with lazily initialized state.
@@ -706,10 +762,7 @@ pub trait ParallelIterator: Sized + Send {
         T: Send,
         F: Fn(&mut T, Self::Item) + Send + Sync + Clone,
     {
-        self.seq_fold(init(), |mut state, item| {
-            op(&mut state, item);
-            state
-        });
+        seq_mutate_state(self, init, op);
     }
 
     /// Apply a fallible function to each element and stop on the first error.
@@ -745,17 +798,7 @@ pub trait ParallelIterator: Sized + Send {
         F: Fn(&mut T, Self::Item) -> Result<(), E> + Send + Sync + Clone,
         E: Send,
     {
-        let folded = self.seq_try_fold((init, Ok(())), |(mut state, _), item| {
-            match op(&mut state, item) {
-                Ok(()) => ControlFlow::Continue((state, Ok(()))),
-                Err(error) => ControlFlow::Break((state, Err(error))),
-            }
-        });
-        let (_, outcome) = match folded {
-            ControlFlow::Continue(state) | ControlFlow::Break(state) => state,
-        };
-
-        outcome
+        seq_try_mutate_state(self, move || init, op)
     }
 
     /// Apply a fallible function to each element with lazily initialized state.
@@ -769,17 +812,7 @@ pub trait ParallelIterator: Sized + Send {
         F: Fn(&mut T, Self::Item) -> Result<(), E> + Send + Sync + Clone,
         E: Send,
     {
-        let folded = self.seq_try_fold((init(), Ok(())), |(mut state, _), item| {
-            match op(&mut state, item) {
-                Ok(()) => ControlFlow::Continue((state, Ok(()))),
-                Err(error) => ControlFlow::Break((state, Err(error))),
-            }
-        });
-        let (_, outcome) = match folded {
-            ControlFlow::Continue(state) | ControlFlow::Break(state) => state,
-        };
-
-        outcome
+        seq_try_mutate_state(self, init, op)
     }
 
     /// Reduce with an associative operation.
@@ -870,16 +903,12 @@ pub trait ParallelIterator: Sized + Send {
     where
         S: std::iter::Sum<Self::Item> + std::iter::Sum<S> + Send,
     {
-        self.drive(FoldConsumer::new(
+        reassociated_fold(
+            self,
             || std::iter::empty::<Self::Item>().sum::<S>(),
-            |accumulator: S, item: Self::Item| {
-                [accumulator, std::iter::once(item).sum::<S>()]
-                    .into_iter()
-                    .sum::<S>()
-            },
+            |item: Self::Item| std::iter::once(item).sum::<S>(),
             |left: S, right: S| [left, right].into_iter().sum::<S>(),
-        ))
-        .into_value()
+        )
     }
 
     /// Multiply the complete logical stream through one standard
@@ -907,16 +936,12 @@ pub trait ParallelIterator: Sized + Send {
     where
         P: std::iter::Product<Self::Item> + std::iter::Product<P> + Send,
     {
-        self.drive(FoldConsumer::new(
+        reassociated_fold(
+            self,
             || std::iter::empty::<Self::Item>().product::<P>(),
-            |accumulator: P, item: Self::Item| {
-                [accumulator, std::iter::once(item).product::<P>()]
-                    .into_iter()
-                    .product::<P>()
-            },
+            |item: Self::Item| std::iter::once(item).product::<P>(),
             |left: P, right: P| [left, right].into_iter().product::<P>(),
-        ))
-        .into_value()
+        )
     }
 
     /// Return the minimum item in the logical stream.

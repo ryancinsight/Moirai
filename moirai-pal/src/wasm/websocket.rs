@@ -3,6 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::task::Waker;
 
 use js_sys::{ArrayBuffer, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -47,8 +48,7 @@ impl WebSocketConnection {
         let onopen = Closure::wrap(Box::new(move |_event: JsValue| {
             let (opened, waiter) = match open_state.lock() {
                 Ok(mut state) => {
-                    let opened = state.open();
-                    let waiter = opened.then(|| state.take_open_waiter()).flatten();
+                    let (opened, waiter) = open_waiter_on_transition(&mut state);
                     (opened, waiter)
                 }
                 Err(_) => {
@@ -63,9 +63,7 @@ impl WebSocketConnection {
                     return;
                 }
             };
-            if let Some(waiter) = waiter {
-                waiter.wake();
-            }
+            wake_waiter(waiter);
             if opened {
                 let queued = enqueue_event(
                     &open_events,
@@ -110,10 +108,8 @@ impl WebSocketConnection {
                     return;
                 }
             };
-
             let enqueue = message_state.lock().map(|mut state| {
-                let opened = state.open();
-                let open_waiter = opened.then(|| state.take_open_waiter()).flatten();
+                let (_, open_waiter) = open_waiter_on_transition(&mut state);
                 (open_waiter, state.enqueue_message(payload))
             });
             let (open_waiter, enqueue) = match enqueue {
@@ -130,15 +126,11 @@ impl WebSocketConnection {
                     return;
                 }
             };
-            if let Some(open_waiter) = open_waiter {
-                open_waiter.wake();
-            }
+            wake_waiter(open_waiter);
 
             match enqueue {
                 MessageEnqueue::Accepted(waiter) => {
-                    if let Some(waiter) = waiter {
-                        waiter.wake();
-                    }
+                    wake_waiter(waiter);
                     if !enqueue_event(
                         &message_events,
                         &message_interests,
@@ -161,9 +153,7 @@ impl WebSocketConnection {
                     }
                 }
                 MessageEnqueue::Rejected { error, waker } => {
-                    if let Some(waker) = waker {
-                        waker.wake();
-                    }
+                    wake_waiter(waker);
                     let queued = enqueue_event(
                         &message_events,
                         &message_interests,
@@ -188,18 +178,9 @@ impl WebSocketConnection {
         let close_events = Arc::clone(&pending_events);
         let close_interests = Arc::clone(&fd_interests);
         let onclose = Closure::wrap(Box::new(move |event: CloseEvent| {
-            let waiters = close_state.lock().ok().map(|mut state| {
-                let waiter = state.close(event.code());
-                let open_waiter = state.take_open_waiter();
-                (waiter, open_waiter)
-            });
-            let (waiter, open_waiter) = waiters.unwrap_or((None, None));
-            if let Some(waiter) = waiter {
-                waiter.wake();
-            }
-            if let Some(open_waiter) = open_waiter {
-                open_waiter.wake();
-            }
+            let (waiter, open_waiter) =
+                collect_terminal_waiters(&close_state, |state| state.close(event.code()));
+            wake_waiters(waiter, open_waiter);
             let queued = enqueue_event(
                 &close_events,
                 &close_interests,
@@ -268,22 +249,13 @@ impl Drop for WebSocketConnection {
         self.socket.set_onclose(None);
         self.socket.set_onerror(None);
 
-        let waiters = self.state.lock().ok().map(|mut state| {
-            let waiter = state.fail(
+        let (waiter, open_waiter) = collect_terminal_waiters(&self.state, |state| {
+            state.fail(
                 io::ErrorKind::Interrupted,
                 "WebSocket connection was cancelled",
-            );
-            let open_waiter = state.take_open_waiter();
-            (waiter, open_waiter)
+            )
         });
-        if let Some((waiter, open_waiter)) = waiters {
-            if let Some(waiter) = waiter {
-                waiter.wake();
-            }
-            if let Some(open_waiter) = open_waiter {
-                open_waiter.wake();
-            }
-        }
+        wake_waiters(waiter, open_waiter);
 
         if let Err(_error) = self.socket.close() {
             console::error_1(&"Failed to close cancelled WebSocket".into());
@@ -338,18 +310,8 @@ fn fail_connection(
     kind: io::ErrorKind,
     message: &'static str,
 ) {
-    let waiters = state.lock().ok().map(|mut state| {
-        let waiter = state.fail(kind, message);
-        let open_waiter = state.take_open_waiter();
-        (waiter, open_waiter)
-    });
-    let (waiter, open_waiter) = waiters.unwrap_or((None, None));
-    if let Some(waiter) = waiter {
-        waiter.wake();
-    }
-    if let Some(open_waiter) = open_waiter {
-        open_waiter.wake();
-    }
+    let (waiter, open_waiter) = collect_terminal_waiters(state, |state| state.fail(kind, message));
+    wake_waiters(waiter, open_waiter);
     let queued = enqueue_event(
         pending_events,
         fd_interests,
@@ -402,4 +364,40 @@ fn lock_state<'a>(
     state
         .lock()
         .map_err(|_| io::Error::other("WebSocket receive state lock is poisoned"))
+}
+
+#[inline]
+fn open_waiter_on_transition(state: &mut WebSocketState) -> (bool, Option<Waker>) {
+    let opened = state.open();
+    let waiter = opened.then(|| state.take_open_waiter()).flatten();
+    (opened, waiter)
+}
+
+#[inline]
+fn collect_terminal_waiters(
+    state: &Arc<Mutex<WebSocketState>>,
+    transition: impl FnOnce(&mut WebSocketState) -> Option<Waker>,
+) -> (Option<Waker>, Option<Waker>) {
+    state
+        .lock()
+        .ok()
+        .map(|mut state| {
+            let waiter = transition(&mut state);
+            let open_waiter = state.take_open_waiter();
+            (waiter, open_waiter)
+        })
+        .unwrap_or((None, None))
+}
+
+#[inline]
+fn wake_waiters(waiter: Option<Waker>, open_waiter: Option<Waker>) {
+    wake_waiter(waiter);
+    wake_waiter(open_waiter);
+}
+
+#[inline]
+fn wake_waiter(waiter: Option<Waker>) {
+    if let Some(waiter) = waiter {
+        waiter.wake();
+    }
 }

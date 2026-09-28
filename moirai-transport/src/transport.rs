@@ -52,6 +52,12 @@ pub struct InMemoryTransport {
     channels: Arc<RwLock<HashMap<String, LocalChannel>>>,
 }
 
+impl Default for InMemoryTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryTransport {
     /// Create an empty in-memory transport with no registered channels.
     pub fn new() -> Self {
@@ -143,6 +149,12 @@ pub struct TransportManager {
     transports: [ManagedTransport; 2],
 }
 
+impl Default for TransportManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TransportManager {
     /// Create a manager routing local addresses in-memory and remote addresses
     /// over the network transport.
@@ -196,6 +208,12 @@ pub enum ConnectionState {
     Connected,
     /// The endpoint was connected and has since disconnected.
     Disconnected,
+}
+
+impl Default for ConnectionManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConnectionManager {

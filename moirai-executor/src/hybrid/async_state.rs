@@ -266,7 +266,7 @@ where
         if admitted.is_err() {
             // The rejected job never entered a queue, so this caller still
             // owns the QUEUED epoch and no poll can be racing the revert.
-            self.state.store(ASYNC_IDLE, Ordering::Release);
+            self.revert_queued_to_idle();
         }
         admitted
     }
@@ -307,7 +307,7 @@ where
                 // ShuttingDown: the scheduler admits and runs nothing from
                 // here on, so no poll of this task can ever be admitted —
                 // reverting keeps the state honest for `Drop`.
-                self.state.store(ASYNC_IDLE, Ordering::Release);
+                self.revert_queued_to_idle();
             }
         }
     }
@@ -339,15 +339,12 @@ where
             // Cooperative cancellation observed before the first poll: the
             // future body never runs. Mirrors the sync-path cancel handling in
             // `TaskLifecycleToken::start_unless_cancelled`.
-            self.drop_future();
-            self.state.store(ASYNC_COMPLETED, Ordering::Release);
+            self.store_completed();
             self.cancel_lifecycle();
             // Record before publishing the result so a joiner observes the
             // cancelled counter as soon as the handle resolves.
             self.metrics.record_task_cancelled();
-            if let Some(sender) = self.take_result_sender() {
-                sender.send(Err(TaskError::Cancelled));
-            }
+            self.publish_result(Err(TaskError::Cancelled));
             return;
         }
 
@@ -368,12 +365,7 @@ where
 
             match poll_result {
                 Ok(Poll::Ready(output)) => {
-                    self.drop_future();
-                    self.state.store(ASYNC_COMPLETED, Ordering::Release);
-                    let execution_time = self.complete_lifecycle();
-                    if let Some(sender) = self.take_result_sender() {
-                        sender.send(Ok(output));
-                    }
+                    let execution_time = self.complete_with_result(Ok(output));
                     self.metrics.record_task_completed(execution_time);
                     return;
                 }
@@ -386,13 +378,7 @@ where
                     }
                 },
                 Err(_) => {
-                    self.drop_future();
-                    self.state.store(ASYNC_COMPLETED, Ordering::Release);
-                    self.complete_lifecycle();
-                    if let Some(sender) = self.take_result_sender() {
-                        sender.send(Err(TaskError::Panicked));
-                    }
-                    self.metrics.record_task_failed();
+                    self.complete_failed(TaskError::Panicked);
                     return;
                 }
             }
@@ -471,6 +457,27 @@ where
     }
 
     #[inline]
+    fn store_completed(&self) {
+        self.drop_future();
+        self.state.store(ASYNC_COMPLETED, Ordering::Release);
+    }
+
+    #[inline]
+    fn publish_result(&self, result: Result<F::Output, TaskError>) {
+        if let Some(sender) = self.take_result_sender() {
+            sender.send(result);
+        }
+    }
+
+    #[inline]
+    fn complete_with_result(&self, result: Result<F::Output, TaskError>) -> core::time::Duration {
+        self.store_completed();
+        let execution_time = self.complete_lifecycle();
+        self.publish_result(result);
+        execution_time
+    }
+
+    #[inline]
     fn finish_pending_poll(&self, inline_repolls: &mut usize) -> PendingPoll {
         match self.state.compare_exchange(
             ASYNC_POLLING,
@@ -527,9 +534,20 @@ where
                 self.complete_resource_exhausted();
             }
             Err(_) => {
-                self.state.store(ASYNC_IDLE, Ordering::Release);
+                self.revert_queued_to_idle();
             }
         }
+    }
+
+    #[inline]
+    fn revert_queued_to_idle(&self) {
+        self.state.store(ASYNC_IDLE, Ordering::Release);
+    }
+
+    #[inline]
+    fn complete_failed(&self, error: TaskError) {
+        self.complete_with_result(Err(error));
+        self.metrics.record_task_failed();
     }
 
     /// Complete a rejected `QUEUED` epoch without polling its future.
@@ -540,13 +558,7 @@ where
     /// job exists, so this owner may drop and publish completion exactly once.
     fn complete_resource_exhausted(&self) {
         debug_assert_eq!(self.state.load(Ordering::Acquire), ASYNC_QUEUED);
-        self.drop_future();
-        self.state.store(ASYNC_COMPLETED, Ordering::Release);
-        self.complete_lifecycle();
-        if let Some(sender) = self.take_result_sender() {
-            sender.send(Err(TaskError::ResourceExhausted));
-        }
-        self.metrics.record_task_failed();
+        self.complete_failed(TaskError::ResourceExhausted);
     }
 }
 
