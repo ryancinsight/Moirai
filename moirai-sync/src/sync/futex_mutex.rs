@@ -46,9 +46,9 @@
     )
 )]
 
+use moirai_utils::backoff::Spins;
 use std::cell::UnsafeCell;
 use std::fmt;
-use std::hint;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::Ordering;
 
@@ -58,8 +58,13 @@ use std::sync::atomic::AtomicBool;
 #[cfg(target_os = "linux")]
 use std::sync::atomic::AtomicI32;
 
-/// Maximum generic spin attempts before falling back to blocking
-const MAX_SPIN_ATTEMPTS: usize = 64;
+/// This mutex's spin budget before it falls back to blocking: 64 flat rounds,
+/// spent through the shared [`moirai_utils::backoff`] schedule.
+struct MaxSpinAttempts;
+
+impl Spins for MaxSpinAttempts {
+    const SPIN_ATTEMPTS: usize = 64;
+}
 
 #[cfg(target_os = "linux")]
 mod futex {
@@ -167,14 +172,14 @@ impl<T> FutexMutex<T> {
     /// Lock the mutex with adaptive spinning.
     pub fn lock(&self) -> FutexMutexGuard<'_, T> {
         // Try to acquire the lock with spinning first
-        for _ in 0..MAX_SPIN_ATTEMPTS {
+        for round in 0..MaxSpinAttempts::SPIN_ATTEMPTS {
             if self.try_lock_immediate() {
                 return FutexMutexGuard {
                     mutex: self,
                     _phantom: std::marker::PhantomData,
                 };
             }
-            hint::spin_loop();
+            moirai_utils::backoff::spin_round::<false>(round);
         }
 
         // Fall back to blocking

@@ -83,7 +83,7 @@ melinoe::thread_cached! {
 fn run_idle_memory_maintenance() {
     #[cfg(feature = "mnemosyne")]
     {
-        use mnemosyne::{LocalAllocatorSelector, MemoryBackendWrapper, StandardPolicy};
+        use mnemosyne::{LocalAllocatorSelector, MemoryBackendWrapper};
         if <MemoryBackendWrapper as LocalAllocatorSelector<MemoryBackendWrapper>>::get_allocator_ptr_raw().is_null() {
             return;
         }
@@ -109,7 +109,7 @@ fn run_idle_memory_maintenance() {
                     // requires exactly that exclusive per-thread allocator
                     // view for its duration.
                     |alloc| unsafe {
-                        alloc.periodic_defragmentation_sweep::<StandardPolicy>();
+                        alloc.periodic_defragmentation_sweep();
                     },
                 );
         }

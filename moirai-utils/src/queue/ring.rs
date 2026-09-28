@@ -19,6 +19,18 @@ use alloc::boxed::Box;
 /// producer rates per the bounded-resource policy.
 const DEFAULT_QUEUE_CAPACITY: usize = 65536;
 
+/// The blocking [`LockFreeQueue::enqueue`] retry budget: seven `1 << round`
+/// rounds (1, 2, ... 64 spin-loop hints) before the producer yields its core.
+///
+/// Expressed as the shared [`crate::backoff::Spins`] budget so the schedule
+/// itself lives in one place; this number is this queue's own and is not shared
+/// with the channel paths.
+struct EnqueueSpins;
+
+impl crate::backoff::Spins for EnqueueSpins {
+    const SPIN_ATTEMPTS: usize = 7;
+}
+
 /// Outcome of a successful [`LockFreeQueue::try_enqueue_outcome`].
 ///
 /// A blocked receiver parks only after observing the ring empty, so only a push
@@ -242,29 +254,25 @@ impl<T> LockFreeQueue<T> {
     ///
     /// This preserves the unblocked-sender contract of the previous API: the
     /// call always eventually succeeds (assuming consumers make progress).
-    /// The backoff path uses `core::hint::spin_loop` and, on std targets,
-    /// `std::thread::yield_now` after heavy contention, but never acquires a
-    /// global lock, so multiple producers can enqueue concurrently.
+    /// The backoff path runs the shared `1 << round` hint schedule and, on std
+    /// targets, yields the core after seven rounds (1, 2, ... 64 hints), but
+    /// never acquires a global lock, so multiple producers can enqueue
+    /// concurrently.
     #[inline]
     pub fn enqueue(&self, item: T) {
-        let mut backoff: usize = 1;
+        let mut round: usize = 0;
         let mut item = Some(item);
         loop {
             match self.try_enqueue(item.take().expect("invariant: item present")) {
                 Ok(()) => return,
                 Err(returned) => {
                     item = Some(returned);
-                    for _ in 0..backoff {
-                        core::hint::spin_loop();
-                    }
-                    if backoff < 64 {
-                        backoff = backoff.saturating_mul(2);
-                    } else {
+                    if crate::backoff::spin_then::<true, EnqueueSpins>(&mut round) {
                         #[cfg(feature = "std")]
                         {
                             std::thread::yield_now();
                         }
-                        backoff = 1;
+                        round = 0;
                     }
                 }
             }

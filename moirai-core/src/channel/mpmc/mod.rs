@@ -22,6 +22,15 @@ pub use self::send::MpmcSender;
 /// matched to its yield-based fallback.
 const MPMC_BLOCK_SPINS: usize = 10;
 
+/// [`MPMC_BLOCK_SPINS`] as the shared [`moirai_utils::backoff::Spins`] budget,
+/// so the ring paths spend their rounds through the same schedule as every other
+/// contended site while keeping this channel's condvar-matched number.
+pub(super) struct MpmcBlockSpins;
+
+impl moirai_utils::backoff::Spins for MpmcBlockSpins {
+    const SPIN_ATTEMPTS: usize = MPMC_BLOCK_SPINS;
+}
+
 pub(super) struct MpmcState<T> {
     pub(super) queue: VecDeque<T>,
     pub(super) capacity: Option<usize>,

@@ -19,6 +19,7 @@ extern crate alloc;
 
 // Modular organization following SOC and domain-oriented design
 pub mod atomic;
+pub mod backoff;
 pub mod cache;
 pub mod memory;
 pub mod queue;

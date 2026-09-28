@@ -4,6 +4,7 @@
 //! call transforms together. How many units a task carries, and whether the
 //! pass runs in parallel at all, depend on the bytes a unit moves â€” including
 
+mod driver;
 mod layout;
 mod many;
 mod pair;

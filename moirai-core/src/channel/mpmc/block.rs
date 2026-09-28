@@ -25,16 +25,14 @@ use std::sync::{Condvar, MutexGuard};
 use super::channel::MpmcChannel;
 use super::{MPMC_BLOCK_SPINS, MpmcState};
 
-/// One round of the exponential backoff: `1 << *round` spin-loop hints, then
-/// advance the round.
+/// One round of the exponential backoff: the shared `1 << round` hint schedule,
+/// then advance the round.
 ///
 /// Callers own the [`MPMC_BLOCK_SPINS`] budget check — see the [module
 /// docs](self) for why.
 #[inline]
 pub(super) fn backoff_step(round: &mut usize) {
-    for _ in 0..(1 << *round) {
-        std::hint::spin_loop();
-    }
+    moirai_utils::backoff::spin_round::<true>(*round);
     *round += 1;
 }
 

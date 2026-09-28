@@ -1,19 +1,20 @@
 use moirai_utils::CacheAligned;
 use std::cell::UnsafeCell;
 use std::fmt;
-use std::hint;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Maximum backoff iterations for `SpinLock` (TBB-inspired)
+/// Maximum backoff iterations for `SpinLock` (TBB-inspired); the shared
+/// schedule doubles `1 << round` hints while the round is below
+/// [`SPINLOCK_MAX_BACKOFF_ROUND`] and holds there.
 const SPINLOCK_MAX_BACKOFF: usize = 64;
+
+/// [`SPINLOCK_MAX_BACKOFF`] as a round index: the round stops here, so the
+/// `1 << round` hint schedule is capped at the maximum backoff.
+const SPINLOCK_MAX_BACKOFF_ROUND: usize = SPINLOCK_MAX_BACKOFF.trailing_zeros() as usize;
 
 /// Maximum spin attempts before yielding to scheduler
 const SPINLOCK_MAX_SPINS_BEFORE_YIELD: usize = 1000;
-
-// SpinLock backoff constants (TBB-inspired)
-/// Initial backoff iterations for SpinLock
-const SPINLOCK_INITIAL_BACKOFF: usize = 1;
 
 /// A spin lock for very short critical sections with TBB-inspired exponential backoff.
 ///
@@ -64,8 +65,8 @@ impl<T> SpinLock<T> {
     /// - Exponential backoff starting from 1 iteration up to 64
     /// - Adaptive yielding after prolonged spinning
     pub fn lock(&self) -> SpinLockGuard<'_, T> {
-        let mut backoff = SPINLOCK_INITIAL_BACKOFF;
-        let mut total_spins = 0;
+        let mut round = 0usize;
+        let mut total_spins = 0usize;
 
         loop {
             // Read-before-CAS: only attempt atomic write if lock is observed unlocked
@@ -81,23 +82,23 @@ impl<T> SpinLock<T> {
                 };
             }
 
-            // Exponential backoff with CPU pause instructions
-            for _ in 0..backoff {
-                hint::spin_loop();
-            }
+            // Exponential backoff with CPU pause instructions, through the shared
+            // schedule: `1 << round` hints, capped at `SPINLOCK_MAX_BACKOFF`.
+            let hints =
+                moirai_utils::backoff::spin_round::<true>(round.min(SPINLOCK_MAX_BACKOFF_ROUND));
 
-            // Double the backoff up to maximum
-            if backoff < SPINLOCK_MAX_BACKOFF {
-                backoff = backoff.saturating_mul(2);
-            }
-
-            total_spins += backoff;
+            // The schedule doubled its backoff *after* spinning and charged the
+            // doubled value to the yield budget, so charge the next round's hint
+            // count while still doubling and the held cap once the round is
+            // capped.
+            total_spins += (hints << 1).min(SPINLOCK_MAX_BACKOFF);
+            round = (round + 1).min(SPINLOCK_MAX_BACKOFF_ROUND);
 
             // After many attempts, yield to scheduler to be cooperative
             if total_spins >= SPINLOCK_MAX_SPINS_BEFORE_YIELD {
                 std::thread::yield_now();
                 total_spins = 0;
-                backoff = SPINLOCK_INITIAL_BACKOFF; // Reset backoff after yielding
+                round = 0; // Reset the schedule after yielding
             }
         }
     }

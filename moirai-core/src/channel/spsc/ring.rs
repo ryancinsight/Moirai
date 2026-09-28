@@ -18,12 +18,16 @@ use crate::communication::RingBuffer;
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Exponential-backoff spin rounds (`1 << round` spin-loop hints per round,
-/// ~63 total hints) before a blocked send/recv falls back to
-/// `thread::yield_now`. Tuned for this channel's yield-based slow path;
-/// intentionally local rather than crate-wide because MPMC uses a larger budget
-/// matched to its condvar fallback.
-const SPSC_BLOCK_SPINS: usize = 6;
+/// This channel's yield budget: six `1 << round` rounds (about 63 spin-loop
+/// hints) before a blocked send/recv falls back to `thread::yield_now`, spent
+/// through the shared [`moirai_utils::backoff`] schedule. Tuned for this
+/// channel's yield-based slow path; intentionally local rather than crate-wide
+/// because MPMC uses a larger budget matched to its condvar fallback.
+struct SpscBlockSpins;
+
+impl moirai_utils::backoff::Spins for SpscBlockSpins {
+    const SPIN_ATTEMPTS: usize = 6;
+}
 
 /// Lock-free single-producer/single-consumer channel.
 ///
@@ -79,12 +83,7 @@ impl<T> SpscChannel<T> {
 /// One step of the spin-then-yield schedule shared by the blocking paths.
 #[inline]
 fn back_off(spin: &mut usize) {
-    if *spin < SPSC_BLOCK_SPINS {
-        for _ in 0..(1 << *spin) {
-            std::hint::spin_loop();
-        }
-        *spin += 1;
-    } else {
+    if moirai_utils::backoff::spin_then::<true, SpscBlockSpins>(spin) {
         std::thread::yield_now();
     }
 }

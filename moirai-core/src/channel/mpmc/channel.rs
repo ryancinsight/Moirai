@@ -5,7 +5,7 @@
 
 use super::recv::MpmcReceiver;
 use super::send::MpmcSender;
-use super::{MPMC_BLOCK_SPINS, MpmcState, block::backoff_step};
+use super::{MpmcBlockSpins, MpmcState};
 use crate::channel::CHANNEL_STORE_LOAD_ORDER;
 use crate::channel::error::{Channel, ChannelError, Result};
 use moirai_utils::queue::{EnqueueOutcome, LockFreeQueue};
@@ -128,11 +128,12 @@ impl<T> MpmcChannel<T> {
                 }
             }
 
-            if spin_count < MPMC_BLOCK_SPINS {
-                // The ring paths spend a round without releasing anything: they
-                // hold no lock, so unlike the mutex paths there is nothing to
-                // re-acquire afterwards.
-                backoff_step(&mut spin_count);
+            // The ring paths spend a round without releasing anything: they hold
+            // no lock, so unlike the mutex paths there is nothing to re-acquire
+            // afterwards. `spin_then` reports `false` after a round and `true`
+            // once this channel's budget is spent, which is when the condvar wait
+            // below takes over.
+            if !moirai_utils::backoff::spin_then::<true, MpmcBlockSpins>(&mut spin_count) {
                 continue;
             }
 
@@ -272,11 +273,12 @@ impl<T> MpmcChannel<T> {
                 continue;
             }
 
-            if spin_count < MPMC_BLOCK_SPINS {
-                // The ring paths spend a round without releasing anything: they
-                // hold no lock, so unlike the mutex paths there is nothing to
-                // re-acquire afterwards.
-                backoff_step(&mut spin_count);
+            // The ring paths spend a round without releasing anything: they hold
+            // no lock, so unlike the mutex paths there is nothing to re-acquire
+            // afterwards. `spin_then` reports `false` after a round and `true`
+            // once this channel's budget is spent, which is when the condvar wait
+            // below takes over.
+            if !moirai_utils::backoff::spin_then::<true, MpmcBlockSpins>(&mut spin_count) {
                 continue;
             }
 
