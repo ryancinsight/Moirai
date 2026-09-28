@@ -93,6 +93,13 @@ impl TcpTransport {
 }
 
 #[cfg(feature = "network")]
+impl Default for TcpTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "network")]
 impl Transport for TcpTransport {
     fn send(&self, target: &Address, data: Vec<u8>) -> TransportResult<()> {
         self.network.send(target, data)

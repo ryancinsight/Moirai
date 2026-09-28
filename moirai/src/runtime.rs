@@ -72,6 +72,18 @@ impl Moirai {
         MoiraiBuilder::new()
     }
 
+    fn spawn_or_panic<T>(
+        &self,
+        result: ExecutorResult<TaskHandle<T>>,
+        message: &'static str,
+    ) -> TaskHandle<T> {
+        result.expect(message)
+    }
+
+    fn dispatch_or_panic(&self, result: ExecutorResult<()>, message: &'static str) {
+        result.expect(message);
+    }
+
     /// Spawn a task for parallel execution.
     ///
     /// This is a convenience method for spawning CPU-bound tasks.
@@ -84,7 +96,7 @@ impl Moirai {
     where
         T: Task,
     {
-        self.executor.spawn(task).expect("Failed to spawn task")
+        self.spawn_or_panic(self.executor.spawn(task), "Failed to spawn task")
     }
 
     /// Spawn a parallel task using a closure.
@@ -100,9 +112,10 @@ impl Moirai {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.executor
-            .spawn_blocking(func)
-            .expect("Failed to spawn blocking task")
+        self.spawn_or_panic(
+            self.executor.spawn_blocking(func),
+            "Failed to spawn blocking task",
+        )
     }
 
     /// Spawn an async task for execution.
@@ -118,9 +131,10 @@ impl Moirai {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.executor
-            .spawn_async(future)
-            .expect("Failed to spawn async task")
+        self.spawn_or_panic(
+            self.executor.spawn_async(future),
+            "Failed to spawn async task",
+        )
     }
 
     /// Spawn a blocking task that may block the current thread.
@@ -136,9 +150,10 @@ impl Moirai {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.executor
-            .spawn_blocking(func)
-            .expect("Failed to spawn blocking task")
+        self.spawn_or_panic(
+            self.executor.spawn_blocking(func),
+            "Failed to spawn blocking task",
+        )
     }
 
     /// Spawn a fire-and-forget closure whose result is discarded.
@@ -157,9 +172,10 @@ impl Moirai {
     where
         F: FnOnce() + Send + 'static,
     {
-        self.executor
-            .spawn_detached(func)
-            .expect("Failed to spawn detached task");
+        self.dispatch_or_panic(
+            self.executor.spawn_detached(func),
+            "Failed to spawn detached task",
+        );
     }
 
     /// Run a completion-only scoped fan-out on the unified scheduler.
@@ -237,9 +253,10 @@ impl Moirai {
     where
         T: Task,
     {
-        self.executor
-            .spawn_with_priority(task, priority, None)
-            .expect("Failed to spawn task with priority")
+        self.spawn_or_panic(
+            self.executor.spawn_with_priority(task, priority, None),
+            "Failed to spawn task with priority",
+        )
     }
 
     /// Spawn a closure with priority as a task (convenience method).

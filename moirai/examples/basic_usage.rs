@@ -38,11 +38,9 @@ fn main() {
         product
     });
 
-    // Wait for tasks to complete
-    // Give tasks time to complete since they're running in background threads
-    std::thread::sleep(Duration::from_millis(100));
-
-    // Now try to get results
+    // `join` blocks until the task completes, so it is the synchronization
+    // itself; the sleep that used to sit here only guessed at completion and
+    // made the example flaky on a loaded machine.
     let result1 = handle1
         .join()
         .expect("Task 1 should have completed")
@@ -58,7 +56,7 @@ fn main() {
 
     let (tx, rx) = runtime.channel::<i32>();
 
-    runtime.spawn_fn(move || {
+    let producer = runtime.spawn_fn(move || {
         println!("  Producer: Sending values...");
         for i in 1..=5 {
             tx.send(i).unwrap();
@@ -66,15 +64,24 @@ fn main() {
         }
     });
 
-    runtime.spawn_fn(move || {
+    let consumer = runtime.spawn_fn(move || {
         println!("  Consumer: Receiving values...");
         while let Ok(value) = rx.recv() {
             println!("  Consumer: Received {}", value);
         }
     });
 
-    // Give tasks time to execute
-    std::thread::sleep(Duration::from_millis(100));
+    // Join both sides instead of sleeping: the producer closes the channel when
+    // it returns, which ends the consumer's `recv` loop, so joining the pair is
+    // the completion condition the sleep only approximated.
+    producer
+        .join()
+        .expect("Producer should have completed")
+        .expect("Producer should not have errored");
+    consumer
+        .join()
+        .expect("Consumer should have completed")
+        .expect("Consumer should not have errored");
 
     // Example 3: Priority-based execution
     println!("\n3. Priority-based task execution:");

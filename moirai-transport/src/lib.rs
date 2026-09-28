@@ -10,8 +10,6 @@
 //! - Pluggable transport backends (in-memory, IPC, network)
 //! - Integration with Moirai scheduler for optimal performance
 
-#![allow(clippy::new_without_default)]
-#![allow(clippy::unwrap_or_default)]
 #![deny(missing_docs)]
 
 #[cfg(any(unix, windows))]

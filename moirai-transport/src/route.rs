@@ -256,17 +256,22 @@ pub enum RoutedProcessTaskError {
     Transport(TransportError),
 }
 
-impl From<ProcessError> for RoutedProcessTaskError {
-    fn from(error: ProcessError) -> Self {
-        Self::Process(error)
-    }
+macro_rules! impl_routed_process_task_error_from {
+    ($($error:ty => $variant:ident),+ $(,)?) => {
+        $(
+            impl From<$error> for RoutedProcessTaskError {
+                fn from(error: $error) -> Self {
+                    Self::$variant(error)
+                }
+            }
+        )+
+    };
 }
 
-impl From<TransportError> for RoutedProcessTaskError {
-    fn from(error: TransportError) -> Self {
-        Self::Transport(error)
-    }
-}
+impl_routed_process_task_error_from!(
+    ProcessError => Process,
+    TransportError => Transport,
+);
 
 /// Result type for routed process task execution.
 pub type RoutedProcessTaskResult<T> = Result<T, RoutedProcessTaskError>;
