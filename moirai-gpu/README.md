@@ -3,26 +3,19 @@
 [![crates.io](https://img.shields.io/crates/v/moirai-gpu.svg)](https://crates.io/crates/moirai-gpu)
 [![docs.rs](https://docs.rs/moirai-gpu/badge.svg)](https://docs.rs/moirai-gpu)
 
-Hephaestus-backed GPU scheduling for the [Moirai](https://github.com/ryancinsight/Moirai)
+GPU launch-shape planning for the [Moirai](https://github.com/ryancinsight/Moirai)
 concurrency library.
 
-The crate has two provider-independent layers:
+`plan_launch`, `resident_blocks`, and `plan_persistent_launch` turn a mnemosyne
+`KernelResourceBudget` and a themis `GpuTopology` into a `LaunchShape`. The
+planner never reshapes a kernel's declared block size, because register and
+shared-memory budgets are stated per that width. Unreported capacities yield
+`None` rather than fabricated bounds.
 
-- **Launch planning** (`occupancy`, always available, no backend required):
-  `plan_launch`, `resident_blocks`, and `plan_persistent_launch` turn a
-  mnemosyne `KernelResourceBudget` and a themis `GpuTopology` into a
-  `LaunchShape`. The planner never reshapes a kernel's declared block size,
-  because register and shared-memory budgets are stated per that width.
-- **Task scheduling** (`wgpu-backend`, enabled by default): `GpuContext<D>` and
-  `GpuTask` form a monomorphized adapter over the Hephaestus
-  `ComputeDevice` contract. `WgpuContext` and `CudaContext` are provider aliases;
-  device buffers, transfers, synchronization, and kernels remain owned by
-  Hephaestus. No direct `wgpu`, CUDA, or byte-casting operation API crosses
-  this facade.
-
-Disable default features when a consumer needs only the planner and generic
-task contract. Enable `cuda-backend` for the Hephaestus CUDA provider. Device
-acquisition is fallible and does not silently fall back to another provider.
+The crate has no device backend. Device acquisition, buffers, transfers,
+kernel dispatch, and synchronization belong to the Hephaestus providers.
+Moirai does not depend on them; a device operation is scheduled on Moirai as
+an ordinary task.
 
 ```toml
 [dependencies]
