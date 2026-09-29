@@ -42,7 +42,7 @@ fn tcp_accept_read_write_self_wakes_without_active_reactor() {
     // client is started only after that pending event is observed.
     IoReactor::with_reactor_disabled(|| {
         assert!(
-            IoReactor::get_active().is_none(),
+            IoReactor::with_current(|reactor| reactor.is_none()),
             "self-wake path requires no active reactor"
         );
         block_on(async {
@@ -110,7 +110,7 @@ fn udp_recv_self_wakes_without_active_reactor() {
     // only through the self-wake busy-poll fallback.
     IoReactor::with_reactor_disabled(|| {
         assert!(
-            IoReactor::get_active().is_none(),
+            IoReactor::with_current(|reactor| reactor.is_none()),
             "self-wake path requires no active reactor"
         );
         block_on(async {
