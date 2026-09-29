@@ -1,11 +1,24 @@
 //! SchedulerScope implementation.
 
-use std::mem;
+use std::{
+    marker::PhantomData,
+    mem,
+    panic::{AssertUnwindSafe, catch_unwind},
+    ptr::NonNull,
+    sync::atomic::Ordering,
+};
 
-use moirai_core::error::{ExecutorError, ExecutorResult};
+use moirai_core::{
+    Priority,
+    error::{ExecutorError, ExecutorResult},
+};
 
 use super::super::super::{class::WorkClass, job::ScheduledJob};
-use super::super::types::{SchedulerScope, SchedulerScopeState, ScopedTaskCompletion};
+use super::super::types::{
+    SchedulerScope, SchedulerScopeState, ScopedTaskCompletion, ThreadScheduler,
+    get_current_worker_id,
+};
+use super::super::worker::{execute_job, lock_mutex, next_shared_job};
 
 impl<'scope, C, const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
     SchedulerScope<'scope, C, BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
@@ -165,5 +178,185 @@ where
         // Safety: `ThreadScheduler::scope` creates this pointer from a local
         // state value and waits for every scheduled scoped job before returning.
         unsafe { self.state.as_ref() }
+    }
+}
+
+/// Busy-spin iterations a worker-thread scope waiter performs after exhausting
+/// runnable work before it parks on the scope condvar. The waiter only reaches
+/// this path when its remaining scoped jobs are actively executing on other
+/// workers (nothing left to steal), so a short spin absorbs the common
+/// finish-imminently case without an OS park round-trip; the timed park below
+/// then bounds idle-CPU while `complete_task` provides the real wakeup.
+const SCOPE_HELP_SPIN_LIMIT: usize = 64;
+
+impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
+    ThreadScheduler<BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>
+{
+    /// Run a borrowing job scope on the scheduler and wait for all spawned jobs.
+    ///
+    /// This is the scheduler-equivalent of a scoped fan-out. It avoids per-task
+    /// result storage when the caller only needs completion, while preserving the
+    /// invariant that borrowed data cannot outlive the scope.
+    ///
+    /// Jobs may borrow data that outlives this call:
+    ///
+    /// ```
+    /// use moirai_core::Priority;
+    /// use moirai_executor::{SyncTask, ThreadScheduler};
+    ///
+    /// let scheduler = ThreadScheduler::new(2, "scope-doc").unwrap();
+    /// let total = std::sync::atomic::AtomicU64::new(0);
+    /// let values = [1_u64, 2, 3];
+    /// scheduler
+    ///     .scope::<SyncTask, _>(Priority::Normal, None, |scope| {
+    ///         for value in &values {
+    ///             scope.spawn(|_| {
+    ///                 total.fetch_add(*value, std::sync::atomic::Ordering::Relaxed);
+    ///             })?;
+    ///         }
+    ///         Ok(())
+    ///     })
+    ///     .unwrap();
+    /// assert_eq!(total.into_inner(), 6);
+    /// ```
+    ///
+    /// A job cannot borrow a value local to the body. The body returns and drops
+    /// it before the buffered job is scheduled:
+    ///
+    /// ```compile_fail,E0597
+    /// use moirai_core::Priority;
+    /// use moirai_executor::{SyncTask, ThreadScheduler};
+    ///
+    /// let scheduler = ThreadScheduler::new(2, "scope-doc").unwrap();
+    /// scheduler
+    ///     .scope::<SyncTask, _>(Priority::Normal, None, |scope| {
+    ///         let local = vec![7_u8; 64];
+    ///         let borrowed: &Vec<u8> = &local;
+    ///         scope.spawn(move |_| assert_eq!(borrowed[0], 7))
+    ///     })
+    ///     .unwrap();
+    /// ```
+    pub fn scope<'scope, C, F>(
+        &'scope self,
+        priority: Priority,
+        locality_hint: Option<usize>,
+        body: F,
+    ) -> ExecutorResult<()>
+    where
+        C: WorkClass,
+        F: FnOnce(
+            &SchedulerScope<'scope, C, BLOCKING_QUEUE_CAPACITY, SPIN_LIMIT>,
+        ) -> ExecutorResult<()>,
+    {
+        if self.inner.shutdown.load(Ordering::Acquire) {
+            return Err(ExecutorError::ShuttingDown);
+        }
+
+        let state = SchedulerScopeState::new();
+        let scope = SchedulerScope {
+            scheduler: self,
+            state: NonNull::from(&state),
+            priority,
+            locality_hint,
+            jobs: std::cell::RefCell::new(Vec::new()),
+            _scope: PhantomData,
+            _class: PhantomData,
+        };
+
+        let body_result = catch_unwind(AssertUnwindSafe(|| body(&scope)));
+        // `flush` may enqueue lifetime-erased borrowing jobs before an internal
+        // unwind. Catch it so the scope state remains live through the drain.
+        let flush_result = catch_unwind(AssertUnwindSafe(|| scope.flush()));
+        // A panic here would unwind `scope` while buffered or running jobs still
+        // hold `state` and the caller's borrows, so it cannot be allowed to
+        // escape: the process aborts, as `std::thread::scope` does.
+        if catch_unwind(AssertUnwindSafe(|| self.drain_scope(&state))).is_err() {
+            std::process::abort();
+        }
+
+        match body_result {
+            Err(payload) => std::panic::resume_unwind(payload),
+            Ok(body_result) => match flush_result {
+                Err(payload) => std::panic::resume_unwind(payload),
+                Ok(flush_result) => match body_result {
+                    Ok(()) if state.failed_tasks.load(Ordering::Acquire) => Err(
+                        ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked),
+                    ),
+                    Ok(()) => flush_result,
+                    Err(error) => Err(error),
+                },
+            },
+        }
+    }
+
+    /// Wait for every job registered on `state` to complete.
+    ///
+    /// If the caller is itself a scheduler worker, it participates in work
+    /// stealing instead of parking: a worker that blocks inside `scope` while
+    /// its nested scoped jobs sit unrun would otherwise remove itself from the
+    /// pool and deadlock the fork-join (provably so on a single-worker pool, and
+    /// a source of use-after-free on the scope's stack-owned state under
+    /// concurrent nesting). Running its own queue via `next_job` keeps the pool
+    /// making progress, so nesting is deadlock-free and the scope state stays
+    /// live until every borrowing job has completed. `next_job(worker_id)` only
+    /// pops this worker's own deque and steals into it, so the aliasing rules of
+    /// the single-owner Chase–Lev deques are preserved.
+    ///
+    /// A non-worker caller parks (`SchedulerScopeState::wait`): the worker pool
+    /// drains its scoped jobs, so it never starves anything by blocking. A
+    /// caller that helped from its own lane crashed consumers (moirai-iter's
+    /// nested iteration on CI, kwavers' 3-D FFT at 32³ and above); until the
+    /// race is found the join waits as before.
+    pub(super) fn drain_scope(&self, state: &SchedulerScopeState) {
+        let Some(worker_id) = self.own_worker_id() else {
+            state.wait();
+            return;
+        };
+
+        let inner = &self.inner;
+        let mut idle_spins = 0usize;
+        loop {
+            if state.pending_tasks.load(Ordering::Acquire) == 0 {
+                state.wait();
+                return;
+            }
+
+            if let Some(job) = next_shared_job(inner, worker_id) {
+                execute_job(inner, worker_id, job);
+                idle_spins = 0;
+                continue;
+            }
+
+            // Scope still pending but nothing runnable: the remaining scoped jobs
+            // are executing on other workers. Spin briefly, then park on the
+            // scope condvar with a timeout so `complete_task` wakes us while we
+            // still periodically re-probe for freshly stealable work.
+            if idle_spins < SCOPE_HELP_SPIN_LIMIT {
+                idle_spins += 1;
+                core::hint::spin_loop();
+                continue;
+            }
+            idle_spins = 0;
+
+            let guard = lock_mutex(&state.wait_lock);
+            if state.pending_tasks.load(Ordering::Acquire) != 0 {
+                let _ = state
+                    .wait_signal
+                    .wait_timeout(guard, std::time::Duration::from_micros(50))
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+            }
+        }
+    }
+
+    /// Index of the calling thread among this scheduler's own workers.
+    ///
+    /// The worker-id thread cache is process-wide, so it names whichever
+    /// scheduler owns the thread. Indexing this scheduler's worker table with
+    /// a foreign id panics or drains the wrong deques, so membership is
+    /// confirmed against the thread each worker registers when it starts.
+    fn own_worker_id(&self) -> Option<usize> {
+        let id = get_current_worker_id()?;
+        let registered = self.inner.workers.get(id)?.thread.get()?;
+        (registered.id() == std::thread::current().id()).then_some(id)
     }
 }

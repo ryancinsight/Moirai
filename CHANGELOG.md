@@ -661,6 +661,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   half of the Dekker pair the `SeqCst` counters exist for was absent.
   `loom_mpmc_waiter::notifier_without_the_store_load_barrier_loses_the_wakeup`
   enumerates the interleaving.
+- **A scope body can no longer spawn a job that borrows a value local to it.**
+  `SchedulerScope` and `moirai_parallel::Scope` were covariant in their
+  lifetime, so `spawn` accepted a borrow of a body-local that the buffered job
+  read after the body returned and dropped it. `SchedulerScope` is now
+  invariant in `'scope`, and `moirai_parallel::Scope` takes a second lifetime
+  (`Scope<'scope, 'env>`, as `std::thread::Scope` does) so tasks borrow the
+  environment and nothing shorter. A worker of one scheduler opening a scope
+  on another no longer indexes the second scheduler's worker table with its own
+  worker id, and a panic that escapes the scope drain aborts instead of
+  unwinding while scoped jobs still use the caller's frame. A panic payload
+  whose `Drop` panics aborts instead of unwinding out of job execution.
+
 
 ### Performance
 
