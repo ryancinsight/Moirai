@@ -16,16 +16,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Determine whether navigation, hidden-document state, or sibling-host profile sharing holds or drops `CapturePreview` completion.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-EXECUTOR-SIZING-2026-09-10"></a>
-## MOI-EXECUTOR-SIZING-2026-09-10 — Diagnose the loaded-host nested-iteration crash
-- status: todo
-- priority: correctness
-- outcome: The rare libtest-only heap corruption has a reproducible cause before caller-help or default sizing changes resume.
-- acceptance: A crash dump, sanitizer, or equivalent checker identifies the first invalid access, or a controlled reproducer separates candidate scheduler arms; the unchanged nested value oracle remains intact.
-- scope: executor/scheduler scope and injector handoff, `moirai-iter` nested regression, and diagnostic tooling; no speculative queue policy or workload reduction.
-- next step: Capture a Windows dump on a debugger-capable host or run the loaded-host reproducer under a supported sanitizer.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
-
 <a id="MOI-SLEEP-SYNCED-TESTS-2026-09-09"></a>
 ## MOI-SLEEP-SYNCED-TESTS-2026-09-09 — Retire sleep-ordered tests
 - status: todo
@@ -213,7 +203,6 @@ belong in [gap_audit.md](gap_audit.md).
 ## MOI-FORK-JOIN-LATENCY-2026-09-10 — Attribute fork-join tail latency
 - status: todo
 - priority: tightening
-- needs: `MOI-EXECUTOR-SIZING-2026-09-10`
 - outcome: Repeated small fork-joins use the available worker pool without the observed wake-latency tail.
 - acceptance: The 64-task microbenchmark separates wake order, per-worker wake cost, caller participation, and spin policy across worker counts; the selected correction reduces p90 without regressing hot-path controls or idle CPU budget.
 - scope: indexed fork-join submission, worker park/wake, caller-help policy, Criterion attribution, and consumer-sized confirmation.
