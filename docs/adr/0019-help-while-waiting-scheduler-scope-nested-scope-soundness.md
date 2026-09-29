@@ -4,80 +4,77 @@ Status: Accepted
 
 - Date: 2026-07-03
 - Change class: [arch]
-- Refs: ISSUE-208, concurrency_audit.md Round 20
-- Revision 2026-09-29: pin the scoped-lifetime and scheduler-membership rules
-  after PR #513 identified the first invalid access behind the residual crash.
+- Revision 2026-09-29: [PR #515](https://github.com/ryancinsight/Moirai/pull/515)
+  retracts [PR #514](https://github.com/ryancinsight/Moirai/pull/514)'s unsupported
+  attribution of the residual iterator crash to the scope defects fixed in
+  [PR #513](https://github.com/ryancinsight/Moirai/pull/513).
 
-**Context.** `ThreadScheduler::scope` fans borrowing jobs onto the unified
-scheduler and blocks in `SchedulerScopeState::wait` until every scoped job
-completes, keeping the stack-owned scope state alive for the jobs'
-`NonNull<SchedulerScopeState>` completion tokens. `wait` spun then *parked* on a
-condvar without running scheduler work. That is unsound the moment a scope is
-entered from inside a running scheduled job (nested fork-join, e.g. a recursive
-`moirai_iter` `drive`):
+**Context.** `ThreadScheduler::scope` fans borrowing jobs onto the scheduler
+and keeps its stack-owned `SchedulerScopeState` alive until every scoped job
+completes. A worker that parks in `SchedulerScopeState::wait` cannot run nested
+scoped work. With one worker, the only runner then waits on jobs it must execute;
+with more workers, nested waits can saturate the pool. Help while waiting
+addresses this scheduling deadlock.
 
-- **Deadlock (structural).** A worker that parks inside `scope` removes itself
-  from the pool while its own nested scoped jobs sit unrun. With one worker this
-  is an unconditional deadlock (the sole runner is the parked waiter); with `n`
-  workers it deadlocks whenever every worker is simultaneously parked waiting on
-  a nested scope. Reproduced deterministically: a nested `scope` on a
-  one-worker pool times out at 30 s.
-- **Use-after-free (identified).** `SchedulerScope<'scope>` was covariant in
-  `'scope`, so safe code could shrink the lifetime and enqueue a job borrowing a
-  body-local. The body dropped that value before `flush` scheduled the job.
-  Concurrent nested scopes exposed the invalid read as
-  `STATUS_HEAP_CORRUPTION` (0xC0000374).
-- **Foreign-worker unwind (identified).** Worker IDs are process-wide. A worker
-  from one scheduler could open a scope on a smaller scheduler, index beyond its
-  worker table during `drain_scope`, and unwind while jobs still borrowed the
-  opener's frame.
+The recorded `STATUS_HEAP_CORRUPTION` (0xC0000374) and libtest access failures
+are observations, not a localized invalid access. Neither making the waiter
+progress nor fixing a separate lifetime defect establishes their cause.
 
-**Decision.** Make the scope waiter *work-conserving*. `scope` calls
-`drain_scope(&state)` instead of `state.wait()`:
+**Decision.** Keep the scope waiter work-conserving through
+`drain_scope(&state)`, with the lifetime and ownership constraints added by
+[PR #513](https://github.com/ryancinsight/Moirai/pull/513):
 
 - `SchedulerScope` is invariant in `'scope`. The public parallel scope carries
-  separate `'scope` and `'env` lifetimes, matching `std::thread::Scope`, so a
-  spawned job can borrow the environment and cannot borrow a body-local.
-- If the caller is one of **this scheduler's workers**, confirmed by matching
-  its registered thread, it runs jobs from that scheduler until the scope is
-  empty. It spins briefly, then timed-parks only when peers are executing the
-  remaining jobs. The worker never parks while holding runnable pending work.
-- A non-worker or a worker owned by another scheduler parks while this
-  scheduler drains its jobs. It never indexes this scheduler with a foreign ID.
-- An unwind cannot escape `drain_scope` while borrowed jobs remain live. A
-  double panic while dropping a job's panic payload also aborts inside job
-  execution, matching scoped-thread safety requirements.
+  separate `'scope` and `'env` lifetimes, so spawned jobs may borrow the
+  environment but cannot borrow values local to the scope body.
+- Only a worker belonging to this scheduler, established by its registered
+  thread identity, helps drain its jobs. It spins briefly and timed-parks when
+  other workers are executing the remaining work.
+- Other callers park while the owning scheduler drains jobs. A foreign worker
+  ID cannot index this scheduler's worker table or select its owner deque.
+- A drain unwind cannot escape with borrowed jobs outstanding; this path
+  aborts. A panic while dropping a job's panic payload also aborts.
 
-`next_job(worker_id)` only touches the *owner's* single-owner Chase–Lev deque
-(plus multi-consumer steals into it), so the help path introduces no new
-cross-thread aliasing on the deques.
+`next_job(worker_id)` accesses the caller's owner deque and steals through the
+multi-consumer operations. The membership check preserves the owner-side
+restriction; it does not prove every unsafe queue/storage path sound.
 
-Indexed fan-out and indexed map/reduce create the same synchronous nested-wait
-shape. They therefore use `drain_scope` as well; parking directly through
-`SchedulerScopeState::wait` would bypass this decision and can deadlock a
-saturated outer parallel region whose workers submit inner indexed chunks.
-Their chunk count is bounded only by logical work and worker-plus-caller lanes.
-Execution policy already owns the profitability decision: `Adaptive` applies
-its documented threshold before reaching the executor, while explicit
-`Parallel` must not be silently overridden by an index-count grain heuristic
-that cannot know each index's computational cost.
+Indexed fan-out and indexed map/reduce use `drain_scope` for the same nested
+wait shape. Their chunk count follows logical work and worker-plus-caller
+lanes. `Adaptive` owns its profitability threshold; explicit `Parallel` is not
+silently overridden by an index-count heuristic.
 
-**Alternatives rejected.** (b) Route `moirai_iter`'s non-indexed terminals
-through the flat `for_each_indexed` fan-out — avoids nesting but leaves `scope`
-itself a deadlock trap for every other nested caller; the scheduler primitive
-should be sound, not the callers papering over it. (c) A dedicated blocking
-thread pool for scope waiters — rejects the zero-extra-thread invariant and the
-work-stealing SSOT.
+**Alternatives rejected.** Flattening only the iterator terminals leaves
+nested scope callers exposed to the scheduling deadlock. A separate blocking
+pool adds threads instead of allowing existing workers to run nested jobs.
+Closing the residual crash diagnosis from passing scope regressions is rejected
+because those regressions do not distinguish its candidate causes.
 
-**Evidence.** `compile_fail,E0597` doctests reject body-local borrows at both
-scope surfaces. `scope_opened_from_another_schedulers_worker_completes` pins the
-foreign-worker arm. `scheduler_scope_nested_saturation_completes` preserves the
-deadlock correction, and `scheduler_scope_recursive_fork_join_is_sound` checks
-the drive-shaped arithmetic-series oracle at `W ∈ {1,2,4}`. At revision
-`c889d2d8`, 481 executor, iterator, and parallel tests passed, including the
-unchanged nested value oracle; the standalone 300-pass nested workload also
-passed. Evidence tier: type-system rejection plus value-semantic regressions.
+**Evidence and limits.** The saturation and recursive fork-join tests exercise
+nested progress and their value oracles. The `compile_fail,E0597` doctests
+exercise rejection of a body-local borrow. The
+`scope_opened_from_another_schedulers_worker_completes` regression exercises
+one scheduler's worker opening a scope on another scheduler.
 
-**Follow-up.** With `scope` sound, a parallel non-indexed `drive` can be
-reintroduced against this primitive with a parallelism-asserting test
-(ISSUE-208 (c)); tracked separately so it lands as its own verified slice.
+Those two added cases do not reproduce the original iterator trigger:
+`moirai-iter/src/parallel/sources.rs::drive_split` declares the branch storage
+and result slots before entering `global().scope`, and its nested drives use
+the same global executor. At the reviewed revision `c889d2d8c2809bd0caedfc5ff7e112831d016dc3`,
+neither a body-local borrow nor a foreign scheduler is demonstrated on that
+path. Their relevance to the residual crash remains an unverified hypothesis.
+
+The historical diagnosis at `7ba6d0ad2750e484cebaba667b6c2bf1fc458faa`
+(`docs/backlog.md`, `MOI-EXECUTOR-SIZING-2026-09-10`) records three candidate
+arms with no faults across 20,000 standalone passes per arm and 1,200
+single-pass process launches per arm. The rare libtest failure remained
+unlocalized and the arms did not separate. These are recorded negative
+exposures, not proof of absence or a fresh reproduction. The later 300-pass
+standalone success reported by PR #514 cannot strengthen them into a diagnosis.
+
+**Remaining work and overturning evidence.**
+[MOI-EXECUTOR-SIZING-2026-09-10](../../backlog.md#MOI-EXECUTOR-SIZING-2026-09-10)
+remains open. Closure requires a crash dump, sanitizer, or equivalent checker
+localizing the first invalid access, or a controlled reproducer separating the
+candidate scheduler arms. Preserve `nested_iteration_produces_correct_values`
+and its workload while gathering that evidence. Caller-help, default sizing,
+and the dependent fork-join latency work remain gated on that diagnosis.
