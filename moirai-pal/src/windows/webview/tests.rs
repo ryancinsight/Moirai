@@ -3,6 +3,7 @@
 use std::{
     io,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -15,6 +16,8 @@ use super::{
     event::WebViewPermission,
     state::WebViewState,
 };
+
+mod preview;
 
 #[test]
 fn file_policy_allows_only_the_packaged_directory() {
@@ -219,35 +222,6 @@ navigator.geolocation.getCurrentPosition(
 }
 
 #[test]
-#[ignore = "requires an installed WebView2 runtime"]
-fn installed_runtime_captures_rendered_preview() {
-    let package = TestPackage::create_with_script(PREVIEW_PAGE);
-    let host = preview_host(&package, "Moirai WebView2 preview test");
-    let png = host
-        .capture_preview_png()
-        .expect("WebView2 preview capture");
-    // The capture covers the controller, which fills the hidden window's
-    // client area; an unsized controller yields an unrelated surface size.
-    assert_eq!(png_dimensions(&png), (PREVIEW_WIDTH, PREVIEW_HEIGHT));
-}
-
-#[test]
-#[ignore = "requires an installed WebView2 runtime"]
-fn installed_runtime_refuses_capture_while_hidden() {
-    let package = TestPackage::create_with_script(PREVIEW_PAGE);
-    let mut host = preview_host(&package, "Moirai WebView2 hidden preview test");
-    host.set_visible(false).expect("hide controller");
-    // WebView2 holds a hidden controller's capture until it is shown again,
-    // so an unguarded request ends at the finite wait instead.
-    assert_eq!(
-        host.capture_preview_png()
-            .expect_err("a hidden controller has no frame to capture")
-            .kind(),
-        io::ErrorKind::InvalidInput
-    );
-}
-
-#[test]
 fn folder_host_must_lie_under_a_reserved_domain() {
     let folder = std::env::temp_dir();
     let wait = Duration::from_secs(1);
@@ -420,8 +394,10 @@ window.chrome.webview.postMessage({"ready":true});
     }
 
     fn create_with_script(script: &[u8]) -> Self {
+        static NEXT_PACKAGE: AtomicUsize = AtomicUsize::new(0);
+        let id = NEXT_PACKAGE.fetch_add(1, Ordering::Relaxed);
         let directory =
-            std::env::temp_dir().join(format!("moirai-webview2-{}", std::process::id()));
+            std::env::temp_dir().join(format!("moirai-webview2-{}-{id}", std::process::id()));
         std::fs::create_dir(&directory).expect("create unique package directory");
         let entry = directory.join("index.html");
         std::fs::write(&entry, script).expect("write package entry");
@@ -462,32 +438,4 @@ fn file_uri(path: &Path) -> String {
         }
     }
     uri
-}
-
-const PREVIEW_PAGE: &[u8] = br#"<!doctype html><meta charset="utf-8"><style>body{background:#123456}</style><body>preview</body>"#;
-const PREVIEW_WIDTH: u32 = 320;
-const PREVIEW_HEIGHT: u32 = 240;
-
-fn preview_host(package: &TestPackage, title: &str) -> WebViewHost {
-    let config = WebViewConfig::new(package.uri()).expect("packaged URI");
-    let window_config = WindowConfig::with_visibility(
-        title,
-        PREVIEW_WIDTH,
-        PREVIEW_HEIGHT,
-        WindowVisibility::Hidden,
-    )
-    .expect("window configuration");
-    let window = NativeWindow::new(&window_config).expect("native window");
-    WebViewHost::new(window, config).expect("installed WebView2 host")
-}
-
-/// Reads the width and height from a PNG's leading `IHDR` chunk.
-fn png_dimensions(png: &[u8]) -> (u32, u32) {
-    let [signature, length, kind, width, height] = [0..8, 8..12, 12..16, 16..20, 20..24]
-        .map(|range| png.get(range).expect("PNG header is complete"));
-    assert_eq!(signature, b"\x89PNG\r\n\x1a\n");
-    assert_eq!(length, 13_u32.to_be_bytes());
-    assert_eq!(kind, b"IHDR");
-    let read = |bytes: &[u8]| u32::from_be_bytes(bytes.try_into().expect("four bytes"));
-    (read(width), read(height))
 }

@@ -172,14 +172,25 @@ impl WebViewHost {
 
     /// Sets WebView2 visibility without changing the parent window state.
     ///
-    /// WebView2 withholds a hidden controller's preview capture, so
-    /// [`Self::capture_preview_png`] is refused until it is shown again.
+    /// Showing a hidden controller waits for its next renderer frame.
     ///
     /// # Errors
-    /// Returns an error when the controller is closed or the native call fails.
+    /// Returns an error when the controller is closed, the native call fails,
+    /// or a shown controller does not deliver a frame before the configured
+    /// finite deadline.
     pub fn set_visible(&mut self, visible: bool) -> io::Result<()> {
+        let webview = self.webview.as_ref().ok_or_else(closed_error)?;
         let controller = self.controller.as_ref().ok_or_else(closed_error)?;
-        unsafe { controller.SetIsVisible(visible).map_err(windows_error) }
+        let mut was_visible = BOOL(0);
+        // SAFETY: `was_visible` is writable for the call and `controller` is a
+        // live interface owned by this thread.
+        unsafe { controller.IsVisible(&mut was_visible) }.map_err(windows_error)?;
+        // SAFETY: `controller` is a live interface owned by this thread.
+        unsafe { controller.SetIsVisible(visible) }.map_err(windows_error)?;
+        if visible && !was_visible.as_bool() {
+            super::frame::wait_for_presented_frame(webview, self.config.wait())?;
+        }
+        Ok(())
     }
 
     /// Reads the parent window's restored rectangle and maximized state.
