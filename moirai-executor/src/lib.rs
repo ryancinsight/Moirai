@@ -28,7 +28,7 @@ pub mod task;
 // Re-export key types for clean API
 pub use hybrid::HybridExecutor;
 pub use metrics::ExecutorMetrics;
-pub use registry::TaskRegistry;
+pub use registry::{RetentionPolicy, TaskRegistry};
 pub use schedule::{
     AcceleratorCounts, AcceleratorId, AcceleratorKind, AcceleratorRoute, AcceleratorRoutePolicy,
     AsyncLaneId, AsyncLanesPerProcess, AsyncTask, BlockingTask, HybridRoutePolicy, HybridRouter,

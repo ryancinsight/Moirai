@@ -185,11 +185,11 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
         // per 1024 tasks, never one per task. The directory gained a lock so
         // registration takes `&self` (ADR 0005, 2026-08-29 revision); the
         // block granularity it guards is unchanged.
-        "blocks: RwLock<Vec<Arc<TaskStateBlock>>>",
+        "blocks: RwLock<BlockDirectory>",
         // Dense inline slots remain one block allocation per 1024 tasks. Async
         // tokens retain the block; scheduler-bounded tokens use a non-owning
         // lifetime policy without restoring one allocation per task.
-        "slots: Box<[UnsafeCell<Option<TaskState>>]>",
+        "states: Box<[UnsafeCell<MaybeUninit<TaskState>>]>",
         "block: Arc<TaskStateBlock>",
         "token_active: AtomicBool",
         "pub(crate) struct OwnedStateLease",
@@ -206,7 +206,7 @@ fn executor_registry_registration_rejects_regressed_lock_free_allocator() {
 
     for required in [
         "task_registry: Arc<TaskRegistry>,",
-        "let task_registry = Arc::new(TaskRegistry::new())",
+        ".map_or_else(TaskRegistry::new, TaskRegistry::with_retention)",
         "scheduler.retain_lifetime_owner((Arc::clone(&task_registry), Arc::clone(&metrics)))",
         "let registry = &self.task_registry;",
         "unsafe { registry.register_next_scheduled_task() }",

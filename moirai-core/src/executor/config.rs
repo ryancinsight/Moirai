@@ -123,33 +123,37 @@ impl Default for MemoryConfig {
     }
 }
 
-/// Configuration for task metadata cleanup.
+/// Configuration for completed-task retention.
 ///
-/// Controls how and when completed task metadata is removed from memory
-/// to prevent memory leaks in long-running executors.
+/// The executor releases the state of finished tasks in whole blocks of 1,024
+/// tasks as it registers new ones, so retained memory follows the spawn rate
+/// without a background thread. A block is released once every task in it has
+/// finished and either its newest completion is older than
+/// `task_retention_duration` or more than `max_retained_tasks` finished tasks
+/// are retained. One long-running task therefore keeps its own block resident.
+///
+/// A released task still reports as completed to `wait_for_task` and accepts
+/// `cancel_task` as a no-op; only its status and statistics are gone, so
+/// `task_status` and `task_stats` return `None`.
 #[derive(Debug, Clone)]
 pub struct CleanupConfig {
-    /// How long to keep completed task metadata before cleanup
+    /// How long finished-task metadata stays observable.
     ///
     /// # Default: 5 minutes
-    /// # Range: 1 second to `task_retention_duration`
     pub task_retention_duration: core::time::Duration,
 
-    /// How often to run the cleanup process
+    /// Whether the executor releases finished-task metadata at all.
     ///
-    /// # Default: 30 seconds  
-    /// # Range: 1 second to `task_retention_duration`
-    pub cleanup_interval: core::time::Duration,
-
-    /// Whether to enable automatic cleanup
-    ///
-    /// If disabled, cleanup must be triggered manually via `cleanup_completed_tasks()`
+    /// When disabled every task's metadata is retained for the executor's
+    /// lifetime and memory grows with the number of tasks spawned.
     /// # Default: true
     pub enable_automatic_cleanup: bool,
 
-    /// Maximum number of completed tasks to retain regardless of age
+    /// Most finished tasks retained regardless of age, rounded up to whole
+    /// blocks of 1,024 tasks.
     ///
-    /// This provides a hard limit to prevent unbounded memory growth
+    /// This is the hard bound on retained memory for a workload that finishes
+    /// tasks faster than `task_retention_duration` elapses.
     /// # Default: 10,000 tasks
     pub max_retained_tasks: usize,
 }
@@ -158,7 +162,6 @@ impl Default for CleanupConfig {
     fn default() -> Self {
         Self {
             task_retention_duration: core::time::Duration::from_mins(5),
-            cleanup_interval: core::time::Duration::from_secs(30), // 30 seconds
             enable_automatic_cleanup: true,
             max_retained_tasks: 10_000,
         }

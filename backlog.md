@@ -46,16 +46,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Extend `DrainRing` with a second producer and prove the receiver-head condition before changing production ordering.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-REGISTRY-UNBOUNDED-2026-08-27"></a>
-## MOI-REGISTRY-UNBOUNDED-2026-08-27 — Bound completed-task registry retention
-- status: todo
-- priority: correctness
-- outcome: Completed task state no longer grows by about 74 bytes per task while completion and cancellation contracts remain stable.
-- acceptance: A bounded cursor sweep releases completed slots, a completed watermark plus exceptions preserves `is_completed` and completed-task cancellation, and registry lock time stays bounded.
-- scope: task registry, runtime cleanup hook, task status/statistics contract, allocation oracle, and ADR 0005; no naive full-directory sweep.
-- next step: Specify retention and `task_stats` expiry, then model the monotonic watermark and bounded sweep before implementation.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
-
 <a id="MOI-SEC-077"></a>
 ## MOI-SEC-077 — Remove the unresolved RSA advisory
 - status: blocked
