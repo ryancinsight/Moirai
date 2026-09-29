@@ -6,16 +6,6 @@ priority (`correctness`, `architecture`, `verification`, `tightening`, then
 contains only `todo` and `blocked` work. Risks without an active implementation
 belong in [gap_audit.md](gap_audit.md).
 
-<a id="MOI-WEBVIEW-RESHOW-CAPTURE-001"></a>
-## MOI-WEBVIEW-RESHOW-CAPTURE-001 — Synchronize capture after WebView2 re-show
-- status: todo
-- priority: correctness
-- outcome: A preview requested immediately after a hidden controller is shown completes reliably.
-- acceptance: A readiness signal derived from WebView2 or frame delivery makes 100 concurrent re-show/capture runs pass without extending the 30-second deadline.
-- scope: `moirai-pal/src/windows/webview/host/view.rs` and its native tests; no polling delay or consumer-specific policy.
-- next step: Correlate controller events and frame timing after `set_visible(true)` to select the readiness signal.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
-
 <a id="MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24"></a>
 ## MOI-WEBVIEW-PREVIEW-CAPTURE-TIMEOUT-2026-09-24 — Stabilize preview capture under parallel hosts
 - status: todo

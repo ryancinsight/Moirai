@@ -4,11 +4,11 @@ Status: Accepted
 
 Date: 2026-09-09
 
-Revision: 2026-09-24
+Revision: 2026-09-28
 
-Revision note: the host now sizes the controller to its window's client area
-and shows it at creation, and refuses capture of a hidden controller, because
-WebView2 withholds a hidden controller's capture completion (Moirai #454).
+Revision note: showing a hidden controller now waits for a post-show rendered
+surface before returning, so immediate preview capture is reliable
+([Moirai #500](https://github.com/ryancinsight/Moirai/pull/500)).
 
 Driver: MOI-WINDOW-WEBVIEW2-2026-09-09 (delivered by [Moirai #299](https://github.com/ryancinsight/Moirai/pull/299)),
 [Metis desktop](../../metis/backlog.md#METIS-DESKTOP-001)
@@ -64,6 +64,15 @@ permission requests never arrive. A capture requested while the consumer has
 hidden the controller through `set_visible(false)` therefore fails at once
 with `InvalidInput` rather than at the finite wait.
 
+When that controller is shown again, the host requests a surface screenshot
+through WebView2's asynchronous
+[`CallDevToolsProtocolMethod`](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2?view=webview2-1.0.2592.51#calldevtoolsprotocolmethod)
+API and waits for
+[`Page.captureScreenshot`](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-captureScreenshot).
+Its parsed image response proves a presented surface without trusting page
+JavaScript; malformed and error responses fail. The existing deadline applies,
+with no polling delay or consumer message.
+
 The provider stores every callback token and removes it before closing the
 controller. `Drop` performs only synchronous COM release and controller close;
 fallible shutdown is available through `close` and never blocks or awaits.
@@ -110,10 +119,11 @@ native window lifecycle plus policy boundary; a runtime capture against an
 installed WebView2 runtime and the Metis packaged HTML/CSS/WASM bundle is the
 consumer integration increment. An ignored integration smoke is checked in for
 that host and verifies the packaged page, bridge message and denied navigation
-when the runtime is present. The ignored provider capture tests read the PNG header
-and require the window's 320x240 client area, and require a hidden controller's
-capture to be refused, while the finite pump bound and queue overflow
-are value-tested without sleeps or polling loops.
+when the runtime is present. The ignored provider capture tests decode the PNG
+and require the window's 320x240 RGBA pixels, and require a hidden controller's
+capture to be refused. A 100-host stress test requires those pixels immediately
+after re-show, while the finite pump bound and queue overflow are value-tested
+without sleeps or polling loops.
 
 The Windows loader and browser runtime are system prerequisites; non-Windows,
 WASM and default-feature Windows builds omit this module. Miri cannot execute
