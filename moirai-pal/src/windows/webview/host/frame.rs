@@ -88,6 +88,9 @@ fn validate_presented_frame(response: &str) -> io::Result<()> {
             "WebView2 presented-frame PNG has no decoded pixels",
         ));
     }
+    reader
+        .finish()
+        .map_err(|error| invalid_frame(format!("WebView2 presented-frame PNG trailer: {error}")))?;
     Ok(())
 }
 
@@ -174,6 +177,8 @@ mod tests {
             r#"{"data":"not-base64"}"#,
             r#"{"data":"iVBORw0KGgo="}"#,
             r#"{"data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAA"}"#,
+            r#"{"data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYA=="}"#,
+            r#"{"data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYIM="}"#,
             r#"{"error":{"message":"missing data"}}"#,
             r#"{"exceptionDetails":{"text":"data"}}"#,
             r#"{"data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","exceptionDetails":{"text":"failure"}}"#,
