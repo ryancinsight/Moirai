@@ -539,6 +539,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dropping a Unix socket or its future retires the reactor registration.**
+  On epoll and kqueue a dropped read, write, accept, connect or datagram
+  future, or a dropped `AsyncTcpStream`, left its descriptor registered with
+  the task waker, so a later socket reusing the descriptor number inherited
+  the stale interest and a readiness event dispatched after `close` failed
+  the whole reactor with `EBADF`. Each pending operation now holds the
+  per-interest cancellation Windows already used, and a removal that finds
+  the descriptor closed retires the registration instead of failing.
+
 - **A WebView2 host renders the page it hosts.** `WebViewHost::new` left the
   controller at empty bounds and, under a hidden window, not visible, so
   WebView2 held `capture_preview_png`'s completion until the finite wait

@@ -10,10 +10,8 @@ use std::os::unix::io::AsRawFd;
 use std::task::Poll;
 use std::time::Duration;
 
-use super::{AsyncTcpStream, poll_ready_op};
+use super::{AsyncTcpStream, SocketLease, poll_ready_op};
 use crate::Interest;
-#[cfg(windows)]
-use crate::reactor::socket_owner::SocketLease;
 
 #[cfg(windows)]
 mod reprobe;
@@ -41,39 +39,27 @@ impl AsyncTcpStream {
     /// `TimedOut`).
     pub async fn connect(addr: SocketAddr) -> io::Result<Self> {
         let stream = Self::from_nonblocking(start_connect(addr)?);
-        #[cfg(unix)]
-        {
-            let fd = stream.inner.as_raw_fd();
-            poll_fn(|cx| {
-                poll_ready_op(cx, fd, Interest::WRITABLE, || {
-                    connect_outcome(&stream.inner, Duration::ZERO)
-                })
-            })
-            .await?;
-        }
+        let owner = SocketLease::from(&stream.inner);
+        // Declared after `stream`, so a dropped future retires this
+        // registration before the socket closes.
+        let mut waiter = None;
+        // Dropped when the connect settles or the future is dropped, which
+        // ends its re-probe wakes.
         #[cfg(windows)]
-        {
-            let owner = SocketLease::from(&stream.inner);
-            // Declared after `stream`, so a dropped future retires this
-            // registration before the socket closes.
-            let mut waiter = None;
-            // Dropped when the connect settles or the future is dropped, which
-            // ends its re-probe wakes.
-            let mut reprobe = reprobe::Registration::new();
-            poll_fn(|cx| {
-                let polled =
-                    poll_ready_op(cx, owner.clone(), Interest::WRITABLE, &mut waiter, || {
-                        connect_outcome(&stream.inner, Duration::ZERO)
-                    });
-                if polled.is_pending()
-                    && let Err(error) = reprobe.arm(cx.waker())
-                {
-                    return Poll::Ready(Err(error));
-                }
-                polled
-            })
-            .await?;
-        }
+        let mut reprobe = reprobe::Registration::new();
+        poll_fn(|cx| {
+            let polled = poll_ready_op(cx, owner.clone(), Interest::WRITABLE, &mut waiter, || {
+                connect_outcome(&stream.inner, Duration::ZERO)
+            });
+            #[cfg(windows)]
+            if polled.is_pending()
+                && let Err(error) = reprobe.arm(cx.waker())
+            {
+                return Poll::Ready(Err(error));
+            }
+            polled
+        })
+        .await?;
         Ok(stream)
     }
 }

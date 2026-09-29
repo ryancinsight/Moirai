@@ -46,7 +46,7 @@ impl IoReactor {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .insert(key, platform_generation);
-        #[cfg(windows)]
+        #[cfg(any(unix, windows))]
         self.waiter_cancellations.clear_interest(key, true, true);
         let displaced = fds.insert(
             key,
@@ -83,7 +83,7 @@ impl IoReactor {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .remove(&key);
-        #[cfg(windows)]
+        #[cfg(any(unix, windows))]
         self.waiter_cancellations.clear_interest(key, true, true);
         let displaced = fds.remove(&key);
         drop(fds);

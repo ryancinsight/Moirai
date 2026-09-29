@@ -11,7 +11,7 @@ use super::super::driver_failure::DriverFailureState;
 use super::super::metrics::ReactorMetrics;
 #[cfg(windows)]
 use super::super::registration::RegistrationGeneration;
-#[cfg(windows)]
+#[cfg(any(unix, windows))]
 use super::super::waiter_cancellation::WaiterCancellationState;
 use crate::{Interest, PlatformReactor, RawFd};
 
@@ -55,8 +55,8 @@ pub struct IoReactor {
     /// Windows platform generation paired with each central registration.
     #[cfg(windows)]
     pub(in crate::reactor) platform_generations: Arc<Mutex<HashMap<FdKey, RegistrationGeneration>>>,
-    /// Reactor-bound identity for owned Windows waiter cancellation.
-    #[cfg(windows)]
+    /// Reactor-bound identity for owned waiter cancellation.
+    #[cfg(any(unix, windows))]
     pub(in crate::reactor) waiter_cancellations: Arc<WaiterCancellationState>,
     /// Performance metrics
     pub(crate) metrics: Arc<ReactorMetrics>,

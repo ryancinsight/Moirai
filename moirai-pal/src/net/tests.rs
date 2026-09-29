@@ -2,11 +2,23 @@ use super::*;
 use futures::executor::block_on;
 use std::future::Future;
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawSocket;
 use std::time::Duration;
 
 const MAX_SELF_WAKE_POLLS: usize = 100_000;
+
+#[cfg(unix)]
+fn raw_id(socket: &impl AsRawFd) -> crate::RawFd {
+    socket.as_raw_fd()
+}
+
+#[cfg(windows)]
+fn raw_id(socket: &impl AsRawSocket) -> crate::RawFd {
+    socket.as_raw_socket() as crate::RawFd
+}
 
 fn poll_until_ready<F>(mut future: std::pin::Pin<&mut F>, context: &mut Context<'_>) -> F::Output
 where
@@ -140,14 +152,13 @@ fn udp_recv_self_wakes_without_active_reactor() {
 }
 
 #[test]
-#[cfg(windows)]
 fn dropping_owned_recv_future_retires_only_its_waiter() {
     let reactor = IoReactor::new().expect("reactor");
     let socket = block_on(AsyncUdpSocket::bind(
         "127.0.0.1:0".parse().expect("loopback address"),
     ))
     .expect("receiver bind");
-    let fd = socket.inner.as_raw_socket() as crate::RawFd;
+    let fd = raw_id(&*socket.inner);
     let noop = futures::task::noop_waker();
     let mut context = Context::from_waker(&noop);
     let mut buffer = [0_u8; 8];
@@ -187,14 +198,13 @@ fn dropping_owned_recv_future_retires_only_its_waiter() {
 }
 
 #[test]
-#[cfg(windows)]
 fn dropping_polled_stream_retires_waiter_before_socket() {
     let listener = StdTcpListener::bind("127.0.0.1:0").expect("listener bind");
     let client = StdTcpStream::connect(listener.local_addr().expect("listener address"))
         .expect("client connect");
     let (server, _) = listener.accept().expect("server accept");
     let mut stream = AsyncTcpStream::from_std(server).expect("async stream");
-    let fd = stream.inner.as_raw_socket() as crate::RawFd;
+    let fd = raw_id(&*stream.inner);
     let reactor_a = IoReactor::new().expect("reactor A");
     let reactor_b = IoReactor::new().expect("reactor B");
     let noop = futures::task::noop_waker();

@@ -22,7 +22,7 @@ pub(crate) mod registration;
 pub(crate) mod socket_owner;
 /// Thread-local / process-global active-reactor installation.
 pub mod tls;
-#[cfg(windows)]
+#[cfg(any(unix, windows))]
 pub(crate) mod waiter_cancellation;
 
 /// Reactor unit tests.

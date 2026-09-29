@@ -261,4 +261,26 @@ impl PlatformUpdateFailure {
     pub(crate) fn into_error(self) -> io::Error {
         self.error
     }
+
+    /// Whether the backend found the descriptor already closed while removing
+    /// or narrowing its interest.
+    ///
+    /// A closed descriptor left the kernel interest set with it, so the update
+    /// has nothing to undo: the registration retires and the reactor stays
+    /// healthy. Any other failure keeps its armed interest or stays terminal.
+    #[cfg(unix)]
+    pub(crate) fn descriptor_closed(&self) -> bool {
+        self.armed_interest.is_none()
+            && matches!(
+                self.error.raw_os_error(),
+                Some(code) if code == libc::EBADF || code == libc::ENOENT
+            )
+    }
+
+    /// Whether the backend found the descriptor already closed; Windows
+    /// sockets are leased for the length of every poll and never close under it.
+    #[cfg(not(unix))]
+    pub(crate) const fn descriptor_closed(&self) -> bool {
+        false
+    }
 }

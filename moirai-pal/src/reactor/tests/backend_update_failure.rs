@@ -148,3 +148,57 @@ fn backend_update_failure_removes_absent_registration_and_wakes_waiters() {
             .contains_key(&FdKey::from(fd))
     );
 }
+
+#[test]
+#[cfg(unix)]
+fn closed_descriptor_update_failure_retires_registration_without_failing() {
+    let reactor = IoReactor::new().expect("reactor");
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("socket bind");
+    socket.set_nonblocking(true).expect("socket nonblocking");
+    let fd = socket_to_raw(&socket);
+    let read_count = Arc::new(WakeCount::default());
+    let write_count = Arc::new(WakeCount::default());
+    reactor
+        .register_waker(fd, Interest::READABLE, Waker::from(Arc::clone(&read_count)))
+        .expect("register read interest");
+    reactor
+        .register_waker(
+            fd,
+            Interest::WRITABLE,
+            Waker::from(Arc::clone(&write_count)),
+        )
+        .expect("register write interest");
+
+    for code in [libc::EBADF, libc::ENOENT] {
+        let result = reactor.wake_fd_waiters_with_platform(
+            Event {
+                fd,
+                readable: true,
+                writable: false,
+                error: false,
+                hangup: false,
+            },
+            |_| true,
+            |_, _, _| {
+                Err(PlatformUpdateFailure::new(
+                    std::io::Error::from_raw_os_error(code),
+                    None,
+                ))
+            },
+        );
+        result.expect("a closed descriptor retires its registration without failing");
+        assert!(
+            !reactor
+                .registered_fds
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .contains_key(&FdKey::from(fd)),
+            "errno {code} must remove the central registration"
+        );
+        reactor
+            .register_waker(fd, Interest::READABLE, Waker::from(Arc::clone(&read_count)))
+            .expect("the reactor stays healthy for later registrations");
+    }
+    assert_eq!(read_count.0.load(Ordering::Relaxed), 2);
+    assert_eq!(write_count.0.load(Ordering::Relaxed), 1);
+}
