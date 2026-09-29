@@ -1,22 +1,29 @@
 use crate::memory::CACHE_LINE_SIZE;
 use std::alloc::Layout;
-use std::mem::{align_of, size_of};
 use std::ptr::NonNull;
 
 /// Cache-aligned memory allocator for high-performance data structures.
 pub struct CacheAlignedAllocator;
 
+/// Layout of `count` values of `T` starting on a cache-line boundary.
+///
+/// Transfer granularity: this places the *start* of the array on a line
+/// boundary so element 0 does not straddle two lines. Separating two
+/// concurrently written atomics is a different problem, solved by
+/// `CacheAligned` at the field level, not by widening this alignment. The size
+/// comes from `Layout::array`, so a count whose byte size overflows `isize` is
+/// refused instead of wrapping into an undersized allocation.
+fn cache_aligned_array<T>(count: usize) -> Option<Layout> {
+    Layout::array::<T>(count)
+        .ok()?
+        .align_to(CACHE_LINE_SIZE)
+        .ok()
+}
+
 impl CacheAlignedAllocator {
     /// Allocate cache-aligned memory for optimal performance
     pub fn allocate<T>(count: usize) -> Option<NonNull<T>> {
-        let size = size_of::<T>() * count;
-        // Transfer granularity: this places the *start* of the array on a line
-        // boundary so element 0 does not straddle two lines. Separating two
-        // concurrently written atomics is a different problem, solved by
-        // `CacheAligned` at the field level, not by widening this alignment.
-        let align = align_of::<T>().max(CACHE_LINE_SIZE);
-
-        let layout = Layout::from_size_align(size, align).ok()?;
+        let layout = cache_aligned_array::<T>(count)?;
         // A zero-sized layout violates `GlobalAlloc::alloc`'s contract.
         if layout.size() == 0 {
             return None;
@@ -50,14 +57,7 @@ impl CacheAlignedAllocator {
     /// - The memory is not accessed after deallocation
     pub unsafe fn deallocate<T>(ptr: NonNull<T>, count: usize) {
         unsafe {
-            let size = size_of::<T>() * count;
-            // Transfer granularity: this places the *start* of the array on a line
-            // boundary so element 0 does not straddle two lines. Separating two
-            // concurrently written atomics is a different problem, solved by
-            // `CacheAligned` at the field level, not by widening this alignment.
-            let align = align_of::<T>().max(CACHE_LINE_SIZE);
-
-            if let Ok(layout) = Layout::from_size_align(size, align) {
+            if let Some(layout) = cache_aligned_array::<T>(count) {
                 #[cfg(feature = "mnemosyne")]
                 {
                     use core::alloc::GlobalAlloc;

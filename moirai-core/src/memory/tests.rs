@@ -53,3 +53,21 @@ fn test_memory_pool_retention_cap() {
     assert_eq!(pool.allocate(), 1);
     assert_eq!(pool.allocate(), 0); // empty pool: i32::default()
 }
+
+#[test]
+fn cache_aligned_allocation_refuses_a_byte_size_that_wraps() {
+    // `8 * (2^61 + 1)` wraps to 8 in a release build, which would allocate one
+    // element and report 2^61 + 1 of them.
+    assert!(CacheAlignedAllocator::allocate::<u64>((1_usize << 61) + 1).is_none());
+    assert!(CacheAlignedAllocator::allocate::<u64>(usize::MAX).is_none());
+}
+
+#[test]
+fn cache_aligned_allocation_is_line_aligned_and_round_trips() {
+    let count = 7;
+    let ptr = CacheAlignedAllocator::allocate::<u64>(count).expect("small allocation succeeds");
+    assert_eq!(ptr.as_ptr() as usize % CACHE_LINE_SIZE, 0);
+    // SAFETY: `ptr` came from `allocate::<u64>(count)` above, is not used after
+    // this call, and nothing else references it.
+    unsafe { CacheAlignedAllocator::deallocate(ptr, count) };
+}
