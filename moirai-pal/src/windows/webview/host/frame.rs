@@ -31,7 +31,7 @@ pub(super) fn wait_for_presented_frame(
     unsafe { webview.CallDevToolsProtocolMethod(&method, &parameters, &handler) }
         .map_err(windows_error)?;
     let response = wait_for(receiver, timeout)?;
-    let PresentedFrame = presented_frame(&response)?;
+    presented_frame(&response)?;
     Ok(())
 }
 
