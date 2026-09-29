@@ -563,6 +563,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   finishes, so the observer sees earlier writes. `write_all` is one pool job,
   so it is written in full once submitted. Panic containment belongs to the
   pool and holds only in unwind builds.
+- **`SlabAllocator` is `Sync` only for values that are `Send` and `Sync`.** It
+  moves values in and out through `&self`, so sharing it across threads could
+  drop a thread-affine value such as a `MutexGuard` on another thread.
+  `CacheAlignedAllocator::allocate` multiplied element size by count without
+  an overflow check, which in a release build wrapped into a short allocation
+  reported as success; the size now comes from `Layout::array` and an
+  overflowing count returns `None`.
 - **`TcpStream::connect` no longer blocks the polling thread.**
   `moirai_pal::net::AsyncTcpStream::connect` ran std's blocking connect inside
   `poll`, so an unanswered SYN held the executor thread for the OS connect

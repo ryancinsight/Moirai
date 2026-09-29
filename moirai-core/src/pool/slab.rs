@@ -28,6 +28,14 @@ fn unpack(val: usize) -> (usize, usize) {
 /// Slab allocator for efficient task storage (inspired by Tokio)
 ///
 /// This provides O(1) allocation and deallocation with minimal fragmentation.
+///
+/// Sharing the slab across threads moves stored values between them, so it is
+/// `Sync` only for `T: Send + Sync`. A thread-affine value is refused:
+///
+/// ```compile_fail
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<moirai_core::pool::SlabAllocator<std::sync::MutexGuard<'static, u8>>>();
+/// ```
 pub struct SlabAllocator<T> {
     /// Storage for all items
     entries: Box<[SlabEntry<T>]>,
@@ -46,9 +54,11 @@ struct SlabEntry<T> {
     occupied: AtomicBool,
 }
 
-// Safety: SlabEntry is Send and Sync because access is controlled by SlabAllocator
+// Safety: a value moves into and out of an entry through `&self`, so sharing an
+// entry across threads transfers `T` between them (`T: Send`), and the unsafe
+// `get` hands out `&T` (`T: Sync`).
 unsafe impl<T: Send> Send for SlabEntry<T> {}
-unsafe impl<T: Sync> Sync for SlabEntry<T> {}
+unsafe impl<T: Send + Sync> Sync for SlabEntry<T> {}
 
 impl<T> SlabAllocator<T> {
     /// Create a new slab allocator with the given capacity
