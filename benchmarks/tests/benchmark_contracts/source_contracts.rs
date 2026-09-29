@@ -20,34 +20,22 @@ fn gpu_planner_declares_no_provider_dependency() {
         "moirai-executor",
     ] {
         assert!(
-            !manifest.lines().any(|line| {
-                let trimmed = line.trim_start();
-                !trimmed.starts_with('#')
-                    && (trimmed.starts_with(&format!("{prohibited} "))
-                        || trimmed.starts_with(&format!("{prohibited}=")))
-            }),
+            !manifest_section_declares_dependency(&manifest, prohibited),
             "moirai-gpu must not depend on {prohibited}: Hephaestus consumes Moirai (ADR 0041)"
         );
     }
 }
 
 #[test]
-fn workspace_lock_resolves_no_git_copy_of_moirai() {
+fn workspace_lock_resolves_moirai_only_from_the_workspace() {
     let lock = read_benchmark("../Cargo.lock");
-    let git_copies: Vec<&str> = lock
-        .lines()
-        .filter(|line| {
-            line.starts_with("source = ")
-                && line
-                    .to_ascii_lowercase()
-                    .contains("github.com/ryancinsight/moirai")
-        })
-        .collect();
+    let violations = moirai_lock_package_source_violations(&lock);
 
     assert_eq!(
-        git_copies,
-        Vec::<&str>::new(),
-        "a dependency of a workspace member resolves Moirai from git, so a consumer edge closes a cycle (ADR 0041)"
+        violations,
+        Vec::<String>::new(),
+        "every `moirai`/`moirai-*` lock package must be the workspace path copy with no \
+         `source` line; a registry or git source closes a consumer cycle (ADR 0041)"
     );
 }
 

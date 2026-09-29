@@ -17,6 +17,48 @@ fn manifest_section_declares_dependency(section: &str, dependency: &str) -> bool
     })
 }
 
+/// Reports every `[[package]]` block in a `Cargo.lock` whose `name` is
+/// `moirai` or starts with `moirai-` and which carries a `source` line: the
+/// workspace path copy of such a package has no `source` field, so any
+/// registry or git source on a Moirai package means a dependency resolved it
+/// from outside the workspace.
+fn moirai_lock_package_source_violations(lock: &str) -> Vec<String> {
+    fn flush(name: Option<&str>, source: Option<&str>, violations: &mut Vec<String>) {
+        let Some(name) = name else { return };
+        let Some(source) = source else { return };
+        if name == "moirai" || name.starts_with("moirai-") {
+            violations.push(format!("{name} ({source})"));
+        }
+    }
+
+    let mut violations = Vec::new();
+    let mut name: Option<&str> = None;
+    let mut source: Option<&str> = None;
+
+    for line in lock.lines() {
+        if line == "[[package]]" {
+            flush(name.take(), source.take(), &mut violations);
+            continue;
+        }
+        if let Some(value) = line
+            .strip_prefix("name = \"")
+            .and_then(|rest| rest.strip_suffix('"'))
+        {
+            name = Some(value);
+            continue;
+        }
+        if let Some(value) = line
+            .strip_prefix("source = \"")
+            .and_then(|rest| rest.strip_suffix('"'))
+        {
+            source = Some(value);
+        }
+    }
+    flush(name.take(), source.take(), &mut violations);
+
+    violations
+}
+
 fn expected_ready_sum(count: usize) -> usize {
     count * (count + 1) / 2
 }
