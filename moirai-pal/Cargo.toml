@@ -28,6 +28,7 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 accesskit = "0.25"
 accesskit_windows = "0.35"
+png = { version = "0.18.1", optional = true }
 serde_json = { version = "1.0", optional = true }
 webview2-com = { version = "0.39.1", optional = true }
 windows = { version = "0.62", features = [
@@ -115,14 +116,13 @@ web-sys = { version = "0.3", features = [
 criterion = { workspace = true }
 proptest = { workspace = true }
 futures = "0.3"
-png = "0.18.1"
 
 [features]
 default = ["parallel", "mnemosyne-memory"]
 parallel = []
 mnemosyne-memory = []
 metrics = ["moirai-core/metrics"]
-webview2 = ["dep:serde_json", "dep:webview2-com"]
+webview2 = ["dep:png", "dep:serde_json", "dep:webview2-com"]
 
 [lints]
 workspace = true
