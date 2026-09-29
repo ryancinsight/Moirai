@@ -56,3 +56,9 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 - risk: Consus has not recorded a current comparative MinIO/toxiproxy result or the eventual default flip away from its legacy Tokio/rusoto path in this repository.
 - evidence: Atlas ADR 0045 owns the cross-repository decision; Moirai already supplies the store-agnostic TLS/HTTP transport and must not own S3 protocol work.
 - re-open trigger: The Consus owner requests a Moirai transport correction exposed by its paired benchmark or contract tests.
+
+<a id="MOI-GAP-SLAB-GENERATION-32BIT-001"></a>
+## MOI-GAP-SLAB-GENERATION-32BIT-001 — Slab free-list generation is 16 bits on 32-bit targets
+- risk: On wasm32-with-atomics, armv7, and i686 the packed free-list head keeps a 16-bit generation, so 65,536 successful CASes inside one thread's load-to-CAS window can reinstall an occupied slot as the free-list head (ABA); 64-bit targets need 2^32.
+- evidence: Read of `moirai-core/src/pool/slab.rs` packing and the `insert`/`remove` CAS sites; the interleaving is derived, not reproduced.
+- re-open trigger: A 32-bit target becomes a supported deployment for `SlabAllocator`, or a pause-hook test on `i686-unknown-linux-gnu` reproduces the reinstall; the remedy is a `u32` index plus `u32` generation in an `AtomicU64`, as `LockFreeStack` does.

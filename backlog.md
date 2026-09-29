@@ -292,6 +292,76 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Define the resource-limit and cancellation contract against ADR 0007 before exposing the first fetch operation.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
+<a id="MOI-DEQUE-FASTPATH-MODEL-2026-09-29"></a>
+## MOI-DEQUE-FASTPATH-MODEL-2026-09-29 — Model-check the fence-free Chase-Lev pop
+- status: todo
+- priority: correctness
+- outcome: The pop fast path that skips the `SeqCst` fence when `bottom - top >= MAX_BATCH_STEAL` either holds exactly-once delivery under a model or is replaced by the fenced path.
+- acceptance: A loom model of the protocol (owner push, push, pop; two thieves; batch threshold lowered to 1) delivers every item exactly once with the fast branch forced, and an x86-TSO litmus test settles the hardware argument; a failing model reverts the fast path with the counterexample recorded in the ADR.
+- scope: `moirai-scheduler/src/deque/chase_lev.rs` (pop fast path), `moirai-scheduler/tests/loom_chase_lev.rs`; `chase_lev.rs` uses `std::sync::atomic` directly, so the model restates the protocol.
+- next step: Restate push/pop/steal in the loom test with the fast branch forced and run it.
+- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
+
+<a id="MOI-SCOPE-STATE-UNLOCK-MIRI-2026-09-29"></a>
+## MOI-SCOPE-STATE-UNLOCK-MIRI-2026-09-29 — Settle destroy-after-unlock of the stack scope state
+- status: todo
+- priority: correctness
+- outcome: The last completer's mutex unlock is shown not to touch a scope state the waiter has already popped, or the state moves behind shared ownership.
+- acceptance: Miri (many seeds) on a scope with one job completed by a worker while the caller waits in `SchedulerScopeState::wait` reports no protected-reference deallocation inside `Mutex::unlock`/`futex_wake`, for `scope`, `for_each_indexed`, and `map_reduce_indexed`; otherwise the state is reference-counted.
+- scope: `moirai-executor/src/schedule/runtime/types.rs` (`SchedulerScopeState`), `data_parallel.rs`.
+- next step: Get mnemosyne building under Miri, then write the one-job scope reproducer.
+- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
+
+<a id="MOI-ASYNC-TOKEN-SEND-ASSERT-2026-09-29"></a>
+## MOI-ASYNC-TOKEN-SEND-ASSERT-2026-09-29 — Assert the lifecycle tokens are Send for every lease
+- status: todo
+- priority: verification
+- outcome: The manual `Send`/`Sync` impls for `AsyncFutureState<S, F, L>` rest on a checked fact about `TaskLifecycleToken<L>` and `RunningTaskToken<L>`.
+- acceptance: A static assertion `is_send::<TaskLifecycleToken<L>>()` and `is_send::<RunningTaskToken<L>>()` for every `L: StateLease` compiles; if it does not, the impl bounds gain `L`'s token requirement.
+- scope: `moirai-executor/src/hybrid/async_state.rs`, the registry module that defines the tokens.
+- next step: Add the assertion beside the token definitions. Reading at the basis: `StateLease` has a `Send` supertrait and both tokens hold only `Option<L>`, `u64`, and `bool`, so they are auto-`Send`; the assertion pins that against a field change.
+- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
+
+<a id="MOI-PAL-IGNORED-SUITE-SHARED-EXE-2026-09-29"></a>
+## MOI-PAL-IGNORED-SUITE-SHARED-EXE-2026-09-29 — Stop the ignored webview2 run from pinning the shared test executable
+- status: todo
+- priority: verification
+- outcome: A long `moirai-pal --features webview2 --run-ignored all` run never blocks another branch's gate from replacing `moirai_pal-*.exe` in the shared target directory.
+- acceptance: While that suite runs, clippy and nextest for `moirai-pal` from any other tree succeed without `failed to remove file`; the suite runs from a copied `cargo nextest archive` extraction or an equivalent private location.
+- scope: the committed script or documented command that runs the ignored suite; no per-tree `target/` fork.
+- next step: Run the suite with `--archive-file` extracted to a run-output directory and confirm a concurrent build replaces the shared exe.
+- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
+
+<a id="MOI-RESCUE-RING-BRANCHES-2026-09-29"></a>
+## MOI-RESCUE-RING-BRANCHES-2026-09-29 — Complete or drop the parked ring-unification branches
+- status: todo
+- priority: tightening
+- outcome: The unlanded work in rescue PRs 506 (`refactor/moirai-ring-backoff-shards-uncommitted`), 507 (`rescue/one-ring-core-adr-0016`), 508 (`rescue/spsc-over-canonical-ring`), and 509 (`rescue/mpmc-block-policy`) is rebased onto current main, gated, and merged, or each PR is closed with the landed-work proof.
+- acceptance: The PR diff resolved against main is either integrated with its tests and benchmark comparison, or empty; the local and remote branches are gone.
+- scope: the ring buffer, SPSC, and MPMC block-policy code named by the four rescue branches, ADR 0016, and `moirai-core` ring tests.
+- next step: Fetch each `pull/<N>/head`, review its diff against the merge base, and port the branch closest to done first.
+- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
+
+<a id="MOI-ROOT-REPORT-FILES-2026-09-29"></a>
+## MOI-ROOT-REPORT-FILES-2026-09-29 — Retire stale root reports and the development-history directory
+- status: todo
+- priority: verification
+- outcome: `GAP_ANALYSIS.md` and `docs/development-history/` hold no current fact that lacks a canonical owner (Rustdoc, ADR, `backlog.md`, `gap_audit.md`, CHANGELOG), and are deleted.
+- acceptance: Each surviving fact is moved to its owner in the same change; the files are removed; no link in `README.md`, `docs/`, or ADRs points at them.
+- scope: `GAP_ANALYSIS.md`, `docs/development-history/`, referring links.
+- next step: `git grep -n "development-history\|GAP_ANALYSIS"` for inbound links, then triage each file against the current tree.
+- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
+
+<a id="MOI-SCOPE-DROPPED-JOB-FAILURE-2026-09-29"></a>
+## MOI-SCOPE-DROPPED-JOB-FAILURE-2026-09-29 — Make an unrun scoped job fail its scope
+- status: todo
+- priority: correctness
+- outcome: A scoped job dropped after admission without running cannot let `for_each_indexed` return `Ok` over uninitialized result slots.
+- acceptance: A test that admits a scoped job and drops it unrun observes a failed scope; `moirai-parallel` collect helpers (`ops.rs` collect paths, `melinoe_ext.rs`) are sound on every `Ok`. The rejected-at-admission drop (full queue, shutdown) keeps its inline recovery, so the failure mark distinguishes admitted from refused jobs.
+- scope: `moirai-executor/src/schedule/runtime/types.rs` (`ScopedTaskCompletion::drop`), `job/mod.rs`, `moirai-parallel/src/ops.rs`.
+- next step: Write the drop-unrun test; no path that drops an admitted job unexecuted was found at the basis, so this closes a latent hole.
+- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
+
 <a id="MOI-REL-061"></a>
 ## MOI-REL-061 — Publish reusable Rust crates
 - status: blocked
