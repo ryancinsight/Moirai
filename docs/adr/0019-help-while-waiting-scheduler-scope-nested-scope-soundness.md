@@ -35,9 +35,12 @@ progress nor fixing a separate lifetime defect establishes their cause.
 - A drain unwind cannot escape with borrowed jobs outstanding; this path
   aborts. A panic while dropping a job's panic payload also aborts.
 
-`next_job(worker_id)` accesses the caller's owner deque and steals through the
-multi-consumer operations. The membership check preserves the owner-side
-restriction; it does not prove every unsafe queue/storage path sound.
+`drain_scope` in `moirai-executor/src/schedule/runtime/scheduler/scope.rs`
+calls `next_shared_job` in `moirai-executor/src/schedule/runtime/worker.rs`.
+That path tries the local LIFO slot, `local.queues.steal_one()`, then shared
+stealing. Nested draining uses shared top-side queue capabilities rather than
+re-entering `next_job` with a `WorkerQueueOwner`. Membership checking identifies
+the correct scheduler; it does not prove every unsafe queue/storage path sound.
 
 Indexed fan-out and indexed map/reduce use `drain_scope` for the same nested
 wait shape. Their chunk count follows logical work and worker-plus-caller
