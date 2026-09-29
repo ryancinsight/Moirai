@@ -194,6 +194,24 @@ where
     move |worker_id| task(worker_id)
 }
 
+/// Run `task`, reporting whether it returned.
+///
+/// A panic payload is dropped here, inside a second catch: a payload whose `Drop`
+/// panics would otherwise unwind out of the job past the completion accounting
+/// (a scope waiter would then return while scoped jobs still borrow its frame),
+/// so that case aborts, as `std::thread::scope` does.
+fn run_caught(task: impl FnOnce()) -> bool {
+    match catch_unwind(AssertUnwindSafe(task)) {
+        Ok(()) => true,
+        Err(payload) => {
+            if catch_unwind(AssertUnwindSafe(move || drop(payload))).is_err() {
+                std::process::abort();
+            }
+            false
+        }
+    }
+}
+
 unsafe fn execute_inline<F>(storage: *mut InlineJobStorage, worker_id: usize) -> bool
 where
     F: FnOnce(usize) + Send,
@@ -201,7 +219,7 @@ where
     // Safety: `InlineJob::new` initialized this storage as `F`; execute reads
     // it exactly once before marking the inline job consumed.
     let task = unsafe { ptr::read((*storage).as_mut_ptr::<F>()) };
-    catch_unwind(AssertUnwindSafe(|| task(worker_id))).is_ok()
+    run_caught(|| task(worker_id))
 }
 
 unsafe fn execute_scoped_inline<F, Complete>(
@@ -238,7 +256,7 @@ where
     Complete: FnOnce(bool) + Send,
 {
     let ScopedJob { task, complete } = scoped;
-    let succeeded = catch_unwind(AssertUnwindSafe(move || task(worker_id))).is_ok();
+    let succeeded = run_caught(move || task(worker_id));
     complete(succeeded);
     succeeded
 }

@@ -227,11 +227,11 @@ where
 /// scheduler. Unlike [`join`], which forks exactly two branches, `scope` allows
 /// an arbitrary number of sub-tasks to be spawned and joined within a single
 /// region.
-pub struct Scope<'scope> {
-    inner: &'scope SchedulerScope<'scope, SyncTask>,
+pub struct Scope<'scope, 'env: 'scope> {
+    inner: &'scope SchedulerScope<'env, SyncTask>,
 }
 
-impl<'scope> Scope<'scope> {
+impl<'scope, 'env: 'scope> Scope<'scope, 'env> {
     /// Spawn a parallel sub-task within this scope.
     ///
     /// The task may borrow values that outlive the scope call. The scope waits
@@ -247,7 +247,7 @@ impl<'scope> Scope<'scope> {
     #[inline]
     pub fn spawn<F>(&self, task: F)
     where
-        F: FnOnce() + Send + 'scope,
+        F: FnOnce() + Send + 'env,
     {
         self.inner
             .spawn(move |_| task())
@@ -284,10 +284,21 @@ impl<'scope> Scope<'scope> {
 /// });
 /// assert_eq!(sum.load(Ordering::Relaxed), data.iter().sum::<u64>() + 1000);
 /// ```
+///
+/// A task cannot borrow a value local to the body, which is dropped before the
+/// scheduler runs the buffered task:
+///
+/// ```compile_fail,E0597
+/// moirai_parallel::scope(|s| {
+///     let local = vec![7_u8; 8];
+///     let borrowed = &local;
+///     s.spawn(move || assert_eq!(borrowed[0], 7));
+/// });
+/// ```
 #[inline]
-pub fn scope<F, R>(body: F) -> R
+pub fn scope<'env, F, R>(body: F) -> R
 where
-    F: for<'scope> FnOnce(&Scope<'scope>) -> R,
+    F: for<'scope> FnOnce(&Scope<'scope, 'env>) -> R,
     R: Send,
 {
     let mut result = None;

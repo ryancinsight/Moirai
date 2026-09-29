@@ -297,3 +297,41 @@ fn scheduler_scope_completes_registered_jobs_before_resuming_body_panic() {
     );
     assert_eq!(completed.load(Ordering::Relaxed), 8);
 }
+
+#[test]
+fn scope_opened_from_another_schedulers_worker_completes() {
+    // The worker-id cache is process-wide. A worker of the larger scheduler
+    // carries an id past the smaller scheduler's worker table, so a drain keyed
+    // on that id indexed out of bounds and unwound `scope` while its jobs still
+    // borrowed the opener's frame.
+    let large = ThreadScheduler::new(4, "test-scope-large").unwrap();
+    let small = ThreadScheduler::new(1, "test-scope-small").unwrap();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let target = small.clone();
+
+    large
+        .schedule::<SyncTask, _>(Priority::Normal, Some(3), move |_| {
+            let sum = AtomicUsize::new(0);
+            let outcome = target.scope::<SyncTask, _>(Priority::Normal, None, |scope| {
+                for value in 1..=8 {
+                    let sum = &sum;
+                    scope.spawn(move |_| {
+                        sum.fetch_add(value, Ordering::Relaxed);
+                    })?;
+                }
+                Ok(())
+            });
+            sender
+                .send((outcome.is_ok(), sum.load(Ordering::Relaxed)))
+                .unwrap();
+        })
+        .unwrap();
+
+    let (completed, sum) = receiver
+        .recv()
+        .expect("the opening job must survive the scope call");
+    assert!(completed);
+    assert_eq!(sum, 36);
+    large.shutdown();
+    small.shutdown();
+}
