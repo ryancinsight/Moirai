@@ -26,6 +26,7 @@ macro_rules! embedded_sources {
 
 embedded_sources![
     "../CHANGELOG.md",
+    "../Cargo.lock",
     "../Cargo.toml",
     "../GAP_ANALYSIS.md",
     "../PERFORMANCE_RESULTS.md",
@@ -164,13 +165,6 @@ embedded_sources![
     "../moirai-executor/src/schedule/runtime/worker/indexed.rs",
     "../moirai-executor/src/schedule/runtime/worker/wait.rs",
     "../moirai-gpu/Cargo.toml",
-    "../moirai-gpu/src/device/context.rs",
-    "../moirai-gpu/src/device/mod.rs",
-    "../moirai-gpu/src/device/preferences.rs",
-    "../moirai-gpu/src/lib.rs",
-    "../moirai-gpu/src/task/configured.rs",
-    "../moirai-gpu/src/task/function.rs",
-    "../moirai-gpu/src/task/mod.rs",
     "../moirai-iter/Cargo.toml",
     "../moirai-iter/src/async_iter/adapters.rs",
     "../moirai-iter/src/async_iter/consumers.rs",

@@ -11,28 +11,14 @@ documentation = "https://docs.rs/moirai-gpu"
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
-description = "GPU launch planning and Hephaestus scheduling integration for the Moirai concurrency library"
+description = "GPU launch-shape planning for the Moirai concurrency library"
 
 [dependencies]
 themis = { workspace = true }
 mnemosyne-core = { workspace = true }
-hephaestus-core = { workspace = true }
-eunomia = { workspace = true }
-
-# Provider implementations are optional; the generic device/task seam remains
-# available for planner-only and downstream provider integrations.
-hephaestus-wgpu = { workspace = true, optional = true }
-hephaestus-cuda = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-hephaestus-host = { workspace = true }
-proptest = { workspace = true }
-
-[features]
-default = ["wgpu-backend"]
-wgpu-backend = ["dep:hephaestus-wgpu"]
-cuda-backend = ["dep:hephaestus-cuda"]
 
 [[bench]]
 name = "gpu_compute"

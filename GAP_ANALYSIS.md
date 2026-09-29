@@ -1,17 +1,5 @@
 # Moirai vs. Leading Concurrency Libraries: Comprehensive Gap Analysis
 
-## 2026-09-11 Hephaestus provider source refresh
-
-The GPU adapter now pins Hephaestus `ff370517`, whose CUDA backend owns the
-native driver boundary and carries no `cuda-oxide` dependency. Eunomia is
-resolved once from its default `c4f49bc1` source identity, so the lockfile no
-longer carries the expired `fdbf122` quarantine. The deny allowlist names each
-first-party git source in the provider graph, and the stale `paste` advisory
-exception is removed because the locked WGPU graph does not encounter it.
-
-This closes source and license failures observed on the GPU adapter PR. It does
-not claim CUDA hardware execution; provider-owned hardware suites remain the+evidence for that path.
-
 ## 2026-08-16 Provider audit and dependency-advisory closure
 
 The isolated provider head is `a648a82` before this increment. The audit first
@@ -214,9 +202,9 @@ deques, and the `moirai-async` reactor/waker via independent adversarial passes.
 - `moirai-gpu::occupancy` owns the current accelerator-adjacent planning slice:
   topology-aware launch-shape and resident-block planning. Evidence tier:
   type-level API plus value-semantic tests over themis topology and Mnemosyne
-  kernel resource budgets. The planner is available without `wgpu-backend`, so
-  external Atlas GPU backends can consume launch planning without inheriting
-  Moirai's concrete WGPU runtime dependency.
+  kernel resource budgets. It is the whole of `moirai-gpu`: device execution
+  and its backends belong to hephaestus, which consumes Moirai (ADR 0041), so
+  device work runs as an ordinary `Moirai::spawn` task.
 - `moirai-executor::schedule::route` now includes accelerator route metadata:
   `AcceleratorRoutePolicy`, `AcceleratorCounts`, `AcceleratorKind`, and
   `SchedulerRoute::Accelerator` cover CPU/GPU/TPU/NPU placement metadata through

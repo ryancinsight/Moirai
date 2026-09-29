@@ -95,7 +95,7 @@ Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 | [`moirai-parallel`](https://docs.rs/moirai-parallel) | Synchronous data-parallel slice primitives (rayon-style surface) |
 | [`moirai-pal`](https://docs.rs/moirai-pal) | Platform abstraction: epoll / kqueue / `WSAPoll` readiness |
 | [`moirai-metrics`](https://docs.rs/moirai-metrics) | Cloneable metric handles and value-copy snapshots |
-| [`moirai-gpu`](https://docs.rs/moirai-gpu) | GPU launch-shape planning and Hephaestus provider scheduling |
+| [`moirai-gpu`](https://docs.rs/moirai-gpu) | GPU launch-shape planning over themis topology and mnemosyne budgets |
 | [`moirai-utils`](https://docs.rs/moirai-utils) | Cache alignment, atomics, lock-free queues, prefetch |
 | [`moirai-crypto`](https://docs.rs/moirai-crypto) | Pure-Rust rustls `CryptoProvider` (RustCrypto, no C toolchain) |
 | [`moirai-tls`](https://docs.rs/moirai-tls) | Async TLS client over Moirai sockets, no Tokio |
@@ -128,9 +128,10 @@ Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
 - **Transport layer**: `moirai-transport` consumes route metadata, archives
   payload bytes, and executes admitted fixed-format process/server tasks.
 - **Accelerator layer**: `moirai-gpu::occupancy` plans topology-aware launch
-  shapes and its `GpuContext<D>`/`GpuTask` seam schedules typed work through
-  Hephaestus providers. WGPU and CUDA acquisition remain explicit provider
-  choices; TPU/NPU providers and device-specific kernel evidence remain open.
+  shapes. Device acquisition and kernel execution belong to Hephaestus, which
+  depends on Moirai; a device operation runs on Moirai as an ordinary task
+  (ADR 0041). TPU/NPU providers and device-specific kernel evidence remain
+  open.
 - **Memory boundary**: archive payloads move as owned bytes across
   thread/process/server/device regions; cross-process and cross-device pointer
   transfer is rejected.
@@ -199,9 +200,9 @@ value-semantic tests. The active evidence surfaces are:
   `async_io_compat_comparison` compare Moirai-owned facade behavior against
   Tokio references where the semantics match.
 
-GPU route co-scheduling now has a typed Hephaestus adapter and a host-provider
-runtime test. Hardware execution evidence is still provider-owned; TPU/NPU
-placement and device-specific rendering remain open.
+GPU launch-shape planning is covered by the occupancy tests. Device execution
+evidence is Hephaestus-owned; TPU/NPU placement and device-specific rendering
+remain open.
 
 ## Testing
 
