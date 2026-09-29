@@ -54,6 +54,22 @@ fn installed_runtime_refuses_capture_while_hidden() {
 #[test]
 #[ignore = "requires an installed WebView2 runtime"]
 fn installed_runtime_captures_immediately_after_reshow_concurrently() {
+    run_concurrent_reshow_capture(NavigationTiming::WhileHidden);
+}
+
+#[test]
+#[ignore = "requires an installed WebView2 runtime"]
+fn installed_runtime_captures_after_settled_navigation_and_reshow_concurrently() {
+    run_concurrent_reshow_capture(NavigationTiming::BeforeHide);
+}
+
+#[derive(Clone, Copy)]
+enum NavigationTiming {
+    BeforeHide,
+    WhileHidden,
+}
+
+fn run_concurrent_reshow_capture(navigation_timing: NavigationTiming) {
     let start = Arc::new(Barrier::new(101));
     thread::scope(|scope| {
         let attempts = (0..100)
@@ -78,11 +94,20 @@ fn installed_runtime_captures_immediately_after_reshow_concurrently() {
                         &format!("Moirai WebView2 re-show test {host_index}"),
                         WindowVisibility::Visible,
                     );
+                    if matches!(navigation_timing, NavigationTiming::BeforeHide) {
+                        host.navigate(reshown_uri.clone())
+                            .expect("navigate before hide");
+                        wait_for_navigation(&mut host);
+                    }
                     start.wait();
                     host.set_visible(false).expect("hide controller");
-                    host.navigate(reshown_uri).expect("navigate while hidden");
+                    if matches!(navigation_timing, NavigationTiming::WhileHidden) {
+                        host.navigate(reshown_uri).expect("navigate while hidden");
+                    }
                     host.set_visible(true).expect("show rendered controller");
-                    wait_for_navigation(&mut host);
+                    if matches!(navigation_timing, NavigationTiming::WhileHidden) {
+                        wait_for_navigation(&mut host);
+                    }
                     let png = host.capture_preview_png().expect("capture after re-show");
                     assert_rendered_page(&png, expected);
                 })

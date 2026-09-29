@@ -57,12 +57,12 @@ fn validate_presented_frame(response: &str) -> io::Result<()> {
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| invalid_frame("WebView2 presented-frame response has no image data"))?;
     let encoded = decode_base64(data)?;
-    let mut decoder = png::Decoder::new_with_limits(
-        Cursor::new(encoded),
-        png::Limits {
-            bytes: MAX_WEBVIEW_CAPTURE_BYTES,
-        },
-    );
+    let mut decode_options = png::DecodeOptions::default();
+    decode_options.set_skip_ancillary_crc_failures(false);
+    let mut decoder = png::Decoder::new_with_options(Cursor::new(encoded), decode_options);
+    decoder.set_limits(png::Limits {
+        bytes: MAX_WEBVIEW_CAPTURE_BYTES,
+    });
     decoder.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = decoder
         .read_info()
@@ -179,6 +179,7 @@ mod tests {
             r#"{"data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAA"}"#,
             r#"{"data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYA=="}"#,
             r#"{"data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYIM="}"#,
+            r#"{"data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAADdEVYdGsAdgAAAAAAAAAASUVORK5CYII="}"#,
             r#"{"error":{"message":"missing data"}}"#,
             r#"{"exceptionDetails":{"text":"data"}}"#,
             r#"{"data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","exceptionDetails":{"text":"failure"}}"#,
