@@ -30,7 +30,7 @@ moves to [backlog.md](backlog.md) when its re-open trigger fires.
 <a id="MOI-GAP-GPU-COSCHEDULING-001"></a>
 ## MOI-GAP-GPU-COSCHEDULING-001 — Device queue co-scheduling is provider-dependent
 - risk: Moirai exposes accelerator route and occupancy metadata but does not own persistent device queues or hardware scheduling.
-- evidence: Moirai PR 325 delivered the Hephaestus device seam; stream/queue consumption and persistent kernels remain provider work.
+- evidence: ADR 0041 (revised by Moirai PR 501) keeps Hephaestus out of Moirai's dependency graph; stream/queue consumption and persistent kernels remain provider work.
 - re-open trigger: Hephaestus exposes a stable queue/persistent-kernel contract and a consumer supplies hardware acceptance evidence.
 
 <a id="MOI-AUDIT-PM-007"></a>

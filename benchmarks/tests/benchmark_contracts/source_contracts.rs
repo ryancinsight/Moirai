@@ -1,75 +1,54 @@
 #[test]
-fn gpu_task_adapter_uses_typed_hephaestus_provider_seam() {
+fn gpu_planner_declares_no_provider_dependency() {
     let manifest = read_benchmark("../moirai-gpu/Cargo.toml");
-    let library = read_benchmark("../moirai-gpu/src/lib.rs");
-    let context = read_benchmark("../moirai-gpu/src/device/context.rs");
-    let preferences = read_benchmark("../moirai-gpu/src/device/preferences.rs");
-    let task = read_benchmark("../moirai-gpu/src/task/mod.rs");
-    let configured_task = read_benchmark("../moirai-gpu/src/task/configured.rs");
-    let function_task = read_benchmark("../moirai-gpu/src/task/function.rs");
-    let dependency_section = manifest_section(&manifest, "[dependencies]");
-    let feature_section = manifest_section(&manifest, "[features]");
+    let dependencies = manifest_section(&manifest, "[dependencies]");
 
-    assert!(
-        manifest_section_declares_dependency(dependency_section, "hephaestus-core"),
-        "moirai-gpu must depend on the Hephaestus device contract"
-    );
-    for prohibited_dependency in ["wgpu", "bytemuck", "futures", "moirai-executor"] {
+    for required in ["themis", "mnemosyne-core"] {
         assert!(
-            !manifest_section_declares_dependency(dependency_section, prohibited_dependency),
-            "moirai-gpu must not directly depend on {prohibited_dependency}"
+            manifest_section_declares_dependency(dependencies, required),
+            "the occupancy planner consumes {required} (atlas ADR 0002)"
         );
     }
-    assert!(
-        feature_section.contains("\"dep:hephaestus-wgpu\"")
-            && feature_section.contains("\"dep:hephaestus-cuda\""),
-        "provider features must activate complete Hephaestus implementations"
-    );
-    assert!(
-        context.contains("pub struct GpuContext")
-            && task.contains("pub trait GpuTask")
-            && library.contains("ComputeDevice"),
-        "moirai-gpu must expose the provider-neutral context and task seams"
-    );
-    assert!(
-        context.contains("try_acquire_device")
-            && context.contains("device_handle")
-            && context.contains("upload")
-            && context.contains("download"),
-        "the context must acquire and route typed provider operations"
-    );
-    assert!(
-        preferences.contains("DevicePreference") && preferences.contains("DeviceLimits"),
-        "device acquisition preferences must stay provider-neutral"
-    );
-    assert!(
-        task.contains("type Device")
-            && task.contains("type Output")
-            && task.contains("execute_gpu")
-            && configured_task.contains("estimated_cost")
-            && function_task.contains("pub struct FunctionGpuTask")
-            && function_task.contains("FnOnce(&D) -> Result<T>")
-            && function_task.contains("fn execute_gpu(self, device: &D)"),
-        "GPU tasks must retain typed device, output, and scheduler metadata"
-    );
-
     for prohibited in [
-        "pollster",
-        "use wgpu",
-        "Box<dyn Future",
-        "GpuTaskFuture",
+        "hephaestus-core",
+        "hephaestus-wgpu",
+        "hephaestus-cuda",
+        "hephaestus-host",
+        "wgpu",
+        "bytemuck",
+        "futures",
+        "moirai-executor",
     ] {
         assert!(
-            !manifest.contains(prohibited)
-                && !library.contains(prohibited)
-                && !context.contains(prohibited)
-                && !preferences.contains(prohibited)
-                && !task.contains(prohibited)
-                && !configured_task.contains(prohibited)
-                && !function_task.contains(prohibited),
-            "moirai-gpu must not reintroduce direct or dynamic GPU plumbing: {prohibited}"
+            !manifest.lines().any(|line| {
+                let trimmed = line.trim_start();
+                !trimmed.starts_with('#')
+                    && (trimmed.starts_with(&format!("{prohibited} "))
+                        || trimmed.starts_with(&format!("{prohibited}=")))
+            }),
+            "moirai-gpu must not depend on {prohibited}: Hephaestus consumes Moirai (ADR 0041)"
         );
     }
+}
+
+#[test]
+fn workspace_lock_resolves_no_git_copy_of_moirai() {
+    let lock = read_benchmark("../Cargo.lock");
+    let git_copies: Vec<&str> = lock
+        .lines()
+        .filter(|line| {
+            line.starts_with("source = ")
+                && line
+                    .to_ascii_lowercase()
+                    .contains("github.com/ryancinsight/moirai")
+        })
+        .collect();
+
+    assert_eq!(
+        git_copies,
+        Vec::<&str>::new(),
+        "a dependency of a workspace member resolves Moirai from git, so a consumer edge closes a cycle (ADR 0041)"
+    );
 }
 
 #[test]

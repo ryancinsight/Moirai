@@ -382,50 +382,6 @@ impl Moirai {
     ) {
         moirai_core::channel::mpmc(capacity)
     }
-
-    /// Acquire the default Hephaestus WGPU context.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no suitable GPU device is found or if GPU initialization fails.
-    #[cfg(feature = "gpu")]
-    pub fn create_gpu_context(&self) -> Result<moirai_gpu::WgpuContext, moirai_gpu::GpuError> {
-        moirai_gpu::WgpuContext::acquire(moirai_gpu::DevicePreferences::wgpu())
-    }
-
-    /// Acquire a Hephaestus WGPU context with specific device preferences.
-    ///
-    /// This allows fine-grained control over GPU device selection.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if no GPU device meeting the preferences is found.
-    #[cfg(feature = "gpu")]
-    pub fn create_gpu_context_with_preferences(
-        &self,
-        preferences: moirai_gpu::DevicePreferences,
-    ) -> Result<moirai_gpu::WgpuContext, moirai_gpu::GpuError> {
-        moirai_gpu::WgpuContext::acquire(preferences)
-    }
-
-    /// Schedule a typed GPU task on the Moirai work-stealing executor.
-    ///
-    /// The task owns its provider operation and is executed when the scheduler
-    /// admits it. Hephaestus owns device synchronization and errors.
-    ///
-    #[cfg(feature = "gpu")]
-    pub fn spawn_gpu<D, T>(
-        &self,
-        gpu_context: &moirai_gpu::GpuContext<D>,
-        task: T,
-    ) -> TaskHandle<moirai_gpu::GpuResult<T::Output>>
-    where
-        D: moirai_gpu::ComputeDevice + Send + Sync + 'static,
-        T: moirai_gpu::GpuTask<Device = D>,
-    {
-        let device = gpu_context.device_handle();
-        self.spawn(TaskBuilder::new().build(move || task.execute_gpu(&device)))
-    }
 }
 
 impl Default for Moirai {
