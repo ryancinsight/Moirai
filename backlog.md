@@ -16,6 +16,18 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Determine whether navigation, hidden-document state, or sibling-host profile sharing holds or drops `CapturePreview` completion.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
+<a id="MOI-EXECUTOR-SIZING-2026-09-10"></a>
+## MOI-EXECUTOR-SIZING-2026-09-10 — Diagnose the loaded-host nested-iteration crash
+- status: todo
+- priority: correctness
+- outcome: The rare libtest heap corruption has a localized cause before caller-help or default sizing changes resume.
+- acceptance: A dump, sanitizer, or equivalent checker identifies the first invalid access, or a controlled reproducer separates candidate scheduler arms; the unchanged nested value oracle remains intact.
+- scope: executor/scheduler scope and injector handoff, `moirai-iter` nested regression, and diagnostic tooling; no queue-policy change or workload reduction.
+- next step: Capture the original loaded-host libtest failure under a debugger or supported sanitizer; record binary/revision identity and compare candidate arms only after capturing a fault.
+- evidence: PR #514's attribution is retracted in [ADR 0019](docs/adr/0019-help-while-waiting-scheduler-scope-nested-scope-soundness.md); body-local/foreign-scheduler regressions do not reproduce the iterator trigger.
+- verification: Preserve the nested value oracle and committed runtime budgets; passing standalone runs alone cannot close this item.
+- basis: `051c929a7f7d1f939f77bef3a3df36edfd1f3526`
+
 <a id="MOI-SLEEP-SYNCED-TESTS-2026-09-09"></a>
 ## MOI-SLEEP-SYNCED-TESTS-2026-09-09 — Retire sleep-ordered tests
 - status: todo
@@ -201,12 +213,15 @@ belong in [gap_audit.md](gap_audit.md).
 
 <a id="MOI-FORK-JOIN-LATENCY-2026-09-10"></a>
 ## MOI-FORK-JOIN-LATENCY-2026-09-10 — Attribute fork-join tail latency
-- status: todo
+- status: blocked
 - priority: tightening
+- needs: `MOI-EXECUTOR-SIZING-2026-09-10`
 - outcome: Repeated small fork-joins use the available worker pool without the observed wake-latency tail.
 - acceptance: The 64-task microbenchmark separates wake order, per-worker wake cost, caller participation, and spin policy across worker counts; the selected correction reduces p90 without regressing hot-path controls or idle CPU budget.
 - scope: indexed fork-join submission, worker park/wake, caller-help policy, Criterion attribution, and consumer-sized confirmation.
 - next step: Resume the retained latency distribution after the crash cause is fixed, then file or implement the measured wake-path correction.
+- blocker: The libtest crash remains unlocalized; PR #513 tests separate scope defects.
+- re-open trigger: `MOI-EXECUTOR-SIZING-2026-09-10` meets its diagnostic acceptance criteria.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
 <a id="ISSUE-010"></a>
