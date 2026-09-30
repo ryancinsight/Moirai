@@ -1,12 +1,16 @@
 use core::fmt;
 
 /// IPC-specific error type to minimize dependencies
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IpcError {
     /// System error with error code
     SystemError(i32),
     /// Invalid argument
     InvalidArgument,
+    /// The name is already taken by a live segment
+    AlreadyExists,
+    /// Another handle already holds this endpoint of the queue
+    EndpointInUse,
     /// Resource not found
     NotFound,
     /// Permission denied
@@ -18,6 +22,8 @@ impl fmt::Display for IpcError {
         match self {
             IpcError::SystemError(code) => write!(f, "System error: {code}"),
             IpcError::InvalidArgument => write!(f, "Invalid argument"),
+            IpcError::AlreadyExists => write!(f, "Segment already exists"),
+            IpcError::EndpointInUse => write!(f, "Queue endpoint already in use"),
             IpcError::NotFound => write!(f, "Resource not found"),
             IpcError::PermissionDenied => write!(f, "Permission denied"),
         }

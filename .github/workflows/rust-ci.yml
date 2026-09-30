@@ -318,7 +318,7 @@ jobs:
         working-directory: fuzz
         shell: bash
         run: |
-          targets=(http_response ipc_header)
+          targets=(http_response ipc_layout)
           for target in "${targets[@]}"; do
             mapfile -d '' seeds < <(find "seeds/$target" -type f -print0 | sort -z)
             if (( ${#seeds[@]} == 0 )); then
@@ -336,7 +336,7 @@ jobs:
         working-directory: fuzz
         shell: bash
         run: |
-          targets=(http_response ipc_header)
+          targets=(http_response ipc_layout)
           declare -a pids
           for target in "${targets[@]}"; do
             corpus="$RUNNER_TEMP/moirai-fuzz/$target"

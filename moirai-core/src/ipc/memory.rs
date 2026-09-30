@@ -47,13 +47,23 @@
 //! what the other Unix targets do and do not get. `open` needs no counterpart,
 //! since it maps an object whose creator already reserved it.
 //!
+//! # Names are created exclusively
+//!
+//! `create` fails with [`IpcError::AlreadyExists`] when the name is taken, on
+//! both platforms. A second `create` would otherwise `ftruncate` a live POSIX
+//! object to its own size and shrink every mapping already open on it, and a
+//! Win32 create would silently attach to the existing object at *its* size.
+//! `open` is the only way to reach an existing name.
+//!
 //! # Cross-process aliasing is the caller's contract
 //!
 //! A segment is shared by construction: another process holding the same name
 //! may write it at any time. `&[u8]` and `&mut [u8]` promise Rust that no such
-//! concurrent write happens, and no OS primitive here can enforce that. The safe
-//! accessors therefore carry a contract the caller must uphold — either be the
-//! only party touching the bytes for the borrow, or coordinate externally.
+//! concurrent write happens, and no OS primitive here can enforce that. Two
+//! handles in one process are the same hazard: they map the same pages through
+//! addresses the borrow checker cannot relate. The accessors are therefore
+//! `unsafe fn`s whose caller must uphold the contract — be the only party
+//! touching the bytes for the borrow, or coordinate externally.
 //! [`SharedQueue`](super::SharedQueue) is the coordinated wrapper: it never hands
 //! out a slice, reaching the bytes through raw pointers with the atomic head/tail
 //! protocol in its metadata header instead.
@@ -66,6 +76,8 @@ use super::error::{IpcError, last_os_error};
 use core::slice;
 
 #[cfg(unix)]
+use super::backing_store::reserve_backing_store;
+#[cfg(unix)]
 use std::os::unix::io::RawFd;
 
 /// Raw Win32 file-mapping bindings
@@ -74,6 +86,7 @@ mod win {
     pub const PAGE_READWRITE: u32 = 0x04;
     pub const FILE_MAP_ALL_ACCESS: u32 = 0x000F_001F;
     pub const INVALID_HANDLE_VALUE: usize = usize::MAX;
+    pub const ERROR_ALREADY_EXISTS: i32 = 183;
 
     unsafe extern "system" {
         pub fn CreateFileMappingW(
@@ -94,6 +107,7 @@ mod win {
         ) -> *mut core::ffi::c_void;
         pub fn UnmapViewOfFile(address: *const core::ffi::c_void) -> i32;
         pub fn CloseHandle(handle: usize) -> i32;
+        pub fn SetLastError(code: u32);
     }
 
     pub fn wide_name(name: &str) -> Vec<u16> {
@@ -132,102 +146,16 @@ fn unix_mapping_length(size: usize) -> Result<libc::off_t, IpcError> {
     libc::off_t::try_from(size).map_err(|_| IpcError::InvalidArgument)
 }
 
-/// What the kernel answered when asked to reserve a segment's backing store.
-#[cfg(any(target_os = "linux", target_os = "android"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Reservation {
-    /// The store is committed: every page of the segment exists.
-    Reserved,
-    /// This object cannot be preallocated at all, so it keeps the sparse
-    /// backing `ftruncate` gave it.
-    Unsupported,
-    /// A signal arrived first; the request has to be reissued.
-    Interrupted,
-    /// The store cannot be had, under the reported `errno`.
-    Failed(i32),
-}
-
-/// Classify what `posix_fallocate` returned.
-///
-/// Unlike the `shm_open`/`ftruncate`/`mmap` calls around it, `posix_fallocate`
-/// reports through its return value and leaves `errno` untouched, so the code
-/// arrives here directly instead of through `last_os_error`.
-///
-/// The distinction that matters is between a kernel that *will not preallocate
-/// here* and one that *cannot find the store*. `create` has already rejected a
-/// non-positive length, so `EINVAL` can only mean this object refuses the
-/// operation, as `EOPNOTSUPP` and `ENOSYS` do on a filesystem without fallocate
-/// — tmpfs before Linux 3.5, say. None of the three says anything about free
-/// space, and failing creation on them would break segments that work today, so
-/// they leave the mapping as sparse as it was before this call existed. Every
-/// other code — `ENOSPC` and `EFBIG` above all — is the shortage the call exists
-/// to surface.
-#[cfg(any(target_os = "linux", target_os = "android"))]
-pub(super) const fn classify_reservation(code: i32) -> Reservation {
-    match code {
-        0 => Reservation::Reserved,
-        libc::EINTR => Reservation::Interrupted,
-        libc::EOPNOTSUPP | libc::ENOSYS | libc::EINVAL => Reservation::Unsupported,
-        other => Reservation::Failed(other),
-    }
-}
-
-/// Reserve a whole segment's backing store, so its pages exist before anyone
-/// maps them.
-///
-/// `ftruncate` sets the object's length and nothing more. On tmpfs the pages
-/// behind that length stay sparse, so the first write to one can fail for want
-/// of memory — as `SIGBUS`, inside a safe accessor, in whichever process
-/// happened to touch it. Asking for the pages here turns that fault into an
-/// ordinary error at creation.
-///
-/// Returns `Ok` when the store is committed, and equally when the kernel
-/// declines to preallocate at all: the segment is still exactly `size` bytes, so
-/// such a caller keeps the behavior it had before, and only a reported shortage
-/// is an error. See `classify_reservation` for the split.
-///
-/// Unix targets outside the Linux family have no counterpart here.
-/// `posix_fallocate` is absent on macOS, and this crate cannot claim tmpfs
-/// semantics for platforms whose shared memory is not tmpfs, so their segments
-/// keep the sparse mapping and the `SIGBUS` window that comes with it.
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn reserve_backing_store(fd: RawFd, length: libc::off_t) -> Result<(), IpcError> {
-    loop {
-        // SAFETY: `posix_fallocate` takes `fd` as a descriptor number and two
-        // integers, and answers through its return value — no pointer crosses
-        // the call, so no argument reachable here can make it unsound. A
-        // descriptor that is not open comes back as `EBADF`.
-        let code = unsafe { libc::posix_fallocate(fd, 0, length) };
-
-        match classify_reservation(code) {
-            Reservation::Reserved | Reservation::Unsupported => return Ok(()),
-            Reservation::Interrupted => {}
-            Reservation::Failed(code) => return Err(IpcError::SystemError(code)),
-        }
-    }
-}
-
-/// Preallocation is unavailable on this target, so a segment keeps the sparse
-/// backing `ftruncate` gave it. See the Linux definition for what that costs.
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "matches the fallible Linux signature so `create` stays platform-uniform"
-)]
-fn reserve_backing_store(_fd: RawFd, _length: libc::off_t) -> Result<(), IpcError> {
-    Ok(())
-}
-
 // SAFETY: the mapping is process-wide, not thread-owned — `ptr` stays valid on
 // any thread for the lifetime of this handle, and neither the descriptor nor the
 // handle is thread-affine. `Send` therefore moves a still-valid mapping.
 unsafe impl Send for SharedMemory {}
 
-// SAFETY: `&SharedMemory` reaches only `as_slice`, which performs no interior
-// mutation, so sharing the handle across threads adds no race the type does not
-// already have. In-process `&mut` access is excluded by the borrow checker via
-// `as_mut_slice(&mut self)`; concurrent writes from *other processes* are outside
-// what any impl here can enforce and are the caller's contract (see module docs).
+// SAFETY: `&SharedMemory` reaches the bytes only through the `unsafe fn`
+// `as_slice`, whose caller vouches that no other handle writes the segment, so
+// sharing the handle across threads adds no access the caller has not already
+// taken responsibility for. `SharedQueue` reads and writes through raw pointers
+// under its own atomic protocol.
 unsafe impl Sync for SharedMemory {}
 
 impl SharedMemory {
@@ -251,10 +179,17 @@ impl SharedMemory {
         // until `Drop` unmaps it.
         unsafe {
             use std::ptr::null_mut;
-            let fd = libc::shm_open(c_name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o666);
+            let fd = libc::shm_open(
+                c_name.as_ptr(),
+                libc::O_CREAT | libc::O_EXCL | libc::O_RDWR,
+                0o666,
+            );
 
             if fd < 0 {
-                return Err(last_os_error());
+                return Err(match last_os_error() {
+                    IpcError::SystemError(libc::EEXIST) => IpcError::AlreadyExists,
+                    other => other,
+                });
             }
 
             if libc::ftruncate(fd, mapping_length) < 0 {
@@ -378,6 +313,9 @@ impl SharedMemory {
         // and the size pair describes `size` bytes. The handle is closed if the
         // view fails to map, so no failure path leaks it.
         unsafe {
+            // Clear the last-error slot so a stale `ERROR_ALREADY_EXISTS` from an
+            // earlier call cannot be mistaken for this one's answer.
+            win::SetLastError(0);
             let handle = win::CreateFileMappingW(
                 win::INVALID_HANDLE_VALUE,
                 core::ptr::null_mut(),
@@ -388,6 +326,17 @@ impl SharedMemory {
             );
             if handle == 0 {
                 return Err(last_os_error());
+            }
+
+            // `CreateFileMappingW` succeeds on an existing name and hands back
+            // the live object at its own size, reporting the fact only through
+            // the last-error code. Read it before any other call resets it.
+            if matches!(
+                last_os_error(),
+                IpcError::SystemError(win::ERROR_ALREADY_EXISTS)
+            ) {
+                win::CloseHandle(handle);
+                return Err(IpcError::AlreadyExists);
             }
 
             let ptr = win::MapViewOfFile(handle, win::FILE_MAP_ALL_ACCESS, 0, 0, size);
@@ -442,10 +391,15 @@ impl SharedMemory {
 
     /// Get a slice of the shared memory.
     ///
-    /// The borrow assumes no other process writes the segment while it is held
-    /// (see the module docs); use [`SharedQueue`](super::SharedQueue) when
-    /// another process is an active writer.
-    pub fn as_slice(&self) -> &[u8] {
+    /// # Safety
+    ///
+    /// For as long as the returned slice lives, no other handle to this segment
+    /// -- in this process or another -- may write it. A second handle maps the
+    /// same pages through an address the borrow checker cannot connect to this
+    /// one, so the exclusion is the caller's to arrange (see the module docs).
+    /// Use [`SharedQueue`](super::SharedQueue) when another party is an active
+    /// writer.
+    pub unsafe fn as_slice(&self) -> &[u8] {
         // SAFETY: `ptr` is a live mapping of `size` bytes — `create` sizes the
         // object with `ftruncate` and reserves its backing store, `open` rejects
         // a segment smaller than `size` — so every byte is readable, and `u8`
@@ -457,9 +411,12 @@ impl SharedMemory {
 
     /// Get a mutable slice of the shared memory.
     ///
-    /// The borrow assumes no other process reads or writes the segment while it
-    /// is held (see the module docs).
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+    /// # Safety
+    ///
+    /// For as long as the returned slice lives, no other handle to this segment
+    /// -- in this process or another -- may read or write it (see
+    /// [`as_slice`](Self::as_slice) and the module docs).
+    pub unsafe fn as_mut_slice(&mut self) -> &mut [u8] {
         // SAFETY: as `as_slice`, and `&mut self` excludes any other in-process
         // borrow of the same mapping for the lifetime of the returned slice.
         unsafe { slice::from_raw_parts_mut(self.ptr, self.size) }
