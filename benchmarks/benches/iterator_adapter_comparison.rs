@@ -1,5 +1,7 @@
 //! Iterator adapter comparison benchmarks against Rayon.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use moirai_iter::parallel::Either as MoiraiEither;
 use moirai_iter::parallel::IndexedParallelIterator as MoiraiIndexedParallelIterator;
@@ -12,11 +14,7 @@ use rayon::prelude::*;
 use std::collections::LinkedList;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
-const SAMPLE_SIZE: usize = 30;
-const MEASUREMENT_MILLIS: u64 = 750;
-const WARM_UP_MILLIS: u64 = 250;
 const WORK_ITEMS: usize = 32_768;
 const CHUNK_SIZE: usize = 64;
 
@@ -962,9 +960,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_indexed_boundary");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_function(BenchmarkId::new("moirai", WORK_ITEMS), |b| {
         b.iter(|| {
             black_box(moirai_indexed_boundary(
@@ -993,7 +988,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_indexed_collect_into_vec");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter_batched(
             || (input.clone(), Vec::with_capacity(WORK_ITEMS)),
@@ -1024,7 +1018,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_indexed_unzip_into_vecs");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", WORK_ITEMS),
         &pair_data,
@@ -1074,7 +1067,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_indexed_pipeline");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_indexed_pipeline(black_box(input.clone()))))
     });
@@ -1088,7 +1080,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_filter_flat_pipeline");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_filter_flat_pipeline(black_box(input.clone()))))
     });
@@ -1103,9 +1094,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_flatten");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(
         BenchmarkId::new("moirai", WORK_ITEMS),
         &nested,
@@ -1123,9 +1111,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_take_skip_any");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_take_skip_any_pipeline(black_box(input.clone()))))
     });
@@ -1139,9 +1124,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_take_skip_any_while");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| {
             black_box(moirai_take_skip_any_while_pipeline(black_box(
@@ -1159,9 +1141,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_map_state");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_map_state_pipeline(black_box(input.clone()))))
     });
@@ -1175,9 +1154,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_update");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_update_pipeline(black_box(input.clone()))))
     });
@@ -1191,7 +1167,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_while_some");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_while_some_pipeline(black_box(input.clone()))))
     });
@@ -1205,9 +1180,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_try_for_each");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_try_for_each_pipeline(black_box(input.clone()))))
     });
@@ -1221,9 +1193,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_for_each_state");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_for_each_state_pipeline(black_box(input.clone()))))
     });
@@ -1237,9 +1206,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_try_for_each_state");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_try_for_each_state_pipeline(black_box(input.clone()))))
     });
@@ -1253,9 +1219,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_try_reduce");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_try_reduce_pipeline(black_box(input.clone()))))
     });
@@ -1269,9 +1232,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_try_reduce_with");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_try_reduce_with_pipeline(black_box(input.clone()))))
     });
@@ -1290,7 +1250,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_chain_rev_pipeline");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_function(BenchmarkId::new("moirai", WORK_ITEMS), |b| {
         b.iter(|| {
             black_box(moirai_chain_rev_pipeline(
@@ -1314,9 +1273,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_zip_eq");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_function(BenchmarkId::new("moirai", WORK_ITEMS), |b| {
         b.iter(|| {
             black_box(moirai_zip_eq_pipeline(
@@ -1347,9 +1303,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_indexed_interleave");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_function(BenchmarkId::new("moirai", WORK_ITEMS), |b| {
         b.iter(|| {
             black_box(moirai_interleave_pipeline(
@@ -1375,9 +1328,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_indexed_step_by");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_step_by_pipeline(black_box(input.clone()))))
     });
@@ -1391,9 +1341,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_indexed_blocks");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_blocks_pipeline(black_box(input.clone()))))
     });
@@ -1407,9 +1354,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_collect_vec_list");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_collect_vec_list_pipeline(black_box(input.clone()))))
     });
@@ -1423,9 +1367,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_intersperse");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_intersperse_pipeline(black_box(input.clone()))))
     });
@@ -1439,7 +1380,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_inspect_chunks_pipeline");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_inspect_chunks_pipeline(black_box(input.clone()))))
     });
@@ -1453,7 +1393,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_partition_pipeline");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_partition_pipeline(black_box(input.clone()))))
     });
@@ -1467,7 +1406,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_terminal_reducers");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_terminal_reducer_pipeline(black_box(input.clone()))))
     });
@@ -1481,7 +1419,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_ordered_reducers");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_ordered_reducer_pipeline(black_box(input.clone()))))
     });
@@ -1495,7 +1432,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_find_map");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_find_map_pipeline(black_box(input.clone()))))
     });
@@ -1509,9 +1445,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_position");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_position_pipeline(black_box(input.clone()))))
     });
@@ -1525,9 +1458,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_positions");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_positions_pipeline(black_box(input.clone()))))
     });
@@ -1541,7 +1471,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_ref_copy_clone");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_ref_copied_cloned_pipeline(black_box(input))))
     });
@@ -1555,7 +1484,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_non_clone_ref_map");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", WORK_ITEMS),
         &non_clone_data,
@@ -1573,7 +1501,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_unzip");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_unzip_pipeline(black_box(input.clone()))))
     });
@@ -1587,9 +1514,6 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, rayon_expected);
 
     let mut group = c.benchmark_group("iterator_adapter_partition_map");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_partition_map_pipeline(black_box(input.clone()))))
     });
@@ -1601,11 +1525,7 @@ fn iterator_adapter_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = iterator_adapter_comparison
 }
 criterion_main!(benches);

@@ -3,13 +3,11 @@
 //! The rows isolate real `moirai-metrics` storage operations: shared atomic
 //! counter handles, fixed-size snapshot collection, and Prometheus text export.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use moirai_metrics::{MetricsCollector, MetricsSnapshot, PrometheusExporter};
-use std::time::Duration;
 
-const SAMPLE_SIZE: usize = 20;
-const MEASUREMENT_MILLIS: u64 = 500;
-const WARM_UP_MILLIS: u64 = 100;
 const METRIC_COUNT: usize = 32;
 
 fn build_collector() -> MetricsCollector {
@@ -58,9 +56,6 @@ fn metrics_prometheus_export(exporter: &PrometheusExporter, snapshot: &MetricsSn
 
 fn bench_metrics(c: &mut Criterion) {
     let mut group = c.benchmark_group("metrics_collector_comparison");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
 
     let counter = moirai_metrics::Counter::new();
     group.bench_function("counter_handle_add_get", |bench| {
@@ -81,5 +76,9 @@ fn bench_metrics(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_metrics);
+criterion_group! {
+    name = benches;
+    config = time_model::criterion();
+    targets = bench_metrics
+}
 criterion_main!(benches);

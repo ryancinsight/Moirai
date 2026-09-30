@@ -9,6 +9,8 @@
 use std::hint::black_box;
 use std::thread;
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use moirai_core::channel::spsc;
 
@@ -60,5 +62,9 @@ fn bench_spsc_throughput(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_spsc_throughput);
+criterion_group! {
+    name = benches;
+    config = time_model::criterion();
+    targets = bench_spsc_throughput
+}
 criterion_main!(benches);

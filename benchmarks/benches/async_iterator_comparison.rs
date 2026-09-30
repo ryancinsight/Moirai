@@ -1,18 +1,16 @@
 //! Async iterator comparison benchmarks against Tokio runtime fan-out.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_iter::{
     AsyncIterator as MoiraiAsyncIterator, AsyncParallelIterator as MoiraiAsyncParallelIterator,
     IntoAsyncIterator,
 };
 use std::task::Poll;
-use std::time::Duration;
 use tokio::runtime::Builder;
 use tokio::task::JoinSet;
 
-const SAMPLE_SIZE: usize = 30;
-const MEASUREMENT_MILLIS: u64 = 750;
-const WARM_UP_MILLIS: u64 = 250;
 const WORK_ITEMS: usize = 32_768;
 const DELAYED_WORK_ITEMS: usize = 8_192;
 const BOUNDED_CONCURRENCY: usize = 256;
@@ -214,7 +212,6 @@ fn async_iterator_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, tokio_expected);
 
     let mut group = c.benchmark_group("async_iterator_ready_pipeline");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_ready_pipeline(black_box(input.clone()))))
     });
@@ -234,7 +231,6 @@ fn async_iterator_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, tokio_expected);
 
     let mut group = c.benchmark_group("async_iterator_take_skip_pipeline");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| black_box(moirai_take_skip_pipeline(black_box(input.clone()))))
     });
@@ -259,7 +255,6 @@ fn async_iterator_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, tokio_expected);
 
     let mut group = c.benchmark_group("async_iterator_enumerate_zip_pipeline");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| {
             black_box(moirai_enumerate_zip_pipeline(
@@ -287,7 +282,6 @@ fn async_iterator_comparison(c: &mut Criterion) {
     assert_eq!(moirai_expected, tokio_expected);
 
     let mut group = c.benchmark_group("async_iterator_bounded_yield_pipeline");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", DELAYED_WORK_ITEMS),
         &delayed_data,
@@ -307,11 +301,7 @@ fn async_iterator_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = async_iterator_comparison
 }
 criterion_main!(benches);

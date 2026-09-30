@@ -1,5 +1,7 @@
 //! Async TCP pending-read cancellation comparison against Tokio.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_async::io::{AsyncRead as MoiraiAsyncRead, AsyncReadExt as MoiraiAsyncReadExt};
 use std::future::Future;
@@ -12,9 +14,6 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tokio::runtime::Builder;
 
-const SAMPLE_SIZE: usize = 20;
-const MEASUREMENT_MILLIS: u64 = 750;
-const WARM_UP_MILLIS: u64 = 250;
 const CANCEL_PAYLOAD_LEN: usize = 5;
 const CANCEL_PAYLOAD: [u8; CANCEL_PAYLOAD_LEN] = *b"after";
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
@@ -186,7 +185,6 @@ fn async_tcp_cancel_safety_comparison(c: &mut Criterion) {
     );
 
     let mut group = c.benchmark_group("async_tcp_pending_read_cancel_safety");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", CANCEL_PAYLOAD.len()),
         &CANCEL_PAYLOAD.len(),
@@ -208,11 +206,7 @@ fn async_tcp_cancel_safety_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = async_tcp_cancel_safety_comparison
 }
 criterion_main!(benches);

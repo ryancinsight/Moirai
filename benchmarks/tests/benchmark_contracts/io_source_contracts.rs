@@ -91,9 +91,7 @@ fn async_io_extension_futures_are_zero_copy_and_value_semantic() {
         "tokio::io::AsyncWriteExt::shutdown",
         "assert_eq!(output, PAYLOAD)",
         "assert_eq!(writer.shutdowns, 1)",
-        "sample_size",
-        "measurement_time",
-        "warm_up_time",
+        "time_model::criterion()",
     ] {
         assert!(
             compat_benchmark.contains(required) || benchmark_manifest.contains(required),

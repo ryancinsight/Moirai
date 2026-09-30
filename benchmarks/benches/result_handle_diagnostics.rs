@@ -7,20 +7,14 @@
 #[path = "result_handle_diagnostics/mod.rs"]
 mod diagnostics;
 
-use criterion::{criterion_group, criterion_main, Criterion};
-use diagnostics::{
-    benchmark_result_handle_diagnostics, BENCHMARK_MEASUREMENT_SECONDS, BENCHMARK_SAMPLE_SIZE,
-    BENCHMARK_WARM_UP_MILLIS,
-};
-use std::time::Duration;
+#[path = "common/time_model.rs"]
+mod time_model;
+use criterion::{criterion_group, criterion_main};
+use diagnostics::benchmark_result_handle_diagnostics;
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(BENCHMARK_SAMPLE_SIZE)
-        .measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS))
-        .warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = benchmark_result_handle_diagnostics
 }
 

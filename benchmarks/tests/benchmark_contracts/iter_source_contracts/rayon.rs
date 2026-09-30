@@ -571,10 +571,7 @@ fn rayon_adapter_surface_audit_tracks_current_iterator_scope() {
         "moirai_position_find",
         "rayon_position_find",
         "assert_eq!(",
-        "sample_size(SAMPLE_SIZE)",
-        "measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))",
-        "warm_up_time(Duration::from_millis(WARM_UP_MILLIS))",
-        "without_plots",
+        "time_model::criterion()",
     ] {
         assert!(
             regression_benchmark.contains(required),

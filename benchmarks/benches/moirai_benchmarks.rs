@@ -8,6 +8,8 @@
     reason = "test scope: failed precondition = test failure"
 )]
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai::*;
 use moirai_core::{Priority, TaskBuilder};
@@ -15,10 +17,6 @@ use moirai_utils::simd;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-
-const BENCHMARK_SAMPLE_SIZE: usize = 10;
-const BENCHMARK_MEASUREMENT_SECONDS: u64 = 1;
-const BENCHMARK_WARM_UP_MILLIS: u64 = 250;
 
 /// Benchmark task spawning performance.
 fn bench_task_spawning(c: &mut Criterion) {
@@ -335,7 +333,6 @@ fn bench_performance_regression(c: &mut Criterion) {
 /// Latency measurement benchmarks.
 fn bench_latency_measurements(c: &mut Criterion) {
     let mut group = c.benchmark_group("latency");
-    group.measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS));
 
     group.bench_function("task_spawn_latency", |b| {
         let moirai = Moirai::new().unwrap();
@@ -364,10 +361,7 @@ fn bench_latency_measurements(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(BENCHMARK_SAMPLE_SIZE)
-        .measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS))
-        .warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS));
+    config = time_model::criterion();
     targets =
         bench_task_spawning,
         bench_async_tasks,

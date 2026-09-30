@@ -1,5 +1,7 @@
 //! Async I/O compatibility comparison for native and Tokio trait adapters.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use moirai_async::io::{
     AsyncRead as MoiraiAsyncRead, AsyncReadExt as MoiraiAsyncReadExt,
@@ -8,7 +10,6 @@ use moirai_async::io::{
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::Duration;
 
 const PAYLOAD_BYTES: usize = 4096;
 const READ_CHUNK: usize = 128;
@@ -136,9 +137,6 @@ fn tokio_compat_write_shutdown() -> usize {
 
 fn async_io_compat_comparison(c: &mut Criterion) {
     let mut read_group = c.benchmark_group("async_io_compat_read_exact");
-    read_group.sample_size(20);
-    read_group.warm_up_time(Duration::from_millis(300));
-    read_group.measurement_time(Duration::from_secs(2));
     read_group.bench_function("moirai_native", |b| {
         b.iter(|| black_box(moirai_native_read_exact()))
     });
@@ -148,9 +146,6 @@ fn async_io_compat_comparison(c: &mut Criterion) {
     read_group.finish();
 
     let mut write_group = c.benchmark_group("async_io_compat_write_shutdown");
-    write_group.sample_size(20);
-    write_group.warm_up_time(Duration::from_millis(300));
-    write_group.measurement_time(Duration::from_secs(2));
     write_group.bench_function("moirai_native", |b| {
         b.iter(|| black_box(moirai_native_write_shutdown()))
     });
@@ -162,7 +157,7 @@ fn async_io_compat_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default().without_plots();
+    config = time_model::criterion();
     targets = async_io_compat_comparison
 }
 criterion_main!(benches);

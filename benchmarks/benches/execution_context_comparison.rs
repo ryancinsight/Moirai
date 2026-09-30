@@ -1,5 +1,7 @@
 //! Owned execution-context iterator comparison against Rayon.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use futures::StreamExt;
 use moirai_iter::{AsyncContext, ExecutionContext, MoiraiIterator, ParallelContext};
@@ -9,11 +11,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
-use std::time::Duration;
 
-const SAMPLE_SIZE: usize = 10;
-const WARM_UP_MILLIS: u64 = 100;
-const MEASUREMENT_MILLIS: u64 = 300;
 const WORK_ITEMS: usize = 512;
 const ASYNC_WORK_ITEMS: usize = 1_024;
 const SPARSE_WORK_ITEMS: usize = 1_000;
@@ -162,9 +160,6 @@ fn execution_context_comparison(c: &mut Criterion) {
     );
 
     let mut group = c.benchmark_group("execution_context_owned_map");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(BenchmarkId::new("moirai", WORK_ITEMS), &data, |b, input| {
         b.iter(|| {
             black_box(moirai_parallel_context_map(
@@ -192,9 +187,6 @@ fn execution_context_comparison(c: &mut Criterion) {
     );
 
     let mut group = c.benchmark_group("execution_context_parallel_async_map");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(
         BenchmarkId::new("moirai", ASYNC_WORK_ITEMS),
         &async_data,
@@ -209,9 +201,6 @@ fn execution_context_comparison(c: &mut Criterion) {
         expected
     );
     let mut group = c.benchmark_group("execution_context_parallel_pending_async_map");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(
         BenchmarkId::new("moirai", ASYNC_WORK_ITEMS),
         &async_data,
@@ -242,9 +231,6 @@ fn execution_context_comparison(c: &mut Criterion) {
         sparse_expected
     );
     let mut group = c.benchmark_group("execution_context_sparse_pending_map");
-    group.sample_size(SAMPLE_SIZE);
-    group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
-    group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
     group.bench_with_input(
         BenchmarkId::new("moirai", SPARSE_WORK_ITEMS),
         &sparse_data,
@@ -258,5 +244,9 @@ fn execution_context_comparison(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, execution_context_comparison);
+criterion_group! {
+    name = benches;
+    config = time_model::criterion();
+    targets = execution_context_comparison
+}
 criterion_main!(benches);

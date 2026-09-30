@@ -1,14 +1,12 @@
 //! Async directory facade comparison benchmarks against Tokio fs.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use tokio::runtime::Builder;
 
-const SAMPLE_SIZE: usize = 30;
-const MEASUREMENT_MILLIS: u64 = 750;
-const WARM_UP_MILLIS: u64 = 250;
 const DIR_UNITS: usize = 1;
 const TREE_MARKER_BYTES: &[u8] = b"moirai-directory-tree-marker";
 
@@ -110,7 +108,6 @@ fn async_fs_dir_comparison(c: &mut Criterion) {
     tokio_create_remove_dir_all(&runtime, &tokio_dir_all_path);
 
     let mut group = c.benchmark_group("async_fs_create_remove_dir");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", DIR_UNITS),
         &moirai_dir_path,
@@ -142,7 +139,6 @@ fn async_fs_dir_comparison(c: &mut Criterion) {
     group.finish();
 
     let mut group = c.benchmark_group("async_fs_create_remove_dir_all");
-    group.sample_size(SAMPLE_SIZE);
     group.bench_with_input(
         BenchmarkId::new("moirai", DIR_UNITS),
         &moirai_dir_all_path,
@@ -181,11 +177,7 @@ fn async_fs_dir_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = async_fs_dir_comparison
 }
 criterion_main!(benches);

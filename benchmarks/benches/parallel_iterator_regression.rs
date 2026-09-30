@@ -5,6 +5,8 @@
 //! `x86_64-pc-windows-msvc`. Timing results are machine-specific; the paired
 //! Moirai/Rayon rows share inputs, addresses, and one benchmark binary.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_iter::parallel::IndexedParallelIterator as MoiraiIndexedParallelIterator;
 use moirai_iter::parallel::IntoParallelIterator as MoiraiIntoParallelIterator;
@@ -12,11 +14,7 @@ use moirai_iter::parallel::IntoParallelRefIterator as MoiraiIntoParallelRefItera
 use moirai_iter::parallel::ParallelIterator as MoiraiParallelIterator;
 use rayon::iter::IndexedParallelIterator as RayonIndexedParallelIterator;
 use rayon::prelude::*;
-use std::time::Duration;
 
-const SAMPLE_SIZE: usize = 20;
-const WARM_UP_MILLIS: u64 = 200;
-const MEASUREMENT_MILLIS: u64 = 500;
 const INPUT_SIZES: [usize; 3] = [1_024, 32_768, 131_072];
 const CHUNK_SIZE: usize = 256;
 const STEP_SIZE: usize = 3;
@@ -585,11 +583,7 @@ fn parallel_iterator_regression(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = parallel_iterator_regression
 }
 criterion_main!(benches);

@@ -4,15 +4,14 @@
 //! workload shapes but runs them under Criterion so regressions can be compared
 //! with distributions instead of a single wall-clock sample.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use moirai::Moirai;
 use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-const BENCHMARK_SAMPLE_SIZE: usize = 10;
-const BENCHMARK_MEASUREMENT_SECONDS: u64 = 1;
-const BENCHMARK_WARM_UP_MILLIS: u64 = 250;
 const WORKER_THREADS: usize = 4;
 
 const RAYON_ITEMS: usize = 65_536;
@@ -312,9 +311,6 @@ fn bench_rayon_patterns(c: &mut Criterion) {
         .expect("Moirai runtime must start");
 
     let mut group = c.benchmark_group("example_rayon_patterns");
-    group.sample_size(BENCHMARK_SAMPLE_SIZE);
-    group.measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS));
-    group.warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS));
 
     group.bench_function("rayon_parallel_iterator", |bench| {
         bench.iter(|| verify_checksum(rayon_parallel_iterator(&rayon, RAYON_ITEMS), expected));
@@ -341,9 +337,6 @@ fn bench_tokio_fanout(c: &mut Criterion) {
         .expect("Tokio runtime must start");
 
     let mut group = c.benchmark_group("example_tokio_fanout");
-    group.sample_size(BENCHMARK_SAMPLE_SIZE);
-    group.measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS));
-    group.warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS));
 
     group.bench_function("tokio_spawn_sleep", |bench| {
         bench.iter(|| verify_checksum(tokio_fanout(&tokio, TOKIO_FANOUT_TASKS), expected));
@@ -371,9 +364,6 @@ fn bench_channel_patterns(c: &mut Criterion) {
         .expect("Tokio runtime must start");
 
     let mut group = c.benchmark_group("example_channel_patterns");
-    group.sample_size(BENCHMARK_SAMPLE_SIZE);
-    group.measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS));
-    group.warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS));
 
     group.bench_function("tokio_single_producer_mpsc", |bench| {
         bench.iter(|| {
@@ -417,11 +407,7 @@ fn bench_channel_patterns(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(BENCHMARK_SAMPLE_SIZE)
-        .measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS))
-        .warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = bench_rayon_patterns, bench_tokio_fanout, bench_channel_patterns
 }
 

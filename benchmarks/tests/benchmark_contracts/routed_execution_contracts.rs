@@ -136,7 +136,7 @@ fn process_server_routed_execution_benchmark_uses_real_routes() {
         "public_server_route_sum_u64",
         "public_process_route_sum_u64",
         "iter_custom",
-        "without_plots",
+        "time_model::criterion()",
     ] {
         assert!(
             source.contains(required),

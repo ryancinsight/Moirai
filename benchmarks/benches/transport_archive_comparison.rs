@@ -5,6 +5,8 @@
 //! archive bytes into an owned `String`, so the benchmark isolates the receive
 //! allocation avoided by rkyv-style archive views.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
 use moirai_transport::{
     payload::{DevicePayloadRegion, ThreadPayloadRegion, TransportPayload},
@@ -13,11 +15,8 @@ use moirai_transport::{
     },
     Address, TransportManager,
 };
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
-const SAMPLE_SIZE: usize = 20;
-const MEASUREMENT_MILLIS: u64 = 500;
-const WARM_UP_MILLIS: u64 = 100;
 const PAYLOAD_REPETITIONS: usize = 8;
 const PAYLOAD_UNIT: &str = "moirai-archive-view-payload:";
 
@@ -117,9 +116,6 @@ fn bench_transport_archives(c: &mut Criterion) {
     let archived_message = ArchivedMessage::<String>::from_bytes(archive_bytes.clone());
 
     let mut view_group = c.benchmark_group("transport_archive_view");
-    view_group.sample_size(SAMPLE_SIZE);
-    view_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
-    view_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
     view_group.throughput(Throughput::Bytes(archive_bytes.len() as u64));
 
     view_group.bench_function("borrowed_archive_view", |bench| {
@@ -143,9 +139,6 @@ fn bench_transport_archives(c: &mut Criterion) {
     let owned_address = Address::Local("transport-archive-owned".to_string());
 
     let mut roundtrip_group = c.benchmark_group("transport_archive_roundtrip");
-    roundtrip_group.sample_size(SAMPLE_SIZE);
-    roundtrip_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
-    roundtrip_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
     roundtrip_group.throughput(Throughput::Bytes(archive_bytes.len() as u64));
 
     roundtrip_group.bench_function("archived_transport_borrowed_view", |bench| {
@@ -171,9 +164,6 @@ fn bench_transport_archives(c: &mut Criterion) {
     roundtrip_group.finish();
 
     let mut handoff_group = c.benchmark_group("transport_payload_region_handoff");
-    handoff_group.sample_size(SAMPLE_SIZE);
-    handoff_group.measurement_time(Duration::from_millis(MEASUREMENT_MILLIS));
-    handoff_group.warm_up_time(Duration::from_millis(WARM_UP_MILLIS));
     handoff_group.throughput(Throughput::Bytes(archive_bytes.len() as u64));
 
     handoff_group.bench_function("device_region_owned_handoff", |bench| {
@@ -189,11 +179,7 @@ fn bench_transport_archives(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = bench_transport_archives
 }
 

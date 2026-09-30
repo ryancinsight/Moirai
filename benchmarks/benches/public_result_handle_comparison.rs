@@ -8,6 +8,8 @@
 //! expose a directly equivalent result handle, so its row is labeled as a scoped
 //! completion baseline rather than a result-handle equivalent.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use moirai::Moirai;
 use std::{
@@ -15,12 +17,8 @@ use std::{
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll},
-    time::Duration,
 };
 
-const BENCHMARK_SAMPLE_SIZE: usize = 20;
-const BENCHMARK_MEASUREMENT_SECONDS: u64 = 2;
-const BENCHMARK_WARM_UP_MILLIS: u64 = 500;
 const WORKER_THREADS: usize = 4;
 const READY_VALUE: usize = 42;
 const CAPTURE_WORDS: usize = 10;
@@ -185,9 +183,6 @@ fn rayon_scope_single_ready(rayon: &rayon::ThreadPool) -> usize {
 
 fn benchmark_public_result_handles(c: &mut Criterion) {
     let mut group = c.benchmark_group("public_result_handle_ready");
-    group.sample_size(BENCHMARK_SAMPLE_SIZE);
-    group.measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS));
-    group.warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS));
 
     let moirai = Moirai::builder()
         .worker_threads(WORKER_THREADS)
@@ -255,11 +250,7 @@ fn benchmark_public_result_handles(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(BENCHMARK_SAMPLE_SIZE)
-        .measurement_time(Duration::from_secs(BENCHMARK_MEASUREMENT_SECONDS))
-        .warm_up_time(Duration::from_millis(BENCHMARK_WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = benchmark_public_result_handles
 }
 

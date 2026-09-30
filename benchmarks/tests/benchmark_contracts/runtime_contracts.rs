@@ -208,7 +208,6 @@ fn local_queue_capacity_benchmark_preserves_payload_and_workloads() {
         "size_of::<QueuePayload>() == 16 * core::mem::size_of::<usize>()",
         "const WARM_ITEMS: usize = 15;",
         "const BURST_ITEMS: usize = 257;",
-        "group.sample_size(20);",
         "BenchmarkId::new(\"warm_no_growth\", capacity)",
         "BenchmarkId::new(\"cold_growth_burst\", capacity)",
         "verify_sum(batch_sum(&mut deque, WARM_ITEMS), WARM_ITEMS)",

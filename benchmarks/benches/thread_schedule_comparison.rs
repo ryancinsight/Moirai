@@ -10,6 +10,8 @@ mod local_queue_capacity;
 #[path = "thread_schedule_comparison/steal_batch_gate.rs"]
 mod steal_batch_gate;
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use crossbeam::channel::{bounded, TrySendError};
 use moirai::Moirai;
@@ -431,9 +433,6 @@ fn tokio_rayon_real_app_pipeline_sum(
 
 fn bench_saturated_admission(c: &mut Criterion) {
     let mut group = c.benchmark_group("saturated_admission");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
     group.throughput(Throughput::Elements(1));
 
     let mut moirai = prepare_moirai_saturated_admission();
@@ -465,9 +464,6 @@ fn bench_saturated_admission(c: &mut Criterion) {
 
 fn bench_ready_task_schedule(c: &mut Criterion) {
     let mut group = c.benchmark_group("ready_task_schedule");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
 
     let moirai = Moirai::builder()
         .worker_threads(WORKER_THREADS)
@@ -518,9 +514,6 @@ fn bench_ready_task_schedule(c: &mut Criterion) {
 
 fn bench_indexed_reduce_schedule(c: &mut Criterion) {
     let mut group = c.benchmark_group("indexed_reduce_schedule");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
 
     let moirai = Moirai::builder()
         .worker_threads(WORKER_THREADS)
@@ -556,9 +549,6 @@ fn bench_indexed_reduce_schedule(c: &mut Criterion) {
 
 fn bench_scoped_ready_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("scoped_ready_scaling");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
 
     let moirai = Moirai::builder()
         .worker_threads(WORKER_THREADS)
@@ -610,9 +600,6 @@ fn bench_scoped_ready_scaling(c: &mut Criterion) {
 
 fn bench_indexed_reduce_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("indexed_reduce_scaling");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
 
     let moirai = Moirai::builder()
         .worker_threads(WORKER_THREADS)
@@ -650,9 +637,6 @@ fn bench_indexed_reduce_scaling(c: &mut Criterion) {
 
 fn bench_mixed_unified_schedule(c: &mut Criterion) {
     let mut group = c.benchmark_group("mixed_unified_schedule");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
     group.throughput(Throughput::Elements((MIXED_TASKS_PER_CLASS * 3) as u64));
 
     let moirai = Moirai::builder()
@@ -695,9 +679,6 @@ fn bench_mixed_unified_schedule(c: &mut Criterion) {
 
 fn bench_real_application_mixed_workload(c: &mut Criterion) {
     let mut group = c.benchmark_group("real_application_mixed_workload");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
     group.throughput(Throughput::Elements(
         (REAL_APP_RECORDS * 2 + REAL_APP_CHANNEL_RECORDS + REAL_APP_ANALYTICS_RECORDS) as u64,
     ));
@@ -742,9 +723,6 @@ fn bench_real_application_mixed_workload(c: &mut Criterion) {
 
 fn bench_standalone_deque_reclaim_policy(c: &mut Criterion) {
     let mut group = c.benchmark_group("standalone_deque_reclaim_policy");
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(1));
-    group.warm_up_time(Duration::from_millis(250));
     group.throughput(Throughput::Elements(DEQUE_RECLAIM_ITEMS as u64));
 
     group.bench_function("moirai_deferred_reclaim", |b| {
@@ -777,9 +755,10 @@ fn bench_standalone_deque_reclaim_policy(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_saturated_admission,
+criterion_group! {
+    name = benches;
+    config = time_model::criterion();
+    targets = bench_saturated_admission,
     bench_ready_task_schedule,
     bench_indexed_reduce_schedule,
     bench_scoped_ready_scaling,
@@ -790,5 +769,5 @@ criterion_group!(
     dispatch_floor::bench,
     local_queue_capacity::bench,
     steal_batch_gate::bench
-);
+}
 criterion_main!(benches);

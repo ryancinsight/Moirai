@@ -360,9 +360,7 @@ fn process_server_scheduler_routing_uses_static_route_policy() {
         "AcceleratorCounts::new",
         "sync_accelerator_metadata",
         "async_accelerator_metadata",
-        "sample_size",
-        "measurement_time",
-        "warm_up_time",
+        "time_model::criterion()",
     ] {
         assert!(
             benchmark_source.contains(required),

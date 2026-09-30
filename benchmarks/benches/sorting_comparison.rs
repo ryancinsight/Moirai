@@ -1,13 +1,10 @@
 //! Slice parallel sorting comparison benchmarks against Rayon.
 
+#[path = "common/time_model.rs"]
+mod time_model;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use moirai_iter::ParallelSliceMut as MoiraiParallelSliceMut;
 use rayon::slice::ParallelSliceMut as RayonParallelSliceMut;
-use std::time::Duration;
-
-const SAMPLE_SIZE: usize = 10;
-const MEASUREMENT_MILLIS: u64 = 750;
-const WARM_UP_MILLIS: u64 = 250;
 
 /// Small input: recursion stays shallow, so this row measures per-call overhead
 /// rather than the parallel decomposition.
@@ -19,8 +16,6 @@ const WORK_ITEMS: usize = 10_000;
 /// ~250, both far past any worker count, so the row measures how much of the
 /// work tree the runtime actually spreads.
 const LARGE_ITEMS: usize = 4_000_000;
-const LARGE_MEASUREMENT_MILLIS: u64 = 4_000;
-const LARGE_WARM_UP_MILLIS: u64 = 1_000;
 
 fn generate_random_data(items: usize) -> Vec<i32> {
     let mut seed: u64 = 54321;
@@ -61,15 +56,6 @@ fn bench_group(
     rayon_sort: fn(&mut [i32]),
 ) {
     let mut group = c.benchmark_group(group_name);
-    group.sample_size(SAMPLE_SIZE);
-    // A multi-millisecond iteration reaches the sample floor long before the
-    // default window elapses, leaving each sample exposed to whatever else the
-    // host is doing. Measure the large rows for longer so run-to-run spread
-    // stays below the effect being compared.
-    if items >= LARGE_ITEMS {
-        group.measurement_time(Duration::from_millis(LARGE_MEASUREMENT_MILLIS));
-        group.warm_up_time(Duration::from_millis(LARGE_WARM_UP_MILLIS));
-    }
     group.bench_with_input(BenchmarkId::new("moirai", items), &data, |b, input| {
         b.iter_with_setup(
             || input.to_vec(),
@@ -130,11 +116,7 @@ fn sorting_comparison(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = Criterion::default()
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(Duration::from_millis(MEASUREMENT_MILLIS))
-        .warm_up_time(Duration::from_millis(WARM_UP_MILLIS))
-        .without_plots();
+    config = time_model::criterion();
     targets = sorting_comparison
 }
 criterion_main!(benches);
