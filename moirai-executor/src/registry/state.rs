@@ -268,8 +268,14 @@ impl TaskStateBlock {
         // yet published, so no reader touches the cell and this is the only
         // access to it. The address is stable: the boxed slice never moves or
         // shrinks and a published state is never replaced.
-        let state = unsafe { (*cell).write(TaskState::new()) };
-        let address = NonNull::from(&*state);
+        unsafe { (*cell).write(TaskState::new()) };
+        // SAFETY: `UnsafeCell::get` never returns null. The address derives
+        // from the cell itself, as `get` does, and not from the `&mut` that
+        // `write` returns: a pointer reborrowed from that transient reference
+        // sits above it in the borrow stack, and the shared reads and atomic
+        // stores that later readers make through the cell would invalidate it
+        // before the lease uses it.
+        let address = unsafe { NonNull::new_unchecked(cell.cast::<TaskState>()) };
         self.published[slot].store(true, Ordering::Release);
         address
     }
