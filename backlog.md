@@ -219,16 +219,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Define the resource-limit and cancellation contract against ADR 0007 before exposing the first fetch operation.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-SCOPE-STATE-UNLOCK-MIRI-2026-09-29"></a>
-## MOI-SCOPE-STATE-UNLOCK-MIRI-2026-09-29 — Settle destroy-after-unlock of the stack scope state
-- status: todo
-- priority: correctness
-- outcome: The last completer's mutex unlock is shown not to touch a scope state the waiter has already popped, or the state moves behind shared ownership.
-- acceptance: Miri (many seeds) on a scope with one job completed by a worker while the caller waits in `SchedulerScopeState::wait` reports no protected-reference deallocation inside `Mutex::unlock`/`futex_wake`, for `scope`, `for_each_indexed`, and `map_reduce_indexed`; otherwise the state is reference-counted.
-- scope: `moirai-executor/src/schedule/runtime/types.rs` (`SchedulerScopeState`), `data_parallel.rs`.
-- next step: Get mnemosyne building under Miri, then write the one-job scope reproducer.
-- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
-
 <a id="MOI-RESCUE-RING-BRANCHES-2026-09-29"></a>
 ## MOI-RESCUE-RING-BRANCHES-2026-09-29 — Complete or drop the parked ring-unification branches
 - status: todo
