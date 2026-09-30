@@ -23,7 +23,7 @@ struct PendingOnce<T> {
 fn retained_slot_metadata_word_is_overlapped() {
     let word = core::mem::size_of::<usize>();
     let future = core::mem::size_of::<PendingOnce<u64>>();
-    let slot = core::mem::size_of::<super::FutureSlot<PendingOnce<u64>>>();
+    let slot = core::mem::size_of::<super::cell::FutureSlot<PendingOnce<u64>>>();
     let optional_output = core::mem::size_of::<Option<u64>>();
     let retained_output = core::mem::size_of::<core::mem::MaybeUninit<u64>>();
 
@@ -445,4 +445,50 @@ fn poll_panic_drops_all_initialized_slots_once() {
         "poll failure sentinel"
     );
     assert_eq!(drops.load(Ordering::SeqCst), 4);
+}
+
+/// Holds a `&mut` to its own state across a pending poll, the shape of a leaf
+/// future such as a cooperative yield. The borrow is a child of the pointer the
+/// slab handed to `poll`, so the slab must never form a reference over the
+/// future's bytes between polls (Stacked Borrows, checked under Miri).
+async fn borrow_own_state_across_pending(value: usize) -> usize {
+    let mut yielded = false;
+    let flag = &mut yielded;
+    core::future::poll_fn(|context| {
+        if *flag {
+            Poll::Ready(())
+        } else {
+            *flag = true;
+            context.waker().wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await;
+    value
+}
+
+#[test]
+fn ordered_slots_keep_futures_borrowing_their_own_state_valid() {
+    let stream = futures::stream::iter((0..37).map(borrow_own_state_across_pending));
+    let values = futures::executor::block_on(retained_buffered(stream, 5).collect::<Vec<_>>());
+    assert_eq!(values, (0..37).collect::<Vec<_>>());
+}
+
+#[test]
+fn unordered_slots_keep_futures_borrowing_their_own_state_valid() {
+    let stream = futures::stream::iter((0..37).map(borrow_own_state_across_pending));
+    let mut values = futures::executor::block_on(retained_unordered(stream, 5).collect::<Vec<_>>());
+    values.sort_unstable();
+    assert_eq!(values, (0..37).collect::<Vec<_>>());
+}
+
+#[test]
+fn slot_slab_keeps_the_auto_traits_of_its_futures() {
+    fn is_send<T: Send>() {}
+    fn is_sync<T: Sync>() {}
+    fn is_unpin<T: Unpin>() {}
+
+    is_send::<RetainedSlots<PendingOnce<u64>>>();
+    is_sync::<RetainedSlots<PendingOnce<u64>>>();
+    is_unpin::<RetainedSlots<PhantomPinned>>();
 }
