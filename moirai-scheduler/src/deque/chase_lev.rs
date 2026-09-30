@@ -538,11 +538,15 @@ where
 
     /// Slot count of the currently published array.
     fn capacity(&self) -> usize {
+        // A stealer reads this from any thread. Entering the resize gate and the
+        // reclaim guard, as a steal does, keeps the array it loads from being
+        // retired and then freed by `try_reclaim_shared` before the read.
+        let _access = self.enter_steal_access();
+        let _guard = self.reclaim.enter();
         // SAFETY: `array` always points at a live `Array<T>` published by the
-        // owner. The pointer is replaced only by an owner-side grow, and the
-        // previous array is retired through the reclamation policy rather than
-        // freed immediately, so a shared read of the slot count cannot observe
-        // a dangling allocation.
+        // owner. The gate excludes a concurrent resize and the guard excludes a
+        // concurrent reclaim, so the loaded array is neither retired nor freed
+        // until this read ends.
         unsafe { &*self.array.load(Ordering::Acquire) }.capacity()
     }
 

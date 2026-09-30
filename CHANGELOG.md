@@ -646,6 +646,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   completes. The indexed allocation test keeps exact
   native allocation counts while using Miri's allocator for provenance-safe
   lifetime verification.
+- **`ChaseLevStealer::capacity` no longer races reclamation.** Under
+  `SharedEpochReclaim` it loaded the published array without the gate or reclaim
+  guard a steal takes, so a grow followed by `try_reclaim_shared` could free the
+  array between the load and the read. It now enters both, like a steal.
+
 - Consume delivered socket readiness as a one-shot interest before waking its
   task. Independent read/write waiters remain armed, while completed writable
   registrations no longer spin the reactor or remain stale across raw socket
