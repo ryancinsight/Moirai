@@ -381,9 +381,6 @@ jobs:
   #     sweeps_keep_every_task_observable_as_completed (about 307 s) and
   #     moirai-sync test_sharded_resource_pool_concurrent_recycle_respects_
   #     total_cap (over 400 s): over the per-test budget of about 60 s.
-  #   moirai-core mpmc tests: test_mpmc_capacity_one_multi_producer_single_
-  #     consumer passes in 292 s and the other four did not finish in nine
-  #     minutes together.
   #   moirai-core ipc:: and moirai-async net::: shm_open and socket options
   #     are unsupported operations under Miri.
   #   moirai-async executor:: and timer::: the tests pass, then Miri fails the
@@ -482,11 +479,13 @@ jobs:
 
       - name: Interpret the core channel, pool, and ring tests
         if: matrix.suite == 'foundation'
-        # 66 s / 82 s in all (80 tests); slowest: hybrid
-        # recv_delivers_last_message_under_park_unpark_churn 22 / 27.
+        # About 115 s / 145 s in all (85 tests); slowest: hybrid
+        # recv_delivers_last_message_under_park_unpark_churn 22 / 27. The
+        # five mpmc tests take 49 s / 62 s together; the capacity-one stress
+        # tests run reduced counts under `cfg!(miri)`.
         run: >-
           cargo miri test --locked -p moirai-core --lib --
-          --skip mpmc --skip ipc::
+          --skip ipc::
           -Zunstable-options --report-time --test-threads=1
 
       - name: Interpret the iterator slot and output tests
