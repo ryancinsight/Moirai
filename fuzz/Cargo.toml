@@ -36,8 +36,8 @@ doc = false
 bench = false
 
 [[bin]]
-name = "ipc_header"
-path = "fuzz_targets/ipc_header.rs"
+name = "ipc_layout"
+path = "fuzz_targets/ipc_layout.rs"
 test = false
 doc = false
 bench = false

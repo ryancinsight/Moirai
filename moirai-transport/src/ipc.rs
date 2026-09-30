@@ -11,10 +11,13 @@
 //! - A single message is at most [`IPC_FRAME_DATA`] bytes; larger payloads are
 //!   rejected with [`TransportError::Full`] (fragmentation is intentionally out of
 //!   scope — callers chunk).
-//! - The first party to touch a segment creates it; others attach. Two processes
-//!   first-touching the *same* segment concurrently is a creation race — in that
-//!   case arrange for one side (typically the receiver) to create the segment
-//!   before the other attaches, or use distinct names per direction.
+//! - The first party to touch a segment creates it; others attach. Creation is
+//!   exclusive, so concurrent first touches resolve to one creator and the rest
+//!   attach.
+//! - Each segment is single-producer, single-consumer: at most one handle sends
+//!   and one receives (a handle may do both). A second sender or receiver on the
+//!   same name gets [`TransportError::Closed`]; use distinct names per direction
+//!   for two-way traffic.
 //! - This is deliberately not registered in [`crate::TransportManager`]: it would
 //!   collide with `InMemoryTransport` on `Address::Local`. Construct and use it
 //!   directly when shared-memory IPC is wanted.
@@ -22,7 +25,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use moirai_core::ipc::SharedQueue;
+use moirai_core::ipc::{IpcError, SendError, SharedQueue};
 
 use crate::{Address, Transport, TransportError, TransportResult};
 
@@ -34,6 +37,10 @@ pub const IPC_FRAME_DATA: usize = 4096 - core::mem::size_of::<u32>();
 /// Number of in-flight frames a segment's ring can hold before `send` reports
 /// [`TransportError::Full`].
 const IPC_QUEUE_CAPACITY: usize = 64;
+
+/// Yields an attach spends waiting for a concurrent creator to finish
+/// initialising a segment before reporting it unreachable.
+const ATTACH_ATTEMPTS: u32 = 1024;
 
 /// A fixed-size shared-memory frame: a length-prefixed byte payload.
 #[repr(C)]
@@ -71,18 +78,35 @@ impl IpcTransport {
         }
     }
 
+    /// Attach to the segment `name`, creating it when no live segment holds the
+    /// name.
+    ///
+    /// `create` is exclusive, so two parties first-touching one name cannot both
+    /// create it: the loser reports `AlreadyExists` and retries `open`, which
+    /// succeeds once the winner finishes initialising the header. That window
+    /// spans the winner's `ftruncate` and header stores, so the retry is bounded
+    /// by `ATTACH_ATTEMPTS` yields rather than a wait.
+    fn attach(name: &str) -> TransportResult<SharedQueue<IpcFrame>> {
+        for _ in 0..ATTACH_ATTEMPTS {
+            if let Ok(queue) = SharedQueue::open(name, IPC_QUEUE_CAPACITY) {
+                return Ok(queue);
+            }
+            match SharedQueue::create(name, IPC_QUEUE_CAPACITY) {
+                Ok(queue) => return Ok(queue),
+                Err(IpcError::AlreadyExists) => std::thread::yield_now(),
+                Err(_) => return Err(TransportError::Closed),
+            }
+        }
+        Err(TransportError::Closed)
+    }
+
     /// Borrow (attaching or creating on first use) the segment for `name`.
     fn segment<'a>(
         segments: &'a mut HashMap<String, SharedQueue<IpcFrame>>,
         name: &str,
     ) -> TransportResult<&'a mut SharedQueue<IpcFrame>> {
         if !segments.contains_key(name) {
-            // Attach to an existing segment, else create it. Capacity must match
-            // the creator's; every party uses IPC_QUEUE_CAPACITY so attach
-            // succeeds.
-            let queue = SharedQueue::open(name, IPC_QUEUE_CAPACITY)
-                .or_else(|_| SharedQueue::create(name, IPC_QUEUE_CAPACITY))
-                .map_err(|_| TransportError::Closed)?;
+            let queue = Self::attach(name)?;
             segments.insert(name.to_string(), queue);
         }
         // Just inserted or already present.
@@ -119,7 +143,10 @@ impl Transport for IpcTransport {
         let mut segments = crate::lock_mutex(&self.segments);
         let queue = Self::segment(&mut segments, name)?;
         // SharedQueue::send returns the value back on a full ring.
-        queue.send(frame).map_err(|_| TransportError::Full)
+        queue.send(frame).map_err(|error| match error {
+            SendError::Full(_) => TransportError::Full,
+            SendError::Closed(_) | SendError::EndpointInUse(_) => TransportError::Closed,
+        })
     }
 
     fn recv(&self, source: &Address) -> TransportResult<Vec<u8>> {
@@ -128,7 +155,7 @@ impl Transport for IpcTransport {
         };
         let mut segments = crate::lock_mutex(&self.segments);
         let queue = Self::segment(&mut segments, name)?;
-        match queue.recv() {
+        match queue.recv().map_err(|_| TransportError::Closed)? {
             Some(frame) => {
                 let len = frame.len as usize;
                 // Guard against a corrupt/hostile length from shared memory.

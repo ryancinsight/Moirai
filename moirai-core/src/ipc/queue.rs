@@ -5,7 +5,14 @@ use super::memory::SharedMemory;
 use core::mem;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-/// Lock-free shared memory queue for IPC
+/// Lock-free single-producer, single-consumer queue in shared memory.
+///
+/// Each end is exclusive: the first `send` on a handle claims the queue's sender
+/// endpoint and the first `recv` its receiver endpoint, through flags in the
+/// shared header, so two handles -- in one process or several -- can never both
+/// send or both receive. A handle may hold both ends. Claims release when the
+/// handle drops; a process killed while holding one leaves it held until the
+/// creator drops the segment.
 pub struct SharedQueue<T> {
     #[allow(dead_code)]
     memory: SharedMemory,
@@ -15,6 +22,21 @@ pub struct SharedQueue<T> {
     buffer: *mut T,
     /// Capacity
     capacity: usize,
+    /// Whether this handle holds the queue's sender endpoint
+    holds_sender: bool,
+    /// Whether this handle holds the queue's receiver endpoint
+    holds_receiver: bool,
+}
+
+/// Why [`SharedQueue::send`] did not enqueue; each variant returns the value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendError<T> {
+    /// The ring holds `capacity` unreceived values.
+    Full(T),
+    /// The queue was closed.
+    Closed(T),
+    /// Another handle, in this process or another, already sends on this queue.
+    EndpointInUse(T),
 }
 
 // SAFETY: queue contents move between threads and processes as plain `Pod`
@@ -43,13 +65,19 @@ struct QueueMetadata {
     _pad2: [u8; 56],
     /// Queue closed flag
     closed: AtomicBool,
-    /// Padding to align the entire structure to 64 bytes (1 + 63 = 64 bytes)
-    _pad3: [u8; 63],
+    /// Set while one handle holds the sender endpoint
+    sender_claimed: AtomicBool,
+    /// Set while one handle holds the receiver endpoint
+    receiver_claimed: AtomicBool,
+    /// Padding to align the entire structure to 64 bytes (3 + 61 = 64 bytes)
+    _pad3: [u8; 61],
 }
 
 /// Header size in bytes; the capacity field sits right after the producer
 /// position (`head`) at this offset.
 pub(crate) const QUEUE_META_SIZE: usize = mem::size_of::<QueueMetadata>();
+
+const _: () = assert!(QUEUE_META_SIZE == 3 * HEADER_ALIGN);
 
 /// Pure layout arithmetic behind [`layout_for`]: total mapping size for
 /// `meta_size` header bytes plus `elem_count * elem_size`, rejecting zero
@@ -70,24 +98,6 @@ pub(crate) fn layout_total(
         .ok_or(IpcError::InvalidArgument)
 }
 
-/// Parse the recorded capacity out of raw header bytes. Pure so the fuzz
-/// targets can throw peer-controlled bytes at the exact check `open`
-/// performs; tolerant of unaligned input because it copies through
-/// `from_le_bytes`.
-pub(crate) fn parse_header_capacity(bytes: &[u8]) -> Result<usize, IpcError> {
-    const WIDTH: usize = mem::size_of::<usize>();
-    let off = mem::size_of::<AtomicUsize>();
-    if bytes.len() < QUEUE_META_SIZE {
-        return Err(IpcError::InvalidArgument);
-    }
-    let end = off.checked_add(WIDTH).ok_or(IpcError::InvalidArgument)?;
-    let raw: [u8; WIDTH] = bytes
-        .get(off..end)
-        .and_then(|field| field.try_into().ok())
-        .ok_or(IpcError::InvalidArgument)?;
-    Ok(usize::from_le_bytes(raw))
-}
-
 /// Compute the total mapping size for `capacity` elements of `T`, rejecting a
 /// zero capacity (`% capacity` would divide by zero) and any size-overflow
 /// (which would otherwise produce an undersized mapping and out-of-bounds
@@ -105,99 +115,119 @@ fn layout_for<T>(capacity: usize) -> Result<usize, IpcError> {
 }
 
 impl<T: bytemuck::Pod> SharedQueue<T> {
-    /// Create a new shared queue.
+    /// Create a new shared queue under a name no live segment holds.
+    ///
+    /// Fails with [`IpcError::AlreadyExists`] when the name is taken, so a
+    /// second creator can never reinitialise the header under live handles.
     ///
     /// `T` is bounded by [`bytemuck::Pod`]: shared-memory contents are written by
     /// one process and read as `T` by another, so the element type must be valid
     /// for every bit pattern (no `bool`/`char`/enum/reference discriminants a
     /// peer could corrupt into an invalid value).
+    ///
+    /// # Errors
+    /// Returns [`IpcError::AlreadyExists`] for a taken name,
+    /// [`IpcError::InvalidArgument`] for a zero capacity, an over-aligned `T`,
+    /// or a size overflow, and the OS error otherwise.
     pub fn create(name: &str, capacity: usize) -> Result<Self, IpcError> {
-        let meta_size = mem::size_of::<QueueMetadata>();
         let total_size = layout_for::<T>(capacity)?;
-
         let memory = SharedMemory::create(name, total_size)?;
 
-        // SAFETY: `memory.ptr` is the base of an OS shared-memory mapping
-        // (mmap / MapViewOfFile), always page-aligned, satisfying
-        // `QueueMetadata`'s 64-byte alignment; header fields are written
-        // before any peer maps the segment (created above).
-        unsafe {
-            #[allow(clippy::cast_ptr_alignment)]
-            let meta = memory.ptr as *mut QueueMetadata;
-            (*meta).head = AtomicUsize::new(0);
-            (*meta).tail = AtomicUsize::new(0);
-            (*meta).capacity = AtomicUsize::new(capacity);
-            (*meta).closed = AtomicBool::new(false);
+        // SAFETY: `memory.ptr` is the base of a fresh OS mapping (mmap /
+        // MapViewOfFile), always page-aligned and so satisfying
+        // `QueueMetadata`'s 64-byte alignment, and `total_size` covers the
+        // header. The header is only touched through atomics, which is sound
+        // against a peer that opens the name while this runs; `capacity` is
+        // stored last with `Release` so an opener that observes it sees the
+        // rest.
+        let meta = unsafe { &*header_of(&memory) };
+        meta.head.store(0, Ordering::Relaxed);
+        meta.tail.store(0, Ordering::Relaxed);
+        meta.closed.store(false, Ordering::Relaxed);
+        meta.sender_claimed.store(false, Ordering::Relaxed);
+        meta.receiver_claimed.store(false, Ordering::Relaxed);
+        meta.capacity.store(capacity, Ordering::Release);
 
-            let buffer = memory.ptr.add(meta_size) as *mut T;
-
-            Ok(Self {
-                memory,
-                meta,
-                buffer,
-                capacity,
-            })
-        }
+        Ok(Self::attach(memory, capacity))
     }
 
     /// Open an existing shared queue. Fails with [`IpcError::InvalidArgument`] if
     /// the segment was created with a different capacity, which would otherwise
     /// map a view inconsistent with the creator's and fault on access.
+    ///
+    /// # Errors
+    /// Returns [`IpcError::InvalidArgument`] for a capacity mismatch (including
+    /// a creator that has not finished initialising), and the OS error when the
+    /// segment is missing or too small.
     pub fn open(name: &str, capacity: usize) -> Result<Self, IpcError> {
-        let meta_size = mem::size_of::<QueueMetadata>();
         let total_size = layout_for::<T>(capacity)?;
-
         let memory = SharedMemory::open(name, total_size)?;
 
-        // SAFETY: `memory.ptr` is a page-aligned OS mapping base, satisfying
-        // `QueueMetadata`'s 64-byte alignment; the header lives in the first
-        // page regardless of `capacity`.
-        let mut header = [0u8; QUEUE_META_SIZE];
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                memory.ptr.cast::<u8>(),
-                header.as_mut_ptr(),
-                QUEUE_META_SIZE,
-            );
-        }
-        // Capacity is immutable after creation, so a plain copy carries no
-        // ordering obligation; the recorded value must match ours or the
-        // segment was created with a different geometry.
-        let stored = parse_header_capacity(&header)?;
+        // SAFETY: as in `create`; `SharedMemory::open` proved the object covers
+        // `total_size >= QUEUE_META_SIZE` bytes, and the recorded capacity is
+        // read atomically because the creator writes it while peers attach.
+        let stored = unsafe { &*header_of(&memory) }
+            .capacity
+            .load(Ordering::Acquire);
         if stored != capacity {
             return Err(IpcError::InvalidArgument);
         }
 
-        unsafe {
-            #[allow(clippy::cast_ptr_alignment)]
-            let meta = memory.ptr as *mut QueueMetadata;
-            let buffer = memory.ptr.add(meta_size) as *mut T;
+        Ok(Self::attach(memory, capacity))
+    }
 
-            Ok(Self {
-                memory,
-                meta,
-                buffer,
-                capacity,
-            })
+    fn attach(memory: SharedMemory, capacity: usize) -> Self {
+        let meta = header_of(&memory);
+        // SAFETY: `layout_for` sized the mapping as the header followed by
+        // `capacity` elements, so the offset stays inside it; the header is a
+        // multiple of `HEADER_ALIGN`, and `layout_for` rejected any `T`
+        // aligned more strictly, so the buffer is aligned for `T`.
+        let buffer = unsafe { memory.ptr.add(QUEUE_META_SIZE) }.cast::<T>();
+        Self {
+            memory,
+            meta,
+            buffer,
+            capacity,
+            holds_sender: false,
+            holds_receiver: false,
         }
     }
 
-    /// Send a value
-    pub fn send(&mut self, value: T) -> Result<(), T> {
-        // SAFETY: `&mut self` makes this process the sole sender endpoint
-        // (SPSC contract across processes); the fullness check keeps the
-        // head slot outside the consumer window, and Pod writes need no
+    /// Send a value.
+    ///
+    /// The first call claims the queue's sender endpoint for this handle; the
+    /// claim is released when the handle drops.
+    ///
+    /// # Errors
+    /// Returns the value inside [`SendError::Full`] when the ring is full,
+    /// [`SendError::Closed`] when the queue is closed, and
+    /// [`SendError::EndpointInUse`] when another handle already sends on this
+    /// queue.
+    pub fn send(&mut self, value: T) -> Result<(), SendError<T>> {
+        if !self.holds_sender {
+            // SAFETY: `meta` points at the live mapping's header for the
+            // lifetime of `self`; only atomics are accessed through it.
+            if !claim(unsafe { &(*self.meta).sender_claimed }) {
+                return Err(SendError::EndpointInUse(value));
+            }
+            self.holds_sender = true;
+        }
+
+        // SAFETY: holding the sender claim makes this handle the queue's only
+        // sender, in this process and every other (the flag lives in the shared
+        // header and is won by one compare-exchange). The fullness check keeps
+        // the head slot outside the consumer window, and Pod writes need no
         // drop coordination.
         unsafe {
             if (*self.meta).closed.load(Ordering::Relaxed) {
-                return Err(value);
+                return Err(SendError::Closed(value));
             }
 
             let head = (*self.meta).head.load(Ordering::Relaxed);
             let tail = (*self.meta).tail.load(Ordering::Acquire);
 
             if head.wrapping_sub(tail) >= self.capacity {
-                return Err(value);
+                return Err(SendError::Full(value));
             }
 
             // SAFETY-adjacent lint note: `capacity` is >= 1 by construction
@@ -216,17 +246,32 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
         }
     }
 
-    /// Receive a value
-    pub fn recv(&mut self) -> Option<T> {
-        // SAFETY: `&mut self` makes this process the sole receiver endpoint;
-        // the emptiness check guarantees the tail slot was published by the
-        // sender and reading it as Pod bits moves it out exactly once.
+    /// Receive a value, or `None` when the queue is empty.
+    ///
+    /// The first call claims the queue's receiver endpoint for this handle; the
+    /// claim is released when the handle drops.
+    ///
+    /// # Errors
+    /// Returns [`IpcError::EndpointInUse`] when another handle already receives
+    /// on this queue.
+    pub fn recv(&mut self) -> Result<Option<T>, IpcError> {
+        if !self.holds_receiver {
+            // SAFETY: as in `send`.
+            if !claim(unsafe { &(*self.meta).receiver_claimed }) {
+                return Err(IpcError::EndpointInUse);
+            }
+            self.holds_receiver = true;
+        }
+
+        // SAFETY: holding the receiver claim makes this handle the queue's only
+        // receiver; the emptiness check guarantees the tail slot was published
+        // by the sender, and reading it as Pod bits moves it out exactly once.
         unsafe {
             let tail = (*self.meta).tail.load(Ordering::Relaxed);
             let head = (*self.meta).head.load(Ordering::Acquire);
 
             if tail == head {
-                return None;
+                return Ok(None);
             }
 
             #[expect(
@@ -238,7 +283,44 @@ impl<T: bytemuck::Pod> SharedQueue<T> {
                 .tail
                 .store(tail.wrapping_add(1), Ordering::Release);
 
-            Some(value)
+            Ok(Some(value))
         }
     }
+}
+
+impl<T> Drop for SharedQueue<T> {
+    fn drop(&mut self) {
+        // SAFETY: `meta` points into `self.memory`, which is unmapped only after
+        // this body returns. Releasing publishes this handle's final `head` or
+        // `tail` store to the next holder's acquiring claim.
+        unsafe {
+            if self.holds_sender {
+                (*self.meta).sender_claimed.store(false, Ordering::Release);
+            }
+            if self.holds_receiver {
+                (*self.meta)
+                    .receiver_claimed
+                    .store(false, Ordering::Release);
+            }
+        }
+    }
+}
+
+/// The header at the base of a mapping.
+///
+/// The OS maps page-aligned memory, so the base satisfies `QueueMetadata`'s
+/// 64-byte alignment even though `ptr` is typed as bytes.
+#[expect(
+    clippy::cast_ptr_alignment,
+    reason = "mmap and MapViewOfFile return page-aligned bases"
+)]
+fn header_of(memory: &SharedMemory) -> *mut QueueMetadata {
+    memory.ptr.cast::<QueueMetadata>()
+}
+
+/// Win an endpoint flag: exactly one caller across all handles and processes
+/// sees `true` until the holder releases it.
+fn claim(flag: &AtomicBool) -> bool {
+    flag.compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+        .is_ok()
 }

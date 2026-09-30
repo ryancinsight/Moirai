@@ -699,6 +699,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that pushed in that window read zero waiters, skipped the notify, and left
   the receiver parked on a `Condvar` with no timeout, holding an item it could
   not see. Registration now precedes the re-check on both sides.
+- **Shared-memory IPC enforces the single-writer and single-endpoint contracts
+  it assumed.** `SharedMemory::create` now uses an exclusive create
+  (`O_EXCL` / `ERROR_ALREADY_EXISTS`) and returns the new
+  `IpcError::AlreadyExists`, where a second `create` on a live POSIX name used
+  to `ftruncate` it and shrink every open mapping (`SIGBUS` from safe code) and
+  reinitialise a `SharedQueue` header under live handles. `SharedQueue` claims
+  its sender and receiver endpoints through header flags on first use, so a second
+  sending or receiving handle is refused instead of racing on a slot; `send`
+  returns the new `SendError` and `recv` returns `Result<Option<T>, IpcError>`
+  (`IpcError::EndpointInUse`). The header is initialised and its capacity read
+  with atomics. **Breaking:** `SharedMemory::as_slice` and `as_mut_slice` are
+  `unsafe fn`, since a second handle to one name aliases the same pages through
+  an address the borrow checker cannot relate. `IpcTransport` attaches through
+  the exclusive create and gives the second handle on a name `Closed`. The
+  `ipc_header` fuzz target is now `ipc_layout`; the header-byte parser it
+  exercised no longer exists.
+
 - Add the missing Store→Load barrier to the four lock-free notify paths
   (`send_bounded`, `recv_bounded`, `try_send`, `try_recv`). The queue write and
   the waiter-count read were separated only by a `SeqCst` load, which is an

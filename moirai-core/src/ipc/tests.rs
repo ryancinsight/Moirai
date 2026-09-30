@@ -2,7 +2,7 @@
 
 use super::error::IpcError;
 use super::memory::SharedMemory;
-use super::queue::SharedQueue;
+use super::queue::{SendError, SharedQueue};
 
 #[test]
 fn test_shared_memory() {
@@ -14,13 +14,16 @@ fn test_shared_memory() {
 
     // Write some data
     let data = b"Hello, shared memory!";
-    shm1.as_mut_slice()[..data.len()].copy_from_slice(data);
+    // SAFETY: `shm2` does not exist yet, so this handle is the only one.
+    let bytes = unsafe { shm1.as_mut_slice() };
+    bytes[..data.len()].copy_from_slice(data);
 
     // Open from another "process"
     let shm2 = SharedMemory::open(name, size).unwrap();
 
     // Read the data
-    assert_eq!(&shm2.as_slice()[..data.len()], data);
+    // SAFETY: nothing writes the segment after the copy above.
+    assert_eq!(&unsafe { shm2.as_slice() }[..data.len()], data);
 }
 
 #[test]
@@ -70,12 +73,16 @@ fn open_smaller_than_the_segment_maps_a_prefix() {
     // prefix stays legal, so the guard above is not simply refusing every open.
     let name = "/moirai_test_open_prefix";
     let mut creator = SharedMemory::create(name, 4096).expect("create must succeed");
-    creator.as_mut_slice()[..4].copy_from_slice(b"ipc!");
+    // SAFETY: the opener below is not created yet.
+    let bytes = unsafe { creator.as_mut_slice() };
+    bytes[..4].copy_from_slice(b"ipc!");
 
     let opener = SharedMemory::open(name, 1024).expect("prefix open must succeed");
 
-    assert_eq!(opener.as_slice().len(), 1024);
-    assert_eq!(&opener.as_slice()[..4], b"ipc!");
+    // SAFETY: the creator writes nothing after the copy above.
+    let mapped = unsafe { opener.as_slice() };
+    assert_eq!(mapped.len(), 1024);
+    assert_eq!(&mapped[..4], b"ipc!");
 }
 
 #[cfg(all(unix, target_pointer_width = "64"))]
@@ -102,11 +109,13 @@ fn a_multi_page_segment_reads_back_across_its_whole_length() {
     };
 
     let mut segment = SharedMemory::create(name, size).expect("create must succeed");
-    for (index, byte) in segment.as_mut_slice().iter_mut().enumerate() {
+    // SAFETY: `segment` is the only handle to this name.
+    for (index, byte) in unsafe { segment.as_mut_slice() }.iter_mut().enumerate() {
         *byte = marker(index);
     }
 
-    let written = segment.as_slice();
+    // SAFETY: as above; the writer borrow ended.
+    let written = unsafe { segment.as_slice() };
     assert_eq!(written.len(), size);
     assert_eq!(
         written
@@ -128,7 +137,7 @@ fn a_multi_page_segment_reads_back_across_its_whole_length() {
 /// over one representative code per outcome.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod reservation_classification {
-    use super::super::memory::{Reservation, classify_reservation};
+    use super::super::backing_store::{Reservation, classify_reservation};
 
     #[test]
     fn a_committed_reservation_is_the_only_success() {
@@ -186,10 +195,10 @@ fn test_shared_queue() {
     queue.send(3).unwrap();
 
     // Receive values
-    assert_eq!(queue.recv(), Some(1));
-    assert_eq!(queue.recv(), Some(2));
-    assert_eq!(queue.recv(), Some(3));
-    assert_eq!(queue.recv(), None);
+    assert_eq!(queue.recv(), Ok(Some(1)));
+    assert_eq!(queue.recv(), Ok(Some(2)));
+    assert_eq!(queue.recv(), Ok(Some(3)));
+    assert_eq!(queue.recv(), Ok(None));
 }
 
 #[test]
@@ -228,9 +237,9 @@ fn open_with_matching_capacity_shares_data_across_handles() {
 
     creator.send(42).expect("send must succeed");
     creator.send(7).expect("send must succeed");
-    assert_eq!(opener.recv(), Some(42));
-    assert_eq!(opener.recv(), Some(7));
-    assert_eq!(opener.recv(), None);
+    assert_eq!(opener.recv(), Ok(Some(42)));
+    assert_eq!(opener.recv(), Ok(Some(7)));
+    assert_eq!(opener.recv(), Ok(None));
 }
 
 #[test]
@@ -241,7 +250,153 @@ fn full_queue_rejects_send_at_capacity() {
     queue.send(2).expect("second send must succeed");
     assert_eq!(
         queue.send(3),
-        Err(3),
+        Err(SendError::Full(3)),
         "send past capacity must return the value"
+    );
+}
+
+#[test]
+fn creating_a_taken_name_fails_and_leaves_the_live_segment_intact() {
+    // A second `create` used to reach the live POSIX object and ftruncate it to
+    // its own size, shrinking mappings already open on it.
+    let name = "/moirai_test_create_exclusive";
+    let mut first = SharedMemory::create(name, 8192).expect("first create must succeed");
+    // SAFETY: no other handle has mapped the segment yet.
+    let bytes = unsafe { first.as_mut_slice() };
+    bytes[8191] = 0xA5;
+
+    let second = SharedMemory::create(name, 4096);
+    assert!(matches!(second, Err(IpcError::AlreadyExists)));
+
+    // SAFETY: the failed create mapped nothing, so no writer exists.
+    assert_eq!(unsafe { first.as_slice() }[8191], 0xA5);
+    let reopened = SharedMemory::open(name, 8192).expect("the original size must survive");
+    // SAFETY: nothing writes the segment.
+    assert_eq!(unsafe { reopened.as_slice() }[8191], 0xA5);
+}
+
+#[test]
+fn a_queue_name_can_be_created_once() {
+    let name = "/moirai_test_queue_create_exclusive";
+    let mut live = SharedQueue::<u32>::create(name, 4).expect("create must succeed");
+    live.send(9).expect("send must succeed");
+
+    let again = SharedQueue::<u32>::create(name, 4);
+    assert!(matches!(again, Err(IpcError::AlreadyExists)));
+
+    // The failed create must not have reset the live header.
+    assert_eq!(live.recv(), Ok(Some(9)));
+}
+
+#[test]
+fn a_second_sender_handle_is_refused_and_no_message_is_lost() {
+    let name = "/moirai_test_queue_one_sender";
+    let mut first = SharedQueue::<u32>::create(name, 4).expect("create must succeed");
+    let mut second = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
+
+    first.send(1).expect("the first sender claims the endpoint");
+    assert_eq!(second.send(2), Err(SendError::EndpointInUse(2)));
+    first.send(3).expect("the claim holder keeps sending");
+
+    assert_eq!(second.recv(), Ok(Some(1)));
+    assert_eq!(second.recv(), Ok(Some(3)));
+    assert_eq!(second.recv(), Ok(None));
+}
+
+#[test]
+fn a_second_receiver_handle_is_refused() {
+    let name = "/moirai_test_queue_one_receiver";
+    let mut sender = SharedQueue::<u32>::create(name, 4).expect("create must succeed");
+    let mut first = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
+    let mut second = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
+
+    sender.send(5).expect("send must succeed");
+    assert_eq!(first.recv(), Ok(Some(5)));
+    assert_eq!(second.recv(), Err(IpcError::EndpointInUse));
+}
+
+#[test]
+fn dropping_a_handle_releases_its_endpoints() {
+    let name = "/moirai_test_queue_endpoint_release";
+    let mut receiver = SharedQueue::<u32>::create(name, 4).expect("create must succeed");
+
+    let mut first = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
+    first.send(1).expect("the first sender claims the endpoint");
+    let mut refused = SharedQueue::<u32>::open(name, 4).expect("open must succeed");
+    assert_eq!(refused.send(2), Err(SendError::EndpointInUse(2)));
+
+    drop(first);
+    refused.send(3).expect("the released endpoint is claimable");
+
+    assert_eq!(receiver.recv(), Ok(Some(1)));
+    assert_eq!(receiver.recv(), Ok(Some(3)));
+    assert_eq!(receiver.recv(), Ok(None));
+}
+
+#[test]
+fn concurrent_senders_cannot_both_deliver() {
+    // Two threads race to send distinct values through handles to one queue.
+    // Exactly one wins the endpoint; every value it sends arrives exactly once
+    // and in order, and the loser never enqueues.
+    const PER_SENDER: u32 = 500;
+    let name = "/moirai_test_queue_racing_senders";
+    let mut receiver = SharedQueue::<u32>::create(name, 8).expect("create must succeed");
+    let senders = [
+        SharedQueue::<u32>::open(name, 8).expect("open must succeed"),
+        SharedQueue::<u32>::open(name, 8).expect("open must succeed"),
+    ];
+    let barrier = std::sync::Barrier::new(2);
+
+    let outcomes: Vec<bool> = std::thread::scope(|scope| {
+        let workers: Vec<_> = senders
+            .into_iter()
+            .enumerate()
+            .map(|(lane, mut queue)| {
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    let base = u32::try_from(lane).expect("two lanes") * PER_SENDER;
+                    let mut sent = 0;
+                    while sent < PER_SENDER {
+                        match queue.send(base + sent) {
+                            Ok(()) => sent += 1,
+                            Err(SendError::Full(_)) => std::thread::yield_now(),
+                            Err(SendError::EndpointInUse(_)) => return false,
+                            Err(SendError::Closed(_)) => unreachable!("queue is never closed"),
+                        }
+                    }
+                    true
+                })
+            })
+            .collect();
+
+        let mut received = Vec::new();
+        while received.len() < PER_SENDER as usize {
+            match receiver
+                .recv()
+                .expect("this handle owns the receiver endpoint")
+            {
+                Some(value) => received.push(value),
+                None => std::thread::yield_now(),
+            }
+        }
+        let outcomes = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("sender thread must not panic"))
+            .collect();
+
+        let base = received[0] - received[0] % PER_SENDER;
+        let expected: Vec<u32> = (base..base + PER_SENDER).collect();
+        assert_eq!(
+            received, expected,
+            "the winner delivers every value once, in order"
+        );
+        outcomes
+    });
+
+    assert_eq!(
+        outcomes.iter().filter(|&&won| won).count(),
+        1,
+        "exactly one handle may send on the queue"
     );
 }
