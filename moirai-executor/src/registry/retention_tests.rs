@@ -54,6 +54,27 @@ fn settled_blocks_release_state_but_still_answer_completed() {
 }
 
 #[test]
+fn completion_tells_unknown_running_and_released_apart_in_one_read() {
+    let registry = TaskRegistry::new();
+    let (running_id, running) = registry.register_next_task();
+    let running = running.start(0);
+    let released = complete_tasks(&registry, TWO_BLOCKS - 1);
+    let beyond = (2 * TASK_STATE_BLOCK_SIZE + 5) as u64;
+
+    assert_eq!(registry.completion(running_id), Some(false));
+    assert_eq!(registry.completion(released[0]), Some(true));
+    assert_eq!(registry.completion(beyond), None);
+
+    registry.cleanup_completed(Duration::ZERO);
+
+    assert!(registry.get_metadata(released[TWO_BLOCKS - 2]).is_none());
+    assert_eq!(registry.completion(released[TWO_BLOCKS - 2]), Some(true));
+    assert_eq!(registry.completion(running_id), Some(false));
+    assert_eq!(registry.completion(beyond), None);
+    running.complete();
+}
+
+#[test]
 fn unregistered_ids_stay_unknown_after_retirement() {
     let registry = TaskRegistry::new();
     complete_tasks(&registry, TWO_BLOCKS);

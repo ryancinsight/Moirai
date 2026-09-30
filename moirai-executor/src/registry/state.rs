@@ -80,7 +80,10 @@ pub(crate) struct TaskState {
     pub(super) cancelled: AtomicBool,
 }
 
-// A registry block holds 1,024 of these plus one flag byte each; the size is// pinned because retained memory per task is this figure.const _: () = assert!(size_of::<TaskState>() <= 72);
+// A registry block holds 1,024 of these plus one flag byte each; the size is
+// pinned because retained memory per task is this figure.
+const _: () = assert!(size_of::<TaskState>() <= 72);
+
 impl std::fmt::Debug for TaskState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TaskState")
