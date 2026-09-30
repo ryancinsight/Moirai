@@ -195,6 +195,14 @@ fn closed_descriptor_update_failure_retires_registration_without_failing() {
                 .contains_key(&FdKey::from(fd)),
             "errno {code} must remove the central registration"
         );
+        // The injected failure leaves the kernel registration in place; a
+        // real closed descriptor takes it with it (the platform reactor drops
+        // its own record on the same errno). Delete it here, so the later
+        // registration below is an ADD rather than an EEXIST.
+        reactor
+            .platform_reactor
+            .unregister_fd(fd)
+            .expect("the platform registration is deleted with the closed descriptor");
         reactor
             .register_waker(fd, Interest::READABLE, Waker::from(Arc::clone(&read_count)))
             .expect("the reactor stays healthy for later registrations");
