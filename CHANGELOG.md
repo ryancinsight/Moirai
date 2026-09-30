@@ -585,6 +585,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the slot-claim protocol reaches the double take with the fast path forced
   and passes with the re-read.
 
+- **A scoped job dropped without running now fails its scope.** A scoped job's
+  completion token released its registration on drop whether or not the job had
+  run, so a job dropped after admission (never executed) let the scope return
+  `Ok`, and `for_each_indexed` and `map_reduce_indexed` callers read result
+  slots the job was to fill. The token now records that its job ran, and a scope
+  that saw an unrun drop returns `SpawnFailed(Cancelled)` unless the drop was a
+  refusal the submitter already answered with an inline run or its own error.
+  No current path was found that drops an admitted job unrun; this closes the
+  hole for the first one.
+
 - **Async file operations no longer block the polling thread.** Every
   `moirai_async::fs` operation ran its file syscall inside `poll`, so a slow
   disk or network mount stalled the executor thread and a dropped future could

@@ -14,10 +14,8 @@ use moirai_core::{
 };
 
 use super::super::super::{class::WorkClass, job::ScheduledJob};
-use super::super::types::{
-    SchedulerScope, SchedulerScopeState, ScopedTaskCompletion, ThreadScheduler,
-    get_current_worker_id,
-};
+use super::super::scope_state::{SchedulerScopeState, ScopedTaskCompletion};
+use super::super::types::{SchedulerScope, ThreadScheduler, get_current_worker_id};
 use super::super::worker::{execute_job, lock_mutex, next_shared_job};
 
 impl<'scope, C, const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
@@ -42,11 +40,7 @@ where
     {
         self.state().register_task();
         let completion = ScopedTaskCompletion::new(self.state());
-        let complete = move |succeeded: bool| {
-            if !succeeded {
-                completion.mark_failed();
-            }
-        };
+        let complete = move |succeeded: bool| completion.finish(succeeded);
 
         // SAFETY: `ThreadScheduler::scope` waits for every scheduled scoped
         // job and drops unscheduled buffered jobs before borrowed scope data
@@ -279,10 +273,10 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             Ok(body_result) => match flush_result {
                 Err(payload) => std::panic::resume_unwind(payload),
                 Ok(flush_result) => match body_result {
-                    Ok(()) if state.failed_tasks.load(Ordering::Acquire) => Err(
-                        ExecutorError::SpawnFailed(moirai_core::error::TaskError::Panicked),
-                    ),
-                    Ok(()) => flush_result,
+                    Ok(()) if state.has_panicked() => Err(ExecutorError::SpawnFailed(
+                        moirai_core::error::TaskError::Panicked,
+                    )),
+                    Ok(()) => flush_result.and_then(|()| state.unrun_job_result()),
                     Err(error) => Err(error),
                 },
             },
