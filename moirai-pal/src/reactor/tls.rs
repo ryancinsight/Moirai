@@ -21,7 +21,7 @@ pub(crate) static GLOBAL_REACTOR: std::sync::OnceLock<Option<std::sync::Arc<IoRe
 #[cfg(test)]
 thread_local! {
     /// Test-only switch that suppresses the lazily-started global reactor for
-    /// the current thread, so `get_active` returns `None` and socket operations
+    /// the current thread, so `with_current` passes `None` and socket operations
     /// take the cooperative busy-poll self-wake fallback in `net.rs`.
     static FORCE_NO_REACTOR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -34,7 +34,7 @@ impl IoReactor {
     {
         // Restore the previous thread-local reactor on scope exit via RAII. If
         // `f` panics, a manual restore would be skipped, leaving a dangling
-        // `self` pointer in the thread-local that a later `get_active()` would
+        // `self` pointer in the thread-local that a later `with_current` would
         // dereference (use-after-free once `self` is dropped during unwinding).
         struct Restore(Option<*const IoReactor>);
         impl Drop for Restore {
@@ -51,24 +51,44 @@ impl IoReactor {
         f()
     }
 
-    /// Retrieve the active reactor for the current thread, if any.
+    /// Run `f` with the reactor active on the current thread, if any.
     ///
-    /// Returns the thread-local reactor when one is installed via
-    /// [`with_active`](Self::with_active); otherwise lazily starts a
+    /// The reactor is the thread-local one installed by
+    /// [`with_active`](Self::with_active); otherwise the call lazily starts a
     /// process-global readiness reactor (epoll/kqueue/`WSAPoll`) on its own
     /// thread. If that reactor cannot be created or its driver thread cannot be
-    /// spawned, this caches and returns `None` so socket operations degrade to
-    /// the cooperative busy-poll self-wake fallback in `net.rs` rather than
-    /// panicking — readiness still makes progress, just without an event loop.
-    pub fn get_active() -> Option<&'static IoReactor> {
+    /// spawned, this caches the failure and passes `None`, so socket operations
+    /// degrade to the cooperative busy-poll self-wake fallback in `net.rs`
+    /// rather than panicking — readiness still makes progress, just without an
+    /// event loop.
+    ///
+    /// The reference is scoped to the call because a `with_active` reactor is
+    /// only borrowed for its own scope; letting it escape would outlive that
+    /// borrow:
+    ///
+    /// ```compile_fail
+    /// use moirai_pal::reactor::IoReactor;
+    ///
+    /// let reactor = IoReactor::new().unwrap();
+    /// let leaked = reactor.with_active(|| IoReactor::with_current(|active| active.unwrap()));
+    /// drop(reactor);
+    /// leaked.wake();
+    /// ```
+    pub fn with_current<R>(f: impl FnOnce(Option<&IoReactor>) -> R) -> R {
         if let Some(ptr) = active_reactor::get() {
-            // SAFETY: the pointer was installed by `with_active` on this
-            // thread from a live reactor whose borrow outlives the call (the
-            // RAII restore keeps the slot pointing at a valid reactor or
-            // clears it before any drop completes).
-            return Some(unsafe { &*ptr });
+            // SAFETY: the pointer was installed by `with_active` on this thread
+            // from a reactor its `&self` borrow keeps alive for the whole scope,
+            // and the RAII restore clears the slot before that scope ends. `f`
+            // cannot return the reference (it is higher-ranked over the borrow),
+            // so no use outlives this call.
+            return f(Some(unsafe { &*ptr }));
         }
+        f(Self::global())
+    }
 
+    /// The process-global reactor, started on first use, or `None` when it
+    /// cannot run or this thread suppresses it.
+    fn global() -> Option<&'static IoReactor> {
         #[cfg(test)]
         if FORCE_NO_REACTOR.with(std::cell::Cell::get) {
             return None;
@@ -101,7 +121,7 @@ impl IoReactor {
     }
 
     /// Test-only: run `f` with the global reactor suppressed for this thread, so
-    /// [`get_active`](Self::get_active) returns `None` and socket operations
+    /// [`with_current`](Self::with_current) passes `None` and socket operations
     /// exercise the `net.rs` busy-poll self-wake fallback deterministically.
     #[cfg(test)]
     pub(crate) fn with_reactor_disabled<F, R>(f: F) -> R

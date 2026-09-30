@@ -80,21 +80,23 @@ fn poll_ready_op<T>(
             Poll::Ready(Ok(value))
         }
         Err(ref error) if error.kind() == io::ErrorKind::WouldBlock => {
-            if let Some(reactor) = IoReactor::get_active() {
-                match register_readiness(reactor, &owner, interest, cx) {
-                    Ok(registration) => {
-                        *waiter = Some(registration);
-                        Poll::Pending
-                    }
-                    Err(error) => {
-                        waiter.take();
-                        Poll::Ready(Err(error))
-                    }
+            let registration = IoReactor::with_current(|reactor| {
+                reactor.map(|reactor| register_readiness(reactor, &owner, interest, cx))
+            });
+            match registration {
+                Some(Ok(registration)) => {
+                    *waiter = Some(registration);
+                    Poll::Pending
                 }
-            } else {
-                waiter.take();
-                wake_without_active_reactor(cx);
-                Poll::Pending
+                Some(Err(error)) => {
+                    waiter.take();
+                    Poll::Ready(Err(error))
+                }
+                None => {
+                    waiter.take();
+                    wake_without_active_reactor(cx);
+                    Poll::Pending
+                }
             }
         }
         Err(error) => {

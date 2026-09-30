@@ -577,7 +577,7 @@ fn pal_async_io_facades_have_value_tests_and_self_wake_contract() {
         "cx.waker().wake_by_ref();",
         "pub fn shutdown_write(&self) -> io::Result<()>",
         "self.inner.shutdown(Shutdown::Write)",
-        "IoReactor::get_active()",
+        "IoReactor::with_current(",
         "reactor.register_owned_waker(",
         "wake_without_active_reactor(cx);",
         "tcp_accept_read_write_self_wakes_without_active_reactor",

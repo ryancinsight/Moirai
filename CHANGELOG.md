@@ -663,6 +663,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   half of the Dekker pair the `SeqCst` counters exist for was absent.
   `loom_mpmc_waiter::notifier_without_the_store_load_barrier_loses_the_wakeup`
   enumerates the interleaving.
+- **`IoReactor::get_active` no longer hands out a `'static` reference to a
+  scoped reactor.** It returned `&'static IoReactor` built from the pointer
+  `with_active` installs, so safe code could return the reference out of the
+  closure, drop the reactor, and call through the dangling reference. It is
+  replaced by `IoReactor::with_current`, which passes the reactor to a
+  higher-ranked closure so the reference cannot escape; the process-global
+  reactor path is unchanged.
 
 ### Performance
 

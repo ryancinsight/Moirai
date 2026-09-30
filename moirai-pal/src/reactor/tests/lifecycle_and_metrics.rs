@@ -15,7 +15,7 @@ fn test_reactor_metrics() {
 fn with_active_restores_thread_local_on_panic() {
     // Regression: if `f` panics, `with_active` must still restore the previous
     // thread-local reactor (via RAII), not leave a dangling pointer to the inner
-    // reactor that a later `get_active()` would dereference (use-after-free).
+    // reactor that a later `with_current` would dereference (use-after-free).
     let outer = IoReactor::new().expect("outer reactor");
     let inner = IoReactor::new().expect("inner reactor");
 
@@ -27,9 +27,11 @@ fn with_active_restores_thread_local_on_panic() {
         assert_eq!(payload.downcast_ref::<&str>(), Some(&"boom"));
 
         // The active reactor must be restored to `outer`, never left as `inner`.
-        let active = IoReactor::get_active().expect("outer is still active");
+        let restored = IoReactor::with_current(|active| {
+            active.is_some_and(|active| std::ptr::eq(active, &outer))
+        });
         assert!(
-            std::ptr::eq(active, &outer),
+            restored,
             "thread-local must be restored to the outer reactor after panic"
         );
     });
