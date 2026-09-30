@@ -110,11 +110,11 @@ impl TaskRegistry {
     /// Called from the registration slow path, once per created block, so the
     /// reclamation work is proportional to allocation: memory can grow only as
     /// fast as tasks register, and each new block pays for examining a few
-    /// queued ones. That is at most [`SWEEP_WINDOW`] blocks, each a scan of at
-    /// most [`TASK_STATE_BLOCK_SIZE`] slots, plus two brief directory write
-    /// locks, per [`TASK_STATE_BLOCK_SIZE`] registrations; the other
-    /// registrations do none of it. A registry without a retention policy never
-    /// sweeps.
+    /// queued ones. That is at most [`SWEEP_WINDOW`] blocks, each up to two
+    /// settledness scans of at most [`TASK_STATE_BLOCK_SIZE`] slots (the cap
+    /// test, then the age test), plus two brief directory write locks, per
+    /// [`TASK_STATE_BLOCK_SIZE`] registrations; the other registrations do none
+    /// of it. A registry without a retention policy never sweeps.
     pub(super) fn sweep_step(&self) {
         let Some(policy) = self.retention else {
             return;
