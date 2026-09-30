@@ -170,6 +170,16 @@ impl<L: StateLease> TaskLifecycleToken<L> {
             .state()
     }
 
+    /// Give up lifecycle authority without recording an outcome.
+    ///
+    /// The task stays queued for whoever holds its id to drive through the
+    /// registry; dropping the token would instead record it cancelled.
+    pub(super) fn release(mut self) {
+        if let Some(lease) = self.lease.take() {
+            lease.retire();
+        }
+    }
+
     /// Record the spawn priority on the task state.
     #[inline]
     pub(crate) fn set_priority(&self, priority: Priority) {
