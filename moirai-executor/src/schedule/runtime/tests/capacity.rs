@@ -60,7 +60,8 @@ fn measured_default_local_capacity_reaches_every_worker() {
 }
 
 /// Run `burst` jobs that all land while the single worker is blocked, then
-/// report the slot count its default plane retains afterwards.
+/// report the slot count its default plane holds while the worker is still
+/// inside the last job, before it can go idle and release the plane.
 fn local_plane_slots_after_burst(burst: usize, start: usize) -> usize {
     let scheduler = scheduler_with_queue_config::<256>(
         1,
@@ -82,40 +83,54 @@ fn local_plane_slots_after_burst(burst: usize, start: usize) -> usize {
     // accumulates in the injector instead of being consumed as it arrives.
     started_rx.recv().expect("the blocking job must start");
 
-    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    // The job that completes the burst holds the worker inside the job
+    // until the harness has read the plane, so an idle-time shrink
+    // cannot race the observation.
+    let (last_tx, last_rx) = std::sync::mpsc::channel::<()>();
+    let (hold_tx, hold_rx) = std::sync::mpsc::channel::<()>();
+    let hold_rx = Arc::new(Mutex::new(hold_rx));
+    let remaining = Arc::new(AtomicUsize::new(burst));
     for _ in 0..burst {
-        let done_tx = done_tx.clone();
+        let last_tx = last_tx.clone();
+        let hold_rx = Arc::clone(&hold_rx);
+        let remaining = Arc::clone(&remaining);
         scheduler
             .schedule::<SyncTask, _>(Priority::Normal, None, move |_| {
-                done_tx.send(()).expect("harness receiver lives");
+                if remaining.fetch_sub(1, Ordering::AcqRel) == 1 {
+                    last_tx.send(()).expect("harness receiver lives");
+                    hold_rx
+                        .lock()
+                        .expect("hold receiver is never poisoned")
+                        .recv()
+                        .expect("harness sender lives");
+                }
             })
             .unwrap();
     }
-    drop(done_tx);
+    drop(last_tx);
     release_tx
         .send(())
         .expect("the blocking job must still wait");
-    for _ in 0..burst {
-        done_rx.recv().expect("every burst job must run");
-    }
+    last_rx.recv().expect("the burst must finish");
 
     let slots =
         scheduler.inner.workers[0].queues.local_queue_capacities()[Priority::default().index()];
+    hold_tx.send(()).expect("the last job must still wait");
     scheduler.shutdown();
     slots
 }
 
 #[test]
-fn retained_local_plane_storage_tracks_burst_size() {
-    // Characterization, not an endorsement (ADR-038, MOI-QUEUE-PLANE-SHRINK):
-    // `next_job` drains the injector to exhaustion, and a plane only ever
-    // grows, so the largest burst a worker ever drains sets the slot count it
-    // retains for the life of the process -- independent of the configured
-    // initial capacity. Draining to exhaustion is load-bearing: it is what
-    // lets a high-priority job preempt work already queued behind it, since
-    // the injector is one cross-priority queue and only the local planes are
-    // priority-ordered. The retention is therefore addressed by releasing an
-    // oversized plane once it drains, not by bounding the pass.
+fn local_plane_holds_the_drained_burst_until_the_worker_idles() {
+    // ADR-038, MOI-QUEUE-PLANE-SHRINK: `next_job` drains the injector to
+    // exhaustion, and a plane only grows while it is in use, so at the moment
+    // the worker finishes a burst the plane holds slots covering the burst,
+    // independent of the configured initial capacity. Draining to exhaustion
+    // is load-bearing: it is what lets a high-priority job preempt work
+    // already queued behind it, since the injector is one cross-priority queue
+    // and only the local planes are priority-ordered. The worker releases the
+    // oversized plane once it idles (`WorkerQueueOwner::shrink_drained_planes`,
+    // covered in `schedule::queue::tests`), not by bounding the pass.
     const START: usize = 16;
     let small = local_plane_slots_after_burst(200, START);
     let large = local_plane_slots_after_burst(2_000, START);
@@ -126,7 +141,7 @@ fn retained_local_plane_storage_tracks_burst_size() {
     );
     assert!(
         large > small,
-        "retained slots track burst size rather than the {START}-slot start;          got {small} for 200 jobs and {large} for 2,000"
+        "held slots track burst size rather than the {START}-slot start;          got {small} for 200 jobs and {large} for 2,000"
     );
 }
 

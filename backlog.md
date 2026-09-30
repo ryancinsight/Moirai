@@ -167,16 +167,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Add the gap-controlled benchmark and profile the first region before selecting batched wake, prewake, or spin-policy changes.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-QUEUE-PLANE-SHRINK-2026-09-02"></a>
-## MOI-QUEUE-PLANE-SHRINK-2026-09-02 — Reclaim drained queue-plane growth
-- status: todo
-- priority: tightening
-- outcome: A drained local priority plane returns retained storage to its configured capacity after a one-off burst.
-- acceptance: The allocation oracle observes configured capacity after drain, a Loom model proves quiescence excludes in-flight steals, and priority, stealing, saturation, and wake-progress behavior remains unchanged.
-- scope: local queue-plane growth, retired arrays, scheduler quiescence, allocation contract, and Loom model; no per-steal shared epoch counter.
-- next step: Model scheduler quiescence against `steal_batch`, then reclaim retired storage only at the proven boundary.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
-
 <a id="MOI-NUMA-STEAL-BENCH-001"></a>
 ## MOI-NUMA-STEAL-BENCH-001 — Measure two-pass stealing on multi-socket hardware
 - status: blocked
