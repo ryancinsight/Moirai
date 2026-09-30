@@ -2,6 +2,8 @@
 
 use crate::platform::String;
 
+use super::placement::WorkerPlacement;
+
 // Memory pool size constants
 const KILOBYTE: usize = 1024;
 const MEGABYTE: usize = 1024 * KILOBYTE;
@@ -44,6 +46,11 @@ pub struct ExecutorConfig {
     pub local_queue_initial_capacity: usize,
     /// Thread name prefix for worker threads
     pub thread_name_prefix: String,
+    /// Whether each worker is confined to one logical processor.
+    ///
+    /// [`WorkerPlacement::Pinned`] can fail executor construction; see
+    /// [`ExecutorError::WorkerPlacementFailed`](crate::error::ExecutorError::WorkerPlacementFailed).
+    pub worker_placement: WorkerPlacement,
     /// Whether to enable metrics collection
     #[cfg(feature = "metrics")]
     pub enable_metrics: bool,
@@ -63,6 +70,7 @@ impl Default for ExecutorConfig {
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
             thread_name_prefix: "moirai-worker".into(),
+            worker_placement: WorkerPlacement::default(),
             #[cfg(feature = "metrics")]
             enable_metrics: true,
             preemption: PreemptionConfig::default(),

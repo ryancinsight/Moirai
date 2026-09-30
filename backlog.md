@@ -37,16 +37,6 @@ belong in [gap_audit.md](gap_audit.md).
 - re-open trigger: A maintained safe implementation is available or the dependent protocol is removed.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-WORKER-CORE-PREMISE-2026-09-01"></a>
-## MOI-WORKER-CORE-PREMISE-2026-09-01 — Enforce worker placement
-- status: todo
-- priority: architecture
-- outcome: Published worker-to-processor assignments describe placement the runtime actually enforces.
-- acceptance: Provider-owned typed binding occurs during startup, assignments publish only after successful worker creation, typed absence is preserved, and a binding failure prevents the scheduler from escaping.
-- scope: Themis placement provider, Moirai worker startup, topology publication, tests, and ADR 0037; no fabricated fallback placement.
-- next step: Add the missing Themis current-thread processor-binding capability upstream, then consume it during Moirai worker startup.
-- basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
-
 <a id="MOI-NATIVE-REACTOR-001"></a>
 ## MOI-NATIVE-REACTOR-001 — Complete native readiness and completion backends
 - status: todo

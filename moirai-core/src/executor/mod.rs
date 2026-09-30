@@ -8,6 +8,7 @@ pub mod config;
 pub mod control;
 pub mod manager;
 pub mod parallelism;
+pub mod placement;
 pub mod spawner;
 
 pub use builder::ExecutorBuilder;
@@ -15,6 +16,7 @@ pub use config::{CleanupConfig, ExecutorConfig, MemoryConfig, PreemptionConfig};
 pub use control::ExecutorControl;
 pub use manager::{TaskManager, TaskStats, TaskStatus};
 pub use parallelism::logical_parallelism;
+pub use placement::WorkerPlacement;
 pub use spawner::TaskSpawner;
 
 /// Combined executor trait with all capabilities.

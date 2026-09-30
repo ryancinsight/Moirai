@@ -44,7 +44,7 @@
 | [0034](0034-executor-queue-capacity-reaches-scheduler-construction.md) | Executor queue capacity reaches scheduler construction | Accepted |
 | [0035](0035-resizable-local-queue-initial-capacity.md) | Resizable local-queue initial capacity | Accepted |
 | [0036](0036-natural-alignment-for-inline-scheduler-jobs.md) | Natural alignment for inline scheduler jobs | Accepted |
-| [0037](0037-themis-owns-topology.md) | Themis owns topology; the scheduler reports no worker placement | Accepted |
+| [0037](0037-themis-owns-topology.md) | Themis owns topology; the scheduler publishes only enforced worker placement | Accepted |
 | [0038](0038-bounded-injector-drain.md) | Bounded injector drain | Rejected |
 | [0039](0039-moirai-gpu-budget-facade.md) | Moirai GPU budget facade owns the planner input | Accepted |
 | [0040](0040-first-party-memory-source-identity.md) | One First-Party Memory Source Identity During Provider Co-Evolution | Accepted |

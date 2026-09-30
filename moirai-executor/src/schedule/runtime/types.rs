@@ -12,7 +12,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use moirai_core::Priority;
+use moirai_core::{Priority, error::PlacementFailure};
 
 use moirai_utils::cache::{CacheAligned, CachePad};
 
@@ -195,9 +195,11 @@ pub(super) struct SchedulerInner<const BLOCKING_QUEUE_CAPACITY: usize> {
     pub(super) idle_workers: super::idle::IdleBitset,
     /// Per-worker NUMA node assignment for topology-aware victim selection.
     ///
-    /// `worker_numa_nodes[i]` is the NUMA node of worker `i`, or `None` when
-    /// NUMA topology is unavailable or fewer than two nodes are represented by
-    /// the worker set (single-node systems, VMs, containers).
+    /// `worker_numa_nodes[i]` is the NUMA node of worker `i` under
+    /// `WorkerPlacement::Pinned`, where the worker bound itself to a processor
+    /// of that node before construction returned. It is `None` for unbound
+    /// workers, and for every worker when fewer than two nodes are represented
+    /// (single-node systems, VMs, containers).
     /// Stored separately from `WorkerState` to avoid cache-line pollution on
     /// the hot steal-path — this slice is read-only after construction.
     pub(super) worker_numa_nodes: Box<[Option<usize>]>,
@@ -375,6 +377,9 @@ pub(super) struct WorkerState {
     pub(super) queues: Arc<WorkerQueues>,
     pub(super) lifo_slot: LifoSlot,
     pub(super) thread: OnceLock<thread::Thread>,
+    /// Outcome of the worker's processor binding, published once by the worker
+    /// under `WorkerPlacement::Pinned` and never set for an unbound worker.
+    pub(super) placement: OnceLock<Result<(), PlacementFailure>>,
 }
 
 impl WorkerState {
@@ -384,6 +389,7 @@ impl WorkerState {
             queues,
             lifo_slot: LifoSlot::new(),
             thread: OnceLock::new(),
+            placement: OnceLock::new(),
         }
     }
 }

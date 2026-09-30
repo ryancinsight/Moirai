@@ -118,9 +118,11 @@ Minimum supported Rust version: **1.95**. The pinned build toolchain is 1.97.0
   transport-backed routes behind sealed capability tokens; arbitrary closure
   remoting is intentionally rejected.
 - **CPU topology**: Themis topology detection supplies default worker
-  counts. Workers are not bound to processors, so the scheduler reports no
-  per-worker NUMA assignment; its same-node steal tier activates only for an
-  assignment a caller can vouch for (ADR-037).
+  counts. Workers run unbound by default and the scheduler then reports no
+  per-worker NUMA assignment. With `WorkerPlacement::Pinned`, each worker binds
+  itself to one logical processor at startup, construction fails if any
+  binding is refused, and the same-node steal tier reads the enforced
+  assignment (ADR-037).
 - **Local CPU layer**: `ThreadScheduler` owns worker queues, work-class routing,
   scoped batches, and indexed fan-out/reduction.
 - **Route layer**: `HybridRouter<P>` selects thread/process/server/accelerator

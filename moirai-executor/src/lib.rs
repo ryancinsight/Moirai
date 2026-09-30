@@ -60,6 +60,7 @@ where
 pub struct ExecutorBuilder {
     worker_threads: usize,
     async_threads: usize,
+    worker_placement: moirai_core::executor::WorkerPlacement,
 }
 
 impl ExecutorBuilder {
@@ -72,12 +73,19 @@ impl ExecutorBuilder {
                 .unwrap_or(4)
                 .max(1),
             async_threads: 4,
+            worker_placement: moirai_core::executor::WorkerPlacement::default(),
         }
     }
 
     /// Set the number of worker threads
     pub fn worker_threads(mut self, count: usize) -> Self {
         self.worker_threads = count;
+        self
+    }
+
+    /// Set whether each worker is confined to one logical processor
+    pub fn worker_placement(mut self, placement: moirai_core::executor::WorkerPlacement) -> Self {
+        self.worker_placement = placement;
         self
     }
 
@@ -92,6 +100,7 @@ impl ExecutorBuilder {
         let config = moirai_core::executor::ExecutorConfig {
             worker_threads: self.worker_threads,
             async_threads: self.async_threads,
+            worker_placement: self.worker_placement,
             ..moirai_core::executor::ExecutorConfig::default()
         };
         HybridExecutor::new(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)

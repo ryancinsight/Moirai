@@ -8,7 +8,7 @@ use std::{
 use moirai_core::{
     error::{ExecutorError, ExecutorResult},
     executor::{
-        ExecutorConfig,
+        ExecutorConfig, WorkerPlacement,
         config::{DEFAULT_GLOBAL_QUEUE_CAPACITY, DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY},
     },
 };
@@ -18,16 +18,22 @@ use moirai_utils::cache::CacheAligned;
 use super::super::super::job::ScheduledJob;
 use super::super::types::{SchedulerInner, ThreadScheduler};
 use super::super::worker::lock_mutex;
+#[cfg(test)]
+use super::placement::PinProbe;
+use super::placement::{Pinning, normalize_worker_numa_nodes};
 
 struct SchedulerConstruction<'config> {
     worker_count: usize,
     thread_name_prefix: &'config str,
     max_global_queue_size: usize,
     local_queue_initial_capacity: usize,
+    worker_placement: WorkerPlacement,
     #[cfg(test)]
     worker_numa_nodes: Option<Box<[Option<usize>]>>,
     #[cfg(test)]
     failure_probe: Option<ConstructionFailureProbe>,
+    #[cfg(test)]
+    pin_probe: Option<PinProbe>,
 }
 
 #[cfg(test)]
@@ -86,10 +92,13 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             thread_name_prefix,
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity,
+            worker_placement: WorkerPlacement::Unbound,
             #[cfg(test)]
             worker_numa_nodes: None,
             #[cfg(test)]
             failure_probe: None,
+            #[cfg(test)]
+            pin_probe: None,
         })
     }
 
@@ -99,10 +108,13 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             thread_name_prefix: &config.thread_name_prefix,
             max_global_queue_size: config.max_global_queue_size,
             local_queue_initial_capacity: config.local_queue_initial_capacity,
+            worker_placement: config.worker_placement,
             #[cfg(test)]
             worker_numa_nodes: None,
             #[cfg(test)]
             failure_probe: None,
+            #[cfg(test)]
+            pin_probe: None,
         })
     }
 
@@ -125,12 +137,14 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             thread_name_prefix: "test-partial-spawn",
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+            worker_placement: WorkerPlacement::Unbound,
             worker_numa_nodes: None,
             failure_probe: Some(ConstructionFailureProbe {
                 worker_id: failing_worker_id,
                 lifetime_owner: Box::new(lifetime_owner),
                 worker_exit_gate: Some(worker_exit_gate),
             }),
+            pin_probe: None,
         })
     }
 
@@ -148,8 +162,29 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             thread_name_prefix,
             max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
             local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+            worker_placement: WorkerPlacement::Unbound,
             worker_numa_nodes: Some(worker_numa_nodes),
             failure_probe: None,
+            pin_probe: None,
+        })
+    }
+
+    /// Construct a pinned scheduler whose topology and bind function are the
+    /// probe's, so binding outcomes are testable on every host.
+    #[cfg(test)]
+    pub(in crate::schedule::runtime) fn with_pin_probe(
+        worker_count: usize,
+        probe: PinProbe,
+    ) -> ExecutorResult<Self> {
+        Self::from_construction(SchedulerConstruction {
+            worker_count,
+            thread_name_prefix: "test-pinned",
+            max_global_queue_size: DEFAULT_GLOBAL_QUEUE_CAPACITY,
+            local_queue_initial_capacity: DEFAULT_LOCAL_QUEUE_INITIAL_CAPACITY,
+            worker_placement: WorkerPlacement::Pinned,
+            worker_numa_nodes: None,
+            failure_probe: None,
+            pin_probe: Some(probe),
         })
     }
 
@@ -159,10 +194,13 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             thread_name_prefix,
             max_global_queue_size,
             local_queue_initial_capacity,
+            worker_placement,
             #[cfg(test)]
                 worker_numa_nodes: injected_worker_numa_nodes,
             #[cfg(test)]
             mut failure_probe,
+            #[cfg(test)]
+            pin_probe,
         } = config;
         let worker_count = worker_count.max(1);
         let injector_capacity = partition_global_queue(max_global_queue_size, worker_count)?;
@@ -172,6 +210,19 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         .map_err(|error| ExecutorError::InvalidLocalQueueInitialCapacity {
             requested: error.requested(),
         })?;
+        let pinning = match worker_placement {
+            WorkerPlacement::Unbound => None,
+            WorkerPlacement::Pinned => {
+                #[cfg(test)]
+                let pinning = match pin_probe {
+                    Some(probe) => Pinning::from_probe(probe, worker_count),
+                    None => Pinning::detect(worker_count),
+                };
+                #[cfg(not(test))]
+                let pinning = Pinning::detect(worker_count);
+                Some(pinning?)
+            }
+        };
         let mut queue_owners = Vec::with_capacity(worker_count);
         let workers = (0..worker_count)
             .map(|_| {
@@ -185,12 +236,14 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
-        // Workers are not bound to processors, so the runtime has no true
-        // answer for "which node does worker `i` run on" and reports none
-        // (ADR-037). The same-node steal tier stays in place for an assignment
-        // a caller can vouch for -- tests inject one -- and activates only when
-        // at least two nodes are represented.
-        let worker_numa_nodes: Box<[Option<usize>]> = vec![None; worker_count].into_boxed_slice();
+        // Only pinned workers have a true answer for "which node does worker
+        // `i` run on" (ADR-037); unbound workers report none. The same-node
+        // steal tier activates only when at least two nodes are represented.
+        // Tests may inject an assignment they vouch for.
+        let worker_numa_nodes: Box<[Option<usize>]> = pinning.as_ref().map_or_else(
+            || vec![None; worker_count].into_boxed_slice(),
+            Pinning::worker_numa_nodes,
+        );
         #[cfg(test)]
         let worker_numa_nodes = injected_worker_numa_nodes.unwrap_or(worker_numa_nodes);
         let worker_numa_nodes = normalize_worker_numa_nodes(worker_numa_nodes);
@@ -223,6 +276,14 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         let scheduler = Self { inner };
 
         #[cfg(test)]
+        if let Some(owner) = pinning.as_ref().and_then(Pinning::take_lifetime_owner) {
+            assert!(
+                scheduler.inner.lifetime_owner.set(owner).is_ok(),
+                "invariant: pin probe owner is installed once"
+            );
+        }
+
+        #[cfg(test)]
         let failing_worker_id = failure_probe.as_ref().map(|probe| probe.worker_id);
         #[cfg(test)]
         let mut worker_exit_gate = failure_probe
@@ -243,6 +304,9 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
         for (worker_id, owner) in queue_owners.into_iter().enumerate() {
             let worker_inner = Arc::clone(&scheduler.inner);
             let thread_name = format!("{thread_name_prefix}-{worker_id}");
+            let pin = pinning
+                .as_ref()
+                .map(|pinning| pinning.worker_pin(worker_id));
             #[cfg(test)]
             let inject_failure = failing_worker_id == Some(worker_id);
             #[cfg(not(test))]
@@ -263,6 +327,7 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
                         worker_inner,
                         worker_id,
                         owner,
+                        pin,
                     );
                     #[cfg(test)]
                     if let Some(gate) = exit_gate {
@@ -293,6 +358,15 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             }
         }
 
+        // A scheduler holding a worker that failed to bind must not escape:
+        // the published node table would describe placement nobody enforces.
+        if let Some(pinning) = &pinning
+            && let Err(error) = pinning.await_outcomes(&scheduler.inner.workers)
+        {
+            scheduler.shutdown();
+            return Err(error);
+        }
+
         Ok(scheduler)
     }
 
@@ -308,21 +382,6 @@ impl<const BLOCKING_QUEUE_CAPACITY: usize, const SPIN_LIMIT: usize>
             "invariant: scheduler lifetime owner is installed once"
         );
     }
-}
-
-fn normalize_worker_numa_nodes(
-    mut worker_numa_nodes: Box<[Option<usize>]>,
-) -> Box<[Option<usize>]> {
-    let mut represented_nodes = worker_numa_nodes.iter().copied().flatten();
-    let has_multiple_nodes = represented_nodes
-        .next()
-        .is_some_and(|first| represented_nodes.any(|node| node != first));
-
-    if !has_multiple_nodes {
-        worker_numa_nodes.fill(None);
-    }
-
-    worker_numa_nodes
 }
 
 fn partition_global_queue(
@@ -351,7 +410,7 @@ mod tests {
 
     use moirai_core::error::ExecutorError;
 
-    use super::{ThreadScheduler, WorkerExitGate, normalize_worker_numa_nodes};
+    use super::{ThreadScheduler, WorkerExitGate};
 
     const TEST_EVENT_DEADLINE: Duration = Duration::from_secs(5);
 
@@ -363,26 +422,6 @@ mod tests {
         fn drop(&mut self) {
             self.dropped.store(true, Ordering::Release);
         }
-    }
-
-    #[test]
-    fn locality_pass_requires_multiple_represented_nodes() {
-        for assignments in [
-            vec![None, None, None].into_boxed_slice(),
-            vec![Some(0), Some(0), Some(0)].into_boxed_slice(),
-            vec![None, Some(3), None].into_boxed_slice(),
-        ] {
-            assert_eq!(
-                &*normalize_worker_numa_nodes(assignments),
-                &[None, None, None]
-            );
-        }
-
-        let multiple = vec![Some(3), None, Some(7), Some(3)].into_boxed_slice();
-        assert_eq!(
-            &*normalize_worker_numa_nodes(multiple),
-            &[Some(3), None, Some(7), Some(3)]
-        );
     }
 
     #[test]

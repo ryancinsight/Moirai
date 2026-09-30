@@ -204,7 +204,7 @@
 pub use moirai_core::{
     Priority, Task, TaskContext, TaskHandle, TaskId,
     error::*,
-    executor::{Executor, ExecutorConfig, ExecutorControl, TaskSpawner},
+    executor::{Executor, ExecutorConfig, ExecutorControl, TaskSpawner, WorkerPlacement},
     scheduler::*,
     task::*,
 };
