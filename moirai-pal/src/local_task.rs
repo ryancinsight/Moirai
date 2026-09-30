@@ -16,7 +16,10 @@ impl LocalTaskState {
         if self.cancelled.replace(true) {
             return;
         }
-        if let Some(waker) = self.waker.borrow_mut().take() {
+        // The borrow ends before the wake: a waker may poll the task again on
+        // this thread, and that poll borrows the same cell.
+        let waker = self.waker.borrow_mut().take();
+        if let Some(waker) = waker {
             waker.wake();
         }
     }
@@ -78,9 +81,8 @@ impl<F: Future<Output = ()>> Future for CancellableFuture<F> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // SAFETY: the wrapper is pinned by the executor, and this projection
-        // never moves `future`; it only accesses the already pinned box.
-        let this = unsafe { self.get_unchecked_mut() };
+        // `future` is boxed and pinned on its own, so the wrapper is `Unpin`.
+        let this = self.get_mut();
         if this.state.cancelled.get() {
             this.future.take();
             this.state.waker.borrow_mut().take();
@@ -190,6 +192,46 @@ mod tests {
         assert_eq!(signal.0.load(Ordering::Relaxed), 1);
         assert!(Pin::new(&mut future).poll(&mut context).is_ready());
         assert!(dropped.get());
+    }
+
+    thread_local! {
+        static REENTRANT: RefCell<Option<Rc<LocalTaskState>>> = const { RefCell::new(None) };
+        static WAKER_CELL_FREE_DURING_WAKE: Cell<Option<bool>> = const { Cell::new(None) };
+    }
+
+    struct ReentrantWake;
+
+    impl Wake for ReentrantWake {
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            let free = REENTRANT.with(|state| {
+                state
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|state| state.waker.try_borrow_mut().is_ok())
+            });
+            WAKER_CELL_FREE_DURING_WAKE.with(|cell| cell.set(Some(free)));
+        }
+    }
+
+    #[test]
+    fn a_waker_that_re_enters_the_task_finds_its_cell_free() {
+        let (handle, mut future) = cancellable(PendingFuture {
+            polls: Rc::new(Cell::new(0)),
+            dropped: Rc::new(Cell::new(false)),
+        });
+        REENTRANT.with(|state| *state.borrow_mut() = Some(Rc::clone(&handle.state)));
+        let waker = Waker::from(Arc::new(ReentrantWake));
+        let mut context = Context::from_waker(&waker);
+        assert!(Pin::new(&mut future).poll(&mut context).is_pending());
+
+        handle.cancel();
+
+        assert_eq!(WAKER_CELL_FREE_DURING_WAKE.with(Cell::get), Some(true));
+        REENTRANT.with(|state| state.borrow_mut().take());
     }
 
     #[test]

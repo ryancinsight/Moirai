@@ -11,17 +11,33 @@ use windows::{
 use super::super::config::{MAX_WEBVIEW_MESSAGE_UNITS, MAX_WEBVIEW_URI_UNITS};
 use super::error::callback_error;
 
-pub(super) fn read_task_mem_uri(uri: PWSTR) -> windows::core::Result<String> {
+/// Decodes a WebView2 task-memory string and frees it.
+///
+/// # Safety
+///
+/// `uri` is null or points to a NUL-terminated UTF-16 buffer allocated with
+/// `CoTaskMemAlloc` that the caller owns and never touches again: the
+/// returned value's owner frees it with `CoTaskMemFree`.
+pub(super) unsafe fn read_task_mem_uri(uri: PWSTR) -> windows::core::Result<String> {
     let value = CoTaskMemPWSTR::from(uri);
-    // SAFETY: WebView2 provides a NUL-terminated PCWSTR valid for this callback;
-    // lstrlenW only reads until that terminator and the slice remains borrowed.
+    // SAFETY: the caller's contract supplies a NUL-terminated buffer, owned by
+    // `value` until this function returns; lstrlenW only reads until that
+    // terminator and the slice remains borrowed.
     unsafe { read_bounded_pcwstr(value.as_ref().as_pcwstr(), MAX_WEBVIEW_URI_UNITS) }
 }
 
-pub(super) fn read_task_mem_message(uri: PWSTR) -> windows::core::Result<String> {
+/// Decodes a WebView2 JSON message from task memory and frees it.
+///
+/// # Safety
+///
+/// `uri` is null or points to a NUL-terminated UTF-16 buffer allocated with
+/// `CoTaskMemAlloc` that the caller owns and never touches again: the
+/// returned value's owner frees it with `CoTaskMemFree`.
+pub(super) unsafe fn read_task_mem_message(uri: PWSTR) -> windows::core::Result<String> {
     let value = CoTaskMemPWSTR::from(uri);
-    // SAFETY: WebView2 provides a NUL-terminated PCWSTR valid for this callback;
-    // lstrlenW only reads until that terminator and the slice remains borrowed.
+    // SAFETY: the caller's contract supplies a NUL-terminated buffer, owned by
+    // `value` until this function returns; lstrlenW only reads until that
+    // terminator and the slice remains borrowed.
     unsafe { read_bounded_pcwstr(value.as_ref().as_pcwstr(), MAX_WEBVIEW_MESSAGE_UNITS) }
 }
 
