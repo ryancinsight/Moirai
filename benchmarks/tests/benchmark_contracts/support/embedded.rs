@@ -28,7 +28,7 @@ embedded_sources![
     "../CHANGELOG.md",
     "../Cargo.lock",
     "../Cargo.toml",
-    "../PERFORMANCE_RESULTS.md",
+    "../docs/performance_results.md",
     "../docs/adr-008-checklist.md",
     "../docs/adr/0008-scheduler-route-consumption-and-transport-ownership-boundary.md",
     "../docs/checklist.md",
