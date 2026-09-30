@@ -271,16 +271,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Get mnemosyne building under Miri, then write the one-job scope reproducer.
 - basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
 
-<a id="MOI-ASYNC-TOKEN-SEND-ASSERT-2026-09-29"></a>
-## MOI-ASYNC-TOKEN-SEND-ASSERT-2026-09-29 — Assert the lifecycle tokens are Send for every lease
-- status: todo
-- priority: verification
-- outcome: The manual `Send`/`Sync` impls for `AsyncFutureState<S, F, L>` rest on a checked fact about `TaskLifecycleToken<L>` and `RunningTaskToken<L>`.
-- acceptance: A static assertion `is_send::<TaskLifecycleToken<L>>()` and `is_send::<RunningTaskToken<L>>()` for every `L: StateLease` compiles; if it does not, the impl bounds gain `L`'s token requirement.
-- scope: `moirai-executor/src/hybrid/async_state.rs`, the registry module that defines the tokens.
-- next step: Add the assertion beside the token definitions. Reading at the basis: `StateLease` has a `Send` supertrait and both tokens hold only `Option<L>`, `u64`, and `bool`, so they are auto-`Send`; the assertion pins that against a field change.
-- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
-
 <a id="MOI-PAL-IGNORED-SUITE-SHARED-EXE-2026-09-29"></a>
 ## MOI-PAL-IGNORED-SUITE-SHARED-EXE-2026-09-29 — Stop the ignored webview2 run from pinning the shared test executable
 - status: todo
