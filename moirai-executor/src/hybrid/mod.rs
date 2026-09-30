@@ -265,10 +265,19 @@ impl<S: WorkScheduler> HybridExecutor<S> {
         priority: Priority,
     ) -> ExecutorResult<(TaskId, TaskLifecycleToken<SchedulerStateLease>)> {
         let registry = &self.task_registry;
-        // SAFETY: synchronous and blocking lifecycle tokens move only into
-        // scheduler-owned jobs. Construction installs the registry and metrics
-        // as the scheduler's lifetime owner; each worker holds scheduler state
-        // until its current job returns, including re-entrant destruction.
+        // SAFETY: the returned lease borrows registry storage and never owns
+        // it. Synchronous and blocking lifecycle tokens move into
+        // scheduler-owned jobs; `spawn_async` moves the same token into an
+        // `AsyncFutureState`, which wakers (`Arc` clones) may keep alive
+        // outside any scheduler-owned job. Both placements retire the lease
+        // before the registry is released: (a) `AsyncFutureState` declares its
+        // `scheduler` handle as its last field, so the lifecycle lease drops
+        // before the handle that keeps the scheduler, and through it the
+        // registry, alive; (b) `HybridExecutor::new` installs the registry and
+        // metrics as the scheduler's lifetime owner (`retain_lifetime_owner`),
+        // so they outlive every scheduler handle. Each worker holds scheduler
+        // state until its current job returns, including re-entrant
+        // destruction.
         let (task_id, lifecycle) = unsafe { registry.register_next_scheduled_task() };
         lifecycle.set_priority(priority);
         Ok((TaskId::new(task_id), lifecycle))
