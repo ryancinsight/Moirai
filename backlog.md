@@ -239,16 +239,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Fetch each `pull/<N>/head`, review its diff against the merge base, and port the branch closest to done first.
 - basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
 
-<a id="MOI-ROOT-REPORT-FILES-2026-09-29"></a>
-## MOI-ROOT-REPORT-FILES-2026-09-29 — Retire stale root reports and the development-history directory
-- status: todo
-- priority: verification
-- outcome: `GAP_ANALYSIS.md` and `docs/development-history/` hold no current fact that lacks a canonical owner (Rustdoc, ADR, `backlog.md`, `gap_audit.md`, CHANGELOG), and are deleted.
-- acceptance: Each surviving fact is moved to its owner in the same change; the files are removed; no link in `README.md`, `docs/`, or ADRs points at them.
-- scope: `GAP_ANALYSIS.md`, `docs/development-history/`, referring links.
-- next step: `git grep -n "development-history\|GAP_ANALYSIS"` for inbound links, then triage each file against the current tree.
-- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
-
 <a id="MOI-REL-061"></a>
 ## MOI-REL-061 — Publish reusable Rust crates
 - status: blocked

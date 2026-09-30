@@ -5,7 +5,7 @@ all-features = true
 yanked = "deny"
 unused-ignored-advisory = "deny"
 # These advisories have no safe upstream release that removes the finding.
-# Each remains a tracked residual in backlog.md and GAP_ANALYSIS.md.
+# Each remains a tracked residual in backlog.md.
 ignore = [
     { id = "RUSTSEC-2023-0071", reason = "RSA support remains required by moirai-crypto; replacement design is tracked in backlog.md because no safe upstream release is available." },
 ]
