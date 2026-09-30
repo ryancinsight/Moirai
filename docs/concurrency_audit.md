@@ -218,7 +218,7 @@ Two independent problems:
    buffer, or reentrant `schedule_job`).
 
 **Action.** Reverted the parallel drive; `drive` is sequential-by-contract again
-(documented on the trait method in `moirai-iter/src/parallel/traits.rs`). Added
+(documented on the trait method in `moirai-iter/src/parallel/traits/iterator.rs`). Added
 `nested_iteration_produces_correct_values` as a value-semantic regression guard
 (nested iteration must stay correct). The happens-before edge in `join_with`
 itself is sound (`complete_task`'s `AcqRel` decrement pairs with `wait`'s

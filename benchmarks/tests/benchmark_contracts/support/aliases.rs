@@ -17,6 +17,16 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "../moirai-iter/src/parallel/traits.rs",
+        &[
+            "../moirai-iter/src/parallel/traits/mod.rs",
+            "../moirai-iter/src/parallel/traits/consumer.rs",
+            "../moirai-iter/src/parallel/traits/conversion.rs",
+            "../moirai-iter/src/parallel/traits/folds.rs",
+            "../moirai-iter/src/parallel/traits/iterator.rs",
+        ],
+    ),
+    (
         "../moirai-iter/src/parallel/tests.rs",
         &[
             "../moirai-iter/src/parallel/tests/mod.rs",
