@@ -97,20 +97,29 @@ impl BlockDirectory {
         Some((Arc::clone(block), created))
     }
 
-    /// Blocks awaiting examination: the most a sweep pass can check out.
+    /// Resident blocks with their indices, in index order.
+    pub(super) fn resident_indexed(&self) -> impl Iterator<Item = (usize, &Arc<TaskStateBlock>)> {
+        (self.base..)
+            .zip(&self.entries)
+            .filter_map(|(index, entry)| Some((index, entry.as_ref()?)))
+    }
+
+    /// Blocks awaiting examination.
+    #[cfg(test)]
     pub(super) fn queued(&self) -> usize {
         self.sweep_queue.len()
     }
 
-    /// Check out up to `limit` queued blocks, at most `N`, for one sweep step.
+    /// Check out up to `N` queued blocks for one sweep step.
     ///
-    /// A checked-out block stays resident and readable but belongs to the
-    /// caller until it is settled with [`Self::retire`] or [`Self::requeue`], so
-    /// concurrent sweeps never examine the same block. Each checkout costs one
-    /// queue pop however many retired entries the directory span holds.
-    pub(super) fn check_out<const N: usize>(&mut self, limit: usize) -> SweepWindow<N> {
+    /// A checked-out block stays resident and readable but is absent from the
+    /// queue, so concurrent sweeps examine disjoint blocks, until its sweep
+    /// settles it with [`Self::retire`] or [`Self::requeue`]. Each checkout
+    /// costs one queue pop however many retired entries the directory span
+    /// holds.
+    pub(super) fn check_out<const N: usize>(&mut self) -> SweepWindow<N> {
         let mut blocks = [const { None }; N];
-        for slot in blocks.iter_mut().take(limit) {
+        for slot in &mut blocks {
             let Some(index) = self.sweep_queue.pop_front() else {
                 break;
             };
@@ -118,7 +127,7 @@ impl BlockDirectory {
                 .entries
                 .get(index - self.base)
                 .and_then(Option::as_ref)
-                .expect("invariant: a queued or checked-out index names a resident block");
+                .expect("invariant: a queued index names a resident block");
             *slot = Some((index, Arc::clone(block)));
         }
         SweepWindow {
@@ -127,26 +136,43 @@ impl BlockDirectory {
         }
     }
 
-    /// Return a checked-out block to the back of the sweep queue.
+    /// Return a checked-out block to the back of the sweep queue, unless
+    /// [`Self::cleanup`] retired it while it was checked out.
     pub(super) fn requeue(&mut self, block_index: usize) {
-        self.sweep_queue.push_back(block_index);
+        if matches!(self.lookup(block_index), BlockLookup::Live(_)) {
+            self.sweep_queue.push_back(block_index);
+        }
     }
 
-    /// Retire a checked-out block, returning it so the caller drops it outside
-    /// the directory lock.
-    pub(super) fn retire(&mut self, block_index: usize) -> Arc<TaskStateBlock> {
+    /// Retire a block, returning it so the caller drops it outside the
+    /// directory lock, or `None` when it already retired.
+    pub(super) fn retire(&mut self, block_index: usize) -> Option<Arc<TaskStateBlock>> {
         let entry = block_index
             .checked_sub(self.base)
-            .and_then(|offset| self.entries.get_mut(offset))
-            .expect("invariant: a checked-out index lies inside the directory");
-        let retired = entry
-            .take()
-            .expect("invariant: a checked-out block is resident until its sweep retires it");
+            .and_then(|offset| self.entries.get_mut(offset))?;
+        let retired = entry.take()?;
         self.resident -= 1;
         while matches!(self.entries.front(), Some(None)) {
             self.entries.pop_front();
             self.base += 1;
         }
+        Some(retired)
+    }
+
+    /// Retire every listed block that is still resident, checked out or
+    /// queued, and drop the retired ones from the sweep queue. Returns the
+    /// retired blocks for the caller to drop outside the directory lock.
+    pub(super) fn cleanup(&mut self, block_indices: &[usize]) -> Vec<Arc<TaskStateBlock>> {
+        let retired: Vec<_> = block_indices
+            .iter()
+            .filter_map(|&index| self.retire(index))
+            .collect();
+        let (base, entries) = (self.base, &self.entries);
+        self.sweep_queue.retain(|&index| {
+            index
+                .checked_sub(base)
+                .is_some_and(|offset| matches!(entries.get(offset), Some(Some(_))))
+        });
         retired
     }
 }

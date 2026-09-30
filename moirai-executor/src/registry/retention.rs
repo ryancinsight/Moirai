@@ -1,7 +1,7 @@
 //! Completed-task retention: which settled blocks the registry releases, and
 //! the bounded sweep that releases them.
 
-use std::{time::Duration, time::Instant};
+use std::{sync::Arc, time::Duration, time::Instant};
 
 use moirai_core::executor::CleanupConfig;
 
@@ -120,17 +120,19 @@ impl TaskRegistry {
             return;
         };
         let cutoff = Instant::now().checked_sub(policy.max_age);
-        self.sweep_window(cutoff, Some(policy.max_resident_blocks()), SWEEP_WINDOW);
+        self.sweep_window(cutoff, policy.max_resident_blocks());
     }
 
     /// Release every block whose tasks all completed at least `older_than` ago,
     /// returning how many blocks were released.
     ///
-    /// The directory lock is held only to check blocks out and to commit their
-    /// fate, never across a scan, so registrations proceed throughout. Blocks
-    /// another sweep has checked out are left to it. Automatic retention makes
-    /// calling this unnecessary for an executor; it serves callers that manage a
-    /// registry directly.
+    /// Every resident block is examined, including any that a concurrent
+    /// automatic sweep has checked out; that sweep finds such a block already
+    /// retired and moves on. The directory lock is held only to list the
+    /// resident blocks and to retire the settled ones, never across a scan, so
+    /// registrations proceed throughout. Automatic retention makes calling this
+    /// unnecessary for an executor; it serves callers that manage a registry
+    /// directly.
     pub fn cleanup_completed(&self, older_than: Duration) -> usize {
         // `Instant - Duration` panics when the result predates the platform's
         // clock origin, which a caller-supplied retention window longer than the
@@ -139,47 +141,45 @@ impl TaskRegistry {
         let Some(cutoff) = Instant::now().checked_sub(older_than) else {
             return 0;
         };
-        // One lap over the blocks queued now; blocks created meanwhile are not
-        // chased.
-        let mut remaining = self
+        let resident: Vec<_> = self
             .blocks
             .read()
             .expect("task registry block directory is never poisoned")
-            .queued();
-        let mut retired = 0;
-        while remaining > 0 {
-            let (examined, released) = self.sweep_window(Some(cutoff), None, remaining);
-            if examined == 0 {
-                break;
-            }
-            remaining -= examined;
-            retired += released;
-        }
-        retired
+            .resident_indexed()
+            .map(|(index, block)| (index, Arc::clone(block)))
+            .collect();
+        let settled: Vec<usize> = resident
+            .iter()
+            .filter(|(index, block)| {
+                block.is_settled(*index == 0, Retirement::CompletedBefore(cutoff))
+            })
+            .map(|&(index, _)| index)
+            .collect();
+        // The retired blocks drop with `resident`, after the directory lock.
+        let released = self
+            .blocks
+            .write()
+            .expect("task registry block directory is never poisoned")
+            .cleanup(&settled);
+        released.len()
     }
 
-    /// Check out up to `limit` queued blocks, retire the settled ones, and
-    /// requeue the rest. Returns how many blocks were examined and how many
-    /// were retired.
+    /// Check out the next window of queued blocks, retire the settled ones, and
+    /// requeue the rest.
     ///
     /// `cutoff` bounds completion age (`None`: no block is old enough), and
-    /// `resident_cap` retires settled blocks regardless of age while more
-    /// blocks than that are resident. Whether the cap is exceeded is decided
-    /// under the directory lock against the live count, so concurrent sweeps
-    /// cannot each retire down from a stale copy of it; only the settledness
-    /// scans, which cost up to a block's slots each, run outside the lock.
-    fn sweep_window(
-        &self,
-        cutoff: Option<Instant>,
-        resident_cap: Option<usize>,
-        limit: usize,
-    ) -> (usize, usize) {
+    /// settled blocks retire regardless of age while more than `resident_cap`
+    /// blocks are resident. Whether the cap is exceeded is decided under the
+    /// directory lock against the live count, so concurrent sweeps cannot each
+    /// retire down from a stale copy of it; only the settledness scans, which
+    /// cost up to a block's slots each, run outside the lock.
+    fn sweep_window(&self, cutoff: Option<Instant>, resident_cap: usize) {
         let SweepWindow { blocks, resident } = self
             .blocks
             .write()
             .expect("task registry block directory is never poisoned")
-            .check_out::<SWEEP_WINDOW>(limit);
-        let forceable = resident_cap.is_some_and(|cap| resident > cap);
+            .check_out::<SWEEP_WINDOW>();
+        let forceable = resident > resident_cap;
         let judged = blocks.map(|slot| {
             slot.map(|(index, block)| {
                 let verdict = Verdict::of(&block, index == 0, cutoff, forceable);
@@ -189,25 +189,22 @@ impl TaskRegistry {
 
         // Released blocks drop with `judged`, after the directory lock.
         let mut released = [const { None }; SWEEP_WINDOW];
-        {
-            let mut directory = self
-                .blocks
-                .write()
-                .expect("task registry block directory is never poisoned");
-            for (slot, (index, _, verdict)) in released.iter_mut().zip(judged.iter().flatten()) {
-                let retire = match verdict {
-                    Verdict::Expired => true,
-                    Verdict::OverCap => resident_cap.is_some_and(|cap| directory.resident() > cap),
-                    Verdict::Keep => false,
-                };
-                if retire {
-                    *slot = Some(directory.retire(*index));
-                } else {
-                    directory.requeue(*index);
-                }
+        let mut directory = self
+            .blocks
+            .write()
+            .expect("task registry block directory is never poisoned");
+        for (slot, (index, _, verdict)) in released.iter_mut().zip(judged.iter().flatten()) {
+            let retire = match verdict {
+                Verdict::Expired => true,
+                Verdict::OverCap => directory.resident() > resident_cap,
+                Verdict::Keep => false,
+            };
+            if retire {
+                *slot = directory.retire(*index);
+            } else {
+                directory.requeue(*index);
             }
         }
-        let retired = released.iter().flatten().count();
-        (judged.iter().flatten().count(), retired)
+        drop(directory);
     }
 }

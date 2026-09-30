@@ -243,6 +243,12 @@ fn concurrent_producers_and_sweeps_keep_every_task_observable_as_completed() {
 /// Neither the number of blocks created nor how long a block stays pinned
 /// appears.
 fn resident_bound(cap_blocks: usize, pinned: usize) -> usize {
+    const {
+        assert!(
+            SWEEP_WINDOW >= 2,
+            "a lap of a one-block window never closes on the blocks created during it"
+        );
+    }
     let kept = cap_blocks.max(pinned);
     let mut lap = kept;
     while lap < kept + lap.div_ceil(SWEEP_WINDOW) {
@@ -253,7 +259,7 @@ fn resident_bound(cap_blocks: usize, pinned: usize) -> usize {
 
 /// Complete every task of `total_blocks` blocks except the first task of each of
 /// the first `pinned_blocks` blocks, which stays running. Returns the running
-/// tasks and the most blocks resident after any block was created.
+/// tasks and the most blocks resident inside the sweep step of any block creation.
 fn churn_around_pinned_blocks(
     registry: &TaskRegistry,
     pinned_blocks: usize,
@@ -271,7 +277,9 @@ fn churn_around_pinned_blocks(
             running.complete();
         }
         if slot == TASK_STATE_BLOCK_SIZE - 1 {
-            peak = peak.max(registry.blocks.read().unwrap().resident());
+            // The next created block joins the queue before its sweep step
+            // retires anything, so the count seen inside that step is one more.
+            peak = peak.max(registry.blocks.read().unwrap().resident() + 1);
         }
     }
     (held, peak)
@@ -318,4 +326,61 @@ fn pinned_blocks_do_not_stretch_the_sweep_lap() {
         assert_eq!(directory.resident(), 0, "cap {max_completed_tasks}");
         assert_eq!(directory.span(), 0, "cap {max_completed_tasks}");
     }
+}
+
+/// `cleanup_completed` owns every settled block, including the ones an
+/// automatic sweep with a longer window has checked out at that moment.
+#[test]
+fn cleanup_releases_blocks_an_in_flight_sweep_holds() {
+    let registry = TaskRegistry::with_retention(RetentionPolicy {
+        max_age: Duration::from_secs(3600),
+        max_completed_tasks: usize::MAX,
+    });
+    complete_tasks(&registry, 3 * TASK_STATE_BLOCK_SIZE - 1);
+    // An in-flight sweep: it holds all three settled blocks and will judge them
+    // under its own hour-long window.
+    let window = registry.blocks.write().unwrap().check_out::<SWEEP_WINDOW>();
+    let held: Vec<usize> = window
+        .blocks
+        .iter()
+        .flatten()
+        .map(|(index, _)| *index)
+        .collect();
+    assert_eq!(held, [0, 1, 2]);
+    assert_eq!(registry.blocks.read().unwrap().queued(), 0);
+
+    assert_eq!(registry.cleanup_completed(Duration::ZERO), 3);
+
+    // The sweep then commits: retiring is a no-op and requeueing drops the block.
+    let mut directory = registry.blocks.write().unwrap();
+    assert!(directory.retire(held[0]).is_none());
+    directory.requeue(held[1]);
+    directory.requeue(held[2]);
+    assert_eq!(directory.resident(), 0);
+    assert_eq!(directory.queued(), 0);
+}
+
+/// A block `cleanup_completed` retires leaves the sweep queue, so the sweep
+/// never checks out an index that no longer names a block.
+#[test]
+fn cleanup_removes_retired_blocks_from_the_sweep_queue() {
+    let registry = TaskRegistry::with_retention(RetentionPolicy {
+        max_age: Duration::from_secs(3600),
+        max_completed_tasks: usize::MAX,
+    });
+    let (_, pinned) = registry.register_next_task();
+    let pinned = pinned.start(0);
+    complete_tasks(&registry, 3 * TASK_STATE_BLOCK_SIZE);
+
+    assert_eq!(registry.cleanup_completed(Duration::ZERO), 2);
+
+    {
+        let directory = registry.blocks.read().unwrap();
+        assert_eq!(directory.queued(), directory.resident());
+    }
+    pinned.complete();
+    assert_eq!(registry.cleanup_completed(Duration::ZERO), 1);
+    let directory = registry.blocks.read().unwrap();
+    assert_eq!(directory.queued(), directory.resident());
+    assert_eq!(directory.resident(), 1, "the partly filled block stays");
 }
