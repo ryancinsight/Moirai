@@ -71,7 +71,10 @@ fn tokio_append(runtime: &tokio::runtime::Runtime, path: &PathBuf, contents: &[u
                 .append(true)
                 .open(path)
                 .await?;
-            file.write_all(contents).await
+            file.write_all(contents).await?;
+            // tokio completes writes on a blocking thread; a file dropped
+            // unflushed can lose them, so the append is not done until flushed.
+            file.flush().await
         })
         .expect("tokio fs append must succeed");
 }
