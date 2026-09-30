@@ -23,6 +23,16 @@ fn tray_images_are_square_and_sized() {
 }
 
 #[test]
+fn an_unvalidated_edge_is_refused_before_it_is_squared() {
+    // The square of these edges overflows `u32`; the refusal must not depend on
+    // arithmetic that panics in a checked build.
+    for edge in [65_536, u32::MAX] {
+        let error = TrayIconImage::new(edge, &[]).expect_err("an edge outside the table");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+}
+
+#[test]
 fn version_four_callbacks_decode() {
     assert_eq!(
         decode_tray_event(0, NIN_SELECT as isize),

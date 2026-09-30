@@ -6,7 +6,7 @@ use ::windows::Wdk::Storage::FileSystem::{
     FILE_SYNCHRONOUS_IO_NONALERT, NtCreateFile,
 };
 use ::windows::Win32::Foundation::{
-    HANDLE, NTSTATUS, OBJ_CASE_INSENSITIVE, RtlNtStatusToDosError, STATUS_SUCCESS, UNICODE_STRING,
+    HANDLE, NTSTATUS, OBJ_CASE_INSENSITIVE, RtlNtStatusToDosError, UNICODE_STRING,
 };
 use ::windows::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
@@ -147,7 +147,7 @@ fn open_relative(parent: &File, component: &OsStr, directory: bool) -> io::Resul
             0,
         )
     };
-    if status != STATUS_SUCCESS {
+    if !opened(status) {
         return Err(ntstatus_error(status));
     }
     if handle.is_invalid() {
@@ -158,9 +158,38 @@ fn open_relative(parent: &File, component: &OsStr, directory: bool) -> io::Resul
     Ok(unsafe { File::from_raw_handle(handle.0) })
 }
 
+/// Whether `NtCreateFile` opened the file: any success or informational status
+/// (`NT_SUCCESS`) returns a handle the caller now owns, not only
+/// `STATUS_SUCCESS`.
+fn opened(status: NTSTATUS) -> bool {
+    status.0 >= 0
+}
+
 fn ntstatus_error(status: NTSTATUS) -> io::Error {
     // SAFETY: RtlNtStatusToDosError is a pure conversion of the status
     // returned by NtCreateFile and does not dereference Rust pointers.
     let code = unsafe { RtlNtStatusToDosError(status) };
     io::Error::from_raw_os_error(i32::from_ne_bytes(code.to_ne_bytes()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::opened;
+    use ::windows::Win32::Foundation::{
+        NTSTATUS, STATUS_ACCESS_DENIED, STATUS_BUFFER_OVERFLOW, STATUS_SUCCESS,
+    };
+
+    #[test]
+    fn every_success_or_informational_status_is_an_open() {
+        // STATUS_OPLOCK_BREAK_IN_PROGRESS: an informational status that still
+        // hands back an open handle.
+        assert!(opened(STATUS_SUCCESS));
+        assert!(opened(NTSTATUS(0x0000_0108)));
+    }
+
+    #[test]
+    fn warning_and_error_statuses_are_not_an_open() {
+        assert!(!opened(STATUS_BUFFER_OVERFLOW));
+        assert!(!opened(STATUS_ACCESS_DENIED));
+    }
 }

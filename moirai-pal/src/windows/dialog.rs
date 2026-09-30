@@ -73,7 +73,7 @@ pub fn pick(selection: DialogSelection) -> io::Result<Option<PathBuf>> {
     // SAFETY: the shell item returns a task-memory UTF-16 buffer which is
     // immediately wrapped by `TaskMemoryPath` and freed on every exit path.
     let raw_path = unsafe { item.GetDisplayName(SIGDN_FILESYSPATH) }.map_err(windows_error)?;
-    TaskMemoryPath::new(raw_path).into_path().map(Some)
+    TaskMemoryPath::new(raw_path).to_path().map(Some)
 }
 
 struct ComApartment {
@@ -110,7 +110,9 @@ impl TaskMemoryPath {
         Self(value)
     }
 
-    fn into_path(mut self) -> io::Result<PathBuf> {
+    /// Decodes the buffer. The owner keeps the pointer, so `Drop` releases the
+    /// task memory on the success path as on every error path.
+    fn to_path(&self) -> io::Result<PathBuf> {
         if self.0.0.is_null() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -153,7 +155,6 @@ impl TaskMemoryPath {
                 )
             })?);
         }
-        self.0 = PWSTR::null();
         Ok(PathBuf::from(value))
     }
 }
@@ -175,10 +176,37 @@ fn windows_error(error: windows::core::Error) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::Win32::System::Com::CoTaskMemAlloc;
 
     #[test]
     fn selection_kinds_are_explicit() {
         assert_ne!(DialogSelection::File, DialogSelection::Folder);
+    }
+
+    #[test]
+    fn a_task_memory_path_decodes_to_the_buffer_it_owns() {
+        let expected = PathBuf::from("C:\\Moirai\\\u{e9}t\u{e9}.txt");
+        let units: Vec<u16> = expected
+            .to_str()
+            .expect("the fixture is UTF-8")
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        // SAFETY: the allocation holds `units.len()` code units, is written in
+        // full before use, and is handed to `TaskMemoryPath`, which frees it
+        // with `CoTaskMemFree`.
+        let buffer = unsafe { CoTaskMemAlloc(units.len() * size_of::<u16>()) }.cast::<u16>();
+        assert!(!buffer.is_null());
+        // SAFETY: `buffer` has room for `units.len()` code units.
+        unsafe { std::ptr::copy_nonoverlapping(units.as_ptr(), buffer, units.len()) };
+        let owner = TaskMemoryPath::new(PWSTR(buffer));
+        assert_eq!(owner.to_path().expect("valid path"), expected);
+        assert_eq!(
+            owner
+                .to_path()
+                .expect("decoding leaves the buffer readable"),
+            expected
+        );
     }
 
     #[test]
