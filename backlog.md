@@ -271,16 +271,6 @@ belong in [gap_audit.md](gap_audit.md).
 - next step: Define the resource-limit and cancellation contract against ADR 0007 before exposing the first fetch operation.
 - basis: `d352be47a4fdcbf9cd8d27ae917d323db3f52e26`
 
-<a id="MOI-DEQUE-FASTPATH-MODEL-2026-09-29"></a>
-## MOI-DEQUE-FASTPATH-MODEL-2026-09-29 — Model-check the fence-free Chase-Lev pop
-- status: todo
-- priority: correctness
-- outcome: The pop fast path that skips the `SeqCst` fence when `bottom - top >= MAX_BATCH_STEAL` either holds exactly-once delivery under a model or is replaced by the fenced path.
-- acceptance: A loom model of the protocol (owner push, push, pop; two thieves; batch threshold lowered to 1) delivers every item exactly once with the fast branch forced, and an x86-TSO litmus test settles the hardware argument; a failing model reverts the fast path with the counterexample recorded in the ADR.
-- scope: `moirai-scheduler/src/deque/chase_lev.rs` (pop fast path), `moirai-scheduler/tests/loom_chase_lev.rs`; `chase_lev.rs` uses `std::sync::atomic` directly, so the model restates the protocol.
-- next step: Restate push/pop/steal in the loom test with the fast branch forced and run it.
-- basis: `69db45eb398f1e321a56ba322def0e660e485d0a`
-
 <a id="MOI-SCOPE-STATE-UNLOCK-MIRI-2026-09-29"></a>
 ## MOI-SCOPE-STATE-UNLOCK-MIRI-2026-09-29 — Settle destroy-after-unlock of the stack scope state
 - status: todo

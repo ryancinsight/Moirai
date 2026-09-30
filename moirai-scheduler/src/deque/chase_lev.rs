@@ -21,15 +21,24 @@
 //!   owner and a racing thief cannot both take the last element — the fence pairs
 //!   with the thief's `SeqCst` fence, and the last-element tie is resolved by a
 //!   `SeqCst` CAS on `top`. On x86/x86_64 (TSO) the fence is skipped when
-//!   `bottom - top >= MAX_BATCH_STEAL`, since no steal can then reach the popped
-//!   slot (Morrison–Afek); a plain `MOV` load of `top` observes every completed
-//!   `lock`-prefixed steal CAS, and an in-flight steal has not yet advanced `top`.
+//!   `bottom - top >= MAX_BATCH_STEAL`, as a heuristic that a steal is unlikely
+//!   to reach the popped slot. That is not what makes it sound: TSO leaves the
+//!   delay before the `bottom` store reaches a thief unbounded, and a thief,
+//!   unlike the thieves of Morrison–Afek, steals from any size. Soundness comes
+//!   from the slot state and the thief's re-read of `bottom` after its claim
+//!   (see `steal`), modelled exhaustively in `tests/loom_chase_lev_slot_claim.rs`,
+//!   where the fast path without that re-read takes an item twice.
 //! - **`steal`**: `top` is read `Acquire`, then a `SeqCst` fence orders it before
 //!   the `Acquire` load of `bottom` (pairing with `pop`'s fence); the thief first
 //!   claims the slot's generation state, then uses the successful `SeqCst` CAS
-//!   to claim the index before reading it. The generation state prevents the
-//!   owner from reusing a wrapped slot until the read completes, so a losing
-//!   thief never creates a speculative second value. The array pointer is loaded
+//!   to claim the index before reading it. A slot's state equals its index
+//!   whether it holds an item or is free, so a claim can succeed on a slot the
+//!   fence-free `pop` emptied and republished; the thief therefore re-reads
+//!   `bottom` (`Acquire`, which the claim synchronizes with the owner's
+//!   publish for) after the claim and returns the slot when `bottom` no longer
+//!   covers the index. The generation state prevents the owner from reusing a
+//!   wrapped slot until the read completes, so a losing thief never creates a
+//!   speculative second value. The array pointer is loaded
 //!   `Acquire` to pair with `resize`'s `Release` store, so a thief never
 //!   dereferences a stale buffer.
 //!
@@ -453,6 +462,16 @@ where
             let array = unsafe { &*array_ptr };
 
             if !array.claim(t) {
+                return StealResult::Retry;
+            }
+
+            // A slot's state equals its index both while it holds an item and
+            // while it is free, so this claim can succeed on a slot the owner's
+            // fence-free pop already emptied and republished. The owner's
+            // `bottom` store precedes that publish, and the claim acquired it,
+            // so this load sees a `bottom` that no longer covers `t`.
+            if self.bottom.load(Ordering::Acquire).wrapping_sub(t) <= 0 {
+                array.publish(t);
                 return StealResult::Retry;
             }
 

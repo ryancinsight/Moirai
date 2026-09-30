@@ -176,6 +176,7 @@ jobs:
           -p moirai-scheduler
           --test loom_chase_lev
           --test loom_chase_lev_resize_gate
+          --test loom_chase_lev_slot_claim
           -p moirai-executor
           --test loom_wake_handshake
           --test loom_join_quiescence

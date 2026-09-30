@@ -573,6 +573,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which reads `width * height * 4` bytes. The old allocation is now taken out,
   resized, and reinstalled only once it holds the whole frame.
 
+- **A thief no longer steals a slot the owner's fence-free pop already emptied.**
+  A slot's state equals its index both while it holds an item and while it is
+  free, and `pop` republishes the slot after moving its item out, so a thief
+  that had read an older `bottom` could claim the slot and move the same item
+  out a second time. x86-TSO leaves the delay before a `bottom` store reaches
+  a thief unbounded, so the `bottom - top >= MAX_BATCH_STEAL` guard on the
+  fence-free path made that unlikely but not impossible. The thief now re-reads
+  `bottom` after its claim, which synchronizes with the owner's publish, and
+  gives the slot back when `bottom` no longer covers its index. A Loom model
+  of the slot-claim protocol reaches the double take with the fast path forced
+  and passes with the re-read.
+
 - **Async file operations no longer block the polling thread.** Every
   `moirai_async::fs` operation ran its file syscall inside `poll`, so a slow
   disk or network mount stalled the executor thread and a dropped future could
