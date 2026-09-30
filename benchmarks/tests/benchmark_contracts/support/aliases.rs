@@ -17,6 +17,16 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
         ],
     ),
     (
+        "../moirai-iter/src/parallel/traits.rs",
+        &[
+            "../moirai-iter/src/parallel/traits/mod.rs",
+            "../moirai-iter/src/parallel/traits/consumer.rs",
+            "../moirai-iter/src/parallel/traits/conversion.rs",
+            "../moirai-iter/src/parallel/traits/folds.rs",
+            "../moirai-iter/src/parallel/traits/iterator.rs",
+        ],
+    ),
+    (
         "../moirai-iter/src/parallel/tests.rs",
         &[
             "../moirai-iter/src/parallel/tests/mod.rs",
@@ -214,6 +224,13 @@ const SPLIT_MODULE_ALIASES: &[(&str, &[&str])] = &[
             "../moirai-scheduler/src/deque/mod.rs",
             "../moirai-scheduler/src/deque/reclaim.rs",
             "../moirai-scheduler/src/deque/chase_lev.rs",
+            "../moirai-scheduler/src/deque/chase_lev/capacity.rs",
+            "../moirai-scheduler/src/deque/chase_lev/endpoints.rs",
+            "../moirai-scheduler/src/deque/chase_lev/inner.rs",
+            "../moirai-scheduler/src/deque/chase_lev/owner.rs",
+            "../moirai-scheduler/src/deque/chase_lev/resize.rs",
+            "../moirai-scheduler/src/deque/chase_lev/steal_outcome.rs",
+            "../moirai-scheduler/src/deque/chase_lev/thief.rs",
             "../moirai-scheduler/src/deque/chase_lev/storage.rs",
             "../moirai-scheduler/src/deque/split.rs",
             "../moirai-scheduler/src/deque/tests.rs",
