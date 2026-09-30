@@ -9,7 +9,10 @@ Status: Accepted
 
 1. **Trait Equivalence and Interoperability**:
    - Moirai defines `moirai_async::io::{AsyncRead, AsyncWrite, AsyncBufRead}` traits.
-   - For ecosystem integration, Moirai provides feature-gated conversion shim layers (e.g., `into_tokio()` / `from_tokio()`) mapping Moirai's native I/O structures to `tokio::io` traits and vice-versa, avoiding any compile-time or runtime dependencies in the default build configuration.
+   - Interoperation with `tokio::io` is two transparent wrappers under the `tokio-compat` feature. `TokioCompat<T>` exposes a Moirai type through Tokio's traits and `MoiraiCompat<T>` exposes a Tokio type through Moirai's. Each wrapper is `#[repr(transparent)]` over `T`, with a compile-time size and alignment assertion, is built with `new` or `From<T>`, allocates nothing, and forwards every poll with the caller's `Context`, so the waker a caller registers is the waker the wrapped type stores and a re-poll under a new waker replaces it.
+   - `tokio` is an optional dependency with the `io-util` feature only; the default build has no Tokio dependency.
+   - Mapped in both directions: read, write, flush, and shutdown. `TokioCompat` hands Tokio's `ReadBuf` to the Moirai reader as its initialized unfilled slice and advances by the returned count; `MoiraiCompat` wraps the caller's slice in a `ReadBuf` and reports the filled length.
+   - Not yet mapped: `AsyncBufRead` and vectored writes, both tracked by MOI-TOKIO-IO-COMPAT-001. Moirai defines no async seek trait (`File::seek` is an inherent method), so there is nothing to map for `AsyncSeek`.
 2. **File Readiness and Blocking I/O Strategy**:
    - Since standard disk files do not support traditional poll-based readiness (e.g., via epoll/kqueue) on typical Unix platforms, Moirai implements a dual-path file readiness strategy:
      - **Cooperative Worker Offloading**: Standard disk file operations that would otherwise block are dispatched to the `BlockingTask` scheduler pool using `spawn_blocking` wrappers, ensuring that asynchronous worker threads remain free.
@@ -24,15 +27,20 @@ Status: Accepted
 
 ### Rationale
 
-- **Ecosystem Coexistence**: Allowing clean shims for Tokio traits allows Moirai to serve as a drop-in replacement or coexist in mixed-library environments without polluting the core dependency tree.
+- **Ecosystem Coexistence**: Transparent wrappers over the Tokio traits let Moirai coexist with Tokio-based libraries in mixed environments without polluting the core dependency tree.
 - **Worker Isolation**: Keeping blocking file I/O separate from async task scheduling prevents CPU-bound tasks and async event loops from starving, matching Moirai's hybrid execution model goals.
 - **Safety and Correctness**: Explicit cancellation semantics and buffer lifetime guarantees prevent memory corruption and resource leaks during future cancellation (e.g., under timeouts).
 
 ### Verification
 
-- Comprehensive unit testing of read, write, seek, and cancel operations under simulated slow connections.
-- Benchmark validation mapping throughput and latency against equivalent Tokio streams.
-- Clippy and cargo checks verified on target files.
+- `moirai-async/src/io/compat/tests.rs` drives one 64 KiB payload through a 7-byte in-memory pipe natively, through `TokioCompat`, through a Tokio `duplex` behind `MoiraiCompat`, and through both wrappers stacked, and asserts identical bytes and that the pipe exerted backpressure.
+- Counting wakers assert which task context a `Pending` read or write registers, that a re-poll replaces it, and that the peer's progress wakes only the latest one.
+- EOF after shutdown, `BrokenPipe` after close, and zero-length reads and writes are asserted in both directions.
+- `io::tests` keeps the native-reader and Tokio-duplex value tests; `async_io_compat_comparison` measures the wrappers against native extension futures.
+
+### Revision
+
+2026-09-30: decision 1 replaces the `into_tokio()`/`from_tokio()` conversion sketch with the wrappers as built, and verification lists the tests that exist (MOI-TOKIO-IO-COMPAT-001).
 
 ### Residual Risk
 

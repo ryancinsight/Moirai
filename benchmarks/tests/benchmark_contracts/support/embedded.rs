@@ -52,6 +52,7 @@ embedded_sources![
     "../moirai-async/src/fs/stats.rs",
     "../moirai-async/src/fs/tests.rs",
     "../moirai-async/src/io/compat.rs",
+    "../moirai-async/src/io/compat/tests.rs",
     "../moirai-async/src/io/ext.rs",
     "../moirai-async/src/io/mod.rs",
     "../moirai-async/src/io/tests.rs",
