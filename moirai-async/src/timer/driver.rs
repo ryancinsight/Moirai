@@ -213,6 +213,14 @@ impl TimerDriver {
     }
 }
 
+/// The process-wide timer driver, started on first use.
+///
+/// The driver thread is detached and runs for the rest of the process: the
+/// handle lives in a `static`, which is never dropped, so no owner exists whose
+/// drop could stop and join it, and it parks on `available` while no timer is
+/// scheduled. Under Miri it fails a test run with "the main thread terminated
+/// without waiting for all remaining threads"; `-Zmiri-ignore-leaks` disables
+/// that check. Drivers built with `TimerDriver::new` in tests own no thread.
 pub(super) fn timer_driver() -> &'static Arc<TimerDriver> {
     static DRIVER: OnceLock<Arc<TimerDriver>> = OnceLock::new();
     DRIVER.get_or_init(TimerDriver::start)
